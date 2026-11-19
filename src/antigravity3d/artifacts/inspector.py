@@ -151,7 +151,7 @@ def _qa_html(qa: InspectorQA | None) -> str:
         parts.append(f'<p class="qa-line"><strong>Tier 1.5:</strong> not scored (export threshold {thr:.1f})</p>')
     else:
         ok = qa.tier15_score >= thr
-        scale = max(5.0, qa.tier15_score)
+        scale = max(4.0, qa.tier15_score)  # rubrics are 0-4
         parts.append(
             f'<div class="gauge" data-key="tier15" data-state="{"ok" if ok else "over"}">'
             f'<div class="gauge-head"><span><strong>Tier 1.5 score</strong></span>'

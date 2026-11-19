@@ -50,6 +50,12 @@ class DecisionResult:
     est_cost_usd: float
     n_questions: int = 0
     attempts: int = 1
+    # Provenance. calibrated=False means the probabilities are a generative model's self-report
+    # (see fallback.py), not Decisions API output: compose.py will not auto-approve on them.
+    calibrated: bool = True
+    output_tokens: int = 0
+    cost_known: bool = True  # False: est_cost_usd is 0.0 only because no price is configured
+    source: str = "decisions"  # "decisions" | "generative_fallback" | "fake"
 
     def noul(self, qid: str) -> float:
         return self.answers[qid].noul  # type: ignore[return-value]
@@ -110,18 +116,63 @@ class PolicyVerdict:
     reasons: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class EngineParityResult:
+    """DCC render vs target-engine render of the same asset."""
+
+    defects: dict[str, float]  # defect_* -> P(true)
+    scores: dict[str, float]  # score_engine_parity -> expected 0-4
+    result: DecisionResult
+    skipped: tuple[str, ...] = ()
+    resolution: str = "high"
+
+
+@dataclass(frozen=True)
+class ItemQA:
+    """Answers for one item (LOD pair / rig pose) of a multi-item sheet."""
+
+    index: int  # 1-based ordinal as written in the questions
+    label: str
+    defects: dict[str, float] = field(default_factory=dict)  # defect_* -> P(true)
+    scores: dict[str, float] = field(default_factory=dict)  # score_* -> expected 0-4
+
+
+@dataclass(frozen=True)
+class ItemizedQAResult:
+    items: list[ItemQA]
+    result: DecisionResult
+    resolution: str = "high"
+
+
+@dataclass(frozen=True)
+class LodPopResult(ItemizedQAResult):
+    """One ItemQA per LOD(k) -> LOD(k+1) pair."""
+
+
+@dataclass(frozen=True)
+class RigRomResult(ItemizedQAResult):
+    """One ItemQA per range-of-motion pose."""
+
+
 @dataclass
 class PlaneStats:
     calls: int = 0
     input_tokens: int = 0
+    output_tokens: int = 0
+    uncalibrated_calls: int = 0
+    unknown_cost_calls: int = 0
     cost_usd: float = 0.0
     retries: int = 0
     latencies_ms: list[float] = field(default_factory=list)
     by_tag: dict[str, int] = field(default_factory=dict)
 
-    def record(self, tag: str, latency_ms: float, tokens: int, cost: float, attempts: int) -> None:
+    def record(self, tag: str, latency_ms: float, tokens: int, cost: float, attempts: int, *,
+               output_tokens: int = 0, calibrated: bool = True, cost_known: bool = True) -> None:
         self.calls += 1
         self.input_tokens += tokens
+        self.output_tokens += output_tokens
+        self.uncalibrated_calls += not calibrated
+        self.unknown_cost_calls += not cost_known
         self.cost_usd += cost
         self.retries += attempts - 1
         self.latencies_ms.append(latency_ms)
@@ -138,6 +189,9 @@ class PlaneStats:
         return {
             "calls": self.calls,
             "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "uncalibrated_calls": self.uncalibrated_calls,
+            "unknown_cost_calls": self.unknown_cost_calls,
             "cost_usd": round(self.cost_usd, 8),
             "retries": self.retries,
             "p50_ms": self.percentile(50),

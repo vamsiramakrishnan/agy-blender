@@ -107,12 +107,28 @@ def _is_transient(exc: BaseException) -> bool:
     return isinstance(code, int) and code in RETRYABLE_CODES
 
 
+def _infer_backend_kind(client: Any) -> str:
+    """"decisions" | "generative_fallback" | "fake" (duck-typed so importing fakes/fallback stays optional)."""
+    name = type(client).__name__
+    if name == "FakeDecisionsClient":
+        return "fake"
+    if name == "GenerativeDecisionsBackend":
+        return "generative_fallback"
+    return "decisions"
+
+
 class DecisionControlPlane:
     def __init__(self, client: Any, model: str = DEFAULT_MODEL, *, max_retries: int = 3, backoff_s: float = 0.5,
-                 sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep) -> None:
+                 sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep, backend_kind: str | None = None) -> None:
         self._client, self.model = client, model
+        self.backend_kind = backend_kind or _infer_backend_kind(client)
         self.max_retries, self.backoff_s, self._sleep = max_retries, backoff_s, sleep
         self.stats = PlaneStats()
+
+    @property
+    def calibrated(self) -> bool:
+        """False when answers come from the generative fallback (self-reported, uncalibrated)."""
+        return self.backend_kind != "generative_fallback"
 
     async def evaluate(self, input_blocks: str | Sequence[Block], questions: dict[str, Q.Question], *, tag: str) -> DecisionResult:
         if not questions:
@@ -146,9 +162,19 @@ class DecisionControlPlane:
             raise DecisionError(f"{tag}: response missing answers for {sorted(missing)}")
         usage = _get(resp, "usage")
         tokens = int(_get(usage, "total_input_tokens") or 0) or est
-        cost = tokens * PRICE_PER_M_INPUT_USD / 1e6
-        self.stats.record(tag, latency_ms, tokens, cost, attempts)
-        return DecisionResult(tag, answers, latency_ms, tokens, est, cost, len(questions), attempts)
+        out_tokens = int(_get(usage, "total_output_tokens") or 0)
+        # Provenance: the generative fallback marks its responses `calibrated=False` and brings its own
+        # (possibly unknown) cost; real Decisions responses carry neither and keep the original path.
+        calibrated = bool(_get(resp, "calibrated", True))
+        if calibrated:
+            cost, cost_known, source = tokens * PRICE_PER_M_INPUT_USD / 1e6, True, self.backend_kind
+        else:
+            c = _get(resp, "cost_usd")
+            cost, cost_known, source = (float(c) if c is not None else 0.0), c is not None, self.backend_kind
+        self.stats.record(tag, latency_ms, tokens, cost, attempts, output_tokens=out_tokens, calibrated=calibrated,
+                          cost_known=cost_known)
+        return DecisionResult(tag, answers, latency_ms, tokens, est, cost, len(questions), attempts,
+                              calibrated=calibrated, output_tokens=out_tokens, cost_known=cost_known, source=source)
 
     async def route_pipeline(self, prompt: str, manifest_txt: str, ref_img_uri: str | None = None) -> RouteDecision:
         blocks = [text_block(f"User request:\n{prompt}\n\nProject manifest:\n{manifest_txt}")]
