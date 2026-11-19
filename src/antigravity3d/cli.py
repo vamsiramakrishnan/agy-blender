@@ -51,7 +51,7 @@ def _client() -> Any:
     return genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 
-async def make_collaborators(offline: bool, *, need_plane: bool = True) -> tuple[Any, Any, Any, list[str]]:
+async def make_collaborators(offline: bool, *, need_plane: bool = True, workdir: Any = None) -> tuple[Any, Any, Any, list[str]]:
     """(plane, forge, author, notes) for offline or live operation."""
     from antigravity3d.genmedia.nano_banana import FakeImageBackend, ImageForge
     from antigravity3d.tactics.authoring import TemplateAuthor, best_author
@@ -71,9 +71,10 @@ async def make_collaborators(offline: bool, *, need_plane: bool = True) -> tuple
 
             plane = DecisionControlPlane(client)
         notes.append(f"decision backend: {plane.backend_kind}" + ("" if plane.calibrated else " (UNCALIBRATED: cannot auto-approve)"))
-    author, note = best_author()
-    notes.append(f"author: {note}")
-    return plane, ImageForge(client=client), author, notes
+    forge = ImageForge(client=client)
+    author, note = best_author(plane=plane, forge=forge, workdir=workdir)
+    notes.append(note)
+    return plane, forge, author, notes
 
 
 def _print_skips(skipped: list[dict[str, Any]]) -> None:
@@ -97,7 +98,7 @@ async def cmd_prop(a: argparse.Namespace) -> int:
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    plane, forge, author, notes = await make_collaborators(a.offline)
+    plane, forge, author, notes = await make_collaborators(a.offline, workdir=out / 'agent')
     cache = None if a.no_cache else BuildCache(LocalBlobStore(out / ".agy3d-cache"))
     dag = PropToEngineDAG(plane=plane, forge=forge, author=author, workdir=out, budget=_budget(a), cache=cache, style_anchor=a.style,
                           fixlog=FixLog(out / "fixlog.jsonl"), max_rounds=a.max_rounds)

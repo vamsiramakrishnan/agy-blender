@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import inspect
 import math
@@ -18,7 +19,7 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 
 from antigravity3d.ir import (
-    IRPatch, IROp, MaterialIR, NodeIR, SceneIR, SetParam, SetTransform, Transform, apply_patch,
+    IRPatch, IROp, MaterialIR, NodeIR, SceneIR, SetParam, SetTransform, Transform, UpsertMaterial, UpsertNode, apply_patch,
 )
 from antigravity3d.kernel.compile_ir import primitive_mesh
 from antigravity3d.state import EngineBudget
@@ -401,35 +402,72 @@ class CallableAuthor:
 
 
 class AgentAuthor:
-    """STUB: model-driven author on top of ``antigravity3d.harness.agents.run_stage``.
+    """Model-driven author on the harness: one BLOCKOUT stage-agent session per candidate / repair.
 
-    ``run_stage`` exists, but binding it needs a registered ``AssetSessionState`` (stage path, budget), a
-    prompt Content with the blockout instructions and a parser from the agent's tool calls back to a
-    ``SceneIR``; none of that is wired here. Use ``CallableAuthor`` with your own glue until it is.
+    Lazily imports ``antigravity3d.harness`` (heavy, needs the SDK and GEMINI_API_KEY); only used when not offline.
+    ``propose`` opens ``n`` isolated sessions concurrently and reads each resulting IR back from its stage manager.
+    ``repair`` opens a session on the current scene, hands the agent the located defects and returns the whole
+    corrected scene as upserts of every changed node (an IRPatch), or None when nothing changed.
     """
 
-    def __init__(self, session_id: str | None = None, **stage_kwargs: Any) -> None:
-        self.session_id, self.stage_kwargs = session_id, stage_kwargs
+    def __init__(self, *, plane: Any = None, forge: Any = None, workdir: Any = None, role: str = "worker", timeout_s: float = 300.0) -> None:
+        import tempfile
+
+        self.plane, self.forge, self.role, self.timeout_s = plane, forge, role, timeout_s
+        self.workdir = workdir or tempfile.mkdtemp(prefix="agy3d-agent-")
+        self.calls = {"propose": 0, "repair": 0}
+        self.usage: list[Any] = []
 
     def _run_stage(self) -> Callable[..., Any]:
-        from antigravity3d.harness.agents import run_stage  # lazy: harness may be incomplete / heavy
+        from antigravity3d.harness.agents import run_stage  # lazy
 
         return run_stage
 
+    async def _session(self, tag: str, asset: str, budget: EngineBudget, prompt: str, seed_scene: SceneIR | None = None) -> SceneIR:
+        import uuid
+        from pathlib import Path
+
+        from antigravity3d.harness import session as S
+
+        run_stage = self._run_stage()
+        sid = f"{tag}-{uuid.uuid4().hex[:8]}"
+        S.open_session(None, sid, Path(self.workdir) / sid, asset, budget, plane=self.plane, forge=self.forge)
+        stage = S.DEFAULT_REGISTRY.resource(sid, S.R_STAGE)
+        if seed_scene is not None:
+            stage.apply_ir(seed_scene)
+        run = await run_stage("BLOCKOUT", sid, prompt, role=self.role, timeout_s=self.timeout_s)
+        self.usage.append(run.usage)
+        return stage.base_ir()
+
     async def propose(self, prompt: str, *, budget: EngineBudget, n: int, context: dict[str, Any]) -> list[SceneIR]:
-        self._run_stage()
-        raise NotImplementedError("AgentAuthor.propose is a stub: wire run_stage('blockout', ...) to a SceneIR parser")
+        self.calls["propose"] += 1
+        asset = context.get("asset_name") or _slug(prompt)
+        emph = ("overall proportions", "construction detail", "symmetry", "clean minimal forms")
+        task = (f"Build a blockout of: {prompt}. The asset name is {asset}; budget {budget.max_tris} tris, at most {budget.max_draw_calls} materials. "
+                "Z-up metres, standing on the ground (min z = 0), parts touching, no interpenetration. Use apply_scene_ir (materials included) then stop. Emphasis: ")
+        res = await asyncio.gather(*(self._session(f"cand{i}", asset, budget, task + emph[i % len(emph)]) for i in range(n)), return_exceptions=True)
+        return [r for r in res if isinstance(r, SceneIR)]
 
     async def repair(self, scene: SceneIR, *, action: Any, located: dict[str, list[str]], manifest: str) -> IRPatch | None:
-        self._run_stage()
-        raise NotImplementedError("AgentAuthor.repair is a stub: wire run_stage('blockout', ...) to an IRPatch parser")
+        self.calls["repair"] += 1
+        task = (f"Repair this blockout. QA verdict: {getattr(action, 'kind', action)}; reasons: {getattr(action, 'reasons', [])}. "
+                f"Located problems (defect -> node ids): {located}. Current manifest:\n{manifest}\nFix only what is flagged with apply_scene_ir.")
+        from antigravity3d.state import EngineBudget as EB
+
+        new = await self._session("repair", scene.asset_name, EB("unreal_5"), task, seed_scene=scene)
+        old = {n.id: n for n in scene.nodes}
+        ops: list[IROp] = [UpsertNode(node=n) for n in new.nodes if old.get(n.id) != n]
+        ops += [UpsertMaterial(material=m) for m in new.materials if m not in scene.materials]
+        return IRPatch(ops=ops) if ops else None
 
 
-def best_author() -> tuple[IRAuthor, str]:
-    """The best author available without extra wiring, with a note saying why."""
-    try:
-        AgentAuthor()._run_stage()
-        note = "harness run_stage present but AgentAuthor is an unwired stub; using TemplateAuthor"
-    except Exception as e:  # noqa: BLE001 - harness optional
-        note = f"harness unavailable ({type(e).__name__}); using TemplateAuthor"
-    return TemplateAuthor(), note
+def best_author(*, plane: Any = None, forge: Any = None, workdir: Any = None, live: bool = True) -> tuple[IRAuthor, str]:
+    """AgentAuthor when the harness imports (and ``live``), else TemplateAuthor; with a note saying which and why."""
+    if live:
+        try:
+            a = AgentAuthor(plane=plane, forge=forge, workdir=workdir)
+            a._run_stage()
+            return a, "author: harness AgentAuthor (BLOCKOUT stage agent, role=worker)"
+        except Exception as e:  # noqa: BLE001 - harness optional
+            return TemplateAuthor(), f"harness unavailable ({type(e).__name__}: {e}); using TemplateAuthor"
+    return TemplateAuthor(), "TemplateAuthor"

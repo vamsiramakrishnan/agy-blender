@@ -152,11 +152,10 @@ class PropToEngineDAG:
             if (wd / "ortho.png").exists():
                 shutil.copy2(wd / "ortho.png", pkg / "ortho.png")
                 out["ortho"] = str(pkg / "ortho.png")
-            if Path(out["manifest"]).exists():
-                return {**out, "authoring_usd": out["authoring_usd"]}
             manifest = {"asset": asset, "engine": self.budget.target_engine, "budget": asdict(self.budget), "prompt": prompt,
                         "files": sorted(str(x.relative_to(pkg)) for x in pkg.rglob("*") if x.is_file()), "tier15": res.tier15, "tier1_ok": res.tier1_ok}
-            (pkg / "manifest.json").write_text(json.dumps(manifest, indent=2))
+            if not (pkg / "manifest.json").exists():  # write_engine_package normally wrote the real one
+                (pkg / "manifest.json").write_text(json.dumps(manifest, indent=2))
             out["manifest"] = str(pkg / "manifest.json")
             return out
 
