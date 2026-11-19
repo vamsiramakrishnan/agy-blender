@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from pxr import Sdf, Usd, UsdGeom, UsdShade, UsdValidation
+import numpy as np
+from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, UsdValidation
 
 from antigravity3d.kernel.fast_ops import Issue
 from antigravity3d.kernel.types import MeshData
@@ -128,6 +131,27 @@ def _texture_assets(stage: Usd.Stage) -> dict[str, list[str]]:
     return out
 
 
+def is_collider_prim(prim: Usd.Prim, hull_re: re.Pattern | None = None) -> bool:
+    """Collision geometry: named per the engine's hull convention, UCX_-prefixed, or physics-tagged."""
+    name = prim.GetName()
+    return bool(
+        (hull_re and hull_re.search(name))
+        or name.startswith("UCX_")
+        or prim.HasAPI(UsdPhysics.CollisionAPI)
+    )
+
+
+def _material_files(prim: Usd.Prim) -> list[str]:
+    files: list[str] = []
+    for p in Usd.PrimRange(prim):
+        if p.IsA(UsdShade.Shader):
+            for inp in UsdShade.Shader(p).GetInputs():
+                v = inp.Get()
+                if isinstance(v, Sdf.AssetPath) and v.path:
+                    files.append(v.path)
+    return files
+
+
 def _image_size(path: str) -> tuple[int, int] | None:
     try:
         from PIL import Image
@@ -199,14 +223,18 @@ def check_engine_compliance(stage: Usd.Stage | None, meshes: list[MeshData], bud
 
     textures = _texture_assets(stage)
     any_tex = any(textures.values())
-    collision_names = lambda p: bool(hull_re and hull_re.search(p.GetName()))  # noqa: E731
     for prim in mesh_prims:
-        if collision_names(prim):
+        if is_collider_prim(prim, hull_re):
             continue
         pv = UsdGeom.PrimvarsAPI(prim)
         has_uv = any(pv.GetPrimvar(n) and pv.GetPrimvar(n).HasValue() for n in ("st", "st0", "UVMap"))
         if not has_uv:
-            add("uv_missing", "critical" if any_tex else "warning", prim.GetName(), "no st primvar")
+            # critical when the mesh's own material samples textures (nothing for the st reader to read);
+            # an untextured mesh only warns, unless textures exist elsewhere and it is unbound (legacy rule)
+            mat, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
+            textured = bool(mat and _material_files(mat.GetPrim())) or (mat is None and any_tex)
+            add("uv_missing", "critical" if textured else "warning", prim.GetName(),
+                "no st primvar" + (" but its material has texture maps" if textured else ""))
 
     for mat, files in textures.items():
         if rules.max_textures_per_material and len(set(files)) > rules.max_textures_per_material:
@@ -220,3 +248,199 @@ def check_engine_compliance(stage: Usd.Stage | None, meshes: list[MeshData], bud
             if rules.require_pow2_textures and any(s & (s - 1) for s in size):
                 add("texture_npot", "warning", Path(f).name, f"{size} not power of two")
     return out
+
+
+# --------------------------------------------------------------------------- package validation
+
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _is_convex(points: np.ndarray, tris: np.ndarray, tol: float = 1e-3) -> bool:
+    """A closed triangle mesh is convex iff it equals its hull: all points on the hull, same volume."""
+    from scipy.spatial import ConvexHull, QhullError
+
+    if len(points) < 4 or len(tris) < 4:
+        return False
+    try:
+        hull = ConvexHull(points)
+    except QhullError:
+        return False
+    p = points[tris]
+    vol = abs(float(np.einsum("ij,ij->i", p[:, 0], np.cross(p[:, 1], p[:, 2])).sum() / 6.0))
+    return len(np.unique(hull.simplices)) == len(np.unique(tris)) and abs(vol - hull.volume) <= tol * max(hull.volume, 1e-12)
+
+
+def _mesh_tris(prim: Usd.Prim) -> int:
+    counts = UsdGeom.Mesh(prim).GetFaceVertexCountsAttr().Get()
+    return int(np.maximum(np.asarray(counts, dtype=np.int64) - 2, 0).sum()) if counts else 0
+
+
+def validate_package(out_dir: str | Path) -> list[Issue]:
+    """Cold re-open of a written engine package (see kernel/package.py) and consistency checks.
+
+    Checks: manifest present, every file hash matches, USD opens with a default prim, units match the
+    manifest, every mesh bound to a textured material has ``st`` (count matches its interpolation) in
+    every LOD variant, every texture path is relative, resolves and stays inside the package, LOD
+    triangle counts never increase, the GLB LOD0 matches the USD LOD0, collider prims are named per the
+    engine rules, tagged ``UsdPhysics`` convexHull + purpose guide, and are really convex.
+    """
+    out = Path(out_dir)
+    issues: list[Issue] = []
+
+    def add(code: str, sev: str, node: str | None, detail: str) -> None:
+        issues.append(Issue(f"pkg:{code}", sev, node, detail[:300]))  # type: ignore[arg-type]
+
+    mpath = out / "manifest.json"
+    if not mpath.is_file():
+        return [Issue("pkg:manifest_missing", "critical", None, f"{mpath} not found")]
+    try:
+        man = json.loads(mpath.read_text())
+    except ValueError as e:
+        return [Issue("pkg:manifest_unreadable", "critical", None, str(e)[:200])]
+
+    for rel, meta in (man.get("file_hashes") or {}).items():
+        f = out / rel
+        if not f.is_file():
+            add("file_missing", "critical", rel, "listed in manifest but not on disk")
+        elif _sha256(f) != meta.get("sha256"):
+            add("hash_mismatch", "critical", rel, "content hash differs from manifest")
+    if not man.get("file_hashes"):
+        add("no_hashes", "critical", None, "manifest carries no file hashes")
+
+    asset = man.get("asset", "")
+    usd_path = out / (man.get("usd") or f"{asset}.usd")
+    try:
+        stage = Usd.Stage.Open(str(usd_path))
+    except Exception as e:  # noqa: BLE001 - pxr raises Tf.ErrorException
+        add("usd_open", "critical", usd_path.name, str(e))
+        return issues
+    root = stage.GetDefaultPrim()
+    if not root or not root.IsValid():
+        add("default_prim", "critical", usd_path.name, "no default prim")
+        return issues
+
+    engine = man.get("target_engine")
+    rules = ENGINE_RULES.get(engine)
+    units = man.get("units") or {}
+    if units:
+        if str(UsdGeom.GetStageUpAxis(stage)) != units.get("up_axis"):
+            add("up_axis", "critical", None, f"stage upAxis {UsdGeom.GetStageUpAxis(stage)} != manifest {units.get('up_axis')}")
+        if abs(UsdGeom.GetStageMetersPerUnit(stage) - float(units.get("meters_per_unit", 1.0))) > 1e-9:
+            add("meters_per_unit", "critical", None, "stage metersPerUnit differs from manifest")
+
+    # textures: relative, resolvable, inside the package
+    out_real = out.resolve()
+    for prim in stage.Traverse():
+        if not prim.IsA(UsdShade.Shader) or UsdShade.Shader(prim).GetIdAttr().Get() != "UsdUVTexture":
+            continue
+        v = UsdShade.Shader(prim).GetInput("file").Get()
+        label = f"{prim.GetParent().GetName()}/{prim.GetName()}"
+        if not isinstance(v, Sdf.AssetPath) or not v.path:
+            add("texture_empty", "critical", label, "UsdUVTexture without a file")
+            continue
+        if Path(v.path).is_absolute() or "://" in v.path:
+            add("texture_not_relative", "critical", label, f"absolute texture path {v.path!r}: package is not relocatable")
+        resolved = v.resolvedPath
+        if not resolved:
+            add("texture_missing", "critical", label, f"{v.path!r} does not resolve")
+        elif not Path(resolved).is_file():
+            add("texture_missing", "critical", label, f"{resolved} is not a file")
+        elif not Path(resolved).resolve().is_relative_to(out_real):
+            add("texture_outside", "critical", label, f"{resolved} is outside the package")
+
+    # meshes (per LOD variant)
+    vset = root.GetVariantSets().GetVariantSet("LOD") if root.GetVariantSets().HasVariantSet("LOD") else None
+    lod_names = sorted(vset.GetVariantNames(), key=lambda n: int(re.sub(r"\D", "", n) or 0)) if vset else []
+    stage.SetEditTarget(stage.GetSessionLayer())  # variant switching below stays in memory
+    hull_re = re.compile(rules.hull_prim_regex) if rules and rules.hull_prim_regex else None
+    lod_tris: list[int] = []
+    colliders: list[Usd.Prim] = []
+    for variant in lod_names or [None]:
+        if vset is not None:
+            vset.SetVariantSelection(variant)
+        total = 0
+        for prim in Usd.PrimRange(root):
+            if not prim.IsA(UsdGeom.Mesh):
+                continue
+            if is_collider_prim(prim, hull_re):
+                if variant in (None, lod_names[0]):
+                    colliders.append(prim)
+                continue
+            mesh = UsdGeom.Mesh(prim)
+            total += _mesh_tris(prim)
+            mat, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
+            textured = bool(mat and _material_files(mat.GetPrim()))
+            pv = UsdGeom.PrimvarsAPI(prim).GetPrimvar("st")
+            st = pv.Get() if pv else None
+            tag = f"{prim.GetName()}" + (f"[{variant}]" if variant else "")
+            if st is None:
+                if textured:
+                    add("uv_missing", "critical", tag, "mesh bound to a textured material has no st primvar")
+                continue
+            n_pts = len(mesh.GetPointsAttr().Get() or [])
+            n_corners = len(mesh.GetFaceVertexIndicesAttr().Get() or [])
+            interp = pv.GetInterpolation()
+            want = {"vertex": n_pts, "varying": n_pts, "faceVarying": n_corners}.get(str(interp))
+            if want is None or len(st) != want:
+                add("uv_count", "critical", tag, f"st has {len(st)} values for {interp} interpolation (expected {want})")
+            elif not np.isfinite(np.asarray(st, dtype=np.float64)).all():
+                add("uv_nan", "critical", tag, "st contains NaN/inf")
+        lod_tris.append(total)
+    if any(b > a for a, b in zip(lod_tris, lod_tris[1:])):
+        add("lod_order", "critical", None, f"LOD triangle counts must not increase: {lod_tris}")
+    if man.get("lod_tris") and lod_tris and list(man["lod_tris"]) != lod_tris and len(lod_names) > 1:
+        add("lod_manifest", "warning", None, f"manifest lod_tris {man['lod_tris']} != USD {lod_tris}")
+
+    # GLB LOD0 vs USD LOD0
+    glb = out / f"{asset}.glb"
+    if glb.is_file() and lod_tris:
+        try:
+            import trimesh
+
+            sc = trimesh.load(glb)
+            geoms = list(sc.geometry.values()) if hasattr(sc, "geometry") else [sc]
+            glb_tris = sum(len(g.faces) for g in geoms)
+            if glb_tris != lod_tris[0]:
+                add("glb_tris", "critical", glb.name, f"GLB has {glb_tris} tris, USD LOD0 has {lod_tris[0]}")
+        except Exception as e:  # noqa: BLE001 - unreadable GLB
+            add("glb_open", "critical", glb.name, str(e))
+
+    # colliders
+    max_hulls = (man.get("budget") or {}).get("max_collision_hulls")
+    name_re = re.compile(rules.hull_prim_regex) if rules and rules.hull_prim_regex else re.compile(r"^UCX_[A-Za-z0-9_]+_\d{2}$")
+    if max_hulls is not None and len(colliders) > max_hulls:
+        add("hull_count", "critical", None, f"{len(colliders)} colliders > {max_hulls}")
+    for prim in colliders:
+        n = prim.GetName()
+        if not name_re.search(n):
+            add("collider_name", "critical", n, f"collider name violates {name_re.pattern} ({engine})")
+        if not prim.HasAPI(UsdPhysics.CollisionAPI) or not prim.HasAPI(UsdPhysics.MeshCollisionAPI):
+            add("collider_api", "critical", n, "needs UsdPhysics.CollisionAPI + MeshCollisionAPI")
+        elif UsdPhysics.MeshCollisionAPI(prim).GetApproximationAttr().Get() != "convexHull":
+            add("collider_approx", "critical", n, "MeshCollisionAPI approximation must be convexHull")
+        if UsdGeom.Imageable(prim).GetPurposeAttr().Get() != UsdGeom.Tokens.guide:
+            add("collider_purpose", "critical", n, "collision hull must have purpose=guide")
+        mesh = UsdGeom.Mesh(prim)
+        pts = np.asarray(mesh.GetPointsAttr().Get() or [], dtype=np.float64).reshape(-1, 3)
+        idx = np.asarray(mesh.GetFaceVertexIndicesAttr().Get() or [], dtype=np.int64).reshape(-1, 3)
+        if not _is_convex(pts, idx):
+            add("collider_convex", "critical", n, "collider mesh is not convex")
+    want_names = man.get("colliders")
+    if want_names is not None and sorted(want_names) != sorted(p.GetName() for p in colliders):
+        add("collider_manifest", "warning", None, "manifest collider names differ from the USD collider prims")
+
+    usdz = man.get("usdz")
+    if usdz:
+        try:
+            z = Usd.Stage.Open(str(out / usdz))
+            if not z.GetDefaultPrim():
+                add("usdz_default_prim", "warning", usdz, "usdz has no default prim")
+        except Exception as e:  # noqa: BLE001
+            add("usdz_open", "warning", usdz, str(e))
+    return issues

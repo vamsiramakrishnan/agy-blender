@@ -405,6 +405,7 @@ def _bundle(s: Session) -> ExportBundle:
     if cached and cached[0] == s.geom_version:
         return cached[1]
     b = run_export_pipeline(s.stage.extract_meshes(), s.state.budget, s.stage.asset_prim.GetName())
+    s.stage.author_uvs(b.uvs)  # UVs live in the working stage too (overlay layer: no tx, no undo entry)
     s._set("bundle", (s.geom_version, b))
     return b
 
@@ -447,48 +448,27 @@ async def run_usd_validator(ctx: ToolContext) -> str:
 
 @_guard
 async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
-    """Write the engine package (USD, GLB, LOD GLBs, UCX colliders, manifest.json). Needs QA approval."""
+    """Write the engine package (USD+usdz with UVs, LOD variants, colliders; GLBs; textures; manifest.json). Needs QA approval."""
     s = resolve(ctx)
     if (why := export_block_reason(s.state)) is not None:
         return f"REFUSED {why}"
     name = re.sub(r"[^A-Za-z0-9_-]", "_", out_name).strip("_") or "package"
     out = s.export_dir / name
-    out.mkdir(parents=True, exist_ok=True)
     asset = s.stage.asset_prim.GetName()
-    async with s.registry.locked(s.sid):
-        s.stage.export(out / f"{asset}.usda")
-        b = await asyncio.to_thread(_bundle, s)
-        mats = s.stage.base_ir().materials
-        tris = sum(len(u.triangles) for u in b.uvs)
-    files = [f"{asset}.usda"]
-    await asyncio.to_thread(write_gltf, out / f"{asset}.glb", b.uvs)
-    files.append(f"{asset}.glb")
-    levels = min((len(v) for v in b.lods.values()), default=0)
-    for i in range(1, levels):
-        nodes = sorted(b.lods)
-        await asyncio.to_thread(write_gltf, out / f"{asset}_LOD{i}.glb", [b.lods[n][i] for n in nodes], [f"{n}_LOD{i}" for n in nodes])
-        files.append(f"{asset}_LOD{i}.glb")
-    if b.colliders:
-        await asyncio.to_thread(write_gltf, out / f"{asset}_colliders.glb", b.colliders)
-        files.append(f"{asset}_colliders.glb")
-    textures = []
-    for m in mats:
-        for key in MAP_KEYS:
-            if (src := _local(getattr(m, key))) is not None:
-                (out / "textures").mkdir(exist_ok=True)
-                shutil.copy2(src, out / "textures" / src.name)
-                textures.append(f"textures/{src.name}")
     st = s.state
-    manifest = {
-        "asset": asset, "target_engine": st.budget.target_engine,
-        "budget": {k: getattr(st.budget, k) for k in ("max_tris", "max_draw_calls", "max_collision_hulls", "texel_density_px_per_m")},
-        "tris": tris, "draw_calls": len({u.atlas_id for u in b.uvs}), "lod_levels": levels,
-        "colliders": [h.name for h in b.colliders], "qa": {"tier1_ok": st.last_tier1_ok, "tier15": round(st.last_tier15_score, 3)},
-        "audit": st.audit_deltas[-2:], "files": files, "textures": textures, "timings_ms": b.timings_ms,
-    }
-    (out / "manifest.json").write_text(json.dumps(manifest, indent=1))
+    qa = {"tier1_ok": st.last_tier1_ok, "tier15": round(st.last_tier15_score, 3), "audit": st.audit_deltas[-2:]}
+    from antigravity3d.kernel.package import write_engine_package
+
+    async with s.registry.locked(s.sid):
+        b = await asyncio.to_thread(_bundle, s)
+        pkg = await asyncio.to_thread(
+            write_engine_package, s.stage, b, st.budget, out, asset_name=asset, qa=qa
+        )
     s.set_last_export(out)
-    return f"EXPORTED {name}: usd+glb, {max(levels - 1, 0)} LOD glbs, {len(b.colliders)} UCX hulls, {len(textures)} maps, manifest.json"
+    crit = [i for i in pkg.issues if i.severity == "critical"]
+    verdict = "pkg ok" if not crit else f"PKG {len(crit)} crit ({'; '.join(dict.fromkeys(i.code for i in crit))[:100]})"
+    return (f"EXPORTED {name}: usd+glb, {pkg.n_lod_files} LOD glbs, {len(b.colliders)} UCX hulls, "
+            f"{len(pkg.data['textures'])} maps, manifest.json | {verdict}")
 
 
 @_guard

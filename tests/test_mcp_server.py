@@ -145,30 +145,47 @@ def test_stdout_is_protocol_only_and_exit_is_clean(tmp_path):
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=server_env(tmp_path / "state"),
                             cwd=tmp_path, start_new_session=True)
     pgid = os.getpgid(proc.pid)
+    frames: list[dict] = []
+    deadline = time.time() + 120
+
+    def send(msg: dict) -> None:
+        proc.stdin.write(_frame(msg))
+        proc.stdin.flush()
+
+    def reply(req_id: int) -> dict:
+        while time.time() < deadline:
+            line = proc.stdout.readline()
+            assert line, "server closed stdout early: " + proc.stderr.read().decode()[-800:]
+            frames.append(json.loads(line))  # every stdout line must be a JSON-RPC frame
+            if frames[-1].get("id") == req_id:
+                return frames[-1]
+        pytest.fail("timed out waiting for a reply")
+
+    def tool_call(req_id: int, name: str, **arguments) -> str:
+        send({"jsonrpc": "2.0", "id": req_id, "method": "tools/call", "params": {"name": name, "arguments": arguments}})
+        return reply(req_id)["result"]["content"][0]["text"]
+
     try:
-        init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
-                "params": {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "t", "version": "0"}}}
-        msgs = [init, {"jsonrpc": "2.0", "method": "notifications/initialized"},
-                {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
-                {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-                 "params": {"name": "open_asset_session", "arguments": {"asset_name": "Crate", "target_engine": "unreal_5"}}},
-                {"jsonrpc": "2.0", "id": 4, "method": "tools/call",
-                 "params": {"name": "apply_scene_ir", "arguments": {"ops_json": json.dumps(CRATE)}}}]
-        out, err = proc.communicate(b"".join(map(_frame, msgs)), timeout=120)  # closes stdin after the last frame
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "t", "version": "0"}}})
+        assert reply(1)["result"]["serverInfo"]["name"] == "antigravity-3d"
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        assert len(reply(2)["result"]["tools"]) == len(T.ALL_TOOLS) + len(MANAGEMENT)
+        assert tool_call(3, "open_asset_session", asset_name="Crate", target_engine="unreal_5").startswith("SESSION Crate-")
+        assert tool_call(4, "apply_scene_ir", ops_json=json.dumps(CRATE)).startswith("OK tx=")
+        proc.stdin.close()  # the client goes away
+        assert proc.wait(timeout=30) == 0, proc.stderr.read().decode()[-800:]
+        rest = proc.stdout.read().decode().splitlines()
+        frames.extend(json.loads(ln) for ln in rest)
     finally:
         if proc.poll() is None:
             proc.kill()
-    assert proc.returncode == 0, err.decode()[-800:]
-    lines = out.decode().splitlines()
-    assert lines, "no frames on stdout"
-    frames = [json.loads(ln) for ln in lines]  # every stdout line must be a JSON-RPC frame
     assert all(f.get("jsonrpc") == "2.0" for f in frames)
     assert {f["id"] for f in frames if "id" in f} == {1, 2, 3, 4}
-    last = next(f for f in frames if f.get("id") == 4)
-    assert last["result"]["content"][0]["text"].startswith("OK tx=")
     # nothing left running from this server's process group
-    deadline = time.time() + 5
-    while time.time() < deadline:
+    end = time.time() + 5
+    while time.time() < end:
         try:
             os.killpg(pgid, 0)
         except ProcessLookupError:

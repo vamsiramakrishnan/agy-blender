@@ -298,7 +298,13 @@ def _check_mcp_config(plugin_dir: Path, cfg: Any, plugin_name: str) -> list[str]
                 errs.append(f"{where}: args must be a list of strings")
             else:
                 for flag, mod in zip(args, args[1:]):
-                    if flag == "-m" and importlib.util.find_spec(mod) is None:
+                    if flag != "-m":
+                        continue
+                    try:
+                        found = importlib.util.find_spec(mod) is not None
+                    except (ImportError, ValueError):  # missing parent package
+                        found = False
+                    if not found:
                         errs.append(f"{where}: module {mod} is not importable (package not installed?)")
             env = sc.get("env", {})
             if not isinstance(env, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in env.items()):

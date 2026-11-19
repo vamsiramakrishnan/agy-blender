@@ -230,3 +230,17 @@ async def test_vision_eviction(tmp_path):
                                             ({"x": ["iVBORw0KGgoAAAANS"]}, True)])
 def test_image_detector(value, expected):
     assert H._looks_like_image(value) is expected
+
+
+async def test_gate_decide_is_the_shared_decision_path(tmp_path):
+    """The MCP server calls ``decide(name, args)``; the SDK hook goes through the same function."""
+    env = make_session(tmp_path, stage="BLOCKOUT")
+    gate = H.InvariantAndSafetyGate(env.reg, env.sid)
+    for name, args in (("export_engine_package", {"out_name": "p"}), ("forge_pbr_material", {"material_id": "m", "prompt": "x"}),
+                       ("run_bpy_script", {"source": "import os\nos.remove('x')\n"}), ("apply_scene_ir", {"ops_json": "{}"})):
+        direct = await gate.decide(name, args)
+        via_hook = await gate._decide(types.ToolCall(name=name, args=args, id="c"))
+        assert (direct.allow, direct.message) == (via_hook.allow, via_hook.message), name
+    assert not (await gate.decide("forge_pbr_material", {})).allow
+    assert "BLOCKOUT" in (await gate.decide("forge_pbr_material", {})).message
+    assert (await gate.decide("apply_scene_ir", {"ops_json": "{}"})).allow

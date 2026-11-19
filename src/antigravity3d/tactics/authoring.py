@@ -205,8 +205,11 @@ def _separate(scene: SceneIR, nodes: set[str]) -> list[IROp]:
 # --------------------------------------------------------------------------- templates
 
 
+_STOP = {"a", "an", "the", "with", "and", "of", "for", "in", "on", "to", "my", "some"}
+
+
 def _slug(text: str) -> str:
-    words = [w for w in re.findall(r"[A-Za-z0-9]+", text)][:3]
+    words = [w for w in re.findall(r"[A-Za-z0-9]+", text) if w.lower() not in _STOP][:3]
     name = "".join(w.capitalize() for w in words) or "Asset"
     return name if name[0].isalpha() else f"A{name}"
 

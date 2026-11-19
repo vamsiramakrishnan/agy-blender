@@ -192,7 +192,7 @@ async def test_export_refused_then_allowed_and_reloads(env):
     r = check_line(await T.export_engine_package(env.ctx, "crate_pkg"), 1)
     assert r.startswith("EXPORTED crate_pkg")
     out = env.sess().export_dir / "crate_pkg"
-    stage = Usd.Stage.Open(str(out / "Crate.usda"))
+    stage = Usd.Stage.Open(str(out / "Crate.usd"))
     assert stage.GetDefaultPrim().GetName() == "Crate"
     assert not stage.GetPrimAtPath("/__agy_base")
     assert {p.GetName() for p in stage.Traverse()} >= {"body", "lid"}
