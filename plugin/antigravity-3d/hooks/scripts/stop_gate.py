@@ -18,6 +18,7 @@ import os
 import sys
 from typing import Any
 
+sys.dont_write_bytecode = True  # keep the plugin folder clean
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as c  # noqa: E402
 

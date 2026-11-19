@@ -331,7 +331,7 @@ async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, ca
     mdir.mkdir(exist_ok=True)
     k = len(list(mdir.glob(f"{material_id}_v*_albedo.png"))) + 1
     paths = {key: mdir / f"{material_id}_v{k}_{key[:-4]}.png" for key in MAP_KEYS}
-    for key, img in zip(MAP_KEYS, (maps.albedo, maps.orm, maps.normal)):
+    for key, img in zip(MAP_KEYS, (maps.albedo, maps.orm, maps.normal), strict=True):
         await asyncio.to_thread(img.save, paths[key])
     new = MaterialIR.model_validate({**current.model_dump(), **{key: str(p) for key, p in paths.items()}})
     async with s.registry.locked(s.sid):

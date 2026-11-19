@@ -16,7 +16,7 @@ from google.antigravity.models import GeminiAPIEndpoint, GeminiModelOptions, Mod
 from google.antigravity.triggers import TriggerContext
 
 from antigravity3d.harness.hooks import (
-    QAStopHook, TelemetryHook, VisionEvictionHook, sanitize_prompt, stage_hooks, state_header, with_state_header,
+    QAStopHook, TelemetryHook, VisionEvictionHook, _Shared, sanitize_prompt, stage_hooks, state_header, with_state_header,
 )
 from antigravity3d.harness.session import (
     CTX_REGISTRY_KEY, CTX_SESSION_KEY, DEFAULT_REGISTRY, bind_conversation, session, set_toolset, unbind_conversation,
@@ -124,7 +124,8 @@ def build_stage_agent(
         model=model_target(role or DEFAULT_ROLE[stage]),
         compaction_config=types.CompactionConfig(token_threshold=COMPACTION_TOKENS),
         workspaces=[str(s.workdir)],
-        conversation_id=conv,
+        conversation_id=conv,  # pinned so tools can be bound before the first step
+        session_continuation_mode=types.SessionContinuationMode.CREATE_OR_RESUME,  # default with an id is RESUME-only
     )
 
 
@@ -175,7 +176,7 @@ class CompletionEvent:
     ok: bool = True
 
 
-class BakeCompletionTrigger:
+class BakeCompletionTrigger(_Shared):
     """Feeds external completion events (a long bake/render finishing) into a running agent.
 
     A Trigger is any async callable taking a ``TriggerContext``; the SDK's TriggerRunner starts it

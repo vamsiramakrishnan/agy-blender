@@ -59,6 +59,17 @@ def _name(x: types.ToolCall | types.ToolResult) -> str:
     return x.name.value if isinstance(x.name, BuiltinTools) else str(x.name)
 
 
+class _Shared:
+    """Agent() deep-copies its config before restoring hook identity; hooks reach live, un-copyable
+    session objects (USD stage, locks), so a copy must be the same instance."""
+
+    def __deepcopy__(self, memo: dict) -> "_Shared":
+        return self
+
+    def __copy__(self) -> "_Shared":
+        return self
+
+
 def _deny(msg: str) -> HookResult:
     return HookResult(allow=False, message=msg.replace("\n", " ")[:240])
 
@@ -94,7 +105,7 @@ def _first_text(prompt: types.Content) -> str:
     return ""
 
 
-class StateHeaderHook(PreTurnHook):
+class StateHeaderHook(_Shared, PreTurnHook):
     """Keeps current session state in front of the model on every turn.
 
     Mechanism: the SDK offers no prompt-rewriting hook (PreTurn is allow/deny only, session-start
@@ -119,7 +130,7 @@ class StateHeaderHook(PreTurnHook):
 # --------------------------------------------------------------------------- gate
 
 
-class InvariantAndSafetyGate(PreToolCallDecideHook):
+class InvariantAndSafetyGate(_Shared, PreToolCallDecideHook):
     """Primary pre-tool gate: stage scoping, export invariant, script linter, image policy, builtin safety.
 
     Builtins: ``run_command`` is always denied; ``create_file``/``edit_file`` are denied outside the
@@ -210,7 +221,7 @@ def _image_refs(name: str, args: dict[str, Any]) -> list[str]:
 # --------------------------------------------------------------------------- telemetry
 
 
-class TelemetryHook(PreToolCallDecideHook, PostToolCallHook):
+class TelemetryHook(_Shared, PreToolCallDecideHook, PostToolCallHook):
     """Per-tool counts, hard errors, soft failures and wall durations; JSONL in the session dir.
 
     Registered as both a pre-tool decide hook (always allows; stamps t0) and a post-tool hook.
@@ -291,7 +302,7 @@ def _unwrap_tool_error(exc: Exception) -> Exception:
     return exc
 
 
-class TracebackCompressorHook(OnToolErrorHook):
+class TracebackCompressorHook(_Shared, OnToolErrorHook):
     """Replaces the stack trace sent to the model with one compressed line."""
 
     async def run(self, context: HookContext, data: Exception) -> str:
@@ -322,7 +333,7 @@ def _is_b64(v: str) -> bool:
         return False
 
 
-class VisionEvictionHook(PreTurnHook, PreToolCallDecideHook, PostToolCallHook):
+class VisionEvictionHook(_Shared, PreTurnHook, PreToolCallDecideHook, PostToolCallHook):
     """Keeps image bytes out of the conversation history.
 
     Guarantee provided (structural, not after-the-fact):
@@ -415,7 +426,7 @@ def unmet_gate(s: Session) -> str | None:
     return None
 
 
-class QAStopHook(StopHook):
+class QAStopHook(_Shared, StopHook):
     """Refuses to let a turn end while the stage gate is unmet, at most ``max_continuations`` times.
 
     Bounded by ``StopArgs.continuation_count`` (0-based count of continuations already granted
