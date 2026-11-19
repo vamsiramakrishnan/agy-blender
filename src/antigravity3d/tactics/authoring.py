@@ -336,7 +336,7 @@ def pick_template(prompt: str, hint: str | None = None) -> str:
     if hint in TEMPLATES:
         return hint  # type: ignore[return-value]
     low = prompt.lower()
-    return next((t for t, kws in KEYWORDS if any(k in low for k in kws)), "crate")
+    return next((t for t, kws in KEYWORDS if any(re.search(rf"\b{k}", low) for k in kws)), "crate")
 
 
 class TemplateAuthor:
