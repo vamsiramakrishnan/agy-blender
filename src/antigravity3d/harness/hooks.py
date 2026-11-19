@@ -152,12 +152,19 @@ class InvariantAndSafetyGate(_Shared, PreToolCallDecideHook):
         return res
 
     async def _decide(self, call: types.ToolCall) -> HookResult:
-        name = _name(call)
+        return await self.decide(_name(call), call.args, call.canonical_path)
+
+    async def decide(self, name: str, args: dict[str, Any], canonical_path: str | None = None) -> HookResult:
+        """The decision logic, independent of the SDK ``ToolCall`` type.
+
+        Shared by the SDK hook path (``run``) and the MCP server, which has no hook runner and calls
+        this directly before dispatching a tool, so both paths enforce exactly the same rules.
+        """
         s = session(self.registry, self.session_id)
         if name == BuiltinTools.RUN_COMMAND.value:
             return _deny("run_command is disabled for asset agents; use the scene tools")
         if name in _FILE_WRITE_TOOLS:
-            target = call.canonical_path or next((call.args[k] for k in _PATH_KEYS if isinstance(call.args.get(k), str)), "")
+            target = canonical_path or next((args[k] for k in _PATH_KEYS if isinstance(args.get(k), str)), "")
             if not target or not _inside(Path(target), s.workdir):
                 return _deny(f"{name} outside the session workdir is not allowed ({target or 'no path'})")
             return HookResult(allow=True)
@@ -169,10 +176,10 @@ class InvariantAndSafetyGate(_Shared, PreToolCallDecideHook):
         if name == "export_engine_package" and (why := export_block_reason(s.state)):
             return _deny(why)
         if name == "run_bpy_script":
-            errs = [i for i in lint_script(str(call.args.get("source", ""))) if i.severity == "error"]
+            errs = [i for i in lint_script(str(args.get("source", ""))) if i.severity == "error"]
             if errs:
                 return _deny("script rejected by linter: " + "; ".join(str(i) for i in errs[:2]))
-        for ref in _image_refs(name, call.args):
+        for ref in _image_refs(name, args):
             if (why := await self._policy(s, ref)) is not None:
                 return _deny(why)
         return HookResult(allow=True)
