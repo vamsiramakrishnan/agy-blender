@@ -176,6 +176,7 @@ class RenderBuffers:
     camera: Camera | None   # None for an empty scene
     view: str
     size: int
+    node_ids: tuple[str, ...] = ()   # node_id per `meshes` index
 
 
 def _uv_checker(img, hit, tri_img, tris, sxy, tri_mesh, meshes, uvs, size) -> None:
