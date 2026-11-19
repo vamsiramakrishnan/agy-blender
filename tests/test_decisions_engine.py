@@ -239,3 +239,114 @@ async def test_live_decisions():
             pytest.skip(f"decisions endpoint/model not available for this key: {e}")
         raise
     assert r.pipeline in Q.ROUTING_QUESTIONS["pipeline_dag"]["criteria"]
+
+
+# ---- engine parity / LOD pop / rig ROM / set-of-mark ---------------------------------------------------------
+
+def _validated(bank, labels):
+    qs = {k: Q.render(s.question, labels) for k, s in bank.items()}
+    validate_request("m", [{"type": "image", "uri": "u"}] * 2, qs)
+    CreateDecisionRequest.model_validate({"model": "m", "input": "x", "questions": qs})
+    return qs
+
+
+def test_new_banks_follow_conventions():
+    for bank in (Q.ENGINE_PARITY_QUESTIONS, Q.LOD_POP_QUESTIONS, Q.RIG_ROM_QUESTIONS):
+        assert all(k == s.id and s.stages for k, s in bank.items())
+        assert all(k.startswith(("defect_", "score_")) for k in bank)
+    assert set(Q.ENGINE_PARITY_QUESTIONS) == {
+        "defect_normal_inverted", "defect_roughness_inverted", "defect_color_shift", "defect_missing_material", "defect_missing_parts",
+        "defect_wrong_orientation", "defect_wrong_scale", "score_engine_parity"}
+    assert set(Q.LOD_POP_QUESTIONS) == {"defect_silhouette_change", "defect_holes", "defect_shading_discontinuity", "score_lod_continuity"}
+    assert set(Q.RIG_ROM_QUESTIONS) == {"defect_joint_pinch", "defect_candy_wrapper", "defect_self_penetration",
+                                        "defect_joint_texture_stretch", "score_deformation"}
+    qs = _validated(Q.ENGINE_PARITY_QUESTIONS, {"dcc": "Image 1", "engine": "Image 2"})
+    assert all("{" not in q["instructions"] for q in qs.values())  # every placeholder rendered
+    assert all("Image 1" in q["instructions"] and "Image 2" in q["instructions"] for q in qs.values())  # atomic and self-contained
+    lod = _validated(Q.LOD_POP_QUESTIONS, {"sheet": "Image 1", "pair": "3"})
+    assert all("pair number 3" in q["instructions"] for q in lod.values())
+    rig = _validated(Q.RIG_ROM_QUESTIONS, {"sheet": "Image 1", "pose": "2", "pose_name": "arm_up"})
+    assert all("'arm_up'" in q["instructions"] for q in rig.values())
+    assert len(Q.part_defect_question("defect_floating", 7, "wheel")["instructions"]) > 50
+    assert "[07]" in Q.part_defect_question("defect_floating", 7)["instructions"]
+    with pytest.raises(ValueError):
+        Q.part_defect_question("defect_nope", 1)
+    # stage tags: surface-only questions are not asked at blockout
+    asked, skipped = Q.select(Q.ENGINE_PARITY_QUESTIONS, stage="blockout", labels={"dcc": "Image 1", "engine": "Image 2"})
+    assert "defect_normal_inverted" in skipped and "defect_missing_parts" in asked
+
+
+async def test_evaluate_engine_parity():
+    c = FakeDecisionsClient({"defect_normal_inverted": 0.8, "score_engine_parity": 2.0})
+    r = await plane(c).evaluate_engine_parity("gs://dcc.png", "gs://eng.png")
+    req = c.calls[0]
+    imgs = [b for b in req["input"] if b["type"] == "image"]
+    assert [b["uri"] for b in imgs] == ["gs://dcc.png", "gs://eng.png"] and req["n_images"] == 2
+    assert r.defects["defect_normal_inverted"] == pytest.approx(0.8) and r.scores["score_engine_parity"] == pytest.approx(2.0)
+    assert set(r.defects) == {k for k in Q.ENGINE_PARITY_QUESTIONS if k.startswith("defect_")}
+    assert r.resolution == "high" and r.result.calibrated
+
+
+async def test_evaluate_lod_pop_one_question_set_per_pair():
+    c = FakeDecisionsClient({"defect_holes@2": 0.9, "score_lod_continuity@3": 1.0, "defect_silhouette_change": 0.4})
+    r = await plane(c).evaluate_lod_pop("gs://sheet.png", 3)
+    assert len(c.calls) == 1 and len(c.calls[0]["questions"]) == 3 * len(Q.LOD_POP_QUESTIONS) and c.calls[0]["n_images"] == 1
+    assert "pair number 2" in c.calls[0]["questions"]["defect_holes@2"]["instructions"]
+    assert [i.index for i in r.items] == [1, 2, 3]
+    assert r.items[1].defects["defect_holes"] == pytest.approx(0.9) and r.items[0].defects["defect_holes"] == pytest.approx(0.05)
+    assert r.items[2].scores["score_lod_continuity"] == pytest.approx(1.0) and r.items[0].scores["score_lod_continuity"] == pytest.approx(3.6)
+    assert all(i.defects["defect_silhouette_change"] == pytest.approx(0.4) for i in r.items)  # bare-id programming applies to all
+    with pytest.raises(ValueError):
+        await plane(c).evaluate_lod_pop("gs://sheet.png", 0)
+    with pytest.raises(ValueError):
+        await plane(c).evaluate_lod_pop("gs://sheet.png", 500)
+
+
+async def test_evaluate_rig_rom():
+    c = FakeDecisionsClient({"defect_candy_wrapper@2": 0.85})
+    r = await plane(c).evaluate_rig_rom("gs://poses.png", ["t_pose", "forearm {twist}", "squat"])
+    q = c.calls[0]["questions"]
+    assert len(q) == 3 * len(Q.RIG_ROM_QUESTIONS) and "'forearm (twist)'" in q["defect_candy_wrapper@2"]["instructions"]
+    assert [i.label for i in r.items] == ["t_pose", "forearm (twist)", "squat"]
+    assert r.items[1].defects["defect_candy_wrapper"] == pytest.approx(0.85) and r.items[0].defects["defect_candy_wrapper"] == pytest.approx(0.05)
+    assert "score_deformation" in r.items[2].scores
+    with pytest.raises(ValueError):
+        await plane(c).evaluate_rig_rom("gs://poses.png", [])
+
+
+async def test_locate_defects_single_request_sorted_thresholded():
+    legend = {1: "body", 7: "wheel_l", 12: "wheel_r"}
+    c = FakeDecisionsClient({"defect_floating@7": 0.9, "defect_floating@12": 0.6, "defect_floating@1": 0.2, "defect_clipping@12": 0.7})
+    out = await plane(c).locate_defects("gs://marked.png", legend, ["defect_floating", "defect_clipping"])
+    assert len(c.calls) == 1 and len(c.calls[0]["questions"]) == 6
+    assert out == {"defect_floating": [("wheel_l", pytest.approx(0.9)), ("wheel_r", pytest.approx(0.6))],
+                   "defect_clipping": [("wheel_r", pytest.approx(0.7))]}
+    q = c.calls[0]["questions"]["defect_floating@7"]
+    assert "[07]" in q["instructions"] and "wheel_l" in q["instructions"] and "Image 1" in q["instructions"]
+    out2 = await plane(FakeDecisionsClient({"defect_floating@12": 0.6})).locate_defects("gs://m.png", legend, ["defect_floating"], min_p=0.7)
+    assert out2 == {"defect_floating": []}
+    assert await plane(c).locate_defects("gs://m.png", legend, []) == {}
+    with pytest.raises(ValueError, match="already flagged"):
+        await plane(c).locate_defects("gs://m.png", {i: f"n{i}" for i in range(300)}, ["defect_floating", "defect_clipping"])
+    with pytest.raises(ValueError):
+        await plane(c).locate_defects("gs://m.png", legend, ["defect_made_up"])
+
+
+async def test_marked_visual_qa_mode_and_default_unchanged():
+    c = FakeDecisionsClient()
+    await plane(c).evaluate_visual_qa("gs://s.png", marked_legend={1: "body", 2: "lid"})
+    t = c.calls[0]["input"][0]["text"]
+    assert "[01] = body" in t and "[02] = lid" in t
+    c2 = FakeDecisionsClient()
+    await plane(c2).evaluate_visual_qa("gs://s.png")
+    assert c2.calls[0]["input"][0]["text"] == "Image 1: contact sheet of renders of the asset under review."
+
+
+async def test_backend_kind_and_uncalibrated_fake():
+    assert plane(FakeDecisionsClient()).backend_kind == "fake"
+    assert DecisionControlPlane(object()).backend_kind == "decisions"
+    c = FakeDecisionsClient(uncalibrated=True, input_tokens=50)
+    p = plane(c)
+    r = await p.evaluate("x", {"a": Q.noul("q")}, tag="t")
+    assert r.calibrated is False and r.cost_known is False and r.input_tokens == 50 and p.stats.uncalibrated_calls == 1
+    assert (await plane(FakeDecisionsClient()).evaluate("x", {"a": Q.noul("q")}, tag="t")).calibrated is True

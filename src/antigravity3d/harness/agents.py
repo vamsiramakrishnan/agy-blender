@@ -1,0 +1,259 @@
+"""Stage-scoped agent factories, the Turn-0 director, an external-completion trigger and run_stage."""
+
+from __future__ import annotations
+
+import asyncio
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Any, Literal
+
+import pydantic
+from google.antigravity import Agent, types
+from google.antigravity.connections.local.local_connection_config import LocalAgentConfig
+from google.antigravity.hooks import policy
+from google.antigravity.models import GeminiAPIEndpoint, GeminiModelOptions, ModelTarget, ModelType
+from google.antigravity.triggers import TriggerContext
+
+from antigravity3d.harness.hooks import (
+    QAStopHook, TelemetryHook, VisionEvictionHook, sanitize_prompt, stage_hooks, state_header, with_state_header,
+)
+from antigravity3d.harness.session import (
+    CTX_REGISTRY_KEY, CTX_SESSION_KEY, DEFAULT_REGISTRY, bind_conversation, session, set_toolset, unbind_conversation,
+)
+from antigravity3d.harness.tools import STAGE_TOOLS, SUBAGENT_TOOLS, TOOLSET_STAGE
+from antigravity3d.models import Role, tier
+from antigravity3d.state import SceneSessionRegistry
+
+Toolset = Literal["BLOCKOUT", "TWEAK", "VARIANTS", "LOOKDEV", "EXPORT"]
+DEFAULT_ROLE: dict[str, Role] = {
+    "BLOCKOUT": "builder", "TWEAK": "bulk", "VARIANTS": "builder", "LOOKDEV": "builder", "EXPORT": "bulk", "PLAN": "director",
+}
+COMPACTION_TOKENS = 48_000
+TOOL_OUTPUT_MAX_TOKENS = 1_500  # backstop; harness tools already return one-liners
+STAGE_BUILTINS = [types.BuiltinTools.FINISH, types.BuiltinTools.VIEW_FILE, types.BuiltinTools.INVOKE_SUBAGENT]
+
+_IR_RULES = """Scene IR (metres, Z-up, right-handed, rotations XYZ Euler degrees). Primitives are centred on their local origin:
+box params.size=[x,y,z] full extents; cylinder radius,height[,segments=24] axis local Z; cone radius,height (base -h/2, apex +h/2);
+sphere radius[,segments,rings]; capsule radius,height; group = transform-only parent. node: {"id","kind","params","transform":
+{"translate","rotate_euler_deg","scale"},"parent","material_id","collider"}; ids match [A-Za-z_][A-Za-z0-9_]*.
+Ops: {"op":"upsert_node","node":{...}}, remove_node{node_id}, set_transform{node_id,transform}, set_param{node_id,name,value},
+upsert_material{material:{id,base_color,metallic,roughness}}, assign_material{node_id,material_id}.
+To sit a part on the ground, translate z = half its height. Parts must touch, not float."""
+
+_STAGE_TEXT: dict[str, str] = {
+    "BLOCKOUT": "Build the asset's blockout from primitives with apply_scene_ir (one patch can hold many ops). Each edit is "
+                "atomic: a failing Tier-1 check (non-manifold, over budget) is rolled back and reported in one line; fix and resend. "
+                "Then run_visual_qa; follow its action (auto_fix is applied for you; agent_repair names a target). Stop once Tier-1 "
+                "is OK and QA shows no geometry repair.",
+    "TWEAK": "Make the requested small parameter edits with apply_scene_ir, check the returned line, stop.",
+    "VARIANTS": "Explore alternatives as variants (propose_variants), select each and run_visual_qa, promote the best.",
+    "LOOKDEV": "Create materials with forge_pbr_material, tune and assign them with apply_shader_diff (assign_to), then "
+               "run_visual_qa until it approves (tier15 >= 3.4). Images are never shown to you; reason from QA lines.",
+    "EXPORT": "Run generate_lods_and_colliders and run_usd_validator, then export_engine_package. Export is refused until QA "
+              "approved the current scene; report what blocks it instead of retrying.",
+}
+
+
+def _system(toolset: str) -> str:
+    return (f"You are the {toolset} stage agent of a game-asset pipeline. You edit the asset only through the tools; "
+            f"tool replies are one-line deltas. Every prompt starts with a [STATE ...] header: trust it over older messages.\n"
+            f"{_IR_RULES}\n{_STAGE_TEXT[toolset]}\nBe terse.")
+
+
+def model_target(role: Role) -> ModelTarget:
+    """``models.tier(role)`` -> ModelTarget with the tier's thinking level on the Gemini endpoint."""
+    t = tier(role)
+    opts = GeminiModelOptions(thinking_level=t.thinking) if t.thinking is not None else None
+    return ModelTarget(name=t.model, types=[ModelType.TEXT], endpoint=GeminiAPIEndpoint(options=opts))
+
+
+def _subagents() -> list[types.SubagentConfig]:
+    worker = tier("worker").model  # subagents take a model *name* and run on the agent-level endpoint options
+    ro = types.SubagentCapabilities(enabled_tools=[types.BuiltinTools.FINISH])
+    return [
+        types.SubagentConfig(
+            name="usd_verifier", description="Read-only check of the composed USD scene and engine compliance.",
+            system_instructions="Inspect the manifest and run the USD validator; reply with the blocking issues in at most 3 lines.",
+            capabilities=ro, tools=list(SUBAGENT_TOOLS["usd_verifier"]), model=worker),
+        types.SubagentConfig(
+            name="lookdev_critic", description="Read-only visual critique of the current asset via Decisions QA.",
+            system_instructions="Run qa_probe and inspect the manifest; reply with the single most important fix in 2 lines.",
+            capabilities=ro, tools=list(SUBAGENT_TOOLS["lookdev_critic"]), model=worker),
+    ]
+
+
+def build_stage_agent(
+    stage: Toolset | str,
+    session_id: str,
+    *,
+    registry: SceneSessionRegistry | None = None,
+    role: Role | None = None,
+    conversation_id: str | None = None,
+    triggers: list[Any] | None = None,
+    require_header: bool = True,
+    subagents: bool = True,
+) -> LocalAgentConfig:
+    """LocalAgentConfig exposing only ``stage``'s tools, bound to ``session_id``.
+
+    Side effects: sets the session's active stage/tool-set and binds the pinned conversation id
+    (``cfg.conversation_id``) to the session so tools resolve it from ``ToolContext``.
+    """
+    registry = registry if registry is not None else DEFAULT_REGISTRY
+    if stage not in STAGE_TOOLS:
+        raise ValueError(f"unknown stage {stage!r}; expected one of {sorted(STAGE_TOOLS)}")
+    s = session(registry, session_id)
+    s.state.active_stage = TOOLSET_STAGE[stage]  # type: ignore[assignment]
+    set_toolset(registry, session_id, stage)
+    conv = conversation_id or str(uuid.uuid4())
+    bind_conversation(conv, session_id, registry)
+    builtins = STAGE_BUILTINS if subagents else [b for b in STAGE_BUILTINS if b != types.BuiltinTools.INVOKE_SUBAGENT]
+    caps = types.CapabilitiesConfig(
+        enabled_tools=builtins,
+        tool_output_truncation_config=types.ToolOutputTruncationConfig(max_tokens=TOOL_OUTPUT_MAX_TOKENS),
+        **({"allowed_subagents": ["usd_verifier", "lookdev_critic"], "max_subagent_depth": 1} if subagents else {}),
+    )
+    return LocalAgentConfig(
+        system_instructions=_system(stage),
+        capabilities=caps,
+        tools=list(STAGE_TOOLS[stage]),
+        policies=policy.confirm_run_command(),  # backstop; the gate hook is the primary safety policy
+        hooks=stage_hooks(registry, session_id, require_header=require_header),
+        triggers=triggers or [],
+        subagents=_subagents() if subagents else [],
+        model=model_target(role or DEFAULT_ROLE[stage]),
+        compaction_config=types.CompactionConfig(token_threshold=COMPACTION_TOKENS),
+        workspaces=[str(s.workdir)],
+        conversation_id=conv,
+    )
+
+
+# --------------------------------------------------------------------------- director
+
+
+class PartPlan(pydantic.BaseModel):
+    name: str
+    primitive: Literal["box", "cylinder", "cone", "sphere", "capsule", "group", "mesh_ref"]
+    approx_size_m: tuple[float, float, float]
+    notes: str = ""
+
+
+class MaterialPlan(pydantic.BaseModel):
+    id: str
+    description: str
+    applies_to: list[str] = pydantic.Field(default_factory=list)
+
+
+class AssetPlan(pydantic.BaseModel):
+    """Turn-0 plan the director returns through the finish tool."""
+
+    stages: list[Literal["BLOCKOUT", "VARIANTS", "LOOKDEV", "EXPORT"]]
+    parts: list[PartPlan]
+    materials: list[MaterialPlan]
+    risks: list[str]
+
+
+def build_director_agent(*, role: Role = "director", workdir: str | None = None) -> LocalAgentConfig:
+    """Turn-0 planner: no custom tools, structured AssetPlan output."""
+    return LocalAgentConfig(
+        system_instructions=("You plan game-asset builds. Decompose the request into primitive parts (sizes in metres, Z-up), "
+                             "materials and the stage list; list concrete risks (budget, floating parts, IP). Return the plan via finish."),
+        capabilities=types.CapabilitiesConfig(enabled_tools=[types.BuiltinTools.FINISH], enable_subagents=False),
+        response_schema=AssetPlan,
+        model=model_target(role),
+        **({"workspaces": [workdir]} if workdir else {}),
+    )
+
+
+# --------------------------------------------------------------------------- triggers
+
+
+@dataclass
+class CompletionEvent:
+    kind: Literal["bake", "render", "export"]
+    detail: str
+    ok: bool = True
+
+
+class BakeCompletionTrigger:
+    """Feeds external completion events (a long bake/render finishing) into a running agent.
+
+    A Trigger is any async callable taking a ``TriggerContext``; the SDK's TriggerRunner starts it
+    when the Agent session opens and cancels it on exit. Producers call :meth:`notify` (thread-safe
+    via ``loop.call_soon_threadsafe`` when a loop is given); each event is delivered with
+    ``ctx.send`` prefixed by the current state header so it passes ``StateHeaderHook``.
+    """
+
+    __name__ = "bake_completion"
+
+    def __init__(self, registry: SceneSessionRegistry, session_id: str) -> None:
+        self.registry, self.session_id = registry, session_id
+        self.queue: asyncio.Queue[CompletionEvent] = asyncio.Queue()
+        self.delivered: list[str] = []
+
+    def notify(self, event: CompletionEvent, loop: asyncio.AbstractEventLoop | None = None) -> None:
+        if loop is not None:
+            loop.call_soon_threadsafe(self.queue.put_nowait, event)
+        else:
+            self.queue.put_nowait(event)
+
+    async def __call__(self, ctx: TriggerContext) -> None:
+        while True:
+            ev = await self.queue.get()
+            header = state_header(session(self.registry, self.session_id))
+            msg = f"{header}\n\n[EVENT] {ev.kind} {'finished' if ev.ok else 'FAILED'}: {ev.detail[:200]}"
+            await ctx.send(msg)
+            self.delivered.append(msg)
+
+
+# --------------------------------------------------------------------------- run_stage
+
+
+@dataclass
+class StageRun:
+    text: str
+    usage: types.UsageMetadata | None
+    wall_s: float
+    conversation_id: str
+    telemetry: dict[str, Any] = field(default_factory=dict)
+    stop_continuations: int = 0
+    image_violations: list[str] = field(default_factory=list)
+
+
+async def run_stage(
+    stage: Toolset | str,
+    session_id: str,
+    prompt: types.Content,
+    *,
+    registry: SceneSessionRegistry | None = None,
+    role: Role | None = None,
+    timeout_s: float = 600.0,
+    **build_kwargs: Any,
+) -> StageRun:
+    """Opens the stage Agent, binds the conversation, sends one header-prefixed prompt, returns text+usage."""
+    registry = registry if registry is not None else DEFAULT_REGISTRY
+    cfg = build_stage_agent(stage, session_id, registry=registry, role=role, **build_kwargs)
+    conv = cfg.conversation_id or ""
+    s = session(registry, session_id)
+    clean, _ = await sanitize_prompt(prompt, s)
+    hooks = {type(h): h for h in cfg.hooks}
+    t0 = time.perf_counter()
+    try:
+        async with Agent(cfg) as agent:
+            runner = getattr(agent, "_tool_runner", None)  # fallback binding if the harness renames the conversation
+            ctx = getattr(runner, "_context", None)
+            if ctx is not None:
+                ctx.set_state(CTX_SESSION_KEY, session_id)
+                ctx.set_state(CTX_REGISTRY_KEY, registry)
+            resp = await asyncio.wait_for(agent.chat(with_state_header(clean, s)), timeout_s)
+            text = await asyncio.wait_for(resp.text(), timeout_s)
+            usage = resp.usage_metadata or agent.conversation.last_turn_usage
+            if agent.conversation_id and agent.conversation_id != conv:
+                bind_conversation(agent.conversation_id, session_id, registry)
+    finally:
+        unbind_conversation(conv)
+    tel = hooks.get(TelemetryHook)
+    stop = hooks.get(QAStopHook)
+    vis = hooks.get(VisionEvictionHook)
+    return StageRun(text, usage, time.perf_counter() - t0, conv, tel.summary() if tel else {},
+                    stop.continued if stop else 0, list(vis.violations) if vis else [])
