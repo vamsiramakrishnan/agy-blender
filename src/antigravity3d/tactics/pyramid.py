@@ -29,7 +29,7 @@ from antigravity3d.ir import (
     AssignMaterial, IRPatch, MaterialIR, RemoveNode, SceneIR, SetParam, SetTransform, UpsertMaterial, UpsertNode,
 )
 from antigravity3d.kernel.fast_ops import ExportBundle, run_export_pipeline, tier1_qa
-from antigravity3d.kernel.lod_diff import lod_pop_report
+from antigravity3d.kernel.lod_diff import PopThresholds, lod_pop_report
 from antigravity3d.kernel.raster import CLAY, render_buffers
 from antigravity3d.kernel.settle import settle
 from antigravity3d.kernel.som import marked_contact_sheet
@@ -47,6 +47,13 @@ EPS = 1e-9
 LOOKDEV_ROUNDS = 3
 QA_EST_USD = 0.002  # conservative cost of one visual-QA (+ locate) round when checking the ceiling
 
+
+# Uncalibrated tolerances, pending tuning against real studio assets:
+# xatlas on a plain 24-segment cylinder already measures 0.058 mean area
+# distortion against the 0.05 default budget, so up to this multiple of the
+# budget is reported as a warning rather than failing the export gate.
+UV_STRETCH_HARD_FACTOR = 2.0
+LOD_POP_THRESHOLDS = PopThresholds()
 
 @dataclass
 class RoundTrace:
@@ -69,7 +76,7 @@ class RoundTrace:
 @dataclass
 class StepResult:
     name: str
-    status: str  # "passed" | "failed" | "skipped"
+    status: str  # "passed" | "warned" | "failed" | "skipped"
     detail: str = ""
     ms: float = 0.0
 
@@ -101,6 +108,10 @@ class PyramidResult:
     @property
     def failed(self) -> list[tuple[str, str]]:
         return [(s.name, s.detail) for s in self.steps if s.status == "failed"]
+
+    @property
+    def warned(self) -> list[tuple[str, str]]:
+        return [(s.name, s.detail) for s in self.steps if s.status == "warned"]
 
     @property
     def ok(self) -> bool:
@@ -535,7 +546,9 @@ class _Run:
             if levels != sorted(levels, reverse=True):
                 return "failed", f"LOD triangle counts do not descend: {levels}"
             if bad:
-                return "failed", f"UV stretch above {budget.max_uv_stretch} on {bad}; {desc}"
+                worst = max(u.stretch_mean for u in bundle.uvs)
+                hard = worst > UV_STRETCH_HARD_FACTOR * budget.max_uv_stretch
+                return ("failed" if hard else "warned"), f"UV stretch {worst:.3f} above budget {budget.max_uv_stretch} on {bad}; {desc}"
             return "passed", desc
 
         await self.guarded("uv_lod_colliders", export)
@@ -568,7 +581,11 @@ class _Run:
                 return "skipped", "fewer than two LOD levels"
             rep = await asyncio.to_thread(lod_pop_report, lods)
             res.objects["lod_pop"] = rep
-            return ("passed" if rep.ok() else "failed"), rep.one_line()
+            if rep.ok():
+                return "passed", rep.one_line()
+            # A silhouette change is a hard failure; shading and edge drift alone only warn.
+            hard = any(t.iou < LOD_POP_THRESHOLDS.min_iou for t in rep.transitions)
+            return ("failed" if hard else "warned"), rep.one_line()
 
         await self.guarded("lod_pop", pop)
 

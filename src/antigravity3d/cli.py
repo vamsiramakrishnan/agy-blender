@@ -123,6 +123,11 @@ async def cmd_prop(a: argparse.Namespace) -> int:
         print(f"  {k}: {v}")
     print(f"  report: {x['report_path']}")
     _print_skips(x["skipped"])
+    warned = [s for s in res.get("steps", []) if s["status"] == "warned"]
+    if warned:
+        print("warnings:")
+        for w in warned:
+            print(f"  - {w['name']}: {w['detail']}")
     failed = [n.name for n in rep.nodes.values() if n.status == "failed"]
     return _print_gate(x["gates_ok"], f"failed nodes: {failed}" if failed else ("" if x["gates_ok"] else "a pipeline gate did not pass; see pyramid steps"))
 
