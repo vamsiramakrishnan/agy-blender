@@ -42,24 +42,26 @@ def overlap(a, b) -> bool:
 def test_anchors_on_own_prim_and_boxes_disjoint():
     ms = scene()
     legend = assign_badges(ms)
+    leaders = 0
     for v in VIEWS:
         rb = render_buffers(ms, v, 256)
         mv = mark_view(rb, legend)
         assert mv.badges
+        leaders += sum(b.leader for b in mv.badges)
         for b in mv.badges:
             assert locate_pixel(rb, b.anchor) == b.node_id == legend[b.num]
             x0, y0, x1, y1 = b.box
-            assert x0 <= b.anchor[0] <= x1 and y0 <= b.anchor[1] <= y1
             assert 0 <= x0 and x1 < 256 and 0 <= y0 and y1 < 256
-            if not b.leader:  # inside-the-part badges: anchor is the box centre-ish, still on the part
-                assert rb.prim_id[b.anchor[1], b.anchor[0]] >= 0
+            if not b.leader:  # in-part badges contain their anchor; leader badges sit outside, joined by a line
+                assert x0 <= b.anchor[0] <= x1 and y0 <= b.anchor[1] <= y1
         for i, a in enumerate(mv.badges):
             for b in mv.badges[i + 1:]:
                 assert not overlap(a.box, b.box), (v, a.node_id, b.node_id)
+    assert leaders > 0  # small parts exercise the leader-line path
 
 
 def test_anchor_is_deep_inside_concave_region():
-    # an L-shaped (concave) part: the centroid of its pixels lies outside it, the anchor must not
+    # an L-shaped (concave) part: a centroid anchor could fall in the notch, the distance-transform anchor cannot
     t = trimesh.util.concatenate([trimesh.creation.box((1, 0.2, 0.2)).apply_translation((0.4, 0, 0.1)),
                                   trimesh.creation.box((0.2, 0.2, 1)).apply_translation((-0.0, 0, 0.5))])
     ms = [MeshData("ell", "/A/ell", np.array(t.vertices, float), np.array(t.faces, np.int32))]
@@ -67,8 +69,6 @@ def test_anchor_is_deep_inside_concave_region():
     mv = mark_view(rb, assign_badges(ms))
     (b,) = mv.badges
     assert locate_pixel(rb, b.anchor) == "ell"
-    ys, xs = np.nonzero(rb.prim_id == 0)
-    assert rb.prim_id[int(ys.mean()), int(xs.mean())] == 0 or True  # centroid may or may not be inside; anchor must be
 
 
 def test_numbering_stable_under_reordering():
@@ -98,7 +98,7 @@ def test_occluded_and_tiny_parts():
     # per-view tiny list from mark_view
     rb = render_buffers(ms, "front", 256)
     assert "speck" in mark_view(rb, sh.legend).unmarked
-    assert mark_view(rb, sh.legend, min_pixels=1).unmarked == ["core_hidden"] or "speck" not in mark_view(rb, sh.legend, min_pixels=1).unmarked
+    assert "speck" not in mark_view(rb, sh.legend, min_pixels=1).unmarked
 
 
 def test_legend_text_matches():
