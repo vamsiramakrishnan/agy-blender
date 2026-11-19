@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import unquote, urlparse
 
+from mcp.server.mcpserver import Context, MCPServer
 from pydantic import Field
 
 from antigravity3d.harness import tools as T
@@ -260,9 +261,9 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
     async def open_asset_session(
         asset_name: str,
         target_engine: Annotated[str, Field(description="unreal_5 | unity_urp | godot_4 | roblox_r15")],
+        ctx: Context,
         max_tris: int = 15_000,
         workdir: Annotated[str, Field(description="Session folder; default <workspace>/agy3d_assets/<session id>")] = "",
-        ctx: Any = None,
     ) -> str:
         workspace = await _workspace_root(ctx)
         return await _managed(host, host.open_asset_session, asset_name, target_engine, max_tris, workdir, workspace)
@@ -301,34 +302,16 @@ async def _workspace_root(ctx: Any) -> str:
     return os.getcwd()
 
 
-def build_server(host: StudioHost | None = None) -> Any:
-    from mcp.server.mcpserver import Context, MCPServer
-
+def build_server(host: StudioHost | None = None) -> MCPServer:
     host = host or StudioHost()
     server = MCPServer(SERVER_NAME, instructions=INSTRUCTIONS)
     for name, (fn, doc) in _management(host).items():
-        if name == "open_asset_session":
-            orig = fn
-
-            async def open_asset_session(asset_name: str, target_engine: str, max_tris: int = 15_000, workdir: str = "",
-                                         mcp_ctx: Context = None) -> str:  # type: ignore[assignment]
-                return await orig(asset_name, target_engine, max_tris, workdir, ctx=mcp_ctx)
-
-            open_asset_session.__doc__ = doc
-            open_asset_session.__signature__ = _sig_without(orig, "ctx", extra=("mcp_ctx", Context))  # type: ignore[attr-defined]
-            fn = open_asset_session
         server.add_tool(fn, name=name, description=doc)
     for name, fn in T.ALL_TOOLS.items():
         w = _wrapper(name, fn, host)
         server.add_tool(w, name=name, description=w.__doc__)
     server._agy3d_host = host  # type: ignore[attr-defined]
     return server
-
-
-def _sig_without(fn: Any, drop: str, extra: tuple[str, Any]) -> inspect.Signature:
-    ps = [p for p in inspect.signature(fn).parameters.values() if p.name != drop]
-    ps.append(inspect.Parameter(extra[0], inspect.Parameter.KEYWORD_ONLY, default=None, annotation=extra[1]))
-    return inspect.Signature(ps, return_annotation=str)
 
 
 def main() -> None:
