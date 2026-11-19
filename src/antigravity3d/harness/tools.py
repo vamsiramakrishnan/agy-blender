@@ -241,7 +241,7 @@ async def run_visual_qa(ctx: ToolContext) -> str:
     async with s.registry.locked(s.sid):
         if s.geom_version != prev.geom_version:
             return "STALE: scene changed during QA; re-run run_visual_qa"
-        s.state.last_tier15_score = t15
+        s.set_tier15(t15)
         delta = action.audit_delta()
         s.state.add_audit_delta(delta)
         fix = await _auto_fix(s, action) if action.kind == "auto_fix" else ""

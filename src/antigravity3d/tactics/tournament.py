@@ -293,7 +293,7 @@ async def geometry_tournament(
         return Candidate(i, await uploader(png_bytes(sheet)), scenes[i], 0.0, 0.0, None, meta)
 
     res = await run_tournament("geometry", generate, len(scenes), plane=plane, governor=governor, context_uris=context_uris,
-                               early_stop=early_stop, concurrency=concurrency or 1, thresholds=thresholds)
+                               early_stop=early_stop, concurrency=concurrency, thresholds=thresholds)
     if res.winner is None and crit_counts and not res.ranking:
         best = min(crit_counts, key=lambda i: crit_counts[i])
         res.winner = res.candidates[best]
