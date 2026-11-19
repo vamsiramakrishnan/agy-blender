@@ -7,6 +7,7 @@ one argsort. Flat Lambert shading, fixed world key light plus a camera fill.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal, Sequence
 
 import numpy as np
@@ -53,8 +54,39 @@ def _gather(meshes: Sequence[MeshData]) -> tuple[np.ndarray, np.ndarray]:
     return np.vstack(pts), np.vstack(tris)
 
 
-def _project(pts: np.ndarray, view: str, size: int):
-    """Returns screen xy (N,2), cam depth z (N,), basis."""
+@dataclass(frozen=True)
+class Camera:
+    """Projection used by a render: world -> pixels. Orthographic or pinhole (persp)."""
+
+    view: str
+    basis: np.ndarray       # (3,3) rows: right, up, toward-scene
+    center: np.ndarray      # (3,) world point the camera looks at
+    persp: bool
+    dist: float             # camera distance from `center` (persp only)
+    scale: float            # pixels per projected unit
+    mid: np.ndarray         # (2,) projected-plane point mapped to the image centre
+    size: int
+
+    def project(self, pts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """World points (N,3) -> (pixel xy (N,2), camera depth (N,))."""
+        cam = (pts - self.center) @ self.basis.T
+        if self.persp:
+            z = cam[:, 2] + self.dist
+            xy = cam[:, :2] / np.maximum(z, 1e-6)[:, None]
+        else:
+            z = cam[:, 2]
+            xy = cam[:, :2]
+        sx = (xy[:, 0] - self.mid[0]) * self.scale + self.size / 2
+        sy = self.size / 2 - (xy[:, 1] - self.mid[1]) * self.scale
+        return np.stack([sx, sy], axis=1), z
+
+    def metres_per_pixel(self, depth: float | np.ndarray) -> float | np.ndarray:
+        """World size of one pixel at camera depth `depth` (depth as stored in RenderBuffers)."""
+        return depth / self.scale if self.persp else 1.0 / self.scale
+
+
+def frame_camera(pts: np.ndarray, view: str, size: int, fill: float = 0.88) -> Camera:
+    """Auto-framing camera: the projected bbox of `pts` spans `fill` of the image's long side."""
     B = _basis(view)
     lo, hi = pts.min(axis=0), pts.max(axis=0)
     c = (lo + hi) / 2
@@ -63,17 +95,20 @@ def _project(pts: np.ndarray, view: str, size: int):
     persp = view == "persp"
     if persp:
         dist = rad / np.sin(np.radians(30) / 2) * 1.05
-        z = cam[:, 2] + dist
-        xy = cam[:, :2] / np.maximum(z, 1e-6)[:, None]
+        xy = cam[:, :2] / np.maximum(cam[:, 2] + dist, 1e-6)[:, None]
     else:
-        z = cam[:, 2]
+        dist = 0.0
         xy = cam[:, :2]
     lo2, hi2 = xy.min(axis=0), xy.max(axis=0)
-    scale = size * 0.88 / max((hi2 - lo2).max(), 1e-9)
-    mid = (lo2 + hi2) / 2
-    sx = (xy[:, 0] - mid[0]) * scale + size / 2
-    sy = size / 2 - (xy[:, 1] - mid[1]) * scale
-    return np.stack([sx, sy], axis=1), z, B, persp
+    scale = size * fill / max((hi2 - lo2).max(), 1e-9)
+    return Camera(view, B, c, persp, float(dist), float(scale), (lo2 + hi2) / 2, size)
+
+
+def _project(pts: np.ndarray, view: str, size: int):
+    """Returns screen xy (N,2), cam depth z (N,), basis, persp."""
+    cam = frame_camera(pts, view, size)
+    sxy, z = cam.project(pts)
+    return sxy, z, cam.basis, cam.persp
 
 
 def _rasterise(sxy: np.ndarray, key: np.ndarray, tris: np.ndarray, size: int):
@@ -132,20 +167,84 @@ def _rasterise(sxy: np.ndarray, key: np.ndarray, tris: np.ndarray, size: int):
     return tri_img.reshape(size, size), zbuf.reshape(size, size)
 
 
-def render_clay(
+@dataclass(frozen=True)
+class RenderBuffers:
+    color: np.ndarray       # (H,W,3) uint8, identical to render_clay
+    prim_id: np.ndarray     # (H,W) int32, index into the `meshes` list, -1 = background
+    tri_id: np.ndarray      # (H,W) int32, triangle index within that mesh, -1 = background
+    depth: np.ndarray       # (H,W) float32 camera depth (see Camera), inf = background
+    camera: Camera | None   # None for an empty scene
+    view: str
+    size: int
+
+
+def _uv_checker(img, hit, tri_img, tris, sxy, tri_mesh, meshes, uvs, size) -> None:
+    """Overwrite shaded pixels of meshes with UVs by shading * checker(uv): screen-affine barycentrics."""
+    ys, xs = np.nonzero(hit)
+    t = tri_img[ys, xs]
+    sel = np.array([meshes[i].node_id in uvs for i in range(len(meshes))])[tri_mesh[t]]
+    ys, xs, t = ys[sel], xs[sel], t[sel]
+    if not len(t):
+        return
+    p0, p1, p2 = (sxy[tris[t, i]] for i in range(3))
+    d = (p1[:, 0] - p0[:, 0]) * (p2[:, 1] - p0[:, 1]) - (p1[:, 1] - p0[:, 1]) * (p2[:, 0] - p0[:, 0])
+    px, py = xs + 0.5, ys + 0.5
+    w1 = ((px - p0[:, 0]) * (p2[:, 1] - p0[:, 1]) - (py - p0[:, 1]) * (p2[:, 0] - p0[:, 0])) / d
+    w2 = ((p1[:, 0] - p0[:, 0]) * (py - p0[:, 1]) - (p1[:, 1] - p0[:, 1]) * (px - p0[:, 0])) / d
+    w0 = 1 - w1 - w2
+    mi = tri_mesh[t]
+    uv = np.zeros((len(t), 2))
+    for i in np.unique(mi):
+        k = mi == i
+        local = tris[t[k]] - _vert_base(meshes)[i]
+        u = np.asarray(uvs[meshes[i].node_id], np.float64)[local]
+        uv[k] = w0[k, None] * u[:, 0] + w1[k, None] * u[:, 1] + w2[k, None] * u[:, 2]
+    chk = ((np.floor(uv * 8).sum(axis=1) % 2) == 0)
+    f = np.where(chk, 1.0, 0.55)[:, None]
+    img[ys, xs] = np.clip(img[ys, xs] * f, 0, 255).astype(np.uint8)
+
+
+def _vert_base(meshes) -> list[int]:
+    out, off = [], 0
+    for m in meshes:
+        out.append(off)
+        if len(m.triangles):
+            off += len(m.points)
+    return out
+
+
+def render_buffers(
     meshes: list[MeshData],
     view: View = "persp",
     size: int = 256,
+    *,
     wireframe: bool = False,
-) -> np.ndarray:
+    uvs: dict[str, np.ndarray] | None = None,
+    camera: Camera | None = None,
+) -> RenderBuffers:
+    """Single rasterisation path: clay colour plus ID/depth buffers.
+
+    uvs: node_id -> (V,2) per-vertex UVs; when given, the colour is replaced by a UV
+    checker pattern (tiling past [0,1] is visible) for those meshes.
+    camera: explicit camera (e.g. shared between two LODs); default auto-frames the meshes.
+    """
+    nid = tuple(m.node_id for m in meshes)
     img = np.empty((size, size, 3), np.uint8)
     img[:] = BG
+    prim = np.full((size, size), -1, np.int32)
+    tri_loc = np.full((size, size), -1, np.int32)
+    depth = np.full((size, size), np.inf, np.float32)
     pts, tris = _gather(meshes)
     if not len(tris):
-        return img
-    sxy, z, B, persp = _project(pts, view, size)
+        return RenderBuffers(img, prim, tri_loc, depth, None, view, size, nid)
+    tri_mesh = np.concatenate([np.full(len(m.triangles), i, np.int32) for i, m in enumerate(meshes) if len(m.triangles)])
+    tri_start = np.concatenate([np.arange(len(m.triangles)) for m in meshes if len(m.triangles)])
+    cam = camera or frame_camera(pts, view, size)
+    sxy, z = cam.project(pts)
+    B, persp = cam.basis, cam.persp
     if persp:
-        tris = tris[(z[tris] > 1e-6).all(axis=1)]
+        keep = (z[tris] > 1e-6).all(axis=1)
+        tris, tri_mesh, tri_start = tris[keep], tri_mesh[keep], tri_start[keep]
     # depth key: smaller = nearer. Persp interpolates 1/z linearly (screen-correct).
     key = (-1.0 / z if persp else z).astype(np.float32)
     tri_img, zbuf = _rasterise(sxy, key, tris, size)
@@ -159,6 +258,11 @@ def render_clay(
     col = np.clip(CLAY[None] * shade[:, None], 0, 255).astype(np.uint8)
     hit = tri_img >= 0
     img[hit] = col[tri_img[hit]]
+    if uvs:
+        _uv_checker(img, hit, tri_img, tris, sxy, tri_mesh, meshes, uvs, size)
+    prim[hit] = tri_mesh[tri_img[hit]]
+    tri_loc[hit] = tri_start[tri_img[hit]]
+    depth[hit] = (-1.0 / zbuf[hit] if persp else zbuf[hit]).astype(np.float32)
 
     if wireframe:
         e = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]])
@@ -180,7 +284,16 @@ def render_clay(
         v &= hit[np.clip(iy, 0, size - 1), np.clip(ix, 0, size - 1)]
         v &= kk <= zbuf[np.clip(iy, 0, size - 1), np.clip(ix, 0, size - 1)] + 0.01 * rng
         img[iy[v], ix[v]] = (img[iy[v], ix[v]] * 0.6).astype(np.uint8)
-    return img
+    return RenderBuffers(img, prim, tri_loc, depth, cam, view, size, nid)
+
+
+def render_clay(
+    meshes: list[MeshData],
+    view: View = "persp",
+    size: int = 256,
+    wireframe: bool = False,
+) -> np.ndarray:
+    return render_buffers(meshes, view, size, wireframe=wireframe).color
 
 
 def contact_sheet(

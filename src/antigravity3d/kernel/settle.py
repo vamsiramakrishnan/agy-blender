@@ -24,7 +24,7 @@ needs convex-contact manifolds this cheap pass does not compute.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -295,4 +295,3 @@ def contact_report(
 
 
 __all__ = ["Contact", "GROUND_ID", "NodeSettle", "SettleResult", "contact_report", "settle"]
-_ = field  # noqa

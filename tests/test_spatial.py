@@ -22,13 +22,11 @@ def fast_boxes(n: int, seed: int = 0, extent: float = 100.0):
     rng = np.random.default_rng(seed)
     lo = rng.random((n, 3)) * extent
     size = rng.random((n, 3)) * 3 + 0.1
-    corners = np.array([[x, y, z] for x in (0, 1) for y in (0, 1) for z in (0, 1)], float)
     tri = trimesh.creation.box().faces.astype(np.int32)
     base = trimesh.creation.box(extents=(1, 1, 1)).vertices + 0.5
     meshes = [
         MeshData(f"p{i:05d}", f"/p{i}", base * size[i] + lo[i], tri) for i in range(n)
     ]
-    _ = corners
     return meshes, lo, lo + size
 
 

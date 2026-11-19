@@ -78,7 +78,7 @@ tbody tr:hover { background: var(--surface2); }
 tbody tr[aria-selected="true"] { background: var(--surface2); box-shadow: inset 3px 0 0 var(--accent); }
 .rowbtn { background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: var(--text); text-decoration: underline dotted; }
 td .sw, th .sw { display: none; margin-right: 6px; vertical-align: -1px; }
-body[data-mode="prim"] td .sw { display: inline-block; }
+body[data-channel="prim"] td .sw { display: inline-block; }
 .muted { color: var(--muted); }
 .pill { display: inline-block; font-weight: 600; padding: 1px 8px; border-radius: 4px; border: 1px solid currentColor; }
 .pill.pass { color: var(--ok); } .pill.fail { color: var(--warn); }
@@ -100,7 +100,7 @@ textarea { width: 100%; min-height: 90px; resize: vertical; background: var(--bg
 }
 </style>
 </head>
-<body data-mode="lit">
+<body data-channel="lit">
 <div class="app" id="app">
   <main class="stage">
     <div class="head">
@@ -296,7 +296,7 @@ function refreshModeButtons() {
     b.title = ok ? "" : (state.lod !== 0 && b.dataset.mode !== "uv" ? "Only available on LOD0" : (reasons[b.dataset.mode] || "Unavailable"));
     b.setAttribute("aria-pressed", b.dataset.mode === state.mode ? "true" : "false");
   });
-  document.body.dataset.mode = state.mode;
+  document.body.dataset.channel = state.mode;
   $("legend").hidden = state.mode !== "prim";
 }
 function updateTriGauge() { setGauge("tris", lodLevels[state.lod].tris, P.budget.max_tris); }
