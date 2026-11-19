@@ -11,7 +11,7 @@ from typing import Any, Literal, Mapping
 
 import yaml
 
-from .models import CandidateScore, Stage, VisualQAResult
+from .models import CandidateScore, EngineParityResult, LodPopResult, RigRomResult, Stage, VisualQAResult
 
 
 @dataclass(frozen=True)
@@ -25,14 +25,28 @@ class Thresholds:
     cg_plastic_silhouette_floor: float = 3.2  # auto-fix roughness only if geometry is sound
     approve_dissent_max: float = 0.20  # model P(approve_export) below this vetoes an otherwise clean approve
     defect_penalty_cap: float = 2.0
+    # An uncalibrated result (generative fallback: self-reported probabilities) can never auto_fix or auto-approve
+    # unless a studio opts in here. Existing behaviour for calibrated results is unchanged.
+    trust_uncalibrated: bool = False
+    near_miss_margin: float = 0.20  # uncalibrated "clean" approvals within this of a gate are repaired, not just escalated
+    # Engine parity (DCC render vs game-engine render)
+    engine_parity_defect_max: float = 0.30  # any parity defect P at/above this fails the gate
+    engine_parity_min: float = 3.0  # score_engine_parity expected 0-4
+    # LOD pop (per pair)
+    lod_pop_defect_max: float = 0.30
+    lod_continuity_min: float = 3.0
+    # Rig range of motion (per pose)
+    rig_defect_max: float = 0.30
+    deformation_min: float = 3.0
 
-    def to_dict(self) -> dict[str, float]:
-        return {k: float(v) for k, v in asdict(self).items()}
+    def to_dict(self) -> dict[str, float | bool]:
+        return {k: v if isinstance(v, bool) else float(v) for k, v in asdict(self).items()}
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> "Thresholds":
+        flags = {f.name for f in fields(cls) if f.type in (bool, "bool")}
         known = {f.name for f in fields(cls)}
-        return cls(**{k: float(v) for k, v in d.items() if k in known})
+        return cls(**{k: bool(v) if k in flags else float(v) for k, v in d.items() if k in known})
 
     @classmethod
     def load(cls, path: str | Path) -> "Thresholds":
@@ -97,6 +111,46 @@ class Action:
 
 def decide_action(result: VisualQAResult, th: Thresholds | None = None, stage: Stage | None = None) -> Action:
     th = th or Thresholds()
+    action = _decide_action(result, th, stage)
+    if action.kind not in ("approve", "auto_fix") or th.trust_uncalibrated or getattr(result.result, "calibrated", True):
+        return action
+    return _downgrade_uncalibrated(result, th, action)
+
+
+UNCALIBRATED_NOTE = "decision source was uncalibrated (generative fallback, self-reported probabilities)"
+
+
+def _downgrade_uncalibrated(result: VisualQAResult, th: Thresholds, action: Action) -> Action:
+    """Uncalibrated results never auto_fix / approve.
+
+    auto_fix  -> agent_repair on the same issue (an agent re-checks instead of a blind deterministic fixer).
+    approve   -> agent_repair if the asset only just clears a gate (a defect probability at half the ambiguity floor or
+                 more, silhouette / shippability / tier15 within `near_miss_margin` of its gate), else escalate_director
+                 so a calibrated source or a person confirms the clean-looking result.
+    """
+    note = f"{UNCALIBRATED_NOTE}; {action.kind} withheld"
+    if action.kind == "auto_fix":
+        qid = next((k for k, p in result.defects.items() if p >= th.defect_high), "")
+        return replace(action, kind="agent_repair", fixer=None, target="geometry" if qid in GEOMETRY_DEFECTS else "pbr",
+                       reasons=[note, *action.reasons])
+    near: list[str] = []
+    near += [f"{k}={p:.2f}" for k, p in sorted(result.defects.items()) if p >= th.ambiguity_lo / 2]
+    sil = result.scores.get("score_silhouette")
+    if sil is not None and sil < th.silhouette_lock + th.near_miss_margin:
+        near.append(f"silhouette {sil:.2f}")
+    if result.stage != "blockout":
+        shp = result.scores.get("score_shippability")
+        if shp is not None and shp < th.export_shippability_min + th.near_miss_margin:
+            near.append(f"shippability {shp:.2f}")
+        if action.tier15 < th.export_shippability_min + th.near_miss_margin:
+            near.append(f"tier15 {action.tier15:.2f}")
+    if near:
+        tgt = "geometry" if any(n.split("=")[0] in GEOMETRY_DEFECTS or n.startswith("silhouette") for n in near) else "pbr"
+        return replace(action, kind="agent_repair", target=tgt, reasons=[note, "near a gate: " + ", ".join(near), *action.reasons])
+    return replace(action, kind="escalate_director", reasons=[note, *action.reasons])
+
+
+def _decide_action(result: VisualQAResult, th: Thresholds, stage: Stage | None = None) -> Action:
     stage = stage or result.stage
     t15 = tier15_score(result, th)
     sil = result.scores.get("score_silhouette")
@@ -184,3 +238,58 @@ def rank(candidates: list[CandidateScore], kind: str, th: Thresholds | None = No
     scored = [replace(c, utility=utility(c)) for c in candidates]
     return sorted(scored, key=lambda c: (c.blocked, sum(p >= th.defect_high for p in c.defects.values()),
                                          -round(c.utility or 0.0, 6), c.index))
+
+
+# ---- engine parity / LOD pop / rig ROM gates ------------------------------------------------------------
+
+def _uncalibrated(src: Any, th: Thresholds) -> list[str]:
+    return [UNCALIBRATED_NOTE] if not th.trust_uncalibrated and not getattr(src.result, "calibrated", True) else []
+
+
+def _gate(defects: Mapping[str, float], scores: Mapping[str, float], score_id: str, defect_max: float, score_min: float,
+          prefix: str = "") -> list[str]:
+    out = [f"{prefix}{k}={p:.2f} >= {defect_max}" for k, p in sorted(defects.items()) if p >= defect_max]
+    if (v := scores.get(score_id)) is None:
+        out.append(f"{prefix}{score_id} missing")
+    elif v < score_min:
+        out.append(f"{prefix}{score_id} {v:.2f} < {score_min}")
+    return out
+
+
+def engine_parity_reasons(result: EngineParityResult, th: Thresholds | None = None) -> list[str]:
+    th = th or Thresholds()
+    return _uncalibrated(result, th) + _gate(result.defects, result.scores, "score_engine_parity",
+                                             th.engine_parity_defect_max, th.engine_parity_min)
+
+
+def engine_parity_ok(result: EngineParityResult, th: Thresholds | None = None) -> bool:
+    """True iff no parity defect reaches engine_parity_defect_max and score_engine_parity >= engine_parity_min.
+
+    An uncalibrated result fails unless th.trust_uncalibrated.
+    """
+    return not engine_parity_reasons(result, th)
+
+
+def lod_pop_reasons(result: LodPopResult, th: Thresholds | None = None) -> list[str]:
+    th = th or Thresholds()
+    out = _uncalibrated(result, th)
+    for it in result.items:
+        out += _gate(it.defects, it.scores, "score_lod_continuity", th.lod_pop_defect_max, th.lod_continuity_min, f"{it.label}: ")
+    return out
+
+
+def lod_pop_ok(result: LodPopResult, th: Thresholds | None = None) -> bool:
+    """Every LOD pair must pass: no defect at/above lod_pop_defect_max and score_lod_continuity >= lod_continuity_min."""
+    return not lod_pop_reasons(result, th)
+
+
+def rig_rom_reasons(result: RigRomResult, th: Thresholds | None = None) -> list[str]:
+    th = th or Thresholds()
+    out = _uncalibrated(result, th)
+    for it in result.items:
+        out += _gate(it.defects, it.scores, "score_deformation", th.rig_defect_max, th.deformation_min, f"{it.label}: ")
+    return out
+
+
+def rig_rom_ok(result: RigRomResult, th: Thresholds | None = None) -> bool:
+    return not rig_rom_reasons(result, th)
