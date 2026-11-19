@@ -67,7 +67,6 @@ def test_kit_variants_calibrate_and_plugin(tmp_path: Path) -> None:
 
 
 def test_usage_errors_exit_2() -> None:
-    assert agy("prop", "x", "--out", "/tmp/never-used-agy3d").returncode in (2,) or True  # no GEMINI_API_KEY case checked below
     r = subprocess.run([sys.executable, "-m", "antigravity3d.cli", "prop", "x", "--out", "/tmp/agy3d-nokey"], capture_output=True, text=True,
                        env={"PATH": "/usr/bin:/bin", "HOME": "/tmp"}, timeout=60)
     assert r.returncode == 2 and "GEMINI_API_KEY" in r.stderr
