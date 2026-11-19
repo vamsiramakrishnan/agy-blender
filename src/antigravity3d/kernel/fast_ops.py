@@ -34,6 +34,7 @@ log = logging.getLogger(__name__)
 
 FALLBACKS = {
     "lod_simplify": "meshopt.simplify_sloppy on exception (trimesh needs fast_simplification, absent)",
+    "lod_attr_binding": "meshoptimizer 0.2.30a0 leaves simplifyWithAttributes' ctypes argtypes unset (TypeError on call); we set them ourselves on the same native symbol",
     "uv_overflow": "xatlas re-run with texels_per_unit=0 (auto-fit) when requested density overflows the atlas",
 }
 
@@ -391,6 +392,19 @@ def _optimise(idx: np.ndarray, verts: np.ndarray, nvert: int) -> tuple[np.ndarra
     return over, out[:n]
 
 
+def _patch_simplify_with_attributes() -> None:
+    import ctypes as C
+
+    import meshoptimizer.simplifier as sm
+
+    f = sm.lib.meshopt_simplifyWithAttributes
+    if f.argtypes is None:
+        P = C.c_void_p
+        f.argtypes = [P, P, C.c_size_t, P, C.c_size_t, C.c_size_t, P, C.c_size_t, P, C.c_size_t, P,
+                      C.c_size_t, C.c_float, C.c_uint, P]
+        f.restype = C.c_size_t
+
+
 def generate_lods(
     points: np.ndarray,
     triangles: np.ndarray,
@@ -399,6 +413,7 @@ def generate_lods(
 ) -> list[LOD]:
     import meshoptimizer as mo
 
+    _patch_simplify_with_attributes()
     pts = np.ascontiguousarray(points, dtype=np.float32)
     tri = np.asarray(triangles)
     if uvs is None:  # weld so duplicated hard-edge verts do not freeze the mesh
@@ -418,7 +433,7 @@ def generate_lods(
         if r >= 1.0:
             idx = idx0.copy()
         else:
-            target = max(12, int(len(idx0) * r) // 3 * 3)
+            target = max(12, int(len(idx0) * r) // 3 * 3)  # >= 4 tris
             dst = np.zeros_like(idx0)
             opts = mo.SIMPLIFY_LOCK_BORDER
             try:
