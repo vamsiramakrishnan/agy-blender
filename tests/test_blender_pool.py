@@ -1,0 +1,205 @@
+import asyncio
+import glob
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from antigravity3d.adapters.blender_5_3.pool import BlenderOpError, BlenderPool, WorkerError, find_blender
+
+DAEMON = Path(__file__).parents[1] / "src/antigravity3d/adapters/blender_5_3/daemon.py"
+
+
+def alive(pid: int) -> bool:
+    try:
+        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+    except OSError:
+        return False
+
+
+async def wait_dead(pid: int, t: float = 5.0) -> bool:
+    end = time.monotonic() + t
+    while time.monotonic() < end:
+        if not alive(pid):
+            return True
+        await asyncio.sleep(0.05)
+    return False
+
+
+async def test_ping_render_shm_and_latency():
+    async with BlenderPool(1, fake=True) as pool:
+        t0 = time.perf_counter()
+        n = 50
+        for _ in range(n):
+            assert (await pool.call("ping"))["pong"]
+        print(f"\nfake ping round-trip: {(time.perf_counter() - t0) / n * 1000:.2f} ms")
+        t0 = time.perf_counter()
+        r = await pool.call("render", engine="cycles", width=1024, height=1024)
+        print(f"fake 1024x1024x4 render round-trip: {(time.perf_counter() - t0) * 1000:.1f} ms")
+        img = r["image"]
+        assert isinstance(img, np.ndarray) and img.shape == (1024, 1024, 4) and img.dtype == np.float32
+        assert img[0, 0, 3] == 1.0 and img[0, -1, 0] == pytest.approx(1.0)
+        prefix = pool.prefix
+        await pool.call("ping")  # next request makes the daemon unlink the previous segment
+        assert glob.glob(f"/dev/shm/{prefix}*") == []
+    assert glob.glob(f"/dev/shm/{prefix}*") == []
+
+
+async def test_concurrency_12_calls_3_workers():
+    delay = 0.4
+    async with BlenderPool(3, fake=True) as pool:
+        t0 = time.perf_counter()
+        res = await asyncio.gather(*(pool.call("render", width=32, height=32, seed=i, delay=delay) for i in range(12)))
+        wall = time.perf_counter() - t0
+    assert len({r["pid"] for r in res}) == 3
+    assert wall < 12 * delay * 0.6, wall  # serial would be 4.8s; ideal parallel 1.6s
+    assert wall >= 4 * delay * 0.9
+
+
+async def test_map_preserves_order():
+    async with BlenderPool(3, fake=True) as pool:
+        out = await pool.map("render", [{"width": 8, "height": 8, "seed": s} for s in range(7)])
+        assert [int(round(o["image"][0, 0, 2] * 255)) for o in out] == list(range(7))
+        errs = await pool.map("fail", [{"msg": "a"}, {"msg": "b"}], return_exceptions=True)
+        assert all(isinstance(e, BlenderOpError) for e in errs)
+
+
+async def test_remote_error_mapping():
+    async with BlenderPool(1, fake=True) as pool:
+        with pytest.raises(BlenderOpError) as ei:
+            await pool.call("fail", msg="nope")
+        assert ei.value.cls == "ValueError" and ei.value.msg == "nope" and "ValueError" in ei.value.trace_tail
+        with pytest.raises(BlenderOpError) as ei:
+            await pool.call("no_such_op")
+        assert ei.value.cls == "LookupError"
+        assert (await pool.call("ping"))["pong"]  # worker survives op errors
+
+
+async def test_timeout_replaces_worker():
+    async with BlenderPool(1, fake=True) as pool:
+        (old,) = pool.worker_pids
+        with pytest.raises(WorkerError) as ei:
+            await pool.call("sleep", seconds=5, _timeout=0.3)
+        assert ei.value.kind == "timeout"
+        assert await wait_dead(old)
+        assert (await pool.call("ping"))["pong"]
+        assert pool.worker_pids[0] != old
+
+
+async def test_sigkilled_worker_replaced():
+    async with BlenderPool(3, fake=True) as pool:
+        victim = pool.worker_pids[1]
+        os.kill(victim, signal.SIGKILL)
+        assert await wait_dead(victim)
+        await asyncio.sleep(0.1)
+        res = await asyncio.gather(*(pool.call("ping") for _ in range(9)), return_exceptions=True)
+        assert all(not isinstance(r, Exception) for r in res), res
+        assert victim not in pool.worker_pids
+
+
+async def test_crash_midcall_raises_died_then_recovers():
+    async with BlenderPool(1, fake=True) as pool:
+        with pytest.raises(WorkerError) as ei:
+            await pool.call("crash")
+        assert ei.value.kind == "died"
+        assert (await pool.call("ping"))["pong"]
+
+
+async def test_clean_stop_leaves_nothing():
+    pool = BlenderPool(3, fake=True)
+    await pool.start()
+    pids, tmp, prefix = [p for p in pool.worker_pids if p], pool.tmpdir, pool.prefix
+    await pool.call("render", width=16, height=16)
+    assert os.path.isdir(tmp) and glob.glob(f"{tmp}/*.sock")
+    await pool.stop()
+    assert not os.path.exists(tmp)
+    assert glob.glob(f"/dev/shm/{prefix}*") == []
+    for p in pids:
+        assert await wait_dead(p)
+
+
+async def test_daemon_refuses_unsafe_run_script():
+    async with BlenderPool(1, fake=True) as pool:
+        with pytest.raises(BlenderOpError) as ei:
+            await pool.call("run_script", source="import os\nos.system('id')")
+        assert ei.value.cls == "UnsafeScriptError" and "AG001" in ei.value.msg
+        with pytest.raises(BlenderOpError):
+            await pool.call("run_script", source="import bpy\nbpy.ops.wm.quit_blender()")
+        ok = await pool.call("run_script", source="import bpy\nx = 1")
+        assert ok["linted"] and not ok["executed"]
+        # legacy flag rewrites deprecated symbols before linting
+        assert (await pool.call("run_script", source="e = 'BLENDER_EEVEE_NEXT'", legacy=True))["linted"]
+        with pytest.raises(BlenderOpError):
+            await pool.call("run_script", source="e = 'BLENDER_EEVEE_NEXT'")
+
+
+async def test_fake_ops_geonodes_and_bake(tmp_path):
+    async with BlenderPool(1, fake=True) as pool:
+        r = await pool.call("apply_geonodes", tree_json='{"name": "t", "inputs": [{"name": "w", "type": "NodeSocketFloat"}]}',
+                            object_name="Cube", inputs={}, is_preview=True)
+        assert r["inputs"] == ["Geometry", "w", "is_preview"]
+        b = await pool.call("bake_maps", object_name="Cube", maps=["normal", "ao"], resolution=64, out_dir=str(tmp_path))
+        assert all(os.path.exists(p) for p in b["paths"])
+        v = await pool.call("version")
+        assert v["fake"] and "render" in v["ops"]
+
+
+async def test_startup_failure_is_typed(tmp_path):
+    bad = tmp_path / "blender"
+    bad.write_text("#!/bin/sh\nexit 1\n")
+    bad.chmod(0o755)
+    pool = BlenderPool(1, blender_bin=str(bad), startup_timeout=5)
+    with pytest.raises(WorkerError) as ei:
+        await pool.start()
+    assert ei.value.kind == "startup"
+    assert not pool.tmpdir
+
+
+async def test_missing_blender_binary(monkeypatch):
+    monkeypatch.delenv("BLENDER_BIN", raising=False)
+    monkeypatch.setenv("PATH", "/nonexistent")
+    with pytest.raises(FileNotFoundError):
+        await BlenderPool(1).start()
+
+
+def test_daemon_exits_when_parent_dies(tmp_path):
+    sock = str(tmp_path / "d.sock")
+    code = (
+        "import subprocess,sys,time\n"
+        f"p=subprocess.Popen([sys.executable,{str(DAEMON)!r},'--fake','--socket',{sock!r}])\n"
+        "print(p.pid,flush=True)\ntime.sleep(60)\n"
+    )
+    parent = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
+    try:
+        child = int(parent.stdout.readline())
+        for _ in range(100):
+            if os.path.exists(sock):
+                break
+            time.sleep(0.05)
+        assert alive(child)
+        parent.kill()
+        parent.wait()
+        end = time.monotonic() + 5
+        while alive(child) and time.monotonic() < end:
+            time.sleep(0.05)
+        assert not alive(child), "daemon orphaned"
+        assert not os.path.exists(sock)
+    finally:
+        parent.kill()
+
+
+@pytest.mark.blender
+async def test_real_blender_ping_and_render():
+    if not find_blender():
+        pytest.skip("no Blender binary ($BLENDER_BIN or PATH)")
+    async with BlenderPool(1, startup_timeout=120) as pool:
+        assert (await pool.call("version"))["blender"]
+        await pool.call("reset_scene")
+        r = await pool.call("render", engine="workbench", width=64, height=64, samples=1)
+        assert r["image"].shape == (64, 64, 4)

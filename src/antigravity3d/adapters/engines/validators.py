@@ -108,7 +108,7 @@ class GodotValidator(EngineValidator):
     def command(self, exe: str, package: Path, workdir: Path) -> tuple[list[str], dict[str, str]]:
         (workdir / "project.godot").write_text('config_version=5\n[application]\nconfig/name="agy3d_check"\n')
         (workdir / "check.gd").write_text(_GODOT_CHECK)
-        return [exe, "--headless", "--path", str(workdir), "--import", "--script", "check.gd"], {"AGY_PACKAGE": str(package)}
+        return [exe, "--headless", "--path", str(workdir), "--script", "check.gd"], {"AGY_PACKAGE": str(package)}
 
 
 _UNREAL_PY = """import os, sys, unreal

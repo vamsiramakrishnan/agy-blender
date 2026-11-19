@@ -88,28 +88,39 @@ def _rasterise(sxy: np.ndarray, key: np.ndarray, tris: np.ndarray, size: int):
     y1 = np.minimum(np.ceil(hi[:, 1] - 0.5), size - 1).astype(np.int32)
     ext = np.maximum(x1 - x0, y1 - y0) + 1
     ok = (np.abs(area) > 1e-9) & (x1 >= x0) & (y1 >= y0)
-    bucket = np.ones(len(tris), np.int32)
-    bucket[ok] = 1 << np.ceil(np.log2(np.maximum(ext[ok], 1))).astype(np.int32)
+    sizes = np.array([1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256], np.int32)
+    bucket = np.zeros(len(tris), np.int32)
+    bucket[ok] = sizes[np.searchsorted(sizes, ext[ok])]
     pix_l, key_l, tri_l = [], [], []
     for B in np.unique(bucket[ok]):
         ids = np.nonzero(ok & (bucket == B))[0]
         g = np.arange(B, dtype=np.float32) + 0.5
-        px = x0[ids, None, None] + g[None, None, :]          # (T,1,B)
-        py = y0[ids, None, None] + g[None, :, None]          # (T,B,1)
         a, b, c = p0[ids].astype(np.float32), p1[ids].astype(np.float32), p2[ids].astype(np.float32)
-        inv = (1.0 / area[ids]).astype(np.float32)[:, None, None]
-        w0 = ((b[:, 0, None, None] - px) * (c[:, 1, None, None] - py) - (b[:, 1, None, None] - py) * (c[:, 0, None, None] - px)) * inv
-        w1 = ((c[:, 0, None, None] - px) * (a[:, 1, None, None] - py) - (c[:, 1, None, None] - py) * (a[:, 0, None, None] - px)) * inv
-        w2 = 1.0 - w0 - w1
-        # x0 + g can exceed x1 for the padded part of the bucket
-        inside = (w0 >= -1e-5) & (w1 >= -1e-5) & (w2 >= -1e-5) & (px < (x1[ids] + 1)[:, None, None]) & (py < (y1[ids] + 1)[:, None, None])
+        inv = (1.0 / area[ids]).astype(np.float32)
+        ox = x0[ids].astype(np.float32)[:, None] + g[None]    # (T,B) pixel-centre x
+        oy = y0[ids].astype(np.float32)[:, None] + g[None]    # (T,B) pixel-centre y
+        # w0 (weight of p0) = edge function of (p1,p2) at pixel, normalised; linear in x and y
+        w = []
+        for u, v in ((b, c), (c, a)):
+            dy, dx = (v[:, 1] - u[:, 1]) * inv, (u[:, 0] - v[:, 0]) * inv
+            # (u-P) x (v-P) normalised: ((ux-px)(vy-py)-(uy-py)(vx-px))/area -> affine in px,py
+            c0 = (u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]) * inv
+            tx = (-dy)[:, None] * ox + c0[:, None]
+            ty = (-dx)[:, None] * oy
+            w.append(tx[:, None, :] + ty[:, :, None])
+        w0, w1 = w
+        inside = (w0 >= -1e-5) & (w1 >= -1e-5) & ((w0 + w1) <= 1.00001)
         t, j, i = np.nonzero(inside)
         if not len(t):
             continue
+        fx = x0[ids][t] + i
+        fy = y0[ids][t] + j
+        v = (fx < size) & (fy < size)
+        t, j, i, fx, fy = t[v], j[v], i[v], fx[v], fy[v]
         k = key[tris[ids]]  # (T,3)
-        z = w0[t, j, i] * k[t, 0] + w1[t, j, i] * k[t, 1] + w2[t, j, i] * k[t, 2]
-        pix_l.append((y0[ids][t] + j) * size + x0[ids][t] + i)
-        key_l.append(z)
+        wa, wb = w0[t, j, i], w1[t, j, i]
+        pix_l.append(fy * size + fx)
+        key_l.append(wa * k[t, 0] + wb * k[t, 1] + (1.0 - wa - wb) * k[t, 2])
         tri_l.append(ids[t])
     tri_img = np.full(size * size, -1, np.int32)
     zbuf = np.full(size * size, np.inf, np.float32)
@@ -133,8 +144,8 @@ def render_clay(
     if not len(tris):
         return img
     sxy, z, B, persp = _project(pts, view, size)
-    keep = (z[tris] > 1e-6).all(axis=1)
-    tris = tris[keep]
+    if persp:
+        tris = tris[(z[tris] > 1e-6).all(axis=1)]
     # depth key: smaller = nearer. Persp interpolates 1/z linearly (screen-correct).
     key = (-1.0 / z if persp else z).astype(np.float32)
     tri_img, zbuf = _rasterise(sxy, key, tris, size)
@@ -167,7 +178,7 @@ def render_clay(
             kk = ka + (kb - ka) * t
         rng = float(np.ptp(key)) or 1.0
         v &= kk[:] <= zbuf[np.clip(iy, 0, size - 1), np.clip(ix, 0, size - 1)] + 0.01 * rng
-        img[iy[v], ix[v]] = (img[iy[v], ix[v]] * 0.35).astype(np.uint8)
+        img[iy[v], ix[v]] = (img[iy[v], ix[v]] * 0.6).astype(np.uint8)
     return img
 
 
