@@ -1,6 +1,15 @@
 {
   "command": "uv",
-  "args": ["run", "python", "-m", "antigravity3d.runtime.depot_watcher", "--interval", "2", "--quiet", "4"],
+  "args": [
+    "run",
+    "python",
+    "-m",
+    "antigravity3d.runtime.depot_watcher",
+    "--interval",
+    "2",
+    "--quiet",
+    "4"
+  ],
   "restart_policy": "always",
   "display_name": "antigravity-3d depot watcher",
   "description": "Polls the asset drop folder ($AGY3D_DEPOT_DIR, default ~/agy3d_depot) for new .fbx/.glb/.gltf/.obj/.usd* files, waits until each file stops growing, batches files that land together, and starts one batch-sanitize conversation per batch with agentapi new-conversation.",
@@ -8,6 +17,22 @@
     "AGY3D_SANITIZE_MODEL": "gemini-4-carbon-medium"
   },
   "agent_permissions": {
-    "allows_user_interactions": false
+    "allows_user_interactions": false,
+    "access_grants": [
+      "mcp(antigravity-3d_studio/open_asset_session)",
+      "mcp(antigravity-3d_studio/set_stage)",
+      "mcp(antigravity-3d_studio/session_status)",
+      "mcp(antigravity-3d_studio/apply_scene_ir)",
+      "mcp(antigravity-3d_studio/inspect_manifest)",
+      "mcp(antigravity-3d_studio/undo_last_edit)",
+      "mcp(antigravity-3d_studio/render_preview)",
+      "mcp(antigravity-3d_studio/run_visual_qa)",
+      "mcp(antigravity-3d_studio/qa_probe)",
+      "mcp(antigravity-3d_studio/forge_pbr_material)",
+      "mcp(antigravity-3d_studio/apply_shader_diff)",
+      "mcp(antigravity-3d_studio/generate_lods_and_colliders)",
+      "mcp(antigravity-3d_studio/run_usd_validator)",
+      "mcp(antigravity-3d_studio/export_engine_package)"
+    ]
   }
 }

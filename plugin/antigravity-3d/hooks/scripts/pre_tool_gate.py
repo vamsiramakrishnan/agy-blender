@@ -4,6 +4,8 @@
 - ``export_engine_package``: **fails closed**. Denied unless the recorded QA
   verdict has Tier-1 ok, Tier-1.5 >= 3.4, and no mutating tool ran after it.
   Any error while evaluating the gate is a deny.
+- The same two rules apply when the tools arrive over MCP: the step name is the generic ``mcp_tool`` and
+  the tool is identified from ``args.ToolName`` (or a namespaced name ``..._<tool>``).
 - raw Blender scripts (``run_script`` / ``run_bpy_script`` / ``run_blender_script``):
   linted with ``antigravity3d.adapters.blender_5_3.linter.assert_safe``;
   failing scripts are denied with the first issues. If the linter cannot be
@@ -98,8 +100,14 @@ def decide(payload: dict[str, Any]) -> dict[str, Any]:
                                                   "Prefer apply_scene_ir; the escape hatch must lint clean."}
         return {"decision": "allow", "reason": "raw bpy script passed the Blender 5.3 linter"}
 
-    # The hooks.json matcher only routes the tools above here; anything else is
-    # left to the normal permission flow rather than auto-approved.
+    # MCP steps reach this hook under the generic step name ``mcp_tool`` (the matcher includes it). For
+    # this plugin's own server the other tools carry no gate rule here, and the server already applies the
+    # stage/QA/linter gates before dispatch, so they are allowed; any other MCP server's tools go to the
+    # normal permission flow.
+    if c.is_studio_mcp_call(tool_call, names):
+        return {"decision": "allow", "reason": "antigravity-3d MCP tool; gated server-side"}
+
+    # Anything else is left to the normal permission flow rather than auto-approved.
     return {"decision": "ask", "reason": "not an antigravity-3d gated tool"}
 
 

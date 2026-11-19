@@ -26,10 +26,23 @@ EXPORT_MIN_TIER15_SCORE = 3.4
 EXPORT_TOOLS = ("export_engine_package",)
 SCRIPT_TOOLS = ("run_script", "run_bpy_script", "run_blender_script")
 QA_TOOLS = ("run_visual_qa", "run_usd_validator")
+# generate_lods_and_colliders is deliberately absent: it only derives LOD/collider data from the
+# current scene, so running it between QA and export must not invalidate the QA verdict.
 MUTATING_TOOLS = (
-    "apply_scene_ir", "apply_shader_diff", "forge_pbr_material", "run_paintover_loop",
-    "generate_lods_and_colliders",
+    "apply_scene_ir", "apply_shader_diff", "forge_pbr_material", "run_paintover_loop", "undo_last_edit",
+    "propose_variants", "select_variant", "promote_variant",
 ) + SCRIPT_TOOLS
+# Every tool the plugin's MCP server (antigravity3d.runtime.mcp_server) serves. The server applies the same
+# gate decisions itself before dispatch; tests/test_mcp_server.py keeps this list equal to its tools/list.
+STUDIO_TOOLS = (
+    "open_asset_session", "set_stage", "session_status", "list_sessions",
+    "apply_scene_ir", "inspect_manifest", "undo_last_edit", "render_preview", "run_visual_qa", "qa_probe",
+    "propose_variants", "select_variant", "promote_variant", "forge_pbr_material", "apply_shader_diff",
+    "run_paintover_loop", "render_lookdev", "generate_lods_and_colliders", "run_usd_validator",
+    "export_engine_package", "run_bpy_script",
+)
+MCP_STEP_NAME = "mcp_tool"  # docs: tool name = lower-cased step type without the CORTEX_STEP_TYPE_ prefix
+MCP_SERVER_PREFIX = "antigravity-3d"  # plugin MCP servers are namespaced <plugin>_<server>
 SCRIPT_ARG_KEYS = ("source", "script", "code", "Source", "Script", "Code")
 _SAFE = re.compile(r"[^A-Za-z0-9_.-]")
 
@@ -98,7 +111,8 @@ def write_json(path: Path, obj: Any) -> None:
 def tool_args(tool_call: dict[str, Any]) -> dict[str, Any]:
     args = tool_call.get("args")
     args = dict(args) if isinstance(args, dict) else {}
-    inner = args.get("Arguments") or args.get("arguments")  # MCP-style wrapper
+    inner = next((args[k] for k in ("Arguments", "arguments", "ArgumentsJson", "argumentsJson", "arguments_json")
+                  if args.get(k)), None)  # MCP-style wrapper
     if isinstance(inner, str):
         try:
             inner = json.loads(inner)
@@ -112,7 +126,7 @@ def tool_args(tool_call: dict[str, Any]) -> dict[str, Any]:
 def tool_names(tool_call: dict[str, Any]) -> list[str]:
     names = [tool_call.get("name")]
     args = tool_call.get("args") if isinstance(tool_call.get("args"), dict) else {}
-    names += [args.get("ToolName"), args.get("toolName")]
+    names += [args.get("ToolName"), args.get("toolName"), args.get("tool_name")]
     return [n.lower() for n in names if isinstance(n, str) and n]
 
 
@@ -158,3 +172,12 @@ def export_gate(root: Path, conversation: str) -> tuple[bool, str]:
         return False, (f"scene changed by {dirty.get('tool', 'a mutating tool')} after the last QA run "
                        f"(score {score:.2f}); re-run QA before export")
     return True, f"QA gate passed (Tier-1 ok, Tier-1.5 {score:.2f} >= {EXPORT_MIN_TIER15_SCORE})"
+
+
+def is_studio_mcp_call(tool_call: dict[str, Any], names: list[str]) -> bool:
+    """True for an MCP step that targets this plugin's own server (or names one of its tools)."""
+    if MCP_STEP_NAME not in names and not any(n.startswith("mcp_") for n in names):
+        return False
+    args = tool_call.get("args") if isinstance(tool_call.get("args"), dict) else {}
+    server = next((str(args[k]) for k in ("ServerName", "serverName", "server_name") if args.get(k)), "")
+    return server.lower().startswith(MCP_SERVER_PREFIX) or bool(is_tool(names, STUDIO_TOOLS))

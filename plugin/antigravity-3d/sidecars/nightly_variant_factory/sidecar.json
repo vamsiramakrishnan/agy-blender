@@ -13,6 +13,22 @@
   "display_name": "antigravity-3d nightly variant factory",
   "description": "Every night at 02:17 UTC, starts a conversation that turns the queued assets in .agy3d/variants/queue.json into QA-gated parametric variants and exports the ones that pass.",
   "agent_permissions": {
-    "allows_user_interactions": false
+    "allows_user_interactions": false,
+    "access_grants": [
+      "mcp(antigravity-3d_studio/open_asset_session)",
+      "mcp(antigravity-3d_studio/set_stage)",
+      "mcp(antigravity-3d_studio/session_status)",
+      "mcp(antigravity-3d_studio/apply_scene_ir)",
+      "mcp(antigravity-3d_studio/inspect_manifest)",
+      "mcp(antigravity-3d_studio/undo_last_edit)",
+      "mcp(antigravity-3d_studio/render_preview)",
+      "mcp(antigravity-3d_studio/run_visual_qa)",
+      "mcp(antigravity-3d_studio/qa_probe)",
+      "mcp(antigravity-3d_studio/forge_pbr_material)",
+      "mcp(antigravity-3d_studio/apply_shader_diff)",
+      "mcp(antigravity-3d_studio/generate_lods_and_colliders)",
+      "mcp(antigravity-3d_studio/run_usd_validator)",
+      "mcp(antigravity-3d_studio/export_engine_package)"
+    ]
   }
 }
