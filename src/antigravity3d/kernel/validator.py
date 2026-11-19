@@ -40,7 +40,7 @@ def validate_usd(path_or_stage: str | Path | Usd.Stage) -> list[Issue]:
                 if path != Sdf.Path.absoluteRootPath:
                     node = path.name
                 break
-        out.append(Issue(err.GetIdentifier().GetText() if hasattr(err.GetIdentifier(), "GetText") else str(err.GetIdentifier()),
+        out.append(Issue(str(err.GetIdentifier()),
                          sev, node, err.GetMessage()[:300]))
     return out
 
