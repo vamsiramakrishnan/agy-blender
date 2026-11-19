@@ -40,8 +40,9 @@ LOOPBACK = "127.0.0.1"
 
 def list_viewers(root: Path) -> list[dict[str, object]]:
     items = []
+    root = root.resolve()
     for p in root.glob("*.html"):
-        if p.name.startswith(".") or not p.is_file():
+        if p.name.startswith(".") or not p.is_file() or not p.resolve().is_relative_to(root):
             continue
         st = p.stat()
         items.append({"name": p.name, "bytes": st.st_size, "mtime": st.st_mtime})

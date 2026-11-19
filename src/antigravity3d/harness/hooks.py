@@ -24,6 +24,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import time
 from collections import defaultdict
 from collections.abc import Sequence
@@ -276,11 +277,25 @@ class TelemetryHook(PreToolCallDecideHook, PostToolCallHook):
 # --------------------------------------------------------------------------- errors
 
 
+_EXC_LINE = re.compile(r"^\s*(?:[\w.]+\.)?(\w+(?:Error|Exception|Exit|Interrupt|Warning))\s*:\s*(.*)$")
+
+
+def _unwrap_tool_error(exc: Exception) -> Exception:
+    """The local harness hands the hook a ToolExecutionError whose message is the formatted traceback;
+    rebuild the root exception (same class *name*, last message) so the compressor's hints apply."""
+    if not isinstance(exc, types.ToolExecutionError):
+        return exc
+    for line in reversed(str(exc).splitlines()):
+        if m := _EXC_LINE.match(line):
+            return type(m.group(1), (Exception,), {})(m.group(2))
+    return exc
+
+
 class TracebackCompressorHook(OnToolErrorHook):
     """Replaces the stack trace sent to the model with one compressed line."""
 
     async def run(self, context: HookContext, data: Exception) -> str:
-        return compress_exception(data)
+        return compress_exception(_unwrap_tool_error(data))
 
 
 # --------------------------------------------------------------------------- vision
@@ -375,9 +390,8 @@ async def sanitize_prompt(prompt: types.Content, s: Session) -> tuple[types.Cont
             out.append(p)
     if uris:
         s._set("user_image_uris", [*(s._res("user_image_uris") or []), *uris])
-    if not isinstance(prompt, Sequence) or isinstance(prompt, str):
-        return (out[0] if not uris else out[0]), uris
-    return out, uris
+    single = isinstance(prompt, str) or not isinstance(prompt, Sequence)
+    return (out[0] if single else out), uris
 
 
 # --------------------------------------------------------------------------- stop
