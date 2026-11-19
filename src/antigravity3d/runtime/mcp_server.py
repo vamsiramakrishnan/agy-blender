@@ -218,8 +218,8 @@ class StudioHost:
             if not verdict.allow:
                 return f"REFUSED {verdict.message}"
             return await fn(ctx=McpToolContext(self.registry, sid), **kwargs)  # type: ignore[call-arg]
-        except LookupError as e:
-            return f"ERROR {e}"
+        except (LookupError, ValueError, RuntimeError) as e:  # expected: no/unknown session, bad input
+            return f"ERROR {compress_exception(e)}"
         except Exception as e:  # noqa: BLE001 - one compressed line, never a traceback
             log.exception("tool %s failed", name)
             return f"ERROR {compress_exception(e)}"

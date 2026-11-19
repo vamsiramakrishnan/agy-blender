@@ -78,7 +78,8 @@ def test_hook_script_tool_list_matches_the_server():
 
 async def test_session_stage_scoping_export_gate_and_linter(tmp_path):
     async with client(tmp_path) as s:
-        assert (await call(s, "apply_scene_ir", ops_json="{}")).startswith("ERROR no asset session")
+        r = await call(s, "apply_scene_ir", ops_json="{}")
+        assert r.startswith("ERROR") and "no asset session" in r
         line = await call(s, "open_asset_session", asset_name="Crate", target_engine="unreal_5", max_tris=9000)
         assert line.startswith("SESSION Crate-") and "stage=BLOCKOUT" in line and "tris<=9000" in line
         assert (await call(s, "list_sessions")).startswith("* SESSION Crate-")
@@ -130,7 +131,8 @@ async def test_explicit_session_id_selects_between_sessions(tmp_path):
         assert r.startswith("OK")
         assert "nodes=0" in (await call(s, "session_status"))  # the active session is B (last opened)
         assert "nodes=2" in (await call(s, "session_status", session_id=a))
-        assert (await call(s, "session_status", session_id="nope")).startswith("ERROR unknown session")
+        r = await call(s, "session_status", session_id="nope")
+        assert r.startswith("ERROR") and "unknown session 'nope'" in r
         assert (await call(s, "open_asset_session", asset_name="C", target_engine="quake")).startswith("ERROR")
 
 
