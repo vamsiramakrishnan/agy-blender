@@ -6,7 +6,7 @@ antigravity-3d turns a text prompt, or existing mesh files, into game-engine-rea
 
 - **Works and is tested offline** (no API key, no Blender). The whole pipeline runs from prompt to exported package, using built-in template geometry and procedural stand-in images. The suite has about 650 automated tests.
 - **Verified against the live Gemini API:** stage agents built on the Antigravity SDK running on `gemini-4-hydrogen` and `gemini-4-carbon`, and image generation. A full non-offline `agy3d prop` run completed but **failed** its quality gates, because the model-authored blockout was weak.
-- **Decisions API not verified live.** `gemini-decision-1` returned 404 for the API key used during development. The decision layer has only been tested against a fake that enforces the SDK's wire format. When the Decisions API is unavailable, the package asks a generative model the same questions. Those answers are marked uncalibrated and cannot auto-approve an asset.
+- **Decisions API not verified live.** `gemini-decision-1` returned 404 for the API key used during development. The decision layer has only been tested against a fake that enforces the SDK's wire format. When the Decisions API is unavailable, the package asks a generative model the same questions. Those answers are marked uncalibrated and cannot auto-approve an asset. That fallback was exercised live on `gemini-4-neon`.
 - **Not verified:**
   - Anything that runs inside Blender. No Blender was available, so that code is exercised only through a stand-in process.
   - Imports into Unreal, Unity, Godot or Roblox. No engines were available, so those steps report "skipped".
