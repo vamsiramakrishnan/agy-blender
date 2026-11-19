@@ -113,6 +113,11 @@ generated from its signature (no `ctx`; an optional `session_id` is added), plus
   generative fallback) and a real `ImageForge`. `AGY3D_OFFLINE=1`, or no key: the
   fakes. The Blender pool is attached through `PoolClient` when
   `$AGY3D_POOL_SOCKET` exists.
+- **Ordering.** The MCP runner dispatches requests concurrently, so every tool
+  call takes one FIFO lock as its first await: calls run in arrival order (a
+  client may pipeline `open_asset_session` and `apply_scene_ir`), at the cost of
+  serial execution per server process. On stdin EOF the server answers every
+  request it already received before it exits (`_DrainingStreams`).
 - **Sessions.** The active session is the last one opened or selected with
   `set_stage`; pass `session_id` to act on another.
 - The two schedule sidecars that start conversations carry explicit

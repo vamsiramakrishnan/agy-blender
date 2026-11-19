@@ -21,12 +21,8 @@ from antigravity3d.kernel.validator import ENGINE_RULES
 
 
 def hull_prim_name(engine: str, asset: str, index: int, hull_name: str) -> str | None:
-    """Collision-hull prim name per engine convention; None when the engine has no named-geometry convention."""
-    if engine == "unreal_5":
-        return hull_name  # UCX_<asset>_NN
-    if engine == "godot_4":
-        return f"{asset}_{index:02d}-convcolonly"
-    return None
+    """USD collision-hull prim name: always ``UCX_<asset>_<nn>`` (USD identifiers cannot carry Godot's '-convcolonly')."""
+    return hull_name if hull_name.startswith("UCX_") else f"UCX_{asset}_{index:02d}"
 
 
 def _to_native(points: np.ndarray, engine: str) -> np.ndarray:

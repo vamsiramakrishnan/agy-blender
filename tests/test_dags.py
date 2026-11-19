@@ -249,3 +249,12 @@ async def test_variant_factory_without_forge_records_skipped_overlays(tmp_path: 
     sm.commit_all()
     rep = await VariantFactoryDAG(workdir=tmp_path / "v", budget=UE, looks=("pristine", "muddy")).run([tmp_path / "t.usda"])
     assert rep.ok and len(rep.extras["rows"][0]["variants"]) == 2 and "no forge" in rep.extras["skipped"][0]["reason"]
+
+
+async def test_batch_sanitize_godot_target_uses_valid_usd_collider_names(tmp_path: Path) -> None:
+    trimesh.creation.cylinder(radius=0.3, height=1.0).export(tmp_path / "cyl.glb")
+    rep = await BatchSanitizeDAG(workdir=tmp_path / "o", budget=EngineBudget("godot_4")).run([tmp_path / "cyl.glb"])
+    r = rep.extras["rows"][0]
+    assert r["status"] == "ok" and rep.extras["gates_ok"], r
+    names = [p.GetName() for p in Usd.Stage.Open(r["outputs"]["usd"]).Traverse()]
+    assert any(n.startswith("UCX_") for n in names) and not any("-" in n for n in names)
