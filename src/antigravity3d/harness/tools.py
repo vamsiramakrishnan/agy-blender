@@ -112,8 +112,8 @@ async def _render(s: Session, wireframe: bool = True) -> Preview:
     path = s.artifacts_dir / f"preview_{len(s.previews) + 1:03d}.png"
     await asyncio.to_thread(sheet.save, path)
     uri = await s.forge.upload(path) if s.forge is not None else path.as_uri()
-    p = s.add_preview(path, uri)
-    if p.geom_version != version:  # geometry changed while rendering: keep the file, mark stale
+    p = s.add_preview(path, uri, version)
+    if version != s.geom_version:  # geometry changed while rendering: recorded as stale
         raise RuntimeError("geometry changed during render; re-run")
     return p
 

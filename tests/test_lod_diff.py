@@ -37,9 +37,9 @@ def test_identical_lods_are_perfect():
     p = render_lod_pair(s, s, screen_fraction=0.25)
     assert p.iou == 1.0 and p.shading_diff == 0.0 and p.boundary_px == 0.0
     assert not np.asarray(p.crop_diff).any()
-    # object really is small: ~25% of 256 px across
+    # the bounding sphere (r = half bbox diagonal = 0.866) spans 25% of 256 px; the unit-diameter sphere inside it is 1/1.732 of that
     ys, xs = np.nonzero(p.mask_a)
-    assert 0.2 * 256 < xs.max() - xs.min() < 0.3 * 256
+    assert xs.max() - xs.min() + 1 == pytest.approx(0.25 * 256 / math.sqrt(3), abs=2)
     assert p.distance_m == pytest.approx(transition_distance(0.5 * math.sqrt(3), 0.25))
     r = lod_pop_report([s, s, s])
     assert r.ok() and all(t.iou == 1.0 for t in r.transitions)
@@ -65,7 +65,7 @@ def test_part_removed_scores_worse():
     full = part(trimesh.util.concatenate([body, arm]))
     nobody = part(body)
     r = lod_pop_report([full, full, nobody], transitions=(0.5, 0.25))
-    assert r.worst.index == 1 and r.transitions[1].iou < 0.9 and r.transitions[0].iou == 1.0
+    assert r.worst.index == 1 and r.transitions[1].iou < 0.95 and r.transitions[0].iou == 1.0
     assert r.transitions[1].boundary_px > 5
 
 

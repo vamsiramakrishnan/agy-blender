@@ -1,0 +1,21 @@
+{
+  "command": "uv",
+  "args": ["run", "python", "-m", "antigravity3d.runtime.inspector_server"],
+  "restart_policy": "always",
+  "display_name": "3D Inspector",
+  "description": "Side-pane 3D inspector: serves the self-contained viewer pages antigravity-3d tools generate (geometry, LODs, colliders, budget gauges, QA) from localhost on the injected ANTIGRAVITY_SIDECAR_WEB_PORT and lists them newest first.",
+  "has_web_ui": true,
+  "agent_permissions": {
+    "allows_user_interactions": false
+  },
+  "ui_config": {
+    "display_name": "3D Inspector",
+    "views": [
+      {
+        "path": "/",
+        "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+        "title": "3D Inspector"
+      }
+    ]
+  }
+}

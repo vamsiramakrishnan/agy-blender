@@ -28,7 +28,7 @@ def test_standard_sheet_layout_and_json():
     s = SHEET
     assert abs(sum(x.v1 - x.v0 for x in s.strips) - 1.0) < 1e-9
     top = sorted(s.strips, key=lambda x: -x.v1)
-    assert all(abs(a.v0 - b.v1) < 1e-9 for a, b in zip(top[1:], top)) and abs(top[0].v1 - 1) < 1e-9 and top[-1].v0 == 0
+    assert all(abs(a.v0 - b.v1) < 1e-9 for a, b in zip(top, top[1:])) and abs(top[0].v1 - 1) < 1e-9 and top[-1].v0 == 0
     assert TrimSheet.from_json(s.to_json()) == s
     assert json.loads(s.to_json())["resolution"] == 4096
     p = s.layout_prompt()

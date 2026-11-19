@@ -88,8 +88,9 @@ class Session:
     def set_last_export(self, path: Path | None) -> None:
         self._set(R_LAST_EXPORT, path)
 
-    def add_preview(self, path: Path, uri: str) -> Preview:
-        p = Preview(path, uri, self.geom_version, len(self.previews) + 1)
+    def add_preview(self, path: Path, uri: str, geom_version: int | None = None) -> Preview:
+        version = self.geom_version if geom_version is None else geom_version
+        p = Preview(path, uri, version, len(self.previews) + 1)
         self._set(R_PREVIEWS, [*self.previews, p])
         return p
 

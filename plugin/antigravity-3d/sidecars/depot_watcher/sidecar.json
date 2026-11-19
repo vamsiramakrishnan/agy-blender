@@ -1,0 +1,13 @@
+{
+  "command": "uv",
+  "args": ["run", "python", "-m", "antigravity3d.runtime.depot_watcher", "--interval", "2", "--quiet", "4"],
+  "restart_policy": "always",
+  "display_name": "antigravity-3d depot watcher",
+  "description": "Polls the asset drop folder ($AGY3D_DEPOT_DIR, default ~/agy3d_depot) for new .fbx/.glb/.gltf/.obj/.usd* files, waits until each file stops growing, batches files that land together, and starts one batch-sanitize conversation per batch with agentapi new-conversation.",
+  "env": {
+    "AGY3D_SANITIZE_MODEL": "gemini-4-carbon-medium"
+  },
+  "agent_permissions": {
+    "allows_user_interactions": false
+  }
+}
