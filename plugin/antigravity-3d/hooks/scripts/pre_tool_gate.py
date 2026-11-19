@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""PreToolUse gate for antigravity-3d (wired in ../../hooks.json).
+
+- ``export_engine_package``: **fails closed**. Denied unless the recorded QA
+  verdict has Tier-1 ok, Tier-1.5 >= 3.4, and no mutating tool ran after it.
+  Any error while evaluating the gate is a deny.
+- raw Blender scripts (``run_script`` / ``run_bpy_script`` / ``run_blender_script``):
+  linted with ``antigravity3d.adapters.blender_5_3.linter.assert_safe``;
+  failing scripts are denied with the first issues. If the linter cannot be
+  imported the call is not auto-approved: decision ``ask`` (the user decides),
+  with a logged warning -- the Blender daemon re-lints every script anyway.
+
+Output (docs): ``{"decision": "allow"|"deny"|"ask", "reason": "..."}``. The
+harness blocks on an unrecognised decision, so every path prints one.
+Also records the call's start time so the PostToolUse logger can report an
+exact duration for gated calls.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import os
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _common as c  # noqa: E402
+
+LINTER_REL = Path("src/antigravity3d/adapters/blender_5_3/linter.py")
+
+
+def _load_linter(payload: dict[str, Any]) -> Any | None:
+    try:
+        from antigravity3d.adapters.blender_5_3 import linter  # type: ignore[import-not-found]
+
+        return linter
+    except Exception:  # noqa: BLE001
+        pass
+    cands = [os.environ.get("AGY3D_LINTER_PATH")]
+    cands += [str(Path(w) / LINTER_REL) for w in payload.get("workspacePaths") or [] if isinstance(w, str)]
+    cands.append(str(Path(__file__).resolve().parents[4] / LINTER_REL))  # plugin symlinked from the repo
+    for p in cands:
+        if p and os.path.isfile(p):
+            spec = importlib.util.spec_from_file_location("_agy3d_linter", p)
+            if spec and spec.loader:
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules[spec.name] = mod  # dataclasses needs the module registered
+                spec.loader.exec_module(mod)
+                return mod
+    return None
+
+
+def _record_start(payload: dict[str, Any], tool_call: dict[str, Any]) -> None:
+    tid = tool_call.get("id")
+    if not tid:
+        return
+    try:
+        p = c.state_root(payload) / "hooks" / "inflight" / f"{c.safe_key(str(tid))}.json"
+        c.write_json(p, {"t": time.time()})
+    except Exception as e:  # noqa: BLE001
+        c.warn(payload, f"could not record start time: {e}")
+
+
+def decide(payload: dict[str, Any]) -> dict[str, Any]:
+    tool_call = payload.get("toolCall") if isinstance(payload.get("toolCall"), dict) else {}
+    names = c.tool_names(tool_call)
+    _record_start(payload, tool_call)
+
+    if c.is_tool(names, c.EXPORT_TOOLS):
+        try:
+            ok, reason = c.export_gate(c.state_root(payload), c.conv_id(payload))
+        except Exception as e:  # noqa: BLE001 - fail closed
+            return {"decision": "deny", "reason": f"export gate could not read QA state ({e}); failing closed"}
+        return {"decision": "allow" if ok else "deny", "reason": reason}
+
+    if c.is_tool(names, c.SCRIPT_TOOLS):
+        args = c.tool_args(tool_call)
+        source = next((args[k] for k in c.SCRIPT_ARG_KEYS if isinstance(args.get(k), str)), None)
+        if source is None:
+            return {"decision": "deny", "reason": "raw script call has no source argument to lint"}
+        try:
+            linter = _load_linter(payload)
+        except Exception as e:  # noqa: BLE001
+            linter = None
+            c.warn(payload, f"linter import failed: {e}")
+        if linter is None:
+            c.warn(payload, "antigravity3d linter not importable; asking the user instead of auto-approving")
+            return {"decision": "ask", "reason": "antigravity-3d linter unavailable; review this raw bpy script"}
+        try:
+            linter.assert_safe(source)
+        except linter.UnsafeScriptError as e:
+            issues = "; ".join(str(i) for i in e.issues[:3])
+            more = f" (+{len(e.issues) - 3} more)" if len(e.issues) > 3 else ""
+            return {"decision": "deny", "reason": f"raw bpy script rejected by the 5.3 linter: {issues}{more}. "
+                                                  "Prefer apply_scene_ir; the escape hatch must lint clean."}
+        return {"decision": "allow", "reason": "raw bpy script passed the Blender 5.3 linter"}
+
+    # The hooks.json matcher only routes the tools above here; anything else is
+    # left to the normal permission flow rather than auto-approved.
+    return {"decision": "ask", "reason": "not an antigravity-3d gated tool"}
+
+
+def main() -> None:
+    payload = c.read_payload()
+    try:
+        out = decide(payload)
+    except Exception as e:  # noqa: BLE001
+        names = c.tool_names(payload.get("toolCall") or {}) if isinstance(payload.get("toolCall"), dict) else []
+        c.warn(payload, f"gate crashed: {e!r}")
+        if c.is_tool(names, c.EXPORT_TOOLS):
+            out = {"decision": "deny", "reason": f"export gate error ({e}); failing closed"}
+        else:
+            out = {"decision": "ask", "reason": f"antigravity-3d gate error ({e}); please review"}
+    c.emit(out)
+
+
+if __name__ == "__main__":
+    main()
