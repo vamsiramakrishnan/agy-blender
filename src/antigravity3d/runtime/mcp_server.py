@@ -306,10 +306,10 @@ def build_server(host: StudioHost | None = None) -> MCPServer:
     host = host or StudioHost()
     server = MCPServer(SERVER_NAME, instructions=INSTRUCTIONS)
     for name, (fn, doc) in _management(host).items():
-        server.add_tool(fn, name=name, description=doc)
+        server.add_tool(fn, name=name, description=doc, structured_output=False)
     for name, fn in T.ALL_TOOLS.items():
         w = _wrapper(name, fn, host)
-        server.add_tool(w, name=name, description=w.__doc__)
+        server.add_tool(w, name=name, description=w.__doc__, structured_output=False)
     server._agy3d_host = host  # type: ignore[attr-defined]
     return server
 

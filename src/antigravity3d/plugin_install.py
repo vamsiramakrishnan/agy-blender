@@ -12,6 +12,7 @@ customization root such as ``<workspace>/.agents/`` (workspace scope) or
 
 ``validate`` checks what the harness docs define: every JSON file parses,
 ``sidecar.json`` files match the vendored schema (``runtime/sidecar.schema.json``),
+``mcp_config.json`` (documented stdio / Streamable HTTP fields, ``mcp(<plugin>_<server>/<tool>)`` grants),
 ``SKILL.md`` / agent / rule frontmatter, ``hooks.json`` structure and that the
 scripts it runs exist, and that workflow scripts pass
 ``google.antigravity.workflows.validate_workflow_source``.
@@ -263,6 +264,62 @@ def _check_hooks(plugin_dir: Path, cfg: Any) -> list[str]:
     return errs
 
 
+MCP_SERVER_FIELDS = {"command", "args", "env", "url", "serverUrl"}  # "# MCP Servers (`mcp_config.json`)" in the docs
+_MCP_GRANT = re.compile(r"^mcp\((?P<server>[^/()]+)/(?P<tool>[^()]+)\)$")
+
+
+def _check_mcp_config(plugin_dir: Path, cfg: Any, plugin_name: str) -> list[str]:
+    """Checks ``mcp_config.json`` against the documented schema (stdio: command/args/env; remote: url)."""
+    import importlib.util
+
+    errs: list[str] = []
+    servers = cfg.get("mcpServers") if isinstance(cfg, dict) else None
+    if not isinstance(servers, dict) or not servers:
+        return ["mcp_config.json: needs a non-empty 'mcpServers' object (server id -> config)"]
+    for name, sc in servers.items():
+        where = f"mcp_config.json: mcpServers.{name}"
+        if re.search(r"[\s/()]", name):
+            errs.append(f"{where}: server id must not contain whitespace, '/' or parentheses (mcp(<server>/<tool>) grants)")
+        if name.startswith(plugin_name):
+            errs.append(f"{where}: plugin servers are namespaced <plugin>_<server> by the harness; do not repeat the plugin name")
+        if not isinstance(sc, dict):
+            errs.append(f"{where} must be an object")
+            continue
+        for k in sorted(set(sc) - MCP_SERVER_FIELDS):
+            errs.append(f"{where}: unknown field '{k}' (documented: {sorted(MCP_SERVER_FIELDS)})")
+        stdio, remote = "command" in sc, bool({"url", "serverUrl"} & set(sc))
+        if stdio == remote:
+            errs.append(f"{where}: needs exactly one transport: stdio 'command' or Streamable HTTP 'url'")
+        if stdio:
+            if not isinstance(sc["command"], str) or not sc["command"]:
+                errs.append(f"{where}: command must be a non-empty string")
+            args = sc.get("args", [])
+            if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
+                errs.append(f"{where}: args must be a list of strings")
+            else:
+                for flag, mod in zip(args, args[1:]):
+                    if flag == "-m" and importlib.util.find_spec(mod) is None:
+                        errs.append(f"{where}: module {mod} is not importable (package not installed?)")
+            env = sc.get("env", {})
+            if not isinstance(env, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in env.items()):
+                errs.append(f"{where}: env must map strings to strings")
+        elif remote and not str(sc.get("url") or sc.get("serverUrl") or "").startswith(("http://", "https://")):
+            errs.append(f"{where}: url must be an http(s) URL")
+    namespaced = {f"{plugin_name}_{n}" for n in servers}
+    for sc_file in sorted((plugin_dir / "sidecars").glob("*/sidecar.json")):
+        try:
+            grants = (json.loads(sc_file.read_text(encoding="utf-8")).get("agent_permissions") or {}).get("access_grants", [])
+        except ValueError:
+            continue
+        for g in grants:
+            if str(g).startswith("mcp("):
+                m = _MCP_GRANT.match(str(g))
+                if not m or m["server"] not in namespaced:
+                    errs.append(f"{sc_file.relative_to(plugin_dir)}: grant {g!r} must be mcp(<plugin>_<server>/<tool>) "
+                                f"with a server from mcp_config.json ({sorted(namespaced)})")
+    return errs
+
+
 def validate(plugin_dir: Path) -> list[str]:
     """Returns a list of problems; empty means the bundle is valid."""
     plugin_dir = Path(plugin_dir)
@@ -295,6 +352,10 @@ def validate(plugin_dir: Path) -> list[str]:
         errs.append("hooks/hooks.json: native plugins must put hooks.json at the plugin root")
     if (plugin_dir / "hooks.json") in parsed:
         errs += _check_hooks(plugin_dir, parsed[plugin_dir / "hooks.json"])
+
+    if (plugin_dir / "mcp_config.json") in parsed:
+        plugin_name = manifest.get("name", plugin_dir.name) if isinstance(manifest, dict) else plugin_dir.name
+        errs += _check_mcp_config(plugin_dir, parsed[plugin_dir / "mcp_config.json"], str(plugin_name))
 
     schema = load_sidecar_schema()
     for jf, cfg in parsed.items():
