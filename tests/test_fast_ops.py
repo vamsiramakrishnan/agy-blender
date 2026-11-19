@@ -36,12 +36,17 @@ def codes(rep, sev=None) -> set[str]:
     return {i.code for i in rep.issues if sev is None or i.severity == sev}
 
 
-def l_shape(n_sub: float = 0.12) -> MeshData:
+def l_shape(size: float = 0.1) -> MeshData:  # single closed concave L-prism
+    v = np.array([(0, 0), (1, 0), (1, 0.3), (0.3, 0.3), (0.3, 1), (0, 1)], float)
+    tm = trimesh.creation.extrude_triangulation(v, np.array([(0, 1, 2), (0, 2, 3), (0, 3, 4), (0, 4, 5)]), 0.3)
+    return md(tm.subdivide_to_size(size), "ell")
+
+
+def l_kitbash(size: float = 0.12) -> MeshData:  # two overlapping closed bodies in one mesh
     a = trimesh.creation.box((1.0, 0.3, 0.3))
     b = trimesh.creation.box((0.3, 0.3, 1.0))
-    b.apply_translation([-0.35, 0, 0.6])  # overlaps the bar: no coincident verts, so each body stays closed
-    parts = [p.subdivide_to_size(n_sub) if hasattr(p, "subdivide_to_size") else p for p in (a, b)]
-    return md(trimesh.util.concatenate(parts), "ell")
+    b.apply_translation([-0.35, 0, 0.6])
+    return md(trimesh.util.concatenate([a.subdivide_to_size(size), b.subdivide_to_size(size)]), "kit")
 
 
 # ------------------------------------------------------------------ QA
@@ -218,6 +223,12 @@ def test_colliders_concave_convex_cover_and_cap():
     assert len(generate_colliders([m], 8)) >= 2  # concave must be split
 
 
+def test_colliders_multibody_kitbash_does_not_crash():
+    m = l_kitbash()
+    hulls = generate_colliders([m], 4, asset_name="K")
+    assert 2 <= len(hulls) <= 4 and _covers(hulls, m.points) > 0.99
+
+
 def test_hull_merge_enforces_cap():
     ms = [md(trimesh.creation.box((0.5, 0.5, 0.5)), f"b{i}", xy=(i, 0)) for i in range(6)]
     hulls = generate_colliders(ms, 3)
@@ -259,7 +270,7 @@ def test_pipeline_timing():
     assert best.timings_ms["total"] < 250
     assert best.colliders[0].source == "fast_path" and best.colliders[0].name == "UCX_Barrel_00"
 
-    concave = [l_shape(0.05)]
+    concave = [l_shape(0.1)]
     run_export_pipeline(concave, b, "L")
     r = run_export_pipeline(concave, b, "L")
     print(f"concave {len(concave[0].triangles)}-tri prop pipeline ms:", r.timings_ms)

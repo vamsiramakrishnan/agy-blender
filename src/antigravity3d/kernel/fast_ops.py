@@ -103,6 +103,18 @@ def _topology(points: np.ndarray, tris: np.ndarray) -> _Topo:
     return _Topo(boundary, nonmanifold, inconsistent, degenerate, duplicates, vol)
 
 
+def _single_component(points: np.ndarray, tris: np.ndarray) -> bool:
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    cid = _canon(points)
+    t = cid[tris]
+    n = int(cid.max()) + 1
+    a = np.concatenate([t[:, 0], t[:, 1]])
+    b = np.concatenate([t[:, 1], t[:, 2]])
+    return connected_components(coo_matrix((np.ones(len(a)), (a, b)), shape=(n, n)), directed=False)[0] == 1
+
+
 def _winding_inside(samples: np.ndarray, tri_pts: np.ndarray) -> np.ndarray:
     """Generalised winding number > 0.9 per sample point (Van Oosterom-Strackee)."""
     wn = np.zeros(len(samples))
@@ -516,12 +528,15 @@ def generate_colliders(
             share = max(1, budget_left // (len(concave) - k))
             budget_left -= share
             pts = np.asarray(m.points, dtype=np.float64)
-            topo_closed = _topology(pts, np.asarray(m.triangles)).closed
+            tri = np.asarray(m.triangles)
+            # preprocess "off" segfaulted CoACD on overlapping multi-body input, so only skip the
+            # manifold pre-pass for a single closed body.
+            clean = _topology(pts, tri).closed and _single_component(pts, tri)
             parts = coacd.run_coacd(
                 coacd.Mesh(pts, np.asarray(m.triangles, dtype=np.int32)),
                 threshold=threshold,
                 max_convex_hull=share,
-                preprocess_mode="off" if topo_closed else "auto",
+                preprocess_mode="off" if clean else "auto",
                 resolution=500,
                 mcts_iterations=40,
                 mcts_nodes=10,

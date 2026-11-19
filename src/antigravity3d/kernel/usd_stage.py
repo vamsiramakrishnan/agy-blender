@@ -196,9 +196,9 @@ class StageManager:
         if scene.asset_name != self.asset_prim.GetName():
             raise ValueError(f"asset_name {scene.asset_name!r} != stage asset {self.asset_prim.GetName()!r}")
 
-    def _check_no_selection(self) -> None:
+    def _check_no_selection(self, ignore: str | None = None) -> None:
         vsets = self.asset_prim.GetVariantSets()
-        sel = {n: vsets.GetVariantSelection(n) for n in vsets.GetNames()}
+        sel = {n: vsets.GetVariantSelection(n) for n in vsets.GetNames() if n != ignore}
         if any(sel.values()):
             raise RuntimeError(f"variant selected {sel}; promote it or roll back before editing the base")
 
@@ -220,6 +220,8 @@ class StageManager:
     def add_variant(self, set_name: str, variant: str, scene: SceneIR, tx_id: str | None = None) -> str:
         """Authors ``scene`` as the delta of variant ``set_name=variant`` against the base."""
         self._check_scene(scene)
+        # The delta is taken against the composed scene, so no *other* set may be selected.
+        self._check_no_selection(ignore=set_name)
         prim = self.asset_prim
         with self.transaction(tx_id) as tid:
             vset = prim.GetVariantSets().AddVariantSet(set_name)

@@ -10,6 +10,7 @@ layer that holds those opinions.
 from __future__ import annotations
 
 import math
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
@@ -31,8 +32,8 @@ def _num(node: NodeIR, name: str, default: float | None = None, *, allow_zero: b
     v = node.params.get(name, default)
     if v is None:
         raise ValueError(f"{node.id}: {node.kind} requires param '{name}'")
-    if isinstance(v, (str, tuple, list)) or isinstance(v, bool):
-        raise ValueError(f"{node.id}: param '{name}' must be a number, got {v!r}")
+    if isinstance(v, (str, tuple, list, bool)):
+        raise ValueError(f"{node.id}: param '{name}' must be a number, got {v!r}")  # noqa: TRY004
     v = float(v)
     if not math.isfinite(v) or v < 0 or (v == 0 and not allow_zero):
         raise ValueError(f"{node.id}: param '{name}' must be {'>= 0' if allow_zero else '> 0'}, got {v}")
@@ -67,7 +68,7 @@ def _lathe(profile: list[tuple[float, float]], n: int) -> tuple[np.ndarray, np.n
             rows.append(np.arange(count, count + n))
             count += n
     tris: list[np.ndarray] = []
-    for a, b in zip(rows[:-1], rows[1:]):
+    for a, b in pairwise(rows):
         a1, b1 = np.roll(a, -1), np.roll(b, -1)
         if len(a) == 1:  # pole above ring: fan
             tris.append(np.column_stack([np.full(n, a[0]), b, b1]))
@@ -81,6 +82,7 @@ def _lathe(profile: list[tuple[float, float]], n: int) -> tuple[np.ndarray, np.n
 
 def _box(sx: float, sy: float, sz: float) -> tuple[np.ndarray, np.ndarray]:
     x, y, z = sx / 2, sy / 2, sz / 2
+    # fmt: off
     pts = np.array(
         [[-x, -y, -z], [x, -y, -z], [x, y, -z], [-x, y, -z],
          [-x, -y, z], [x, -y, z], [x, y, z], [-x, y, z]],
@@ -95,6 +97,7 @@ def _box(sx: float, sy: float, sz: float) -> tuple[np.ndarray, np.ndarray]:
          [3, 0, 4], [3, 4, 7]],  # -X
         dtype=np.int32,
     )
+    # fmt: on
     return pts, tris
 
 
@@ -208,14 +211,16 @@ def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
         color.ConnectToSource(tex("albedoTex", m.albedo_uri, "sRGB").CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
     if m.orm_uri:
         orm = tex("ormTex", m.orm_uri, "raw")
-        surf.CreateInput("occlusion", Sdf.ValueTypeNames.Float).ConnectToSource(orm.CreateOutput("r", Sdf.ValueTypeNames.Float))
+        occl = surf.CreateInput("occlusion", Sdf.ValueTypeNames.Float)
+        occl.ConnectToSource(orm.CreateOutput("r", Sdf.ValueTypeNames.Float))
         rough.ConnectToSource(orm.CreateOutput("g", Sdf.ValueTypeNames.Float))
         metal.ConnectToSource(orm.CreateOutput("b", Sdf.ValueTypeNames.Float))
     if m.normal_uri:
         nt = tex("normalTex", m.normal_uri, "raw")
         nt.CreateInput("scale", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(2, 2, 2, 1))
         nt.CreateInput("bias", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(-1, -1, -1, 0))
-        surf.CreateInput("normal", Sdf.ValueTypeNames.Normal3f).ConnectToSource(nt.CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
+        normal = surf.CreateInput("normal", Sdf.ValueTypeNames.Normal3f)
+        normal.ConnectToSource(nt.CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
 
 
 def _block_authored(prim: Usd.Prim, names) -> None:
@@ -236,7 +241,9 @@ def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path)
     t = node.transform
     # Set op attributes directly: AddTranslateOp() etc. error if a weaker layer already has them.
     prim.CreateAttribute("xformOp:translate", Sdf.ValueTypeNames.Double3, custom=False).Set(Gf.Vec3d(*t.translate))
-    prim.CreateAttribute("xformOp:rotateXYZ", Sdf.ValueTypeNames.Float3, custom=False).Set(Gf.Vec3f(*t.rotate_euler_deg))
+    prim.CreateAttribute("xformOp:rotateXYZ", Sdf.ValueTypeNames.Float3, custom=False).Set(
+        Gf.Vec3f(*t.rotate_euler_deg)
+    )
     prim.CreateAttribute("xformOp:scale", Sdf.ValueTypeNames.Float3, custom=False).Set(Gf.Vec3f(*t.scale))
     UsdGeom.Xformable(prim).CreateXformOpOrderAttr().Set(
         Vt.TokenArray(["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"])

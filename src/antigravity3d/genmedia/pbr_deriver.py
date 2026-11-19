@@ -83,11 +83,11 @@ def roughness_breakup(orm: Image.Image, strength: float = 0.5, *, seed: int = 0,
     a = np.asarray(orm.convert("RGB"), np.float32) / 255.0
     rng = np.random.default_rng(seed)
     noise = np.zeros(a.shape[:2], np.float32)
-    for sigma, amp in ((2.0, 0.25), (8.0, 0.5), (32.0, 1.0)):
-        n = ndi.gaussian_filter(rng.standard_normal(noise.shape).astype(np.float32), sigma, mode=_mode(tileable))
-        noise += amp * n / (n.std() + 1e-6)
-    noise /= np.abs(noise).max() + 1e-6
-    a[..., 1] = np.clip(a[..., 1] + 0.35 * strength * noise, 0.04, 1.0)
+    for div, amp in ((128, 0.25), (32, 0.5), (8, 1.0)):  # fine -> coarse octaves, relative to image size
+        n = ndi.gaussian_filter(rng.standard_normal(noise.shape).astype(np.float32), max(a.shape[:2]) / div, mode=_mode(tileable))
+        noise += amp * (n - n.mean()) / (n.std() + 1e-6)
+    noise = (noise - noise.mean()) / (noise.std() + 1e-6)  # zero-mean, unit-std: strength sets the roughness std directly
+    a[..., 1] = np.clip(a[..., 1] + 0.12 * strength * noise, 0.04, 1.0)
     return _img(a)
 
 

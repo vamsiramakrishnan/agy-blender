@@ -232,5 +232,10 @@ async def test_live_decisions():
     from google import genai
 
     p = DecisionControlPlane(genai.Client())
-    r = await p.route_pipeline("a wooden crate prop for a game", "target: unreal_5")
+    try:
+        r = await p.route_pipeline("a wooden crate prop for a game", "target: unreal_5")
+    except Exception as e:  # noqa: BLE001
+        if getattr(e, "status_code", getattr(e, "code", None)) == 404 or type(e).__name__ == "NotFoundError":
+            pytest.skip(f"decisions endpoint/model not available for this key: {e}")
+        raise
     assert r.pipeline in Q.ROUTING_QUESTIONS["pipeline_dag"]["criteria"]

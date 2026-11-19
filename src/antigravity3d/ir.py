@@ -75,6 +75,14 @@ class SceneIR(_Model):
                 raise ValueError(f"{n.id}: unknown parent {n.parent}")
             if n.material_id is not None and n.material_id not in mat_ids:
                 raise ValueError(f"{n.id}: unknown material {n.material_id}")
+        parents = {n.id: n.parent for n in self.nodes}
+        for start in parents:
+            seen, cur = set(), start
+            while cur is not None:
+                if cur in seen:
+                    raise ValueError(f"{start}: parent cycle")
+                seen.add(cur)
+                cur = parents[cur]
         return self
 
 

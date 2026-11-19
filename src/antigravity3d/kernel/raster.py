@@ -177,7 +177,8 @@ def render_clay(
         else:
             kk = ka + (kb - ka) * t
         rng = float(np.ptp(key)) or 1.0
-        v &= kk[:] <= zbuf[np.clip(iy, 0, size - 1), np.clip(ix, 0, size - 1)] + 0.01 * rng
+        v &= hit[np.clip(iy, 0, size - 1), np.clip(ix, 0, size - 1)]
+        v &= kk <= zbuf[np.clip(iy, 0, size - 1), np.clip(ix, 0, size - 1)] + 0.01 * rng
         img[iy[v], ix[v]] = (img[iy[v], ix[v]] * 0.6).astype(np.uint8)
     return img
 

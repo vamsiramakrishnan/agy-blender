@@ -39,7 +39,7 @@ def test_primitive_is_closed_outward_manifold(node: NodeIR) -> None:
 
 
 def test_primitive_volumes() -> None:
-    vol = lambda n: trimesh.Trimesh(*primitive_mesh(n), process=False).volume  # noqa: E731
+    vol = lambda n: trimesh.Trimesh(*primitive_mesh(n), process=False).volume
     box, cyl, cone, sph, _, cap, _ = PRIMS
     assert vol(box) == pytest.approx(6.0, rel=1e-6)
     assert vol(cyl) == pytest.approx(_polygon_area(0.5, 24) * 2.0, rel=1e-5)
@@ -79,7 +79,9 @@ def _scene(tmp_path) -> SceneIR:
         asset_name="Prop",
         materials=[
             MaterialIR(id="plain", base_color=(1, 0, 0), metallic=1.0, roughness=0.2),
-            MaterialIR(id="tex", albedo_uri="a.png", orm_uri="orm.png", normal_uri="n.png", normal_convention="directx"),
+            MaterialIR(
+                id="tex", albedo_uri="a.png", orm_uri="orm.png", normal_uri="n.png", normal_convention="directx"
+            ),
         ],
         nodes=[
             NodeIR(id="grp", kind="group", transform=Transform(translate=(0, 0, 1))),
@@ -158,3 +160,13 @@ def test_author_scene_is_a_delta(tmp_path) -> None:
     stage.GetSessionLayer().subLayerPaths.remove(layer.identifier)
     assert stage.GetPrimAtPath("/Prop/knob").IsActive()
     assert read_ir(stage.GetDefaultPrim()) == scene
+
+
+def test_parent_cycle_rejected() -> None:
+    nodes = [NodeIR(id="a", kind="group", parent="b"), NodeIR(id="b", kind="group", parent="a")]
+    with pytest.raises(ValueError, match="parent cycle"):
+        SceneIR(asset_name="Cyc", nodes=nodes)
+    # Authoring guards too, for IR built without validation.
+    with pytest.raises(ValueError, match="parent cycle"):
+        author_scene(Usd.Stage.CreateInMemory(), SceneIR.model_construct(asset_name="Cyc", nodes=nodes, materials=[]))
+
