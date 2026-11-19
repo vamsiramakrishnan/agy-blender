@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import math
 import re
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from google.genai._gaos.types.decisions import (
@@ -128,14 +129,19 @@ class FakeDecisionsClient:
     responder callable(request dict) -> answers dict, overriding `answers` per call
     errors    exceptions raised (one per call, FIFO) before any success
     block_reason / block_if(request)  return prompt_feedback with a block reason and no answers
+    uncalibrated  responses are tagged `calibrated=False` (as the generative fallback does)
+
+    Programmed values for per-item questions (ids "<bank id>@<n>": LOD pairs, rig poses, set-of-mark badges)
+    are looked up by the full id first, then by the bare bank id.
     """
 
     def __init__(self, answers: dict[str, Any] | None = None, *, default_noul: float = 0.05, default_score: float = 3.6,
                  responder: Callable[[dict[str, Any]], dict[str, Any]] | None = None, errors: list[Exception] | None = None,
-                 block_reason: str | None = None, block_if: Callable[[dict[str, Any]], bool] | None = None, latency_s: float = 0.0, input_tokens: int | None = None) -> None:
+                 block_reason: str | None = None, block_if: Callable[[dict[str, Any]], bool] | None = None, latency_s: float = 0.0, input_tokens: int | None = None,
+                 uncalibrated: bool = False) -> None:
         self.answers, self.default_noul, self.default_score = answers or {}, default_noul, default_score
         self.responder, self.errors, self.block_reason, self.block_if = responder, list(errors or []), block_reason, block_if
-        self.latency_s, self.input_tokens = latency_s, input_tokens
+        self.latency_s, self.input_tokens, self.uncalibrated = latency_s, input_tokens, uncalibrated
         self.calls: list[dict[str, Any]] = []
         self.in_flight = self.max_in_flight = 0
         self.aio = _Aio(self)
@@ -160,6 +166,8 @@ class FakeDecisionsClient:
         out: dict[str, Any] = {}
         for qid, q in questions.items():
             v = prog.get(qid)
+            if v is None and "@" in qid:
+                v = prog.get(qid.rsplit("@", 1)[0])
             if v is not None and not isinstance(v, (int, float, str)):
                 out[qid] = v
             elif q["type"] == "noul":
@@ -174,4 +182,7 @@ class FakeDecisionsClient:
                     raise FakeWireError(f"{qid}: programmed choice {win!r} not in options")
                 rest = 0.1 / (len(opts) - 1)
                 out[qid] = ChoiceAnswer(choice=win, confidence=0.9, probabilities={o: 0.9 if o == win else rest for o in opts})
-        return CreateDecisionResponse(answers=out, usage=usage)
+        resp = CreateDecisionResponse(answers=out, usage=usage)
+        if self.uncalibrated:
+            return SimpleNamespace(answers=resp.answers, usage=resp.usage, prompt_feedback=None, calibrated=False, cost_usd=None)
+        return resp
