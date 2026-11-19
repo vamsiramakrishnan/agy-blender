@@ -30,6 +30,7 @@ from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.common import IMAGE_USD, load_png, png_bytes
 
 BACKEND_VERSION = "kernel-fast_ops/1"
+CACHED_TAG = "(cached)"  # appended to GeneratedImage.model on a cache hit
 
 
 def _meta_key(key: str) -> str:
@@ -93,7 +94,9 @@ class CachedForge:
             return g.png_bytes
 
         data, hit = await acached_bytes(self._cache, key, compute, cost=IMAGE_USD[cost_key])
-        return fresh[0] if fresh and not hit else GeneratedImage(data, None, str(key_args.get("prompt", "")), self.model, 0.0)
+        if fresh and not hit:
+            return fresh[0]
+        return GeneratedImage(data, None, str(key_args.get("prompt", "")), f"{self.model} {CACHED_TAG}", 0.0)
 
     async def ortho_sheet(self, prompt: str, *, emphasis: str, style_anchor: bytes | None = None) -> GeneratedImage:
         return await self._gen("ortho", "ortho", {"prompt": prompt, "emphasis": emphasis, "anchor": _digest(style_anchor)},
@@ -161,7 +164,7 @@ def _bundle_to_bytes(b: ExportBundle) -> bytes:
         arrays.update({f"hull{i}_p": h.points, f"hull{i}_t": h.triangles})
         meta["hulls"].append({"name": h.name, "volume": h.volume, "source": h.source})
     buf = io.BytesIO()
-    np.savez(buf, __meta__=np.frombuffer(json.dumps(meta).encode(), np.uint8), **arrays)
+    np.savez(buf, __meta__=np.frombuffer(json.dumps(meta, default=float).encode(), np.uint8), **arrays)
     return buf.getvalue()
 
 
