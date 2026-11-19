@@ -151,10 +151,10 @@ class EnvironmentKitDAG:
             if splat is None:
                 ctx.skip("no Gaussian-splat backdrop requested")
             p = Path(splat)
-            if p.suffix.lower() not in SPLAT_EXTS:
-                raise ValueError(f"unsupported splat format {p.suffix!r}; expected one of {sorted(SPLAT_EXTS)}")
-            if not p.is_file():
-                raise FileNotFoundError(p)
+            if p.suffix.lower() not in SPLAT_EXTS or not p.is_file():  # user error: report it, but do not sink the kit
+                err = f"unsupported splat format {p.suffix!r} (expected {sorted(SPLAT_EXTS)})" if p.suffix.lower() not in SPLAT_EXTS else f"splat file not found: {p}"
+                ctx.note(err)
+                return {"error": err}
             stage: Usd.Stage = ctx["assemble"]["stage"]
             digest = hashlib.sha256(p.read_bytes()).hexdigest()
             prim = UsdGeom.Xform.Define(stage, "/Kit/Backdrop").GetPrim()
@@ -167,8 +167,8 @@ class EnvironmentKitDAG:
             return meta
 
         async def splat_import(ctx: NodeCtx) -> Any:
-            if ctx["backdrop"] is None:
-                ctx.skip("no backdrop registered")
+            if ctx["backdrop"] is None or "error" in ctx["backdrop"]:
+                ctx.skip("no valid backdrop registered")
             if self.pool is None or getattr(self.pool, "fake", False):
                 ctx.skip("splat import/render requires a real Blender pool (none provided)" if self.pool is None
                          else "splat import/render requires a real Blender pool (pool is fake)")
@@ -210,6 +210,6 @@ class EnvironmentKitDAG:
             "trim_issues": [i for mp in mapped for i in mp.issues],
             "trim_reports": {mp.piece.name: [{"node": rr.node_id, "mapped_area_fraction": rr.report.mapped_area_fraction, "max_density_dev": rr.report.max_density_dev}
                                               for rr in mp.results if rr.report] for mp in mapped},
-            "gates_ok": bool(rep.ok and asm and not r.get("kit_validate_critical") and all(r.get("tier1_ok", {}).values()) and not any(mp.issues for mp in mapped))}
+            "gates_ok": bool(rep.ok and asm and "error" not in (rep.results.get("backdrop") or {}) and not r.get("kit_validate_critical") and all(r.get("tier1_ok", {}).values()) and not any(mp.issues for mp in mapped))}
         (self.out / "report.json").write_text(rep.to_json())
         return rep

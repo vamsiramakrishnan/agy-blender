@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 from google.antigravity.tools.tool_context import ToolContext
-from pxr import Usd
+from pxr import Usd, UsdGeom
 
 from antigravity3d.decisions.engine import DecisionControlPlane
 from antigravity3d.decisions.fakes import FakeDecisionsClient
@@ -205,6 +205,11 @@ async def test_export_refused_then_allowed_and_reloads(env):
     assert (out / "Crate_LOD1.glb").is_file()
     man = json.loads((out / "manifest.json").read_text())
     assert man["budget"]["max_tris"] == 15000 and man["qa"]["tier1_ok"] and man["qa"]["tier15"] >= 3.4
+    assert man["schema_version"] == 1 and man["validation"]["package_ok"] and "pkg ok" in r
+    assert (out / "Crate.usdz").is_file() and man["usd"] == "Crate.usd"
+    assert env.sess().stage.has_uvs()  # UVs are authored into the working stage by the export pipeline
+    for m in (p for p in stage.Traverse() if p.GetName() in ("body", "lid")):
+        assert len(UsdGeom.PrimvarsAPI(m).GetPrimvar("st").Get()) == len(UsdGeom.Mesh(m).GetPointsAttr().Get())
     assert env.sess().last_export == out
 
 

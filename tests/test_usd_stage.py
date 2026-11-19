@@ -273,3 +273,27 @@ def test_add_variant_requires_other_sets_unselected(sm: StageManager) -> None:
         sm.add_variant("b", "y", sm.scene_ir())
     sm.add_variant("a", "z", sm.scene_ir())  # same set is fine
     assert sm.list_variants("a") == ["x", "z"]
+
+
+def test_author_uvs_overlay_roundtrip_and_invalidation(sm):
+    from antigravity3d.kernel.fast_ops import unwrap_scene
+    from antigravity3d.state import EngineBudget
+
+    before = sm.extract_meshes()
+    uvs = unwrap_scene(before, EngineBudget("unreal_5"))
+    assert not sm.has_uvs()
+    txs = list(sm.tx_stack)
+    sm.author_uvs(uvs)
+    assert sm.has_uvs() and sm.tx_stack == txs  # not a transaction: undo keeps targeting the user's edits
+    after = sm.extract_meshes()
+    assert [len(m.triangles) for m in after] == [len(m.triangles) for m in before]
+    assert [len(m.points) for m in after] == [len(m.points) for m in before]  # seam split is folded back
+    leg = next(p for p in sm.stage.Traverse() if p.GetName() == "leg")
+    assert len(leg.GetAttribute("points").Get()) == len(next(u for u in uvs if u.node_id == "leg").points)
+    with pytest.raises(ValueError, match="UV results"):
+        sm.author_uvs(uvs[:1])
+    sm.apply_patch(IRPatch(ops=[SetTransform(node_id="root", transform=Transform(translate=(1, 0, 0)))]))
+    assert not sm.has_uvs()  # any edit drops the derived overlay
+    sm.author_uvs(unwrap_scene(sm.extract_meshes(), EngineBudget("unreal_5")))
+    sm.commit_all()  # never baked into the root layer
+    assert not sm.has_uvs() and not sm.export_layer().GetPrimAtPath("/__agy_base")

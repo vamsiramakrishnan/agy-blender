@@ -97,3 +97,48 @@ def test_texture_hints(tmp_path):
     assert "texture_size" in codes(iss, "warning")
     iss = check_engine_compliance(st, [md("Crate")], EngineBudget("unreal_5"))
     assert "texture_npot" in codes(iss, "warning")
+
+
+# --- UV rule (textured material vs st) and collider exemption ------------------------------------
+
+
+def _textured_stage(uv: bool, tex: bool = True) -> Usd.Stage:
+    st = mk_stage(uv=uv)
+    mat = UsdShade.Material.Define(st, "/Asset/Looks/m")
+    sh = UsdShade.Shader.Define(st, "/Asset/Looks/m/albedoTex")
+    sh.CreateIdAttr("UsdUVTexture")
+    if tex:
+        sh.CreateInput("file", Sdf.ValueTypeNames.Asset).Set(Sdf.AssetPath("./textures/a.png"))
+    UsdShade.MaterialBindingAPI.Apply(st.GetPrimAtPath("/Asset/Crate")).Bind(mat)
+    return st
+
+
+def test_uv_missing_is_critical_only_when_the_meshs_material_has_textures():
+    b = EngineBudget("unreal_5")
+    bad = check_engine_compliance(_textured_stage(uv=False), [md("Crate")], b)
+    assert [i for i in bad if i.code.endswith("uv_missing")][0].severity == "critical"
+    assert not [i for i in check_engine_compliance(_textured_stage(uv=True), [md("Crate")], b) if i.code.endswith("uv_missing")]
+    plain = [i for i in check_engine_compliance(_textured_stage(uv=False, tex=False), [md("Crate")], b) if i.code.endswith("uv_missing")]
+    assert plain and plain[0].severity == "warning"
+
+
+def test_physics_tagged_collider_is_not_a_uv_offender_in_any_engine():
+    from pxr import UsdPhysics
+
+    for eng in ("unreal_5", "unity_urp", "godot_4", "roblox_r15"):
+        st = _textured_stage(uv=True)
+        h = UsdGeom.Mesh.Define(st, "/Asset/Colliders/UCX_Asset_00")
+        h.CreatePointsAttr(Vt.Vec3fArray([Gf.Vec3f(0, 0, 0), Gf.Vec3f(1, 0, 0), Gf.Vec3f(0, 1, 0)]))
+        h.CreateFaceVertexCountsAttr([3])
+        h.CreateFaceVertexIndicesAttr([0, 1, 2])
+        UsdPhysics.CollisionAPI.Apply(h.GetPrim())
+        issues = check_engine_compliance(st, [md("Crate")], EngineBudget(eng, max_collision_hulls=4))
+        assert not [i for i in issues if i.code.endswith("uv_missing")], eng
+
+
+def test_validate_package_requires_a_manifest(tmp_path):
+    from antigravity3d.kernel.validator import validate_package
+
+    assert [i.code for i in validate_package(tmp_path)] == ["pkg:manifest_missing"]
+    (tmp_path / "manifest.json").write_text("{nope")
+    assert [i.code for i in validate_package(tmp_path)] == ["pkg:manifest_unreadable"]
