@@ -256,5 +256,6 @@ async def test_batch_sanitize_godot_target_uses_valid_usd_collider_names(tmp_pat
     rep = await BatchSanitizeDAG(workdir=tmp_path / "o", budget=EngineBudget("godot_4")).run([tmp_path / "cyl.glb"])
     r = rep.extras["rows"][0]
     assert r["status"] == "ok" and rep.extras["gates_ok"], r
-    names = [p.GetName() for p in Usd.Stage.Open(r["outputs"]["usd"]).Traverse()]
+    stage = Usd.Stage.Open(r["outputs"]["usd"])
+    names = [p.GetName() for p in stage.Traverse()]
     assert any(n.startswith("UCX_") for n in names) and not any("-" in n for n in names)
