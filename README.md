@@ -1,2 +1,4 @@
 # agy-blender
 Layered agentic 3D &amp; game-asset engine built on Antigravity, OpenUSD, Gemini Decisions API, Nano Banana 2.1, and warm Blender 5.3 + C++ geometry kernels.
+
+antigravity-3d is a compiled, multi-layered 3D and game-asset production platform built on the Google Antigravity SDK. Instead of generating brittle raw bpy scripts, it compiles compact Declarative Scene IR diffs onto an OpenUSD stage with sub-millisecond anonymous-layer rollback, offloads UV/LOD/collision geometry to native C++ kernels (xatlas, meshoptimizer, CoACD), and runs a warm Blender 5.3 IPC worker pool strictly for Geometry Nodes, rigging, splats, and lookdev. A calibrated gemini-decision-1 control plane handles sub-second skill routing, Best-of-N Nano Banana 2.1 ortho/PBR tournaments, and 25-point visual QA—producing engine-ready Unreal, Unity, Godot, and Roblox assets at high throughput and minimal token waste.
