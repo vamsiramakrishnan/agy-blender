@@ -413,7 +413,13 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
 
     # colliders
     max_hulls = (man.get("budget") or {}).get("max_collision_hulls")
-    name_re = re.compile(rules.hull_prim_regex) if rules and rules.hull_prim_regex else re.compile(r"^UCX_[A-Za-z0-9_]+_\d{2}$")
+    # USD prim names are identifiers ('-' is illegal), so USD colliders always use UCX_<asset>_<nn>;
+    # engine-specific suffix conventions (Godot "-convcolonly") can only apply to GLB node names.
+    name_re = re.compile(r"^UCX_[A-Za-z0-9_]+_\d{2}$")
+    if hull_re is not None:
+        for node in man.get("collider_glb_nodes") or []:
+            if not hull_re.search(node):
+                add("collider_name", "critical", node, f"GLB collider node violates {hull_re.pattern} ({engine})")
     if max_hulls is not None and len(colliders) > max_hulls:
         add("hull_count", "critical", None, f"{len(colliders)} colliders > {max_hulls}")
     for prim in colliders:

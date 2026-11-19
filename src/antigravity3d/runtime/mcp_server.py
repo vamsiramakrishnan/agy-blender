@@ -41,7 +41,10 @@ from pathlib import Path
 from typing import Annotated, Any
 from urllib.parse import unquote, urlparse
 
+import anyio
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.stdio import stdio_server
+from mcp_types import JSONRPCError, JSONRPCRequest, JSONRPCResponse
 from pydantic import Field
 
 from antigravity3d.harness import tools as T
@@ -150,6 +153,22 @@ class StudioHost:
         self.backends = Backends()
         self.gates: dict[str, InvariantAndSafetyGate] = {}
         self.active: str | None = None
+        # Requests are dispatched concurrently by the MCP runner. One FIFO lock, taken as the very first
+        # await of every tool call, makes calls run in arrival order, so a client that pipelines
+        # open_asset_session + apply_scene_ir behaves deterministically. Calls are therefore serial per
+        # server process (the tools are already serialised per session by the registry lock); the price is
+        # that a long QA call delays other sessions' calls.
+        self._order = asyncio.Lock()
+
+    async def run_ordered(self, fn: Any, *args: Any) -> str:
+        async with self._order:
+            try:
+                return await fn(*args)
+            except (ValueError, LookupError, RuntimeError, OSError) as e:
+                return f"ERROR {compress_exception(e)}"
+            except Exception as e:  # noqa: BLE001
+                log.exception("management tool failed")
+                return f"ERROR {compress_exception(e)}"
 
     # ---- session selection
     def pick(self, session_id: str = "") -> str:
@@ -173,6 +192,8 @@ class StudioHost:
         if int(max_tris) < 1:
             raise ValueError("max_tris must be >= 1")
         asset = _slug(asset_name, "Asset")
+        if delay := float(os.environ.get("AGY3D_TEST_OPEN_DELAY_S", "0") or 0):  # test hook: widens the race window
+            await asyncio.sleep(delay)
         await self.backends.ensure()
         sid = f"{asset}-{uuid.uuid4().hex[:6]}"
         root = Path(workspace or os.getcwd())
@@ -212,6 +233,10 @@ class StudioHost:
 
     # ---- harness tools
     async def call_tool(self, name: str, fn: T.ToolFn, session_id: str, kwargs: dict[str, Any]) -> str:
+        async with self._order:
+            return await self._call_tool(name, fn, session_id, kwargs)
+
+    async def _call_tool(self, name: str, fn: T.ToolFn, session_id: str, kwargs: dict[str, Any]) -> str:
         try:
             sid = self.pick(session_id)
             verdict = await self.gates[sid].decide(name, kwargs)
@@ -223,16 +248,6 @@ class StudioHost:
         except Exception as e:  # noqa: BLE001 - one compressed line, never a traceback
             log.exception("tool %s failed", name)
             return f"ERROR {compress_exception(e)}"
-
-
-async def _managed(host: StudioHost, fn: Any, *args: Any, **kwargs: Any) -> str:
-    try:
-        return await fn(*args, **kwargs)
-    except (ValueError, LookupError, RuntimeError, OSError) as e:
-        return f"ERROR {compress_exception(e)}"
-    except Exception as e:  # noqa: BLE001
-        log.exception("management tool failed")
-        return f"ERROR {compress_exception(e)}"
 
 
 # --------------------------------------------------------------------------- schema generation
@@ -265,17 +280,19 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         max_tris: int = 15_000,
         workdir: Annotated[str, Field(description="Session folder; default <workspace>/agy3d_assets/<session id>")] = "",
     ) -> str:
-        workspace = await _workspace_root(ctx)
-        return await _managed(host, host.open_asset_session, asset_name, target_engine, max_tris, workdir, workspace)
+        async def go() -> str:
+            return await host.open_asset_session(asset_name, target_engine, max_tris, workdir, await _workspace_root(ctx))
+
+        return await host.run_ordered(go)
 
     async def set_stage(stage: str, session_id: Annotated[str, Field(description=SESSION_ID_DOC)] = "") -> str:
-        return await _managed(host, host.set_stage, stage, session_id)
+        return await host.run_ordered(host.set_stage, stage, session_id)
 
     async def session_status(session_id: Annotated[str, Field(description=SESSION_ID_DOC)] = "") -> str:
-        return await _managed(host, host.session_status, session_id)
+        return await host.run_ordered(host.session_status, session_id)
 
     async def list_sessions() -> str:
-        return await _managed(host, host.list_sessions)
+        return await host.run_ordered(host.list_sessions)
 
     open_asset_session.__doc__ = (
         "Open an asset session (new USD stage) and make it active, stage BLOCKOUT. Call this first; returns the session line.")
@@ -314,12 +331,101 @@ def build_server(host: StudioHost | None = None) -> MCPServer:
     return server
 
 
+class _DrainingStreams:
+    """Wraps the transport streams so EOF on stdin does not cancel in-flight requests.
+
+    The MCP runner stops serving when the read side closes, which would drop the replies of requests
+    that arrived just before EOF (a client that pipelines its last calls and closes stdin). This tracks
+    request ids from the read side, clears them when the response is written, and holds the read
+    iterator open at EOF until every pending request has been answered (bounded by ``timeout_s``).
+    """
+
+    def __init__(self, timeout_s: float = 600.0) -> None:
+        self.pending: set[Any] = set()
+        self.timeout_s = timeout_s
+
+    def read(self, inner: Any) -> Any:
+        outer = self
+
+        class Read:
+            def __aiter__(self) -> Any:
+                return self._gen()
+
+            async def _gen(self) -> Any:
+                async for item in inner:
+                    msg = getattr(item, "message", None)
+                    if isinstance(msg, JSONRPCRequest):
+                        outer.pending.add(msg.id)
+                    yield item
+                await outer.drain()
+
+            async def receive(self) -> Any:
+                try:
+                    item = await inner.receive()
+                except anyio.EndOfStream:
+                    await outer.drain()
+                    raise
+                msg = getattr(item, "message", None)
+                if isinstance(msg, JSONRPCRequest):
+                    outer.pending.add(msg.id)
+                return item
+
+            def __getattr__(self, name: str) -> Any:
+                return getattr(inner, name)
+
+            async def __aenter__(self) -> "Read":
+                await inner.__aenter__()
+                return self
+
+            async def __aexit__(self, *exc: Any) -> Any:
+                return await inner.__aexit__(*exc)
+
+        return Read()
+
+    def write(self, inner: Any) -> Any:
+        outer = self
+
+        class Write:
+            async def send(self, item: Any) -> None:
+                await inner.send(item)
+                msg = getattr(item, "message", None)
+                if isinstance(msg, (JSONRPCResponse, JSONRPCError)):
+                    outer.pending.discard(msg.id)
+
+            def __getattr__(self, name: str) -> Any:
+                return getattr(inner, name)
+
+            async def __aenter__(self) -> "Write":
+                await inner.__aenter__()
+                return self
+
+            async def __aexit__(self, *exc: Any) -> Any:
+                return await inner.__aexit__(*exc)
+
+        return Write()
+
+    async def drain(self) -> None:
+        with anyio.move_on_after(self.timeout_s):
+            while self.pending:
+                await anyio.sleep(0.02)
+        if self.pending:
+            log.warning("exiting with %d unanswered request(s)", len(self.pending))
+
+
+async def serve(server: MCPServer) -> None:
+    """``MCPServer.run_stdio_async`` plus the EOF drain."""
+    drain = _DrainingStreams()
+    async with stdio_server() as (read, write):
+        low = server._lowlevel_server
+        await low.run(drain.read(read), drain.write(write), low.create_initialization_options())
+
+
 def main() -> None:
     logging.basicConfig(stream=sys.stderr, level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     server = build_server()
     host: StudioHost = server._agy3d_host
     try:
-        server.run("stdio")
+        anyio.run(serve, server)
     finally:
         try:
             asyncio.run(host.backends.close())

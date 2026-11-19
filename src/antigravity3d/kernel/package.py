@@ -85,12 +85,15 @@ def sanitize(name: str) -> str:
     return re.sub(r"[^A-Za-z0-9_]", "_", name)
 
 
-def collider_name(engine: str, asset: str, i: int) -> str:
-    """Collision hull prim/node name for the engine (hull conventions live in ENGINE_RULES)."""
+def collider_name(engine: str, asset: str, i: int, *, usd: bool = True) -> str:
+    """Collision hull name. USD prim names are identifiers (no '-'), so the USD prims always use the
+    ``UCX_<asset>_<nn>`` convention (Unreal's, and a generic marker; the physics API + purpose=guide are
+    the machine-readable markers). GLB node names follow the engine: Godot's importer wants the
+    ``-convcolonly`` suffix, which only glTF node names can carry."""
     a = sanitize(asset)
-    if engine == "godot_4":
-        return f"{a}_{i:02d}-convcolonly"  # Godot import suffix: convex collision only, no render mesh
-    return f"UCX_{a}_{i:02d}"  # Unreal convention; also the generic marker for engines without one
+    if engine == "godot_4" and not usd:
+        return f"{a}_{i:02d}-convcolonly"
+    return f"UCX_{a}_{i:02d}"
 
 
 def flip_normal_green(src: Path, dst: Path) -> Path:
@@ -234,6 +237,12 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[di
     return records, unresolved
 
 
+_GEOMETRY_PROPS = frozenset({
+    "points", "faceVertexCounts", "faceVertexIndices", "extent", "normals", "primvars:st", "primvars:st:indices",
+    "primvars:normals", "agy:uvWeldMap",
+})
+
+
 def _author_lod_variants(
     stage: Usd.Stage, asset: Usd.Prim, targets: list[tuple[str, np.ndarray, np.ndarray, list]]
 ) -> list[int]:
@@ -241,9 +250,8 @@ def _author_lod_variants(
 
     Chosen over sibling prims (``<asset>_LOD1``...) because one switch retargets every mesh of the asset
     consistently, materials/transforms/colliders are shared instead of duplicated, and viewers that
-    understand variants (usdview, Omniverse, UE's LOD variant import) expose it directly. ``LOD0`` is an
-    empty variant (the base prim data *is* LOD0); ``LODn`` overrides points/indices/st/normals of each
-    mesh prim. Default selection: ``LOD0``. Each ``targets`` entry is
+    understand variants (usdview, Omniverse, UE's LOD variant import) expose it directly. Every variant,
+    LOD0 included, holds the points/indices/st/normals of each mesh prim (see the LIVRPS note below). Default selection: ``LOD0``. Each ``targets`` entry is
     (prim path, M33, translate, [LOD0, LOD1...]); LOD points are world(asset)-space and are mapped back
     to the prim's local space with the inverse of its local-to-asset transform.
     Returns total triangles per level.
@@ -252,6 +260,18 @@ def _author_lod_variants(
     vset = asset.GetVariantSets().AddVariantSet(LOD_SET)
     for i in range(levels):
         vset.AddVariant(f"LOD{i}")
+    # LIVRPS: local opinions beat variants, so the base geometry cannot stay on the prims. Move it into
+    # variant LOD0 (a copy of the property specs) and strip it from the local spec; the prim keeps its
+    # transform, material binding and schema type. (Hence "LOD0 is a variant", not an empty one.)
+    layer = stage.GetRootLayer()
+    apath = asset.GetPath()
+    for path, *_ in targets:
+        src = layer.GetPrimAtPath(path)
+        vprim = Sdf.CreatePrimInLayer(layer, apath.AppendVariantSelection(LOD_SET, "LOD0").AppendPath(Sdf.Path(path).MakeRelativePath(apath)))
+        vprim.specifier = Sdf.SpecifierOver
+        for prop in [p for p in src.properties if p.name in _GEOMETRY_PROPS]:
+            Sdf.CopySpec(layer, prop.path, layer, vprim.path.AppendProperty(prop.name))
+            src.RemoveProperty(prop)
     for i in range(1, levels):
         vset.SetVariantSelection(f"LOD{i}")
         with vset.GetVariantEditContext():
@@ -381,7 +401,7 @@ def write_engine_package(
         write_gltf(out / f"{asset_name}_LOD{i}.glb", [lods[n][i] for n in nodes], [f"{n}_LOD{i}" for n in nodes])
         files.append(f"{asset_name}_LOD{i}.glb")
     if hulls:
-        write_gltf(out / f"{asset_name}_colliders.glb", hulls, names)
+        write_gltf(out / f"{asset_name}_colliders.glb", hulls, [collider_name(engine, asset_name, i, usd=False) for i in range(len(hulls))])
         files.append(f"{asset_name}_colliders.glb")
     files.extend(t["path"] for t in textures)
 
@@ -414,6 +434,7 @@ def write_engine_package(
         },
         "uv": {"primvar": "st", "interpolation": "vertex", "normals": "faceVarying (crease 40 deg)"},
         "colliders": names,
+        "collider_glb_nodes": [collider_name(engine, asset_name, i, usd=False) for i in range(len(hulls))],
         "collider_structure": f"/{asset.GetName()}/{COLLIDERS_SCOPE}/<name>: purpose=guide, CollisionAPI+MeshCollisionAPI convexHull" if names else None,
         "textures": textures,
         "qa": {k: v for k, v in qa.items() if k != "audit"},

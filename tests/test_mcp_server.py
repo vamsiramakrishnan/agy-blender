@@ -140,49 +140,43 @@ def _frame(obj: dict) -> bytes:
     return (json.dumps(obj) + "\n").encode()
 
 
-def test_stdout_is_protocol_only_and_exit_is_clean(tmp_path):
+@pytest.mark.parametrize("open_delay_s", ["0", "0.6"])
+def test_pipelined_calls_are_ordered_drained_and_stdout_is_protocol_only(tmp_path, open_delay_s):
+    """All frames are written at once and stdin is closed straight away: the worst case for a slow runner.
+
+    ``AGY3D_TEST_OPEN_DELAY_S`` (a test hook in the server) widens the window in which apply_scene_ir could
+    overtake open_asset_session, so the result does not depend on machine speed.
+    """
     proc = subprocess.Popen([sys.executable, "-m", "antigravity3d.runtime.mcp_server"], stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=server_env(tmp_path / "state"),
-                            cwd=tmp_path, start_new_session=True)
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=tmp_path, start_new_session=True,
+                            env={**server_env(tmp_path / "state"), "AGY3D_TEST_OPEN_DELAY_S": open_delay_s})
     pgid = os.getpgid(proc.pid)
-    frames: list[dict] = []
-    deadline = time.time() + 120
 
-    def send(msg: dict) -> None:
-        proc.stdin.write(_frame(msg))
-        proc.stdin.flush()
+    def call_msg(i: int, name: str, **arguments) -> dict:
+        return {"jsonrpc": "2.0", "id": i, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
 
-    def reply(req_id: int) -> dict:
-        while time.time() < deadline:
-            line = proc.stdout.readline()
-            assert line, "server closed stdout early: " + proc.stderr.read().decode()[-800:]
-            frames.append(json.loads(line))  # every stdout line must be a JSON-RPC frame
-            if frames[-1].get("id") == req_id:
-                return frames[-1]
-        pytest.fail("timed out waiting for a reply")
-
-    def tool_call(req_id: int, name: str, **arguments) -> str:
-        send({"jsonrpc": "2.0", "id": req_id, "method": "tools/call", "params": {"name": name, "arguments": arguments}})
-        return reply(req_id)["result"]["content"][0]["text"]
-
+    msgs = [{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+                "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "t", "version": "0"}}},
+            {"jsonrpc": "2.0", "method": "notifications/initialized"},
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+            call_msg(3, "open_asset_session", asset_name="Crate", target_engine="unreal_5"),
+            call_msg(4, "apply_scene_ir", ops_json=json.dumps(CRATE)),
+            call_msg(5, "session_status")]
     try:
-        send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-            "protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "t", "version": "0"}}})
-        assert reply(1)["result"]["serverInfo"]["name"] == "antigravity-3d"
-        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
-        send({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-        assert len(reply(2)["result"]["tools"]) == len(T.ALL_TOOLS) + len(MANAGEMENT)
-        assert tool_call(3, "open_asset_session", asset_name="Crate", target_engine="unreal_5").startswith("SESSION Crate-")
-        assert tool_call(4, "apply_scene_ir", ops_json=json.dumps(CRATE)).startswith("OK tx=")
-        proc.stdin.close()  # the client goes away
-        assert proc.wait(timeout=30) == 0, proc.stderr.read().decode()[-800:]
-        rest = proc.stdout.read().decode().splitlines()
-        frames.extend(json.loads(ln) for ln in rest)
+        out, err = proc.communicate(b"".join(map(_frame, msgs)), timeout=180)
     finally:
         if proc.poll() is None:
             proc.kill()
+    assert proc.returncode == 0, err.decode()[-800:]
+    frames = [json.loads(ln) for ln in out.decode().splitlines()]  # every stdout line must be a JSON-RPC frame
     assert all(f.get("jsonrpc") == "2.0" for f in frames)
-    assert {f["id"] for f in frames if "id" in f} == {1, 2, 3, 4}
+    by_id = {f["id"]: f for f in frames if "id" in f}
+    assert set(by_id) == {1, 2, 3, 4, 5}, (sorted(by_id), err.decode()[-800:])
+    text = {i: by_id[i]["result"]["content"][0]["text"] for i in (3, 4, 5)}
+    assert text[3].startswith("SESSION Crate-")
+    assert text[4].startswith("OK tx="), text[4]
+    assert "nodes=2" in text[5]
+    assert len(by_id[2]["result"]["tools"]) == len(T.ALL_TOOLS) + len(MANAGEMENT)
     # nothing left running from this server's process group
     end = time.time() + 5
     while time.time() < end:
