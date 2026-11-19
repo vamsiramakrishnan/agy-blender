@@ -20,6 +20,19 @@ glob-scoped rule files add detail when matching files are in play:
   hook denies scripts that fail it. No `os`, `subprocess`, file writes,
   `eval`/`exec` or `bpy.app.handlers` in scripts.
 
+## How the tools reach you
+
+- In a conversation you did not start through the Python SDK (the app, the CLI,
+  `agentapi`, a workflow agent) the studio tools are served by the plugin's MCP
+  server (`studio`, which the harness namespaces `antigravity-3d_studio`; the tool
+  list may show the names with that prefix). Call `open_asset_session` first: it
+  opens the USD stage and makes it the active session.
+- Only the active stage's tools are callable; anything else is refused with a
+  line naming the stage. Move with `set_stage` (BLOCKOUT, TWEAK, VARIANTS,
+  LOOKDEV, EXPORT) and read `session_status` when unsure where you are.
+- The refusals are the gates working, not errors to route around: export needs a
+  passing Tier-1 and Tier-1.5 >= 3.4 on the current geometry.
+
 ## Units and axes
 
 - Author in metres (`metersPerUnit = 1.0`), Z-up, right-handed.

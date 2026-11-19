@@ -133,6 +133,91 @@ def primitive_mesh(node: NodeIR) -> tuple[np.ndarray, np.ndarray]:
     return _lathe([(0.0, h / 2), (r, -h / 2), (0.0, -h / 2)], n)  # cone: apex up
 
 
+# --- mesh data (UVs / normals) --------------------------------------------------
+
+UV_WELD_KEY = "agy:uvWeldMap"  # int[] per authored vertex: id of the pre-unwrap vertex it was split from
+CREASE_DEG = 40.0
+
+
+def crease_normals(points: np.ndarray, tris: np.ndarray, crease_deg: float = CREASE_DEG) -> np.ndarray:
+    """Per-corner (faceVarying, 3 per triangle) normals, smoothed across faces within ``crease_deg``.
+
+    Smoothing is done over position-welded vertices, so seam-split vertices (UV seams) shade
+    continuously while real hard edges (box corners) stay crisp.
+    """
+    from antigravity3d.kernel.fast_ops import _canon
+
+    p = np.asarray(points, dtype=np.float64)
+    t = np.asarray(tris, dtype=np.int64)
+    fn = np.cross(p[t[:, 1]] - p[t[:, 0]], p[t[:, 2]] - p[t[:, 0]])  # area-weighted
+    ln = np.linalg.norm(fn, axis=1, keepdims=True)
+    unit = np.divide(fn, ln, out=np.zeros_like(fn), where=ln > 1e-20)
+    wid = _canon(p)[t].ravel()
+    order = np.argsort(wid, kind="stable")
+    cuts = np.flatnonzero(np.diff(wid[order])) + 1
+    cos_t = math.cos(math.radians(crease_deg))
+    out = np.zeros((len(t) * 3, 3))
+    for grp in np.split(order, cuts):
+        faces = grp // 3
+        same = (unit[faces] @ unit[faces].T) >= cos_t - 1e-9
+        out[grp] = same.astype(np.float64) @ fn[faces]
+    n = np.linalg.norm(out, axis=1, keepdims=True)
+    fallback = np.repeat(unit, 3, axis=0)
+    out = np.where(n > 1e-20, out / np.maximum(n, 1e-20), fallback)
+    return out.astype(np.float32)
+
+
+def author_mesh_data(
+    prim: Usd.Prim,
+    points: np.ndarray,
+    tris: np.ndarray,
+    uvs: np.ndarray | None,
+    *,
+    weld_map: np.ndarray | None = None,
+    normals: bool = True,
+) -> None:
+    """Writes triangle geometry, ``primvars:st`` and normals on a Mesh prim in the edit target.
+
+    Conventions (one place, used by the working stage, the package and its LOD variants):
+      * ``primvars:st``  texCoord2f[], *vertex* interpolation: one UV per authored point, i.e. the
+        seam-split topology of the unwrap, identical to the GLB. ``uvs`` None blocks any weaker st.
+      * ``normals``      normal3f[], *faceVarying* (3 per triangle), crease-smoothed (see
+        :func:`crease_normals`); not relying on USD's default because that smooths hard edges of
+        shared-vertex meshes when subdivisionScheme=none.
+      * the mesh is triangulated and ``subdivisionScheme=none``.
+    """
+    mesh = UsdGeom.Mesh(prim)
+    pts = np.ascontiguousarray(points, dtype=np.float32)
+    tri = np.ascontiguousarray(tris, dtype=np.int32).reshape(-1, 3)
+    mesh.CreatePointsAttr().Set(Vt.Vec3fArray.FromNumpy(pts))
+    mesh.CreateFaceVertexCountsAttr().Set(Vt.IntArray.FromNumpy(np.full(len(tri), 3, np.int32)))
+    mesh.CreateFaceVertexIndicesAttr().Set(Vt.IntArray.FromNumpy(tri.ravel()))
+    mesh.CreateExtentAttr().Set(Vt.Vec3fArray.FromNumpy(np.stack([pts.min(0), pts.max(0)])))
+    mesh.CreateSubdivisionSchemeAttr().Set(UsdGeom.Tokens.none)
+    if uvs is not None:
+        uv = np.ascontiguousarray(uvs, dtype=np.float32).reshape(-1, 2)
+        if len(uv) != len(pts):
+            raise ValueError(f"{prim.GetPath()}: {len(uv)} uvs for {len(pts)} points")
+        pv = UsdGeom.PrimvarsAPI(prim).CreatePrimvar("st", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.vertex)
+        pv.Set(Vt.Vec2fArray.FromNumpy(uv))
+        pv.SetInterpolation(UsdGeom.Tokens.vertex)
+        _block_authored(prim, ["primvars:st:indices"])
+    else:
+        _block_authored(prim, ["primvars:st", "primvars:st:indices"])
+    if weld_map is not None:
+        prim.CreateAttribute(UV_WELD_KEY, Sdf.ValueTypeNames.IntArray, custom=True).Set(
+            Vt.IntArray.FromNumpy(np.ascontiguousarray(weld_map, dtype=np.int32))
+        )
+    else:
+        _block_authored(prim, [UV_WELD_KEY])
+    _block_authored(prim, ["primvars:normals", "primvars:normals:indices"])
+    if normals:
+        mesh.CreateNormalsAttr().Set(Vt.Vec3fArray.FromNumpy(crease_normals(pts, tri)))
+        mesh.SetNormalsInterpolation(UsdGeom.Tokens.faceVarying)
+    else:
+        _block_authored(prim, ["normals"])
+
+
 # --- scene authoring ----------------------------------------------------------
 
 
