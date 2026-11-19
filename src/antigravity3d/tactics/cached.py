@@ -142,6 +142,8 @@ def cached_derive_pbr(cache: BuildCache, albedo_png: bytes, *, metallic_hint: fl
 
 
 def export_key(scene: SceneIR, budget: EngineBudget) -> str:
+    # UVs/LODs/colliders do not depend on texture files, whose (workdir-specific) paths would defeat reuse
+    scene = scene.model_copy(update={"materials": [m.model_copy(update={"albedo_uri": None, "orm_uri": None, "normal_uri": None}) for m in scene.materials]})
     roots = sorted(n.id for n in scene.nodes if n.parent is None)
     return node_key("export.uv_lod_collider", inputs={"asset": scene.asset_name, "budget": asdict(budget)},
                     upstream=[ir_subtree_key(scene, r) for r in roots], backend_version=BACKEND_VERSION)

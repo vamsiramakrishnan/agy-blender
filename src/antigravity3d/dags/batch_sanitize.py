@@ -257,9 +257,10 @@ class BatchSanitizeDAG:
     async def run(self, files: list[Path | str]) -> DagReport:
         rep = await self.build(files).run(max_parallel=self.max_parallel)
         rows = []
+        paths = {n: str(f) for n, f in zip(rep.nodes, files)}  # nodes are created in input order
         for n in rep.nodes.values():
             r = rep.results.get(n.name)
-            rows.append(r if r else {"file": n.name.split(":", 1)[1], "status": "failed", "error": n.error or n.reason})
+            rows.append(r if r else {"file": paths[n.name], "status": "failed", "error": n.error or n.reason})
         rep.extras = {"rows": rows, "engine": self.budget.target_engine, "out": str(self.out),
                       "gates_ok": bool(rows) and all(r["status"] == "ok" for r in rows),
                       "skipped": [{"step": "visual_check", "reason": "no plane supplied: sanitize makes no model calls"}] if self.plane is None else []}
