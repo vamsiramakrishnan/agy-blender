@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>@@TITLE@@</title>
+<style>
+:root {
+  --bg: #f4f5f7; --surface: #ffffff; --surface2: #eceef1; --text: #1b1f24; --muted: #565f6c;
+  --border: #c8ced5; --accent: #2f5fd0; --accent-contrast: #ffffff;
+  --ok: #17753d; --warn: #b3261e; --collider: #c46a12;
+  --viewport-bg: #e4e7eb; --grid: #a9b1ba; --grid-center: #7b8590; --wire: #1b1f24;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121416; --surface: #1b1f23; --surface2: #262b31; --text: #e6e9ed; --muted: #9ea8b4;
+    --border: #38404a; --accent: #7aa2ff; --accent-contrast: #0b1220;
+    --ok: #5fd08a; --warn: #ff8f86; --collider: #f0a04b;
+    --viewport-bg: #0f1113; --grid: #39414a; --grid-center: #5b6672; --wire: #e6e9ed;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 var(--font); }
+button, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1 { font-size: 16px; margin: 0; overflow-wrap: anywhere; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+.app { display: grid; grid-template-columns: minmax(0, 1fr) 400px; height: 100vh; }
+.app.side-hidden { grid-template-columns: minmax(0, 1fr); }
+.app.side-hidden .side { display: none; }
+.stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--border); }
+.app.side-hidden .stage { border-right: 0; }
+.head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.head .grow { flex: 1 1 120px; min-width: 0; }
+.chip { font-size: 12px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); white-space: nowrap; }
+.toolbar, .modebar { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 6px 12px; background: var(--surface); }
+.toolbar { border-bottom: 1px solid var(--border); }
+.modebar { border-top: 1px solid var(--border); }
+.group { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.group > .glabel { font-size: 12px; color: var(--muted); margin-right: 2px; }
+.btn { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 3px 9px; cursor: pointer; min-height: 28px; }
+.btn:hover { border-color: var(--accent); }
+.btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+.btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; border-style: dashed; }
+.btn[aria-disabled="true"]:hover { border-color: var(--border); }
+#viewport { position: relative; flex: 1 1 auto; min-height: 300px; background: var(--viewport-bg); overflow: hidden; }
+#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.vp-msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 24px; text-align: center; background: var(--viewport-bg); color: var(--text); }
+.vp-msg.show { display: flex; }
+.vp-msg p { max-width: 46ch; margin: 0; }
+.vp-note { position: absolute; left: 8px; bottom: 8px; font-size: 12px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; max-width: calc(100% - 16px); pointer-events: none; }
+#legend { position: absolute; right: 8px; top: 8px; max-width: 55%; max-height: calc(100% - 16px); overflow: auto; font-size: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; }
+#legend[hidden] { display: none; }
+#legend ul { list-style: none; margin: 0; padding: 0; }
+#legend li { display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
+.sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--border); flex: none; }
+.side { overflow-y: auto; background: var(--bg); min-width: 0; }
+.side section { padding: 12px; border-bottom: 1px solid var(--border); background: var(--surface); }
+.gauge { margin-bottom: 10px; }
+.gauge:last-child { margin-bottom: 0; }
+.gauge-head { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.gauge-num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.bar { height: 8px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; margin: 3px 0; position: relative; }
+.bar > i { display: block; height: 100%; background: var(--ok); }
+.bar .tick { position: absolute; top: -1px; bottom: -1px; width: 2px; background: var(--text); }
+.gauge[data-state="over"] .bar > i { background: var(--warn); }
+.gauge-state { font-size: 12px; color: var(--ok); }
+.gauge[data-state="over"] .gauge-state { color: var(--warn); font-weight: 600; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--surface2); }
+tbody tr[aria-selected="true"] { background: var(--surface2); box-shadow: inset 3px 0 0 var(--accent); }
+.rowbtn { background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: var(--text); text-decoration: underline dotted; }
+td .sw, th .sw { display: none; margin-right: 6px; vertical-align: -1px; }
+body[data-mode="prim"] td .sw { display: inline-block; }
+.muted { color: var(--muted); }
+.pill { display: inline-block; font-weight: 600; padding: 1px 8px; border-radius: 4px; border: 1px solid currentColor; }
+.pill.pass { color: var(--ok); } .pill.fail { color: var(--warn); }
+.qa-line { margin: 6px 0; overflow-wrap: anywhere; }
+.defect { display: grid; grid-template-columns: minmax(0, 1fr) 90px 44px; gap: 6px; align-items: center; font-size: 12px; margin: 2px 0; }
+.defect .bar { margin: 0; height: 6px; }
+.defect .bar > i { background: var(--accent); }
+.defect .pct { text-align: right; font-family: var(--mono); }
+ul.deltas { margin: 4px 0 0; padding-left: 18px; font-size: 13px; overflow-wrap: anywhere; }
+textarea { width: 100%; min-height: 90px; resize: vertical; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+#notes-status { font-size: 12px; color: var(--muted); }
+@media (max-width: 720px) {
+  .app, .app.side-hidden { display: block; height: auto; }
+  .stage { border-right: 0; }
+  #viewport { flex: none; height: 55vh; min-height: 300px; }
+  .side { overflow: visible; }
+  #legend { max-width: 70%; }
+}
+</style>
+</head>
+<body data-mode="lit">
+<div class="app" id="app">
+  <main class="stage">
+    <div class="head">
+      <div class="grow"><h1>@@ASSET_NAME@@</h1></div>
+      <span class="chip" id="engine-chip">Target engine: @@ENGINE@@</span>
+      <button type="button" class="btn" id="side-toggle" aria-expanded="true" aria-controls="side">Hide panel</button>
+    </div>
+    <div class="toolbar" role="toolbar" aria-label="Camera and overlays">
+      <div class="group" role="group" aria-label="Camera presets">
+        <span class="glabel">View</span>
+        <button type="button" class="btn" data-preset="front" aria-pressed="false">Front</button>
+        <button type="button" class="btn" data-preset="right" aria-pressed="false">Right</button>
+        <button type="button" class="btn" data-preset="top" aria-pressed="false">Top</button>
+        <button type="button" class="btn" data-preset="persp" aria-pressed="true">Persp</button>
+      </div>
+      <div class="group" role="group" aria-label="LOD level" id="lod-group">
+        <span class="glabel">LOD</span>
+      </div>
+      <div class="group" role="group" aria-label="Overlays">
+        <button type="button" class="btn" id="btn-wire" aria-pressed="false">Wireframe</button>
+        <button type="button" class="btn" id="btn-coll" aria-pressed="false">Colliders</button>
+      </div>
+    </div>
+    <div id="viewport">
+      <canvas id="gl" tabindex="0" aria-label="3D viewport. Drag to orbit, right-drag or shift-drag to pan, wheel to zoom, arrow keys to orbit."></canvas>
+      <div class="vp-msg" id="vp-msg" role="status"><p id="vp-msg-text"></p></div>
+      <div id="legend" hidden aria-label="Prim colour legend">@@LEGEND@@</div>
+      <div class="vp-note" id="vp-note">Grid cell = 1 m. Accent bar = 1 m tall.</div>
+    </div>
+    <div class="modebar" role="group" aria-label="Channel mode" id="modebar">
+      <button type="button" class="btn" data-mode="lit" aria-pressed="true">Lit PBR</button>
+      <button type="button" class="btn" data-mode="clay" aria-pressed="false">Clay</button>
+      <button type="button" class="btn" data-mode="albedo" aria-pressed="false">Albedo</button>
+      <button type="button" class="btn" data-mode="orm" aria-pressed="false">ORM (RGB)</button>
+      <button type="button" class="btn" data-mode="occ" aria-pressed="false">Occlusion</button>
+      <button type="button" class="btn" data-mode="rough" aria-pressed="false">Roughness</button>
+      <button type="button" class="btn" data-mode="metal" aria-pressed="false">Metallic</button>
+      <button type="button" class="btn" data-mode="normal" aria-pressed="false">Normal map</button>
+      <button type="button" class="btn" data-mode="uv" aria-pressed="false">UV checker</button>
+      <button type="button" class="btn" data-mode="prim" aria-pressed="false">Prim ID</button>
+    </div>
+  </main>
+  <aside class="side" id="side" aria-label="Asset details">
+    <section aria-labelledby="h-budget">
+      <h2 id="h-budget">Budget</h2>
+      @@GAUGES@@
+    </section>
+    <section aria-labelledby="h-nodes">
+      <h2 id="h-nodes">Nodes</h2>
+      <table id="nodes">
+        <thead><tr><th scope="col">Node</th><th scope="col" class="num">Tris</th><th scope="col">Material</th></tr></thead>
+        <tbody>@@TABLE_ROWS@@</tbody>
+      </table>
+    </section>
+    <section aria-labelledby="h-qa">
+      <h2 id="h-qa">QA</h2>
+      @@QA@@
+    </section>
+    <section aria-labelledby="h-notes">
+      <h2 id="h-notes">Review notes</h2>
+      <label for="note-text" id="note-label">Notes for: whole asset</label>
+      <textarea id="note-text" placeholder="Feedback for the agent. Select a node to attach a note to it."></textarea>
+      <div class="row">
+        <button type="button" class="btn" id="btn-export">Export notes as JSON</button>
+        <span id="notes-status" role="status"></span>
+      </div>
+    </section>
+  </aside>
+</div>
+<script type="application/json" id="payload">@@PAYLOAD@@</script>
+@@THREE_INLINE@@
+<script>
+(function () {
+"use strict";
+window.__inspectorReady = false;
+window.__inspectorError = null;
+var P = JSON.parse(document.getElementById("payload").textContent);
+var $ = function (id) { return document.getElementById(id); };
+var state = { mode: "lit", lod: 0, wire: false, coll: false, selected: null, preset: "persp", userMoved: false, glOk: false, lastExport: null };
+window.__inspectorState = state;
+var NOTE_ASSET = "__asset__";
+
+/* ---------- helpers ---------- */
+function b64(s, Type) {
+  var bin = atob(s), n = bin.length, u8 = new Uint8Array(n);
+  for (var i = 0; i < n; i++) u8[i] = bin.charCodeAt(i);
+  return new Type(u8.buffer);
+}
+function fmt(n) { return Number(n).toLocaleString("en-US"); }
+function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function $all(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+
+/* ---------- notes (works without localStorage) ---------- */
+var notes = {}, storageOk = true, NOTES_KEY = "antigravity3d.notes:" + P.asset_name;
+try { var raw = window.localStorage.getItem(NOTES_KEY); if (raw) notes = JSON.parse(raw) || {}; }
+catch (e) { storageOk = false; notes = {}; }
+function persistNotes() {
+  try { window.localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); }
+  catch (e) { storageOk = false; }
+  updateNotesStatus();
+}
+function noteCount() { return Object.keys(notes).filter(function (k) { return notes[k] && notes[k].trim(); }).length; }
+function updateNotesStatus() {
+  $("notes-status").textContent = noteCount() + " note(s). " + (storageOk ? "Saved in this browser." : "Browser storage unavailable: export before closing.");
+}
+function noteKey() { return state.selected || NOTE_ASSET; }
+function refreshNoteBox() {
+  $("note-label").textContent = "Notes for: " + (state.selected ? "node " + state.selected : "whole asset");
+  $("note-text").value = notes[noteKey()] || "";
+}
+$("note-text").addEventListener("input", function () {
+  notes[noteKey()] = this.value;
+  persistNotes();
+});
+$("btn-export").addEventListener("click", function () {
+  var list = Object.keys(notes).filter(function (k) { return notes[k] && notes[k].trim(); }).map(function (k) {
+    return { node_id: k === NOTE_ASSET ? null : k, text: notes[k] };
+  });
+  var doc = { schema: "antigravity3d.review_notes/1", asset_name: P.asset_name, exported_at: new Date().toISOString(), notes: list };
+  var text = JSON.stringify(doc, null, 2);
+  state.lastExport = text;
+  try {
+    var url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    var a = document.createElement("a");
+    a.href = url; a.download = (P.asset_name.replace(/[^\w.-]+/g, "_") || "asset") + "_review_notes.json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  } catch (e) { console.warn("download failed", e); }
+});
+
+/* ---------- side panel, table, gauges ---------- */
+$("side-toggle").addEventListener("click", function () {
+  var hidden = $("app").classList.toggle("side-hidden");
+  this.setAttribute("aria-expanded", hidden ? "false" : "true");
+  this.textContent = hidden ? "Show panel" : "Hide panel";
+  if (window.__resize) window.__resize();
+});
+function setGauge(key, value, max) {
+  var g = document.querySelector('.gauge[data-key="' + key + '"]'); if (!g) return;
+  var over = value > max;
+  g.dataset.state = over ? "over" : "ok";
+  g.querySelector(".gauge-num").textContent = fmt(value) + " / " + fmt(max);
+  g.querySelector(".bar > i").style.width = Math.min(100, max > 0 ? value / max * 100 : 100) + "%";
+  g.querySelector(".gauge-state").textContent = over ? "OVER BUDGET by " + fmt(value - max) : "Within budget (" + fmt(max - value) + " spare)";
+}
+var rows = $all("#nodes tbody tr");
+rows.forEach(function (tr) {
+  tr.addEventListener("click", function () { selectNode(tr.dataset.node === state.selected ? null : tr.dataset.node, true); });
+});
+$all(".rowbtn").forEach(function (b) {
+  b.addEventListener("click", function (ev) { ev.stopPropagation(); var id = b.closest("tr").dataset.node; selectNode(id === state.selected ? null : id, true); });
+});
+var applySelection = function () {};
+function selectNode(id, fromUi) {
+  state.selected = id;
+  rows.forEach(function (tr) { tr.setAttribute("aria-selected", tr.dataset.node === id ? "true" : "false"); });
+  refreshNoteBox();
+  applySelection();
+}
+selectNode(null);
+updateNotesStatus();
+
+/* ---------- UI state shared with the 3D part ---------- */
+var hasLods = P.lods.length > 0;
+var lodLevels = [{ label: "LOD0", tris: P.meshes.reduce(function (s, m) { return s + m.tris; }, 0) }]
+  .concat(P.lods.map(function (l) { return { label: l.label, tris: l.tris }; }));
+var lodGroup = $("lod-group");
+lodLevels.forEach(function (l, i) {
+  var b = document.createElement("button");
+  b.type = "button"; b.className = "btn"; b.dataset.lod = String(i);
+  b.setAttribute("aria-pressed", i === 0 ? "true" : "false");
+  b.textContent = l.label + " (" + fmt(l.tris) + " tris)";
+  lodGroup.appendChild(b);
+});
+var texKinds = { albedo: "albedo", orm: "orm", occ: "orm", rough: "orm", metal: "orm", normal: "normal" };
+var reasons = {
+  albedo: "No albedo texture with UVs on this asset", orm: "No ORM texture with UVs on this asset",
+  occ: "No ORM texture with UVs on this asset", rough: "No ORM texture with UVs on this asset",
+  metal: "No ORM texture with UVs on this asset", normal: "No normal map with UVs on this asset",
+  uv: "No UVs supplied for this asset", prim: "Prim colours are per node and exist on LOD0 only"
+};
+function modeAvailable(mode) {
+  if (mode === "lit" || mode === "clay") return true;
+  if (state.lod !== 0) return false;
+  if (mode === "uv") return P.meshes.some(function (m) { return m.uv; });
+  if (mode === "prim") return true;
+  return P.meshes.some(function (m) { return m.uv && P.textures[m.mat] && P.textures[m.mat][texKinds[mode]]; });
+}
+function refreshModeButtons() {
+  $all("#modebar [data-mode]").forEach(function (b) {
+    var ok = modeAvailable(b.dataset.mode);
+    b.setAttribute("aria-disabled", ok ? "false" : "true");
+    b.title = ok ? "" : (state.lod !== 0 && b.dataset.mode !== "uv" ? "Only available on LOD0" : (reasons[b.dataset.mode] || "Unavailable"));
+    b.setAttribute("aria-pressed", b.dataset.mode === state.mode ? "true" : "false");
+  });
+  document.body.dataset.mode = state.mode;
+  $("legend").hidden = state.mode !== "prim";
+}
+function updateTriGauge() { setGauge("tris", lodLevels[state.lod].tris, P.budget.max_tris); }
+refreshModeButtons();
+updateTriGauge();
+
+function failView(msg) {
+  window.__inspectorError = msg;
+  $("vp-msg-text").textContent = msg;
+  $("vp-msg").classList.add("show");
+  $("gl").style.visibility = "hidden";
+  $("vp-note").style.display = "none";
+  console.warn("[inspector] " + msg);
+}
+
+/* ---------- three.js loading ---------- */
+function loadThree() {
+  var inline = $("three-src");
+  if (inline) {
+    var url = URL.createObjectURL(new Blob([inline.textContent], { type: "text/javascript" }));
+    return import(url);
+  }
+  return Promise.race([
+    import(P.three_url),
+    new Promise(function (_, rej) { setTimeout(function () { rej(new Error("timed out after 20 s")); }, 20000); })
+  ]);
+}
+
+loadThree().then(start).catch(function (e) {
+  failView("The 3D viewport could not load three.js" + (P.three_url ? " (" + P.three_url + ")" : "") + ": " + (e && e.message ? e.message : e) +
+    ". Budget, node, QA and notes panels still work. For offline use rebuild the inspector with three_js_source.");
+});
+
+function start(THREE) {
+  var canvas = $("gl"), renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+  } catch (e) { failView("WebGL is unavailable in this browser, so the 3D viewport cannot render. The other panels still work."); return; }
+  state.glOk = true;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(35, 1, 0.01, 1000);
+  scene.add(camera);
+  var key = new THREE.DirectionalLight(0xffffff, 1.6);
+  key.position.set(0.5, 1, 1); camera.add(key); camera.add(key.target); key.target.position.set(0, 0, -1);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f96, 0.8));
+  try {
+    var envScene = new THREE.Scene();
+    var eg = new THREE.SphereGeometry(10, 24, 16), cols = [], pa = eg.attributes.position;
+    for (var i = 0; i < pa.count; i++) { var t = (pa.getY(i) / 10 + 1) / 2, v = 0.25 + 0.75 * t; cols.push(v, v, v); }
+    eg.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3));
+    envScene.add(new THREE.Mesh(eg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+    var pm = new THREE.PMREMGenerator(renderer);
+    scene.environment = pm.fromScene(envScene, 0.04).texture;
+  } catch (e) { console.warn("[inspector] environment map unavailable: " + e.message); }
+
+  /* geometry decoded from payload; positions are already three.js Y-up (conversion done in Python) */
+  function geom(pos, idx, uv) {
+    var g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(b64(pos, Float32Array), 3));
+    if (uv) g.setAttribute("uv", new THREE.BufferAttribute(b64(uv, Float32Array), 2));
+    g.setIndex(new THREE.BufferAttribute(b64(idx, Uint32Array), 1));
+    g.computeVertexNormals(); g.computeBoundingBox(); g.computeBoundingSphere();
+    return g;
+  }
+  var nodeGeoms = P.meshes.map(function (m) { return geom(m.pos, m.idx, m.uv); });
+  var lodGeoms = P.lods.map(function (l) { return geom(l.pos, l.idx, null); });
+  var colGeoms = P.colliders.map(function (c) { return geom(c.pos, c.idx, null); });
+
+  var bounds = new THREE.Box3();
+  nodeGeoms.forEach(function (g) { bounds.union(g.boundingBox); });
+  if (bounds.isEmpty()) bounds.set(new THREE.Vector3(-0.5, 0, -0.5), new THREE.Vector3(0.5, 1, 0.5));
+  var center = bounds.getCenter(new THREE.Vector3()), radius = Math.max(bounds.getSize(new THREE.Vector3()).length() / 2, 0.05);
+
+  /* textures */
+  var aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  var texCache = {};
+  function tex(matId, kind, srgb) {
+    var k = matId + "|" + kind + "|" + srgb;
+    if (texCache[k]) return texCache[k];
+    var uri = P.textures[matId] && P.textures[matId][kind]; if (!uri) return null;
+    var t = new THREE.TextureLoader().load(uri, function () { dirty = true; });
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = aniso;
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    return (texCache[k] = t);
+  }
+  var checker = (function () {
+    var c = document.createElement("canvas"); c.width = c.height = 512;
+    var x = c.getContext("2d");
+    for (var i = 0; i < 16; i++) for (var j = 0; j < 16; j++) { x.fillStyle = (i + j) % 2 ? "#e8e8e8" : "#3a5fcd"; x.fillRect(i * 32, j * 32, 32, 32); }
+    x.fillStyle = "#c0392b"; x.font = "bold 28px sans-serif"; x.fillText("0,0", 6, 506);
+    x.fillStyle = "#1e8449"; x.fillText("1,1", 462, 34);
+    var t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = aniso;
+    return t;
+  })();
+  var RAW_VS = "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }";
+  var RAW_FS = "uniform sampler2D map; uniform int chan; varying vec2 vUv; void main(){ vec4 c = texture2D(map, vUv); vec3 o = chan == 0 ? c.rgb : vec3(chan == 1 ? c.r : (chan == 2 ? c.g : c.b)); gl_FragColor = vec4(o, 1.0); }";
+  var matCache = {};
+  var CHAN = { albedo: 0, orm: 0, normal: 0, occ: 1, rough: 2, metal: 3 };
+  function makeMaterial(mode, m) {
+    var t = P.textures[m.mat] || {};
+    if (mode === "clay") return new THREE.MeshStandardMaterial({ color: 0xc9c4bc, roughness: 0.85, metalness: 0 });
+    if (mode === "prim") return new THREE.MeshBasicMaterial({ color: new THREE.Color(m.color) });
+    if (mode === "uv") return m.uv ? new THREE.MeshBasicMaterial({ map: checker }) : new THREE.MeshBasicMaterial({ color: 0x808080 });
+    if (mode === "lit") {
+      var s = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7, metalness: 0 });
+      if (!m.uv || (!t.albedo && !t.orm && !t.normal)) s.color.set(0xb8bcc2);
+      if (m.uv) {
+        if (t.albedo) s.map = tex(m.mat, "albedo", true);
+        if (t.orm) { var o = tex(m.mat, "orm", false); s.aoMap = o; s.roughnessMap = o; s.metalnessMap = o; s.roughness = 1; s.metalness = 1; }
+        if (t.normal) s.normalMap = tex(m.mat, "normal", false);
+      }
+      return s;
+    }
+    var kind = texKinds[mode], tx = m.uv && t[kind] ? tex(m.mat, kind, false) : null;
+    if (!tx) return new THREE.MeshBasicMaterial({ color: 0x808080 });
+    return new THREE.ShaderMaterial({ uniforms: { map: { value: tx }, chan: { value: CHAN[mode] } }, vertexShader: RAW_VS, fragmentShader: RAW_FS });
+  }
+  function material(mode, m) {
+    var k = mode + "|" + m.id;
+    return matCache[k] || (matCache[k] = makeMaterial(mode, m));
+  }
+
+  /* scene groups */
+  var root = new THREE.Group(), wireGroup = new THREE.Group(), selGroup = new THREE.Group(), collGroup = new THREE.Group(), helpers = new THREE.Group();
+  scene.add(root, wireGroup, selGroup, collGroup, helpers);
+
+  function disposeChildren(g) {
+    while (g.children.length) {
+      var c = g.children.pop();
+      if (c.geometry && c.userData.own) c.geometry.dispose();
+      if (c.material && c.userData.ownMat) c.material.dispose();
+    }
+  }
+  function currentMeshes() {
+    if (state.lod === 0) return P.meshes.map(function (m, i) { return { info: m, geo: nodeGeoms[i] }; });
+    var l = P.lods[state.lod - 1];
+    return [{ info: { id: null, mat: null, uv: null, color: "#888888" }, geo: lodGeoms[state.lod - 1], lod: l }];
+  }
+  function rebuild() {
+    disposeChildren(root);
+    currentMeshes().forEach(function (e) {
+      var mode = modeAvailable(state.mode) ? state.mode : "lit";
+      var mesh = new THREE.Mesh(e.geo, material(e.info.id === null ? (mode === "lit" ? "clay" : mode) : mode, e.info));
+      mesh.userData.id = e.info.id;
+      root.add(mesh);
+    });
+    rebuildWire(); rebuildSel(); dirty = true;
+  }
+  function rebuildWire() {
+    disposeChildren(wireGroup);
+    if (!state.wire) return;
+    var wm = new THREE.LineBasicMaterial({ color: new THREE.Color(cssVar("--wire")), transparent: true, opacity: 0.45 });
+    currentMeshes().forEach(function (e) {
+      var ls = new THREE.LineSegments(new THREE.WireframeGeometry(e.geo), wm); ls.userData.own = true; wireGroup.add(ls);
+    });
+  }
+  function rebuildSel() {
+    disposeChildren(selGroup);
+    if (state.selected === null || state.lod !== 0) return;
+    var i = P.meshes.findIndex(function (m) { return m.id === state.selected; }); if (i < 0) return;
+    var ac = new THREE.Color(cssVar("--accent"));
+    var ov = new THREE.Mesh(nodeGeoms[i], new THREE.MeshBasicMaterial({ color: ac, transparent: true, opacity: 0.4, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));
+    ov.userData.ownMat = true; selGroup.add(ov);
+    var bh = new THREE.Box3Helper(nodeGeoms[i].boundingBox, ac); bh.material.depthTest = false; bh.userData.ownMat = true; selGroup.add(bh);
+  }
+  function rebuildColliders() {
+    disposeChildren(collGroup);
+    if (!state.coll) return;
+    var col = new THREE.Color(cssVar("--collider"));
+    colGeoms.forEach(function (g) {
+      var m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide }));
+      m.userData.ownMat = true; collGroup.add(m);
+      var l = new THREE.LineSegments(new THREE.EdgesGeometry(g, 20), new THREE.LineBasicMaterial({ color: col }));
+      l.userData.own = true; l.userData.ownMat = true; collGroup.add(l);
+    });
+    dirty = true;
+  }
+  function buildHelpers() {
+    disposeChildren(helpers);
+    var half = Math.max(Math.abs(bounds.min.x), Math.abs(bounds.max.x), Math.abs(bounds.min.z), Math.abs(bounds.max.z));
+    var size = Math.min(200, Math.max(4, 2 * Math.ceil(half + 1)));
+    var grid = new THREE.GridHelper(size, size, new THREE.Color(cssVar("--grid-center")), new THREE.Color(cssVar("--grid")));
+    grid.userData.own = true; grid.userData.ownMat = true; helpers.add(grid);
+    /* 1 m reference bar at the +X/+Z corner of the bounds, with end ticks */
+    var bx = bounds.max.x + 0.3, bz = bounds.max.z + 0.3, p = [bx, 0, bz, bx, 1, bz, bx - 0.08, 0, bz, bx + 0.08, 0, bz, bx - 0.08, 1, bz, bx + 0.08, 1, bz];
+    var rg = new THREE.BufferGeometry(); rg.setAttribute("position", new THREE.Float32BufferAttribute(p, 3));
+    var rl = new THREE.LineSegments(rg, new THREE.LineBasicMaterial({ color: new THREE.Color(cssVar("--accent")), depthTest: false }));
+    rl.userData.own = true; rl.userData.ownMat = true; rl.renderOrder = 5; helpers.add(rl);
+  }
+
+  /* camera: compact orbit / pan / zoom controller (no external OrbitControls) */
+  var ctl = { target: center.clone(), theta: 0.6, phi: 1.1, radius: 5 };
+  var vp = $("viewport"), dirty = true;
+  function fitDistance() {
+    var vf = camera.fov * Math.PI / 180, hf = 2 * Math.atan(Math.tan(vf / 2) * camera.aspect);
+    return radius / Math.sin(Math.min(vf, hf) / 2) * 1.1;
+  }
+  function applyCamera() {
+    var sp = Math.sin(ctl.phi);
+    camera.position.set(ctl.target.x + ctl.radius * sp * Math.sin(ctl.theta), ctl.target.y + ctl.radius * Math.cos(ctl.phi), ctl.target.z + ctl.radius * sp * Math.cos(ctl.theta));
+    camera.up.set(0, 1, 0); camera.lookAt(ctl.target);
+    camera.near = Math.max(ctl.radius / 500, 0.001); camera.far = ctl.radius * 100 + radius * 10;
+    camera.updateProjectionMatrix(); dirty = true;
+  }
+  /* Presets use the pipeline contact-sheet directions. In Y-up three.js space: front = camera on +Z, right = camera on +X, top = camera on +Y (front of the asset at screen bottom). */
+  var PRESETS = { front: [0, Math.PI / 2], right: [Math.PI / 2, Math.PI / 2], top: [0, 0.0001], persp: [0.6, 1.1] };
+  function setPreset(name, internal) {
+    var p = PRESETS[name]; ctl.theta = p[0]; ctl.phi = p[1]; ctl.target.copy(center); ctl.radius = fitDistance();
+    state.preset = name; if (!internal) state.userMoved = false;
+    $all("[data-preset]").forEach(function (b) { b.setAttribute("aria-pressed", b.dataset.preset === name ? "true" : "false"); });
+    applyCamera();
+  }
+  function resize() {
+    var r = vp.getBoundingClientRect(), w = Math.max(1, Math.floor(r.width)), h = Math.max(1, Math.floor(r.height));
+    renderer.setSize(w, h, false); camera.aspect = w / h;
+    if (!state.userMoved) setPreset(state.preset, true); else applyCamera();
+  }
+  window.__resize = resize;
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(vp); else window.addEventListener("resize", resize);
+
+  var ptrs = {}, down = null;
+  function panBy(dx, dy) {
+    var k = 2 * ctl.radius * Math.tan(camera.fov * Math.PI / 360) / canvas.clientHeight;
+    var r = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0), u = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+    ctl.target.addScaledVector(r, -dx * k).addScaledVector(u, dy * k);
+  }
+  function zoomBy(f) { ctl.radius = Math.min(Math.max(ctl.radius * f, radius * 0.05), radius * 60); }
+  canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+  canvas.addEventListener("pointerdown", function (e) {
+    canvas.setPointerCapture(e.pointerId); ptrs[e.pointerId] = { x: e.clientX, y: e.clientY };
+    down = Object.keys(ptrs).length === 1 ? { x: e.clientX, y: e.clientY, moved: 0, button: e.button, pan: e.button !== 0 || e.shiftKey } : null;
+    canvas.focus({ preventScroll: true });
+  });
+  canvas.addEventListener("pointermove", function (e) {
+    var p = ptrs[e.pointerId]; if (!p) return;
+    var ids = Object.keys(ptrs), dx = e.clientX - p.x, dy = e.clientY - p.y;
+    if (ids.length === 1) {
+      if (down) down.moved += Math.abs(dx) + Math.abs(dy);
+      if (down && down.pan) panBy(dx, dy);
+      else { ctl.theta -= 2 * Math.PI * dx / canvas.clientHeight; ctl.phi = Math.min(Math.max(ctl.phi - 2 * Math.PI * dy / canvas.clientHeight, 0.0001), Math.PI - 0.0001); }
+    } else if (ids.length === 2) {
+      var o = ptrs[ids[0] === String(e.pointerId) ? ids[1] : ids[0]];
+      var d0 = Math.hypot(p.x - o.x, p.y - o.y), d1 = Math.hypot(e.clientX - o.x, e.clientY - o.y);
+      if (d1 > 0 && d0 > 0) zoomBy(d0 / d1);
+      panBy(dx / 2, dy / 2);
+    }
+    p.x = e.clientX; p.y = e.clientY; state.userMoved = true; applyCamera();
+  });
+  function endPtr(e) {
+    if (!ptrs[e.pointerId]) return;
+    delete ptrs[e.pointerId];
+    if (down && e.type === "pointerup" && down.moved < 4 && down.button === 0 && !down.pan) pick(e);
+    down = null;
+  }
+  canvas.addEventListener("pointerup", endPtr); canvas.addEventListener("pointercancel", endPtr);
+  canvas.addEventListener("wheel", function (e) { e.preventDefault(); zoomBy(Math.exp(e.deltaY * 0.0012)); state.userMoved = true; applyCamera(); }, { passive: false });
+  canvas.addEventListener("keydown", function (e) {
+    var h = true;
+    if (e.key === "ArrowLeft") ctl.theta -= 0.1; else if (e.key === "ArrowRight") ctl.theta += 0.1;
+    else if (e.key === "ArrowUp") ctl.phi = Math.max(0.0001, ctl.phi - 0.1); else if (e.key === "ArrowDown") ctl.phi = Math.min(Math.PI - 0.0001, ctl.phi + 0.1);
+    else if (e.key === "+" || e.key === "=") zoomBy(0.9); else if (e.key === "-") zoomBy(1.1); else h = false;
+    if (h) { e.preventDefault(); state.userMoved = true; applyCamera(); }
+  });
+  var ray = new THREE.Raycaster();
+  function pick(e) {
+    if (state.lod !== 0) return;
+    var r = canvas.getBoundingClientRect();
+    ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
+    var hit = ray.intersectObjects(root.children, false)[0];
+    selectNode(hit ? hit.object.userData.id : null, false);
+  }
+  window.__pick = function (x, y) { pick({ clientX: x, clientY: y }); };
+
+  /* wiring */
+  applySelection = function () { rebuildSel(); dirty = true; };
+  function setMode(mode) {
+    if (!modeAvailable(mode)) return;
+    state.mode = mode; refreshModeButtons(); rebuild();
+  }
+  $all("#modebar [data-mode]").forEach(function (b) { b.addEventListener("click", function () { setMode(b.dataset.mode); }); });
+  $all("[data-preset]").forEach(function (b) { b.addEventListener("click", function () { setPreset(b.dataset.preset); }); });
+  $all("[data-lod]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      state.lod = Number(b.dataset.lod);
+      $all("[data-lod]").forEach(function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+      if (!modeAvailable(state.mode)) state.mode = "lit";
+      refreshModeButtons(); updateTriGauge(); rebuild();
+    });
+  });
+  var bw = $("btn-wire"), bc = $("btn-coll");
+  bw.addEventListener("click", function () { state.wire = !state.wire; bw.setAttribute("aria-pressed", String(state.wire)); rebuildWire(); dirty = true; });
+  if (!colGeoms.length) { bc.setAttribute("aria-disabled", "true"); bc.title = "No collision hulls supplied for this asset"; }
+  bc.addEventListener("click", function () {
+    if (!colGeoms.length) return;
+    state.coll = !state.coll; bc.setAttribute("aria-pressed", String(state.coll)); rebuildColliders();
+  });
+  var mq = window.matchMedia("(prefers-color-scheme: dark)");
+  function theme() { renderer.setClearColor(new THREE.Color(cssVar("--viewport-bg")), 1); buildHelpers(); rebuildWire(); rebuildSel(); rebuildColliders(); dirty = true; }
+  if (mq.addEventListener) mq.addEventListener("change", theme);
+
+  theme(); rebuild(); resize();
+  function frame() { if (dirty) { dirty = false; renderer.render(scene, camera); if (!window.__inspectorReady) window.__inspectorReady = true; } requestAnimationFrame(frame); }
+  frame();
+}
+})();
+</script>
+</body>
+</html>

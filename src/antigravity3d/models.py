@@ -3,11 +3,11 @@
 One table, so a studio can re-tier without touching call sites. Every id is
 overridable by environment variable (``AGY3D_MODEL_<ROLE>``).
 
-Verified against google-antigravity 0.1.24: the bundled harness recognises
-``gemini-4-hydrogen`` (the SDK default), ``gemini-4-carbon`` and
-``gemini-4-argon``. ``gemini-4-neon`` does not appear in that build; it is
-kept here as the intended bulk tier and falls back to hydrogen when
-``AGY3D_NEON_AVAILABLE`` is not set to 1.
+Verified live against the Gemini API: ``gemini-4-hydrogen``, ``gemini-4-carbon``
+and ``gemini-4-neon`` answer; ``gemini-4-argon`` exists but is slow (give it a
+generous timeout). The harness bundled with google-antigravity 0.1.24 names
+hydrogen, carbon and argon but not neon; set ``AGY3D_NEON_AVAILABLE=0`` to
+route the bulk tier to hydrogen if a harness build rejects it.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ def tier(role: Role) -> ModelTier:
     """Returns the effective tier for ``role`` after env overrides."""
     base = _DEFAULTS[role]
     model = os.environ.get(f"AGY3D_MODEL_{role.upper()}", base.model)
-    if model == NEON and os.environ.get("AGY3D_NEON_AVAILABLE") != "1":
+    if model == NEON and os.environ.get("AGY3D_NEON_AVAILABLE") == "0":
         model = HYDROGEN
     return ModelTier(role, model, base.thinking, base.purpose)
 
