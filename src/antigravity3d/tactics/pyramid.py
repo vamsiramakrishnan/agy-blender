@@ -39,7 +39,8 @@ from antigravity3d.tactics.cached import cached_export_pipeline
 from antigravity3d.tactics.common import IMAGE_USD, Uploader, png_bytes, uploader_for
 from antigravity3d.tactics.distill import FixLog, FixRecord
 from antigravity3d.tactics.governor import Governor
-from antigravity3d.tactics.package import merged_lods, write_glb_package, write_package_usd
+from antigravity3d.kernel.package import write_engine_package
+from antigravity3d.tactics.package import merged_lods
 from antigravity3d.tactics.tournament import GRADE_USD_EST, PBRTournamentResult, pbr_tournament
 
 EPS = 1e-9
@@ -543,21 +544,19 @@ class _Run:
                 self.step(n, "skipped", "UV/LOD/collider stage failed")
             return
 
-        textures = {m.id: m for m in scene.materials}
-        rel = self.write_textures() if self.maps else {}
-        pkg_mats = [m.model_copy(update={"albedo_uri": rel[m.id]["albedo"], "orm_uri": rel[m.id]["orm"], "normal_uri": rel[m.id]["normal"]})
-                    if m.id in rel else m for m in textures.values()]
-        usd_path = pkg / f"{scene.asset_name}.usda"
+        if self.maps:
+            self.write_textures()
+        usd_path = pkg / f"{scene.asset_name}.usd"
 
         async def usd() -> tuple[str, str]:
-            write_package_usd(usd_path, scene.asset_name, bundle.uvs, {n.id: n.material_id for n in scene.nodes}, pkg_mats, bundle.colliders,
-                              budget.target_engine, textures_from=self.workdir)
-            res.artifacts["usd"] = str(usd_path)
+            m = await asyncio.to_thread(write_engine_package, sm, bundle, budget, pkg, asset_name=scene.asset_name,
+                                        qa={"tier15": res.tier15, "tier1_ok": res.tier1_ok})
+            res.objects["package"] = m
+            res.artifacts.update(usd=str(usd_path), manifest=str(pkg / "manifest.json"))
             stage = Usd.Stage.Open(str(usd_path))
-            issues = validate_usd(stage)
-            crit = [i for i in issues if i.severity == "critical"]
             self.step("engine_compliance", *self.compliance(stage, meshes))
-            return ("failed", f"{len(crit)} critical: {crit[0].code} {crit[0].detail[:80]}") if crit else ("passed", f"{len(issues)} non-critical validator message(s)")
+            crit = [i for i in m.issues if i.severity == "critical"]
+            return ("failed", f"{len(crit)} critical: {crit[0].code} {crit[0].detail[:80]}") if crit else ("passed", f"write_engine_package ok; {len(m.issues)} non-critical message(s); files={len(m.files)}")
 
         await self.guarded("usd_validate", usd)
         if not any(x.name == "engine_compliance" for x in res.steps):
@@ -588,9 +587,11 @@ class _Run:
         await self.guarded("lod_pop_vision", pop_vision)
 
         async def glb() -> tuple[str, str]:
-            p = await asyncio.to_thread(write_glb_package, pkg / f"{scene.asset_name}.glb", bundle)
+            p = pkg / f"{scene.asset_name}.glb"
+            if not p.exists():
+                return "failed", "write_engine_package produced no GLB"
             res.artifacts["glb"] = str(p)
-            return "passed", f"{p.name} {p.stat().st_size} bytes"
+            return "passed", f"{p.name} {p.stat().st_size} bytes (+{len(list(pkg.glob('*_LOD*.glb')))} LOD GLB)"
 
         await self.guarded("export_glb", glb)
 

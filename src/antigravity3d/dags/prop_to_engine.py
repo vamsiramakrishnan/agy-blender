@@ -147,11 +147,13 @@ class PropToEngineDAG:
             out = dict(res.artifacts)
             if "usd" not in out:
                 raise RuntimeError("pyramid pass C produced no package USD")
-            p.stage.export(pkg / f"{asset}_authoring.usda")
+            p.stage.export(pkg / f"{asset}_authoring.usda")  # note: write_engine_package already wrote manifest.json
             out["authoring_usd"] = str(pkg / f"{asset}_authoring.usda")
             if (wd / "ortho.png").exists():
                 shutil.copy2(wd / "ortho.png", pkg / "ortho.png")
                 out["ortho"] = str(pkg / "ortho.png")
+            if Path(out["manifest"]).exists():
+                return {**out, "authoring_usd": out["authoring_usd"]}
             manifest = {"asset": asset, "engine": self.budget.target_engine, "budget": asdict(self.budget), "prompt": prompt,
                         "files": sorted(str(x.relative_to(pkg)) for x in pkg.rglob("*") if x.is_file()), "tier15": res.tier15, "tier1_ok": res.tier1_ok}
             (pkg / "manifest.json").write_text(json.dumps(manifest, indent=2))
