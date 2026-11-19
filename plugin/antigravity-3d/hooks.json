@@ -1,0 +1,48 @@
+{
+  "agy3d-qa-export-gate": {
+    "PreToolUse": [
+      {
+        "matcher": ".*(export_engine_package|run_script|run_bpy_script|run_blender_script)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/scripts/pre_tool_gate.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "agy3d-telemetry": {
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ./hooks/scripts/post_tool_telemetry.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  },
+  "agy3d-session-context": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "python3 ./hooks/scripts/session_start.py",
+        "timeout": 10
+      }
+    ]
+  },
+  "agy3d-stop-gate": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 ./hooks/scripts/stop_gate.py",
+        "timeout": 10
+      }
+    ]
+  }
+}
