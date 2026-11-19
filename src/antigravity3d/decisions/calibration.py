@@ -91,12 +91,15 @@ def _auto_threshold(s: np.ndarray, y: np.ndarray, target: float) -> tuple[float 
     return best_t, (best_r if best_t is not None else None)
 
 
-def _director_threshold(s: np.ndarray, y: np.ndarray, target: float) -> float | None:
+def _director_threshold(s: np.ndarray, y: np.ndarray, target: float, below: float | None) -> float | None:
+    """Largest t (strictly under the auto-approve cut) such that every prefix s <= t stays mostly rejected."""
     best = None
-    for t in np.unique(s):  # low to high: largest t where s<=t is still mostly rejected
-        sel = s <= t
-        if (~y[sel]).mean() >= target:
-            best = float(t)
+    for t in np.unique(s):  # ascending; stop at the first prefix that is no longer confidently bad
+        if below is not None and t >= below:
+            break
+        if (~y[s <= t]).mean() < target:
+            break
+        best = float(t)
     return best
 
 
@@ -110,9 +113,7 @@ def calibrate_question(qid: str, preds: Sequence[float], approved: Sequence[bool
     is_prob = not qid.startswith("score_")
     ece = expected_calibration_error(s, y, n_bins) if is_prob else None
     at, rec = _auto_threshold(s, y, target_precision) if two_class else (None, None)
-    dt = _director_threshold(s, y, target_precision) if two_class else None
-    if at is not None and dt is not None and dt >= at:
-        dt = None
+    dt = _director_threshold(s, y, target_precision, at) if two_class else None
     return QuestionCalibration(qid, len(y), int(y.sum()), a, ece, bool(ece is not None and ece <= ece_max and at is not None),
                                at, dt, rec, (tuple(map(float, fpr)), tuple(map(float, tpr))))
 

@@ -185,10 +185,9 @@ def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
     color = _set_input(surf, "diffuseColor", Sdf.ValueTypeNames.Color3f, Gf.Vec3f(*m.base_color))
     rough = _set_input(surf, "roughness", Sdf.ValueTypeNames.Float, m.roughness)
     metal = _set_input(surf, "metallic", Sdf.ValueTypeNames.Float, m.metallic)
-    occl = surf.CreateInput("occlusion", Sdf.ValueTypeNames.Float)
-    normal = surf.CreateInput("normal", Sdf.ValueTypeNames.Normal3f)
-    for inp in (occl, normal):
-        if inp.GetAttr().HasAuthoredConnections():
+    for name in ("occlusion", "normal"):  # texture-only inputs: unwire stale connections
+        inp = surf.GetInput(name)
+        if inp and inp.GetAttr().HasAuthoredConnections():
             inp.GetAttr().SetConnections([])
     if not (m.albedo_uri or m.orm_uri or m.normal_uri):
         return
@@ -209,14 +208,14 @@ def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
         color.ConnectToSource(tex("albedoTex", m.albedo_uri, "sRGB").CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
     if m.orm_uri:
         orm = tex("ormTex", m.orm_uri, "raw")
-        occl.ConnectToSource(orm.CreateOutput("r", Sdf.ValueTypeNames.Float))
+        surf.CreateInput("occlusion", Sdf.ValueTypeNames.Float).ConnectToSource(orm.CreateOutput("r", Sdf.ValueTypeNames.Float))
         rough.ConnectToSource(orm.CreateOutput("g", Sdf.ValueTypeNames.Float))
         metal.ConnectToSource(orm.CreateOutput("b", Sdf.ValueTypeNames.Float))
     if m.normal_uri:
         nt = tex("normalTex", m.normal_uri, "raw")
         nt.CreateInput("scale", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(2, 2, 2, 1))
         nt.CreateInput("bias", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(-1, -1, -1, 0))
-        normal.ConnectToSource(nt.CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
+        surf.CreateInput("normal", Sdf.ValueTypeNames.Normal3f).ConnectToSource(nt.CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
 
 
 def _block_authored(prim: Usd.Prim, names) -> None:
@@ -235,9 +234,10 @@ def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path)
     prim.CreateAttribute("agy:collider", Sdf.ValueTypeNames.Bool, custom=True).Set(node.collider)
 
     t = node.transform
-    prim.CreateAttribute("xformOp:translate", Sdf.ValueTypeNames.Double3).Set(Gf.Vec3d(*t.translate))
-    prim.CreateAttribute("xformOp:rotateXYZ", Sdf.ValueTypeNames.Float3).Set(Gf.Vec3f(*t.rotate_euler_deg))
-    prim.CreateAttribute("xformOp:scale", Sdf.ValueTypeNames.Float3).Set(Gf.Vec3f(*t.scale))
+    # Set op attributes directly: AddTranslateOp() etc. error if a weaker layer already has them.
+    prim.CreateAttribute("xformOp:translate", Sdf.ValueTypeNames.Double3, custom=False).Set(Gf.Vec3d(*t.translate))
+    prim.CreateAttribute("xformOp:rotateXYZ", Sdf.ValueTypeNames.Float3, custom=False).Set(Gf.Vec3f(*t.rotate_euler_deg))
+    prim.CreateAttribute("xformOp:scale", Sdf.ValueTypeNames.Float3, custom=False).Set(Gf.Vec3f(*t.scale))
     UsdGeom.Xformable(prim).CreateXformOpOrderAttr().Set(
         Vt.TokenArray(["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"])
     )
@@ -248,7 +248,7 @@ def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path)
         mesh.CreatePointsAttr().Set(Vt.Vec3fArray.FromNumpy(pts))
         mesh.CreateFaceVertexCountsAttr().Set(Vt.IntArray.FromNumpy(np.full(len(tris), 3, np.int32)))
         mesh.CreateFaceVertexIndicesAttr().Set(Vt.IntArray.FromNumpy(tris.ravel()))
-        mesh.CreateExtentAttr().Set(Vt.Vec3fArray([Gf.Vec3f(*pts.min(0)), Gf.Vec3f(*pts.max(0))]))
+        mesh.CreateExtentAttr().Set(Vt.Vec3fArray.FromNumpy(np.stack([pts.min(0), pts.max(0)])))
         mesh.CreateSubdivisionSchemeAttr().Set(UsdGeom.Tokens.none)
     else:  # kind changed away from a primitive: hide stale mesh data from weaker layers
         _block_authored(prim, _MESH_ATTRS)
