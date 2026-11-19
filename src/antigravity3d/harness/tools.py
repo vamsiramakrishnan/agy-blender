@@ -286,7 +286,7 @@ async def _variant_op(ctx: ToolContext, op: str, set_name: str, variant: str) ->
         rep = await asyncio.to_thread(_tier1, s)
         s.state.last_tier1_ok = rep.ok
         s.visuals_changed()
-    return f"{op.upper()}ED {set_name}={variant} tx={tid} | {rep.one_line(120)}"
+    return f"{op.upper().rstrip('E')}ED {set_name}={variant} tx={tid} | {rep.one_line(120)}"
 
 
 @_guard

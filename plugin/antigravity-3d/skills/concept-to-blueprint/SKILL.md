@@ -18,11 +18,12 @@ one-paragraph design note. No geometry is created in this skill.
    engine, budget and any style anchor (art bible). Restate the asset in one
    sentence: function, scale in metres, silhouette keywords, materials. Ask
    the user only if the real-world scale or target engine is unknown.
-2. **Generate four candidates.** Ask for four ortho sheets (front, side, top,
-   three-quarter, neutral grey background, flat even lighting, no
-   perspective) from the image tier, each with a different design seed and
-   the same brief and style anchor. Keep candidates as file URIs; do not open
-   the images in this conversation.
+2. **Generate four candidates.** The antigravity-3d tool set has no ortho
+   generator, so use the platform's `generate_image` tool: four ortho sheets
+   (front, side, top, three-quarter; neutral grey background, flat even
+   lighting, no perspective), each with a different design seed and the same
+   brief and style anchor. Keep candidates as file paths; do not open the
+   images in this conversation.
 3. **Score the tournament.** Call `run_visual_qa` on each candidate with the
    rubric `ortho_blueprint`: view consistency across the four projections,
    silhouette readability at 64 px, brief adherence, style-anchor match,

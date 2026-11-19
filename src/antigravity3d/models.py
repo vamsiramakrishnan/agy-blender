@@ -44,7 +44,8 @@ _DEFAULTS: dict[Role, ModelTier] = {
     # Isolated critics and parallel prop builders.
     "worker": ModelTier("worker", HYDROGEN, ThinkingLevel.LOW, "ephemeral critics, swarm prop builders"),
     # High-volume, low-judgement work: batch sanitise, simple parameter edits.
-    "bulk": ModelTier("bulk", NEON, ThinkingLevel.MINIMAL, "batch sanitise, trivial IR edits"),
+    # The live API rejects ThinkingLevel.MINIMAL for neon and hydrogen (HTTP 400), so LOW is the floor.
+    "bulk": ModelTier("bulk", NEON, ThinkingLevel.LOW, "batch sanitise, trivial IR edits"),
     "decision": ModelTier("decision", DECISION, None, "routing, Best-of-N ranking, visual QA, policy"),
     "image": ModelTier("image", IMAGE, None, "orthos, albedo, trim sheets, paint-overs"),
 }
