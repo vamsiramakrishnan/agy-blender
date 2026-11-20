@@ -52,20 +52,22 @@ class OutputBudget:
 
 # ``max_output_tokens`` per authoring role = answer budget + thinking allowance for the role's thinking level. Both
 # operations use the role's row: a repair may restate up to the whole scene. Measured 2026-11-20 on the propose request
-# (prompt "wooden crate with iron corner brackets", schema-constrained; every sample finished STOP with a valid SceneIR):
+# (prompt "wooden crate with iron corner brackets", schema-constrained; every sample finished STOP with a valid SceneIR;
+# the last three samples of each tier, one for argon, are the run in benchmarks/results/live.json):
 #
-#   role      model             level   answer tokens (nodes)              thinking tokens        -> answer + thinking
-#   worker    gemini-4-hydrogen low     664-1,143 (9), 4 samples           804-1,119, 8 samples   ->  8,192 +  8,192
-#   bulk      gemini-4-neon     low     1,799-1,919 (25-26), 3 samples     1,374-1,707, 6 samples ->  8,192 +  8,192
-#   builder   gemini-4-carbon   medium  10,110-12,189 (132-146), 3 samples 7,642-13,244           -> 16,384 + 16,384
-#   director  gemini-4-argon    high    6,337-11,208 (78-112), 2 samples   7,155-7,179            -> 16,384 + 16,384
+#   role      model             level   answer tokens (nodes)               thinking tokens         -> answer + thinking
+#   worker    gemini-4-hydrogen low     630-1,553 (9-13), 7 samples         804-1,263, 11 samples   ->  8,192 +  8,192
+#   bulk      gemini-4-neon     low     1,747-1,919 (25-26), 6 samples      1,374-2,418, 9 samples  ->  8,192 +  8,192
+#   builder   gemini-4-carbon   medium  9,965-12,189 (123-146), 6 samples   7,642-13,244, 6 samples -> 16,384 + 16,384
+#   director  gemini-4-argon    high    6,337-17,634 (78-168), 3 samples    7,155-7,893, 3 samples  -> 16,384 + 16,384
 #
-# Headroom: the LOW tiers get >= 4.3x the largest answer and >= 4.8x the largest thinking seen (cap 16,384 of the
+# Headroom: the LOW tiers get >= 4.2x the largest answer and >= 3.3x the largest thinking seen (cap 16,384 of the
 # model's 65,536). carbon and argon are bounded by their output_token_limit (32,768), so their cap IS the model
-# maximum; the answer/thinking split there is nominal (both share one cap). carbon's worst observed sample used 25,433
-# (78% of the cap): a residual truncation risk that no larger request can remove, surfaced as AuthorTruncated.
+# maximum; the answer/thinking split there is nominal (both share one cap: argon's largest answer alone was 17,634).
+# The worst observed samples used 25,433 (carbon) and 25,527 (argon) tokens, 78% of the cap: a residual truncation
+# risk that no larger request can remove, surfaced as AuthorTruncated.
 # A hero (director) call is sized by argon's own measurement and limit, never by a worker-tier figure.
-# Wall time grows with the answer: carbon took 200-209 s and argon 128-233 s for a full answer (one argon call hit a
+# Wall time grows with the answer: carbon took 200-285 s and argon 128-262 s for a full answer (one argon call hit a
 # 504 DEADLINE_EXCEEDED at the 300 s request timeout), so callers' timeout_s must allow for it.
 # Repairs (hydrogen, 2 flagged nodes): 92 answer + 515 thinking tokens.
 AUTHOR_OUTPUT_BUDGETS: dict[str, OutputBudget] = {
@@ -77,35 +79,38 @@ AUTHOR_OUTPUT_BUDGETS: dict[str, OutputBudget] = {
 # Raw evidence behind the table (propose request). Older hydrogen/neon thinking samples were taken without a response
 # schema (benchmarks/results/live.json); answer sizes only from schema-constrained responses.
 MEASURED_THINKING_TOKENS: dict[str, tuple[int, ...]] = {
-    "gemini-4-hydrogen/low": (856, 944, 1119, 804, 1072, 940, 1082, 880),
-    "gemini-4-neon/low": (1374, 1471, 1707, 1401, 1482, 1704),
-    "gemini-4-carbon/medium": (7642, 10649, 13244),
-    "gemini-4-argon/high": (7179, 7155),
+    "gemini-4-hydrogen/low": (856, 944, 1119, 804, 1072, 940, 1082, 880, 1079, 1263, 1066),
+    "gemini-4-neon/low": (1374, 1471, 1707, 1401, 1482, 1704, 1988, 1410, 2418),
+    "gemini-4-carbon/medium": (7642, 10649, 13244, 9846, 9289, 9650),
+    "gemini-4-argon/high": (7179, 7155, 7893),
 }
 MEASURED_ANSWER_TOKENS: dict[str, tuple[int, ...]] = {
-    "gemini-4-hydrogen/low": (664, 1143, 1132, 1135),
-    "gemini-4-neon/low": (1919, 1799, 1902),
-    "gemini-4-carbon/medium": (11178, 12189, 10110),
-    "gemini-4-argon/high": (11208, 6337),
+    "gemini-4-hydrogen/low": (664, 1143, 1132, 1135, 1553, 630, 1140),
+    "gemini-4-neon/low": (1919, 1799, 1902, 1893, 1747, 1919),
+    "gemini-4-carbon/medium": (11178, 12189, 10110, 10004, 10286, 9965),
+    "gemini-4-argon/high": (11208, 6337, 17634),
 }
 # models.get(...).output_token_limit on this key, 2026-11-20.
 MODEL_OUTPUT_TOKEN_LIMIT = {HYDROGEN: 65_536, NEON: 65_536, CARBON: 32_768, ARGON: 32_768}
-# Measured wall time of one propose call (min, max) in seconds, 2026-11-20, same samples as the token tables above.
-# argon's 128-233 s range also had one call end in 504 DEADLINE_EXCEEDED at the 300 s request timeout.
+# Measured wall time of one propose call (min, max) in seconds, 2026-11-20, same samples as the token tables above,
+# the maximum rounded up to a whole second. argon also had one call end in 504 DEADLINE_EXCEEDED at the 300 s request
+# timeout. The slowest carbon call (285 s for 19,850 tokens, about 70 tokens/s against 94-97 on its other samples)
+# came while the provider was slow; it completed and was valid, so it counts.
 MEASURED_PROPOSE_WALL_S: dict[str, tuple[float, float]] = {
     "gemini-4-hydrogen/low": (10.0, 38.0),
-    "gemini-4-neon/low": (26.0, 38.0),
-    "gemini-4-carbon/medium": (200.0, 209.0),
-    "gemini-4-argon/high": (128.0, 233.0),
+    "gemini-4-neon/low": (26.0, 39.0),
+    "gemini-4-carbon/medium": (200.0, 285.0),
+    "gemini-4-argon/high": (128.0, 262.0),
 }
 # Total request timeout per authoring role. Rule (asserted in tests/test_metered_author.py): at least
 # TIMEOUT_HEADROOM x the slowest measured call of the role's model, rounded up to a multiple of 30 s. A call that times
 # out is billed its whole reservation and yields nothing, so a timeout must not sit near the healthy range: argon's
-# slowest healthy call (233 s) was within reach of the old 300 s for every tier. A total, not an idle, timeout: the
+# slowest healthy call (262 s) was within reach of the old 300 s for every tier. The table follows the measurements,
+# not a ranking of the tiers: carbon's slowest call was slower than argon's. A total, not an idle, timeout: the
 # thinking phase of a call is silent (no chunk arrives until thinking ends, ~100 s on argon), so a stream cannot tell
 # a stalled call from a thinking one without include_thoughts, which would change the billed request.
 TIMEOUT_HEADROOM = 2.0
-AUTHOR_TIMEOUT_S: dict[str, float] = {"worker": 90.0, "bulk": 90.0, "builder": 420.0, "director": 480.0}
+AUTHOR_TIMEOUT_S: dict[str, float] = {"worker": 90.0, "bulk": 90.0, "builder": 570.0, "director": 540.0}
 # Prompt tokens the API bills for response_json_schema, per byte of compact schema JSON. Measured: the propose schema
 # (6,055 bytes) added 5,085 prompt tokens (0.84/byte), the repair schema (9,939 bytes) 7,066 (0.71/byte). 1.0 bounds both.
 SCHEMA_INPUT_TOKENS_PER_BYTE = 1.0

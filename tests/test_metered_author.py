@@ -396,7 +396,8 @@ def test_tier_timeouts_follow_the_measured_latency_with_stated_headroom(role):
 
 
 def test_timeouts_differ_by_tier_the_way_the_latencies_do():
-    assert AUTHOR_TIMEOUT_S["worker"] == AUTHOR_TIMEOUT_S["bulk"] < AUTHOR_TIMEOUT_S["builder"] <= AUTHOR_TIMEOUT_S["director"]
+    # the two small tiers answer in seconds, the two large ones in minutes; which large tier is slower is a measurement
+    assert AUTHOR_TIMEOUT_S["worker"] == AUTHOR_TIMEOUT_S["bulk"] < min(AUTHOR_TIMEOUT_S["builder"], AUTHOR_TIMEOUT_S["director"])
     assert AUTHOR_TIMEOUT_S["director"] > 300  # argon already ended in 504 at 300 s
     assert set(AUTHOR_TIMEOUT_S) == set(AUTHOR_OUTPUT_BUDGETS)
     with pytest.raises(ValueError):
@@ -429,7 +430,7 @@ def test_agent_author_defaults_to_the_per_tier_timeouts(monkeypatch):
 def test_expected_output_tokens_come_from_the_measurements_and_stay_under_the_cap():
     for role in ("worker", "bulk", "builder", "director"):
         assert 0 < expected_output_tokens(role) < AUTHOR_OUTPUT_BUDGETS[role].max_output_tokens
-    assert 15_000 < expected_output_tokens("director") < 17_000  # argon: mean 8,772 answer + 7,167 thinking
+    assert 18_000 < expected_output_tokens("director") < 20_000  # argon: mean 11,726 answer + 7,409 thinking
 
 
 def test_cost_profile_is_expected_below_worst_case_and_absent_without_rates(monkeypatch):
