@@ -1708,9 +1708,9 @@ def h_web_verify(ctx: Ctx) -> list[Case]:
 # ---------------------------------------------------------------------------------------------------------
 # Machine block, runner, CLI
 # ---------------------------------------------------------------------------------------------------------
-def _sh(cmd: list[str]) -> str:
+def _sh(cmd: list[str], cwd: Path = REPO) -> str:
     try:
-        return subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, timeout=20).stdout.strip()
+        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=20).stdout.strip()
     except Exception:  # noqa: BLE001
         return ""
 
@@ -1726,10 +1726,18 @@ def machine_block(quick: bool) -> dict[str, Any]:
             return md.version(d)
         except md.PackageNotFoundError:
             return None
+    # The measured code is whatever tree antigravity3d is imported from, which is not this file's tree when an older
+    # commit is measured from a worktree with this harness (PYTHONPATH=<worktree>/src). The commit recorded is the
+    # measured code's; the harness's own is added when it differs.
+    import antigravity3d
+
+    code = Path(antigravity3d.__file__).resolve().parent
+    commit, harness = _sh(["git", "rev-parse", "HEAD"], code), _sh(["git", "rev-parse", "HEAD"])
     return {
         "cpu_model": cpu, "logical_cpus": os.cpu_count(), "ram_gb": round(mem_kb / 1048576, 1),
         "os": f"{platform.system()} {platform.release()}", "python": sys.version.split()[0],
-        "git_commit": _sh(["git", "rev-parse", "HEAD"]), "git_dirty_tracked_files": len(_sh(["git", "status", "--porcelain", "--untracked-files=no"]).splitlines()),
+        "git_commit": commit, "git_dirty_tracked_files": len(_sh(["git", "status", "--porcelain", "--untracked-files=no"], code).splitlines()),
+        **({"harness_git_commit": harness} if harness != commit else {}),
         "versions": {d: ver(d) for d in ("antigravity-3d", "usd-core", "trimesh", "xatlas", "meshoptimizer", "coacd", "numpy", "scipy", "pillow")},
         "thread_pinning": "pinned_to_1" if THREAD_ENV else "library_defaults",
         "thread_env": {k: os.environ.get(k) for k in _PIN},
