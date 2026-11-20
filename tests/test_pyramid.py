@@ -166,15 +166,53 @@ async def test_full_run_records_every_step_and_skips_carry_reasons(tmp_path: Pat
     status = {s.name: s.status for s in res.steps}
     skipped = dict(res.skipped)
     assert not res.failed, res.failed
-    for name in ("textures", "uv_lod_colliders", "usd_validate", "engine_compliance", "lod_pop", "lod_pop_vision", "export_glb"):
+    for name in ("textures", "uv_lod_colliders", "usd_validate", "engine_compliance", "export_glb"):
         assert status[name] == "passed", (name, status)
-    assert {"locate_defects", "render_tier", "paintover", "engine_import", "engine_parity"} <= set(skipped)
+    # an all-box prop has nothing to simplify within the screen-space error budget: LOD0 only, nothing to pop
+    assert {"locate_defects", "render_tier", "paintover", "engine_import", "engine_parity", "lod_pop", "lod_pop_vision"} <= set(skipped)
+    assert "LOD0 only" in skipped["lod_pop"]
     assert all(reason.strip() for reason in skipped.values())
     assert "no locate_defects" in skipped["locate_defects"] or "no locate_defects" in skipped["locate_defects"].replace("plane has ", "")
     assert "not found" in skipped["engine_import"] and "paintover_loop disabled" in skipped["paintover"] and "no Blender pool" in skipped["render_tier"]
     assert res.render_tier == "preview" and res.ok
     assert Path(res.artifacts["usd"]).exists() and Path(res.artifacts["glb"]).exists()
     assert res.to_dict()["skipped"] and all(r["reason"] for r in res.to_dict()["skipped"])
+    # the shipped package is loaded in three.js when a browser exists; otherwise the step says what is missing
+    assert status["web_runtime"] in ("passed", "skipped"), status
+    if status["web_runtime"] == "passed":
+        assert Path(res.artifacts["web_render"]).exists() and res.scores["web_silhouette_iou"] >= 0.98
+        assert not list((tmp_path / "wd").glob("web_three_*")), "the verifier's scratch directory must not be left behind"
+    else:
+        assert "playwright" in skipped["web_runtime"] or "browser" in skipped["web_runtime"]
+
+
+async def test_web_runtime_step_is_skipped_with_the_reason_or_fails_the_run(tmp_path: Path, monkeypatch) -> None:
+    from antigravity3d.adapters.engines import web_three
+    from antigravity3d.tactics import pyramid
+
+    async def run(sub: str):
+        sm, plane = setup(tmp_path / sub, Script())
+        return await refine(sm, plane=plane, author=CallableAuthor(lambda *a, **k: []), governor=Governor(plan_for(2)), budget=BUDGET,
+                            uploader=up, workdir=tmp_path / sub / "wd", forge=ImageForge(FakeImageBackend()), settle_first=False)
+
+    # no browser: skipped with the verifier's own reason, and the run is still a pass
+    monkeypatch.setattr(web_three.WebThreeValidator, "_unavailable", lambda self: "web_three browser not found (set $CHROMIUM_BIN)")
+    res = await run("absent")
+    assert dict(res.skipped)["web_runtime"] == "web_three browser not found (set $CHROMIUM_BIN)" and res.ok
+    assert "web_render" not in res.artifacts
+
+    # the runtime rejects the package: the step fails with the failing checks named, and so does the run
+    class Rejecting(web_three.WebThreeValidator):
+        async def validate(self, package_path, timeout=300, **kw):
+            checks = (web_three.Check("no loader/console/page errors", "fail", "THREE.GLTFLoader: Unexpected end of JSON input"),
+                      web_three.Check("triangles == manifest tris", "pass", "loaded 24, manifest 24"))
+            return web_three.WebThreeReport(False, web_three.ENGINE, "FAIL", checks=checks)
+
+    monkeypatch.setattr(pyramid, "WebThreeValidator", Rejecting)
+    res = await run("rejected")
+    failed = dict(res.failed)
+    assert "Unexpected end of JSON input" in failed["web_runtime"] and "triangles ==" not in failed["web_runtime"]
+    assert not res.ok
 
 
 async def test_hero_plan_with_a_fake_pool_and_no_engine_render(tmp_path: Path) -> None:
@@ -188,3 +226,119 @@ async def test_hero_plan_with_a_fake_pool_and_no_engine_render(tmp_path: Path) -
     assert next(s for s in res.steps if s.name == "paintover").status == "passed" and "paintover_uri" in res.artifacts
     assert "no engine render available" in skipped["engine_parity"]  # plan wants engine truth, but no engine render exists
     assert asyncio.iscoroutinefunction(pool.call)
+
+
+# --------------------------------------------------------------------------- a failed author repair is a result
+
+
+import json  # noqa: E402
+from dataclasses import replace  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+import pytest  # noqa: E402
+from google.genai import types as genai_types  # noqa: E402
+
+from antigravity3d.models import tier  # noqa: E402
+from antigravity3d.tactics.governor import BudgetExceeded  # noqa: E402
+from antigravity3d.tactics.metered_author import AuthorNoAnswer, MeteredAuthor  # noqa: E402
+
+LID_DOWN_JSON = json.dumps({"ops": [{"op": "set_transform", "node_id": "lid", "transform": {"translate": [0, 0, 1.025]}}]})
+
+
+class TierEndpoint:
+    """Fake models endpoint: one scripted finish per model, so the worker and the director tier can differ."""
+
+    def __init__(self, finishes: dict[str, str]) -> None:
+        self.finishes, self.models, self.fixed = finishes, [], False
+
+    async def count_tokens(self, **kw: Any) -> Any:
+        return SimpleNamespace(total_tokens=100)
+
+    async def generate_content(self, **kw: Any) -> Any:
+        model = kw["model"]
+        self.models.append(model)
+        finish = self.finishes[model]
+        self.fixed = self.fixed or finish == "STOP"
+        usage = SimpleNamespace(prompt_token_count=100, candidates_token_count=30, thoughts_token_count=20, total_token_count=150)
+        text = LID_DOWN_JSON if finish == "STOP" else ""
+        return SimpleNamespace(text=text, usage_metadata=usage, prompt_feedback=None,
+                               candidates=[SimpleNamespace(finish_reason=genai_types.FinishReason(finish))])
+
+
+def metered(monkeypatch: pytest.MonkeyPatch, ep: TierEndpoint, gov: Governor) -> MeteredAuthor:
+    rates = {tier(role).model: [1, 2] for role in ("worker", "director")}
+    monkeypatch.setenv("AGY3D_TEXT_RATES_JSON", json.dumps(rates))
+    return MeteredAuthor(SimpleNamespace(aio=SimpleNamespace(models=ep)), gov, BUDGET, {"asset_name": "Prop"})
+
+
+def broken_script(ep: TierEndpoint) -> Script:
+    return Script(blockout=lambda n: {} if ep.fixed else dict(FLAGGED))
+
+
+async def test_truncated_worker_repair_is_retried_once_on_the_director_when_the_plan_allows(tmp_path: Path, monkeypatch) -> None:
+    ep = TierEndpoint({tier("worker").model: "MAX_TOKENS", tier("director").model: "STOP"})
+    gov = Governor(plan_for(2))  # standard: worker builder, allow_director
+    sm, plane = setup(tmp_path, broken_script(ep))
+    res = await run_a(sm, plane, metered(monkeypatch, ep, gov), tmp_path, governor=gov)
+    assert ep.models == [tier("worker").model, tier("director").model]
+    assert res.converged["A"] and res.author_calls == 2
+    assert [s.status for s in res.steps if s.name == "author_repair"] == ["passed"]
+    assert sm.base_ir().nodes[1].transform.translate == (0, 0, 1.025)
+
+
+async def test_truncated_repair_without_director_permission_is_a_recorded_stop(tmp_path: Path, monkeypatch) -> None:
+    ep = TierEndpoint({tier("worker").model: "MAX_TOKENS", tier("director").model: "STOP"})
+    gov = Governor(replace(plan_for(2), allow_director=False))
+    sm, plane = setup(tmp_path, broken_script(ep))
+    before = sm.base_ir()
+    res = await run_a(sm, plane, metered(monkeypatch, ep, gov), tmp_path, governor=gov)
+    assert ep.models == [tier("worker").model]  # no escalation the plan does not grant
+    assert "author repair failed" in res.stopped["A"] and "AuthorTruncated" in res.stopped["A"] and "not permitted" in res.stopped["A"]
+    assert res.converged["A"] is False and sm.base_ir() == before
+    assert [(s.name, s.status) for s in res.steps if s.name == "author_repair"] == [("author_repair", "warned")]
+
+
+async def test_empty_answer_on_the_director_is_not_retried_and_names_the_cause(tmp_path: Path, monkeypatch) -> None:
+    ep = TierEndpoint({tier("worker").model: "MAX_TOKENS", tier("director").model: "MAX_TOKENS"})
+    gov = Governor(plan_for(2))
+    sm, plane = setup(tmp_path, broken_script(ep))
+    res = await run_a(sm, plane, metered(monkeypatch, ep, gov), tmp_path, governor=gov)
+    assert ep.models == [tier("worker").model, tier("director").model]  # exactly one escalation
+    assert "director retry also AuthorTruncated" in res.stopped["A"] and res.author_calls == 2
+
+
+async def test_blocked_repair_is_not_escalated(tmp_path: Path, monkeypatch) -> None:
+    ep = TierEndpoint({tier("worker").model: "SAFETY", tier("director").model: "STOP"})
+    gov = Governor(plan_for(2))
+    sm, plane = setup(tmp_path, broken_script(ep))
+    res = await run_a(sm, plane, metered(monkeypatch, ep, gov), tmp_path, governor=gov)
+    assert ep.models == [tier("worker").model] and "AuthorNoAnswer" in res.stopped["A"] and "SAFETY" in res.stopped["A"]
+
+
+async def test_director_retry_that_cannot_be_admitted_is_recorded(tmp_path: Path, monkeypatch) -> None:
+    ep = TierEndpoint({tier("worker").model: "MAX_TOKENS", tier("director").model: "STOP"})
+    gov = Governor(replace(plan_for(2), ceiling_usd=0.06))  # the worker's worst case fits, the director's does not
+    sm, plane = setup(tmp_path, broken_script(ep))
+    res = await run_a(sm, plane, metered(monkeypatch, ep, gov), tmp_path, governor=gov)
+    assert ep.models == [tier("worker").model] and "director retry not admitted" in res.stopped["A"]
+
+
+@pytest.mark.parametrize("error", [AuthorNoAnswer("blocked", model="m", role="worker", operation="repair", finish_reason="SAFETY",
+                                                  usage=None, max_output_tokens=1),
+                                   BudgetExceeded("no room")])
+async def test_typed_failures_from_any_author_end_the_pass_with_a_stop_reason(tmp_path: Path, error: Exception) -> None:
+    def repair(*a: Any, **k: Any) -> IRPatch:
+        raise error
+
+    sm, plane = setup(tmp_path, Script(blockout=lambda n: dict(FLAGGED)))
+    res = await run_a(sm, plane, CallableAuthor(lambda *a, **k: [], repair), tmp_path)
+    assert res.stopped["A"].startswith("author repair failed") and res.converged["A"] is False and res.author_calls == 1
+
+
+async def test_unexpected_exceptions_from_the_author_still_propagate(tmp_path: Path) -> None:
+    def repair(*a: Any, **k: Any) -> IRPatch:
+        raise RuntimeError("bug")
+
+    sm, plane = setup(tmp_path, Script(blockout=lambda n: dict(FLAGGED)))
+    with pytest.raises(RuntimeError, match="bug"):
+        await run_a(sm, plane, CallableAuthor(lambda *a, **k: [], repair), tmp_path)

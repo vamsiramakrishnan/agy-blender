@@ -5,23 +5,53 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import pydantic
 from google.antigravity import Agent, types
-from google.antigravity.connections.local.local_connection_config import LocalAgentConfig
+from google.antigravity.connections.local.local_connection_config import (
+    LocalAgentConfig,
+)
 from google.antigravity.hooks import policy
-from google.antigravity.models import GeminiAPIEndpoint, GeminiModelOptions, ModelTarget, ModelType
+from google.antigravity.models import (
+    GeminiAPIEndpoint,
+    GeminiModelOptions,
+    ModelTarget,
+    ModelType,
+)
 from google.antigravity.triggers import TriggerContext
 
 from antigravity3d.harness.hooks import (
-    QAStopHook, TelemetryHook, VisionEvictionHook, _Shared, sanitize_prompt, stage_hooks, state_header, with_state_header,
+    QAStopHook,
+    TelemetryHook,
+    VisionEvictionHook,
+    _Shared,
+    sanitize_prompt,
+    stage_hooks,
+    state_header,
+    with_state_header,
 )
 from antigravity3d.harness.session import (
-    CTX_REGISTRY_KEY, CTX_SESSION_KEY, DEFAULT_REGISTRY, bind_conversation, session, set_toolset, unbind_conversation,
+    CTX_REGISTRY_KEY,
+    CTX_SESSION_KEY,
+    DEFAULT_REGISTRY,
+    bind_conversation,
+    session,
+    set_toolset,
+    unbind_conversation,
 )
-from antigravity3d.harness.tools import STAGE_TOOLS, SUBAGENT_TOOLS, TOOLSET_STAGE
+from antigravity3d.harness.tools import (
+    STAGE_SUBAGENTS,
+    STAGE_TOOLS,
+    SUBAGENT_TOOLS,
+    TOOLSET_STAGE,
+)
+from antigravity3d.ir_schema import (  # prose the tool schemas cannot carry
+    IR_SEMANTICS,
+    OP_SEMANTICS,
+)
 from antigravity3d.models import Role, tier
 from antigravity3d.state import SceneSessionRegistry
 
@@ -31,15 +61,25 @@ DEFAULT_ROLE: dict[str, Role] = {
 }
 COMPACTION_TOKENS = 48_000
 TOOL_OUTPUT_MAX_TOKENS = 1_500  # backstop; harness tools already return one-liners
-STAGE_BUILTINS = [types.BuiltinTools.FINISH, types.BuiltinTools.VIEW_FILE, types.BuiltinTools.INVOKE_SUBAGENT]
+# What a stage agent is, said with the SDK's own mechanisms (measured with tests/gemini_stub.py on the request the
+# harness posts; see tests/test_stage_request.py):
+# * CustomSystemInstructions: the system prompt is exactly STAGE_TEXT. A plain string (the old form) is appended to the
+#   default coding-assistant template (identity, markdown/LaTeX/link style, transcript files, subagent and messaging
+#   sections): about 7.6k characters per call that describe no asset work. TemplatedSystemInstructions(identity=...)
+#   only swaps the 491-character identity and keeps the rest.
+# * AgentBehavior.MINIMAL: the harness stops injecting the toolSummary/toolAction parameters into every declaration
+#   (about 450-520 characters per tool, and two strings the model had to write on every call that nothing reads). It
+#   changes nothing else in the request: contents, generation config and stop-hook continuations are identical.
+# * Builtins: only FINISH. VIEW_FILE was enabled everywhere and used nowhere (no instruction refers to a file, the
+#   tools return one-line deltas and URIs). INVOKE_SUBAGENT only where the stage has a subagent (tools.STAGE_SUBAGENTS).
+STAGE_BUILTINS = [types.BuiltinTools.FINISH]
+STAGE_BEHAVIOR = types.AgentBehavior.MINIMAL
 
-_IR_RULES = """Scene IR (metres, Z-up, right-handed, rotations XYZ Euler degrees). Primitives are centred on their local origin:
-box params.size=[x,y,z] full extents; cylinder radius,height[,segments=24] axis local Z; cone radius,height (base -h/2, apex +h/2);
-sphere radius[,segments,rings]; capsule radius,height; group = transform-only parent; mesh_ref params.path = local asset path. node: {"id","kind","params","transform":
-{"translate","rotate_euler_deg","scale"},"parent","material_id","collider"}; ids match [A-Za-z_][A-Za-z0-9_]*.
-Ops: {"op":"upsert_node","node":{...}}, remove_node{node_id}, set_transform{node_id,transform}, set_param{node_id,name,value},
-upsert_material{material:{id,base_color,metallic,roughness}}, assign_material{node_id,material_id}, on_top_of{node_id,target_id,gap_m}, flush_back{node_id,target_id,gap_m}.
-Anchors use world AABBs. on_top_of centres X/Y and aligns bottom to target top. flush_back aligns +Y faces. gap_m defaults to 0. For ground contact use z = half the primitive height."""
+# Only what a schema cannot say: units, axes, anchors, ground contact, id rules. Field names and types are in the
+# tool declarations (generated from the same IR schema), so they are not repeated here.
+_IR_RULES = f"{IR_SEMANTICS}\n{OP_SEMANTICS}"
+_IR_STAGES = frozenset({"BLOCKOUT", "TWEAK", "VARIANTS"})  # edit geometry: IR semantics and the anchor ops
+_MATERIAL_STAGES = frozenset({"LOOKDEV"})  # edit materials only: IR semantics (ids, material cross-field rules)
 
 _STAGE_TEXT: dict[str, str] = {
     "BLOCKOUT": "Build the asset's blockout from primitives with apply_scene_ir (one patch can hold many ops). Each edit is "
@@ -48,17 +88,43 @@ _STAGE_TEXT: dict[str, str] = {
                 "is OK and QA shows no geometry repair.",
     "TWEAK": "Use query_region for a bounded spatial working set. Apply the requested parameter edits with apply_scene_ir.",
     "VARIANTS": "Explore alternatives as variants (propose_variants), select each and run_visual_qa, promote the best.",
-    "LOOKDEV": "Create materials with forge_pbr_material, tune and assign them with apply_shader_diff (assign_to), then "
+    "LOOKDEV": "The header's 'bound:' line lists the node ids by current material. Create materials with forge_pbr_material, "
+               "tune and assign them with apply_shader_diff (assign_to takes those node ids), then "
                "render_lookdev with EEVEE/Cycles and run_visual_qa until Decisions approves (tier15 >= 3.4). Images are never shown to you; reason from QA lines.",
     "EXPORT": "Run generate_lods_and_colliders and run_usd_validator, then export_engine_package. Export is refused until QA "
               "approved the current scene; report what blocks it instead of retrying.",
 }
 
+_SUBAGENT_TEXT = {
+    "usd_verifier": ("Read-only check of the composed USD scene and engine compliance.",
+                     "Inspect the manifest and run the USD validator; reply with the blocking issues in at most 3 lines."),
+    "lookdev_critic": ("Read-only visual critique of the current asset via Decisions QA.",
+                       "Run qa_probe and inspect the manifest; reply with the single most important fix in 2 lines."),
+}
 
-def _system(toolset: str) -> str:
-    return (f"You are the {toolset} stage agent of a game-asset pipeline. You edit the asset only through the tools; "
-            f"tool replies are one-line deltas. Every prompt starts with a [STATE ...] header: trust it over older messages.\n"
-            f"{_IR_RULES}\n{_STAGE_TEXT[toolset]}\nBe terse.")
+
+def _system(toolset: str, subagents: tuple[str, ...] | None = None) -> str:
+    """The whole system prompt of a stage agent (it replaces the SDK default; see STAGE_BEHAVIOR). ``subagents``
+    defaults to the stage's own (``tools.STAGE_SUBAGENTS``)."""
+    parts = [(f"You are the {toolset} stage agent of a game-asset pipeline. Nobody answers questions: work autonomously "
+              "until the stage's stop condition holds, then reply with a short plain-text report of what changed and what "
+              "remains. You edit the asset only through the tools; tool replies are one-line deltas; a refused or failed "
+              "call says why in one line. Every prompt starts with a [STATE ...] header: trust it over older messages.")]
+    if toolset in _IR_STAGES:
+        parts.append(_IR_RULES)
+    elif toolset in _MATERIAL_STAGES:
+        parts.append(IR_SEMANTICS)
+    parts.append(_STAGE_TEXT[toolset])
+    if subs := (STAGE_SUBAGENTS.get(toolset, ()) if subagents is None else subagents):
+        listed = "; ".join(f"{n}: {_SUBAGENT_TEXT[n][0].rstrip('.')}" for n in subs)
+        parts.append(f"Subagents (invoke_subagent TypeName) run in their own context; a reply arrives as a message, do not "
+                     f"poll. {listed}.")
+    parts.append("Be terse.")
+    return "\n".join(parts)
+
+
+def _instructions(toolset: str, subagents: tuple[str, ...]) -> types.CustomSystemInstructions:
+    return types.CustomSystemInstructions(text=_system(toolset, subagents), title="stage_agent")
 
 
 def model_target(role: Role) -> ModelTarget:
@@ -68,19 +134,16 @@ def model_target(role: Role) -> ModelTarget:
     return ModelTarget(name=t.model, types=[ModelType.TEXT], endpoint=GeminiAPIEndpoint(options=opts))
 
 
-def _subagents() -> list[types.SubagentConfig]:
+def _subagents(names: tuple[str, ...] | None = None) -> list[types.SubagentConfig]:
+    """Read-only subagents (all of them, or ``names``), each told only its own job (same mechanisms as the stage)."""
     worker = tier("worker").model  # subagents take a model *name* and run on the agent-level endpoint options
-    ro = types.SubagentCapabilities(enabled_tools=[types.BuiltinTools.FINISH])
-    return [
-        types.SubagentConfig(
-            name="usd_verifier", description="Read-only check of the composed USD scene and engine compliance.",
-            system_instructions="Inspect the manifest and run the USD validator; reply with the blocking issues in at most 3 lines.",
-            capabilities=ro, tools=list(SUBAGENT_TOOLS["usd_verifier"]), model=worker),
-        types.SubagentConfig(
-            name="lookdev_critic", description="Read-only visual critique of the current asset via Decisions QA.",
-            system_instructions="Run qa_probe and inspect the manifest; reply with the single most important fix in 2 lines.",
-            capabilities=ro, tools=list(SUBAGENT_TOOLS["lookdev_critic"]), model=worker),
-    ]
+    ro = types.SubagentCapabilities(agent_behavior=STAGE_BEHAVIOR, enabled_tools=[types.BuiltinTools.FINISH])
+    return [types.SubagentConfig(
+        name=name, description=desc, capabilities=ro, tools=list(SUBAGENT_TOOLS[name]), model=worker,
+        system_instructions=types.CustomSystemInstructions(
+            text=f"You are the {name} subagent of a game-asset pipeline; you never edit the asset. {job} Be terse.",
+            title="subagent"))
+        for name, (desc, job) in ((n, _SUBAGENT_TEXT[n]) for n in (names if names is not None else _SUBAGENT_TEXT))]
 
 
 def build_stage_agent(
@@ -94,7 +157,8 @@ def build_stage_agent(
     require_header: bool = True,
     subagents: bool = True,
 ) -> LocalAgentConfig:
-    """LocalAgentConfig exposing only ``stage``'s tools, bound to ``session_id``.
+    """LocalAgentConfig exposing only ``stage``'s tools (and its subagents, see ``tools.STAGE_SUBAGENTS``; none at all
+    with ``subagents=False``), bound to ``session_id``.
 
     Side effects: sets the session's active stage/tool-set and binds the pinned conversation id
     (``cfg.conversation_id``) to the session so tools resolve it from ``ToolContext``.
@@ -107,20 +171,23 @@ def build_stage_agent(
     set_toolset(registry, session_id, stage)
     conv = conversation_id or str(uuid.uuid4())
     bind_conversation(conv, session_id, registry)
-    builtins = STAGE_BUILTINS if subagents else [b for b in STAGE_BUILTINS if b != types.BuiltinTools.INVOKE_SUBAGENT]
+    subs = STAGE_SUBAGENTS[stage] if subagents else ()
     caps = types.CapabilitiesConfig(
-        enabled_tools=builtins,
+        agent_behavior=STAGE_BEHAVIOR,
+        enabled_tools=STAGE_BUILTINS + ([types.BuiltinTools.INVOKE_SUBAGENT] if subs else []),
+        enable_subagents=bool(subs),
         tool_output_truncation_config=types.ToolOutputTruncationConfig(max_tokens=TOOL_OUTPUT_MAX_TOKENS),
-        **({"allowed_subagents": ["usd_verifier", "lookdev_critic"], "max_subagent_depth": 1} if subagents else {}),
+        # allowed_subagents is advisory in the harness (not checked at call time); InvariantAndSafetyGate enforces it.
+        **({"allowed_subagents": list(subs), "max_subagent_depth": 1} if subs else {}),
     )
     return LocalAgentConfig(
-        system_instructions=_system(stage),
+        system_instructions=_instructions(stage, subs),
         capabilities=caps,
         tools=list(STAGE_TOOLS[stage]),
         policies=policy.confirm_run_command(),  # backstop; the gate hook is the primary safety policy
         hooks=stage_hooks(registry, session_id, require_header=require_header),
         triggers=triggers or [],
-        subagents=_subagents() if subagents else [],
+        subagents=_subagents(subs) if subs else [],
         model=model_target(role or DEFAULT_ROLE[stage]),
         compaction_config=types.CompactionConfig(token_threshold=COMPACTION_TOKENS),
         workspaces=[str(s.workdir)],
@@ -229,11 +296,17 @@ async def run_stage(
     registry: SceneSessionRegistry | None = None,
     role: Role | None = None,
     timeout_s: float = 600.0,
+    configure: Callable[[LocalAgentConfig], LocalAgentConfig] | None = None,
     **build_kwargs: Any,
 ) -> StageRun:
-    """Opens the stage Agent, binds the conversation, sends one header-prefixed prompt, returns text+usage."""
+    """Opens the stage Agent, binds the conversation, sends one header-prefixed prompt, returns text+usage.
+
+    ``configure`` may return a changed copy of the built config before the agent opens (the live benchmark points the
+    model endpoint at its counting relay and switches retries off; tests point it at a local stub)."""
     registry = registry if registry is not None else DEFAULT_REGISTRY
     cfg = build_stage_agent(stage, session_id, registry=registry, role=role, **build_kwargs)
+    if configure is not None:
+        cfg = configure(cfg)
     conv = cfg.conversation_id or ""
     s = session(registry, session_id)
     hooks = {type(h): h for h in cfg.hooks}

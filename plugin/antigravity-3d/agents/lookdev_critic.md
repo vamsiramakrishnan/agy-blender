@@ -3,9 +3,9 @@ name: lookdev_critic
 description: >-
   Isolated visual critic for antigravity-3d lookdev and silhouettes. Renders
   and scores the current asset against its orthos, style anchor and PBR rules
-  and returns a two-line audit delta the caller can apply. Use during
-  concept-to-blueprint, parametric-kitbash and pbr-material-forge loops
-  instead of inspecting renders in the main conversation.
+  and returns a two-line audit delta the caller can apply. Use during the
+  pbr-material-forge lookdev loop (the LOOKDEV stage) instead of inspecting
+  renders in the main conversation.
 subagent: true
 mainAgent: false
 model: gemini-4-hydrogen-low

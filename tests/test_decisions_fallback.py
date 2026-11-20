@@ -332,3 +332,40 @@ async def test_live_fallback_red_square(capsys):
         print(f"\nLIVE fallback: model={plane._client.model} thinking={plane._client.thinking_level} latency={dt:.2f}s "
               f"in_tokens={r.input_tokens} out_tokens={r.output_tokens} answers="
               f"{ {k: a.value for k, a in r.answers.items()} }")
+
+
+# ---- truncation ----------------------------------------------------------------------------------------------------
+
+def test_evidence_no_strict_prefix_of_an_answer_parses_as_complete():
+    """Every truncation point of a valid answer is rejected by the parser (compact and pretty-printed JSON)."""
+    for text in (json.dumps(GOOD), json.dumps(GOOD, indent=2)):
+        parsed = 0
+        for cut in range(1, len(text)):
+            try:
+                F.parse_response_text(text[:cut], QS)
+                parsed += 1
+            except F.MalformedGenerativeAnswer:
+                pass
+        assert parsed == 0
+    # ...but a complete answer followed by whitespace the model kept emitting until the cap DOES parse, so the
+    # parser alone cannot tell a MAX_TOKENS response from a complete one: the finish reason has to be checked.
+    F.parse_response_text(json.dumps(GOOD) + "\n" * 50, QS)
+
+
+class Truncated(StubGen):
+    async def _gen(self, *, model, contents, config):
+        self.calls.append({"model": model, "contents": contents, "config": config})
+        return SimpleNamespace(text=json.dumps(GOOD) + "\n" * 50, prompt_feedback=None,
+                               candidates=[SimpleNamespace(finish_reason=types.FinishReason.MAX_TOKENS)],
+                               usage_metadata=SimpleNamespace(prompt_token_count=100, candidates_token_count=65000,
+                                                              thoughts_token_count=536))
+
+
+async def test_max_tokens_is_a_typed_outcome_never_parsed_nor_reasked():
+    stub = Truncated(GOOD)
+    with pytest.raises(F.GenerativeTruncated) as ei:
+        await DecisionControlPlane(backend(stub)).evaluate(img_input(), QS, tag="t")
+    assert len(stub.calls) == 1  # not retried as "malformed"
+    assert ei.value.finish_reason == "MAX_TOKENS"
+    assert ei.value.usage.total_output_tokens == 65536 and ei.value.usage.thoughts_tokens == 536
+    assert not issubclass(F.GenerativeTruncated, F.MalformedGenerativeAnswer)

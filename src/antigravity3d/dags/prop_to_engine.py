@@ -115,12 +115,36 @@ class PropToEngineDAG:
             wd.mkdir(parents=True, exist_ok=True)
             sm = StageManager.create(wd / f"{asset}_stage.usda", asset)
             ort = ctx["ortho"]
-            n = r.governor.candidates("geometry", unit_cost=GRADE_USD_EST)
             context = {"asset_name": asset, "ortho_uri": ort.winner.uri if ort else None,
                        "style_uri": ctx["style_anchor"]["uri"] if ctx["style_anchor"] else None}
             author = self.author.bind(r.governor, self.budget, context) if isinstance(self.author, AgentAuthor) else self.author
-            scenes = await author.propose(prompt, budget=self.budget, n=n, context=context)
-            ctx.data(n_requested=n, n_proposed=len(scenes), materials=sorted({m.id for s in scenes for m in s.materials}))
+            # Size the best-of-N by what a candidate is expected to cost (authoring from the measurements, plus grading);
+            # admission then sequences the candidates under the ceiling by their worst case, waiting for settlements.
+            n_plan = r.governor.plan.geometry_candidates
+            profile = author.cost_profile(asset_name=asset) if hasattr(author, "cost_profile") else None
+            if profile is None:
+                n, sizing = r.governor.candidates("geometry", unit_cost=GRADE_USD_EST), {"basis": "grading only (author not metered or no rates)"}
+            else:
+                expected, worst = profile
+                n = r.governor.candidates("geometry", unit_cost=expected + GRADE_USD_EST, admit_cost=worst + GRADE_USD_EST)
+                sizing = {"basis": "expected author cost + grading", "expected_candidate_usd": expected + GRADE_USD_EST,
+                          "worst_case_candidate_usd": worst + GRADE_USD_EST, "remaining_usd": r.governor.remaining}
+            if n < n_plan:
+                ctx.note(f"ceiling ${r.governor.plan.ceiling_usd:.2f} sizes geometry best-of-{n_plan} down to {n} "
+                         f"(${r.governor.remaining:.4f} remaining)")
+            with_outcomes = getattr(author, "propose_with_outcomes", None)
+            if with_outcomes is not None:
+                result = await with_outcomes(prompt, budget=self.budget, n=n, context=context)
+                scenes, outcomes = result.scenes, [o.to_dict() for o in result.outcomes]
+            else:  # authors that do not record per-candidate outcomes
+                scenes = await author.propose(prompt, budget=self.budget, n=n, context=context)
+                outcomes = [{"index": i, "status": "produced"} for i in range(len(scenes))]
+            lost = [o for o in outcomes if o["status"] != "produced"]
+            if lost:
+                ctx.note(f"{len(lost)} of {n} requested geometry candidates produced nothing: "
+                         + "; ".join(f"#{o['index']} {o['status']}" + (f" ({o['detail']})" if o.get("detail") else "") for o in lost))
+            ctx.data(n_planned=n_plan, n_requested=n, n_proposed=len(scenes), outcomes=outcomes, sizing=sizing,
+                     materials=sorted({m.id for s in scenes for m in s.materials}))
             return Proposal(sm, list(scenes), asset, author)
 
         async def geometry(ctx: NodeCtx) -> Any:
@@ -172,9 +196,11 @@ class PropToEngineDAG:
             manifest["verified"] = res.verified and not getattr(self.forge, "offline", False)
             if "engine_import" in res.objects:
                 manifest["validation"]["engine_import"] = res.objects["engine_import"]
+            # What was checked and how it ended ships with the package. How long each step took is a fact about the run,
+            # not the asset: it stays in the run report, so two runs of one scene still ship identical bytes.
             manifest["evidence"] = {"render_tier": res.render_tier, "lookdev": res.live_lookdev,
                                     "engine_parity": res.live_parity, "silhouette_iou": res.scores.get("engine_silhouette_iou"),
-                                    "steps": [vars(s) for s in res.steps]}
+                                    "steps": [{"name": s.name, "status": s.status, "detail": s.detail} for s in res.steps]}
             if (wd / "ortho.png").exists():
                 shutil.copyfile(wd / "ortho.png", pkg / "ortho.png")
                 out["ortho"] = str(pkg / "ortho.png")
@@ -238,6 +264,8 @@ class PropToEngineDAG:
             "comparison": rep.nodes["route"].data.get("comparison"),
             "published": bool(rep.ok and rep.nodes["package"].data.get("published")),
             "candidate_mode": "single" if self.single_candidate else "governed",
+            "geometry_candidates": {k: v for k, v in (rep.nodes["propose"].data if "propose" in rep.nodes else {}).items()
+                                    if k in ("n_planned", "n_requested", "n_proposed", "outcomes", "sizing")},
             "budget": asdict(self.budget), "decision_backend": self.plane.backend_kind,
             "preview_gates_ok": bool(res and res.ok and "inspector" in outputs),
             "verified": bool(rep.ok and rep.nodes["package"].data.get("verified")),

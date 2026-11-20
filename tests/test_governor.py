@@ -318,3 +318,180 @@ def test_usage_cost_usd_rejects_negative_tokens():
         usage_cost_usd(-1, 0, usd_per_m_in=1.0, usd_per_m_out=1.0)
     with pytest.raises(ValueError):
         usage_cost_usd(0, -1, usd_per_m_in=1.0, usd_per_m_out=1.0)
+
+
+# --- waiting admission ------------------------------------------------------
+
+import asyncio  # noqa: E402
+import random  # noqa: E402
+import threading  # noqa: E402
+from dataclasses import replace  # noqa: E402
+
+from antigravity3d.tactics.governor import BudgetExceeded  # noqa: E402
+
+
+def ledger_committed(g: Governor) -> float:
+    return g._db.execute("SELECT COALESCE(SUM(COALESCE(booked,reserved)),0) FROM spend").fetchone()[0]
+
+
+def gov(ceiling: float) -> Governor:
+    return Governor(replace(PLANS[3], ceiling_usd=ceiling))
+
+
+async def settle_soon():
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+
+async def test_reserve_wait_admits_at_once_when_it_fits():
+    g = gov(1.0)
+    hold = await asyncio.wait_for(g.reserve_wait("x", 0.4), 1)
+    assert hold.limit == 0.4 and g.remaining == pytest.approx(0.6) and not g._waiters
+
+
+async def test_reserve_wait_waits_for_a_settlement_then_admits():
+    g = gov(1.0)
+    first = g.reserve("x", 0.7)
+    waiter = asyncio.ensure_future(g.reserve_wait("x", 0.6))
+    await settle_soon()
+    assert not waiter.done() and len(g._waiters) == 1
+    first.settle(0.1)  # most of the reservation is released
+    hold = await asyncio.wait_for(waiter, 1)
+    assert hold.limit == 0.6 and ledger_committed(g) == pytest.approx(0.7) and not g._waiters
+
+
+async def test_reserve_wait_never_fitting_fails_at_once_with_the_numbers():
+    g = gov(1.0)
+    g.charge("image", 0.5)
+    outstanding = g.reserve("x", 0.3)  # unsettled reservations do not make a request unfittable, booked spend does
+    with pytest.raises(BudgetExceeded, match=r"never fit.*ceiling \$1\.00000.*\$0\.50000 already settled"):
+        await asyncio.wait_for(g.reserve_wait("y", 0.6), 1)
+    assert not g._waiters
+    outstanding.settle(0.0)
+
+
+async def test_overrun_that_makes_a_waiter_unfittable_fails_it_instead_of_hanging():
+    g = gov(1.0)
+    first = g.reserve("x", 0.6)
+    waiter = asyncio.ensure_future(g.reserve_wait("x", 0.5))
+    await settle_soon()
+    first.settle(0.8)  # billed more than reserved
+    with pytest.raises(BudgetExceeded, match="never fit"):
+        await asyncio.wait_for(waiter, 1)
+    assert not g._waiters
+
+
+async def test_sync_reserve_still_fails_at_once():
+    g = gov(1.0)
+    g.reserve("x", 0.7)
+    with pytest.raises(BudgetExceeded):
+        g.reserve("y", 0.6)
+
+
+async def test_cancelled_waiter_leaves_no_trace_and_hands_the_queue_on():
+    g = gov(1.0)
+    first = g.reserve("x", 0.9)
+    head = asyncio.ensure_future(g.reserve_wait("a", 0.5))
+    behind = asyncio.ensure_future(g.reserve_wait("b", 0.5))
+    await settle_soon()
+    assert len(g._waiters) == 2
+    head.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await head
+    assert len(g._waiters) == 1
+    first.settle(0.0)
+    hold = await asyncio.wait_for(behind, 1)
+    assert hold.limit == 0.5 and not g._waiters and ledger_committed(g) == pytest.approx(0.5)
+
+
+async def test_waiters_are_served_in_arrival_order():
+    g = gov(1.0)
+    first = g.reserve("x", 1.0)
+    order: list[str] = []
+
+    async def take(name, usd):
+        hold = await g.reserve_wait(name, usd)
+        order.append(name)
+        return hold
+
+    big = asyncio.ensure_future(take("big", 0.8))
+    await settle_soon()
+    small = asyncio.ensure_future(take("small", 0.1))  # would fit before big does, but arrived later
+    await settle_soon()
+    first.settle(0.0)
+    holds = await asyncio.wait_for(asyncio.gather(big, small), 1)
+    assert order == ["big", "small"] and ledger_committed(g) == pytest.approx(0.9) and len(holds) == 2
+
+
+def test_settlement_from_a_worker_thread_wakes_a_waiter_on_another_loop():
+    g = gov(1.0)
+    first = g.reserve("x", 0.9)
+    ready = threading.Event()
+
+    async def waiter():
+        task = asyncio.ensure_future(g.reserve_wait("w", 0.5))
+        await settle_soon()
+        ready.set()
+        return await asyncio.wait_for(task, 5)
+
+    threading.Timer(0.05, lambda: (ready.wait(5), first.settle(0.0))).start()
+    hold = asyncio.run(waiter())
+    assert hold.limit == 0.5 and not g._waiters
+
+
+async def test_ceiling_is_never_exceeded_while_many_reservers_race_with_threads():
+    g = gov(1.0)
+    rng = random.Random(7)
+    peak = 0.0
+    lock = threading.Lock()
+
+    def note():
+        nonlocal peak
+        with lock:
+            peak = max(peak, ledger_committed(g))
+
+    async def work(i):
+        limit = rng.choice([0.2, 0.35, 0.5, 0.45])
+        hold = await g.reserve_wait("x", limit)
+        note()
+        await asyncio.sleep(rng.random() * 0.01)
+        # settle from a worker thread half of the time
+        billed = limit * rng.choice([0.2, 0.5, 1.0])
+        if i % 2:
+            await asyncio.to_thread(hold.settle, billed)
+        else:
+            hold.settle(billed)
+        note()
+        return billed
+
+    billed = await asyncio.wait_for(asyncio.gather(*(work(i) for i in range(40)), return_exceptions=True), 30)
+    ok = [b for b in billed if isinstance(b, float)]
+    failed = [b for b in billed if isinstance(b, BudgetExceeded)]  # only once settled spend left too little room
+    assert len(ok) + len(failed) == 40 and peak <= 1.0 + 1e-9
+    assert ledger_committed(g) <= 1.0 + 1e-9 and not g._waiters
+    assert g.spent == pytest.approx(sum(ok))
+
+
+async def test_waiters_are_not_leaked_when_the_loop_of_a_waiter_has_closed():
+    g = gov(1.0)
+    first = g.reserve("x", 0.9)
+    loop = asyncio.new_event_loop()
+    def park():
+        with pytest.raises(TimeoutError):
+            loop.run_until_complete(asyncio.wait_for(g.reserve_wait("w", 0.5), 0.2))
+
+    t = threading.Thread(target=park, daemon=True)
+    t.start()
+    t.join()  # the waiter timed out and was cancelled
+    loop.close()
+    assert not g._waiters
+    first.settle(0.0)  # waking with nobody parked must not raise
+
+
+def test_candidates_sized_by_expected_cost_admit_the_last_one_by_its_worst_case():
+    g = gov(2.2)
+    assert g.candidates("geometry", unit_cost=0.3) == 7  # floor(2.2 / 0.3), the old rule
+    # expected 0.3, worst case 0.5: 1 + floor((2.2 - 0.5) / 0.3) = 6, capped by the plan's 8
+    assert g.candidates("geometry", unit_cost=0.3, admit_cost=0.5) == 6
+    assert g.candidates("geometry", unit_cost=0.05, admit_cost=0.5) == 8
+    assert g.candidates("geometry", unit_cost=0.3, admit_cost=2.5) == 0

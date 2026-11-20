@@ -10,8 +10,11 @@ layer that holds those opinions.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
+from dataclasses import dataclass, field, fields
 from itertools import pairwise
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from pxr import Gf, Kind, Sdf, Usd, UsdGeom, UsdShade, Vt
@@ -102,23 +105,14 @@ def _box(sx: float, sy: float, sz: float) -> tuple[np.ndarray, np.ndarray]:
     return pts, tris
 
 
-def primitive_mesh(node: NodeIR) -> tuple[np.ndarray, np.ndarray]:
-    """(points float32 Nx3, triangles int32 Mx3) for a primitive node, local space."""
+def _profile(node: NodeIR) -> tuple[list[tuple[float, float]], int]:
+    """Top-to-bottom (r, z) lathe profile and segment count of a round primitive."""
     k = node.kind
-    if k == "box":
-        size = node.params.get("size")
-        if not isinstance(size, (tuple, list)) or len(size) != 3:
-            raise ValueError(f"{node.id}: box requires param 'size' as (x, y, z), got {size!r}")
-        if not all(isinstance(s, (int, float)) and math.isfinite(s) and s > 0 for s in size):
-            raise ValueError(f"{node.id}: box size components must be > 0, got {tuple(size)}")
-        return _box(*map(float, size))
-    if k not in PRIMITIVES:
-        raise ValueError(f"{node.id}: kind '{k}' is not a primitive")
     r = _num(node, "radius")
     if k == "sphere":
         n, rings = _int(node, "segments", 24, 3), _int(node, "rings", 12, 2)
         phis = np.linspace(0.0, np.pi, rings + 1)
-        return _lathe([(0.0 if i in (0, rings) else r * math.sin(p), r * math.cos(p)) for i, p in enumerate(phis)], n)
+        return [(0.0 if i in (0, rings) else r * math.sin(p), r * math.cos(p)) for i, p in enumerate(phis)], n
     if k == "capsule":
         h = _num(node, "height", allow_zero=True)
         n = _int(node, "segments", 16, 3)
@@ -126,17 +120,62 @@ def primitive_mesh(node: NodeIR) -> tuple[np.ndarray, np.ndarray]:
         top = [(r * math.sin(p), h / 2 + r * math.cos(p)) for p in np.linspace(0.0, np.pi / 2, cap + 1)]
         bot = [(r * math.sin(p), -h / 2 + r * math.cos(p)) for p in np.linspace(np.pi / 2, np.pi, cap + 1)]
         top[0], bot[-1] = (0.0, top[0][1]), (0.0, bot[-1][1])
-        return _lathe(top + (bot[1:] if h == 0 else bot), n)
+        return top + (bot[1:] if h == 0 else bot), n
     h = _num(node, "height")
     n = _int(node, "segments", 24, 3)
     if k == "cylinder":
-        return _lathe([(0.0, h / 2), (r, h / 2), (r, -h / 2), (0.0, -h / 2)], n)
-    return _lathe([(0.0, h / 2), (r, -h / 2), (0.0, -h / 2)], n)  # cone: apex up
+        return [(0.0, h / 2), (r, h / 2), (r, -h / 2), (0.0, -h / 2)], n
+    return [(0.0, h / 2), (r, -h / 2), (0.0, -h / 2)], n  # cone: apex up
+
+
+def _box_size(node: NodeIR) -> tuple[float, float, float]:
+    size = node.params.get("size")
+    if not isinstance(size, (tuple, list)) or len(size) != 3:
+        raise ValueError(f"{node.id}: box requires param 'size' as (x, y, z), got {size!r}")
+    if not all(isinstance(s, (int, float)) and math.isfinite(s) and s > 0 for s in size):
+        raise ValueError(f"{node.id}: box size components must be > 0, got {tuple(size)}")
+    return float(size[0]), float(size[1]), float(size[2])
+
+
+def primitive_mesh(node: NodeIR) -> tuple[np.ndarray, np.ndarray]:
+    """(points float32 Nx3, triangles int32 Mx3) for a primitive node, local space."""
+    if node.kind == "box":
+        return _box(*_box_size(node))
+    if node.kind not in PRIMITIVES:
+        raise ValueError(f"{node.id}: kind '{node.kind}' is not a primitive")
+    return _lathe(*_profile(node))
+
+
+def primitive_charts(node: NodeIR) -> np.ndarray:
+    """(M,) int32 UV chart id per triangle of :func:`primitive_mesh` (same triangle order).
+
+    The charts are the primitive's exact developable pieces, which are known here at no cost:
+      * box: one chart per face (a rectangle);
+      * cylinder / cone: the side (a rectangle / a circular sector, cut along one generator by the
+        unwrap) and each cap (a polygonal disc);
+      * sphere / capsule: one chart per latitude band. Every band of a lathed mesh is a ring of planar
+        trapezoids (a fan of triangles at a pole) whose vertices all lie on its two boundary rings, so it
+        unfolds with *zero* area and angle distortion (a polygonal conical frustum is developable), and it
+        stays developable under any affine node transform. Two adjacent bands cannot share a chart without
+        a non-isometric map, so a seam per latitude ring is the price of zero distortion.
+    ``fast_ops.unwrap_scene`` unfolds each chart from the *world-space* positions, so a non-uniformly
+    scaled node still gets an exact layout at the requested texel density.
+    """
+    if node.kind == "box":
+        _box_size(node)
+        return (np.arange(12) // 2).astype(np.int32)  # _box lists two triangles per face
+    if node.kind not in PRIMITIVES:
+        raise ValueError(f"{node.id}: kind '{node.kind}' is not a primitive")
+    profile, n = _profile(node)
+    # _lathe emits one block per consecutive profile-row pair: n triangles for a pole fan, 2n for a quad band
+    sizes = [n if 0.0 in (a[0], b[0]) else 2 * n for a, b in pairwise(profile)]
+    return np.repeat(np.arange(len(sizes), dtype=np.int32), sizes)
 
 
 # --- mesh data (UVs / normals) --------------------------------------------------
 
 UV_WELD_KEY = "agy:uvWeldMap"  # int[] per authored vertex: id of the pre-unwrap vertex it was split from
+UV_CHART_KEY = "agy:uvChart"  # int[] per triangle of a primitive: exact developable chart (see primitive_charts)
 CREASE_DEG = 40.0
 
 
@@ -251,9 +290,10 @@ def node_paths(scene: SceneIR, root: Sdf.Path) -> dict[str, Sdf.Path]:
 
 def _shader_names(m: MaterialIR) -> list[str]:
     names = ["Surface"]
-    if m.albedo_uri or m.orm_uri or m.normal_uri:
+    if m.albedo_uri or m.orm_uri or m.normal_uri or m.emissive_uri:
         names.append("stReader")
-    names += [t for t, uri in (("albedoTex", m.albedo_uri), ("ormTex", m.orm_uri), ("normalTex", m.normal_uri)) if uri]
+    names += [t for t, uri in (("albedoTex", m.albedo_uri), ("ormTex", m.orm_uri), ("normalTex", m.normal_uri),
+                               ("emissiveTex", m.emissive_uri)) if uri]
     return names
 
 
@@ -272,6 +312,81 @@ def set_normal_encoding(shader: UsdShade.Shader, convention: str) -> None:
     shader.CreateInput("bias", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(-1, -y / 2, -1, 0))
 
 
+# --- material parameters: one authored home each, one reader ---------------------------------------------------
+#
+# ``UsdPreviewSurface`` input where one exists, otherwise an input on the ``UsdShade.Material`` prim named like the
+# MaterialX ``gltf_pbr`` node's input. Double-sidedness is geometry state in USD (``UsdGeom.Gprim.doubleSided`` on the
+# bound meshes). An input is written when its value differs from the glTF default or already has an opinion (so
+# returning a field to its default overwrites the old value instead of leaving it behind); an absent input reads as
+# the glTF default, which is what keeps every pre-existing asset's USD, and therefore its GLB, unchanged.
+
+_F, _C3, _TOK = Sdf.ValueTypeNames.Float, Sdf.ValueTypeNames.Color3f, Sdf.ValueTypeNames.Token
+#: (IR field, UsdPreviewSurface input, type, glTF default)
+SURFACE_PARAMS = (
+    ("opacity", "opacity", _F, 1.0),
+    ("emissive_color", "emissiveColor", _C3, (0.0, 0.0, 0.0)),
+    ("ior", "ior", _F, 1.5),
+    ("clearcoat", "clearcoat", _F, 0.0),
+    ("clearcoat_roughness", "clearcoatRoughness", _F, 0.0),
+)
+#: (IR field, input on the Material prim, type, glTF default); ``alpha_mode`` is a token, the rest numeric
+INTERFACE_PARAMS = (
+    ("transmission", "transmission", _F, 0.0),
+    ("sheen_color", "sheen_color", _C3, (0.0, 0.0, 0.0)),
+    ("sheen_roughness", "sheen_roughness", _F, 0.0),
+    ("specular", "specular", _F, 1.0),
+    ("specular_color", "specular_color", _C3, (1.0, 1.0, 1.0)),
+    ("emissive_strength", "emissive_strength", _F, 1.0),
+    ("alpha_mode", "alpha_mode", _TOK, "OPAQUE"),
+)
+
+
+def _put(owner, name: str, vtype: Sdf.ValueTypeName, value, default) -> UsdShade.Input | None:
+    """Writes ``value`` unless it is the default and nothing was ever authored (see the block comment above)."""
+    if value == default and not owner.GetInput(name):
+        return None
+    if vtype == _C3:
+        value = Gf.Vec3f(*value)
+    return _set_input(owner, name, vtype, value)
+
+
+_DS_OWNER = "agy:doubleSidedAuthored"  # customData on a mesh: True while the sync owns its ``doubleSided`` opinion
+
+
+def _sync_mesh(prim: Usd.Prim, want: bool) -> None:
+    """Brings one mesh's ``doubleSided`` to ``want``, touching only what the sync itself authored.
+
+    A mesh that is already double-sided (its source says so, or an earlier sync did) is left alone when ``want``;
+    the sync claims a mesh (marker True) only when it is the one that turns the attribute on, and only a claimed
+    mesh is turned back off. A source mesh's own ``doubleSided = true`` therefore survives every edit.
+    """
+    attr = UsdGeom.Gprim(prim).GetDoubleSidedAttr()
+    if want:
+        if not attr.Get():
+            attr.Set(True)
+            prim.SetCustomDataByKey(_DS_OWNER, True)
+    elif prim.GetCustomDataByKey(_DS_OWNER) is True:
+        attr.Set(False)  # an explicit value in this layer overrides the one authored in a weaker layer
+        prim.SetCustomDataByKey(_DS_OWNER, False)
+
+
+def sync_double_sided(stage: Usd.Stage, root: Usd.Prim, sided_ids: set[str]) -> None:
+    """Makes ``doubleSided`` follow the binding the renderer resolves, for every mesh under ``root``.
+
+    A mesh gets the opinion when ``ComputeBoundMaterial`` (direct or inherited from a group) lands on a material
+    named in ``sided_ids`` (looks of ``root``); one the sync had switched on that no longer resolves to such a
+    material is switched off, so re-binding a child or editing a material leaves nothing stale and nothing that
+    belongs to a source file is overwritten (see :func:`_sync_mesh`). Walks every mesh under ``root``: callers run
+    it only when a double-sided material is, or was, in play.
+    """
+    looks = root.GetPath().AppendChild(LOOKS)
+    for prim in Usd.PrimRange(root, Usd.PrimIsActive):
+        if not prim.IsA(UsdGeom.Gprim):
+            continue
+        mat, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
+        _sync_mesh(prim, bool(mat) and mat.GetPath().GetParentPath() == looks and mat.GetPath().name in sided_ids)
+
+
 def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
     mat = UsdShade.Material.Define(stage, path)
     if not mat.GetPrim().IsActive():
@@ -283,11 +398,19 @@ def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
     color = _set_input(surf, "diffuseColor", Sdf.ValueTypeNames.Color3f, Gf.Vec3f(*m.base_color))
     rough = _set_input(surf, "roughness", Sdf.ValueTypeNames.Float, m.roughness)
     metal = _set_input(surf, "metallic", Sdf.ValueTypeNames.Float, m.metallic)
+    for key, name, vtype, default in SURFACE_PARAMS:
+        _put(surf, name, vtype, getattr(m, key), default)
+    _put(surf, "opacityThreshold", _F, m.alpha_cutoff if m.alpha_mode == "MASK" else 0.0, 0.0)
+    for key, name, vtype, default in INTERFACE_PARAMS:
+        _put(mat, name, vtype, getattr(m, key), default)
+    alpha_from_albedo = m.alpha_mode != "OPAQUE" and bool(m.albedo_uri)
+    if alpha_from_albedo:  # the connection below needs the input to exist even at opacity 1
+        _set_input(surf, "opacity", _F, m.opacity)
     for name in ("occlusion", "normal"):  # texture-only inputs: unwire stale connections
         inp = surf.GetInput(name)
         if inp and inp.GetAttr().HasAuthoredConnections():
             inp.GetAttr().SetConnections([])
-    if not (m.albedo_uri or m.orm_uri or m.normal_uri):
+    if not (m.albedo_uri or m.orm_uri or m.normal_uri or m.emissive_uri):
         return
     reader = UsdShade.Shader.Define(stage, path.AppendChild("stReader"))
     reader.CreateIdAttr("UsdPrimvarReader_float2")
@@ -303,7 +426,10 @@ def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
         return t
 
     if m.albedo_uri:
-        color.ConnectToSource(tex("albedoTex", m.albedo_uri, "sRGB").CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
+        albedo = tex("albedoTex", m.albedo_uri, "sRGB")
+        color.ConnectToSource(albedo.CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
+        if alpha_from_albedo:
+            surf.GetInput("opacity").ConnectToSource(albedo.CreateOutput("a", Sdf.ValueTypeNames.Float))
     if m.orm_uri:
         orm = tex("ormTex", m.orm_uri, "raw")
         occl = surf.CreateInput("occlusion", Sdf.ValueTypeNames.Float)
@@ -315,6 +441,136 @@ def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
         set_normal_encoding(nt, m.normal_convention)
         normal = surf.CreateInput("normal", Sdf.ValueTypeNames.Normal3f)
         normal.ConnectToSource(nt.CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
+    if m.emissive_uri:
+        et = tex("emissiveTex", m.emissive_uri, "sRGB")
+        et.CreateInput("scale", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(*m.emissive_color, 1.0))  # factor x map, as glTF
+        surf.GetInput("emissiveColor").ConnectToSource(et.CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
+
+
+@dataclass(frozen=True)
+class MapSource:
+    """A texture the material samples: the asset path as authored and the file it resolves to (None if unresolved)."""
+
+    authored: str
+    resolved: str | None
+    color_space: str | None
+
+
+@dataclass(frozen=True)
+class MaterialParams:
+    """The full parameter set of one composed material, in the IR's field names (see :func:`read_material`).
+
+    ``maps`` holds the roles ``albedo``, ``orm``, ``normal`` and ``emissive`` that are wired to a texture.
+    ``alpha_from_albedo`` is true when the opacity is the albedo map's alpha channel. Factors of a channel that a
+    map drives (``base_color`` under ``albedo``, ``metallic``/``roughness`` under ``orm``) are the authored
+    fallback values, as in USD; the glTF derivation decides what to export.
+    """
+
+    name: str
+    base_color: tuple[float, float, float] = (0.8, 0.8, 0.8)
+    metallic: float = 0.0
+    roughness: float = 0.5
+    alpha_mode: str = "OPAQUE"
+    alpha_cutoff: float | None = None
+    opacity: float = 1.0
+    double_sided: bool = False
+    emissive_color: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    emissive_strength: float = 1.0
+    clearcoat: float = 0.0
+    clearcoat_roughness: float = 0.0
+    transmission: float = 0.0
+    ior: float = 1.5
+    sheen_color: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    sheen_roughness: float = 0.0
+    specular: float = 1.0
+    specular_color: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    normal_convention: str = "opengl"
+    alpha_from_albedo: bool = False
+    maps: Mapping[str, MapSource] = field(default_factory=dict)
+
+    def factors(self) -> dict[str, Any]:
+        """The scalar/colour parameters by IR field name (everything except ``name``, ``maps`` and map flags)."""
+        skip = {"name", "maps", "alpha_from_albedo", "normal_convention"}
+        return {f.name: getattr(self, f.name) for f in fields(self) if f.name not in skip}
+
+
+def bound_double_sided(mat: UsdShade.Material) -> bool:
+    """True when any mesh that resolves to this material (bound directly or through a parent) is double-sided.
+
+    Includes a source mesh that carries its own ``doubleSided`` (imported foliage, cloth): the geometry bound to the
+    material decides, so the GLB material is double-sided for that mesh whatever the IR flag says.
+    """
+    path = mat.GetPath()
+    for prim in mat.GetPrim().GetStage().Traverse():
+        if prim.IsA(UsdGeom.Gprim) and UsdGeom.Gprim(prim).GetDoubleSidedAttr().Get():
+            bound, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
+            if bound and bound.GetPath() == path:
+                return True
+    return False
+
+
+def read_material(mat: UsdShade.Material, *, double_sided: bool | None = None) -> MaterialParams:
+    """Reads one composed ``UsdShade.Material`` back into the full parameter set. The only reader.
+
+    Everything that needs material values (GLB export, manifest, inspector, checks) calls this, so the USD homes
+    chosen in ``_author_material`` are known in exactly one other place. A missing input reads as the glTF
+    default. ``double_sided`` is geometry state: pass the answer for the mesh being exported, or leave it None to
+    ask the stage (any directly bound double-sided mesh). A material authored by another tool without the
+    ``alpha_mode`` input is read through UsdPreviewSurface's own semantics (``opacityThreshold`` > 0 is a cut-out,
+    ``opacity`` < 1 or a wired opacity is blended).
+    """
+    shader = None
+    if mat:
+        src, _, _ = mat.ComputeSurfaceSource()
+        shader = src if src else None
+
+    def get(owner, name: str, default):
+        inp = owner.GetInput(name) if owner else None
+        v = inp.Get() if inp else None
+        if v is None:
+            return default
+        return tuple(float(c) for c in v) if isinstance(default, tuple) else (str(v) if isinstance(default, str) else float(v))
+
+    def source(owner, name: str) -> tuple[UsdShade.Shader, str] | None:
+        inp = owner.GetInput(name) if owner else None
+        if not inp or not inp.HasConnectedSource():
+            return None
+        s = inp.GetConnectedSource()
+        tex = UsdShade.Shader(s[0].GetPrim())
+        return (tex, str(s[1])) if tex and tex.GetIdAttr().Get() == "UsdUVTexture" else None
+
+    def map_of(owner, name: str) -> MapSource | None:
+        hit = source(owner, name)
+        if hit is None:
+            return None
+        f, cs = hit[0].GetInput("file"), hit[0].GetInput("sourceColorSpace")
+        v = f.Get() if f else None
+        if not isinstance(v, Sdf.AssetPath):
+            return None
+        return MapSource(v.path, v.resolvedPath or None, str(cs.Get()) if cs and cs.Get() else None)
+
+    maps = {role: ref for role, name in (("albedo", "diffuseColor"), ("emissive", "emissiveColor"), ("normal", "normal"))
+            if (ref := map_of(shader, name)) is not None}
+    orm = next((r for n in ("occlusion", "roughness", "metallic") if (r := map_of(shader, n)) is not None), None)
+    if orm is not None:
+        maps["orm"] = orm
+    opacity = get(shader, "opacity", 1.0)
+    threshold = get(shader, "opacityThreshold", 0.0)
+    wired_alpha = (hit := source(shader, "opacity")) is not None and str(hit[1]).split(":")[-1] == "a"
+    mode = get(mat, "alpha_mode", "")
+    if mode not in ("OPAQUE", "MASK", "BLEND"):
+        mode = "MASK" if threshold > 0 else ("BLEND" if opacity < 1.0 or source(shader, "opacity") else "OPAQUE")
+    values = {key: get(mat, name, default) for key, name, _, default in INTERFACE_PARAMS if key != "alpha_mode"}
+    values.update({key: get(shader, name, default) for key, name, _, default in SURFACE_PARAMS})
+    convention = mat.GetPrim().GetCustomDataByKey("agy:normalConvention") if mat else None
+    return MaterialParams(
+        name=mat.GetPath().name if mat else "",
+        base_color=get(shader, "diffuseColor", (0.8, 0.8, 0.8)), metallic=get(shader, "metallic", 0.0),
+        roughness=get(shader, "roughness", 0.5), alpha_mode=mode,
+        alpha_cutoff=threshold if mode == "MASK" else None,
+        double_sided=bound_double_sided(mat) if double_sided is None and mat else bool(double_sided),
+        normal_convention=str(convention or "opengl"), alpha_from_albedo=wired_alpha and "albedo" in maps,
+        maps=maps, **values)
 
 
 def _block_authored(prim: Usd.Prim, names) -> None:
@@ -360,6 +616,9 @@ def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path)
     if is_prim:
         pts, tris = primitive_mesh(node)
         author_mesh_data(prim, pts, tris, None, normals=False)
+        prim.CreateAttribute(UV_CHART_KEY, Sdf.ValueTypeNames.IntArray, custom=True).Set(
+            Vt.IntArray.FromNumpy(primitive_charts(node))
+        )
     elif imported:
         # One IR node owns one material and one mesh, including transformed instances.
         points, faces, uvs = [], [], []
@@ -378,6 +637,8 @@ def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path)
         prim.CreateAttribute("agy:meshRef", Sdf.ValueTypeNames.String, custom=True).Set(node.params["path"])
     else:
         _block_authored(prim, ["agy:meshRef"])
+    if not is_prim:  # imported / referenced geometry: charts are computed by the unwrap stage
+        _block_authored(prim, [UV_CHART_KEY])
     if ref_path is not None and not imported:
         if not ref_path.is_file():
             raise FileNotFoundError(ref_path)
@@ -495,6 +756,9 @@ def author_scene(
     for p in drop:
         p.SetActive(False)
 
+    sided = {m.id for m in scene.materials if m.double_sided}
+    if sided or any(m.double_sided for m in (prev.materials if prev else ())):  # nothing to set, nothing to clear
+        sync_double_sided(stage, root_prim, sided)
     root_prim.SetCustomDataByKey(IR_KEY, scene.model_dump_json())
 
 

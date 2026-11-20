@@ -248,7 +248,50 @@ def check_engine_compliance(stage: Usd.Stage | None, meshes: list[MeshData], bud
                 add("texture_size", "warning", Path(f).name, f"{size} exceeds {rules.max_texture_px}px")
             if rules.require_pow2_textures and any(s & (s - 1) for s in size):
                 add("texture_npot", "warning", Path(f).name, f"{size} not power of two")
+    _material_checks(stage, add)
     return out
+
+
+def _material_checks(stage: Usd.Stage, add) -> None:
+    """Warnings about authored materials whose parameters will not do what they say (via ``read_material``)."""
+    from antigravity3d.kernel.compile_ir import read_material
+
+    mixed: set[Sdf.Path] = set()
+    gprims, materials = [], []
+    for p in stage.Traverse():
+        if p.IsA(UsdGeom.Gprim):
+            gprims.append(p)
+        elif p.IsA(UsdShade.Material):
+            materials.append(p)
+    if any(UsdGeom.Gprim(p).GetDoubleSidedAttr().Get() for p in gprims):  # nothing can disagree otherwise
+        flags: dict[Sdf.Path, set[bool]] = {}
+        for p in gprims:
+            bound = UsdShade.MaterialBindingAPI(p).ComputeBoundMaterial()[0]
+            if bound:
+                flags.setdefault(bound.GetPath(), set()).add(bool(UsdGeom.Gprim(p).GetDoubleSidedAttr().Get()))
+        mixed = {path for path, f in flags.items() if len(f) > 1}
+    for prim in materials:
+        if prim.GetPath() in mixed:
+            add("material_double_sided", "warning", prim.GetName(),
+                "bound meshes disagree on doubleSided; the GLB exports one material per setting")
+        shader = UsdShade.Material(prim).ComputeSurfaceSource()[0]
+        opacity = shader.GetInput("opacity") if shader else None
+        if not (opacity and opacity.HasConnectedSource()):  # only a wired opacity can read an albedo map's alpha
+            continue
+        params = read_material(UsdShade.Material(prim), double_sided=False)
+        albedo = params.maps.get("albedo")
+        if params.alpha_mode != "OPAQUE" and params.alpha_from_albedo and albedo is not None:
+            f = albedo.resolved or albedo.authored
+            try:
+                from PIL import Image
+
+                with Image.open(f) as im:
+                    has_alpha = im.mode in ("RGBA", "LA", "PA") or "transparency" in im.info
+            except (OSError, ValueError):
+                continue  # an unreadable map is reported by the texture checks
+            if not has_alpha:
+                add("material_alpha", "warning", prim.GetName(),
+                    f"alpha_mode {params.alpha_mode} reads the albedo map's alpha channel but {Path(f).name} has none: fully opaque")
 
 
 # --------------------------------------------------------------------------- package validation
@@ -306,7 +349,8 @@ def _validate_glb_materials(path: Path, suffix: str, bindings: dict[str, tuple[s
                     raise ValueError(f"{node} has no texture coordinates")
                 pbr = mat.get("pbrMetallicRoughness", {})
                 slots = {"albedo": [(pbr, "baseColorTexture")], "orm": [(pbr, "metallicRoughnessTexture"),
-                         (mat, "occlusionTexture")], "normal": [(mat, "normalTexture")]}
+                         (mat, "occlusionTexture")], "normal": [(mat, "normalTexture")],
+                         "emissive": [(mat, "emissiveTexture")]}
                 for role in roles:
                     for obj, slot in slots[role]:
                         texture = doc["textures"][obj[slot]["index"]]
@@ -317,6 +361,58 @@ def _validate_glb_materials(path: Path, suffix: str, bindings: dict[str, tuple[s
     except (IndexError, KeyError, TypeError, ValueError, OSError, struct.error) as e:
         issues.append(Issue("pkg:glb_material", "critical", path.name, str(e)[:300]))
     return issues
+
+
+def _same(a, b) -> bool:
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_same(a[k], b[k]) for k in a)
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool):
+        return abs(a - b) <= 1e-9
+    return a == b
+
+
+def _glb_material_record(mat: dict) -> dict:
+    """A GLB material in the shape of a manifest ``materials[]`` record (glTF defaults filled in)."""
+    pbr = mat.get("pbrMetallicRoughness", {})
+    return {
+        "name": mat.get("name"), "base_color_factor": pbr.get("baseColorFactor", [1.0, 1.0, 1.0, 1.0]),
+        "metallic_factor": pbr.get("metallicFactor", 1.0), "roughness_factor": pbr.get("roughnessFactor", 1.0),
+        "emissive_factor": mat.get("emissiveFactor", [0.0, 0.0, 0.0]), "alpha_mode": mat.get("alphaMode", "OPAQUE"),
+        "alpha_cutoff": mat.get("alphaCutoff", 0.5) if mat.get("alphaMode") == "MASK" else None,
+        "double_sided": bool(mat.get("doubleSided", False)),
+        "extensions": {k: {f: v for f, v in body.items() if not isinstance(v, dict)} for k, body in (mat.get("extensions") or {}).items()},
+    }
+
+
+def _validate_material_inventory(path: Path, inventory: list[dict]) -> list[Issue]:
+    """The manifest's ``materials`` must be exactly the materials the GLB declares, parameter for parameter,
+    and every extension used must be listed in ``extensionsUsed`` and none in ``extensionsRequired``."""
+    try:
+        doc = _glb_json(path)
+        actual = [_glb_material_record(m) for m in doc.get("materials", [])]
+        want = [{k: v for k, v in rec.items() if k != "texture_slots"} for rec in inventory]
+        left = list(actual)
+        for rec in want:
+            hit = next((i for i, a in enumerate(left) if _same(a, rec)), None)
+            if hit is None:
+                return [Issue("pkg:material_inventory", "critical", rec["name"],
+                              f"manifest material {rec['name']!r} is not in {path.name} as stated: {rec}"[:300])]
+            left.pop(hit)
+        # a mesh without UVs gets a factor-only copy of its material (same name, no texture slots): not a stranger
+        left = [a for a in left if a["name"] not in {rec["name"] for rec in want}]
+        if left:
+            return [Issue("pkg:material_inventory", "critical", path.name,
+                          f"{len(left)} GLB material(s) missing from the manifest: {[a['name'] for a in left]}")]
+        used = {e for rec in want for e in rec["extensions"]}
+        declared = set(doc.get("extensionsUsed", []))
+        if used - declared or doc.get("extensionsRequired"):
+            return [Issue("pkg:material_extensions", "critical", path.name,
+                          f"extensionsUsed {sorted(declared)} must cover {sorted(used)}; extensionsRequired must be empty")]
+    except (IndexError, KeyError, TypeError, ValueError, OSError, struct.error) as e:
+        return [Issue("pkg:material_inventory", "critical", path.name, str(e)[:300])]
+    return []
 
 
 def validate_package(out_dir: str | Path) -> list[Issue]:
@@ -426,7 +522,7 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
             if not prim.IsA(UsdGeom.Mesh):
                 continue
             if is_collider_prim(prim, hull_re):
-                if variant in (None, lod_names[0]):
+                if variant is None or variant == lod_names[0]:  # no LOD set (one level) or LOD0
                     colliders.append(prim)
                 continue
             mesh = UsdGeom.Mesh(prim)
@@ -440,7 +536,7 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
             mat, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
             textured = bool(mat and _material_files(mat.GetPrim()))
             if mat and variant in (None, lod_names[0] if lod_names else None):
-                roles = {role for role in ("albedo", "orm", "normal") if mat.GetPrim().GetChild(role + "Tex")}
+                roles = {role for role in ("albedo", "orm", "normal", "emissive") if mat.GetPrim().GetChild(role + "Tex")}
                 bindings[prim.GetName()] = (mat.GetPrim().GetName(), roles)
             pv = UsdGeom.PrimvarsAPI(prim).GetPrimvar("st")
             st = pv.Get() if pv else None
@@ -460,8 +556,12 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
         lod_tris.append(total)
     if any(b > a for a, b in zip(lod_tris, lod_tris[1:])):
         add("lod_order", "critical", None, f"LOD triangle counts must not increase: {lod_tris}")
+    elif any(b == a for a, b in zip(lod_tris, lod_tris[1:])):  # a duplicate level costs a mesh and a file for nothing
+        add("lod_duplicate", "warning", None, f"consecutive LOD levels have equal triangle counts: {lod_tris}")
     if man.get("lod_tris") and lod_tris and list(man["lod_tris"]) != lod_tris and len(lod_names) > 1:
         add("lod_manifest", "warning", None, f"manifest lod_tris {man['lod_tris']} != USD {lod_tris}")
+    if vset is not None and lod_names:
+        vset.SetVariantSelection(lod_names[0])  # the checks below are about LOD0 (parts may be absent further out)
 
     if "glb_bounds_m" in man and usd_lod0_bounds:
         usd_bounds = gltf_world_bounds(usd_lod0_bounds, z_up=UsdGeom.GetStageUpAxis(stage) == UsdGeom.Tokens.z)
@@ -503,9 +603,22 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
         if sorted(covered) != sorted(p.GetName() for p in Usd.PrimRange(root) if p.IsA(UsdGeom.Mesh) and not is_collider_prim(p, hull_re)):
             add("glb_batch", "critical", None, "batches must partition all visual meshes")
         bindings = actual_bindings
+    per_level = man.get("lod_glb_nodes")  # parts absent at a level leave their (all-absent) batch out of that GLB
     for level in range(max(1, len(lod_tris))):
         suffix = f"_LOD{level}" if level else ""
-        issues.extend(_validate_glb_materials(out / f"{asset}{suffix}.glb", suffix, bindings))
+        want = bindings
+        if level and isinstance(per_level, list) and level < len(per_level):
+            want = {n: b for n, b in bindings.items() if n in set(per_level[level])}
+            try:
+                names = {n.get("name") for n in _glb_json(out / f"{asset}{suffix}.glb")["nodes"] if n.get("mesh") is not None}
+                expect = {n + suffix for n in per_level[level]}
+                if names != expect:
+                    add("lod_glb_nodes", "critical", f"{asset}{suffix}.glb", f"GLB nodes {sorted(names)} != manifest {sorted(expect)}")
+            except (OSError, KeyError, ValueError, struct.error) as e:
+                add("glb_open", "critical", f"{asset}{suffix}.glb", str(e)[:200])
+        issues.extend(_validate_glb_materials(out / f"{asset}{suffix}.glb", suffix, want))
+    if "materials" in man and glb.is_file():
+        issues.extend(_validate_material_inventory(glb, man["materials"]))
 
     # colliders
     max_hulls = (man.get("budget") or {}).get("max_collision_hulls")

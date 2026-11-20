@@ -1,0 +1,129 @@
+{
+  "schema": "antigravity3d.inspector_build/1",
+  "inputs_sha256": "6db11c3b8609041d462bf6b84b533869445770f25a73c74395e6bb3da362a423",
+  "inputs": [
+    "apps/inspector/build.mjs",
+    "apps/inspector/package-lock.json",
+    "apps/inspector/package.json",
+    "apps/inspector/src/gltf.js",
+    "apps/inspector/src/mcp.js",
+    "apps/inspector/src/standalone.js",
+    "apps/inspector/src/viewer.js",
+    "apps/inspector/test-host/host.js",
+    "src/antigravity3d/artifacts/inspector_template.html",
+    "src/antigravity3d/artifacts/vendor/BufferGeometryUtils-r160.js.gz",
+    "src/antigravity3d/artifacts/vendor/GLTFLoader-r160.js.gz",
+    "src/antigravity3d/artifacts/vendor/three-r160-addons.provenance.json",
+    "src/antigravity3d/artifacts/vendor/three-r160.module.min.js.gz"
+  ],
+  "outputs": {
+    "src/antigravity3d/artifacts/web/inspector_app.html": {
+      "sha256": "9d3b3dc1a36c8133271ad1ea719a1da020ea6ba7507625853694ce72c45a51a6",
+      "bytes": 1421597
+    },
+    "src/antigravity3d/artifacts/web/inspector_standalone.js": {
+      "sha256": "0e2000b7b1fd8c4ba348a22886db1646b27c9be368c2c3ab3601ece9bcb59abf",
+      "bytes": 72949
+    },
+    "src/antigravity3d/artifacts/web/THIRD_PARTY_NOTICES.txt": {
+      "sha256": "13a2f5285519a585aa14e70a7fac0400673794b0bc11e361330513636c0a7282",
+      "bytes": 45400
+    },
+    "apps/inspector/test-host/host.bundle.js": {
+      "sha256": "54d5ccea1b7d2a6e676d4b6dc0c6a1bfdda4e371c3190417c8262dc65eac4fb5",
+      "bytes": 667193
+    }
+  },
+  "toolchain": {
+    "esbuild": "0.28.2"
+  },
+  "bundled": [
+    {
+      "name": "three",
+      "version": "0.160.0",
+      "source": "src/antigravity3d/artifacts/vendor/three-r160.module.min.js.gz",
+      "sha256": "3e690ac7d180b0aadf0891bea39eec643e29e2d3e75c99b18689518665f69ba6",
+      "license": "MIT"
+    },
+    {
+      "name": "three/examples/jsm/loaders/GLTFLoader.js",
+      "version": "0.160.0",
+      "source": "src/antigravity3d/artifacts/vendor/GLTFLoader-r160.js.gz",
+      "sha256": "d073b438e6a07e1359741dd5d6c76c953420cc0d4fd84eb1bdde94315540e6a3",
+      "license": "MIT",
+      "provenance": "src/antigravity3d/artifacts/vendor/three-r160-addons.provenance.json",
+      "bundled_into": [
+        "inspector_app.html",
+        "inspector_standalone.js"
+      ]
+    },
+    {
+      "name": "three/examples/jsm/utils/BufferGeometryUtils.js",
+      "version": "0.160.0",
+      "source": "src/antigravity3d/artifacts/vendor/BufferGeometryUtils-r160.js.gz",
+      "sha256": "9be041e96308775d00e2695cc607645b9a9b64fd7c0e759dd8f7c00a8d92becb",
+      "license": "MIT",
+      "provenance": "src/antigravity3d/artifacts/vendor/three-r160-addons.provenance.json",
+      "bundled_into": [
+        "inspector_app.html",
+        "inspector_standalone.js"
+      ]
+    },
+    {
+      "name": "@modelcontextprotocol/client",
+      "version": "2.4.0",
+      "integrity": "sha512-LgrD2OphHuG12vfKFKz6SOnq7bKHQmhGJIAYdD+MZBn2npHEyry6uD8zvktodtl5CQM85MO0anUyD9JwmUmxww==",
+      "resolved": "https://registry.npmjs.org/@modelcontextprotocol/client/-/client-2.4.0.tgz",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "@modelcontextprotocol/core",
+      "version": "2.4.0",
+      "integrity": "sha512-z8QBKqdfXLPzkLQuG4xp8hrVEMm1PZ1IgxMN2sMbJiFiAKOWXnAzogXn2W4aqIBlP1ea6U5yiqVquvUNM1Cj6Q==",
+      "resolved": "https://registry.npmjs.org/@modelcontextprotocol/core/-/core-2.4.0.tgz",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "@modelcontextprotocol/ext-apps",
+      "version": "2.0.4",
+      "integrity": "sha512-B+PcbuGiaf0e5I3uy4iO5tS3Abo+5w8JvZFzHMzQdq9yVwP836zJkw2+KCGOQ0r4TM1fuQi4JdnbuWjkS4aBvg==",
+      "resolved": "https://registry.npmjs.org/@modelcontextprotocol/ext-apps/-/ext-apps-2.0.4.tgz",
+      "license": "MIT"
+    },
+    {
+      "name": "eventsource",
+      "version": "3.0.7",
+      "integrity": "sha512-CRT1WTyuQoD771GW56XEZFQ/ZoSfWid1alKGDYMmkt2yl8UXrVR4pspqWNEcqKvVIzg6PAltWjxcSSPrboA4iA==",
+      "resolved": "https://registry.npmjs.org/eventsource/-/eventsource-3.0.7.tgz",
+      "license": "MIT"
+    },
+    {
+      "name": "eventsource-parser",
+      "version": "3.1.1",
+      "integrity": "sha512-EKN1vKAMcZ8MlYMpaNuxN6R9yakzH6uajHcHVTqWJzvu5pWw9DyhbP35HH8MVBQ+dZjAfDxk+A8NiR9KWaXiyQ==",
+      "resolved": "https://registry.npmjs.org/eventsource-parser/-/eventsource-parser-3.1.1.tgz",
+      "license": "MIT"
+    },
+    {
+      "name": "jose",
+      "version": "6.2.18",
+      "integrity": "sha512-doV4thUwgkrycJH4yLeqwTGIIZphHl+pk7CPReuMIhYhncmgzdko85MaCG4YQFTxqMFr1/oEH32tZuKKovcDEg==",
+      "resolved": "https://registry.npmjs.org/jose/-/jose-6.2.18.tgz",
+      "license": "MIT"
+    },
+    {
+      "name": "pkce-challenge",
+      "version": "5.0.1",
+      "integrity": "sha512-wQ0b/W4Fr01qtpHlqSqspcj3EhBvimsdh0KlHhH8HRZnMsEa0ea2fTULOXOS9ccQr3om+GcGRk4e+isrZWV8qQ==",
+      "resolved": "https://registry.npmjs.org/pkce-challenge/-/pkce-challenge-5.0.1.tgz",
+      "license": "MIT"
+    },
+    {
+      "name": "zod",
+      "version": "4.6.7",
+      "integrity": "sha512-g8W2D2kU6a8untc053fX1uVBKzM7yqAxW/3zwk83+6RyF2+SKOuV+c0wBDhUwzV1PaGapmZH+rmcUzPf+3CGwg==",
+      "resolved": "https://registry.npmjs.org/zod/-/zod-4.6.7.tgz",
+      "license": "MIT"
+    }
+  ]
+}

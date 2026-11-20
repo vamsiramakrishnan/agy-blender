@@ -11,7 +11,7 @@ import time
 import pytest
 from google.antigravity import types
 from google.antigravity.connections.local import local_connection as lc
-from google.antigravity.tools.tool_runner import ToolRunner
+from google.antigravity.tools.tool_runner import ToolRunner, ToolWithSchema
 from google.antigravity.triggers import TriggerContext
 
 from antigravity3d.harness import agents as A
@@ -31,8 +31,12 @@ def test_stage_config_builds(tmp_path, stage):
     names = [f.__name__ for f in cfg.tools]
     assert 1 <= len(names) <= 5 and names == [f.__name__ for f in T.STAGE_TOOLS[stage]]
     enabled = set(cfg.capabilities.enabled_tools)
-    assert types.BuiltinTools.RUN_COMMAND not in enabled and types.BuiltinTools.CREATE_FILE not in enabled
-    assert enabled <= {types.BuiltinTools.FINISH, types.BuiltinTools.VIEW_FILE, types.BuiltinTools.INVOKE_SUBAGENT}
+    subs = T.STAGE_SUBAGENTS[stage]
+    assert enabled == {types.BuiltinTools.FINISH} | ({types.BuiltinTools.INVOKE_SUBAGENT} if subs else set())
+    assert cfg.capabilities.enable_subagents is bool(subs) and [c.name for c in cfg.subagents] == list(subs)
+    assert cfg.capabilities.allowed_subagents == (list(subs) if subs else None)
+    assert cfg.capabilities.agent_behavior is types.AgentBehavior.MINIMAL
+    assert isinstance(cfg.system_instructions, types.CustomSystemInstructions)
     assert cfg.capabilities.tool_output_truncation_config.max_tokens == A.TOOL_OUTPUT_MAX_TOKENS
     assert cfg.compaction_config.token_threshold == A.COMPACTION_TOKENS
     assert env.state.active_stage == T.TOOLSET_STAGE[stage] and env.sess().toolset == stage
@@ -41,7 +45,7 @@ def test_stage_config_builds(tmp_path, stage):
     assert cfg.workspaces == [str(env.sess().workdir)]
     # tools resolve this session from the pinned conversation id
     assert S.resolve(type("C", (), {"conversation_id": cfg.conversation_id})()).sid == env.sid
-    assert "[STATE" in cfg.system_instructions or "STATE" in str(cfg.system_instructions)
+    assert "[STATE" in cfg.system_instructions.text and A._STAGE_TEXT[stage] in cfg.system_instructions.text
 
 
 @pytest.mark.parametrize("stage", STAGES)
@@ -55,7 +59,7 @@ def test_model_and_thinking_follow_models_tier(tmp_path, stage):
     assert text[0].name == t.model and text[0].endpoint.options.thinking_level == t.thinking
     [proto] = [p for p in lc.build_models_proto(cfg.models) if p.name == t.model]
     assert proto.gemini_api_endpoint.options.thinking_level == t.thinking.value
-    assert {s.name: s.model for s in cfg.subagents} == {"usd_verifier": tier("worker").model, "lookdev_critic": tier("worker").model}
+    assert {s.name: s.model for s in cfg.subagents} == {n: tier("worker").model for n in T.STAGE_SUBAGENTS[stage]}
 
 
 def test_role_mapping_and_override(tmp_path):
@@ -69,9 +73,34 @@ def test_role_mapping_and_override(tmp_path):
 
 
 def test_subagents_are_read_only():
-    for sub in A._subagents():
+    subs = A._subagents()
+    assert {s.name for s in subs} == set(T.SUBAGENT_TOOLS) >= {n for ns in T.STAGE_SUBAGENTS.values() for n in ns}
+    for sub in subs:
         assert set(sub.capabilities.enabled_tools) == {types.BuiltinTools.FINISH}
+        assert sub.capabilities.agent_behavior is types.AgentBehavior.MINIMAL
         assert {f.__name__ for f in sub.tools} <= T.READ_ONLY_TOOL_NAMES
+        assert isinstance(sub.system_instructions, types.CustomSystemInstructions) and "never edit" in sub.system_instructions.text
+
+
+def test_stage_prompt_states_rules_not_types():
+    """Types live in the tool declarations; the prose keeps only what a schema cannot say, and only where IR is edited."""
+    from antigravity3d import ir_schema
+
+    for stage in STAGES:
+        text = A._system(stage)
+        assert "scene: {" not in text and "kind -> params" not in text and "Types below" not in text
+        assert (ir_schema.IR_SEMANTICS in text) is (stage != "EXPORT")  # ids, units, material cross-field rules
+        assert (ir_schema.OP_SEMANTICS in text) is (stage in {"BLOCKOUT", "TWEAK", "VARIANTS"})  # anchor ops
+        assert ("invoke_subagent" in text) is bool(T.STAGE_SUBAGENTS[stage])
+        assert all(n in text for n in T.STAGE_SUBAGENTS[stage])
+
+
+def test_subagents_flag_disables_them_everywhere(tmp_path):
+    env = make_session(tmp_path)
+    for stage in STAGES:
+        cfg = A.build_stage_agent(stage, env.sid, registry=env.reg, subagents=False)
+        assert cfg.subagents == [] and cfg.capabilities.enabled_tools == [types.BuiltinTools.FINISH]
+        assert "invoke_subagent" not in cfg.system_instructions.text
 
 
 @pytest.mark.parametrize("stage", STAGES)
@@ -82,7 +111,8 @@ def test_tool_schemas_hide_ctx(tmp_path, stage):
     assert set(runner.tool_names) >= {f.__name__ for f in cfg.tools}
     for name in runner.tool_names:
         pub = runner.get_public_callable(name)
-        assert "ctx" not in inspect.signature(pub).parameters
+        if not isinstance(pub, ToolWithSchema):  # an explicit schema is sent as-is; checked below
+            assert "ctx" not in inspect.signature(pub).parameters
         proto = lc.callable_to_tool_proto(runner.tools[name], tool_runner=runner)
         schema = json.loads(proto.parameters_json_schema)
         assert "ctx" not in schema.get("properties", {}) and "ToolContext" not in proto.parameters_json_schema

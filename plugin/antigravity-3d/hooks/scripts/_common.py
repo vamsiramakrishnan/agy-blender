@@ -40,6 +40,9 @@ STUDIO_TOOLS = (
     "propose_variants", "select_variant", "promote_variant", "forge_pbr_material", "apply_shader_diff",
     "run_paintover_loop", "render_lookdev", "generate_lods_and_colliders", "run_usd_validator",
     "export_engine_package", "run_bpy_script",
+    # the 3D review inspector MCP App (runtime/inspector_server.py): two model tools, four app-only tools
+    "open_inspector", "review_notes",
+    "inspector_payload", "inspector_qa_state", "inspector_list_notes", "inspector_save_note",
 )
 MCP_STEP_NAME = "mcp_tool"  # docs: tool name = lower-cased step type without the CORTEX_STEP_TYPE_ prefix
 MCP_SERVER_PREFIX = "antigravity-3d"  # plugin MCP servers are namespaced <plugin>_<server>

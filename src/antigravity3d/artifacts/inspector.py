@@ -1,13 +1,18 @@
-"""Single-file interactive WebGL inspector for one asset.
+"""Interactive WebGL inspector for one asset: one front end, two hosts.
 
-``build_inspector`` writes ONE self-contained ``.html``: geometry (base64
-Float32/Uint32 buffers in a JSON ``<script>`` payload), textures (PNG data
-URIs) and the viewer code are embedded.  The only external fetch is the pinned
-three.js module from cdnjs, unless ``three_js_source`` is given, in which case
-the library is inlined and the page needs no network at all.
+The front end (``apps/inspector/src``, built by ``apps/inspector/build.mjs`` into ``web/``) runs
 
-Summary panels (budget gauges, node table, QA) are rendered server-side as
-plain HTML, so they stay readable even if three.js or WebGL fails to load.
+- **standalone**: :func:`build_inspector` writes ONE self-contained ``.html`` -- geometry (base64
+  Float32/Uint32 buffers in a JSON ``<script>`` payload), textures (PNG data URIs) and the viewer
+  code are embedded. The only external fetch is the pinned three.js module from cdnjs, unless
+  ``three_js_source`` is given, in which case the library is inlined and the page needs no network
+  at all. Notes are exported as a JSON file (:func:`read_notes`).
+- **as an MCP App** inside Antigravity: :func:`app_html` is the document the studio MCP server
+  serves as a ``ui://`` resource (three.js and the MCP Apps SDK bundled in); the same data model
+  (:func:`inspector_payload`) arrives through app-only tools and notes are stored server-side.
+
+Summary panels (budget gauges, node table, QA) are also rendered server-side as plain HTML in the
+standalone file, so they stay readable even if three.js or WebGL fails to load.
 """
 
 from __future__ import annotations
@@ -18,20 +23,25 @@ import gzip
 import hashlib
 import html
 import json
+import os
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 from functools import lru_cache
 from importlib import resources
 from pathlib import Path
 
 import numpy as np
 
+from antigravity3d.kernel.gltf_writer import GltfMaterial
 from antigravity3d.kernel.types import MeshData
 from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, EngineBudget
 
 THREE_JS_VERSION = "0.160.0"
 THREE_JS_URL = f"https://cdnjs.cloudflare.com/ajax/libs/three.js/{THREE_JS_VERSION}/three.module.min.js"
 NOTES_SCHEMA = "antigravity3d.review_notes/1"
+PAYLOAD_SCHEMA = "antigravity3d.inspector_payload/2"
 
 
 @lru_cache(maxsize=1)
@@ -40,15 +50,6 @@ def bundled_three_js() -> str:
     license_text = vendor.joinpath("THREE-LICENSE.txt").read_text("utf-8")
     source = gzip.decompress(vendor.joinpath("three-r160.module.min.js.gz").read_bytes())
     return f"/*{license_text}*/\n" + source.decode("utf-8")
-
-
-@dataclass(frozen=True)
-class InspectorTextures:
-    """PNG bytes for one material id. ORM = occlusion (R), roughness (G), metallic (B)."""
-
-    albedo_png: bytes | None = None
-    orm_png: bytes | None = None
-    normal_png: bytes | None = None
 
 
 @dataclass(frozen=True)
@@ -86,22 +87,7 @@ class ReviewNote:
 # --------------------------------------------------------------------------- geometry
 
 
-def zup_to_yup(points: np.ndarray) -> np.ndarray:
-    """World Z-up (pipeline/USD) -> three.js Y-up. The ONLY place axes are swapped.
-
-    (x, y, z)_zup -> (x, z, -y)_yup: a proper rotation (det = +1), so triangle
-    winding and normals are preserved. Contact-sheet "front" (camera on -Y in
-    Z-up) becomes camera on +Z in Y-up.
-    """
-    p = np.asarray(points, dtype=np.float64).reshape(-1, 3)
-    return np.stack([p[:, 0], p[:, 2], -p[:, 1]], axis=1)
-
-
-def _b64(arr: np.ndarray, dtype: str) -> str:
-    return base64.b64encode(np.ascontiguousarray(arr, dtype=dtype).tobytes()).decode("ascii")
-
-
-def _geom(points: np.ndarray, triangles: np.ndarray, what: str) -> tuple[str, str, int]:
+def _check_mesh(points: np.ndarray, triangles: np.ndarray, what: str) -> tuple[np.ndarray, np.ndarray]:
     pts = np.asarray(points, dtype=np.float64)
     tri = np.asarray(triangles)
     if pts.ndim != 2 or pts.shape[1] != 3:
@@ -110,7 +96,7 @@ def _geom(points: np.ndarray, triangles: np.ndarray, what: str) -> tuple[str, st
         raise ValueError(f"{what}: triangles must be (M, 3), got {tri.shape}")
     if tri.size and (tri.min() < 0 or tri.max() >= len(pts)):
         raise ValueError(f"{what}: triangle index out of range")
-    return _b64(zup_to_yup(pts), "<f4"), _b64(tri, "<u4"), int(len(tri))
+    return pts, tri
 
 
 def _prim_colors(ids: list[str]) -> list[str]:
@@ -191,8 +177,132 @@ def _json_for_script(obj: object) -> str:
     return s.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
 
-def _data_uri(png: bytes) -> str:
-    return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+# --------------------------------------------------------------------------- data model
+
+
+def _qa_dict(qa: InspectorQA | dict | None) -> dict | None:
+    if qa is None or isinstance(qa, dict):
+        return qa
+    return {"tier1_ok": bool(qa.tier1_ok), "tier1_line": qa.tier1_line, "tier15_score": qa.tier15_score,
+            "defects": {str(k): float(v) for k, v in qa.defects.items()}, "audit_deltas": list(qa.audit_deltas),
+            "threshold": EXPORT_MIN_TIER15_SCORE}
+
+
+LodInput = InspectorLod | tuple[str, np.ndarray, np.ndarray]
+
+
+def inspector_payload(
+    meshes: list[MeshData],
+    *,
+    asset_name: str,
+    budget: EngineBudget,
+    materials: Mapping[str, GltfMaterial] | None = None,
+    lods: list[LodInput] | Mapping[str, Sequence[Any]] | None = None,
+    colliders: list[InspectorCollider | tuple[str, np.ndarray, np.ndarray]] | None = None,
+    qa: InspectorQA | dict | None = None,
+    uvs: dict[str, np.ndarray] | None = None,
+    draw_calls: int | None = None,
+) -> tuple[dict, bytes]:
+    """The inspector's review metadata (JSON) and its review GLB (see :mod:`.review_glb`).
+
+    meshes     LOD0, one entry per node (world-space Z-up, as MeshData).
+    uvs        keyed by ``node_id``, (N, 2) per-vertex, bottom-left origin (USD/OpenGL).
+    materials  ``{node_id: GltfMaterial}``: the materials the package GLBs bind (or, in a session,
+               :func:`.review_glb.session_materials`). Textures are shown only on meshes with UVs.
+    lods       either per-node chains ``{node_id: [LOD0, LOD1, ...]}`` of objects with ``points``,
+               ``triangles`` and ``uvs`` (shown with their materials, like the package's ``*_LODn.glb``),
+               or merged levels ``[(label, points, triangles), ...]`` (shown as one untextured mesh each).
+    colliders  hull meshes for the overlay. Hull gauge = len(colliders), or the count of
+               ``collider=True`` meshes when no hulls are given.
+
+    ``payload["revision"]`` is a content hash of everything shown (the GLB bytes and the metadata): the
+    same asset gives the same revision, any visible change a new one. Review notes are tied to it.
+    """
+    from antigravity3d.artifacts.review_glb import ReviewPart, build_review
+
+    uvs = uvs or {}
+    ids = [m.node_id for m in meshes]
+    if len(set(ids)) != len(ids):
+        raise ValueError("duplicate node_id in meshes")
+    materials = materials or {}
+    colors = _prim_colors(ids)
+
+    lod0, nodes = [], []
+    for m, color in zip(meshes, colors, strict=True):
+        pts, tri = _check_mesh(m.points, m.triangles, f"mesh {m.node_id}")
+        uv = uvs.get(m.node_id)
+        if uv is not None:
+            uv = np.asarray(uv)
+            if uv.shape != (len(pts), 2):
+                raise ValueError(f"uvs[{m.node_id!r}] must be ({len(pts)}, 2), got {uv.shape}")
+        lod0.append(ReviewPart(m.node_id, pts, tri, uv, materials.get(m.node_id)))
+        nodes.append({"id": m.node_id, "prim": m.prim_path, "mat": m.material_id or "", "color": color,
+                      "tris": int(len(tri))})
+
+    levels: list[tuple[str, list[ReviewPart]]] = []
+    if isinstance(lods, Mapping):
+        depth = min((len(chain) for chain in lods.values()), default=0)
+        if lods and set(lods) != set(ids):
+            raise ValueError("per-node LOD chains must cover exactly the LOD0 nodes")
+        for k in range(1, depth):
+            parts = []
+            for nid in ids:
+                item = lods[nid][k]
+                pts, tri = _check_mesh(item.points, item.triangles, f"lod {k} of {nid}")
+                parts.append(ReviewPart(nid, pts, tri, getattr(item, "uvs", None), materials.get(nid)))
+            levels.append((f"LOD{k}", parts))
+    else:
+        for lod in (InspectorLod(*x) if isinstance(x, tuple) else x for x in (lods or [])):
+            pts, tri = _check_mesh(lod.points, lod.triangles, f"lod {lod.label}")
+            levels.append((lod.label, [ReviewPart(None, pts, tri)]))
+    col_list = [InspectorCollider(*x) if isinstance(x, tuple) else x for x in (colliders or [])]
+    hulls = [(c.name, *_check_mesh(c.points, c.triangles, f"collider {c.name}")) for c in col_list]
+
+    layout, glb = build_review(lod0, levels=levels, hulls=hulls)
+    for node, part in zip(nodes, layout["levels"][0]["parts"], strict=True):
+        node.update(uv=part["uv"], maps=part["maps"])
+
+    if draw_calls is None:
+        draw_calls = len({m.material_id or "" for m in meshes})
+    n_hulls = len(col_list) if colliders is not None else sum(1 for m in meshes if m.collider)
+    payload = {
+        "schema": PAYLOAD_SCHEMA,
+        "asset_name": asset_name,
+        "three_url": None,
+        "budget": {
+            "target_engine": budget.target_engine,
+            "max_tris": budget.max_tris,
+            "max_draw_calls": budget.max_draw_calls,
+            "max_collision_hulls": budget.max_collision_hulls,
+        },
+        "summary": {"tris": sum(n["tris"] for n in nodes), "draw_calls": int(draw_calls), "hulls": int(n_hulls)},
+        "nodes": nodes,
+        "levels": layout["levels"],
+        "colliders": layout["colliders"],
+        "glb": layout["glb"],
+        "qa": _qa_dict(qa),
+    }
+    shown = {k: payload[k] for k in ("asset_name", "budget", "summary", "nodes", "levels", "colliders", "glb")}
+    payload["revision"] = hashlib.sha256(json.dumps(shown, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
+    return payload, glb
+
+
+@lru_cache(maxsize=4)
+def _web_text(name: str) -> str:
+    return resources.files("antigravity3d.artifacts").joinpath("web", name).read_text("utf-8")
+
+
+def app_html() -> str:
+    """The inspector MCP App document (``web/inspector_app.html``; build: ``apps/inspector/build.mjs``).
+
+    ``$AGY3D_INSPECTOR_APP_HTML`` names another file to serve instead, for fast UI iteration: reopening
+    the view picks up a rebuild without restarting the server (the "Packaging and iterating" advice in
+    the Antigravity MCP Apps docs).
+    """
+    override = os.environ.get("AGY3D_INSPECTOR_APP_HTML")
+    if override:
+        return Path(override).read_text(encoding="utf-8")
+    return _web_text("inspector_app.html")
 
 
 # --------------------------------------------------------------------------- public API
@@ -203,8 +313,8 @@ def build_inspector(
     *,
     asset_name: str,
     budget: EngineBudget,
-    textures: dict[str, InspectorTextures] | None = None,
-    lods: list[InspectorLod | tuple[str, np.ndarray, np.ndarray]] | None = None,
+    materials: Mapping[str, GltfMaterial] | None = None,
+    lods: list[LodInput] | Mapping[str, Sequence[Any]] | None = None,
     colliders: list[InspectorCollider | tuple[str, np.ndarray, np.ndarray]] | None = None,
     qa: InspectorQA | None = None,
     uvs: dict[str, np.ndarray] | None = None,
@@ -212,97 +322,38 @@ def build_inspector(
     draw_calls: int | None = None,
     out_path: Path,
 ) -> Path:
-    """Write the inspector for one asset to ``out_path`` and return it.
+    """Write the standalone inspector for one asset to ``out_path`` and return it.
 
-    meshes   LOD0, one entry per node (world-space Z-up, as MeshData).
-    textures keyed by ``MeshData.material_id``; used only for meshes that also have UVs.
-    uvs      keyed by ``node_id``, (N, 2) per-vertex, bottom-left origin (USD/OpenGL).
-    lods     extra levels shown as LOD1..n; each is a single merged mesh.
-    colliders  hull meshes for the overlay. Hull gauge = len(colliders), or the count
-             of ``collider=True`` meshes when no hulls are given.
+    meshes, materials, uvs, lods, colliders, draw_calls: see :func:`inspector_payload`.
+    The asset is embedded as the review GLB (base64 in the JSON payload); the page loads it with GLTFLoader.
     three_js_source  ES-module build of three.js (e.g. ``three.module.min.js`` text) to
              inline for fully offline use; otherwise the pinned cdnjs URL is loaded.
     """
-    textures = textures or {}
-    uvs = uvs or {}
-    lod_list = [InspectorLod(*x) if isinstance(x, tuple) else x for x in (lods or [])]
-    col_list = [InspectorCollider(*x) if isinstance(x, tuple) else x for x in (colliders or [])]
+    payload, glb = inspector_payload(meshes, asset_name=asset_name, budget=budget, materials=materials,
+                                     lods=lods, colliders=colliders, qa=qa, uvs=uvs,
+                                     draw_calls=draw_calls)
+    payload["three_url"] = None if three_js_source is not None else THREE_JS_URL
+    payload["glb_b64"] = base64.b64encode(glb).decode("ascii")
 
-    ids = [m.node_id for m in meshes]
-    if len(set(ids)) != len(ids):
-        raise ValueError("duplicate node_id in meshes")
-    colors = _prim_colors(ids)
-
-    mesh_payload = []
     rows = []
     legend = ["<ul>"]
-    for m, color in zip(meshes, colors, strict=True):
-        pos, idx, ntri = _geom(m.points, m.triangles, f"mesh {m.node_id}")
-        uv = uvs.get(m.node_id)
-        uv_b64 = None
-        if uv is not None:
-            uv = np.asarray(uv)
-            if uv.shape != (len(m.points), 2):
-                raise ValueError(f"uvs[{m.node_id!r}] must be ({len(m.points)}, 2), got {uv.shape}")
-            uv_b64 = _b64(uv, "<f4")
-        mesh_payload.append(
-            {"id": m.node_id, "prim": m.prim_path, "mat": m.material_id or "", "color": color, "tris": ntri,
-             "pos": pos, "idx": idx, "uv": uv_b64}
-        )
-        sw = f'<span class="sw" style="background:{color}"></span>'
+    for m in payload["nodes"]:
+        sw = f'<span class="sw" style="background:{m["color"]}"></span>'
         rows.append(
-            f'<tr data-node="{_e(m.node_id, quote=True)}" aria-selected="false" title="{_e(m.prim_path, quote=True)}">'
-            f'<td>{sw}<button type="button" class="rowbtn">{_e(m.node_id)}</button></td>'
-            f'<td class="num">{ntri:,}</td><td>{_e(m.material_id or "default")}</td></tr>'
+            f'<tr data-node="{_e(m["id"], quote=True)}" aria-selected="false" title="{_e(m["prim"], quote=True)}">'
+            f'<td>{sw}<button type="button" class="rowbtn">{_e(m["id"])}</button></td>'
+            f'<td class="num">{m["tris"]:,}</td><td>{_e(m["mat"] or "default")}</td></tr>'
         )
-        legend.append(f'<li><span class="sw" style="background:{color}"></span>{_e(m.node_id)}</li>')
+        legend.append(f'<li><span class="sw" style="background:{m["color"]}"></span>{_e(m["id"])}</li>')
     legend.append("</ul>")
-
-    tex_payload: dict[str, dict[str, str]] = {}
-    for mat, t in textures.items():
-        entry = {
-            k: _data_uri(v)
-            for k, v in (("albedo", t.albedo_png), ("orm", t.orm_png), ("normal", t.normal_png))
-            if v
-        }
-        if entry:
-            tex_payload[mat] = entry
-
-    lod_payload = []
-    for lod in lod_list:
-        pos, idx, ntri = _geom(lod.points, lod.triangles, f"lod {lod.label}")
-        lod_payload.append({"label": lod.label, "tris": ntri, "pos": pos, "idx": idx})
-    col_payload = []
-    for c in col_list:
-        pos, idx, _ = _geom(c.points, c.triangles, f"collider {c.name}")
-        col_payload.append({"name": c.name, "pos": pos, "idx": idx})
-
-    total_tris = sum(m["tris"] for m in mesh_payload)
-    if draw_calls is None:
-        draw_calls = len({m.material_id or "" for m in meshes})
-    hulls = len(col_list) if colliders is not None else sum(1 for m in meshes if m.collider)
+    s = payload["summary"]
     gauges = "".join(
         [
-            _gauge("tris", "Triangles", total_tris, budget.max_tris),
-            _gauge("draws", "Draw calls", draw_calls, budget.max_draw_calls),
-            _gauge("hulls", "Collision hulls", hulls, budget.max_collision_hulls),
+            _gauge("tris", "Triangles", s["tris"], budget.max_tris),
+            _gauge("draws", "Draw calls", s["draw_calls"], budget.max_draw_calls),
+            _gauge("hulls", "Collision hulls", s["hulls"], budget.max_collision_hulls),
         ]
     )
-
-    payload = {
-        "asset_name": asset_name,
-        "three_url": None if three_js_source is not None else THREE_JS_URL,
-        "budget": {
-            "target_engine": budget.target_engine,
-            "max_tris": budget.max_tris,
-            "max_draw_calls": budget.max_draw_calls,
-            "max_collision_hulls": budget.max_collision_hulls,
-        },
-        "meshes": mesh_payload,
-        "lods": lod_payload,
-        "colliders": col_payload,
-        "textures": tex_payload,
-    }
 
     if three_js_source is not None:
         inline = (
@@ -325,6 +376,7 @@ def build_inspector(
         "LEGEND": "".join(legend),
         "PAYLOAD": _json_for_script(payload),
         "THREE_INLINE": inline,
+        "APP_JS": _web_text("inspector_standalone.js"),
     }
     out = re.sub(r"@@([A-Z_]+)@@", lambda m: subs[m.group(1)], template)
 

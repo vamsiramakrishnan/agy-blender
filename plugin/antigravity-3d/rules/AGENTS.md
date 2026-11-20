@@ -14,6 +14,11 @@ glob-scoped rule files add detail when matching files are in play:
   geometry and layout, `apply_shader_diff` / `forge_pbr_material` for
   materials, `generate_lods_and_colliders` for LODs and collision. Read state
   with `inspect_manifest`, not by opening files.
+- Their IR arguments are typed objects described by each tool's schema:
+  `apply_scene_ir(ops=[...])`, `propose_variants(set_name, variants=[{name,
+  ops}])`, `apply_shader_diff(material_id, diff={...}, assign_to=[...])`.
+  A rejected argument comes back as one `ERROR invalid IR: ...` line naming
+  the op, the field and what was expected; fix that field and resend.
 - Raw `bpy` is an escape hatch, used only when no Scene IR op can express the
   change. Every raw script must pass the Blender 5.3 linter
   (`antigravity3d.adapters.blender_5_3.linter.assert_safe`); the PreToolUse
@@ -36,10 +41,10 @@ glob-scoped rule files add detail when matching files are in play:
 ## Units and axes
 
 - Author in metres (`metersPerUnit = 1.0`), Z-up, right-handed.
-- Axis and unit conversion happens only at export, per engine, inside
-  `export_engine_package` (UE5 keeps Z-up and converts to centimetres; Unity,
-  Godot and Roblox get Y-up). Never pre-rotate or pre-scale authored geometry
-  to suit an engine.
+- Axis conversion happens only at export, per engine, inside
+  `export_engine_package` (UE5 keeps Z-up; Unity, Godot and Roblox get Y-up).
+  Units stay in metres for every engine (`metersPerUnit = 1.0`). Never
+  pre-rotate or pre-scale authored geometry to suit an engine.
 
 ## PBR
 
@@ -59,9 +64,9 @@ glob-scoped rule files add detail when matching files are in play:
   visual score is at least 3.4 for the current state of the scene. Any edit
   after QA makes the verdict stale; re-run QA. The PreToolUse hook enforces
   this and the Stop hook refuses to finish while a changed asset is ungated.
-- Delegate gating to the `usd_verifier` subagent and visual critique to the
-  `lookdev_critic` subagent so their renders and logs stay out of your
-  context.
+- Where your stage offers them, delegate gating to the `usd_verifier` subagent
+  (VARIANTS and LOOKDEV) and visual critique to the `lookdev_critic` subagent
+  (LOOKDEV) so their renders and logs stay out of your context.
 - Every render goes through the QA tools (`render_preview`, `run_visual_qa`,
   `run_paintover_loop`). They return scores, deltas and file paths, not
   images, so renders do not accumulate in context. Do not open render images
@@ -71,8 +76,10 @@ glob-scoped rule files add detail when matching files are in play:
 
 Default studio budget per asset: at most 15,000 triangles, 4 draw calls,
 1024 px/m texel density, UV stretch at most 0.05, 8 collision hulls,
-manifold geometry. Per-engine limits are in `engine-budgets.md`; the
-`budget.json` in the project's `.agy3d/` folder overrides the defaults.
+manifold geometry. Per-engine limits are in `engine-budgets.md`. The session's
+budget is set by `open_asset_session` (target engine and `max_tris`); a
+`budget.json` in the project's `.agy3d/` folder is read only by the SessionStart
+hook, which shows it.
 
 ## Blender 5.3 (summary)
 

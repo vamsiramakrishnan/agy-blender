@@ -136,6 +136,24 @@ def test_second_identical_run_hits_the_cache_for_everything(prop_runs) -> None:
     assert rep2.ok and rep2.extras["cost"]["cache"]["hits"] > 0
 
 
+def test_two_runs_of_one_prompt_ship_identical_packages(prop_runs) -> None:
+    """Through the whole pipeline the package is a function of the scene and the budget: a cold-cache run and a
+    warm-cache run of one prompt, in different directories, ship the same bytes. The manifest used to carry each
+    step's duration, which made it the one file that differed; durations belong to the run report."""
+    _, _, runs = prop_runs
+    packages = [Path(rep.extras["outputs"]["usd"]).parent for rep, _, _ in runs]
+    assert packages[0] != packages[1]
+    files = [{str(p.relative_to(pkg)): p.read_bytes() for p in sorted(pkg.rglob("*")) if p.is_file()} for pkg in packages]
+    assert set(files[0]) == set(files[1]) and {"manifest.json", "inspector.html"} <= set(files[0])
+    different = sorted(name for name in files[0] if files[0][name] != files[1][name])
+    assert not different, f"files that differ between two runs of the same prompt: {different}"
+    shipped = json.loads(files[0]["manifest.json"])["evidence"]["steps"]
+    assert shipped and all(set(step) == {"name", "status", "detail"} for step in shipped)
+    recorded = [rep.extras["pyramid"]["steps"] for rep, _, _ in runs]  # the run reports keep timings and cache state
+    assert [s["name"] for s in recorded[0]] == [s["name"] for s in shipped] and all("ms" in s for s in recorded[0])
+    assert [next(s["run"] for s in steps if s["name"] == "uv_lod_colliders") for steps in recorded] == ["cache=miss", "cache=hit"]
+
+
 # --------------------------------------------------------------------------- batch sanitize
 
 
@@ -276,3 +294,62 @@ async def test_required_publication_preserves_previous_generation_on_missing_pro
     candidate = Path(report.extras["outputs"]["manifest"])
     assert candidate.is_relative_to(tmp_path / "runs")
     assert json.loads(candidate.read_text())["verified"] is False
+
+
+# --------------------------------------------------------------------------- candidate accounting in the propose node
+
+
+from antigravity3d.tactics.metered_author import CandidateOutcome, ProposeResult  # noqa: E402
+
+
+class LosingAuthor(TemplateAuthor):
+    """Metered-looking author: has a cost profile and reports one candidate it could not admit."""
+
+    def __init__(self, profile):
+        super().__init__()
+        self.profile, self.asked = profile, None
+
+    def cost_profile(self, role=None, *, asset_name="asset"):
+        return self.profile
+
+    async def propose_with_outcomes(self, prompt, *, budget, n, context):
+        self.asked = n
+        scenes = await TemplateAuthor.propose(self, prompt, budget=budget, n=n - 1, context=context)
+        outcomes = [CandidateOutcome(i, "produced") for i in range(n - 1)]
+        outcomes.append(CandidateOutcome(n - 1, "not_admitted", "author.propose needs $0.50000 but can never fit"))
+        return ProposeResult(list(scenes), outcomes)
+
+
+def run_dag(tmp_path: Path, author) -> tuple[object, object]:
+    dag = PropToEngineDAG(plane=make_plane(), forge=ImageForge(FakeImageBackend()), author=author, workdir=tmp_path, budget=UE)
+    return asyncio.run(dag.run("oak wine barrel with iron hoops"))
+
+
+def test_propose_node_records_every_candidate_outcome_and_sizes_by_expected_cost(tmp_path: Path) -> None:
+    author = LosingAuthor((0.05, 0.10))  # expected $0.05 + grading each; the standard plan asks for 4
+    rep = run_dag(tmp_path, author)
+    data = rep.nodes["propose"].data
+    assert data["n_planned"] == 4 and data["n_requested"] == author.asked == 4 and data["n_proposed"] == 3
+    assert [o["status"] for o in data["outcomes"]] == ["produced", "produced", "produced", "not_admitted"]
+    assert data["sizing"]["basis"] == "expected author cost + grading" and data["sizing"]["worst_case_candidate_usd"] > data["sizing"]["expected_candidate_usd"]
+    assert any("1 of 4 requested geometry candidates produced nothing" in n and "#3 not_admitted" in n for n in rep.nodes["propose"].notes)
+    extra = rep.extras["geometry_candidates"]
+    assert extra["n_requested"] == 4 and extra["outcomes"][3]["status"] == "not_admitted"
+    saved = json.loads(Path(rep.extras["report_path"]).read_text())
+    node = next(n for n in saved["nodes"] if n["name"] == "propose")
+    assert node["data"]["n_proposed"] == 3 and node["data"]["outcomes"][3]["status"] == "not_admitted"
+
+
+def test_propose_node_sizes_the_plan_down_by_expected_cost_and_says_so(tmp_path: Path) -> None:
+    author = LosingAuthor((0.30, 0.50))  # the ceiling cannot carry four of these
+    rep = run_dag(tmp_path, author)
+    data = rep.nodes["propose"].data
+    assert data["n_requested"] < 4 == data["n_planned"]
+    assert any("sizes geometry best-of-4 down to" in n for n in rep.nodes["propose"].notes)
+
+
+def test_authors_without_outcomes_still_report_n_requested_and_n_proposed(tmp_path: Path) -> None:
+    rep = run_dag(tmp_path, TemplateAuthor())
+    data = rep.nodes["propose"].data
+    assert data["n_requested"] == data["n_planned"] == 4 and data["sizing"]["basis"].startswith("grading only")
+    assert data["n_proposed"] == len(data["outcomes"])

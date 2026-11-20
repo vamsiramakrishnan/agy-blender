@@ -9,9 +9,9 @@ jobs or orchestration:
 - lifecycle hooks
 - custom subagents
 - an MCP server that serves the studio tools to native conversations
+- an MCP App: the 3D review inspector, rendered by Antigravity inline and in the side pane
 - managed background processes ("sidecars")
 - scheduled automations
-- a side-pane panel served by a sidecar
 - a reusable `run_workflow` script
 
 Every format below was checked against the docs and schemas built into the
@@ -57,7 +57,7 @@ dashboard. Following the docs, the plugin never turns itself on.
 | `skills/pbr-material-forge` | Albedo Best-of-6, de-lighting, ORM and normal derivation, then a policy gate. |
 | `skills/game-ready-sanitizer` | Makes existing files game-ready: UVs, LODs, colliders, validator. |
 | `skills/engine-truth-verify` | Export, headless engine import, then a parity check against the stage. |
-| `agents/usd_verifier.md` | Isolated, read-only subagent that runs the Tier-1 and Tier-1.5 QA gate and returns a two-line verdict. |
+| `agents/usd_verifier.md` | Isolated, read-only subagent that runs the Tier-1 structural check (`run_usd_validator`) and returns a two-line verdict. |
 | `agents/lookdev_critic.md` | Isolated visual critic that returns a two-line audit delta. |
 | `mcp_config.json` | Registers the stdio MCP server `studio` (`python -m antigravity3d.runtime.mcp_server`, launched with `uv run --project ${PLUGIN_ROOT}`). The harness namespaces plugin servers `<plugin>_<server>`, so it appears as `antigravity-3d_studio`. See "MCP server" below. |
 | `hooks.json` | Wires the four hook scripts in `hooks/scripts/`. It sits at the plugin root because native plugins must not use `hooks/hooks.json`. |
@@ -67,7 +67,6 @@ dashboard. Following the docs, the plugin never turns itself on.
 | `hooks/scripts/stop_gate.py` | Stop hook. While this conversation has changed an asset and the QA gate is unmet, it refuses to let the agent finish and gives a one-line reason. It refuses at most once per turn. |
 | `sidecars/blender_pool` | Keeps a warm pool of Blender workers running (`worker_daemon --workers 4`, `restart_policy: always`), reached through `$AGY3D_POOL_SOCKET`. |
 | `sidecars/depot_watcher` | Watches the drop folder (polling, with debounce and batching, remembering files it has already seen) and starts a batch-sanitize run through `agentapi new-conversation`. |
-| `sidecars/inspector` | Side-pane panel (`has_web_ui`, view entrypoint `SIDECAR_UI_ENTRYPOINT_AUX_PANE`, path `/`) that serves the generated viewer pages on `127.0.0.1:$ANTIGRAVITY_SIDECAR_WEB_PORT`. |
 | `sidecars/nightly_variant_factory` | Scheduled automation (`builtin: schedule`), daily at 02:17 UTC. |
 | `sidecars/weekly_distill` | Scheduled automation (`builtin: schedule`), Sundays at 03:43 UTC. Its only command grant is `distill_job`. |
 | `workflows/batch_sanitize.py` | Workflow script: sanitize, gate with `usd_verifier`, then optionally export. Run it with `run_workflow(ScriptPath=<abs path>, Args={"files": [...]})`. |
@@ -111,7 +110,7 @@ generated from its signature (no `ctx`; an optional `session_id` is added), plus
   the raw-script linter and the image policy gate. A denial is one
   `REFUSED ...` line. The hook scripts in this plugin check export and raw
   scripts again when the call is an `mcp_tool` step; both read the same QA file.
-- **Stages.** A new connection lists the four session management tools. Once
+- **Stages.** A new connection lists the four session management tools and the inspector's `open_inspector` and `review_notes`. Once
   an asset is open, discovery adds only the active stage's tools. Clients
   receive a list-change notification when switching catalogs. Calls addressed
   to a different session still pass through that session's stage gate.
@@ -126,8 +125,64 @@ generated from its signature (no `ctx`; an optional `session_id` is added), plus
   request it already received before it exits (`_DrainingStreams`).
 - **Sessions.** The active session is the last one opened or selected with
   `set_stage`; pass `session_id` to act on another.
-- The two schedule sidecars that start conversations carry explicit
-  `mcp(antigravity-3d_studio/<tool>)` grants, never `mcp(*)`.
+- The nightly variant factory carries explicit `mcp(antigravity-3d_studio/<tool>)`
+  grants, never `mcp(*)`. The weekly distillation carries only its `command(...)` grant.
+
+## 3D review inspector (MCP App)
+
+The studio server also serves the inspector as an MCP App
+(`antigravity3d/runtime/inspector_server.py`). Antigravity renders it in an
+isolated frame, inline in the conversation or in the side pane, and talks to
+it through the MCP Apps SDK (`@modelcontextprotocol/ext-apps`, bundled).
+
+| Name | Kind | Visibility | Purpose |
+| --- | --- | --- | --- |
+| `ui://antigravity-3d/inspector.html` | resource, `text/html;profile=mcp-app`, `_meta.ui.prefersBorder` | | One self-contained document (three.js r160 + SDK + app, about 1.4 MB). Built from `apps/inspector` (`npm ci && npm run build`); `$AGY3D_INSPECTOR_APP_HTML` serves another file for UI iteration. |
+| `open_inspector` | tool, `_meta.ui.resourceUri` + entrypoints `aux_pane` and `global` ("3D Inspector") | model and app | Opens the inspector for the active (or given) session. All arguments optional (`node`, `lod`, `channel`, `view`, `wireframe`, `colliders`); calling it again updates the open view. Returns one line for the model and a small summary as `structuredContent`. |
+| `review_notes` | tool | model | The reviewer's notes, current and stale. |
+| `inspector_payload` | tool, `visibility: ["app"]` | app only | Per revision, in 512 KiB chunks: part `scene` (review metadata: budget, node table, QA, which glTF node is which node / LOD / hull) and part `glb`, the review GLB. |
+| `inspector_qa_state`, `inspector_list_notes`, `inspector_save_note` | tools, `visibility: ["app"]` | app only | QA gate state; notes listing and eager saving. |
+
+The inspector tools are session-level, like the management tools: they are
+listed in every stage, and they do not count against the five-tool stage sets.
+
+**How notes reach the agent.** The reviewer writes a note per node (or for the
+whole asset). Each keystroke burst is saved to the session through
+`inspector_save_note` (frames are removed without teardown, so nothing waits
+for close) into `<session workdir>/review_notes.json`, tied to the node and to
+the *revision*: a content hash of what the inspector showed. After a selection
+or a note, the app calls `updateModelContext` with one text block (what is
+selected, what was just written, how many notes exist), which Antigravity
+attaches to the reviewer's next message. The agent reads all notes with
+`review_notes`. After an edit that changes what is shown, earlier notes are
+kept and reported as stale, never dropped. Where the host offers `message`,
+an "Ask agent to address notes" button sends a user message.
+
+**What the app does not use.** No browser storage (the frame's origin is
+fresh and storage is discarded), no network (the default CSP
+`default-src 'none'` needs no extra domains), no hand-written `postMessage`
+bridge.
+
+**What the reviewer sees is what ships.** The asset reaches the page as one
+"review GLB" (`antigravity3d/artifacts/review_glb.py`) built by the package's
+glTF writer with the package's conversion (crease normals split at hard edges,
+glTF UVs, the package's GLB materials): LOD0 and every further LOD level per
+node, and the collider hulls, as separate nodes sharing de-duplicated images.
+three.js r160's `GLTFLoader` (vendored unmodified, see
+`artifacts/vendor/three-r160-addons.provenance.json`) loads it; the debug
+channels (clay, albedo, ORM, occlusion, roughness, metallic, normal map, UV
+checker, prim ID), wireframe, colliders, LODs and picking are overrides on the
+loaded meshes. In a session, materials come from the composed stage
+(`review_glb.session_materials`).
+
+The standalone `inspector.html` that `agy3d prop` writes into a package is the
+same front end (`apps/inspector/src/viewer.js`) with the payload and the review
+GLB embedded; it keeps notes in the page and exports them as a JSON file.
+
+The inspector used to be a `has_web_ui` sidecar (`sidecars/inspector`) serving
+HTML files from a directory. It was removed: nothing in the pipeline wrote into
+that directory, it was a second way to show the same viewer, and in the side
+pane its notes lived in browser storage that the platform discards.
 
 ## Verified against the harness docs, and what isn't
 
@@ -162,7 +217,11 @@ a `strings` dump of that binary.
 | Default sandbox for sidecars and the effect of `sandbox.read_write_paths` | **unverified** | tags 264374, 267396 |
 | Python sidecar and MCP commands | Copy installs use the installing environment’s absolute interpreter path. | |
 | Plugins shipping a `workflows/` folder | **not a documented plugin component**: it's a plain file run with `run_workflow(ScriptPath=...)` | run-workflow 314708-314880 |
-| Whether the browser security policy (CSP) of the side pane allows the inspector page's three.js CDN import | **unverified**: generative-UI HTML artifacts block CDNs. Building with `three_js_source` puts the library inline in the page and avoids this. | 310213-310240 |
+| MCP App resource (`ui://`, MIME `text/html;profile=mcp-app`, 10 MiB limit, `_meta.ui.prefersBorder`), tool `_meta.ui.resourceUri`, `visibility`, `com.google.antigravity/ui` entrypoints `aux_pane`/`global` with `title`, entrypoint launches with `{}` | verified (docs); checked by `tests/test_mcp_server.py` through the real stdio server and by `plugin_install.validate` | "# Developing MCP Apps" 318990-319060 (rules 319031-319051) |
+| 1 MiB cap on the stored `CallToolResult` of a model tool call; large data from an app-only tool | verified (docs). Whether results of app calls (`callServerTool`) are capped is **not stated**; chunks are 512 KiB to stay below 1 MiB either way | 319048-319050 |
+| Host behaviour: SDK handshake, `updateModelContext` shown as a pill on the next user message, `callServerTool` limits (4 in flight), no `ui/resource-teardown`, side-pane auto-open and "calling the same tool again updates the open pane" | verified as documented; **not exercised against a running Antigravity**. `tests/test_inspector.py::test_mcp_app_in_a_browser_host` drives the built app with the SDK's own `AppBridge` in Chromium under the documented CSP | 319040-319046, 319082-319110 |
+| Which surface sends `containerDimensions.maxHeight` | docs: "when inline". The app uses its presence to choose a fixed-height inline layout and fills the frame otherwise; **unverified** in the side pane and global view | 319112-319115 |
+| Default frame CSP | docs give `default-src 'none'` with inline scripts/styles and `data:`/`blob:` images, fonts, media; the exact header is **unverified**. The test applies that policy as a response header | 319136-319138 |
 
 ### Where the docs contradict the original spec
 

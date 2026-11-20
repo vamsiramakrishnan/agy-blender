@@ -53,6 +53,32 @@ class ImageBackend(Protocol):
     async def upload(self, data: bytes, *, mime_type: str = "image/png", display_name: str | None = None) -> str: ...
 
 
+# Output tokens of one image as reported by the provider (candidates_tokens_details, modality IMAGE): 1K 1,120 and
+# 2K 1,680 (measured 2026-11-20). 4K was not measured; 4,096 is a bound (2.4x the 2K figure), not an observation.
+IMAGE_OUTPUT_TOKENS = {"1K": 1_120, "2K": 1_680, "4K": 4_096}
+# Thinking plus unitemized candidate tokens per image request: observed 1,038 / 919 / 984 (max 1,038); 2.47x headroom.
+IMAGE_NON_IMAGE_OUTPUT_ALLOWANCE = 2_560
+
+
+class ImageNotReturned(RuntimeError):
+    """The provider answered without an image (MAX_TOKENS, a safety stop, no candidate). Carries what was billed."""
+
+    def __init__(self, message: str, *, finish_reason: str | None, usage: dict[str, Any] | None) -> None:
+        super().__init__(message)
+        self.finish_reason, self.usage = finish_reason, usage
+
+    @classmethod
+    def from_response(cls, resp: Any) -> ImageNotReturned:
+        cands = getattr(resp, "candidates", None) or []
+        fr = getattr(cands[0], "finish_reason", None) if cands else None
+        finish = str(getattr(fr, "name", fr)) if fr is not None else ("NO_CANDIDATE" if not cands else None)
+        u = getattr(resp, "usage_metadata", None)
+        usage = None if u is None else {k: getattr(u, k, None) for k in ("prompt_token_count", "candidates_token_count",
+                                                                        "thoughts_token_count", "total_token_count")}
+        return cls(f"image model returned no inline image data (finish_reason {finish}; usage {usage})",
+                   finish_reason=finish, usage=usage)
+
+
 def _size_tier(size: int | None) -> str | None:
     return None if size is None else "1K" if size <= 1024 else "2K" if size <= 2048 else "4K"
 
@@ -76,14 +102,23 @@ class GenAIImageBackend:
             for part in (cand.content.parts if cand.content else None) or []:
                 if not getattr(part, "thought", False) and part.inline_data is not None and part.inline_data.data:
                     return part.inline_data.data
-        raise RuntimeError("image model returned no inline image data")
+        raise ImageNotReturned.from_response(resp)
 
     async def upload(self, data: bytes, *, mime_type: str = "image/png", display_name: str | None = None) -> str:
         return (await self._files_upload(data, mime_type, display_name)).uri
 
     @staticmethod
     def output_limit(image_size: str | None) -> int:
-        return {"1K": 2048, "2K": 3072, "4K": 6144}[image_size or "1K"]
+        """``max_output_tokens`` for one image: the image's own tokens plus room for thinking and other output.
+
+        Thinking tokens count against ``max_output_tokens`` on gemini-nano-banana-2.1 just as on the text models.
+        Measured 2026-11-20 (seamless albedo prompt, 62 input tokens), usage_metadata per response:
+          1K  cap 2,048: no image; 276 candidate + 762 thinking tokens; a 1,120-token image did not fit in the 1,010 left.
+          1K  cap 2,048: image; 1,120 IMAGE + 311 unitemized candidate + 608 thinking = 2,039 (99.6% of the cap).
+          2K  cap 3,072: image; 1,680 IMAGE + 277 unitemized candidate + 707 thinking = 2,664 (87% of the cap).
+        """
+        tier = image_size or "1K"
+        return IMAGE_OUTPUT_TOKENS[tier] + IMAGE_NON_IMAGE_OUTPUT_ALLOWANCE
 
     async def input_bound(self, model: str, prompt: str, images: Sequence[bytes]) -> int:
         if not images:

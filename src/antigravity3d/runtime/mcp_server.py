@@ -6,7 +6,8 @@ Conversations started by the Antigravity app/CLI, by ``agentapi new-conversation
 scheduled automations) and by ``run_workflow`` agents do not receive Python-SDK custom tools; they
 only see tools served over MCP (plugin ``mcp_config.json``). This server serves the same functions
 from :mod:`antigravity3d.harness.tools` under their existing names, docstrings and parameter
-schemas (generated from the signatures, minus ``ctx``, plus an optional ``session_id``), together
+schemas (generated from the signatures, minus ``ctx``, plus an optional ``session_id``; the IR-typed tools
+advertise their explicit IR input schema, the one the SDK path declares), together
 with four session-management tools (``open_asset_session``, ``set_stage``, ``session_status``,
 ``list_sessions``) because nothing else opens a session for a native conversation.
 
@@ -20,6 +21,11 @@ Each stdio connection owns a StudioHost. Discovery returns the four management t
 asset's stage tools. Opening/selecting assets and switching stages triggers an MCP list-changed
 event when the visible schema set changes. Dispatch independently checks the requested session.
 Read-only subagents retain their explicitly granted, named probes.
+
+Inspector MCP App. The 3D review inspector is served as an MCP App (``ui://`` resource, the
+model-visible ``open_inspector`` / ``review_notes`` and four app-only ``inspector_*`` tools); all of it
+lives in :mod:`antigravity3d.runtime.inspector_server` and is wired in by the "inspector MCP App"
+section below. Those tools are session-level like the management tools: listed whatever the stage.
 
 Backends. ``GEMINI_API_KEY`` set: ``make_control_plane`` (Decisions API, generative fallback) and a
 real ``ImageForge``. ``AGY3D_OFFLINE=1`` (or no key): the fakes. A Blender pool is attached through
@@ -48,6 +54,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.stdio import stdio_server
 from mcp_types import JSONRPCError, JSONRPCRequest, JSONRPCResponse, Tool
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
+from google.antigravity.tools.tool_runner import ToolWithSchema
 from pydantic import Field
 
 from antigravity3d.harness import tools as T
@@ -56,6 +63,7 @@ from antigravity3d.harness.session import (
     CTX_REGISTRY_KEY, CTX_SESSION_KEY, bind_conversation, open_session, session, set_toolset,
 )
 from antigravity3d.harness.traceback_compressor import compress_exception
+from antigravity3d.runtime import inspector_server as inspector_app
 from antigravity3d.state import EngineBudget, SceneSessionRegistry
 
 log = logging.getLogger("antigravity3d.mcp")
@@ -174,7 +182,7 @@ class StudioHost:
                 return f"ERROR {compress_exception(e)}"
 
     def visible_tools(self) -> set[str]:
-        names = set(MANAGEMENT_TOOLS)
+        names = set(MANAGEMENT_TOOLS) | set(inspector_app.TOOL_NAMES)
         if self.active is not None:
             stage = session(self.registry, self.active).toolset
             names.update(fn.__name__ for fn in T.STAGE_TOOLS[stage])
@@ -296,6 +304,12 @@ def _wrapper(name: str, fn: T.ToolFn, host: StudioHost) -> Any:
     return tool
 
 
+def _declared_schema(input_schema: dict[str, Any]) -> dict[str, Any]:
+    """The tool's IR input schema (``tools._typed``) plus the optional ``session_id`` every harness tool takes here."""
+    props = {**input_schema.get("properties", {}), "session_id": {"type": "string", "default": "", "description": SESSION_ID_DOC}}
+    return {**input_schema, "properties": props}
+
+
 def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
     async def open_asset_session(
         asset_name: str,
@@ -364,8 +378,21 @@ def build_server(host: StudioHost | None = None) -> MCPServer:
     for name, fn in T.ALL_TOOLS.items():
         w = _wrapper(name, fn, host)
         server.add_tool(w, name=name, description=w.__doc__, structured_output=False)
+        if isinstance(fn, ToolWithSchema):  # IR-typed parameters: advertise the same declaration the SDK path sends
+            tool = server._tool_manager.get_tool(name)
+            tool.parameters = _declared_schema(fn.input_schema)
+    register_inspector_app(server, host)
     server._agy3d_host = host  # type: ignore[attr-defined]
     return server
+
+
+# --------------------------------------------------------------------------- inspector MCP App
+# Self-contained: the resource, tools, notes store and payload builder are in runtime/inspector_server.py.
+
+
+def register_inspector_app(server: MCPServer, host: StudioHost) -> None:
+    """Serves the 3D review inspector as an MCP App on this server (see :mod:`.inspector_server`)."""
+    host.inspector = inspector_app.register(server, host)  # type: ignore[attr-defined]
 
 
 class _DrainingStreams:

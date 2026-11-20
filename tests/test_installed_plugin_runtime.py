@@ -24,6 +24,8 @@ async def test_installed_plugin_launchers(tmp_path):
     async with stdio_client(args) as (reader, writer), ClientSession(reader, writer) as session:
         await session.initialize()
         assert "open_asset_session" in {tool.name for tool in (await session.list_tools()).tools}
+        app = [r for r in (await session.list_resources()).resources if str(r.uri) == "ui://antigravity-3d/inspector.html"]
+        assert len(app) == 1 and app[0].mime_type == "text/html;profile=mcp-app"  # the inspector MCP App
         await call(session, "open_asset_session", asset_name="Probe", target_engine="godot_4")
         for stage in ["BLOCKOUT", "TWEAK", "VARIANTS", "LOOKDEV", "EXPORT"]:
             assert (await call(session, "set_stage", stage=stage)).startswith(f"STAGE {stage} callable:")
@@ -32,7 +34,7 @@ async def test_installed_plugin_launchers(tmp_path):
     hooks = json.loads((plugin / "hooks.json").read_text())
     command = hooks["agy3d-qa-export-gate"]["PreToolUse"][0]["hooks"][0]["command"]
     assert shlex.split(command)[0] == sys.executable
-    for name in ["blender_pool", "depot_watcher", "inspector"]:
+    for name in ["blender_pool", "depot_watcher"]:
         cfg = json.loads((plugin / f"sidecars/{name}/sidecar.json").read_text())
         assert cfg["command"] == sys.executable
         subprocess.run([cfg["command"], *cfg["args"], "--help"], cwd=tmp_path,

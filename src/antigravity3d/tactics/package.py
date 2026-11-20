@@ -15,7 +15,7 @@ import numpy as np
 from pxr import Kind, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, Vt
 
 from antigravity3d.ir import MaterialIR
-from antigravity3d.kernel.compile_ir import _author_material
+from antigravity3d.kernel.compile_ir import _author_material, sync_double_sided
 from antigravity3d.kernel.fast_ops import ExportBundle, Hull, UVResult, write_gltf
 from antigravity3d.kernel.validator import ENGINE_RULES
 
@@ -66,6 +66,8 @@ def write_package_usd(
         prim = _define_mesh(stage, f"/{asset_name}/{u.node_id}", _to_native(u.points, engine), u.triangles, u.uvs)
         if mat_of.get(u.node_id):
             UsdShade.MaterialBindingAPI.Apply(prim).Bind(UsdShade.Material(stage.GetPrimAtPath(f"/{asset_name}/Looks/{mat_of[u.node_id]}")))
+    if sided := {m.id for m in materials if m.id in used and m.double_sided}:  # a fresh stage: nothing to clear
+        sync_double_sided(stage, root.GetPrim(), sided)
     for i, h in enumerate(hulls):
         name = hull_prim_name(engine, asset_name, i, h.name)
         if name:
@@ -92,7 +94,9 @@ def write_glb_package(path: Path, bundle: ExportBundle) -> Path:
 
 
 def merged_lods(bundle: ExportBundle) -> list[SimpleNamespace]:
-    """One merged mesh per LOD level across all nodes (levels shared by every node)."""
+    """One merged mesh per LOD level across all nodes (levels shared by every node), carrying the level's
+    ``screen_fraction`` (the largest screen size it is shown at; LOD0 1.0) so the pop check renders each switch
+    where the generator placed it."""
     levels = min((len(v) for v in bundle.lods.values()), default=0)
     out = []
     for k in range(levels):
@@ -101,7 +105,8 @@ def merged_lods(bundle: ExportBundle) -> list[SimpleNamespace]:
             pts.append(lods[k].points)
             tris.append(lods[k].triangles + base)
             base += len(lods[k].points)
-        out.append(SimpleNamespace(points=np.vstack(pts), triangles=np.vstack(tris)))
+        fr = min(float(getattr(lods[k], "screen_fraction", 1.0)) for lods in bundle.lods.values())
+        out.append(SimpleNamespace(points=np.vstack(pts), triangles=np.vstack(tris), screen_fraction=fr if k else 1.0))
     return out
 
 

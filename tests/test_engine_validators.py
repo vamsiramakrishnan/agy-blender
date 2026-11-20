@@ -75,3 +75,22 @@ def test_measured_silhouette_rejects_mismatch_and_missing_foreground():
     assert silhouette_iou(a, b) == pytest.approx(1 / 3)
     with pytest.raises(ValueError, match="foreground"):
         silhouette_iou(a, blender_frame_png(frame * 0))
+
+
+async def test_web_three_validator_follows_the_engine_validator_contract(tmp_path, monkeypatch):
+    from antigravity3d.adapters.engines.web_three import WebThreeReport, WebThreeValidator
+
+    import sys
+    import types
+
+    # "Package present, browser absent", independent of what this machine has installed or on PATH.
+    monkeypatch.setitem(sys.modules, "playwright", types.ModuleType("playwright"))
+    monkeypatch.delenv("CHROMIUM_BIN", raising=False)
+    monkeypatch.delenv("PLAYWRIGHT_BROWSERS_PATH", raising=False)
+    monkeypatch.setenv("PATH", "/nonexistent")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    v = WebThreeValidator()
+    assert not v.available()
+    rep = await v.validate(tmp_path / "x.glb")
+    assert isinstance(rep, EngineReport) and isinstance(rep, WebThreeReport) and rep.skipped and not rep.ok
+    assert v.env_var in rep.skipped_reason

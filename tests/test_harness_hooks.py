@@ -11,6 +11,7 @@ from google.antigravity.tools.tool_runner import ToolRunner
 
 from antigravity3d.decisions.fakes import FakeDecisionsClient
 from antigravity3d.harness import hooks as H
+from antigravity3d.harness import session as S
 from antigravity3d.harness import tools as T
 from test_harness_tools import CRATE, make_session, record_approval, simulate_engine_import
 
@@ -74,7 +75,7 @@ async def test_out_of_stage_tool_denied(tmp_path):
     res, _ = await pre(runner, tctx, "forge_pbr_material", material_id="m", prompt="oak")
     assert not res.allow and "not available in the BLOCKOUT stage" in res.message
     for ok in ("apply_scene_ir", "inspect_manifest", "run_usd_validator", "qa_probe"):  # stage + read-only subagent tools
-        assert (await pre(runner, tctx, ok, ops_json="{}"))[0].allow, ok
+        assert (await pre(runner, tctx, ok, ops="{}"))[0].allow, ok
 
 
 async def test_builtin_safety(tmp_path):
@@ -100,12 +101,12 @@ async def test_policy_gate_on_existing_image(tmp_path):
     from PIL import Image
 
     Image.new("RGB", (8, 8)).save(img)
-    res, _ = await pre(runner, tctx, "apply_shader_diff", material_id="m", diff_json=json.dumps({"albedo_uri": str(img)}))
+    res, _ = await pre(runner, tctx, "apply_shader_diff", material_id="m", diff=json.dumps({"albedo_uri": str(img)}))
     assert not res.allow and "policy gate blocked logo.png" in res.message and "policy_trademark_logo" in res.message
     calls = len(env.client.calls)
-    res, _ = await pre(runner, tctx, "apply_shader_diff", material_id="m", diff_json=json.dumps({"roughness": 0.4}))
+    res, _ = await pre(runner, tctx, "apply_shader_diff", material_id="m", diff=json.dumps({"roughness": 0.4}))
     assert res.allow and len(env.client.calls) == calls  # nothing to screen: no extra Decisions call
-    res, _ = await pre(runner, tctx, "apply_shader_diff", material_id="m", diff_json=json.dumps({"albedo_uri": "/nope/missing.png"}))
+    res, _ = await pre(runner, tctx, "apply_shader_diff", material_id="m", diff=json.dumps({"albedo_uri": "/nope/missing.png"}))
     assert not res.allow and "could not screen" in res.message
 
 
@@ -113,7 +114,7 @@ async def test_traceback_compression(tmp_path):
     env = make_session(tmp_path)
     runner, _ = runner_for(env)
     tctx = await turn(runner, env)
-    _, op = await pre(runner, tctx, "apply_scene_ir", ops_json="{}")
+    _, op = await pre(runner, tctx, "apply_scene_ir", ops="{}")
     try:
         raise KeyError("set_transform: unknown node lid_hinge")
     except KeyError as e:
@@ -174,8 +175,8 @@ async def test_telemetry_pairs_and_writes_jsonl(tmp_path):
     tctx = await turn(runner, env)
     tools = ToolRunner(T.STAGE_TOOLS["BLOCKOUT"])
     tools.set_context(env.ctx)
-    for name, args in (("apply_scene_ir", {"ops_json": json.dumps(CRATE)}), ("inspect_manifest", {}),
-                       ("apply_scene_ir", {"ops_json": "not json"})):
+    for name, args in (("apply_scene_ir", {"ops": json.dumps(CRATE)}), ("inspect_manifest", {}),
+                       ("apply_scene_ir", {"ops": "not json"})):
         call = types.ToolCall(name=name, args=args, id=f"id-{name}-{len(args)}")
         res, call, op = await runner.dispatch_pre_tool_call(tctx, call)
         assert res.allow
@@ -243,13 +244,13 @@ async def test_gate_decide_is_the_shared_decision_path(tmp_path):
     env = make_session(tmp_path, stage="BLOCKOUT")
     gate = H.InvariantAndSafetyGate(env.reg, env.sid)
     for name, args in (("export_engine_package", {"out_name": "p"}), ("forge_pbr_material", {"material_id": "m", "prompt": "x"}),
-                       ("run_bpy_script", {"source": "import os\nos.remove('x')\n"}), ("apply_scene_ir", {"ops_json": "{}"})):
+                       ("run_bpy_script", {"source": "import os\nos.remove('x')\n"}), ("apply_scene_ir", {"ops": "{}"})):
         direct = await gate.decide(name, args)
         via_hook = await gate._decide(types.ToolCall(name=name, args=args, id="c"))
         assert (direct.allow, direct.message) == (via_hook.allow, via_hook.message), name
     assert not (await gate.decide("forge_pbr_material", {})).allow
     assert "BLOCKOUT" in (await gate.decide("forge_pbr_material", {})).message
-    assert (await gate.decide("apply_scene_ir", {"ops_json": "{}"})).allow
+    assert (await gate.decide("apply_scene_ir", {"ops": "{}"})).allow
 
 
 async def test_twenty_tool_turns_admit_no_inline_image_history(tmp_path):
@@ -281,3 +282,67 @@ async def test_twenty_tool_turns_admit_no_inline_image_history(tmp_path):
         assert all(isinstance(part, str) and not H._looks_like_image(part) for part in history)
     assert len(env.backend.uploads) >= 20
     assert hooks[H.VisionEvictionHook].violations == []
+
+
+async def test_gate_screens_typed_ir_arguments(tmp_path):
+    """The gate decides on the same facts whether the IR arrives typed or as a legacy JSON string."""
+    env = make_session(tmp_path, client=FakeDecisionsClient({"policy_trademark_logo": 0.93}), stage="LOOKDEV")
+    gate = H.InvariantAndSafetyGate(env.reg, env.sid)
+    img = env.sess().artifacts_dir / "logo.png"
+    from PIL import Image
+
+    Image.new("RGB", (8, 8)).save(img)
+    for diff in ({"albedo_uri": str(img)}, json.dumps({"albedo_uri": str(img)})):
+        res = await gate.decide("apply_shader_diff", {"material_id": "m", "diff": diff})
+        assert not res.allow and "policy gate blocked logo.png" in res.message
+    assert (await gate.decide("apply_shader_diff", {"material_id": "m", "diff": {"roughness": 0.4}})).allow
+    S.set_toolset(env.reg, env.sid, "BLOCKOUT")
+    op = {"op": "upsert_material", "material": {"id": "m", "orm_uri": str(img)}}
+    for ops in ([op], json.dumps({"ops": [op]}), json.dumps({"nodes": [], "materials": [op["material"]]})):
+        res = await gate.decide("apply_scene_ir", {"ops": ops})
+        assert not res.allow and "logo.png" in res.message, ops
+
+
+async def test_gate_enforces_stage_subagents(tmp_path):
+    """allowed_subagents is not enforced by the harness at call time; the gate allows only the stage's own."""
+    env = make_session(tmp_path, stage="LOOKDEV")
+    gate = H.InvariantAndSafetyGate(env.reg, env.sid)
+
+    def inv(*names):
+        return {"Subagents": [{"TypeName": n, "Role": "r", "Prompt": "p"} for n in names]}
+
+    assert (await gate.decide("invoke_subagent", inv("lookdev_critic", "usd_verifier"))).allow
+    for bad in (inv("self"), inv("research"), inv("rogue"), inv("lookdev_critic", "self"), {"Subagents": []}):
+        res = await gate.decide("invoke_subagent", bad)
+        assert not res.allow and "not available in the LOOKDEV stage" in res.message, bad
+    S.set_toolset(env.reg, env.sid, "BLOCKOUT")
+    res = await gate.decide("invoke_subagent", inv("usd_verifier"))
+    assert not res.allow and "available: none" in res.message
+
+
+async def test_lookdev_header_lists_the_nodes_by_material(tmp_path):
+    """LOOKDEV assigns materials to nodes by id and has no manifest tool: its header carries the ids."""
+    env = make_session(tmp_path)
+    await T.apply_scene_ir(json.dumps({"ops": [
+        {"op": "upsert_material", "material": {"id": "wood", "base_color": [0.5, 0.3, 0.2]}},
+        *CRATE["ops"],
+        {"op": "assign_material", "node_id": "body", "material_id": "wood"},
+    ]}), env.ctx)
+    assert "bound:" not in H.state_header(env.sess())  # geometry stages have inspect_manifest instead
+    S.set_toolset(env.reg, env.sid, "LOOKDEV")
+    hdr = H.state_header(env.sess())
+    line = next(x for x in hdr.splitlines() if x.startswith("bound: "))
+    assert line == "bound: wood=body; (none)=lid"
+    assert hdr.splitlines()[0].startswith("[STATE ") and hdr.splitlines()[0].endswith("]")  # the status line is intact
+
+    class Node:
+        def __init__(self, i):
+            self.id, self.kind, self.material_id = f"plank_{i:04d}", "box", "wood"
+
+    class Scene:
+        nodes = [Node(i) for i in range(400)]
+
+    long = H._bindings_line(Scene)
+    assert len(long) <= H.BINDINGS_CAP + 40 and long.endswith("more node(s)")
+    shown = long.count("plank_")
+    assert 0 < shown < 400 and f"+{400 - shown} more node(s)" in long

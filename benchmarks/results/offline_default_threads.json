@@ -1,0 +1,1202 @@
+{
+ "machine": {
+  "cpu_model": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "logical_cpus": 4,
+  "ram_gb": 15.7,
+  "os": "Linux 6.18.44-fc-v726",
+  "python": "3.13.18",
+  "git_commit": "f9e039aabdbbc0965d05a4c7b380ece2bbeab236",
+  "git_dirty_tracked_files": 0,
+  "versions": {
+   "antigravity-3d": "0.2.0",
+   "usd-core": "26.11",
+   "trimesh": "5.2.1",
+   "xatlas": "0.0.11",
+   "meshoptimizer": "0.2.30a0",
+   "coacd": "1.0.14",
+   "numpy": "2.5.5",
+   "scipy": "1.18.1",
+   "pillow": "13.0.0"
+  },
+  "thread_pinning": "library_defaults",
+  "thread_env": {
+   "OMP_NUM_THREADS": null,
+   "OPENBLAS_NUM_THREADS": null,
+   "MKL_NUM_THREADS": null,
+   "PXR_WORK_THREAD_LIMIT": null
+  },
+  "timestamp_utc": "2026-11-20T07:29:57Z",
+  "quick": false,
+  "loadavg_at_start": [
+   1.6,
+   1.3,
+   1.29
+  ],
+  "offline": {
+   "GEMINI_API_KEY_set": false,
+   "AGY3D_OFFLINE": "1"
+  },
+  "loadavg_at_end": [
+   1.08,
+   1.25,
+   1.27
+  ]
+ },
+ "quick": false,
+ "benchmarks": {
+  "kernel.edit.patch": {
+   "includes": "StageManager.apply_patch of a one-node SetTransform: base_ir read, patch apply + validation, USD authoring into a new transaction layer.",
+   "excludes": "Building the stage, JSON parsing, mesh extraction, Tier-1 QA, and the rollback that restores the base (untimed teardown).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3
+     },
+     "n": 2000,
+     "median_ms": 0.8023,
+     "p95_ms": 1.0351,
+     "min_ms": 0.463,
+     "max_ms": 5.7832,
+     "mean_ms": 0.7995,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.34
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3
+     },
+     "n": 2000,
+     "median_ms": 0.9333,
+     "p95_ms": 1.4593,
+     "min_ms": 0.7608,
+     "max_ms": 9.8371,
+     "mean_ms": 1.0272,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.28
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3
+     },
+     "n": 1519,
+     "median_ms": 1.5516,
+     "p95_ms": 2.525,
+     "min_ms": 1.3097,
+     "max_ms": 5.351,
+     "mean_ms": 1.7563,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.18
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3
+     },
+     "n": 497,
+     "median_ms": 5.167,
+     "p95_ms": 7.329,
+     "min_ms": 4.347,
+     "max_ms": 32.9061,
+     "mean_ms": 5.7712,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.06
+     }
+    }
+   ],
+   "bench_wall_s": 11.07
+  },
+  "kernel.edit.patch_qa": {
+   "includes": "apply_patch (one-node SetTransform) + StageManager.extract_meshes + tier1_qa, back to back.",
+   "excludes": "JSON parsing, harness state/QA persistence, rollback of the edit (untimed).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3
+     },
+     "n": 964,
+     "median_ms": 2.7028,
+     "p95_ms": 3.7361,
+     "min_ms": 2.3733,
+     "max_ms": 10.6362,
+     "mean_ms": 2.8247,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.12,
+      "parts_median_ms": {
+       "patch": 0.7565,
+       "extract_meshes": 0.6594,
+       "tier1_qa": 1.2735
+      }
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3
+     },
+     "n": 366,
+     "median_ms": 7.3059,
+     "p95_ms": 11.4787,
+     "min_ms": 6.369,
+     "max_ms": 21.1521,
+     "mean_ms": 7.9011,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.03,
+      "parts_median_ms": {
+       "patch": 1.1414,
+       "extract_meshes": 1.7961,
+       "tier1_qa": 4.3076
+      }
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3
+     },
+     "n": 174,
+     "median_ms": 15.8446,
+     "p95_ms": 26.5644,
+     "min_ms": 13.8005,
+     "max_ms": 30.7641,
+     "mean_ms": 16.9954,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.01,
+      "parts_median_ms": {
+       "patch": 1.7231,
+       "extract_meshes": 3.9444,
+       "tier1_qa": 10.0459
+      }
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3
+     },
+     "n": 41,
+     "median_ms": 66.295,
+     "p95_ms": 96.5723,
+     "min_ms": 57.5785,
+     "max_ms": 98.4904,
+     "mean_ms": 72.9339,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0,
+      "parts_median_ms": {
+       "patch": 6.1379,
+       "extract_meshes": 17.2677,
+       "tier1_qa": 42.9168
+      }
+     }
+    }
+   ],
+   "bench_wall_s": 12.69
+  },
+  "harness.edit.apply_scene_ir": {
+   "includes": "T.apply_scene_ir end to end for an accepted one-node SetTransform: JSON parse, transaction, extract_meshes + Tier-1 (in a worker thread), state/QA persistence to disk, session lock, event-loop hop.",
+   "excludes": "Session open, initial scene load, the undo that restores the base (untimed), MCP framing, any model call.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3
+     },
+     "n": 261,
+     "median_ms": 5.296,
+     "p95_ms": 7.2103,
+     "min_ms": 3.6561,
+     "max_ms": 11.8268,
+     "mean_ms": 5.4771,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.93
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3
+     },
+     "n": 139,
+     "median_ms": 10.1441,
+     "p95_ms": 13.7537,
+     "min_ms": 7.6641,
+     "max_ms": 15.6819,
+     "mean_ms": 10.5857,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.94
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3
+     },
+     "n": 68,
+     "median_ms": 22.3908,
+     "p95_ms": 27.5609,
+     "min_ms": 14.7301,
+     "max_ms": 29.8403,
+     "mean_ms": 22.3316,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3
+     },
+     "n": 21,
+     "median_ms": 76.2952,
+     "p95_ms": 99.137,
+     "min_ms": 67.5486,
+     "max_ms": 128.688,
+     "mean_ms": 79.929,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    }
+   ],
+   "bench_wall_s": 14.17
+  },
+  "harness.edit.rejected_rollback": {
+   "includes": "T.apply_scene_ir given an edit that fails Tier-1 critically (adds an open, non-watertight quad via mesh_ref): transaction, extract_meshes + Tier-1, automatic rollback, state sync. Returns 'ROLLED BACK ...'.",
+   "excludes": "Session open and scene load. Includes the cost of the Tier-1 pass that detects the failure, so it is the whole rejected-edit turn, not the rollback alone (see kernel.rollback.raw).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3
+     },
+     "n": 525,
+     "median_ms": 5.6614,
+     "p95_ms": 6.9408,
+     "min_ms": 3.9249,
+     "max_ms": 13.9778,
+     "mean_ms": 5.7156,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.3
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3
+     },
+     "n": 291,
+     "median_ms": 10.0287,
+     "p95_ms": 12.453,
+     "min_ms": 7.6761,
+     "max_ms": 16.185,
+     "mean_ms": 10.3383,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.17
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3
+     },
+     "n": 137,
+     "median_ms": 21.0956,
+     "p95_ms": 28.1349,
+     "min_ms": 14.5006,
+     "max_ms": 46.4195,
+     "mean_ms": 21.8937,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.07
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3
+     },
+     "n": 40,
+     "median_ms": 75.9036,
+     "p95_ms": 96.7469,
+     "min_ms": 50.147,
+     "max_ms": 110.4815,
+     "mean_ms": 75.5394,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.01
+     }
+    }
+   ],
+   "bench_wall_s": 13.11
+  },
+  "harness.edit.undo": {
+   "includes": "T.undo_last_edit: lock, rollback of the top transaction, state invalidation, extract_meshes + Tier-1 re-run, QA persistence.",
+   "excludes": "The accepted edit that creates the transaction to undo (untimed setup).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3
+     },
+     "n": 244,
+     "median_ms": 6.1894,
+     "p95_ms": 8.0274,
+     "min_ms": 4.0543,
+     "max_ms": 29.6158,
+     "mean_ms": 6.4033,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.9
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3
+     },
+     "n": 136,
+     "median_ms": 11.1885,
+     "p95_ms": 13.1628,
+     "min_ms": 7.4463,
+     "max_ms": 25.2055,
+     "mean_ms": 11.2032,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.95
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3
+     },
+     "n": 71,
+     "median_ms": 20.5794,
+     "p95_ms": 26.646,
+     "min_ms": 14.5403,
+     "max_ms": 28.9208,
+     "mean_ms": 20.8068,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.97
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3
+     },
+     "n": 22,
+     "median_ms": 65.5364,
+     "p95_ms": 82.3079,
+     "min_ms": 50.7901,
+     "max_ms": 89.4869,
+     "mean_ms": 65.5937,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    }
+   ],
+   "bench_wall_s": 13.5
+  },
+  "harness.edit.to_pixels": {
+   "includes": "One agent turn of the edit loop: T.apply_scene_ir (accepted one-node edit) followed by T.render_preview (4-view clay contact sheet, 256 px per view, wireframe on = the tool defaults, PNG save, fake upload, preview bookkeeping).",
+   "excludes": "The undo that restores the base (untimed), visual QA, any model call.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3,
+      "preview_px_per_view": 256,
+      "wireframe": true
+     },
+     "n": 60,
+     "median_ms": 43.1526,
+     "p95_ms": 53.0497,
+     "min_ms": 30.9008,
+     "max_ms": 55.3295,
+     "mean_ms": 43.4104,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.97,
+      "parts_median_ms": {
+       "edit": 6.0364,
+       "render_preview": 36.5575
+      }
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3,
+      "preview_px_per_view": 256,
+      "wireframe": true
+     },
+     "n": 38,
+     "median_ms": 65.8142,
+     "p95_ms": 83.1916,
+     "min_ms": 45.1172,
+     "max_ms": 97.7911,
+     "mean_ms": 65.653,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.96,
+      "parts_median_ms": {
+       "edit": 12.0981,
+       "render_preview": 52.6145
+      }
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3,
+      "preview_px_per_view": 256,
+      "wireframe": true
+     },
+     "n": 22,
+     "median_ms": 105.0966,
+     "p95_ms": 148.7068,
+     "min_ms": 93.1604,
+     "max_ms": 149.0967,
+     "mean_ms": 113.6403,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98,
+      "parts_median_ms": {
+       "edit": 22.6621,
+       "render_preview": 82.4978
+      }
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3,
+      "preview_px_per_view": 256,
+      "wireframe": true
+     },
+     "n": 7,
+     "median_ms": 346.6074,
+     "p95_ms": null,
+     "min_ms": 321.3977,
+     "max_ms": 398.6727,
+     "mean_ms": 354.4857,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0,
+      "parts_median_ms": {
+       "edit": 73.4343,
+       "render_preview": 275.1086
+      }
+     }
+    }
+   ],
+   "bench_wall_s": 14.38
+  },
+  "kernel.rollback.raw": {
+   "includes": "StageManager.rollback() of one pending one-node edit. Case discard=true is the path used for rejected edits (empties the layer in the same change block); discard=false is the path undo_last_edit uses. With include_next_read=true the timed region also contains the first extract_meshes() after the rollback.",
+   "excludes": "The edit that creates the pending transaction (untimed setup); Tier-1 QA.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": false
+     },
+     "n": 2000,
+     "median_ms": 0.1541,
+     "p95_ms": 0.275,
+     "min_ms": 0.0887,
+     "max_ms": 2.3577,
+     "mean_ms": 0.1725,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.41
+     }
+    },
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3,
+      "discard": false,
+      "include_next_read": false
+     },
+     "n": 2000,
+     "median_ms": 0.3966,
+     "p95_ms": 0.5427,
+     "min_ms": 0.2508,
+     "max_ms": 23.0788,
+     "mean_ms": 0.4251,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.67
+     }
+    },
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": true
+     },
+     "n": 1723,
+     "median_ms": 0.8095,
+     "p95_ms": 1.3148,
+     "min_ms": 0.6732,
+     "max_ms": 2.9579,
+     "mean_ms": 0.9043,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.2
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": false
+     },
+     "n": 2000,
+     "median_ms": 0.1931,
+     "p95_ms": 0.3251,
+     "min_ms": 0.1305,
+     "max_ms": 3.3256,
+     "mean_ms": 0.2251,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.26
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3,
+      "discard": false,
+      "include_next_read": false
+     },
+     "n": 1755,
+     "median_ms": 0.4888,
+     "p95_ms": 0.6842,
+     "min_ms": 0.3423,
+     "max_ms": 5.6687,
+     "mean_ms": 0.5221,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.6
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": true
+     },
+     "n": 1002,
+     "median_ms": 1.9886,
+     "p95_ms": 2.6276,
+     "min_ms": 1.3315,
+     "max_ms": 4.9525,
+     "mean_ms": 1.9175,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.12
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": false
+     },
+     "n": 1506,
+     "median_ms": 0.2064,
+     "p95_ms": 0.3178,
+     "min_ms": 0.146,
+     "max_ms": 0.5188,
+     "mean_ms": 0.2195,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.18
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3,
+      "discard": false,
+      "include_next_read": false
+     },
+     "n": 1118,
+     "median_ms": 0.7127,
+     "p95_ms": 0.8584,
+     "min_ms": 0.5662,
+     "max_ms": 5.7699,
+     "mean_ms": 0.7343,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.59
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": true
+     },
+     "n": 529,
+     "median_ms": 3.9622,
+     "p95_ms": 4.0936,
+     "min_ms": 3.6865,
+     "max_ms": 4.837,
+     "mean_ms": 3.9651,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.07
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": false
+     },
+     "n": 589,
+     "median_ms": 0.2434,
+     "p95_ms": 0.2908,
+     "min_ms": 0.1821,
+     "max_ms": 0.4233,
+     "mean_ms": 0.2415,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.07
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3,
+      "discard": false,
+      "include_next_read": false
+     },
+     "n": 494,
+     "median_ms": 1.4667,
+     "p95_ms": 1.838,
+     "min_ms": 1.2803,
+     "max_ms": 4.7019,
+     "mean_ms": 1.5158,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.62
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": true
+     },
+     "n": 107,
+     "median_ms": 20.2196,
+     "p95_ms": 36.1389,
+     "min_ms": 14.0865,
+     "max_ms": 59.9094,
+     "mean_ms": 21.5328,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.01
+     }
+    }
+   ],
+   "bench_wall_s": 35.32
+  },
+  "kernel.raster.contact_sheet": {
+   "includes": "kernel.raster.contact_sheet: 4 views (front, right, top, persp), wireframe overlay on, label + border drawing, sheet assembly (PIL image returned).",
+   "excludes": "Mesh extraction from USD, PNG encoding/saving, upload. Scenes are 12 spheres on a 4x3 grid (triangle count is the closest to the target the sphere segment count allows).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "tris": 960,
+      "meshes": 12,
+      "px_per_view": 256,
+      "views": 4,
+      "wireframe": true
+     },
+     "n": 61,
+     "median_ms": 53.114,
+     "p95_ms": 55.9452,
+     "min_ms": 41.6573,
+     "max_ms": 60.799,
+     "mean_ms": 49.9473,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    },
+    {
+     "params": {
+      "tris": 960,
+      "meshes": 12,
+      "px_per_view": 512,
+      "views": 4,
+      "wireframe": true
+     },
+     "n": 16,
+     "median_ms": 185.62,
+     "p95_ms": null,
+     "min_ms": 173.169,
+     "max_ms": 224.8109,
+     "mean_ms": 190.7357,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    },
+    {
+     "params": {
+      "tris": 5280,
+      "meshes": 12,
+      "px_per_view": 256,
+      "views": 4,
+      "wireframe": true
+     },
+     "n": 28,
+     "median_ms": 110.0463,
+     "p95_ms": 152.7359,
+     "min_ms": 84.4354,
+     "max_ms": 162.6241,
+     "mean_ms": 110.6334,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "tris": 5280,
+      "meshes": 12,
+      "px_per_view": 512,
+      "views": 4,
+      "wireframe": true
+     },
+     "n": 11,
+     "median_ms": 282.4391,
+     "p95_ms": null,
+     "min_ms": 230.0615,
+     "max_ms": 309.7183,
+     "mean_ms": 275.5013,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "tris": 20160,
+      "meshes": 12,
+      "px_per_view": 256,
+      "views": 4,
+      "wireframe": true
+     },
+     "n": 11,
+     "median_ms": 273.6863,
+     "p95_ms": null,
+     "min_ms": 263.5594,
+     "max_ms": 295.6715,
+     "mean_ms": 275.4122,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    },
+    {
+     "params": {
+      "tris": 20160,
+      "meshes": 12,
+      "px_per_view": 512,
+      "views": 4,
+      "wireframe": true
+     },
+     "n": 7,
+     "median_ms": 467.6012,
+     "p95_ms": null,
+     "min_ms": 377.2868,
+     "max_ms": 590.7391,
+     "mean_ms": 478.0346,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98
+     }
+    }
+   ],
+   "bench_wall_s": 23.71
+  },
+  "kernel.uv.unwrap": {
+   "includes": "fast_ops.unwrap_uvs (xatlas unwrap + pack + stretch statistics) at 1024 px/m and the default 2048 atlas resolution.",
+   "excludes": "Writing UVs to USD, LOD generation. Convex spheres and one concave U prism.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "mesh": "sphere_500",
+      "tris": 448,
+      "verts": 226,
+      "texel_density_px_per_m": 1024.0,
+      "resolution": 2048
+     },
+     "n": 12,
+     "median_ms": 262.1068,
+     "p95_ms": null,
+     "min_ms": 198.9288,
+     "max_ms": 299.9967,
+     "mean_ms": 252.0196,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.01
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_2000",
+      "tris": 1920,
+      "verts": 962,
+      "texel_density_px_per_m": 1024.0,
+      "resolution": 2048
+     },
+     "n": 11,
+     "median_ms": 288.3011,
+     "p95_ms": null,
+     "min_ms": 236.5357,
+     "max_ms": 370.3169,
+     "mean_ms": 293.0139,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.04
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_10000",
+      "tris": 10080,
+      "verts": 5042,
+      "texel_density_px_per_m": 1024.0,
+      "resolution": 2048
+     },
+     "n": 6,
+     "median_ms": 583.5613,
+     "p95_ms": null,
+     "min_ms": 534.6595,
+     "max_ms": 639.4161,
+     "mean_ms": 585.1047,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.04
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_50000",
+      "tris": 49920,
+      "verts": 24962,
+      "texel_density_px_per_m": 1024.0,
+      "resolution": 2048
+     },
+     "n": 5,
+     "median_ms": 2467.1976,
+     "p95_ms": null,
+     "min_ms": 2315.4853,
+     "max_ms": 2864.4695,
+     "mean_ms": 2500.7757,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.3
+     }
+    },
+    {
+     "params": {
+      "mesh": "u_shape_concave",
+      "tris": 1964,
+      "verts": 984,
+      "texel_density_px_per_m": 1024.0,
+      "resolution": 2048
+     },
+     "n": 36,
+     "median_ms": 79.3395,
+     "p95_ms": 114.3917,
+     "min_ms": 61.5225,
+     "max_ms": 115.5855,
+     "mean_ms": 83.4697,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    }
+   ],
+   "bench_wall_s": 38.3
+  },
+  "kernel.export.pipeline": {
+   "includes": "fast_ops.run_export_pipeline: unwrap_scene (xatlas, one atlas per material) + generate_lods per mesh + generate_colliders. This is the 'UV + LOD + collider outside Blender' figure.",
+   "excludes": "Package writing/validation, USD authoring, mesh extraction (meshes are prepared untimed). Per-stage medians from ExportBundle.timings_ms are in extra.parts_median_ms.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "subject": "sphere_500",
+      "mesh": "sphere_500",
+      "tris": 448,
+      "verts": 226,
+      "parts": 1
+     },
+     "n": 12,
+     "median_ms": 267.3178,
+     "p95_ms": null,
+     "min_ms": 219.3043,
+     "max_ms": 282.7957,
+     "mean_ms": 262.6222,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.01,
+      "parts_median_ms": {
+       "uv": 251.225,
+       "lod": 14.635,
+       "colliders": 1.955,
+       "total": 267.305
+      }
+     }
+    },
+    {
+     "params": {
+      "subject": "sphere_2000",
+      "mesh": "sphere_2000",
+      "tris": 1920,
+      "verts": 962,
+      "parts": 1
+     },
+     "n": 8,
+     "median_ms": 381.8978,
+     "p95_ms": null,
+     "min_ms": 354.3309,
+     "max_ms": 394.0765,
+     "mean_ms": 377.6786,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.02,
+      "parts_median_ms": {
+       "uv": 308.54,
+       "lod": 61.61,
+       "colliders": 6.645,
+       "total": 381.88
+      }
+     }
+    },
+    {
+     "params": {
+      "subject": "sphere_10000",
+      "mesh": "sphere_10000",
+      "tris": 10080,
+      "verts": 5042,
+      "parts": 1
+     },
+     "n": 5,
+     "median_ms": 826.5656,
+     "p95_ms": null,
+     "min_ms": 785.8059,
+     "max_ms": 1039.3159,
+     "mean_ms": 864.8169,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.04,
+      "parts_median_ms": {
+       "uv": 534.41,
+       "lod": 227.15,
+       "colliders": 41.36,
+       "total": 826.54
+      }
+     }
+    },
+    {
+     "params": {
+      "subject": "sphere_50000",
+      "mesh": "sphere_50000",
+      "tris": 49920,
+      "verts": 24962,
+      "parts": 1
+     },
+     "n": 5,
+     "median_ms": 3619.8762,
+     "p95_ms": null,
+     "min_ms": 3457.022,
+     "max_ms": 3765.259,
+     "mean_ms": 3627.6183,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.1,
+      "parts_median_ms": {
+       "uv": 2451.13,
+       "lod": 897.78,
+       "colliders": 240.11,
+       "total": 3619.78
+      }
+     }
+    },
+    {
+     "params": {
+      "subject": "u_shape_concave",
+      "mesh": "u_shape_concave",
+      "tris": 1964,
+      "verts": 984,
+      "parts": 1
+     },
+     "n": 6,
+     "median_ms": 549.5398,
+     "p95_ms": null,
+     "min_ms": 510.18,
+     "max_ms": 597.4374,
+     "mean_ms": 550.7198,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.17,
+      "parts_median_ms": {
+       "uv": 85.85,
+       "lod": 10.76,
+       "colliders": 439.84,
+       "total": 549.52
+      }
+     }
+    },
+    {
+     "params": {
+      "subject": "crate (TemplateAuthor)",
+      "tris": 144,
+      "parts": 12,
+      "materials": 2
+     },
+     "n": 25,
+     "median_ms": 118.4023,
+     "p95_ms": 149.1625,
+     "min_ms": 110.3436,
+     "max_ms": 180.6529,
+     "mean_ms": 122.8688,
+     "extra": {
+      "design_doc_target_ms": 250,
+      "hulls": 8,
+      "hull_sources": [
+       "fast_path",
+       "merged"
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98,
+      "parts_median_ms": {
+       "uv": 32.53,
+       "lod": 78.25,
+       "colliders": 5.25,
+       "total": 118.39
+      }
+     }
+    },
+    {
+     "params": {
+      "subject": "barrel (TemplateAuthor)",
+      "tris": 320,
+      "parts": 4,
+      "materials": 2
+     },
+     "n": 37,
+     "median_ms": 76.8704,
+     "p95_ms": 107.115,
+     "min_ms": 75.4913,
+     "max_ms": 119.7842,
+     "mean_ms": 81.8403,
+     "extra": {
+      "design_doc_target_ms": 250,
+      "hulls": 4,
+      "hull_sources": [
+       "fast_path"
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0,
+      "parts_median_ms": {
+       "uv": 17.12,
+       "lod": 57.28,
+       "colliders": 2.61,
+       "total": 76.86
+      }
+     }
+    }
+   ],
+   "bench_wall_s": 50.49
+  }
+ },
+ "total_wall_s": 227.5
+}

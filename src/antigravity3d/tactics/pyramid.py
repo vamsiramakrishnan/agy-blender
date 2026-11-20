@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import shutil
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
@@ -21,6 +22,7 @@ from PIL import Image, ImageDraw
 from pxr import Usd
 
 from antigravity3d.adapters.engines.validators import MIN_SILHOUETTE_IOU, blender_frame_png, silhouette_iou, validator_for
+from antigravity3d.adapters.engines.web_three import WebThreeValidator
 from antigravity3d.decisions.compose import Action, Thresholds, decide_action, lod_pop_ok, lod_pop_reasons, tier15_score
 from antigravity3d.decisions.models import VisualQAResult
 from antigravity3d.decisions.questions import MARKED_DEFECT_PHRASES
@@ -38,7 +40,7 @@ from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, EngineBudget
 from antigravity3d.tactics.cached import cached_export_pipeline
 from antigravity3d.tactics.common import IMAGE_USD, Uploader, png_bytes, uploader_for
 from antigravity3d.tactics.distill import FixLog, FixRecord
-from antigravity3d.tactics.governor import Governor
+from antigravity3d.tactics.governor import BudgetExceeded, Governor
 from antigravity3d.tactics import reviewed_rules
 from antigravity3d.kernel.package import write_engine_package
 from antigravity3d.tactics.package import merged_lods
@@ -49,11 +51,10 @@ LOOKDEV_ROUNDS = 3
 QA_EST_USD = 0.002  # conservative cost of one visual-QA (+ locate) round when checking the ceiling
 
 
-# Uncalibrated tolerances, pending tuning against real studio assets:
-# xatlas on a plain 24-segment cylinder already measures 0.058 mean area
-# distortion against the 0.05 default budget, so up to this multiple of the
-# budget is reported as a warning rather than failing the export gate.
-UV_STRETCH_HARD_FACTOR = 2.0
+# Export gates (no warn bands). UV: every mesh's mean area distortion must be within
+# EngineBudget.max_uv_stretch; IR primitives get exact developable charts (0 distortion) and computed charts
+# are size-capped to stay inside the budget (see fast_ops.unwrap_scene). LOD pop: levels are generated to
+# lod_diff's screen-space error budget and silhouette tolerance, so every transition must meet these thresholds.
 LOD_POP_THRESHOLDS = PopThresholds()
 
 @dataclass
@@ -78,8 +79,9 @@ class RoundTrace:
 class StepResult:
     name: str
     status: str  # "passed" | "warned" | "failed" | "skipped"
-    detail: str = ""
+    detail: str = ""  # what was checked or produced: a fact about the asset, shipped in the package manifest
     ms: float = 0.0
+    run: str = ""  # a fact about this run only (cache state); with ``ms`` it stays in the run report
 
 
 @dataclass
@@ -316,6 +318,49 @@ class _Run:
         self.res.cost_usd += sum(charges)
         return located
 
+    async def author_repair(self, q: _QA, located: dict[str, list[str]]) -> tuple[Any, bool]:
+        """One author repair call: ``(patch, failed)``. A failed call is a recorded result, not a crash.
+
+        A truncated repair (or one that ended STOP with an empty answer) on a tier below the director is retried once on
+        the director tier when the plan allows it (a larger budget the plan already grants, not the same request again).
+        Every other typed failure (blocked, invalid, timed out, not admitted) ends the pass with a stop reason naming the
+        cause. Any other exception type is a bug and propagates.
+        """
+        from antigravity3d.tactics.metered_author import AuthorNoAnswer, AuthorOutcomeError, AuthorTruncated, MeteredAuthor
+
+        res = self.res
+        sm = self.sm
+
+        def fail(reason: str) -> tuple[None, bool]:
+            res.stopped["A"] = f"author repair failed: {reason}"
+            res.converged["A"] = False
+            self.step("author_repair", "warned", reason)
+            return None, True
+
+        res.author_calls += 1
+        try:
+            return await self.author.repair(sm.base_ir(), action=q.action, located=located, manifest=sm.manifest()), False
+        except BudgetExceeded as e:
+            return fail(f"not admitted: {e}")
+        except AuthorOutcomeError as first:
+            kind = type(first).__name__
+            empty = isinstance(first, AuthorNoAnswer) and first.finish_reason == "STOP"
+            if not (isinstance(first, AuthorTruncated) or empty):
+                return fail(f"{kind} on {first.model} ({first.finish_reason}): {first}")
+            if not isinstance(self.author, MeteredAuthor) or first.role == "director":
+                return fail(f"{kind} on {first.role} tier ({first.finish_reason}); no larger tier to retry on: {first}")
+            if not self.governor.plan.allow_director:
+                return fail(f"{kind} on {first.role} tier ({first.finish_reason}); director retry not permitted by spend plan")
+            res.author_calls += 1
+            try:
+                patch = await self.author.repair(sm.base_ir(), action=q.action, located=located, manifest=sm.manifest(), role="director")
+                self.step("author_repair", "passed", f"{kind} on {first.role} tier; succeeded on the director tier")
+                return patch, False
+            except BudgetExceeded as e:
+                return fail(f"{kind} on {first.role} tier; director retry not admitted: {e}")
+            except AuthorOutcomeError as second:
+                return fail(f"{kind} on {first.role} tier; director retry also {type(second).__name__} ({second.finish_reason}): {second}")
+
     async def pass_a(self) -> None:
         sm, th, res = self.sm, self.th, self.res
         if not sm.extract_meshes():
@@ -392,9 +437,10 @@ class _Run:
                 if q.action.kind == "escalate_director" and not self.governor.may_escalate_to_director(QA_EST_USD):
                     res.stopped["A"] = "escalate_director not permitted by spend plan"
                     return
-                self.res.author_calls += 1
-                patch = await self.author.repair(sm.base_ir(), action=q.action, located=located, manifest=sm.manifest())
+                patch, failed = await self.author_repair(q, located)
                 label, why = "author", f"{q.action.kind}: {q.action.reasons[0] if q.action.reasons else ''}"
+                if failed:
+                    return  # res.stopped["A"] names the cause
                 if patch is None:
                     res.stopped["A"] = "author declined to repair"
                     return
@@ -576,13 +622,17 @@ class _Run:
 
     # ---- Pass C ---------------------------------------------------------------------------------------
 
-    async def guarded(self, name: str, fn: Callable[[], Awaitable[tuple[str, str]]]) -> None:
+    async def guarded_result(self, fn: Callable[[], Awaitable[tuple[str, str]]]) -> tuple[str, str, float]:
+        """Run a sub-step and return (status, detail, start time) without recording it (for overlapping steps)."""
         t0 = time.perf_counter()
         try:
             status, detail = await fn()
         except Exception as e:  # noqa: BLE001 - a failed sub-step is a result, not a crash
             status, detail = "failed", f"{type(e).__name__}: {e}"
-        self.step(name, status, detail, t0)
+        return status, detail, t0
+
+    async def guarded(self, name: str, fn: Callable[[], Awaitable[tuple[str, str]]]) -> None:
+        self.step(name, *await self.guarded_result(fn))
 
     async def pass_c(self) -> None:
         sm, budget, res = self.sm, self.budget, self.res
@@ -595,22 +645,22 @@ class _Run:
         async def export() -> tuple[str, str]:
             nonlocal bundle
             bundle = await self.prepare_export_bundle()
-            hit = self.bundle_cache_hit
             res.objects["bundle"] = bundle
             levels = [sum(len(v[k].triangles) for v in bundle.lods.values()) for k in range(min((len(v) for v in bundle.lods.values()), default=0))]
             bad = [u.node_id for u in bundle.uvs if not u.within(budget)]
-            desc = f"uv={len(bundle.uvs)} lod_tris={levels} hulls={len(bundle.colliders)}" + ("" if hit is None else f" cache={'hit' if hit else 'miss'}")
-            if levels != sorted(levels, reverse=True):
-                return "failed", f"LOD triangle counts do not descend: {levels}"
+            desc = f"uv={len(bundle.uvs)} lod_tris={levels} hulls={len(bundle.colliders)}"
+            if any(b >= a for a, b in zip(levels, levels[1:])):
+                return "failed", f"LOD triangle counts do not strictly descend: {levels}"
             if bad:
                 worst = max(u.stretch_mean for u in bundle.uvs)
-                hard = worst > UV_STRETCH_HARD_FACTOR * budget.max_uv_stretch
-                return ("failed" if hard else "warned"), f"UV stretch {worst:.3f} above budget {budget.max_uv_stretch} on {bad}; {desc}"
+                return "failed", f"UV stretch {worst:.3f} above budget {budget.max_uv_stretch} on {bad}; {desc}"
             return "passed", desc
 
         await self.guarded("uv_lod_colliders", export)
+        if self.bundle_cache_hit is not None:  # the same bundle either way: where it came from is not part of the package
+            res.steps[-1].run = f"cache={'hit' if self.bundle_cache_hit else 'miss'}"
         if bundle is None:
-            for n in ("usd_package", "usd_validate", "engine_compliance", "lod_pop", "lod_pop_vision", "export_glb", "engine_import", "engine_parity"):
+            for n in ("usd_package", "usd_validate", "engine_compliance", "lod_pop", "lod_pop_vision", "export_glb", "engine_import", "engine_parity", "web_runtime"):
                 self.step(n, "skipped", "UV/LOD/collider stage failed")
             return
 
@@ -635,14 +685,10 @@ class _Run:
         async def pop() -> tuple[str, str]:
             lods = merged_lods(bundle)
             if len(lods) < 2:
-                return "skipped", "fewer than two LOD levels"
+                return "skipped", "LOD0 only: no coarser level within the screen-space error budget saves enough triangles"
             rep = await asyncio.to_thread(lod_pop_report, lods)
             res.objects["lod_pop"] = rep
-            if rep.ok():
-                return "passed", rep.one_line()
-            # A silhouette change is a hard failure; shading and edge drift alone only warn.
-            hard = any(t.iou < LOD_POP_THRESHOLDS.min_iou for t in rep.transitions)
-            return ("failed" if hard else "warned"), rep.one_line()
+            return ("passed" if rep.ok(LOD_POP_THRESHOLDS) else "failed"), rep.one_line(LOD_POP_THRESHOLDS)
 
         await self.guarded("lod_pop", pop)
 
@@ -668,6 +714,32 @@ class _Run:
             return "passed", f"{p.name} {p.stat().st_size} bytes (+{len(list(pkg.glob('*_LOD*.glb')))} LOD GLB)"
 
         await self.guarded("export_glb", glb)
+
+        async def web_runtime() -> tuple[str, str]:
+            """Load the package as shipped (GLB, LOD GLBs, manifest, USD) in three.js under headless Chromium."""
+            if "glb" not in res.artifacts:
+                return "skipped", "no GLB exported"
+            with tempfile.TemporaryDirectory(prefix="web_three_", dir=self.workdir) as td:
+                rep = await WebThreeValidator().validate(pkg, out_dir=Path(td))
+                if rep.skipped:
+                    return "skipped", rep.skipped_reason or "web runtime verifier unavailable"
+                if rep.screenshot:  # evidence for review; kept beside the package, not inside it
+                    shot = self.workdir / "web_three.png"
+                    shutil.copyfile(rep.screenshot, shot)
+                    res.artifacts["web_render"] = str(shot)
+            res.objects["web_runtime"] = {"checks": [(c.name, c.status, c.detail) for c in rep.checks],
+                                          "silhouette_iou": rep.silhouette_iou, "timings_s": rep.timings_s}
+            if rep.silhouette_iou is not None:
+                res.scores["web_silhouette_iou"] = rep.silhouette_iou
+            if not rep.ok:
+                why = "; ".join(f"{c.name}: {c.detail}" for c in rep.failures[:3]) or rep.log_tail[-200:].replace("\n", " ")
+                return "failed", why[:400]
+            done = sum(c.status == "pass" for c in rep.checks)
+            iou = "" if rep.silhouette_iou is None else f", silhouette IoU {rep.silhouette_iou:.4f} against the USD"
+            return "passed", f"three.js loaded and rendered the package: {done} checks passed{iou}"
+
+        # Independent of the target engine's own import, so it runs while those steps wait on their engine.
+        web_check = asyncio.ensure_future(self.guarded_result(web_runtime))
 
         validator = validator_for(budget.target_engine)
 
@@ -731,6 +803,8 @@ class _Run:
             return "passed", "engine matches DCC"
 
         await self.guarded("engine_parity", parity)
+        status, detail, t0 = await web_check
+        self.step("web_runtime", status, detail, t0)
 
     def compliance(self, stage: Usd.Stage, meshes: list[Any]) -> tuple[str, str]:
         issues = check_engine_compliance(stage, meshes, self.budget)

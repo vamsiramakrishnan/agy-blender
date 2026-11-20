@@ -32,7 +32,7 @@ from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.governor import Governor
 from antigravity3d.tactics.common import load_png, png_bytes
 
-BACKEND_VERSION = "kernel-fast_ops/1"
+BACKEND_VERSION = "kernel-fast_ops/4"  # 2: analytic UV charts, screen-space-error LODs; 3: parts absent at far LODs; 4: exact removal bracket
 CACHED_TAG = "(cached)"  # appended to GeneratedImage.model on a cache hit
 
 
@@ -172,7 +172,8 @@ def _bundle_to_bytes(b: ExportBundle) -> bytes:
             arrays.update({f"lod_{nid}_{j}_p": lod.points, f"lod_{nid}_{j}_t": lod.triangles})
             if lod.uvs is not None:
                 arrays[f"lod_{nid}_{j}_uv"] = lod.uvs
-            meta["lods"][nid].append({"ratio": lod.ratio, "error": lod.error, "error_m": lod.error_m, "uv": lod.uvs is not None})
+            meta["lods"][nid].append({"ratio": lod.ratio, "error": lod.error, "error_m": lod.error_m, "uv": lod.uvs is not None,
+                                      "screen_fraction": lod.screen_fraction})
     for i, h in enumerate(b.colliders):
         arrays.update({f"hull{i}_p": h.points, f"hull{i}_t": h.triangles})
         meta["hulls"].append({"name": h.name, "volume": h.volume, "source": h.source})
@@ -186,8 +187,8 @@ def _bundle_from_bytes(data: bytes) -> ExportBundle:
         meta = json.loads(z["__meta__"].tobytes())
         uvs = [UVResult(points=z[f"uv{i}_p"], triangles=z[f"uv{i}_t"], uvs=z[f"uv{i}_uv"], vmapping=z[f"uv{i}_vm"],
                         **{k: v for k, v in m.items() if k not in ("points", "triangles", "uvs", "vmapping")}) for i, m in enumerate(meta["uvs"])]
-        lods = {nid: [LOD(m["ratio"], z[f"lod_{nid}_{j}_p"], z[f"lod_{nid}_{j}_t"], z[f"lod_{nid}_{j}_uv"] if m["uv"] else None, m["error"], m["error_m"])
-                      for j, m in enumerate(ms)] for nid, ms in meta["lods"].items()}
+        lods = {nid: [LOD(m["ratio"], z[f"lod_{nid}_{j}_p"], z[f"lod_{nid}_{j}_t"], z[f"lod_{nid}_{j}_uv"] if m["uv"] else None, m["error"], m["error_m"],
+                          m.get("screen_fraction", 1.0)) for j, m in enumerate(ms)] for nid, ms in meta["lods"].items()}
         hulls = [Hull(m["name"], z[f"hull{i}_p"], z[f"hull{i}_t"], m["volume"], m["source"]) for i, m in enumerate(meta["hulls"])]
     return ExportBundle(meta["asset"], uvs, lods, hulls, dict(meta["timings"]))
 

@@ -287,7 +287,8 @@ def test_lod_variant_set_matches_glb_lods(unreal):
     vset = root.GetVariantSets().GetVariantSet("LOD")
     names = vset.GetVariantNames()
     levels = min(len(v) for v in bundle.lods.values())
-    assert names == [f"LOD{i}" for i in range(levels)] and levels >= 3
+    # levels come from the screen-space error budget (cylinder + sphere + box here: LOD0 and two far levels)
+    assert names == [f"LOD{i}" for i in range(levels)] and levels >= 2
     assert vset.GetVariantSelection() == "LOD0"
     tris = []
     stage.SetEditTarget(stage.GetSessionLayer())
@@ -303,12 +304,14 @@ def test_lod_variant_set_matches_glb_lods(unreal):
     assert tris == pm.data["lod_tris"] == [sum(v[i].tri_count for v in bundle.lods.values()) for i in range(levels)]
     assert all(b < a for a, b in zip(tris, tris[1:]))
     assert tris[0] == sum(len(u.triangles) for u in bundle.uvs)
-    # LOD1 geometry is where LOD0's is (local->world mapping through the node transforms is right)
+    assert pm.data["lod_screen_fractions"][0] == 1.0 and len(pm.data["lod_screen_fractions"]) == levels
+    assert all(b < a for a, b in zip(pm.data["lod_screen_fractions"], pm.data["lod_screen_fractions"][1:]))
+    # the coarsest level's geometry is where LOD0's is (local->world mapping through the node transforms is right)
     vset.SetVariantSelection("LOD0")
     cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_])
     r0 = cache.ComputeWorldBound(root).ComputeAlignedRange()
     cache.Clear()
-    vset.SetVariantSelection("LOD3")
+    vset.SetVariantSelection(names[-1])
     r3 = cache.ComputeWorldBound(root).ComputeAlignedRange()
     for a, b in zip(r0.GetMin(), r3.GetMin()):
         assert abs(a - b) < 0.1
@@ -557,8 +560,14 @@ def test_exported_inspector_opens_with_browser_offline(godot):
 
     path = godot[2].out_dir / "inspector.html"
     with sync_playwright() as pw:
-        with pw.chromium.launch(executable_path=os.getenv("CHROMIUM_BIN"),
-                                args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]) as browser:
+        try:
+            launched = pw.chromium.launch(executable_path=os.getenv("CHROMIUM_BIN"),
+                                          args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
+        except Exception as e:  # same convention as the other browser tests: no browser here, not a failure
+            if "Executable doesn't exist" in str(e):
+                pytest.skip("no Chromium for this Playwright; set CHROMIUM_BIN")
+            raise
+        with launched as browser:
             ctx = browser.new_context(offline=True)
             page = ctx.new_page()
             page.goto(path.resolve().as_uri())

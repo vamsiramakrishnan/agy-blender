@@ -311,6 +311,12 @@ def test_author_uvs_overlay_roundtrip_and_invalidation(sm):
     assert [len(m.points) for m in after] == [len(m.points) for m in before]  # seam split is folded back
     leg = next(p for p in sm.stage.Traverse() if p.GetName() == "leg")
     assert len(leg.GetAttribute("points").Get()) == len(next(u for u in uvs if u.node_id == "leg").points)
+    # primitives carry their exact charts through the overlay, so unwrapping again is identical (idempotent)
+    assert all(m.uv_charts is not None for m in before)
+    assert all(np.array_equal(a.uv_charts, b.uv_charts) for a, b in zip(before, after))
+    again = unwrap_scene(after, EngineBudget("unreal_5"))
+    assert all(np.array_equal(u.uvs, v.uvs) and np.array_equal(u.triangles, v.triangles) for u, v in zip(uvs, again))
+    assert {u.chart_source for u in uvs} == {"analytic"}
     with pytest.raises(ValueError, match="UV results"):
         sm.author_uvs(uvs[:1])
     sm.apply_patch(IRPatch(ops=[SetTransform(node_id="root", transform=Transform(translate=(1, 0, 0)))]))

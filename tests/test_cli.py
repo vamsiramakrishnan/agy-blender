@@ -51,6 +51,19 @@ def test_sanitize_and_nonzero_exit_on_failed_gate(tmp_path: Path) -> None:
     assert missing.returncode == 1 and "FAILED" in missing.stdout  # a missing input is a failed row, not a crash
 
 
+def test_sanitize_jobs_and_timeout_options(tmp_path: Path) -> None:
+    trimesh.creation.cylinder(radius=0.3, height=1.0).export(tmp_path / "b_cyl.glb")
+    trimesh.creation.box().export(tmp_path / "a_box.glb")
+    r = agy("sanitize", str(tmp_path / "b_cyl.glb"), str(tmp_path / "a_box.glb"), "--jobs", "2", "--timeout", "300", "--out", str(tmp_path / "o"))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "workers: 2 processes, per-file timeout 300.0 s" in r.stdout
+    assert r.stdout.index("b_cyl.glb  ") < r.stdout.index("a_box.glb  ")  # rows keep the order the files were given
+    report = json.loads((tmp_path / "o" / "report.json").read_text())
+    assert report["workers"]["distinct_pids"] == 2 and [Path(x["file"]).name for x in report["rows"]] == ["b_cyl.glb", "a_box.glb"]
+    for bad in ("0", "-2", "many"):
+        assert agy("sanitize", str(tmp_path / "a_box.glb"), "--jobs", bad, "--out", str(tmp_path / "x")).returncode == 2
+
+
 def test_kit_variants_calibrate_and_plugin(tmp_path: Path) -> None:
     k = agy("kit", "stone temple", "--pieces", "2", "--offline", "--out", str(tmp_path / "kit"))
     assert k.returncode == 0 and "vram:" in k.stdout, k.stdout + k.stderr

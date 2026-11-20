@@ -5,6 +5,7 @@ antigravity-3d turns a text prompt, or existing mesh files, into game-engine-rea
 ## Status
 
 - An offline run exercises the USD compiler, geometry kernels, material packaging and inspector with deterministic image and judge fixtures. It produces a preview candidate.
+- Every exported package is loaded in three.js under headless Chromium as a pipeline step (`web_runtime`): the GLB and its LOD files must load, match the manifest (triangles, bounds, materials, textures) and match the USD's silhouette. The step is skipped, with the reason, where no browser is installed.
 - Stock Blender 5.3 supports the warm worker path over Unix IPC and shared memory. Workbench, EEVEE and CPU Cycles render regression fixtures. Godot 4 is the first target with a rendered verification path. Unreal and Unity adapters currently cover import checks. Roblox lacks a headless verifier.
 - Native Decisions access depends on the project. Interactive grading can use a generative fallback with an uncalibrated verdict. The governed prop DAG requires a native Decisions deployment for paid routing and approval. The credentialed canaries in the test suite exercise native Decisions and Nano Banana independently.
 - The structured CLI author, Decisions and GenMedia report usage with provenance. Monetary estimates depend on the configured deployment rates. Studio acceptance and reconciled billing are separate inputs to the cohort benchmark.
@@ -17,6 +18,8 @@ Python 3.11 or newer is required.
 ```bash
 pip install -e ".[dev]"
 ```
+
+Add the `web` extra (`pip install -e ".[dev,web]"`) for the three.js package verifier; it also needs a Chromium or Chrome binary (`$CHROMIUM_BIN`, or one on `PATH`).
 
 Live runs (any command without `--offline`) need a Gemini API key:
 
@@ -85,7 +88,7 @@ These numbers illustrate the input format. `agy3d benchmark cohort.json` reports
 | 3. Decisions and image generation | `src/antigravity3d/decisions/`, `src/antigravity3d/genmedia/` | Routes questions to the Decisions API under calibrated thresholds; generates images and derives PBR maps. |
 | 4. Tactics and pipelines | `src/antigravity3d/tactics/`, `src/antigravity3d/dags/` | Refinement, tournaments, caching and budgets, plus the DAGs that run whole pipelines. |
 
-Also in the package: `runtime/` holds the sidecar entrypoints for the plugin (MCP server, depot watcher, inspector server, weekly distillation, Blender pool daemon). `artifacts/` builds the inspector HTML. `ir.py` defines the Scene/Asset IR and `state.py` the session state shared by tools and hooks. `models.py` holds the model tier table, `cli.py` the `agy3d` command, and `plugin_install.py` the plugin installer.
+Also in the package: `runtime/` holds the entrypoints for the plugin (MCP server and its inspector MCP App, depot watcher, weekly distillation, Blender pool daemon). `artifacts/` builds the inspector HTML. `ir.py` defines the Scene/Asset IR and `state.py` the session state shared by tools and hooks. `models.py` holds the model tier table, `cli.py` the `agy3d` command, and `plugin_install.py` the plugin installer.
 
 Main modules, from the module docstrings:
 
@@ -178,9 +181,10 @@ Run `agy3d models` to print the effective table after overrides.
 - **Skills:** `concept-to-blueprint`, `parametric-kitbash`, `pbr-material-forge`, `game-ready-sanitizer` and `engine-truth-verify`.
 - **Subagents:** `agents/usd_verifier.md` (read-only QA gate) and `agents/lookdev_critic.md` (visual critic).
 - **Hooks:** `hooks.json` with four scripts in `hooks/scripts/`. They block export until Tier-1 QA passes, record tool telemetry, add a session-start budget message, and stop the agent from finishing while QA is unmet.
-- **Sidecars:** `blender_pool`, `depot_watcher`, `inspector` (a side-pane panel) and two scheduled automations: `nightly_variant_factory` (daily at 02:17 UTC) and `weekly_distill` (Sundays at 03:43 UTC).
+- **Sidecars:** `blender_pool`, `depot_watcher` and two scheduled automations: `nightly_variant_factory` (daily at 02:17 UTC) and `weekly_distill` (Sundays at 03:43 UTC).
 - **Workflow script:** `workflows/batch_sanitize.py`, run with `run_workflow`.
 - **MCP server:** `mcp_config.json` registers the stdio server `studio` (`antigravity3d.runtime.mcp_server`). The harness exposes it as `antigravity-3d_studio`.
+- **MCP App:** the same server serves the 3D review inspector as an MCP App (`open_inspector`; inline or from the side pane "+" menu). Review notes are saved with the asset session, reach the agent through `updateModelContext` and the `review_notes` tool, and are marked stale, not dropped, after an edit. The front end lives in `apps/inspector` (rebuild with `npm ci && npm run build`; the built document is committed and a test fails when it is stale). The standalone `inspector.html` in each package is the same front end.
 
 Install and validate:
 
@@ -205,7 +209,7 @@ Integration markers include:
 
 - `live`: needs `GEMINI_API_KEY` and network access.
 - `blender`: needs a Blender 5.3 or newer binary on `PATH` or in `$BLENDER_BIN`. Set `AGY3D_BLENDER_SOAK=1` to run the 300-render isolation test.
-- `browser`: needs Playwright Chromium and `AGY3D_THREE_JS` pointing to Three.js 0.160.0. The qualification workflow supplies both on a Linux software-rendering runner.
+- `browser`: needs Playwright and Chromium. The inspector tests also need `AGY3D_THREE_JS` pointing to Three.js 0.160.0; the package verifier uses the copy vendored in the wheel. The qualification workflow supplies all of it on a Linux software-rendering runner.
 
 
 ## Known limitations
@@ -213,9 +217,17 @@ Integration markers include:
 - Contact settling is vertical only (no tilting).
 - Trim-sheet mapping distorts smooth, round shapes.
 - The preview renderer is a software rasteriser, not a PBR render.
-- The LOD-pop and UV-stretch warning thresholds are uncalibrated defaults.
-- Rejected 50-node speculative edits rolled back in 0.71 ms at the median on the development runner. Public undo of a 50-node edit measured about 1 ms. Sub-millisecond worst-case rollback remains unqualified.
-- Collider generation on concave meshes can exceed the 250 ms pipeline target.
+- UV stretch and LOD pop are gates, not warnings. Their thresholds are engineering defaults that no studio acceptance data has calibrated: stretch within the engine budget; LOD levels generated within one pixel of LOD0 on a 1080 px frame; and a pop check per level (silhouette IoU at least 0.90, shading difference at most 0.06, edge drift at most 2.5 px).
+- LOD levels are produced only where the asset gets at least 25% cheaper within that error budget, so some assets ship LOD0 only. A part hidden inside another (a barrel hoop's inner faces) is never dropped at distance, because the measure is surface distance, not visibility.
+- LOD generation measures its error exactly and costs more than plain simplification on dense meshes; see `benchmarks/RESULTS.md`.
+- The material model covers the glTF 2.0 PBR set (emission, alpha modes, double-sided, clearcoat, transmission, index of refraction, sheen, specular). Transmission is thin-surface only: there is no volume (thickness, attenuation). Only the emissive map and the albedo alpha channel were added as textures; the other new parameters are factors.
+- The three.js verifier compares what the runtime loaded with the manifest and the USD silhouette. It does not judge the rendered look, and it says nothing about Unreal, Unity, Godot or Roblox importers; those have their own steps where an engine is installed.
+- In a far LOD level a part can be absent. In USD that part is inactive inside the LOD variant; no importer was run here to confirm how each engine treats it.
+- The inspector's MCP App is tested against the MCP Apps SDK's own host bridge in Chromium, not inside a running Antigravity app.
+- Rolling back a rejected 50-node speculative edit takes 0.17 ms at the median on the development machine, and an undo that keeps history 0.65 ms (2.0 ms at 200 nodes). The first read after a rollback costs about 4 ms more at 50 nodes. Sub-millisecond worst-case rollback remains unqualified.
+- Collider generation on concave meshes can exceed the 250 ms pipeline target: CoACD takes about 450 ms on a 2,000-triangle concave mesh.
+- Unwrapping a computed (imported) mesh pays the UV packer's fixed cost, about a quarter of a second when the surface does not fit the atlas at the requested density. Primitives get exact charts and do not go through that packer.
+- The three.js verification makes an offline run 0.6 to 0.9 s longer per asset; see `benchmarks/RESULTS.md` for what that buys and what would reduce it.
 
 ## License
 

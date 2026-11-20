@@ -133,7 +133,8 @@ async def test_non_manifold_patch_rolled_back_byte_for_byte(env, tmp_path):
     await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
     before, stack = composed(env), list(env.state.tx_stack)
     quad = _open_quad_usda(tmp_path / "quad.usda")
-    bad = {"ops": [{"op": "upsert_node", "node": {"id": "sheet", "kind": "mesh_ref", "params": {"path": str(quad)}}}]}
+    bad = {"ops": [{"op": "upsert_node", "node": {"id": "sheet", "kind": "mesh_ref", "params": {"path": str(quad)},
+                                                  "transform": {"translate": [0, 0, 0]}}}]}
     r = check_line(await T.apply_scene_ir(json.dumps(bad), env.ctx), 1)
     assert r.startswith("ROLLED BACK TIER1 FAIL") and "not_watertight" in r
     assert composed(env) == before
@@ -241,8 +242,9 @@ async def test_export_refused_then_allowed_and_reloads(env, monkeypatch):
     assert set(glb.geometry) == {"body", "lid"} and sum(len(g.faces) for g in glb.geometry.values()) == 24
     hulls = trimesh.load(out / "Crate_colliders.glb")
     assert all(n.startswith("UCX_Crate_") for n in hulls.geometry)
-    assert (out / "Crate_LOD1.glb").is_file()
     man = json.loads((out / "manifest.json").read_text())
+    # two boxes cannot get cheaper within any screen-space error budget: one level, no duplicate LOD files
+    assert not list(out.glob("Crate_LOD*.glb")) and man["lod_tris"] == [24] and man["lod_screen_fractions"] == [1.0]
     assert man["budget"]["max_tris"] == 15000 and man["qa"]["tier1_ok"] and man["qa"]["tier15"] >= 3.4
     assert man["schema_version"] == 1 and man["validation"]["package_ok"] and "pkg ok" in r
     assert (out / "Crate.usdz").is_file() and man["usd"] == "Crate.usd"
@@ -254,8 +256,8 @@ async def test_export_refused_then_allowed_and_reloads(env, monkeypatch):
 
 async def test_variants_branching(env):
     await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
-    v = {"set": "lid", "variants": {"flat": [box("lid", (1.05, 0.85, 0.08), 0.64)], "tall": [box("lid", (1.05, 0.85, 0.3), 0.75)]}}
-    r = check_line(await T.propose_variants(json.dumps(v), env.ctx), 1)
+    v = [{"name": "flat", "ops": [box("lid", (1.05, 0.85, 0.08), 0.64)]}, {"name": "tall", "ops": [box("lid", (1.05, 0.85, 0.3), 0.75)]}]
+    r = check_line(await T.propose_variants("lid", v, env.ctx), 1)
     assert r.startswith("VARIANTS lid: flat:ok") and "tall:ok" in r
     r = check_line(await T.select_variant("lid", "tall", env.ctx), 1)
     assert r.startswith("SELECTED lid=tall")

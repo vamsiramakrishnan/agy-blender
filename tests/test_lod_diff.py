@@ -32,6 +32,22 @@ def test_transition_distance_hand_calculation():
     assert default_transitions(4) == (0.5, 0.25, 0.1) and default_transitions(6) == (0.5, 0.25, 0.1, 0.05, 0.025)
 
 
+def test_error_budget_and_level_fractions_share_one_definition():
+    from antigravity3d.kernel.lod_diff import LOD_REFERENCE_SCREEN_PX, lod_candidate_fractions, lod_error_budget_m, lod_transitions
+
+    # 1 px of a 1080 px frame when a 2 m sphere (R = 1) spans half of it: 540 px across 2 m
+    assert LOD_REFERENCE_SCREEN_PX == 1080 and lod_error_budget_m(1.0, 0.5) == pytest.approx(2.0 / 540)
+    # the same geometric error projects to the same pixels at the matching transition distance, any fov
+    for fov in (40.0, 60.0, 90.0):
+        d = transition_distance(1.0, 0.25, fov)
+        px_per_m = (1080 / 2) / (d * math.tan(math.radians(fov) / 2))
+        assert lod_error_budget_m(1.0, 0.25) * px_per_m == pytest.approx(1.0)
+    assert lod_candidate_fractions() == (1.0, 0.5, 0.25, 0.1, 0.05, 0.025)
+    a, b, c = (SimpleNamespace(points=None, triangles=None, screen_fraction=f) for f in (1.0, 0.25, 0.05))
+    assert lod_transitions([a, b, c]) == (0.25, 0.05)  # a skipped candidate keeps its level's own switch
+    assert lod_transitions([sphere(), sphere()]) == (0.5,)
+
+
 def test_identical_lods_are_perfect():
     s = sphere()
     p = render_lod_pair(s, s, screen_fraction=0.25)

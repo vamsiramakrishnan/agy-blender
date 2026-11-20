@@ -23,18 +23,20 @@ SANITIZE_SCHEMA = {
         "tris": {"type": "integer"},
         "lods": {"type": "integer"},
         "hulls": {"type": "integer"},
+        "tier15": {"type": "number", "description": "tier15 exactly as session_status prints it after run_visual_qa"},
         "blocker": {"type": "string"},
     },
-    "required": ["file", "ok", "stage", "blocker"],
+    "required": ["file", "ok", "stage", "tier15", "blocker"],
 }
+# The verifier subagent has inspect_manifest and run_usd_validator only: it can judge structure (Tier-1), not the
+# visual score. Tier-1.5 is measured by run_visual_qa in the sanitizing session and read back from session_status.
 GATE_SCHEMA = {
     "type": "object",
     "properties": {
         "tier1_ok": {"type": "boolean"},
-        "tier15": {"type": "number"},
         "blocker": {"type": "string"},
     },
-    "required": ["tier1_ok", "tier15", "blocker"],
+    "required": ["tier1_ok", "blocker"],
 }
 EXPORT_SCHEMA = {
     "type": "object",
@@ -52,21 +54,22 @@ async def process(path):
             f"Use the antigravity-3d game-ready-sanitizer skill on exactly this file: {path}\n"
             "Import it into a new USD stage via apply_scene_ir, normalise to metres / Z-up, fix geometry and UVs, "
             f"run generate_lods_and_colliders for {engine}, then run_usd_validator until clean. "
-            "Do not export. Return the stage path and counts.",
+            "Run run_visual_qa on the final scene, then session_status, and return tier15 exactly as session_status "
+            "prints it (0 if visual QA could not run). Do not export. Return the stage path and counts.",
             schema=SANITIZE_SCHEMA,
             role=f"Sanitize {name}",
         )
-        row.update({"stage": san.get("stage", ""), "blocker": san.get("blocker", "")})
+        row.update({"stage": san.get("stage", ""), "blocker": san.get("blocker", ""), "tier15": float(san.get("tier15", 0.0))})
         if not san.get("ok"):
             return row
         gate = await agent(
-            f"Gate the USD stage {row['stage']} (target {engine}). Run Tier-1 and Tier-1.5 and return the verdict.",
+            f"Check the structure of the USD stage {row['stage']} (target {engine}): run the Tier-1 validator and "
+            "return whether it passes, with the first blocking issue if it does not.",
             schema=GATE_SCHEMA,
             role=f"Verify {name}",
             type_name="usd_verifier",
         )
-        row.update({"tier1_ok": bool(gate.get("tier1_ok")), "tier15": float(gate.get("tier15", 0.0)),
-                    "blocker": gate.get("blocker", "")})
+        row.update({"tier1_ok": bool(gate.get("tier1_ok")), "blocker": gate.get("blocker", "")})
         row["ok"] = row["tier1_ok"] and row["tier15"] >= 3.4
         if row["ok"] and do_export:
             exp = await agent(

@@ -89,6 +89,19 @@ class MalformedGenerativeAnswer(GenerativeDecisionError):
     """The model's output was unusable and could not be repaired unambiguously (never replaced by defaults)."""
 
 
+class GenerativeTruncated(GenerativeDecisionError):
+    """finish_reason MAX_TOKENS: the answer is incomplete, so it is never parsed and never re-asked.
+
+    No ``max_output_tokens`` is set on judge requests, so the cap reached is the model's own output limit (65,536 on
+    gemini-4-neon): a runaway generation that an identical re-ask would most likely repeat at the same cost.
+    ``usage`` is what the provider billed for the truncated attempt.
+    """
+
+    def __init__(self, message: str, *, finish_reason: str, usage: "Usage") -> None:
+        super().__init__(message)
+        self.finish_reason, self.usage = finish_reason, usage
+
+
 # --- response objects (duck-typed to what DecisionControlPlane reads) ------------------------------------
 @dataclass
 class Usage:
@@ -364,13 +377,15 @@ class GenerativeDecisionsBackend:
         thoughts = int(getattr(um, "thoughts_token_count", 0) or 0)
         usage = Usage(int(getattr(um, "prompt_token_count", 0) or 0),
                       int(getattr(um, "candidates_token_count", 0) or 0) + thoughts, thoughts)
+        cands = getattr(resp, "candidates", None) or []
+        fr = getattr(cands[0], "finish_reason", None) if cands else None
+        name = str(getattr(fr, "name", fr) or "")
+        if name == "MAX_TOKENS":  # an incomplete answer is an outcome of its own, never parsed as if it were complete
+            raise GenerativeTruncated(f"judge answer cut off (finish_reason MAX_TOKENS) after {usage.total_output_tokens} "
+                                      f"output tokens ({usage.thoughts_tokens} thinking)", finish_reason=name, usage=usage)
         text = getattr(resp, "text", None)
-        if not text:
-            cands = getattr(resp, "candidates", None) or []
-            fr = getattr(cands[0], "finish_reason", None) if cands else None
-            name = str(getattr(fr, "name", fr) or "")
-            if name and name not in ("STOP", "MAX_TOKENS", "FINISH_REASON_UNSPECIFIED"):
-                raise _Blocked(name.lower(), "generation stopped without an answer")
+        if not text and name and name not in ("STOP", "FINISH_REASON_UNSPECIFIED"):
+            raise _Blocked(name.lower(), "generation stopped without an answer")
         return text, usage
 
 
