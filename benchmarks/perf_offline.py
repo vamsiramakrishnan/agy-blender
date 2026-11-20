@@ -1006,8 +1006,8 @@ def e_validate_cold(ctx: Ctx) -> list[Case]:
         size = sum(f.stat().st_size for f in w.out.rglob("*") if f.is_file())
         issues = validator.validate_package(w.out)
         cases.append(timeit(lambda: validator.validate_package(w.out), ctx,
-                            params={"subject": kind, "tris": w.p.tris, "files": len(w.man.files), "package_bytes": size},
-                            extra={"critical_issues": sum(i.severity == "critical" for i in issues)}))
+                            params={"subject": kind, "tris": w.p.tris, "files": len(w.man.files)},
+                            extra={"critical_issues": sum(i.severity == "critical" for i in issues), "package_bytes": size}))
     return cases
 
 
