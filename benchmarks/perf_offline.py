@@ -510,7 +510,9 @@ def b_harness_rejected(ctx: Ctx) -> list[Case]:
     cases = []
     quad = ctx.dir("quad") / "quad.usda"
     quad.write_text(MESH_REF_QUAD)
-    bad = json.dumps({"ops": [{"op": "upsert_node", "node": {"id": "sheet", "kind": "mesh_ref", "params": {"path": str(quad)}}}]})
+    # A well-formed edit (the tool's strict parse accepts it) whose result fails Tier-1: the quad is not watertight.
+    bad = json.dumps({"ops": [{"op": "upsert_node", "node": {"id": "sheet", "kind": "mesh_ref", "params": {"path": str(quad)},
+                                                                  "transform": {"translate": [0.0, 0.0, 0.0]}}}]})
     with asyncio.Runner() as runner:
         for n in ctx.sizes:
             scene = make_scene(n)
