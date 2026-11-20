@@ -2,13 +2,13 @@
 
 No LLM tokens, no Blender. Native backends actually used:
   * QA          : numpy (edge-table topology, winding-number interpenetration probe)
-  * UVs         : exact developable charts for IR primitives (unfolded here, packed by a skyline
-                  rectangle packer); xatlas charts + packing for imported meshes
+  * UVs         : exact developable charts for IR primitives (unfolded here); xatlas computes the charts
+                  of every other mesh; all charts are placed by the same skyline rectangle packer
   * LODs        : meshoptimizer (simplify / simplify_with_attributes in absolute-error mode, vertex
                   cache, overdraw, vertex fetch); levels from lod_diff's screen-space error budget,
                   each verified by an exact sampled surface distance and a silhouette check
   * colliders   : CoACD + scipy ConvexHull (fast path)
-  * glTF        : trimesh GLB export
+  * glTF        : kernel/gltf_writer.py (pygltflib structures, written here)
   * KTX2        : external ``ktx`` / ``toktx`` CLI only (never faked)
 
 FALLBACKS (see ``FALLBACKS``): trimesh's quadric simplifier needs the optional
@@ -283,21 +283,25 @@ def _check_pair(a, b, add) -> None:
 
 # --------------------------------------------------------------------------- UVs
 
-UV_PADDING_PX = 2           # gutter between charts, in atlas texels
-# Computed (xatlas) charts may each flatten at most this much *smooth* Gaussian curvature (steradians). LSCM is
-# conformal, so its area distortion grows with the curvature a chart flattens, and xatlas's default charts are
+UV_PADDING_PX = 2           # gutter on each side of a chart, in atlas texels (charts are 2x this apart)
+# Computed (xatlas) charts may each flatten at most this much *smooth* Gaussian curvature (steradians). xatlas
+# flattens most charts by orthographic projection (on curved meshes measured 95 % or more of the charts; the rest
+# LSCM), whose area distortion grows with the curvature a chart covers, and xatlas's default charts are
 # unbounded: on UV spheres of 1.9k / 10k / 50k triangles at 1024 px/m they measure mean area distortion 0.088 /
 # 0.064 / 0.068 (budget 0.05) in 0.30 / 0.83 / 8.2 s (chart growing + LSCM cost grows superlinearly with chart
 # size). A sphere holds 4 pi sr; capping its charts at 1/32 of its area (4 pi / 32 sr each) gives 0.015 / 0.014 /
-# 0.018 in 0.27 / 0.54 / 2.4 s. More charts mean more gutter: through the export pipeline (1024 px/m, 2048 atlas)
-# the achieved density of those spheres is 0 to 5% lower than with unbounded charts (benchmarks/results/quality.jsonl
-# against results/before/quality.jsonl). Curvature concentrated on sharp edges
+# 0.018 in 0.27 / 0.54 / 2.4 s. With computed charts packed as rectangles (see _unwrap_group) the chart size
+# hardly moves the density: on spheres, a torus, a blob, a sheet and multi-shell meshes, half this bound to twice
+# it changes the achieved density by -4 to +9 % with no trend (rectangle packing noise), while the area
+# distortion goes from 0.002-0.012 to 0.019-0.031 (above 0.02 on the spheres from 1.5x). Halving it costs 4 to
+# 40 % more seam vertices. Curvature concentrated on sharp edges
 # (box corners, cylinder rims: dihedral above CREASE) is not counted: those edges are chart seams anyway, and
 # capping such meshes only fragments flat charts (measured: a 32-sided cylinder split into one chart per side
 # quad, every rim vertex in three charts, which then locked the LOD simplifier).
 UV_CHART_CURVATURE_SR = 4.0 * np.pi / 32
 UV_SMOOTH_CREASE_DEG = 40.0
-UV_MIN_RECT_FILL = 0.6      # exact charts filling less of their bounding rectangle are cut (see _charted)
+UV_MIN_RECT_FILL = 0.6      # charts filling less of their bounding rectangle are cut (see _charted, _slabs)
+UV_CHART_PASS_PX = 64.0     # xatlas computes charts in an atlas about this many texels across (see _computed_charts)
 
 
 @dataclass(frozen=True)
@@ -483,7 +487,8 @@ class _Charted:
     tris: np.ndarray
     uv_m: np.ndarray
     kind: str                     # "analytic" | "computed"
-    chart: np.ndarray | None = None  # (M,) chart id per triangle (analytic only)
+    chart: np.ndarray | None = None  # (M,) chart id per triangle
+    frames: list | None = None    # per chart: minimum-area rectangle (filled by _chart_frames)
 
 
 def _min_area_frame(p2: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -553,38 +558,46 @@ def _skyline_pack(sizes: np.ndarray, width: float, height: float) -> np.ndarray 
 
     Returns (n, 3) [x, y, turned] or None when they do not all fit. Deterministic: rectangles go in order of
     decreasing longer side, then area, then index; ties pick the lowest top edge, then the leftmost x.
+    The skyline is kept as x-sorted parallel lists so the segments under a candidate position are found by
+    bisection and their highest top by a slice maximum (this is called a dozen or more times per atlas by the
+    density search, with hundreds of charts on computed meshes).
     """
+    from bisect import bisect_left
+
+    sizes = [(float(a), float(b)) for a, b in np.asarray(sizes, np.float64).reshape(-1, 2)]
     order = sorted(range(len(sizes)), key=lambda i: (-max(sizes[i]), -sizes[i][0] * sizes[i][1], i))
-    sky = [(0.0, 0.0, float(width))]  # (x, y, w) segments covering [0, width)
+    sx, sy, sw = [0.0], [0.0], [float(width)]  # (x, y, w) segments covering [0, width)
     out = np.zeros((len(sizes), 3))
+    wlim, hlim = width + 1e-9, height + 1e-9
     for i in order:
         best = None
         for turned in (0, 1):
-            w, h = (sizes[i][1], sizes[i][0]) if turned else (sizes[i][0], sizes[i][1])
+            w, h = (sizes[i][1], sizes[i][0]) if turned else sizes[i]
             if w > width or h > height:
                 continue
-            for j, (x, _, _) in enumerate(sky):
-                if x + w > width + 1e-9:
+            for j in range(len(sx)):
+                x = sx[j]
+                if x + w > wlim:
                     break
-                y, k, right = 0.0, j, x + w
-                while k < len(sky) and sky[k][0] < right - 1e-9:
-                    y = max(y, sky[k][1])
-                    k += 1
-                if y + h <= height + 1e-9 and (best is None or (y + h, x) < (best[0], best[1])):
-                    best = (y + h, x, y, w, h, turned)
+                e = bisect_left(sx, x + w - 1e-9, j)  # segments j .. e-1 lie under [x, x + w)
+                y = max(max(sy[j:e]), 0.0) if e > j else 0.0
+                top = y + h
+                if top <= hlim and (best is None or top < best[0] or (top == best[0] and x < best[1])):
+                    best = (top, x, y, w, h, turned)
         if best is None:
             return None
         _, x, y, w, h, turned = best
         out[i] = (x, y, turned)
-        new, right = [], x + w
-        for sx, sy, sw in sky:
-            if sx + sw <= x + 1e-9 or sx >= right - 1e-9:
-                new.append((sx, sy, sw))
+        right = x + w
+        new = []
+        for a, b, c in zip(sx, sy, sw):
+            if a + c <= x + 1e-9 or a >= right - 1e-9:
+                new.append((a, b, c))
                 continue
-            if sx < x:
-                new.append((sx, sy, x - sx))
-            if sx + sw > right:
-                new.append((right, sy, sx + sw - right))
+            if a < x:
+                new.append((a, b, x - a))
+            if a + c > right:
+                new.append((right, b, a + c - right))
         new.append((x, y + h, w))
         new = sorted(seg for seg in new if seg[2] > 1e-9)  # zero-width slivers would break the x order
         merged = [new[0]]
@@ -594,42 +607,99 @@ def _skyline_pack(sizes: np.ndarray, width: float, height: float) -> np.ndarray 
                 merged[-1] = (px, py, pw + seg[2])
             else:
                 merged.append(seg)
-        sky = merged
+        sx = [s[0] for s in merged]
+        sy = [s[1] for s in merged]
+        sw = [s[2] for s in merged]
     return out
 
 
-def _pack_analytic(charted: list[_Charted], density: float, resolution: int) -> tuple[list[np.ndarray], float]:
-    """Packs exact charts as their minimum-area rectangles into one ``resolution`` square atlas.
+def _strip_search(ext: np.ndarray, pad: float, side: float, hi: float, tol: float = 1e-4) -> tuple[float, np.ndarray]:
+    """Largest density (to ``tol``, below ``hi``) at which the rectangles ``ext * d + pad`` fit a ``side`` square.
 
-    Each chart keeps UV_PADDING_PX texels of private gutter on every side. The requested density is used
-    when everything fits; otherwise the largest density that fits is found by bisection (the packer is
-    cheap, so this costs milliseconds, unlike re-running a raster packer). Returns per-mesh UVs in [0, 1]
-    and the density used.
+    The skyline packer never places a rectangle higher than it must, so packing into an unbounded strip of the
+    same width gives the same placements as packing into the square, up to the first one that does not fit: the
+    layout fits exactly when the strip height it needs is at most ``side``. That height (roughly proportional to
+    d squared) steers the next density, instead of only a fits / does not fit bit: a few steps bracket the
+    answer to about 1 %, and bisection finishes it. The packer is not monotone in d, so the largest density that
+    fitted is kept. Measured on computed charts that overflow (39 to 530 rectangles): 8 to 11 packings, against
+    16 or 17 for the bisection from hi / 8."""
+    best_d, best_p = 0.0, None
+    fail = hi
+    d = hi
+    for it in range(64):
+        s = ext * d + pad
+        p = _skyline_pack(s, side, np.inf)
+        height = float((p[:, 1] + np.where(p[:, 2] > 0, s[:, 0], s[:, 1])).max()) if p is not None and len(p) else np.inf
+        if height <= side + 1e-9:
+            if d > best_d:
+                best_d, best_p = d, p
+        else:
+            fail = min(fail, d)
+        if best_p is not None and fail - best_d <= tol * fail:
+            break
+        guess = d * np.sqrt(side / height) if np.isfinite(height) and height > 0 else 0.5 * d
+        if best_p is None:  # nothing fitted yet: step down, at least a little
+            d = min(guess, d * (1 - 1e-3))
+        elif it < 4 and best_d < guess < fail:  # stay inside the bracket, away from its ends
+            span = fail - best_d
+            d = min(max(guess, best_d + 0.05 * span), fail - 0.05 * span)
+        else:
+            d = 0.5 * (best_d + fail)
+    return float(best_d), best_p  # type: ignore[return-value]
+
+
+def _chart_frames(c: _Charted) -> list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+    """(vertex ids, rotation, min corner, (w, h)) of each chart's minimum-area rectangle, in chart id order."""
+    if c.frames is None:
+        cid = _vertex_charts(c.tris, c.chart, len(c.uv_m))
+        order = np.argsort(cid, kind="stable")
+        ks, starts = np.unique(cid[order], return_index=True)
+        used = np.zeros(len(c.uv_m), bool)
+        used[np.asarray(c.tris).reshape(-1)] = True
+        c.frames = []
+        for k, v in zip(ks, np.split(order, starts[1:])):
+            v = v[used[v]]
+            if len(v):
+                c.frames.append((v, *_min_area_frame(c.uv_m[v])))
+    return c.frames
+
+
+def _pack_analytic(charted: list[_Charted], density: float, resolution: int) -> tuple[list[np.ndarray], float]:
+    """Packs charts (exact ones, and computed ones in metres) as their minimum-area rectangles into one
+    ``resolution`` square atlas.
+
+    Each chart keeps UV_PADDING_PX texels of private gutter on every side, so charts are at least
+    2 * UV_PADDING_PX texels apart. The requested density is used when everything fits; otherwise the largest
+    density that fits is searched (the packer is cheap, so this costs milliseconds, unlike re-running a raster
+    packer). Returns per-mesh UVs in [0, 1] and the density used.
+
+    Groups of exact charts only keep the plain bisection they always had (same layout for the same input).
+    Groups with computed charts have hundreds of charts, where each packing costs tens of milliseconds, so
+    there the packer is run without a height limit and the height it needs steers the next density (see
+    ``_strip_search``). Both searches skip packings that cannot succeed: rectangles whose total area exceeds
+    the atlas, or one rectangle wider than it.
     """
-    frames = []  # (mesh index, vertex ids, rotation, min corner, (w, h)) per chart
-    for mi, c in enumerate(charted):
-        cid = np.zeros(len(c.uv_m), np.int64)
-        cid[c.tris.reshape(-1)] = np.repeat(c.chart, 3)
-        for k in np.unique(c.chart):
-            v = np.flatnonzero(cid == k)
-            R, lo, wh = _min_area_frame(c.uv_m[v])
-            frames.append((mi, v, R, lo, wh))
+    frames = [(mi, *f) for mi, c in enumerate(charted) for f in _chart_frames(c)]
     ext = np.array([f[4] for f in frames], np.float64).reshape(-1, 2)
     pad = 2.0 * UV_PADDING_PX
     edge = 1.0  # keep half a texel clear of the atlas border, plus rounding
+    side = resolution - edge
+    area = float(ext.prod(axis=1).sum())
+    hi = min(float(density), side / max(float(ext.max()), 1e-12), side / np.sqrt(max(area, 1e-12)))
 
     def fits(d: float) -> np.ndarray | None:
-        return _skyline_pack(ext * d + pad, resolution - edge, resolution - edge)
+        return _skyline_pack(ext * d + pad, side, side)
 
     d = float(density)
-    place = fits(d)
-    if place is None:
-        area = float(ext.prod(axis=1).sum())
-        hi = min(d, (resolution - edge) / max(float(ext.max()), 1e-12), (resolution - edge) / np.sqrt(max(area, 1e-12)))
+    place = fits(d) if d <= hi else None  # above hi the rectangles cannot fit: no packing needed to know it
+    if place is None and any(c.kind == "computed" for c in charted):
+        d, place = _strip_search(ext, pad, side, hi)
+    elif place is None:
         lo = hi / 8
-        while fits(lo) is None and lo > 1e-6:
-            lo /= 2
         place = fits(lo)
+        while place is None and lo > 1e-6:
+            lo /= 2
+            place = fits(lo)
         for _ in range(24):
             mid = 0.5 * (lo + hi)
             p = fits(mid)
@@ -691,60 +761,177 @@ def _smooth_curvature(meshes: Sequence[MeshData]) -> float:
     return total
 
 
-def _xatlas_options(resolution: int, tpu: float, *, input_uvs: bool, surface_area: float = 0.0,
-                    smooth_curvature: float = 0.0):
+def _xatlas_options(tpu: float, *, surface_area: float = 0.0, smooth_curvature: float = 0.0):
     import xatlas
 
     co = xatlas.ChartOptions()
-    co.use_input_mesh_uvs = input_uvs
-    if not input_uvs and surface_area > 0 and smooth_curvature > UV_CHART_CURVATURE_SR:
+    if surface_area > 0 and smooth_curvature > UV_CHART_CURVATURE_SR:
         co.max_chart_area = float(surface_area * UV_CHART_CURVATURE_SR / smooth_curvature)
     po = xatlas.PackOptions()
-    po.resolution = resolution
+    po.resolution = 0
     po.texels_per_unit = float(tpu)
-    po.padding = UV_PADDING_PX
+    po.padding = 0          # the layout is thrown away: only the charts and their flattening are kept
+    po.bilinear = False
     po.bruteForce = False
-    po.rotate_charts = True
     return co, po
 
 
-def _xatlas_fit(add, density: float, resolution: int, *, input_uvs: bool, surface_area: float = 0.0,
-                smooth_curvature: float = 0.0):
-    """xatlas generate into a *single* atlas no larger than ``resolution`` at the highest density reached.
+def _vertex_charts(tris: np.ndarray, chart: np.ndarray, nverts: int) -> np.ndarray:
+    vc = np.zeros(nverts, np.int64)
+    vc[np.asarray(tris, np.int64).reshape(-1)] = np.repeat(chart, 3)
+    return vc
 
-    xatlas's own fit mode (texels_per_unit=0) estimates a density but then grows the atlas past
-    ``resolution`` (measured: 3289 x 2808 for a 2048 request), so the earlier pipeline baked UVs normalised
-    to a non-square, oversized atlas. Here the first pass (resolution 0 = one atlas of any size) also
-    computes the charts when ``input_uvs`` is False; if it is larger than ``resolution`` only the *packing*
-    is repeated, from the charts of the first pass, at the density scaled to fit.
-    Returns (atlas, density used, uv scale factor to the resolution square).
-    """
+
+def _split_shared(vmap: np.ndarray, tris: np.ndarray, uv: np.ndarray, chart: np.ndarray):
+    """Gives every chart its own copy of a vertex it shares with another chart (same uv)."""
+    t = np.asarray(tris, np.int64)
+    corner = np.repeat(np.asarray(chart, np.int64), 3)
+    if (_vertex_charts(t, chart, len(uv))[t.reshape(-1)] == corner).all():
+        return vmap, t, uv
+    nc = int(corner.max()) + 1
+    u, inv = np.unique(t.reshape(-1) * nc + corner, return_inverse=True)
+    return vmap[u // nc], inv.reshape(-1, 3), uv[u // nc]
+
+
+def _metric_charts(p3: np.ndarray, tris: np.ndarray, uv: np.ndarray, chart: np.ndarray) -> np.ndarray:
+    """xatlas chart layouts back to their own flattening, in metres.
+
+    xatlas rescales each chart along the atlas axes so that its extents are whole texels (measured: the charts
+    of a sphere packed at 64 px/m all come out 13 x 27, 20 x 13 ... texels to within 1e-5); at a low texel
+    density that per-axis rescale is several percent and shows up as area and angle distortion that the
+    flattening does not have. The per-chart u scale that minimises the conformal energy
+    sum_t area_t |s rot90(grad u) - grad v|^2  (closed form) undoes it: exactly for planar and LSCM charts, and
+    for xatlas' orthographic-projection charts it picks the least-sheared aspect. Each chart is then scaled to
+    its 3D area, so every chart has the same texel density. Measured on UV spheres, a torus, a blob, a sheet,
+    shells and a concave prism: the result does not depend on the density xatlas packed at (32 to 1024 px/m),
+    area distortion is at or below what xatlas returns at 1024 px/m, and angle distortion lower or within 0.0005."""
+    t = np.asarray(tris, np.int64)
+    p, q = p3[t], uv[t]
+    e1, e2 = p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]
+    n = np.cross(e1, e2)
+    a3 = 0.5 * np.linalg.norm(n, axis=1)
+    l1 = np.linalg.norm(e1, axis=1)
+    ok = (a3 > 1e-14) & (l1 > 0)
+    x = e1 / np.maximum(l1, 1e-300)[:, None]
+    y = np.cross(n, x)
+    y /= np.maximum(np.linalg.norm(y, axis=1), 1e-300)[:, None]
+    P = np.zeros((len(t), 2, 2))
+    P[:, 0, 0] = l1
+    P[:, 1, 0], P[:, 1, 1] = (e2 * x).sum(1), (e2 * y).sum(1)
+    P[~ok] = np.eye(2)
+    J = np.linalg.solve(P, np.stack([q[:, 1] - q[:, 0], q[:, 2] - q[:, 0]], 1))  # J[:, :, k]: gradient of uv[k]
+    gu, gv = J[:, :, 0], J[:, :, 1]
+    rgu = np.stack([-gu[:, 1], gu[:, 0]], 1)
+    w = np.where(ok, a3, 0.0)
+    nc = int(chart.max()) + 1 if len(chart) else 0
+    num = np.bincount(chart, w * (rgu * gv).sum(1), nc)
+    den = np.bincount(chart, w * (rgu * rgu).sum(1), nc)
+    s = np.abs(num / np.where(den > 0, den, 1.0))
+    s = np.where((den > 0) & (s > 0) & np.isfinite(s), s, 1.0)
+    vc = _vertex_charts(t, chart, len(uv))
+    out = uv * np.stack([s[vc], np.ones(len(uv))], 1)
+    s3 = np.bincount(chart, a3, nc)
+    s2 = np.bincount(chart, _tri_areas(out, t, 2), nc)
+    k = np.where((s2 > 0) & (s3 > 0), np.sqrt(s3 / np.where(s2 > 0, s2, 1.0)), 1.0)
+    return out * k[vc][:, None]
+
+
+def _computed_charts(meshes: Sequence[MeshData]) -> list[_Charted]:
+    """xatlas charts (one run over all the meshes, so the curvature bound sees their total) in metres.
+
+    Only xatlas' charting and flattening are used; its packing is not (``_pack_analytic`` packs these charts with
+    the exact ones). So xatlas packs into a tiny atlas, UV_CHART_PASS_PX across: its packing cost grows with the
+    texel area it packs (measured on a 448-triangle sphere: 3 ms at 16 px/m, 114 ms at 1024 px/m, for the same
+    charts) and the result does not depend on that density once ``_metric_charts`` has undone xatlas' per-chart
+    snapping to whole texels."""
     import xatlas
 
+    area = _area(meshes)
     atlas = xatlas.Atlas()
-    add(atlas, None)
-    co, po = _xatlas_options(0, density, input_uvs=input_uvs, surface_area=surface_area, smooth_curvature=smooth_curvature)
+    for m in meshes:
+        atlas.add_mesh(np.ascontiguousarray(m.points, dtype=np.float32), np.ascontiguousarray(m.triangles, dtype=np.uint32))
+    co, po = _xatlas_options(UV_CHART_PASS_PX / np.sqrt(max(area, 1e-12)), surface_area=area, smooth_curvature=_smooth_curvature(meshes))
     atlas.generate(co, po)
-    tpu = float(density)
-    for _ in range(6):
-        w, h = atlas.width, atlas.height
-        if max(w, h) <= resolution:
-            return atlas, tpu
-        first = atlas
-        scale = np.array([w, h], np.float64) / tpu  # metres per normalised uv unit
-        tpu *= 0.98 * resolution / max(w, h)
-        atlas = xatlas.Atlas()
-        add(atlas, [first.get_mesh(i) for i in range(first.mesh_count)], scale)
-        co, po = _xatlas_options(0, tpu, input_uvs=True)
-        atlas.generate(co, po)
-    return atlas, tpu
+    wh = np.array([atlas.width, atlas.height], np.float64)
+    out = []
+    for i, m in enumerate(meshes):
+        vm, idx, uv = atlas.get_mesh(i)
+        tris = idx.reshape(-1, 3).astype(np.int64)
+        chart = np.full(len(tris), -1, np.int64)
+        for c in range(atlas.get_mesh_chart_count(i)):
+            chart[np.asarray(atlas.get_mesh_chart(i, c).faces, np.int64)] = c
+        chart[chart < 0] = int(chart.max()) + 1  # faces xatlas leaves out (zero area): one chart, a single point
+        vm = vm.astype(np.int64)
+        vm, tris, uv = _split_shared(vm, tris, np.asarray(uv, np.float64) * wh, chart)
+        uv = _metric_charts(np.asarray(m.points, np.float64)[vm], tris, uv, chart)
+        out.append(_Charted(m, vm, tris.astype(np.int32), uv, "computed", chart))
+    return out
 
 
-def _atlas_uv(atlas, uv: np.ndarray, resolution: int) -> np.ndarray:
-    """xatlas normalises UVs by the atlas' *cropped* width and height, which differ from each other and from
-    ``resolution``; map to the ``resolution`` x ``resolution`` texture the atlas is baked into, so texels stay
-    square and the reported density is the real one."""
-    return np.asarray(uv, np.float64) * (np.array([atlas.width, atlas.height], np.float64) / float(resolution))
+def _pieces(tris: np.ndarray, label: np.ndarray) -> np.ndarray:
+    """Per triangle: 0-based id of its connected piece (triangles sharing a vertex) among those with the same label."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    nl = int(label.max()) + 1
+    _, sv = np.unique(tris.reshape(-1) * nl + np.repeat(label, 3), return_inverse=True)  # vertices shared within a label
+    sv = sv.reshape(-1, 3)
+    n = int(sv.max()) + 1
+    g = coo_matrix((np.ones(2 * len(sv)), (np.r_[sv[:, 0], sv[:, 1]], np.r_[sv[:, 1], sv[:, 2]])), shape=(n, n))
+    return np.unique(connected_components(g, directed=False)[1][sv[:, 0]], return_inverse=True)[1]
+
+
+def _slabs(c: _Charted, max_extent_m: float) -> _Charted:
+    """Cuts computed charts the way ``_charted`` cuts exact ones: a chart longer than ``max_extent_m`` or filling
+    less than UV_MIN_RECT_FILL of its minimum-area rectangle is cut across its long axis into equal slabs (each
+    connected piece of a slab is a chart), up to four times. The pieces keep their uvs, so distortion does
+    not change; the cost is seam vertices. Rectangle packing of computed charts depends on this: a torus'
+    charts are curved strips (they fill 0.32 of their rectangles), and uncut it packs at 629 px/m instead of
+    917 (1024 requested). The rectangles found here are kept for the packer."""
+    tris = np.asarray(c.tris, np.int64)
+    uv = c.uv_m
+    a2 = _tri_areas(uv, tris, 2)
+    cent = uv[tris].mean(axis=1)
+    label = np.unique(c.chart, return_inverse=True)[1]
+    todo = set(range(int(label.max()) + 1 if len(label) else 0))
+    rect: dict[int, tuple] = {}
+    for depth in range(5):
+        order = np.argsort(label, kind="stable")
+        ks, starts = np.unique(label[order], return_index=True)
+        cut = np.zeros(len(tris), bool)
+        sub = label.copy()  # slab index within a cut chart (any value elsewhere)
+        for k, sel in zip(ks.tolist(), np.split(order, starts[1:])):
+            if k not in todo:
+                continue
+            R, lo, wh = rect[k] = _min_area_frame(uv[np.unique(tris[sel])])
+            ax = int(np.argmax(wh))
+            fill = float(a2[sel].sum() / max(wh[0] * wh[1], 1e-30))
+            if depth == 4 or len(sel) < 2 or (wh[ax] <= max_extent_m and fill >= UV_MIN_RECT_FILL):
+                continue
+            n = max(2, int(np.ceil(wh[ax] / max_extent_m)))
+            coord = (cent[sel] @ R.T)[:, ax] - lo[ax]
+            slab = np.minimum((coord / max(wh[ax], 1e-30) * n).astype(np.int64), n - 1)
+            along = (uv[tris[sel]] @ R.T)[..., ax]
+            used = np.unique(slab)
+            if len(used) < 2 or max(float(np.ptp(along[slab == j])) for j in used) > max_extent_m:
+                continue  # triangles span the length: no cut helps
+            cut[sel] = True
+            sub[sel] = k * n + slab  # unique per (chart, slab) among the cut triangles of this depth
+            del rect[k]
+        if not cut.any():
+            break
+        idx = np.flatnonzero(cut)
+        top = int(label.max()) + 1
+        label[idx] = top + _pieces(tris[idx], np.unique(sub[idx], return_inverse=True)[1])
+        todo = set(np.unique(label[idx]).tolist())
+    ids, label = np.unique(label, return_inverse=True)
+    vm, t, uv2 = _split_shared(c.vmap, tris, uv, label)  # a no-op when nothing was cut
+    out = _Charted(c.mesh, vm, t.astype(np.int32), uv2, c.kind, label)
+    cid = _vertex_charts(t, label, len(uv2))
+    order = np.argsort(cid, kind="stable")
+    ks, starts = np.unique(cid[order], return_index=True)
+    out.frames = [(v, *rect[int(ids[k])]) for k, v in zip(ks, np.split(order, starts[1:]))]
+    return out
 
 
 def _result(m: MeshData, vm: np.ndarray, tris: np.ndarray, uv: np.ndarray, fitted: bool, resolution: int,
@@ -763,66 +950,37 @@ def _area(meshes: Sequence[MeshData]) -> float:
 
 
 def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_id: str | None) -> list[UVResult]:
-    # an analytic chart longer than the atlas at the requested density is cut where the mesh allows it
+    """One atlas: exact charts for meshes that carry them, xatlas charts for the others, all packed together as
+    rectangles by ``_pack_analytic`` (so a group whose meshes all carry exact charts is packed as before)."""
+    # a chart longer than the atlas at the requested density is cut where the mesh allows it
     max_extent = (resolution - 1.0 - 2.0 * UV_PADDING_PX) / density
     known = [_charted(m, max_extent) for m in group]
-    if all(c is not None for c in known):
-        uvs, d = _pack_analytic(known, density, resolution)  # type: ignore[arg-type]
-        fitted = d >= density * (1 - 1e-9)
-        return [_result(c.mesh, c.vmap, c.tris, uv, fitted, resolution, atlas_id, "analytic")  # type: ignore[union-attr]
-                for c, uv in zip(known, uvs)]
-
-    # at least one mesh needs computed charts: xatlas computes those once and packs everything
-    bases: list[np.ndarray] = []  # per mesh: original vertex id of each vertex fed to the current atlas
-
-    def add(atlas, prev=None, scale=None):
-        nonlocal bases
-        fed = []
-        for i, (m, c) in enumerate(zip(group, known)):
-            if prev is not None:  # pack-only pass: the previous pass' layout as input UVs (charts kept)
-                vm, idx, uv = prev[i]
-                base = bases[i][vm.astype(np.int64)]
-                atlas.add_mesh(np.ascontiguousarray(np.asarray(m.points)[base], dtype=np.float32),
-                               np.ascontiguousarray(idx, dtype=np.uint32), uvs=np.ascontiguousarray(uv * scale, dtype=np.float32))
-            elif c is not None:
-                base = c.vmap
-                atlas.add_mesh(np.ascontiguousarray(np.asarray(m.points)[base], dtype=np.float32),
-                               np.ascontiguousarray(c.tris, dtype=np.uint32), uvs=np.ascontiguousarray(c.uv_m, dtype=np.float32))
-            else:
-                base = np.arange(len(m.points))
-                atlas.add_mesh(np.ascontiguousarray(m.points, dtype=np.float32), np.ascontiguousarray(m.triangles, dtype=np.uint32))
-            fed.append(base)
-        bases = fed
-
-    if any(c is not None for c in known):  # mixed group: compute the missing charts first, then pack all as input UVs
-        todo = [m for m, c in zip(group, known) if c is None]
-        import xatlas
-
-        ca = xatlas.Atlas()
-        for m in todo:
-            ca.add_mesh(np.ascontiguousarray(m.points, dtype=np.float32), np.ascontiguousarray(m.triangles, dtype=np.uint32))
-        co, po = _xatlas_options(0, density, input_uvs=False, surface_area=_area(todo), smooth_curvature=_smooth_curvature(todo))
-        ca.generate(co, po)
-        sc = np.array([ca.width, ca.height], np.float64) / float(ca.texels_per_unit or density)
-        it = iter(range(len(todo)))
-        filled = []
-        for m, c in zip(group, known):
-            if c is None:
-                vm, idx, uv = ca.get_mesh(next(it))
-                c = _Charted(m, vm.astype(np.int64), idx.reshape(-1, 3).astype(np.int32), uv.astype(np.float64) * sc, "computed")
-            filled.append(c)
-        known = filled
-    computed = [m for m, c in zip(group, known) if c is None]
-    atlas, tpu = _xatlas_fit(add, density, resolution, input_uvs=not computed, surface_area=_area(computed),
-                             smooth_curvature=_smooth_curvature(computed))
-    fitted = tpu >= density * (1 - 1e-9)
-    out = []
-    for i, (m, c) in enumerate(zip(group, known)):
-        vm, idx, uv = atlas.get_mesh(i)
-        vm = bases[i][vm.astype(np.int64)]
-        out.append(_result(m, vm, idx.reshape(-1, 3).astype(np.int32), _atlas_uv(atlas, uv, resolution), fitted, resolution,
-                           atlas_id, c.kind if c is not None else "computed"))
-    return out
+    todo = [i for i, c in enumerate(known) if c is None]
+    if todo:
+        for i, c in zip(todo, _computed_charts([group[i] for i in todo])):
+            known[i] = _slabs(c, max_extent)
+    uvs, d = _pack_analytic(known, density, resolution)  # type: ignore[arg-type]
+    # A few large computed charts can miss the requested density although their rectangles (with gutters) take
+    # less area than the atlas: then it is their size, not the area, that does not fit (measured: a 2 m^2
+    # sheet in 5 charts of 680 to 940 px packs at 1018 of 1024 px/m; xatlas fits it). Halving the longest
+    # charts (up to three times, kept only when the density rises) gives the packer smaller pieces.
+    for _ in range(3):
+        if d >= density * (1 - 1e-9) or not todo:
+            break
+        ext = np.array([f[3] for c in known for f in _chart_frames(c)], np.float64).reshape(-1, 2)  # type: ignore[arg-type]
+        if float((ext * density + 2.0 * UV_PADDING_PX).prod(axis=1).sum()) > (resolution - 1.0) ** 2:
+            break
+        longest = max(float(f[3].max()) for i in todo for f in _chart_frames(known[i]))  # type: ignore[arg-type]
+        trial = list(known)
+        for i in todo:
+            trial[i] = _slabs(known[i], 0.5 * longest)  # type: ignore[arg-type]
+        uvs2, d2 = _pack_analytic(trial, density, resolution)  # type: ignore[arg-type]
+        if d2 <= d:
+            break
+        known, uvs, d = trial, uvs2, d2
+    fitted = bool(d >= density * (1 - 1e-9))
+    return [_result(c.mesh, c.vmap, c.tris, uv, fitted, resolution, atlas_id, c.kind)  # type: ignore[union-attr]
+            for c, uv in zip(known, uvs)]
 
 
 def unwrap_uvs(mesh: MeshData, texel_density_px_per_m: float, resolution: int = 2048) -> UVResult:

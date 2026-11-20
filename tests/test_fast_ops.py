@@ -8,6 +8,8 @@ import trimesh
 from scipy.spatial import ConvexHull
 
 from antigravity3d.kernel.fast_ops import (
+    UV_CHART_PASS_PX,
+    UV_PADDING_PX,
     ExportBundle,
     compress_texture_ktx2,
     generate_colliders,
@@ -208,6 +210,225 @@ def test_computed_charts_meet_the_stretch_budget_on_curved_meshes():
     m = md(trimesh.creation.uv_sphere(0.5, count=[32, 16]), "ball")
     u = unwrap_uvs(m, 1024.0, 2048)
     assert u.chart_source == "computed" and u.stretch_mean <= BUDGET.max_uv_stretch, u.stretch_mean
+
+
+def _uv_charts_of(r) -> np.ndarray:
+    """Chart id per vertex of a UVResult: its uv-connected components (charts never share a vertex)."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    t = np.asarray(r.triangles, np.int64)
+    g = coo_matrix((np.ones(2 * len(t)), (np.r_[t[:, 0], t[:, 1]], np.r_[t[:, 1], t[:, 2]])), shape=(len(r.uvs),) * 2)
+    return connected_components(g, directed=False)[1]
+
+
+def min_chart_gutter_px(results) -> float:
+    """Smallest distance, in atlas texels, between the borders of two different charts of one atlas (exact:
+    point-to-segment distances between the border edges of every two charts whose padded boxes meet)."""
+    segs, lab, base = [], [], 0
+    for r in results:
+        cid = _uv_charts_of(r) + base
+        base = int(cid.max()) + 1
+        t = np.asarray(r.triangles, np.int64)
+        e = np.sort(np.concatenate([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]]), axis=1)
+        u, n = np.unique(e, axis=0, return_counts=True)
+        bnd = u[n == 1]  # border edges (seams are borders: charts never share vertices)
+        uv = r.uvs.astype(np.float64) * r.resolution
+        segs.append(np.stack([uv[bnd[:, 0]], uv[bnd[:, 1]]], 1))
+        lab.append(cid[bnd[:, 0]])
+    seg, lab = np.concatenate(segs), np.concatenate(lab)
+    charts = np.unique(lab)
+    by = {c: seg[lab == c] for c in charts}
+    box = {c: (by[c].reshape(-1, 2).min(0), by[c].reshape(-1, 2).max(0)) for c in charts}
+
+    def pt_seg(p, a, b):  # (n,2) points to (m,2,2) segments -> (n, m)
+        ab = b - a
+        tt = np.clip(((p[:, None] - a[None]) * ab[None]).sum(-1) / np.maximum((ab * ab).sum(-1), 1e-30)[None], 0, 1)
+        return np.linalg.norm(p[:, None] - (a[None] + tt[..., None] * ab[None]), axis=-1)
+
+    best, reach = np.inf, 4.0 * UV_PADDING_PX
+    for i, c in enumerate(charts):
+        for d in charts[i + 1:]:
+            (lo1, hi1), (lo2, hi2) = box[c], box[d]
+            if (lo1 > hi2 + reach).any() or (lo2 > hi1 + reach).any():
+                continue
+            s1, s2 = by[c], by[d]
+            dist = min(pt_seg(s1[:, 0], s2[:, 0], s2[:, 1]).min(), pt_seg(s1[:, 1], s2[:, 0], s2[:, 1]).min(),
+                       pt_seg(s2[:, 0], s1[:, 0], s1[:, 1]).min(), pt_seg(s2[:, 1], s1[:, 0], s1[:, 1]).min())
+            best = min(best, float(dist))
+    return best
+
+
+def _meshes_for_gutter():
+    torus = md(trimesh.creation.torus(0.5, 0.15, major_sections=48, minor_sections=16), "torus")
+    return [
+        ("computed sphere, overflowing", [md(trimesh.creation.uv_sphere(0.5, count=[32, 16]), "ball")], 1024.0),
+        ("computed torus, charts cut into slabs", [torus], 1024.0),
+        ("exact charts", [_prim("cylinder", {"radius": 0.2, "height": 0.5}, nid="a"), _prim("sphere", {"radius": 0.3}, nid="b")], 1024.0),
+        ("mixed group", [_prim("box", {"size": (0.6, 0.4, 0.3)}, nid="box"), md(trimesh.creation.icosphere(2, 0.4), "ico", mat="m")], 1024.0),
+    ]
+
+
+@pytest.mark.parametrize("case", range(4))
+def test_charts_never_overlap_and_keep_the_gutter(case):
+    from antigravity3d.kernel.fast_ops import _unwrap_group
+
+    name, group, density = _meshes_for_gutter()[case]
+    res = _unwrap_group(group, density, 2048, "m")
+    assert uv_overlap_fraction(res, 2048) == 0.0, name
+    for r in res:
+        assert r.uvs.min() >= 0 and r.uvs.max() <= 1, name
+    # every chart sits in its own rectangle with UV_PADDING_PX texels of gutter on each side: charts are at
+    # least 2 * UV_PADDING_PX apart (the guarantee is UV_PADDING_PX); 0.01 texel covers float32 uvs
+    gutter = min_chart_gutter_px(res)
+    assert gutter >= 2 * UV_PADDING_PX - 0.01, (name, gutter)
+
+
+def test_computed_density_is_uniform_and_reported_exactly():
+    # every chart is scaled to its 3D area, so each chart has the reported density; fitted is exact
+    m = md(trimesh.creation.uv_sphere(0.5, count=[32, 16]), "ball")
+    for density, res, fits in ((512.0, 2048, True), (1024.0, 2048, False), (1024.0, 4096, True)):
+        u = unwrap_uvs(m, density, res)
+        assert u.fitted is fits and (u.texel_density == pytest.approx(density, rel=1e-4)) is fits, (density, res, u.texel_density)
+        cid = _uv_charts_of(u)[u.triangles[:, 0]]
+        from antigravity3d.kernel.fast_ops import _tri_areas
+
+        a3 = np.bincount(cid, _tri_areas(u.points, u.triangles, 3))
+        a2 = np.bincount(cid, _tri_areas(u.uvs.astype(np.float64), u.triangles, 2))
+        per_chart = np.sqrt(a2 / a3) * res
+        assert np.allclose(per_chart, u.texel_density, rtol=2e-3), (per_chart.min(), per_chart.max(), u.texel_density)
+
+
+def test_computed_charts_pack_densely_within_the_distortion_budget():
+    # charts packed by xatlas reached 892 px/m on this sphere and 720 on this torus (1024 requested, 2048 atlas):
+    # xatlas' random placement filled ~60 % of the square and its packing was not square. Packed as rectangles
+    # (torus strips cut into slabs) they reach 920+ with the same charts and no more distortion.
+    ball = md(trimesh.creation.uv_sphere(0.5, count=[40, 20]), "ball")
+    torus = md(trimesh.creation.torus(0.5, 0.15, major_sections=64, minor_sections=24), "torus")
+    for m, floor in ((ball, 905.0), (torus, 880.0)):
+        u = unwrap_uvs(m, 1024.0, 2048)
+        assert u.chart_source == "computed" and not u.fitted and u.texel_density >= floor, (m.node_id, u.texel_density)
+        assert u.stretch_mean <= BUDGET.max_uv_stretch, (m.node_id, u.stretch_mean)
+
+
+def test_computed_charts_are_packed_once_not_at_full_density(monkeypatch):
+    # xatlas only computes the charts, in a tiny atlas; its packing at the requested density (an atlas of
+    # 2300 x 2300 texels for this sphere, then again at the fitted density) is not run at all
+    import xatlas
+
+    real = xatlas.Atlas
+    sizes = []
+
+    class Spy:
+        def __init__(self):
+            self._a = real()
+
+        def __getattr__(self, k):
+            return getattr(self._a, k)
+
+        def generate(self, *a, **kw):
+            self._a.generate(*a, **kw)
+            sizes.append((self._a.width, self._a.height))
+
+    monkeypatch.setattr(xatlas, "Atlas", Spy)
+    u = unwrap_uvs(md(trimesh.creation.uv_sphere(0.5, count=[32, 16]), "ball"), 1024.0, 2048)
+    assert len(sizes) == 1 and max(sizes[0]) <= 4 * UV_CHART_PASS_PX, sizes
+    assert 880 < u.texel_density < 1024 and not u.fitted
+
+
+def test_mixed_group_keeps_exact_charts_exact():
+    from antigravity3d.kernel.fast_ops import _unwrap_group
+
+    box = _prim("box", {"size": (0.6, 0.4, 0.3)}, nid="box")
+    ball = md(trimesh.creation.uv_sphere(0.4, count=[32, 16]), "ball", mat="m")
+    a, b = _unwrap_group([box, ball], 1024.0, 2048, "m")
+    assert (a.chart_source, b.chart_source) == ("analytic", "computed")
+    assert a.stretch_mean < 1e-4 and a.angle_distortion < 1e-4  # still the exact unfolding
+    assert a.fitted == b.fitted and a.texel_density == pytest.approx(b.texel_density, rel=2e-3)
+    assert uv_overlap_fraction([a, b], 2048) == 0.0
+
+
+def test_skyline_packer_matches_its_reference():
+    # the packer was rewritten for speed: same placements as the straightforward implementation
+    from antigravity3d.kernel.fast_ops import _skyline_pack
+
+    def reference(sizes, width, height):
+        order = sorted(range(len(sizes)), key=lambda i: (-max(sizes[i]), -sizes[i][0] * sizes[i][1], i))
+        sky = [(0.0, 0.0, float(width))]
+        out = np.zeros((len(sizes), 3))
+        for i in order:
+            best = None
+            for turned in (0, 1):
+                w, h = (sizes[i][1], sizes[i][0]) if turned else (sizes[i][0], sizes[i][1])
+                if w > width or h > height:
+                    continue
+                for j, (x, _, _) in enumerate(sky):
+                    if x + w > width + 1e-9:
+                        break
+                    y, k, right = 0.0, j, x + w
+                    while k < len(sky) and sky[k][0] < right - 1e-9:
+                        y = max(y, sky[k][1])
+                        k += 1
+                    if y + h <= height + 1e-9 and (best is None or (y + h, x) < (best[0], best[1])):
+                        best = (y + h, x, y, w, h, turned)
+            if best is None:
+                return None
+            _, x, y, w, h, turned = best
+            out[i] = (x, y, turned)
+            new, right = [], x + w
+            for sx, sy, sw in sky:
+                if sx + sw <= x + 1e-9 or sx >= right - 1e-9:
+                    new.append((sx, sy, sw))
+                    continue
+                if sx < x:
+                    new.append((sx, sy, x - sx))
+                if sx + sw > right:
+                    new.append((right, sy, sx + sw - right))
+            new.append((x, y + h, w))
+            new = sorted(seg for seg in new if seg[2] > 1e-9)
+            merged = [new[0]]
+            for seg in new[1:]:
+                px, py, pw = merged[-1]
+                if abs(py - seg[1]) < 1e-9 and abs(px + pw - seg[0]) < 1e-9:
+                    merged[-1] = (px, py, pw + seg[2])
+                else:
+                    merged.append(seg)
+            sky = merged
+        return out
+
+    rng = np.random.default_rng(7)
+    for trial in range(120):
+        n = int(rng.integers(1, 150))
+        s = rng.random((n, 2)) * rng.choice([5.0, 50.0, 300.0]) + (4.0 if trial % 2 else 0.0)
+        if trial % 4 == 0:
+            s = np.round(s)  # ties
+        side = float(rng.choice([256.0, 1024.0, 2047.0]))
+        a, b = _skyline_pack(s, side, side), reference(s.tolist(), side, side)
+        assert (a is None) == (b is None) and (a is None or np.array_equal(a, b)), trial
+
+
+def test_unwrap_is_reproducible_across_processes():
+    # same input, same bytes: independent of thread counts and hash seeds
+    import subprocess
+    import sys
+
+    code = ("import hashlib, numpy as np, trimesh\n"
+            "from antigravity3d.kernel.fast_ops import _unwrap_group\n"
+            "from antigravity3d.kernel.types import MeshData\n"
+            "t = trimesh.creation.torus(0.5, 0.15, major_sections=48, minor_sections=16)\n"
+            "s = trimesh.creation.uv_sphere(0.4, count=[24, 12])\n"
+            "ms = [MeshData(n, '/' + n, np.asarray(x.vertices) + o, np.asarray(x.faces, np.int32), 'm') for n, x, o in (('t', t, 0), ('s', s, 2))]\n"
+            "h = hashlib.sha256()\n"
+            "for r in _unwrap_group(ms, 1024.0, 2048, 'm'):\n"
+            "    h.update(r.uvs.tobytes() + r.triangles.tobytes() + np.asarray(r.vmapping, np.int64).tobytes())\n"
+            "print(h.hexdigest())\n")
+    import os
+
+    outs = set()
+    for env in ({"OMP_NUM_THREADS": "1", "PYTHONHASHSEED": "1"}, {"OMP_NUM_THREADS": "4", "PYTHONHASHSEED": "2"}):
+        p = subprocess.run([sys.executable, "-c", code], env={**os.environ, **env}, capture_output=True, text=True, check=True)
+        outs.add(p.stdout.strip())
+    assert len(outs) == 1, outs
 
 
 # ------------------------------------------------------------------ LODs
