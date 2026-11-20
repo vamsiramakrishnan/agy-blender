@@ -73,6 +73,7 @@ jobs:
             playwright install --with-deps chromium
           fi
       - name: Test native workers, engine imports, rendered frames and inspector channels
+        id: tests
         run: |
           xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_blender_shim.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py
           python - <<'PYTHON'
@@ -93,3 +94,40 @@ jobs:
           if missing := required - passed:
               raise SystemExit(f"Required engine qualifications did not pass: {sorted(missing)}")
           PYTHON
+      # Timings of the real engines (Blender pool, Godot import, Blender versus the kernels). The tests above
+      # say whether the engines work; this says how long they take. It also runs when a test failed (the numbers
+      # are labelled with the test outcome in the JSON) but not when the run was cancelled. A measurement that
+      # is unavailable is recorded inside the JSON and does not fail anything; a crash of the benchmark itself
+      # shows as a failed step plus a warning annotation but does not fail the job, so it cannot mask or replace
+      # the test result. Expected cost: about 3 minutes (2 Blender cold starts of ~5-10 s, 8 renders, 3 Godot packages
+      # x 3 imports, kernel work on 4 meshes); the soft budget inside the script skips late measurements after
+      # 240 s and the step timeout is a hard stop. It imports the installed wheel: the script is run by path, so
+      # only benchmarks/ (for quality_facts) is added to sys.path, never the checkout's src/.
+      - name: Time Blender and Godot paths against the native kernels
+        id: engine-bench
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 7
+        env:
+          AGY_BENCH_TESTS_OUTCOME: ${{ steps.tests.outcome }}
+        run: xvfb-run -a python benchmarks/perf_engines.py --out /tmp/engine-bench.json --markdown /tmp/engine-bench.md
+      - name: Engine benchmark summary
+        if: ${{ !cancelled() }}
+        run: |
+          if test -f /tmp/engine-bench.md; then
+            cat /tmp/engine-bench.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Engine benchmark produced no output (outcome: ${{ steps.engine-bench.outcome }})." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if test "${{ steps.engine-bench.outcome }}" != success; then
+            echo "::warning title=Engine benchmark::benchmarks/perf_engines.py ${{ steps.engine-bench.outcome }}; see the step log (test results are unaffected)"
+          fi
+      - name: Upload engine benchmark
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-bench
+          path: |
+            /tmp/engine-bench.json
+            /tmp/engine-bench.md
+          if-no-files-found: warn
