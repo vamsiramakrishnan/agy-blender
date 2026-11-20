@@ -109,7 +109,7 @@ class Case:
 class Ctx:
     def __init__(self, quick: bool, tmp: Path) -> None:
         self.quick, self.tmp = quick, tmp
-        self.cap_s = 1.0 if quick else 3.0           # per-case timed-loop cap (checked once min samples are in)
+        self.cap_s = 0.4 if quick else 3.0           # per-case timed-loop cap (checked once min samples are in)
         self.min_slow = 3 if quick else 5            # min samples for operations >= 100 ms
         self.sizes = SIZES_QUICK if quick else SIZES_FULL
         self._memo: dict[str, Any] = {}
@@ -127,8 +127,14 @@ class Ctx:
         return self._memo[key]
 
 
+VERY_SLOW_MS = 5000.0  # operations this slow get 3 samples instead of 5 (only the 50k-triangle unwrap/pipeline cases hit this)
+
+
 def _classify_and_plan(warm: list[float], ctx: Ctx) -> tuple[int, bool]:
-    slow = min(warm) >= 100.0
+    fastest = min(warm)
+    if fastest >= VERY_SLOW_MS:
+        return min(3, ctx.min_slow), True
+    slow = fastest >= 100.0
     return (ctx.min_slow if slow else 20), slow
 
 
@@ -141,7 +147,8 @@ def timeit(fn: Callable[..., Any], ctx: Ctx, *, params: dict[str, Any], setup: C
     iteration to build fresh state, ``teardown(state, result)`` runs untimed after it (use it to undo state and to
     assert the result was the one intended). ``collect(result)`` may return named sub-timings in ms.
     Warm-up: ``warmup`` untimed iterations, then one gc.collect(), then GC stays enabled during timing.
-    Sample count: >= 20 when the fastest warm-up iteration is < 100 ms, else >= 5 (3 in quick mode); the loop
+    Sample count: >= 20 when the fastest warm-up iteration is < 100 ms, else >= 5 (3 in quick mode, and 3 when the
+    fastest warm-up iteration took >= 5 s, so a 17 s case does not cost two minutes per benchmark); the loop
     stops once the minimum is reached and the per-case cap has elapsed (setup/teardown time counts toward the cap).
     """
     def one() -> tuple[float, Any]:
@@ -725,6 +732,10 @@ def d_collider_concave(ctx: Ctx) -> list[Case]:
                    extra={"hulls": len(hulls), "sources": sorted({h.source for h in hulls})})]
 
 
+def prop_kinds(ctx: Ctx) -> tuple[str, ...]:
+    return ("crate",) if ctx.quick else ("crate", "barrel")
+
+
 def prop_assets(ctx: Ctx, kind: str, tex_px: int) -> SimpleNamespace:
     """TemplateAuthor prop (crate/barrel) with its stage-extracted meshes and export bundle. Memoised per run."""
     def build() -> SimpleNamespace:
@@ -824,7 +835,7 @@ def e_validate_usd(ctx: Ctx) -> list[Case]:
     from pxr import Usd
 
     cases = []
-    for kind in ("crate", "barrel"):
+    for kind in prop_kinds(ctx):
         w = _written_package(ctx, kind, OFFLINE_TEX_PX)
         usd = w.out / w.man.data["usd"]
         stage = Usd.Stage.Open(str(usd))
@@ -842,7 +853,7 @@ def e_validate_usd(ctx: Ctx) -> list[Case]:
        "Stage creation (untimed setup), the UV/LOD/collider bundle (computed once, untimed), deleting the package (untimed teardown). Texture inputs: textured=true gives every material 3 maps (albedo, ORM, normal) from FakeImageBackend + derive_pbr at 256 px (the size the offline pipeline produces); textured=false has no texture inputs, which skips texture copy/flip and the PNG encoding of textures into every GLB.")
 def e_package_write(ctx: Ctx) -> list[Case]:
     cases = []
-    for kind in ("crate", "barrel"):
+    for kind in prop_kinds(ctx):
         for tex_px in (0, OFFLINE_TEX_PX):
             p = prop_assets(ctx, kind, tex_px)
 
@@ -890,7 +901,7 @@ def e_package_large(ctx: Ctx) -> list[Case]:
        "Writing the package (once, untimed). Same textured packages as kernel.package.write.")
 def e_validate_cold(ctx: Ctx) -> list[Case]:
     cases = []
-    for kind in ("crate", "barrel"):
+    for kind in prop_kinds(ctx):
         w = _written_package(ctx, kind, OFFLINE_TEX_PX)
         size = sum(f.stat().st_size for f in w.out.rglob("*") if f.is_file())
         issues = validator.validate_package(w.out)
@@ -990,7 +1001,7 @@ def _cache_cases(ctx: Ctx) -> dict[str, list[Case]]:
 
     def build() -> dict[str, list[Case]]:
         hit_cases, miss_cases = [], []
-        for kind in ("crate", "barrel"):
+        for kind in prop_kinds(ctx):
             p = prop_assets(ctx, kind, 0)
             base = {"subject": kind, "tris": p.tris, "parts": len(p.meshes)}
 
@@ -1242,7 +1253,7 @@ def run_prop_once(prompt: str, out: Path, *, single: bool, memo: dict, replay: b
 def _pipeline_runs(ctx: Ctx) -> list[dict[str, Any]]:
     def build() -> list[dict[str, Any]]:
         repeats = 1 if ctx.quick else 3
-        prompts = dict(list(PROMPTS.items())[:2]) if ctx.quick else PROMPTS
+        prompts = dict(list(PROMPTS.items())[:1]) if ctx.quick else PROMPTS
         rows = []
         for kind, prompt in prompts.items():
             for mode in ("governed", "single_candidate"):
@@ -1252,8 +1263,10 @@ def _pipeline_runs(ctx: Ctx) -> list[dict[str, Any]]:
                     memo: dict = {}
                     cold = run_prop_once(prompt, base, single=single, memo=memo)           # fresh dir + cache
                     warm = run_prop_once(prompt, base, single=single, memo={})             # same dir, same cache
-                    replay = run_prop_once(prompt, ctx.dir("prop"), single=single, memo=memo, replay=True)  # fresh cache, fixture images served from memo
-                    for cache_mode, r in (("cold", cold), ("warm", warm), ("cold_image_replay", replay)):
+                    runs = [("cold", cold), ("warm", warm)]
+                    if rep_i == 0:  # one replay per prompt x mode: it is a cross-check of local_compute_ms, not a distribution
+                        runs.append(("cold_image_replay", run_prop_once(prompt, ctx.dir("prop"), single=single, memo=memo, replay=True)))  # fresh cache, fixture images served from memo
+                    for cache_mode, r in runs:
                         rows.append({"prompt_key": kind, "prompt": prompt, "mode": mode, "cache": cache_mode, "repeat": rep_i, **r})
                     shutil.rmtree(base, ignore_errors=True)
         return rows
@@ -1341,7 +1354,7 @@ def _run_cli(args: list[str], env: dict[str, str], cwd: Path) -> tuple[float, su
        "Subprocess wall time of `agy3d prop \"wooden crate with iron brackets\" --offline --out DIR` (fresh DIR each run): console-script start, imports, the whole offline pipeline, report printing, process exit.",
        "Nothing in-process is subtracted: this is what a shell user waits for. Exit status 0 is required (preview gates passed).")
 def i_cli_prop(ctx: Ctx) -> list[Case]:
-    runs = 2 if ctx.quick else 3
+    runs = 1 if ctx.quick else 3
     env = _clean_env(ctx.dir("clistate"))
     samples = []
     for _ in range(runs):
@@ -1498,7 +1511,7 @@ def make_sanitize_inputs(out: Path, count: int) -> list[Path]:
 def k_sanitize(ctx: Ctx) -> list[Case]:
     from antigravity3d.dags.batch_sanitize import BatchSanitizeDAG
 
-    count = 8 if ctx.quick else 24
+    count = 6 if ctx.quick else 24
     files = make_sanitize_inputs(ctx.dir("sanin"), count)
     tris_in = {}
     cases = []
