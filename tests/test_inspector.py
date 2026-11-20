@@ -352,7 +352,7 @@ FRAME_CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-
 class _CannedServer:
     """Answers the app's tools/call like the studio MCP server would, from canned inspector data."""
 
-    def __init__(self, revisions: dict[str, tuple[dict, dict[str, str]]], chunk: int = 4_000):
+    def __init__(self, revisions: dict[str, tuple[dict, bytes]], chunk: int = 1_000):
         self.revisions = revisions
         self.current = next(iter(revisions))
         self.notes: list[dict] = []
@@ -360,7 +360,7 @@ class _CannedServer:
         self.chunk = chunk
 
     def _nodes(self, rev):
-        return {m["id"] for m in self.revisions[rev][0]["meshes"]}
+        return {m["id"] for m in self.revisions[rev][0]["nodes"]}
 
     def _listed(self):
         return [{**n, "stale": n["revision"] != self.current, "node_missing": n["node_id"] is not None and n["node_id"] not in self._nodes(self.current)}
@@ -368,11 +368,11 @@ class _CannedServer:
 
     def __call__(self, name: str, args: dict) -> dict:
         self.calls.append((name, args))
-        payload, parts = self.revisions[self.current]
+        payload, glb = self.revisions[self.current]
         if name == "inspector_payload":
             if args.get("revision") and args["revision"] != self.current:
                 return {"isError": True, "content": [{"type": "text", "text": "ERROR revision changed"}], "structuredContent": {"current_revision": self.current}}
-            text = json.dumps(payload) if args["part"] == "scene" else parts[args["part"]]
+            text = json.dumps(payload) if args["part"] == "scene" else base64.b64encode(glb).decode()  # part "glb"
             n = max(1, -(-len(text) // self.chunk))
             i = int(args.get("chunk", 0))
             return {"content": [{"type": "text", "text": f"PAYLOAD {i + 1}/{n}"}], "structuredContent": {
@@ -396,7 +396,7 @@ class _CannedServer:
 def _summary(server: _CannedServer, view: dict | None = None) -> dict:
     payload = server.revisions[server.current][0]
     return {"content": [{"type": "text", "text": "INSPECTOR s1"}], "structuredContent": {
-        "schema": "antigravity3d.inspector_view/1", "session_id": "Crate-abc123", "asset": payload["asset_name"],
+        "schema": "antigravity3d.inspector_view/1", "session_id": payload["session_id"], "asset": payload["asset_name"],
         "revision": server.current, "view": view or {}, "notes": {"current": 0, "stale": 0}}}
 
 
@@ -435,10 +435,15 @@ def test_mcp_app_in_a_browser_host(tmp_path, scene):
 
     meshes, uvs, tex, lods, cols = scene
     budget = EngineBudget("unreal_5", max_tris=15_000, max_draw_calls=1, max_collision_hulls=8)
-    kw = dict(asset_name="crate", budget=budget, split_textures=True)
-    rev1 = inspector_payload(meshes, textures=tex, uvs=uvs, lods=lods, colliders=cols, **kw)
+    def canned(session_id, *args, asset="crate", **kw):
+        payload, glb = inspector_payload(*args, asset_name=asset, budget=budget, **kw)
+        payload["session_id"] = session_id  # as runtime/inspector_server.py adds it
+        return payload, glb
+
+    rev1 = canned("Crate-abc123", meshes, textures=tex, uvs=uvs, lods=lods, colliders=cols)
     moved = [MeshData(m.node_id, m.prim_path, m.points + np.array([0.0, 0.0, 0.25]), m.triangles, m.material_id) for m in meshes[:2]]
-    rev2 = inspector_payload(moved, textures=tex, uvs={k: v for k, v in uvs.items() if k != "ball"}, lods=lods, colliders=cols, **kw)
+    rev2 = canned("Crate-abc123", moved, textures=tex, uvs={k: v for k, v in uvs.items() if k != "ball"}, lods=lods, colliders=cols)
+    rev3 = canned("Other-def456", moved, asset="other crate", textures=tex, uvs={k: v for k, v in uvs.items() if k != "ball"})
 
     app_dir, host_dir = tmp_path / "app", tmp_path / "host"
     app_dir.mkdir(), host_dir.mkdir()
@@ -466,7 +471,7 @@ def test_mcp_app_in_a_browser_host(tmp_path, scene):
         raise AssertionError(f"timed out waiting for {what}")
 
     def open_host(browser, mode, width, height, theme):
-        server = _CannedServer({rev1[0]["revision"]: rev1, rev2[0]["revision"]: rev2})
+        server = _CannedServer({r[0]["revision"]: r for r in (rev1, rev2, rev3)})
         page = browser.new_page(viewport={"width": width, "height": height})
         problems, requests = [], []
         page.on("console", lambda m: problems.append(f"console.{m.type}: {m.text}")
@@ -507,10 +512,17 @@ def test_mcp_app_in_a_browser_host(tmp_path, scene):
             assert app.evaluate("""u => new Promise(ok => {
                 document.addEventListener('securitypolicyviolation', e => ok(e.effectiveDirective), {once: true});
                 const i = new Image(); i.src = u; })""", host_url.replace("index.html", "probe.png")) == "img-src"
-            # data arrived through the app-only tool, in chunks; textures as separate parts
+            # data arrived through the app-only tool, in chunks: the review metadata, then the review GLB
             scene_calls = [a for n, a in server.calls if n == "inspector_payload" and a["part"] == "scene"]
+            glb_calls = [a for n, a in server.calls if n == "inspector_payload" and a["part"] == "glb"]
             assert len(scene_calls) > 1 and {a["revision"] for a in scene_calls} == {rev1[0]["revision"]}
-            wait_for(lambda: any(n == "inspector_payload" and a["part"].startswith("tex/") for n, a in server.calls), "texture fetch", page)
+            assert len(glb_calls) > 1 and {a["revision"] for a in glb_calls} == {rev1[0]["revision"]}
+            assert not any(a["part"] not in ("scene", "glb") for n, a in server.calls if n == "inspector_payload")
+            # the meshes carry the GLB's normals and materials (GLTFLoader), not page-computed ones
+            loaded = {m["node"]: m for m in app.evaluate("window.__inspectorMeshes()")}
+            assert set(loaded) == {"body", "pole", "ball"}
+            assert all(m["normals"] and m["material"]["map"] and m["material"]["normalMap"] and m["material"]["aoMap"]
+                       for m in loaded.values())
             assert frame.locator("#nodes tbody tr").count() == 3 and frame.locator(".gauge").count() >= 3
             assert frame.locator("#asset-name").inner_text() == "crate"
             assert "Tier 1.5 score" in frame.locator("#qa").inner_text()
@@ -554,13 +566,36 @@ def test_mcp_app_in_a_browser_host(tmp_path, scene):
             settle(app)
             page.screenshot(path=str(shots / "inline-1000-light-driven.png"))
 
-            # a geometry edit: new revision -> the app reloads it; the earlier note is shown as stale
+            # a geometry edit while a note is still in its debounce window: the pending edit is saved against the
+            # revision (and session) it was typed under, never against what is loaded when the timer would fire
+            frame.locator('#nodes tbody tr[data-node="body"]').click()
+            app.evaluate("() => { window.__inspectorHost.saveDelayMs = 60000; }")
+            saves_before = sum(1 for n, _ in server.calls if n == "inspector_save_note")
+            frame.locator("#note-text").fill("chamfer the edges, all of them")
+            assert sum(1 for n, _ in server.calls if n == "inspector_save_note") == saves_before  # still pending
             server.current = rev2[0]["revision"]
             page.evaluate("r => sendTool({}, r)", _summary(server))
             wait_for(lambda: frame.locator("#nodes tbody tr").count() == 2, "new revision", page)
+            wait_for(lambda: sum(1 for n, _ in server.calls if n == "inspector_save_note") == saves_before + 1, "flushed save", page)
+            pending = [a for n, a in server.calls if n == "inspector_save_note"][-1]
+            assert pending == {"session_id": "Crate-abc123", "node_id": "body", "text": "chamfer the edges, all of them",
+                               "revision": rev1[0]["revision"]}, pending
             assert {a["revision"] for n, a in server.calls if n == "inspector_payload" and a["part"] == "scene"} == {rev1[0]["revision"], rev2[0]["revision"]}
             wait_for(lambda: frame.locator('#note-list li[data-stale="true"]').count() == 1, "stale note", page)
             assert "stale" in frame.locator("#note-list").inner_text()
+
+            # the same for a switch to another asset session: the pending edit stays with its own session
+            frame.locator('#nodes tbody tr[data-node="pole"]').click()
+            frame.locator("#note-text").fill("pole is too thin")
+            saves_before = sum(1 for n, _ in server.calls if n == "inspector_save_note")
+            server.current = rev3[0]["revision"]
+            page.evaluate("r => sendTool({}, r)", _summary(server))
+            wait_for(lambda: frame.locator("#asset-name").inner_text() == "other crate", "other session", page)
+            wait_for(lambda: sum(1 for n, _ in server.calls if n == "inspector_save_note") == saves_before + 1, "flushed save", page)
+            pending = [a for n, a in server.calls if n == "inspector_save_note"][-1]
+            assert pending == {"session_id": "Crate-abc123", "node_id": "pole", "text": "pole is too thin",
+                               "revision": rev2[0]["revision"]}, pending
+            app.evaluate("() => { window.__inspectorHost.saveDelayMs = 400; }")
             settle(app)
             assert not [r for r in requests if not r.startswith(("data:", "blob:")) and r not in (host_url, app_url) and not r.endswith(("/host.bundle.js", "/probe.png"))], requests
             assert not problems, problems
@@ -599,3 +634,78 @@ def test_mcp_app_in_a_browser_host(tmp_path, scene):
             browser.close()
             app_srv.shutdown()
             host_srv.shutdown()
+
+
+@pytest.mark.browser
+def test_textured_asset_renders_the_glb_materials(tmp_path, scene):
+    """Materials made the way the package makes its GLB materials (texture files embedded as they are, one ORM
+    texture for occlusion and metallic-roughness) arrive in the page as GLTFLoader materials with the same maps,
+    factors and texels; the albedo channel shows the albedo file's colour."""
+    import os
+
+    pytest.importorskip("playwright")
+    from playwright.sync_api import sync_playwright
+
+    from antigravity3d.artifacts.inspector import bundled_three_js
+    from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, TextureRef
+
+    meshes, uvs, *_ = scene
+    files = {}
+    for name, rgb in (("wood_albedo", (180, 40, 30)), ("wood_orm", (255, 200, 0)), ("wood_normal", (128, 128, 255)),
+                      ("iron_albedo", (40, 60, 200))):
+        files[name] = tmp_path / f"{name}.png"
+        Image.new("RGB", (16, 8), rgb).save(files[name])
+    wood = GltfMaterial(name="wood", base_color_factor=(1.0, 1.0, 1.0, 1.0),
+                        base_color_texture=TextureRef(EncodedImage.from_file(files["wood_albedo"])),
+                        metallic_roughness_texture=TextureRef(EncodedImage.from_file(files["wood_orm"])),
+                        occlusion_texture=TextureRef(EncodedImage.from_file(files["wood_orm"])),
+                        normal_texture=TextureRef(EncodedImage.from_file(files["wood_normal"])))
+    iron = GltfMaterial(name="iron", base_color_factor=(1.0, 1.0, 1.0, 1.0), metallic_factor=0.9, roughness_factor=0.3,
+                        base_color_texture=TextureRef(EncodedImage.from_file(files["iron_albedo"])))
+    html = build_inspector(meshes, asset_name="crate", budget=EngineBudget("godot_4"), uvs=uvs,
+                           materials={"body": wood, "pole": wood, "ball": iron}, three_js_source=bundled_three_js(),
+                           out_path=tmp_path / "textured.html")
+    assert "wood_albedo" not in html.read_text()[:2000]  # (images live inside the GLB, not as page assets)
+    g, _, _ = _glb(_payload(html.read_text()))
+    assert len(g.images) == 4 and len(g.materials) == 2  # ORM file embedded once for two slots; wood shared by 2 nodes
+
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch(executable_path=os.environ.get("CHROMIUM_BIN"),
+                                         args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
+        except Exception as e:
+            if "Executable doesn't exist" in str(e):
+                pytest.skip("no Chromium for this Playwright; set CHROMIUM_BIN")
+            raise
+        try:
+            page = browser.new_context(offline=True).new_page()
+            page.set_viewport_size({"width": 1024, "height": 768})
+            errors = []
+            page.on("pageerror", lambda exc: errors.append(str(exc)))
+            page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+            page.goto(html.as_uri())
+            page.wait_for_function("window.__inspectorReady || window.__inspectorError")
+            assert page.evaluate("window.__inspectorError") is None
+            page.wait_for_function("window.__inspectorMeshes().every(m => !m.material.map || m.material.mapSize)")
+            loaded = {m["node"]: m for m in page.evaluate("window.__inspectorMeshes()")}
+            for node, mat in (("body", wood), ("pole", wood), ("ball", iron)):
+                got = loaded[node]["material"]
+                assert got["type"] == "MeshStandardMaterial" and got["name"] == mat.name
+                assert got["map"] and got["mapSize"] == [16, 8]
+                assert got["normalMap"] == (mat.normal_texture is not None)
+                assert got["aoMap"] == got["roughnessMap"] == (mat.metallic_roughness_texture is not None)
+                assert got["metalness"] == pytest.approx(mat.metallic_factor) and got["roughness"] == pytest.approx(mat.roughness_factor)
+                assert got["color"] == "ffffff" and loaded[node]["normals"]
+            # the albedo channel shows the file's texels: the body's pixels are the wood albedo colour
+            page.locator('button[data-mode="albedo"]').click()
+            page.locator('[data-preset="front"]').click()
+            page.evaluate("new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)))")
+            pt = page.evaluate("window.__nodeScreenPoint('body')")
+            shot = tmp_path / "albedo.png"
+            page.screenshot(path=str(shot), clip={"x": pt["x"] - 2, "y": pt["y"] - 2, "width": 4, "height": 4})
+            with Image.open(shot) as im:
+                r, g_, b = im.convert("RGB").getpixel((2, 2))
+            assert abs(r - 180) <= 3 and abs(g_ - 40) <= 3 and abs(b - 30) <= 3, (r, g_, b)
+            assert not errors, errors
+        finally:
+            browser.close()

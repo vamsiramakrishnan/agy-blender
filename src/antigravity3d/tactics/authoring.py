@@ -26,6 +26,7 @@ from antigravity3d.state import EngineBudget
 
 GROUND_TOL = 0.01
 CURVED = ("cylinder", "cone", "sphere", "capsule")
+STAGE_TIMEOUT_S = 300.0  # harness stage-agent session (a different path from the governed one-shot calls)
 
 
 @runtime_checkable
@@ -410,7 +411,9 @@ class AgentAuthor:
     corrected scene as upserts of every changed node (an IRPatch), or None when nothing changed.
     """
 
-    def __init__(self, *, plane: Any = None, forge: Any = None, workdir: Any = None, client: Any = None, role: str = "worker", timeout_s: float = 300.0) -> None:
+    def __init__(self, *, plane: Any = None, forge: Any = None, workdir: Any = None, client: Any = None, role: str = "worker", timeout_s: float | None = None) -> None:
+        """``timeout_s=None``: governed model calls use the per-tier timeouts beside the output-budget table
+        (``metered_author.AUTHOR_TIMEOUT_S``) and harness stage sessions ``STAGE_TIMEOUT_S``; a number overrides both."""
         self.plane, self.forge, self.role, self.timeout_s = plane, forge, role, timeout_s
         self.client = client
         self._budget: EngineBudget | None = None
@@ -446,7 +449,8 @@ class AgentAuthor:
                 stage = S.DEFAULT_REGISTRY.resource(sid, S.R_STAGE)
                 if seed_scene is not None:
                     stage.apply_ir(seed_scene)
-                run = await run_stage("BLOCKOUT", sid, prompt, role=self.role, timeout_s=self.timeout_s)
+                run = await run_stage("BLOCKOUT", sid, prompt, role=self.role,
+                                       timeout_s=STAGE_TIMEOUT_S if self.timeout_s is None else self.timeout_s)
                 self.usage.append(run.usage)
                 return stage.base_ir()
             finally:

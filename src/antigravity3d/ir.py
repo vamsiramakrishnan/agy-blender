@@ -26,15 +26,77 @@ class Transform(_Model):
     scale: Vec3 = (1.0, 1.0, 1.0)
 
 
+UnitFloat = Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False)]
+Color3 = tuple[UnitFloat, UnitFloat, UnitFloat]  # linear RGB, each 0..1
+AlphaMode = Literal["OPAQUE", "MASK", "BLEND"]  # glTF names: opaque, cut-out at alpha_cutoff, blended
+
+
 class MaterialIR(_Model):
+    """A glTF 2.0 metallic-roughness material plus the ratified ``KHR_materials_*`` parameters game assets need.
+
+    Names are glTF's, in snake_case, except ``opacity`` (``baseColorFactor[3]``, UsdPreviewSurface's own name) and
+    ``thickness`` is absent on purpose (no ``KHR_materials_volume``: transmission is thin-surface). Every new field
+    defaults to the glTF default, so a document written before they existed validates unchanged. The cross-field
+    rules reject input that would silently do nothing or contradict itself (see ``_coherent``).
+    """
+
     id: NodeId
     base_color: Vec3 = (0.8, 0.8, 0.8)
     metallic: float = Field(0.0, ge=0.0, le=1.0)
     roughness: float = Field(0.5, ge=0.0, le=1.0)
-    albedo_uri: str | None = None
+    albedo_uri: str | None = None  # RGB base colour; its alpha channel is the alpha when alpha_mode is MASK or BLEND
     orm_uri: str | None = None  # packed R=occlusion G=roughness B=metallic
     normal_uri: str | None = None
     normal_convention: Literal["opengl", "directx"] = "opengl"
+    # alpha: OPAQUE ignores alpha; MASK keeps pixels with alpha >= alpha_cutoff (needs albedo_uri); BLEND mixes
+    alpha_mode: AlphaMode = "OPAQUE"
+    alpha_cutoff: float | None = Field(None, gt=0.0, le=1.0)  # required with MASK, forbidden otherwise
+    opacity: UnitFloat = 1.0  # constant alpha; with an albedo map the map's alpha channel is the alpha instead
+    double_sided: bool = False  # render back faces (thin shells: leaves, cloth, decals); stored on the geometry in USD
+    emissive_color: Color3 = (0.0, 0.0, 0.0)  # linear; multiplies emissive_uri when one is set
+    emissive_strength: float = Field(1.0, ge=0.0, allow_inf_nan=False)  # KHR_materials_emissive_strength
+    emissive_uri: str | None = None  # sRGB map; needs a non-black emissive_color
+    clearcoat: UnitFloat = 0.0  # KHR_materials_clearcoat
+    clearcoat_roughness: UnitFloat = 0.0
+    transmission: UnitFloat = 0.0  # KHR_materials_transmission: share of light passing through (thin glass)
+    ior: float = Field(1.5, ge=1.0, le=3.0, allow_inf_nan=False)  # KHR_materials_ior
+    sheen_color: Color3 = (0.0, 0.0, 0.0)  # KHR_materials_sheen (cloth)
+    sheen_roughness: UnitFloat = 0.0
+    specular: UnitFloat = 1.0  # KHR_materials_specular
+    specular_color: Color3 = (1.0, 1.0, 1.0)
+
+    @model_validator(mode="after")
+    def _coherent(self) -> "MaterialIR":
+        def bad(why: str) -> ValueError:
+            return ValueError(f"material {self.id}: {why}")
+
+        black = (0.0, 0.0, 0.0)
+        if self.alpha_mode == "MASK":
+            if self.alpha_cutoff is None:
+                raise bad("alpha_mode MASK needs alpha_cutoff in (0, 1] (pixels with alpha below it are discarded)")
+            if not self.albedo_uri:
+                raise bad("alpha_mode MASK needs albedo_uri: the map's alpha channel is the cut-out shape")
+        elif self.alpha_cutoff is not None:
+            raise bad("alpha_cutoff applies only to alpha_mode MASK; remove it or set alpha_mode MASK")
+        if self.alpha_mode == "OPAQUE" and self.opacity < 1.0:
+            raise bad(f"opacity {self.opacity} < 1 has no effect with alpha_mode OPAQUE; set alpha_mode BLEND")
+        if self.alpha_mode != "OPAQUE" and self.albedo_uri and self.opacity != 1.0:
+            raise bad("with albedo_uri the map's alpha channel is the opacity: leave opacity at 1 and bake the fade into the map")
+        if self.alpha_mode == "BLEND" and not self.albedo_uri and self.opacity == 1.0:
+            raise bad("alpha_mode BLEND with opacity 1 and no albedo_uri blends nothing; set opacity < 1 or use OPAQUE")
+        if self.clearcoat_roughness > 0.0 and self.clearcoat == 0.0:
+            raise bad("clearcoat_roughness has no effect while clearcoat is 0")
+        if self.transmission > 0.0 and self.metallic == 1.0 and not self.orm_uri:
+            raise bad("transmission > 0 on a fully metallic surface (metallic 1) transmits nothing; lower metallic (glass is 0)")
+        if self.sheen_roughness > 0.0 and self.sheen_color == black:
+            raise bad("sheen_roughness has no effect while sheen_color is black")
+        if self.emissive_strength != 1.0 and self.emissive_color == black:
+            raise bad("emissive_strength has no effect while emissive_color is black")
+        if self.emissive_uri and self.emissive_color == black:
+            raise bad("emissive_uri needs a non-black emissive_color (it multiplies the map; use [1,1,1] for the map as is)")
+        if self.specular == 0.0 and self.specular_color != (1.0, 1.0, 1.0):
+            raise bad("specular_color has no effect while specular is 0")
+        return self
 
 
 PositiveFloat = Annotated[float, Field(gt=0, allow_inf_nan=False)]

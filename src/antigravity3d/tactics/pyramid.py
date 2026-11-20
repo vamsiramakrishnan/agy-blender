@@ -40,7 +40,7 @@ from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, EngineBudget
 from antigravity3d.tactics.cached import cached_export_pipeline
 from antigravity3d.tactics.common import IMAGE_USD, Uploader, png_bytes, uploader_for
 from antigravity3d.tactics.distill import FixLog, FixRecord
-from antigravity3d.tactics.governor import Governor
+from antigravity3d.tactics.governor import BudgetExceeded, Governor
 from antigravity3d.tactics import reviewed_rules
 from antigravity3d.kernel.package import write_engine_package
 from antigravity3d.tactics.package import merged_lods
@@ -317,6 +317,49 @@ class _Run:
         self.res.cost_usd += sum(charges)
         return located
 
+    async def author_repair(self, q: _QA, located: dict[str, list[str]]) -> tuple[Any, bool]:
+        """One author repair call: ``(patch, failed)``. A failed call is a recorded result, not a crash.
+
+        A truncated repair (or one that ended STOP with an empty answer) on a tier below the director is retried once on
+        the director tier when the plan allows it (a larger budget the plan already grants, not the same request again).
+        Every other typed failure (blocked, invalid, timed out, not admitted) ends the pass with a stop reason naming the
+        cause. Any other exception type is a bug and propagates.
+        """
+        from antigravity3d.tactics.metered_author import AuthorNoAnswer, AuthorOutcomeError, AuthorTruncated, MeteredAuthor
+
+        res = self.res
+        sm = self.sm
+
+        def fail(reason: str) -> tuple[None, bool]:
+            res.stopped["A"] = f"author repair failed: {reason}"
+            res.converged["A"] = False
+            self.step("author_repair", "warned", reason)
+            return None, True
+
+        res.author_calls += 1
+        try:
+            return await self.author.repair(sm.base_ir(), action=q.action, located=located, manifest=sm.manifest()), False
+        except BudgetExceeded as e:
+            return fail(f"not admitted: {e}")
+        except AuthorOutcomeError as first:
+            kind = type(first).__name__
+            empty = isinstance(first, AuthorNoAnswer) and first.finish_reason == "STOP"
+            if not (isinstance(first, AuthorTruncated) or empty):
+                return fail(f"{kind} on {first.model} ({first.finish_reason}): {first}")
+            if not isinstance(self.author, MeteredAuthor) or first.role == "director":
+                return fail(f"{kind} on {first.role} tier ({first.finish_reason}); no larger tier to retry on: {first}")
+            if not self.governor.plan.allow_director:
+                return fail(f"{kind} on {first.role} tier ({first.finish_reason}); director retry not permitted by spend plan")
+            res.author_calls += 1
+            try:
+                patch = await self.author.repair(sm.base_ir(), action=q.action, located=located, manifest=sm.manifest(), role="director")
+                self.step("author_repair", "passed", f"{kind} on {first.role} tier; succeeded on the director tier")
+                return patch, False
+            except BudgetExceeded as e:
+                return fail(f"{kind} on {first.role} tier; director retry not admitted: {e}")
+            except AuthorOutcomeError as second:
+                return fail(f"{kind} on {first.role} tier; director retry also {type(second).__name__} ({second.finish_reason}): {second}")
+
     async def pass_a(self) -> None:
         sm, th, res = self.sm, self.th, self.res
         if not sm.extract_meshes():
@@ -393,9 +436,10 @@ class _Run:
                 if q.action.kind == "escalate_director" and not self.governor.may_escalate_to_director(QA_EST_USD):
                     res.stopped["A"] = "escalate_director not permitted by spend plan"
                     return
-                self.res.author_calls += 1
-                patch = await self.author.repair(sm.base_ir(), action=q.action, located=located, manifest=sm.manifest())
+                patch, failed = await self.author_repair(q, located)
                 label, why = "author", f"{q.action.kind}: {q.action.reasons[0] if q.action.reasons else ''}"
+                if failed:
+                    return  # res.stopped["A"] names the cause
                 if patch is None:
                     res.stopped["A"] = "author declined to repair"
                     return

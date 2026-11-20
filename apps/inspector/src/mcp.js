@@ -101,6 +101,7 @@ const ui = createInspector(host);
 ui.startThree(THREE);
 window.__inspectorApp = app;
 window.__inspectorUi = ui;
+window.__inspectorHost = host; // tests: e.g. a longer saveDelayMs to hold an edit in its debounce window
 
 function applyContext(ctx) {
   if (!ctx) return;

@@ -15,7 +15,8 @@ serves it instead:
   ``structuredContent`` for the app;
 - model-visible ``review_notes``: the reviewer's notes, current and stale, as text for the agent;
 - app-only (``visibility: ["app"]``) tools for everything large or private: ``inspector_payload``
-  (geometry/material/texture data in chunks: the stored ``CallToolResult`` of a model tool call is
+  (the review metadata and the review GLB of :mod:`antigravity3d.artifacts.review_glb`, in chunks: the
+  stored ``CallToolResult`` of a model tool call is
   capped at 1 MiB, and the docs state no limit for app calls, so every chunk stays well below it),
   ``inspector_qa_state``, ``inspector_list_notes`` and ``inspector_save_note``.
 

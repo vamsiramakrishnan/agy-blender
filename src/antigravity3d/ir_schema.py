@@ -357,6 +357,8 @@ def _lean(root: dict[str, Any], node: Any) -> Any:
                 out["prefixItems"] = items
         else:
             out[key] = _lean(root, value)
+    if out.get("type") == "object" and "properties" in out:
+        out.pop("description", None)  # a model's class docstring is developer documentation, not a parameter hint
     for key in ("anyOf", "oneOf"):
         if key in out:
             alts = [a for a in out.pop(key) if a.get("type") != "null"]
@@ -555,13 +557,31 @@ def _parse_op(i: int, op: Any) -> tuple[BaseModel | None, list[str]]:
         tags = sorted({t for t, _ in OP_BY_TAG})
         return None, [f"{where}: unknown op {tag!r}; one of {', '.join(tags)}"]
     where = f"{where}({tag}{'/' + name if name else ''})"
-    node = op.get("node") if tag == "upsert_node" else None
-    if isinstance(node, dict) and node.get("kind") not in NODE_BY_KIND:
-        return None, [f"{where}.node.kind: one of {', '.join(NODE_BY_KIND)} (got {node.get('kind')!r})"]
+    if tag == "upsert_node" and isinstance(op.get("node"), dict):
+        node, errs = _parse_node(f"{where}.node", op["node"])
+        if node is None:
+            return None, errs
+        op = {**op, "node": node}
     try:
         return model.model_validate(op), []
     except ValueError as e:
         return None, _explain(where, e)
+
+
+def _parse_node(where: str, node: dict[str, Any]) -> tuple[BaseModel | None, list[str]]:
+    """Validate a node against its own kind's model, so errors name that kind's fields only."""
+    kind = node.get("kind")
+    if kind not in NODE_BY_KIND:
+        return None, [f"{where}.kind: one of {', '.join(NODE_BY_KIND)} (got {kind!r})"]
+    params = ir.NODE_PARAMS[kind].model_fields
+    if "params" not in node and any(f.is_required() for f in params.values()):
+        need = ", ".join(n for n, f in params.items() if f.is_required())
+        missing = "" if "transform" in node else f"; {where}({kind}).transform: Field required"
+        return None, [f"{where}({kind}).params: Field required, {kind} needs {{{need}}}{missing}"]
+    try:
+        return NODE_BY_KIND[kind].model_validate(node), []
+    except ValueError as e:
+        return None, _explain(f"{where}({kind})", e)
 
 
 def _raise(errors: list[str]) -> None:
@@ -589,15 +609,27 @@ def parse_ops(ops: Any) -> ir.IRPatch:
 
 def parse_tool_scene(asset_name: str, nodes: Any, materials: Any) -> ir.SceneIR:
     """Strict parse of a full scene given as tool arguments (``materials`` may be omitted)."""
-    payload = {"asset_name": asset_name, "nodes": nodes, "materials": materials if materials is not None else []}
-    errors = []
+    errors, parsed = [], []
     for i, n in enumerate(nodes if isinstance(nodes, list) else []):
-        if isinstance(n, dict) and n.get("kind") not in NODE_BY_KIND:
-            errors.append(f"nodes[{i}].kind: one of {', '.join(NODE_BY_KIND)} (got {n.get('kind')!r})")
+        model, errs = _parse_node(f"nodes[{i}]", n) if isinstance(n, dict) else (None, [f"nodes[{i}]: expected an object"])
+        parsed.append(model)
+        errors += errs
     if errors:
         _raise(errors)
+    payload = {"asset_name": asset_name, "nodes": parsed if isinstance(nodes, list) else nodes,
+               "materials": materials if materials is not None else []}
     try:
         return scene_from_wire(WireScene.model_validate(payload))
     except ValueError as e:
         _raise(_explain("scene", e))
+        raise  # unreachable
+
+
+def apply_material_diff(current: ir.MaterialIR, diff: dict[str, Any]) -> ir.MaterialIR:
+    """``current`` with the fields of ``diff`` replaced, validated as ``MaterialIR`` (so new material fields need no
+    change here); raises ``IRArgumentError`` naming the field."""
+    try:
+        return ir.MaterialIR.model_validate({**current.model_dump(), **diff, "id": current.id})
+    except ValueError as e:
+        _raise(_explain("diff", e))
         raise  # unreachable

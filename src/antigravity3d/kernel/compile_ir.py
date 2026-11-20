@@ -10,8 +10,11 @@ layer that holds those opinions.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
+from dataclasses import dataclass, field, fields
 from itertools import pairwise
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from pxr import Gf, Kind, Sdf, Usd, UsdGeom, UsdShade, Vt
@@ -287,9 +290,10 @@ def node_paths(scene: SceneIR, root: Sdf.Path) -> dict[str, Sdf.Path]:
 
 def _shader_names(m: MaterialIR) -> list[str]:
     names = ["Surface"]
-    if m.albedo_uri or m.orm_uri or m.normal_uri:
+    if m.albedo_uri or m.orm_uri or m.normal_uri or m.emissive_uri:
         names.append("stReader")
-    names += [t for t, uri in (("albedoTex", m.albedo_uri), ("ormTex", m.orm_uri), ("normalTex", m.normal_uri)) if uri]
+    names += [t for t, uri in (("albedoTex", m.albedo_uri), ("ormTex", m.orm_uri), ("normalTex", m.normal_uri),
+                               ("emissiveTex", m.emissive_uri)) if uri]
     return names
 
 
@@ -308,6 +312,53 @@ def set_normal_encoding(shader: UsdShade.Shader, convention: str) -> None:
     shader.CreateInput("bias", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(-1, -y / 2, -1, 0))
 
 
+# --- material parameters: one authored home each, one reader ---------------------------------------------------
+#
+# ``UsdPreviewSurface`` input where one exists, otherwise an input on the ``UsdShade.Material`` prim named like the
+# MaterialX ``gltf_pbr`` node's input. Double-sidedness is geometry state in USD (``UsdGeom.Gprim.doubleSided`` on the
+# bound meshes). An input is written when its value differs from the glTF default or already has an opinion (so
+# returning a field to its default overwrites the old value instead of leaving it behind); an absent input reads as
+# the glTF default, which is what keeps every pre-existing asset's USD, and therefore its GLB, unchanged.
+
+_F, _C3, _TOK = Sdf.ValueTypeNames.Float, Sdf.ValueTypeNames.Color3f, Sdf.ValueTypeNames.Token
+#: (IR field, UsdPreviewSurface input, type, glTF default)
+SURFACE_PARAMS = (
+    ("opacity", "opacity", _F, 1.0),
+    ("emissive_color", "emissiveColor", _C3, (0.0, 0.0, 0.0)),
+    ("ior", "ior", _F, 1.5),
+    ("clearcoat", "clearcoat", _F, 0.0),
+    ("clearcoat_roughness", "clearcoatRoughness", _F, 0.0),
+)
+#: (IR field, input on the Material prim, type, glTF default); ``alpha_mode`` is a token, the rest numeric
+INTERFACE_PARAMS = (
+    ("transmission", "transmission", _F, 0.0),
+    ("sheen_color", "sheen_color", _C3, (0.0, 0.0, 0.0)),
+    ("sheen_roughness", "sheen_roughness", _F, 0.0),
+    ("specular", "specular", _F, 1.0),
+    ("specular_color", "specular_color", _C3, (1.0, 1.0, 1.0)),
+    ("emissive_strength", "emissive_strength", _F, 1.0),
+    ("alpha_mode", "alpha_mode", _TOK, "OPAQUE"),
+)
+
+
+def _put(owner, name: str, vtype: Sdf.ValueTypeName, value, default) -> UsdShade.Input | None:
+    """Writes ``value`` unless it is the default and nothing was ever authored (see the block comment above)."""
+    if value == default and not owner.GetInput(name):
+        return None
+    if vtype == _C3:
+        value = Gf.Vec3f(*value)
+    return _set_input(owner, name, vtype, value)
+
+
+def set_double_sided(prim: Usd.Prim, value: bool) -> None:
+    """``UsdGeom.Gprim.doubleSided`` on a bound mesh: authored when True, overwritten when an opinion exists."""
+    if not prim.IsA(UsdGeom.Gprim):  # groups carry no geometry: a material bound to one does not propagate it
+        return
+    attr = prim.GetAttribute("doubleSided")
+    if value or (attr and attr.HasAuthoredValue()):
+        UsdGeom.Gprim(prim).CreateDoubleSidedAttr().Set(bool(value))
+
+
 def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
     mat = UsdShade.Material.Define(stage, path)
     if not mat.GetPrim().IsActive():
@@ -319,11 +370,19 @@ def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
     color = _set_input(surf, "diffuseColor", Sdf.ValueTypeNames.Color3f, Gf.Vec3f(*m.base_color))
     rough = _set_input(surf, "roughness", Sdf.ValueTypeNames.Float, m.roughness)
     metal = _set_input(surf, "metallic", Sdf.ValueTypeNames.Float, m.metallic)
+    for field, name, vtype, default in SURFACE_PARAMS:
+        _put(surf, name, vtype, getattr(m, field), default)
+    _put(surf, "opacityThreshold", _F, m.alpha_cutoff if m.alpha_mode == "MASK" else 0.0, 0.0)
+    for field, name, vtype, default in INTERFACE_PARAMS:
+        _put(mat, name, vtype, getattr(m, field), default)
+    alpha_from_albedo = m.alpha_mode != "OPAQUE" and bool(m.albedo_uri)
+    if alpha_from_albedo:  # the connection below needs the input to exist even at opacity 1
+        _set_input(surf, "opacity", _F, m.opacity)
     for name in ("occlusion", "normal"):  # texture-only inputs: unwire stale connections
         inp = surf.GetInput(name)
         if inp and inp.GetAttr().HasAuthoredConnections():
             inp.GetAttr().SetConnections([])
-    if not (m.albedo_uri or m.orm_uri or m.normal_uri):
+    if not (m.albedo_uri or m.orm_uri or m.normal_uri or m.emissive_uri):
         return
     reader = UsdShade.Shader.Define(stage, path.AppendChild("stReader"))
     reader.CreateIdAttr("UsdPrimvarReader_float2")
@@ -339,7 +398,10 @@ def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
         return t
 
     if m.albedo_uri:
-        color.ConnectToSource(tex("albedoTex", m.albedo_uri, "sRGB").CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
+        albedo = tex("albedoTex", m.albedo_uri, "sRGB")
+        color.ConnectToSource(albedo.CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
+        if alpha_from_albedo:
+            surf.GetInput("opacity").ConnectToSource(albedo.CreateOutput("a", Sdf.ValueTypeNames.Float))
     if m.orm_uri:
         orm = tex("ormTex", m.orm_uri, "raw")
         occl = surf.CreateInput("occlusion", Sdf.ValueTypeNames.Float)
@@ -351,6 +413,131 @@ def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
         set_normal_encoding(nt, m.normal_convention)
         normal = surf.CreateInput("normal", Sdf.ValueTypeNames.Normal3f)
         normal.ConnectToSource(nt.CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
+    if m.emissive_uri:
+        et = tex("emissiveTex", m.emissive_uri, "sRGB")
+        et.CreateInput("scale", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(*m.emissive_color, 1.0))  # factor x map, as glTF
+        surf.GetInput("emissiveColor").ConnectToSource(et.CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
+
+
+@dataclass(frozen=True)
+class MapSource:
+    """A texture the material samples: the asset path as authored and the file it resolves to (None if unresolved)."""
+
+    authored: str
+    resolved: str | None
+    color_space: str | None
+
+
+@dataclass(frozen=True)
+class MaterialParams:
+    """The full parameter set of one composed material, in the IR's field names (see :func:`read_material`).
+
+    ``maps`` holds the roles ``albedo``, ``orm``, ``normal`` and ``emissive`` that are wired to a texture.
+    ``alpha_from_albedo`` is true when the opacity is the albedo map's alpha channel. Factors of a channel that a
+    map drives (``base_color`` under ``albedo``, ``metallic``/``roughness`` under ``orm``) are the authored
+    fallback values, as in USD; the glTF derivation decides what to export.
+    """
+
+    name: str
+    base_color: tuple[float, float, float] = (0.8, 0.8, 0.8)
+    metallic: float = 0.0
+    roughness: float = 0.5
+    alpha_mode: str = "OPAQUE"
+    alpha_cutoff: float | None = None
+    opacity: float = 1.0
+    double_sided: bool = False
+    emissive_color: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    emissive_strength: float = 1.0
+    clearcoat: float = 0.0
+    clearcoat_roughness: float = 0.0
+    transmission: float = 0.0
+    ior: float = 1.5
+    sheen_color: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    sheen_roughness: float = 0.0
+    specular: float = 1.0
+    specular_color: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    normal_convention: str = "opengl"
+    alpha_from_albedo: bool = False
+    maps: Mapping[str, MapSource] = field(default_factory=dict)
+
+    def factors(self) -> dict[str, Any]:
+        """The scalar/colour parameters by IR field name (everything except ``name``, ``maps`` and map flags)."""
+        skip = {"name", "maps", "alpha_from_albedo", "normal_convention"}
+        return {f.name: getattr(self, f.name) for f in fields(self) if f.name not in skip}
+
+
+def bound_double_sided(mat: UsdShade.Material) -> bool:
+    """True when any mesh in the material's stage that binds it directly is double-sided."""
+    path = mat.GetPath()
+    for prim in mat.GetPrim().GetStage().Traverse():
+        rel = prim.GetRelationship("material:binding")
+        if rel and path in rel.GetTargets() and prim.IsA(UsdGeom.Gprim) and UsdGeom.Gprim(prim).GetDoubleSidedAttr().Get():
+            return True
+    return False
+
+
+def read_material(mat: UsdShade.Material, *, double_sided: bool | None = None) -> MaterialParams:
+    """Reads one composed ``UsdShade.Material`` back into the full parameter set. The only reader.
+
+    Everything that needs material values (GLB export, manifest, inspector, checks) calls this, so the USD homes
+    chosen in ``_author_material`` are known in exactly one other place. A missing input reads as the glTF
+    default. ``double_sided`` is geometry state: pass the answer for the mesh being exported, or leave it None to
+    ask the stage (any directly bound double-sided mesh). A material authored by another tool without the
+    ``alpha_mode`` input is read through UsdPreviewSurface's own semantics (``opacityThreshold`` > 0 is a cut-out,
+    ``opacity`` < 1 or a wired opacity is blended).
+    """
+    shader = None
+    if mat:
+        src, _, _ = mat.ComputeSurfaceSource()
+        shader = src if src else None
+
+    def get(owner, name: str, default):
+        inp = owner.GetInput(name) if owner else None
+        v = inp.Get() if inp else None
+        if v is None:
+            return default
+        return tuple(float(c) for c in v) if isinstance(default, tuple) else (str(v) if isinstance(default, str) else float(v))
+
+    def source(owner, name: str) -> tuple[UsdShade.Shader, str] | None:
+        inp = owner.GetInput(name) if owner else None
+        if not inp or not inp.HasConnectedSource():
+            return None
+        s = inp.GetConnectedSource()
+        tex = UsdShade.Shader(s[0].GetPrim())
+        return (tex, str(s[1])) if tex and tex.GetIdAttr().Get() == "UsdUVTexture" else None
+
+    def map_of(owner, name: str) -> MapSource | None:
+        hit = source(owner, name)
+        if hit is None:
+            return None
+        f, cs = hit[0].GetInput("file"), hit[0].GetInput("sourceColorSpace")
+        v = f.Get() if f else None
+        if not isinstance(v, Sdf.AssetPath):
+            return None
+        return MapSource(v.path, v.resolvedPath or None, str(cs.Get()) if cs and cs.Get() else None)
+
+    maps = {role: ref for role, name in (("albedo", "diffuseColor"), ("emissive", "emissiveColor"), ("normal", "normal"))
+            if (ref := map_of(shader, name)) is not None}
+    orm = next((r for n in ("occlusion", "roughness", "metallic") if (r := map_of(shader, n)) is not None), None)
+    if orm is not None:
+        maps["orm"] = orm
+    opacity = get(shader, "opacity", 1.0)
+    threshold = get(shader, "opacityThreshold", 0.0)
+    wired_alpha = (hit := source(shader, "opacity")) is not None and hit[1].endswith("outputs:a")
+    mode = get(mat, "alpha_mode", "")
+    if mode not in ("OPAQUE", "MASK", "BLEND"):
+        mode = "MASK" if threshold > 0 else ("BLEND" if opacity < 1.0 or source(shader, "opacity") else "OPAQUE")
+    values = {field: get(mat, name, default) for field, name, _, default in INTERFACE_PARAMS if field != "alpha_mode"}
+    values.update({field: get(shader, name, default) for field, name, _, default in SURFACE_PARAMS})
+    convention = mat.GetPrim().GetCustomDataByKey("agy:normalConvention") if mat else None
+    return MaterialParams(
+        name=mat.GetPath().name if mat else "",
+        base_color=get(shader, "diffuseColor", (0.8, 0.8, 0.8)), metallic=get(shader, "metallic", 0.0),
+        roughness=get(shader, "roughness", 0.5), alpha_mode=mode,
+        alpha_cutoff=threshold if mode == "MASK" else None,
+        double_sided=bound_double_sided(mat) if double_sided is None and mat else bool(double_sided),
+        normal_convention=str(convention or "opengl"), alpha_from_albedo=wired_alpha and "albedo" in maps,
+        maps=maps, **values)
 
 
 def _block_authored(prim: Usd.Prim, names) -> None:
@@ -375,7 +562,7 @@ def _author_transform(prim: Usd.Prim, t: Transform, prev: Transform | None = Non
         )
 
 
-def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path) -> None:
+def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path, double_sided: bool = False) -> None:
     is_prim = node.kind in PRIMITIVES
     ref_path = None
     if node.kind == "mesh_ref":
@@ -428,10 +615,12 @@ def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path)
             ref.SetActive(True)
         ref.GetReferences().SetReferences([Sdf.Reference(str(ref_path))])
 
-    _bind_material(stage, prim, root, node.material_id)
+    _bind_material(stage, prim, root, node.material_id, double_sided)
 
 
-def _bind_material(stage: Usd.Stage, prim: Usd.Prim, root: Sdf.Path, material_id: str | None) -> None:
+def _bind_material(stage: Usd.Stage, prim: Usd.Prim, root: Sdf.Path, material_id: str | None,
+                   double_sided: bool = False) -> None:
+    set_double_sided(prim, double_sided if material_id is not None else False)
     if material_id is not None:
         api = UsdShade.MaterialBindingAPI.Apply(prim)
         api.Bind(UsdShade.Material(stage.GetPrimAtPath(root.AppendPath(f"{LOOKS}/{material_id}"))))
@@ -473,6 +662,9 @@ def author_scene(
         prev = read_ir(root_prim)
     prev_nodes = {n.id: n for n in prev.nodes} if prev else {}
     prev_mats = {m.id: m for m in prev.materials} if prev else {}
+    sided = {m.id: m.double_sided for m in scene.materials}
+    # double-sidedness is stored on the bound meshes: a material whose flag changed re-syncs its (unchanged) nodes
+    resided = {mid for mid, flag in sided.items() if (prev_mats[mid].double_sided if mid in prev_mats else False) != flag}
     prev_paths = node_paths(prev, root) if prev else {}
     paths = node_paths(scene, root)
     expected: set[Sdf.Path] = {root, *paths.values()}
@@ -508,8 +700,11 @@ def author_scene(
                 needs_import = not prim or not prim.IsA(UsdGeom.Mesh)  # older stages held only a URI
 
         old = prev_nodes.get(node.id)
+        node_sided = sided.get(node.material_id, False)
         if old is not None and prev_paths[node.id] == path and not needs_import and not stale(path):
             if old == node:
+                if node.material_id in resided:
+                    set_double_sided(stage.GetPrimAtPath(path), node_sided)
                 continue
             if old.kind == node.kind and old.params == node.params:
                 prim = stage.GetPrimAtPath(path)
@@ -518,9 +713,11 @@ def author_scene(
                 if old.collider != node.collider:
                     prim.GetAttribute("agy:collider").Set(node.collider)
                 if old.material_id != node.material_id:
-                    _bind_material(stage, prim, root, node.material_id)
+                    _bind_material(stage, prim, root, node.material_id, node_sided)
+                elif node.material_id in resided:
+                    set_double_sided(prim, node_sided)
                 continue
-        _author_node(stage, path, node, root)
+        _author_node(stage, path, node, root, node_sided)
 
     # Deactivate whatever weaker layers still compose but the new IR dropped.
     # Collect first: changing `active` recomposes and would invalidate the range.

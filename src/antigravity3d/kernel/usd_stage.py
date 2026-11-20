@@ -50,6 +50,7 @@ from antigravity3d.kernel.compile_ir import IR_KEY, UV_CHART_KEY, UV_WELD_KEY, a
 from antigravity3d.kernel.fast_ops import UVResult
 from antigravity3d.kernel.spatial import PrimInfo, SpatialIndex
 from antigravity3d.kernel.types import MeshData
+from antigravity3d.kernel.usdz import create_usdz
 
 BASE = Sdf.Path("/__agy_base")
 
@@ -550,8 +551,11 @@ class StageManager:
 
     def export_layer(self) -> Sdf.Layer:
         """The composed scene (current variant selections, UV overlay included) as one anonymous
-        layer, without the internal base class prim. Fresh on every call; safe to edit."""
-        flat = self._stage.Flatten()
+        layer, without the internal base class prim. Fresh on every call; safe to edit.
+
+        Flattened without USD's source-file comment: that comment is the working stage's absolute path, which
+        would put a local path into every shipped file and make two exports of the same scene differ."""
+        flat = self._stage.Flatten(addSourceFileComment=False)
         edit = Sdf.BatchNamespaceEdit()
         edit.Add(BASE, Sdf.Path.emptyPath)  # the base class is an authoring detail
         if not flat.Apply(edit):
@@ -571,5 +575,5 @@ class StageManager:
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / f"{path.stem}.usdc"
             flat.Export(str(src))
-            if not UsdUtils.CreateNewUsdzPackage(Sdf.AssetPath(str(src)), str(path)):
+            if not create_usdz(src, path):
                 raise RuntimeError(f"usdz packaging failed for {path}")

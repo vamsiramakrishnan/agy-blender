@@ -42,7 +42,7 @@ from google.antigravity.types import BuiltinTools, HookResult
 from antigravity3d.adapters.blender_5_3.linter import lint_script
 from antigravity3d.harness.session import Session, session
 from antigravity3d.harness.tools import (
-    ALL_TOOLS, MAP_KEYS, READ_ONLY_TOOL_NAMES, STAGE_TOOLS, _local, export_block_reason,
+    ALL_TOOLS, READ_ONLY_TOOL_NAMES, STAGE_SUBAGENTS, STAGE_TOOLS, _local, export_block_reason, image_refs,
 )
 from antigravity3d.harness.traceback_compressor import compress_exception
 from antigravity3d.state import SceneSessionRegistry
@@ -170,6 +170,18 @@ class InvariantAndSafetyGate(_Shared, PreToolCallDecideHook):
             if not target or not _inside(Path(target), s.workdir):
                 return _deny(f"{name} outside the session workdir is not allowed ({target or 'no path'})")
             return HookResult(allow=True)
+        if name == BuiltinTools.INVOKE_SUBAGENT.value:
+            # CapabilitiesConfig.allowed_subagents is not enforced by the harness at call time (the built-in `self`
+            # and `research` agents and newly defined ones all start), so the stage's list is enforced here.
+            # define_subagent never reaches pre-tool hooks (harness-internal), but whatever it defines can only be
+            # started through invoke_subagent, which this rule restricts to the stage's declared subagents.
+            allowed = STAGE_SUBAGENTS.get(s.toolset, ())
+            names = _subagent_names(args)
+            if not names or any(n not in allowed for n in names):
+                offer = ", ".join(allowed) or "none"
+                return _deny(f"subagent {', '.join(n for n in names if n not in allowed) or '?'} is not available in the "
+                             f"{s.toolset} stage (available: {offer})")
+            return HookResult(allow=True)
         if name not in ALL_TOOLS:
             return HookResult(allow=True)  # other builtins: scoped by enabled_tools / VisionEvictionHook
         allowed = {f.__name__ for f in STAGE_TOOLS.get(s.toolset, [])} | READ_ONLY_TOOL_NAMES
@@ -216,21 +228,14 @@ def _inside(p: Path, root: Path) -> bool:
 
 
 def _image_refs(name: str, args: dict[str, Any]) -> list[str]:
-    try:
-        if name == "apply_shader_diff":
-            diff = json.loads(args.get("diff_json") or "{}")
-            return [diff[k] for k in MAP_KEYS if isinstance(diff, dict) and isinstance(diff.get(k), str)]
-        if name == "apply_scene_ir":
-            payload = json.loads(args.get("ops_json") or "{}")
-            if isinstance(payload, dict) and "nodes" in payload:
-                mats = payload.get("materials") or []
-            else:
-                ops = payload.get("ops", []) if isinstance(payload, dict) else payload
-                mats = [o.get("material") or {} for o in ops if isinstance(o, dict) and o.get("op") == "upsert_material"]
-            return [m[k] for m in mats if isinstance(m, dict) for k in MAP_KEYS if isinstance(m.get(k), str)]
-    except (ValueError, TypeError, AttributeError):
-        return []  # malformed JSON: the tool itself reports it
-    return []
+    """Texture refs a call would bind; parsed from the typed arguments (or a legacy JSON string) by ``tools.image_refs``."""
+    return image_refs(name, args)
+
+
+def _subagent_names(args: dict[str, Any]) -> list[str]:
+    entries = args.get("Subagents")
+    entries = entries if isinstance(entries, list) else [args]
+    return [str(e.get("TypeName") or e.get("type_name") or "") for e in entries if isinstance(e, dict)]
 
 
 # --------------------------------------------------------------------------- telemetry

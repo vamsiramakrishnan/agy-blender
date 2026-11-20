@@ -22,6 +22,7 @@ import asyncio
 import json
 import math
 import os
+import time
 from dataclasses import asdict, dataclass
 from typing import Any, Callable, Literal
 
@@ -89,6 +90,22 @@ MEASURED_ANSWER_TOKENS: dict[str, tuple[int, ...]] = {
 }
 # models.get(...).output_token_limit on this key, 2026-11-20.
 MODEL_OUTPUT_TOKEN_LIMIT = {HYDROGEN: 65_536, NEON: 65_536, CARBON: 32_768, ARGON: 32_768}
+# Measured wall time of one propose call (min, max) in seconds, 2026-11-20, same samples as the token tables above.
+# argon's 128-233 s range also had one call end in 504 DEADLINE_EXCEEDED at the 300 s request timeout.
+MEASURED_PROPOSE_WALL_S: dict[str, tuple[float, float]] = {
+    "gemini-4-hydrogen/low": (10.0, 38.0),
+    "gemini-4-neon/low": (26.0, 38.0),
+    "gemini-4-carbon/medium": (200.0, 209.0),
+    "gemini-4-argon/high": (128.0, 233.0),
+}
+# Total request timeout per authoring role. Rule (asserted in tests/test_metered_author.py): at least
+# TIMEOUT_HEADROOM x the slowest measured call of the role's model, rounded up to a multiple of 30 s. A call that times
+# out is billed its whole reservation and yields nothing, so a timeout must not sit near the healthy range: argon's
+# slowest healthy call (233 s) was within reach of the old 300 s for every tier. A total, not an idle, timeout: the
+# thinking phase of a call is silent (no chunk arrives until thinking ends, ~100 s on argon), so a stream cannot tell
+# a stalled call from a thinking one without include_thoughts, which would change the billed request.
+TIMEOUT_HEADROOM = 2.0
+AUTHOR_TIMEOUT_S: dict[str, float] = {"worker": 90.0, "bulk": 90.0, "builder": 420.0, "director": 480.0}
 # Prompt tokens the API bills for response_json_schema, per byte of compact schema JSON. Measured: the propose schema
 # (6,055 bytes) added 5,085 prompt tokens (0.84/byte), the repair schema (9,939 bytes) 7,066 (0.71/byte). 1.0 bounds both.
 SCHEMA_INPUT_TOKENS_PER_BYTE = 1.0
@@ -121,6 +138,14 @@ class AuthorTruncated(AuthorOutcomeError):
 
 class AuthorNoAnswer(AuthorOutcomeError):
     """Blocked prompt, no candidate, a non-STOP finish (SAFETY, RECITATION, ...) or an empty answer."""
+
+
+class AuthorTimedOut(AuthorOutcomeError):
+    """The request timed out (client timeout or 504 DEADLINE_EXCEEDED). Its whole reservation is retained."""
+
+
+class AuthorInvalid(AuthorOutcomeError, ValueError):
+    """A complete answer that does not parse or validate. Billed usage is booked."""
 
 
 @dataclass(frozen=True)
@@ -229,6 +254,66 @@ def usage_tokens(response: Any) -> dict[str, int] | None:
     return {"input_tokens": prompt, "output_tokens": output, "thinking_tokens": thinking}
 
 
+def is_timeout(exc: BaseException) -> bool:
+    """A request timeout from asyncio, httpx / httpcore, or the API's own 504 DEADLINE_EXCEEDED."""
+    if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+        return True
+    if any("Timeout" in cls.__name__ for cls in type(exc).__mro__):
+        return True
+    return getattr(exc, "code", None) == 504 or getattr(exc, "status", None) == "DEADLINE_EXCEEDED"
+
+
+def author_timeout(role: str) -> float:
+    try:
+        return AUTHOR_TIMEOUT_S[role]
+    except KeyError:
+        raise ValueError(f"no authoring timeout for role {role!r}") from None
+
+
+def expected_output_tokens(role: str) -> int:
+    """Mean measured answer + thinking tokens of the role's model and level; the full cap when it was not measured."""
+    mt = tier(role)  # type: ignore[arg-type]
+    key = f"{mt.model}/{mt.thinking.value if mt.thinking else 'none'}"
+    answers, thoughts = MEASURED_ANSWER_TOKENS.get(key), MEASURED_THINKING_TOKENS.get(key)
+    if not answers or not thoughts:
+        return output_budget(role).max_output_tokens
+    return min(output_budget(role).max_output_tokens, round(sum(answers) / len(answers) + sum(thoughts) / len(thoughts)))
+
+
+@dataclass(frozen=True)
+class CandidateOutcome:
+    """What happened to one requested candidate. ``status``: produced, not_admitted, truncated, no_answer, invalid,
+    timed_out or error."""
+
+    index: int
+    status: str
+    detail: str = ""
+    finish_reason: str | None = None
+    usage: dict[str, int] | None = None
+    admission_wait_s: float = 0.0
+    reserved_usd: float | None = None
+
+    @property
+    def produced(self) -> bool:
+        return self.status == "produced"
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ProposeResult:
+    scenes: list[SceneIR]
+    outcomes: list[CandidateOutcome]  # one per requested candidate, in index order
+
+    @property
+    def n_requested(self) -> int:
+        return len(self.outcomes)
+
+    def summary(self) -> str:
+        return "; ".join(f"#{o.index} {o.status}" + (f" ({o.detail})" if o.detail else "") for o in self.outcomes)
+
+
 def _rates(model: str) -> tuple[float, float]:
     rates = json.loads(os.environ.get("AGY3D_TEXT_RATES_JSON", "{}"))
     pair = rates.get(model, PRICE_TABLE_USD_PER_M.get(model))
@@ -238,20 +323,61 @@ def _rates(model: str) -> tuple[float, float]:
     return float(pair[0]), float(pair[1])
 
 
+def _meta(req: AuthorRequest, usage: dict[str, int] | None) -> dict[str, Any]:
+    return dict(model=req.model, role=req.role, operation=req.operation, usage=usage, max_output_tokens=req.max_output_tokens)
+
+
+def _one_line(exc: BaseException, limit: int = 300) -> str:
+    text = " ".join(str(exc).split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
 class MeteredAuthor:
     """Bound to one route's budget, spend ledger and image references, including during repair.
 
     No automatic re-request on truncation. The cap is sized from measurements with headroom (and is the model maximum
     for carbon / argon, so there is no larger budget to retry with); a MAX_TOKENS finish therefore means a runaway
     generation that a re-request would most likely repeat, billing the cap twice.
-    The typed error carries the finish reason and billed usage; the caller decides.
+    The typed error carries the finish reason and billed usage; the caller decides (the pyramid retries a truncated
+    worker repair once on the director tier only when the plan grants it: that is a larger budget, not the same request).
+
+    Admission waits instead of dropping: each call reserves its worst case with ``Governor.reserve_wait``, so N
+    candidates run as many at a time as the ceiling admits and the rest start as earlier ones settle. Nothing is
+    reduced silently: every requested candidate ends with a :class:`CandidateOutcome`.
+
+    ``timeout_s=None`` uses the per-tier ``AUTHOR_TIMEOUT_S``; a number overrides it for every tier.
     """
 
-    def __init__(self, client: Any, governor: Governor, budget: EngineBudget, context: dict, *, timeout_s: float) -> None:
+    def __init__(self, client: Any, governor: Governor, budget: EngineBudget, context: dict, *,
+                 timeout_s: float | None = None) -> None:
         self.client, self.governor, self.budget = client, governor, budget
         self.context, self.timeout_s = dict(context), timeout_s
 
-    async def _generate(self, req: AuthorRequest) -> Any:
+    def timeout_for(self, role: str) -> float:
+        return author_timeout(role) if self.timeout_s is None else self.timeout_s
+
+    def cost_profile(self, role: str | None = None, *, asset_name: str = "asset") -> tuple[float, float] | None:
+        """(expected, worst-case) USD of one propose call for sizing a best-of-N, or None when no rates are known.
+
+        Expected = mean measured output tokens (``expected_output_tokens``); worst case = the full cap, which is what
+        admission reserves. Input is estimated from the request text (3 bytes per token) plus the schema bound, because
+        counting needs a network call; sizing only, admission uses the counted figure.
+        """
+        role = role or self.governor.plan.builder_role
+        req = self.request(role, "propose", propose_task("x", index=0, n=1, asset_name=asset_name,
+                                                          references=has_references(self.context)), asset_name=asset_name)
+        try:
+            pin, pout = _rates(req.model)
+        except BudgetExceeded:
+            return None
+        text = "".join(p.text or "" for c in req.contents for p in c.parts)
+        tokens_in = math.ceil(len(text.encode()) / 3) + schema_input_token_bound(req.schema)
+        expected = usage_cost_usd(tokens_in, expected_output_tokens(role), usd_per_m_in=pin, usd_per_m_out=pout)
+        worst = usage_cost_usd(tokens_in, req.max_output_tokens, usd_per_m_in=pin, usd_per_m_out=pout)
+        return expected, worst
+
+    async def _generate(self, req: AuthorRequest, trace: dict[str, Any] | None = None) -> Any:
+        trace = {} if trace is None else trace
         pin, pout = _rates(req.model)
         api = self.client.aio.models
         counted = await api.count_tokens(model=req.model, contents=req.contents,
@@ -269,29 +395,44 @@ class MeteredAuthor:
         detail = (f"{req.role} ({req.model}) {req.operation}: up to {input_bound} input tokens ({n} counted + {schema_bound} "
                   f"schema bound) and {req.max_output_tokens} output tokens ({req.budget.answer_tokens} answer + "
                   f"{req.budget.thinking_tokens} thinking) at ${pin}/${pout} per M = ${limit:.5f}")
-        plan = self.governor.plan
-        if limit > plan.ceiling_usd:
-            raise BudgetExceeded(f"plan {plan.label!r} ceiling ${plan.ceiling_usd:.2f} cannot admit one {detail}")
         receipt: dict[str, Any] = {"model": req.model, "role": req.role, "counted_input_tokens": n,
                                    "schema_input_tokens_bound": schema_bound, "max_output_tokens": req.max_output_tokens,
                                    "answer_tokens": req.budget.answer_tokens, "thinking_tokens_allowed": req.budget.thinking_tokens,
                                    "input_usd_per_m": pin, "output_usd_per_m": pout}
+        t0 = time.monotonic()
         try:
-            hold = self.governor.reserve(f"author.{req.operation}", limit, receipt=receipt)
+            # Waits for outstanding reservations to settle; fails at once only when this can never fit the ceiling.
+            hold = await self.governor.reserve_wait(f"author.{req.operation}", limit, receipt=receipt)
         except BudgetExceeded as e:
-            raise BudgetExceeded(f"{e}; request: {detail}") from e
+            raise BudgetExceeded(f"plan {self.governor.plan.label!r}: {e}; request: {detail}") from e
+        trace.update(admission_wait_s=round(time.monotonic() - t0, 3), reserved_usd=limit)
         booked = None
         try:
-            result = await api.generate_content(model=req.model, contents=req.contents, config=req.config)
+            try:
+                result = await api.generate_content(model=req.model, contents=req.contents, config=req.config)
+            except Exception as exc:
+                if is_timeout(exc):
+                    receipt["finish_reason"] = "TIMEOUT"
+                    raise AuthorTimedOut(
+                        f"{req.role} {req.operation} on {req.model}: timed out after {req.config.http_options.timeout / 1000:.0f}s "
+                        f"({type(exc).__name__}); the whole reservation ${limit:.5f} is retained", finish_reason="TIMEOUT",
+                        **_meta(req, None)) from exc
+                raise
             usage = usage_tokens(result)
+            trace["usage"] = usage
             if usage is not None:
                 booked = cost(usage["input_tokens"], usage["output_tokens"])
                 receipt.update(usage)
             candidates = getattr(result, "candidates", None) or []
             receipt["finish_reason"] = _name(getattr(candidates[0], "finish_reason", None)) if candidates else None
             text = check_response(req, result, usage)
+            try:
+                parsed = req.parse(text)
+            except ValueError as exc:
+                raise AuthorInvalid(f"{req.role} {req.operation} on {req.model}: answer does not validate: {_one_line(exc)}; "
+                                    f"usage {usage}", finish_reason=receipt["finish_reason"], **_meta(req, usage)) from exc
             receipt["status"] = "ok"
-            return req.parse(text)
+            return parsed
         except BaseException as exc:
             receipt["status"] = type(exc).__name__
             raise
@@ -301,37 +442,66 @@ class MeteredAuthor:
 
     def request(self, role: str, operation: Operation, task: str, *, asset_name: str | None = None) -> AuthorRequest:
         return build_author_request(role, operation, task, budget=self.budget, context=self.context,
-                                    timeout_s=self.timeout_s, asset_name=asset_name)
+                                    timeout_s=self.timeout_for(role), asset_name=asset_name)
 
-    async def propose(self, prompt: str, *, budget: EngineBudget, n: int, context: dict[str, Any]) -> list[SceneIR]:
+    async def propose_with_outcomes(self, prompt: str, *, budget: EngineBudget, n: int, context: dict[str, Any]) -> ProposeResult:
+        """All ``n`` requested candidates, each with its recorded outcome. Raises only when none is usable."""
         if budget != self.budget:
             raise ValueError("author bound to another asset budget")
         asset = context["asset_name"]
         refs = has_references(self.context)
-
-        async def candidate(i: int) -> SceneIR:
-            task = propose_task(prompt, index=i, n=n, asset_name=asset, references=refs)
-            scene = await self._generate(self.request(self.governor.plan.builder_role, "propose", task, asset_name=asset))
-            if scene.asset_name != asset or not scene.nodes:
-                raise ValueError("candidate must contain nodes for the requested asset")
-            return scene
-
-        results = await asyncio.gather(*(candidate(i) for i in range(n)), return_exceptions=True)
-        scenes = [r for r in results if isinstance(r, SceneIR)]
-        if not scenes:
-            if results:
-                first_error = results[0]
-                if isinstance(first_error, BaseException):
-                    raise first_error
-            raise BudgetExceeded("no geometry candidate fits the current plan")
-        return scenes
-
-    async def repair(self, scene: SceneIR, *, action: Any, located: dict[str, list[str]], manifest: str) -> IRPatch | None:
         role = self.governor.plan.builder_role
+
+        async def candidate(i: int) -> tuple[SceneIR | None, CandidateOutcome, BaseException | None]:
+            trace: dict[str, Any] = {}
+            task = propose_task(prompt, index=i, n=n, asset_name=asset, references=refs)
+            try:
+                req = self.request(role, "propose", task, asset_name=asset)
+                scene = await self._generate(req, trace)
+                if scene.asset_name != asset or not scene.nodes:
+                    raise AuthorInvalid(f"{role} propose: candidate must contain nodes for the requested asset {asset!r}",
+                                        finish_reason="STOP", **_meta(req, trace.get("usage")))
+            except Exception as exc:  # noqa: BLE001 - classified and recorded; nothing is dropped unnamed
+                status = ("not_admitted" if isinstance(exc, BudgetExceeded) else "truncated" if isinstance(exc, AuthorTruncated)
+                          else "timed_out" if isinstance(exc, AuthorTimedOut) else "no_answer" if isinstance(exc, AuthorNoAnswer)
+                          else "invalid" if isinstance(exc, AuthorInvalid) else "error")
+                text = _one_line(exc) if status != "error" else f"{type(exc).__name__}: {_one_line(exc)}"
+                return None, CandidateOutcome(i, status, text, getattr(exc, "finish_reason", None),
+                                              getattr(exc, "usage", None) or trace.get("usage"),
+                                              trace.get("admission_wait_s", 0.0), trace.get("reserved_usd")), exc
+            return scene, CandidateOutcome(i, "produced", "", "STOP", trace.get("usage"), trace.get("admission_wait_s", 0.0),
+                                           trace.get("reserved_usd")), None
+
+        # A cancellation of this task cancels every candidate (gather) and propagates; a candidate that itself raises a
+        # non-Exception BaseException (CancelledError, KeyboardInterrupt) propagates too.
+        results = await asyncio.gather(*(candidate(i) for i in range(n)), return_exceptions=True)
+        for r in results:
+            if isinstance(r, BaseException):
+                raise r
+        scenes = [scene for scene, _, _ in results if scene is not None]
+        outcomes = [outcome for _, outcome, _ in results]
+        if scenes:
+            return ProposeResult(scenes, outcomes)
+        if not results:
+            raise BudgetExceeded("no geometry candidate was requested")
+        errors = [exc for _, _, exc in results]
+        first = next((e for e in errors if not isinstance(e, BudgetExceeded)), errors[0])
+        if len(outcomes) > 1:  # keep the first error's type and attributes; name what happened to every candidate
+            names = ProposeResult([], outcomes).summary()
+            first.args = (f"{first.args[0] if first.args else first}; no usable candidate of {len(outcomes)} requested: {names}",)
+        raise first
+
+    async def propose(self, prompt: str, *, budget: EngineBudget, n: int, context: dict[str, Any]) -> list[SceneIR]:
+        return (await self.propose_with_outcomes(prompt, budget=budget, n=n, context=context)).scenes
+
+    async def repair(self, scene: SceneIR, *, action: Any, located: dict[str, list[str]], manifest: str,
+                     role: str | None = None) -> IRPatch | None:
+        """``role`` overrides the tier (the pyramid's one escalation to ``director``); it must be allowed by the plan."""
+        role = role or self.governor.plan.builder_role
         if action.kind == "escalate_director":
-            if not self.governor.plan.allow_director:
-                raise BudgetExceeded("director escalation is outside this asset's plan")
             role = "director"
+        if role == "director" and not self.governor.plan.allow_director:
+            raise BudgetExceeded("director escalation is outside this asset's plan")
         task = repair_task(scene, reasons=action.reasons, located=located, manifest=manifest)
         patch = await self._generate(self.request(role, "repair", task))
         return patch if patch.ops else None

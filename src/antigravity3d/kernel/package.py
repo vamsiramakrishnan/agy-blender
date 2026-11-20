@@ -36,17 +36,18 @@ import shutil
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 from PIL import Image
-from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, UsdUtils
+from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
-from antigravity3d.artifacts.inspector import InspectorQA, InspectorTextures, build_inspector, bundled_three_js
-from antigravity3d.kernel.compile_ir import author_mesh_data, set_normal_encoding
+from antigravity3d.artifacts.inspector import InspectorQA, build_inspector, bundled_three_js
+from antigravity3d.kernel.compile_ir import MapSource, MaterialParams, author_mesh_data, read_material, set_normal_encoding
 from antigravity3d.kernel.fast_ops import ExportBundle, Hull, Issue, LOD, UVResult, write_gltf
 from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, TextureRef
 from antigravity3d.kernel.types import MeshData, gltf_world_bounds
+from antigravity3d.kernel.usdz import create_usdz
 from antigravity3d.kernel.validator import (
     ENGINE_RULES,
     check_engine_compliance,
@@ -153,10 +154,10 @@ def _issue_dict(i: Issue) -> dict[str, Any]:
     return {"code": i.code, "severity": i.severity, "node": i.node_id, "detail": i.detail}
 
 
-def _parts(b: ExportBundle | Mapping[str, Any]) -> tuple[list[UVResult], dict[str, list], list[Hull], dict[str, float]]:
+def _parts(b: ExportBundle | Mapping[str, Any]) -> tuple[list[UVResult], dict[str, list], list[Hull]]:
     if isinstance(b, ExportBundle):
-        return b.uvs, b.lods, b.colliders, b.timings_ms
-    return list(b["uvs"]), dict(b.get("lods") or {}), list(b.get("colliders") or []), dict(b.get("timings_ms") or {})
+        return b.uvs, b.lods, b.colliders
+    return list(b["uvs"]), dict(b.get("lods") or {}), list(b.get("colliders") or [])
 
 
 def _clean_previous(out: Path) -> None:
@@ -250,16 +251,6 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[di
     return records, unresolved
 
 
-def _inspector_png(image: EncodedImage) -> bytes:
-    """The inspector labels its images PNG: PNG bytes pass through unchanged, a JPEG is transcoded once."""
-    if image.mime_type == "image/png":
-        return image.data
-    buf = io.BytesIO()
-    with Image.open(io.BytesIO(image.data)) as im:
-        im.convert("RGB").save(buf, "PNG")
-    return buf.getvalue()
-
-
 def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict[str, list[str]],
                      materials: dict[str, GltfMaterial], suffix: str) -> None:
     items = []
@@ -277,41 +268,136 @@ def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict
     write_gltf(path, items, [name + suffix for name in batches], materials=bound)
 
 
-def _glb_materials(stage: Usd.Stage, meshes: list[MeshData], out: Path, records: list[dict]) -> dict:
-    """Build glTF metallic-roughness bindings from the selected, composed USD materials.
+def _flip_green_png(image: EncodedImage) -> EncodedImage:
+    """OpenGL <-> DirectX normal map in memory (what ``flip_normal_green`` does to a file); alpha is kept."""
+    with Image.open(io.BytesIO(image.data)) as im:
+        im.load()
+        has_alpha = im.mode in ("RGBA", "LA", "PA") or "transparency" in im.info
+        a = np.asarray(im.convert("RGBA" if has_alpha else "RGB")).copy()
+    a[..., 1] = 255 - a[..., 1]
+    buf = io.BytesIO()
+    Image.fromarray(a).save(buf, format="PNG")
+    return EncodedImage(buf.getvalue(), "image/png", hashlib.sha256(buf.getvalue()).hexdigest(), image.name, True)
 
-    Each distinct texture file in ``textures/`` is read once and embedded as the bytes it holds (no decode, no
-    re-encode), so the GLB image is bit-identical to the file the USD references. The ORM map is one
-    ``TextureRef`` shared by the occlusion and metallic-roughness slots.
+
+def gltf_material(params: MaterialParams, image_of, *, double_sided: bool = False) -> GltfMaterial:
+    """The glTF 2.0 material for one :class:`MaterialParams`. Pure mapping, no I/O.
+
+    ``image_of(role)`` returns the ``EncodedImage`` for a map role (``albedo``, ``orm``, ``normal``, ``emissive``) or
+    None. Core fields are always written; each ``KHR_materials_*`` extension only when one of its parameters
+    differs from the glTF default, so a material that uses none of them serialises exactly as before they existed.
+    A map replaces the factor of its channel (white base colour under ``albedo``, 1.0 metallic/roughness under
+    ``orm``); the emissive map is multiplied by ``emissive_color``, and ``emissive_strength`` is the extension.
     """
-    files: dict[str, EncodedImage] = {}
-    maps: dict[str, dict[str, TextureRef]] = {}
-    for record in records:
-        key = record["usd_path"]
-        if key not in files:
-            files[key] = EncodedImage.from_file(out / key)
-        maps.setdefault(record["material"], {})[record["role"]] = TextureRef(files[key])
+    tex = {role: TextureRef(img) for role in ("albedo", "orm", "normal", "emissive") if (img := image_of(role)) is not None}
+    color = [1.0] * 3 if "albedo" in tex else list(params.base_color)
+    ext: dict[str, dict[str, Any]] = {}
+    if params.emissive_strength != 1.0:
+        ext["KHR_materials_emissive_strength"] = {"emissiveStrength": params.emissive_strength}
+    if params.clearcoat > 0.0:
+        ext["KHR_materials_clearcoat"] = {"clearcoatFactor": params.clearcoat,
+                                          "clearcoatRoughnessFactor": params.clearcoat_roughness}
+    if params.transmission > 0.0:
+        ext["KHR_materials_transmission"] = {"transmissionFactor": params.transmission}
+    if params.ior != 1.5:
+        ext["KHR_materials_ior"] = {"ior": params.ior}
+    if any(params.sheen_color):
+        ext["KHR_materials_sheen"] = {"sheenColorFactor": list(params.sheen_color),
+                                      "sheenRoughnessFactor": params.sheen_roughness}
+    if params.specular != 1.0 or tuple(params.specular_color) != (1.0, 1.0, 1.0):
+        ext["KHR_materials_specular"] = {"specularFactor": params.specular,
+                                         "specularColorFactor": list(params.specular_color)}
+    blended = params.alpha_mode != "OPAQUE"
+    return GltfMaterial(
+        name=params.name, base_color_factor=(*color, params.opacity if blended else 1.0),
+        base_color_texture=tex.get("albedo"), normal_texture=tex.get("normal"), occlusion_texture=tex.get("orm"),
+        metallic_roughness_texture=tex.get("orm"),
+        metallic_factor=1.0 if "orm" in tex else params.metallic,
+        roughness_factor=1.0 if "orm" in tex else params.roughness,
+        emissive_texture=tex.get("emissive"), emissive_factor=list(params.emissive_color) if any(params.emissive_color) else None,
+        alpha_mode=params.alpha_mode if blended else None, alpha_cutoff=params.alpha_cutoff if params.alpha_mode == "MASK" else None,
+        double_sided=double_sided, extensions=ext,
+    )
 
-    by_path = {}
-    by_node = {}
+
+def gltf_materials(stage: Usd.Stage, meshes: Sequence[MeshData], *, package_dir: str | Path | None = None) -> dict[str, GltfMaterial]:
+    """``{node_id: GltfMaterial}`` for the meshes of a composed stage: the one derivation of glTF materials.
+
+    The package export, the inspector's GLB and any checker call this; values come from
+    :func:`antigravity3d.kernel.compile_ir.read_material` and the mapping is :func:`gltf_material`. Meshes bound to
+    the same material and the same double-sidedness share one ``GltfMaterial`` object (one glTF material); a mesh
+    without a bound material is absent from the result.
+
+    ``package_dir``: the package directory whose ``textures/`` the stage's relative texture paths point into (the
+    stage written by ``write_engine_package``). With None the stage is a live session: textures are read from where
+    ``UsdUVTexture.file`` resolves (the source files) and a DirectX normal map (``agy:normalConvention``) is
+    converted to glTF's OpenGL convention. Each distinct file is read once and embedded as the bytes it holds, so a
+    package GLB image is bit-identical to the texture file the USD references. A map whose file is missing is left
+    out and its factor is used.
+    """
+    base = Path(package_dir) if package_dir is not None else None
+    files: dict[tuple[str, bool], EncodedImage] = {}
+
+    def load(ref: MapSource, flip: bool) -> EncodedImage | None:
+        if base is not None:
+            path = base / ref.authored[2:] if ref.authored.startswith("./") else base / ref.authored
+        else:
+            path = _local_file(ref.resolved or ref.authored)
+        if path is None or not path.is_file():
+            return None
+        key = (str(path.resolve()), flip)
+        if key not in files:
+            image = EncodedImage.from_file(path)
+            files[key] = _flip_green_png(image) if flip else image
+        return files[key]
+
+    by_key: dict[tuple[Sdf.Path, bool], GltfMaterial] = {}
+    by_node: dict[str, GltfMaterial] = {}
     for mesh in meshes:
-        mat, _ = UsdShade.MaterialBindingAPI(stage.GetPrimAtPath(mesh.prim_path)).ComputeBoundMaterial()
+        prim = stage.GetPrimAtPath(mesh.prim_path)
+        mat, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
         if not mat:
             continue
-        path = mat.GetPath()
-        if path not in by_path:
-            shader, _, _ = mat.ComputeSurfaceSource()
-            tex = maps.get(path.name, {})
-            color = [1.0] * 3 if "albedo" in tex else list(shader.GetInput("diffuseColor").Get())
-            by_path[path] = GltfMaterial(
-                name=path.name, base_color_factor=(*color, 1.0), base_color_texture=tex.get("albedo"),
-                normal_texture=tex.get("normal"), occlusion_texture=tex.get("orm"),
-                metallic_roughness_texture=tex.get("orm"),
-                metallic_factor=1.0 if "orm" in tex else shader.GetInput("metallic").Get(),
-                roughness_factor=1.0 if "orm" in tex else shader.GetInput("roughness").Get(),
-            )
-        by_node[mesh.node_id] = by_path[path]
+        sided = bool(prim.IsA(UsdGeom.Gprim) and UsdGeom.Gprim(prim).GetDoubleSidedAttr().Get())
+        key = (mat.GetPath(), sided)
+        if key not in by_key:
+            params = read_material(mat, double_sided=sided)
+            flip = base is None and params.normal_convention == "directx"
+            by_key[key] = gltf_material(
+                params, lambda role: (ref := params.maps.get(role)) and load(ref, flip and role == "normal"), double_sided=sided)
+        by_node[mesh.node_id] = by_key[key]
     return by_node
+
+
+def material_inventory(materials: Mapping[str, GltfMaterial]) -> list[dict[str, Any]]:
+    """The glTF materials a package exports, one record per distinct material, in first-use order.
+
+    Each record states the parameters that were written, in glTF terms (``baseColorFactor`` ... plus the
+    ``extensions`` payloads and the map slots that carry a texture), so a package says what it contains and a
+    runtime check can compare what it loaded against this list. Derived from the objects handed to the GLB writer,
+    not from the stage, so it cannot drift from the file.
+    """
+    out, seen = [], set()
+    for m in materials.values():
+        if id(m) in seen:
+            continue
+        seen.add(id(m))
+        ext = {k: {f: (list(v) if isinstance(v, (list, tuple)) else v) for f, v in body.items()} for k, body in m.extensions.items()}
+        out.append({
+            "name": m.name,
+            "base_color_factor": [float(v) for v in m.base_color_factor],
+            "metallic_factor": float(m.metallic_factor), "roughness_factor": float(m.roughness_factor),
+            "emissive_factor": [float(v) for v in m.emissive_factor] if m.emissive_factor is not None else [0.0, 0.0, 0.0],
+            "alpha_mode": m.alpha_mode or "OPAQUE",
+            "alpha_cutoff": float(m.alpha_cutoff) if m.alpha_cutoff is not None else None,
+            "double_sided": bool(m.double_sided),
+            "extensions": ext,
+            "texture_slots": [slot for slot, ref in (
+                ("baseColorTexture", m.base_color_texture), ("metallicRoughnessTexture", m.metallic_roughness_texture),
+                ("normalTexture", m.normal_texture), ("occlusionTexture", m.occlusion_texture),
+                ("emissiveTexture", m.emissive_texture)) if ref is not None],
+        })
+    return out
 
 
 _GEOMETRY_PROPS = frozenset({
@@ -412,9 +498,13 @@ def write_engine_package(
     ``stage_manager`` is the working :class:`StageManager`; the bundle's UVs are authored into it first
     (overlay, not a transaction: see usd_stage.py), so the stage, the exported USD and the GLB carry the
     same unwrapped topology. ``bundle_or_parts`` is an ``ExportBundle`` or a mapping with ``uvs``,
-    ``lods`` and ``colliders`` (and optional ``timings_ms``).
+    ``lods`` and ``colliders``.
+
+    The package is a function of the scene and the budget: two exports of the same scene are byte-identical,
+    manifest included. How long the kernels took is run telemetry (``ExportBundle.timings_ms``, the pipeline's
+    step durations), not package content, so it is not written here.
     """
-    uvs, lods, hulls, timings = _parts(bundle_or_parts)
+    uvs, lods, hulls = _parts(bundle_or_parts)
     if not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", asset_name):
         raise ValueError("package asset_name must be a USD identifier")
     qa = dict(qa or {})
@@ -464,7 +554,7 @@ def write_engine_package(
     usdz_name: str | None = None
     usdz_skipped: str | None = None
     try:
-        if UsdUtils.CreateNewUsdzPackage(Sdf.AssetPath(str(usd_path)), str(out / f"{asset_name}.usdz")):
+        if create_usdz(usd_path, out / f"{asset_name}.usdz"):
             usdz_name = f"{asset_name}.usdz"
             files.append(usdz_name)
         else:
@@ -472,7 +562,7 @@ def write_engine_package(
     except Exception as e:  # noqa: BLE001 - pxr raises Tf.ErrorException
         usdz_skipped = f"{type(e).__name__}: {e}"[:200]
 
-    materials = _glb_materials(stage, meshes, out, textures)
+    materials = gltf_materials(stage, meshes, package_dir=out)
     # Preserve selectable nodes where the draw budget allows it. Static props whose
     # node count exceeds the budget are submitted in one world-space batch per material.
     batches = {u.node_id: [u.node_id] for u in uvs}
@@ -494,25 +584,13 @@ def write_engine_package(
         files.append(f"{asset_name}_colliders.glb")
     files.extend(dict.fromkeys(t[key] for t in textures for key in ("path", "usd_path")))
 
-    # Use precisely the same seam-split vertices, PBR bindings and +Y normals as the GLB.
-    from antigravity3d.tactics.package import merged_lods
-
+    # The inspector renders a GLB built by the same writer from the same seam-split vertices and the same
+    # GltfMaterial objects as the package GLB, so what is reviewed is what ships.
     inspector_meshes = [MeshData(m.node_id, m.prim_path, u.points, u.triangles, m.material_id)
                         for m, u in zip(meshes, uvs, strict=True)]
-    inspector_maps = {}
-    for material in materials.values():
-        if material.name in inspector_maps:
-            continue
-        slots = {}
-        for role, ref in (("albedo", material.base_color_texture), ("orm", material.metallic_roughness_texture),
-                          ("normal", material.normal_texture)):
-            if ref is not None:
-                slots[role + "_png"] = _inspector_png(ref.image)  # the embedded bytes: nothing is re-encoded
-        inspector_maps[material.name] = InspectorTextures(**slots)
-    merged = merged_lods(ExportBundle(asset_name, uvs, lods, hulls))
-    viewer = build_inspector(inspector_meshes, asset_name=asset_name, budget=budget, textures=inspector_maps,
+    viewer = build_inspector(inspector_meshes, asset_name=asset_name, budget=budget, materials=materials,
                              uvs={u.node_id: u.uvs for u in uvs},
-                             lods=[(f"LOD{i}", m.points, m.triangles) for i, m in enumerate(merged) if i],
+                             lods=dict(lods) if glb_levels > 1 else None,
                              colliders=[(name, h.points, h.triangles) for name, h in zip(names, hulls)],
                              qa=InspectorQA(bool(qa.get("tier1_ok")), tier15_score=qa.get("tier15"),
                                             defects=qa.get("defects", {}), audit_deltas=qa.get("audit", [])) if qa else None,
@@ -560,7 +638,6 @@ def write_engine_package(
         "textures": textures,
         "qa": {k: v for k, v in qa.items() if k != "audit"},
         "audit": qa.get("audit", []),
-        "timings_ms": timings,
         "versions": _versions(),
         "notes": notes,
         "files": files,

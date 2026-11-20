@@ -201,6 +201,8 @@ def test_rules_text_types_track_the_ir():
 
 
 def test_stage_agents_use_the_generated_rules():
+    """Stage agents get the types from their tool declarations (``*_parameters``) and only the prose a schema cannot
+    carry in the prompt; see tests/test_harness_agents.py and tests/test_tool_schema.py."""
     agents = pytest.importorskip("antigravity3d.harness.agents")
-    assert agents._IR_RULES == S.ir_rules_text()
-    assert agents._IR_RULES in agents._system("BLOCKOUT")
+    assert S.IR_SEMANTICS in agents._system("BLOCKOUT") and S.OP_SEMANTICS in agents._system("BLOCKOUT")
+    assert S.ir_rules_text().splitlines()[2] not in agents._system("BLOCKOUT")  # the "scene: {...}" type line

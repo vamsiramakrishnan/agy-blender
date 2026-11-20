@@ -931,49 +931,130 @@ def _point_triangle_distance(p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.
     return np.sqrt(np.where(inside, dot(q, q), edge))
 
 
+class _SurfaceIndex:
+    """Search structure over one triangle mesh, built once and queried many times: centroids in a KD-tree
+    (first pass), triangle bounding boxes (exact pruning bound) and, for large meshes, a KD-tree over the
+    box centres so the second pass only visits boxes that can be closer than the bound found."""
+
+    def __init__(self, p: np.ndarray, t: np.ndarray) -> None:
+        from scipy.spatial import cKDTree
+
+        p = np.asarray(p, np.float64)
+        t = np.asarray(t, np.int64)
+        self.a, self.b, self.c = p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]
+        self.m = len(t)
+        self.tree = cKDTree((self.a + self.b + self.c) / 3) if self.m else None
+        self.lo = np.minimum(np.minimum(self.a, self.b), self.c)
+        self.hi = np.maximum(np.maximum(self.a, self.b), self.c)
+        self._box_tree = None
+        self._half = 0.0
+
+    def _boxes(self):
+        from scipy.spatial import cKDTree
+
+        if self._box_tree is None:
+            self._box_tree = cKDTree((self.lo + self.hi) / 2)
+            self._half = float(np.linalg.norm((self.hi - self.lo) / 2, axis=1).max())
+        return self._box_tree, self._half
+
+    def distances(self, samples: np.ndarray, limit: float) -> np.ndarray:
+        """Per-sample distance to the surface, exact wherever it exceeds ``limit`` (else an upper bound
+        that is still <= ``limit``): first against the triangle with the nearest centroid, then the 8 nearest,
+        then, for the samples still above ``limit``, against every triangle whose bounding box is closer than
+        that bound. Each pass only sees the samples the previous one could not settle."""
+        n = len(samples)
+        if not n:
+            return np.zeros(0)
+        if not self.m:
+            return np.full(n, np.inf)
+        nn = np.asarray(self.tree.query(samples, k=1)[1]).reshape(-1)  # any triangle gives an upper bound
+        ub = _point_triangle_distance(samples, self.a[nn], self.b[nn], self.c[nn])
+        far = np.flatnonzero(ub > limit)
+        k = min(8, self.m)
+        if len(far) and k > 1:  # tighten with the 8 nearest centroids before the exhaustive pass
+            nn = np.asarray(self.tree.query(samples[far], k=k)[1]).reshape(len(far), k)
+            rows = np.repeat(far, k)
+            f = nn.reshape(-1)
+            d = _point_triangle_distance(samples[rows], self.a[f], self.b[f], self.c[f]).reshape(len(far), k).min(axis=1)
+            ub[far] = np.minimum(ub[far], d)
+            far = far[ub[far] > limit]
+        if not len(far):
+            return ub
+        if self.m <= 2048:  # small target: bounding-box bound against every triangle
+            step = max(1, 2_000_000 // self.m)
+            for s0 in range(0, len(far), step):
+                ids = far[s0:s0 + step]
+                sl = samples[ids]
+                gap = np.maximum(np.maximum(self.lo[None] - sl[:, None], sl[:, None] - self.hi[None]), 0.0)
+                r2, c2 = np.nonzero(np.sqrt(np.einsum("ijk,ijk->ij", gap, gap)) < ub[ids][:, None])
+                self._refine(ub, ids, sl, r2, c2)
+            return ub
+        import itertools
+
+        tree, half = self._boxes()
+        sl = samples[far]
+        hits = tree.query_ball_point(sl, ub[far] + half)  # every box that can hold a closer triangle
+        cnt = np.fromiter(map(len, hits), np.int64, len(hits))
+        r2 = np.repeat(np.arange(len(far)), cnt)
+        c2 = np.fromiter(itertools.chain.from_iterable(hits), np.int64, int(cnt.sum()))
+        gap = np.maximum(np.maximum(self.lo[c2] - sl[r2], sl[r2] - self.hi[c2]), 0.0)
+        keep = np.sqrt(np.einsum("ij,ij->i", gap, gap)) < ub[far][r2]
+        self._refine(ub, far, sl, r2[keep], c2[keep])
+        return ub
+
+    def exceeds(self, samples: np.ndarray, limit: float) -> bool:
+        """True iff some sample is farther than ``limit`` from the surface (exact), stopping at the first proof:
+        candidates are refined exactly in small batches, farthest upper bound first."""
+        if not len(samples):
+            return False
+        if not self.m:
+            return True
+        nn = np.asarray(self.tree.query(samples, k=1)[1]).reshape(-1)
+        ub = _point_triangle_distance(samples, self.a[nn], self.b[nn], self.c[nn])
+        far = np.flatnonzero(ub > limit)
+        far = far[np.argsort(-ub[far], kind="stable")]
+        for s0, step in ((0, 64), (64, 4096)):
+            chunk = far[s0:s0 + step] if step == 64 else far[s0:]
+            for c0 in range(0, len(chunk), step):
+                ids = chunk[c0:c0 + step]
+                if self.distances(samples[ids], limit).max() > limit:
+                    return True
+        return False
+
+    def _refine(self, ub: np.ndarray, ids: np.ndarray, sl: np.ndarray, r2: np.ndarray, c2: np.ndarray) -> None:
+        if len(r2):
+            d = np.full(len(ids), np.inf)
+            np.minimum.at(d, r2, _point_triangle_distance(sl[r2], self.a[c2], self.b[c2], self.c[c2]))
+            ub[ids] = np.minimum(ub[ids], d)
+
+
 def _one_sided(samples: np.ndarray, p: np.ndarray, t: np.ndarray, limit: float) -> float:
-    """max over samples of the distance to surface (p, t), decided exactly against ``limit``.
-
-    First pass: each sample against the triangles with the 8 nearest centroids (an upper bound). Samples whose
-    bound exceeds ``limit`` are then measured against every triangle whose bounding box is closer than that
-    bound, which makes them exact. So the result is exact whenever it exceeds ``limit`` and otherwise an upper
-    bound that is still <= ``limit``: the accept / reject decision is never wrong."""
-    from scipy.spatial import cKDTree
-
-    a, b, c = p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]
-    n = len(samples)
-    if not n:
-        return 0.0
-    k = min(8, len(t))
-    nn = np.asarray(cKDTree((a + b + c) / 3).query(samples, k=k)[1]).reshape(n, k)
-    rows = np.repeat(np.arange(n), k)
-    ub = _point_triangle_distance(samples[rows], a[nn.reshape(-1)], b[nn.reshape(-1)], c[nn.reshape(-1)]).reshape(n, k).min(axis=1)
-    far = np.flatnonzero(ub > limit)
-    if len(far):
-        lo, hi = np.minimum(np.minimum(a, b), c), np.maximum(np.maximum(a, b), c)
-        step = max(1, 2_000_000 // max(len(t), 1))
-        for s0 in range(0, len(far), step):
-            ids = far[s0:s0 + step]
-            sl = samples[ids]
-            gap = np.maximum(np.maximum(lo[None] - sl[:, None], sl[:, None] - hi[None]), 0.0)
-            lb = np.sqrt(np.einsum("ijk,ijk->ij", gap, gap))
-            r2, c2 = np.nonzero(lb < ub[ids][:, None])
-            if len(r2):
-                d = np.full(len(ids), np.inf)
-                np.minimum.at(d, r2, _point_triangle_distance(sl[r2], a[c2], b[c2], c[c2]))
-                ub[ids] = np.minimum(ub[ids], d)
-    return float(ub.max())
+    """max over samples of the distance to surface (p, t), decided exactly against ``limit`` (exact whenever it
+    exceeds ``limit``, otherwise an upper bound that is still <= ``limit``: the accept / reject decision is
+    never wrong). See _SurfaceIndex.distances."""
+    d = _SurfaceIndex(p, t).distances(np.asarray(samples, np.float64), limit)
+    return float(d.max()) if len(d) else 0.0
 
 
-def _surface_deviation(p0: np.ndarray, t0: np.ndarray, p1: np.ndarray, t1: np.ndarray, limit: float) -> float:
+def _coarse_samples(p1: np.ndarray, t1: np.ndarray) -> np.ndarray:
+    a, b, c = p1[t1[:, 0]], p1[t1[:, 1]], p1[t1[:, 2]]
+    return np.vstack([(a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2])
+
+
+def _surface_deviation(p0: np.ndarray, t0: np.ndarray, p1: np.ndarray, t1: np.ndarray, limit: float,
+                       ref_index: _SurfaceIndex | None = None) -> float:
     """Two-sided surface distance (a sampled Hausdorff distance) between a mesh (p0, t0) and its
     simplification (p1, t1), in the units of the points, decided exactly against ``limit`` (see _one_sided).
     Reference -> simplified: the reference's vertices (where an edge collapse moves the surface most).
     Simplified -> reference: centroids and edge midpoints of the coarse triangles (chords and bulges; its
-    vertices are reference vertices, at distance 0)."""
-    a, b, c = p1[t1[:, 0]], p1[t1[:, 1]], p1[t1[:, 2]]
-    coarse = np.vstack([(a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2])
-    return max(_one_sided(p0[np.unique(t0)], p1, t1, limit), _one_sided(coarse, p0, t0, limit))
+    vertices are reference vertices, at distance 0). ``ref_index``: a prebuilt index of (p0, t0) to reuse.
+    A value above ``limit`` is exact for the side that exceeded it (the other side is then not measured)."""
+    ref = ref_index if ref_index is not None else _SurfaceIndex(p0, t0)
+    d1 = _SurfaceIndex(p1, t1).distances(p0[np.unique(t0)], limit)
+    if len(d1) and d1.max() > limit:  # already rejected (and exact): skip the other side
+        return float(d1.max())
+    d2 = ref.distances(_coarse_samples(p1, t1), limit)
+    return float(max(d1.max() if len(d1) else 0.0, d2.max() if len(d2) else 0.0))
 
 
 # 13 view directions (axes, face and body diagonals; opposite directions project identically)
@@ -1034,6 +1115,13 @@ class _Simplifier:
         self._area0 = _projected_areas(*self.ref)
         self._floor = 0.0  # largest budget known to remove nothing: smaller budgets cannot do better
         self._measured: dict[bytes, tuple[float, float]] = {}
+        self._ref_index: _SurfaceIndex | None = None  # built on first measurement, reused by every level/attempt
+
+    @property
+    def ref_index(self) -> _SurfaceIndex:
+        if self._ref_index is None:
+            self._ref_index = _SurfaceIndex(*self.ref)
+        return self._ref_index
 
     def _run(self, target_error_m: float) -> np.ndarray:
         import meshoptimizer as mo
@@ -1066,8 +1154,8 @@ class _Simplifier:
         key = idx.tobytes()
         if key not in self._measured:
             sil = self.silhouette_change(idx)
-            dev = (_surface_deviation(self.ref[0], self.ref[1], self.ref[0], idx.reshape(-1, 3).astype(np.int64), limit)
-                   if sil <= silhouette_tol else np.inf)
+            dev = (_surface_deviation(self.ref[0], self.ref[1], self.ref[0], idx.reshape(-1, 3).astype(np.int64), limit,
+                                      self.ref_index) if sil <= silhouette_tol else np.inf)
             self._measured[key] = (sil, dev)
         return self._measured[key]
 
@@ -1103,11 +1191,130 @@ class _Simplifier:
                    None if self.uv is None else v[:, 3:5].copy(), dev / self.scale, dev, float(screen_fraction))
 
 
+LOD_DROP_MAX_SAMPLES = 200_000  # a part needing more surface samples than this is never dropped (conservative)
+
+
+def _dense_samples(p: np.ndarray, t: np.ndarray, spacing: float) -> np.ndarray | None:
+    """Barycentric grid on every triangle, sub-triangle edges <= ``spacing``: every surface point is then
+    within spacing / sqrt(3) of a sample (circumradius bound), so a 1-Lipschitz distance measured on the
+    samples is exact to that cover radius. None when that would take more than LOD_DROP_MAX_SAMPLES."""
+    a, b, c = p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]
+    longest = np.max(np.stack([np.linalg.norm(b - a, axis=1), np.linalg.norm(c - b, axis=1), np.linalg.norm(a - c, axis=1)]), axis=0)
+    k = np.maximum(np.ceil(longest / max(spacing, 1e-12)), 1).astype(np.int64)
+    if int(((k + 1) * (k + 2) // 2).sum()) > LOD_DROP_MAX_SAMPLES:
+        return None
+    out = []
+    for kk in np.unique(k):
+        sel = k == kk
+        i, j = np.meshgrid(np.arange(kk + 1), np.arange(kk + 1), indexing="ij")
+        ok = (i + j) <= kk
+        u, v = (i[ok] / kk)[None, :, None], (j[ok] / kk)[None, :, None]
+        out.append((a[sel][:, None] * (1 - u - v) + b[sel][:, None] * u + c[sel][:, None] * v).reshape(-1, 3))
+    return np.vstack(out)
+
+
+def _gather(ms: Sequence[tuple[np.ndarray, np.ndarray]]) -> tuple[np.ndarray, np.ndarray]:
+    pts, tris, off = [], [], 0
+    for q, t in ms:
+        if len(t):
+            pts.append(np.asarray(q, np.float64))
+            tris.append(np.asarray(t, np.int64).reshape(-1, 3) + off)
+            off += len(q)
+    return (np.vstack(pts), np.vstack(tris)) if pts else (np.zeros((0, 3)), np.zeros((0, 3), np.int64))
+
+
+class _Silhouettes:
+    """Orthographic silhouettes of an asset's LOD0 along the 13 _VIEW_DIRS, rendered once, with the asset's
+    bounding sphere spanning ``object_px`` pixels (its on-screen size at the level being judged, capped at
+    512 px); :meth:`iou` compares another version of the asset against them (smallest IoU over the views)."""
+
+    def __init__(self, asset0: Sequence[tuple[np.ndarray, np.ndarray]], object_px: float) -> None:
+        p0, t0 = _gather(asset0)
+        self.centre = (p0.min(0) + p0.max(0)) / 2
+        radius = max(float(np.linalg.norm(p0.max(0) - p0.min(0))) / 2, 1e-9)
+        px = min(float(object_px), 512.0)
+        self.size = int(max(16, np.ceil(px * 1.1)))
+        self.scale = px / (2 * radius)
+        self.frames = []
+        for d in _VIEW_DIRS:
+            r = np.cross(d, [0, 0, 1.0] if abs(d[2]) < 0.9 else [1.0, 0, 0])
+            r /= np.linalg.norm(r)
+            self.frames.append((d, r, np.cross(r, d)))
+        self.masks0 = [self._mask(p0, t0, f) for f in self.frames]
+
+    def _mask(self, p: np.ndarray, t: np.ndarray, frame) -> np.ndarray:
+        from antigravity3d.kernel.raster import _rasterise
+
+        if not len(t):
+            return np.zeros((self.size, self.size), bool)
+        d, r, u = frame
+        q = p - self.centre
+        sxy = np.stack([q @ r * self.scale + self.size / 2, self.size / 2 - q @ u * self.scale], axis=1)
+        return _rasterise(sxy, (q @ d).astype(np.float32), t, self.size)[0] >= 0
+
+    def iou(self, version: Sequence[tuple[np.ndarray, np.ndarray]]) -> float:
+        p1, t1 = _gather(version)
+        worst = 1.0
+        for m0, f in zip(self.masks0, self.frames):
+            m1 = self._mask(p1, t1, f)
+            union = (m0 | m1).sum()
+            worst = min(worst, float((m0 & m1).sum() / union) if union else 1.0)
+        return worst
+
+
 def _bounds_radius(points: Sequence[np.ndarray]) -> float:
     p = [np.asarray(x, np.float64) for x in points if len(x)]
     lo = np.min([x.min(axis=0) for x in p], axis=0)
     hi = np.max([x.max(axis=0) for x in p], axis=0)
     return float(np.linalg.norm(hi - lo)) / 2
+
+
+def _absent(s: "_Simplifier", screen_fraction: float) -> LOD:
+    """A part that is not drawn at this level: no points, no triangles (``tri_count == 0``)."""
+    return LOD(0.0, np.zeros((0, 3)), np.zeros((0, 3), np.int32), None if s.uv is None else np.zeros((0, 2), np.float32),
+               0.0, 0.0, float(screen_fraction))
+
+
+def _droppable(simp: dict[str, "_Simplifier"], picks: dict[str, tuple[np.ndarray, float]], already: set[str], budget: float,
+               asset0: list[tuple[np.ndarray, np.ndarray]], min_iou: float, object_px: float) -> set[str]:
+    """Parts that may be absent at a level: removing them keeps the asset within the level's budget.
+
+    A part P may go when every point of its LOD0 surface is within ``budget`` of what remains drawn at this
+    level (the other parts' meshes at this level): the asset's two-sided surface distance to LOD0 is then still
+    <= budget (the other direction is the remaining parts' own measured deviation). Measured on a sample grid
+    with spacing budget / 4 whose cover radius (budget / 4 / sqrt 3) is subtracted from the limit, so the bound
+    is exact, not sampled. And the asset's silhouette, seen from 13 directions at its on-screen size, must keep
+    IoU >= ``min_iou`` against LOD0. Greedy, smallest surface first, ties by name; parts already absent at the
+    previous level stay absent. Never every part."""
+    gone = set(already)
+    sil: _Silhouettes | None = None  # LOD0 silhouettes, rendered on first need and shared by every candidate
+    spacing = budget / 4
+    limit = budget - spacing / np.sqrt(3)
+    order = sorted((nid for nid in simp if nid not in gone),
+                   key=lambda n: (float(_tri_areas(simp[n].ref[0], simp[n].ref[1], 3).sum()), n))
+    for nid in order:
+        rest = [n for n in simp if n not in gone and n != nid]
+        if not rest:
+            break
+        pts, tris, off = [], [], 0
+        for n in rest:
+            pts.append(simp[n].ref[0])
+            tris.append(picks[n][0].reshape(-1, 3).astype(np.int64) + off)
+            off += len(simp[n].ref[0])
+        index = _SurfaceIndex(np.vstack(pts), np.vstack(tris))
+        # the part's own vertices first: exact, cheap, and a lower bound of the maximum
+        if index.exceeds(simp[nid].ref[0][np.unique(simp[nid].ref[1])], limit):
+            continue
+        samples = _dense_samples(simp[nid].ref[0], simp[nid].ref[1], spacing)
+        if samples is None or index.exceeds(samples, limit):
+            continue
+        level = [(simp[n].ref[0], picks[n][0].reshape(-1, 3)) for n in simp if n not in gone and n != nid]
+        if sil is None:
+            sil = _Silhouettes(asset0, object_px)
+        if sil.iou(level) < min_iou:
+            continue
+        gone.add(nid)
+    return gone
 
 
 def generate_asset_lods(
@@ -1151,15 +1358,18 @@ def generate_asset_lods(
     simp = {nid: _Simplifier(pts, tri, uv) for nid, pts, tri, uv in items}
     chains = {nid: [s.level(s.idx0, 0.0, 1.0)] for nid, s in simp.items()}
     prev_tris = sum(len(s.idx0) // 3 for s in simp.values())
+    dropped: set[str] = set()  # parts absent at the last emitted level stay absent further out
+    asset0 = [(s.ref[0], s.ref[1]) for s in simp.values()]
     for f in fr[1:]:
         budget = ld.lod_error_budget_m(radius, f, error_px=error_px, screen_px=screen_px)
         picks = {nid: s.within(budget, silhouette_tol) for nid, s in simp.items()}
-        tris = sum(len(idx) // 3 for idx, _ in picks.values())
+        gone = _droppable(simp, picks, dropped, budget, asset0, 1.0 - silhouette_tol, f * screen_px) if len(simp) > 1 else set()
+        tris = sum(len(idx) // 3 for nid, (idx, _) in picks.items() if nid not in gone)
         if tris >= prev_tris or tris > (1.0 - min_reduction) * prev_tris:  # never a duplicate level
             continue
         for nid, (idx, dev) in picks.items():
-            chains[nid].append(simp[nid].level(idx, dev, f))
-        prev_tris = tris
+            chains[nid].append(_absent(simp[nid], f) if nid in gone else simp[nid].level(idx, dev, f))
+        dropped, prev_tris = gone, tris
     for nid, chain in empty.items():  # keep every part's chain as long as the asset's
         chains[nid] = chain * max((len(c) for c in chains.values()), default=1)
     return chains

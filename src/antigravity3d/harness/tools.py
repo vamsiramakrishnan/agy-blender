@@ -21,9 +21,10 @@ from typing import Any, Awaitable, Callable
 
 import numpy as np
 from google.antigravity.tools.tool_context import ToolContext
+from google.antigravity.tools.tool_runner import ToolWithSchema
 from PIL import Image
 
-from antigravity3d import ir
+from antigravity3d import ir, ir_schema
 from antigravity3d.adapters.engines.validators import MIN_SILHOUETTE_IOU, blender_frame_png, silhouette_iou
 from antigravity3d.adapters.blender_5_3.linter import UnsafeScriptError, assert_safe
 from antigravity3d.decisions.compose import Action, decide_action, engine_parity_reasons, rank, tier15_score
@@ -53,10 +54,38 @@ def _guard(fn: ToolFn) -> ToolFn:
     async def wrapper(*args: Any, **kwargs: Any) -> str:
         try:
             return await fn(*args, **kwargs)
+        except ir_schema.IRArgumentError as e:  # already one actionable line: where, what, what was expected
+            return f"ERROR {str(e)[:400]}"
         except (ValueError, LookupError, RuntimeError) as e:  # bad input / unknown id / refused stage edit
             return f"ERROR {compress_exception(e)}"
 
     return wrapper
+
+
+def _typed(parameters: Callable[[], dict[str, Any]]) -> Callable[[ToolFn], ToolFn]:
+    """Declare the tool with an explicit input schema (the SDK's ``ToolWithSchema``) generated from the IR schema.
+
+    The SDK sends ``input_schema`` as the function declaration instead of deriving one from the signature, and the MCP
+    server advertises the same dict (``runtime/mcp_server.py``), so both paths have one definition. Arguments are not
+    validated by either runtime against it; the tool parses them strictly (``ir_schema.parse_ops``) and answers one
+    ``ERROR invalid IR: ...`` line naming the op, the field and what was expected.
+    """
+    def wrap(fn: ToolFn) -> ToolFn:
+        return ToolWithSchema(fn, parameters())  # type: ignore[return-value]
+
+    return wrap
+
+
+def _decoded(value: Any, what: str) -> Any:
+    """Arguments arrive typed; a JSON *string* in their place (a model or an older client still writing the old
+    ``*_json`` form) is accepted deliberately: its meaning is unambiguous and refusing it would only cost a round trip.
+    It goes through the same strict parse."""
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError as e:
+        raise ir_schema.IRArgumentError(f"invalid IR: {what} is a string that is not JSON ({e.msg} at char {e.pos})") from None
 
 
 def export_block_reason(state: AssetSessionState) -> str | None:
@@ -196,27 +225,54 @@ async def _auto_fix(s: Session, action: Action) -> str:
     return f"{action.fixer} applied to {len(ops)} material(s) tx={tid}; re-run QA"
 
 
-def _scene_from_json(s: Session, text: str) -> tuple[Callable[[], str], int]:
-    payload = json.loads(text)
+def _edit(s: Session, ops: Any) -> tuple[Callable[[], str], int]:
+    """``ops`` (a list of op objects) -> (apply callable, op count). The legacy string form may also carry a patch
+    object ``{"ops": [...]}`` or a full scene ``{"nodes": [...], "materials": [...]}`` (replaces the scene)."""
+    payload = _decoded(ops, "ops")
     if isinstance(payload, dict) and "nodes" in payload:
-        scene = SceneIR.model_validate({**payload, "asset_name": s.stage.asset_prim.GetName()})
+        scene = ir_schema.parse_tool_scene(s.stage.asset_prim.GetName(), payload["nodes"], payload.get("materials"))
         return (lambda: s.stage.apply_ir(scene)), len(scene.nodes) + len(scene.materials)
-    patch = IRPatch.model_validate(payload if isinstance(payload, dict) else {"ops": payload})
+    if isinstance(payload, dict) and set(payload) == {"ops"}:
+        payload = payload["ops"]
+    patch = ir_schema.parse_ops(payload)
     return (lambda: s.stage.apply_patch(patch)), len(patch.ops)
+
+
+def _material_refs(materials: list[Any]) -> list[str]:
+    return [m[k] for m in materials if isinstance(m, dict) for k in MAP_KEYS if isinstance(m.get(k), str)]
+
+
+def image_refs(name: str, args: dict[str, Any]) -> list[str]:
+    """Texture paths/URIs a call would bind (the gate screens them before the call runs). Malformed arguments give
+    no refs: the tool itself rejects them."""
+    try:
+        if name == "apply_shader_diff":
+            diff = _decoded(args.get("diff"), "diff") or {}
+            return _material_refs([diff]) if isinstance(diff, dict) else []
+        if name == "apply_scene_ir":
+            payload = _decoded(args.get("ops"), "ops") or []
+            if isinstance(payload, dict) and "nodes" in payload:
+                return _material_refs(payload.get("materials") or [])
+            ops = payload.get("ops", []) if isinstance(payload, dict) else payload
+            return _material_refs([o.get("material") for o in ops if isinstance(o, dict) and o.get("op") == "upsert_material"])
+        if name == "propose_variants":
+            variants = _decoded(args.get("variants"), "variants") or []
+            ops = [o for v in _variant_list(variants) for o in (v.get("ops") or []) if isinstance(o, dict)]
+            return _material_refs([o.get("material") for o in ops if o.get("op") == "upsert_material"])
+    except (ValueError, TypeError, AttributeError):
+        return []
+    return []
 
 
 # --------------------------------------------------------------------------- BLOCKOUT
 
 
+@_typed(ir_schema.apply_scene_ir_parameters)
 @_guard
-async def apply_scene_ir(ops_json: str, ctx: ToolContext) -> str:
-    """Atomically apply an IR edit; auto-rolled back if Tier-1 QA fails.
-
-    ops_json: {"ops":[...]} patch (ops: upsert_node, remove_node, set_transform, set_param,
-    upsert_material, assign_material, on_top_of, flush_back) or a full scene {"nodes":[...],"materials":[...]}.
-    """
+async def apply_scene_ir(ops: list[dict[str, Any]] | dict[str, Any] | str, ctx: ToolContext) -> str:
+    """Atomically apply a Scene IR patch; rolled back if Tier-1 QA fails."""
     s = resolve(ctx)
-    apply, n = _scene_from_json(s, ops_json)
+    apply, n = _edit(s, ops)
     async with s.registry.locked(s.sid):
         tid, rep = await _commit(s, apply)
         nodes = len(s.stage.base_ir().nodes)
@@ -305,18 +361,34 @@ async def qa_probe(ctx: ToolContext) -> str:
 # --------------------------------------------------------------------------- variants
 
 
+def _variant_list(variants: Any) -> list[dict[str, Any]]:
+    """``[{"name", "ops"}]``; the legacy map ``{"open": [ops], ...}`` is read as the same list."""
+    if isinstance(variants, dict):
+        return [{"name": k, "ops": v.get("ops") if isinstance(v, dict) else v} for k, v in variants.items()]
+    if not isinstance(variants, list) or not variants:
+        raise ir_schema.IRArgumentError("invalid IR: variants: expected a non-empty list of {name, ops}")
+    return variants
+
+
+@_typed(ir_schema.propose_variants_parameters)
 @_guard
-async def propose_variants(variants_json: str, ctx: ToolContext) -> str:
-    """Add parallel branches: {"set":"lid","variants":{"open":[ops],"closed":[ops]}}; each is a patch on the base."""
+async def propose_variants(set_name: str, variants: list[dict[str, Any]] | dict[str, Any] | str, ctx: ToolContext) -> str:
+    """Add parallel variants of one variant set, each a patch on the base scene; Tier-1 checked per variant."""
     s = resolve(ctx)
-    payload = json.loads(variants_json)
-    set_name, variants = payload["set"], payload["variants"]
+    patches: dict[str, IRPatch] = {}
+    for i, v in enumerate(_variant_list(_decoded(variants, "variants"))):
+        name = v.get("name") if isinstance(v, dict) else None
+        if not isinstance(name, str) or not name:
+            raise ir_schema.IRArgumentError(f"invalid IR: variants[{i}].name: expected a non-empty string")
+        try:
+            patches[name] = ir_schema.parse_ops(v.get("ops"))
+        except ir_schema.IRArgumentError as e:
+            raise ir_schema.IRArgumentError(str(e).replace("invalid IR: ", f"invalid IR: variants[{i}]({name}).", 1)) from None
     report = []
     async with s.registry.locked(s.sid):
         first: str | None = None
         try:
-            for name, ops in variants.items():
-                patch = IRPatch.model_validate(ops if isinstance(ops, dict) else {"ops": ops})
+            for name, patch in patches.items():
                 tid = s.stage.add_variant(set_name, name, patch)
                 first = first or tid
                 probe = s.stage.select_variant(set_name, name)
@@ -419,21 +491,29 @@ async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, ca
     return f"MATERIAL {material_id} v{k}: albedo+orm+normal bound (pick {best + 1}/{len(gens)}, {len(allowed)} passed policy) tx={tid}"
 
 
+@_typed(ir_schema.apply_shader_diff_parameters)
 @_guard
-async def apply_shader_diff(material_id: str, diff_json: str, ctx: ToolContext) -> str:
-    """Tweak a material: {"base_color":[r,g,b],"roughness":0.6,"metallic":0,"assign_to":["node_id"]}."""
+async def apply_shader_diff(material_id: str, diff: dict[str, Any] | str | None = None, ctx: ToolContext = None,  # type: ignore[assignment]
+                            assign_to: list[str] | None = None) -> str:
+    """Create or change a material (only the given fields) and optionally bind it to nodes."""
     s = resolve(ctx)
-    diff: dict[str, Any] = json.loads(diff_json)
-    assign = diff.pop("assign_to", []) or []
+    fields = _decoded(diff, "diff") or {}
+    if not isinstance(fields, dict):
+        raise ir_schema.IRArgumentError("invalid IR: diff: expected an object of material fields")
+    fields = dict(fields)
+    assign = list(assign_to or []) + list(fields.pop("assign_to", None) or [])  # the legacy form carried it in the diff
+    fields.pop("id", None)
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", material_id):
+        raise ir_schema.IRArgumentError(f"invalid IR: material_id {material_id!r} must match [A-Za-z_][A-Za-z0-9_]* (<= 64 chars)")
     async with s.registry.locked(s.sid):
         current = _material(s, material_id) or MaterialIR(id=material_id)
-        new = MaterialIR.model_validate({**current.model_dump(), **diff, "id": material_id})
+        new = ir_schema.apply_material_diff(current, fields)
         ops: list[Any] = [UpsertMaterial(material=new)]
         ops += [ir.AssignMaterial(node_id=n, material_id=material_id) for n in assign]
         tid, rep = await _commit(s, lambda: s.stage.apply_patch(IRPatch(ops=ops)))
     if tid is None:
         return f"ROLLED BACK {rep.one_line(160)}"
-    keys = ",".join(sorted(diff)) or "-"
+    keys = ",".join(sorted(fields)) or "-"
     return f"SHADER {material_id} set={keys} assigned={len(assign)} tx={tid} {_stats(rep)}"
 
 
@@ -682,6 +762,15 @@ STAGE_TOOLS: dict[str, list[ToolFn]] = {
 SUBAGENT_TOOLS: dict[str, list[ToolFn]] = {
     "usd_verifier": [inspect_manifest, run_usd_validator],
     "lookdev_critic": [inspect_manifest, qa_probe],
+}
+# Subagents a stage may invoke: only where they do something the stage's own tools do not.
+#   usd_verifier (UsdValidation + engine compliance): VARIANTS (variant-set composition) and LOOKDEV (UsdShade
+#     bindings) have no validator of their own. EXPORT has run_usd_validator directly; BLOCKOUT/TWEAK are gated by
+#     Tier-1 on every edit and their USD is validated at EXPORT.
+#   lookdev_critic (read-only qa_probe in a separate context, verdict not stored or revoked): LOOKDEV. BLOCKOUT and
+#     VARIANTS run run_visual_qa themselves; TWEAK cannot render the preview qa_probe needs; EXPORT cannot repair QA.
+STAGE_SUBAGENTS: dict[str, tuple[str, ...]] = {
+    "BLOCKOUT": (), "TWEAK": (), "VARIANTS": ("usd_verifier",), "LOOKDEV": ("lookdev_critic", "usd_verifier"), "EXPORT": (),
 }
 ALL_TOOLS: dict[str, ToolFn] = {f.__name__: f for fs in (*STAGE_TOOLS.values(), *SUBAGENT_TOOLS.values()) for f in fs}
 READ_ONLY_TOOL_NAMES = frozenset(f.__name__ for fs in SUBAGENT_TOOLS.values() for f in fs)

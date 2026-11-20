@@ -140,7 +140,7 @@ it through the MCP Apps SDK (`@modelcontextprotocol/ext-apps`, bundled).
 | `ui://antigravity-3d/inspector.html` | resource, `text/html;profile=mcp-app`, `_meta.ui.prefersBorder` | | One self-contained document (three.js r160 + SDK + app, about 1.4 MB). Built from `apps/inspector` (`npm ci && npm run build`); `$AGY3D_INSPECTOR_APP_HTML` serves another file for UI iteration. |
 | `open_inspector` | tool, `_meta.ui.resourceUri` + entrypoints `aux_pane` and `global` ("3D Inspector") | model and app | Opens the inspector for the active (or given) session. All arguments optional (`node`, `lod`, `channel`, `view`, `wireframe`, `colliders`); calling it again updates the open view. Returns one line for the model and a small summary as `structuredContent`. |
 | `review_notes` | tool | model | The reviewer's notes, current and stale. |
-| `inspector_payload` | tool, `visibility: ["app"]` | app only | Geometry, UVs, LODs, hulls (scene JSON) and textures, in 512 KiB chunks per revision. |
+| `inspector_payload` | tool, `visibility: ["app"]` | app only | Per revision, in 512 KiB chunks: part `scene` (review metadata: budget, node table, QA, which glTF node is which node / LOD / hull) and part `glb`, the review GLB. |
 | `inspector_qa_state`, `inspector_list_notes`, `inspector_save_note` | tools, `visibility: ["app"]` | app only | QA gate state; notes listing and eager saving. |
 
 The inspector tools are session-level, like the management tools: they are
@@ -163,9 +163,21 @@ fresh and storage is discarded), no network (the default CSP
 `default-src 'none'` needs no extra domains), no hand-written `postMessage`
 bridge.
 
+**What the reviewer sees is what ships.** The asset reaches the page as one
+"review GLB" (`antigravity3d/artifacts/review_glb.py`) built by the package's
+glTF writer with the package's conversion (crease normals split at hard edges,
+glTF UVs, the package's GLB materials): LOD0 and every further LOD level per
+node, and the collider hulls, as separate nodes sharing de-duplicated images.
+three.js r160's `GLTFLoader` (vendored unmodified, see
+`artifacts/vendor/three-r160-addons.provenance.json`) loads it; the debug
+channels (clay, albedo, ORM, occlusion, roughness, metallic, normal map, UV
+checker, prim ID), wireframe, colliders, LODs and picking are overrides on the
+loaded meshes. In a session, materials come from the composed stage
+(`review_glb.session_materials`).
+
 The standalone `inspector.html` that `agy3d prop` writes into a package is the
-same front end (`apps/inspector/src/viewer.js`) with an embedded payload; it
-keeps notes in the page and exports them as a JSON file.
+same front end (`apps/inspector/src/viewer.js`) with the payload and the review
+GLB embedded; it keeps notes in the page and exports them as a JSON file.
 
 The inspector used to be a `has_web_ui` sidecar (`sidecars/inspector`) serving
 HTML files from a directory. It was removed: nothing in the pipeline wrote into

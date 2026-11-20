@@ -14,6 +14,11 @@ glob-scoped rule files add detail when matching files are in play:
   geometry and layout, `apply_shader_diff` / `forge_pbr_material` for
   materials, `generate_lods_and_colliders` for LODs and collision. Read state
   with `inspect_manifest`, not by opening files.
+- Their IR arguments are typed objects described by each tool's schema:
+  `apply_scene_ir(ops=[...])`, `propose_variants(set_name, variants=[{name,
+  ops}])`, `apply_shader_diff(material_id, diff={...}, assign_to=[...])`.
+  A rejected argument comes back as one `ERROR invalid IR: ...` line naming
+  the op, the field and what was expected; fix that field and resend.
 - Raw `bpy` is an escape hatch, used only when no Scene IR op can express the
   change. Every raw script must pass the Blender 5.3 linter
   (`antigravity3d.adapters.blender_5_3.linter.assert_safe`); the PreToolUse

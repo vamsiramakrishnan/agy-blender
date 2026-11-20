@@ -54,7 +54,7 @@ def lod_transitions(lods: Sequence[Any]) -> tuple[float, ...]:
     """Switch fractions of a chain: each level's own ``screen_fraction`` when it carries one (levels made by
     the error-budget generator skip fractions whose level would not have paid off), else the default table."""
     own = [getattr(lod, "screen_fraction", None) for lod in lods[1:]]
-    if own and all(isinstance(f, (int, float)) and 0 < f <= 1 for f in own):
+    if own and all(isinstance(f, (int, float)) and 0 < f < 1 for f in own) and all(b < a for a, b in zip(own, own[1:])):
         return tuple(float(f) for f in own)  # type: ignore[arg-type]
     return default_transitions(len(lods))
 
@@ -203,9 +203,12 @@ def render_lod_pair(
     fov_deg: float = DEFAULT_FOV_DEG,
     reference: Any = None,
     frame_px: float | None = None,
+    render_px: int | None = None,
 ) -> LodPair:
     """lod_a/lod_b: anything with .points/.triangles (LOD, MeshData). Camera is framed on `reference`
-    (default lod_a) so both render from identical camera and distance. ``frame_px``: see :func:`lod_camera`."""
+    (default lod_a) so both render from identical camera and distance. ``frame_px``: see :func:`lod_camera`;
+    ``render_px``: the rendered window (default ``size``); the crops are always resampled to ``size``."""
+    size_out, size = size, int(render_px or size)
     cam, dist = lod_camera((lod_a if reference is None else reference).points, view, size, screen_fraction, fov_deg, frame_px)
     ra = render_buffers([_mesh(lod_a, "a")], view, size, camera=cam)
     rb = render_buffers([_mesh(lod_b, "b")], view, size, camera=cam)
@@ -237,7 +240,7 @@ def render_lod_pair(
     heat = _heat(np.where(ma ^ mb, 1.0, np.minimum(cd * 4, 0.9) * union))
 
     def up(a: np.ndarray) -> Image.Image:
-        return Image.fromarray(a[by:by + side, bx:bx + side]).resize((size, size), Image.NEAREST)
+        return Image.fromarray(a[by:by + side, bx:bx + side]).resize((size_out, size_out), Image.NEAREST)
 
     return LodPair(screen_fraction, float(dist), ra.color, rb.color, ma, mb, box, up(ra.color), up(rb.color), up(heat),
                    iou, shade, haus, screen_fraction * (size if frame_px is None else frame_px))
@@ -256,17 +259,17 @@ def lod_pop_report(
     (the levels' own ``screen_fraction`` when they carry one, see :func:`lod_transitions`).
 
     Pixels are those of a ``frame_px``-tall frame (the generator's LOD_REFERENCE_SCREEN_PX), so the thresholds
-    mean what the error budget means: each pair renders a ``size`` window of that frame around the object. An
-    object larger than the window (near switches) is rendered as large as fits, i.e. at a coarser scale than
-    the frame. Rendering the whole frame at ``size`` instead (frame_px=None, the earlier protocol) shows a far
-    switch as a few pixels: a lamp post at 10% screen is 26 px tall there and its 8 cm pole covers no pixel, so
-    a pole that collapses scores IoU 1.0."""
+    mean what the error budget means: each pair renders, at true scale, a window of that frame sized to the
+    object at its switch fraction (f * frame_px plus the crop margin, capped at the frame): LOD0 -> 1 at 50% of
+    1080 px is a 540 px object in a 702 px window. ``size`` is only the side of the sheet crops. frame_px=None is
+    the earlier protocol (the whole frame rendered at ``size``), which shows a far switch as a few pixels: a lamp
+    post at 10% screen is 26 px tall there and its 8 cm pole covers no pixel, so a collapsing pole scores 1.0."""
     fr = tuple(transitions) if transitions is not None else lod_transitions(lods)
     pairs, rows = [], []
     for i, f in enumerate(fr):
-        frame = None if frame_px is None else min(float(frame_px), size / ((1 + 2 * CROP_MARGIN) * f))
+        window = None if frame_px is None else int(min(frame_px, max(16, math.ceil(f * frame_px * (1 + 2 * CROP_MARGIN)))))
         p = render_lod_pair(lods[i], lods[i + 1], screen_fraction=f, size=size, view=view, fov_deg=fov_deg, reference=lods[0],
-                            frame_px=frame)
+                            frame_px=frame_px, render_px=window)
         pairs.append(p)
         rows.append(PairMetrics(i, i, i + 1, f, p.distance_m, p.iou, p.shading_diff, p.boundary_px, p.score,
                                 len(lods[i].triangles), len(lods[i + 1].triangles)))

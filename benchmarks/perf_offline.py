@@ -1110,12 +1110,14 @@ def g_mcp(ctx: Ctx) -> list[Case]:
                                   max_tris=BENCH_BUDGET_TRIS, workdir=str(ctx.dir("mcpsess") / "w"))
                 if not line.startswith("SESSION"):
                     raise RuntimeError(f"open_asset_session: {line[:140]}")
-                r = await call(s, "apply_scene_ir", ops_json=scene.model_dump_json())
+                r = await call(s, "apply_scene_ir", ops=scene.model_dump_json())  # a full scene: legacy JSON-string form
                 _expect(r, "OK", "initial scene over MCP")
                 t_open = (time.perf_counter() - t1) * 1e3
 
+                typed_ops = json.loads(ej)["ops"]
+
                 async def fn():
-                    return await call(s, "apply_scene_ir", ops_json=ej)
+                    return await call(s, "apply_scene_ir", ops=typed_ops)
 
                 async def td(_s, r):
                     _expect(r, "OK", "mcp edit")

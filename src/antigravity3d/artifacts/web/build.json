@@ -1,6 +1,6 @@
 {
   "schema": "antigravity3d.inspector_build/1",
-  "inputs_sha256": "517b73ba1fede94f4cd98eec172206a34383db81a01ac7f9e3ed8580686139b9",
+  "inputs_sha256": "6db11c3b8609041d462bf6b84b533869445770f25a73c74395e6bb3da362a423",
   "inputs": [
     "apps/inspector/build.mjs",
     "apps/inspector/package-lock.json",
@@ -18,8 +18,8 @@
   ],
   "outputs": {
     "src/antigravity3d/artifacts/web/inspector_app.html": {
-      "sha256": "51bdb96feaa883ad9b58d6ccdd6f369c68236e48e056d53e204b170131d5125f",
-      "bytes": 1421571
+      "sha256": "9d3b3dc1a36c8133271ad1ea719a1da020ea6ba7507625853694ce72c45a51a6",
+      "bytes": 1421597
     },
     "src/antigravity3d/artifacts/web/inspector_standalone.js": {
       "sha256": "0e2000b7b1fd8c4ba348a22886db1646b27c9be368c2c3ab3601ece9bcb59abf",

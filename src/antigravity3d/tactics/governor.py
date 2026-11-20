@@ -7,6 +7,7 @@ tracks dollar spend against that plan's hard ceiling.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import sqlite3
@@ -132,7 +133,21 @@ class Reservation:
             )
             if changed.rowcount != 1:
                 raise RuntimeError("reservation already settled")
+        self.governor._wake_waiters()  # after the commit; callable from any thread
         return booked
+
+
+@dataclass(eq=False)
+class _Waiter:
+    """One request parked in :meth:`Governor.reserve_wait`; ``future`` belongs to ``loop`` and is replaced on each wait."""
+
+    loop: asyncio.AbstractEventLoop
+    future: asyncio.Future | None = None
+
+
+def _resolve(future: asyncio.Future) -> None:
+    if not future.done():
+        future.set_result(None)
 
 
 class Governor:
@@ -146,6 +161,7 @@ class Governor:
         self._db = sqlite3.connect(journal or ":memory:", check_same_thread=False)
         weakref.finalize(self, self._db.close)
         self._lock = threading.RLock()
+        self._waiters: list[_Waiter] = []  # FIFO of parked reserve_wait calls; guarded by self._lock
         self._db.execute(
             "CREATE TABLE IF NOT EXISTS spend (id TEXT PRIMARY KEY, category TEXT NOT NULL, "
             "reserved REAL NOT NULL, booked REAL, receipt TEXT)"
@@ -155,15 +171,96 @@ class Governor:
     def plan(self) -> SpendPlan:
         return self._plan
 
-    def reserve(self, category: str, usd: float, *, receipt: dict | None = None) -> Reservation:
-        limit = _amount(usd)
+    def _try_insert(self, category: str, limit: float, receipt: dict | None) -> Reservation | None:
+        """Atomically book ``limit`` against the ceiling, or return None when it does not fit right now."""
         reservation = Reservation(self, uuid.uuid4().hex, limit)
         with self._lock, self._db:
             self._db.execute("BEGIN IMMEDIATE")
             if not self.can_afford(limit):
-                raise BudgetExceeded(f"{category} needs ${limit:.5f}, ${self.remaining:.5f} available")
+                return None
             self._db.execute("INSERT INTO spend VALUES (?, ?, ?, NULL, ?)",
                              (reservation.id, category, limit, json.dumps(receipt) if receipt else None))
+        return reservation
+
+    def reserve(self, category: str, usd: float, *, receipt: dict | None = None) -> Reservation:
+        """Reserve now or raise :class:`BudgetExceeded`. Never waits."""
+        limit = _amount(usd)
+        reservation = self._try_insert(category, limit, receipt)
+        if reservation is None:
+            raise BudgetExceeded(f"{category} needs ${limit:.5f}, ${self.remaining:.5f} available")
+        return reservation
+
+    def _ledger(self) -> tuple[float, int]:
+        """(settled spend, number of unsettled reservations)."""
+        with self._lock:
+            booked, open_ = self._db.execute(
+                "SELECT COALESCE(SUM(booked),0), COALESCE(SUM(booked IS NULL),0) FROM spend").fetchone()
+        return booked, int(open_)
+
+    def _wake_waiters(self) -> None:
+        """Wake every parked request so the head of the queue re-checks. Safe from any thread and any loop."""
+        with self._lock:
+            parked = [(w.loop, w.future) for w in self._waiters if w.future is not None]
+        for loop, future in parked:
+            try:
+                loop.call_soon_threadsafe(_resolve, future)
+            except RuntimeError:  # that loop is closed; its waiter is gone
+                pass
+
+    async def reserve_wait(self, category: str, usd: float, *, receipt: dict | None = None) -> Reservation:
+        """Reserve ``usd``, waiting for outstanding reservations to settle when it does not fit yet.
+
+        * Fits now: reserved at once (when no earlier request is still waiting; waiters are served first-come
+          first-served so a large request is not starved by later small ones).
+        * Cannot fit even if every outstanding reservation settled at zero (``usd`` > ceiling - settled spend):
+          :class:`BudgetExceeded` at once, with the numbers. The same check runs again after each wake-up, because a
+          settlement that books more than expected can turn "will fit" into "never fits".
+        * Otherwise it parks until a settlement wakes it; there is no polling. Waiting needs an outstanding
+          reservation, whose owner settles it in a ``finally``; with none outstanding the request would already fit
+          or already have failed, so an idle ledger cannot park anything.
+
+        The check and the insert are one critical section (this lock plus ``BEGIN IMMEDIATE``), exactly as in
+        :meth:`reserve`, so booked + reserved never exceeds the ceiling at any moment. A waiter holds nothing, so
+        waiters cannot deadlock each other. Cancellation removes the waiter and hands the head of the queue on.
+        Settlements wake waiters from any thread (``call_soon_threadsafe``); each waiter lives on its own loop.
+        """
+        limit = _amount(usd)
+        waiter = _Waiter(asyncio.get_running_loop())
+        queued = False
+        try:
+            while True:
+                with self._lock:
+                    first = not self._waiters if not queued else self._waiters[0] is waiter
+                    booked, outstanding = self._ledger()
+                    ceiling = self._plan.ceiling_usd
+                    if limit > ceiling - booked + _TOLERANCE:
+                        raise BudgetExceeded(
+                            f"{category} needs ${limit:.5f} but can never fit: ceiling ${ceiling:.5f}, "
+                            f"${booked:.5f} already settled, ${max(0.0, ceiling - booked):.5f} at most available")
+                    if first:
+                        reservation = self._try_insert(category, limit, receipt)
+                        if reservation is not None:
+                            if queued:
+                                self._waiters.remove(waiter)
+                                queued = False
+                            handoff = bool(self._waiters)
+                            break
+                        if outstanding == 0:  # unreachable: nothing to wait for and it does not fit
+                            raise BudgetExceeded(f"{category} needs ${limit:.5f}, ${self.remaining:.5f} available")
+                    waiter.future = waiter.loop.create_future()
+                    if not queued:
+                        self._waiters.append(waiter)
+                        queued = True
+                    future = waiter.future
+                await future
+        finally:
+            if queued:
+                with self._lock:
+                    if waiter in self._waiters:
+                        self._waiters.remove(waiter)
+                self._wake_waiters()  # the head may have changed
+        if handoff:
+            self._wake_waiters()  # more may fit behind this one
         return reservation
 
     def charge(self, category: str, usd: float) -> None:
@@ -198,23 +295,29 @@ class Governor:
                  "overrun_usd": max(0.0, booked - reserved) if booked is not None else None}
                 for key, cat, reserved, booked, payload in records]
 
-    def candidates(self, kind: str, *, unit_cost: float | None = None) -> int:
+    def candidates(self, kind: str, *, unit_cost: float | None = None, admit_cost: float | None = None) -> int:
         """Best-of-N for ``kind``, reduced so N * unit_cost fits the remaining budget.
 
-        Without ``unit_cost`` the plan's N is returned unchanged. The result is
-        zero when a single candidate does not fit.
+        Without ``unit_cost`` the plan's N is returned unchanged. The result is zero when a single candidate does
+        not fit. ``unit_cost`` is what a candidate is *expected* to cost. ``admit_cost`` (default ``unit_cost``) is
+        what admission must be able to reserve for one candidate, its worst case; candidates run one after another
+        under the ceiling, so the last one is admitted when the others have settled near ``unit_cost`` and N is the
+        largest value with ``(N - 1) * unit_cost + admit_cost <= remaining``.
         """
         if kind not in _KINDS:
             raise ValueError(f"unknown candidate kind {kind!r}; expected one of {sorted(_KINDS)}")
         base = getattr(self._plan, _KINDS[kind])
         if unit_cost is None:
             return base
-        if unit_cost < 0:
-            raise ValueError(f"unit_cost must be non-negative, got {unit_cost!r}")
+        if unit_cost < 0 or (admit_cost is not None and admit_cost < 0):
+            raise ValueError(f"costs must be non-negative, got unit_cost={unit_cost!r} admit_cost={admit_cost!r}")
         if unit_cost == 0:
             return base
-        fitting = int(math.floor((self.remaining + _TOLERANCE) / unit_cost))
-        return max(0, min(base, fitting))
+        admit = unit_cost if admit_cost is None else max(admit_cost, unit_cost)
+        room = self.remaining + _TOLERANCE - admit
+        if room < 0:
+            return 0
+        return max(0, min(base, 1 + math.floor(room / unit_cost)))
 
     def may_escalate_to_director(self, estimated_usd: float) -> bool:
         return self._plan.allow_director and self.can_afford(estimated_usd)

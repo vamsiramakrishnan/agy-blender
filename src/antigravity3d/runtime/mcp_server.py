@@ -6,7 +6,8 @@ Conversations started by the Antigravity app/CLI, by ``agentapi new-conversation
 scheduled automations) and by ``run_workflow`` agents do not receive Python-SDK custom tools; they
 only see tools served over MCP (plugin ``mcp_config.json``). This server serves the same functions
 from :mod:`antigravity3d.harness.tools` under their existing names, docstrings and parameter
-schemas (generated from the signatures, minus ``ctx``, plus an optional ``session_id``), together
+schemas (generated from the signatures, minus ``ctx``, plus an optional ``session_id``; the IR-typed tools
+advertise their explicit IR input schema, the one the SDK path declares), together
 with four session-management tools (``open_asset_session``, ``set_stage``, ``session_status``,
 ``list_sessions``) because nothing else opens a session for a native conversation.
 
@@ -53,6 +54,7 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.stdio import stdio_server
 from mcp_types import JSONRPCError, JSONRPCRequest, JSONRPCResponse, Tool
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
+from google.antigravity.tools.tool_runner import ToolWithSchema
 from pydantic import Field
 
 from antigravity3d.harness import tools as T
@@ -302,6 +304,12 @@ def _wrapper(name: str, fn: T.ToolFn, host: StudioHost) -> Any:
     return tool
 
 
+def _declared_schema(input_schema: dict[str, Any]) -> dict[str, Any]:
+    """The tool's IR input schema (``tools._typed``) plus the optional ``session_id`` every harness tool takes here."""
+    props = {**input_schema.get("properties", {}), "session_id": {"type": "string", "default": "", "description": SESSION_ID_DOC}}
+    return {**input_schema, "properties": props}
+
+
 def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
     async def open_asset_session(
         asset_name: str,
@@ -370,6 +378,9 @@ def build_server(host: StudioHost | None = None) -> MCPServer:
     for name, fn in T.ALL_TOOLS.items():
         w = _wrapper(name, fn, host)
         server.add_tool(w, name=name, description=w.__doc__, structured_output=False)
+        if isinstance(fn, ToolWithSchema):  # IR-typed parameters: advertise the same declaration the SDK path sends
+            tool = server._tool_manager.get_tool(name)
+            tool.parameters = _declared_schema(fn.input_schema)
     register_inspector_app(server, host)
     server._agy3d_host = host  # type: ignore[attr-defined]
     return server

@@ -235,3 +235,220 @@ async def test_live_benchmark_sends_the_production_request(monkeypatch):
         req = build_author_request(role, "propose", task, budget=EngineBudget("unreal_5"), context={},
                                    timeout_s=perf.text_timeout(role), asset_name=asset)
         assert kw["model"] == req.model and kw["contents"] == req.contents and kw["config"] == req.config
+
+
+# --- admission that waits, recorded outcomes, per-tier timeouts ---------------------------------------------------
+
+
+from antigravity3d.tactics.metered_author import (  # noqa: E402
+    AUTHOR_TIMEOUT_S, MEASURED_PROPOSE_WALL_S, TIMEOUT_HEADROOM, AuthorInvalid, AuthorTimedOut, author_timeout,
+    expected_output_tokens,
+)
+
+DIRECTOR_LIMIT_TOKENS = AUTHOR_OUTPUT_BUDGETS["director"].max_output_tokens
+
+
+class ScriptedEndpoint(Endpoint):
+    """Endpoint that tracks concurrency and answers per candidate ('design i/n' in the task) from a script."""
+
+    def __init__(self, script=None, delay=0.01):
+        super().__init__()
+        self.script, self.delay, self.running, self.peak = script or {}, delay, 0, 0
+
+    async def generate_content(self, **kwargs):
+        text = kwargs["contents"][0].parts[0].text
+        index = int(text.split("design ")[1].split("/")[0]) - 1
+        self.running += 1
+        self.peak = max(self.peak, self.running)
+        try:
+            await asyncio.sleep(self.delay)
+            what = self.script.get(index, "ok")
+            if isinstance(what, BaseException):
+                self.generated.append(kwargs)
+                raise what
+            if what == "truncated":
+                self.finish = "MAX_TOKENS"
+            elif what == "empty":
+                self.finish, self.answer = "STOP", " "
+            elif what == "garbled":
+                self.finish, self.answer = "STOP", "not json"
+            else:
+                self.finish = "STOP"
+                self.answer = Endpoint().answer
+            return await Endpoint.generate_content(self, **kwargs)
+        finally:
+            self.running -= 1
+
+
+def reservation_limit(n_counted=100, role="director"):
+    schema = ir_schema.scene_response_schema("Crate")
+    return cost(n_counted + schema_input_token_bound(schema), AUTHOR_OUTPUT_BUDGETS[role].max_output_tokens)
+
+
+def author_with(monkeypatch, endpoint, ceiling):
+    a, _, budget, context, gov = make_author(monkeypatch, ceiling=ceiling)
+    a.client = SimpleNamespace(aio=SimpleNamespace(models=endpoint))
+    return a, budget, context, gov
+
+
+async def test_admission_sequences_candidates_under_the_ceiling_and_none_is_dropped(monkeypatch):
+    limit = reservation_limit()
+    ep = ScriptedEndpoint()
+    a, budget, context, gov = author_with(monkeypatch, ep, ceiling=2.5 * limit)  # two worst cases fit at once, not three
+    result = await a.propose_with_outcomes("crate", budget=budget, n=6, context=context)
+    assert len(result.scenes) == 6 and [o.status for o in result.outcomes] == ["produced"] * 6
+    assert ep.peak == 2 and len(ep.generated) == 6
+    assert sum(1 for o in result.outcomes if o.admission_wait_s > 0) == 4  # four started when an earlier one settled
+    assert all(o.reserved_usd == pytest.approx(limit) for o in result.outcomes)
+    assert len(gov.receipts()) == 6 and gov.spent <= 2.5 * limit
+
+
+async def test_every_candidate_has_an_outcome_with_its_reason(monkeypatch):
+    limit = reservation_limit()
+    script = {1: "truncated", 2: "empty", 3: "garbled", 4: asyncio.TimeoutError(), 5: RuntimeError("boom")}
+    ep = ScriptedEndpoint(script)
+    a, budget, context, gov = author_with(monkeypatch, ep, ceiling=10 * limit)
+    result = await a.propose_with_outcomes("crate", budget=budget, n=6, context=context)
+    by = {o.index: o for o in result.outcomes}
+    assert [by[i].status for i in range(6)] == ["produced", "truncated", "no_answer", "invalid", "timed_out", "error"]
+    assert by[1].finish_reason == "MAX_TOKENS" and by[1].usage["output_tokens"] == 50
+    assert by[2].finish_reason == "STOP" and "empty answer" in by[2].detail
+    assert "does not validate" in by[3].detail and by[4].finish_reason == "TIMEOUT" and "RuntimeError: boom" in by[5].detail
+    assert len(result.scenes) == 1 and result.n_requested == 6
+    by_id = {r["status"] for r in gov.receipts()}
+    assert {"ok", "AuthorTruncated", "AuthorNoAnswer", "AuthorInvalid", "AuthorTimedOut", "RuntimeError"} == by_id
+    timed_out = next(r for r in gov.receipts() if r["status"] == "AuthorTimedOut")
+    assert timed_out["booked_usd"] == timed_out["reserved_usd"] and not timed_out["usage_known"]
+
+
+async def test_candidate_that_can_no_longer_be_admitted_is_recorded_with_the_numbers(monkeypatch):
+    limit = reservation_limit()
+    ep = ScriptedEndpoint()
+    ep.usage = SimpleNamespace(prompt_token_count=100, candidates_token_count=20000, thoughts_token_count=12000,
+                               total_token_count=32100)  # the first call books nearly its whole reservation
+    a, budget, context, gov = author_with(monkeypatch, ep, ceiling=1.4 * limit)
+    result = await a.propose_with_outcomes("crate", budget=budget, n=2, context=context)
+    first, second = result.outcomes
+    assert first.status == "produced" and second.status == "not_admitted"
+    assert "never fit" in second.detail and "already settled" in second.detail and f"${limit:.5f}" in second.detail
+    assert len(ep.generated) == 1 and len(result.scenes) == 1
+
+
+async def test_no_usable_candidate_names_what_happened_to_each(monkeypatch):
+    limit = reservation_limit()
+    ep = ScriptedEndpoint({0: "truncated", 1: "empty", 2: asyncio.TimeoutError()})
+    a, budget, context, gov = author_with(monkeypatch, ep, ceiling=10 * limit)
+    with pytest.raises(AuthorTruncated) as e:  # the first error keeps its type and its usage
+        await a.propose("crate", budget=budget, n=3, context=context)
+    msg = str(e.value)
+    assert e.value.usage["input_tokens"] == 100
+    assert "#0 truncated" in msg and "#1 no_answer" in msg and "#2 timed_out" in msg and "3 requested" in msg
+
+
+async def test_single_unusable_candidate_keeps_its_typed_error(monkeypatch):
+    ep = ScriptedEndpoint({0: "garbled"})
+    a, budget, context, _ = author_with(monkeypatch, ep, ceiling=1)
+    with pytest.raises(AuthorInvalid) as e:
+        await a.propose("crate", budget=budget, n=1, context=context)
+    assert e.value.finish_reason == "STOP" and isinstance(e.value, ValueError)
+
+
+async def test_waiting_candidates_do_not_start_a_request_before_admission(monkeypatch):
+    limit = reservation_limit()
+    ep = ScriptedEndpoint(delay=0.02)
+    a, budget, context, gov = author_with(monkeypatch, ep, ceiling=1.2 * limit)  # one at a time
+    seen = []
+    orig = gov.reserve_wait
+
+    async def spy(*args, **kw):
+        hold = await orig(*args, **kw)
+        seen.append((len(ep.generated), ep.running))
+        return hold
+
+    gov.reserve_wait = spy
+    await a.propose("crate", budget=budget, n=3, context=context)
+    assert ep.peak == 1 and [running for _, running in seen] == [0, 0, 0]
+
+
+async def test_cancelling_propose_releases_waiters_and_settles_what_was_dispatched(monkeypatch):
+    limit = reservation_limit()
+    ep = ScriptedEndpoint(delay=0.05)
+    a, budget, context, gov = author_with(monkeypatch, ep, ceiling=1.2 * limit)
+    task = asyncio.ensure_future(a.propose("crate", budget=budget, n=4, context=context))
+    await asyncio.sleep(0.02)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not gov._waiters and all(r["booked_usd"] is not None for r in gov.receipts())
+
+
+# --- timeouts -------------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("role", sorted(AUTHOR_TIMEOUT_S))
+def test_tier_timeouts_follow_the_measured_latency_with_stated_headroom(role):
+    mt = tier(role)
+    low, slowest = MEASURED_PROPOSE_WALL_S[f"{mt.model}/{mt.thinking.value}"]
+    timeout = AUTHOR_TIMEOUT_S[role]
+    # Rule: at least TIMEOUT_HEADROOM x the slowest measured call, rounded up to 30 s, and no more than that rounding.
+    assert TIMEOUT_HEADROOM == 2.0 and timeout >= TIMEOUT_HEADROOM * slowest and timeout % 30 == 0
+    assert timeout < TIMEOUT_HEADROOM * slowest + 30 and low < slowest
+
+
+def test_timeouts_differ_by_tier_the_way_the_latencies_do():
+    assert AUTHOR_TIMEOUT_S["worker"] == AUTHOR_TIMEOUT_S["bulk"] < AUTHOR_TIMEOUT_S["builder"] <= AUTHOR_TIMEOUT_S["director"]
+    assert AUTHOR_TIMEOUT_S["director"] > 300  # argon already ended in 504 at 300 s
+    assert set(AUTHOR_TIMEOUT_S) == set(AUTHOR_OUTPUT_BUDGETS)
+    with pytest.raises(ValueError):
+        author_timeout("decision")
+
+
+async def test_requests_carry_the_tier_timeout_unless_one_is_forced(monkeypatch):
+    a, ep, budget, context, gov = make_author(monkeypatch)
+    a.timeout_s = None
+    await a.propose("crate", budget=budget, n=1, context=context)
+    assert ep.generated[0]["config"].http_options.timeout == int(AUTHOR_TIMEOUT_S[gov.plan.builder_role] * 1000)
+    assert a.request("worker", "propose", "t").config.http_options.timeout == 90_000
+    a.timeout_s = 7
+    assert a.request("director", "propose", "t").config.http_options.timeout == 7_000
+
+
+def test_agent_author_defaults_to_the_per_tier_timeouts(monkeypatch):
+    from antigravity3d.tactics.authoring import AgentAuthor
+
+    ep = Endpoint()
+    bound = AgentAuthor(client=SimpleNamespace(aio=SimpleNamespace(models=ep))).bind(
+        Governor(plan_for(2)), EngineBudget("godot_4"), {"asset_name": "Crate"})
+    assert bound.timeout_s is None and bound.timeout_for("director") == AUTHOR_TIMEOUT_S["director"]
+    assert AgentAuthor(timeout_s=12).timeout_s == 12
+
+
+# --- sizing ---------------------------------------------------------------------------------------------------------
+
+
+def test_expected_output_tokens_come_from_the_measurements_and_stay_under_the_cap():
+    for role in ("worker", "bulk", "builder", "director"):
+        assert 0 < expected_output_tokens(role) < AUTHOR_OUTPUT_BUDGETS[role].max_output_tokens
+    assert 15_000 < expected_output_tokens("director") < 17_000  # argon: mean 8,772 answer + 7,167 thinking
+
+
+def test_cost_profile_is_expected_below_worst_case_and_absent_without_rates(monkeypatch):
+    a, *_ = make_author(monkeypatch)
+    expected, worst = a.cost_profile()
+    assert 0 < expected < worst
+    assert worst > cost(0, DIRECTOR_LIMIT_TOKENS)  # the whole output cap plus the estimated input
+    assert expected / worst < 0.7  # sizing on the worst case would cut the plan by about a third
+    monkeypatch.setenv("AGY3D_TEXT_RATES_JSON", "{}")
+    assert a.cost_profile() is None
+
+
+async def test_repair_role_override_is_bounded_by_the_plan(monkeypatch):
+    a, ep, budget, context, gov = make_author(monkeypatch)
+    act = SimpleNamespace(kind="agent_repair", reasons=["x"])
+    scene = (await a.propose("crate", budget=budget, n=1, context=context))[0]
+    ep.answer = '{"ops":[{"op":"remove_node","node_id":"body"}]}'
+    await a.repair(scene, action=act, located={}, manifest="m", role="director")
+    assert ep.generated[-1]["model"] == tier("director").model
+    a.governor._plan = replace(gov.plan, allow_director=False)
+    with pytest.raises(BudgetExceeded, match="outside this asset's plan"):
+        await a.repair(scene, action=act, located={}, manifest="m", role="director")

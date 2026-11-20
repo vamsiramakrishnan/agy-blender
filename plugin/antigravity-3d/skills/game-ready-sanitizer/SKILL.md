@@ -17,11 +17,13 @@ in parallel. For one file, follow the steps directly.
 
 ## Steps (per file)
 
-1. **Import to USD.** Open an asset session for the target engine. Send a
-   patch to `apply_scene_ir` with the absolute local source path.
+1. **Import to USD.** Open an asset session for the target engine. Call
+   `apply_scene_ir` with an `ops` list (typed objects, not a JSON string)
+   that references the absolute local source path; every node states its
+   `transform`.
 
    ```json
-   {"ops":[{"op":"upsert_node","node":{"id":"source","kind":"mesh_ref","params":{"path":"/depot/prop.glb"}}}]}
+   {"ops":[{"op":"upsert_node","node":{"id":"source","kind":"mesh_ref","params":{"path":"/depot/prop.glb"},"transform":{"translate":[0,0,0]}}}]}
    ```
 
 2. **Check placement.** Read `inspect_manifest` to check the world bounds

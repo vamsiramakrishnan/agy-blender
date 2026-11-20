@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import base64
+import hashlib
 import json
 import os
 import re
@@ -19,6 +21,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.subscriptions import listen
 
+from antigravity3d import ir_schema
 from antigravity3d.harness import tools as T
 from antigravity3d.plugin_install import bundle_dir
 from test_harness_tools import CRATE, box
@@ -78,7 +81,16 @@ async def test_tools_list_has_harness_tools_with_clean_schemas(tmp_path):
         assert [p for p in props if p != "session_id"] == wanted, name
         required = [p.name for p in inspect.signature(fn).parameters.values() if p.name != "ctx" and p.default is p.empty]
         assert t.input_schema.get("required", []) == required, name
-    assert tools["apply_scene_ir"].input_schema["required"] == ["ops_json"]
+    assert tools["apply_scene_ir"].input_schema["required"] == ["ops"]
+    # IR-typed tools advertise the declaration the SDK path sends (one definition, generated from ir_schema)
+    for name, declared in (("apply_scene_ir", ir_schema.apply_scene_ir_parameters()),
+                           ("propose_variants", ir_schema.propose_variants_parameters()),
+                           ("apply_shader_diff", ir_schema.apply_shader_diff_parameters())):
+        schema = dict(tools[name].input_schema)
+        assert schema.pop("properties").pop("session_id")["type"] == "string"
+        assert {**schema, "properties": declared["properties"]} == declared == T.ALL_TOOLS[name].input_schema, name
+    op = tools["apply_scene_ir"].input_schema["properties"]["ops"]["items"]
+    assert "upsert_node" in op["properties"]["op"]["enum"] and op["properties"]["node"]["properties"]["collider"]["type"] == "boolean"
     assert tools["render_preview"].input_schema["properties"]["wireframe"]["default"] is True
     assert tools["forge_pbr_material"].input_schema["properties"]["candidates"]["type"] == "integer"
     assert set(tools["open_asset_session"].input_schema["required"]) == {"asset_name", "target_engine"}
@@ -98,13 +110,15 @@ def test_hook_script_tool_list_matches_the_server():
 
 async def test_session_stage_scoping_export_gate_and_linter(tmp_path):
     async with client(tmp_path) as s:
-        r = await call(s, "apply_scene_ir", ops_json="{}")
+        r = await call(s, "apply_scene_ir", ops="{}")
         assert r.startswith("ERROR") and "no asset session" in r
         line = await call(s, "open_asset_session", asset_name="Crate", target_engine="unreal_5", max_tris=9000)
         assert line.startswith("SESSION Crate-") and "stage=BLOCKOUT" in line and "tris<=9000" in line
         assert (await call(s, "list_sessions")).startswith("* SESSION Crate-")
 
-        r = await call(s, "apply_scene_ir", ops_json=json.dumps(CRATE))
+        r = await call(s, "apply_scene_ir", ops=[{**CRATE["ops"][0], "node": {**CRATE["ops"][0]["node"], "collider": "maybe"}}])
+        assert r.startswith("ERROR invalid IR: ops[0](upsert_node).node(box).collider")  # typed, checked, one line
+        r = await call(s, "apply_scene_ir", ops=CRATE["ops"])
         assert r.startswith("OK tx=") and "nodes=2" in r and "tris=24" in r
         assert (await call(s, "inspect_manifest")).count("\n") >= 1
 
@@ -117,7 +131,7 @@ async def test_session_stage_scoping_export_gate_and_linter(tmp_path):
         await call(s, "set_stage", stage="EXPORT")
         r = await call(s, "export_engine_package", out_name="crate_pkg")
         assert r.startswith("REFUSED export blocked") and "tier15" in r
-        assert (await call(s, "apply_scene_ir", ops_json="{}")).startswith("REFUSED")
+        assert (await call(s, "apply_scene_ir", ops="{}")).startswith("REFUSED")
 
         # unsafe raw scripts never reach the pool: the linter gate refuses them
         r = await call(s, "run_bpy_script", source="import os\nos.remove('x')\n")
@@ -147,7 +161,7 @@ async def test_explicit_session_id_selects_between_sessions(tmp_path):
         a = (await call(s, "open_asset_session", asset_name="A", target_engine="godot_4")).split()[1]
         b = (await call(s, "open_asset_session", asset_name="B", target_engine="unity_urp")).split()[1]
         assert a != b
-        r = await call(s, "apply_scene_ir", ops_json=json.dumps(CRATE), session_id=a)
+        r = await call(s, "apply_scene_ir", ops=json.dumps(CRATE), session_id=a)
         assert r.startswith("OK")
         assert "nodes=0" in (await call(s, "session_status"))  # the active session is B (last opened)
         assert "nodes=2" in (await call(s, "session_status", session_id=a))
@@ -180,7 +194,7 @@ def test_pipelined_calls_are_ordered_drained_and_stdout_is_protocol_only(tmp_pat
             {"jsonrpc": "2.0", "method": "notifications/initialized"},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
             call_msg(3, "open_asset_session", asset_name="Crate", target_engine="unreal_5"),
-            call_msg(4, "apply_scene_ir", ops_json=json.dumps(CRATE)),
+            call_msg(4, "apply_scene_ir", ops=json.dumps(CRATE)),
             call_msg(5, "session_status")]
     try:
         out, err = proc.communicate(b"".join(map(_frame, msgs)), timeout=180)
@@ -252,6 +266,29 @@ async def raw(s: ClientSession, name: str, **args):
     return res
 
 
+def assert_flat_box(glb: bytes, node: int) -> None:
+    """The GLB mesh of ``node`` is a box shaded flat: every corner's normal equals its face normal."""
+    import numpy as np
+    import pygltflib
+
+    g = pygltflib.GLTF2.load_from_bytes(glb)
+    blob = g.binary_blob()
+    prim = g.meshes[g.nodes[node].mesh].primitives[0]
+
+    def read(i, width, dtype):
+        acc, = [g.accessors[i]]
+        view = g.bufferViews[acc.bufferView]
+        return np.frombuffer(blob, dtype, acc.count * width, view.byteOffset or 0).reshape(acc.count, width)
+
+    pos, nrm = read(prim.attributes.POSITION, 3, "<f4"), read(prim.attributes.NORMAL, 3, "<f4")
+    idx = read(prim.indices, 1, "<u4").reshape(-1, 3)
+    face = np.cross(pos[idx[:, 1]] - pos[idx[:, 0]], pos[idx[:, 2]] - pos[idx[:, 0]])
+    face /= np.linalg.norm(face, axis=1, keepdims=True)
+    assert len(pos) == 24, len(pos)  # 8 welded stage corners, split at the 90 degree creases
+    for corner in range(3):
+        np.testing.assert_allclose(nrm[idx[:, corner]], face, atol=1e-6)
+
+
 async def fetch_part(s: ClientSession, sid: str, revision: str, part: str = "scene") -> str:
     first = (await raw(s, "inspector_payload", session_id=sid, revision=revision, part=part, chunk=0)).structured_content
     data = [first["data"]]
@@ -317,7 +354,7 @@ async def test_inspector_payload_notes_and_qa_round_trip(tmp_path):
     work = tmp_path / "crate_session"
     async with client(tmp_path, env={"AGY3D_TEST_INSPECTOR_CHUNK_CHARS": "700"}) as s:
         sid = (await call(s, "open_asset_session", asset_name="Crate", target_engine="godot_4", workdir=str(work))).split()[1]
-        assert (await call(s, "apply_scene_ir", ops_json=json.dumps(CRATE))).startswith("OK")
+        assert (await call(s, "apply_scene_ir", ops=json.dumps(CRATE))).startswith("OK")
 
         res = await raw(s, "open_inspector")
         summary = res.structured_content
@@ -330,8 +367,12 @@ async def test_inspector_payload_notes_and_qa_round_trip(tmp_path):
         rev = summary["revision"]
         payload = json.loads(await fetch_part(s, sid, rev))
         assert payload["revision"] == rev and payload["session_id"] == sid
-        assert [m["id"] for m in payload["meshes"]] == ["body", "lid"] and payload["lods"] == [] and payload["colliders"] == []
+        assert [m["id"] for m in payload["nodes"]] == ["body", "lid"] and len(payload["levels"]) == 1 and payload["colliders"] == []
         assert payload["budget"]["target_engine"] == "godot_4"
+        # the asset itself is the review GLB, fetched as its own chunked part; a welded box shades flat from it
+        glb = base64.b64decode(await fetch_part(s, sid, rev, "glb"))
+        assert hashlib.sha256(glb).hexdigest() == payload["glb"]["sha256"]
+        assert_flat_box(glb, payload["levels"][0]["parts"][0]["glb"])
         bad = await s.call_tool("inspector_payload", {"session_id": sid, "revision": "0" * 16, "part": "scene", "chunk": 0})
         assert bad.is_error and bad.structured_content["current_revision"] == rev
 
@@ -363,7 +404,7 @@ async def test_inspector_payload_notes_and_qa_round_trip(tmp_path):
 
         # a geometry edit: new revision, earlier notes kept and marked stale (never dropped)
         edit = {"ops": [box("lid", (1.05, 0.85, 0.16), 0.68)]}
-        assert (await call(s, "apply_scene_ir", ops_json=json.dumps(edit))).startswith("OK")
+        assert (await call(s, "apply_scene_ir", ops=json.dumps(edit))).startswith("OK")
         new_rev = (await raw(s, "open_inspector")).structured_content["revision"]
         assert new_rev != rev
         listed = (await raw(s, "inspector_list_notes", session_id=sid)).structured_content
@@ -384,7 +425,8 @@ async def test_inspector_payload_notes_and_qa_round_trip(tmp_path):
         assert (await raw(s, "open_inspector", lod=lods)).structured_content["view"] == {"lod": lods}
         assert (await call(s, "open_inspector", lod=lods + 1)).startswith("ERROR")
         payload = json.loads(await fetch_part(s, sid, summary["revision"]))
-        assert all(m["uv"] for m in payload["meshes"]) and len(payload["lods"]) == lods and payload["colliders"]
+        assert all(m["uv"] for m in payload["nodes"]) and len(payload["levels"]) == lods + 1 and payload["colliders"]
+        assert all(p["uv"] for level in payload["levels"] for p in level["parts"])  # LODn parts per node, with UVs
         assert "textures=none" in (await raw(s, "open_inspector")).content[0].text
 
 
@@ -392,14 +434,14 @@ async def test_review_notes_survive_a_server_restart(tmp_path):
     work = tmp_path / "persist"
     async with client(tmp_path / "one") as s:
         await call(s, "open_asset_session", asset_name="Crate", target_engine="unity_urp", workdir=str(work))
-        await call(s, "apply_scene_ir", ops_json=json.dumps(CRATE))
+        await call(s, "apply_scene_ir", ops=json.dumps(CRATE))
         summary = (await raw(s, "open_inspector")).structured_content
         await raw(s, "inspector_save_note", session_id=summary["session_id"], node_id="body", text="chamfer the edges",
                   revision=summary["revision"])
     async with client(tmp_path / "two") as s:
         sid = (await call(s, "open_asset_session", asset_name="Crate", target_engine="unity_urp", workdir=str(work))).split()[1]
         assert sid != summary["session_id"]
-        await call(s, "apply_scene_ir", ops_json=json.dumps(CRATE))
+        await call(s, "apply_scene_ir", ops=json.dumps(CRATE))
         again = (await raw(s, "open_inspector")).structured_content
         assert again["revision"] == summary["revision"]  # same content, same revision
         assert again["notes"] == {"current": 1, "stale": 0}
