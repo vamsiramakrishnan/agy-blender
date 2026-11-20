@@ -299,6 +299,23 @@ def test_surface_index_is_exact_on_dense_meshes():
     assert index.exceeds(q, brute.max() - 1e-9) and not index.exceeds(q, brute.max() + 1e-9)
 
 
+def test_convex_upper_bounds_the_true_distance():
+    # the part-removal bracket: lo (exact point distances) <= D <= hi (convex bound per triangle, coplanar quads)
+    from antigravity3d.kernel.fast_ops import _convex_upper, _SurfaceIndex
+
+    box = trimesh.creation.box((1.0, 1.0, 0.8))
+    index = _SurfaceIndex(np.asarray(box.vertices, float), np.asarray(box.faces, np.int64))
+    strap = trimesh.creation.box((0.04, 0.06, 0.7))
+    strap.apply_translation((0.52, 0.1, 0.0))
+    tri = np.asarray(strap.vertices, float)[np.asarray(strap.faces)]
+    up = _convex_upper(index, tri)
+    w = np.random.default_rng(1).dirichlet((1, 1, 1), 400)
+    dense = np.einsum("sk,nkd->nsd", w, tri)  # 400 random points in every strap triangle
+    exact = index.distances(dense.reshape(-1, 3), 0.0).reshape(len(tri), -1).max(axis=1)
+    assert (up >= exact - 1e-12).all()
+    assert up.max() == pytest.approx(0.04, abs=1e-9)  # the strap's outer face is 4 cm off the side: tight bound
+
+
 def test_assembly_drops_only_parts_whose_removal_is_invisible():
     from antigravity3d.kernel.fast_ops import generate_asset_lods
     from antigravity3d.kernel.lod_diff import lod_pop_report
