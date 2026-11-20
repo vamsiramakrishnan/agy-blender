@@ -266,7 +266,7 @@ async def test_inspector_app_resource_and_tool_metadata(tmp_path):
     from antigravity3d.runtime.inspector_server import ui_meta_problems
 
     async with client(tmp_path) as s:
-        init_caps = s.get_server_capabilities()
+        init_caps = s.server_capabilities
         assert init_caps is not None and init_caps.resources is not None  # the host requires the resources capability
         resources = (await s.list_resources()).resources
         app = [r for r in resources if str(r.uri) == APP_URI]

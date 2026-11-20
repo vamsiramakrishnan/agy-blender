@@ -265,15 +265,14 @@ def field_types(schema: dict[str, Any], obj: dict[str, Any]) -> dict[str, str]:
     required = set(obj.get("required", ()))
     out = {}
     for name, prop in obj.get("properties", {}).items():
-        ts = type_str(schema, prop)
-        default = prop.get("default", None) if "default" in prop else None
-        suffix = f"={json.dumps(default)}" if "default" in prop and not isinstance(default, (dict, list)) and default is not None else ""
-        out[name] = ("" if name in required else "?") + ts + suffix
+        default = prop.get("default")
+        suffix = "" if default is None or isinstance(default, (dict, list)) else f"={json.dumps(default)}"
+        out[name] = ("" if name in required else "?") + type_str(schema, prop) + suffix
     return out
 
 
-def _obj_line(schema: dict[str, Any], obj: dict[str, Any], skip: tuple[str, ...] = ()) -> str:
-    return "{" + ", ".join(f"{k}: {v}" for k, v in field_types(schema, obj).items() if k not in skip) + "}"
+def _obj_line(schema: dict[str, Any], obj: dict[str, Any]) -> str:
+    return "{" + ", ".join(f"{k}: {v}" for k, v in field_types(schema, obj).items()) + "}"
 
 
 IR_SEMANTICS = (

@@ -462,14 +462,14 @@ class _Pool:
 
 
 class BatchSanitizeDAG:
-    """``max_parallel`` is the number of worker processes (``--jobs``). ``timeout_s`` bounds one file (None: unbounded).
+    """``max_parallel`` is the number of worker processes (``--jobs``; None: one per usable CPU core, never more than files). ``timeout_s`` bounds one file (None: unbounded).
 
     ``isolate=False`` runs files in threads of this process instead (the pre-fix behaviour: no crash isolation and no
     CPU scaling); it is the fallback where worker processes are unavailable (non-POSIX).
     """
 
     def __init__(self, *, workdir: Path | str, budget: EngineBudget, plane: Any = None, uploader: Uploader | None = None, forge: Any = None,
-                 pool: Any = None, cache: Any = None, max_parallel: int = 4, timeout_s: float | None = DEFAULT_TIMEOUT_S,
+                 pool: Any = None, cache: Any = None, max_parallel: int | None = None, timeout_s: float | None = DEFAULT_TIMEOUT_S,
                  isolate: bool | None = None, worker_hook: str | None = None) -> None:
         self.out, self.budget, self.plane, self.cache = Path(workdir), budget, plane, cache
         self.up = uploader or (forge.upload if forge is not None else data_uri_uploader)

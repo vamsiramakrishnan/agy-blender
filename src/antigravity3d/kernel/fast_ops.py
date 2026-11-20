@@ -451,12 +451,168 @@ def _unfold_charts(points: np.ndarray, tris: np.ndarray, charts: np.ndarray) -> 
 
 @dataclass
 class _Charted:
-    """A mesh with its chart layout: seam-split vertices, triangles and per-vertex UVs in metres."""
+    """A mesh with its chart layout: seam-split vertices (``vmap`` into ``mesh.points``), triangles, UVs in metres."""
     mesh: MeshData
     vmap: np.ndarray
     tris: np.ndarray
     uv_m: np.ndarray
-    kind: str
+    kind: str                     # "analytic" | "computed"
+    chart: np.ndarray | None = None  # (M,) chart id per triangle (analytic only)
+
+
+def _min_area_frame(p2: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Rotation R (rows = new axes), min corner and (w, h) of the minimum-area bounding rectangle of 2D points."""
+    from scipy.spatial import ConvexHull, QhullError
+
+    try:
+        hull = p2[ConvexHull(p2).vertices]
+        d = np.roll(hull, -1, axis=0) - hull
+        ang = np.unique(np.round(np.arctan2(d[:, 1], d[:, 0]) % (np.pi / 2), 12))
+    except (QhullError, ValueError):
+        hull, ang = p2, np.array([0.0])
+    c, s = np.cos(ang), np.sin(ang)
+    R = np.stack([np.stack([c, s], -1), np.stack([-s, c], -1)], axis=1)
+    q = np.einsum("aij,nj->ani", R, hull)
+    lo, hi = q.min(axis=1), q.max(axis=1)
+    k = int(np.argmin(np.prod(hi - lo, axis=1)))
+    return R[k], lo[k], hi[k] - lo[k]
+
+
+def _charted(m: MeshData, max_extent_m: float | None = None) -> _Charted | None:
+    """Exact layout of a mesh with known charts; charts longer than ``max_extent_m`` are cut across their long
+    axis along existing edges when the triangulation allows it (a long cylinder side becomes two rectangles)."""
+    if m.uv_charts is None or len(m.uv_charts) != len(m.triangles) or len(m.triangles) == 0:
+        return None
+    charts = np.asarray(m.uv_charts, np.int64).copy()
+    tris = np.asarray(m.triangles, np.int64)
+    for _ in range(4):
+        vmap, t2, uv = _unfold_charts(m.points, tris, charts)
+        if max_extent_m is None:
+            break
+        # per-chart extent in its min-area frame; cut along the long axis into equal slabs of triangle centroids
+        cent = uv[t2].mean(axis=1)
+        nxt = charts.copy()
+        top = int(charts.max()) + 1
+        changed = False
+        for c in np.unique(charts):
+            sel = np.flatnonzero(charts == c)
+            R, lo, wh = _min_area_frame(uv[np.unique(t2[sel])])
+            ax = int(np.argmax(wh))
+            if wh[ax] <= max_extent_m:
+                continue
+            k = int(np.ceil(wh[ax] / max_extent_m))
+            coord = (cent[sel] @ R.T)[:, ax] - lo[ax]
+            slab = np.minimum((coord / wh[ax] * k).astype(np.int64), k - 1)
+            if len(np.unique(slab)) < 2:
+                continue  # one triangle spans the whole length (e.g. a tall pole): cannot cut, density will fit
+            nxt[sel] = np.where(slab == 0, c, top + slab - 1)
+            top += k - 1
+            changed = True
+        if not changed:
+            break
+        charts = nxt
+    return _Charted(m, vmap, t2.astype(np.int32), uv, "analytic", charts)
+
+
+def _skyline_pack(sizes: np.ndarray, width: float, height: float) -> np.ndarray | None:
+    """Bottom-left skyline packing of axis-aligned rectangles (w, h), each optionally turned 90 degrees.
+
+    Returns (n, 3) [x, y, turned] or None when they do not all fit. Deterministic: rectangles go in order of
+    decreasing longer side, then area, then index; ties pick the lowest top edge, then the leftmost x.
+    """
+    order = sorted(range(len(sizes)), key=lambda i: (-max(sizes[i]), -sizes[i][0] * sizes[i][1], i))
+    sky = [(0.0, 0.0, float(width))]  # (x, y, w) segments covering [0, width)
+    out = np.zeros((len(sizes), 3))
+    for i in order:
+        best = None
+        for turned in (0, 1):
+            w, h = (sizes[i][1], sizes[i][0]) if turned else (sizes[i][0], sizes[i][1])
+            if w > width or h > height:
+                continue
+            for j, (x, _, _) in enumerate(sky):
+                if x + w > width + 1e-9:
+                    break
+                y, k, right = 0.0, j, x + w
+                while k < len(sky) and sky[k][0] < right - 1e-9:
+                    y = max(y, sky[k][1])
+                    k += 1
+                if y + h <= height + 1e-9 and (best is None or (y + h, x) < (best[0], best[1])):
+                    best = (y + h, x, y, w, h, turned)
+        if best is None:
+            return None
+        _, x, y, w, h, turned = best
+        out[i] = (x, y, turned)
+        new, right = [], x + w
+        for sx, sy, sw in sky:
+            if sx + sw <= x + 1e-9 or sx >= right - 1e-9:
+                new.append((sx, sy, sw))
+                continue
+            if sx < x:
+                new.append((sx, sy, x - sx))
+            if sx + sw > right:
+                new.append((right, sy, sx + sw - right))
+        new.append((x, y + h, w))
+        new.sort()
+        merged = [new[0]]
+        for seg in new[1:]:
+            px, py, pw = merged[-1]
+            if abs(py - seg[1]) < 1e-9 and abs(px + pw - seg[0]) < 1e-9:
+                merged[-1] = (px, py, pw + seg[2])
+            else:
+                merged.append(seg)
+        sky = merged
+    return out
+
+
+def _pack_analytic(charted: list[_Charted], density: float, resolution: int) -> tuple[list[np.ndarray], float]:
+    """Packs exact charts as their minimum-area rectangles into one ``resolution`` square atlas.
+
+    Each chart keeps UV_PADDING_PX texels of private gutter on every side. The requested density is used
+    when everything fits; otherwise the largest density that fits is found by bisection (the packer is
+    cheap, so this costs milliseconds, unlike re-running a raster packer). Returns per-mesh UVs in [0, 1]
+    and the density used.
+    """
+    frames = []  # (mesh index, vertex ids, rotation, min corner, (w, h)) per chart
+    for mi, c in enumerate(charted):
+        cid = np.zeros(len(c.uv_m), np.int64)
+        cid[c.tris.reshape(-1)] = np.repeat(c.chart, 3)
+        for k in np.unique(c.chart):
+            v = np.flatnonzero(cid == k)
+            R, lo, wh = _min_area_frame(c.uv_m[v])
+            frames.append((mi, v, R, lo, wh))
+    ext = np.array([f[4] for f in frames], np.float64).reshape(-1, 2)
+    pad = 2.0 * UV_PADDING_PX
+    edge = 1.0  # keep half a texel clear of the atlas border, plus rounding
+
+    def fits(d: float) -> np.ndarray | None:
+        return _skyline_pack(ext * d + pad, resolution - edge, resolution - edge)
+
+    d = float(density)
+    place = fits(d)
+    if place is None:
+        area = float(ext.prod(axis=1).sum())
+        hi = min(d, (resolution - edge) / max(float(ext.max()), 1e-12), (resolution - edge) / np.sqrt(max(area, 1e-12)))
+        lo = hi / 8
+        while fits(lo) is None and lo > 1e-6:
+            lo /= 2
+        place = fits(lo)
+        for _ in range(24):
+            mid = 0.5 * (lo + hi)
+            p = fits(mid)
+            if p is None:
+                hi = mid
+            else:
+                lo, place = mid, p
+            if hi - lo <= 1e-4 * hi:
+                break
+        d = lo
+    out = [np.zeros((len(c.uv_m), 2)) for c in charted]
+    for (mi, v, R, lo_, wh), (x, y, turned) in zip(frames, place):
+        q = (charted[mi].uv_m[v] @ R.T - lo_) * d  # chart in px, min corner at the origin
+        if turned:  # 90 degrees counter-clockwise keeps the winding: (u, v) -> (h - v, u)
+            q = np.stack([wh[1] * d - q[:, 1], q[:, 0]], axis=1)
+        out[mi][v] = (q + [x + pad / 2 + edge / 2, y + pad / 2 + edge / 2]) / resolution
+    return out, d
 
 
 def _xatlas_options(resolution: int, tpu: float, *, input_uvs: bool):
@@ -473,59 +629,35 @@ def _xatlas_options(resolution: int, tpu: float, *, input_uvs: bool):
     return co, po
 
 
-def _computed_charts(meshes: list[MeshData], density: float, resolution: int):
-    """xatlas chart computation (the expensive, superlinear part) for meshes without known charts.
+def _xatlas_fit(add, density: float, resolution: int, *, input_uvs: bool):
+    """xatlas generate into a *single* atlas no larger than ``resolution`` at the highest density reached.
 
-    The pack of this run is at the requested density. When everything is computed and it already fits one
-    ``resolution`` atlas, the atlas is returned as is; otherwise only the charts are kept (as UVs in metres)
-    for a pack-only pass, so charts are never computed twice.
+    xatlas's own fit mode (texels_per_unit=0) estimates a density but then grows the atlas past
+    ``resolution`` (measured: 3289 x 2808 for a 2048 request), so the earlier pipeline baked UVs normalised
+    to a non-square, oversized atlas. Here the first pass (resolution 0 = one atlas of any size) also
+    computes the charts when ``input_uvs`` is False; if it is larger than ``resolution`` only the *packing*
+    is repeated, from the charts of the first pass, at the density scaled to fit.
+    Returns (atlas, density used, uv scale factor to the resolution square).
     """
     import xatlas
 
     atlas = xatlas.Atlas()
-    for m in meshes:
-        atlas.add_mesh(np.ascontiguousarray(m.points, dtype=np.float32), np.ascontiguousarray(m.triangles, dtype=np.uint32))
-    feasible = density * density * sum(float(_tri_areas(np.asarray(m.points, np.float64), np.asarray(m.triangles), 3).sum())
-                                        for m in meshes) <= resolution * resolution
-    co, po = _xatlas_options(resolution if feasible else 0, density, input_uvs=False)
+    add(atlas, None)
+    co, po = _xatlas_options(0, density, input_uvs=input_uvs)
     atlas.generate(co, po)
-    out = []
-    scale = np.array([atlas.width, atlas.height], np.float64) / float(atlas.texels_per_unit or density)
-    for i, m in enumerate(meshes):
-        vm, idx, uv = atlas.get_mesh(i)
-        out.append(_Charted(m, vm.astype(np.int64), idx.reshape(-1, 3).astype(np.int32), uv.astype(np.float64) * scale, "computed"))
-    done = atlas if feasible and atlas.atlas_count == 1 else None
-    return out, done
-
-
-def _pack_charted(charted: list[_Charted], density: float, resolution: int):
-    """Pack known charts (input UVs in metres) into one atlas. Returns (atlas, fitted).
-
-    The requested density is tried only when the charts' total area can fit at all; otherwise (or when the
-    pack overflows) xatlas fits the density to the resolution (texels_per_unit=0) in a second pack. Charts
-    are never recomputed: both passes use the same input UVs.
-    """
-    import xatlas
-
-    area = sum(float(_tri_areas(np.asarray(c.mesh.points, np.float64)[c.vmap], c.tris, 3).sum()) for c in charted)
-    tries = ([density] if density * density * area <= resolution * resolution else []) + [0.0]
-    for tpu in tries:
+    tpu = float(density)
+    for _ in range(6):
+        w, h = atlas.width, atlas.height
+        if max(w, h) <= resolution:
+            return atlas, tpu
+        first = atlas
+        scale = np.array([w, h], np.float64) / tpu  # metres per normalised uv unit
+        tpu *= 0.98 * resolution / max(w, h)
         atlas = xatlas.Atlas()
-        for c in charted:
-            atlas.add_mesh(np.ascontiguousarray(np.asarray(c.mesh.points)[c.vmap], dtype=np.float32),
-                           np.ascontiguousarray(c.tris, dtype=np.uint32), uvs=np.ascontiguousarray(c.uv_m, dtype=np.float32))
-        co, po = _xatlas_options(resolution, tpu, input_uvs=True)
+        add(atlas, [first.get_mesh(i) for i in range(first.mesh_count)], scale)
+        co, po = _xatlas_options(0, tpu, input_uvs=True)
         atlas.generate(co, po)
-        if atlas.atlas_count == 1:
-            return atlas, tpu == density
-    return atlas, False
-
-
-def _charted(m: MeshData) -> _Charted | None:
-    if m.uv_charts is None or len(m.uv_charts) != len(m.triangles) or len(m.triangles) == 0:
-        return None
-    vmap, tris, uv = _unfold_charts(m.points, m.triangles, m.uv_charts)
-    return _Charted(m, vmap, tris, uv, "analytic")
+    return atlas, tpu
 
 
 def _atlas_uv(atlas, uv: np.ndarray, resolution: int) -> np.ndarray:
@@ -547,29 +679,57 @@ def _result(m: MeshData, vm: np.ndarray, tris: np.ndarray, uv: np.ndarray, fitte
 
 
 def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_id: str | None) -> list[UVResult]:
-    known = [_charted(m) for m in group]
-    todo = [m for m, c in zip(group, known) if c is None]
-    if todo and len(todo) == len(group):
-        charted, done = _computed_charts(todo, density, resolution)
-        if done is not None:  # one generate: charts + pack at the requested density
-            out = []
-            for i, c in enumerate(charted):
-                vm, idx, uv = done.get_mesh(i)
-                out.append(_result(c.mesh, vm.astype(np.int64), idx.reshape(-1, 3).astype(np.int32), _atlas_uv(done, uv, resolution), True, resolution,
-                                   atlas_id, "computed"))
-            return out
-    elif todo:
-        charted, _ = _computed_charts(todo, density, 0)
-    else:
-        charted = []
-    it = iter(charted)
-    full = [c if c is not None else next(it) for c in known]
-    atlas, fitted = _pack_charted(full, density, resolution)
+    # an analytic chart longer than the atlas at the requested density is cut where the mesh allows it
+    max_extent = (resolution - 1.0 - 2.0 * UV_PADDING_PX) / density
+    known = [_charted(m, max_extent) for m in group]
+    if all(c is not None for c in known):
+        uvs, d = _pack_analytic(known, density, resolution)  # type: ignore[arg-type]
+        fitted = d >= density * (1 - 1e-9)
+        return [_result(c.mesh, c.vmap, c.tris, uv, fitted, resolution, atlas_id, "analytic")  # type: ignore[union-attr]
+                for c, uv in zip(known, uvs)]
+
+    # at least one mesh needs computed charts: xatlas computes those once and packs everything
+    def add(atlas, prev=None, scale=None):
+        for i, (m, c) in enumerate(zip(group, known)):
+            if prev is not None:  # pack-only pass: the previous pass' layout as input UVs (charts kept)
+                vm, idx, uv = prev[i]
+                base = c.vmap if c is not None else np.arange(len(m.points))
+                atlas.add_mesh(np.ascontiguousarray(np.asarray(m.points)[base[vm.astype(np.int64)]], dtype=np.float32),
+                               np.ascontiguousarray(idx, dtype=np.uint32), uvs=np.ascontiguousarray(uv * scale, dtype=np.float32))
+            elif c is not None:
+                atlas.add_mesh(np.ascontiguousarray(np.asarray(m.points)[c.vmap], dtype=np.float32),
+                               np.ascontiguousarray(c.tris, dtype=np.uint32), uvs=np.ascontiguousarray(c.uv_m, dtype=np.float32))
+            else:
+                atlas.add_mesh(np.ascontiguousarray(m.points, dtype=np.float32), np.ascontiguousarray(m.triangles, dtype=np.uint32))
+
+    if any(c is not None for c in known):  # mixed group: compute the missing charts first, then pack all as input UVs
+        todo = [m for m, c in zip(group, known) if c is None]
+        import xatlas
+
+        ca = xatlas.Atlas()
+        for m in todo:
+            ca.add_mesh(np.ascontiguousarray(m.points, dtype=np.float32), np.ascontiguousarray(m.triangles, dtype=np.uint32))
+        co, po = _xatlas_options(0, density, input_uvs=False)
+        ca.generate(co, po)
+        sc = np.array([ca.width, ca.height], np.float64) / float(ca.texels_per_unit or density)
+        it = iter(range(len(todo)))
+        filled = []
+        for m, c in zip(group, known):
+            if c is None:
+                vm, idx, uv = ca.get_mesh(next(it))
+                c = _Charted(m, vm.astype(np.int64), idx.reshape(-1, 3).astype(np.int32), uv.astype(np.float64) * sc, "computed")
+            filled.append(c)
+        known = filled
+    atlas, tpu = _xatlas_fit(add, density, resolution, input_uvs=all(c is not None for c in known))
+    fitted = tpu >= density * (1 - 1e-9)
     out = []
-    for i, c in enumerate(full):
+    for i, (m, c) in enumerate(zip(group, known)):
         vm, idx, uv = atlas.get_mesh(i)
-        out.append(_result(c.mesh, c.vmap[vm.astype(np.int64)], idx.reshape(-1, 3).astype(np.int32), _atlas_uv(atlas, uv, resolution), fitted,
-                           resolution, atlas_id, c.kind))
+        vm = vm.astype(np.int64)
+        if c is not None:
+            vm = c.vmap[vm]
+        out.append(_result(m, vm, idx.reshape(-1, 3).astype(np.int32), _atlas_uv(atlas, uv, resolution), fitted, resolution,
+                           atlas_id, c.kind if c is not None else "computed"))
     return out
 
 

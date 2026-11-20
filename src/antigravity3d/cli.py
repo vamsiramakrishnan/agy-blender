@@ -153,11 +153,22 @@ async def cmd_prop(a: argparse.Namespace) -> int:
     return 0 if x["preview_gates_ok"] else 1
 
 
+def _positive_int(text: str) -> int:
+    n = int(text)
+    if n < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return n
+
+
 async def cmd_sanitize(a: argparse.Namespace) -> int:
     from antigravity3d.dags.batch_sanitize import BatchSanitizeDAG, table
 
-    rep = await BatchSanitizeDAG(workdir=Path(a.out), budget=_budget(a), max_parallel=a.jobs).run([Path(f) for f in a.files])
+    rep = await BatchSanitizeDAG(workdir=Path(a.out), budget=_budget(a), max_parallel=a.jobs, timeout_s=a.timeout).run(
+        [Path(f) for f in a.files])
     print(f"agy3d sanitize: {len(a.files)} file(s) -> {a.engine}")
+    w = rep.extras["workers"]
+    print(f"workers: {w['jobs']} {w['mode']}, per-file timeout {w['timeout_s'] or 'off'}{' s' if w['timeout_s'] else ''}"
+          + (f", {w['restarted']} replaced after a crash or timeout" if w["restarted"] else ""))
     print(rep.summary())
     print(table(rep.extras["rows"]))
     for r in rep.extras["rows"]:
@@ -302,7 +313,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("sanitize", help="batch-repair meshes (GLB/OBJ/PLY/STL/USD)")
     p.add_argument("files", nargs="+")
     common(p)
-    p.add_argument("--jobs", type=int, default=4)
+    p.add_argument("--jobs", type=_positive_int, default=None, metavar="N",
+                   help="worker processes (default: the CPU cores this process may use, at most one per file)")
+    p.add_argument("--timeout", type=float, default=900.0, metavar="SECONDS",
+                   help="per-file limit; a file that exceeds it is killed and reported as failed (default 900, 0 = no limit)")
     p.set_defaults(fn=cmd_sanitize)
 
     p = sub.add_parser("kit", help="modular environment kit on one shared trim sheet")
