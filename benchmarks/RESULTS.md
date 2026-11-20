@@ -83,7 +83,9 @@ None of these was on either list. Each was found by measuring something the firs
   far LOD files is untested: there is no Unity anywhere in this project's CI.
 - A governed live kit was not run: it needs configured prices.
 - Four timing tests fail when the machine is loaded and pass alone, and the tool-level edit benchmarks vary by up to
-  half between two runs of the same code.
+  half between two runs of the same code. A fifth, on the kit's concurrency, failed once in CI: it bounded the
+  duration of a step that also writes the ledger to disk. It now asserts the order of the calls, which a slow disk
+  does not change.
 - No Blender and no game engine ran on the benchmark machine, the native Decisions API is unavailable, the
   inspector has not been tried inside a running Antigravity application, and asset quality as an artist would
   judge it and dollar cost are not measured. All as before.

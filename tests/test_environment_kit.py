@@ -33,19 +33,55 @@ BOX = ('{"asset_name":"%s","materials":[],"nodes":[{"id":"body","kind":"box","pa
        '"transform":{"translate":[0,0,0.5]}}]}')
 
 
-class KitEndpoint:
-    """Scripted provider: answers per asset name, takes ``delay`` seconds per call, records concurrency."""
+PATIENCE_S = 30.0  # how long an incomplete round waits for its missing calls before the endpoint reports the caller
 
-    def __init__(self, delay: float = 0.0, script: dict[str, object] | None = None, usage: tuple[int, int] = (100, 50),
-                 reverse: bool = False) -> None:
-        self.delay, self.script, self.usage, self.reverse = delay, script or {}, usage, reverse
+
+class KitEndpoint:
+    """Scripted provider: answers per asset name and records how many calls were in flight.
+
+    ``together=k`` makes it answer in rounds. No call is answered until ``k`` calls are waiting; the call that completes
+    the round answers all of them ``hold`` seconds later (the last arrival first with ``reverse``), and the next round
+    starts. A caller that sends fewer than ``k`` at a time is told so after ``PATIENCE_S``, and one that sends more shows
+    in ``peak``. Tests assert that schedule and not how long the step took: the step around these calls also commits
+    every reservation and settlement to the ledger on disk and builds a stage per piece, and how long those take is a
+    property of the machine (0.1 s on a developer machine, over a second on a busy CI runner).
+    """
+
+    def __init__(self, script: dict[str, object] | None = None, usage: tuple[int, int] = (100, 50), together: int = 1,
+                 hold: float = 0.0, reverse: bool = False) -> None:
+        self.script, self.usage, self.together, self.hold, self.reverse = script or {}, usage, together, hold, reverse
         self.running = self.peak = 0
         self.generated: list[str] = []
         self.counted = 0
+        self.rounds: list[list[str]] = []  # the pieces answered together, round by round
+        self.starved = ""  # set when a round was never completed; every later call fails with it at once
+        self._parked: list[tuple[str, asyncio.Future]] = []
 
     async def count_tokens(self, **kwargs):
         self.counted += 1
         return SimpleNamespace(total_tokens=COUNTED)
+
+    async def _round(self, asset: str) -> None:
+        if self.starved:
+            raise RuntimeError(self.starved)
+        mine = asyncio.get_running_loop().create_future()
+        self._parked.append((asset, mine))
+        if len(self._parked) < self.together:
+            try:
+                await asyncio.wait_for(mine, PATIENCE_S)
+            except TimeoutError:
+                self.starved = self.starved or (f"{len(self._parked)} of {self.together} calls were in flight after {PATIENCE_S:.0f} s: "
+                                                f"the caller does not send {self.together} at a time")
+                raise RuntimeError(self.starved) from None
+            finally:
+                self._parked = [(name, parked) for name, parked in self._parked if parked is not mine]
+            return
+        round_, self._parked = self._parked, []
+        self.rounds.append([name for name, _ in round_])
+        await asyncio.sleep(self.hold)
+        for _, parked in reversed(round_) if self.reverse else round_:
+            if not parked.done():
+                parked.set_result(None)
 
     async def generate_content(self, **kwargs):
         text = kwargs["contents"][0].parts[0].text
@@ -54,8 +90,8 @@ class KitEndpoint:
         self.running += 1
         self.peak = max(self.peak, self.running)
         try:
-            # With ``reverse`` the later pieces answer first, so completion order is the opposite of piece order.
-            await asyncio.sleep(self.delay * (1 - int(asset[-2:]) / 20) if self.reverse else self.delay)
+            if self.together > 1:
+                await self._round(asset)
             what = self.script.get(asset, "ok")
             if isinstance(what, list):  # one entry per successive call for this piece; the last repeats
                 what = what[min(self.generated.count(asset) - 1, len(what) - 1)]
@@ -91,10 +127,6 @@ def kit(tmp_path: Path, endpoint: KitEndpoint, *, per_asset_ceiling: float, auth
     return EnvironmentKitDAG(forge=forge, author=author, workdir=tmp_path / "kit", budget=UE, sheet_resolution=256)
 
 
-def piece_ms(rep) -> float:
-    return rep.nodes["pieces"].duration_ms
-
-
 def test_kit_ceiling_is_one_asset_allowance_per_piece_plus_the_trim_sheet() -> None:
     plan = plan_for(2)
     assert kit_plan(plan, 8).ceiling_usd == pytest.approx(9 * plan.ceiling_usd)
@@ -105,16 +137,15 @@ def test_kit_ceiling_is_one_asset_allowance_per_piece_plus_the_trim_sheet() -> N
 
 
 async def test_live_pieces_are_authored_concurrently_through_the_metered_path(tmp_path: Path, rates) -> None:
-    delay = 0.4
-    ep = KitEndpoint(delay=delay, reverse=True)
+    ep = KitEndpoint(together=8, reverse=True)  # answers nothing until all eight calls are in flight, then the last piece first
     dag = kit(tmp_path, ep, per_asset_ceiling=1.0)
     rep = await dag.run("ruined stone corridor", 8)
     x = rep.extras
-    assert rep.ok and x["gates_ok"], rep.summary()
-    assert ep.peak == 8 and ep.counted == 8  # all in flight at once, each counted (admission) before it was sent
-    assert piece_ms(rep) < 3 * delay * 1000, piece_ms(rep)  # one delay plus overhead, not eight
-    # piece k is piece k whatever finished first (the endpoint answered the last piece first)
+    assert rep.ok and x["gates_ok"], f"{ep.starved}\n{rep.summary()}"
     names = [f"{PIECE_CYCLE[k % 4].title().replace('_', '')}{k:02d}" for k in range(8)]
+    assert ep.peak == 8 and ep.counted == 8  # all in flight at once, each counted (admission) before it was sent
+    assert [sorted(r) for r in ep.rounds] == [sorted(names)]  # one round: the kit waits as long as one answer takes, not eight
+    # piece k is piece k whatever finished first (the endpoint answered the last piece first)
     assert list(x["pieces"]) == names and [o["piece"] for o in x["authoring"]["pieces"]] == names
     assert [o["status"] for o in x["authoring"]["pieces"]] == ["produced"] * 8
     assert [p["name"] for p in rep.nodes["pieces"].data["pieces"]] == names
@@ -128,20 +159,28 @@ async def test_live_pieces_are_authored_concurrently_through_the_metered_path(tm
 
 
 async def test_ceiling_that_admits_two_at_a_time_waits_and_loses_no_piece(tmp_path: Path, rates) -> None:
-    delay, n = 0.3, 6
+    hold, n = 0.2, 6
     limit = worst_case()
-    ep = KitEndpoint(delay=delay)
+    ep = KitEndpoint(together=2, hold=hold)  # answers two calls at a time, `hold` seconds after the second arrived
     # kit ceiling = per-asset x (n + 1) = 2.5 worst cases: two reservations fit at once, not three
     dag = kit(tmp_path, ep, per_asset_ceiling=2.5 * limit / (n + 1))
     rep = await dag.run("ruined stone corridor", n)
     x = rep.extras
-    assert rep.ok, rep.summary()
-    assert ep.peak == 2 and len(ep.generated) == n
-    assert [o["status"] for o in x["authoring"]["pieces"]] == ["produced"] * n
-    assert [o["piece"] for o in x["authoring"]["pieces"]] == list(x["pieces"])
-    waited = [o for o in x["authoring"]["pieces"] if o["admission_wait_s"] > delay / 2]  # waited for an earlier call to settle
-    assert len(waited) == n - 2 and all(o["reserved_usd"] == pytest.approx(limit, rel=0.01) for o in x["authoring"]["pieces"])
-    assert 2.5 * delay * 1000 < piece_ms(rep) < 6 * delay * 1000  # three rounds of two, not one round and not six
+    assert rep.ok, f"{ep.starved}\n{rep.summary()}"
+    outcomes = x["authoring"]["pieces"]
+    assert ep.peak == 2 and len(ep.generated) == n  # never three in flight
+    assert [o["status"] for o in outcomes] == ["produced"] * n
+    assert [o["piece"] for o in outcomes] == list(x["pieces"])
+    # three rounds of two, every piece in one of them: not one round of six, and never one call alone in flight while
+    # others wait (the endpoint answers nothing until it holds two, so a kit that sent one at a time would not finish)
+    assert [len(r) for r in ep.rounds] == [2, 2, 2] and sorted(name for r in ep.rounds for name in r) == sorted(x["pieces"])
+    # The four outside the first round were admitted when an earlier round settled, and their outcomes say so. All six
+    # ask at the start and a round is answered `hold` seconds after it is complete, so a piece in the second round waited
+    # one hold and a piece in the third waited two. The first two were sent before anything was answered: the wait they
+    # report is their own write to the ledger, which is as slow as the disk and is not bounded here.
+    wait = {o["piece"]: o["admission_wait_s"] for o in outcomes}
+    assert all(wait[name] > (r - 0.5) * hold for r, round_ in enumerate(ep.rounds) for name in round_ if r), (wait, ep.rounds)
+    assert all(o["reserved_usd"] == pytest.approx(limit, rel=0.01) for o in outcomes)
 
 
 async def test_a_kit_is_not_refused_for_being_budgeted_as_one_asset(tmp_path: Path, rates) -> None:
