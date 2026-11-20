@@ -509,7 +509,11 @@ def _check_glb_images(out: Path, man: dict, asset: str, digests: dict[str, str],
     package file holds those bytes (a source map in a format glTF does not allow, transcoded to PNG once, exactly
     as LOD0 embeds it). Every level binds, per material and slot, the same image content as LOD0. The manifest's
     record of each GLB must be what the file holds.
+
+    Versions: the rule that far LODs must not embed images (and that ``glb_images`` must exist) applies from
+    ``schema_version`` 2, whose contract introduced it; every other rule here applies to version 1 packages too.
     """
+    version = int(man.get("schema_version") or 1)
     out_real = out.resolve()
     tex_root = (out / PACKAGE_TEXTURE_DIR).resolve()
     hashes = man.get("file_hashes") or {}
@@ -517,7 +521,7 @@ def _check_glb_images(out: Path, man: dict, asset: str, digests: dict[str, str],
     lod_re = re.compile(rf"^{re.escape(asset)}_LOD(\d+)\.glb$")
     glbs = [f for f in man.get("files") or [] if isinstance(f, str) and f.endswith(".glb")]
     recorded = man.get("glb_images")
-    if recorded is None and int(man.get("schema_version") or 1) >= 2:
+    if recorded is None and version >= 2:
         add("glb_images_manifest", "critical", None, "manifest has no glb_images record")
     elif recorded is not None and sorted(recorded) != sorted(glbs):
         add("glb_images_manifest", "critical", None, f"glb_images covers {sorted(recorded)}, the package has {sorted(glbs)}")
@@ -556,7 +560,7 @@ def _check_glb_images(out: Path, man: dict, asset: str, digests: dict[str, str],
                 shas.append(rec["sha256"])
                 if level == 0:
                     lod0_embedded.add(rec["sha256"])
-                elif level is not None and (rec["sha256"] in texture_shas or rec["sha256"] not in lod0_embedded
+                elif level is not None and version >= 2 and (rec["sha256"] in texture_shas or rec["sha256"] not in lod0_embedded
                                             or not has_untranscodable_texture()):
                     add("lod_embeds_image", "critical", name,
                         f"image {rec['image']} is embedded; a far LOD references the package's textures/ instead")

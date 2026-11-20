@@ -535,6 +535,38 @@ def test_relocated_glbs_carry_correct_pbr_pixels_at_every_lod(fx, request, tmp_p
     assert levels == pm.data["lod_levels"] >= 2
 
 
+def test_a_self_contained_far_lod_is_judged_by_the_manifest_version(unreal, tmp_path):
+    """Far LODs that embed their images were the version 1 contract: valid under a version 1 manifest, and
+    ``lod_embeds_image`` under version 2. The same files either way; only what the manifest declares differs."""
+    from antigravity3d.kernel.package import _sha256, _write_glb_level, gltf_materials
+
+    sm, bundle, pm = unreal
+    out = tmp_path / "pkg"
+    shutil.copytree(pm.out_dir, out)
+    materials = gltf_materials(Usd.Stage.Open(str(out / f"{ASSET}.usd")), sm.extract_meshes(), package_dir=out)
+    man = json.loads((out / "manifest.json").read_text())
+    for level in range(1, man["lod_levels"]):  # every far LOD written as version 1 wrote it: images embedded
+        lod = out / f"{ASSET}_LOD{level}.glb"
+        _write_glb_level(lod, {n: chain[level] for n, chain in bundle.lods.items()}, man["glb_batches"], materials, f"_LOD{level}")
+        man["file_hashes"][lod.name] = {"sha256": _sha256(lod), "bytes": lod.stat().st_size}
+    del man["glb_images"]  # version 1 manifests did not have it
+    (out / "manifest.json").write_text(json.dumps({**man, "schema_version": 1}))
+    assert validate_package(out) == []
+    (out / "manifest.json").write_text(json.dumps({**man, "schema_version": 2}))
+    issues = validate_package(out)
+    assert {"lod_embeds_image", "glb_images_manifest"} <= _codes(issues) and "lod_texture_differs" not in _codes(issues)
+    # a version 1 package is still held to the rest: a far level binding other image content than LOD0 fails
+    from dataclasses import replace
+
+    lod1 = out / f"{ASSET}_LOD1.glb"
+    paint = next(iter(materials.values()))  # one material on every node
+    swapped = replace(paint, base_color_texture=paint.normal_texture)  # albedo slot bound to the normal map
+    _write_glb_level(lod1, {n: chain[1] for n, chain in bundle.lods.items()}, man["glb_batches"], dict.fromkeys(materials, swapped), "_LOD1")
+    man["file_hashes"][lod1.name] = {"sha256": _sha256(lod1), "bytes": lod1.stat().st_size}
+    (out / "manifest.json").write_text(json.dumps({**man, "schema_version": 1}))
+    assert "lod_texture_differs" in _codes(validate_package(out))
+
+
 def _lod1_edit(out: Path, edit) -> set[str]:
     """Rewrite the JSON of ``<asset>_LOD1.glb`` with ``edit(doc)``, keep the manifest's hash of the file honest, validate."""
     import struct
