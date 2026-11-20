@@ -364,7 +364,7 @@ def map_to_trim(
     report = TrimReport(res, infos, usage, float(a3[mapped].sum() / total) if total > 0 else 0.0)
     return TrimResult(
         mesh.node_id, out_pts, out_tris, out_uv, vmap, dens, sm, sx, res, "trim", all(i.scale >= 1.0 - 1e-9 for i in infos),
-        lab.astype(np.int32), tri_strip, charts, report,
+        tri_chart=lab.astype(np.int32), tri_strip=tri_strip, charts=charts, report=report,
     )
 
 

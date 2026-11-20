@@ -302,7 +302,7 @@ class UVResult:
     resolution: int
     atlas_id: str | None = None
     fitted: bool = True         # False: requested density overflowed, re-fit with lower density
-    charts: str = "computed"    # "analytic": exact developable charts from the IR; "computed": xatlas charts
+    chart_source: str = "computed"  # "analytic": exact developable charts from the IR; "computed": xatlas charts
     angle_distortion: float = 0.0  # area-weighted mean (sigma_max / sigma_min - 1) of the UV map (0 = conformal)
 
     def within(self, budget: EngineBudget) -> bool:
@@ -879,53 +879,49 @@ def _point_triangle_distance(p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.
     return np.sqrt(np.where(inside, dot(q, q), edge))
 
 
-def _surface_samples(p: np.ndarray, t: np.ndarray) -> np.ndarray:
+def _one_sided(samples: np.ndarray, p: np.ndarray, t: np.ndarray, limit: float) -> float:
+    """max over samples of the distance to surface (p, t), decided exactly against ``limit``.
+
+    First pass: each sample against the triangles with the 8 nearest centroids (an upper bound). Samples whose
+    bound exceeds ``limit`` are then measured against every triangle whose bounding box is closer than that
+    bound, which makes them exact. So the result is exact whenever it exceeds ``limit`` and otherwise an upper
+    bound that is still <= ``limit``: the accept / reject decision is never wrong."""
+    from scipy.spatial import cKDTree
+
     a, b, c = p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]
-    return np.vstack([p[np.unique(t)], (a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2])
-
-
-def _one_sided(samples: np.ndarray, p: np.ndarray, t: np.ndarray, reach: float) -> float:
-    """max over samples of the exact distance to surface (p, t), saturating at ``reach``.
-
-    Up to 2048 target triangles: exact. Each sample is measured against the 4 triangles with the smallest
-    bounding-sphere lower bound |s - centre| - radius, then against every other triangle whose lower bound is
-    below the distance found. Larger targets (a dense LOD0, whose triangles are small): the 16 nearest
-    centroids; a miss can only over-estimate, so a level is never accepted on an underestimate."""
-    a, b, c = p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]
-    cen = (a + b + c) / 3
     n = len(samples)
-    if len(t) > 2048:
-        from scipy.spatial import cKDTree
-
-        k = 16
-        nn = np.asarray(cKDTree(cen).query(samples, k=k)[1]).reshape(-1)
-        si = np.repeat(np.arange(n), k)
-        d = _point_triangle_distance(samples[si], a[nn], b[nn], c[nn]).reshape(n, k).min(axis=1)
-        return float(min(d.max(), reach))
-    rad = np.sqrt(np.max(np.stack([((x - cen) ** 2).sum(1) for x in (a, b, c)]), axis=0))
-    k = min(4, len(t))
-    best = np.empty(n)
-    for s0 in range(0, n, 1024):
-        sl = samples[s0:s0 + 1024]
-        lb = np.sqrt(((sl[:, None, :] - cen[None]) ** 2).sum(-1)) - rad[None]
-        first = np.argpartition(lb, k - 1, axis=1)[:, :k] if k < len(t) else np.broadcast_to(np.arange(k), (len(sl), k))
-        rows = np.repeat(np.arange(len(sl)), k)
-        cols = first.reshape(-1)
-        ub = _point_triangle_distance(sl[rows], a[cols], b[cols], c[cols]).reshape(len(sl), k).min(axis=1)
-        lb[rows, cols] = np.inf  # already exact
-        r2, c2 = np.nonzero(lb < ub[:, None])
-        if len(r2):
-            d2 = _point_triangle_distance(sl[r2], a[c2], b[c2], c[c2])
-            np.minimum.at(ub, r2, d2)
-        best[s0:s0 + 1024] = ub
-    return float(min(best.max(), reach)) if n else 0.0
+    if not n:
+        return 0.0
+    k = min(8, len(t))
+    nn = np.asarray(cKDTree((a + b + c) / 3).query(samples, k=k)[1]).reshape(n, k)
+    rows = np.repeat(np.arange(n), k)
+    ub = _point_triangle_distance(samples[rows], a[nn.reshape(-1)], b[nn.reshape(-1)], c[nn.reshape(-1)]).reshape(n, k).min(axis=1)
+    far = np.flatnonzero(ub > limit)
+    if len(far):
+        lo, hi = np.minimum(np.minimum(a, b), c), np.maximum(np.maximum(a, b), c)
+        step = max(1, 2_000_000 // max(len(t), 1))
+        for s0 in range(0, len(far), step):
+            ids = far[s0:s0 + step]
+            sl = samples[ids]
+            gap = np.maximum(np.maximum(lo[None] - sl[:, None], sl[:, None] - hi[None]), 0.0)
+            lb = np.sqrt(np.einsum("ijk,ijk->ij", gap, gap))
+            r2, c2 = np.nonzero(lb < ub[ids][:, None])
+            if len(r2):
+                d = np.full(len(ids), np.inf)
+                np.minimum.at(d, r2, _point_triangle_distance(sl[r2], a[c2], b[c2], c[c2]))
+                ub[ids] = np.minimum(ub[ids], d)
+    return float(ub.max())
 
 
-def _surface_deviation(p0: np.ndarray, t0: np.ndarray, p1: np.ndarray, t1: np.ndarray, reach: float) -> float:
-    """Two-sided surface distance (a sampled Hausdorff distance) between a mesh and its simplification, in
-    the units of the points: vertices, centroids and edge midpoints of each side, measured against the other
-    side's triangles (see _one_sided). Values above ``reach`` saturate."""
-    return max(_one_sided(_surface_samples(p0, t0), p1, t1, reach), _one_sided(_surface_samples(p1, t1), p0, t0, reach))
+def _surface_deviation(p0: np.ndarray, t0: np.ndarray, p1: np.ndarray, t1: np.ndarray, limit: float) -> float:
+    """Two-sided surface distance (a sampled Hausdorff distance) between a mesh (p0, t0) and its
+    simplification (p1, t1), in the units of the points, decided exactly against ``limit`` (see _one_sided).
+    Reference -> simplified: the reference's vertices (where an edge collapse moves the surface most).
+    Simplified -> reference: centroids and edge midpoints of the coarse triangles (chords and bulges; its
+    vertices are reference vertices, at distance 0)."""
+    a, b, c = p1[t1[:, 0]], p1[t1[:, 1]], p1[t1[:, 2]]
+    coarse = np.vstack([(a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2])
+    return max(_one_sided(p0[np.unique(t0)], p1, t1, limit), _one_sided(coarse, p0, t0, limit))
 
 
 # 13 view directions (axes, face and body diagonals; opposite directions project identically)
@@ -1011,13 +1007,14 @@ class _Simplifier:
         a1 = _projected_areas(self.ref[0], idx.reshape(-1, 3).astype(np.int64))
         return float(np.max(np.abs(a1 - self._area0) / np.maximum(self._area0, 1e-30)))
 
-    def _measure(self, idx: np.ndarray, silhouette_tol: float) -> tuple[float, float]:
+    def _measure(self, idx: np.ndarray, silhouette_tol: float, limit: float) -> tuple[float, float]:
         """(silhouette change, surface deviation) of a candidate, memoised: nearby targets often give the same
-        index buffer. The deviation is only measured when the cheap silhouette test passes (else inf)."""
+        index buffer. The deviation is only measured when the cheap silhouette test passes (else inf); it is
+        exact above ``limit`` and an upper bound below it, so a memoised value decides any later limit too."""
         key = idx.tobytes()
         if key not in self._measured:
             sil = self.silhouette_change(idx)
-            dev = (_surface_deviation(self.ref[0], self.ref[1], self.ref[0], idx.reshape(-1, 3).astype(np.int64), np.inf)
+            dev = (_surface_deviation(self.ref[0], self.ref[1], self.ref[0], idx.reshape(-1, 3).astype(np.int64), limit)
                    if sil <= silhouette_tol else np.inf)
             self._measured[key] = (sil, dev)
         return self._measured[key]
@@ -1035,7 +1032,7 @@ class _Simplifier:
                 idx = self._run(target)
                 if len(idx) == 0 or len(idx) >= len(self.idx0):
                     break
-                sil, dev = self._measure(idx, silhouette_tol)
+                sil, dev = self._measure(idx, silhouette_tol, budget_m)
                 if dev <= budget_m and sil <= silhouette_tol:
                     best = (idx, dev)
                     break
@@ -1143,8 +1140,7 @@ def generate_lods(
             idx = dst[:n].copy()
             if len(idx) == 0 or (out and len(idx) >= out[-1].tri_count * 3):
                 continue
-            dev = _surface_deviation(s.ref[0], s.ref[1], s.ref[0], idx.reshape(-1, 3).astype(np.int64),
-                                     4 * _bounds_radius([s.ref[0]]))
+            dev = _surface_deviation(s.ref[0], s.ref[1], s.ref[0], idx.reshape(-1, 3).astype(np.int64), 0.0)  # exact
         out.append(s.level(idx, dev, 1.0))
     return out
 

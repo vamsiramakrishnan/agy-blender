@@ -375,6 +375,8 @@ class _Worker:
             except subprocess.TimeoutExpired:
                 rc = None
             how = f"signal {signal.Signals(-rc).name}" if rc is not None and rc < 0 else f"exit code {rc}"
+            if rc == -signal.SIGKILL:
+                how += ", usually the kernel's out-of-memory killer; try fewer --jobs"
             raise self._fail(WorkerCrashed, f"worker pid {self.pid} died ({how}) {what}") from None
 
     def call(self, task: tuple, timeout: float | None) -> tuple:
