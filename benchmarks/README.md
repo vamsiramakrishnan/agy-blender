@@ -170,3 +170,16 @@ PBR maps and the export bundle are reused.
   numpy gradient, nothing else.
 * Every case's `extra.process_cpu_over_wall` should be about 1.0 for single-threaded kernels. A value well above 1 means a
   library ran threads that the environment variables did not cap.
+
+## Comparison run with default threading
+
+The main run pins the numeric libraries and OpenUSD to one thread so results are comparable between machines. To see
+what the same operations cost with each library's own defaults, set `AGY3D_BENCH_THREADS=default`:
+
+```bash
+AGY3D_BENCH_THREADS=default python benchmarks/perf_offline.py \
+  --only kernel.edit harness.edit kernel.rollback kernel.raster kernel.uv kernel.export \
+  --out benchmarks/results/offline_default_threads.json
+```
+
+`machine.thread_pinning` in the JSON records which mode produced a file.

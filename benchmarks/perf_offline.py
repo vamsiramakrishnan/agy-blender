@@ -16,8 +16,10 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------------------------------------
 import os
 
-THREAD_ENV = {"OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
-              "PXR_WORK_THREAD_LIMIT": "1"}  # the last one caps OpenUSD's own worker pool (extra to the brief; see README)
+_PIN = {"OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
+        "PXR_WORK_THREAD_LIMIT": "1"}  # the last one caps OpenUSD's own worker pool (see README)
+# AGY3D_BENCH_THREADS=default leaves every library's own thread defaults in place, for a comparison run.
+THREAD_ENV = {} if os.environ.get("AGY3D_BENCH_THREADS") == "default" else dict(_PIN)
 for _k, _v in THREAD_ENV.items():
     os.environ[_k] = _v
 for _k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_APPLICATION_CREDENTIALS",
@@ -1592,7 +1594,8 @@ def machine_block(quick: bool) -> dict[str, Any]:
         "os": f"{platform.system()} {platform.release()}", "python": sys.version.split()[0],
         "git_commit": _sh(["git", "rev-parse", "HEAD"]), "git_dirty_tracked_files": len(_sh(["git", "status", "--porcelain", "--untracked-files=no"]).splitlines()),
         "versions": {d: ver(d) for d in ("antigravity-3d", "usd-core", "trimesh", "xatlas", "meshoptimizer", "coacd", "numpy", "scipy", "pillow")},
-        "thread_env": {k: os.environ.get(k) for k in THREAD_ENV},
+        "thread_pinning": "pinned_to_1" if THREAD_ENV else "library_defaults",
+        "thread_env": {k: os.environ.get(k) for k in _PIN},
         "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "quick": quick,
         "loadavg_at_start": [round(x, 2) for x in os.getloadavg()],
         "offline": {"GEMINI_API_KEY_set": "GEMINI_API_KEY" in os.environ, "AGY3D_OFFLINE": os.environ.get("AGY3D_OFFLINE")},
