@@ -111,6 +111,22 @@ def _project(pts: np.ndarray, view: str, size: int):
     return sxy, z, cam.basis, cam.persp
 
 
+_TILE_BATCH_ELEMENTS = 1 << 24  # triangles x tile pixels evaluated at once (a few hundred MB of float32 at most)
+
+
+def _tile_sizes(size: int) -> np.ndarray:
+    """Tile edge lengths (pixels) that triangles are binned by, covering any triangle a ``size`` frame can hold.
+
+    A triangle is evaluated on the smallest tile that contains its clipped bounding box. The table runs
+    1, 2, 3, 4, 6, 8, ... (alternating x1.5 and x1.33) up to at least the frame size, so a triangle spanning
+    the whole frame has a tile at every resolution, not only up to 256 px.
+    """
+    s = [1, 2, 3, 4]
+    while s[-1] < size:
+        s.append(s[-2] * 2)
+    return np.array(s, np.int32)
+
+
 def _rasterise(sxy: np.ndarray, key: np.ndarray, tris: np.ndarray, size: int):
     """Returns (tri_id image int32 [-1 = empty], depth-key image float32)."""
     p0, p1, p2 = (sxy[tris[:, i]] for i in range(3))
@@ -123,12 +139,16 @@ def _rasterise(sxy: np.ndarray, key: np.ndarray, tris: np.ndarray, size: int):
     y1 = np.minimum(np.ceil(hi[:, 1] - 0.5), size - 1).astype(np.int32)
     ext = np.maximum(x1 - x0, y1 - y0) + 1
     ok = (np.abs(area) > 1e-9) & (x1 >= x0) & (y1 >= y0)
-    sizes = np.array([1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256], np.int32)
+    sizes = _tile_sizes(size)
     bucket = np.zeros(len(tris), np.int32)
     bucket[ok] = sizes[np.searchsorted(sizes, ext[ok])]
     pix_l, key_l, tri_l = [], [], []
+    groups = []
     for B in np.unique(bucket[ok]):
-        ids = np.nonzero(ok & (bucket == B))[0]
+        members = np.nonzero(ok & (bucket == B))[0]
+        step = max(1, _TILE_BATCH_ELEMENTS // (int(B) * int(B)))  # bounds the (T, B, B) work arrays
+        groups.extend((B, members[i:i + step]) for i in range(0, len(members), step))
+    for B, ids in groups:
         g = np.arange(B, dtype=np.float32) + 0.5
         a, b, c = p0[ids].astype(np.float32), p1[ids].astype(np.float32), p2[ids].astype(np.float32)
         inv = (1.0 / area[ids]).astype(np.float32)

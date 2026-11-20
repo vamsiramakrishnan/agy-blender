@@ -152,3 +152,38 @@ def test_id_buffer_overhead():
     b = time.perf_counter() - t
     print(f"\nrender_clay {a * 200:.1f} ms, render_buffers {b * 200:.1f} ms")
     assert b - a < 0.02 * 5 or b < a * 1.5
+
+
+def test_frames_larger_than_256_px_hold_frame_spanning_triangles():
+    """A box face fills most of the frame, so its two triangles span far more than 256 px at 512 and 1024.
+
+    The tile table used to stop at 256 px and such a triangle raised IndexError. Coverage must be resolution
+    independent: the same framing gives the same covered fraction at every size, to within edge pixels.
+    """
+    box = [md(trimesh.creation.box((1, 1, 1)), "box", (0, 0, 0.5))]
+    base = render_buffers(box, "front", 256)
+    want = (base.prim_id >= 0).mean()
+    assert 0.5 < want < 0.9
+    for size in (384, 512, 1024):
+        r = render_buffers(box, "front", size)
+        got = (r.prim_id >= 0).mean()
+        assert abs(got - want) < 4.0 / size, (size, got, want)  # a few edge pixels per row at most
+        ys, xs = np.nonzero(r.prim_id >= 0)
+        assert xs.max() - xs.min() > 256 and ys.max() - ys.min() > 256  # really wider than the old limit
+        assert np.isfinite(r.depth[r.prim_id >= 0]).all()
+    # a mixed scene (thousands of small triangles and large ones) renders at 512 and agrees with 256 on coverage
+    ms = scene_5k()
+    a, b = render_buffers(ms, "persp", 256), render_buffers(ms, "persp", 512)
+    assert abs((a.prim_id >= 0).mean() - (b.prim_id >= 0).mean()) < 0.01
+
+
+def test_tile_batches_do_not_change_the_image(monkeypatch):
+    """Splitting a tile size's triangles into batches is only a memory bound: the image is identical."""
+    from antigravity3d.kernel import raster
+
+    ms = scene_5k()
+    whole = render_buffers(ms, "persp", 256)
+    monkeypatch.setattr(raster, "_TILE_BATCH_ELEMENTS", 4096)  # forces many batches per tile size
+    split = render_buffers(ms, "persp", 256)
+    assert np.array_equal(whole.color, split.color) and np.array_equal(whole.prim_id, split.prim_id)
+    assert np.array_equal(whole.depth, split.depth)

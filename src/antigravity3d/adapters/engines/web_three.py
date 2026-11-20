@@ -107,30 +107,6 @@ def web_camera(bounds_m) -> dict:
             "ortho_width": diameter * ORTHO_FILL, "distance": diameter * CAMERA_DISTANCE, "size_px": FRAME_PX}
 
 
-MAX_RASTER_TRI_PX = 240  # kernel.raster bins triangles up to 256 px across; larger ones are split first
-
-
-def _subdivided(mesh: MeshData, camera) -> MeshData:
-    """Split triangles wider than the rasteriser's bucket limit at edge midpoints (silhouette unchanged)."""
-    pts, tris = np.asarray(mesh.points, np.float64), np.asarray(mesh.triangles, np.int64)
-    while len(tris):
-        xy, _ = camera.project(pts)
-        t = xy[tris]
-        wide = (t.max(axis=1) - t.min(axis=1)).max(axis=1) > MAX_RASTER_TRI_PX
-        if not wide.any():
-            break
-        big, keep = tris[wide], tris[~wide]
-        a, b, c = (pts[big[:, i]] for i in range(3))
-        base = len(pts)
-        n = len(big)
-        pts = np.vstack([pts, (a + b) / 2, (b + c) / 2, (c + a) / 2])
-        ab, bc, ca = (base + np.arange(n) + k * n for k in range(3))
-        v0, v1, v2 = big[:, 0], big[:, 1], big[:, 2]
-        tris = np.vstack([keep, np.stack([v0, ab, ca], 1), np.stack([ab, v1, bc], 1),
-                          np.stack([ca, bc, v2], 1), np.stack([ab, bc, ca], 1)])
-    return MeshData(mesh.node_id, mesh.prim_path, pts, tris.astype(np.int32), mesh.material_id)
-
-
 def reference_png(meshes: list[MeshData], bounds_m) -> bytes:
     """Reference silhouette: the kernel rasteriser with the matching camera, alpha = covered pixels.
 
@@ -148,7 +124,6 @@ def reference_png(meshes: list[MeshData], bounds_m) -> bytes:
     basis = np.stack([r, np.cross(r, f), f])
     camera = Camera("web_three", basis, np.asarray(cam["center"]), False, 0.0,
                     FRAME_PX / cam["ortho_width"], np.zeros(2), FRAME_PX)
-    meshes = [_subdivided(m, camera) for m in meshes]
     rb = render_buffers(meshes, camera=camera, size=FRAME_PX)
     rgba = np.zeros((FRAME_PX, FRAME_PX, 4), np.uint8)
     rgba[..., :3] = rb.color
