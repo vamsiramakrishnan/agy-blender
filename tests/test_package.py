@@ -373,7 +373,7 @@ def test_units_and_axis_are_converted_consistently(unreal, godot):
 def test_manifest_contents_and_clean_validation(unreal, godot):
     for _, bundle, pm in (unreal, godot):
         man = json.loads((pm.out_dir / "manifest.json").read_text())
-        assert man["schema_version"] == 1 and man["asset"] == ASSET and man["usd"] == f"{ASSET}.usd"
+        assert man["schema_version"] == 2 and man["asset"] == ASSET and man["usd"] == f"{ASSET}.usd"
         assert man["tris"] == man["lod_tris"][0] and man["draw_calls"] == 3
         assert man["qa"] == {"tier1_ok": True, "tier15": 3.9}
         assert {"target_px_per_m", "mean_px_per_m"} <= set(man["texel_density"])
@@ -384,6 +384,21 @@ def test_manifest_contents_and_clean_validation(unreal, godot):
         assert man["validation"]["package_ok"] and man["validation"]["package"] == []
         assert not [i for i in man["validation"]["usd"] + man["validation"]["engine"] if i["severity"] == "critical"]
         assert pm.ok and pm.issues == [] and validate_package(pm.out_dir) == []
+        # where every GLB keeps its images: LOD0 embeds them all, far LODs reference textures/, colliders have none
+        glbs = [f for f in man["files"] if f.endswith(".glb")]
+        assert sorted(man["glb_images"]) == sorted(glbs) and man["lod_levels"] >= 2
+        texture_files = {t["usd_path"] for t in man["textures"]}
+        for name, records in man["glb_images"].items():
+            if name == f"{ASSET}_colliders.glb":
+                assert records == []
+                continue
+            assert len(records) == 3 and {r["texture"] for r in records} == texture_files
+            for r in records:
+                assert r["sha256"] == man["file_hashes"][r["texture"]]["sha256"]
+                if name == f"{ASSET}.glb":
+                    assert r["storage"] == "embedded" and "uri" not in r
+                else:
+                    assert r["storage"] == "uri" and r["uri"] == r["texture"] and r["uri"].startswith("textures/")
 
 
 def _codes(issues) -> set[str]:
@@ -474,18 +489,26 @@ def test_reexport_into_same_directory_replaces_old_files(src, tmp_path):
 
 
 @pytest.mark.parametrize("fx", ["unreal", "godot"])
-def test_relocated_glbs_embed_correct_pbr_pixels_at_every_lod(fx, request, tmp_path, src):
+def test_relocated_glbs_carry_correct_pbr_pixels_at_every_lod(fx, request, tmp_path, src):
+    """LOD0 alone, copied anywhere, carries its maps; a far LOD file finds them in the relocated package's textures/."""
     import io
     import struct
+    from urllib.parse import unquote
 
     _, _, pm = request.getfixturevalue(fx)
-    glbs = tmp_path / "moved"
-    glbs.mkdir()
-    for glb in pm.out_dir.glob("*.glb"):
+    alone = tmp_path / "alone"
+    alone.mkdir()
+    moved = tmp_path / "elsewhere" / "pkg"
+    shutil.copytree(pm.out_dir, moved)
+    levels = 0
+    for glb in sorted(moved.glob("*.glb")):
         if "colliders" in glb.stem:
             continue
-        data = shutil.copy(glb, glbs)
-        blob = Path(data).read_bytes()
+        lod0 = glb.stem == ASSET
+        if lod0:
+            glb = Path(shutil.copy(glb, alone))  # the single-file deliverable needs nothing beside it
+        levels += 1
+        blob = glb.read_bytes()
         length = struct.unpack_from("<I", blob, 12)[0]
         doc = json.loads(blob[20:20 + length])
         binary = blob[28 + length:]
@@ -498,11 +521,117 @@ def test_relocated_glbs_embed_correct_pbr_pixels_at_every_lod(fx, request, tmp_p
                 for role, slot in (("albedo", pbr["baseColorTexture"]), ("orm", pbr["metallicRoughnessTexture"]),
                                    ("orm", mat["occlusionTexture"]), ("normal", mat["normalTexture"])):
                     image = doc["images"][doc["textures"][slot["index"]]["source"]]
-                    view = doc["bufferViews"][image["bufferView"]]
-                    offset = view.get("byteOffset", 0)
-                    with Image.open(io.BytesIO(binary[offset:offset + view["byteLength"]])) as actual:
+                    if lod0:
+                        assert "uri" not in image
+                        view = doc["bufferViews"][image["bufferView"]]
+                        offset = view.get("byteOffset", 0)
+                        data = binary[offset:offset + view["byteLength"]]
+                    else:
+                        assert "bufferView" not in image and image["uri"].startswith("textures/")
+                        data = (glb.parent / unquote(image["uri"])).read_bytes()
+                    with Image.open(io.BytesIO(data)) as actual:
                         with Image.open(src / f"{role}.png") as expected:
                             np.testing.assert_array_equal(actual, expected)
+    assert levels == pm.data["lod_levels"] >= 2
+
+
+def _lod1_edit(out: Path, edit) -> set[str]:
+    """Rewrite the JSON of ``<asset>_LOD1.glb`` with ``edit(doc)``, keep the manifest's hash of the file honest, validate."""
+    import struct
+
+    from antigravity3d.kernel.package import _sha256
+
+    glb = out / f"{ASSET}_LOD1.glb"
+    blob = glb.read_bytes()
+    length = struct.unpack_from("<I", blob, 12)[0]
+    doc = json.loads(blob[20:20 + length])
+    edit(doc)
+    js = json.dumps(doc, separators=(",", ":")).encode()
+    js += b" " * (-len(js) % 4)
+    rest = blob[20 + length:]
+    glb.write_bytes(struct.pack("<4sII", b"glTF", 2, 20 + len(js) + len(rest)) + struct.pack("<I4s", len(js), b"JSON") + js + rest)
+    man = json.loads((out / "manifest.json").read_text())
+    man["file_hashes"][glb.name] = {"sha256": _sha256(glb), "bytes": glb.stat().st_size}
+    (out / "manifest.json").write_text(json.dumps(man))
+    return _codes(validate_package(out))
+
+
+def test_validate_package_checks_the_textures_far_lods_reference(unreal, tmp_path):
+    from antigravity3d.kernel.package import _sha256
+
+    _, _, pm = unreal
+    out = tmp_path / "pkg"
+    shutil.copytree(pm.out_dir, out)
+    man = json.loads((out / "manifest.json").read_text())
+    assert validate_package(out) == [] and f"{ASSET}_LOD1.glb" in man["files"]
+    albedo = out / next(t["usd_path"] for t in man["textures"] if t["role"] == "albedo")
+    saved = albedo.read_bytes()
+
+    # a referenced texture is missing
+    albedo.unlink()
+    assert "glb_image_missing" in _codes(validate_package(out))
+    # a referenced texture has other content than the manifest records, even with its own hash entry updated
+    Image.fromarray(np.zeros((32, 32, 3), np.uint8)).save(albedo)
+    assert {"hash_mismatch", "glb_image_hash"} <= _codes(validate_package(out))
+    edited = json.loads((out / "manifest.json").read_text())
+    edited["file_hashes"][albedo.relative_to(out).as_posix()]["sha256"] = _sha256(albedo)
+    (out / "manifest.json").write_text(json.dumps(edited))
+    codes = _codes(validate_package(out))
+    assert "hash_mismatch" not in codes and {"glb_images_manifest", "lod_texture_differs"} <= codes
+    (out / "manifest.json").write_text(json.dumps(man))
+    albedo.write_bytes(saved)
+    assert validate_package(out) == []
+
+    # a reference outside textures/ (still inside the package, and to a file that exists), and one leaving the package
+    (out / "albedo_copy.png").write_bytes(saved)
+    assert "glb_image_outside" in _lod1_edit(out, lambda doc: doc["images"][0].update(uri="albedo_copy.png"))
+    assert "glb_image_outside" in _lod1_edit(out, lambda doc: doc["images"][0].update(uri="../" + doc["images"][0]["uri"]))
+    assert "glb_image_outside" in _lod1_edit(out, lambda doc: doc["images"][0].update(uri=albedo.resolve().as_uri()))
+
+
+def test_validate_package_fails_a_far_lod_that_embeds_images(unreal, tmp_path):
+    from antigravity3d.kernel.package import _sha256, _write_glb_level, gltf_materials
+
+    sm, bundle, pm = unreal
+    out = tmp_path / "pkg"
+    shutil.copytree(pm.out_dir, out)
+    materials = gltf_materials(Usd.Stage.Open(str(out / f"{ASSET}.usd")), sm.extract_meshes(), package_dir=out)
+    lod1 = out / f"{ASSET}_LOD1.glb"
+    # the same level written in the self-contained form (every image embedded again)
+    _write_glb_level(lod1, {n: chain[1] for n, chain in bundle.lods.items()}, pm.data["glb_batches"], materials, "_LOD1")
+    man = json.loads((out / "manifest.json").read_text())
+    man["file_hashes"][lod1.name] = {"sha256": _sha256(lod1), "bytes": lod1.stat().st_size}
+    (out / "manifest.json").write_text(json.dumps(man))
+    codes = _codes(validate_package(out))
+    assert "lod_embeds_image" in codes and "glb_images_manifest" in codes and "lod_texture_differs" not in codes
+    # LOD0 is the single-file deliverable: a reference in it fails, although the file it names is fine
+    glb = out / f"{ASSET}.glb"
+    _write_glb_level(glb, {u.node_id: u for u in bundle.uvs}, pm.data["glb_batches"], materials, "",
+                     image_uris={r["sha256"]: r["uri"] for r in pm.data["glb_images"][f"{ASSET}_LOD1.glb"]})
+    man["file_hashes"][glb.name] = {"sha256": _sha256(glb), "bytes": glb.stat().st_size}
+    (out / "manifest.json").write_text(json.dumps(man))
+    assert "glb_not_self_contained" in _codes(validate_package(out))
+
+
+def test_a_map_gltf_cannot_reference_stays_embedded_in_far_lods(tmp_path):
+    """glTF allows only PNG and JPEG: a WebP source map is packaged as is and transcoded to PNG once for the GLBs.
+    No package file holds those PNG bytes, so every level embeds that one image; the other maps are referenced."""
+    rng = np.random.default_rng(1)
+    maps = {}
+    for k, ext in (("albedo", "webp"), ("orm", "png"), ("normal", "png")):
+        Image.fromarray(rng.integers(0, 255, (32, 32, 3), dtype=np.uint8)).save(tmp_path / f"{k}.{ext}")
+        maps[f"{k}_uri"] = str(tmp_path / f"{k}.{ext}")
+    sm = StageManager.create(tmp_path / "w.usda", "Orb")
+    sm.apply_ir(SceneIR(asset_name="Orb", materials=[MaterialIR(id="s", **maps)],
+                        nodes=[NodeIR(id="b", kind="sphere", params={"radius": .6}, material_id="s")]))
+    budget = EngineBudget("godot_4")
+    pm = write_engine_package(sm, run_export_pipeline(sm.extract_meshes(), budget, "Orb"), budget, tmp_path / "out", asset_name="Orb")
+    assert pm.ok and pm.n_lod_files >= 1 and validate_package(pm.out_dir) == []
+    lod0 = {r["image"]: r for r in pm.data["glb_images"]["Orb.glb"]}
+    assert [r["texture"] for r in lod0.values()] == [None, "textures/orm.png", "textures/normal.png"]
+    for level in range(1, pm.data["lod_levels"]):
+        recs = pm.data["glb_images"][f"Orb_LOD{level}.glb"]
+        assert [r["storage"] for r in recs] == ["embedded", "uri", "uri"] and recs[0]["sha256"] == lod0[0]["sha256"]
 
 
 def test_validator_rejects_uv_only_glb_even_with_matching_geometry_and_hashes(godot, tmp_path):
@@ -531,7 +660,32 @@ async def test_godot_loads_relocated_pbr_and_counts_real_surfaces(godot, tmp_pat
     report = await validator.validate(glb, timeout=30)
     assert report.ok, report.log_tail
     assert report.metrics == {"triangles": pm.data["tris"], "surfaces": 3, "textured_surfaces": 3,
-                              "normal_surfaces": 3, "orm_surfaces": 3}
+                              "normal_surfaces": 3, "orm_surfaces": 3, "images": 3, "images_loaded": 3}
+
+
+async def test_godot_imports_far_lods_of_a_relocated_package_with_their_textures(godot, tmp_path):
+    """The package moves as a directory; each far LOD file resolves textures/ next to it in stock Godot, binds every map
+    on every surface, and an import whose referenced texture is gone fails."""
+    from antigravity3d.adapters.engines.validators import GodotValidator
+
+    validator = GodotValidator()
+    if not validator.available():
+        pytest.skip("set GODOT_BIN to run the stock Godot import")
+    _, _, pm = godot
+    moved = tmp_path / "elsewhere" / "pkg"
+    shutil.copytree(pm.out_dir, moved)
+    assert pm.n_lod_files >= 1 and validate_package(moved) == []
+    for level in range(1, pm.data["lod_levels"]):
+        lod = moved / f"{ASSET}_LOD{level}.glb"
+        assert all(r["storage"] == "uri" for r in pm.data["glb_images"][lod.name])
+        report = await validator.validate(lod, timeout=30)
+        assert report.ok, (lod.name, report.log_tail)
+        surfaces = len(pm.data["lod_glb_nodes"][level])
+        assert report.metrics == {"triangles": pm.data["lod_tris"][level], "surfaces": surfaces, "textured_surfaces": surfaces,
+                                  "normal_surfaces": surfaces, "orm_surfaces": surfaces, "images": 3, "images_loaded": 3}, lod.name
+    (moved / next(t["usd_path"] for t in pm.data["textures"] if t["role"] == "albedo")).unlink()
+    report = await validator.validate(moved / f"{ASSET}_LOD1.glb", timeout=30)
+    assert not report.ok, report.log_tail
 
 
 async def test_godot_renders_relocated_package(godot, tmp_path):
@@ -633,6 +787,7 @@ async def test_ten_relocated_golden_packages_load_in_stock_godot(relocated_golde
     validator = GodotValidator()
     if not validator.available():
         pytest.skip("Godot binary required for the ten-package import test")
+    far_lods = 0
     for name, pkg in relocated_goldens:
         assert validate_package(pkg) == []
         manifest = json.loads((pkg / "manifest.json").read_text())
@@ -640,7 +795,16 @@ async def test_ten_relocated_golden_packages_load_in_stock_godot(relocated_golde
         assert report.ok, (name, report.log_tail)
         assert report.geometry_issue(manifest) is None, (name, report.bounds_m)
         assert report.metrics == {"triangles": manifest["tris"], "surfaces": 1, "textured_surfaces": 1,
-                                  "normal_surfaces": 1, "orm_surfaces": 1}
+                                  "normal_surfaces": 1, "orm_surfaces": 1, "images": 3, "images_loaded": 3}
+        # far LOD files reference the relocated package's textures/: the import must find and bind all three maps
+        for level in range(1, manifest["lod_levels"]):
+            lod = pkg / f"{name}_LOD{level}.glb"
+            report = await validator.validate(lod, timeout=30)
+            assert report.ok, (lod.name, report.log_tail)
+            assert report.metrics == {"triangles": manifest["lod_tris"][level], "surfaces": 1, "textured_surfaces": 1,
+                                      "normal_surfaces": 1, "orm_surfaces": 1, "images": 3, "images_loaded": 3}, lod.name
+            far_lods += 1
+    assert far_lods >= 1
 
 
 @pytest.mark.blender

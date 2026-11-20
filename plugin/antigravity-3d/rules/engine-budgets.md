@@ -34,6 +34,13 @@ pixel of LOD0 (on a 1080 px frame) at the distance that level is shown; an
 asset nothing can be removed from keeps LOD0 only. Far levels may leave out
 whole parts that cannot be seen at that distance. Do not hand-decimate.
 
+A package stores each map once in `textures/`. `<asset>.glb` (LOD0) embeds
+its images and is the one GLB that may be handed over on its own.
+`<asset>_LOD<n>.glb` (n >= 1) reference the maps as `textures/<file>`:
+copy, move or import the package as a whole directory, never a far LOD file
+alone. The package's `manifest.json` records, per GLB, which images are
+embedded and which are referenced.
+
 Before writing anything under an `*_exports/` folder, the QA gate must have
 passed (Tier-1 ok, Tier-1.5 at least 3.4). Do not hand-edit files in export
 folders; re-export from the stage.

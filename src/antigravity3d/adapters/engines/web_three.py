@@ -38,10 +38,12 @@ import os
 import shutil
 import sys
 import tempfile
+import struct
 import time
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
+from urllib.parse import unquote
 
 import numpy as np
 
@@ -274,6 +276,22 @@ const SLOT_KEYS = { map: ['pbr', 'baseColorTexture'], metalnessMap: ['pbr', 'met
                     normalMap: [null, 'normalTexture'], aoMap: [null, 'occlusionTexture'], emissiveMap: [null, 'emissiveTexture'] };
 const c3 = (c) => (c ? [c.r, c.g, c.b] : null), num = (v) => (typeof v === 'number' ? v : null);
 const imgSize = (t) => { const i = t && t.image; return i ? [i.width || i.naturalWidth || 0, i.height || i.naturalHeight || 0] : [0, 0]; };
+// What a decoded image holds: a 64-bit hash of its RGBA pixels drawn unscaled. Two files whose images decode to the
+// same pixels get the same value, whichever GLB (embedded bytes or a referenced file) they came from.
+const fpCanvas = document.createElement('canvas'), fpCtx = fpCanvas.getContext('2d', { willReadFrequently: true }), fpCache = new Map();
+function content(t) {
+  const [w, h] = imgSize(t);
+  if (!w || !h) return null;
+  const key = t.source ? t.source.uuid : null;
+  if (key && fpCache.has(key)) return fpCache.get(key);
+  fpCanvas.width = w; fpCanvas.height = h; fpCtx.clearRect(0, 0, w, h); fpCtx.drawImage(t.image, 0, 0);
+  const px = new Uint32Array(fpCtx.getImageData(0, 0, w, h).data.buffer);
+  let a = 0x811c9dc5 | 0, b = 0x5bd1e995 | 0;
+  for (let i = 0; i < px.length; i++) { a = Math.imul(a ^ px[i], 0x01000193); b = (Math.imul(b ^ px[i], 0x5bd1e995) + i) | 0; }
+  const fp = (a >>> 0).toString(16).padStart(8, '0') + (b >>> 0).toString(16).padStart(8, '0');
+  if (key) fpCache.set(key, fp);
+  return fp;
+}
 
 function describe(gltf) {
   const json = gltf.parser.json, assoc = gltf.parser.associations;
@@ -295,7 +313,11 @@ function describe(gltf) {
       const src = jm ? (grp === 'pbr' ? (jm.pbrMetallicRoughness || {}) : jm) : {};
       if (src[key] !== undefined) declared.push(slot);
       const t = m[slot];
-      if (t) { const [w, h] = imgSize(t); slots[slot] = { width: w, height: h, colorSpace: t.colorSpace }; }
+      if (t) {
+        const [w, h] = imgSize(t), ta = assoc.get(t), ti = ta && ta.textures !== undefined ? json.textures[ta.textures] : null;
+        const img = ti ? (json.images || [])[ti.source] : null;
+        slots[slot] = { width: w, height: h, colorSpace: t.colorSpace, content: content(t), uri: img && img.uri ? img.uri : null };
+      }
     }
     const missing = declared.filter((s) => !slots[s] || !slots[s].width || !slots[s].height);
     return { name: m.name, type: m.type, fallback_default: idx === undefined, declared, slots, missing_slots: missing,
@@ -369,17 +391,31 @@ main().catch((e) => { out.errors.push('page: ' + String((e && e.stack) || e)); o
 """
 
 
-def build_page(out_dir: Path, glb: bytes, bounds_m, lods: dict[str, bytes] | None = None) -> Path:
+#: the only page-relative directory package files are staged into (the package's own textures/)
+STAGED_DIR = "textures"
+
+
+def build_page(out_dir: Path, glb: bytes, bounds_m, lods: dict[str, bytes] | None = None,
+               files: dict[str, bytes] | None = None) -> Path:
     """Write ``page.html`` and its ``vendor/`` tree into ``out_dir`` and return the page path.
 
     The GLB bytes are embedded as base64; the vendored three.js files are written byte-for-byte
-    (hash-verified) at the paths the page imports. The page needs no network.
+    (hash-verified) at the paths the page imports. ``files`` (``{path under textures/: bytes}``, see
+    :func:`referenced_textures`) are written at those paths beside the page: a far LOD GLB references its maps as
+    ``textures/<file>`` relative to itself, and GLTFLoader resolves that against the page (the GLBs are parsed
+    with an empty path), so the page directory mirrors the package for them. The page needs no network.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     for rel, gz in VENDOR_FILES.items():
         dest = out_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(vendor_source(gz))
+    for rel, data in (files or {}).items():
+        dest = out_dir / rel
+        if rel.split("/", 1)[0] != STAGED_DIR or ".." in rel.split("/") or not dest.resolve().is_relative_to((out_dir / STAGED_DIR).resolve()):
+            raise ValueError(f"refusing to stage {rel!r} outside {STAGED_DIR}/")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
     job = {"glb_b64": base64.b64encode(glb).decode(), "camera": web_camera(bounds_m),
            "lods": [{"name": n, "b64": base64.b64encode(b).decode()} for n, b in (lods or {}).items()],
            "rig": {"lights": [[list(p), i] for p, i in LIGHTS], "env_sky": ENV_SKY, "env_ground": ENV_GROUND}}
@@ -387,6 +423,39 @@ def build_page(out_dir: Path, glb: bytes, bounds_m, lods: dict[str, bytes] | Non
     page = out_dir / "page.html"
     page.write_text(html, "utf-8")
     return page
+
+
+def _glb_doc(data: bytes) -> dict:
+    magic, version, _size, jlen, jtype = struct.unpack_from("<4sIII4s", data, 0)
+    if (magic, version, jtype) != (b"glTF", 2, b"JSON"):
+        raise ValueError("not a GLB")
+    return json.loads(data[20:20 + jlen])
+
+
+def referenced_textures(pkg_dir: Path, glbs) -> dict[str, bytes]:
+    """The package files the GLBs reference by relative URI, keyed by the path the page will request.
+
+    Only files inside the package's ``textures/`` that exist are returned. Anything else a GLB references (a
+    missing file, a path outside ``textures/``, a scheme) is not staged, so the browser's request for it is
+    blocked and recorded, and the check fails naming it. The key is the URI as written (glTF URIs are
+    percent-encoded, and the browser requests that form), which is how the page serves it.
+    """
+    root = (pkg_dir / STAGED_DIR).resolve()
+    out: dict[str, bytes] = {}
+    for data in glbs:
+        try:
+            doc = _glb_doc(data)
+        except (ValueError, struct.error):
+            continue  # an unreadable GLB is the loader's to report
+        for item in [*(doc.get("images") or []), *(doc.get("buffers") or [])]:
+            uri = item.get("uri") if isinstance(item, dict) else None
+            if not isinstance(uri, str) or not uri or ":" in uri.split("/", 1)[0] or uri.startswith("/") or any(c in uri for c in "?#\\"):
+                continue
+            target = (pkg_dir / unquote(uri)).resolve()
+            if ".." in uri.split("/") or not target.is_relative_to(root) or not target.is_file():
+                continue
+            out[uri] = target.read_bytes()
+    return out
 
 
 # --------------------------------------------------------------------------- evaluation (pure)
@@ -428,6 +497,7 @@ def evaluate(raw: dict, console: list[dict], page_errors: list[str], blocked: li
     if main is None:
         add("main GLB loaded", False, "GLTFLoader produced no scene")
         return checks, None
+    _lod_material_checks(add, main, raw.get("lods", []))
     r = raw.get("render") or {}
     add("WebGL context healthy", not r.get("context_lost") and not r.get("gl_error"),
         f"gl_error={r.get('gl_error')} context_lost={r.get('context_lost')}")
@@ -523,6 +593,50 @@ def _manifest_checks(add, main: dict, lods: list[dict], render: dict, manifest: 
                     bad.append(f"{t['material']}.{slot} {got['width']}x{got['height']} != {t['width']}x{t['height']}")
         add("manifest textures bound per role with matching pixel size", not bad,
             "; ".join(bad[:6]) if bad else f"{len(textures)} texture(s) match")
+
+
+def _slot_key(v: dict | None):
+    return None if v is None else (v.get("width"), v.get("height"), v.get("content"))
+
+
+def _lod_material_checks(add, main: dict, lods: list[dict]) -> None:
+    """Each LOD file must load with the materials of LOD0: every material it binds is one LOD0 binds (by name),
+    with the same parameters, the same texture slots, and in each slot an image of the same size and the same
+    decoded pixels (the page's content hash), whether LOD0 embeds it and the LOD file references a file or not.
+    A texture that failed to load leaves its declared slot unbound, which fails here too."""
+    base: dict[str, dict] = {}
+    for m in main["materials"]:
+        base.setdefault(m["name"], m)
+    for lod in lods:
+        if "error" in lod:
+            continue  # reported as "<LOD> loads"
+        name = f"{lod['name']} materials == LOD0 materials (parameters and texture content)"
+        if "materials" not in lod:
+            add(name, None, "the page reported no materials for this level")
+            continue
+        bad, slots = [], 0
+        for m in lod["materials"]:
+            ref = base.get(m["name"])
+            label = m["name"] or "<unnamed>"
+            if ref is None:
+                bad.append(f"{label}: not a LOD0 material")
+                continue
+            if m.get("missing_slots"):
+                bad.append(f"{label}: declared {','.join(m['missing_slots'])} not bound to a decoded image")
+            got, want = m.get("slots") or {}, ref.get("slots") or {}
+            for slot in sorted(set(got) | set(want)):
+                slots += 1
+                if _slot_key(got.get(slot)) != _slot_key(want.get(slot)):
+                    bad.append(f"{label}.{slot} {_slot_key(got.get(slot))} != LOD0 {_slot_key(want.get(slot))}")
+            for key in ("type", "metalness", "roughness", "doubleSided", "transparent", "fallback_default"):
+                if m.get(key) != ref.get(key) and not (isinstance(m.get(key), (int, float)) and _near(m.get(key), ref.get(key))):
+                    bad.append(f"{label}: {key} {m.get(key)} != LOD0 {ref.get(key)}")
+            pa, pb = m.get("params") or {}, ref.get("params") or {}
+            for key in sorted(set(pa) | set(pb)):
+                a, b = pa.get(key), pb.get(key)
+                if a != b and not (a is not None and b is not None and not isinstance(a, bool) and _near(a, b)):
+                    bad.append(f"{label}: {key} {a} != LOD0 {b}")
+        add(name, not bad, "; ".join(bad[:4]) if bad else f"{len(lod['materials'])} material(s), {slots} texture slot(s) match LOD0")
 
 
 _TOL = 1e-5
@@ -723,7 +837,10 @@ class WebThreeValidator(EngineValidator):
     manifest; every loaded material's parameters (base colour and alpha, alpha mode and cut-off, double-sided,
     emissive colour and strength, clearcoat, transmission, IOR, sheen, specular, metallic, roughness) and bound
     texture slots equal the manifest's ``materials`` inventory, with no material loaded that the manifest does
-    not list; the frame is framed, lit, and its silhouette overlaps an independent reference (kernel rasteriser
+    not list; each LOD file loads with LOD0's materials: same parameters, same slots, and in every slot an image
+    of the same size and decoded pixels (a far LOD references the package's ``textures/`` files, which are staged
+    beside the page; a reference that cannot be served is a blocked request and an unbound slot, and fails);
+    the frame is framed, lit, and its silhouette overlaps an independent reference (kernel rasteriser
     of the package USD) at the Godot gate. The silhouette comes from a second render of the loaded scene with
     every material replaced by opaque double-sided white, so glass, cut-outs and blended materials cannot change it.
     Not verified: colour/PBR look (no photometric reference; the loaded values are compared, not the pixels
@@ -787,6 +904,8 @@ class WebThreeValidator(EngineValidator):
                 return WebThreeReport(False, ENGINE, f"manifest.json unreadable: {e}")
         glb = glb_path.read_bytes()
         lods = {f"LOD{i}": f.read_bytes() for i in range(1, 8) if (f := glb_path.with_name(f"{glb_path.stem}_LOD{i}.glb")).is_file()}
+        # far LOD files reference the package's textures/ (LOD0 embeds its images; a reference there is staged too)
+        textures = referenced_textures(glb_path.parent, [glb, *lods.values()])
 
         bounds = (manifest or {}).get("glb_bounds_m")
         ref_png, ref_note, ref_meshes = None, "", None
@@ -823,7 +942,7 @@ class WebThreeValidator(EngineValidator):
         owned = out_dir is None
         work = Path(tempfile.mkdtemp(prefix="agy3d-web-three-")) if owned else Path(out_dir)
         try:
-            page = build_page(work, glb, bounds, lods)
+            page = build_page(work, glb, bounds, lods, textures)
             t_page = time.perf_counter()
             try:
                 run = await asyncio.wait_for(run_page(work, self.binary(), timeout), timeout + 15)

@@ -209,9 +209,10 @@ async def test_skipped_with_reason_when_playwright_missing(monkeypatch, tmp_path
 def _canned_raw(**over):
     mat = {"name": "wood", "type": "MeshStandardMaterial", "fallback_default": False, "missing_slots": [],
            "declared": ["map", "normalMap", "aoMap", "roughnessMap", "metalnessMap"],
-           "slots": {s: {"width": 256, "height": 256, "colorSpace": "srgb"} for s in ("map", "normalMap", "aoMap", "roughnessMap", "metalnessMap")}}
+           "slots": {s: {"width": 256, "height": 256, "colorSpace": "srgb", "content": f"{s:0>16}"[-16:]}
+                     for s in ("map", "normalMap", "aoMap", "roughnessMap", "metalnessMap")}}
     raw = {"errors": [], "shader_errors": [], "programs": [{"name": "MeshStandardMaterial", "diagnostics": None}],
-           "lods": [{"name": "LOD1", "triangles": 60, "mesh_count": 1}],
+           "lods": [{"name": "LOD1", "triangles": 60, "mesh_count": 1, "materials": [copy.deepcopy(mat)]}],
            "main": {"mesh_count": 1, "triangles": 120, "meshes": [{"name": "Batch_0", "tris": 120, "hasNormals": True}],
                     "materials": [mat], "texture_count": 5, "bounds_m": [[0, 0, 0], [1, 1, 1]]},
            "render": {"draw_calls": 1, "triangles": 120, "gl_error": 0, "context_lost": False}}
@@ -276,6 +277,50 @@ def test_evaluate_fails_naming_the_cause(kwargs, needle):
 
 def _factor_only(name="iron"):
     return {"name": name, "type": "MeshStandardMaterial", "fallback_default": False, "missing_slots": [], "declared": [], "slots": {}}
+
+
+def _lod1_check(raw) -> W.Check:
+    return _run_eval(raw=raw)[0]["LOD1 materials == LOD0 materials (parameters and texture content)"]
+
+
+def test_evaluate_lod_materials_must_bind_lod0_textures():
+    assert _lod1_check(_canned_raw()).status == "pass"
+    raw = _canned_raw()  # same size, other pixels: a different map bound at the far level
+    raw["lods"][0]["materials"][0]["slots"]["map"]["content"] = "ffffffffffffffff"
+    check = _lod1_check(raw)
+    assert check.status == "fail" and "wood.map" in check.detail
+    raw = _canned_raw()  # the referenced file did not load: the declared slot stays unbound
+    lod_mat = raw["lods"][0]["materials"][0]
+    del lod_mat["slots"]["normalMap"]
+    lod_mat["missing_slots"] = ["normalMap"]
+    check = _lod1_check(raw)
+    assert check.status == "fail" and "normalMap not bound" in check.detail
+    raw = _canned_raw()
+    raw["lods"][0]["materials"][0]["name"] = "stranger"
+    assert "not a LOD0 material" in _lod1_check(raw).detail
+    raw = _canned_raw()
+    raw["main"]["materials"][0]["roughness"], raw["lods"][0]["materials"][0]["roughness"] = 0.5, 0.9
+    assert "roughness" in _lod1_check(raw).detail
+
+
+def test_referenced_textures_stages_only_existing_files_inside_textures(tmp_path):
+    from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, GltfMesh, TextureRef, build_glb
+
+    pkg = tmp_path / "pkg"
+    (pkg / "textures").mkdir(parents=True)
+    a, b = _noise(1, 8), _noise(2, 8)
+    (pkg / "textures" / "a map.png").write_bytes(a)
+    (pkg / "b.png").write_bytes(b)
+    ia, ib, ic = EncodedImage.from_bytes(a), EncodedImage.from_bytes(b), EncodedImage.from_bytes(_noise(3, 8))
+    mat = GltfMaterial(name="m", base_color_texture=TextureRef(ia), normal_texture=TextureRef(ib), emissive_texture=TextureRef(ic))
+    mesh = GltfMesh("t", np.eye(3), np.array([[0, 1, 2]]), np.zeros((3, 2)), mat)
+    glb = build_glb([mesh], image_uris={ia.digest: "textures/a%20map.png", ib.digest: "b.png", ic.digest: "textures/missing.png"})
+    staged = W.referenced_textures(pkg, [glb, b"not a glb"])
+    assert staged == {"textures/a%20map.png": a}  # outside textures/ and missing files are left for the browser to fail on
+    page = W.build_page(tmp_path / "page", glb, [[0, 0, 0], [1, 1, 1]], {"LOD1": glb}, staged)
+    assert (page.parent / "textures" / "a%20map.png").read_bytes() == a
+    with pytest.raises(ValueError, match="outside"):
+        W.build_page(tmp_path / "page", glb, [[0, 0, 0], [1, 1, 1]], None, {"../x.png": a})
 
 
 def test_evaluate_accepts_a_factor_only_material_beside_a_textured_one():
@@ -620,6 +665,68 @@ def test_browser_asymmetric_block_passes_for_every_target_engine(engine, l_packa
     # the reference was derived from the stage and lands in the GLB's frame by construction
     pts = np.vstack([m.points for m in usd_meshes(next(pkg.glob("*.usd")))])
     np.testing.assert_allclose([pts.min(0), pts.max(0)], man["glb_bounds_m"], atol=1e-4)
+
+
+@pytest.fixture(scope="module")
+def lod_package(tmp_path_factory, runtime):
+    """A textured package with far LOD files (a smooth cylinder and sphere simplify; boxes do not), real exporter."""
+    from antigravity3d.ir import MaterialIR, NodeIR, SceneIR, Transform
+    from antigravity3d.kernel.fast_ops import run_export_pipeline
+    from antigravity3d.kernel.package import write_engine_package
+    from antigravity3d.kernel.usd_stage import StageManager
+    from antigravity3d.state import EngineBudget
+
+    tmp = tmp_path_factory.mktemp("lod_pkg")
+    maps = {}
+    for k, seed in (("albedo", 1), ("orm", 2), ("normal", 3)):
+        (tmp / f"{k}.png").write_bytes(_noise(seed, 32))
+        maps[f"{k}_uri"] = str(tmp / f"{k}.png")
+    scene = SceneIR(asset_name="Post", materials=[MaterialIR(id="stone", **maps)], nodes=[
+        NodeIR(id="shaft", kind="cylinder", params={"radius": 0.3, "height": 1.2}, transform=Transform(translate=(0, 0, 0.6)), material_id="stone"),
+        NodeIR(id="cap", kind="sphere", params={"radius": 0.35}, transform=Transform(translate=(0, 0, 1.3)), material_id="stone")])
+    sm = StageManager.create(tmp / "work.usda", "Post")
+    sm.apply_ir(scene)
+    budget = EngineBudget("godot_4")
+    pm = write_engine_package(sm, run_export_pipeline(sm.extract_meshes(), budget, "Post"), budget, tmp / "pkg", asset_name="Post")
+    assert pm.ok and pm.n_lod_files >= 1
+    assert all(r["storage"] == "uri" for f, recs in pm.data["glb_images"].items() if "_LOD" in f for r in recs)
+    return pm.out_dir
+
+
+@pytest.mark.browser
+def test_browser_far_lods_load_their_referenced_textures_and_match_lod0(lod_package, tmp_path):
+    rep = _verify(lod_package)
+    assert rep.ok, rep.summary()
+    man = json.loads((lod_package / "manifest.json").read_text())
+    lods = {lod["name"]: lod for lod in rep.facts["lods"]}
+    assert sorted(lods) == [f"LOD{i}" for i in range(1, man["lod_levels"])]
+    lod0 = {m["name"]: m["slots"] for m in rep.facts["main"]["materials"]}
+    for name, lod in lods.items():
+        check = next(c for c in rep.checks if c.name.startswith(f"{name} materials == LOD0"))
+        assert check.status == "pass", check
+        for m in lod["materials"]:
+            assert {"map", "normalMap", "aoMap", "roughnessMap", "metalnessMap"} <= set(m["slots"])
+            for slot, bound in m["slots"].items():
+                assert bound["uri"].startswith("textures/") and bound["content"] == lod0[m["name"]][slot]["content"]
+    # LOD0 embeds: its slots name no URI
+    assert all(b["uri"] is None for slots in lod0.values() for b in slots.values())
+
+
+@pytest.mark.browser
+def test_browser_far_lod_with_a_missing_texture_fails(lod_package, tmp_path):
+    import shutil
+
+    pkg = tmp_path / "pkg"
+    shutil.copytree(lod_package, pkg)
+    man = json.loads((pkg / "manifest.json").read_text())
+    normal = next(t["usd_path"] for t in man["textures"] if t["role"] == "normal")
+    (pkg / normal).unlink()  # LOD0 still carries it; every far LOD references it
+    rep = _verify(pkg)
+    failed = _failed(rep)
+    assert not rep.ok, rep.summary()
+    assert normal in failed["no blocked/failed network requests"]
+    assert "normalMap" in failed["LOD1 materials == LOD0 materials (parameters and texture content)"]
+    assert "main GLB loaded" not in failed and "every declared texture slot is bound to a decoded image" not in failed
 
 
 @pytest.mark.browser

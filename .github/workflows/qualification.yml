@@ -87,6 +87,9 @@ jobs:
                       "test_mcp_app_in_a_browser_host", "test_committed_app_build_is_current",
                       "test_browser_good_package_passes_and_frame_is_upright_framed_textured",
                       "test_browser_replaced_mesh_fails_on_silhouette_alone",
+                      "test_godot_imports_far_lods_of_a_relocated_package_with_their_textures",
+                      "test_browser_far_lods_load_their_referenced_textures_and_match_lod0",
+                      "test_browser_far_lod_with_a_missing_texture_fails",
                       *(f"test_browser_asymmetric_block_passes_for_every_target_engine[{engine}]"
                         for engine in ("unreal_5", "unity_urp", "godot_4", "roblox_r15"))}
           passed = {c.get("name") for c in ET.parse("/tmp/engine-qualification.xml").iter("testcase")

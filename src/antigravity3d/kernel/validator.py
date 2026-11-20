@@ -8,6 +8,7 @@ import re
 import struct
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import unquote
 
 import numpy as np
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, UsdValidation
@@ -333,8 +334,90 @@ def _glb_json(path: Path) -> dict:
         return json.loads(stream.read(length))
 
 
-def _validate_glb_materials(path: Path, suffix: str, bindings: dict[str, tuple[str, set[str]]]) -> list[Issue]:
-    """All authored per-mesh PBR slots must reference images in this GLB's own binary chunk."""
+#: the package directory that holds the material maps; the only place a GLB of the package may reference a file in
+PACKAGE_TEXTURE_DIR = "textures"
+_PNG_JPEG = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")
+
+
+def glb_images(path: Path) -> list[dict]:
+    """Where each image of a GLB lives, in glTF image order.
+
+    ``{"image": i, "storage": "embedded", "mime_type", "sha256", "bytes"}`` for an image in the GLB's binary chunk
+    (``sha256`` of the embedded bytes), ``{"image": i, "storage": "uri", "mime_type", "uri"}`` for one the GLB
+    references by URI (``uri`` exactly as written, percent-encoded). Raises ``ValueError`` on a malformed GLB.
+    """
+    return _glb_images_and_json(path)[0]
+
+
+def _glb_images_and_json(path: Path) -> tuple[list[dict], dict]:
+    data = path.read_bytes()
+    if len(data) < 20:
+        raise ValueError(f"{path.name} is too short for a GLB")
+    magic, version, size = struct.unpack_from("<4sII", data, 0)
+    jlen, jtype = struct.unpack_from("<I4s", data, 12)
+    if (magic, version, jtype) != (b"glTF", 2, b"JSON") or size != len(data) or 20 + jlen > size:
+        raise ValueError(f"invalid GLB header in {path.name}")
+    doc = json.loads(data[20:20 + jlen])
+    blob = memoryview(b"")
+    off = 20 + jlen
+    if off + 8 <= size:
+        blen, btype = struct.unpack_from("<I4s", data, off)
+        if btype == b"BIN\0":
+            blob = memoryview(data)[off + 8:off + 8 + blen]
+    out = []
+    for i, image in enumerate(doc.get("images") or []):
+        rec: dict = {"image": i, "mime_type": image.get("mimeType")}
+        if "bufferView" in image:
+            view = doc["bufferViews"][image["bufferView"]]
+            if "uri" in doc["buffers"][view.get("buffer", 0)]:
+                raise ValueError(f"{path.name}: image {i} lives in an external buffer")
+            start = view.get("byteOffset", 0)
+            chunk = blob[start:start + view["byteLength"]]
+            if len(chunk) != view["byteLength"] or not len(chunk):
+                raise ValueError(f"{path.name}: image {i} buffer view lies outside the binary chunk")
+            rec.update(storage="embedded", sha256=hashlib.sha256(chunk).hexdigest(), bytes=len(chunk))
+        elif isinstance(image.get("uri"), str) and image["uri"]:
+            rec.update(storage="uri", uri=image["uri"])
+        else:
+            raise ValueError(f"{path.name}: image {i} has neither a buffer view nor a URI")
+        out.append(rec)
+    return out, doc
+
+
+def glb_uri_target(glb: Path, uri: str) -> Path | None:
+    """The file a relative image URI of ``glb`` names (RFC 3986 percent-decoding), or None for an absolute
+    path, a scheme (``file:``, ``http:``, ``data:``...) or a query/fragment."""
+    if not uri or "://" in uri or ":" in uri.split("/", 1)[0] or uri.startswith(("/", "\\")) or any(c in uri for c in "?#"):
+        return None
+    rel = unquote(uri)
+    if Path(rel).is_absolute():
+        return None
+    return glb.parent / rel
+
+
+def _material_textures(doc: dict, shas: list[str | None]) -> dict[str, dict[str, str | None]]:
+    """``{material name: {slot path: image sha256}}`` for every texture slot of every material, extension slots
+    included (any object with an ``index`` under a key ending in ``Texture``)."""
+    out: dict[str, dict[str, str | None]] = {}
+
+    def walk(value, prefix: str, slots: dict) -> None:
+        if isinstance(value, dict):
+            for key, v in value.items():
+                if isinstance(v, dict) and "index" in v and key.endswith("Texture"):
+                    texture = doc["textures"][v["index"]]
+                    slots[prefix + key] = shas[texture["source"]]
+                else:
+                    walk(v, f"{prefix}{key}.", slots)
+
+    for mat in doc.get("materials") or []:
+        walk(mat, "", out.setdefault(mat.get("name") or "", {}))
+    return out
+
+
+def _validate_glb_materials(path: Path, suffix: str, bindings: dict[str, tuple[str, set[str]]], *,
+                            allow_uri: bool = False) -> list[Issue]:
+    """All authored per-mesh PBR slots must reference an image: in this GLB's own binary chunk, or with
+    ``allow_uri`` (a far LOD file) by URI (where that URI leads is checked by ``validate_package``)."""
     issues = []
     try:
         doc = _glb_json(path)
@@ -355,6 +438,8 @@ def _validate_glb_materials(path: Path, suffix: str, bindings: dict[str, tuple[s
                     for obj, slot in slots[role]:
                         texture = doc["textures"][obj[slot]["index"]]
                         image = doc["images"][texture["source"]]
+                        if allow_uri and "bufferView" not in image and image.get("uri"):
+                            continue
                         view = doc["bufferViews"][image["bufferView"]]
                         if view["byteLength"] < 1 or "uri" in doc["buffers"][view["buffer"]]:
                             raise ValueError(f"{node}/{slot} must be an embedded image")
@@ -415,6 +500,114 @@ def _validate_material_inventory(path: Path, inventory: list[dict]) -> list[Issu
     return []
 
 
+def _check_glb_images(out: Path, man: dict, asset: str, digests: dict[str, str], add) -> None:
+    """Where the package GLBs keep their images (manifest ``glb_images``).
+
+    ``<asset>.glb`` (LOD0) is the single-file deliverable: every image embedded. ``<asset>_LOD<n>.glb`` (n >= 1)
+    reference the package's ``textures/`` files by relative URI; each must resolve to a file inside ``textures/``
+    that exists and has the content the manifest records for it. A far LOD may embed an image only when no
+    package file holds those bytes (a source map in a format glTF does not allow, transcoded to PNG once, exactly
+    as LOD0 embeds it). Every level binds, per material and slot, the same image content as LOD0. The manifest's
+    record of each GLB must be what the file holds.
+    """
+    out_real = out.resolve()
+    tex_root = (out / PACKAGE_TEXTURE_DIR).resolve()
+    hashes = man.get("file_hashes") or {}
+    texture_shas = {meta.get("sha256") for rel, meta in hashes.items() if rel.startswith(PACKAGE_TEXTURE_DIR + "/")}
+    lod_re = re.compile(rf"^{re.escape(asset)}_LOD(\d+)\.glb$")
+    glbs = [f for f in man.get("files") or [] if isinstance(f, str) and f.endswith(".glb")]
+    recorded = man.get("glb_images")
+    if recorded is None and int(man.get("schema_version") or 1) >= 2:
+        add("glb_images_manifest", "critical", None, "manifest has no glb_images record")
+    elif recorded is not None and sorted(recorded) != sorted(glbs):
+        add("glb_images_manifest", "critical", None, f"glb_images covers {sorted(recorded)}, the package has {sorted(glbs)}")
+
+    def digest_of(path: Path) -> str:
+        rel = path.resolve().relative_to(out_real).as_posix()
+        if rel not in digests:
+            digests[rel] = _sha256(path)
+        return digests[rel]
+
+    def has_untranscodable_texture() -> bool:
+        for rel in hashes:
+            f = out / rel
+            if rel.startswith(PACKAGE_TEXTURE_DIR + "/") and f.is_file():
+                with f.open("rb") as stream:
+                    if not stream.read(8).startswith(_PNG_JPEG):
+                        return True
+        return False
+
+    by_level: dict[int, dict[str, dict[str, str | None]]] = {}
+    lod0_embedded: set[str] = set()
+    for name in sorted(glbs, key=lambda n: (0 if n == f"{asset}.glb" else 1, n)):  # LOD0 first
+        path = out / name
+        if not path.is_file():
+            continue  # reported as file_missing
+        m = lod_re.match(name)
+        level = 0 if name == f"{asset}.glb" else int(m.group(1)) if m else None
+        try:
+            table, doc = _glb_images_and_json(path)
+        except (IndexError, KeyError, TypeError, ValueError, OSError, struct.error) as e:
+            add("glb_open", "critical", name, str(e))
+            continue
+        shas: list[str | None] = []
+        for rec in table:
+            if rec["storage"] == "embedded":
+                shas.append(rec["sha256"])
+                if level == 0:
+                    lod0_embedded.add(rec["sha256"])
+                elif level is not None and (rec["sha256"] in texture_shas or rec["sha256"] not in lod0_embedded
+                                            or not has_untranscodable_texture()):
+                    add("lod_embeds_image", "critical", name,
+                        f"image {rec['image']} is embedded; a far LOD references the package's textures/ instead")
+                continue
+            uri = rec["uri"]
+            target = glb_uri_target(path, uri)
+            shas.append(None)
+            if level == 0:
+                add("glb_not_self_contained", "critical", name, f"image {rec['image']} references {uri!r}; LOD0 must embed every image")
+            if target is None or not target.resolve().is_relative_to(tex_root):
+                add("glb_image_outside", "critical", name, f"image {rec['image']} references {uri!r}, outside {PACKAGE_TEXTURE_DIR}/")
+                continue
+            if not target.is_file():
+                add("glb_image_missing", "critical", name, f"image {rec['image']} references {uri!r}, which does not exist")
+                continue
+            rel = target.resolve().relative_to(out_real).as_posix()
+            actual = digest_of(target)
+            shas[-1] = actual
+            rec["sha256"] = actual
+            want = (hashes.get(rel) or {}).get("sha256")
+            if want is None:
+                add("glb_image_unlisted", "critical", name, f"image {rec['image']} references {rel}, which the manifest does not list")
+            elif actual != want:
+                add("glb_image_hash", "critical", name, f"image {rec['image']} references {rel}, whose content differs from the manifest")
+        if recorded is not None and name in recorded:
+            stated = recorded[name]
+            keys = ("image", "storage", "mime_type", "sha256", "uri")
+            if not isinstance(stated, list) or len(stated) != len(table) or any(
+                    {k: r.get(k) for k in keys} != {k: s.get(k) for k in keys} for r, s in zip(table, stated)):
+                add("glb_images_manifest", "critical", name, "glb_images differs from the images the file holds")
+            elif any(s.get("texture") is not None and (hashes.get(s["texture"]) or {}).get("sha256") != s.get("sha256") for s in stated):
+                add("glb_images_manifest", "critical", name, "a glb_images record names a texture file with other content")
+        if level is not None:
+            try:
+                by_level[level] = _material_textures(doc, shas)
+            except (IndexError, KeyError, TypeError) as e:
+                add("glb_material", "critical", name, str(e)[:200])
+    base = by_level.get(0)
+    for level, materials in sorted(by_level.items()):
+        if not level or base is None:
+            continue
+        for mat, slots in materials.items():
+            want = base.get(mat)
+            if want is None:
+                add("lod_texture_differs", "critical", f"{asset}_LOD{level}.glb", f"material {mat!r} is not in LOD0")
+            elif slots != want:
+                diff = sorted(k for k in set(slots) | set(want) if slots.get(k) != want.get(k))
+                add("lod_texture_differs", "critical", f"{asset}_LOD{level}.glb",
+                    f"material {mat!r} binds other image content than LOD0 in {diff[:4]}")
+
+
 def validate_package(out_dir: str | Path) -> list[Issue]:
     """Cold re-open of a written engine package (see kernel/package.py) and consistency checks.
 
@@ -422,7 +615,9 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
     manifest, every mesh bound to a textured material has ``st`` (count matches its interpolation) in
     every LOD variant, every texture path is relative, resolves and stays inside the package, LOD
     triangle counts never increase, the GLB LOD0 matches the USD LOD0, collider prims are named per the
-    engine rules, tagged ``UsdPhysics`` convexHull + purpose guide, and are really convex.
+    engine rules, tagged ``UsdPhysics`` convexHull + purpose guide, and are really convex. GLB images: LOD0 embeds
+    every image; far LOD files reference ``textures/`` files that exist, lie inside ``textures/`` and hash as the
+    manifest records, embed none, and bind the same image content as LOD0 (see ``_check_glb_images``).
     """
     out = Path(out_dir)
     issues: list[Issue] = []
@@ -448,13 +643,16 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
         add("file_outside", "critical", str(rel), "manifest references a path outside this package")
         return None
 
+    digests: dict[str, str] = {}  # package-relative path -> sha256 of the file on disk (each file hashed once)
     for rel, meta in (man.get("file_hashes") or {}).items():
         f = package_file(rel)
         if f is None:
             continue
         if not f.is_file():
             add("file_missing", "critical", rel, "listed in manifest but not on disk")
-        elif _sha256(f) != meta.get("sha256"):
+            continue
+        digests[rel] = _sha256(f)
+        if digests[rel] != meta.get("sha256"):
             add("hash_mismatch", "critical", rel, "content hash differs from manifest")
     if not man.get("file_hashes"):
         add("no_hashes", "critical", None, "manifest carries no file hashes")
@@ -616,9 +814,10 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
                     add("lod_glb_nodes", "critical", f"{asset}{suffix}.glb", f"GLB nodes {sorted(names)} != manifest {sorted(expect)}")
             except (OSError, KeyError, ValueError, struct.error) as e:
                 add("glb_open", "critical", f"{asset}{suffix}.glb", str(e)[:200])
-        issues.extend(_validate_glb_materials(out / f"{asset}{suffix}.glb", suffix, want))
+        issues.extend(_validate_glb_materials(out / f"{asset}{suffix}.glb", suffix, want, allow_uri=bool(level)))
     if "materials" in man and glb.is_file():
         issues.extend(_validate_material_inventory(glb, man["materials"]))
+    _check_glb_images(out, man, asset, digests, add)
 
     # colliders
     max_hulls = (man.get("budget") or {}).get("max_collision_hulls")

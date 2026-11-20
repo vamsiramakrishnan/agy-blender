@@ -2,6 +2,12 @@
 
 Godot checks loaded mesh surfaces and can capture the imported asset with a real
 renderer. Binary discovery uses the environment override first, followed by PATH.
+
+Staging: Godot and Unreal import the GLB where it lies (``AGY_PACKAGE`` is its path), so a relative image URI
+resolves against the GLB's own directory, i.e. a far LOD file finds the package's ``textures/``. Unity imports
+only from its project's ``Assets/``: the GLB is copied there together with every file it references by relative
+URI (:func:`stage_glb`), at the same relative paths. The Godot check reports how many images the glTF declares
+and how many loaded; an import with an image that did not load fails.
 """
 
 from __future__ import annotations
@@ -12,6 +18,7 @@ import json
 import os
 import shutil
 import signal
+import struct
 import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -149,6 +156,8 @@ class EngineValidator(ABC):
                     metrics = json.loads(line.removeprefix("AGY_IMPORT_OK "))
                     if not isinstance(metrics, dict) or not isinstance(metrics.get("triangles"), int) or metrics["triangles"] < 1:
                         bad = True
+                    elif metrics.get("images_loaded", 0) != metrics.get("images", 0):  # a texture the import could not read
+                        bad = True
                     if isinstance(metrics, dict) and self.engine == "godot_4":
                         bounds = metrics.pop("bounds_m", None)
                         if bounds_issue(bounds, bounds):
@@ -210,8 +219,15 @@ func check_asset():
                 orm_mapped += 1
     if tri_count <= 0 or bounds.size.length() <= 0:
         push_error("import produced no non-empty triangle geometry"); quit(1); return
+    # An image the glTF declares but the importer could not read (a referenced file that is missing) is kept as a
+    # null placeholder in the state's image list, and the material slot that uses it stays empty.
+    var images: Array = state.get_images()
+    var images_loaded := 0
+    for image in images:
+        if image != null:
+            images_loaded += 1
     var extrema := [[bounds.position.x, bounds.position.y, bounds.position.z], [bounds.end.x, bounds.end.y, bounds.end.z]]
-    print("AGY_IMPORT_OK ", JSON.stringify({"bounds_m":extrema, "triangles":tri_count, "surfaces":surfaces, "textured_surfaces":textured, "normal_surfaces":normal_mapped, "orm_surfaces":orm_mapped}))
+    print("AGY_IMPORT_OK ", JSON.stringify({"bounds_m":extrema, "triangles":tri_count, "surfaces":surfaces, "textured_surfaces":textured, "normal_surfaces":normal_mapped, "orm_surfaces":orm_mapped, "images":images.size(), "images_loaded":images_loaded}))
     var path := OS.get_environment("AGY_CAPTURE")
     if path.is_empty():
         quit(0); return
@@ -326,6 +342,38 @@ public static class AgyValidate {
 """
 
 
+def stage_glb(glb: Path, dest: Path) -> Path:
+    """Copies ``glb`` into ``dest`` with every file it references by relative URI (images, buffers), at the same
+    relative paths, so a far LOD file arrives with the ``textures/`` it uses. A reference that leaves the GLB's
+    directory, has a scheme, or names a missing file is not copied: the import then fails on it, as it would
+    in the package. Returns the staged GLB path."""
+    from urllib.parse import unquote
+
+    dest.mkdir(parents=True, exist_ok=True)
+    staged = dest / glb.name
+    shutil.copy2(glb, staged)
+    if glb.suffix.lower() != ".glb":
+        return staged
+    try:
+        with glb.open("rb") as f:
+            magic, _version, _size, length, chunk = struct.unpack("<4sIII4s", f.read(20))
+            doc = json.loads(f.read(length)) if (magic, chunk) == (b"glTF", b"JSON") else {}
+    except (OSError, ValueError, struct.error):
+        return staged  # not a GLB: the engine reports it
+    base = glb.parent.resolve()
+    for item in [*(doc.get("images") or []), *(doc.get("buffers") or [])]:
+        uri = item.get("uri") if isinstance(item, dict) else None
+        if not isinstance(uri, str) or not uri or ":" in uri.split("/", 1)[0] or uri.startswith("/"):
+            continue
+        rel = unquote(uri)
+        src = (glb.parent / rel).resolve()
+        if src.is_relative_to(base) and src.is_file():
+            target = dest / src.relative_to(base)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, target)
+    return staged
+
+
 class UnityValidator(EngineValidator):
     engine, env_var, binary_names = "unity_urp", "UNITY_BIN", ("Unity", "unity-editor", "unity")
     error_markers = ("AGY_IMPORT_FAILED", "error CS")
@@ -333,7 +381,7 @@ class UnityValidator(EngineValidator):
     def command(self, exe: str, package: Path, workdir: Path) -> tuple[list[str], dict[str, str]]:
         (workdir / "Assets" / "Editor").mkdir(parents=True)
         (workdir / "Assets" / "Editor" / "AgyValidate.cs").write_text(_UNITY_CS)
-        shutil.copy2(package, workdir / "Assets" / package.name)
+        stage_glb(package, workdir / "Assets")
         return [exe, "-batchmode", "-nographics", "-quit", "-projectPath", str(workdir),
                 "-executeMethod", "AgyValidate.Run", "-logFile", "-"], {"AGY_ASSET": f"Assets/{package.name}"}
 

@@ -1785,13 +1785,15 @@ def write_gltf(
     y_up: bool = True,
     *,
     materials: Sequence | None = None,
+    image_uris: Mapping[str, str] | None = None,
 ) -> Path:
     """Writes a GLB. Our world is Z-up; glTF is Y-up, so (x,y,z) -> (x,z,-y) unless y_up=False.
 
     ``materials`` holds one ``gltf_writer.GltfMaterial`` (or None) per item; images inside are embedded as the
-    bytes they already hold (see kernel/gltf_writer.py). Items with UVs and no material get a grey default.
-    Items with UVs (the rendered ones; collider hulls have none) also get shading normals, so the GLB shades
-    like the USD; items without UVs get neither normals nor a material. Each item goes through
+    bytes they already hold (see kernel/gltf_writer.py), except those whose content digest ``image_uris`` maps to
+    a relative URI: those are referenced, not embedded (``gltf_writer.build_glb``). Items with UVs and no material
+    get a grey default. Items with UVs (the rendered ones; collider hulls have none) also get shading normals, so
+    the GLB shades like the USD; items without UVs get neither normals nor a material. Each item goes through
     :func:`gltf_mesh`.
     """
     from antigravity3d.kernel import gltf_writer as gw
@@ -1802,7 +1804,7 @@ def write_gltf(
         name = names[i] if names else getattr(it, "name", None) or getattr(it, "node_id", None) or f"mesh_{i}"
         material = materials[i] if uv is not None and materials else None
         meshes.append(gltf_mesh(name, it.points, it.triangles, uv, material, shade=uv is not None, y_up=y_up))
-    return gw.write_glb(path, meshes)
+    return gw.write_glb(path, meshes, image_uris=image_uris)
 
 
 def compress_texture_ktx2(png_path: str | Path, out_path: str | Path, mode: Literal["uastc", "etc1s"] = "uastc") -> Path | None:

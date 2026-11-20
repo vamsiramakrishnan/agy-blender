@@ -4,12 +4,20 @@ Layout of ``out_dir`` (everything referenced relative to the USD layer, so the d
 
     <asset>.usd            default prim <asset>; LOD variant set; Colliders/UCX_*; relative texture paths
     <asset>.usdz           same content with textures inside (omitted, with a recorded reason, on failure)
-    <asset>.glb            LOD0, embedded PBR images and material bindings (Y-up, glTF convention)
-    <asset>_LOD<n>.glb     n >= 1
+    <asset>.glb            LOD0, embedded PBR images and material bindings (Y-up, glTF convention): self-contained
+    <asset>_LOD<n>.glb     n >= 1, same materials; images referenced by relative URI ``textures/<file>``, not embedded
     <asset>_colliders.glb  convex hulls
     textures/              copies of the material maps (normal maps converted to the engine convention)
     inspector.html         offline Three.js PBR, channels, selectable nodes, LODs and budget gauges
-    manifest.json          schema_version, units, tri counts, textures, materials, hashes, validation, versions
+    manifest.json          schema_version, units, tri counts, textures, materials, glb_images, hashes, validation, versions
+
+Images: ``<asset>.glb`` is the single-file deliverable and embeds every image; each image is byte-for-byte the
+``textures/`` file the USD references. A far LOD file is never shipped without its package, so it references those
+same files instead of carrying another copy of every map (glTF 2.0 allows URIs in a GLB), and an engine that imports
+the LOD files gets one texture asset per map rather than one per file. The USDZ keeps its own copy (the format is a
+self-contained archive) and ``inspector.html`` its embedded review GLB (it opens offline from one file).
+``manifest.glb_images`` states, per GLB file and per glTF image, whether the image is embedded or referenced, its
+content hash and the ``textures/`` file holding the same bytes; ``validate_package`` checks all of it.
 
 Per-engine decisions (see ``ENGINE_RULES`` for the rule table they come from):
 
@@ -37,6 +45,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from urllib.parse import quote, unquote
 
 import numpy as np
 from PIL import Image
@@ -52,14 +61,17 @@ from antigravity3d.kernel.types import MeshData, gltf_world_bounds
 from antigravity3d.kernel.usdz import create_usdz
 from antigravity3d.kernel.validator import (
     ENGINE_RULES,
+    PACKAGE_TEXTURE_DIR,
     check_engine_compliance,
+    glb_images,
     validate_package,
     validate_usd,
 )
 from antigravity3d.state import EngineBudget
 
-SCHEMA_VERSION = 1
-TEXTURE_DIR = "textures"
+# 2: far LOD GLBs reference textures/ by URI instead of embedding them; manifest ``glb_images`` records which is which
+SCHEMA_VERSION = 2
+TEXTURE_DIR = PACKAGE_TEXTURE_DIR
 COLLIDERS_SCOPE = "Colliders"
 LOD_SET = "LOD"
 # Convention the engine's importer expects for tangent-space normal maps.
@@ -285,7 +297,7 @@ def _relativise_embedded_ir(stage: Usd.Stage, records: list[dict[str, Any]]) -> 
 
 
 def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict[str, list[str]],
-                     materials: dict[str, GltfMaterial], suffix: str) -> None:
+                     materials: dict[str, GltfMaterial], suffix: str, image_uris: Mapping[str, str] | None = None) -> None:
     items = []
     bound = []
     names = []
@@ -303,7 +315,22 @@ def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict
             items.append(LOD(1., np.vstack([p.points for p in group]), indices,
                              np.vstack([p.uvs for p in group]), 0., 0.))
         bound.append(materials.get(nodes[0]))
-    write_gltf(path, items, [name + suffix for name in names], materials=bound)
+    write_gltf(path, items, [name + suffix for name in names], materials=bound, image_uris=image_uris)
+
+
+def _glb_image_records(path: Path, texture_of: Mapping[str, str], hashes: Mapping[str, str]) -> list[dict[str, Any]]:
+    """Manifest ``glb_images`` entry of one written GLB: per glTF image, embedded or referenced, its content hash
+    and the ``textures/`` file with the same bytes (None for an image no package file holds, i.e. a transcoded
+    map). Read back from the file, so the record says what was written."""
+    out = []
+    for rec in glb_images(path):
+        if rec["storage"] == "uri":
+            rel = unquote(rec["uri"])
+            rec = {**rec, "sha256": hashes[rel], "texture": rel}
+        else:
+            rec = {**rec, "texture": texture_of.get(rec["sha256"])}
+        out.append(rec)
+    return out
 
 
 def _flip_green_png(image: EncodedImage) -> EncodedImage:
@@ -617,18 +644,29 @@ def write_engine_package(
         for mesh in meshes:
             groups.setdefault(mesh.material_id, []).append(mesh.node_id)
         batches = {f"Batch_{i}": members for i, members in enumerate(groups.values())}
+    # Each texture file is hashed once: the hash is the manifest's, and (as the content digest the GLB writer
+    # de-duplicates images by) it tells which file a material image is, so far LODs can reference that file.
+    texture_files = list(dict.fromkeys(t[key] for t in textures for key in ("path", "usd_path")))
+    texture_hashes = {rel: _sha256(out / rel) for rel in texture_files}
+    texture_of: dict[str, str] = {}
+    for rel, digest in texture_hashes.items():
+        texture_of.setdefault(digest, rel)  # identical files: the first one, in manifest order
     _write_glb_level(out / f"{asset_name}.glb", {u.node_id: u for u in uvs}, batches, materials, "")
     files.append(f"{asset_name}.glb")
     glb_levels = levels
+    # A material image whose bytes no package file holds (a map transcoded to PNG because glTF allows only PNG and
+    # JPEG) has no file to reference and stays embedded; package maps are PNG or JPEG, so in practice none does.
+    lod_uris = {digest: quote(rel) for digest, rel in texture_of.items()}
     for i in range(1, glb_levels):
         suffix = f"_LOD{i}"
         _write_glb_level(out / f"{asset_name}{suffix}.glb", {n: chain[i] for n, chain in lods.items()},
-                         batches, materials, suffix)
+                         batches, materials, suffix, image_uris=lod_uris)
         files.append(f"{asset_name}{suffix}.glb")
     if hulls:
         write_gltf(out / f"{asset_name}_colliders.glb", hulls, [collider_name(engine, asset_name, i, usd=False) for i in range(len(hulls))])
         files.append(f"{asset_name}_colliders.glb")
-    files.extend(dict.fromkeys(t[key] for t in textures for key in ("path", "usd_path")))
+    glb_files = list(files[files.index(f"{asset_name}.glb"):])
+    files.extend(texture_files)
 
     # The inspector renders a GLB built by the same writer from the same seam-split vertices and the same
     # GltfMaterial objects as the package GLB, so what is reviewed is what ships.
@@ -687,6 +725,7 @@ def write_engine_package(
         "collider_glb_nodes": [collider_name(engine, asset_name, i, usd=False) for i in range(len(hulls))],
         "collider_structure": f"/{asset.GetName()}/{COLLIDERS_SCOPE}/<name>: purpose=guide, CollisionAPI+MeshCollisionAPI convexHull" if names else None,
         "textures": textures,
+        "glb_images": {f: _glb_image_records(out / f, texture_of, texture_hashes) for f in glb_files},
         "materials": material_inventory({**{u.node_id: gltf_default_material() for u in uvs}, **materials}),
         "qa": {k: v for k, v in qa.items() if k != "audit"},
         "audit": qa.get("audit", []),
@@ -695,7 +734,7 @@ def write_engine_package(
         "files": files,
         "validation": {},
     }
-    data["file_hashes"] = {f: {"sha256": _sha256(out / f), "bytes": (out / f).stat().st_size} for f in files}
+    data["file_hashes"] = {f: {"sha256": texture_hashes.get(f) or _sha256(out / f), "bytes": (out / f).stat().st_size} for f in files}
     mpath = out / "manifest.json"
     mpath.write_text(json.dumps(data, indent=1))
     pkg_issues = validate_package(out)  # cold re-open of what was just written
