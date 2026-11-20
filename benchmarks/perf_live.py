@@ -11,7 +11,8 @@ Spend control, enforced in code
     call; when a limit would be exceeded the run stops cleanly, writes partial results and records ``"aborted"``.
   * Every ``generate_content`` / ``decisions.create`` made through the genai client goes through ``CountedClient``,
     including calls issued inside the package's own backends (the generative fallback, ImageForge), so the limit also
-    binds those.  Failed calls count.  No retries here; SDK retry is switched off (``attempts=1``) and the package
+    binds those.  Failed calls count, and a dispatched call whose usage is unknown (timeout, error, or no usage
+    metadata) keeps its pre-call token reservation booked against ``--max-tokens``.  No retries here; SDK retry is switched off (``attempts=1``) and the package
     backends' own retry loops are disabled (``max_parse_retries=0``, ``max_retries=0``).
   * The ``stage`` group drives the Antigravity SDK Agent, which talks to the model on its own connection. Its internal
     model requests cannot be intercepted, so a stage run counts as ONE call with an estimated token reservation checked
@@ -63,10 +64,11 @@ class Limiter:
     def __init__(self, max_calls: int, max_tokens: int) -> None:
         self.max_calls, self.max_tokens = max_calls, max_tokens
         self.calls = self.input_tokens = self.output_tokens = self.thinking_tokens = 0
+        self.unknown_usage_reserved = 0  # reservations kept for dispatched calls whose usage was never reported
 
     @property
     def tokens(self) -> int:
-        return self.input_tokens + self.output_tokens + self.thinking_tokens
+        return self.input_tokens + self.output_tokens + self.thinking_tokens + self.unknown_usage_reserved
 
     def before(self, label: str, est_tokens: int = 0) -> None:
         if self.calls + 1 > self.max_calls:
@@ -81,9 +83,15 @@ class Limiter:
         self.output_tokens += out
         self.thinking_tokens += think
 
+    def record_unknown(self, reserved: int) -> None:
+        """A dispatched call with no usage metadata (timeout, error, or a response without usage) may still have
+        been billed, so its pre-call reservation stays booked against ``--max-tokens``."""
+        self.calls += 1
+        self.unknown_usage_reserved += max(0, int(reserved))
+
     def totals(self) -> dict[str, int]:
         return {"calls": self.calls, "input_tokens": self.input_tokens, "output_tokens": self.output_tokens,
-                "thinking_tokens": self.thinking_tokens}
+                "thinking_tokens": self.thinking_tokens, "unknown_usage_reserved_tokens": self.unknown_usage_reserved}
 
 
 def one_line(e: BaseException, n: int = 300) -> str:
@@ -145,7 +153,8 @@ class CountedClient:
         self.aio = _Aio(self, inner.aio)
 
     async def _call(self, kind: str, fn: Any, kw: dict[str, Any], model: str | None, est: int | None = None) -> Any:
-        self.limiter.before(f"{kind} {model}", self.est_tokens if est is None else est)
+        reserve = self.est_tokens if est is None else est
+        self.limiter.before(f"{kind} {model}", reserve)
         ev: dict[str, Any] = {"kind": kind, "model": model, "error": None, "status": None}
         t0 = time.perf_counter()
         try:
@@ -153,17 +162,17 @@ class CountedClient:
         except Exception as e:  # noqa: BLE001 - recorded, counted, re-raised
             ev.update(wall_ms=round((time.perf_counter() - t0) * 1000, 1), error=one_line(e),
                       error_class=type(e).__name__, status=getattr(e, "code", None), input_tokens=0, output_tokens=0,
-                      thinking_tokens=0, tokens_known=False)
-            self.limiter.record()
+                      thinking_tokens=0, tokens_known=False, reserved_tokens=reserve)
+            self.limiter.record_unknown(reserve)
             self.events.append(ev)
             raise
         ev["wall_ms"] = round((time.perf_counter() - t0) * 1000, 1)
         usage = _usage_tuple(getattr(res, "usage_metadata", None))
+        usage_known = usage is not None
+        ev["tokens_known"] = usage_known
         if usage is None:
             usage = (0, 0, 0)
-            ev["tokens_known"] = False
-        else:
-            ev["tokens_known"] = True
+            ev["reserved_tokens"] = reserve
         ev["input_tokens"], ev["output_tokens"], ev["thinking_tokens"] = usage
         ev["total_tokens_reported"] = getattr(getattr(res, "usage_metadata", None), "total_token_count", None)
         raw = getattr(res, "usage_metadata", None)
@@ -172,7 +181,10 @@ class CountedClient:
         cands = getattr(res, "candidates", None) or []
         fr = getattr(cands[0], "finish_reason", None) if cands else None
         ev["finish_reason"] = getattr(fr, "name", fr)
-        self.limiter.record(*usage)
+        if usage_known:
+            self.limiter.record(*usage)
+        else:
+            self.limiter.record_unknown(reserve)
         self.events.append(ev)
         return res
 
@@ -316,7 +328,8 @@ async def stage_group(limiter: Limiter, plan: tuple[tuple[str, int], ...], out: 
                 limiter.record(*tk)
             else:  # unknown usage (failure/timeout): book the reservation so the limiter stays conservative
                 sample["tokens_known"] = False
-                limiter.record(0, EST_TOKENS["stage"], 0)
+                sample["reserved_tokens"] = EST_TOKENS["stage"]
+                limiter.record_unknown(EST_TOKENS["stage"])
             try:
                 s = S.session(reg, sid)
                 tel_path = s.workdir / "telemetry.jsonl"
@@ -657,6 +670,44 @@ def self_test() -> int:
     asyncio.run(run_groups(args, lambda: stub, lim, result, lambda: None))
     assert result["aborted"] and "max_tokens=7000" in result["aborted"] and lim.calls == 0, (result["aborted"], lim.calls)
     print(f"ok  reservation (8000) > max_tokens (7000) refuses before any call; aborted={result['aborted']!r}")
+
+    # 4) a dispatched call with unknown usage keeps its reservation, so repeated failures cannot stay admissible
+    class FailModels:
+        async def generate_content(self, **kw: Any) -> Any:
+            raise TimeoutError("stub timeout")
+
+    lim = Limiter(max_calls=100, max_tokens=8_000)
+    cc = CountedClient(pytypes.SimpleNamespace(aio=pytypes.SimpleNamespace(models=FailModels(), decisions=None)), lim)
+    cc.est_tokens = 8_000
+
+    async def _fail_twice() -> None:
+        try:
+            await cc.aio.models.generate_content(model="stub")
+        except TimeoutError:
+            pass
+        await cc.aio.models.generate_content(model="stub")
+
+    try:
+        asyncio.run(_fail_twice())
+        print("FAIL: a second call was admitted after a timed-out call with an 8000-token reservation")
+        return 1
+    except LimitReached as e:
+        assert lim.calls == 1 and lim.unknown_usage_reserved == 8_000 and lim.tokens == 8_000, lim.totals()
+        print(f"ok  timed-out call keeps its reservation; the next call is refused: {e}")
+
+    class NoUsageResp:
+        text, usage_metadata, candidates = "{}", None, []
+
+    class NoUsageModels:
+        async def generate_content(self, **kw: Any) -> Any:
+            return NoUsageResp()
+
+    lim = Limiter(max_calls=100, max_tokens=8_000)
+    cc = CountedClient(pytypes.SimpleNamespace(aio=pytypes.SimpleNamespace(models=NoUsageModels(), decisions=None)), lim)
+    cc.est_tokens = 5_000
+    asyncio.run(cc.aio.models.generate_content(model="stub"))
+    assert lim.unknown_usage_reserved == 5_000 and lim.tokens == 5_000 and cc.events[-1]["tokens_known"] is False, lim.totals()
+    print("ok  successful response without usage metadata books its reservation")
     print("SELF-TEST PASSED")
     return 0
 
