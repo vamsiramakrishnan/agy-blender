@@ -26,10 +26,10 @@
     "stage_accounting": "1 call per run_stage with a token reservation; SDK-internal model requests are not counted individually"
   },
   "totals": {
-    "calls": 5,
-    "input_tokens": 2730,
-    "output_tokens": 4978,
-    "thinking_tokens": 11105
+    "calls": 9,
+    "input_tokens": 4914,
+    "output_tokens": 12717,
+    "thinking_tokens": 19750
   },
   "groups": {
     "text": {
@@ -132,13 +132,90 @@
             "scene_ir_valid": false,
             "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a value at line 1 column 0 [type=json_invalid, input_value='', input_type=str]     For further information visit https",
             "tier1_ok": false
+          },
+          {
+            "thinking_level": "medium",
+            "timeout_s": 120.0,
+            "wall_ms": 112393.7,
+            "input_tokens": 546,
+            "output_tokens": 3,
+            "thinking_tokens": 4093,
+            "total_tokens_reported": 4642,
+            "tokens_known": true,
+            "finish_reason": "MAX_TOKENS",
+            "error": null,
+            "status": null,
+            "response_chars": 0,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a value at line 1 column 0 [type=json_invalid, input_value='', input_type=str]     For further information visit https",
+            "tier1_ok": false
           }
         ],
-        "n_ok": 2,
+        "n_ok": 3,
         "n_failed": 0,
-        "median_ms": 54164.4,
+        "median_ms": 54570.0,
         "min_ms": 53758.8,
-        "max_ms": 54570.0
+        "max_ms": 112393.7
+      },
+      "bulk:gemini-4-neon": {
+        "samples": [
+          {
+            "thinking_level": "low",
+            "timeout_s": 120.0,
+            "wall_ms": 35693.0,
+            "input_tokens": 546,
+            "output_tokens": 2722,
+            "thinking_tokens": 1374,
+            "total_tokens_reported": 4642,
+            "tokens_known": true,
+            "finish_reason": "MAX_TOKENS",
+            "error": null,
+            "status": null,
+            "response_chars": 6042,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a list at line 260 column 26 [type=json_invalid, input_value='{\\n  \"asset_name\": \"Wood...     \"size\": [0.03, 1.1', inp",
+            "tier1_ok": false
+          },
+          {
+            "thinking_level": "low",
+            "timeout_s": 120.0,
+            "wall_ms": 27221.1,
+            "input_tokens": 546,
+            "output_tokens": 2625,
+            "thinking_tokens": 1471,
+            "total_tokens_reported": 4642,
+            "tokens_known": true,
+            "finish_reason": "MAX_TOKENS",
+            "error": null,
+            "status": null,
+            "response_chars": 5870,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a string at line 248 column 9 [type=json_invalid, input_value='{\\n  \"asset_name\": \"Wood...   },\\n    {\\n      \"id', in",
+            "tier1_ok": false
+          },
+          {
+            "thinking_level": "low",
+            "timeout_s": 120.0,
+            "wall_ms": 29973.1,
+            "input_tokens": 546,
+            "output_tokens": 2389,
+            "thinking_tokens": 1707,
+            "total_tokens_reported": 4642,
+            "tokens_known": true,
+            "finish_reason": "MAX_TOKENS",
+            "error": null,
+            "status": null,
+            "response_chars": 5345,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a value at line 226 column 22 [type=json_invalid, input_value='{\\n  \"asset_name\": \"Wood...n        \"scale\": [1.0,', in",
+            "tier1_ok": false
+          }
+        ],
+        "n_ok": 3,
+        "n_failed": 0,
+        "median_ms": 29973.1,
+        "min_ms": 27221.1,
+        "max_ms": 35693.0
       }
     }
   },

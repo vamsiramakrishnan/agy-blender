@@ -380,7 +380,7 @@ def open_harness(ctx: Ctx, runner: asyncio.Runner, scene, budget, *, commit_base
     reg = SceneSessionRegistry()
     client = client or FakeDecisionsClient()
     S.open_session(reg, sid, ctx.dir("sess") / sid, scene.asset_name, budget,
-                   plane=DecisionControlPlane(client), forge=ImageForge(FakeImageBackend()), pool=None)
+                   plane=DecisionControlPlane(client, backend_kind="fake"), forge=ImageForge(FakeImageBackend()), pool=None)
     conv = f"conv-{sid}-" + "0" * 32
     S.bind_conversation(conv, sid, reg)
     S.set_toolset(reg, sid, "BLOCKOUT")
@@ -901,7 +901,7 @@ def f_settle(ctx: Ctx) -> list[Case]:
     res = ksettle.settle(meshes, ids, ground_z=-0.2)
     return [timeit(lambda: ksettle.settle(meshes, ids, ground_z=-0.2), ctx,
                    params={"movable_props": 10, "static_meshes": 1, "tris": int(sum(len(m.triangles) for m in meshes))},
-                   extra={"converged_all": bool(res.ok), "total_iters": int(res.iterations)})]
+                   extra={"converged_all": bool(res.converged), "total_iters": int(res.iterations)})]
 
 
 def _spatial_inputs(n: int) -> tuple[list, list]:
@@ -1170,7 +1170,7 @@ def run_prop_once(prompt: str, out: Path, *, single: bool, memo: dict, replay: b
     backend, client = _make_fixtures(memo, replay)
     out.mkdir(parents=True, exist_ok=True)
     cache = kcache.BuildCache(kcache.LocalBlobStore(out / ".agy3d-cache"))
-    dag = PropToEngineDAG(plane=DecisionControlPlane(client), forge=ImageForge(backend), author=TemplateAuthor(seed=seed),
+    dag = PropToEngineDAG(plane=DecisionControlPlane(client, backend_kind="fake"), forge=ImageForge(backend), author=TemplateAuthor(seed=seed),
                           workdir=out, budget=EngineBudget(engine), pool=None, cache=cache, style_anchor=None,
                           fixlog=FixLog.for_prop(out), max_rounds=4, require_verified=False, single_candidate=single)
     origin: list[float] = []
