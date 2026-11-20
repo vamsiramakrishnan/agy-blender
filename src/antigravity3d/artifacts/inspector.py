@@ -25,20 +25,23 @@ import html
 import json
 import os
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from typing import Any
 from functools import lru_cache
 from importlib import resources
 from pathlib import Path
 
 import numpy as np
 
+from antigravity3d.kernel.gltf_writer import GltfMaterial
 from antigravity3d.kernel.types import MeshData
 from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, EngineBudget
 
 THREE_JS_VERSION = "0.160.0"
 THREE_JS_URL = f"https://cdnjs.cloudflare.com/ajax/libs/three.js/{THREE_JS_VERSION}/three.module.min.js"
 NOTES_SCHEMA = "antigravity3d.review_notes/1"
-PAYLOAD_SCHEMA = "antigravity3d.inspector_payload/1"
+PAYLOAD_SCHEMA = "antigravity3d.inspector_payload/2"
 
 
 @lru_cache(maxsize=1)
@@ -93,22 +96,7 @@ class ReviewNote:
 # --------------------------------------------------------------------------- geometry
 
 
-def zup_to_yup(points: np.ndarray) -> np.ndarray:
-    """World Z-up (pipeline/USD) -> three.js Y-up. The ONLY place axes are swapped.
-
-    (x, y, z)_zup -> (x, z, -y)_yup: a proper rotation (det = +1), so triangle
-    winding and normals are preserved. Contact-sheet "front" (camera on -Y in
-    Z-up) becomes camera on +Z in Y-up.
-    """
-    p = np.asarray(points, dtype=np.float64).reshape(-1, 3)
-    return np.stack([p[:, 0], p[:, 2], -p[:, 1]], axis=1)
-
-
-def _b64(arr: np.ndarray, dtype: str) -> str:
-    return base64.b64encode(np.ascontiguousarray(arr, dtype=dtype).tobytes()).decode("ascii")
-
-
-def _geom(points: np.ndarray, triangles: np.ndarray, what: str) -> tuple[str, str, int]:
+def _check_mesh(points: np.ndarray, triangles: np.ndarray, what: str) -> tuple[np.ndarray, np.ndarray]:
     pts = np.asarray(points, dtype=np.float64)
     tri = np.asarray(triangles)
     if pts.ndim != 2 or pts.shape[1] != 3:
@@ -117,7 +105,7 @@ def _geom(points: np.ndarray, triangles: np.ndarray, what: str) -> tuple[str, st
         raise ValueError(f"{what}: triangles must be (M, 3), got {tri.shape}")
     if tri.size and (tri.min() < 0 or tri.max() >= len(pts)):
         raise ValueError(f"{what}: triangle index out of range")
-    return _b64(zup_to_yup(pts), "<f4"), _b64(tri, "<u4"), int(len(tri))
+    return pts, tri
 
 
 def _prim_colors(ids: list[str]) -> list[str]:
@@ -198,25 +186,7 @@ def _json_for_script(obj: object) -> str:
     return s.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
 
-def _data_uri(png: bytes) -> str:
-    return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
-
-
 # --------------------------------------------------------------------------- data model
-
-
-def _png_bytes(data: bytes) -> bytes:
-    """PNG as-is; any other image format Pillow reads is converted (the viewer uses PNG data URIs)."""
-    if data[:8] == b"\x89PNG\r\n\x1a\n":
-        return data
-    import io
-
-    from PIL import Image
-
-    with Image.open(io.BytesIO(data)) as im:
-        buf = io.BytesIO()
-        im.save(buf, "PNG")
-        return buf.getvalue()
 
 
 def _qa_dict(qa: InspectorQA | dict | None) -> dict | None:
@@ -227,87 +197,87 @@ def _qa_dict(qa: InspectorQA | dict | None) -> dict | None:
             "threshold": EXPORT_MIN_TIER15_SCORE}
 
 
+LodInput = InspectorLod | tuple[str, np.ndarray, np.ndarray]
+
+
 def inspector_payload(
     meshes: list[MeshData],
     *,
     asset_name: str,
     budget: EngineBudget,
+    materials: Mapping[str, GltfMaterial] | None = None,
     textures: dict[str, InspectorTextures] | None = None,
-    lods: list[InspectorLod | tuple[str, np.ndarray, np.ndarray]] | None = None,
+    lods: list[LodInput] | Mapping[str, Sequence[Any]] | None = None,
     colliders: list[InspectorCollider | tuple[str, np.ndarray, np.ndarray]] | None = None,
     qa: InspectorQA | dict | None = None,
     uvs: dict[str, np.ndarray] | None = None,
     draw_calls: int | None = None,
-    split_textures: bool = False,
-) -> tuple[dict, dict[str, str]]:
-    """The inspector's data model (what the front end renders) and its separately fetched parts.
+) -> tuple[dict, bytes]:
+    """The inspector's review metadata (JSON) and its review GLB (see :mod:`.review_glb`).
 
-    Returns ``(payload, parts)``. With ``split_textures`` every texture in ``payload["textures"]`` is
-    a reference ``{"part": "tex/<material>/<kind>", "mime", "bytes"}`` and ``parts`` maps the part
-    name to the base64 PNG (the MCP App fetches them through an app-only tool); otherwise textures
-    are embedded as data URIs and ``parts`` is empty.
+    meshes     LOD0, one entry per node (world-space Z-up, as MeshData).
+    uvs        keyed by ``node_id``, (N, 2) per-vertex, bottom-left origin (USD/OpenGL).
+    materials  ``{node_id: GltfMaterial}``: the materials the package GLBs bind (or, in a session,
+               :func:`.review_glb.session_materials`). Textures are shown only on meshes with UVs.
+    textures   transitional, for callers that still pass PNG maps per material id (see
+               :func:`.review_glb.materials_from_png_maps`); ignored when ``materials`` is given.
+    lods       either per-node chains ``{node_id: [LOD0, LOD1, ...]}`` of objects with ``points``,
+               ``triangles`` and ``uvs`` (shown with their materials, like the package's ``*_LODn.glb``),
+               or merged levels ``[(label, points, triangles), ...]`` (shown as one untextured mesh each).
+    colliders  hull meshes for the overlay. Hull gauge = len(colliders), or the count of
+               ``collider=True`` meshes when no hulls are given.
 
-    ``payload["revision"]`` is a content hash of everything shown (geometry, UVs, LODs, colliders,
-    texture bytes, budget): the same asset gives the same revision, any visible change a new one.
-    Review notes are tied to it.
+    ``payload["revision"]`` is a content hash of everything shown (the GLB bytes and the metadata): the
+    same asset gives the same revision, any visible change a new one. Review notes are tied to it.
     """
-    textures = textures or {}
-    uvs = uvs or {}
-    lod_list = [InspectorLod(*x) if isinstance(x, tuple) else x for x in (lods or [])]
-    col_list = [InspectorCollider(*x) if isinstance(x, tuple) else x for x in (colliders or [])]
+    from antigravity3d.artifacts.review_glb import ReviewPart, build_review, materials_from_png_maps
 
+    uvs = uvs or {}
     ids = [m.node_id for m in meshes]
     if len(set(ids)) != len(ids):
         raise ValueError("duplicate node_id in meshes")
+    if materials is None:
+        materials = materials_from_png_maps(textures or {}, {m.node_id: m.material_id for m in meshes})
     colors = _prim_colors(ids)
 
-    mesh_payload = []
+    lod0, nodes = [], []
     for m, color in zip(meshes, colors, strict=True):
-        pos, idx, ntri = _geom(m.points, m.triangles, f"mesh {m.node_id}")
+        pts, tri = _check_mesh(m.points, m.triangles, f"mesh {m.node_id}")
         uv = uvs.get(m.node_id)
-        uv_b64 = None
         if uv is not None:
             uv = np.asarray(uv)
-            if uv.shape != (len(m.points), 2):
-                raise ValueError(f"uvs[{m.node_id!r}] must be ({len(m.points)}, 2), got {uv.shape}")
-            uv_b64 = _b64(uv, "<f4")
-        mesh_payload.append(
-            {"id": m.node_id, "prim": m.prim_path, "mat": m.material_id or "", "color": color, "tris": ntri,
-             "pos": pos, "idx": idx, "uv": uv_b64}
-        )
+            if uv.shape != (len(pts), 2):
+                raise ValueError(f"uvs[{m.node_id!r}] must be ({len(pts)}, 2), got {uv.shape}")
+        lod0.append(ReviewPart(m.node_id, pts, tri, uv, materials.get(m.node_id)))
+        nodes.append({"id": m.node_id, "prim": m.prim_path, "mat": m.material_id or "", "color": color,
+                      "tris": int(len(tri))})
 
-    digest = hashlib.sha256()
-    tex_payload: dict[str, dict] = {}
-    parts: dict[str, str] = {}
-    for mat in sorted(textures):
-        t = textures[mat]
-        entry: dict = {}
-        for kind, raw in (("albedo", t.albedo_png), ("orm", t.orm_png), ("normal", t.normal_png)):
-            if not raw:
-                continue
-            png = _png_bytes(raw)
-            digest.update(f"tex:{mat}:{kind}:".encode() + hashlib.sha256(png).digest())
-            if split_textures:
-                name = f"tex/{mat}/{kind}"
-                parts[name] = base64.b64encode(png).decode("ascii")
-                entry[kind] = {"part": name, "mime": "image/png", "bytes": len(png)}
-            else:
-                entry[kind] = _data_uri(png)
-        if entry:
-            tex_payload[mat] = entry
+    levels: list[tuple[str, list[ReviewPart]]] = []
+    if isinstance(lods, Mapping):
+        depth = min((len(chain) for chain in lods.values()), default=0)
+        if lods and set(lods) != set(ids):
+            raise ValueError("per-node LOD chains must cover exactly the LOD0 nodes")
+        for k in range(1, depth):
+            parts = []
+            for nid in ids:
+                item = lods[nid][k]
+                pts, tri = _check_mesh(item.points, item.triangles, f"lod {k} of {nid}")
+                parts.append(ReviewPart(nid, pts, tri, getattr(item, "uvs", None), materials.get(nid)))
+            levels.append((f"LOD{k}", parts))
+    else:
+        for lod in (InspectorLod(*x) if isinstance(x, tuple) else x for x in (lods or [])):
+            pts, tri = _check_mesh(lod.points, lod.triangles, f"lod {lod.label}")
+            levels.append((lod.label, [ReviewPart(None, pts, tri)]))
+    col_list = [InspectorCollider(*x) if isinstance(x, tuple) else x for x in (colliders or [])]
+    hulls = [(c.name, *_check_mesh(c.points, c.triangles, f"collider {c.name}")) for c in col_list]
 
-    lod_payload = []
-    for lod in lod_list:
-        pos, idx, ntri = _geom(lod.points, lod.triangles, f"lod {lod.label}")
-        lod_payload.append({"label": lod.label, "tris": ntri, "pos": pos, "idx": idx})
-    col_payload = []
-    for c in col_list:
-        pos, idx, _ = _geom(c.points, c.triangles, f"collider {c.name}")
-        col_payload.append({"name": c.name, "pos": pos, "idx": idx})
+    layout, glb = build_review(lod0, levels=levels, hulls=hulls)
+    for node, part in zip(nodes, layout["levels"][0]["parts"], strict=True):
+        node.update(uv=part["uv"], maps=part["maps"])
 
     if draw_calls is None:
         draw_calls = len({m.material_id or "" for m in meshes})
-    hulls = len(col_list) if colliders is not None else sum(1 for m in meshes if m.collider)
+    n_hulls = len(col_list) if colliders is not None else sum(1 for m in meshes if m.collider)
     payload = {
         "schema": PAYLOAD_SCHEMA,
         "asset_name": asset_name,
@@ -318,17 +288,16 @@ def inspector_payload(
             "max_draw_calls": budget.max_draw_calls,
             "max_collision_hulls": budget.max_collision_hulls,
         },
-        "summary": {"tris": sum(m["tris"] for m in mesh_payload), "draw_calls": int(draw_calls), "hulls": int(hulls)},
-        "meshes": mesh_payload,
-        "lods": lod_payload,
-        "colliders": col_payload,
-        "textures": tex_payload,
+        "summary": {"tris": sum(n["tris"] for n in nodes), "draw_calls": int(draw_calls), "hulls": int(n_hulls)},
+        "nodes": nodes,
+        "levels": layout["levels"],
+        "colliders": layout["colliders"],
+        "glb": layout["glb"],
         "qa": _qa_dict(qa),
     }
-    shown = {k: payload[k] for k in ("asset_name", "budget", "summary", "meshes", "lods", "colliders")}
-    digest.update(json.dumps(shown, sort_keys=True, separators=(",", ":")).encode())
-    payload["revision"] = digest.hexdigest()[:16]
-    return payload, parts
+    shown = {k: payload[k] for k in ("asset_name", "budget", "summary", "nodes", "levels", "colliders", "glb")}
+    payload["revision"] = hashlib.sha256(json.dumps(shown, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
+    return payload, glb
 
 
 @lru_cache(maxsize=4)
@@ -357,8 +326,9 @@ def build_inspector(
     *,
     asset_name: str,
     budget: EngineBudget,
+    materials: Mapping[str, GltfMaterial] | None = None,
     textures: dict[str, InspectorTextures] | None = None,
-    lods: list[InspectorLod | tuple[str, np.ndarray, np.ndarray]] | None = None,
+    lods: list[LodInput] | Mapping[str, Sequence[Any]] | None = None,
     colliders: list[InspectorCollider | tuple[str, np.ndarray, np.ndarray]] | None = None,
     qa: InspectorQA | None = None,
     uvs: dict[str, np.ndarray] | None = None,
@@ -368,22 +338,20 @@ def build_inspector(
 ) -> Path:
     """Write the standalone inspector for one asset to ``out_path`` and return it.
 
-    meshes   LOD0, one entry per node (world-space Z-up, as MeshData).
-    textures keyed by ``MeshData.material_id``; used only for meshes that also have UVs.
-    uvs      keyed by ``node_id``, (N, 2) per-vertex, bottom-left origin (USD/OpenGL).
-    lods     extra levels shown as LOD1..n; each is a single merged mesh.
-    colliders  hull meshes for the overlay. Hull gauge = len(colliders), or the count
-             of ``collider=True`` meshes when no hulls are given.
+    meshes, materials, textures, uvs, lods, colliders, draw_calls: see :func:`inspector_payload`.
+    The asset is embedded as the review GLB (base64 in the JSON payload); the page loads it with GLTFLoader.
     three_js_source  ES-module build of three.js (e.g. ``three.module.min.js`` text) to
              inline for fully offline use; otherwise the pinned cdnjs URL is loaded.
     """
-    payload, _ = inspector_payload(meshes, asset_name=asset_name, budget=budget, textures=textures, lods=lods,
-                                   colliders=colliders, qa=qa, uvs=uvs, draw_calls=draw_calls)
+    payload, glb = inspector_payload(meshes, asset_name=asset_name, budget=budget, materials=materials,
+                                     textures=textures, lods=lods, colliders=colliders, qa=qa, uvs=uvs,
+                                     draw_calls=draw_calls)
     payload["three_url"] = None if three_js_source is not None else THREE_JS_URL
+    payload["glb_b64"] = base64.b64encode(glb).decode("ascii")
 
     rows = []
     legend = ["<ul>"]
-    for m in payload["meshes"]:
+    for m in payload["nodes"]:
         sw = f'<span class="sw" style="background:{m["color"]}"></span>'
         rows.append(
             f'<tr data-node="{_e(m["id"], quote=True)}" aria-selected="false" title="{_e(m["prim"], quote=True)}">'

@@ -2,9 +2,11 @@
 
 No LLM tokens, no Blender. Native backends actually used:
   * QA          : numpy (edge-table topology, winding-number interpenetration probe)
-  * UVs         : xatlas
-  * LODs        : meshoptimizer (simplify / simplify_with_attributes, vertex cache,
-                  overdraw, vertex fetch)
+  * UVs         : exact developable charts for IR primitives (unfolded here, packed by a skyline
+                  rectangle packer); xatlas charts + packing for imported meshes
+  * LODs        : meshoptimizer (simplify / simplify_with_attributes in absolute-error mode, vertex
+                  cache, overdraw, vertex fetch); levels from lod_diff's screen-space error budget,
+                  each verified by an exact sampled surface distance and a silhouette check
   * colliders   : CoACD + scipy ConvexHull (fast path)
   * glTF        : trimesh GLB export
   * KTX2        : external ``ktx`` / ``toktx`` CLI only (never faked)
@@ -1140,6 +1142,11 @@ def generate_asset_lods(
     items = [(p.node_id, p.points, p.triangles, p.uvs) if isinstance(p, UVResult) else p for p in parts]
     if not items:
         return {}
+    empty = {nid: [LOD(1.0, np.asarray(pts, np.float64), np.zeros((0, 3), np.int32), uv, 0.0, 0.0, 1.0)]
+             for nid, pts, tri, uv in items if len(tri) == 0}
+    items = [it for it in items if len(it[2])]
+    if not items:
+        return empty
     radius = _bounds_radius([it[1] for it in items])
     simp = {nid: _Simplifier(pts, tri, uv) for nid, pts, tri, uv in items}
     chains = {nid: [s.level(s.idx0, 0.0, 1.0)] for nid, s in simp.items()}
@@ -1153,6 +1160,8 @@ def generate_asset_lods(
         for nid, (idx, dev) in picks.items():
             chains[nid].append(simp[nid].level(idx, dev, f))
         prev_tris = tris
+    for nid, chain in empty.items():  # keep every part's chain as long as the asset's
+        chains[nid] = chain * max((len(c) for c in chains.values()), default=1)
     return chains
 
 
