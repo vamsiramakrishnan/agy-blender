@@ -487,12 +487,20 @@ def _manifest_checks(add, main: dict, lods: list[dict], render: dict, manifest: 
         add("meshes carry NORMAL when the manifest declares vertex normals", not flat,
             f"no NORMAL on {flat} (three falls back to flat shading); manifest declares: {declared_normals}" if flat
             else "all meshes have NORMAL")
-    textures = manifest.get("textures") or []
-    if textures:
+    if "textures" in manifest:
+        # The manifest's texture records are the complete list of texture files the package ships. A material
+        # may legitimately have none (factor-only), so loaded material names are not compared for equality:
+        # every material that has records must be present, and a material without records must bind no texture.
+        textures = manifest["textures"] or []
         by_name = {m["name"]: m for m in main["materials"]}
         want_mats = {t["material"] for t in textures}
-        add("material names == manifest texture materials", set(by_name) == want_mats,
-            f"loaded {sorted(by_name)}, manifest {sorted(want_mats)}")
+        missing = sorted(want_mats - set(by_name))
+        stray = sorted(f"{name}.{slot}" for name, m in by_name.items() if name not in want_mats
+                       for slot, bound in (m.get("slots") or {}).items() if bound is not None)
+        add("textured materials present; other materials bind no texture", not missing and not stray,
+            "; ".join(filter(None, [f"missing {missing}" if missing else "",
+                                    f"texture bound with no manifest record: {stray[:6]}" if stray else ""]))
+            or f"{len(want_mats)} textured, {len(set(by_name) - want_mats)} factor-only")
         bad = []
         for t in textures:
             mat = by_name.get(t["material"])

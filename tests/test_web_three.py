@@ -264,13 +264,39 @@ def test_evaluate_passes_clean_canned_data():
     (dict(manifest=_canned_manifest(glb_batches={"a": [], "b": []})), "mesh count == manifest glb_batches"),
     (dict(manifest=_canned_manifest(draw_calls=3)), "rendered draw calls == manifest draw_calls"),
     (dict(manifest=_canned_manifest(textures=[{"material": "stone", "role": "albedo", "width": 256, "height": 256}])),
-     "material names == manifest texture materials"),
+     "textured materials present; other materials bind no texture"),
+    (dict(manifest=_canned_manifest(textures=[])), "textured materials present; other materials bind no texture"),
     (dict(manifest=_canned_manifest(textures=[{"material": "wood", "role": "albedo", "width": 512, "height": 512}])),
      "manifest textures bound per role with matching pixel size"),
 ])
 def test_evaluate_fails_naming_the_cause(kwargs, needle):
     checks, _ = _run_eval(**kwargs)
     assert checks[needle].status == "fail", [str(c) for c in checks.values()]
+
+
+def _factor_only(name="iron"):
+    return {"name": name, "type": "MeshStandardMaterial", "fallback_default": False, "missing_slots": [], "declared": [], "slots": {}}
+
+
+def test_evaluate_accepts_a_factor_only_material_beside_a_textured_one():
+    """A package may mix a textured material with a factor-only one: the manifest lists texture files, not materials."""
+    raw = _canned_raw()
+    raw["main"]["materials"].append(_factor_only())
+    checks, _ = _run_eval(raw=raw)
+    assert all(c.status == "pass" for c in checks.values()), [str(c) for c in checks.values() if c.status != "pass"]
+    assert "1 textured, 1 factor-only" in checks["textured materials present; other materials bind no texture"].detail
+
+
+def test_evaluate_rejects_a_texture_the_manifest_does_not_record():
+    raw = _canned_raw()
+    stray = _factor_only()
+    stray["slots"] = {"map": {"width": 64, "height": 64, "colorSpace": "srgb"}}
+    raw["main"]["materials"].append(stray)
+    check = _run_eval(raw=raw)[0]["textured materials present; other materials bind no texture"]
+    assert check.status == "fail" and "iron.map" in check.detail
+    raw = _canned_raw()
+    raw["main"]["materials"] = [_factor_only("wood")]  # the textured material lost every binding: caught per role
+    assert _run_eval(raw=raw)[0]["manifest textures bound per role with matching pixel size"].status == "fail"
 
 
 def test_evaluate_fails_unbound_texture_and_fallback_material_and_flat_normals():
@@ -367,6 +393,42 @@ def test_browser_good_package_passes_and_frame_is_upright_framed_textured(good, 
     assert len(np.unique(img[ys, xs, :3].reshape(-1, 3), axis=0)) > 200
     assert elapsed < 30
     print(f"web_three verify (small package, incl. browser launch): {elapsed:.2f}s timings={rep.timings_s}")
+
+
+@pytest.mark.browser
+def test_browser_textured_and_factor_only_materials_in_one_package_pass(runtime, tmp_path):
+    """Real GLB from the package's own writer: 'wood' carries three maps, 'iron' is factors only."""
+    from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, GltfMesh, TextureRef, build_glb
+
+    def part(name, extents, at, material):
+        tm = trimesh.creation.box(extents, transform=trimesh.transformations.translation_matrix(at))
+        pos = np.asarray(tm.vertices[tm.faces].reshape(-1, 3), np.float32)  # unwelded: flat normals, one UV per corner
+        tri = np.arange(len(pos), dtype=np.uint32).reshape(-1, 3)
+        nrm = np.repeat(np.asarray(tm.face_normals, np.float32), 3, axis=0)
+        uv = np.tile(np.array([[0, 0], [1, 0], [1, 1]], np.float32), (len(tri), 1))
+        return GltfMesh(name, pos, tri, uvs=uv, material=material, normals=nrm), tm
+
+    orm = TextureRef(EncodedImage.from_bytes(_noise(2)))
+    wood = GltfMaterial(name="wood", base_color_texture=TextureRef(EncodedImage.from_bytes(_noise(1))),
+                        metallic_roughness_texture=orm, occlusion_texture=orm,
+                        normal_texture=TextureRef(EncodedImage.from_bytes(_noise(3))))
+    iron = GltfMaterial(name="iron", base_color_factor=(0.55, 0.56, 0.6, 1.0), metallic_factor=1.0, roughness_factor=0.4)
+    (body, tm_a), (strap, tm_b) = part("body", (1.0, 0.8, 0.6), (0, 0.4, 0), wood), part("strap", (1.04, 0.1, 0.64), (0, 0.4, 0), iron)
+    both = trimesh.util.concatenate([tm_a, tm_b])
+    man = _manifest(both, draw_calls=2, glb_batches={"body": ["body"], "strap": ["strap"]},
+                    textures=[{"material": "wood", "role": r, "width": 64, "height": 64} for r in ("albedo", "orm", "normal")])
+    d = _write_pkg(tmp_path, build_glb([body, strap]), man)
+    rep = _verify(d, _reference(both, man))
+    assert rep.ok, _failed(rep)
+    names = {m["name"]: m for m in rep.facts["main"]["materials"]}
+    assert set(names) == {"wood", "iron"} and not any(names["iron"]["slots"].values())
+
+    # the same package with a texture bound on the factor-only material is rejected
+    def bind(doc, _blob):
+        iron_json = next(m for m in doc["materials"] if m["name"] == "iron")
+        iron_json["pbrMetallicRoughness"]["baseColorTexture"] = {"index": 0}
+    (d / "Crate.glb").write_bytes(_edit_glb(build_glb([body, strap]), bind))
+    assert "textured materials present; other materials bind no texture" in _failed(_verify(d, _reference(both, man)))
 
 
 @pytest.mark.browser
