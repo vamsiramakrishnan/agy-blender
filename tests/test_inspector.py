@@ -726,3 +726,28 @@ def test_textured_asset_renders_the_glb_materials(tmp_path, scene):
             assert not errors, errors
         finally:
             browser.close()
+
+
+def test_a_part_absent_at_a_lod_level_gets_no_node_there(scene):
+    """The LOD generator drops parts that cannot be seen at a distance: such a part has an empty mesh at that level.
+    The review GLB leaves it out of that level (as the package's LOD GLB does) and keeps it at LOD0."""
+    from types import SimpleNamespace
+
+    from antigravity3d.artifacts.inspector import inspector_payload
+
+    meshes, uvs, tex, _lods, cols = scene
+    empty = SimpleNamespace(points=np.zeros((0, 3)), triangles=np.zeros((0, 3), np.int32), uvs=np.zeros((0, 2), np.float32))
+    chains = {m.node_id: [SimpleNamespace(points=m.points, triangles=m.triangles, uvs=uvs[m.node_id])] * 2 for m in meshes}
+    chains["ball"] = [chains["ball"][0], empty]  # the ball is absent at LOD1
+    payload, glb = inspector_payload(meshes, asset_name="crate", budget=EngineBudget("unreal_5"), materials=tex, uvs=uvs,
+                                     lods=chains, colliders=cols)
+    lod0, lod1 = payload["levels"]
+    assert [p["node"] for p in lod0["parts"]] == ["body", "pole", "ball"]
+    assert [p["node"] for p in lod1["parts"]] == ["body", "pole"]
+    assert lod1["tris"] == lod0["tris"] - len(meshes[2].triangles)
+    import pygltflib
+
+    g = pygltflib.GLTF2.load_from_bytes(glb)
+    names = [n.name for n in g.nodes]
+    assert "LOD0:ball" in names and "LOD1:ball" not in names and "LOD1:body" in names
+    assert all(n.mesh is not None for n in g.nodes)  # no empty node was written

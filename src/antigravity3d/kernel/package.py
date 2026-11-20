@@ -445,23 +445,6 @@ _GEOMETRY_PROPS = frozenset({
 })
 
 
-def _inspector_lods(lods: Mapping[str, list], levels: int):
-    """LOD data for the inspector: the per-node chains, unless a part is absent at some level (a LOD with no
-    triangles), in which case the merged per-level meshes (label, points, triangles) the inspector also accepts.
-    The per-node review GLB cannot pack an empty part yet; merged levels keep the LOD switcher truthful."""
-    if levels <= 1:
-        return None
-    if all(len(chain[i].triangles) for chain in lods.values() for i in range(levels)):
-        return dict(lods)
-    out = []
-    for i in range(1, levels):
-        present = [chain[i] for chain in lods.values() if len(chain[i].triangles)]
-        offsets = np.cumsum([0] + [len(x.points) for x in present[:-1]])
-        out.append((f"LOD{i}", np.vstack([x.points for x in present]),
-                    np.vstack([x.triangles + o for x, o in zip(present, offsets)])))
-    return out
-
-
 def _author_lod_variants(
     stage: Usd.Stage, asset: Usd.Prim, targets: list[tuple[str, np.ndarray, np.ndarray, list]]
 ) -> list[int]:
@@ -653,7 +636,7 @@ def write_engine_package(
                         for m, u in zip(meshes, uvs, strict=True)]
     viewer = build_inspector(inspector_meshes, asset_name=asset_name, budget=budget, materials=materials,
                              uvs={u.node_id: u.uvs for u in uvs},
-                             lods=_inspector_lods(lods, glb_levels),
+                             lods=dict(lods) if glb_levels > 1 else None,
                              colliders=[(name, h.points, h.triangles) for name, h in zip(names, hulls)],
                              qa=InspectorQA(bool(qa.get("tier1_ok")), tier15_score=qa.get("tier15"),
                                             defects=qa.get("defects", {}), audit_deltas=qa.get("audit", [])) if qa else None,

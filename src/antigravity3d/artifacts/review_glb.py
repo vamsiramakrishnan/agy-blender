@@ -66,12 +66,18 @@ def build_review(
 
     ``layout = {"levels": [{"label", "tris", "parts": [{"node", "glb", "tris", "uv", "maps"}]}],
     "colliders": [{"name", "glb"}], "glb": {"bytes", "sha256"}}``; ``glb`` values are glTF node indices.
+
+    A part with no triangles at a level beyond LOD0 is absent there (the LOD generator drops parts that cannot be
+    seen at that distance): it gets no glTF node and no entry in that level's ``parts``, exactly as the package's
+    ``*_LODn.glb`` leaves it out.
     """
     meshes: list[GltfMesh] = []
     out_levels = []
     for label, parts in [("LOD0", lod0), *levels]:
         entries = []
         for part in parts:
+            if label != "LOD0" and len(part.triangles) == 0:
+                continue
             name = f"{label}:{part.node_id or 'merged'}"
             entries.append({"node": part.node_id, "glb": len(meshes), "tris": int(len(part.triangles)),
                             "uv": part.uvs is not None, "maps": _maps(part.material, part.uvs is not None)})

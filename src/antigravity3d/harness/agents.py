@@ -78,7 +78,8 @@ STAGE_BEHAVIOR = types.AgentBehavior.MINIMAL
 # Only what a schema cannot say: units, axes, anchors, ground contact, id rules. Field names and types are in the
 # tool declarations (generated from the same IR schema), so they are not repeated here.
 _IR_RULES = f"{IR_SEMANTICS}\n{OP_SEMANTICS}"
-_IR_STAGES = frozenset({"BLOCKOUT", "TWEAK", "VARIANTS"})
+_IR_STAGES = frozenset({"BLOCKOUT", "TWEAK", "VARIANTS"})  # edit geometry: IR semantics and the anchor ops
+_MATERIAL_STAGES = frozenset({"LOOKDEV"})  # edit materials only: IR semantics (ids, material cross-field rules)
 
 _STAGE_TEXT: dict[str, str] = {
     "BLOCKOUT": "Build the asset's blockout from primitives with apply_scene_ir (one patch can hold many ops). Each edit is "
@@ -110,6 +111,8 @@ def _system(toolset: str, subagents: tuple[str, ...] | None = None) -> str:
               "call says why in one line. Every prompt starts with a [STATE ...] header: trust it over older messages.")]
     if toolset in _IR_STAGES:
         parts.append(_IR_RULES)
+    elif toolset in _MATERIAL_STAGES:
+        parts.append(IR_SEMANTICS)
     parts.append(_STAGE_TEXT[toolset])
     if subs := (STAGE_SUBAGENTS.get(toolset, ()) if subagents is None else subagents):
         listed = "; ".join(f"{n}: {_SUBAGENT_TEXT[n][0].rstrip('.')}" for n in subs)

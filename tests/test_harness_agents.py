@@ -89,7 +89,8 @@ def test_stage_prompt_states_rules_not_types():
     for stage in STAGES:
         text = A._system(stage)
         assert "scene: {" not in text and "kind -> params" not in text and "Types below" not in text
-        assert (ir_schema.IR_SEMANTICS in text and ir_schema.OP_SEMANTICS in text) is (stage in {"BLOCKOUT", "TWEAK", "VARIANTS"})
+        assert (ir_schema.IR_SEMANTICS in text) is (stage != "EXPORT")  # ids, units, material cross-field rules
+        assert (ir_schema.OP_SEMANTICS in text) is (stage in {"BLOCKOUT", "TWEAK", "VARIANTS"})  # anchor ops
         assert ("invoke_subagent" in text) is bool(T.STAGE_SUBAGENTS[stage])
         assert all(n in text for n in T.STAGE_SUBAGENTS[stage])
 
