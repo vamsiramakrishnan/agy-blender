@@ -138,7 +138,7 @@ Main modules, from the module docstrings:
 - `tactics/governor.py`: cost and quality budget governor.
 - `tactics/cached.py`: Merkle-cache wrappers for the expensive pure steps.
 - `tactics/package.py`: engine-ready export artefacts (UV-split meshes, LODs, hulls).
-- `tactics/distill.py`: failure-to-skill log and clustering.
+- `tactics/distill.py` collects observed repairs. Run `python -m antigravity3d.runtime.distill_job --workspace . --holdout examples/distill-seating-holdout.json` to replay a box-seating fix against two authored examples. Supply independent studio labels for a studio review. An eligible report can be promoted by repeating the command with `--promote seat-floating-box-v1 --evidence DIGEST --reviewed-by NAME`. The scheduled job only writes reports.
 - `dags/prop_to_engine.py`: prompt to engine-ready, reviewed prop package.
 - `dags/environment_kit.py`: modular pieces sharing one trim sheet, assembled into one USD stage.
 - `dags/batch_sanitize.py`: many meshes to safe repairs, UVs, LODs and colliders, then validated export.

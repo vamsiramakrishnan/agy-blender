@@ -46,7 +46,7 @@ from trimesh.visual.material import PBRMaterial
 from antigravity3d.artifacts.inspector import InspectorQA, InspectorTextures, build_inspector, bundled_three_js
 from antigravity3d.kernel.compile_ir import author_mesh_data, set_normal_encoding
 from antigravity3d.kernel.fast_ops import ExportBundle, Hull, Issue, LOD, UVResult, write_gltf
-from antigravity3d.kernel.types import MeshData
+from antigravity3d.kernel.types import MeshData, gltf_world_bounds
 from antigravity3d.kernel.validator import (
     ENGINE_RULES,
     check_engine_compliance,
@@ -531,6 +531,7 @@ def write_engine_package(
         "lod_structure": f"variantSet '{LOD_SET}' on /{asset.GetName()}: LOD0 (base) .. LOD{len(lod_tris) - 1}" if len(lod_tris) > 1 else None,
         "draw_calls": len(batches),
         "glb_batches": batches,
+        "glb_bounds_m": gltf_world_bounds((mesh.points for mesh in meshes), z_up=True),
         "texel_density": {
             "target_px_per_m": budget.texel_density_px_per_m,
             "mean_px_per_m": round(float(np.mean(dens)), 2) if dens else None,

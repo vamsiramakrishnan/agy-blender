@@ -8,6 +8,8 @@ be turned into deterministic guardrails.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import math
 import json
 from collections import defaultdict
 from dataclasses import dataclass
@@ -27,6 +29,9 @@ class FixRecord:
     score_before: float
     score_after: float
     note: str = ""
+    rule: str = ""  # set only when the observed IR delta equals a built-in candidate
+    scene_hash: str = ""
+    origin: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -56,7 +61,7 @@ def _record_from_dict(obj: Any) -> FixRecord:
     if not isinstance(asset_id, str):
         raise ValueError("asset_id must be a string")
     if not isinstance(defect_vector, dict) or not all(
-        isinstance(v, (int, float)) and not isinstance(v, bool) for v in defect_vector.values()
+        isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in defect_vector.values()
     ):
         raise ValueError("defect_vector must map names to numbers")
     if not isinstance(ops, list) or not all(isinstance(o, str) for o in ops):
@@ -65,7 +70,7 @@ def _record_from_dict(obj: Any) -> FixRecord:
         raise ValueError("params_changed must be a list of strings")
     for key in ("score_before", "score_after"):
         value = obj[key]
-        if not isinstance(value, (int, float)) or isinstance(value, bool):
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
             raise ValueError(f"{key} must be a number")
     if not isinstance(note, str):
         raise ValueError("note must be a string")
@@ -77,6 +82,9 @@ def _record_from_dict(obj: Any) -> FixRecord:
         score_before=float(obj["score_before"]),
         score_after=float(obj["score_after"]),
         note=note,
+        rule=str(obj.get("rule", "")),
+        scene_hash=str(obj.get("scene_hash", "")),
+        origin=str(obj.get("origin", "unknown")),
     )
 
 
@@ -86,16 +94,32 @@ class FixLog:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
         self.skipped = 0
+        self._index_path: Path | None = None
+
+    @classmethod
+    def for_prop(cls, output: Path) -> FixLog:
+        """Keep the per-run log and index it even when --out is outside the workspace."""
+        from antigravity3d.runtime.qa_state import state_root
+
+        path = (Path(output) / "fixlog.jsonl").resolve()
+        key = hashlib.sha256(str(path).encode()).hexdigest()
+        log = cls(path)
+        log._index_path = state_root() / "fixlogs" / f"{key}.json"
+        return log
 
     def append(self, record: FixRecord) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = dataclasses.asdict(record)
         payload["ts"] = datetime.now(timezone.utc).isoformat()
-        line = json.dumps(payload, sort_keys=True)
+        line = json.dumps(payload, sort_keys=True, allow_nan=False)
+        if self._index_path is not None:
+            from antigravity3d.runtime.qa_state import _atomic_write_json
+
+            _atomic_write_json(self._index_path, {"path": str(self.path)})
         with self.path.open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")
 
-    def read(self) -> list[FixRecord]:
+    def read(self, *, since: float | None = None) -> list[FixRecord]:
         """Read all valid records. Blank and malformed lines are skipped and counted in ``skipped``."""
         self.skipped = 0
         if not self.path.exists():
@@ -107,7 +131,15 @@ class FixLog:
                 if not line:
                     continue
                 try:
-                    records.append(_record_from_dict(json.loads(line)))
+                    raw = json.loads(line)
+                    record = _record_from_dict(raw)
+                    if since is not None:
+                        ts = datetime.fromisoformat(str(raw.get("ts", "")))
+                        if ts.tzinfo is None:
+                            raise ValueError("fix timestamp lacks timezone")
+                        if ts.timestamp() < since:
+                            continue
+                    records.append(record)
                 except (ValueError, TypeError):
                     self.skipped += 1
         return records
@@ -170,9 +202,9 @@ def cluster(
     return clusters
 
 
-def propose_rules(clusters: list[FixCluster]) -> str:
-    """Render clusters as a Markdown guardrail proposal."""
-    heading = "## Proposed guardrails"
+def observed_fixes(clusters: list[FixCluster]) -> str:
+    """Describe historical co-occurrence. Promotion requires independent replay."""
+    heading = "## Observed repair clusters"
     if not clusters:
         return f"{heading}\n\n_No recurring fixes yet._\n"
     bullets = []
@@ -184,3 +216,7 @@ def propose_rules(clusters: list[FixCluster]) -> str:
             f"Examples: {', '.join(c.example_asset_ids)}."
         )
     return f"{heading}\n\n" + "\n".join(bullets) + "\n"
+
+
+# Keep the legacy import working, including for clients reading older FixLog records.
+propose_rules = observed_fixes

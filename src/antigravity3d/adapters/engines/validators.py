@@ -17,6 +17,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
+from antigravity3d.kernel.types import bounds_issue
 from antigravity3d.state import TargetEngine
 
 TAIL_CHARS = 4000
@@ -68,6 +69,14 @@ class EngineReport:
     log_tail: str = ""
     skipped_reason: str | None = None
     metrics: dict[str, int] | None = None
+    bounds_m: list[list[float]] | None = None
+
+    def geometry_issue(self, manifest: dict) -> str | None:
+        if self.metrics is not None and self.metrics.get("triangles") != manifest["tris"]:
+            return "target import triangle count differs from the package"
+        if self.engine == "godot_4":
+            return bounds_issue(manifest.get("glb_bounds_m"), self.bounds_m)
+        return None
 
     @property
     def skipped(self) -> bool:
@@ -133,16 +142,20 @@ class EngineValidator(ABC):
             return EngineReport(False, self.engine, f"timed out after {timeout}s")
         text = out.decode(errors="replace")
         bad = proc.returncode != 0 or self.success_marker not in text or any(m in text for m in self.error_markers)
-        metrics = None
+        metrics = bounds = None
         for line in text.splitlines():
             if line.startswith("AGY_IMPORT_OK {"):
                 try:
                     metrics = json.loads(line.removeprefix("AGY_IMPORT_OK "))
                     if not isinstance(metrics, dict) or not isinstance(metrics.get("triangles"), int) or metrics["triangles"] < 1:
                         bad = True
+                    if isinstance(metrics, dict) and self.engine == "godot_4":
+                        bounds = metrics.pop("bounds_m", None)
+                        if bounds_issue(bounds, bounds):
+                            bad = True
                 except ValueError:
                     bad = True
-        return EngineReport(not bad, self.engine, text[-TAIL_CHARS:], metrics=metrics)
+        return EngineReport(not bad, self.engine, text[-TAIL_CHARS:], metrics=metrics, bounds_m=bounds)
 
     @abstractmethod
     def command(self, exe: str, package: Path, workdir: Path) -> tuple[list[str], dict[str, str]]:
@@ -172,16 +185,19 @@ func check_asset():
     var normal_mapped := 0
     var orm_mapped := 0
     var bounds := AABB()
+    var has_vertex := false
     for instance in instances:
         var mesh: Mesh = instance.mesh
         if mesh == null:
             continue
-        var box: AABB = instance.global_transform * mesh.get_aabb()
-        bounds = box if surfaces == 0 else bounds.merge(box)
         for i in mesh.get_surface_count():
             var arrays := mesh.surface_get_arrays(i)
             if mesh.surface_get_primitive_type(i) != Mesh.PRIMITIVE_TRIANGLES:
                 continue
+            var world_vertices: PackedVector3Array = instance.global_transform * arrays[Mesh.ARRAY_VERTEX]
+            for vertex in world_vertices:
+                bounds = bounds.expand(vertex) if has_vertex else AABB(vertex, Vector3.ZERO)
+                has_vertex = true
             var indices = arrays[Mesh.ARRAY_INDEX]
             tri_count += (indices.size() if indices != null else arrays[Mesh.ARRAY_VERTEX].size()) / 3
             surfaces += 1
@@ -194,7 +210,8 @@ func check_asset():
                 orm_mapped += 1
     if tri_count <= 0 or bounds.size.length() <= 0:
         push_error("import produced no non-empty triangle geometry"); quit(1); return
-    print("AGY_IMPORT_OK ", JSON.stringify({"triangles":tri_count, "surfaces":surfaces, "textured_surfaces":textured, "normal_surfaces":normal_mapped, "orm_surfaces":orm_mapped}))
+    var extrema := [[bounds.position.x, bounds.position.y, bounds.position.z], [bounds.end.x, bounds.end.y, bounds.end.z]]
+    print("AGY_IMPORT_OK ", JSON.stringify({"bounds_m":extrema, "triangles":tri_count, "surfaces":surfaces, "textured_surfaces":textured, "normal_surfaces":normal_mapped, "orm_surfaces":orm_mapped}))
     var path := OS.get_environment("AGY_CAPTURE")
     if path.is_empty():
         quit(0); return

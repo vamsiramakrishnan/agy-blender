@@ -629,6 +629,7 @@ async def test_ten_relocated_golden_packages_load_in_stock_godot(relocated_golde
         manifest = json.loads((pkg / "manifest.json").read_text())
         report = await validator.validate(pkg / f"{name}.glb", timeout=30)
         assert report.ok, (name, report.log_tail)
+        assert report.geometry_issue(manifest) is None, (name, report.bounds_m)
         assert report.metrics == {"triangles": manifest["tris"], "surfaces": 1, "textured_surfaces": 1,
                                   "normal_surfaces": 1, "orm_surfaces": 1}
 
@@ -664,3 +665,40 @@ def test_missing_source_map_prevents_package_approval(src, tmp_path):
     manifest = write_engine_package(sm, bundle, budget, tmp_path / "draft", asset_name=ASSET)
     assert not manifest.ok and manifest.data["validation"]["package_ok"] is False
     assert {i.code for i in manifest.issues if i.severity == "critical"} >= {"pkg:texture_missing", "pkg:glb_material"}
+
+
+async def test_godot_measures_nested_node_transforms_and_rejects_changed_bounds(godot, tmp_path):
+    import hashlib
+    import struct
+    from antigravity3d.adapters.engines.validators import GodotValidator
+
+    validator = GodotValidator()
+    if not validator.available():
+        pytest.skip("Godot required to measure transformed vertices")
+    _, _, pm = godot
+    pkg = tmp_path / "transformed"
+    shutil.copytree(pm.out_dir, pkg)
+    glb = pkg / f"{ASSET}.glb"
+    original = glb.read_bytes()
+    length = struct.unpack_from("<I", original, 12)[0]
+    doc = json.loads(original[20:20 + length])
+    scene = doc["scenes"][doc.get("scene", 0)]
+    scaled = len(doc["nodes"])
+    doc["nodes"].append({"name": "ScaledParent", "scale": [2, 3, 4], "children": scene["nodes"]})
+    scene["nodes"] = [scaled + 1]
+    # Reverse X and Z with a half turn about Y, then translate. All source triangles remain intact.
+    doc["nodes"].append({"name": "Outer", "rotation": [0, 1, 0, 0], "translation": [5, 6, 7], "children": [scaled]})
+    data = json.dumps(doc, separators=(",", ":")).encode()
+    data += b" " * (-len(data) % 4)
+    rest = original[20 + length:]
+    glb.write_bytes(struct.pack("<4sIII4s", b"glTF", 2, 20 + len(data) + len(rest), len(data), b"JSON") + data + rest)
+    manifest = json.loads((pkg / "manifest.json").read_text())
+    manifest["file_hashes"][glb.name] = {"sha256": hashlib.sha256(glb.read_bytes()).hexdigest(), "bytes": glb.stat().st_size}
+    (pkg / "manifest.json").write_text(json.dumps(manifest))
+
+    imp = await validator.validate(glb, timeout=30)
+    assert imp.ok and imp.metrics["triangles"] == manifest["tris"]
+    transformed = np.array(manifest["glb_bounds_m"]) * [-2, 3, -4] + [5, 6, 7]
+    np.testing.assert_allclose(imp.bounds_m, [transformed.min(0), transformed.max(0)], atol=1e-5)
+    assert "bounds drift" in imp.geometry_issue(manifest)
+    assert "pkg:glb_bounds" in {issue.code for issue in validate_package(pkg)}

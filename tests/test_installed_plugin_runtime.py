@@ -41,3 +41,32 @@ async def test_installed_plugin_launchers(tmp_path):
     command = shlex.join([sys.executable, "-m", "antigravity3d.runtime.distill_job"])
     assert f"command({command})" in weekly["agent_permissions"]["access_grants"]
     assert command in weekly["args"][-1]
+
+
+async def test_installed_profiles_enter_native_sdk(tmp_path, monkeypatch):
+    from google.antigravity import Agent, types
+    from google.antigravity.models import GeminiAPIEndpoint
+
+    from antigravity3d.harness.agents import build_stage_agent
+    from antigravity3d.harness.session import open_session
+    from antigravity3d.harness.tools import STAGE_TOOLS
+    from antigravity3d.state import EngineBudget, SceneSessionRegistry
+
+    monkeypatch.setenv("AGY3D_STATE_DIR", str(tmp_path / "state"))
+    registry = SceneSessionRegistry()
+    for stage, tools in STAGE_TOOLS.items():
+        workdir = tmp_path / stage.lower()
+        plugin = install(workdir / ".agents")
+        studio = json.loads((plugin / "mcp_config.json").read_text())["mcpServers"]["studio"]
+        server = types.McpStdioServer(name="antigravity-3d_studio", **studio)
+        open_session(registry, stage, workdir, stage, EngineBudget("godot_4"), plane=None, forge=None)
+        config = build_stage_agent(stage, stage, registry=registry)
+        # Test startup only. A loopback fixture keeps credentials and model inference out of this lane.
+        endpoint = GeminiAPIEndpoint(base_url="http://127.0.0.1:1", api_key="local-fixture-only")
+        config = config.model_copy(update={
+            "model": None, "models": [m.model_copy(update={"endpoint": endpoint}) for m in config.models],
+            "app_data_dir": str(workdir / "app-data"), "save_dir": str(workdir / "sessions"),
+            "mcp_servers": [server],
+        })
+        async with Agent(config):
+            assert list(config.tools) == tools

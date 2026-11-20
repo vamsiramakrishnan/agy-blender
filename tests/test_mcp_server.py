@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.subscriptions import listen
 
 from antigravity3d.harness import tools as T
 from antigravity3d.plugin_install import bundle_dir
@@ -30,13 +31,16 @@ def server_env(state: Path) -> dict[str, str]:
 
 
 @asynccontextmanager
-async def client(tmp_path: Path):
+async def client(tmp_path: Path, *, modern: bool = False):
     tmp_path.mkdir(parents=True, exist_ok=True)
     params = StdioServerParameters(command=sys.executable, args=["-m", "antigravity3d.runtime.mcp_server"],
                                    env=server_env(tmp_path / "state"), cwd=str(tmp_path))
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as s:
-            await s.initialize()
+            if modern:
+                await s.discover()
+            else:
+                await s.initialize()
             yield s
 
 
@@ -217,3 +221,13 @@ async def test_two_stdio_clients_keep_independent_stage_catalogs(tmp_path):
         assert (await call(first, "export_engine_package", out_name="wrong_stage")).startswith("REFUSED")
         # A subagent with an explicit read-only grant can still call its named probe.
         assert "nodes=0" in await call(first, "inspect_manifest")
+
+async def test_modern_client_receives_catalog_invalidation(tmp_path):
+    async with client(tmp_path, modern=True) as session:
+        async with listen(session, tools_list_changed=True) as changes:
+            await call(session, "open_asset_session", asset_name="Notify", target_engine="godot_4")
+            await asyncio.wait_for(anext(changes), timeout=5)
+            assert "apply_scene_ir" in {t.name for t in (await session.list_tools()).tools}
+            await call(session, "set_stage", stage="LOOKDEV")
+            await asyncio.wait_for(anext(changes), timeout=5)
+            assert "apply_scene_ir" not in {t.name for t in (await session.list_tools()).tools}

@@ -26,7 +26,7 @@ from antigravity3d.decisions.models import VisualQAResult
 from antigravity3d.decisions.questions import MARKED_DEFECT_PHRASES
 from antigravity3d.genmedia.pbr_deriver import PBRMaps, delight, edge_wear, roughness_breakup
 from antigravity3d.ir import (
-    AssignMaterial, IRPatch, MaterialIR, RemoveNode, SceneIR, SetParam, SetTransform, UpsertMaterial, UpsertNode,
+    AssignMaterial, IRPatch, MaterialIR, RemoveNode, SceneIR, SetParam, SetTransform, UpsertMaterial, UpsertNode, apply_patch,
 )
 from antigravity3d.kernel.fast_ops import ExportBundle, run_export_pipeline, tier1_qa, unwrap_scene
 from antigravity3d.kernel.lod_diff import PopThresholds, lod_pop_report
@@ -39,6 +39,7 @@ from antigravity3d.tactics.cached import cached_export_pipeline
 from antigravity3d.tactics.common import IMAGE_USD, Uploader, png_bytes, uploader_for
 from antigravity3d.tactics.distill import FixLog, FixRecord
 from antigravity3d.tactics.governor import Governor
+from antigravity3d.tactics import reviewed_rules
 from antigravity3d.kernel.package import write_engine_package
 from antigravity3d.tactics.package import merged_lods
 from antigravity3d.tactics.tournament import GRADE_USD_EST, PBRTournamentResult, pbr_tournament
@@ -222,6 +223,9 @@ class _Pending:
     ops: list[str]
     params: list[str]
     note: str
+    rule: str = ""
+    scene_hash: str = ""
+    origin: str = "unknown"
 
 
 class _Run:
@@ -259,7 +263,10 @@ class _Run:
         return t
 
     def fix_record(self, p: _Pending, q: _QA) -> None:
-        rec = FixRecord(self.asset_id or self.res.asset, p.defects, p.ops, p.params, p.t15, q.t15, p.note)
+        rec = FixRecord(self.asset_id or self.res.asset, p.defects, p.ops, p.params, p.t15, q.t15, p.note,
+                        rule=p.rule, scene_hash=p.scene_hash, origin=(
+                            p.origin if q.result.result.calibrated and q.result.result.source == "decisions"
+                            else f"{p.origin}/unverified_followup"))
         self.res.fix_records.append(rec)
         if self.fixlog is not None:
             self.fixlog.append(rec)
@@ -316,7 +323,13 @@ class _Run:
         t0 = time.perf_counter()
         if self.settle_first:  # deterministic pre-pass: no model call
             t1 = tier1_qa(sm.extract_meshes(), self.budget)
-            patch, why = self.settle_patch(t1)
+            patch = None
+            if t1.issues and all(i.code == "floating_part" for i in t1.issues) and reviewed_rules.is_enabled():
+                patch = reviewed_rules.seat_patch(sm.base_ir(), [i.node_id for i in t1.issues])
+            if patch is None:
+                patch, why = self.settle_patch(t1)
+            else:
+                why = reviewed_rules.RULE
             if patch is None:
                 self.step("settle_pre", "skipped", why)
             else:
@@ -359,7 +372,14 @@ class _Run:
                 return
             before = dict(n_crit=_crit(t1), t15=q.t15, tier1_ok=t1.ok, scores=dict(q.result.scores), defects=dict(q.result.defects))
             located = await self.locate(t1, q)
-            if q.action.kind == "auto_fix" and q.action.fixer == "reground":
+            before_ir = sm.base_ir()
+            candidate = reviewed_rules.seat_patch(before_ir, located.get("tier1:floating_part", []))
+            if (candidate is not None and q.action.kind == "agent_repair"
+                    and q.result.result.source == "decisions" and q.result.result.calibrated
+                    and set(k for k, v in q.result.defects.items() if v >= th.ambiguity_lo) == {"defect_floating"}
+                    and reviewed_rules.is_enabled()):
+                patch, label, why = candidate, "reviewed_rule", reviewed_rules.RULE
+            elif q.action.kind == "auto_fix" and q.action.fixer == "reground":
                 patch, why = self.settle_patch(t1, {n for n in located.get("defect_floating", [])})
                 label = "settle"
                 if patch is None:
@@ -382,7 +402,16 @@ class _Run:
                 res.stopped["A"] = "patch rejected"
                 return
             tr.note = f"{label}: {len(patch.ops)} op(s)"
-            pending = _Pending(tx, ops=[o.op for o in patch.ops], params=_patch_params(patch), note=why[:160], **before)
+            from antigravity3d.tactics.metered_author import MeteredAuthor
+
+            exact = candidate is not None and sm.base_ir() == apply_patch(before_ir, candidate)
+            source = q.result.result.source if q.result.result.calibrated else "uncalibrated"
+            origin = f"{source}/{label}"
+            if label == "author" and not isinstance(self.author, MeteredAuthor):
+                origin = f"{source}/{type(self.author).__name__}"
+            pending = _Pending(tx, ops=[o.op for o in patch.ops], params=_patch_params(patch), note=why[:160],
+                               rule=reviewed_rules.RULE if exact else "", scene_hash=reviewed_rules.scene_hash(before_ir),
+                               origin=origin, **before)
 
     # ---- Pass B ---------------------------------------------------------------------------------------
 
@@ -635,8 +664,10 @@ class _Run:
             if "glb" not in res.artifacts:
                 return "skipped", "no GLB exported"
             rep = await validator.validate(res.artifacts["glb"])
-            if rep.ok and rep.metrics is not None and rep.metrics["triangles"] != sum(len(u.triangles) for u in bundle.uvs):
-                return "failed", f"imported triangle count differs from the package: {rep.metrics}"
+            if rep.ok:
+                if issue := rep.geometry_issue(res.objects["package"].data):
+                    return "failed", issue
+                res.objects["engine_import"] = {"engine": rep.engine, "metrics": rep.metrics, "bounds_m": rep.bounds_m}
             if rep.skipped:
                 return "skipped", rep.skipped_reason or "engine validator skipped"
             return ("passed" if rep.ok else "failed"), rep.log_tail[-160:].replace("\n", " ")

@@ -13,7 +13,7 @@ def cohort(tmp_path, pairs=1):
             first = mode == "governed"
             report = tmp_path / f"{i}-{mode}.json"
             report.write_text(json.dumps({"prompt": f"brief {i}", "engine": "godot_4", "budget": {"max_tris": 512},
-                                          "wall_ms": 100, "candidate_mode": mode, "decision_backend": "decisions",
+                                          "wall_ms": 100, "comparison": {"strict": True, "style_sha256": None}, "candidate_mode": mode, "decision_backend": "decisions",
                                           "verified": first}))
             row[mode] = {"report": report.name, "input_tokens": 50, "output_tokens": 10, "billed_usd": .3,
                          "rework_minutes": 0 if first else 20, "first_pass": first, "accepted": first}
@@ -35,7 +35,7 @@ def test_paired_release_gate_needs_sample_and_labels(tmp_path):
 
 
 @pytest.mark.parametrize(("key", "wrong"), [("prompt", "wrong"), ("verified", False), ("budget", {}),
-                                            ("decision_backend", "fake"), ("candidate_mode", "single")])
+                                            ("comparison", {"strict": True, "style_sha256": "different"}), ("decision_backend", "fake"), ("candidate_mode", "single")])
 def test_rejects_invalid_pairs(tmp_path, key, wrong):
     path = cohort(tmp_path)
     report = tmp_path / "0-governed.json"

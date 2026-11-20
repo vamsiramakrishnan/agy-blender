@@ -72,7 +72,14 @@ class PropToEngineDAG:
             return await style_read
 
         async def route(ctx: NodeCtx) -> Route:
-            rd = await resolve_route(self.workdir, prompt, self.budget, await style_bytes(),
+            reference = await style_bytes()
+            ctx.data(comparison={
+                "style_sha256": hashlib.sha256(reference).hexdigest() if reference is not None else None,
+                "judge": self.plane.model, "image_model": getattr(self.forge, "model", None),
+                "author": type(self.author).__name__, "max_rounds": self.max_rounds, "thresholds": asdict(self.th),
+                "cache_enabled": self.cache is not None, "strict": self.require_verified,
+            })
+            rd = await resolve_route(self.workdir, prompt, self.budget, reference,
                                      single_candidate=self.single_candidate, plane=self.plane)
             if rd.pipeline != "prop_to_engine":
                 ctx.note(f"router preferred {rd.pipeline!r}; running prop_to_engine as requested")
@@ -163,6 +170,8 @@ class PropToEngineDAG:
             manifest_path = pkg / "manifest.json"
             manifest = json.loads(manifest_path.read_text())
             manifest["verified"] = res.verified and not getattr(self.forge, "offline", False)
+            if "engine_import" in res.objects:
+                manifest["validation"]["engine_import"] = res.objects["engine_import"]
             manifest["evidence"] = {"render_tier": res.render_tier, "lookdev": res.live_lookdev,
                                     "engine_parity": res.live_parity, "silhouette_iou": res.scores.get("engine_silhouette_iou"),
                                     "steps": [vars(s) for s in res.steps]}
@@ -183,6 +192,7 @@ class PropToEngineDAG:
                 critical = [i for i in validate_package(pkg) if i.severity == "critical"]
                 if critical:
                     raise ValueError(f"final package validation failed: {critical[0].detail}")
+            if manifest["verified"] and self.require_verified:
                 target = self.workdir / "package"
                 publish_directory(pkg, target)
                 if pkg.exists():
@@ -192,7 +202,7 @@ class PropToEngineDAG:
                     return str(target / path.relative_to(pkg)) if path.is_relative_to(pkg) else value
                 out = {key: published_path(value) for key, value in out.items()}
                 res.artifacts = {key: published_path(value) for key, value in res.artifacts.items()}
-            ctx.data(verified=manifest["verified"])
+            ctx.data(verified=manifest["verified"], published=manifest["verified"] and self.require_verified)
             return out
 
         async def inspector(ctx: NodeCtx) -> str:
@@ -225,6 +235,8 @@ class PropToEngineDAG:
         cache = None if self.cache is None else asdict(self.cache.stats)
         rep.extras = {
             "prompt": prompt, "engine": self.budget.target_engine, "outputs": outputs, "skipped": skipped,
+            "comparison": rep.nodes["route"].data.get("comparison"),
+            "published": bool(rep.ok and rep.nodes["package"].data.get("published")),
             "candidate_mode": "single" if self.single_candidate else "governed",
             "budget": asdict(self.budget), "decision_backend": self.plane.backend_kind,
             "preview_gates_ok": bool(res and res.ok and "inspector" in outputs),

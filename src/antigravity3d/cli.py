@@ -116,7 +116,7 @@ async def cmd_prop(a: argparse.Namespace) -> int:
         cache = None if a.no_cache else BuildCache(LocalBlobStore(out / ".agy3d-cache"))
         dag = PropToEngineDAG(
             plane=plane, forge=forge, author=author, workdir=out, budget=_budget(a), pool=pool,
-            cache=cache, style_anchor=a.style, fixlog=FixLog(out / "fixlog.jsonl"), max_rounds=a.max_rounds,
+            cache=cache, style_anchor=a.style, fixlog=FixLog.for_prop(out), max_rounds=a.max_rounds,
             require_verified=strict, single_candidate=a.single_candidate,
         )
         rep = await dag.run(a.prompt)
@@ -146,7 +146,7 @@ async def cmd_prop(a: argparse.Namespace) -> int:
         for w in warned:
             print(f"  - {w['name']}: {w['detail']}")
     failed = [n.name for n in rep.nodes.values() if n.status == "failed"]
-    print("publication: " + ("verified" if x["verified"] else "unverified"))
+    print("publication: " + ("published and verified" if x["published"] else "qualified preview" if x["verified"] else "unverified"))
     if strict:
         return _print_gate(x["gates_ok"], f"failed nodes: {failed}" if failed else "verified publication required")
     print(f"preview gates: {'PASS' if x['preview_gates_ok'] else 'FAIL'}")

@@ -45,7 +45,7 @@ async def test_env_override_and_run(tmp_path, monkeypatch):
     v = GodotValidator()
     assert v.available()
     assert not (await v.validate(pkg)).ok  # zero exit alone cannot attest an import
-    good.write_text("#!/bin/sh\necho ran \"$@\"\necho 'AGY_IMPORT_OK {\"triangles\":12}'\n")
+    good.write_text("#!/bin/sh\necho ran \"$@\"\necho 'AGY_IMPORT_OK {\"triangles\":12,\"bounds_m\":[[0,0,0],[1,1,1]]}'\n")
     rep = await v.validate(pkg)
     assert rep.ok and "--headless" in rep.log_tail and rep.skipped_reason is None
     good.write_text("#!/bin/sh\necho 'SCRIPT ERROR: boom'\nexit 0\n")

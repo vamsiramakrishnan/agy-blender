@@ -72,9 +72,12 @@ def compare(path: Path) -> dict:
             run = json.loads(report_path.read_bytes())
             if run.get("candidate_mode") != mode or run.get("decision_backend") != "decisions":
                 raise ValueError(f"{obs.report} requires a live native Decisions run in {mode} mode")
-            key = (run["prompt"], run["engine"], run["budget"])
+            conditions = run.get("comparison")
+            if not isinstance(conditions, dict) or not conditions.get("strict"):
+                raise ValueError(f"{obs.report} requires the verified production configuration")
+            key = (run["prompt"], run["engine"], run["budget"], conditions)
             if reference is not None and key != reference:
-                raise ValueError(f"unmatched prompt or engine budget for {pair.brief_id}")
+                raise ValueError(f"unmatched prompt, engine budget or run configuration for {pair.brief_id}")
             reference = key
             if obs.first_pass and not run.get("verified"):
                 raise ValueError(f"{obs.report} first-pass label requires engine-verified output")

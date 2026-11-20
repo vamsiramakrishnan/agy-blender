@@ -374,7 +374,7 @@ class _DrainingStreams:
     The MCP runner stops serving when the read side closes, which would drop the replies of requests
     that arrived just before EOF (a client that pipelines its last calls and closes stdin). This tracks
     request ids from the read side, clears them when the response is written, and holds the read
-    iterator open at EOF until every pending request has been answered (bounded by ``timeout_s``).
+    iterator open at EOF until pending finite requests have been answered. Subscription streams end at EOF.
     """
 
     def __init__(self, timeout_s: float = 600.0) -> None:
@@ -391,7 +391,7 @@ class _DrainingStreams:
             async def _gen(self) -> Any:
                 async for item in inner:
                     msg = getattr(item, "message", None)
-                    if isinstance(msg, JSONRPCRequest):
+                    if isinstance(msg, JSONRPCRequest) and msg.method != "subscriptions/listen":
                         outer.pending.add(msg.id)
                     yield item
                 await outer.drain()
@@ -403,7 +403,7 @@ class _DrainingStreams:
                     await outer.drain()
                     raise
                 msg = getattr(item, "message", None)
-                if isinstance(msg, JSONRPCRequest):
+                if isinstance(msg, JSONRPCRequest) and msg.method != "subscriptions/listen":
                     outer.pending.add(msg.id)
                 return item
 
