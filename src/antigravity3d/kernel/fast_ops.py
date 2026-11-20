@@ -285,17 +285,19 @@ def _check_pair(a, b, add) -> None:
 # --------------------------------------------------------------------------- UVs
 
 UV_PADDING_PX = 2           # gutter on each side of a chart, in atlas texels (charts are 2x this apart)
-# Computed (xatlas) charts may each flatten at most this much *smooth* Gaussian curvature (steradians). xatlas
-# flattens most charts by orthographic projection (on curved meshes measured 95 % or more of the charts; the rest
-# LSCM), whose area distortion grows with the curvature a chart covers, and xatlas's default charts are
-# unbounded: on UV spheres of 1.9k / 10k / 50k triangles at 1024 px/m they measure mean area distortion 0.088 /
-# 0.064 / 0.068 (budget 0.05) in 0.30 / 0.83 / 8.2 s (chart growing + LSCM cost grows superlinearly with chart
-# size). A sphere holds 4 pi sr; capping its charts at 1/32 of its area (4 pi / 32 sr each) gives 0.015 / 0.014 /
-# 0.018 in 0.27 / 0.54 / 2.4 s. With computed charts packed as rectangles (see _unwrap_group) the chart size
-# hardly moves the density: on spheres, a torus, a blob, a sheet and multi-shell meshes, half this bound to twice
-# it changes the achieved density by -4 to +9 % with no trend (rectangle packing noise), while the area
-# distortion goes from 0.002-0.012 to 0.019-0.031 (above 0.02 on the spheres from 1.5x). Halving it costs 4 to
-# 40 % more seam vertices. Curvature concentrated on sharp edges
+# Computed (xatlas) charts may each cover at most this much *smooth* Gaussian curvature (steradians). xatlas's
+# default charts are unbounded, and its chart growing costs superlinearly in chart size: 0.30 / 0.83 / 8.2 s on
+# UV spheres of 1.9k / 10k / 50k triangles, against 0.27 / 0.54 / 2.4 s with charts capped at 1/32 of a sphere
+# (4 pi / 32 sr each). The cap was set for xatlas's orthographic flattening (area distortion 0.015 at the cap,
+# 0.06-0.09 unbounded); charts are now re-flattened (_flatten), and the cap was re-measured with that, through
+# unwrap_uvs at 1024 px/m into 2048, on spheres of 448 to 49,920 triangles, a torus, a blob, a sheet and shells:
+#   - area distortion grows with the cap: 0.0006-0.0027 at 0.5x, 0.0023-0.0059 at 1x, 0.0027-0.0082 at 1.5x,
+#     0.0037-0.0116 at 2x, 0.015-0.043 unbounded;
+#   - density does not follow it (rectangle packing noise, -6 to +10 % against 1x with no trend; no setting is at
+#     least as dense as 1x on every subject);
+#   - 1.5x / 2x save 4 to 20 % of seam vertices, 0.5x costs 5 to 39 % more;
+#   - the 49,920-triangle sphere takes 2 to 2.5x as long at 1.5x-2x and 5.6x unbounded (xatlas chart growing).
+# So the cap stays at 1/32 of a sphere. Curvature concentrated on sharp edges
 # (box corners, cylinder rims: dihedral above CREASE) is not counted: those edges are chart seams anyway, and
 # capping such meshes only fragments flat charts (measured: a 32-sided cylinder split into one chart per side
 # quad, every rim vertex in three charts, which then locked the LOD simplifier).
@@ -830,18 +832,195 @@ def _metric_charts(p3: np.ndarray, tris: np.ndarray, uv: np.ndarray, chart: np.n
     s = np.abs(num / np.where(den > 0, den, 1.0))
     s = np.where((den > 0) & (s > 0) & np.isfinite(s), s, 1.0)
     vc = _vertex_charts(t, chart, len(uv))
-    out = uv * np.stack([s[vc], np.ones(len(uv))], 1)
-    s3 = np.bincount(chart, a3, nc)
-    s2 = np.bincount(chart, _tri_areas(out, t, 2), nc)
+    return _to_surface_area(p3, t, uv * np.stack([s[vc], np.ones(len(uv))], 1), chart)
+
+
+def _to_surface_area(p3: np.ndarray, tris: np.ndarray, uv: np.ndarray, chart: np.ndarray) -> np.ndarray:
+    """Scales each chart about the origin so its uv area equals its 3D area (every chart at the same density)."""
+    t = np.asarray(tris, np.int64)
+    nc = int(chart.max()) + 1 if len(chart) else 0
+    s3 = np.bincount(chart, _tri_areas(p3, t, 3), nc)
+    s2 = np.bincount(chart, _tri_areas(uv, t, 2), nc)
     k = np.where((s2 > 0) & (s3 > 0), np.sqrt(s3 / np.where(s2 > 0, s2, 1.0)), 1.0)
-    return out * k[vc][:, None]
+    return uv * k[_vertex_charts(t, chart, len(uv))][:, None]
+
+
+def _tri_frames(p3: np.ndarray, t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Each triangle's corners in its own orthonormal 2D frame (counter-clockwise about its normal), and its area."""
+    p = p3[t]
+    e1, e2 = p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]
+    n = np.cross(e1, e2)
+    a = 0.5 * np.linalg.norm(n, axis=1)
+    l1 = np.linalg.norm(e1, axis=1)
+    x = e1 / np.maximum(l1, 1e-300)[:, None]
+    y = np.cross(n, x)
+    y /= np.maximum(np.linalg.norm(y, axis=1), 1e-300)[:, None]
+    q = np.zeros((len(t), 3, 2))
+    q[:, 1, 0] = l1
+    q[:, 2, 0], q[:, 2, 1] = (e2 * x).sum(1), (e2 * y).sum(1)
+    return q, a
+
+
+def _arap(p3: np.ndarray, t: np.ndarray, uv: np.ndarray, chart: np.ndarray, solve: np.ndarray, iters: int = 3) -> np.ndarray:
+    """As-rigid-as-possible flattening (local best rotations, global cotangent-Laplacian solve, one vertex pinned per
+    chart) of the charts flagged in ``solve``, starting from ``uv`` at surface area; at most ``iters`` global
+    solves, fewer when one lowers the energy by less than 1 %. The Laplacian is factorised once (SuperLU, fixed
+    column ordering: the same bytes on every run). See _flatten for the iteration count."""
+    import scipy.sparse as sp
+    from scipy.sparse.linalg import splu
+
+    nv = len(uv)
+    q, a = _tri_frames(p3, t)
+    on = solve[chart] & (a > 0)
+    cot = np.zeros((len(t), 3))
+    for k in range(3):
+        u1, u2 = q[:, (k + 1) % 3] - q[:, k], q[:, (k + 2) % 3] - q[:, k]
+        cot[:, k] = (u1 * u2).sum(1) / np.maximum(np.abs(u1[:, 0] * u2[:, 1] - u1[:, 1] * u2[:, 0]), 1e-300)
+    cot[~on] = 0.0
+    I, J, W = [], [], []
+    for k in range(3):
+        i, j, w = t[:, (k + 1) % 3], t[:, (k + 2) % 3], 0.5 * cot[:, k]
+        I += [i, j, i, j]
+        J += [j, i, i, j]
+        W += [-w, -w, w, w]
+    L = sp.csr_matrix((np.concatenate(W), (np.concatenate(I), np.concatenate(J))), shape=(nv, nv))
+    vc = np.full(nv, -1, np.int64)
+    vc[t.reshape(-1)] = np.repeat(chart, 3)
+    pin = ~((vc >= 0) & solve[np.maximum(vc, 0)])
+    order = np.argsort(vc, kind="stable")
+    ks, starts = np.unique(vc[order], return_index=True)
+    pin[order[starts][(ks >= 0)]] = True  # first vertex of every chart
+    free, held = np.flatnonzero(~pin), np.flatnonzero(pin)
+    if not len(free):
+        return uv
+    lu = splu(L[free][:, free].tocsc(), permc_spec="COLAMD")
+    Lp = L[free][:, held]
+    x = uv.copy()
+    last = np.inf
+    for _ in range(iters):
+        Q = x[t]
+        S = np.zeros((len(t), 2, 2))
+        for k in range(3):
+            de, du = q[:, (k + 1) % 3] - q[:, (k + 2) % 3], Q[:, (k + 1) % 3] - Q[:, (k + 2) % 3]
+            S += cot[:, k, None, None] * de[:, :, None] * du[:, None, :]
+        # the rotation [[c, s], [-s, c]] maximising trace(R^T S) (closed form in 2D; never a reflection)
+        c, sn = S[:, 0, 0] + S[:, 1, 1], S[:, 0, 1] - S[:, 1, 0]
+        r = np.hypot(c, sn)
+        c, sn = np.where(r > 0, c / np.where(r > 0, r, 1.0), 1.0), np.where(r > 0, sn / np.where(r > 0, r, 1.0), 0.0)
+        R = np.stack([np.stack([c, sn], 1), np.stack([-sn, c], 1)], 1)
+        energy, rhs = 0.0, np.zeros((nv, 2))
+        for k in range(3):
+            i, j = t[:, (k + 1) % 3], t[:, (k + 2) % 3]
+            rot = np.einsum("ni,nij->nj", q[:, (k + 1) % 3] - q[:, (k + 2) % 3], R)
+            energy += float((cot[:, k] * ((Q[:, (k + 1) % 3] - Q[:, (k + 2) % 3] - rot) ** 2).sum(1)).sum())
+            v = 0.5 * cot[:, k, None] * rot
+            for d in range(2):
+                rhs[:, d] += np.bincount(i, v[:, d], nv) - np.bincount(j, v[:, d], nv)
+        if energy > last * 0.99:
+            break
+        last = energy
+        b = rhs[free] - Lp @ x[held]
+        x[free] = np.stack([lu.solve(np.ascontiguousarray(b[:, 0])), lu.solve(np.ascontiguousarray(b[:, 1]))], 1)
+    return x
+
+
+def _valid_charts(uv: np.ndarray, t: np.ndarray, chart: np.ndarray) -> np.ndarray:
+    """Per chart: no triangle flipped or collapsed, and no two border edges touching or crossing (other than at a
+    shared vertex). Together these make a flattening one-to-one: a map without flips whose border does not meet
+    itself does not overlap itself (each uv point is covered as often as the border winds around it)."""
+    nc = int(chart.max()) + 1 if len(chart) else 0
+    q = uv[t]
+    signed = (q[:, 1, 0] - q[:, 0, 0]) * (q[:, 2, 1] - q[:, 0, 1]) - (q[:, 1, 1] - q[:, 0, 1]) * (q[:, 2, 0] - q[:, 0, 0])
+    ok = np.bincount(chart, signed <= 0, nc) == 0
+    e = np.concatenate([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]])
+    ec = np.tile(chart, 3)
+    key = np.sort(e, axis=1)
+    u, first, n = np.unique(key, axis=0, return_index=True, return_counts=True)
+    border, bc = u[n == 1], ec[first[n == 1]]
+    order = np.argsort(bc, kind="stable")
+    ks, starts = np.unique(bc[order], return_index=True)
+
+    def orient(p, a, b):
+        return np.sign((a[:, 0] - p[:, 0]) * (b[:, 1] - p[:, 1]) - (a[:, 1] - p[:, 1]) * (b[:, 0] - p[:, 0]))
+
+    for k, sel in zip(ks.tolist(), np.split(order, starts[1:])):
+        if not ok[k] or len(sel) < 4:
+            continue
+        b = border[sel]
+        A, B = uv[b[:, 0]], uv[b[:, 1]]
+        lo, hi = np.minimum(A, B), np.maximum(A, B)
+        xs = np.argsort(lo[:, 0], kind="stable")  # sweep along u: pairs whose u ranges overlap
+        end = np.searchsorted(lo[xs, 0], hi[xs, 0], side="right")  # sorted j in (i, end) start before i ends
+        n = np.maximum(end - np.arange(len(xs)) - 1, 0)
+        if not n.sum():
+            continue
+        i = np.repeat(np.arange(len(xs)), n)
+        j = i + 1 + (np.arange(int(n.sum())) - np.repeat(np.cumsum(n) - n, n))
+        i, j = xs[i], xs[j]
+        m = (hi[i, 1] >= lo[j, 1]) & (lo[i, 1] <= hi[j, 1])
+        i, j = i[m], j[m]
+        share = (b[i, 0] == b[j, 0]) | (b[i, 0] == b[j, 1]) | (b[i, 1] == b[j, 0]) | (b[i, 1] == b[j, 1])
+        i, j = i[~share], j[~share]
+        o1, o2 = orient(A[i], B[i], A[j]), orient(A[i], B[i], B[j])
+        o3, o4 = orient(A[j], B[j], A[i]), orient(A[j], B[j], B[i])
+        if ((o1 != o2) & (o3 != o4)).any() or ((o1 == 0) & (o2 == 0)).any():
+            ok[k] = False
+    return ok
+
+
+def _flatten(p3: np.ndarray, tris: np.ndarray, uv: np.ndarray, chart: np.ndarray, planar: np.ndarray) -> tuple[np.ndarray, dict]:
+    """Re-flattens xatlas' charts (``uv``: its layout at surface area) without changing their borders.
+
+    xatlas flattens most charts by orthographic projection, whose area distortion is the cosine of the tilt: a
+    quarter of a cylinder comes out at 0.08 (over the 0.05 budget), a 1/32 sphere cap at 0.015. As-rigid-as-
+    possible iterations from that projection remove it: a developable chart (cylinder, cone) converges to its
+    isometric unfolding (area and angle distortion 0.0000 after one or two iterations), a doubly curved one to
+    near the least distortion it can have. Measured (area / angle distortion, cost at 49,920 triangles), on UV
+    spheres of 448 to 49,920 triangles, a torus, a blob, a sheet, shells and tubes:
+      - projection: 0.014-0.080 / 0.017-0.11;
+      - least-squares conformal map: 0.003-0.012 / 0.002-0.008, 330 ms (its sparse solve has 2x the unknowns
+        and 4x the fill of ARAP's);
+      - LSCM then ARAP: 0.0018-0.0058 / 0.003-0.009, 880 ms;
+      - ARAP from the projection, 3 iterations: 0.0023-0.0059 / 0.0033-0.0089, 213 ms (1 iteration: 0.0027-0.0060
+        area, 144 ms; 10: 0.0020-0.0050, 524 ms). Against LSCM + ARAP the largest gap is the torus, 0.0041 / 0.0028.
+    So ARAP from the projection, 3 iterations: it is close to the best measured at a quarter of its cost. A chart
+    keeps the projection where the result is flipped or overlaps itself (``_valid_charts``; none did on any
+    subject measured), and charts that are not one connected piece of non-degenerate triangles keep it too.
+    Charts xatlas returned mirrored (about half) are mirrored back first, so every chart is counter-clockwise
+    (one tangent handedness). Returns the uvs and how many charts ended which way."""
+    t = np.asarray(tris, np.int64)
+    nc = int(chart.max()) + 1 if len(chart) else 0
+    _, a = _tri_frames(p3, t)
+    good = a > 0
+    solve = (np.bincount(chart, ~good, nc) == 0) & ~planar  # a planar chart's projection is already exact
+    if good.any():  # one connected piece per chart: the solve pins one vertex per chart, a second piece would float
+        piece, at = np.unique(_pieces(t[good], chart[good]), return_index=True)
+        solve &= np.bincount(chart[good][at], minlength=nc) == 1
+    else:
+        solve[:] = False
+    stats = {"charts": nc, "planar": int(planar.sum()), "projection_kept_degenerate": int(nc - solve.sum() - planar.sum())}
+    vc = _vertex_charts(t, chart, len(uv))
+    q = uv[t]
+    signed = (q[:, 1, 0] - q[:, 0, 0]) * (q[:, 2, 1] - q[:, 0, 1]) - (q[:, 1, 1] - q[:, 0, 1]) * (q[:, 2, 0] - q[:, 0, 0])
+    mirrored = np.bincount(chart, signed, nc) < 0
+    uv = uv.copy()
+    uv[mirrored[vc], 0] *= -1.0
+    stats["mirrored_back"] = int(mirrored.sum())
+    if not solve.any():
+        return uv, stats
+    flat = _to_surface_area(p3, t, _arap(p3, t, uv, chart, solve), chart)
+    ok = solve & _valid_charts(flat, t, chart)
+    stats["projection_kept_invalid"] = int((solve & ~ok).sum())
+    return np.where(ok[vc][:, None], flat, uv), stats
 
 
 def _computed_charts(meshes: Sequence[MeshData]) -> list[_Charted]:
-    """xatlas charts (one run over all the meshes, so the curvature bound sees their total) in metres.
+    """xatlas charts (one run over all the meshes, so the curvature bound sees their total), re-flattened by
+    ``_flatten``, in metres.
 
-    Only xatlas' charting and flattening are used; its packing is not (``_pack_analytic`` packs these charts with
-    the exact ones). So xatlas packs into a tiny atlas, UV_CHART_PASS_PX across: its packing cost grows with the
+    Only xatlas' chart borders (and its flattening, as the start and fallback) are used; its packing is not
+    (``_pack_analytic`` packs these charts with the exact ones). So xatlas packs into a tiny atlas,
+    UV_CHART_PASS_PX across: its packing cost grows with the
     texel area it packs (measured on a 448-triangle sphere: 3 ms at 16 px/m, 114 ms at 1024 px/m, for the same
     charts) and the result does not depend on that density once ``_metric_charts`` has undone xatlas' per-chart
     snapping to whole texels."""
@@ -859,12 +1038,18 @@ def _computed_charts(meshes: Sequence[MeshData]) -> list[_Charted]:
         vm, idx, uv = atlas.get_mesh(i)
         tris = idx.reshape(-1, 3).astype(np.int64)
         chart = np.full(len(tris), -1, np.int64)
+        planar = []
         for c in range(atlas.get_mesh_chart_count(i)):
-            chart[np.asarray(atlas.get_mesh_chart(i, c).faces, np.int64)] = c
-        chart[chart < 0] = int(chart.max()) + 1  # faces xatlas leaves out (zero area): one chart, a single point
+            ch = atlas.get_mesh_chart(i, c)
+            chart[np.asarray(ch.faces, np.int64)] = c
+            planar.append(ch.type == xatlas.ChartType.Planar)
+        if (chart < 0).any():  # faces xatlas leaves out (zero area): one chart, a single point
+            chart[chart < 0] = len(planar)
+            planar.append(False)
         vm = vm.astype(np.int64)
         vm, tris, uv = _split_shared(vm, tris, np.asarray(uv, np.float64) * wh, chart)
-        uv = _metric_charts(np.asarray(m.points, np.float64)[vm], tris, uv, chart)
+        p3 = np.asarray(m.points, np.float64)[vm]
+        uv, _ = _flatten(p3, tris, _metric_charts(p3, tris, uv, chart), chart, np.array(planar, bool))
         out.append(_Charted(m, vm, tris.astype(np.int32), uv, "computed", chart))
     return out
 

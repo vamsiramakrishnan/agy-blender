@@ -315,6 +315,104 @@ def test_computed_charts_pack_densely_within_the_distortion_budget():
         assert u.stretch_mean <= BUDGET.max_uv_stretch, (m.node_id, u.stretch_mean)
 
 
+def _bumpy_blob() -> MeshData:
+    s = trimesh.creation.icosphere(4, 0.5)
+    d = s.vertices / np.linalg.norm(s.vertices, axis=1, keepdims=True)
+    r = 0.5 * (1 + 0.18 * np.sin(5 * d[:, 0]) * np.sin(4 * d[:, 1] + 1) + 0.12 * np.cos(6 * d[:, 2] + 0.5 * d[:, 0]))
+    return md(trimesh.Trimesh(d * r[:, None], s.faces, process=False), "blob")
+
+
+def _wavy_sheet() -> MeshData:
+    x, y = np.meshgrid(np.linspace(-0.8, 0.8, 30), np.linspace(-0.6, 0.6, 30))
+    v = np.stack([x.ravel(), y.ravel(), 0.15 * np.sin(3 * x.ravel()) * np.cos(4 * y.ravel())], 1)
+    f = [(a, a + 1, a + 31) for a in range(29 * 30) if a % 30 < 29] + [(a, a + 31, a + 30) for a in range(29 * 30) if a % 30 < 29]
+    return MeshData("sheet", "/Asset/sheet", v, np.asarray(f, np.int32), "m")
+
+
+def _shells() -> MeshData:
+    parts = [trimesh.creation.icosphere(2, r).apply_translation([i * 0.7, 0, 0]) for i, r in enumerate((0.3, 0.15, 0.25))]
+    parts.append(trimesh.creation.torus(0.3, 0.08, major_sections=32, minor_sections=12).apply_translation([0, 1, 0]))
+    return md(trimesh.util.concatenate(parts), "shells")
+
+
+FLATTEN_SUBJECTS = {
+    "uv sphere": lambda: md(trimesh.creation.uv_sphere(0.5, count=[32, 16]), "ball"),
+    "torus": lambda: md(trimesh.creation.torus(0.5, 0.15, major_sections=48, minor_sections=16), "torus"),
+    "bumpy blob": _bumpy_blob,
+    "open sheet": _wavy_sheet,
+    "long tube": lambda: md(trimesh.creation.cylinder(0.03, 2.5, sections=24).subdivide().subdivide(), "tube"),
+    "several shells": _shells,
+    "concave prism": l_shape,
+}
+
+
+@pytest.mark.parametrize("name", sorted(FLATTEN_SUBJECTS))
+def test_computed_charts_are_never_flipped_and_never_overlap_themselves(name):
+    from antigravity3d.kernel.fast_ops import _valid_charts
+
+    u = unwrap_uvs(FLATTEN_SUBJECTS[name](), 1024.0, 2048)
+    q = u.uvs.astype(np.float64)[u.triangles]
+    signed = (q[:, 1, 0] - q[:, 0, 0]) * (q[:, 2, 1] - q[:, 0, 1]) - (q[:, 1, 1] - q[:, 0, 1]) * (q[:, 2, 0] - q[:, 0, 0])
+    assert (signed > 0).all(), (name, int((signed <= 0).sum()))  # every chart counter-clockwise, none folded
+    chart = _uv_charts_of(u)[u.triangles[:, 0]]
+    assert _valid_charts(u.uvs.astype(np.float64), u.triangles.astype(np.int64), chart).all(), name  # exact border test
+    assert uv_overlap_fraction([u], 2048) == 0.0, name
+    assert u.stretch_mean <= 0.01 and u.angle_distortion <= 0.01, (name, u.stretch_mean, u.angle_distortion)
+
+
+def test_developable_charts_flatten_without_distortion():
+    # xatlas projected the tube's quarter-cylinder charts orthographically: area distortion 0.080, over the
+    # 0.05 budget. Unfolded by the conformal map they are isometric.
+    u = unwrap_uvs(FLATTEN_SUBJECTS["long tube"](), 1024.0, 2048)
+    assert u.within(BUDGET) and u.stretch_mean < 1e-4 and u.angle_distortion < 1e-4, (u.stretch_mean, u.angle_distortion)
+
+
+def test_chart_validity_detects_flips_and_self_overlap():
+    from antigravity3d.kernel.fast_ops import _valid_charts
+
+    # a strip of 8 quads; chart 0 lies flat, chart 1 is bent round until its end crosses its start
+    n = 8
+    top = np.arange(n + 1)
+    tris = np.array([(i, i + 1, i + n + 2) for i in range(n)] + [(i, i + n + 2, i + n + 1) for i in range(n)], np.int64)
+    flat = np.array([(i, 0.0) for i in range(n + 1)] + [(i, 1.0) for i in range(n + 1)], np.float64)
+    ang = np.linspace(0, 2.4 * np.pi, n + 1)
+    curl = np.concatenate([np.stack([3 * np.cos(ang), 3 * np.sin(ang)], 1), np.stack([2 * np.cos(ang), 2 * np.sin(ang)], 1)])
+    uv = np.concatenate([flat, curl])
+    q = curl[tris]
+    assert ((q[:, 1, 0] - q[:, 0, 0]) * (q[:, 2, 1] - q[:, 0, 1]) - (q[:, 1, 1] - q[:, 0, 1]) * (q[:, 2, 0] - q[:, 0, 0]) > 0).all()  # no flip
+    t = np.concatenate([tris, tris + 2 * (n + 1)])
+    chart = np.repeat([0, 1], len(tris))
+    assert _valid_charts(uv, t, chart).tolist() == [True, False]
+    folded = flat.copy()
+    folded[top[3], 1] = 1.5  # pushes a lower vertex above the upper row: two triangles turn over
+    assert _valid_charts(folded, tris, np.zeros(len(tris), np.int64)).tolist() == [False]
+
+
+def test_flattening_keeps_the_projection_where_the_solve_is_invalid(monkeypatch):
+    from antigravity3d.kernel import fast_ops
+
+    m = FLATTEN_SUBJECTS["torus"]()
+    stats = []
+    real_flatten, real_arap = fast_ops._flatten, fast_ops._arap
+
+    def bad_arap(p3, t, uv, chart, solve, iters=3):  # chart 0 comes out mirrored (all its triangles flipped)
+        out = real_arap(p3, t, uv, chart, solve, iters)
+        v = np.unique(t[chart == 0])
+        out[v, 0] *= -1
+        return out
+
+    def spy(*a):
+        r = real_flatten(*a)
+        stats.append(r[1])
+        return r
+
+    monkeypatch.setattr(fast_ops, "_arap", bad_arap)
+    monkeypatch.setattr(fast_ops, "_flatten", spy)
+    u = unwrap_uvs(m, 1024.0, 2048)
+    assert stats[0]["projection_kept_invalid"] == 1
+    assert uv_overlap_fraction([u], 2048) == 0.0 and u.stretch_mean <= BUDGET.max_uv_stretch
+
+
 def test_computed_charts_are_packed_once_not_at_full_density(monkeypatch):
     # xatlas only computes the charts, in a tiny atlas; its packing at the requested density (an atlas of
     # 2300 x 2300 texels for this sphere, then again at the fitted density) is not run at all
