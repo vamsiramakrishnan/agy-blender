@@ -5,6 +5,8 @@ LIVE FINDINGS (2026-11-20, gemini-4-hydrogen, response_json_schema):
   false, {"type": "null"} inside anyOf, pattern, maxLength, exclusiveMinimum, default (the raw pydantic schema was not
   rejected); the API schema here is still reduced to the documented subset (API_SCHEMA_KEYWORDS).
 * refs are expanded server-side: the inlined schema billed exactly the same prompt tokens (6,045) as the $ref form.
+  (Later, same request on gemini-4-neon: writing the 3-number tuple once under $defs and dropping descriptions and
+  float spellings took the propose schema from 7,954 to 6,064 bytes and billed 1,377 fewer prompt tokens.)
 * with ``nodes`` optional, a constrained answer contained materials and no nodes -> nodes/materials/transform/translate
   are required on the wire (WIRE_REQUIRED).
 * per-kind node typing costs prompt tokens: 6,045 prompt tokens vs 2,866 for a single node shape with an untied
@@ -206,3 +208,207 @@ def test_stage_agents_use_the_generated_rules():
     agents = pytest.importorskip("antigravity3d.harness.agents")
     assert S.IR_SEMANTICS in agents._system("BLOCKOUT") and S.OP_SEMANTICS in agents._system("BLOCKOUT")
     assert S.ir_rules_text().splitlines()[2] not in agents._system("BLOCKOUT")  # the "scene: {...}" type line
+
+
+# --- the response schema carries no bytes that are neither a constraint nor guidance ---------------------------
+
+
+def _old_api(node):
+    """The response schema as it was sent before it was written compactly: every keyword kept, nothing shared."""
+    if isinstance(node, list):
+        return [_old_api(x) for x in node]
+    if not isinstance(node, dict):
+        return node
+    out = {}
+    for key, value in node.items():
+        if key == "const":
+            out["enum"] = [value]
+        elif key == "oneOf":
+            out["anyOf"] = _old_api(value)
+        elif key in ("properties", "$defs"):
+            out[key] = {k: _old_api(v) for k, v in value.items()}
+        elif key in S.API_SCHEMA_KEYWORDS and key != "title":
+            out[key] = _old_api(value)
+    if "exclusiveMinimum" in node and "minimum" not in out:
+        out["minimum"] = node["exclusiveMinimum"]
+    if "$ref" in out:
+        out = {k: v for k, v in out.items() if k.startswith("$")}
+    return out
+
+
+def _old_scene(name=None):
+    schema = _old_api(S.raw_schema("scene"))
+    if name:
+        schema["properties"]["asset_name"] = {"type": "string", "enum": [name]}
+    return schema
+
+
+def _normal(root, node):
+    """Inline every $ref, drop what has no effect on acceptance (descriptions), spell tuples and numbers one way."""
+    if isinstance(node, list):
+        return [_normal(root, x) for x in node]
+    if not isinstance(node, dict):
+        return node
+    if "$ref" in node:
+        return _normal(root, root["$defs"][node["$ref"].rsplit("/", 1)[-1]])
+    out = {}
+    for key, value in node.items():
+        if key in ("$defs", "description"):
+            continue
+        if key in ("properties",):
+            out[key] = {k: _normal(root, v) for k, v in value.items()}
+        elif key in ("minimum", "maximum"):
+            out[key] = float(value)
+        else:
+            out[key] = _normal(root, value)
+    items = out.get("prefixItems")
+    if items and out.get("minItems") == out.get("maxItems") == len(items) and all(i == items[0] for i in items):
+        del out["prefixItems"]
+        out["items"] = items[0]
+    return out
+
+
+def test_new_response_schemas_are_the_old_ones_with_only_inert_text_removed():
+    assert _normal(_old_scene("Crate"), _old_scene("Crate")) == _normal(S.scene_response_schema("Crate"), S.scene_response_schema("Crate"))
+    old_patch = _old_api(S.raw_schema("patch"))
+    assert _normal(old_patch, old_patch) == _normal(S.patch_response_schema(), S.patch_response_schema())
+
+
+NODE = {"id": "n", "kind": "box", "params": {"size": [1, 1, 1]}, "transform": {"translate": [0, 0, 0]}}
+PARAMS = {"box": {"size": [1, 2, 3]}, "cylinder": {"radius": 0.5, "height": 1, "segments": 8}, "cone": {"radius": 1, "height": 2},
+          "sphere": {"radius": 1, "segments": 12, "rings": 6}, "capsule": {"radius": 0.2, "height": 0}, "mesh_ref": {"path": "a.glb"},
+          "group": {}}
+MATERIAL_FIELDS = {
+    "base_color": [0.1, 0.2, 0.3], "metallic": 1, "roughness": 0, "albedo_uri": "a.png", "orm_uri": "o.png", "normal_uri": "n.png",
+    "normal_convention": "directx", "alpha_mode": "MASK", "alpha_cutoff": 0.5, "opacity": 1, "double_sided": True,
+    "emissive_color": [1, 1, 1], "emissive_strength": 12.5, "emissive_uri": "e.png", "clearcoat": 1, "clearcoat_roughness": 0.3,
+    "transmission": 0.9, "ior": 3, "sheen_color": [0.5, 0.5, 0.5], "sheen_roughness": 1, "specular": 0.4, "specular_color": [1, 0, 0],
+}
+BAD_FIELD_VALUES = {  # one wrong value per material field
+    "base_color": [0.1, 0.2], "metallic": 1.5, "roughness": -0.1, "albedo_uri": 3, "orm_uri": [], "normal_uri": True,
+    "normal_convention": "dx", "alpha_mode": "opaque", "alpha_cutoff": 2, "opacity": 1.01, "double_sided": "yes",
+    "emissive_color": [1, 1, 1, 1], "emissive_strength": -1, "emissive_uri": 0, "clearcoat": 2, "clearcoat_roughness": -1,
+    "transmission": 1.1, "ior": 0.9, "sheen_color": ["a", 0, 0], "sheen_roughness": 7, "specular": -1, "specular_color": None,
+}
+
+
+def scene_corpus():
+    def scene(nodes=None, materials=None, **kw):
+        return {"asset_name": "Crate", "nodes": nodes if nodes is not None else [NODE], "materials": materials if materials is not None else [], **kw}
+
+    def node(**kw):
+        return {**NODE, **kw}
+
+    valid = [scene()]
+    valid += [scene([node(kind=k, params=p)]) for k, p in PARAMS.items()]
+    valid += [scene([{**NODE, "id": "a"}, node(id="b", parent="a", material_id="m", collider=False)], [{"id": "m"}])]
+    valid += [scene([node(parent=None, material_id=None)]), scene([node(transform={"translate": [1, 2, 3], "rotate_euler_deg": [0, 0, 90], "scale": [1, 1, 1]})])]
+    valid += [scene(materials=[{"id": "m"}]), scene(materials=[{"id": "m", **MATERIAL_FIELDS, "metallic": 0.5}]), scene(materials=[{"id": "m", "alpha_cutoff": None}])]
+    valid += [scene(materials=[{"id": "m", k: v}]) for k, v in MATERIAL_FIELDS.items()]
+    valid += [scene(materials=[{"id": "m", "metallic": b, "roughness": b, "opacity": b}]) for b in (0, 1, 0.0, 1.0)]
+    valid += [scene([node(params={"size": [1e-9, 1e9, 3]})]), scene([node(kind="sphere", params={"radius": 1, "segments": 3, "rings": 2})])]
+    valid += [scene(materials=[{"id": "m", "ior": 1}, {"id": "n", "emissive_strength": 0}])]
+    invalid = [
+        {}, {"asset_name": "Crate"}, scene(nodes=[]), {"asset_name": "Crate", "nodes": [NODE]}, {"asset_name": "Crate", "materials": []},
+        scene(asset_name="Other"), scene(extra=1), scene(nodes="x"), scene(materials={}), scene(materials=[{}]),
+        scene([{k: v for k, v in NODE.items() if k != "transform"}]), scene([{k: v for k, v in NODE.items() if k != "params"}]),
+        scene([{k: v for k, v in NODE.items() if k != "id"}]), scene([{k: v for k, v in NODE.items() if k != "kind"}]),
+        scene([node(kind="torus")]), scene([node(extra=1)]), scene([node(collider="box")]), scene([node(collider=None)]),
+        scene([node(id=3)]), scene([node(parent=3)]), scene([node(material_id=[])]), scene([node(transform=None)]),
+        scene([node(transform={})]), scene([node(transform={"translate": [0, 0]})]), scene([node(transform={"translate": [0, 0, 0, 0]})]),
+        scene([node(transform={"translate": [0, 0, "a"]})]), scene([node(transform={"translate": [0, 0, 0], "rotate_euler_deg": [0, 0]})]),
+        scene([node(transform={"translate": [0, 0, 0], "scale": [1, 1, 1, 1]})]), scene([node(transform={"translate": [0, 0, 0], "skew": 1})]),
+        scene([node(params={})]), scene([node(params={"size": [1, 1]})]), scene([node(params={"size": [1, 1, 1, 1]})]),
+        scene([node(params={"size": [1, -1, 1]})]), scene([node(params={"size": ["1", 1, 1]})]), scene([node(params={"size": [1, 1, 1], "segments": 8})]),
+        scene([node(params={"size": [1, 1, 1], "radius": 1})]),  # a parameter belonging to another kind
+        scene([node(kind="cylinder", params={"size": [1, 1, 1]})]), scene([node(kind="cylinder", params={"radius": 1})]),
+        scene([node(kind="cylinder", params={"radius": 1, "height": 1, "rings": 4})]), scene([node(kind="cone", params={"radius": 1, "height": 1, "rings": 4})]),
+        scene([node(kind="cylinder", params={"radius": 1, "height": 1, "segments": 2})]), scene([node(kind="cylinder", params={"radius": 1, "height": 1, "segments": 8.5})]),
+        scene([node(kind="sphere", params={"radius": 1, "height": 1})]), scene([node(kind="sphere", params={"radius": 1, "rings": 1})]),
+        scene([node(kind="capsule", params={"radius": 1})]), scene([node(kind="capsule", params={"radius": 1, "height": -1})]),
+        scene([node(kind="mesh_ref", params={})]), scene([node(kind="mesh_ref", params={"path": 3})]), scene([node(kind="mesh_ref", params={"path": "a", "size": [1, 1, 1]})]),
+        scene([node(kind="group", params={"radius": 1})]), scene([node(kind="box", params={"path": "a"})]),
+    ]
+    invalid += [scene(materials=[{"id": "m", k: v}]) for k, v in BAD_FIELD_VALUES.items()]
+    invalid += [scene(materials=[{"id": "m", "gloss": 1}]), scene(materials=[{"id": 1}]), scene(materials=[{"id": "m", "metallic": "1"}])]
+    return valid, invalid
+
+
+def patch_corpus():
+    n = {"id": "lid", "kind": "box", "params": {"size": [1, 1, 0.1]}, "transform": {"translate": [0, 0, 1]}}
+    tr = {"translate": [0, 0, 2], "rotate_euler_deg": [0, 0, 90], "scale": [1, 1, 1]}
+    valid_ops = [
+        {"op": "upsert_node", "node": n}, {"op": "remove_node", "node_id": "x"}, {"op": "set_transform", "node_id": "x", "transform": tr},
+        {"op": "set_param", "node_id": "x", "name": "size", "value": [2, 1, 0.1]}, {"op": "set_param", "node_id": "x", "name": "radius", "value": 0.05},
+        {"op": "set_param", "node_id": "x", "name": "height", "value": 2}, {"op": "set_param", "node_id": "x", "name": "segments", "value": 12},
+        {"op": "set_param", "node_id": "x", "name": "rings", "value": 3}, {"op": "set_param", "node_id": "x", "name": "path", "value": "p.glb"},
+        {"op": "upsert_material", "material": {"id": "m", **MATERIAL_FIELDS, "metallic": 0.5}}, {"op": "assign_material", "node_id": "x", "material_id": "m"},
+        {"op": "on_top_of", "node_id": "x", "target_id": "y", "gap_m": 0.01}, {"op": "flush_back", "node_id": "x", "target_id": "y"},
+        {"node_id": "x", "name": "radius", "value": 1},  # op defaults to set_param
+    ]
+    bad_ops = [
+        {}, {"op": "explode"}, {"op": "remove_node"}, {"op": "remove_node", "node_id": 3}, {"op": "remove_node", "node_id": "x", "extra": 1},
+        {"op": "set_transform", "node_id": "x"}, {"op": "set_transform", "node_id": "x", "transform": {}},
+        {"op": "set_transform", "node_id": "x", "transform": {"translate": [0, 0]}},
+        {"op": "set_param", "node_id": "x", "name": "size", "value": [1, 1]}, {"op": "set_param", "node_id": "x", "name": "size", "value": [1, 1, -1]},
+        {"op": "set_param", "node_id": "x", "name": "size", "value": 1}, {"op": "set_param", "node_id": "x", "name": "radius", "value": -1},
+        {"op": "set_param", "node_id": "x", "name": "radius", "value": "big"}, {"op": "set_param", "node_id": "x", "name": "segments", "value": 2},
+        {"op": "set_param", "node_id": "x", "name": "segments", "value": 4.5}, {"op": "set_param", "node_id": "x", "name": "rings", "value": 1},
+        {"op": "set_param", "node_id": "x", "name": "path", "value": 3}, {"op": "set_param", "node_id": "x", "name": "color", "value": 1},
+        {"op": "set_param", "node_id": "x", "name": "height", "value": [1, 2, 3]}, {"op": "set_param", "name": "radius", "value": 1},
+        {"op": "upsert_node"}, {"op": "upsert_node", "node": {**n, "kind": "torus"}}, {"op": "upsert_node", "node": {**n, "params": {"radius": 1}}},
+        {"op": "upsert_material", "material": {}}, {"op": "upsert_material", "material": {"id": "m", "opacity": 2}},
+        {"op": "assign_material", "node_id": "x"}, {"op": "assign_material", "node_id": "x", "material_id": None},
+        {"op": "on_top_of", "node_id": "x"}, {"op": "on_top_of", "node_id": "x", "target_id": "y", "gap_m": -1},
+        {"op": "flush_back", "node_id": "x", "target_id": "y", "gap_m": "a"}, {"op": "flush_back", "node_id": "x", "target_id": "y", "z": 1},
+    ]
+    valid = [{"ops": [op]} for op in valid_ops] + [{"ops": valid_ops}]
+    invalid = [{}, {"ops": []}, {"ops": {}}, {"ops": [], "extra": 1}, {"ops": [valid_ops[0]], "extra": 1}] + [{"ops": [op]} for op in bad_ops]
+    return valid, invalid
+
+
+def _accepts(schema, doc):
+    return jsonschema.Draft202012Validator(schema).is_valid(doc)
+
+
+def test_old_and_new_response_schemas_accept_and_reject_the_same_documents():
+    valid, invalid = scene_corpus()
+    new, old = S.scene_response_schema("Crate"), _old_scene("Crate")
+    for doc in valid:
+        assert _accepts(old, doc) and _accepts(new, doc), doc
+        try:  # the strict parse, the real acceptance test, takes every valid document too ...
+            S.parse_scene(json.dumps(doc))
+        except ValidationError as err:  # ... except a material that is well typed but whose fields contradict each other
+            assert "Value error, material " in str(err), err  # (a rule the schema cannot state; unchanged by how it is written)
+    for doc in invalid:
+        assert not _accepts(old, doc) and not _accepts(new, doc), doc
+        if doc.get("asset_name") == "Other" or "yes" in json.dumps(doc) or '"1"' in json.dumps(doc):
+            continue  # the schema pins the asset name and is strict about JSON types; the parse is lax about "1" and "yes"
+        with pytest.raises(ValidationError):
+            S.parse_scene(json.dumps(doc))
+    valid, invalid = patch_corpus()
+    new, old = S.patch_response_schema(), _old_api(S.raw_schema("patch"))
+    for doc in valid:
+        assert _accepts(old, doc) and _accepts(new, doc), doc
+        S.parse_patch(json.dumps(doc))
+    for doc in invalid:
+        assert not _accepts(old, doc) and not _accepts(new, doc), doc
+        with pytest.raises(ValidationError):
+            S.parse_patch(json.dumps(doc))
+
+
+def test_api_schemas_carry_no_prose_and_no_tuple_is_written_out_twice():
+    for schema in (S.scene_response_schema("Crate"), S.patch_response_schema()):
+        assert not [p for p, n in walk(schema) if "description" in n or "title" in n or "default" in n]
+        tuples = [json.dumps(n, sort_keys=True) for p, n in walk(schema) if n.get("type") == "array" and n.get("minItems") == n.get("maxItems")]
+        assert len(tuples) == len(set(tuples)), "a repeated tuple shape belongs in $defs"
+        assert all(isinstance(n[k], int) for _, n in walk(schema) for k in ("minimum", "maximum") if k in n)
+    assert len(json.dumps(S.scene_response_schema("WoodenCrateWithIron"), separators=(",", ":"))) < 6_500
+    assert len(json.dumps(S.patch_response_schema(), separators=(",", ":"))) < 9_500
+
+
+def test_guidance_dropped_from_descriptions_is_stated_once_in_the_rules_text():
+    text = S.ir_rules_text()
+    for fact in ("full extent", "capsule height is the cylinder part only", "base at -height/2", "local asset path",
+                 "transform-only", "thin-surface", "opacity is the base colour's alpha", "back is +Y"):
+        assert fact in text, fact

@@ -139,8 +139,11 @@ async def test_reservation_covers_counted_input_schema_bound_and_the_whole_outpu
 
 
 def test_schema_input_bound_covers_the_measured_schema_tokens():
-    # Live: prompt_token_count 6,045 with the propose schema vs count_tokens 960 for the same contents (+5,085).
-    assert schema_input_token_bound(ir_schema.scene_response_schema("WoodenCrateWithIron")) >= 5_085
+    # Live: the propose schema in its earlier, fuller spelling billed +5,085 prompt tokens over count_tokens (which cannot
+    # see it); in the current compact spelling the same request billed 1,377 fewer prompt tokens (+3,708).
+    bound = schema_input_token_bound(ir_schema.scene_response_schema("WoodenCrateWithIron"))
+    assert bound >= 3_708
+    assert schema_input_token_bound(ir_schema.patch_response_schema()) >= 7_066  # repair, measured in the fuller spelling
 
 
 def test_output_budget_table_fits_each_model_and_measured_usage():

@@ -111,8 +111,11 @@ MEASURED_PROPOSE_WALL_S: dict[str, tuple[float, float]] = {
 # a stalled call from a thinking one without include_thoughts, which would change the billed request.
 TIMEOUT_HEADROOM = 2.0
 AUTHOR_TIMEOUT_S: dict[str, float] = {"worker": 90.0, "bulk": 90.0, "builder": 570.0, "director": 540.0}
-# Prompt tokens the API bills for response_json_schema, per byte of compact schema JSON. Measured: the propose schema
-# (6,055 bytes) added 5,085 prompt tokens (0.84/byte), the repair schema (9,939 bytes) 7,066 (0.71/byte). 1.0 bounds both.
+# Prompt tokens the API bills for response_json_schema, per byte of compact schema JSON. Measured on gemini-4-neon,
+# same request with both spellings of the schema: the propose schema written out in full (7,954 bytes, descriptions,
+# tuples repeated) billed 7,305 prompt tokens, the compact one (6,064 bytes) 5,928: the schema itself 5,085 -> 3,708
+# tokens (0.64 and 0.61 per byte). The repair schema was measured only in the older, larger spelling (9,939 bytes ->
+# 7,066 tokens, 0.71/byte; 9,289 bytes now). 1.0 bounds all of them.
 SCHEMA_INPUT_TOKENS_PER_BYTE = 1.0
 
 

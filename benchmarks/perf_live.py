@@ -54,7 +54,8 @@ STAGE_PLAN = (("worker", 2), ("builder", 1))
 JUDGE_PLAN = (("blockout", 3), ("lookdev", 2))
 IMAGE_PLAN = (1024, 2048)  # one seamless albedo per size tier (1K, 2K)
 # Token reservations checked before each call (a floor-check, not a budget): real usage is booked after the call.
-# Text: the request's own max_output_tokens plus TEXT_INPUT_EST (rules + budget + task ~1k, schema ~5k prompt tokens).
+# Text: the request's own max_output_tokens plus TEXT_INPUT_EST (rules + budget + task ~1k, schema ~3.7k prompt tokens;
+# 5,928 input tokens per propose call were measured, so 7,000 stays an upper bound).
 TEXT_INPUT_EST = 7_000
 EST_TOKENS = {"stage": 40_000, "judge": 6_000, "image": 4_500, "probe": 200}
 
