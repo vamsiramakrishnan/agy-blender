@@ -689,18 +689,26 @@ def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_
                 for c, uv in zip(known, uvs)]
 
     # at least one mesh needs computed charts: xatlas computes those once and packs everything
+    bases: list[np.ndarray] = []  # per mesh: original vertex id of each vertex fed to the current atlas
+
     def add(atlas, prev=None, scale=None):
+        nonlocal bases
+        fed = []
         for i, (m, c) in enumerate(zip(group, known)):
             if prev is not None:  # pack-only pass: the previous pass' layout as input UVs (charts kept)
                 vm, idx, uv = prev[i]
-                base = c.vmap if c is not None else np.arange(len(m.points))
-                atlas.add_mesh(np.ascontiguousarray(np.asarray(m.points)[base[vm.astype(np.int64)]], dtype=np.float32),
+                base = bases[i][vm.astype(np.int64)]
+                atlas.add_mesh(np.ascontiguousarray(np.asarray(m.points)[base], dtype=np.float32),
                                np.ascontiguousarray(idx, dtype=np.uint32), uvs=np.ascontiguousarray(uv * scale, dtype=np.float32))
             elif c is not None:
-                atlas.add_mesh(np.ascontiguousarray(np.asarray(m.points)[c.vmap], dtype=np.float32),
+                base = c.vmap
+                atlas.add_mesh(np.ascontiguousarray(np.asarray(m.points)[base], dtype=np.float32),
                                np.ascontiguousarray(c.tris, dtype=np.uint32), uvs=np.ascontiguousarray(c.uv_m, dtype=np.float32))
             else:
+                base = np.arange(len(m.points))
                 atlas.add_mesh(np.ascontiguousarray(m.points, dtype=np.float32), np.ascontiguousarray(m.triangles, dtype=np.uint32))
+            fed.append(base)
+        bases = fed
 
     if any(c is not None for c in known):  # mixed group: compute the missing charts first, then pack all as input UVs
         todo = [m for m, c in zip(group, known) if c is None]
@@ -725,9 +733,7 @@ def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_
     out = []
     for i, (m, c) in enumerate(zip(group, known)):
         vm, idx, uv = atlas.get_mesh(i)
-        vm = vm.astype(np.int64)
-        if c is not None:
-            vm = c.vmap[vm]
+        vm = bases[i][vm.astype(np.int64)]
         out.append(_result(m, vm, idx.reshape(-1, 3).astype(np.int32), _atlas_uv(atlas, uv, resolution), fitted, resolution,
                            atlas_id, c.kind if c is not None else "computed"))
     return out
