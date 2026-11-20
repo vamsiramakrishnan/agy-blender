@@ -279,6 +279,14 @@ def _check_pair(a, b, add) -> None:
 # --------------------------------------------------------------------------- UVs
 
 UV_PADDING_PX = 2           # gutter between charts, in atlas texels
+# Computed (xatlas) charts are capped at this fraction of the mesh's surface area. Measured on UV spheres of
+# 1.9k / 10k / 50k triangles at 1024 px/m (the worst case: curvature everywhere): xatlas's default unbounded
+# charts give mean area distortion 0.088 / 0.064 / 0.068 (above the 0.05 budget) and take 0.30 / 0.83 / 8.2 s,
+# because chart growing and LSCM cost grows superlinearly with chart size; capped at 1/32 they give 0.015 /
+# 0.014 / 0.018 in 0.27 / 0.54 / 2.4 s, at equal or higher achieved density and ~+25% seam vertices. Flat-faced
+# meshes (the concave U prism) are unaffected (identical charts).
+UV_MAX_CHART_AREA_FRACTION = 1.0 / 32
+UV_MIN_RECT_FILL = 0.6      # exact charts filling less of their bounding rectangle are cut (see _charted)
 
 
 @dataclass(frozen=True)
@@ -367,16 +375,17 @@ def _unfold_charts(points: np.ndarray, tris: np.ndarray, charts: np.ndarray) -> 
         a, b = order[i], order[i + 1]
         nbr[f[a]].append((int(f[b]), int(slot[a])))
         nbr[f[b]].append((int(f[a]), int(slot[b])))
-    placed = np.zeros(m, bool)
+    placed = [False] * m
     next_chart = int(chart_of.max()) + 1 if m else 0
     seen_root: set[int] = set()
+    P = p.tolist()
+    T = t.tolist()
+    C = corner.tolist()  # filled per face below, written back at the end
+    import math
 
-    def lay_first(fi: int) -> None:
-        a, b, c = p[t[fi]]
-        ab = np.linalg.norm(b - a)
-        x = np.dot(c - a, b - a) / max(ab, 1e-30)
-        y = np.linalg.norm(np.cross(b - a, c - a)) / max(ab, 1e-30)
-        corner[fi] = [[0.0, 0.0], [ab, 0.0], [x, y]]
+    def dist(i: int, j: int) -> float:
+        a, b = P[i], P[j]
+        return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
 
     for root in range(m):
         if placed[root]:
@@ -387,7 +396,11 @@ def _unfold_charts(points: np.ndarray, tris: np.ndarray, charts: np.ndarray) -> 
         else:
             comp_chart = int(chart_of[root])
             seen_root.add(comp_chart)
-        lay_first(root)
+        a, b, c = (p[v] for v in T[root])
+        ab = float(np.linalg.norm(b - a))
+        x = float(np.dot(c - a, b - a)) / max(ab, 1e-30)
+        y = float(np.linalg.norm(np.cross(b - a, c - a))) / max(ab, 1e-30)
+        C[root] = [[0.0, 0.0], [ab, 0.0], [x, y]]
         placed[root] = True
         chart_of[root] = comp_chart
         queue = [root]
@@ -395,32 +408,32 @@ def _unfold_charts(points: np.ndarray, tris: np.ndarray, charts: np.ndarray) -> 
         while qi < len(queue):
             fi = queue[qi]
             qi += 1
-            for gi, s in nbr[fi]:
+            tf = T[fi]
+            for gi, sl in nbr[fi]:
                 if placed[gi]:
                     continue
-                va, vb = t[fi, s], t[fi, (s + 1) % 3]
-                ga = int(np.flatnonzero(t[gi] == va)[0])
-                gb = int(np.flatnonzero(t[gi] == vb)[0])
+                va, vb = tf[sl], tf[(sl + 1) % 3]
+                tg = T[gi]
+                ga, gb = tg.index(va), tg.index(vb)
                 gc = 3 - ga - gb
-                A, B = corner[fi, s], corner[fi, (s + 1) % 3]
-                d = B - A
-                dab = float(np.hypot(*d))
-                la = float(np.linalg.norm(p[t[gi, gc]] - p[va]))
-                lb = float(np.linalg.norm(p[t[gi, gc]] - p[vb]))
-                x = (la * la - lb * lb + dab * dab) / (2 * max(dab, 1e-30))
-                y = np.sqrt(max(la * la - x * x, 0.0))
-                ex = d / max(dab, 1e-30)
-                ey = np.array([-ex[1], ex[0]])
-                cand = A + x * ex + y * ey
-                tri_uv = np.zeros((3, 2))
-                tri_uv[ga], tri_uv[gb], tri_uv[gc] = A, B, cand
-                u0, u1, u2 = tri_uv
+                A, B = C[fi][sl], C[fi][(sl + 1) % 3]
+                dx, dy = B[0] - A[0], B[1] - A[1]
+                dab = max(math.hypot(dx, dy), 1e-30)
+                la, lb = dist(tg[gc], va), dist(tg[gc], vb)
+                x = (la * la - lb * lb + dab * dab) / (2 * dab)
+                y = math.sqrt(max(la * la - x * x, 0.0))
+                ex, ey = dx / dab, dy / dab
+                tri = [None, None, None]
+                tri[ga], tri[gb] = A, B
+                tri[gc] = [A[0] + x * ex - y * ey, A[1] + x * ey + y * ex]
+                u0, u1, u2 = tri
                 if (u1[0] - u0[0]) * (u2[1] - u0[1]) - (u1[1] - u0[1]) * (u2[0] - u0[0]) < 0:
-                    tri_uv[gc] = A + x * ex - y * ey
-                corner[gi] = tri_uv
+                    tri[gc] = [A[0] + x * ex + y * ey, A[1] + x * ey - y * ex]
+                C[gi] = tri
                 placed[gi] = True
                 chart_of[gi] = comp_chart
                 queue.append(gi)
+    corner = np.asarray(C, np.float64).reshape(m, 3, 2)
     # weld corners: same source vertex, same chart and (within tolerance) the same uv
     span = float(np.ptp(p, axis=0).max()) if len(p) else 1.0
     tol = 1e-7 * max(span, 1e-9)
@@ -481,15 +494,20 @@ def _min_area_frame(p2: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]
 
 
 def _charted(m: MeshData, max_extent_m: float | None = None) -> _Charted | None:
-    """Exact layout of a mesh with known charts; charts longer than ``max_extent_m`` are cut across their long
-    axis along existing edges when the triangulation allows it (a long cylinder side becomes two rectangles)."""
+    """Exact layout of a mesh with known charts, shaped for rectangle packing.
+
+    A chart is cut across its long axis, along existing edges, into equal slabs when it is longer than
+    ``max_extent_m`` (it could not be placed at the requested density: a long cylinder side becomes two
+    rectangles), or when it fills less than UV_MIN_RECT_FILL of its bounding rectangle (a wide annular
+    sector of a sphere band becomes two flatter ones). Cuts never change distortion (each piece is still an
+    isometric unfolding); they cost seam vertices and buy texel density."""
     if m.uv_charts is None or len(m.uv_charts) != len(m.triangles) or len(m.triangles) == 0:
         return None
     charts = np.asarray(m.uv_charts, np.int64).copy()
     tris = np.asarray(m.triangles, np.int64)
-    for _ in range(4):
+    for attempt in range(5):
         vmap, t2, uv, charts = _unfold_charts(m.points, tris, charts)
-        if max_extent_m is None:
+        if max_extent_m is None or attempt == 4:
             break
         # per-chart extent in its min-area frame; cut along the long axis into equal slabs of triangle centroids
         cent = uv[t2].mean(axis=1)
@@ -500,9 +518,10 @@ def _charted(m: MeshData, max_extent_m: float | None = None) -> _Charted | None:
             sel = np.flatnonzero(charts == c)
             R, lo, wh = _min_area_frame(uv[np.unique(t2[sel])])
             ax = int(np.argmax(wh))
-            if wh[ax] <= max_extent_m:
+            fill = float(_tri_areas(uv, t2[sel], 2).sum() / max(wh[0] * wh[1], 1e-30))
+            if wh[ax] <= max_extent_m and fill >= UV_MIN_RECT_FILL:
                 continue
-            k = int(np.ceil(wh[ax] / max_extent_m))
+            k = max(2, int(np.ceil(wh[ax] / max_extent_m)))
             coord = (cent[sel] @ R.T)[:, ax] - lo[ax]
             slab = np.minimum((coord / wh[ax] * k).astype(np.int64), k - 1)
             along = (uv[t2[sel]] @ R.T)[..., ax]  # (n, 3) corner coordinates on the long axis
@@ -556,7 +575,7 @@ def _skyline_pack(sizes: np.ndarray, width: float, height: float) -> np.ndarray 
             if sx + sw > right:
                 new.append((right, sy, sx + sw - right))
         new.append((x, y + h, w))
-        new.sort()
+        new = sorted(seg for seg in new if seg[2] > 1e-9)  # zero-width slivers would break the x order
         merged = [new[0]]
         for seg in new[1:]:
             px, py, pw = merged[-1]
@@ -619,11 +638,13 @@ def _pack_analytic(charted: list[_Charted], density: float, resolution: int) -> 
     return out, d
 
 
-def _xatlas_options(resolution: int, tpu: float, *, input_uvs: bool):
+def _xatlas_options(resolution: int, tpu: float, *, input_uvs: bool, surface_area: float = 0.0):
     import xatlas
 
     co = xatlas.ChartOptions()
     co.use_input_mesh_uvs = input_uvs
+    if not input_uvs and surface_area > 0:
+        co.max_chart_area = float(surface_area * UV_MAX_CHART_AREA_FRACTION)
     po = xatlas.PackOptions()
     po.resolution = resolution
     po.texels_per_unit = float(tpu)
@@ -633,7 +654,7 @@ def _xatlas_options(resolution: int, tpu: float, *, input_uvs: bool):
     return co, po
 
 
-def _xatlas_fit(add, density: float, resolution: int, *, input_uvs: bool):
+def _xatlas_fit(add, density: float, resolution: int, *, input_uvs: bool, surface_area: float = 0.0):
     """xatlas generate into a *single* atlas no larger than ``resolution`` at the highest density reached.
 
     xatlas's own fit mode (texels_per_unit=0) estimates a density but then grows the atlas past
@@ -647,7 +668,7 @@ def _xatlas_fit(add, density: float, resolution: int, *, input_uvs: bool):
 
     atlas = xatlas.Atlas()
     add(atlas, None)
-    co, po = _xatlas_options(0, density, input_uvs=input_uvs)
+    co, po = _xatlas_options(0, density, input_uvs=input_uvs, surface_area=surface_area)
     atlas.generate(co, po)
     tpu = float(density)
     for _ in range(6):
@@ -680,6 +701,10 @@ def _result(m: MeshData, vm: np.ndarray, tris: np.ndarray, uv: np.ndarray, fitte
     sm, sx = _stretch(pts, tris, uv)
     return UVResult(m.node_id, pts, tris, uv, vm, dens, sm, sx, resolution, atlas_id, fitted, kind,
                     _angle_distortion(pts, tris, uv))
+
+
+def _area(meshes: Sequence[MeshData]) -> float:
+    return float(sum(_tri_areas(np.asarray(m.points, np.float64), np.asarray(m.triangles), 3).sum() for m in meshes))
 
 
 def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_id: str | None) -> list[UVResult]:
@@ -721,7 +746,7 @@ def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_
         ca = xatlas.Atlas()
         for m in todo:
             ca.add_mesh(np.ascontiguousarray(m.points, dtype=np.float32), np.ascontiguousarray(m.triangles, dtype=np.uint32))
-        co, po = _xatlas_options(0, density, input_uvs=False)
+        co, po = _xatlas_options(0, density, input_uvs=False, surface_area=_area(todo))
         ca.generate(co, po)
         sc = np.array([ca.width, ca.height], np.float64) / float(ca.texels_per_unit or density)
         it = iter(range(len(todo)))
@@ -732,7 +757,7 @@ def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_
                 c = _Charted(m, vm.astype(np.int64), idx.reshape(-1, 3).astype(np.int32), uv.astype(np.float64) * sc, "computed")
             filled.append(c)
         known = filled
-    atlas, tpu = _xatlas_fit(add, density, resolution, input_uvs=all(c is not None for c in known))
+    atlas, tpu = _xatlas_fit(add, density, resolution, input_uvs=all(c is not None for c in known), surface_area=_area(group))
     fitted = tpu >= density * (1 - 1e-9)
     out = []
     for i, (m, c) in enumerate(zip(group, known)):
@@ -789,12 +814,13 @@ def uv_overlap_fraction(results: Sequence[UVResult], res: int = 512) -> float:
 
 @dataclass(frozen=True)
 class LOD:
-    ratio: float
+    ratio: float                 # triangles of this level / triangles of LOD0 (a result, not a target)
     points: np.ndarray           # (V, 3) float64 (float32 precision)
     triangles: np.ndarray        # (M, 3) int32
     uvs: np.ndarray | None
-    error: float                 # meshoptimizer result_error (relative to mesh scale)
-    error_m: float               # same, in metres
+    error: float                 # measured deviation from LOD0 relative to the mesh scale (meshopt simplify_scale)
+    error_m: float               # same, in metres (two-sided, sampled surface distance; see _surface_deviation)
+    screen_fraction: float = 1.0  # largest screen fraction (bounding-sphere diameter / frame height) it is shown at
 
     @property
     def tri_count(self) -> int:
@@ -828,63 +854,299 @@ def _patch_simplify_with_attributes() -> None:
         f.restype = C.c_size_t
 
 
+LOD_MAX_REFINE = 4  # simplify -> measure attempts per level before keeping the unsimplified mesh
+
+
+def _point_triangle_distance(p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
+    """Row-wise exact distance from points p to triangles (a, b, c) (Ericson, Real-Time Collision Detection 5.1.5)."""
+    def dot(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+        return np.einsum("ij,ij->i", x, y)
+
+    ab, ac, ap, bp, cp = b - a, c - a, p - a, p - b, p - c
+    d1, d2, d3, d4, d5, d6 = dot(ab, ap), dot(ac, ap), dot(ab, bp), dot(ac, bp), dot(ab, cp), dot(ac, cp)
+    va, vb, vc = d3 * d6 - d5 * d4, d5 * d2 - d1 * d6, d1 * d4 - d3 * d2
+    den = va + vb + vc
+    den = np.where(np.abs(den) < 1e-300, 1e-300, den)
+    q = a + ab * (vb / den)[:, None] + ac * (vc / den)[:, None] - p  # face region, relative to p
+
+    def seg(x: np.ndarray, d: np.ndarray) -> np.ndarray:  # x: segment start relative to p, d: direction
+        t = np.clip(-dot(x, d) / np.maximum(dot(d, d), 1e-300), 0.0, 1.0)
+        r = x + d * t[:, None]
+        return dot(r, r)
+
+    edge = np.minimum(np.minimum(seg(-ap, ab), seg(-bp, c - b)), seg(-cp, a - c))
+    inside = (va >= 0) & (vb >= 0) & (vc >= 0)
+    return np.sqrt(np.where(inside, dot(q, q), edge))
+
+
+def _surface_samples(p: np.ndarray, t: np.ndarray) -> np.ndarray:
+    a, b, c = p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]
+    return np.vstack([p[np.unique(t)], (a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2])
+
+
+def _one_sided(samples: np.ndarray, p: np.ndarray, t: np.ndarray, reach: float) -> float:
+    """max over samples of the exact distance to surface (p, t), saturating at ``reach``.
+
+    Up to 2048 target triangles: exact. Each sample is measured against the 4 triangles with the smallest
+    bounding-sphere lower bound |s - centre| - radius, then against every other triangle whose lower bound is
+    below the distance found. Larger targets (a dense LOD0, whose triangles are small): the 16 nearest
+    centroids; a miss can only over-estimate, so a level is never accepted on an underestimate."""
+    a, b, c = p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]
+    cen = (a + b + c) / 3
+    n = len(samples)
+    if len(t) > 2048:
+        from scipy.spatial import cKDTree
+
+        k = 16
+        nn = np.asarray(cKDTree(cen).query(samples, k=k)[1]).reshape(-1)
+        si = np.repeat(np.arange(n), k)
+        d = _point_triangle_distance(samples[si], a[nn], b[nn], c[nn]).reshape(n, k).min(axis=1)
+        return float(min(d.max(), reach))
+    rad = np.sqrt(np.max(np.stack([((x - cen) ** 2).sum(1) for x in (a, b, c)]), axis=0))
+    k = min(4, len(t))
+    best = np.empty(n)
+    for s0 in range(0, n, 1024):
+        sl = samples[s0:s0 + 1024]
+        lb = np.sqrt(((sl[:, None, :] - cen[None]) ** 2).sum(-1)) - rad[None]
+        first = np.argpartition(lb, k - 1, axis=1)[:, :k] if k < len(t) else np.broadcast_to(np.arange(k), (len(sl), k))
+        rows = np.repeat(np.arange(len(sl)), k)
+        cols = first.reshape(-1)
+        ub = _point_triangle_distance(sl[rows], a[cols], b[cols], c[cols]).reshape(len(sl), k).min(axis=1)
+        lb[rows, cols] = np.inf  # already exact
+        r2, c2 = np.nonzero(lb < ub[:, None])
+        if len(r2):
+            d2 = _point_triangle_distance(sl[r2], a[c2], b[c2], c[c2])
+            np.minimum.at(ub, r2, d2)
+        best[s0:s0 + 1024] = ub
+    return float(min(best.max(), reach)) if n else 0.0
+
+
+def _surface_deviation(p0: np.ndarray, t0: np.ndarray, p1: np.ndarray, t1: np.ndarray, reach: float) -> float:
+    """Two-sided surface distance (a sampled Hausdorff distance) between a mesh and its simplification, in
+    the units of the points: vertices, centroids and edge midpoints of each side, measured against the other
+    side's triangles (see _one_sided). Values above ``reach`` saturate."""
+    return max(_one_sided(_surface_samples(p0, t0), p1, t1, reach), _one_sided(_surface_samples(p1, t1), p0, t0, reach))
+
+
+# 13 view directions (axes, face and body diagonals; opposite directions project identically)
+_VIEW_DIRS = np.array([(1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0), (1, -1, 0), (1, 0, 1), (1, 0, -1), (0, 1, 1),
+                       (0, 1, -1), (1, 1, 1), (1, 1, -1), (1, -1, 1), (-1, 1, 1)], np.float64)
+_VIEW_DIRS /= np.linalg.norm(_VIEW_DIRS, axis=1, keepdims=True)
+
+
+def _projected_areas(p: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """Silhouette area of a closed mesh seen along each of _VIEW_DIRS: (1/2) sum |n . d| a (Cauchy's
+    projection formula; exact for convex parts, counts overlapping layers otherwise)."""
+    n = np.cross(p[t[:, 1]] - p[t[:, 0]], p[t[:, 2]] - p[t[:, 0]]) / 2  # area-weighted normals
+    return 0.5 * np.abs(n @ _VIEW_DIRS.T).sum(axis=0)
+
+
+class _Simplifier:
+    """Error-bounded simplification of one mesh (seam-split with UVs, or welded without).
+
+    meshoptimizer's ``result_error`` is a quadric estimate, not a bound: measured on a 20-segment cylinder it
+    reported 0.0151 m where the surfaces were 0.0310 m apart. So each level is simplified with
+    SIMPLIFY_ERROR_ABSOLUTE at the budget, its real deviation is measured (:func:`_surface_deviation`), and the
+    target is tightened until the measured deviation is within the budget.
+
+    Seams: on a closed seam-split mesh meshoptimizer re-welds by position, so seam edges between two charts
+    can collapse *along* the seam; vertices where three or more charts meet (box corners) stay. LOCK_BORDER
+    therefore did nothing on closed meshes (measured: identical output with and without) and, on open meshes,
+    froze borders the error bound already protects, so it is not used. UV attributes are weighted in metres of
+    surface (the inverse of the mesh's texel scale), so a texture shift costs as much as a geometric one.
+    """
+
+    def __init__(self, points: np.ndarray, triangles: np.ndarray, uvs: np.ndarray | None) -> None:
+        import meshoptimizer as mo
+
+        _patch_simplify_with_attributes()
+        self.pts64 = np.asarray(points, np.float64)
+        pts = np.ascontiguousarray(points, dtype=np.float32)
+        tri = np.asarray(triangles)
+        if uvs is None:  # weld so duplicated hard-edge verts do not freeze the mesh
+            cid = _canon(self.pts64)
+            first = np.unique(cid, return_index=True)[1]
+            pts = np.ascontiguousarray(pts[first])
+            tri = cid[tri]
+            self.uv = None
+        else:
+            self.uv = np.ascontiguousarray(uvs, dtype=np.float32)
+        self.pts = pts
+        self.idx0 = np.ascontiguousarray(tri, dtype=np.uint32).ravel()
+        self.verts = pts if self.uv is None else np.ascontiguousarray(np.hstack([pts, self.uv]))
+        self.scale = float(mo.simplify_scale(pts)) or 1.0
+        self.ref = (pts.astype(np.float64), self.idx0.reshape(-1, 3).astype(np.int64))
+        self.uv_w = None
+        if self.uv is not None:
+            a3 = _tri_areas(self.ref[0], self.ref[1], 3).sum()
+            a2 = _tri_areas(self.uv.astype(np.float64), self.ref[1], 2).sum()
+            m_per_uv = float(np.sqrt(a3 / a2)) if a2 > 0 else 1.0
+            self.uv_w = np.full(2, m_per_uv / self.scale, np.float32)  # relative units, like positions
+        self._cache: dict[float, tuple[np.ndarray, float]] = {}
+        self._area0 = _projected_areas(*self.ref)
+        self._floor = 0.0  # largest budget known to remove nothing: smaller budgets cannot do better
+        self._measured: dict[bytes, tuple[float, float]] = {}
+
+    def _run(self, target_error_m: float) -> np.ndarray:
+        import meshoptimizer as mo
+
+        dst = np.zeros_like(self.idx0)
+        err = np.zeros(1, np.float32)
+        opts = mo.SIMPLIFY_ERROR_ABSOLUTE
+        try:
+            if self.uv is None:
+                n = mo.simplify(dst, self.idx0, self.pts, target_index_count=0, target_error=target_error_m,
+                                options=opts, result_error=err)
+            else:
+                n = mo.simplify_with_attributes(dst, self.idx0, self.pts, self.uv, self.uv_w, target_index_count=0,
+                                                target_error=target_error_m, options=opts, result_error=err)
+        except Exception as e:  # noqa: BLE001 - documented fallback
+            log.warning("meshopt simplify failed (%s); using simplify_sloppy", e)
+            n = mo.simplify_sloppy(dst, self.idx0, self.pts, target_index_count=0,
+                                   target_error=target_error_m / self.scale, result_error=err)
+        return dst[:n].copy()
+
+    def silhouette_change(self, idx: np.ndarray) -> float:
+        """Largest relative change of the part's silhouette area over _VIEW_DIRS."""
+        a1 = _projected_areas(self.ref[0], idx.reshape(-1, 3).astype(np.int64))
+        return float(np.max(np.abs(a1 - self._area0) / np.maximum(self._area0, 1e-30)))
+
+    def _measure(self, idx: np.ndarray, silhouette_tol: float) -> tuple[float, float]:
+        """(silhouette change, surface deviation) of a candidate, memoised: nearby targets often give the same
+        index buffer. The deviation is only measured when the cheap silhouette test passes (else inf)."""
+        key = idx.tobytes()
+        if key not in self._measured:
+            sil = self.silhouette_change(idx)
+            dev = (_surface_deviation(self.ref[0], self.ref[1], self.ref[0], idx.reshape(-1, 3).astype(np.int64), np.inf)
+                   if sil <= silhouette_tol else np.inf)
+            self._measured[key] = (sil, dev)
+        return self._measured[key]
+
+    def within(self, budget_m: float, silhouette_tol: float = np.inf) -> tuple[np.ndarray, float]:
+        """Cheapest index buffer found whose measured deviation from the input is <= budget_m and whose
+        silhouette area changes by at most ``silhouette_tol`` in every view direction."""
+        key = round(float(budget_m), 12)
+        if key in self._cache:
+            return self._cache[key]
+        best = (self.idx0, 0.0)
+        target = budget_m
+        if budget_m > self._floor:
+            for _ in range(LOD_MAX_REFINE):
+                idx = self._run(target)
+                if len(idx) == 0 or len(idx) >= len(self.idx0):
+                    break
+                sil, dev = self._measure(idx, silhouette_tol)
+                if dev <= budget_m and sil <= silhouette_tol:
+                    best = (idx, dev)
+                    break
+                shrink = 0.8 if dev <= budget_m or not np.isfinite(dev) else 0.9 * budget_m / max(dev, 1e-30)
+                if sil > silhouette_tol:
+                    shrink = min(shrink, 0.9 * silhouette_tol / sil)
+                target *= min(0.8, shrink)
+            if best[0] is self.idx0:
+                self._floor = max(self._floor, budget_m)
+        self._cache[key] = best
+        return best
+
+    def level(self, idx: np.ndarray, dev: float, screen_fraction: float) -> LOD:
+        idx, v = _optimise(np.ascontiguousarray(idx, np.uint32), self.verts, len(self.verts))
+        return LOD(len(idx) / max(len(self.idx0), 1), v[:, :3].astype(np.float64), idx.reshape(-1, 3).astype(np.int32),
+                   None if self.uv is None else v[:, 3:5].copy(), dev / self.scale, dev, float(screen_fraction))
+
+
+def _bounds_radius(points: Sequence[np.ndarray]) -> float:
+    p = [np.asarray(x, np.float64) for x in points if len(x)]
+    lo = np.min([x.min(axis=0) for x in p], axis=0)
+    hi = np.max([x.max(axis=0) for x in p], axis=0)
+    return float(np.linalg.norm(hi - lo)) / 2
+
+
+def generate_asset_lods(
+    parts: Sequence[UVResult | tuple[str, np.ndarray, np.ndarray, np.ndarray | None]],
+    *,
+    screen_fractions: Sequence[float] | None = None,
+    error_px: float | None = None,
+    screen_px: float | None = None,
+    min_reduction: float | None = None,
+) -> dict[str, list[LOD]]:
+    """LOD chains of one asset, levels defined by what the viewer can see (one definition with lod_diff).
+
+    Candidate level k is shown from screen fraction f_k (lod_diff.lod_candidate_fractions(): the checker's
+    LOD_SCREEN_FRACTIONS continued by halving to LOD_MIN_SCREEN_FRACTION) down to the next level's. Its budget is the error that projects to LOD_MAX_ERROR_PX pixels of a LOD_REFERENCE_SCREEN_PX
+    frame at f_k for the asset's bounding sphere (lod_diff.lod_error_budget_m); every part is simplified to
+    the cheapest mesh whose *measured* deviation stays within that budget and whose silhouette area, seen
+    from 13 directions, changes by at most half the LOD-pop IoU tolerance ((1 - min_iou) / 2). The second
+    condition is what keeps thin parts: a 8 cm pole may move less than the asset-scale pixel budget and still
+    lose a quarter of its outline by turning into a prism, which the IoU gate (and the eye) would see. A candidate is emitted only when the asset's triangle count drops by at
+    least LOD_MIN_REDUCTION from the previous emitted level; otherwise the previous level stays in use down
+    to the next candidate. Every part gets one entry per emitted level (a part that cannot get cheaper
+    repeats its mesh), so ``len(chain)`` is the asset's level count; LOD0 is the input with
+    screen_fraction 1.0. An asset nothing can be removed from gets LOD0 only.
+    """
+    from antigravity3d.kernel import lod_diff as ld
+
+    fr = tuple(screen_fractions) if screen_fractions is not None else ld.lod_candidate_fractions()
+    error_px = ld.LOD_MAX_ERROR_PX if error_px is None else error_px
+    screen_px = ld.LOD_REFERENCE_SCREEN_PX if screen_px is None else screen_px
+    min_reduction = ld.LOD_MIN_REDUCTION if min_reduction is None else min_reduction
+    silhouette_tol = (1.0 - ld.PopThresholds().min_iou) / 2.0  # per part; leaves half the IoU tolerance for raster noise
+    items = [(p.node_id, p.points, p.triangles, p.uvs) if isinstance(p, UVResult) else p for p in parts]
+    if not items:
+        return {}
+    radius = _bounds_radius([it[1] for it in items])
+    simp = {nid: _Simplifier(pts, tri, uv) for nid, pts, tri, uv in items}
+    chains = {nid: [s.level(s.idx0, 0.0, 1.0)] for nid, s in simp.items()}
+    prev_tris = sum(len(s.idx0) // 3 for s in simp.values())
+    for f in fr[1:]:
+        budget = ld.lod_error_budget_m(radius, f, error_px=error_px, screen_px=screen_px)
+        picks = {nid: s.within(budget, silhouette_tol) for nid, s in simp.items()}
+        tris = sum(len(idx) // 3 for idx, _ in picks.values())
+        if tris > (1.0 - min_reduction) * prev_tris:
+            continue
+        for nid, (idx, dev) in picks.items():
+            chains[nid].append(simp[nid].level(idx, dev, f))
+        prev_tris = tris
+    return chains
+
+
 def generate_lods(
     points: np.ndarray,
     triangles: np.ndarray,
-    ratios: Sequence[float] = (1.0, 0.5, 0.25, 0.1),
+    ratios: Sequence[float] | None = None,
     uvs: np.ndarray | None = None,
+    *,
+    screen_fractions: Sequence[float] | None = None,
 ) -> list[LOD]:
+    """LOD chain of a single mesh.
+
+    Default (``ratios`` None): screen-space levels exactly as :func:`generate_asset_lods` defines them, with
+    the mesh as the whole asset. ``ratios`` asks for explicit triangle-ratio targets instead (fixtures and
+    experiments; the export pipeline never uses it): each level is simplified towards ``ratio`` of the input
+    without an error bound and reports its measured deviation; a ratio that removes nothing is skipped.
+    """
+    if ratios is None:
+        return generate_asset_lods([("mesh", points, triangles, uvs)], screen_fractions=screen_fractions)["mesh"]
     import meshoptimizer as mo
 
-    _patch_simplify_with_attributes()
-    pts = np.ascontiguousarray(points, dtype=np.float32)
-    tri = np.asarray(triangles)
-    if uvs is None:  # weld so duplicated hard-edge verts do not freeze the mesh
-        cid = _canon(np.asarray(points, dtype=np.float64))
-        first = np.unique(cid, return_index=True)[1]
-        pts = np.ascontiguousarray(pts[first])
-        tri = cid[tri]
-        uv32 = None
-    else:
-        uv32 = np.ascontiguousarray(uvs, dtype=np.float32)
-    idx0 = np.ascontiguousarray(tri, dtype=np.uint32).ravel()
-    verts = pts if uv32 is None else np.ascontiguousarray(np.hstack([pts, uv32]))
-    scale = float(mo.simplify_scale(pts)) or 1.0
-    lods: list[LOD] = []
+    s = _Simplifier(points, triangles, uvs)
+    out: list[LOD] = []
     for r in ratios:
-        err = np.zeros(1, np.float32)
         if r >= 1.0:
-            idx = idx0.copy()
+            idx, dev = s.idx0, 0.0
         else:
-            target = max(12, int(len(idx0) * r) // 3 * 3)  # >= 4 tris
-            dst = np.zeros_like(idx0)
-            opts = mo.SIMPLIFY_LOCK_BORDER
-            try:
-                if uv32 is None:
-                    n = mo.simplify(dst, idx0, pts, target_index_count=target, target_error=1.0, options=opts, result_error=err)
-                else:
-                    n = mo.simplify_with_attributes(
-                        dst, idx0, pts, uv32, np.array([1.0, 1.0], np.float32),
-                        target_index_count=target, target_error=1.0, options=opts, result_error=err,
-                    )
-            except Exception as e:  # noqa: BLE001 - documented fallback
-                log.warning("meshopt simplify failed (%s); using simplify_sloppy", e)
-                n = mo.simplify_sloppy(dst, idx0, pts, target_index_count=target, target_error=1.0, result_error=err)
+            target = max(12, int(len(s.idx0) * r) // 3 * 3)  # >= 4 tris
+            dst = np.zeros_like(s.idx0)
+            if s.uv is None:
+                n = mo.simplify(dst, s.idx0, s.pts, target_index_count=target, target_error=1.0)
+            else:
+                n = mo.simplify_with_attributes(dst, s.idx0, s.pts, s.uv, s.uv_w, target_index_count=target, target_error=1.0)
             idx = dst[:n].copy()
-        if len(idx) == 0:
-            continue
-        idx, v = _optimise(idx, verts, len(verts))
-        lods.append(
-            LOD(
-                float(r),
-                v[:, :3].astype(np.float64),
-                idx.reshape(-1, 3).astype(np.int32),
-                None if uv32 is None else v[:, 3:5].copy(),
-                float(err[0]),
-                float(err[0]) * scale,
-            )
-        )
-    return lods
+            if len(idx) == 0 or (out and len(idx) >= out[-1].tri_count * 3):
+                continue
+            dev = _surface_deviation(s.ref[0], s.ref[1], s.ref[0], idx.reshape(-1, 3).astype(np.int64),
+                                     4 * _bounds_radius([s.ref[0]]))
+        out.append(s.level(idx, dev, 1.0))
+    return out
 
 
 # --------------------------------------------------------------------------- colliders
@@ -1048,7 +1310,7 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
     t0 = time.perf_counter()
     uvs = unwrap_scene(meshes, budget)
     t1 = time.perf_counter()
-    lods = {u.node_id: generate_lods(u.points, u.triangles, uvs=u.uvs) for u in uvs}
+    lods = generate_asset_lods(uvs)
     t2 = time.perf_counter()
     hulls = generate_colliders(meshes, budget.max_collision_hulls, asset_name=asset_name)
     t3 = time.perf_counter()

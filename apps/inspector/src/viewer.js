@@ -431,7 +431,10 @@ export function createInspector(host) {
     } catch (e) { console.warn("[inspector] environment map unavailable: " + e.message); }
 
     let nodeGeoms = [], lodGeoms = [], colGeoms = [];
-    let bounds = new THREE.Box3(), center = new THREE.Vector3(), radius = 1;
+    // Until a model arrives (the MCP App starts the viewport first) use a 1 m placeholder box, so helpers and
+    // the camera never see an empty (infinite) box.
+    let bounds = new THREE.Box3(new THREE.Vector3(-0.5, 0, -0.5), new THREE.Vector3(0.5, 1, 0.5));
+    let center = bounds.getCenter(new THREE.Vector3()), radius = 1;
     const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
     let texCache = {}, matCache = {};
     let dirty = true;

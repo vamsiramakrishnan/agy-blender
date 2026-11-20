@@ -378,10 +378,14 @@ async def test_inspector_payload_notes_and_qa_round_trip(tmp_path):
         # the EXPORT stage's derived data (UVs, LOD chain, hulls) shows up in the payload
         await call(s, "set_stage", stage="EXPORT")
         assert (await call(s, "generate_lods_and_colliders")).startswith("LODS")
-        summary = (await raw(s, "open_inspector", lod=1, colliders=True)).structured_content
-        assert summary["counts"]["lods"] >= 1 and summary["counts"]["colliders"] >= 1 and summary["view"] == {"lod": 1, "colliders": True}
+        summary = (await raw(s, "open_inspector", colliders=True)).structured_content
+        lods = summary["counts"]["lods"]  # how many reduced levels the LOD kernel keeps for this tiny crate may vary
+        assert summary["counts"]["colliders"] >= 1 and summary["view"] == {"colliders": True}
+        assert (await raw(s, "open_inspector", lod=lods)).structured_content["view"] == {"lod": lods}
+        assert (await call(s, "open_inspector", lod=lods + 1)).startswith("ERROR")
         payload = json.loads(await fetch_part(s, sid, summary["revision"]))
-        assert all(m["uv"] for m in payload["meshes"]) and payload["lods"] and payload["colliders"]
+        assert all(m["uv"] for m in payload["meshes"]) and len(payload["lods"]) == lods and payload["colliders"]
+        assert "textures=none" in (await raw(s, "open_inspector")).content[0].text
 
 
 async def test_review_notes_survive_a_server_restart(tmp_path):

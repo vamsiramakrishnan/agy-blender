@@ -15,7 +15,7 @@
 //   build.json                  input hash, output hashes, bundled third-party packages
 //                               (version, lockfile integrity, licence)
 //   THIRD_PARTY_NOTICES.txt     licence texts of everything bundled into inspector_app.html
-// and, for the browser test only (not shipped), apps/inspector/test-host/dist/host.bundle.js: the
+// and, for the browser test only (not shipped), apps/inspector/test-host/host.bundle.js: the
 // SDK's AppBridge plus test-host/host.js, a minimal MCP Apps host.
 //
 // Third-party code is bundled unmodified (esbuild only links and minifies it).
@@ -147,7 +147,7 @@ async function main() {
     [posix(relative(REPO, join(OUT, "inspector_app.html")))]: appHtml,
     [posix(relative(REPO, join(OUT, "inspector_standalone.js")))]: standaloneJs,
     [posix(relative(REPO, join(OUT, "THIRD_PARTY_NOTICES.txt")))]: notices,
-    [posix(relative(REPO, join(HERE, "test-host", "dist", "host.bundle.js")))]: hostJs,
+    [posix(relative(REPO, join(HERE, "test-host", "host.bundle.js")))]: hostJs,
   };
   for (const [rel, text] of Object.entries(outputs)) {
     mkdirSync(dirname(join(REPO, rel)), { recursive: true });

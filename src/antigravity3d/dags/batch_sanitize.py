@@ -479,6 +479,7 @@ class BatchSanitizeDAG:
         self.worker_hook = worker_hook
         self._pool: _Pool | None = None
         self._failures: dict[str, dict[str, Any]] = {}
+        self._input_index: dict[str, int] = {}
 
     async def _process(self, path: Path, out_dir: Path) -> tuple[dict[str, Any], bytes | None, float]:
         task = (path, out_dir, self.budget, self.plane is not None, self.worker_hook)
@@ -505,11 +506,21 @@ class BatchSanitizeDAG:
         return row
 
     def build(self, files: list[Path | str]) -> Dag:
+        """One node per file. Nodes are added largest file first (ties keep input order): with N workers the batch ends when
+        the last file does, so starting the big ones first shortens the tail. Only dispatch order changes: every file's
+        output is the same, and ``run`` reports the rows in input order."""
         dag = Dag("batch_sanitize")
         seen: set[str] = set()
-        for f in files:
-            p = Path(f)
-            node = f"file:{_ident(p.name, seen, 'file')}"
+        named = [(f"file:{_ident(Path(f).name, seen, 'file')}", Path(f)) for f in files]  # names follow input order
+        self._input_index = {node: i for i, (node, _) in enumerate(named)}
+
+        def size(p: Path) -> int:
+            try:
+                return p.stat().st_size
+            except OSError:
+                return 0
+
+        for node, p in sorted(named, key=lambda np_: -size(np_[1])):
 
             async def run(ctx: NodeCtx, p: Path = p, node: str = node) -> dict[str, Any]:
                 try:
@@ -532,8 +543,8 @@ class BatchSanitizeDAG:
             if self._pool is not None:
                 self._pool.close()
         rows = []
-        paths = {n: str(f) for n, f in zip(rep.nodes, files)}  # nodes are created in input order, and so are the rows
-        for n in rep.nodes.values():
+        paths = {node: str(f) for node, f in zip(self._input_index, files)}
+        for n in sorted(rep.nodes.values(), key=lambda n: self._input_index[n.name]):  # input order, whatever the dispatch / finish order
             r = rep.results.get(n.name)
             rows.append(r if r else {"file": paths[n.name], "status": "failed", "error": n.error or n.reason, **self._failures.get(n.name, {})})
         used = sorted({r["worker_pid"] for r in rows if r.get("worker_pid")})

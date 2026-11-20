@@ -29,6 +29,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+# The three.js package verifier (adapters/engines/web_three.py) drives a Chromium through Playwright. Without this
+# extra, or without a browser, the verifier reports "skipped" with the reason; it never passes by default.
+web = ["playwright>=1.40"]
 
 [project.scripts]
 agy3d = "antigravity3d.cli:main"

@@ -49,11 +49,10 @@ LOOKDEV_ROUNDS = 3
 QA_EST_USD = 0.002  # conservative cost of one visual-QA (+ locate) round when checking the ceiling
 
 
-# Uncalibrated tolerances, pending tuning against real studio assets:
-# xatlas on a plain 24-segment cylinder already measures 0.058 mean area
-# distortion against the 0.05 default budget, so up to this multiple of the
-# budget is reported as a warning rather than failing the export gate.
-UV_STRETCH_HARD_FACTOR = 2.0
+# Export gates (no warn bands). UV: every mesh's mean area distortion must be within
+# EngineBudget.max_uv_stretch; IR primitives get exact developable charts (0 distortion) and computed charts
+# are size-capped to stay inside the budget (see fast_ops.unwrap_scene). LOD pop: levels are generated to
+# lod_diff's screen-space error budget and silhouette tolerance, so every transition must meet these thresholds.
 LOD_POP_THRESHOLDS = PopThresholds()
 
 @dataclass
@@ -600,12 +599,11 @@ class _Run:
             levels = [sum(len(v[k].triangles) for v in bundle.lods.values()) for k in range(min((len(v) for v in bundle.lods.values()), default=0))]
             bad = [u.node_id for u in bundle.uvs if not u.within(budget)]
             desc = f"uv={len(bundle.uvs)} lod_tris={levels} hulls={len(bundle.colliders)}" + ("" if hit is None else f" cache={'hit' if hit else 'miss'}")
-            if levels != sorted(levels, reverse=True):
-                return "failed", f"LOD triangle counts do not descend: {levels}"
+            if any(b >= a for a, b in zip(levels, levels[1:])):
+                return "failed", f"LOD triangle counts do not strictly descend: {levels}"
             if bad:
                 worst = max(u.stretch_mean for u in bundle.uvs)
-                hard = worst > UV_STRETCH_HARD_FACTOR * budget.max_uv_stretch
-                return ("failed" if hard else "warned"), f"UV stretch {worst:.3f} above budget {budget.max_uv_stretch} on {bad}; {desc}"
+                return "failed", f"UV stretch {worst:.3f} above budget {budget.max_uv_stretch} on {bad}; {desc}"
             return "passed", desc
 
         await self.guarded("uv_lod_colliders", export)
@@ -635,14 +633,10 @@ class _Run:
         async def pop() -> tuple[str, str]:
             lods = merged_lods(bundle)
             if len(lods) < 2:
-                return "skipped", "fewer than two LOD levels"
+                return "skipped", "LOD0 only: no coarser level within the screen-space error budget saves enough triangles"
             rep = await asyncio.to_thread(lod_pop_report, lods)
             res.objects["lod_pop"] = rep
-            if rep.ok():
-                return "passed", rep.one_line()
-            # A silhouette change is a hard failure; shading and edge drift alone only warn.
-            hard = any(t.iou < LOD_POP_THRESHOLDS.min_iou for t in rep.transitions)
-            return ("failed" if hard else "warned"), rep.one_line()
+            return ("passed" if rep.ok(LOD_POP_THRESHOLDS) else "failed"), rep.one_line(LOD_POP_THRESHOLDS)
 
         await self.guarded("lod_pop", pop)
 

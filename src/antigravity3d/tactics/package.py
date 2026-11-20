@@ -92,7 +92,9 @@ def write_glb_package(path: Path, bundle: ExportBundle) -> Path:
 
 
 def merged_lods(bundle: ExportBundle) -> list[SimpleNamespace]:
-    """One merged mesh per LOD level across all nodes (levels shared by every node)."""
+    """One merged mesh per LOD level across all nodes (levels shared by every node), carrying the level's
+    ``screen_fraction`` (the largest screen size it is shown at; LOD0 1.0) so the pop check renders each switch
+    where the generator placed it."""
     levels = min((len(v) for v in bundle.lods.values()), default=0)
     out = []
     for k in range(levels):
@@ -101,7 +103,8 @@ def merged_lods(bundle: ExportBundle) -> list[SimpleNamespace]:
             pts.append(lods[k].points)
             tris.append(lods[k].triangles + base)
             base += len(lods[k].points)
-        out.append(SimpleNamespace(points=np.vstack(pts), triangles=np.vstack(tris)))
+        fr = min(float(getattr(lods[k], "screen_fraction", 1.0)) for lods in bundle.lods.values())
+        out.append(SimpleNamespace(points=np.vstack(pts), triangles=np.vstack(tris), screen_fraction=fr if k else 1.0))
     return out
 
 

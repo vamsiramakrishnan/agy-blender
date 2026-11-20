@@ -90,7 +90,8 @@ def test_bundle_layout_follows_plugin_docs():
     assert skills == ["concept-to-blueprint", "engine-truth-verify", "game-ready-sanitizer", "parametric-kitbash",
                       "pbr-material-forge"]
     sidecars = sorted(p.name for p in (BUNDLE / "sidecars").iterdir())
-    assert sidecars == ["blender_pool", "depot_watcher", "inspector", "nightly_variant_factory", "weekly_distill"]
+    # no inspector sidecar: the studio MCP server serves the inspector as an MCP App
+    assert sidecars == ["blender_pool", "depot_watcher", "nightly_variant_factory", "weekly_distill"]
 
 
 def test_skills_name_their_tools():
@@ -125,9 +126,7 @@ def test_sidecars_use_documented_forms():
     assert " ".join([pool["command"], *pool["args"]]) == \
         "uv run python -m antigravity3d.runtime.worker_daemon --workers 4"
     assert set(pool["env"]) == {"BLENDER_BIN", "AGY3D_POOL_SOCKET"}
-    ui = json.loads((BUNDLE / "sidecars/inspector/sidecar.json").read_text())
-    assert ui["has_web_ui"] is True
-    assert ui["ui_config"]["views"][0]["entrypoint"] == "SIDECAR_UI_ENTRYPOINT_AUX_PANE"
+    assert not any(json.loads(p.read_text()).get("has_web_ui") for p in BUNDLE.glob("sidecars/*/sidecar.json"))
     for sched in ("nightly_variant_factory", "weekly_distill"):
         cfg = json.loads((BUNDLE / f"sidecars/{sched}/sidecar.json").read_text())
         assert cfg["builtin"] == "schedule" and "command" not in cfg

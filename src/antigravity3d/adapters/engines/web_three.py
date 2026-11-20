@@ -637,7 +637,7 @@ class WebThreeValidator(EngineValidator):
         try:
             import playwright  # noqa: F401
         except ImportError:
-            return f"{ENGINE} needs the Python 'playwright' package (pip install playwright)"
+            return f"{ENGINE} needs the Python 'playwright' package (pip install 'antigravity-3d[web]')"
         if self.binary() is None and (os.environ.get(self.env_var) or not self._playwright_managed()):
             return f"{ENGINE} browser not found (set ${self.env_var} to a Chromium/Chrome binary or add {self.binary_names[0]} to PATH)"
         return None

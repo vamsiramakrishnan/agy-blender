@@ -1,7 +1,7 @@
 // Minimal MCP Apps *host* for tests (tests/test_inspector_app.py): the SDK's own AppBridge drives the
 // inspector app in an iframe, exactly like a host does: ui/initialize with host context and
 // capabilities, tool input / result notifications, tools/call forwarding, ui/update-model-context,
-// ui/message, size changes. Built into dist/host.bundle.js by ../build.mjs (committed, so the Python
+// ui/message, size changes. Built into host.bundle.js by ../build.mjs (committed, so the Python
 // browser test needs no node_modules).
 import { AppBridge, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-bridge";
 
@@ -37,9 +37,10 @@ window.startHost = async function startHost(opts) {
     if (opts.mode === "inline" && p.height) frame.style.height = Math.min(800, Math.ceil(p.height)) + "px";
   };
   const ready = new Promise((resolve) => { bridge.oninitialized = () => { log.initialized = true; resolve(); }; });
-  frame.src = opts.url;
-  await new Promise((resolve) => frame.addEventListener("load", resolve, { once: true }));
+  // Listen before the app loads: the app sends ui/initialize as soon as its script runs. The frame's
+  // WindowProxy stays the same across the navigation, so the transport can be bound to it now.
   await bridge.connect(new PostMessageTransport(frame.contentWindow, frame.contentWindow));
+  frame.src = opts.url;
   await ready;
   window.__bridge = bridge;
   return true;

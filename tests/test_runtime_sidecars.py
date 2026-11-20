@@ -1,10 +1,9 @@
-"""Sidecar entrypoints: warm pool front socket, depot watcher, inspector server, distill job."""
+"""Sidecar entrypoints: warm pool front socket, depot watcher, distill job."""
 
 from __future__ import annotations
 
 import asyncio
 import glob
-import http.client
 import json
 import os
 import signal
@@ -13,7 +12,6 @@ import stat
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from pathlib import Path
 
@@ -23,7 +21,6 @@ import pytest
 from antigravity3d.adapters.blender_5_3.pool import BlenderOpError
 from antigravity3d.runtime import distill_job
 from antigravity3d.runtime.depot_watcher import DepotWatcher, agentapi_trigger, build_prompt
-from antigravity3d.runtime.inspector_server import make_server
 from antigravity3d.runtime.worker_daemon import PoolClient
 
 REPO = Path(__file__).resolve().parents[1]
@@ -247,75 +244,18 @@ def test_depot_watcher_process_end_to_end(tmp_path):
         assert proc.wait(timeout=10) == 0
 
 
-# --------------------------------------------------------------------------- inspector_server
+# --------------------------------------------------------------------------- inspector (now an MCP App)
+# The localhost HTTP sidecar that served inspector pages to the side pane is retired: the studio MCP
+# server serves the inspector as an MCP App (tests/test_mcp_server.py, tests/test_inspector.py).
 
 
-@pytest.fixture()
-def inspector(tmp_path):
-    root = tmp_path / "viewers"
-    root.mkdir()
-    (root / "crate.html").write_text("<html>crate viewer</html>")
-    (root / ".secret.html").write_text("hidden")
-    (tmp_path / "secret.txt").write_text("TOP SECRET")
-    (root / "escape.html").symlink_to(tmp_path / "secret.txt")
-    srv = make_server(root, port=0)
-    t = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
-    t.start()
-    yield srv
-    srv.shutdown()
-    srv.server_close()
+def test_inspector_is_served_by_the_mcp_server_not_a_sidecar():
+    from antigravity3d.plugin_install import bundle_dir
+    from antigravity3d.runtime import inspector_server
 
-
-def _get(srv, path: str) -> tuple[int, bytes]:
-    conn = http.client.HTTPConnection("127.0.0.1", srv.server_address[1], timeout=5)
-    conn.putrequest("GET", path, skip_accept_encoding=True)  # raw path, no client-side normalisation
-    conn.endheaders()
-    r = conn.getresponse()
-    body = r.read()
-    conn.close()
-    return r.status, body
-
-
-def test_inspector_serves_and_lists_files(inspector):
-    assert inspector.server_address[0] == "127.0.0.1"
-    status, body = _get(inspector, "/crate.html")
-    assert status == 200 and body == b"<html>crate viewer</html>"
-    status, body = _get(inspector, "/")
-    assert status == 200 and b"crate.html" in body and b".secret" not in body
-    status, body = _get(inspector, "/api/list")
-    assert status == 200 and [i["name"] for i in json.loads(body)] == ["crate.html"]
-
-
-@pytest.mark.parametrize("path", ["/../secret.txt", "/%2e%2e/secret.txt", "/a/../../secret.txt",
-                                  "/..%2fsecret.txt", "/.secret.html", "/escape.html"])
-def test_inspector_rejects_traversal(inspector, path):
-    status, body = _get(inspector, path)
-    assert status in (403, 404) and b"TOP SECRET" not in body and b"hidden" not in body
-
-
-def test_inspector_binds_loopback_only(tmp_path):
-    with pytest.raises(ValueError):
-        make_server(tmp_path, host="0.0.0.0")
-
-
-def test_inspector_process_uses_injected_port(tmp_path):
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-    (tmp_path / "v.html").write_text("ok")
-    env = {**os.environ, "PYTHONPATH": str(REPO / "src"), "ANTIGRAVITY_SIDECAR_WEB_PORT": str(port),
-           "AGY3D_INSPECTOR_DIR": str(tmp_path)}
-    proc = subprocess.Popen([sys.executable, "-m", "antigravity3d.runtime.inspector_server"], env=env,
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    try:
-        assert proc.stdout is not None and f"127.0.0.1:{port}" in proc.stdout.readline()
-        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-        conn.request("GET", "/v.html")
-        assert conn.getresponse().read() == b"ok"
-        conn.close()
-    finally:
-        proc.send_signal(signal.SIGTERM)
-        assert proc.wait(timeout=10) == 0
+    assert not (bundle_dir() / "sidecars" / "inspector").exists()
+    assert not hasattr(inspector_server, "make_server")  # no HTTP server left
+    assert inspector_server.APP_URI.startswith("ui://") and inspector_server.APP_MIME == "text/html;profile=mcp-app"
 
 
 # --------------------------------------------------------------------------- distill_job

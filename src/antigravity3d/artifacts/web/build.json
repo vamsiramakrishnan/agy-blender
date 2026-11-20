@@ -1,6 +1,6 @@
 {
   "schema": "antigravity3d.inspector_build/1",
-  "inputs_sha256": "f00a77fd475dd90434c63526c29bd5e05cf55b25defaeaacc53ba6e205df71e5",
+  "inputs_sha256": "a59e7993df4574b6e420d8be8456b1f4500f2b42194e05ed28ff90f6235827bb",
   "inputs": [
     "apps/inspector/build.mjs",
     "apps/inspector/package-lock.json",
@@ -14,20 +14,20 @@
   ],
   "outputs": {
     "src/antigravity3d/artifacts/web/inspector_app.html": {
-      "sha256": "ce74be80868af44c27ed55040d659feb05362aa3c1b6ffe67869e2465f080197",
-      "bytes": 1372394
+      "sha256": "34983300f0b5eb856fb842381b51f772f6f880a69fcc14f7c0f9fc40f15dc85a",
+      "bytes": 1372456
     },
     "src/antigravity3d/artifacts/web/inspector_standalone.js": {
-      "sha256": "4bcf58ff1841c1f77020381a1e5e0c02110ad3d64e3672e16be0d85ee522f82e",
-      "bytes": 25373
+      "sha256": "b9f1334da2f36d99c0c3419ce878b12fff78dd1056a95b3c609eeea2e4de4c3a",
+      "bytes": 25435
     },
     "src/antigravity3d/artifacts/web/THIRD_PARTY_NOTICES.txt": {
       "sha256": "44096c956ae96dc1c3caff345afbcb5a2a6d25fba7dbea1b08ba686b318148a2",
       "bytes": 45223
     },
-    "apps/inspector/test-host/dist/host.bundle.js": {
-      "sha256": "babcc7266a02c897b5f607c69abfdba24d3b0537c438fdb70616ad6f6840f343",
-      "bytes": 667254
+    "apps/inspector/test-host/host.bundle.js": {
+      "sha256": "54d5ccea1b7d2a6e676d4b6dc0c6a1bfdda4e371c3190417c8262dc65eac4fb5",
+      "bytes": 667193
     }
   },
   "toolchain": {

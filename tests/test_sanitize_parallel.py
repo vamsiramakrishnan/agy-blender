@@ -71,6 +71,18 @@ async def test_rows_follow_input_order_whatever_the_completion_order(tmp_path: P
 
 
 @posix_only
+async def test_largest_files_start_first_but_rows_stay_in_input_order(tmp_path: Path) -> None:
+    sizes = {"s.ply": 0, "m.ply": 2, "l.ply": 3}  # input order: small, medium, large
+    for n, sub in sizes.items():
+        trimesh.creation.icosphere(subdivisions=sub).export(tmp_path / n)
+    files = [tmp_path / n for n in sizes]
+    rep = await BatchSanitizeDAG(workdir=tmp_path / "o", budget=UE, max_parallel=1).run(files)
+    start = {n: rep.nodes[f"file:{n.replace('.', '_')}"].start_ms for n in sizes}
+    assert start["l.ply"] < start["m.ply"] < start["s.ply"]
+    assert [Path(r["file"]).name for r in rep.extras["rows"]] == list(sizes) and all(r["status"] == "ok" for r in rep.extras["rows"])
+
+
+@posix_only
 @pytest.mark.parametrize("which, how", [("segv", "SIGSEGV"), ("exit", "exit code 3")])
 async def test_a_worker_crash_fails_only_that_file_and_the_pool_recovers(tmp_path: Path, which: str, how: str) -> None:
     files = meshes(tmp_path, "a.ply", f"b_{which}.ply", "c.ply", "d.ply")

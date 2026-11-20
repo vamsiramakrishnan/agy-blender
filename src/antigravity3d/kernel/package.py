@@ -316,7 +316,7 @@ def _glb_materials(stage: Usd.Stage, meshes: list[MeshData], out: Path, records:
 
 _GEOMETRY_PROPS = frozenset({
     "points", "faceVertexCounts", "faceVertexIndices", "extent", "normals", "primvars:st", "primvars:st:indices",
-    "primvars:normals", "agy:uvWeldMap",
+    "primvars:normals", "agy:uvWeldMap", "agy:uvChart",  # per-vertex / per-face data of LOD0 only
 })
 
 
@@ -539,6 +539,10 @@ def write_engine_package(
         "tris": sum(len(u.triangles) for u in uvs),
         "lod_levels": max(glb_levels, len(lod_tris)),
         "lod_tris": lod_tris,
+        # largest screen fraction (bounding-sphere diameter / frame height) each level is shown at (LOD0: 1.0);
+        # levels are generated to lod_diff's screen-space error budget, so a level exists only where it pays off
+        "lod_screen_fractions": [round(float(getattr(lods[n][i], "screen_fraction", 1.0)), 6) if i else 1.0
+                                 for i in range(len(lod_tris)) for n in [next(iter(lods))]] if lods else [1.0],
         "lod_structure": f"variantSet '{LOD_SET}' on /{asset.GetName()}: LOD0 (base) .. LOD{len(lod_tris) - 1}" if len(lod_tris) > 1 else None,
         "draw_calls": len(batches),
         "glb_batches": batches,

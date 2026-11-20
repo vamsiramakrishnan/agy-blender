@@ -18,8 +18,20 @@ from antigravity3d.kernel.raster import BG, Camera, View, _basis, render_buffers
 from antigravity3d.kernel.types import MeshData
 
 # screen-size thresholds at which LOD k stops being used: LOD0 down to 50%, LOD1 down to 25%, ...
+# These are also the *candidate* switch points of the generator (fast_ops.generate_asset_lods): a level is
+# shown from its screen fraction down to the next level's, so it must be acceptable at its own fraction.
 LOD_SCREEN_FRACTIONS = (1.0, 0.5, 0.25, 0.1)
 DEFAULT_FOV_DEG = 60.0
+# Screen-space error budget, one definition for the generator and the checker: a level may deviate from LOD0
+# by at most LOD_MAX_ERROR_PX pixels of a LOD_REFERENCE_SCREEN_PX-tall frame at the largest size it is shown.
+LOD_REFERENCE_SCREEN_PX = 1080
+LOD_MAX_ERROR_PX = 1.0
+# Smallest switch fraction the generator considers (a 27 px tall object on a 1080 px frame); candidates continue
+# LOD_SCREEN_FRACTIONS by halving (default_transitions), so far levels exist where the near ones save nothing.
+LOD_MIN_SCREEN_FRACTION = 0.025
+# A level is emitted only when it removes at least this share of the previous level's triangles; a smaller
+# saving does not pay for another mesh in memory, another file and another visible switch.
+LOD_MIN_REDUCTION = 0.25
 LABEL_H = 16
 CROP_MARGIN = 0.15      # of the union bbox, each side
 
@@ -28,6 +40,32 @@ def transition_distance(bounds_radius_m: float, screen_fraction: float, fov_deg:
     """Camera distance at which a bounding sphere of this radius spans `screen_fraction` of the
     frame height: 2R = f * 2 d tan(fov/2)  =>  d = R / (f tan(fov/2))."""
     return bounds_radius_m / (screen_fraction * math.tan(math.radians(fov_deg) / 2))
+
+
+def lod_error_budget_m(bounds_radius_m: float, screen_fraction: float, *, error_px: float = LOD_MAX_ERROR_PX,
+                       screen_px: float = LOD_REFERENCE_SCREEN_PX) -> float:
+    """Geometric error (metres) that projects to ``error_px`` pixels when the object's bounding sphere spans
+    ``screen_fraction`` of a ``screen_px``-tall frame. At :func:`transition_distance` the frame shows
+    f * screen_px pixels across the sphere's diameter 2R, so e_px = e_m * f * screen_px / (2R) for any fov."""
+    return error_px * 2.0 * bounds_radius_m / (screen_fraction * screen_px)
+
+
+def lod_transitions(lods: Sequence[Any]) -> tuple[float, ...]:
+    """Switch fractions of a chain: each level's own ``screen_fraction`` when it carries one (levels made by
+    the error-budget generator skip fractions whose level would not have paid off), else the default table."""
+    own = [getattr(lod, "screen_fraction", None) for lod in lods[1:]]
+    if own and all(isinstance(f, (int, float)) and 0 < f <= 1 for f in own):
+        return tuple(float(f) for f in own)  # type: ignore[arg-type]
+    return default_transitions(len(lods))
+
+
+def lod_candidate_fractions() -> tuple[float, ...]:
+    """Screen fractions at which the generator tries a level: 1.0 (LOD0), then default_transitions() down to
+    LOD_MIN_SCREEN_FRACTION."""
+    n = 2
+    while default_transitions(n + 1)[-1] >= LOD_MIN_SCREEN_FRACTION - 1e-12:
+        n += 1
+    return (1.0, *default_transitions(n))
 
 
 def default_transitions(n_lods: int) -> tuple[float, ...]:
@@ -207,8 +245,9 @@ def lod_pop_report(
     transitions: Sequence[float] | None = None,
     fov_deg: float = DEFAULT_FOV_DEG,
 ) -> LodPopReport:
-    """Pop metrics for every adjacent pair, camera framed on lods[0] at each switch's screen fraction."""
-    fr = tuple(transitions) if transitions is not None else default_transitions(len(lods))
+    """Pop metrics for every adjacent pair, camera framed on lods[0] at each switch's screen fraction
+    (the levels' own ``screen_fraction`` when they carry one, see :func:`lod_transitions`)."""
+    fr = tuple(transitions) if transitions is not None else lod_transitions(lods)
     pairs, rows = [], []
     for i, f in enumerate(fr):
         p = render_lod_pair(lods[i], lods[i + 1], screen_fraction=f, size=size, view=view, fov_deg=fov_deg, reference=lods[0])

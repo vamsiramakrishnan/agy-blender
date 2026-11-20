@@ -148,12 +148,14 @@ def test_output_budget_table_fits_each_model_and_measured_usage():
     for role, out in AUTHOR_OUTPUT_BUDGETS.items():
         mt = tier(role)
         key = f"{mt.model}/{mt.thinking.value}"
-        assert out.max_output_tokens <= MODEL_OUTPUT_TOKEN_LIMIT[mt.model], role
+        limit = MODEL_OUTPUT_TOKEN_LIMIT[mt.model]
+        assert out.max_output_tokens <= limit, role
         thinking, answer = MEASURED_THINKING_TOKENS[key], MEASURED_ANSWER_TOKENS[key]
-        assert out.thinking_tokens >= 2 * max(thinking), (role, thinking)
-        assert out.answer_tokens >= 1.4 * max(answer), (role, answer)
-        # the measured worst case (largest answer + largest thinking) fits the cap with headroom
-        assert out.max_output_tokens >= 1.7 * (max(answer) + max(thinking)), role
+        worst = max(answer) + max(thinking)
+        assert out.max_output_tokens > worst, role
+        assert out.max_output_tokens >= min(limit, 1.7 * worst), role
+        if out.max_output_tokens < limit:  # below the model limit: demand headroom on both parts
+            assert out.thinking_tokens >= 2 * max(thinking) and out.answer_tokens >= 2 * max(answer), role
     by = {r: AUTHOR_OUTPUT_BUDGETS[r].max_output_tokens for r in ("worker", "builder", "director")}
     assert by["worker"] < by["builder"] <= by["director"]  # a hero call is never sized by a worker-tier assumption
 

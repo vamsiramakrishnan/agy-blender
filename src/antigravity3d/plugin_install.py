@@ -14,8 +14,10 @@ customization root such as ``<workspace>/.agents/`` (workspace scope) or
 ``sidecar.json`` files match the vendored schema (``runtime/sidecar.schema.json``),
 ``mcp_config.json`` (documented stdio / Streamable HTTP fields, ``mcp(<plugin>_<server>/<tool>)`` grants),
 ``SKILL.md`` / agent / rule frontmatter, ``hooks.json`` structure and that the
-scripts it runs exist, and that workflow scripts pass
-``google.antigravity.workflows.validate_workflow_source``.
+scripts it runs exist, that workflow scripts pass
+``google.antigravity.workflows.validate_workflow_source``, and that the MCP App
+metadata the studio server declares (``ui://`` resources, tool ``_meta.ui`` and
+entrypoints) follows the rules the host enforces ("# Developing MCP Apps").
 """
 
 from __future__ import annotations
@@ -349,6 +351,8 @@ def _check_mcp_config(plugin_dir: Path, cfg: Any, plugin_name: str) -> list[str]
             env = sc.get("env", {})
             if not isinstance(env, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in env.items()):
                 errs.append(f"{where}: env must map strings to strings")
+            if isinstance(args, list) and STUDIO_SERVER_MODULE in args:
+                errs += [f"{where}: {e}" for e in _check_mcp_apps()]
         elif remote and not str(sc.get("url") or sc.get("serverUrl") or "").startswith(("http://", "https://")):
             errs.append(f"{where}: url must be an http(s) URL")
     namespaced = {f"{plugin_name}_{n}" for n in servers}
@@ -364,6 +368,28 @@ def _check_mcp_config(plugin_dir: Path, cfg: Any, plugin_name: str) -> list[str]
                     errs.append(f"{sc_file.relative_to(plugin_dir)}: grant {g!r} must be mcp(<plugin>_<server>/<tool>) "
                                 f"with a server from mcp_config.json ({sorted(namespaced)})")
     return errs
+
+
+STUDIO_SERVER_MODULE = "antigravity3d.runtime.mcp_server"
+
+
+def _check_mcp_apps() -> list[str]:
+    """Builds the studio MCP server in-process and checks its MCP App ``_meta`` and ``ui://`` resources."""
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    from mcp.server.mcpserver import MCPServer
+
+    from antigravity3d.runtime.inspector_server import ui_meta_problems
+    from antigravity3d.runtime.mcp_server import build_server
+
+    async def listing() -> tuple[list[Any], list[Any]]:
+        server = build_server()
+        return await MCPServer.list_tools(server), await server.list_resources()  # every tool, not the stage view
+
+    with ThreadPoolExecutor(1) as pool:  # validate() may run inside an event loop
+        tools, resources = pool.submit(asyncio.run, listing()).result()
+    return ui_meta_problems([(t.name, t.meta) for t in tools], [(str(r.uri), r.mime_type) for r in resources])
 
 
 def validate(plugin_dir: Path) -> list[str]:

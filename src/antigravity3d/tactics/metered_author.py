@@ -51,17 +51,21 @@ class OutputBudget:
 
 # ``max_output_tokens`` per authoring role = answer budget + thinking allowance for the role's thinking level. Both
 # operations use the role's row: a repair may restate up to the whole scene. Measured 2026-11-20 on the propose request
-# (prompt "wooden crate with iron corner brackets", schema-constrained, cap not reached, finish STOP, valid SceneIR):
+# (prompt "wooden crate with iron corner brackets", schema-constrained; every sample finished STOP with a valid SceneIR):
 #
-#   role      model             level   answer tokens (nodes)   thinking tokens            -> answer + thinking = cap
-#   worker    gemini-4-hydrogen low        664 (9)              804-1,119 (5 samples)      ->  8,192 +  8,192 = 16,384
-#   bulk      gemini-4-neon     low      1,919 (25)             1,374-1,707 (4 samples)    ->  8,192 +  8,192 = 16,384
-#   builder   gemini-4-carbon   medium  11,178 (138)            7,642                      -> 16,384 + 16,384 = 32,768
-#   director  gemini-4-argon    high    11,208 (112)            7,179                      -> 16,384 + 16,384 = 32,768
+#   role      model             level   answer tokens (nodes)              thinking tokens        -> answer + thinking
+#   worker    gemini-4-hydrogen low     664-1,143 (9), 4 samples           804-1,119, 8 samples   ->  8,192 +  8,192
+#   bulk      gemini-4-neon     low     1,799-1,919 (25-26), 3 samples     1,374-1,707, 6 samples ->  8,192 +  8,192
+#   builder   gemini-4-carbon   medium  10,110-12,189 (132-146), 3 samples 7,642-13,244           -> 16,384 + 16,384
+#   director  gemini-4-argon    high    6,337-11,208 (78-112), 2 samples   7,155-7,179            -> 16,384 + 16,384
 #
-# Headroom: LOW tiers get >= 4x the largest answer and >= 4.8x the largest thinking seen. Carbon and argon are bounded
-# by their output_token_limit (32,768): their cap is the model maximum, giving 1.46x the answer and >= 2.1x the
-# thinking seen. A hero (director) call is sized by argon's own measurement, never by a worker-tier figure.
+# Headroom: the LOW tiers get >= 4.3x the largest answer and >= 4.8x the largest thinking seen (cap 16,384 of the
+# model's 65,536). carbon and argon are bounded by their output_token_limit (32,768), so their cap IS the model
+# maximum; the answer/thinking split there is nominal (both share one cap). carbon's worst observed sample used 25,433
+# (78% of the cap): a residual truncation risk that no larger request can remove, surfaced as AuthorTruncated.
+# A hero (director) call is sized by argon's own measurement and limit, never by a worker-tier figure.
+# Wall time grows with the answer: carbon took 200-209 s and argon 128-233 s for a full answer (one argon call hit a
+# 504 DEADLINE_EXCEEDED at the 300 s request timeout), so callers' timeout_s must allow for it.
 # Repairs (hydrogen, 2 flagged nodes): 92 answer + 515 thinking tokens.
 AUTHOR_OUTPUT_BUDGETS: dict[str, OutputBudget] = {
     "worker": OutputBudget(answer_tokens=8_192, thinking_tokens=8_192),
@@ -69,18 +73,19 @@ AUTHOR_OUTPUT_BUDGETS: dict[str, OutputBudget] = {
     "builder": OutputBudget(answer_tokens=16_384, thinking_tokens=16_384),
     "director": OutputBudget(answer_tokens=16_384, thinking_tokens=16_384),
 }
-# Raw evidence behind the table: thoughts_token_count / answer tokens per model and level on the propose request.
+# Raw evidence behind the table (propose request). Older hydrogen/neon thinking samples were taken without a response
+# schema (benchmarks/results/live.json); answer sizes only from schema-constrained responses.
 MEASURED_THINKING_TOKENS: dict[str, tuple[int, ...]] = {
-    "gemini-4-hydrogen/low": (856, 944, 1119, 804, 1072),
-    "gemini-4-neon/low": (1374, 1471, 1707, 1401),
-    "gemini-4-carbon/medium": (7642,),
-    "gemini-4-argon/high": (7179,),
+    "gemini-4-hydrogen/low": (856, 944, 1119, 804, 1072, 940, 1082, 880),
+    "gemini-4-neon/low": (1374, 1471, 1707, 1401, 1482, 1704),
+    "gemini-4-carbon/medium": (7642, 10649, 13244),
+    "gemini-4-argon/high": (7179, 7155),
 }
 MEASURED_ANSWER_TOKENS: dict[str, tuple[int, ...]] = {
-    "gemini-4-hydrogen/low": (664,),
-    "gemini-4-neon/low": (1919,),
-    "gemini-4-carbon/medium": (11178,),
-    "gemini-4-argon/high": (11208,),
+    "gemini-4-hydrogen/low": (664, 1143, 1132, 1135),
+    "gemini-4-neon/low": (1919, 1799, 1902),
+    "gemini-4-carbon/medium": (11178, 12189, 10110),
+    "gemini-4-argon/high": (11208, 6337),
 }
 # models.get(...).output_token_limit on this key, 2026-11-20.
 MODEL_OUTPUT_TOKEN_LIMIT = {HYDROGEN: 65_536, NEON: 65_536, CARBON: 32_768, ARGON: 32_768}

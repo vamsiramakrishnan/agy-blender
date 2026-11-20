@@ -85,7 +85,7 @@ These numbers illustrate the input format. `agy3d benchmark cohort.json` reports
 | 3. Decisions and image generation | `src/antigravity3d/decisions/`, `src/antigravity3d/genmedia/` | Routes questions to the Decisions API under calibrated thresholds; generates images and derives PBR maps. |
 | 4. Tactics and pipelines | `src/antigravity3d/tactics/`, `src/antigravity3d/dags/` | Refinement, tournaments, caching and budgets, plus the DAGs that run whole pipelines. |
 
-Also in the package: `runtime/` holds the sidecar entrypoints for the plugin (MCP server, depot watcher, inspector server, weekly distillation, Blender pool daemon). `artifacts/` builds the inspector HTML. `ir.py` defines the Scene/Asset IR and `state.py` the session state shared by tools and hooks. `models.py` holds the model tier table, `cli.py` the `agy3d` command, and `plugin_install.py` the plugin installer.
+Also in the package: `runtime/` holds the entrypoints for the plugin (MCP server and its inspector MCP App, depot watcher, weekly distillation, Blender pool daemon). `artifacts/` builds the inspector HTML. `ir.py` defines the Scene/Asset IR and `state.py` the session state shared by tools and hooks. `models.py` holds the model tier table, `cli.py` the `agy3d` command, and `plugin_install.py` the plugin installer.
 
 Main modules, from the module docstrings:
 
@@ -178,9 +178,10 @@ Run `agy3d models` to print the effective table after overrides.
 - **Skills:** `concept-to-blueprint`, `parametric-kitbash`, `pbr-material-forge`, `game-ready-sanitizer` and `engine-truth-verify`.
 - **Subagents:** `agents/usd_verifier.md` (read-only QA gate) and `agents/lookdev_critic.md` (visual critic).
 - **Hooks:** `hooks.json` with four scripts in `hooks/scripts/`. They block export until Tier-1 QA passes, record tool telemetry, add a session-start budget message, and stop the agent from finishing while QA is unmet.
-- **Sidecars:** `blender_pool`, `depot_watcher`, `inspector` (a side-pane panel) and two scheduled automations: `nightly_variant_factory` (daily at 02:17 UTC) and `weekly_distill` (Sundays at 03:43 UTC).
+- **Sidecars:** `blender_pool`, `depot_watcher` and two scheduled automations: `nightly_variant_factory` (daily at 02:17 UTC) and `weekly_distill` (Sundays at 03:43 UTC).
 - **Workflow script:** `workflows/batch_sanitize.py`, run with `run_workflow`.
 - **MCP server:** `mcp_config.json` registers the stdio server `studio` (`antigravity3d.runtime.mcp_server`). The harness exposes it as `antigravity-3d_studio`.
+- **MCP App:** the same server serves the 3D review inspector as an MCP App (`open_inspector`; inline or from the side pane "+" menu). Review notes are saved with the asset session, reach the agent through `updateModelContext` and the `review_notes` tool, and are marked stale, not dropped, after an edit. The front end lives in `apps/inspector` (rebuild with `npm ci && npm run build`; the built document is committed and a test fails when it is stale). The standalone `inspector.html` in each package is the same front end.
 
 Install and validate:
 

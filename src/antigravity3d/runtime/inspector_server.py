@@ -321,7 +321,9 @@ class InspectorService:
             directives["colliders"] = bool(colliders)
         notes = self._counts(self._notes(s, v))
         qa = qa_state(s)
-        textured = bool(p["textures"])
+        derived = any(m["uv"] for m in p["meshes"])  # the export bundle (UVs, LODs, hulls) exists for this geometry
+        tex_note = (f"{len(p['textures'])} textured materials" if p["textures"] else "none") if derived else \
+            "not yet (generate_lods_and_colliders derives UVs, LODs and hulls)"
         summary = {
             "schema": VIEW_SCHEMA, "session_id": s.sid, "asset": p["asset_name"], "engine": p["budget"]["target_engine"],
             "stage": s.toolset, "revision": v.revision, "budget": p["budget"],
@@ -335,7 +337,7 @@ class InspectorService:
         shown = " ".join(f"{k}={'*' if val is None else val}" for k, val in directives.items())
         text = (f"INSPECTOR {s.sid} asset={p['asset_name']} rev={v.revision} nodes={len(p['meshes'])} "
                 f"tris={p['summary']['tris']} lods={len(p['lods'])} colliders={len(p['colliders'])} "
-                f"textures={'yes' if textured else 'no (run generate_lods_and_colliders for UVs/LODs/hulls)'} "
+                f"textures={tex_note} "
                 f"notes={notes['current']} current, {notes['stale']} stale" + (f" | view {shown}" if shown else ""))
         return _result(text, summary)
 
