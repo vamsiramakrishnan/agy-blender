@@ -523,7 +523,7 @@ def read_material(mat: UsdShade.Material, *, double_sided: bool | None = None) -
         maps["orm"] = orm
     opacity = get(shader, "opacity", 1.0)
     threshold = get(shader, "opacityThreshold", 0.0)
-    wired_alpha = (hit := source(shader, "opacity")) is not None and hit[1].endswith("outputs:a")
+    wired_alpha = (hit := source(shader, "opacity")) is not None and str(hit[1]).split(":")[-1] == "a"
     mode = get(mat, "alpha_mode", "")
     if mode not in ("OPAQUE", "MASK", "BLEND"):
         mode = "MASK" if threshold > 0 else ("BLEND" if opacity < 1.0 or source(shader, "opacity") else "OPAQUE")

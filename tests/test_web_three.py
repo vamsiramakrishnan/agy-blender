@@ -655,3 +655,182 @@ def test_browser_axis_error_in_the_glb_is_still_caught(name, quat, l_packages, t
     failed = _failed(rep)
     assert not rep.ok and rep.silhouette_iou < MIN_SILHOUETTE_IOU, rep.summary()
     assert "silhouette IoU vs reference" in failed and "loaded bounds == manifest glb_bounds_m (Y-up)" in failed
+
+
+# --------------------------------------------------------------------------- material inventory and silhouette (glTF PBR parameters)
+
+
+def _rec(name="m", **over):
+    rec = {"name": name, "base_color_factor": [0.5, 0.5, 0.5, 1.0], "metallic_factor": 0.0, "roughness_factor": 0.5,
+           "emissive_factor": [0.0, 0.0, 0.0], "alpha_mode": "OPAQUE", "alpha_cutoff": None, "double_sided": False,
+           "extensions": {}, "texture_slots": []}
+    rec.update(over)
+    return rec
+
+
+def _loaded(rec, **over):
+    """What the three.js page reports for ``rec`` when the loader did exactly what glTF says."""
+    exp = W.expected_runtime_params(rec)
+    ext = rec["extensions"]
+    params = {"color": exp["color"], "opacity": exp["opacity"], "alphaTest": exp["alphaTest"], "emissive": exp["emissive"],
+              "emissiveIntensity": exp["emissiveIntensity"], "physical": bool(ext), "clearcoat": exp["clearcoat"] if ext else None,
+              "clearcoatRoughness": exp["clearcoatRoughness"] if ext else None, "transmission": exp["transmission"] if ext else None,
+              "ior": exp["ior"] if ext else None, "sheen": exp["sheen"] if ext else None,
+              "sheenColor": exp.get("sheenColor"), "sheenRoughness": exp.get("sheenRoughness"),
+              "specularIntensity": exp["specularIntensity"] if ext else None, "specularColor": exp["specularColor"] if ext else None}
+    m = {"name": rec["name"], "type": "MeshStandardMaterial", "fallback_default": False, "missing_slots": [], "declared": [], "slots": {},
+         "metalness": rec["metallic_factor"], "roughness": rec["roughness_factor"], "doubleSided": rec["double_sided"],
+         "transparent": rec["alpha_mode"] == "BLEND", "params": params}
+    m.update(over)
+    return m
+
+
+def _inv_check(recs, loaded):
+    raw = _canned_raw()
+    raw["main"]["materials"] = loaded
+    man = _canned_manifest(textures=[], materials=recs)
+    return _run_eval(raw=raw, manifest=man)[0]["loaded materials == manifest material inventory (parameters and bound slots)"]
+
+
+def test_inventory_check_passes_when_the_loader_did_what_gltf_says() -> None:
+    glass = _rec("glass", extensions={"KHR_materials_transmission": {"transmissionFactor": 0.9}, "KHR_materials_ior": {"ior": 1.45}},
+                 double_sided=True)
+    leaf = _rec("leaf", alpha_mode="MASK", alpha_cutoff=0.4)
+    lamp = _rec("lamp", emissive_factor=[1, 0.5, 0], extensions={"KHR_materials_emissive_strength": {"emissiveStrength": 4.0}})
+    plain = _rec("plain")
+    recs = [glass, leaf, lamp, plain]
+    assert _inv_check(recs, [_loaded(r) for r in recs]).status == "pass"
+
+
+@pytest.mark.parametrize("rec,over,needle", [
+    (_rec("g", extensions={"KHR_materials_transmission": {"transmissionFactor": 0.9}}), {"params_edit": ("transmission", 0.1)}, "transmission"),
+    (_rec("l", alpha_mode="MASK", alpha_cutoff=0.4), {"params_edit": ("alphaTest", 0.5)}, "alphaTest"),
+    (_rec("e", emissive_factor=[1, 0, 0]), {"params_edit": ("emissive", [0, 0, 0])}, "emissive"),
+    (_rec("d", double_sided=True), {"doubleSided": False}, "doubleSided"),
+    (_rec("b", alpha_mode="BLEND"), {"transparent": False}, "transparent"),
+])
+def test_inventory_check_fails_naming_the_parameter(rec, over, needle) -> None:
+    over = dict(over)
+    loaded = _loaded(rec)
+    if "params_edit" in over:
+        k, v = over.pop("params_edit")
+        loaded["params"] = {**loaded["params"], k: v}
+    loaded.update(over)
+    check = _inv_check([rec], [loaded])
+    assert check.status == "fail" and needle in check.detail, check
+
+
+def test_inventory_check_fails_for_missing_extra_and_unbound_slots() -> None:
+    assert "not loaded" in _inv_check([_rec("a")], [_loaded(_rec("b"))]).detail
+    assert "not in the manifest" in _inv_check([], [_loaded(_rec("b"))]).detail
+    rec = _rec("t", texture_slots=["emissiveTexture"])
+    check = _inv_check([rec], [_loaded(rec)])  # the loader bound no emissiveMap
+    assert check.status == "fail" and "emissiveMap" in check.detail
+
+
+def test_transmission_draw_calls_are_counted_on_the_material_free_pass() -> None:
+    rec = _rec("g", extensions={"KHR_materials_transmission": {"transmissionFactor": 0.9}})
+    raw = _canned_raw(mask_draw_calls=1)
+    raw["main"]["materials"] = [_loaded(rec)]
+    raw["render"]["draw_calls"] = 3  # three.js drew the opaque objects again into its transmission buffer
+    checks, _ = _run_eval(raw=raw, manifest=_canned_manifest(textures=[], materials=[rec]))
+    assert checks["rendered draw calls == manifest draw_calls"].status == "pass"
+    raw["mask_draw_calls"] = 2
+    checks, _ = _run_eval(raw=raw, manifest=_canned_manifest(textures=[], materials=[rec]))
+    assert checks["rendered draw calls == manifest draw_calls"].status == "fail"
+
+
+def test_silhouette_and_framing_are_judged_on_the_geometry_pass_not_on_alpha() -> None:
+    """A glass or cut-out asset leaves holes in the beauty frame's alpha; the geometry pass decides the silhouette."""
+    holes = np.asarray(Image.open(io.BytesIO(_frame()))).copy()
+    holes[150:350, 150:350, 3] = 0  # the material discards the middle of the object
+    buf = io.BytesIO()
+    Image.fromarray(holes, "RGBA").save(buf, "PNG")
+    checks, iou = W.evaluate(_canned_raw(), [], [], [], _canned_manifest(), buf.getvalue(), _frame(), mask_png=_frame())
+    assert iou == 1.0 and all(c.status == "pass" for c in checks), [str(c) for c in checks if c.status != "pass"]
+    _, iou_alpha = W.evaluate(_canned_raw(), [], [], [], _canned_manifest(), buf.getvalue(), _frame())  # legacy: alpha only
+    assert iou_alpha < MIN_SILHOUETTE_IOU
+
+
+def _pbr_package(tmp_path, materials, name="Mat"):
+    """A one-box GLB from the package's writer with ``materials`` ({name: GltfMaterial}), its inventory and reference."""
+    from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMesh, TextureRef, build_glb  # noqa: F401
+    from antigravity3d.kernel.package import material_inventory
+
+    tm = trimesh.creation.box((1.0, 0.8, 0.6), transform=trimesh.transformations.translation_matrix((0, 0.4, 0)))
+    pos = np.asarray(tm.vertices[tm.faces].reshape(-1, 3), np.float32)
+    tri = np.arange(len(pos), dtype=np.uint32).reshape(-1, 3)
+    nrm = np.repeat(np.asarray(tm.face_normals, np.float32), 3, axis=0)
+    uv = np.tile(np.array([[0, 0], [1, 0], [1, 1]], np.float32), (len(tri), 1))
+    material = materials
+    mesh = GltfMesh("body", pos, tri, uvs=uv, material=material, normals=nrm)
+    inv = material_inventory({"body": material})
+    man = _manifest(tm, draw_calls=1, glb_batches={"body": ["body"]}, textures=[], materials=inv)
+    return _write_pkg(tmp_path, build_glb([mesh]), man, name), tm, man
+
+
+def _alpha_png(seed=9) -> bytes:
+    rng = np.random.default_rng(seed)
+    a = rng.integers(40, 255, (32, 32, 4), dtype=np.uint8)
+    a[..., 3] = np.where((np.arange(32)[:, None] // 4 + np.arange(32)[None] // 4) % 2 == 0, 255, 0)
+    buf = io.BytesIO()
+    Image.fromarray(a, "RGBA").save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _material_cases():
+    from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, TextureRef
+
+    return {
+        "opaque": GltfMaterial(name="m", base_color_factor=(0.6, 0.5, 0.4, 1.0)),
+        "glass": GltfMaterial(name="m", base_color_factor=(0.9, 0.95, 1.0, 1.0), metallic_factor=0.0, roughness_factor=0.05, double_sided=True,
+                              extensions={"KHR_materials_transmission": {"transmissionFactor": 0.95}, "KHR_materials_ior": {"ior": 1.45}}),
+        "cutout": GltfMaterial(name="m", base_color_factor=(1, 1, 1, 1.0), metallic_factor=0.0, alpha_mode="MASK", alpha_cutoff=0.5,
+                               base_color_texture=TextureRef(EncodedImage.from_bytes(_alpha_png())), double_sided=True),
+        "blend": GltfMaterial(name="m", base_color_factor=(0.2, 0.6, 0.9, 0.3), metallic_factor=0.0, alpha_mode="BLEND"),
+        "emissive": GltfMaterial(name="m", base_color_factor=(0.05, 0.05, 0.05, 1.0), metallic_factor=0.0, emissive_factor=(1.0, 0.7, 0.2),
+                                 extensions={"KHR_materials_emissive_strength": {"emissiveStrength": 4.0}}),
+        "everything": GltfMaterial(name="m", base_color_factor=(0.5, 0.1, 0.1, 1.0), metallic_factor=0.0, roughness_factor=0.4,
+                                   extensions={"KHR_materials_clearcoat": {"clearcoatFactor": 1.0, "clearcoatRoughnessFactor": 0.1},
+                                               "KHR_materials_sheen": {"sheenColorFactor": [0.8, 0.7, 0.9], "sheenRoughnessFactor": 0.4},
+                                               "KHR_materials_specular": {"specularFactor": 0.5, "specularColorFactor": [0.9, 0.9, 1.0]}}),
+    }
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("case", ["opaque", "glass", "cutout", "blend", "emissive", "everything"])
+def test_browser_runtime_received_what_was_authored_and_silhouette_stays_geometric(case, runtime, tmp_path):
+    material = _material_cases()[case]
+    d, tm, man = _pbr_package(tmp_path, material)
+    rep = _verify(d, _reference(tm, man))
+    assert rep.ok, rep.summary()
+    inventory = rep.checks[[c.name for c in rep.checks].index("loaded materials == manifest material inventory (parameters and bound slots)")]
+    assert inventory.status == "pass", inventory
+    assert rep.silhouette_iou >= MIN_SILHOUETTE_IOU
+
+
+@pytest.mark.browser
+def test_browser_silhouette_iou_does_not_depend_on_the_material(runtime, tmp_path):
+    ious = {}
+    for case in ("opaque", "glass", "cutout", "blend"):
+        d, tm, man = _pbr_package(tmp_path / case, _material_cases()[case])
+        ious[case] = _verify(d, _reference(tm, man)).silhouette_iou
+    assert max(ious.values()) - min(ious.values()) < 1e-6, ious  # identical geometry, identical mask
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("case,edit,needle", [
+    ("glass", lambda m: m["extensions"]["KHR_materials_transmission"].update(transmissionFactor=0.2), "transmission"),
+    ("cutout", lambda m: m.update(alpha_cutoff=0.9), "alphaTest"),
+    ("emissive", lambda m: m.update(emissive_factor=[0.0, 0.0, 0.0]), "emissive"),
+    ("blend", lambda m: m.update(alpha_mode="OPAQUE"), "transparent"),
+    ("opaque", lambda m: m.update(double_sided=True), "doubleSided"),
+])
+def test_browser_a_manifest_that_misstates_the_material_fails(case, edit, needle, runtime, tmp_path):
+    d, tm, man = _pbr_package(tmp_path, _material_cases()[case])
+    on_disk = json.loads((d / "manifest.json").read_text())
+    edit(on_disk["materials"][0])
+    (d / "manifest.json").write_text(json.dumps(on_disk))
+    failed = _failed(_verify(d, _reference(tm, man)))
+    key = "loaded materials == manifest material inventory (parameters and bound slots)"
+    assert key in failed and needle in failed[key], failed

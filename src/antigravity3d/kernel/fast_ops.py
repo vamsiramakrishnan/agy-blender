@@ -25,6 +25,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Literal, Sequence
 
 import numpy as np
@@ -1517,6 +1518,83 @@ def generate_colliders(
 # --------------------------------------------------------------------------- export
 
 
+_gltf_default_material: list = []   # built on first use: gltf_writer is imported lazily, like the other exporters
+_gltf_untextured: list = []         # one weakly keyed {material: its factor-only copy}
+
+
+def gltf_default_material():
+    """The grey material a UV-mapped mesh gets when none is bound (one shared object: one glTF material)."""
+    if not _gltf_default_material:
+        from antigravity3d.kernel import gltf_writer as gw
+
+        _gltf_default_material.append(gw.GltfMaterial(name="Default", base_color_factor=(0.5, 0.5, 0.5, 1.0),
+                                                      metallic_factor=0.0, roughness_factor=0.5))
+    return _gltf_default_material[0]
+
+
+def _without_textures(value):
+    """``value`` (an extension payload) with every texture slot removed, at any depth."""
+    from antigravity3d.kernel import gltf_writer as gw
+
+    if isinstance(value, Mapping):
+        return {k: _without_textures(v) for k, v in value.items() if not isinstance(v, gw.TextureRef)}
+    return value
+
+
+def _untextured(material):
+    """Factor-only copy of a material for a mesh without UVs (a texture without TEXCOORD_0 is invalid glTF).
+
+    One copy per material object, so UV-less meshes of one material still share one glTF material. A material
+    with an albedo map carries a white base colour factor, so its copy is shown in neutral grey; factor-only
+    extension parameters (emission strength, clearcoat, transmission...) are kept, their texture slots are not.
+    """
+    import weakref
+    from dataclasses import replace
+
+    if not _gltf_untextured:
+        _gltf_untextured.append(weakref.WeakKeyDictionary())
+    cache = _gltf_untextured[0]
+    if material not in cache:
+        had_albedo = material.base_color_texture is not None
+        cache[material] = replace(
+            material, base_color_texture=None, metallic_roughness_texture=None, normal_texture=None,
+            occlusion_texture=None, emissive_texture=None, extensions=_without_textures(material.extensions),
+            base_color_factor=(0.72, 0.74, 0.76, 1.0) if had_albedo else tuple(material.base_color_factor))
+    return cache[material]
+
+
+def gltf_mesh(name: str, points: np.ndarray, triangles: np.ndarray, uvs: np.ndarray | None, material=None, *,
+              shade: bool, y_up: bool = True):
+    """One kernel mesh (world space, Z-up, UVs with a bottom-left origin) as a ``gltf_writer.GltfMesh``.
+
+    The single conversion behind every GLB this package writes: the package GLBs (:func:`write_gltf`) and the
+    inspector's review GLB (``artifacts/review_glb.py``), so what is reviewed is converted exactly as what ships.
+
+    ``shade``: write shading normals, the crease normals the package USD authors
+    (``compile_ir.crease_normals``, 40 degrees) turned into one normal per vertex by splitting vertices at
+    creases. ``y_up``: glTF is Y-up, so (x, y, z) -> (x, z, -y). A mesh with UVs and no material gets
+    :func:`gltf_default_material`; a mesh without UVs keeps only the factors of its material.
+    """
+    from antigravity3d.kernel import gltf_writer as gw
+    from antigravity3d.kernel.compile_ir import crease_normals
+
+    p = np.asarray(points, dtype=np.float64)
+    tris = np.asarray(triangles)
+    normals = None
+    if shade:
+        p, tris, uvs, normals = gw.split_by_corner_normals(p, tris, uvs, crease_normals(p, tris))
+        if y_up:
+            normals = gw.z_up_to_y_up(normals)
+    if y_up:
+        p = gw.z_up_to_y_up(p)
+    if uvs is not None:
+        material = material if material is not None else gltf_default_material()
+        uvs = gw.flip_v(uvs)
+    elif material is not None:
+        material = _untextured(material)
+    return gw.GltfMesh(name, p, tris, uvs, material, normals)
+
+
 def write_gltf(
     path: str | Path,
     items: Sequence[LOD | MeshData | UVResult | Hull],
@@ -1529,34 +1607,18 @@ def write_gltf(
 
     ``materials`` holds one ``gltf_writer.GltfMaterial`` (or None) per item; images inside are embedded as the
     bytes they already hold (see kernel/gltf_writer.py). Items with UVs and no material get a grey default.
-    Items with UVs (the rendered ones; collider hulls have none) also get shading normals: the same crease
-    normals the package USD authors (``compile_ir.crease_normals``, 40 degrees), converted to one per vertex by
-    splitting vertices at creases, so the GLB shades like the USD. Computed from the points, triangles and UVs
-    handed in, whatever their layout.
+    Items with UVs (the rendered ones; collider hulls have none) also get shading normals, so the GLB shades
+    like the USD; items without UVs get neither normals nor a material. Each item goes through
+    :func:`gltf_mesh`.
     """
     from antigravity3d.kernel import gltf_writer as gw
-    from antigravity3d.kernel.compile_ir import crease_normals
 
-    default_material = gw.GltfMaterial(name="Default", base_color_factor=(0.5, 0.5, 0.5, 1.0),
-                                       metallic_factor=0.0, roughness_factor=0.5)
     meshes = []
     for i, it in enumerate(items):
         uv = getattr(it, "uvs", None)
-        p = np.asarray(it.points, dtype=np.float64)
-        tris = np.asarray(it.triangles)
-        normals = None
-        if uv is not None:
-            p, tris, uv, normals = gw.split_by_corner_normals(p, tris, uv, crease_normals(p, tris))
-            if y_up:
-                normals = gw.z_up_to_y_up(normals)
-        if y_up:
-            p = gw.z_up_to_y_up(p)
-        material = None
-        if uv is not None:
-            material = materials[i] if materials and materials[i] is not None else default_material
-            uv = gw.flip_v(uv)
         name = names[i] if names else getattr(it, "name", None) or getattr(it, "node_id", None) or f"mesh_{i}"
-        meshes.append(gw.GltfMesh(name, p, tris, uv, material, normals))
+        material = materials[i] if uv is not None and materials else None
+        meshes.append(gltf_mesh(name, it.points, it.triangles, uv, material, shade=uv is not None, y_up=y_up))
     return gw.write_glb(path, meshes)
 
 

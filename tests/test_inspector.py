@@ -329,14 +329,16 @@ def test_welded_box_shades_flat_from_glb_normals():
         np.testing.assert_allclose(nrm[idx[:, corner]], face, atol=1e-6)  # flat: vertex normal == face normal
 
 
-def test_review_mesh_conversion_matches_the_package_writer(tmp_path, scene):
-    """The review GLB's per-mesh conversion is byte-identical to what fast_ops.write_gltf ships for the same items."""
+def test_review_mesh_conversion_is_the_package_writers(tmp_path, scene):
+    """One conversion, not two copies: the review GLB uses the kernel function fast_ops.write_gltf calls per item,
+    and calling it the way the inspector does gives the bytes write_gltf ships for the same items."""
     from types import SimpleNamespace
 
-    from antigravity3d.artifacts.review_glb import gltf_mesh
-    from antigravity3d.kernel.fast_ops import write_gltf
+    from antigravity3d.artifacts import review_glb
+    from antigravity3d.kernel.fast_ops import gltf_mesh, write_gltf
     from antigravity3d.kernel.gltf_writer import build_glb
 
+    assert review_glb.gltf_mesh is gltf_mesh
     meshes, uvs, *_ = scene
     items = [SimpleNamespace(points=m.points, triangles=m.triangles, uvs=uvs[m.node_id], node_id=m.node_id) for m in meshes]
     hull = SimpleNamespace(points=meshes[0].points, triangles=meshes[0].triangles, name="hull")

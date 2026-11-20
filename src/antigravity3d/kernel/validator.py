@@ -601,6 +601,8 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
             except (OSError, KeyError, ValueError, struct.error) as e:
                 add("glb_open", "critical", f"{asset}{suffix}.glb", str(e)[:200])
         issues.extend(_validate_glb_materials(out / f"{asset}{suffix}.glb", suffix, want))
+    if "materials" in man and glb.is_file():
+        issues.extend(_validate_material_inventory(glb, man["materials"]))
 
     # colliders
     max_hulls = (man.get("budget") or {}).get("max_collision_hulls")

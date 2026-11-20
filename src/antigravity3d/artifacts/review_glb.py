@@ -4,10 +4,10 @@ The inspector used to rebuild geometry and materials in the page (welded vertice
 ``computeVertexNormals``, hand-made materials), so a reviewer could approve shading and materials that do
 not ship. It now loads this GLB with three.js' GLTFLoader instead:
 
-- geometry, crease normals (vertex-split at hard edges), UVs and materials go through the same conversion
-  ``kernel.fast_ops.write_gltf`` applies to the package GLBs (:func:`gltf_mesh`, kept byte-identical to it by
-  ``tests/test_inspector.py::test_review_mesh_conversion_matches_the_package_writer``) and the same writer
-  (``kernel.gltf_writer.build_glb``);
+- geometry, crease normals (vertex-split at hard edges), UVs and materials go through the one conversion the
+  package GLBs use (``kernel.fast_ops.gltf_mesh``, which ``fast_ops.write_gltf`` calls per item) and the same
+  writer (``kernel.gltf_writer.build_glb``). The one deliberate difference in how it is called: render meshes
+  that have no UVs yet (a session before ``generate_lods_and_colliders``) are shaded too;
 - one GLB per revision holds LOD0 (one node per scene node), every further LOD level (one node per scene node
   when per-node chains are given, as in the package's ``*_LODn.glb``), and the collider hulls, as separate root
   nodes. The writer de-duplicates images by content, so a texture used by every LOD level is embedded once;
@@ -22,25 +22,14 @@ ones the package GLBs use; in an asset session :func:`session_materials` reads t
 from __future__ import annotations
 
 import hashlib
-import weakref
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
-from antigravity3d.kernel.gltf_writer import (
-    GltfMaterial,
-    GltfMesh,
-    build_glb,
-    flip_v,
-    split_by_corner_normals,
-    z_up_to_y_up,
-)
-
-# fast_ops.write_gltf's default for a UV-mapped item that has no material
-DEFAULT_MATERIAL = GltfMaterial(name="Default", base_color_factor=(0.5, 0.5, 0.5, 1.0), metallic_factor=0.0,
-                                roughness_factor=0.5)
+from antigravity3d.kernel.fast_ops import gltf_mesh
+from antigravity3d.kernel.gltf_writer import GltfMaterial, GltfMesh, build_glb
 
 
 @dataclass(frozen=True)
@@ -52,48 +41,6 @@ class ReviewPart:
     triangles: np.ndarray
     uvs: np.ndarray | None = None
     material: GltfMaterial | None = None
-
-
-def gltf_mesh(name: str, points: np.ndarray, triangles: np.ndarray, uvs: np.ndarray | None,
-              material: GltfMaterial | None, *, shade: bool) -> GltfMesh:
-    """One kernel mesh -> ``GltfMesh``, exactly as ``fast_ops.write_gltf`` converts a package item.
-
-    ``shade``: write the crease normals the package USD authors (``compile_ir.crease_normals``), split per
-    vertex at creases. ``write_gltf`` does this for UV-mapped items; the inspector also does it for render
-    meshes that have no UVs yet (a session before ``generate_lods_and_colliders``), never for collider hulls.
-    ``fast_ops.write_gltf`` could call this function (see the report for the suggested refactor).
-    """
-    from antigravity3d.kernel.compile_ir import crease_normals
-
-    p = np.asarray(points, dtype=np.float64)
-    tris = np.asarray(triangles)
-    normals = None
-    if shade:
-        p, tris, uvs, normals = split_by_corner_normals(p, tris, uvs, crease_normals(p, tris))
-        normals = z_up_to_y_up(normals)
-    p = z_up_to_y_up(p)
-    if uvs is not None:
-        material = material if material is not None else DEFAULT_MATERIAL
-        uvs = flip_v(uvs)
-    elif material is not None:
-        material = _untextured(material)
-    return GltfMesh(name, p, tris, uvs, material, normals)
-
-
-_untextured_cache: weakref.WeakKeyDictionary[GltfMaterial, GltfMaterial] = weakref.WeakKeyDictionary()
-
-
-def _untextured(m: GltfMaterial) -> GltfMaterial:
-    """Factor-only copy of a material for a mesh without UVs (a texture without TEXCOORD_0 is invalid glTF).
-    One copy per material object, so meshes sharing a material still share one glTF material."""
-    if m not in _untextured_cache:
-        has_albedo = m.base_color_texture is not None
-        _untextured_cache[m] = replace(
-            m, base_color_texture=None, metallic_roughness_texture=None, normal_texture=None, occlusion_texture=None,
-            emissive_texture=None, extensions={},
-            # an albedo-textured material carries a white factor: show the untextured mesh in neutral grey
-            base_color_factor=(0.72, 0.74, 0.76, 1.0) if has_albedo else tuple(m.base_color_factor))
-    return _untextured_cache[m]
 
 
 def _maps(m: GltfMaterial | None, uv: bool) -> list[str]:

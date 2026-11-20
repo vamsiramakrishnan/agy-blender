@@ -16,7 +16,7 @@ Spend control, enforced in code
     backends' own retry loops are disabled (``max_parse_retries=0``, ``max_retries=0``).
   * The ``stage`` group drives the Antigravity SDK Agent with its model endpoint pointed at a local relay
     (``ModelRelay``, ``GeminiAPIEndpoint(base_url=...)``) that forwards each model call to the Gemini API, so every
-    call is counted and the limiter is checked before each one; the SDK's own retries are set to 0. Tasks: ``crate``
+    call is counted and the limiter is checked before each one; the SDK's API retries are set to 0. Tasks: ``crate``
     (the original) and ``flush_repair`` (a floating lid made flush plus a handle on it: needs a repair edit).
   * No price / rate environment variable is read or set here. Dollar cost is never reported; tokens only.
 """
@@ -444,8 +444,11 @@ def _relay_config(relay: ModelRelay) -> Any:
     def configure(cfg: Any) -> Any:
         models = [m.model_copy(update={"endpoint": GeminiAPIEndpoint(base_url=relay.url, api_key="via-relay",
                                                                       options=m.endpoint.options)}) for m in cfg.models]
-        retry = types.RetryConfig(api_retry=types.ModelAPIRetryConfig(max_retries=0),
-                                  model_output_retry=types.ModelOutputRetryConfig(max_retries=0))
+        # API retries off. Not ModelOutputRetryConfig(max_retries=0): with it the 0.1.24 harness sends every request
+        # with functionCallingConfig mode NONE (verified offline on the posted request), so no tool can be called.
+        # A malformed-output re-ask is therefore possible; it is one more relayed call, counted and shown with its
+        # finish_reason in the sample.
+        retry = types.RetryConfig(api_retry=types.ModelAPIRetryConfig(max_retries=0))
         return cfg.model_copy(update={"model": None, "models": models, "retry_config": retry})
 
     return configure
@@ -509,6 +512,9 @@ async def stage_group(limiter: Limiter, plan: tuple[tuple[str, int], ...], out: 
                                   thinking_tokens=sum(c.get("thinking_tokens") or 0 for c in calls),
                                   tokens_known=all(c.get("tokens_known") for c in calls))
                     sample["total_tokens"] = sample["prompt_tokens"] + sample["output_tokens"] + sample["thinking_tokens"]
+                    sample["calls"] = [{k: c.get(k) for k in ("finish_reason", "prompt_tokens", "cached_tokens", "output_tokens",
+                                                              "thinking_tokens", "system_chars", "tool_chars", "tools", "wall_s", "error")}
+                                       for c in calls]
                     try:
                         s = S.session(reg, sid)
                         tel_path = s.workdir / "telemetry.jsonl"
@@ -790,7 +796,7 @@ def make_result(args: argparse.Namespace, limiter: Limiter) -> dict[str, Any]:
     return {"machine": machine_info(),
             "limits": {"max_calls": args.max_calls, "max_tokens": args.max_tokens, "timeouts_s": TIMEOUTS,
                        "retries": "none (genai HttpRetryOptions attempts=1; package fallback/plane retry loops set to 0; "
-                                  "stage: Antigravity RetryConfig api_retry/model_output_retry max_retries=0)",
+                                  "stage: Antigravity RetryConfig api_retry max_retries=0; a model-output re-ask, if any, is a counted call)",
                        "prices": "none configured; dollar cost is unknown, token counts only",
                        "stage_accounting": "every model call of a stage run is relayed (ModelRelay) and booked with its own usage"},
             "totals": limiter.totals(), "groups": {}, "aborted": None}

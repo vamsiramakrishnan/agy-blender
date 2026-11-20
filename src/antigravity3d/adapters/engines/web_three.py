@@ -357,8 +357,10 @@ async function main() {
   // an opaque, double-sided white one. Glass, cut-outs and blended materials change the beauty frame's alpha;
   // they cannot change this one.
   scene.overrideMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+  renderer.info.reset();
   renderer.render(scene, camera);
   gl.finish();
+  out.mask_draw_calls = renderer.info.render.calls;
   out.mask_png = document.getElementById('c').toDataURL('image/png');
   out.done = true;
 }
@@ -439,7 +441,7 @@ def evaluate(raw: dict, console: list[dict], page_errors: list[str], blocked: li
     if manifest is None:
         add("manifest cross-check", None, "no manifest.json next to the package")
     else:
-        _manifest_checks(add, main, raw.get("lods", []), r, manifest)
+        _manifest_checks(add, main, raw.get("lods", []), r, manifest, raw.get("mask_draw_calls"))
 
     iou = None
     if reference_issue:
@@ -452,7 +454,8 @@ def evaluate(raw: dict, console: list[dict], page_errors: list[str], blocked: li
     return checks, iou
 
 
-def _manifest_checks(add, main: dict, lods: list[dict], render: dict, manifest: dict) -> None:
+def _manifest_checks(add, main: dict, lods: list[dict], render: dict, manifest: dict,
+                     mask_draw_calls: int | None = None) -> None:
     if "tris" in manifest:
         add("triangles == manifest tris", int(main["triangles"]) == manifest["tris"],
             f"loaded {main['triangles']:.0f}, manifest {manifest['tris']}")
@@ -472,8 +475,18 @@ def _manifest_checks(add, main: dict, lods: list[dict], render: dict, manifest: 
         add("mesh count == manifest glb_batches", main["mesh_count"] == len(batches),
             f"loaded {main['mesh_count']}, manifest {len(batches)}")
     if "draw_calls" in manifest and render:
-        add("rendered draw calls == manifest draw_calls", render.get("draw_calls") == manifest["draw_calls"],
-            f"rendered {render.get('draw_calls')}, manifest {manifest['draw_calls']}")
+        transmissive = [m["name"] for m in main["materials"] if (m.get("params") or {}).get("transmission")]
+        if transmissive and mask_draw_calls is not None:
+            # three.js draws the opaque objects (and double-sided transmissive ones) a second time into the buffer
+            # a transmissive material samples, so the beauty frame legitimately has more draws than the manifest.
+            # The package's own draws are then counted on the material-free silhouette pass: one per mesh.
+            add("rendered draw calls == manifest draw_calls",
+                mask_draw_calls == manifest["draw_calls"] and render.get("draw_calls", 0) >= manifest["draw_calls"],
+                f"silhouette pass {mask_draw_calls}, manifest {manifest['draw_calls']}; beauty frame {render.get('draw_calls')} "
+                f"(transmission pre-pass of {transmissive})")
+        else:
+            add("rendered draw calls == manifest draw_calls", render.get("draw_calls") == manifest["draw_calls"],
+                f"rendered {render.get('draw_calls')}, manifest {manifest['draw_calls']}")
     if manifest.get("glb_bounds_m") is not None:
         issue = bounds_issue(manifest["glb_bounds_m"], main["bounds_m"])
         add("loaded bounds == manifest glb_bounds_m (Y-up)", issue is None, issue or "within tolerance")
@@ -483,6 +496,8 @@ def _manifest_checks(add, main: dict, lods: list[dict], render: dict, manifest: 
         add("meshes carry NORMAL when the manifest declares vertex normals", not flat,
             f"no NORMAL on {flat} (three falls back to flat shading); manifest declares: {declared_normals}" if flat
             else "all meshes have NORMAL")
+    if manifest.get("materials") is not None:
+        _inventory_checks(add, main, manifest["materials"])
     if "textures" in manifest:
         # The manifest's texture records are the complete list of texture files the package ships. A material
         # may legitimately have none (factor-only), so loaded material names are not compared for equality:
@@ -508,6 +523,89 @@ def _manifest_checks(add, main: dict, lods: list[dict], render: dict, manifest: 
                     bad.append(f"{t['material']}.{slot} {got['width']}x{got['height']} != {t['width']}x{t['height']}")
         add("manifest textures bound per role with matching pixel size", not bad,
             "; ".join(bad[:6]) if bad else f"{len(textures)} texture(s) match")
+
+
+_TOL = 1e-5
+
+
+def _near(a, b) -> bool:
+    if isinstance(a, (list, tuple)) or isinstance(b, (list, tuple)):
+        return a is not None and b is not None and len(a) == len(b) and all(_near(x, y) for x, y in zip(a, b))
+    return a is not None and b is not None and abs(a - b) <= _TOL
+
+
+def expected_runtime_params(rec: dict) -> dict:
+    """What three.js's GLTFLoader must make of one manifest ``materials[]`` record: the loaded material's value for
+    every parameter, with the defaults of ``MeshPhysicalMaterial`` standing in where no extension is declared.
+    The mapping is the loader's own (glTF factor -> material property); it is stated here, not assumed."""
+    ext = rec.get("extensions") or {}
+    color, mode = rec["base_color_factor"], rec["alpha_mode"]
+    out = {"color": color[:3], "opacity": color[3], "transparent": mode == "BLEND",
+           "alphaTest": rec["alpha_cutoff"] if mode == "MASK" else 0.0, "doubleSided": rec["double_sided"],
+           "emissive": rec["emissive_factor"], "metalness": rec["metallic_factor"], "roughness": rec["roughness_factor"],
+           "emissiveIntensity": ext.get("KHR_materials_emissive_strength", {}).get("emissiveStrength", 1.0),
+           "clearcoat": ext.get("KHR_materials_clearcoat", {}).get("clearcoatFactor", 0.0),
+           "clearcoatRoughness": ext.get("KHR_materials_clearcoat", {}).get("clearcoatRoughnessFactor", 0.0),
+           "transmission": ext.get("KHR_materials_transmission", {}).get("transmissionFactor", 0.0),
+           "ior": ext.get("KHR_materials_ior", {}).get("ior", 1.5),
+           "specularIntensity": ext.get("KHR_materials_specular", {}).get("specularFactor", 1.0),
+           "specularColor": ext.get("KHR_materials_specular", {}).get("specularColorFactor", [1.0, 1.0, 1.0])}
+    sheen = ext.get("KHR_materials_sheen")
+    out["sheen"] = 1.0 if sheen else 0.0
+    if sheen:
+        out["sheenColor"], out["sheenRoughness"] = sheen["sheenColorFactor"], sheen["sheenRoughnessFactor"]
+    return out
+
+
+def material_mismatches(loaded: dict, rec: dict) -> list[str]:
+    """Differences between a loaded three.js material (``describe``'s record) and its manifest record."""
+    p = loaded.get("params") or {}
+    have = {"color": p.get("color"), "opacity": p.get("opacity"), "transparent": bool(loaded.get("transparent")),
+            "alphaTest": p.get("alphaTest") or 0.0, "doubleSided": bool(loaded.get("doubleSided")),
+            "emissive": p.get("emissive"), "metalness": loaded.get("metalness"), "roughness": loaded.get("roughness"),
+            "emissiveIntensity": p.get("emissiveIntensity"), "clearcoat": p.get("clearcoat") or 0.0,
+            "clearcoatRoughness": p.get("clearcoatRoughness") or 0.0, "transmission": p.get("transmission") or 0.0,
+            "ior": p.get("ior") if p.get("ior") is not None else 1.5,
+            "specularIntensity": p.get("specularIntensity") if p.get("specularIntensity") is not None else 1.0,
+            "specularColor": p.get("specularColor") or [1.0, 1.0, 1.0], "sheen": p.get("sheen") or 0.0,
+            "sheenColor": p.get("sheenColor"), "sheenRoughness": p.get("sheenRoughness")}
+    want = expected_runtime_params(rec)
+    bad = []
+    for key, w in want.items():
+        h = have[key]
+        ok = (h == w) if isinstance(w, bool) else _near(h, w)
+        if not ok:
+            bad.append(f"{key} loaded {h} expected {w}")
+    return bad
+
+
+def _inventory_checks(add, main: dict, inventory: list[dict]) -> None:
+    """The loaded materials against the manifest's material inventory: names, every parameter, bound texture slots."""
+    loaded = list(main["materials"])
+    problems = []
+    for rec in inventory:
+        candidates = [m for m in loaded if m["name"] == rec["name"]]
+        if not candidates:
+            problems.append(f"{rec['name']}: not loaded")
+            continue
+        best = None
+        for cand in candidates:
+            bad = material_mismatches(cand, rec)
+            slots = {s for gl_slot in rec.get("texture_slots", ()) for s in GLTF_SLOTS.get(gl_slot, ())}
+            bound = {s for s, v in (cand.get("slots") or {}).items() if v is not None}
+            if bound != slots:
+                bad.append(f"texture slots bound {sorted(bound)} expected {sorted(slots)}")
+            if not bad:
+                loaded.remove(cand)
+                best = None
+                break
+            best = best or (cand, bad)
+        if best is not None:
+            problems.append(f"{rec['name']}: " + "; ".join(best[1][:4]))
+    problems += [f"{m['name'] or '<unnamed>'}: loaded but not in the manifest" for m in loaded
+                 if not any(r["name"] == m["name"] for r in inventory)]
+    add("loaded materials == manifest material inventory (parameters and bound slots)", not problems,
+        "; ".join(problems[:4]) if problems else f"{len(inventory)} material(s) match")
 
 
 def _frame_checks(add, shot_png: bytes, mask_png: bytes | None, reference: bytes | None, rule: PassRule,

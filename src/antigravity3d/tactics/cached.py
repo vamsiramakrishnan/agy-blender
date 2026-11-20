@@ -32,7 +32,7 @@ from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.governor import Governor
 from antigravity3d.tactics.common import load_png, png_bytes
 
-BACKEND_VERSION = "kernel-fast_ops/2"  # 2: analytic UV charts + square-texel atlases, screen-space-error LODs
+BACKEND_VERSION = "kernel-fast_ops/3"  # 2: analytic UV charts, screen-space-error LODs; 3: parts absent at far LODs
 CACHED_TAG = "(cached)"  # appended to GeneratedImage.model on a cache hit
 
 
