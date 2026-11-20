@@ -143,8 +143,7 @@ def test_page_is_self_contained_and_has_no_external_urls(tmp_path):
     man = _manifest(tm)
     page = W.build_page(tmp_path, _glb_of(tm), man["glb_bounds_m"], {"LOD1": _glb_of(tm)})
     html = page.read_text()
-    without_data = re.sub(r'"(glb_)?b64": ?"[A-Za-z0-9+/=]+"', '"b64":""', html)
-    assert not re.search(r"https?://|//cdn|@import|<link ", without_data)
+    assert not re.search(r"https?://|//cdn|@import|<link ", html)
     # every module reference is a relative path to a file that exists beside the page
     refs = re.findall(r"""(?:from|import\()\s*['"](\./[^'"]+)['"]|"three":"(\./[^"]+)"|\./vendor/[\w./-]+""", html)
     for path in {m for tup in refs for m in tup if m} | set(re.findall(r"\./vendor/[\w./-]+", html)):
@@ -152,8 +151,13 @@ def test_page_is_self_contained_and_has_no_external_urls(tmp_path):
     for rel, gz in W.VENDOR_FILES.items():  # vendored files land byte-for-byte
         assert (tmp_path / rel).read_bytes() == W.vendor_source(gz)
     job = json.loads(re.search(r'id="job">(.*?)</script>', html, re.DOTALL).group(1))
-    assert base64.b64decode(job["glb_b64"]) == _glb_of(tm) and job["camera"]["size_px"] == W.FRAME_PX
-    assert not re.search(r"\bfetch\(|XMLHttpRequest|WebSocket", html)  # nothing in our page code reaches out
+    # the GLBs are files beside the page, which the page loads through the route like the vendored files
+    assert (tmp_path / job["glb_url"]).read_bytes() == _glb_of(tm) and job["camera"]["size_px"] == W.FRAME_PX
+    assert [(lod["name"], (tmp_path / lod["url"]).read_bytes()) for lod in job["lods"]] == [("LOD1", _glb_of(tm))]
+    assert len(html) < 40_000 and job["env"] == {"mode": "page"}  # no inline package data; renders its own environment
+    # nothing in our page code reaches out: its one fetch is the image loader's (three's own fetches the same way), for
+    # URLs GLTFLoader resolved against the page; every request is answered from the page directory or blocked
+    assert re.findall(r"\bfetch\(([^,)]*)", html) == ["url"] and not re.search(r"XMLHttpRequest|WebSocket|https?://", html)
 
 
 def test_camera_is_documented_rig_and_reference_matches_geometry():
@@ -335,9 +339,15 @@ def test_referenced_textures_stages_only_existing_files_inside_textures(tmp_path
     mesh = GltfMesh("t", np.eye(3), np.array([[0, 1, 2]]), np.zeros((3, 2)), mat)
     glb = build_glb([mesh], image_uris={ia.digest: "textures/a%20map.png", ib.digest: "b.png", ic.digest: "textures/missing.png"})
     staged = W.referenced_textures(pkg, [glb, b"not a glb"])
-    assert staged == {"textures/a%20map.png": a}  # outside textures/ and missing files are left for the browser to fail on
+    # keyed by the decoded path, which is where the route looks for the request (the browser asks for a%20map.png);
+    # outside textures/ and missing files are left for the browser to fail on
+    assert staged == {"textures/a map.png": a}
     page = W.build_page(tmp_path / "page", glb, [[0, 0, 0], [1, 1, 1]], {"LOD1": glb}, staged)
-    assert (page.parent / "textures" / "a%20map.png").read_bytes() == a
+    assert (page.parent / "textures" / "a map.png").read_bytes() == a
+    root = page.parent
+    assert W.page_file(root, "textures/a%20map.png?x#y") == (root / "textures" / "a map.png").resolve()
+    for outside in ("../pkg/b.png", "textures/%2E%2E/%2E%2E/pkg/b.png", "%2Fetc%2Fpasswd", "textures/missing.png", "textures"):
+        assert W.page_file(root, outside) is None, outside
     with pytest.raises(ValueError, match="outside"):
         W.build_page(tmp_path / "page", glb, [[0, 0, 0], [1, 1, 1]], None, {"../x.png": a})
 
@@ -732,6 +742,37 @@ def test_browser_far_lods_load_their_referenced_textures_and_match_lod0(lod_pack
 
 
 @pytest.mark.browser
+def test_browser_far_lod_texture_whose_name_needs_percent_encoding_loads(lod_package, tmp_path):
+    """A far LOD references ``textures/<name with a space>.png`` as glTF requires, percent-encoded; the page's route
+    decodes the request and serves the file as it is named in the package."""
+    import shutil
+    from urllib.parse import quote
+
+    pkg = tmp_path / "pkg"
+    shutil.copytree(lod_package, pkg)
+    man = json.loads((pkg / "manifest.json").read_text())
+    normal = next(t["usd_path"] for t in man["textures"] if t["role"] == "normal")
+    spaced = normal[:-4] + " with space.png"
+    (pkg / normal).rename(pkg / spaced)
+    renamed = 0
+    for far in sorted(pkg.glob("*_LOD*.glb")):
+        def rename(doc, _blob):
+            nonlocal renamed
+            for img in doc.get("images", []):
+                if img.get("uri") == normal:
+                    img["uri"], renamed = quote(spaced), renamed + 1
+        far.write_bytes(_edit_glb(far.read_bytes(), rename))
+    assert renamed and "%20" in quote(spaced)
+    rep = _verify(pkg)
+    assert rep.ok, rep.summary()
+    lod0 = {m["name"]: m["slots"] for m in rep.facts["main"]["materials"]}
+    for lod in rep.facts["lods"]:
+        for m in lod["materials"]:
+            assert m["slots"]["normalMap"]["uri"] == quote(spaced)
+            assert m["slots"]["normalMap"]["content"] == lod0[m["name"]]["normalMap"]["content"]
+
+
+@pytest.mark.browser
 def test_browser_far_lod_with_a_missing_texture_fails(lod_package, tmp_path):
     import shutil
 
@@ -969,26 +1010,6 @@ def test_browser_a_manifest_that_misstates_the_material_fails(case, edit, needle
 # --------------------------------------------------------------------------- the process's shared browser
 
 
-#: the verification page's environment as it was rendered on every run before it was shared: PMREMGenerator in the page
-_IN_PAGE_ENVIRONMENT = """async function environment() {
-  const renderer = window.__renderer;
-  const s = new THREE.Scene(), g = new THREE.SphereGeometry(10, 32, 16), c = new THREE.Color(), sky = new THREE.Color(job.rig.env_sky), gnd = new THREE.Color(job.rig.env_ground);
-  const col = []; const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) { c.copy(gnd).lerp(sky, (p.getY(i) / 10 + 1) / 2); col.push(c.r, c.g, c.b); }
-  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  s.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
-  const pm = new THREE.PMREMGenerator(renderer), t = pm.fromScene(s).texture; pm.dispose(); return t;
-}
-"""
-
-
-def _in_page_environment_page() -> str:
-    page = W._PAGE
-    start, end = page.index("async function environment() {"), page.index("async function main() {")
-    page = page[:start] + _IN_PAGE_ENVIRONMENT + page[end:]
-    return page.replace("renderer.debug.checkShaderErrors = true;", "renderer.debug.checkShaderErrors = true; window.__renderer = renderer;")
-
-
 def _tagged(tag: str) -> list[int]:
     """Live processes whose environment carries ``tag``: a driver, a Chromium or one of its helpers started under it."""
     out = []
@@ -1019,28 +1040,59 @@ def _bytes_of(data_url: str) -> bytes:
 
 
 @pytest.mark.browser
-def test_browser_shared_environment_renders_what_the_page_rendered_itself(good, tmp_path, monkeypatch):
-    """The prefiltered environment loaded from the shared bytes lights the package exactly as PMREMGenerator in the page
-    did: the silhouette frame is identical and the beauty frame differs at most in the odd edge pixel that SwiftShader's
-    threads already decide differently from run to run with either environment."""
+def test_browser_shared_environment_renders_what_the_page_rendered_itself(good, runtime, tmp_path):
+    """The page's two environment paths light the package alike: PMREMGenerator in the page (a process's first
+    verification), and the map a page handed back, loaded from ENV_FILE (every later one). The silhouette frame is
+    identical and the beauty frame differs at most in the odd edge pixel that SwiftShader's threads already decide
+    differently from run to run on either path. The handed-back map is the same bytes every time."""
     _, man, d = good
+    exe = W.WebThreeValidator().binary()
 
-    def frames(sub):
+    def frames(sub, env=None, export=False):
         page_dir = tmp_path / sub
-        W.build_page(page_dir, (d / "Crate.glb").read_bytes(), man["glb_bounds_m"])
-        run = asyncio.run(W.run_page(page_dir, W.WebThreeValidator().binary(), 60))
+        W.build_page(page_dir, (d / "Crate.glb").read_bytes(), man["glb_bounds_m"], env=env)
+        W._env_cache.clear()
+        run = asyncio.run(W.run_page(page_dir, exe, 60, export_env=export))
         assert not run["raw"]["errors"] and not run["blocked"], run
-        return _bytes_of(run["raw"]["png"]), _bytes_of(run["raw"]["mask_png"]), page_dir
+        exported = W._env_cache.get(W._env_key(exe))
+        return _bytes_of(run["raw"]["png"]), _bytes_of(run["raw"]["mask_png"]), exported
 
-    shared = [frames(f"shared{i}") for i in range(2)]
-    assert (shared[0][2] / W.ENV_FILE).read_bytes() == (shared[1][2] / W.ENV_FILE).read_bytes()  # kept beside the page
-    monkeypatch.setattr(W, "_PAGE", _in_page_environment_page())
-    own = [frames(f"own{i}") for i in range(2)]
+    own = [frames(f"own{i}", export=True) for i in range(2)]
+    env = own[0][2]
+    assert env is not None and own[1][2] == env
+    assert not (tmp_path / "own0" / W.ENV_FILE).exists()  # the page that renders its own map writes none
+    shared = [frames(f"shared{i}", env=env) for i in range(2)]
+    assert (tmp_path / "shared0" / W.ENV_FILE).read_bytes() == env  # kept beside the page that loads it
     assert {m for _, m, _ in shared} == {m for _, m, _ in own} and len({m for _, m, _ in own}) == 1
     for a in (s for s, _, _ in shared):
         for b in (o for o, _, _ in own):
             diff = np.abs(np.asarray(Image.open(io.BytesIO(a)), np.int16) - np.asarray(Image.open(io.BytesIO(b)), np.int16)).max(axis=2)
             assert (diff > 0).sum() <= 2, (diff > 0).sum()
+
+
+@pytest.mark.browser
+def test_browser_environment_is_rendered_by_the_first_page_and_handed_back_by_the_second(good, runtime, tmp_path, monkeypatch):
+    """One package per process costs nothing extra: no second page, no ENV_FILE. The second verification renders its
+    own map and hands it back; from the third on, pages load it."""
+    tm, man, d = good
+    ref = _reference(tm, man)
+    monkeypatch.setattr(W, "_pages_started", 0)
+    monkeypatch.setattr(W, "_env_cache", {})
+    contexts = []
+    real_run = B.SHARED.run
+
+    async def counting(fn, **kw):
+        contexts.append(kw)
+        return await real_run(fn, **kw)
+    monkeypatch.setattr(B.SHARED, "run", counting)
+    for i in range(3):
+        rep = _verify(d, ref, out_dir=tmp_path / f"v{i}")
+        assert rep.ok, rep.summary()
+        mode = json.loads(re.search(r'id="job">(.*?)</script>', (tmp_path / f"v{i}" / "page.html").read_text(), re.DOTALL).group(1))["env"]["mode"]
+        assert mode == ("page" if i < 2 else "shared"), (i, mode)
+        assert (tmp_path / f"v{i}" / W.ENV_FILE).exists() == (i == 2)
+        assert (W._env_cache != {}) == (i >= 1)
+    assert len(contexts) == 3  # one context per verification and nothing else
 
 
 @pytest.mark.browser
@@ -1301,4 +1353,37 @@ def test_browser_command_line_in_fresh_interpreters(l_packages, tmp_path):
         p = subprocess.run([sys.executable, "-m", "antigravity3d.adapters.engines.web_three", str(d), "--out", str(tmp_path / f"o{i}")],
                            capture_output=True, text=True, timeout=120, check=False)
         assert p.returncode == 0 and p.stdout.startswith("web_three: PASS"), p.stdout[-2000:] + p.stderr[-2000:]
-    assert {f.name for f in (tmp_path / "o0").iterdir()} == {"page.html", "vendor", "env", "web_three.png", "silhouette.png", "reference.png"}
+    # one package per process: the page rendered its own environment, so no ENV_FILE beside it
+    assert {f.name for f in (tmp_path / "o0").iterdir()} == {"page.html", "vendor", "glb", "web_three.png", "silhouette.png", "reference.png"}
+
+
+@pytest.mark.browser
+def test_browser_requests_outside_the_page_directory_are_blocked_and_fail(good, runtime, tmp_path, monkeypatch):
+    """The page is served from a local server, but only its own directory: a request that climbs out of it (encoded or
+    not), one for a file that is not there, and one to any other host are all refused, recorded and fail the check."""
+    tm, man, d = good
+    (tmp_path / "secret.txt").write_text("not part of the page")
+    probes = ["../secret.txt", "%2E%2E/secret.txt", "textures/none.png", "https://example.invalid/three.js"]
+    hostile = W._PAGE.replace("async function main() {", "async function main() {\n  for (const u of " + json.dumps(probes)
+                              + ") { try { await fetch(u); } catch (e) {} }", 1)
+    monkeypatch.setattr(W, "_PAGE", hostile)
+    rep = _verify(d, _reference(tm, man), out_dir=tmp_path / "out")
+    blocked = rep.diagnostics["blocked_requests"]
+    assert not rep.ok and "no blocked/failed network requests" in _failed(rep)
+    for needle in ("secret.txt", "none.png", "example.invalid"):
+        assert any(needle in b for b in blocked), (needle, blocked)
+    assert "not part of the page" not in json.dumps(rep.facts)
+
+
+@pytest.mark.browser
+def test_browser_a_machine_that_cannot_open_a_local_port_skips_with_the_reason(good, runtime, tmp_path, monkeypatch):
+    """The page is served from 127.0.0.1. Where that port cannot be opened the verifier cannot run here: the report is
+    a skip that says so, as for a missing browser, and not a failed package."""
+    tm, man, d = good
+
+    def refuse(*args, **kwargs):
+        raise OSError(99, "Cannot assign requested address")
+
+    monkeypatch.setattr(W, "_PageServer", refuse)
+    rep = _verify(d, _reference(tm, man), out_dir=tmp_path / "out")
+    assert rep.skipped and not rep.ok and "127.0.0.1" in rep.skipped_reason

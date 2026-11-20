@@ -110,7 +110,6 @@ class SharedChromium:
         # the rest is only touched on the pool's loop
         self._session: Session | None = None
         self._start_lock: asyncio.Lock | None = None
-        self._memo: dict[Any, asyncio.Future] = {}
         self._idle: asyncio.TimerHandle | None = None
         self._drivers: set = set()  # driver processes not yet confirmed gone (read at exit from another thread)
         #: browsers launched by this process so far (tests and benchmarks read it)
@@ -255,15 +254,6 @@ class SharedChromium:
             _kill_driver(driver)  # stop() waits for the driver to exit: one still running is hung
             self._drivers.discard(driver)
 
-    async def memo(self, key: Any, fn: Callable[[], Awaitable[Any]]) -> Any:
-        """``fn()`` once per process and ``key`` (pool loop only). It runs as a task of its own, so a waiter that is
-        cancelled does not cancel it for the others; a failure is not remembered."""
-        task = self._memo.get(key)
-        if task is None or (task.done() and (task.cancelled() or task.exception() is not None)):
-            task = self._memo[key] = asyncio.ensure_future(fn())
-            task.add_done_callback(lambda t: t.cancelled() or t.exception())
-        return await asyncio.shield(task)
-
     async def _in_context(self, exe: str | None, args: tuple[str, ...], context_options: dict,
                           fn: Callable[[Session, Any], Awaitable[Any]]) -> Any:
         for attempt in (1, 2):
@@ -333,6 +323,7 @@ class Lease:
 
     def release(self, keep: bool = True) -> concurrent.futures.Future | None:
         if self._done or self._pool is None:
+            self._done = True
             return None
         self._done = True
         return self._pool._release(keep)
