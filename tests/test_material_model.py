@@ -333,3 +333,39 @@ def test_agent_facing_rules_name_the_new_fields_and_their_cross_rules() -> None:
                   "clearcoat", "transmission", "ior", "sheen_color", "specular_color"):
         assert field in text
     assert "MASK needs alpha_cutoff" in text
+
+
+def test_double_sided_follows_the_resolved_binding_through_a_group(tmp_path: Path) -> None:
+    two, one = MaterialIR(id="two", double_sided=True), MaterialIR(id="one")
+    nodes = [NodeIR(id="grp", kind="group", material_id="two"),
+             NodeIR(id="a", kind="box", params={"size": [1, 1, 1]}, parent="grp"),
+             NodeIR(id="b", kind="box", params={"size": [1, 1, 1]}, parent="grp", transform=Transform(translate=(2, 0, 0)))]
+    scene = SceneIR(asset_name="Mix", nodes=nodes, materials=[two, one])
+    stage = Usd.Stage.CreateInMemory()
+    author_scene(stage, scene)
+    sided = lambda n: bool(stage.GetPrimAtPath(f"/Mix/grp/{n}").GetAttribute("doubleSided").Get())
+    assert (sided("a"), sided("b")) == (True, True)  # both inherit the group's binding
+    assert read_material(UsdShade.Material(stage.GetPrimAtPath("/Mix/Looks/two"))).double_sided
+    rebound = scene.model_copy(update={"nodes": [nodes[0], nodes[1], nodes[2].model_copy(update={"material_id": "one"})]})
+    author_scene(stage, rebound)
+    assert (sided("a"), sided("b")) == (True, False)  # b stopped resolving to a double-sided material: opinion gone
+    author_scene(stage, rebound.model_copy(update={"materials": [two.model_copy(update={"double_sided": False}), one]}))
+    assert (sided("a"), sided("b")) == (False, False)
+    assert not read_material(UsdShade.Material(stage.GetPrimAtPath("/Mix/Looks/two"))).double_sided
+
+
+def test_write_package_usd_keeps_the_whole_material_including_double_sided(tmp_path: Path) -> None:
+    from antigravity3d.kernel.fast_ops import UVResult
+    from antigravity3d.tactics.package import write_package_usd
+
+    pts = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], float)
+    uv = UVResult("leaf", pts, np.array([[0, 1, 2]], np.int32), pts[:, :2].astype(np.float32), np.arange(3), 0.0, 0.0, 0.0, 64)
+    other = UVResult("rock", pts + 3, np.array([[0, 1, 2]], np.int32), pts[:, :2].astype(np.float32), np.arange(3), 0.0, 0.0, 0.0, 64)
+    mats = [MaterialIR(id="leaf_m", **FULL), MaterialIR(id="rock_m")]
+    path = write_package_usd(tmp_path / "Kit.usda", "Kit", [uv, other], {"leaf": "leaf_m", "rock": "rock_m"}, mats, [], "godot_4")
+    stage = Usd.Stage.Open(str(path))
+    got = read_material(UsdShade.Material(stage.GetPrimAtPath("/Kit/Looks/leaf_m")))
+    _assert_same(got.factors(), _factors(mats[0]))
+    assert not read_material(UsdShade.Material(stage.GetPrimAtPath("/Kit/Looks/rock_m"))).double_sided
+    assert stage.GetPrimAtPath("/Kit/leaf").GetAttribute("doubleSided").Get() is True
+    assert not stage.GetPrimAtPath("/Kit/rock").GetAttribute("doubleSided").Get()

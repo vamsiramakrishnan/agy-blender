@@ -274,7 +274,7 @@ def _material_checks(stage: Usd.Stage, add) -> None:
                 add("material_alpha", "warning", prim.GetName(),
                     f"alpha_mode {params.alpha_mode} reads the albedo map's alpha channel but {Path(f).name} has none: fully opaque")
         sided = {bool(UsdGeom.Gprim(p).GetDoubleSidedAttr().Get()) for p in stage.Traverse()
-                 if p.IsA(UsdGeom.Gprim) and (r := p.GetRelationship("material:binding")) and prim.GetPath() in r.GetTargets()}
+                 if p.IsA(UsdGeom.Gprim) and UsdShade.MaterialBindingAPI(p).ComputeBoundMaterial()[0].GetPath() == prim.GetPath()}
         if len(sided) > 1:
             add("material_double_sided", "warning", prim.GetName(),
                 "bound meshes disagree on doubleSided; the GLB exports one material per setting")

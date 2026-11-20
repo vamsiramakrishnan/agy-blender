@@ -359,6 +359,22 @@ def set_double_sided(prim: Usd.Prim, value: bool) -> None:
         UsdGeom.Gprim(prim).CreateDoubleSidedAttr().Set(bool(value))
 
 
+def sync_double_sided(stage: Usd.Stage, root: Usd.Prim, sided_ids: set[str]) -> None:
+    """Makes ``doubleSided`` follow the binding the renderer resolves, for every mesh under ``root``.
+
+    A mesh gets the opinion when ``ComputeBoundMaterial`` (direct or inherited from a group) lands on a material
+    named in ``sided_ids`` (looks of ``root``); one that no longer resolves to such a material loses it, so
+    re-binding a child or editing a material never leaves a stale value.
+    """
+    looks = root.GetPath().AppendChild(LOOKS)
+    for prim in Usd.PrimRange(root, Usd.PrimIsActive):
+        if not prim.IsA(UsdGeom.Gprim):
+            continue
+        mat, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
+        want = bool(mat) and mat.GetPath().GetParentPath() == looks and mat.GetPath().name in sided_ids
+        set_double_sided(prim, want)
+
+
 def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
     mat = UsdShade.Material.Define(stage, path)
     if not mat.GetPrim().IsActive():
@@ -467,12 +483,13 @@ class MaterialParams:
 
 
 def bound_double_sided(mat: UsdShade.Material) -> bool:
-    """True when any mesh in the material's stage that binds it directly is double-sided."""
+    """True when any mesh that resolves to this material (bound directly or through a parent) is double-sided."""
     path = mat.GetPath()
     for prim in mat.GetPrim().GetStage().Traverse():
-        rel = prim.GetRelationship("material:binding")
-        if rel and path in rel.GetTargets() and prim.IsA(UsdGeom.Gprim) and UsdGeom.Gprim(prim).GetDoubleSidedAttr().Get():
-            return True
+        if prim.IsA(UsdGeom.Gprim) and UsdGeom.Gprim(prim).GetDoubleSidedAttr().Get():
+            bound, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
+            if bound and bound.GetPath() == path:
+                return True
     return False
 
 
@@ -562,7 +579,7 @@ def _author_transform(prim: Usd.Prim, t: Transform, prev: Transform | None = Non
         )
 
 
-def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path, double_sided: bool = False) -> None:
+def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path) -> None:
     is_prim = node.kind in PRIMITIVES
     ref_path = None
     if node.kind == "mesh_ref":
@@ -615,12 +632,10 @@ def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path,
             ref.SetActive(True)
         ref.GetReferences().SetReferences([Sdf.Reference(str(ref_path))])
 
-    _bind_material(stage, prim, root, node.material_id, double_sided)
+    _bind_material(stage, prim, root, node.material_id)
 
 
-def _bind_material(stage: Usd.Stage, prim: Usd.Prim, root: Sdf.Path, material_id: str | None,
-                   double_sided: bool = False) -> None:
-    set_double_sided(prim, double_sided if material_id is not None else False)
+def _bind_material(stage: Usd.Stage, prim: Usd.Prim, root: Sdf.Path, material_id: str | None) -> None:
     if material_id is not None:
         api = UsdShade.MaterialBindingAPI.Apply(prim)
         api.Bind(UsdShade.Material(stage.GetPrimAtPath(root.AppendPath(f"{LOOKS}/{material_id}"))))
@@ -662,9 +677,6 @@ def author_scene(
         prev = read_ir(root_prim)
     prev_nodes = {n.id: n for n in prev.nodes} if prev else {}
     prev_mats = {m.id: m for m in prev.materials} if prev else {}
-    sided = {m.id: m.double_sided for m in scene.materials}
-    # double-sidedness is stored on the bound meshes: a material whose flag changed re-syncs its (unchanged) nodes
-    resided = {mid for mid, flag in sided.items() if (prev_mats[mid].double_sided if mid in prev_mats else False) != flag}
     prev_paths = node_paths(prev, root) if prev else {}
     paths = node_paths(scene, root)
     expected: set[Sdf.Path] = {root, *paths.values()}
@@ -700,11 +712,8 @@ def author_scene(
                 needs_import = not prim or not prim.IsA(UsdGeom.Mesh)  # older stages held only a URI
 
         old = prev_nodes.get(node.id)
-        node_sided = sided.get(node.material_id, False)
         if old is not None and prev_paths[node.id] == path and not needs_import and not stale(path):
             if old == node:
-                if node.material_id in resided:
-                    set_double_sided(stage.GetPrimAtPath(path), node_sided)
                 continue
             if old.kind == node.kind and old.params == node.params:
                 prim = stage.GetPrimAtPath(path)
@@ -713,11 +722,9 @@ def author_scene(
                 if old.collider != node.collider:
                     prim.GetAttribute("agy:collider").Set(node.collider)
                 if old.material_id != node.material_id:
-                    _bind_material(stage, prim, root, node.material_id, node_sided)
-                elif node.material_id in resided:
-                    set_double_sided(prim, node_sided)
+                    _bind_material(stage, prim, root, node.material_id)
                 continue
-        _author_node(stage, path, node, root, node_sided)
+        _author_node(stage, path, node, root)
 
     # Deactivate whatever weaker layers still compose but the new IR dropped.
     # Collect first: changing `active` recomposes and would invalidate the range.
@@ -733,6 +740,7 @@ def author_scene(
     for p in drop:
         p.SetActive(False)
 
+    sync_double_sided(stage, root_prim, {m.id for m in scene.materials if m.double_sided})
     root_prim.SetCustomDataByKey(IR_KEY, scene.model_dump_json())
 
 

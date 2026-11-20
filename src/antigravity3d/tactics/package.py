@@ -15,7 +15,7 @@ import numpy as np
 from pxr import Kind, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, Vt
 
 from antigravity3d.ir import MaterialIR
-from antigravity3d.kernel.compile_ir import _author_material
+from antigravity3d.kernel.compile_ir import _author_material, sync_double_sided
 from antigravity3d.kernel.fast_ops import ExportBundle, Hull, UVResult, write_gltf
 from antigravity3d.kernel.validator import ENGINE_RULES
 
@@ -66,6 +66,7 @@ def write_package_usd(
         prim = _define_mesh(stage, f"/{asset_name}/{u.node_id}", _to_native(u.points, engine), u.triangles, u.uvs)
         if mat_of.get(u.node_id):
             UsdShade.MaterialBindingAPI.Apply(prim).Bind(UsdShade.Material(stage.GetPrimAtPath(f"/{asset_name}/Looks/{mat_of[u.node_id]}")))
+    sync_double_sided(stage, root.GetPrim(), {m.id for m in materials if m.id in used and m.double_sided})
     for i, h in enumerate(hulls):
         name = hull_prim_name(engine, asset_name, i, h.name)
         if name:

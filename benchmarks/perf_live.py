@@ -45,9 +45,9 @@ STAGE_PROMPT = "Build a simple wooden crate with a separate lid from two boxes, 
 ALBEDO_PROMPT = "weathered oak planks"
 GROUPS = ("text", "stage", "judge", "image")
 
-TIMEOUTS = {"text": 120.0, "builder": 300.0, "director": 300.0, "stage": 600.0, "judge": 120.0, "image": 180.0}
-# Text samples are dispatched with the production request (metered_author.build_author_request); carbon and argon
-# write ~11k answer + ~7-8k thinking tokens for the crate prompt (carbon took 200 s once), hence 300 s.
+TIMEOUTS = {"stage": 600.0, "judge": 120.0, "image": 180.0}
+# Text samples are dispatched with the production request (metered_author.build_author_request) and the production
+# per-tier timeout (metered_author.AUTHOR_TIMEOUT_S), so a call that production would wait for is not cut short here.
 # (role, n) per group. Judge: (stage, n).
 TEXT_PLAN = (("worker", 3), ("builder", 3), ("bulk", 3), ("director", 1))
 STAGE_PLAN = (("worker", 2), ("builder", 1))
@@ -60,7 +60,9 @@ EST_TOKENS = {"stage": 40_000, "judge": 6_000, "image": 4_500, "probe": 200}
 
 
 def text_timeout(role: str) -> float:
-    return TIMEOUTS.get(role, TIMEOUTS["text"])
+    from antigravity3d.tactics.metered_author import author_timeout
+
+    return author_timeout(role)
 
 
 # ----------------------------------------------------------------------------------------------- spend limiter
