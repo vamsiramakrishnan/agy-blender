@@ -36,8 +36,9 @@ from antigravity3d.tactics.common import load_png, png_bytes
 # 5: computed UV charts scaled to their surface area and placed by the rectangle packer;
 # 6: collider input with coplanar triangles merged, closed bodies of one mesh decomposed separately;
 # 7: computed UV charts re-flattened (as rigid as possible) and all counter-clockwise;
-# 8: collider input repaired before decomposition (welded, holes capped, bodies pulled apart), open surfaces made solid
-BACKEND_VERSION = "kernel-fast_ops/8"
+# 8: collider input repaired before decomposition (welded, holes capped, bodies pulled apart), open surfaces made solid;
+# 9: the copies of a UV-seam vertex share one position in LOD levels (they could differ by rounding noise)
+BACKEND_VERSION = "kernel-fast_ops/9"
 CACHED_TAG = "(cached)"  # appended to GeneratedImage.model on a cache hit
 
 

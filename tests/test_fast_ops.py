@@ -973,3 +973,28 @@ def test_pipeline_timing():
     r = run_export_pipeline(concave, b, "L")
     print(f"concave {len(concave[0].triangles)}-tri prop pipeline ms:", r.timings_ms)
     assert len(r.colliders) <= b.max_collision_hulls
+
+
+def test_seam_copies_that_differ_by_rounding_noise_do_not_open_cracks():
+    # a tube whose UV seam is closed with cos/sin of 2 pi: the two copies of each seam vertex differ by 1e-16, and
+    # were simplified separately, which opened the seam in the far levels
+    seg, rings = 48, 20
+    ang, zz = np.linspace(0, 2 * np.pi, seg + 1), np.linspace(0, 1.0, rings + 1)
+    A, Z = np.meshgrid(ang, zz)
+    bulge = 0.3 * (1 + 0.3 * np.sin(np.pi * Z.ravel()))
+    pts = np.stack([bulge * np.cos(A).ravel(), bulge * np.sin(A).ravel(), Z.ravel()], 1)
+    uvs = np.stack([A.ravel() / (2 * np.pi), Z.ravel()], 1).astype(np.float32)
+    tris = np.array([t for j in range(rings) for i in range(seg) for a in [j * (seg + 1) + i]
+                     for t in ((a, a + 1, a + seg + 2), (a, a + seg + 2, a + seg + 1))], np.int32)
+    assert not np.array_equal(pts[0], pts[seg]) and np.allclose(pts[0], pts[seg], atol=1e-12)  # the noise is there
+    chain = generate_lods(pts, tris, uvs=uvs)
+    assert len(chain) >= 3
+    for lod in chain[1:]:
+        cid = _canon(lod.points)[lod.triangles]
+        e = np.sort(np.concatenate([cid[:, [0, 1]], cid[:, [1, 2]], cid[:, [2, 0]]]), axis=1)
+        edges, count = np.unique(e, axis=0, return_counts=True)
+        z = np.zeros(int(cid.max()) + 1)
+        z[cid.ravel()] = lod.points[lod.triangles.ravel(), 2]
+        open_edges = edges[count == 1]
+        on_a_rim = (np.abs(z[open_edges]) < 1e-9).all(axis=1) | (np.abs(z[open_edges] - 1.0) < 1e-9).all(axis=1)
+        assert on_a_rim.all(), f"level with {lod.tri_count} triangles has {int((~on_a_rim).sum())} open edges along the seam"

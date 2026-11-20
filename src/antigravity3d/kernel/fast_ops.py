@@ -1649,13 +1649,17 @@ class _Simplifier:
         self.pts64 = np.asarray(points, np.float64)
         pts = np.ascontiguousarray(points, dtype=np.float32)
         tri = np.asarray(triangles)
+        cid = _canon(self.pts64)
+        first = np.unique(cid, return_index=True)[1]
         if uvs is None:  # weld so duplicated hard-edge verts do not freeze the mesh
-            cid = _canon(self.pts64)
-            first = np.unique(cid, return_index=True)[1]
             pts = np.ascontiguousarray(pts[first])
             tri = cid[tri]
             self.uv = None
         else:
+            # The copies of a vertex on a UV seam must be at exactly the same position: meshoptimizer joins them
+            # by bitwise equality, and copies that differ by rounding noise (a seam closed with sin(2 pi), which is
+            # -2.4e-16 and not 0) are collapsed separately, which opens the seam into hairline cracks.
+            pts = np.ascontiguousarray(pts[first][cid])
             self.uv = np.ascontiguousarray(uvs, dtype=np.float32)
         self.pts = pts
         self.idx0 = np.ascontiguousarray(tri, dtype=np.uint32).ravel()
