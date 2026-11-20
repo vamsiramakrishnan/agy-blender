@@ -384,3 +384,57 @@ def test_identical_input_gives_identical_buffers():
         a, b = render_buffers(ms, v, 300, wireframe=True), render_buffers(ms, v, 300, wireframe=True)
         assert np.array_equal(a.color, b.color) and np.array_equal(a.tri_id, b.tri_id) and np.array_equal(a.prim_id, b.prim_id)
         assert np.array_equal(a.depth, b.depth)
+
+
+# --------------------------------------------------------------------------- shading with normals
+
+
+def _corner(normals_per_triangle: np.ndarray) -> np.ndarray:
+    return np.repeat(normals_per_triangle[:, None, :], 3, axis=1)
+
+
+def test_corner_normals_equal_to_the_face_normal_give_the_flat_picture():
+    # the per-pixel path with every corner at its face normal must be the flat picture, pixel for pixel
+    tm = trimesh.creation.icosphere(subdivisions=2, radius=0.5)
+    m = MeshData("ball", "/ball", np.asarray(tm.vertices, np.float64), np.asarray(tm.faces, np.int32))
+    p = m.points[m.triangles]
+    fn = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0])
+    fn /= np.linalg.norm(fn, axis=1, keepdims=True)
+    for view in ("front", "persp"):
+        flat = render_buffers([m], view, 192)
+        lit = render_buffers([m], view, 192, normals={"ball": _corner(fn)})
+        assert np.array_equal(flat.color, lit.color) and np.array_equal(flat.tri_id, lit.tri_id), view
+
+
+def test_shading_normals_light_a_coarse_sphere_like_a_fine_one():
+    # with the surface's own normals at the corners, a 320-triangle sphere and a 5,120-triangle sphere are lit almost
+    # alike; with one normal per triangle the coarse one shows its facets
+    def ball(sub: int):
+        tm = trimesh.creation.icosphere(subdivisions=sub, radius=0.5)
+        m = MeshData("ball", "/ball", np.asarray(tm.vertices, np.float64), np.asarray(tm.faces, np.int32))
+        radial = m.points / np.linalg.norm(m.points, axis=1, keepdims=True)
+        return m, radial[m.triangles]
+
+    (coarse, cn), (fine, fn) = ball(2), ball(4)
+    cam = render_buffers([fine], "persp", 256).camera
+
+    def diff(a, b):
+        both = (a.prim_id >= 0) & (b.prim_id >= 0)
+        return float(np.abs(a.color.astype(np.float32) - b.color.astype(np.float32)).mean(axis=2)[both].mean())
+
+    flat = diff(render_buffers([coarse], "persp", 256, camera=cam), render_buffers([fine], "persp", 256, camera=cam))
+    smooth = diff(render_buffers([coarse], "persp", 256, camera=cam, normals={"ball": cn}),
+                  render_buffers([fine], "persp", 256, camera=cam, normals={"ball": fn}))
+    assert smooth < 0.5 * flat, (smooth, flat)
+
+
+def test_only_the_meshes_that_come_with_normals_are_lit_per_pixel():
+    a = MeshData("a", "/a", *(lambda t: (np.asarray(t.vertices, np.float64), np.asarray(t.faces, np.int32)))(trimesh.creation.icosphere(subdivisions=2, radius=0.4)))
+    t = trimesh.creation.icosphere(subdivisions=2, radius=0.4)
+    b = MeshData("b", "/b", np.asarray(t.vertices, np.float64) + [1.2, 0, 0], np.asarray(t.faces, np.int32))
+    radial = a.points / np.linalg.norm(a.points, axis=1, keepdims=True)
+    flat = render_buffers([a, b], "front", 256)
+    mixed = render_buffers([a, b], "front", 256, normals={"a": radial[a.triangles]})
+    on_a, on_b = flat.prim_id == 0, flat.prim_id == 1
+    assert np.array_equal(flat.color[on_b], mixed.color[on_b])        # b has no normals: untouched
+    assert not np.array_equal(flat.color[on_a], mixed.color[on_a])    # a is lit with its own

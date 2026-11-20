@@ -407,12 +407,7 @@ def _uv_checker(img, hit, tri_img, tris, sxy, tri_mesh, meshes, uvs, size) -> No
     ys, xs, t = ys[sel], xs[sel], t[sel]
     if not len(t):
         return
-    p0, p1, p2 = (sxy[tris[t, i]] for i in range(3))
-    d = (p1[:, 0] - p0[:, 0]) * (p2[:, 1] - p0[:, 1]) - (p1[:, 1] - p0[:, 1]) * (p2[:, 0] - p0[:, 0])
-    px, py = xs + 0.5, ys + 0.5
-    w1 = ((px - p0[:, 0]) * (p2[:, 1] - p0[:, 1]) - (py - p0[:, 1]) * (p2[:, 0] - p0[:, 0])) / d
-    w2 = ((p1[:, 0] - p0[:, 0]) * (py - p0[:, 1]) - (p1[:, 1] - p0[:, 1]) * (px - p0[:, 0])) / d
-    w0 = 1 - w1 - w2
+    w0, w1, w2 = _corner_weights(tri_img, tris, sxy, ys, xs)
     mi = tri_mesh[t]
     uv = np.zeros((len(t), 2))
     for i in np.unique(mi):
@@ -423,6 +418,41 @@ def _uv_checker(img, hit, tri_img, tris, sxy, tri_mesh, meshes, uvs, size) -> No
     chk = ((np.floor(uv * 8).sum(axis=1) % 2) == 0)
     f = np.where(chk, 1.0, 0.55)[:, None]
     img[ys, xs] = np.clip(img[ys, xs] * f, 0, 255).astype(np.uint8)
+
+
+def _corner_weights(tri_img, tris, sxy, ys, xs) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Screen-affine barycentric weights of the pixel centres (ys, xs) in the triangle each one shows. Built from
+    differences between the centre and the triangle's own vertices, in float64, so they do not cancel."""
+    t = tri_img[ys, xs]
+    p0, p1, p2 = (sxy[tris[t, i]] for i in range(3))
+    d = (p1[:, 0] - p0[:, 0]) * (p2[:, 1] - p0[:, 1]) - (p1[:, 1] - p0[:, 1]) * (p2[:, 0] - p0[:, 0])
+    px, py = xs + 0.5, ys + 0.5
+    w1 = ((px - p0[:, 0]) * (p2[:, 1] - p0[:, 1]) - (py - p0[:, 1]) * (p2[:, 0] - p0[:, 0])) / d
+    w2 = ((p1[:, 0] - p0[:, 0]) * (py - p0[:, 1]) - (p1[:, 1] - p0[:, 1]) * (px - p0[:, 0])) / d
+    return 1 - w1 - w2, w1, w2
+
+
+def _shade_with_normals(img, hit, tri_img, tris, sxy, tri_mesh, tri_start, meshes, normals, toward_cam, facing) -> None:
+    """Overwrite the flat shade of the meshes that come with shading normals by a per-pixel one: the corner
+    normals interpolated across the triangle, lit by the same two lights. A triangle seen from behind is lit from
+    the side that is seen, as in the flat shade."""
+    ys, xs = np.nonzero(hit)
+    t = tri_img[ys, xs]
+    sel = np.array([m.node_id in normals for m in meshes])[tri_mesh[t]]
+    ys, xs, t = ys[sel], xs[sel], t[sel]
+    if not len(t):
+        return
+    w0, w1, w2 = _corner_weights(tri_img, tris, sxy, ys, xs)
+    mi = tri_mesh[t]
+    n = np.zeros((len(t), 3))
+    for i in np.unique(mi):
+        k = mi == i
+        c = np.asarray(normals[meshes[i].node_id], np.float64).reshape(-1, 3, 3)[tri_start[t[k]]]
+        n[k] = w0[k, None] * c[:, 0] + w1[k, None] * c[:, 1] + w2[k, None] * c[:, 2]
+    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+    n *= facing[t][:, None]
+    shade = 0.22 + 0.60 * np.maximum(n @ KEY_LIGHT, 0) + 0.28 * np.maximum(n @ toward_cam, 0)
+    img[ys, xs] = np.clip(CLAY[None] * shade[:, None], 0, 255).astype(np.uint8)
 
 
 def _vert_base(meshes) -> list[int]:
@@ -442,11 +472,15 @@ def render_buffers(
     wireframe: bool = False,
     uvs: dict[str, np.ndarray] | None = None,
     camera: Camera | None = None,
+    normals: dict[str, np.ndarray] | None = None,
 ) -> RenderBuffers:
     """Single rasterisation path: clay colour plus ID/depth buffers.
 
     uvs: node_id -> (V,2) per-vertex UVs; when given, the colour is replaced by a UV
     checker pattern (tiling past [0,1] is visible) for those meshes.
+    normals: node_id -> (T,3,3) shading normals, one per triangle corner. Those meshes are lit per pixel with
+    the interpolated normal, the way a renderer lights a mesh that ships with normals; every other mesh keeps
+    one normal per triangle (the clay preview: it shows the triangles, which is what a preview is for).
     camera: explicit camera (e.g. shared between two LODs); default auto-frames the meshes.
     """
     nid = tuple(m.node_id for m in meshes)
@@ -474,11 +508,14 @@ def render_buffers(
     n = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0])
     n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
     toward_cam = -B[2]
-    n *= np.where(n @ toward_cam < 0, -1.0, 1.0)[:, None]  # double-sided
+    facing = np.where(n @ toward_cam < 0, -1.0, 1.0)  # double-sided
+    n *= facing[:, None]
     shade = 0.22 + 0.60 * np.maximum(n @ KEY_LIGHT, 0) + 0.28 * np.maximum(n @ toward_cam, 0)
     col = np.clip(CLAY[None] * shade[:, None], 0, 255).astype(np.uint8)
     hit = tri_img >= 0
     img[hit] = col[tri_img[hit]]
+    if normals:
+        _shade_with_normals(img, hit, tri_img, tris, sxy, tri_mesh, tri_start, meshes, normals, toward_cam, facing)
     if uvs:
         _uv_checker(img, hit, tri_img, tris, sxy, tri_mesh, meshes, uvs, size)
     prim[hit] = tri_mesh[tri_img[hit]]

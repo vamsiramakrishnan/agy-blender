@@ -106,3 +106,60 @@ def test_timing():
     ms = (time.perf_counter() - t) * 1e3
     print(f"\nLOD pop report ({len(lods)} LODs, {len(lods[0].triangles)} tris top, 3 pairs @256): {ms:.0f} ms")
     assert ms < 1500 and r.pair_sheet() is not None
+
+
+# --------------------------------------------------------------------------- the check lights what ships
+
+
+def cylinder(sections: int):
+    return part(trimesh.creation.cylinder(radius=0.4, height=1.0, sections=sections))
+
+
+def test_the_pop_check_lights_each_level_with_its_shipped_normals():
+    from antigravity3d.kernel import lod_diff
+    from antigravity3d.kernel.compile_ir import crease_normals
+
+    fine, coarse = sphere(4), sphere(2)
+    lit = render_lod_pair(fine, coarse, screen_fraction=0.25, size=256)
+    # a level that carries its normals is lit with exactly those
+    radial = lambda p: (p.points / np.linalg.norm(p.points, axis=1, keepdims=True))[p.triangles]  # noqa: E731
+    given = render_lod_pair(SimpleNamespace(**vars(fine), normals=radial(fine)), SimpleNamespace(**vars(coarse), normals=radial(coarse)),
+                            screen_fraction=0.25, size=256)
+    # both spheres ship smooth (their dihedral angles are under the crease angle), so the two agree closely, and
+    # both show far less of a jump than one normal per triangle would
+    flat = lambda p: np.repeat(np.asarray(crease_normals(p.points, p.triangles, crease_deg=0.0)).reshape(-1, 3, 3)[:, :1], 3, axis=1)  # noqa: E731
+    faceted = render_lod_pair(SimpleNamespace(**vars(fine), normals=flat(fine)), SimpleNamespace(**vars(coarse), normals=flat(coarse)),
+                              screen_fraction=0.25, size=256)
+    assert abs(lit.shading_diff - given.shading_diff) < 0.01
+    assert lit.shading_diff < 0.6 * faceted.shading_diff, (lit.shading_diff, faceted.shading_diff)
+    assert lod_diff.shipped_normals(fine).shape == (len(fine.triangles), 3, 3)
+
+
+def test_a_level_that_turns_faceted_is_judged_as_faceted():
+    # 32 sides ship smooth (11 degrees between sides); 6 sides ship with hard edges (60 degrees, over the 40 degree
+    # crease). The switch between them is a smooth tube becoming a faceted one, and the check has to see that:
+    # judged as if both stayed smooth, the jump is smaller.
+    smooth, hard = cylinder(32), cylinder(6)
+    shipped = render_lod_pair(smooth, hard, screen_fraction=0.25, size=256, view="front")
+
+    def round_normals(p):
+        n = p.points * [1.0, 1.0, 0.0]
+        n = np.where(np.linalg.norm(n, axis=1, keepdims=True) > 1e-9, n / np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-9), [0.0, 0.0, 1.0])
+        return n[p.triangles]
+
+    as_if_smooth = render_lod_pair(SimpleNamespace(**vars(smooth), normals=round_normals(smooth)),
+                                   SimpleNamespace(**vars(hard), normals=round_normals(hard)), screen_fraction=0.25, size=256, view="front")
+    assert shipped.shading_diff > as_if_smooth.shading_diff * 1.2, (shipped.shading_diff, as_if_smooth.shading_diff)
+
+
+def test_shipped_normals_are_computed_once_per_level(monkeypatch):
+    from antigravity3d.kernel import compile_ir
+
+    calls = []
+    real = compile_ir.crease_normals
+    monkeypatch.setattr(compile_ir, "crease_normals", lambda p, t, *a, **k: calls.append(len(t)) or real(p, t, *a, **k))
+    lods = [part(trimesh.creation.icosphere(s, 0.5)) for s in (4, 3, 2)]
+    for lod, f in zip(lods[1:], (0.5, 0.25)):
+        lod.screen_fraction = f
+    rep = lod_pop_report(lods)
+    assert len(rep.transitions) == 2 and sorted(calls) == sorted(len(lod.triangles) for lod in lods)
