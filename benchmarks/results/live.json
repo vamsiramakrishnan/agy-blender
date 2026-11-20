@@ -26,10 +26,10 @@
     "stage_accounting": "1 call per run_stage with a token reservation; SDK-internal model requests are not counted individually"
   },
   "totals": {
-    "calls": 2,
-    "input_tokens": 1092,
-    "output_tokens": 3357,
-    "thinking_tokens": 1800
+    "calls": 5,
+    "input_tokens": 2730,
+    "output_tokens": 4978,
+    "thinking_tokens": 11105
   },
   "groups": {
     "text": {
@@ -72,13 +72,73 @@
             "scene_ir_valid": false,
             "parse_error": "ValidationError: 12 validation errors for SceneIR nodes.0.collider   Input should be a valid boolean, unable to interpret input [type=bool_parsing, input_value='none', input_type=str]     For further ",
             "tier1_ok": false
+          },
+          {
+            "thinking_level": "low",
+            "timeout_s": 120.0,
+            "wall_ms": 12547.8,
+            "input_tokens": 546,
+            "output_tokens": 1615,
+            "thinking_tokens": 1119,
+            "total_tokens_reported": 3280,
+            "tokens_known": true,
+            "finish_reason": "STOP",
+            "error": null,
+            "status": null,
+            "response_chars": 3549,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 11 validation errors for SceneIR nodes.0.collider   Input should be a valid boolean, unable to interpret input [type=bool_parsing, input_value='box', input_type=str]     For further i",
+            "tier1_ok": false
+          }
+        ],
+        "n_ok": 3,
+        "n_failed": 0,
+        "median_ms": 12458.5,
+        "min_ms": 11532.3,
+        "max_ms": 12547.8
+      },
+      "builder:gemini-4-carbon": {
+        "samples": [
+          {
+            "thinking_level": "medium",
+            "timeout_s": 120.0,
+            "wall_ms": 54570.0,
+            "input_tokens": 546,
+            "output_tokens": 3,
+            "thinking_tokens": 4093,
+            "total_tokens_reported": 4642,
+            "tokens_known": true,
+            "finish_reason": "MAX_TOKENS",
+            "error": null,
+            "status": null,
+            "response_chars": 0,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a value at line 1 column 0 [type=json_invalid, input_value='', input_type=str]     For further information visit https",
+            "tier1_ok": false
+          },
+          {
+            "thinking_level": "medium",
+            "timeout_s": 120.0,
+            "wall_ms": 53758.8,
+            "input_tokens": 546,
+            "output_tokens": 3,
+            "thinking_tokens": 4093,
+            "total_tokens_reported": 4642,
+            "tokens_known": true,
+            "finish_reason": "MAX_TOKENS",
+            "error": null,
+            "status": null,
+            "response_chars": 0,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a value at line 1 column 0 [type=json_invalid, input_value='', input_type=str]     For further information visit https",
+            "tier1_ok": false
           }
         ],
         "n_ok": 2,
         "n_failed": 0,
-        "median_ms": 11995.4,
-        "min_ms": 11532.3,
-        "max_ms": 12458.5
+        "median_ms": 54164.4,
+        "min_ms": 53758.8,
+        "max_ms": 54570.0
       }
     }
   },
