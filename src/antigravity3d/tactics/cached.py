@@ -10,6 +10,7 @@ Uploads are never cached: Files-API URIs expire, so a hit re-uploads the cached 
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import json
@@ -21,13 +22,15 @@ from typing import Any
 import numpy as np
 
 from antigravity3d.genmedia.nano_banana import GeneratedImage
+from antigravity3d.genmedia.usage import ImageReceipt
 from antigravity3d.genmedia.pbr_deriver import PBRMaps, derive_pbr
 from antigravity3d.ir import SceneIR
 from antigravity3d.kernel.cache import BuildCache, ir_subtree_key, node_key, stable_hash
 from antigravity3d.kernel.fast_ops import LOD, ExportBundle, Hull, UVResult, run_export_pipeline
 from antigravity3d.kernel.types import MeshData
 from antigravity3d.state import EngineBudget
-from antigravity3d.tactics.common import IMAGE_USD, load_png, png_bytes
+from antigravity3d.tactics.governor import Governor
+from antigravity3d.tactics.common import load_png, png_bytes
 
 BACKEND_VERSION = "kernel-fast_ops/1"
 CACHED_TAG = "(cached)"  # appended to GeneratedImage.model on a cache hit
@@ -56,16 +59,6 @@ def cached_bytes(cache: BuildCache, key: str, compute: Callable[[], bytes], *, c
     return cache.get_or_compute(key, run, saved_cost_usd=cost, saved_ms=_saved_ms(cache, key))
 
 
-async def acached_bytes(cache: BuildCache, key: str, compute: Callable[[], Awaitable[bytes]], *, cost: float = 0.0) -> tuple[bytes, bool]:
-    async def run() -> bytes:
-        t0 = time.perf_counter()
-        data = await compute()
-        _record_ms(cache, key, t0)
-        return data
-
-    return await cache.aget_or_compute(key, run, saved_cost_usd=cost, saved_ms=_saved_ms(cache, key))
-
-
 def _digest(data: bytes | None) -> str | None:
     return None if data is None else hashlib.sha256(data).hexdigest()
 
@@ -76,44 +69,56 @@ def _digest(data: bytes | None) -> str | None:
 class CachedForge:
     """Drop-in for ``ImageForge`` whose generation calls go through the build cache."""
 
-    def __init__(self, forge: Any, cache: BuildCache, *, seed: int | None = None) -> None:
-        self._forge, self._cache = forge, cache
+    def __init__(self, forge: Any, cache: BuildCache, *, seed: int | None = None, budget: EngineBudget | None = None) -> None:
+        self._forge, self.cache = forge, cache
         self._seed = seed if seed is not None else int(getattr(getattr(forge, "_backend", None), "seed", 0))
-        self.model = forge.model
+        self.model, self.budget = forge.model, budget
 
     def __getattr__(self, name: str) -> Any:  # upload, auto_upload, ...
         return getattr(self._forge, name)
 
-    async def _gen(self, op: str, cost_key: str, key_args: dict[str, Any], call: Callable[[], Awaitable[GeneratedImage]]) -> GeneratedImage:
-        key = node_key(f"img.{op}", inputs=key_args, backend_version=f"{self.model}|seed={self._seed}")
+    def with_governor(self, governor: Governor) -> CachedForge:
+        return CachedForge(self._forge.with_governor(governor), self.cache, seed=self._seed, budget=self.budget)
+
+    async def _gen(self, op: str, key_args: dict[str, Any], call: Callable[[], Awaitable[GeneratedImage]]) -> GeneratedImage:
+        key = node_key(f"img.{op}", inputs={**key_args, "budget": self.budget, "seed": self._seed},
+                       backend_version=f"{self._forge.cache_namespace}|{self.model}")
         fresh: list[GeneratedImage] = []
 
         async def compute() -> bytes:
             g = await call()
             fresh.append(g)
+            meta = {"ms": g.latency_ms, "usd": g.receipt.booked_usd, "response_id": g.receipt.response_id}
+            await asyncio.to_thread(self.cache.store.put, _meta_key(key), json.dumps(meta).encode())
             return g.png_bytes
 
-        data, hit = await acached_bytes(self._cache, key, compute, cost=IMAGE_USD[cost_key])
-        if fresh and not hit:
+        data, hit = await self.cache.aget_or_compute(key, compute)
+        if not hit:
             return fresh[0]
-        return GeneratedImage(data, None, str(key_args.get("prompt", "")), f"{self.model} {CACHED_TAG}", 0.0)
+        meta_raw = await asyncio.to_thread(self.cache.store.get, _meta_key(key))
+        meta = json.loads(meta_raw) if meta_raw else {}
+        self.cache.credit_savings(cost_usd=meta.get("usd", 0), ms=meta.get("ms", 0))
+        receipt = ImageReceipt(self.model, op, "cache", 0.0, artifact_sha256=_digest(data), response_id=meta.get("response_id"))
+        self.governor.reserve("image." + op, 0.0).settle(0.0, receipt=asdict(receipt))
+        uri = await self.upload(data) if self.auto_upload else None
+        return GeneratedImage(data, uri, str(key_args.get("prompt", "")), f"{self.model} {CACHED_TAG}", 0.0, receipt)
 
     async def ortho_sheet(self, prompt: str, *, emphasis: str, style_anchor: bytes | None = None) -> GeneratedImage:
-        return await self._gen("ortho", "ortho", {"prompt": prompt, "emphasis": emphasis, "anchor": _digest(style_anchor)},
+        return await self._gen("ortho", {"prompt": prompt, "emphasis": emphasis, "anchor": _digest(style_anchor)},
                                lambda: self._forge.ortho_sheet(prompt, emphasis=emphasis, style_anchor=style_anchor))
 
     async def seamless_albedo(self, prompt: str, *, size: int = 2048, variant_hint: str = "") -> GeneratedImage:
-        return await self._gen("albedo", "albedo", {"prompt": prompt, "size": size, "variant": variant_hint},
+        return await self._gen("albedo", {"prompt": prompt, "size": size, "variant": variant_hint},
                                lambda: self._forge.seamless_albedo(prompt, size=size, variant_hint=variant_hint))
 
     async def trim_sheet(self, prompt: str, *, size: int = 2048) -> GeneratedImage:
-        return await self._gen("trim", "trim", {"prompt": prompt, "size": size}, lambda: self._forge.trim_sheet(prompt, size=size))
+        return await self._gen("trim", {"prompt": prompt, "size": size}, lambda: self._forge.trim_sheet(prompt, size=size))
 
-    async def decal(self, prompt: str, *, size: int = 1024) -> GeneratedImage:
-        return await self._gen("decal", "decal", {"prompt": prompt, "size": size}, lambda: self._forge.decal(prompt, size=size))
+    async def decal(self, prompt: str, *, size: int = 2048) -> GeneratedImage:
+        return await self._gen("decal", {"prompt": prompt, "size": size}, lambda: self._forge.decal(prompt, size=size))
 
     async def paint_over(self, render_png: bytes, direction: str) -> GeneratedImage:
-        return await self._gen("paintover", "paintover", {"render": _digest(render_png), "prompt": direction},
+        return await self._gen("paintover", {"render": _digest(render_png), "prompt": direction},
                                lambda: self._forge.paint_over(render_png, direction))
 
 
@@ -123,7 +128,7 @@ class CachedForge:
 def cached_derive_pbr(cache: BuildCache, albedo_png: bytes, *, metallic_hint: float = 0.0, normal_strength: float = 2.0,
                       convention: str = "opengl", tileable: bool = True, prepare: bool = False) -> tuple[PBRMaps, bool]:
     params = {"metallic": metallic_hint, "normal_strength": normal_strength, "convention": convention, "tileable": tileable, "prepare": prepare}
-    key = node_key("pbr.derive", inputs={"albedo": _digest(albedo_png), **params}, backend_version="pbr_deriver/1")
+    key = node_key("pbr.derive", inputs={"albedo": _digest(albedo_png), **params}, backend_version="pbr_deriver/2")
 
     def compute() -> bytes:
         m = derive_pbr(load_png(albedo_png), metallic_hint=metallic_hint, normal_strength=normal_strength,
@@ -141,11 +146,17 @@ def cached_derive_pbr(cache: BuildCache, albedo_png: bytes, *, metallic_hint: fl
 # --------------------------------------------------------------------------- UV / LOD / colliders
 
 
-def export_key(scene: SceneIR, budget: EngineBudget) -> str:
+def export_key(scene: SceneIR, budget: EngineBudget, meshes: list[MeshData] | None = None) -> str:
     # UVs/LODs/colliders do not depend on texture files, whose (workdir-specific) paths would defeat reuse
     scene = scene.model_copy(update={"materials": [m.model_copy(update={"albedo_uri": None, "orm_uri": None, "normal_uri": None}) for m in scene.materials]})
     roots = sorted(n.id for n in scene.nodes if n.parent is None)
-    return node_key("export.uv_lod_collider", inputs={"asset": scene.asset_name, "budget": asdict(budget)},
+    inputs = {"asset": scene.asset_name, "budget": asdict(budget)}
+    if meshes is not None and any(n.kind == "mesh_ref" for n in scene.nodes):
+        # The same external path can resolve to different geometry in another stage/run.
+        inputs["composed_meshes"] = [
+            (m.node_id, m.material_id, m.collider, hashlib.sha256(np.ascontiguousarray(m.points, dtype="<f8")).hexdigest(),
+             hashlib.sha256(np.ascontiguousarray(m.triangles, dtype="<i4")).hexdigest()) for m in meshes]
+    return node_key("export.uv_lod_collider", inputs=inputs,
                     upstream=[ir_subtree_key(scene, r) for r in roots], backend_version=BACKEND_VERSION)
 
 
@@ -183,7 +194,7 @@ def _bundle_from_bytes(data: bytes) -> ExportBundle:
 
 def cached_export_pipeline(cache: BuildCache, scene: SceneIR, meshes: list[MeshData], budget: EngineBudget) -> tuple[ExportBundle, bool]:
     """``run_export_pipeline`` behind the cache. The key covers IR content, so call it with meshes of that IR."""
-    data, hit = cached_bytes(cache, export_key(scene, budget), lambda: _bundle_to_bytes(run_export_pipeline(meshes, budget, scene.asset_name)))
+    data, hit = cached_bytes(cache, export_key(scene, budget, meshes), lambda: _bundle_to_bytes(run_export_pipeline(meshes, budget, scene.asset_name)))
     return _bundle_from_bytes(data), hit
 
 

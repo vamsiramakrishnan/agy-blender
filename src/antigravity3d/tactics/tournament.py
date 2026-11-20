@@ -1,15 +1,8 @@
-"""Speculative Best-of-N: generate N candidates concurrently, grade each the moment it lands, rank, pick.
-
-Grading goes through ``plane.rank_candidates(kind, [uri])`` one candidate at a time: the control plane
-already scores every candidate independently against an identical rubric, so grading as they land is
-equivalent to grading them together but overlaps vision latency with the remaining generations.
-A generation or grading failure of one candidate never sinks the tournament.
-"""
+"""Generate candidates concurrently and judge eligible candidates in budgeted, shared-input batches."""
 
 from __future__ import annotations
 
 import asyncio
-import inspect
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
@@ -17,8 +10,7 @@ from typing import Any
 
 from antigravity3d.decisions.compose import Thresholds, rank
 from antigravity3d.decisions.models import CandidateScore
-from antigravity3d.genmedia import pbr_deriver
-from antigravity3d.genmedia.pbr_deriver import PBRMaps, derive_pbr
+from antigravity3d.genmedia.pbr_deriver import PBRMaps, derive_pbr, prepare_albedo
 from antigravity3d.ir import SceneIR
 from antigravity3d.kernel.fast_ops import tier1_qa
 from antigravity3d.kernel.raster import contact_sheet
@@ -105,25 +97,21 @@ async def run_tournament(
     concurrency: int | None = None,
     thresholds: Thresholds | None = None,
     charge_as: str | None = None,
+    generation_precharged: bool = False,
 ) -> TournamentResult:
-    """Fire all generations concurrently (bounded), grade each as it lands, rank with ``compose.rank``.
+    """Generate concurrently, then score every eligible candidate against one rubric.
 
-    ``early_stop``: once a candidate scores utility >= this with no high-confidence defect, candidates that
-    have not completed are cancelled (those still queued behind the concurrency bound cost nothing).
+    With an explicit early-stop threshold we generate and judge in waves of the chosen
+    concurrency. Once a wave qualifies, remaining generators are never dispatched.
     """
     th = thresholds or Thresholds()
     planned = plan_n(kind, governor, n, unit_cost)
-    sem = asyncio.Semaphore(max(1, concurrency or planned))
+    limit = max(1, concurrency or planned)
+    sem = asyncio.Semaphore(limit)
     t0 = time.perf_counter()
     res = TournamentResult(kind, planned, None, [], {})
     scores: dict[int, CandidateScore] = {}
     in_flight = 0
-    tasks: dict[int, asyncio.Task[None]] = {}
-
-    def stop_others(me: int) -> None:
-        for j, t in tasks.items():
-            if j != me and not t.done():
-                t.cancel()
 
     async def one(i: int) -> None:
         nonlocal in_flight
@@ -133,38 +121,51 @@ async def run_tournament(
                 res.max_in_flight = max(res.max_in_flight, in_flight)
                 g0 = time.perf_counter()
                 try:
-                    cand = await generate(i)
+                    cand = replace(await generate(i), index=i)
                 finally:
                     in_flight -= 1
-            cand = replace(cand, index=i)
             res.candidates[i] = cand
             res.gen_ms[i] = cand.gen_ms or (time.perf_counter() - g0) * 1e3
             res.gen_cost_usd += cand.gen_cost_usd
             if cand.disqualified:
                 res.disqualified[i] = cand.disqualified
-                return
-            if cand.uri is None:
+            elif not cand.uri:
                 raise ValueError("candidate has no uri to grade")
-            r0 = time.perf_counter()
-            graded = (await plane.rank_candidates(kind, [cand.uri], context_uris))[0]
-            res.grade_ms[i] = (time.perf_counter() - r0) * 1e3
-            graded = replace(graded, index=i)
-            scores[i] = graded
-            if graded.result is not None:
-                res.grade_cost_usd += graded.result.est_cost_usd
-            if early_stop is not None and not graded.blocked:
-                top = rank([graded], kind, th)[0]
-                if (top.utility or 0.0) >= early_stop and not any(p >= th.defect_high for p in top.defects.values()):
-                    stop_others(i)
-        except asyncio.CancelledError:
-            res.cancelled.append(i)
-            raise
-        except Exception as e:  # noqa: BLE001 - one candidate must not sink the tournament
-            res.failures[i] = f"{type(e).__name__}: {e}"
+        except Exception as exc:
+            res.failures[i] = f"{type(exc).__name__}: {exc}"
 
-    for i in range(planned):
-        tasks[i] = asyncio.ensure_future(one(i))
-    await asyncio.gather(*tasks.values(), return_exceptions=True)
+    wave_size = limit if early_stop is not None else max(1, planned)
+    for start in range(0, planned, wave_size):
+        stop = min(planned, start + wave_size)
+        await asyncio.gather(*(one(i) for i in range(start, stop)))
+        eligible = [i for i in range(start, stop) if i not in res.failures and i not in res.disqualified]
+        if not eligible:
+            continue
+        r0 = time.perf_counter()
+        try:
+            graded = await plane.rank_candidates(kind, [res.candidates[i].uri for i in eligible], context_uris, governor=governor)
+        except Exception as exc:
+            res.failures.update({i: f"{type(exc).__name__}: {exc}" for i in eligible})
+            continue
+        duration = (time.perf_counter() - r0) * 1e3
+        for i, score in zip(eligible, graded, strict=True):
+            res.grade_ms[i] = duration
+            if score.error:
+                res.failures[i] = score.error
+                continue
+            scores[i] = replace(score, index=i)
+            if score.blocked:
+                reason = ", ".join(score.policy.reasons) if score.policy else "blocked"
+                res.disqualified[i] = f"policy gate: {reason}"
+        # All candidates in a packet share one billed result, including policy-filtered packets.
+        packets = {id(score.result): score.result for score in graded if score.result is not None}
+        res.grade_cost_usd += sum(result.booked_usd for result in packets.values()) + sum(score.billed_on_error for score in graded)
+        if early_stop is not None and any(
+            not top.blocked and top.utility >= early_stop and all(p < th.defect_high for p in top.defects.values())
+            for top in rank(list(scores.values()), kind, th)
+        ):
+            res.cancelled.extend(range(stop, planned))
+            break
 
     res.ranking = rank(list(scores.values()), kind, th)
     if res.ranking and not res.ranking[0].blocked:
@@ -172,16 +173,18 @@ async def run_tournament(
     res.wall_ms = (time.perf_counter() - t0) * 1e3
     res.cancelled.sort()
     cat = charge_as or kind
-    governor.charge(f"{cat}_gen", res.gen_cost_usd)
-    governor.charge(f"{cat}_vision", res.grade_cost_usd)
+    if not generation_precharged:
+        governor.charge(f"{cat}_gen", res.gen_cost_usd)
     return res
 
 
 # --------------------------------------------------------------------------- concrete tournaments
 
 
-def _gen_cost(model: str, key: str) -> float:
-    return 0.0 if model.endswith(CACHED_TAG) else IMAGE_USD[key]
+def _gen_cost(image: Any, key: str) -> float:
+    if getattr(image, "receipt", None) is not None:
+        return image.receipt.booked_usd
+    return 0.0 if image.model.endswith(CACHED_TAG) else IMAGE_USD[key]
 
 
 async def ortho_tournament(
@@ -190,15 +193,18 @@ async def ortho_tournament(
     early_stop: float | None = None, concurrency: int | None = None, thresholds: Thresholds | None = None,
 ) -> TournamentResult:
     """Best-of-N four-view blueprints; each candidate stresses a different structural emphasis."""
+    precharged = hasattr(forge, "with_governor")
+    if precharged:
+        forge = forge.with_governor(governor)
     up = uploader or uploader_for(forge)
 
     async def generate(i: int) -> Candidate:
         emphasis = EMPHASES[i % len(EMPHASES)]
         g = await forge.ortho_sheet(prompt, emphasis=emphasis, style_anchor=style_anchor)
-        return Candidate(i, await up(g.png_bytes), g, _gen_cost(g.model, "ortho"), g.latency_ms, meta={"emphasis": emphasis})
+        return Candidate(i, g.uri or await up(g.png_bytes), g, _gen_cost(g, "ortho"), g.latency_ms, meta={"emphasis": emphasis})
 
     return await run_tournament("ortho", generate, n, plane=plane, governor=governor, context_uris=context_uris, early_stop=early_stop,
-                                unit_cost=IMAGE_USD["ortho"] + GRADE_USD_EST, concurrency=concurrency, thresholds=thresholds)
+                                generation_precharged=precharged, unit_cost=IMAGE_USD["ortho"] + GRADE_USD_EST, concurrency=concurrency, thresholds=thresholds)
 
 
 @dataclass
@@ -214,37 +220,32 @@ class PBRTournamentResult:
 
 async def pbr_tournament(
     prompt: str, forge: Any, *, plane: Any, governor: Governor, material_id: str = "material", metallic_hint: float = 0.0,
-    uploader: Uploader | None = None, n: int | None = None, size: int = 512, cache: Any = None, seed_offset: int = 0,
+    uploader: Uploader | None = None, n: int | None = None, size: int = 2048, cache: Any = None, seed_offset: int = 0,
     early_stop: float | None = None, concurrency: int | None = None, thresholds: Thresholds | None = None,
 ) -> PBRTournamentResult:
-    """Albedo candidates -> policy gate -> deterministic preparation -> rank; ORM/normal derived for the winner only."""
+    """Screen and rank raw albedos once. Prepare and derive maps only for the winner."""
+    precharged = hasattr(forge, "with_governor")
+    if precharged:
+        forge = forge.with_governor(governor)
     up = uploader or uploader_for(forge)
-    prepare = getattr(pbr_deriver, "prepare_albedo", None)
 
     async def generate(i: int) -> Candidate:
         hint = ALBEDO_VARIANTS[(i + seed_offset) % len(ALBEDO_VARIANTS)]
         g = await forge.seamless_albedo(prompt, size=size, variant_hint=hint)
-        png, uri = g.png_bytes, await up(g.png_bytes)
-        cost = _gen_cost(g.model, "albedo")
-        verdict = await plane.policy_gate(uri)
-        if not verdict.allowed:
-            return Candidate(i, uri, png, cost, g.latency_ms, f"policy gate: {', '.join(verdict.reasons) or 'blocked'}", {"hint": hint})
-        prep = "albedo preparation unavailable (pbr_deriver.prepare_albedo not present)"
-        if prepare is not None:
-            img, rep = await asyncio.to_thread(prepare, load_png(png), metallic=metallic_hint >= 0.5)
-            prep = rep.one_line()
-            if rep.changed:
-                png = png_bytes(img)
-                uri = await up(png)
-        return Candidate(i, uri, png, cost, g.latency_ms, None, {"hint": hint, "prep": prep})
+        uri = g.uri or await up(g.png_bytes)
+        return Candidate(i, uri, g.png_bytes, _gen_cost(g, "albedo"), g.latency_ms, meta={"hint": hint})
 
     t = await run_tournament("pbr", generate, n, plane=plane, governor=governor, early_stop=early_stop, concurrency=concurrency,
-                             unit_cost=IMAGE_USD["albedo"] + GRADE_USD_EST, thresholds=thresholds, charge_as="pbr")
+                             unit_cost=IMAGE_USD["albedo"] + GRADE_USD_EST, thresholds=thresholds, generation_precharged=precharged)
     out = PBRTournamentResult(material_id, t)
     if t.winner is None:
         return out
-    out.albedo_png, out.prep = t.winner.payload, t.winner.meta.get("prep", "")
     d0 = time.perf_counter()
+    def prepare_winner() -> tuple[bytes, str]:
+        img, report = prepare_albedo(load_png(t.winner.payload), metallic=metallic_hint >= 0.5)
+        return (png_bytes(img) if report.changed else t.winner.payload), report.one_line()
+
+    out.albedo_png, out.prep = await asyncio.to_thread(prepare_winner)
     if cache is not None:
         out.maps, out.derive_cache_hit = await asyncio.to_thread(cached_derive_pbr, cache, out.albedo_png, metallic_hint=metallic_hint)
     else:
@@ -294,7 +295,7 @@ async def geometry_tournament(
 
     res = await run_tournament("geometry", generate, len(scenes), plane=plane, governor=governor, context_uris=context_uris,
                                early_stop=early_stop, concurrency=concurrency, thresholds=thresholds)
-    if res.winner is None and crit_counts and not res.ranking:
+    if res.winner is None and crit_counts and len(crit_counts) == len(scenes):
         best = min(crit_counts, key=lambda i: crit_counts[i])
         res.winner = res.candidates[best]
         res.notes["fallback_promoted"] = best

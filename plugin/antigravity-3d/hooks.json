@@ -2,7 +2,7 @@
   "agy3d-qa-export-gate": {
     "PreToolUse": [
       {
-        "matcher": "mcp_tool|.*(export_engine_package|run_script|run_bpy_script|run_blender_script)",
+        "matcher": "mcp_tool|.*(open_asset_session|export_engine_package|run_script|run_bpy_script|run_blender_script)",
         "hooks": [
           {
             "type": "command",

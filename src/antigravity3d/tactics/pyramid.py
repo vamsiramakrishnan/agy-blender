@@ -20,13 +20,13 @@ import numpy as np
 from PIL import Image, ImageDraw
 from pxr import Usd
 
-from antigravity3d.adapters.engines.validators import validator_for
+from antigravity3d.adapters.engines.validators import MIN_SILHOUETTE_IOU, blender_frame_png, silhouette_iou, validator_for
 from antigravity3d.decisions.compose import Action, Thresholds, decide_action, lod_pop_ok, lod_pop_reasons, tier15_score
 from antigravity3d.decisions.models import VisualQAResult
 from antigravity3d.decisions.questions import MARKED_DEFECT_PHRASES
 from antigravity3d.genmedia.pbr_deriver import PBRMaps, delight, edge_wear, roughness_breakup
 from antigravity3d.ir import (
-    AssignMaterial, IRPatch, MaterialIR, RemoveNode, SceneIR, SetParam, SetTransform, UpsertMaterial, UpsertNode,
+    AssignMaterial, IRPatch, MaterialIR, RemoveNode, SceneIR, SetParam, SetTransform, UpsertMaterial, UpsertNode, apply_patch,
 )
 from antigravity3d.kernel.fast_ops import ExportBundle, run_export_pipeline, tier1_qa
 from antigravity3d.kernel.lod_diff import PopThresholds, lod_pop_report
@@ -39,6 +39,7 @@ from antigravity3d.tactics.cached import cached_export_pipeline
 from antigravity3d.tactics.common import IMAGE_USD, Uploader, png_bytes, uploader_for
 from antigravity3d.tactics.distill import FixLog, FixRecord
 from antigravity3d.tactics.governor import Governor
+from antigravity3d.tactics import reviewed_rules
 from antigravity3d.kernel.package import write_engine_package
 from antigravity3d.tactics.package import merged_lods
 from antigravity3d.tactics.tournament import GRADE_USD_EST, PBRTournamentResult, pbr_tournament
@@ -101,6 +102,16 @@ class PyramidResult:
     objects: dict[str, Any] = field(default_factory=dict)  # live objects (bundle, meshes, maps); not serialised
     author_calls: int = 0
 
+    engine_truth_required: bool = False
+    live_lookdev: bool = False
+    live_parity: bool = False
+
+    @property
+    def verified(self) -> bool:
+        passed = {step.name for step in self.steps if step.status == "passed"}
+        return (self.ok and self.live_lookdev and self.live_parity and self.converged.get("A", False)
+                and self.converged.get("B", False) and {"usd_validate", "engine_import", "engine_capture", "engine_parity"} <= passed)
+
     @property
     def skipped(self) -> list[tuple[str, str]]:
         return [(s.name, s.detail) for s in self.steps if s.status == "skipped"]
@@ -115,7 +126,8 @@ class PyramidResult:
 
     @property
     def ok(self) -> bool:
-        return (not self.failed and self.tier1_ok and self.tier15 >= EXPORT_MIN_TIER15_SCORE and not self.needs_review)
+        return (not self.failed and self.tier1_ok and self.tier15 >= EXPORT_MIN_TIER15_SCORE and not self.needs_review
+                and (not self.engine_truth_required or self.live_lookdev and self.live_parity))
 
     def summary(self) -> str:
         r = "; ".join(f"{t.stage}{t.n}:{t.action}{'(rolled back)' if t.rolled_back else ''} t15={t.tier15:.2f}" for t in self.rounds)
@@ -124,7 +136,7 @@ class PyramidResult:
 
     def to_dict(self) -> dict[str, Any]:
         d = {k: getattr(self, k) for k in ("asset", "stopped", "converged", "render_tier", "cost_usd", "tier1_ok", "tier15", "scores",
-                                           "defects", "needs_review", "artifacts", "author_calls", "audit", "ok")}
+                                           "defects", "needs_review", "artifacts", "author_calls", "audit", "ok", "verified", "live_lookdev", "live_parity", "engine_truth_required")}
         d["rounds"] = [vars(r) for r in self.rounds]
         d["steps"] = [vars(s) for s in self.steps]
         d["fix_records"] = [vars(f) for f in self.fix_records]
@@ -137,9 +149,10 @@ class PyramidResult:
 
 async def synthesize_materials(
     scene: SceneIR, forge: Any, *, plane: Any, governor: Governor, prompt: str, uploader: Uploader | None = None,
-    cache: Any = None, size: int = 512, concurrency: int | None = None,
+    cache: Any = None, size: int | None = None, concurrency: int | None = None,
 ) -> dict[str, PBRTournamentResult]:
     """One ``pbr_tournament`` per material, concurrently; N is sized so all materials together fit the budget."""
+    size = size or (256 if forge.offline else 2048)
     k = max(1, len(scene.materials))
     n = governor.candidates("pbr", unit_cost=k * (IMAGE_USD["albedo"] + GRADE_USD_EST))
     outs = await asyncio.gather(*(pbr_tournament(
@@ -210,22 +223,24 @@ class _Pending:
     ops: list[str]
     params: list[str]
     note: str
+    rule: str = ""
+    scene_hash: str = ""
+    origin: str = "unknown"
 
 
 class _Run:
     def __init__(self, sm: Any, **kw: Any) -> None:
         self.sm = sm
         self.__dict__.update(kw)
-        self.res = PyramidResult(asset=sm.asset_prim.GetName())
+        self.res = PyramidResult(asset=sm.asset_prim.GetName(), engine_truth_required=self.require_verified or self.governor.plan.engine_truth)
         self.maps: dict[str, PBRMaps] = {}
         self.render_png: bytes | None = None
         self.locate_noted = False
+        self.bundle_revision: tuple[str, ...] | None = None
+        self.export_bundle: ExportBundle | None = None
+        self.bundle_cache_hit: bool | None = None
 
     # ---- bookkeeping --------------------------------------------------------------------------------
-
-    def charge(self, cat: str, usd: float) -> None:
-        self.governor.charge(cat, usd)
-        self.res.cost_usd += usd
 
     def step(self, name: str, status: str, detail: str = "", t0: float | None = None) -> None:
         self.res.steps.append(StepResult(name, status, detail, 0.0 if t0 is None else (time.perf_counter() - t0) * 1e3))
@@ -237,10 +252,10 @@ class _Run:
 
     async def qa(self, stage: str, png: bytes, legend: dict[int, str] | None = None) -> _QA:
         uri = await self.upload(png)
-        r = await self.plane.evaluate_visual_qa(uri, self.ortho_uri, self.style_uri, stage, marked_legend=legend)
+        r = await self.plane.evaluate_visual_qa(uri, self.ortho_uri, self.style_uri, stage, marked_legend=legend, governor=self.governor)
         action = decide_action(r, self.th, stage)
-        cost = r.result.est_cost_usd
-        self.charge("visual_qa", cost)
+        cost = r.result.booked_usd
+        self.res.cost_usd += cost
         return _QA(r, action, tier15_score(r, self.th), uri, cost, legend)
 
     def trace(self, stage: str, n: int, t1: Any, q: _QA, tier: str) -> RoundTrace:
@@ -251,7 +266,10 @@ class _Run:
         return t
 
     def fix_record(self, p: _Pending, q: _QA) -> None:
-        rec = FixRecord(self.asset_id or self.res.asset, p.defects, p.ops, p.params, p.t15, q.t15, p.note)
+        rec = FixRecord(self.asset_id or self.res.asset, p.defects, p.ops, p.params, p.t15, q.t15, p.note,
+                        rule=p.rule, scene_hash=p.scene_hash, origin=(
+                            p.origin if q.result.result.calibrated and q.result.result.source == "decisions"
+                            else f"{p.origin}/unverified_followup"))
         self.res.fix_records.append(rec)
         if self.fixlog is not None:
             self.fixlog.append(rec)
@@ -289,13 +307,13 @@ class _Run:
                 self.step("locate_defects", "skipped", "plane has no locate_defects; repairs use Tier-1 locations only")
                 self.locate_noted = True
             return located
-        spent0 = self.plane.stats.cost_usd
+        charges: list[float] = []
         try:
-            for d, lst in (await fn(q.uri, q.legend, flagged)).items():
+            for d, lst in (await fn(q.uri, q.legend, flagged, governor=self.governor, on_settle=charges.append)).items():
                 located[d] = [n for n, _ in lst]
         except Exception as e:  # noqa: BLE001 - localisation is best-effort
             self.step("locate_defects", "failed", f"{type(e).__name__}: {e}")
-        self.charge("locate", max(0.0, self.plane.stats.cost_usd - spent0))
+        self.res.cost_usd += sum(charges)
         return located
 
     async def pass_a(self) -> None:
@@ -308,7 +326,13 @@ class _Run:
         t0 = time.perf_counter()
         if self.settle_first:  # deterministic pre-pass: no model call
             t1 = tier1_qa(sm.extract_meshes(), self.budget)
-            patch, why = self.settle_patch(t1)
+            patch = None
+            if t1.issues and all(i.code == "floating_part" for i in t1.issues) and reviewed_rules.is_enabled():
+                patch = reviewed_rules.seat_patch(sm.base_ir(), [i.node_id for i in t1.issues])
+            if patch is None:
+                patch, why = self.settle_patch(t1)
+            else:
+                why = reviewed_rules.RULE
             if patch is None:
                 self.step("settle_pre", "skipped", why)
             else:
@@ -351,7 +375,14 @@ class _Run:
                 return
             before = dict(n_crit=_crit(t1), t15=q.t15, tier1_ok=t1.ok, scores=dict(q.result.scores), defects=dict(q.result.defects))
             located = await self.locate(t1, q)
-            if q.action.kind == "auto_fix" and q.action.fixer == "reground":
+            before_ir = sm.base_ir()
+            candidate = reviewed_rules.seat_patch(before_ir, located.get("tier1:floating_part", []))
+            if (candidate is not None and q.action.kind == "agent_repair"
+                    and q.result.result.source == "decisions" and q.result.result.calibrated
+                    and set(k for k, v in q.result.defects.items() if v >= th.ambiguity_lo) == {"defect_floating"}
+                    and reviewed_rules.is_enabled()):
+                patch, label, why = candidate, "reviewed_rule", reviewed_rules.RULE
+            elif q.action.kind == "auto_fix" and q.action.fixer == "reground":
                 patch, why = self.settle_patch(t1, {n for n in located.get("defect_floating", [])})
                 label = "settle"
                 if patch is None:
@@ -374,7 +405,16 @@ class _Run:
                 res.stopped["A"] = "patch rejected"
                 return
             tr.note = f"{label}: {len(patch.ops)} op(s)"
-            pending = _Pending(tx, ops=[o.op for o in patch.ops], params=_patch_params(patch), note=why[:160], **before)
+            from antigravity3d.tactics.metered_author import MeteredAuthor
+
+            exact = candidate is not None and sm.base_ir() == apply_patch(before_ir, candidate)
+            source = q.result.result.source if q.result.result.calibrated else "uncalibrated"
+            origin = f"{source}/{label}"
+            if label == "author" and not isinstance(self.author, MeteredAuthor):
+                origin = f"{source}/{type(self.author).__name__}"
+            pending = _Pending(tx, ops=[o.op for o in patch.ops], params=_patch_params(patch), note=why[:160],
+                               rule=reviewed_rules.RULE if exact else "", scene_hash=reviewed_rules.scene_hash(before_ir),
+                               origin=origin, **before)
 
     # ---- Pass B ---------------------------------------------------------------------------------------
 
@@ -404,9 +444,23 @@ class _Run:
             t[mid] = tuple(float(x) for x in np.asarray(m.albedo.convert("RGB"), np.float32).reshape(-1, 3).mean(0) / 255.0)  # type: ignore[assignment]
         return t
 
+    async def prepare_export_bundle(self) -> ExportBundle:
+        revision = tuple(self.sm.tx_stack)
+        if self.export_bundle is None or self.bundle_revision != revision:
+            meshes, scene = self.sm.extract_meshes(), self.sm.scene_ir()
+            if self.cache is None:
+                self.export_bundle = await asyncio.to_thread(run_export_pipeline, meshes, self.budget, scene.asset_name)
+            else:
+                self.export_bundle, self.bundle_cache_hit = await asyncio.to_thread(
+                    cached_export_pipeline, self.cache, scene, meshes, self.budget)
+            self.bundle_revision = revision
+        self.sm.ensure_export_uvs(self.export_bundle.uvs)
+        return self.export_bundle
+
     async def render_lookdev(self) -> tuple[bytes, str]:
-        meshes = self.sm.extract_meshes()
         engine = self.governor.plan.final_render
+        if self.require_verified and engine == "preview":
+            engine = "eevee"
         if self.pool is None or engine == "preview":
             if engine != "preview":
                 self.note_tier("no Blender pool provided")
@@ -414,18 +468,22 @@ class _Run:
             self.note_tier("preview (pool is fake: no real Blender)")
         else:
             try:
-                usd = self.workdir / "lookdev_render.usda"
-                self.sm.export(usd)
-                await self.pool.call("reset_scene")
-                await self.pool.call("import_usd", path=str(usd))
-                r = await self.pool.call("render", engine=engine, width=512, height=512, samples=16)
-                arr = np.clip(np.asarray(r["image"])[..., :3], 0, 1)
+                await self.prepare_export_bundle()
+                with tempfile.TemporaryDirectory(prefix="lookdev-", dir=self.workdir) as td:
+                    usd = Path(td) / "scene.usdc"
+                    self.sm.export(usd)
+                    r = await self.pool.call("render_usd", path=str(usd.resolve()), engine=engine,
+                                             width=512, height=512, samples=16, transparent=True)
+                if r.get("fake") or np.shape(r["image"]) != (512, 512, 4):
+                    raise ValueError("Blender returned no usable DCC frame")
+                png = blender_frame_png(r["image"])
+                silhouette_iou(png, png)  # reject an empty, opaque or transparent frame before judging it
                 self.res.render_tier = f"blender:{engine}"
-                return png_bytes((arr * 255).astype(np.uint8)), self.res.render_tier
+                return png, self.res.render_tier
             except Exception as e:  # noqa: BLE001 - fall back to the preview rasteriser
                 self.note_tier(f"preview (Blender render failed: {type(e).__name__}: {e})")
         self.res.render_tier = "preview"
-        return png_bytes(preview_sheet(meshes, self.tint())), "preview"
+        return png_bytes(preview_sheet(self.sm.extract_meshes(), self.tint())), "preview"
 
     def note_tier(self, why: str) -> None:
         if not any(s.name == "render_tier" for s in self.res.steps):
@@ -454,7 +512,7 @@ class _Run:
         except Exception as e:  # noqa: BLE001
             self.step("textures", "failed", f"{type(e).__name__}: {e}", t0)
             return
-        if not self.maps:
+        if not self.maps and not self.res.engine_truth_required:
             self.step("textures", "skipped", "no PBR textures available (no forge and none supplied)")
             self.res.stopped["B"] = "no textures"
             return
@@ -487,6 +545,7 @@ class _Run:
                 pending = None
             self.snapshot(t1.ok, q)
             if q.action.kind == "approve":
+                self.res.live_lookdev = tier.startswith("blender:") and q.result.result.calibrated and q.result.result.source == "decisions"
                 self.res.converged["B"], self.res.stopped["B"] = True, f"approved in {rnd} round(s)"
                 break
             if q.action.kind != "auto_fix" or not q.action.fixer:
@@ -510,8 +569,8 @@ class _Run:
             self.step("paintover", "skipped", "needs an image forge and a lookdev render")
         else:
             t0 = time.perf_counter()
-            g = await self.forge.paint_over(self.render_png, "push realism: weathering, edge wear and colour variation")
-            self.charge("paintover", IMAGE_USD["paintover"])
+            g = await self.forge.with_governor(self.governor).paint_over(self.render_png, "push realism: weathering, edge wear and colour variation")
+            self.res.cost_usd += g.receipt.booked_usd
             self.res.artifacts["paintover_uri"] = await self.upload(g.png_bytes)
             self.step("paintover", "passed", "reference paint-over generated (a target for review; not baked into textures)", t0)
 
@@ -535,10 +594,8 @@ class _Run:
 
         async def export() -> tuple[str, str]:
             nonlocal bundle
-            if self.cache is not None:
-                bundle, hit = await asyncio.to_thread(cached_export_pipeline, self.cache, scene, meshes, budget)
-            else:
-                bundle, hit = await asyncio.to_thread(run_export_pipeline, meshes, budget, scene.asset_name), None
+            bundle = await self.prepare_export_bundle()
+            hit = self.bundle_cache_hit
             res.objects["bundle"] = bundle
             levels = [sum(len(v[k].triangles) for v in bundle.lods.values()) for k in range(min((len(v) for v in bundle.lods.values()), default=0))]
             bad = [u.node_id for u in bundle.uvs if not u.within(budget)]
@@ -563,7 +620,7 @@ class _Run:
 
         async def usd() -> tuple[str, str]:
             m = await asyncio.to_thread(write_engine_package, sm, bundle, budget, pkg, asset_name=scene.asset_name,
-                                        qa={"tier15": res.tier15, "tier1_ok": res.tier1_ok})
+                                        qa={"tier15": res.tier15, "tier1_ok": res.tier1_ok, "defects": res.defects, "audit": res.audit})
             res.objects["package"] = m
             res.artifacts.update(usd=str(usd_path), manifest=str(pkg / "manifest.json"))
             stage = Usd.Stage.Open(str(usd_path))
@@ -596,8 +653,8 @@ class _Run:
                 return "skipped", "plane.evaluate_lod_pop unavailable"
             if rep is None or not rep.transitions:
                 return "skipped", "no LOD pop sheet to judge"
-            r = await fn(await self.upload(png_bytes(rep.pair_sheet())), len(rep.transitions))
-            self.charge("lod_pop_vision", r.result.est_cost_usd)
+            r = await fn(await self.upload(png_bytes(rep.pair_sheet())), len(rep.transitions), governor=self.governor)
+            self.res.cost_usd += r.result.booked_usd
             reasons = lod_pop_reasons(r, self.th)
             return ("passed", "all LOD pairs imperceptible") if lod_pop_ok(r, self.th) else ("failed", "; ".join(reasons[:3]))
 
@@ -612,30 +669,66 @@ class _Run:
 
         await self.guarded("export_glb", glb)
 
+        validator = validator_for(budget.target_engine)
+
         async def engine() -> tuple[str, str]:
             if "glb" not in res.artifacts:
                 return "skipped", "no GLB exported"
-            rep = await validator_for(budget.target_engine).validate(res.artifacts["glb"])
+            rep = await validator.validate(res.artifacts["glb"])
+            if rep.ok:
+                if issue := rep.geometry_issue(res.objects["package"].data):
+                    return "failed", issue
+                res.objects["engine_import"] = {"engine": rep.engine, "metrics": rep.metrics, "bounds_m": rep.bounds_m}
             if rep.skipped:
                 return "skipped", rep.skipped_reason or "engine validator skipped"
             return ("passed" if rep.ok else "failed"), rep.log_tail[-160:].replace("\n", " ")
 
         await self.guarded("engine_import", engine)
 
+        async def capture() -> tuple[str, str]:
+            if not res.engine_truth_required:
+                return "skipped", "engine truth disabled in spend plan"
+            if not any(s.name == "engine_import" and s.status == "passed" for s in res.steps):
+                return "skipped", "no passing import of the exported GLB"
+            png = pkg / "engine.png"
+            rep = await validator.capture(res.artifacts["glb"], png)
+            if rep.skipped:
+                return "skipped", rep.skipped_reason or "capture unavailable"
+            if not rep.ok:
+                return "failed", rep.log_tail[-300:]
+            res.artifacts["engine_render"] = str(png)
+            self.engine_render_uri = await self.upload(png.read_bytes())
+            if self.render_png and res.render_tier.startswith("blender:"):
+                dcc = pkg / "dcc.png"
+                dcc.write_bytes(self.render_png)
+                res.artifacts["dcc_render"] = str(dcc)
+            return "passed", f"captured {budget.target_engine} at 512x512"
+
+        await self.guarded("engine_capture", capture)
+
         async def parity() -> tuple[str, str]:
-            plan = self.governor.plan
-            if not plan.engine_truth:
-                return "skipped", f"spend plan {plan.label!r} has engine_truth disabled"
+            if not res.engine_truth_required:
+                return "skipped", f"spend plan {self.governor.plan.label!r} has engine_truth disabled"
             fn = getattr(self.plane, "evaluate_engine_parity", None)
             if fn is None:
                 return "skipped", "plane.evaluate_engine_parity unavailable"
-            if self.engine_render_uri is None or self.render_png is None:
-                return "skipped", "no engine render available (engine capture is not implemented; needs a real engine binary)"
+            if self.engine_render_uri is None:
+                return "skipped", "no engine render available"
+            if self.render_png is None or not res.render_tier.startswith("blender:"):
+                return "skipped", "parity requires the material-bearing DCC render"
+            if "engine_render" in res.artifacts:
+                iou = silhouette_iou(self.render_png, Path(res.artifacts["engine_render"]).read_bytes())
+                res.scores["engine_silhouette_iou"] = iou
+                if iou < MIN_SILHOUETTE_IOU:
+                    return "failed", f"silhouette IoU {iou:.4f} below {MIN_SILHOUETTE_IOU:.2f}"
             from antigravity3d.decisions.compose import engine_parity_ok, engine_parity_reasons
 
-            r = await fn(await self.upload(self.render_png), self.engine_render_uri)
-            self.charge("engine_parity", r.result.est_cost_usd)
-            return ("passed", "engine matches DCC") if engine_parity_ok(r, self.th) else ("failed", "; ".join(engine_parity_reasons(r, self.th)[:3]))
+            r = await fn(await self.upload(self.render_png), self.engine_render_uri, governor=self.governor)
+            self.res.cost_usd += r.result.booked_usd
+            if not engine_parity_ok(r, self.th):
+                return "failed", "; ".join(engine_parity_reasons(r, self.th)[:3])
+            res.live_parity = bool(r.result.calibrated and r.result.source == "decisions" and "engine_render" in res.artifacts)
+            return "passed", "engine matches DCC"
 
         await self.guarded("engine_parity", parity)
 
@@ -651,7 +744,7 @@ async def refine(
     ortho_uri: str | None = None, style_uri: str | None = None, max_rounds: int = 4, forge: Any = None, uploader: Uploader | None = None,
     pool: Any = None, cache: Any = None, workdir: Path | str | None = None, fixlog: FixLog | None = None, asset_id: str | None = None,
     prompt: str = "", textures: Any = None, settle_first: bool = True, engine_render_uri: str | None = None,
-    run_pass_c: bool = True, run_pass_b: bool = True,
+    run_pass_c: bool = True, run_pass_b: bool = True, require_verified: bool = False,
 ) -> PyramidResult:
     """Run passes A (silhouette lock), B (lookdev) and C (final verification) on the stage's current scene.
 
@@ -662,7 +755,7 @@ async def refine(
         stage_manager, plane=plane, author=author, governor=governor, budget=budget, th=thresholds or Thresholds(), ortho_uri=ortho_uri,
         style_uri=style_uri, max_rounds=max_rounds, forge=forge, upload=uploader or uploader_for(forge), pool=pool, cache=cache,
         workdir=Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="agy3d-pyramid-")), fixlog=fixlog, asset_id=asset_id,
-        prompt=prompt, textures=textures, settle_first=settle_first, engine_render_uri=engine_render_uri)
+        prompt=prompt, textures=textures, settle_first=settle_first, engine_render_uri=engine_render_uri, require_verified=require_verified)
     run.workdir.mkdir(parents=True, exist_ok=True)
     await run.pass_a()
     if run_pass_b and run.res.stopped.get("A") != "empty scene":

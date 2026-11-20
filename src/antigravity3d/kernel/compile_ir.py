@@ -16,7 +16,8 @@ from pathlib import Path
 import numpy as np
 from pxr import Gf, Kind, Sdf, Usd, UsdGeom, UsdShade, Vt
 
-from antigravity3d.ir import MaterialIR, NodeIR, SceneIR
+from antigravity3d.ir import MaterialIR, NodeIR, PlaceRelative, SceneIR, Transform
+from antigravity3d.kernel.mesh_io import triangle_parts
 
 IR_KEY = "agy:sceneIR"  # customData key path (USD stores it as dict agy -> sceneIR)
 LOOKS = "Looks"
@@ -233,16 +234,18 @@ def node_paths(scene: SceneIR, root: Sdf.Path) -> dict[str, Sdf.Path]:
     by_id = {n.id: n for n in scene.nodes}
     out: dict[str, Sdf.Path] = {}
 
-    def path(nid: str, depth: int = 0) -> Sdf.Path:
-        if nid not in out:
-            if depth > len(by_id):
-                raise ValueError(f"{nid}: parent cycle")
-            parent = by_id[nid].parent
-            out[nid] = (root if parent is None else path(parent, depth + 1)).AppendChild(nid)
-        return out[nid]
-
-    for n in scene.nodes:
-        path(n.id)
+    for node in scene.nodes:
+        nid = node.id
+        walked = []
+        while nid is not None and nid not in out:
+            walked.append(nid)
+            if len(walked) > len(by_id):
+                raise ValueError(f"{node.id}: parent cycle")
+            nid = by_id[nid].parent
+        path = root if nid is None else out[nid]
+        for child in reversed(walked):
+            path = path.AppendChild(child)
+            out[child] = path
     return out
 
 
@@ -260,6 +263,13 @@ def _set_input(shader: UsdShade.Shader, name: str, vtype: Sdf.ValueTypeName, val
     if inp.GetAttr().HasAuthoredConnections():  # a weaker layer wired a texture here
         inp.GetAttr().SetConnections([])  # explicit empty list overrides it
     return inp
+
+
+def set_normal_encoding(shader: UsdShade.Shader, convention: str) -> None:
+    """Decode packed normals to the +Y tangent frame consumed by UsdPreviewSurface."""
+    y = -2 if convention == "directx" else 2
+    shader.CreateInput("scale", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(2, y, 2, 1))
+    shader.CreateInput("bias", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(-1, -y / 2, -1, 0))
 
 
 def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
@@ -302,8 +312,7 @@ def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
         metal.ConnectToSource(orm.CreateOutput("b", Sdf.ValueTypeNames.Float))
     if m.normal_uri:
         nt = tex("normalTex", m.normal_uri, "raw")
-        nt.CreateInput("scale", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(2, 2, 2, 1))
-        nt.CreateInput("bias", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(-1, -1, -1, 0))
+        set_normal_encoding(nt, m.normal_convention)
         normal = surf.CreateInput("normal", Sdf.ValueTypeNames.Normal3f)
         normal.ConnectToSource(nt.CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
 
@@ -315,56 +324,76 @@ def _block_authored(prim: Usd.Prim, names) -> None:
             attr.Block()
 
 
+def _author_transform(prim: Usd.Prim, t: Transform, prev: Transform | None = None) -> None:
+    # Sparse overs avoid duplicating type, geometry and bindings on transform-only edits.
+    for name, value_type, vec_type, value, previous in (
+        ("translate", Sdf.ValueTypeNames.Double3, Gf.Vec3d, t.translate, prev and prev.translate),
+        ("rotateXYZ", Sdf.ValueTypeNames.Float3, Gf.Vec3f, t.rotate_euler_deg, prev and prev.rotate_euler_deg),
+        ("scale", Sdf.ValueTypeNames.Float3, Gf.Vec3f, t.scale, prev and prev.scale),
+    ):
+        if value != previous:
+            prim.CreateAttribute(f"xformOp:{name}", value_type, custom=False).Set(vec_type(*value))
+    if prev is None:
+        UsdGeom.Xformable(prim).CreateXformOpOrderAttr().Set(
+            Vt.TokenArray(["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"])
+        )
+
+
 def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path) -> None:
     is_prim = node.kind in PRIMITIVES
-    prim = stage.DefinePrim(path, "Mesh" if is_prim else "Xform")
+    ref_path = None
+    if node.kind == "mesh_ref":
+        uri = node.params.get("path")
+        if not isinstance(uri, str) or not uri:
+            raise ValueError(f"{node.id}: mesh_ref requires string param 'path'")
+        root_file = stage.GetRootLayer().realPath
+        ref_path = ((Path(root_file).parent if root_file else Path.cwd()) / uri).resolve()
+    imported = ref_path is not None and ref_path.suffix.lower() not in USD_EXTS
+    prim = stage.DefinePrim(path, "Mesh" if is_prim or imported else "Xform")
     if not prim.IsActive():
         prim.SetActive(True)
     prim.CreateAttribute("agy:nodeId", Sdf.ValueTypeNames.String, custom=True).Set(node.id)
     prim.CreateAttribute("agy:collider", Sdf.ValueTypeNames.Bool, custom=True).Set(node.collider)
 
-    t = node.transform
-    # Set op attributes directly: AddTranslateOp() etc. error if a weaker layer already has them.
-    prim.CreateAttribute("xformOp:translate", Sdf.ValueTypeNames.Double3, custom=False).Set(Gf.Vec3d(*t.translate))
-    prim.CreateAttribute("xformOp:rotateXYZ", Sdf.ValueTypeNames.Float3, custom=False).Set(
-        Gf.Vec3f(*t.rotate_euler_deg)
-    )
-    prim.CreateAttribute("xformOp:scale", Sdf.ValueTypeNames.Float3, custom=False).Set(Gf.Vec3f(*t.scale))
-    UsdGeom.Xformable(prim).CreateXformOpOrderAttr().Set(
-        Vt.TokenArray(["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"])
-    )
+    _author_transform(prim, node.transform)
 
     if is_prim:
         pts, tris = primitive_mesh(node)
-        mesh = UsdGeom.Mesh(prim)
-        mesh.CreatePointsAttr().Set(Vt.Vec3fArray.FromNumpy(pts))
-        mesh.CreateFaceVertexCountsAttr().Set(Vt.IntArray.FromNumpy(np.full(len(tris), 3, np.int32)))
-        mesh.CreateFaceVertexIndicesAttr().Set(Vt.IntArray.FromNumpy(tris.ravel()))
-        mesh.CreateExtentAttr().Set(Vt.Vec3fArray.FromNumpy(np.stack([pts.min(0), pts.max(0)])))
-        mesh.CreateSubdivisionSchemeAttr().Set(UsdGeom.Tokens.none)
-    else:  # kind changed away from a primitive: hide stale mesh data from weaker layers
+        author_mesh_data(prim, pts, tris, None, normals=False)
+    elif imported:
+        # One IR node owns one material and one mesh, including transformed instances.
+        points, faces, uvs = [], [], []
+        offset = 0
+        for _, p, f, uv in triangle_parts(ref_path):
+            points.append(p)
+            faces.append(f + offset)
+            uvs.append(uv)
+            offset += len(p)
+        st = np.concatenate(uvs) if all(uv is not None for uv in uvs) else None
+        author_mesh_data(prim, np.concatenate(points), np.concatenate(faces), st, normals=False)
+    else:
         _block_authored(prim, _MESH_ATTRS)
 
-    if node.kind == "mesh_ref":
-        ref_path = node.params.get("path")
-        if not isinstance(ref_path, str) or not ref_path:
-            raise ValueError(f"{node.id}: mesh_ref requires string param 'path'")
-        p = Path(ref_path)
-        if p.suffix.lower() in USD_EXTS:
-            # Anonymous tx layers have no directory to anchor relative paths against.
-            ref = stage.DefinePrim(path.AppendChild(REF_CHILD))
-            if not ref.IsActive():
-                ref.SetActive(True)
-            ref.GetReferences().SetReferences([Sdf.Reference(str(p if p.is_absolute() else p.resolve()))])
-            _block_authored(prim, ["agy:meshRef"])
-        else:
-            prim.CreateAttribute("agy:meshRef", Sdf.ValueTypeNames.String, custom=True).Set(ref_path)
+    if imported:
+        prim.CreateAttribute("agy:meshRef", Sdf.ValueTypeNames.String, custom=True).Set(node.params["path"])
     else:
         _block_authored(prim, ["agy:meshRef"])
+    if ref_path is not None and not imported:
+        if not ref_path.is_file():
+            raise FileNotFoundError(ref_path)
+        # Anonymous tx layers have no directory against which to resolve a reference.
+        ref = stage.DefinePrim(path.AppendChild(REF_CHILD))
+        if not ref.IsActive():
+            ref.SetActive(True)
+        ref.GetReferences().SetReferences([Sdf.Reference(str(ref_path))])
 
-    if node.material_id is not None:
+    _bind_material(stage, prim, root, node.material_id)
+
+
+def _bind_material(stage: Usd.Stage, prim: Usd.Prim, root: Sdf.Path, material_id: str | None) -> None:
+    if material_id is not None:
         api = UsdShade.MaterialBindingAPI.Apply(prim)
-        api.Bind(UsdShade.Material(stage.GetPrimAtPath(root.AppendPath(f"{LOOKS}/{node.material_id}"))))
+        api.Bind(UsdShade.Material(stage.GetPrimAtPath(root.AppendPath(f"{LOOKS}/{material_id}"))))
     else:
         rel = prim.GetRelationship("material:binding")
         if rel and rel.HasAuthoredTargets():
@@ -428,11 +457,29 @@ def author_scene(
 
     for node in sorted(scene.nodes, key=lambda n: paths[n.id].pathElementCount):  # parents first
         path = paths[node.id]
-        if node.kind == "mesh_ref" and Path(str(node.params.get("path", ""))).suffix.lower() in USD_EXTS:
-            expected.add(path.AppendChild(REF_CHILD))
-            opaque.add(path.AppendChild(REF_CHILD))
-        if prev_nodes.get(node.id) != node or prev_paths.get(node.id) != path or stale(path):
-            _author_node(stage, path, node, root)
+        needs_import = False
+        if node.kind == "mesh_ref":
+            if Path(str(node.params.get("path", ""))).suffix.lower() in USD_EXTS:
+                expected.add(path.AppendChild(REF_CHILD))
+                opaque.add(path.AppendChild(REF_CHILD))
+            else:
+                prim = stage.GetPrimAtPath(path)
+                needs_import = not prim or not prim.IsA(UsdGeom.Mesh)  # older stages held only a URI
+
+        old = prev_nodes.get(node.id)
+        if old is not None and prev_paths[node.id] == path and not needs_import and not stale(path):
+            if old == node:
+                continue
+            if old.kind == node.kind and old.params == node.params:
+                prim = stage.GetPrimAtPath(path)
+                if old.transform != node.transform:
+                    _author_transform(prim, node.transform, old.transform)
+                if old.collider != node.collider:
+                    prim.GetAttribute("agy:collider").Set(node.collider)
+                if old.material_id != node.material_id:
+                    _bind_material(stage, prim, root, node.material_id)
+                continue
+        _author_node(stage, path, node, root)
 
     # Deactivate whatever weaker layers still compose but the new IR dropped.
     # Collect first: changing `active` recomposes and would invalidate the range.
@@ -449,3 +496,44 @@ def author_scene(
         p.SetActive(False)
 
     root_prim.SetCustomDataByKey(IR_KEY, scene.model_dump_json())
+
+
+def resolve_anchor(scene: SceneIR, op: PlaceRelative, *, stage: Usd.Stage | None = None) -> Transform:
+    """Resolve a one-shot world-space contact against the current composed geometry.
+
+    on_top_of centres X/Y and contacts the upper Z face. flush_back aligns the +Y
+    faces (positive gap insets the moving face) and preserves world X/Z.
+    """
+    if stage is None:
+        stage = Usd.Stage.CreateInMemory()
+        author_scene(stage, scene)
+    paths = node_paths(scene, stage.GetDefaultPrim().GetPath())
+    if op.target_id not in paths:
+        raise KeyError(f"{op.op}: unknown target {op.target_id}")
+    moving, target = paths[op.node_id], paths[op.target_id]
+    if moving.HasPrefix(target) or target.HasPrefix(moving):
+        raise ValueError("anchor nodes must belong to disjoint subtrees")
+    cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_, UsdGeom.Tokens.render])
+
+    def bounds(path):
+        box = cache.ComputeWorldBound(stage.GetPrimAtPath(path)).ComputeAlignedRange()
+        if box.IsEmpty():
+            raise ValueError(f"{path}: anchor requires a nonempty bound")
+        return np.array(box.GetMin()), np.array(box.GetMax())
+
+    lo, hi = bounds(moving)
+    other_lo, other_hi = bounds(target)
+    delta = np.zeros(3)
+    if op.op == "on_top_of":
+        delta[:2] = (other_lo[:2] + other_hi[:2] - lo[:2] - hi[:2]) * 0.5
+        delta[2] = other_hi[2] + op.gap_m - lo[2]
+    else:
+        delta[1] = other_hi[1] - op.gap_m - hi[1]
+    prim = stage.GetPrimAtPath(moving)
+    parent_to_world = np.array(UsdGeom.XformCache().GetParentToWorldTransform(prim))
+    try:
+        local_delta = np.linalg.solve(parent_to_world[:3, :3].T, delta)
+    except np.linalg.LinAlgError as exc:
+        raise ValueError(f"{moving}: anchor has singular parent transform") from exc
+    transform = next(n.transform for n in scene.nodes if n.id == op.node_id)
+    return transform.model_copy(update={"translate": tuple(transform.translate + local_delta)})

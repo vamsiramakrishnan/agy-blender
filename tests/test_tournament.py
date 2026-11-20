@@ -40,7 +40,7 @@ async def test_generations_really_run_concurrently() -> None:
 
     r = await run_tournament("ortho", gen, 4, plane=plane, governor=Governor(plan_for(2)))
     assert peak == 4 == r.max_in_flight
-    assert client.max_in_flight >= 2  # grading overlaps too
+    assert len(client.calls) == 1 and client.calls[0]["n_images"] == 4
     assert r.wall_ms < 0.1 * 4 * 1000 * 0.75  # well under sequential time
     assert len(r.ranking) == 4 and r.winner is not None
 
@@ -56,7 +56,7 @@ async def test_concurrency_bound_is_respected() -> None:
     assert r.max_in_flight == 2
 
 
-async def test_failed_generation_and_failed_grading_do_not_sink_the_run() -> None:
+async def test_failed_generation_is_reported_and_failed_batch_cannot_promote() -> None:
     plane, _ = plane_of(errors=[ValueError("grader exploded")])
 
     async def gen(i: int) -> Candidate:
@@ -66,22 +66,22 @@ async def test_failed_generation_and_failed_grading_do_not_sink_the_run() -> Non
 
     r = await run_tournament("ortho", gen, 4, plane=plane, governor=Governor(plan_for(2)))
     assert "RuntimeError" in r.failures[1]
-    assert len(r.failures) == 2  # one generation failure, one grading failure
-    assert r.winner is not None and len(r.ranking) == 2
-    assert r.winner.index in (0, 2, 3)
+    assert set(r.failures) == {0, 1, 2, 3}
+    assert all("grader exploded" in r.failures[i] for i in (0, 2, 3))
+    assert r.winner is None and not r.ranking
 
 
 async def test_governor_reduces_n_under_a_tight_ceiling() -> None:
     plane, _ = plane_of()
     forge_backend = FakeImageBackend()
     gov = Governor(plan_for(2))  # standard: N=4, ceiling 0.85
-    gov.charge("earlier", 0.80)  # 0.05 left: one image at $0.04 fits, four do not
+    gov.charge("earlier", 0.79)  # 0.06 remains for one nominal 2K candidate and its grade
     r = await ortho_tournament("crate", ImageForge(forge_backend), plane=plane, governor=gov)
     assert r.n_planned == 1 and len(forge_backend.calls) == 1
     roomy = Governor(plan_for(2))
     r2 = await ortho_tournament("crate", ImageForge(FakeImageBackend()), plane=plane, governor=roomy)
     assert r2.n_planned == 4
-    assert roomy.spent == pytest.approx(r2.cost_usd) and roomy.spent > 0
+    assert roomy.spent == pytest.approx(r2.cost_usd) and roomy.spent == 0  # fake judge and image backend
 
 
 async def test_early_stop_cancels_pending_candidates() -> None:
@@ -103,20 +103,12 @@ async def test_pbr_derives_maps_only_for_the_winner_and_gate_disqualifies(monkey
     derived: list[int] = []
     real = T.derive_pbr
     monkeypatch.setattr(T, "derive_pbr", lambda img, **kw: (derived.append(1), real(img, **kw))[1])
-    seen = {"n": 0}
-
-    def responder(req: dict) -> dict:
-        if any(q.startswith("policy_") for q in req["questions"]):
-            seen["n"] += 1
-            return {"policy_legible_text": 0.9} if seen["n"] == 2 else {}
-        return {}
-
-    plane, _ = plane_of(responder=responder)
-    r = await pbr_tournament("oak planks", ImageForge(FakeImageBackend()), plane=plane, governor=Governor(plan_for(2)), material_id="wood")
+    plane, client = plane_of(answers={"policy_legible_text__2": 0.9})
+    r = await pbr_tournament("oak planks", ImageForge(FakeImageBackend()), plane=plane, governor=Governor(plan_for(2)), material_id="wood", size=128)
     assert len(derived) == 1  # ORM + normal only for the winner
     assert r.maps is not None and r.albedo_png
     assert len(r.tournament.disqualified) == 1 and "policy gate" in next(iter(r.tournament.disqualified.values()))
-    assert tag_calls(plane, "bon:pbr") == 3  # the disqualified candidate was never ranked
+    assert tag_calls(plane, "bon:pbr") == 1 and len(client.calls) == 1
     assert "albedo prep" in r.prep
 
 
@@ -144,7 +136,7 @@ async def test_geometry_tier1_failures_never_reach_vision_and_winner_is_promoted
                                   uploader=up, scenes=scenes)
     assert sorted(r.disqualified) == [0, 3]
     assert all("tri" in v.lower() for v in r.disqualified.values())
-    assert tag_calls(plane, "bon:geometry") == 2 and len(uploads) == 2  # only the survivors cost a vision call / sheet
+    assert tag_calls(plane, "bon:geometry") == 1 and len(uploads) == 2  # only the survivors cost a vision call / sheet
     assert r.winner is not None and r.winner.index in (1, 2)
     # promoted: the variant set is gone, base scene is the winner, and the stage is editable again
     assert sm.list_variants("blockout") == []
@@ -181,4 +173,4 @@ async def test_geometry_with_template_author_end_to_end(tmp_path: Path) -> None:
                                   uploader=lambda b: asyncio.sleep(0, "fake://x"), context={"asset_name": "Barrel"})
     assert r.n_planned == 4 and len(r.ranking) == 4
     assert {n.id for n in sm.base_ir().nodes} >= {"body", "hoop_0"}
-    assert gov.by_category["geometry_vision"] > 0
+    assert gov.by_category["geometry_vision"] == 0  # fake judge

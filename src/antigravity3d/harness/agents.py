@@ -35,21 +35,21 @@ STAGE_BUILTINS = [types.BuiltinTools.FINISH, types.BuiltinTools.VIEW_FILE, types
 
 _IR_RULES = """Scene IR (metres, Z-up, right-handed, rotations XYZ Euler degrees). Primitives are centred on their local origin:
 box params.size=[x,y,z] full extents; cylinder radius,height[,segments=24] axis local Z; cone radius,height (base -h/2, apex +h/2);
-sphere radius[,segments,rings]; capsule radius,height; group = transform-only parent. node: {"id","kind","params","transform":
+sphere radius[,segments,rings]; capsule radius,height; group = transform-only parent; mesh_ref params.path = local asset path. node: {"id","kind","params","transform":
 {"translate","rotate_euler_deg","scale"},"parent","material_id","collider"}; ids match [A-Za-z_][A-Za-z0-9_]*.
 Ops: {"op":"upsert_node","node":{...}}, remove_node{node_id}, set_transform{node_id,transform}, set_param{node_id,name,value},
-upsert_material{material:{id,base_color,metallic,roughness}}, assign_material{node_id,material_id}.
-To sit a part on the ground, translate z = half its height. Parts must touch, not float."""
+upsert_material{material:{id,base_color,metallic,roughness}}, assign_material{node_id,material_id}, on_top_of{node_id,target_id,gap_m}, flush_back{node_id,target_id,gap_m}.
+Anchors use world AABBs. on_top_of centres X/Y and aligns bottom to target top. flush_back aligns +Y faces. gap_m defaults to 0. For ground contact use z = half the primitive height."""
 
 _STAGE_TEXT: dict[str, str] = {
     "BLOCKOUT": "Build the asset's blockout from primitives with apply_scene_ir (one patch can hold many ops). Each edit is "
                 "atomic: a failing Tier-1 check (non-manifold, over budget) is rolled back and reported in one line; fix and resend. "
                 "Then run_visual_qa; follow its action (auto_fix is applied for you; agent_repair names a target). Stop once Tier-1 "
                 "is OK and QA shows no geometry repair.",
-    "TWEAK": "Make the requested small parameter edits with apply_scene_ir, check the returned line, stop.",
+    "TWEAK": "Use query_region for a bounded spatial working set. Apply the requested parameter edits with apply_scene_ir.",
     "VARIANTS": "Explore alternatives as variants (propose_variants), select each and run_visual_qa, promote the best.",
     "LOOKDEV": "Create materials with forge_pbr_material, tune and assign them with apply_shader_diff (assign_to), then "
-               "run_visual_qa until it approves (tier15 >= 3.4). Images are never shown to you; reason from QA lines.",
+               "render_lookdev with EEVEE/Cycles and run_visual_qa until Decisions approves (tier15 >= 3.4). Images are never shown to you; reason from QA lines.",
     "EXPORT": "Run generate_lods_and_colliders and run_usd_validator, then export_engine_package. Export is refused until QA "
               "approved the current scene; report what blocks it instead of retrying.",
 }
@@ -236,10 +236,10 @@ async def run_stage(
     cfg = build_stage_agent(stage, session_id, registry=registry, role=role, **build_kwargs)
     conv = cfg.conversation_id or ""
     s = session(registry, session_id)
-    clean, _ = await sanitize_prompt(prompt, s)
     hooks = {type(h): h for h in cfg.hooks}
     t0 = time.perf_counter()
     try:
+        clean, _ = await sanitize_prompt(prompt, s)
         async with Agent(cfg) as agent:
             runner = getattr(agent, "_tool_runner", None)  # fallback binding if the harness renames the conversation
             ctx = getattr(runner, "_context", None)
@@ -249,8 +249,6 @@ async def run_stage(
             resp = await asyncio.wait_for(agent.chat(with_state_header(clean, s)), timeout_s)
             text = await asyncio.wait_for(resp.text(), timeout_s)
             usage = resp.usage_metadata or agent.conversation.last_turn_usage
-            if agent.conversation_id and agent.conversation_id != conv:
-                bind_conversation(agent.conversation_id, session_id, registry)
     finally:
         unbind_conversation(conv)
     tel = hooks.get(TelemetryHook)

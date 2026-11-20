@@ -1,4 +1,4 @@
-"""Smallest end-to-end run: offline prop -> exported engine package + inspector HTML.
+"""Smallest end-to-end run: offline prop -> draft engine package + inspector HTML.
 
 Uses the fakes (FakeDecisionsClient, FakeImageBackend) and the deterministic TemplateAuthor, so it needs no
 network or API key. Run:  python examples/offline_crate.py [OUT_DIR]
@@ -24,8 +24,8 @@ async def main(out: Path) -> int:
     print(rep.summary())
     for k, v in rep.extras["outputs"].items():
         print(f"{k}: {v}")
-    print("gates:", "PASS" if rep.extras["gates_ok"] else "FAIL")
-    return 0 if rep.extras["gates_ok"] else 1
+    print("preview gates:", "PASS" if rep.extras["preview_gates_ok"] else "FAIL")
+    return 0 if rep.extras["preview_gates_ok"] else 1
 
 
 if __name__ == "__main__":

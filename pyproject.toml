@@ -44,6 +44,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
+  "browser: needs Playwright Chromium and AGY3D_THREE_JS",
   "live: needs GEMINI_API_KEY and network",
   "blender: needs a Blender 5.3+ binary on PATH or $BLENDER_BIN",
 ]

@@ -12,27 +12,31 @@ import base64
 import json
 import logging
 import time
+from dataclasses import replace
 from enum import StrEnum
-from typing import Any, Awaitable, Callable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, Sequence
 
 from . import questions as Q
 from .models import (
-    Answer, CandidateScore, DecisionError, DecisionResult, EngineParityResult, ItemQA, LodPopResult, PlaneStats,
+    Answer, CandidateScore, DecisionBudgetError, DecisionError, DecisionResult, EngineParityResult, ItemQA, LodPopResult, PlaneStats,
     PolicyVerdict, PromptBlockedError, RigRomResult, RouteDecision, Stage, TransientDecisionError, VisualQAResult,
 )
+
+if TYPE_CHECKING:
+    from antigravity3d.tactics.governor import Governor
 
 log = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gemini-decision-1"
 PRICE_PER_M_INPUT_USD = 0.10  # $ per 1M input tokens; no output tokens are generated
 PRICE_PER_M_OUTPUT_USD = 0.0
-LATENCY_KNEE_TOKENS = 16_000  # beyond this the low-latency regime is lost: warn
+MODEL_INPUT_LIMIT = 262_144  # documented native context cap; absolute spend bound per dispatch
+LATENCY_KNEE_TOKENS = 16_000  # exclusive estimated input limit
 
-# APPROXIMATE per-image token costs by resolution tier. Not published figures; calibrate against
-# `usage.total_input_tokens` in the shadow runs and edit here.
+# Approximate Google media-resolution allowances. Native Decisions reports actual usage after dispatch.
 IMAGE_TOKENS_APPROX = {"low": 280, "medium": 560, "high": 1120, "ultra_high": 2240}
-DEFAULT_IMAGE_RESOLUTION = "medium"
-CHARS_PER_TOKEN = 4
+DEFAULT_IMAGE_RESOLUTION = "high"
+
 
 
 class MediaResolution(StrEnum):
@@ -68,6 +72,11 @@ def text_block(text: str) -> Block:
 
 
 def image_block(uri: str, resolution: MediaResolution | str = MediaResolution.LOW, mime_type: str = "image/png") -> Block:
+    if uri.startswith("data:"):
+        header, sep, data = uri.partition(",")
+        if not sep or not data or not header.startswith("data:image/") or not header.endswith(";base64"):
+            raise ValueError("expected a base64 image data URI")
+        return {"type": "image", "data": data, "mime_type": header[5:-7], "resolution": str(MediaResolution(resolution))}
     return {"type": "image", "uri": uri, "mime_type": mime_type, "resolution": str(MediaResolution(resolution))}
 
 
@@ -77,13 +86,13 @@ def image_data_block(data: bytes, resolution: MediaResolution | str = MediaResol
 
 
 def estimate_input_tokens(input_blocks: str | Sequence[Block], questions: dict[str, Q.Question]) -> int:
-    """Rough request size: text chars / 4 plus the approximate per-image cost table."""
+    """Admission estimate using UTF-8 bytes as a conservative text bound and per-tier image allowances."""
     blocks = [text_block(input_blocks)] if isinstance(input_blocks, str) else list(input_blocks)
-    chars = sum(len(b.get("text", "")) for b in blocks if b.get("type") == "text")
-    chars += len(json.dumps(questions, separators=(",", ":")))
+    text_bytes = sum(len(b.get("text", "").encode("utf-8")) for b in blocks if b.get("type") == "text")
+    text_bytes += len(json.dumps(questions, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
     images = sum(IMAGE_TOKENS_APPROX.get(str(b.get("resolution") or DEFAULT_IMAGE_RESOLUTION), IMAGE_TOKENS_APPROX["medium"])
                  for b in blocks if b.get("type") == "image")
-    return chars // CHARS_PER_TOKEN + images
+    return text_bytes + images
 
 
 def _get(obj: Any, name: str, default: Any = None) -> Any:
@@ -112,6 +121,21 @@ def _is_transient(exc: BaseException) -> bool:
     return isinstance(code, int) and code in RETRYABLE_CODES
 
 
+def _blocked_reason(exc: BaseException) -> str | None:
+    if (_get(exc, "status_code") or _get(exc, "code")) != 400:
+        return None
+    details = _get(exc, "details") or _get(exc, "body")
+    if isinstance(details, str):
+        try:
+            details = json.loads(details)
+        except ValueError:
+            return None
+    reason = _get(_get(details, "error"), "code")
+    if reason in ("safety", "prohibited_content", "blocklist", "image_safety", "content_blocked"):
+        return reason
+    return None
+
+
 def _infer_backend_kind(client: Any) -> str:
     """"decisions" | "generative_fallback" | "fake" (duck-typed so importing fakes/fallback stays optional)."""
     name = type(client).__name__
@@ -135,22 +159,52 @@ class DecisionControlPlane:
         """False when answers come from the generative fallback (self-reported, uncalibrated)."""
         return self.backend_kind != "generative_fallback"
 
-    async def evaluate(self, input_blocks: str | Sequence[Block], questions: dict[str, Q.Question], *, tag: str) -> DecisionResult:
+    async def evaluate(self, input_blocks: str | Sequence[Block], questions: dict[str, Q.Question], *, tag: str,
+                       governor: Governor | None = None, charge_as: str | None = None,
+                       on_settle: Callable[[float], None] | None = None) -> DecisionResult:
         if not questions:
             raise ValueError("evaluate() needs at least one question")
+        if any(not Q.QUESTION_ID.fullmatch(key) for key in questions):
+            raise ValueError("question IDs must match [A-Za-z0-9_-]{1,64}")
         if len(questions) > Q.MAX_QUESTIONS_PER_REQUEST:
             raise ValueError(f"too many questions ({len(questions)} > {Q.MAX_QUESTIONS_PER_REQUEST})")
         est = estimate_input_tokens(input_blocks, questions)
-        if est > LATENCY_KNEE_TOKENS:
-            log.warning("decision request %r ~%d input tokens exceeds the ~%d low-latency knee", tag, est, LATENCY_KNEE_TOKENS)
+        if est >= LATENCY_KNEE_TOKENS:
+            raise DecisionBudgetError(f"{tag}: estimated {est} input tokens, must be below {LATENCY_KNEE_TOKENS}")
         payload = input_blocks if isinstance(input_blocks, str) else list(input_blocks)
+        if self.backend_kind == "decisions" and not isinstance(payload, str):
+            if any(b.get("type") == "image" and "uri" in b and not b["uri"].startswith("https://") for b in payload):
+                raise ValueError("native Decisions image inputs require a Files API URI, HTTPS URL or inline data")
+        if governor is not None and not self.calibrated:
+            raise DecisionBudgetError("cannot reserve an unpriced generative fallback for automatic judging")
+        category = charge_as or tag
+        if governor is not None and self.backend_kind == "decisions" and self.model != DEFAULT_MODEL:
+            raise DecisionBudgetError(f"no configured spend bound for {self.model}")
+        hold = 0.0 if self.backend_kind == "fake" else MODEL_INPUT_LIMIT * PRICE_PER_M_INPUT_USD / 1e6
+        receipt = {"model": self.model, "operation": tag, "estimated_input_tokens": est, "questions": len(questions)}
+        booked = 0.0
         attempts, t0 = 0, time.perf_counter()
         while True:
             attempts += 1
+            reservation = None
+            if governor is not None:
+                reservation = governor.reserve(category, hold, receipt={**receipt, "source": "reservation_estimate",
+                                                                        "status": "pending", "attempt": attempts})
             try:
                 resp = await self._client.aio.decisions.create(model=self.model, input=payload, questions=questions)
                 break
-            except Exception as exc:  # noqa: BLE001 - classified below
+            except BaseException as exc:
+                # Dispatch may have reached the service before a timeout or cancellation.
+                if reservation is not None:
+                    reservation.settle(receipt={**receipt, "source": "offline" if self.backend_kind == "fake" else "reservation_estimate",
+                                                "status": type(exc).__name__, "attempt": attempts})
+                    booked += hold
+                    if on_settle:
+                        on_settle(hold)
+                if reason := _blocked_reason(exc):
+                    raise PromptBlockedError(reason, tag=tag) from exc
+                if not isinstance(exc, Exception):
+                    raise
                 if not _is_transient(exc):
                     raise
                 if attempts > self.max_retries:
@@ -159,40 +213,97 @@ class DecisionControlPlane:
                 log.warning("decision %r transient failure (%s); retry %d in %.2fs", tag, exc, attempts, delay)
                 await self._sleep(delay)
         latency_ms = (time.perf_counter() - t0) * 1000
-        fb = _get(resp, "prompt_feedback")
-        if fb is not None and _get(fb, "block_reason"):
-            raise PromptBlockedError(str(_get(fb, "block_reason")), _get(fb, "block_reason_message"), tag)
-        answers = {qid: normalise_answer(a) for qid, a in (_get(resp, "answers") or {}).items()}
-        if missing := set(questions) - set(answers):
-            raise DecisionError(f"{tag}: response missing answers for {sorted(missing)}")
         usage = _get(resp, "usage")
-        tokens = int(_get(usage, "total_input_tokens") or 0) or est
+        measured = _get(usage, "total_input_tokens")
+        tokens = int(measured) if measured is not None else est
         out_tokens = int(_get(usage, "total_output_tokens") or 0)
         # Provenance: the generative fallback marks its responses `calibrated=False` and brings its own
         # (possibly unknown) cost; real Decisions responses carry neither and keep the original path.
-        calibrated = bool(_get(resp, "calibrated", True))
-        if calibrated:
-            cost, cost_known, source = tokens * PRICE_PER_M_INPUT_USD / 1e6, True, self.backend_kind
+        calibrated = self.calibrated and bool(_get(resp, "calibrated", True))
+        if self.backend_kind == "fake" and calibrated:
+            cost, cost_known, source = 0.0, True, "fake"
+        elif calibrated:
+            cost, cost_known, source = tokens * PRICE_PER_M_INPUT_USD / 1e6, measured is not None, self.backend_kind
         else:
             c = _get(resp, "cost_usd")
             cost, cost_known, source = (float(c) if c is not None else 0.0), c is not None, self.backend_kind
+        fb = _get(resp, "prompt_feedback")
+        blocked = fb is not None and _get(fb, "block_reason")
+        if reservation is not None:
+            settled = 0.0 if self.backend_kind == "fake" else cost if cost_known else hold
+            billing = "offline" if self.backend_kind == "fake" else "provider_usage" if cost_known else "reservation_estimate"
+            reservation.settle(settled, receipt={**receipt, "source": billing, "input_tokens": measured,
+                                                 "output_tokens": out_tokens, "attempt": attempts,
+                                                 "status": "blocked" if blocked else "ok"})
+            if on_settle:
+                on_settle(settled)
+            booked += settled
+        if measured is not None and measured >= LATENCY_KNEE_TOKENS:
+            self.stats.measured_knee_overruns += 1
         self.stats.record(tag, latency_ms, tokens, cost, attempts, output_tokens=out_tokens, calibrated=calibrated,
                           cost_known=cost_known)
-        return DecisionResult(tag, answers, latency_ms, tokens, est, cost, len(questions), attempts,
-                              calibrated=calibrated, output_tokens=out_tokens, cost_known=cost_known, source=source)
+        answers = {} if blocked else {qid: normalise_answer(a) for qid, a in (_get(resp, "answers") or {}).items()}
+        result = DecisionResult(tag, answers, latency_ms, tokens, est, cost, len(questions), attempts,
+                                calibrated=calibrated, output_tokens=out_tokens, cost_known=cost_known, source=source, booked_usd=booked)
+        if blocked:
+            raise PromptBlockedError(str(blocked), _get(fb, "block_reason_message"), tag, result=result)
+        if set(answers) - set(questions):
+            raise DecisionError(f"{tag}: response contained unexpected question IDs")
+        if missing := set(questions) - set(answers):
+            raise DecisionError(f"{tag}: response missing answers for {sorted(missing)}")
+        for qid, q in questions.items():
+            answer = answers[qid]
+            if answer.kind != q["type"] or not 0 <= answer.confidence <= 1:
+                raise DecisionError(f"{tag}: invalid answer type or confidence for {qid}")
+            if answer.kind == "noul" and not 0 <= answer.noul <= 1:
+                raise DecisionError(f"{tag}: invalid probability for {qid}")
+            if answer.kind == "score" and not 0 <= answer.score <= len(q["criteria"]) - 1:
+                raise DecisionError(f"{tag}: invalid score for {qid}")
+            if answer.kind == "choice" and answer.choice not in q["criteria"]:
+                raise DecisionError(f"{tag}: invalid choice for {qid}")
+        return result
 
-    async def route_pipeline(self, prompt: str, manifest_txt: str, ref_img_uri: str | None = None) -> RouteDecision:
+    async def _evaluate_sheet(self, blocks: Sequence[Block], questions: dict[str, Q.Question], *, tag: str,
+                              governor: Governor | None = None, charge_as: str | None = None,
+                              on_settle: Callable[[float], None] | None = None) -> DecisionResult:
+        """Keep all checks in one call when they fit. Share the same image ordinals across overflow packets."""
+        packets: list[dict[str, Q.Question]] = []
+        packet: dict[str, Q.Question] = {}
+        for key, question in questions.items():
+            proposal = packet | {key: question}
+            if len(proposal) > Q.MAX_QUESTIONS_PER_REQUEST or estimate_input_tokens(blocks, proposal) >= LATENCY_KNEE_TOKENS:
+                if estimate_input_tokens(blocks, {key: question}) >= LATENCY_KNEE_TOKENS:
+                    raise DecisionBudgetError(f"{tag}: shared input and question {key} exceed the request budget")
+                packets.append(packet)
+                packet = {key: question}
+            else:
+                packet = proposal
+        packets.append(packet)
+        started = time.perf_counter()
+        results = [await self.evaluate(blocks, part, tag=tag, governor=governor, charge_as=charge_as,
+                                       on_settle=on_settle) for part in packets]
+        if len(results) == 1:
+            return results[0]
+        return replace(results[0], answers={k: v for r in results for k, v in r.answers.items()},
+                       latency_ms=(time.perf_counter() - started) * 1000, n_questions=len(questions),
+                       input_tokens=sum(r.input_tokens for r in results), est_input_tokens=sum(r.est_input_tokens for r in results),
+                       output_tokens=sum(r.output_tokens for r in results), est_cost_usd=sum(r.est_cost_usd for r in results),
+                       booked_usd=sum(r.booked_usd for r in results), attempts=sum(r.attempts for r in results),
+                       calibrated=all(r.calibrated for r in results), cost_known=all(r.cost_known for r in results))
+
+    async def route_pipeline(self, prompt: str, manifest_txt: str, ref_img_uri: str | None = None, *,
+                             governor: Governor | None = None) -> RouteDecision:
         blocks = [text_block(f"User request:\n{prompt}\n\nProject manifest:\n{manifest_txt}")]
         if ref_img_uri:
             blocks.append(image_block(ref_img_uri, MediaResolution.LOW))  # coarse routing only
-        res = await self.evaluate(blocks, dict(Q.ROUTING_QUESTIONS), tag="route")
+        res = await self.evaluate(blocks, dict(Q.ROUTING_QUESTIONS), tag="route", governor=governor)
         dag, ortho, cx = res.answers["pipeline_dag"], res.answers["needs_ortho_blueprint"], res.answers["complexity_tier"]
         return RouteDecision(dag.choice or "", dag.probabilities, ortho.noul >= 0.5, ortho.noul,  # type: ignore[operator]
                              cx.score, int(round(cx.score)), dag.confidence, res)  # type: ignore[arg-type]
 
     async def evaluate_visual_qa(self, contact_sheet_uri: str, ortho_uri: str | None = None,
                                  style_anchor_uri: str | None = None, stage: Stage = "lookdev", *,
-                                 marked_legend: Mapping[int, str] | None = None) -> VisualQAResult:
+                                 marked_legend: Mapping[int, str] | None = None, governor: Governor | None = None) -> VisualQAResult:
         """`marked_legend` (badge number -> part name) switches on set-of-mark mode: the sheet carries numbered badges."""
         res_tier = STAGE_RESOLUTION[stage]
         intro = "Image 1: contact sheet of renders of the asset under review."
@@ -209,7 +320,7 @@ class DecisionControlPlane:
                 have.add(key)
                 blocks += [text_block(f"Image {n}: {desc}."), image_block(uri, res_tier)]
         asked, skipped = Q.select(Q.VISUAL_QA_QUESTIONS, stage=stage, have=have, labels=labels)
-        res = await self.evaluate(blocks, asked, tag=f"visual_qa:{stage}")
+        res = await self._evaluate_sheet(blocks, asked, tag=f"visual_qa:{stage}", governor=governor, charge_as="visual_qa")
         na = res.answers.get("next_action")
         return VisualQAResult(
             stage=stage, defects={k: v for k, v in res.by_prefix("defect_").items()},  # type: ignore[misc]
@@ -218,73 +329,115 @@ class DecisionControlPlane:
             skipped=skipped, result=res, resolution=str(res_tier))
 
     async def rank_candidates(self, kind: str, candidate_uris: Sequence[str], context_uris: Sequence[str] = (),
-                              *, resolution: MediaResolution = BON_RESOLUTION) -> list[CandidateScore]:
-        """Best-of-N scoring, returned in input order (use compose.rank to order).
+                              *, resolution: MediaResolution = BON_RESOLUTION, governor: Governor | None = None) -> list[CandidateScore]:
+        """Score independent per-candidate policy and rubric questions against a shared input.
 
-        One request per candidate, fired concurrently, each asking the same atomic bank. Candidates
-        are therefore scored independently against an identical rubric, so scores are comparable and
-        absolute (they can be thresholded and calibrated), cost scales linearly, and position/order
-        bias and cross-candidate contamination are impossible. A single "which is best?" request would
-        be a relative, order-sensitive judgement that yields no calibrated per-criterion probabilities.
+        A whole candidate's bank stays together. Only split a request when the next complete
+        candidate would exceed an admission limit. Question suffixes refer to input order,
+        while image ordinals are local to a request (a repeated image is transmitted once).
         """
         bank = Q.BON_QUESTIONS[kind]
-        labels, have = {"cand": "Image 1"}, set()
-        if context_uris:
-            labels["ctx"] = "Image 2"
-            have.add("ctx")
-        asked, _ = Q.select(bank, have=have, labels=labels)
+        reference = context_uris[0] if context_uris and any("ctx" in spec.needs for spec in bank.values()) else None
+        batches = []
+        start = 0
+        while start < len(candidate_uris):
+            blocks: list[Block] = []
+            pictures: dict[str, str] = {}
+            questions: dict[str, Q.Question] = {}
+            if reference:
+                blocks.append(image_block(reference, resolution))
+                pictures[reference] = "Image 1"
+            stop = start
+            while stop < len(candidate_uris):
+                uri = candidate_uris[stop]
+                label = pictures.get(uri, f"Image {len(pictures) + 1}")
+                labels = {"cand": label}
+                if reference:
+                    labels["ctx"] = pictures[reference]
+                rubric, _ = Q.select(bank, have=labels, labels=labels)
+                rubric.update({key: Q.render(q, {"img": label}) for key, q in Q.POLICY_QUESTIONS.items()})
+                proposal = questions | {f"{key}__{stop + 1}": q for key, q in rubric.items()}
+                images = blocks if uri in pictures else [*blocks, image_block(uri, resolution)]
+                if len(proposal) > Q.MAX_QUESTIONS_PER_REQUEST or estimate_input_tokens(images, proposal) >= LATENCY_KNEE_TOKENS:
+                    if stop == start:
+                        raise DecisionBudgetError(f"bon:{kind}: candidate {start} exceeds the request budget")
+                    break
+                blocks, questions = images, proposal
+                pictures[uri] = label
+                stop += 1
+            batches.append((start, stop, blocks, questions))
+            start = stop
 
-        async def one(i: int, uri: str) -> CandidateScore:
-            blocks = [text_block("Image 1: the candidate."), image_block(uri, resolution)]
-            if context_uris:
-                blocks += [text_block("Image 2: reference."), image_block(context_uris[0], resolution)]
+        async def score_batch(first: int, end: int, images: list[Block], asked: dict[str, Q.Question]) -> list[CandidateScore]:
+            if governor is not None and not self.calibrated:
+                verdict = _policy_verdict({}, calibrated=False)
+                return [CandidateScore(i, candidate_uris[i], kind, blocked=True, policy=verdict) for i in range(first, end)]
+            charges: list[float] = []
             try:
-                r = await self.evaluate(blocks, asked, tag=f"bon:{kind}")
-            except PromptBlockedError:
-                return CandidateScore(i, uri, kind, blocked=True)
-            return CandidateScore(i, uri, kind, r.by_prefix("defect_"), r.by_prefix("score_"), result=r)  # type: ignore[arg-type]
+                result = await self.evaluate(images, asked, tag=f"bon:{kind}", governor=governor,
+                                             charge_as=f"{kind}_vision", on_settle=charges.append)
+            except PromptBlockedError as exc:
+                verdict = PolicyVerdict(False, True, {}, True, (f"input filter: {exc.reason}",))
+                return [CandidateScore(i, candidate_uris[i], kind, blocked=True, result=exc.result, policy=verdict, billed_on_error=sum(charges) if i == first and not exc.result else 0.0)
+                        for i in range(first, end)]
+            except Exception as exc:
+                # A failed packet invalidates all its inputs. Other admitted packets remain independent.
+                return [CandidateScore(i, candidate_uris[i], kind, blocked=True, error=f"{type(exc).__name__}: {exc}",
+                                       billed_on_error=sum(charges) if i == first else 0.0)
+                        for i in range(first, end)]
+            scores = []
+            for i in range(first, end):
+                suffix = f"__{i + 1}"
+                values = {qid.removesuffix(suffix): answer.value for qid, answer in result.answers.items() if qid.endswith(suffix)}
+                verdict = _policy_verdict({key: values[key] for key in Q.POLICY_QUESTIONS}, result.calibrated)
+                scores.append(CandidateScore(i, candidate_uris[i], kind,
+                                             {key: val for key, val in values.items() if key.startswith("defect_")},
+                                             {key: val for key, val in values.items() if key.startswith("score_")},
+                                             blocked=not verdict.allowed, result=result, policy=verdict))
+            return scores
 
-        return list(await asyncio.gather(*(one(i, u) for i, u in enumerate(candidate_uris))))
+        if governor is None:
+            groups = await asyncio.gather(*(score_batch(*batch) for batch in batches))
+        else:
+            # Reuse the released balance. Parallel worst-case reservations could reject a later packet prematurely.
+            groups = [await score_batch(*batch) for batch in batches]
+        return [score for group in groups for score in group]
 
-    async def policy_gate(self, image_uri: str) -> PolicyVerdict:
+    async def policy_gate(self, image_uri: str, *, governor: Governor | None = None) -> PolicyVerdict:
         qs = {k: Q.render(v, {"img": "Image 1"}) for k, v in Q.POLICY_QUESTIONS.items()}
         try:
-            res = await self.evaluate([text_block("Image 1: generated image to screen."), image_block(image_uri, POLICY_RESOLUTION)],
-                                      qs, tag="policy")
+            res = await self.evaluate([image_block(image_uri, POLICY_RESOLUTION)], qs, tag="policy", governor=governor)
         except PromptBlockedError as e:
             return PolicyVerdict(False, True, {}, True, (f"input filter: {e.reason}",))
-        flags = {k: a.noul for k, a in res.answers.items()}  # type: ignore[misc]
-        hard = [k for k, p in flags.items() if p >= POLICY_BLOCK_P]
-        soft = [k for k, p in flags.items() if POLICY_REVIEW_P <= p < POLICY_BLOCK_P]
-        return PolicyVerdict(not hard, bool(hard or soft), flags, False, tuple(hard + soft))
+        return _policy_verdict({key: res.noul(key) for key in qs}, res.calibrated)
 
     # ---- engine parity / LOD pop / rig ROM / set-of-mark ------------------------------------------------
 
     async def evaluate_engine_parity(self, blender_render_uri: str, engine_render_uri: str,
-                                     stage: Stage = "lookdev") -> EngineParityResult:
+                                     stage: Stage = "lookdev", *, governor: Governor | None = None) -> EngineParityResult:
         """Image 1 = DCC (Blender) render, Image 2 = the same asset, same view, in the target game engine."""
         res_tier = PARITY_RESOLUTION
         blocks = [text_block("Image 1: render of the asset in the DCC tool (Blender)."), image_block(blender_render_uri, res_tier),
                   text_block("Image 2: render of the same asset in the target game engine."), image_block(engine_render_uri, res_tier)]
         asked, skipped = Q.select(Q.ENGINE_PARITY_QUESTIONS, stage=stage, labels={"dcc": "Image 1", "engine": "Image 2"})
-        res = await self.evaluate(blocks, asked, tag=f"engine_parity:{stage}")
+        res = await self.evaluate(blocks, asked, tag=f"engine_parity:{stage}", governor=governor, charge_as="engine_parity")
         return EngineParityResult(res.by_prefix("defect_"), res.by_prefix("score_"), res, skipped, str(res_tier))
 
     async def _itemized(self, sheet_uri: str, intro: str, bank: dict[str, Q.QSpec], labels: Sequence[str], placeholder: str,
-                        extra: Callable[[int, str], dict[str, str]], tag: str) -> tuple[list[ItemQA], DecisionResult]:
+                        extra: Callable[[int, str], dict[str, str]], tag: str, governor: Governor | None) -> tuple[list[ItemQA], DecisionResult]:
         asked: dict[str, Q.Question] = {}
         for i, name in enumerate(labels, 1):
             qs, _ = Q.select(bank, labels={"sheet": "Image 1", placeholder: str(i), **extra(i, name)})
-            asked.update({f"{qid}@{i}": q for qid, q in qs.items()})
-        res = await self.evaluate([text_block(intro), image_block(sheet_uri, SHEET_RESOLUTION)], asked, tag=tag)
+            asked.update({f"{qid}__{i}": q for qid, q in qs.items()})
+        res = await self._evaluate_sheet([text_block(intro), image_block(sheet_uri, SHEET_RESOLUTION)], asked, tag=tag, governor=governor)
         items = []
         for i, name in enumerate(labels, 1):
-            sub = {qid.rsplit("@", 1)[0]: a for qid, a in res.answers.items() if qid.rsplit("@", 1)[1] == str(i)}
+            sub = {qid.rsplit("__", 1)[0]: a for qid, a in res.answers.items() if qid.rsplit("__", 1)[1] == str(i)}
             items.append(ItemQA(i, name, {k: a.noul for k, a in sub.items() if k.startswith("defect_")},  # type: ignore[misc]
                                 {k: a.score for k, a in sub.items() if k.startswith("score_")}))  # type: ignore[misc]
         return items, res
 
-    async def evaluate_lod_pop(self, pair_sheet_uri: str, n_pairs: int) -> LodPopResult:
+    async def evaluate_lod_pop(self, pair_sheet_uri: str, n_pairs: int, *, governor: Governor | None = None) -> LodPopResult:
         """Sheet of side-by-side LOD(k) | LOD(k+1) renders at the transition distance; one question set per pair."""
         if n_pairs < 1:
             raise ValueError("n_pairs must be >= 1")
@@ -292,10 +445,10 @@ class DecisionControlPlane:
             raise ValueError(f"too many pairs ({n_pairs}) for one request")
         items, res = await self._itemized(
             pair_sheet_uri, f"Image 1: sheet of {n_pairs} side-by-side LOD(k) vs LOD(k+1) render pairs.", Q.LOD_POP_QUESTIONS,
-            [f"pair {i}" for i in range(1, n_pairs + 1)], "pair", lambda i, n: {}, "lod_pop")
+            [f"pair {i}" for i in range(1, n_pairs + 1)], "pair", lambda i, n: {}, "lod_pop", governor)
         return LodPopResult(items, res, str(SHEET_RESOLUTION))
 
-    async def evaluate_rig_rom(self, pose_sheet_uri: str, pose_names: Sequence[str]) -> RigRomResult:
+    async def evaluate_rig_rom(self, pose_sheet_uri: str, pose_names: Sequence[str], *, governor: Governor | None = None) -> RigRomResult:
         """Range-of-motion pose sheet scoring. Question bank and scoring path only: no rigging backend exists yet."""
         names = [_clean_name(n) for n in pose_names]
         if not names:
@@ -304,11 +457,12 @@ class DecisionControlPlane:
             raise ValueError(f"too many poses ({len(names)}) for one request")
         items, res = await self._itemized(
             pose_sheet_uri, f"Image 1: sheet of {len(names)} range-of-motion pose renders.", Q.RIG_ROM_QUESTIONS, names,
-            "pose", lambda i, n: {"pose_name": n}, "rig_rom")
+            "pose", lambda i, n: {"pose_name": n}, "rig_rom", governor)
         return RigRomResult(items, res, str(SHEET_RESOLUTION))
 
     async def locate_defects(self, marked_sheet_uri: str, legend: Mapping[int, str], defects: Sequence[str], *,
-                             min_p: float = LOCATE_MIN_P) -> dict[str, list[tuple[str, float]]]:
+                             min_p: float = LOCATE_MIN_P, governor: Governor | None = None,
+                             on_settle: Callable[[float], None] | None = None) -> dict[str, list[tuple[str, float]]]:
         """Set-of-mark localisation: per defect, the node ids (legend values) whose badge draws P >= min_p, best first.
 
         One atomic noul per (defect, badge), all in one request. Pass only defects already flagged by QA:
@@ -323,14 +477,14 @@ class DecisionControlPlane:
         asked: dict[str, Q.Question] = {}
         for d in defects:
             for n, name in legend.items():
-                asked[f"{d}@{int(n)}"] = Q.render(Q.part_defect_question(d, int(n), _clean_name(name)), {"sheet": "Image 1"})
+                asked[f"{d}__{int(n)}"] = Q.render(Q.part_defect_question(d, int(n), _clean_name(name)), {"sheet": "Image 1"})
         blocks = [text_block("Image 1: contact sheet of renders of the asset; each part carries a numbered badge."),
                   image_block(marked_sheet_uri, SHEET_RESOLUTION)]
-        res = await self.evaluate(blocks, asked, tag="locate_defects")
+        res = await self._evaluate_sheet(blocks, asked, tag="locate_defects", governor=governor, charge_as="locate", on_settle=on_settle)
         out: dict[str, list[tuple[str, float]]] = {d: [] for d in defects}
         best: dict[str, dict[str, float]] = {d: {} for d in defects}
         for qid, a in res.answers.items():
-            d, n = qid.rsplit("@", 1)
+            d, n = qid.rsplit("__", 1)
             node = legend[int(n)]
             if a.noul is not None and a.noul >= min_p:
                 best[d][node] = max(best[d].get(node, 0.0), a.noul)
@@ -342,3 +496,12 @@ class DecisionControlPlane:
 def _clean_name(name: object) -> str:
     """Part / pose names go into instruction text: drop braces (placeholder syntax) and newlines."""
     return " ".join(str(name).replace("{", "(").replace("}", ")").split())
+
+
+def _policy_verdict(flags: dict[str, float], calibrated: bool) -> PolicyVerdict:
+    hard = [key for key, value in flags.items() if value >= POLICY_BLOCK_P]
+    soft = [f"review {key}" for key, value in flags.items() if POLICY_REVIEW_P <= value < POLICY_BLOCK_P]
+    reasons = hard + soft
+    if not calibrated:
+        reasons.append("uncalibrated policy verdict requires review")
+    return PolicyVerdict(not reasons, bool(reasons), flags, reasons=tuple(reasons))

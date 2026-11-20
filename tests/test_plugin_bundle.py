@@ -24,7 +24,7 @@ from antigravity3d.plugin_install import (
     validate,
 )
 from antigravity3d.runtime import qa_state
-from test_harness_tools import CRATE, box, make_session
+from test_harness_tools import CRATE, box, make_session, record_approval
 
 BUNDLE = bundle_dir()
 HOOKS = json.loads((BUNDLE / "hooks.json").read_text())
@@ -116,7 +116,7 @@ def test_agents_pinned_to_worker_tier_and_read_only():
         assert fm["name"] == name and fm["subagent"] is True and fm["mainAgent"] is False
         assert fm["model"] == expected_model
         assert not {"write_file", "edit_file", "run_command", "export_engine_package", "apply_scene_ir",
-                    "apply_shader_diff"} & set(fm["tools"])
+                    "apply_shader_diff", "run_visual_qa", "render_preview"} & set(fm["tools"])
 
 
 def test_sidecars_use_documented_forms():
@@ -256,13 +256,22 @@ def test_gate_matcher_targets_only_gated_tools():
 # --------------------------------------------------------------------------- hook contracts
 
 
+def write_passing_receipt(**kwargs):
+    from antigravity3d.state import VisualVerdict
+
+    revision = "fixture-revision"
+    return qa_state.write_qa_state(revision=revision, target="unreal_5", session_id="crate-session",
+                                   verdict=VisualVerdict(revision, "unreal_5", "lookdev", "eevee", "decisions", "approve"),
+                                   **kwargs)
+
+
 def test_export_blocked_without_qa_state(state):
     out = pre(state, "export_engine_package")
     assert out["decision"] == "deny" and "no QA verdict" in out["reason"]
 
 
 def test_export_allowed_with_passing_qa_then_blocked_after_edit(state):
-    qa_state.write_qa_state(tier1_ok=True, tier15_score=3.8, conversation_id="conv-1", asset="crate")
+    write_passing_receipt(tier1_ok=True, tier15_score=3.8, conversation_id="conv-1", asset="crate")
     out = pre(state, "export_engine_package", tid="e1")
     assert out == {"decision": "allow", "reason": out["reason"]} and "3.80" in out["reason"]
 
@@ -270,7 +279,7 @@ def test_export_allowed_with_passing_qa_then_blocked_after_edit(state):
     out = pre(state, "export_engine_package", tid="e2")
     assert out["decision"] == "deny" and "apply_scene_ir" in out["reason"]
 
-    qa_state.write_qa_state(tier1_ok=True, tier15_score=3.5, conversation_id="conv-1")
+    write_passing_receipt(tier1_ok=True, tier15_score=3.5, conversation_id="conv-1")
     assert pre(state, "export_engine_package", tid="e3")["decision"] == "allow"
 
 
@@ -327,24 +336,30 @@ async def test_python_session_is_the_single_writer_of_the_hook_qa_state(tmp_path
     assert exp()["decision"] == "deny" and "3.4" in exp()["reason"]  # Tier-1 ok, no visual score yet
     assert (await T.render_preview(env.ctx)).startswith("PREVIEW")
     assert (await T.run_visual_qa(env.ctx)).startswith("QA[blockout] approve")
+    assert exp()["decision"] == "deny"
+    record_approval(env)
     out = exp()
     assert out["decision"] == "allow" and "Tier-1 ok" in out["reason"], out
     qa = json.loads((state / "qa" / f"{conv}.json").read_text())
     assert qa["session_id"] == "s1" and qa["conversation_id"] == conv and qa["asset"] == "Crate" and qa["tier1_ok"]
     assert exp()["decision"] == "allow"
-    assert pre(state, "export_engine_package", conv="some-other-conversation", tid="y")["decision"] == "allow"  # latest.json
+    assert pre(state, "export_engine_package", conv="some-other-conversation", tid="y")["decision"] == "deny"
 
     # geometry edit -> score reset to 0 -> deny again, with no post-tool hook involved
     assert (await T.apply_scene_ir(json.dumps({"ops": [box("lid", (1.05, 0.85, 0.1), 0.65)]}), env.ctx)).startswith("OK")
     out = exp()
     assert out["decision"] == "deny" and "0.00" in out["reason"]
     await T.run_visual_qa(env.ctx)
+    assert exp()["decision"] == "deny"
+    record_approval(env)
     assert exp()["decision"] == "allow"
     await T.undo_last_edit(env.ctx)
     assert exp()["decision"] == "deny"
 
     # a rolled-back (Tier-1 failing) edit leaves the verdict alone; a failed write never fails the tool
     await T.run_visual_qa(env.ctx)
+    assert exp()["decision"] == "deny"
+    record_approval(env)
     assert exp()["decision"] == "allow"
 
 
@@ -363,7 +378,7 @@ async def test_failed_qa_write_never_fails_the_tool_and_logs_once(tmp_path, stat
         assert (await T.apply_scene_ir(json.dumps(CRATE), env.ctx)).startswith("OK")
         assert (await T.apply_scene_ir(json.dumps({"ops": [box("knob", (0.1, 0.1, 0.1), 0.7)]}), env.ctx)).startswith("OK")
         assert (await T.run_visual_qa(env.ctx)).startswith("QA[")
-    assert env.state.export_allowed  # the in-memory gate stays authoritative
+    assert not env.state.export_allowed  # offline blockout cannot authorize publication
     assert len([r for r in caplog.records if "could not persist QA state" in r.message]) == 1
 
 
@@ -377,6 +392,7 @@ def test_qa_state_does_not_leak_between_sessions(tmp_path, state):
     async def work():
         await T.apply_scene_ir(json.dumps(CRATE), a.ctx)
         await T.run_visual_qa(a.ctx)
+        record_approval(a)
 
     asyncio.run(work())
     assert pre(state, "export_engine_package", conv=a.ctx.conversation_id)["decision"] == "allow"
@@ -412,7 +428,7 @@ def test_telemetry_appends_jsonl_with_duration(state):
 def test_session_start_injects_budget_context(state):
     state.mkdir(parents=True)
     (state / "budget.json").write_text(json.dumps({"target_engine": "roblox_r15", "max_tris": 9000, "stage": "LOOKDEV"}))
-    qa_state.write_qa_state(tier1_ok=True, tier15_score=3.1, asset="lamp")
+    qa_state.write_qa_state(tier1_ok=True, tier15_score=3.1, asset="lamp", conversation_id="c9")
     out = run_hook("SessionStart", {"conversationId": "c9"}, state)
     msg = out["injectSteps"][0]["systemMessage"]["systemMessage"]
     assert "roblox_r15" in msg and "9000" in msg and "LOOKDEV" in msg and "3.10" in msg
@@ -427,7 +443,7 @@ def test_stop_hook_refuses_until_gate_passes(state):
     assert out["decision"] == "continue" and "\n" not in out["reason"]
     assert run_hook("Stop", {**stop, "continuationActive": True}, state)["decision"] == "stop"
     assert run_hook("Stop", {**stop, "terminationReason": "USER_CANCELED"}, state)["decision"] == "stop"
-    qa_state.write_qa_state(tier1_ok=True, tier15_score=3.6, conversation_id="conv-1")
+    write_passing_receipt(tier1_ok=True, tier15_score=3.6, conversation_id="conv-1")
     assert run_hook("Stop", stop, state)["decision"] == "stop"
 
 
@@ -437,3 +453,13 @@ def test_hooks_fail_open_on_garbage_input(state):
         proc = subprocess.run([sys.executable, f"./hooks/scripts/{script}"], input="not json", text=True,
                               capture_output=True, cwd=BUNDLE, env=env, timeout=30)
         assert proc.returncode == 0 and json.loads(proc.stdout) == expect
+
+
+def test_native_export_requires_exact_conversation_and_explicit_session(state):
+    write_passing_receipt(tier1_ok=True, tier15_score=3.9, conversation_id="conv-1")
+    def gate(conv, sid):
+        return run_hook("PreToolUse", {"conversationId": conv, "toolCall": {"id": "check", "name": "mcp_tool",
+                        "args": {"ServerName": "antigravity-3d_studio", "ToolName": "export_engine_package",
+                                 "Arguments": {"session_id": sid}}}}, state, tool="mcp_tool")["decision"]
+    assert gate("conv-1", "crate-session") == "allow"
+    assert gate("conv-2", "crate-session") == gate("conv-1", "") == gate("conv-1", "other") == "deny"

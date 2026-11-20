@@ -318,7 +318,7 @@ def test_common_params_empty_when_no_param_is_common():
 # --- propose_rules ----------------------------------------------------------
 
 def test_propose_rules_empty():
-    assert propose_rules([]) == "## Proposed guardrails\n\n_No recurring fixes yet._\n"
+    assert propose_rules([]) == "## Observed repair clusters\n\n_No recurring fixes yet._\n"
 
 
 def test_propose_rules_exact_output_with_params():
@@ -341,7 +341,7 @@ def test_propose_rules_exact_output_with_params():
         ),
     ]
     expected = (
-        "## Proposed guardrails\n\n"
+        "## Observed repair clusters\n\n"
         "- When **hinge.loose, lid.gap** is flagged, the fix that worked 3 times (mean gain +0.42) "
         "was: set_param + set_transform on size, translate. "
         "Examples: crate_01, crate_07, chest_02.\n"
@@ -364,7 +364,7 @@ def test_propose_rules_single_cluster_exact_output():
         ),
     ]
     assert propose_rules(clusters) == (
-        "## Proposed guardrails\n\n"
+        "## Observed repair clusters\n\n"
         "- When **d** is flagged, the fix that worked 3 times (mean gain +0.50) "
         "was: op on size. Examples: a.\n"
     )
@@ -375,7 +375,7 @@ def test_propose_rules_from_real_clustering():
             for i in range(3)]
     text = propose_rules(cluster(recs))
     assert text == (
-        "## Proposed guardrails\n\n"
+        "## Observed repair clusters\n\n"
         "- When **lid.gap** is flagged, the fix that worked 3 times (mean gain +0.60) "
         "was: set_param on size. Examples: k0, k1, k2.\n"
     )

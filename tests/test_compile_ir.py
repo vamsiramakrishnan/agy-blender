@@ -70,6 +70,10 @@ def test_invalid_params_raise(params: dict, kind: str) -> None:
 
 
 def _scene(tmp_path) -> SceneIR:
+    import trimesh
+
+    scan = tmp_path / "scan.glb"
+    trimesh.creation.box(extents=(1, 2, 3)).export(scan)
     usd_ref = tmp_path / "ref.usda"
     ref_stage = Usd.Stage.CreateNew(str(usd_ref))
     ref_stage.SetDefaultPrim(UsdGeom.Xform.Define(ref_stage, "/R").GetPrim())
@@ -87,7 +91,7 @@ def _scene(tmp_path) -> SceneIR:
             NodeIR(id="grp", kind="group", transform=Transform(translate=(0, 0, 1))),
             NodeIR(id="body", kind="box", params={"size": (1, 1, 1)}, parent="grp", material_id="tex"),
             NodeIR(id="knob", kind="sphere", params={"radius": 0.1}, material_id="plain", collider=False),
-            NodeIR(id="scan", kind="mesh_ref", params={"path": "scan.glb"}),
+            NodeIR(id="scan", kind="mesh_ref", params={"path": str(scan)}),
             NodeIR(id="lib", kind="mesh_ref", params={"path": str(usd_ref)}),
         ],
     )
@@ -132,7 +136,9 @@ def test_author_scene_structure(tmp_path) -> None:
     assert plain.GetInput("metallic").Get() == 1.0
     assert not stage.GetPrimAtPath("/Prop/Looks/plain/stReader")
 
-    assert stage.GetPrimAtPath("/Prop/scan").GetAttribute("agy:meshRef").Get() == "scan.glb"
+    scan = UsdGeom.Mesh(stage.GetPrimAtPath("/Prop/scan"))
+    assert scan and len(scan.GetFaceVertexCountsAttr().Get()) == 12
+    assert np.allclose(scan.GetExtentAttr().Get(), [(-.5, -1.5, -1.), (.5, 1.5, 1.)])
     assert stage.GetPrimAtPath("/Prop/lib/ref/cube").IsA(UsdGeom.Cube)
 
 

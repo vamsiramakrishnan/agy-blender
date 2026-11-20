@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from pathlib import Path
@@ -17,7 +18,7 @@ from antigravity3d.decisions.fakes import FakeDecisionsClient
 from antigravity3d.genmedia.nano_banana import FakeImageBackend, ImageForge
 from antigravity3d.harness import session as S
 from antigravity3d.harness import tools as T
-from antigravity3d.state import MAX_AUDIT_DELTAS, EngineBudget, SceneSessionRegistry
+from antigravity3d.state import MAX_AUDIT_DELTAS, EngineBudget, SceneSessionRegistry, VisualVerdict
 
 RETURN_CAP = 400
 B64_RUN = re.compile(r"[A-Za-z0-9+/]{120,}={0,2}")
@@ -46,6 +47,39 @@ def make_session(tmp_path: Path, *, budget: EngineBudget | None = None, client: 
     ctx = ToolContext(SimpleNamespace(conversation_id=conv))
     return SimpleNamespace(reg=reg, sid=sid, ctx=ctx, client=client, backend=backend, state=reg.get(sid),
                            sess=lambda: S.session(reg, sid))
+
+
+def masked_fixture(path):
+    from PIL import Image
+    im = Image.new("RGBA", (16, 16))
+    im.paste((180, 145, 100, 255), (4, 4, 12, 12))
+    im.save(path)
+    return path
+
+
+def record_approval(env):
+    """A fixture for testing consumers of a passing receipt without paid model calls."""
+    state = env.state
+    s = env.sess()
+    p = s.add_preview(masked_fixture(s.artifacts_dir / "fixture.png"), "https://fixture.test/dcc", kind="eevee")
+    s.set_tier15(3.8, VisualVerdict(state.revision, state.budget.target_engine, "lookdev",
+                                             "eevee", "decisions", "approve"), p)
+
+
+def simulate_engine_import(monkeypatch, *, ok=True):
+    from antigravity3d.adapters.engines import validators
+
+    async def validate(path):
+        assert path.is_file()
+        return validators.EngineReport(ok, "test_engine", "fixture import result")
+    async def capture(_glb, path):
+        masked_fixture(path)
+        return validators.EngineReport(True, "test_engine")
+    async def parity(*_args, **_kwargs):
+        return SimpleNamespace(result=SimpleNamespace(calibrated=True, source="decisions"),
+                               scores={"score_engine_parity": 4.0}, defects={})
+    monkeypatch.setattr(DecisionControlPlane, "evaluate_engine_parity", parity)
+    monkeypatch.setattr(validators, "validator_for", lambda _target: SimpleNamespace(validate=validate, capture=capture))
 
 
 def composed(env) -> str:
@@ -155,11 +189,13 @@ async def test_render_qa_stores_score_and_caps_audit(env):
 async def test_geometry_edit_after_qa_resets_score(env):
     await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
     await T.run_visual_qa(env.ctx)
+    assert not env.state.export_allowed  # blockout clay and offline Decisions cannot authorize publication
+    record_approval(env)
     assert env.state.export_allowed
     await T.apply_scene_ir(json.dumps({"ops": [box("lid", (1.05, 0.85, 0.1), 0.65)]}), env.ctx)
     assert env.state.last_tier15_score == 0.0 and not env.state.export_allowed
     await T.run_visual_qa(env.ctx)
-    assert len(env.sess().previews) == 2  # stale sheet was not reused
+    assert env.sess().previews[-1].geom_version == env.sess().geom_version  # stale sheet was not reused
 
 
 async def test_reground_auto_fix(tmp_path):
@@ -180,12 +216,15 @@ async def test_texture_fixer_not_applicable_without_maps(tmp_path):
     assert "roughness_breakup" in r and "not applicable" in r
 
 
-async def test_export_refused_then_allowed_and_reloads(env):
+async def test_export_refused_then_allowed_and_reloads(env, monkeypatch):
+    simulate_engine_import(monkeypatch)
     await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
     r = check_line(await T.export_engine_package(env.ctx, "crate_pkg"), 1)
     assert r.startswith("REFUSED export blocked") and "tier15" in r
     assert not (env.sess().export_dir / "crate_pkg").exists()
     await T.run_visual_qa(env.ctx)
+    assert not env.state.export_allowed
+    record_approval(env)
     r = check_line(await T.generate_lods_and_colliders(env.ctx), 1)
     assert r.startswith("LODS 2 nodes") and "colliders 2 hulls" in r
     check_line(await T.run_usd_validator(env.ctx), 1)
@@ -237,14 +276,36 @@ async def test_forge_pbr_material_ranks_and_binds(tmp_path, monkeypatch):
     r = check_line(await T.forge_pbr_material("wood", "weathered oak planks", env.ctx, candidates=3), 1)
     assert r.startswith("MATERIAL wood v1") and "3 passed policy" in r
     tags = [c for c in env.client.calls]
-    assert sum("policy_legible_text" in c["questions"] for c in tags) == 3
-    assert sum("score_tileability" in c["questions"] for c in tags) == 3  # Best-of-N, one request each
+    assert len(tags) == 1
+    assert sum("policy_legible_text" in q for q in tags[0]["questions"]) == 3
+    assert sum("score_tileability" in q for q in tags[0]["questions"]) == 3
     mat = env.sess().stage.base_ir().materials[0]
     assert all(Path(getattr(mat, k)).is_file() for k in T.MAP_KEYS)
     r = check_line(await T.apply_shader_diff("wood", json.dumps({"roughness": 0.7, "assign_to": ["body", "lid"]}), env.ctx), 1)
     assert r.startswith("SHADER wood") and "assigned=2" in r
     assert {m.material_id for m in env.sess().stage.extract_meshes()} == {"wood"}
     assert env.state.last_tier15_score == 0.0
+
+
+async def test_forge_discards_result_after_concurrent_scene_edit(tmp_path, monkeypatch):
+    env = make_session(tmp_path, stage="LOOKDEV")
+    monkeypatch.setattr(T, "TEXTURE_PX", 32)
+    entered, resume = asyncio.Event(), asyncio.Event()
+    original = env.sess().plane.rank_candidates
+
+    async def wait_and_grade(*args, **kwargs):
+        entered.set()
+        await resume.wait()
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(env.sess().plane, "rank_candidates", wait_and_grade)
+    task = asyncio.create_task(T.forge_pbr_material("wood", "oak", env.ctx))
+    await asyncio.wait_for(entered.wait(), 5)
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    resume.set()
+    assert (await task).startswith("STALE")
+    assert not env.sess().stage.base_ir().materials
+    assert not list((env.sess().artifacts_dir / "materials").iterdir())
 
 
 async def test_forge_blocked_by_policy(tmp_path, monkeypatch):

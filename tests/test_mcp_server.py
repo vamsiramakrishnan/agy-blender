@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import os
@@ -15,6 +16,7 @@ from pathlib import Path
 import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from mcp.client.subscriptions import listen
 
 from antigravity3d.harness import tools as T
 from antigravity3d.plugin_install import bundle_dir
@@ -29,12 +31,16 @@ def server_env(state: Path) -> dict[str, str]:
 
 
 @asynccontextmanager
-async def client(tmp_path: Path):
+async def client(tmp_path: Path, *, modern: bool = False):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     params = StdioServerParameters(command=sys.executable, args=["-m", "antigravity3d.runtime.mcp_server"],
                                    env=server_env(tmp_path / "state"), cwd=str(tmp_path))
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as s:
-            await s.initialize()
+            if modern:
+                await s.discover()
+            else:
+                await s.initialize()
             yield s
 
 
@@ -48,8 +54,17 @@ async def call(s: ClientSession, name: str, **args) -> str:
 async def test_tools_list_has_harness_tools_with_clean_schemas(tmp_path):
     async with client(tmp_path) as s:
         tools = {t.name: t for t in (await s.list_tools()).tools}
-    assert set(tools) == set(T.ALL_TOOLS) | MANAGEMENT
+        assert set(tools) == MANAGEMENT
+        await call(s, "open_asset_session", asset_name="Catalog", target_engine="godot_4")
+        for stage, entries in T.STAGE_TOOLS.items():
+            await call(s, "set_stage", stage=stage)
+            catalog = {t.name: t for t in (await s.list_tools()).tools}
+            assert set(catalog) == {fn.__name__ for fn in entries} | MANAGEMENT
+            tools.update(catalog)
     for name, fn in T.ALL_TOOLS.items():
+        if name not in tools:
+            assert name in T.READ_ONLY_TOOL_NAMES
+            continue
         t = tools[name]
         props = t.input_schema["properties"]
         assert "ctx" not in props and "session_id" in props, name
@@ -110,12 +125,12 @@ async def test_session_stage_scoping_export_gate_and_linter(tmp_path):
         assert (await call(s, "render_preview")).startswith("PREVIEW #1")
         assert (await call(s, "run_visual_qa")).startswith("QA[blockout] approve")
         status = await call(s, "session_status")
-        assert "tier1=ok" in status and "export=allowed" in status
+        assert "tier1=ok" in status and "export=blocked" in status
         await call(s, "set_stage", stage="EXPORT")
         assert (await call(s, "generate_lods_and_colliders")).startswith("LODS 2 nodes")
         assert (await call(s, "run_usd_validator")).startswith("USD ")
         r = await call(s, "export_engine_package", out_name="crate_pkg")
-        assert r.startswith("EXPORTED crate_pkg"), r
+        assert r.startswith("REFUSED") and "approval" in r, r
 
         # the QA record is on disk for the plugin hooks
         qa = json.loads((tmp_path / "state" / "qa" / "latest.json").read_text())
@@ -176,7 +191,9 @@ def test_pipelined_calls_are_ordered_drained_and_stdout_is_protocol_only(tmp_pat
     assert text[3].startswith("SESSION Crate-")
     assert text[4].startswith("OK tx="), text[4]
     assert "nodes=2" in text[5]
-    assert len(by_id[2]["result"]["tools"]) == len(T.ALL_TOOLS) + len(MANAGEMENT)
+    assert {t["name"] for t in by_id[2]["result"]["tools"]} == MANAGEMENT
+    assert by_id[1]["result"]["capabilities"]["tools"]["listChanged"]
+    assert any(f.get("method") == "notifications/tools/list_changed" for f in frames)
     # nothing left running from this server's process group
     end = time.time() + 5
     while time.time() < end:
@@ -188,3 +205,29 @@ def test_pipelined_calls_are_ordered_drained_and_stdout_is_protocol_only(tmp_pat
     else:
         os.killpg(pgid, signal.SIGKILL)
         pytest.fail("child processes outlived the server")
+
+
+async def test_two_stdio_clients_keep_independent_stage_catalogs(tmp_path):
+    async with client(tmp_path / "first") as first, client(tmp_path / "second") as second:
+        await asyncio.gather(
+            call(first, "open_asset_session", asset_name="First", target_engine="godot_4"),
+            call(second, "open_asset_session", asset_name="Second", target_engine="unity_urp"),
+        )
+        await call(first, "set_stage", stage="LOOKDEV")
+        await call(second, "set_stage", stage="EXPORT")
+        left, right = await asyncio.gather(first.list_tools(), second.list_tools())
+        assert {t.name for t in left.tools} == MANAGEMENT | {f.__name__ for f in T.STAGE_TOOLS["LOOKDEV"]}
+        assert {t.name for t in right.tools} == MANAGEMENT | {f.__name__ for f in T.STAGE_TOOLS["EXPORT"]}
+        assert (await call(first, "export_engine_package", out_name="wrong_stage")).startswith("REFUSED")
+        # A subagent with an explicit read-only grant can still call its named probe.
+        assert "nodes=0" in await call(first, "inspect_manifest")
+
+async def test_modern_client_receives_catalog_invalidation(tmp_path):
+    async with client(tmp_path, modern=True) as session:
+        async with listen(session, tools_list_changed=True) as changes:
+            await call(session, "open_asset_session", asset_name="Notify", target_engine="godot_4")
+            await asyncio.wait_for(anext(changes), timeout=5)
+            assert "apply_scene_ir" in {t.name for t in (await session.list_tools()).tools}
+            await call(session, "set_stage", stage="LOOKDEV")
+            await asyncio.wait_for(anext(changes), timeout=5)
+            assert "apply_scene_ir" not in {t.name for t in (await session.list_tools()).tools}

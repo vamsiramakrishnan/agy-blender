@@ -19,6 +19,7 @@ import asyncio
 import json
 import os
 import sys
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any, get_args
 
@@ -33,7 +34,7 @@ class CliError(Exception):
 
 
 def _budget(a: argparse.Namespace) -> EngineBudget:
-    return EngineBudget(a.engine, max_tris=a.max_tris) if getattr(a, "max_tris", None) else EngineBudget(a.engine)
+    return EngineBudget(a.engine, max_tris=a.max_tris) if a.max_tris is not None else EngineBudget(a.engine)
 
 
 def offline_plane() -> Any:
@@ -72,7 +73,7 @@ async def make_collaborators(offline: bool, *, need_plane: bool = True, workdir:
             plane = DecisionControlPlane(client)
         notes.append(f"decision backend: {plane.backend_kind}" + ("" if plane.calibrated else " (UNCALIBRATED: cannot auto-approve)"))
     forge = ImageForge(client=client)
-    author, note = best_author(plane=plane, forge=forge, workdir=workdir)
+    author, note = best_author(client=client, plane=plane, forge=forge, workdir=workdir)
     notes.append(note)
     return plane, forge, author, notes
 
@@ -98,11 +99,27 @@ async def cmd_prop(a: argparse.Namespace) -> int:
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    plane, forge, author, notes = await make_collaborators(a.offline, workdir=out / 'agent')
-    cache = None if a.no_cache else BuildCache(LocalBlobStore(out / ".agy3d-cache"))
-    dag = PropToEngineDAG(plane=plane, forge=forge, author=author, workdir=out, budget=_budget(a), cache=cache, style_anchor=a.style,
-                          fixlog=FixLog(out / "fixlog.jsonl"), max_rounds=a.max_rounds)
-    rep = await dag.run(a.prompt)
+    strict = a.require_verified if a.require_verified is not None else not a.offline
+    if not a.offline and not os.environ.get("GEMINI_API_KEY"):
+        raise CliError("GEMINI_API_KEY is not set (use --offline to run on the fakes)")
+    async with AsyncExitStack() as stack:
+        pool = None
+        if a.pool_socket:
+            from antigravity3d.runtime.worker_daemon import PoolClient
+
+            pool = await stack.enter_async_context(PoolClient(a.pool_socket))
+        elif a.blender or strict:
+            from antigravity3d.adapters.blender_5_3.pool import BlenderPool
+
+            pool = await stack.enter_async_context(BlenderPool(1, blender_bin=a.blender))
+        plane, forge, author, notes = await make_collaborators(a.offline, workdir=out / "agent")
+        cache = None if a.no_cache else BuildCache(LocalBlobStore(out / ".agy3d-cache"))
+        dag = PropToEngineDAG(
+            plane=plane, forge=forge, author=author, workdir=out, budget=_budget(a), pool=pool,
+            cache=cache, style_anchor=a.style, fixlog=FixLog.for_prop(out), max_rounds=a.max_rounds,
+            require_verified=strict, single_candidate=a.single_candidate,
+        )
+        rep = await dag.run(a.prompt)
     x = rep.extras
     print(f"agy3d prop: {a.prompt!r} -> {a.engine}")
     for n in notes:
@@ -129,7 +146,11 @@ async def cmd_prop(a: argparse.Namespace) -> int:
         for w in warned:
             print(f"  - {w['name']}: {w['detail']}")
     failed = [n.name for n in rep.nodes.values() if n.status == "failed"]
-    return _print_gate(x["gates_ok"], f"failed nodes: {failed}" if failed else ("" if x["gates_ok"] else "a pipeline gate did not pass; see pyramid steps"))
+    print("publication: " + ("published and verified" if x["published"] else "qualified preview" if x["verified"] else "unverified"))
+    if strict:
+        return _print_gate(x["gates_ok"], f"failed nodes: {failed}" if failed else "verified publication required")
+    print(f"preview gates: {'PASS' if x['preview_gates_ok'] else 'FAIL'}")
+    return 0 if x["preview_gates_ok"] else 1
 
 
 async def cmd_sanitize(a: argparse.Namespace) -> int:
@@ -209,6 +230,14 @@ async def cmd_calibrate(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_benchmark(a: argparse.Namespace) -> int:
+    from antigravity3d.tactics.benchmark import compare
+
+    result = compare(Path(a.cohort))
+    print(json.dumps(result, indent=2))
+    return 0 if result["rollout_pass"] else 1
+
+
 def cmd_models(_: argparse.Namespace) -> int:
     from antigravity3d.models import all_tiers
 
@@ -258,6 +287,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--style", default=None, help="style-anchor image path")
     p.add_argument("--max-rounds", type=int, default=4)
     p.add_argument("--no-cache", action="store_true")
+    worker = p.add_mutually_exclusive_group()
+    worker.add_argument("--blender", metavar="PATH", help="start a warm worker with this Blender executable")
+    worker.add_argument("--pool-socket", metavar="PATH", help="connect to a running Blender sidecar")
+    publication = p.add_mutually_exclusive_group()
+    publication.add_argument("--require-verified", action="store_true", default=None,
+                             help="require real Blender, native QA and engine verification (default for live prop runs)")
+    publication.add_argument("--preview", dest="require_verified", action="store_false",
+                             help="build a review candidate without requiring publication (default for --offline)")
+    p.add_argument("--single-candidate", action="store_true",
+                   help="use one candidate per tournament for matched baseline measurement")
     p.set_defaults(fn=cmd_prop)
 
     p = sub.add_parser("sanitize", help="batch-repair meshes (GLB/OBJ/PLY/STL/USD)")
@@ -286,6 +325,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--offline", action="store_true")
     p.set_defaults(fn=cmd_calibrate)
 
+    p = sub.add_parser("benchmark", help="measure paired N=1 and governed runs against studio labels and billing records")
+    p.add_argument("cohort", help="JSON with studio ceiling, paired report paths, labels and metered usage")
+    p.set_defaults(fn=cmd_benchmark)
+
     p = sub.add_parser("models", help="print the model tier table")
     p.set_defaults(fn=cmd_models)
 
@@ -307,7 +350,7 @@ def main(argv: list[str] | None = None) -> int:
     except CliError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
-    except (FileNotFoundError, ValueError) as e:
+    except (OSError, ValueError) as e:
         print(f"error: {type(e).__name__}: {e}", file=sys.stderr)
         return 2
 

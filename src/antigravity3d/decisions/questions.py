@@ -19,6 +19,7 @@ from typing import Any, Iterable, Mapping
 
 Question = dict[str, Any]
 MAX_QUESTIONS_PER_REQUEST = 1000
+QUESTION_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def noul(instructions: str, true_description: str | None = None, false_description: str | None = None) -> Question:

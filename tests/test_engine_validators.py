@@ -44,6 +44,8 @@ async def test_env_override_and_run(tmp_path, monkeypatch):
     monkeypatch.setenv("GODOT_BIN", str(good))
     v = GodotValidator()
     assert v.available()
+    assert not (await v.validate(pkg)).ok  # zero exit alone cannot attest an import
+    good.write_text("#!/bin/sh\necho ran \"$@\"\necho 'AGY_IMPORT_OK {\"triangles\":12,\"bounds_m\":[[0,0,0],[1,1,1]]}'\n")
     rep = await v.validate(pkg)
     assert rep.ok and "--headless" in rep.log_tail and rep.skipped_reason is None
     good.write_text("#!/bin/sh\necho 'SCRIPT ERROR: boom'\nexit 0\n")
@@ -59,3 +61,17 @@ async def test_missing_package(tmp_path, monkeypatch):
     monkeypatch.setenv("UNITY_BIN", str(exe))
     rep = await UnityValidator().validate(tmp_path / "missing.fbx")
     assert not rep.ok and not rep.skipped_reason and "not found" in rep.log_tail
+
+
+def test_measured_silhouette_rejects_mismatch_and_missing_foreground():
+    import numpy as np
+    from antigravity3d.adapters.engines.validators import blender_frame_png, silhouette_iou
+
+    frame = np.zeros((32, 32, 4))
+    frame[5:15, 5:15] = 1
+    a = blender_frame_png(frame)
+    assert silhouette_iou(a, a) == 1
+    b = blender_frame_png(np.roll(frame, 5, axis=1))
+    assert silhouette_iou(a, b) == pytest.approx(1 / 3)
+    with pytest.raises(ValueError, match="foreground"):
+        silhouette_iou(a, blender_frame_png(frame * 0))

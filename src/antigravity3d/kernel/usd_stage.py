@@ -40,12 +40,13 @@ from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
-from pxr import Kind, Sdf, Usd, UsdGeom, UsdShade, UsdUtils
+from pxr import Gf, Kind, Sdf, Tf, Usd, UsdGeom, UsdShade, UsdUtils
 
 from antigravity3d import ir
 from antigravity3d.ir import IRPatch, SceneIR
-from antigravity3d.kernel.compile_ir import IR_KEY, UV_WELD_KEY, author_mesh_data, author_scene, node_paths, read_ir
+from antigravity3d.kernel.compile_ir import IR_KEY, UV_WELD_KEY, author_mesh_data, author_scene, node_paths, read_ir, resolve_anchor
 from antigravity3d.kernel.fast_ops import UVResult
+from antigravity3d.kernel.spatial import PrimInfo, SpatialIndex
 from antigravity3d.kernel.types import MeshData
 
 BASE = Sdf.Path("/__agy_base")
@@ -82,6 +83,9 @@ class StageManager:
     def __init__(self, stage: Usd.Stage) -> None:
         self._stage = stage
         self._txs: list[tuple[str, Sdf.Layer]] = []  # bottom -> top; holds layers alive
+        self._spatial: SpatialIndex | None = None
+        self._spatial_listener = None
+        self._export_layout: Sequence[UVResult] | None = None
         self._overlay: Sdf.Layer | None = None  # UV overlay, see module docstring
 
     # --- construction ----------------------------------------------------------
@@ -101,8 +105,31 @@ class StageManager:
             scene = read_ir(stage.GetDefaultPrim())
             if scene is None:
                 raise ValueError(f"{path}: default prim has no '{IR_KEY}' customData")
-            stage.GetRootLayer().Clear()  # rebuilt from the IR; saved only on commit_all
+            # Exported meshes may have been ingested from sources that are no
+            # longer present. Adopt their composed geometry and binding targets.
+            asset_path = stage.GetDefaultPrim().GetPath()
+            flat = stage.Flatten()
+            managed = Sdf.Layer.CreateAnonymous("adopted")
+            if not Sdf.CopySpec(flat, asset_path, managed, BASE):
+                raise ValueError(f"{path}: cannot adopt {asset_path}")
+            copied = managed.GetPrimAtPath(BASE)
+            copied.specifier = Sdf.SpecifierClass
+            copied.ClearInfo("typeName")
+            stage.GetRootLayer().TransferContent(managed)
             cls._init_structure(stage, scene)
+        else:
+            base = stage.GetPrimAtPath(BASE)
+            legacy = any(
+                prim.GetAttribute("agy:meshRef").Get() and not prim.IsA(UsdGeom.Mesh)
+                for prim in Usd.PrimRange(base, Usd.PrimIsActive)
+            )
+            if legacy:
+                # Upgrade marker-only references from v0.2. The caller controls disk
+                # persistence by committing the returned ordinary transaction.
+                manager = cls(stage)
+                with manager.transaction("hydrate_mesh_refs"):
+                    author_scene(stage, manager.base_ir(), root=BASE)
+                return manager
         return cls(stage)
 
     @staticmethod
@@ -166,18 +193,32 @@ class StageManager:
                 return i
         raise KeyError(f"unknown transaction {tx_id!r}")
 
-    def rollback(self, tx_id: str | None = None) -> list[str]:
-        """Drops ``tx_id`` (default: the top tx) and every tx above it; returns dropped ids."""
+    def rollback(self, tx_id: str | None = None, *, discard: bool = False) -> list[str]:
+        """Remove the tx and everything above it. Return dropped ids, oldest first.
+
+        Set discard only for private, rejected edits. Emptying those layers in
+        the same Sdf change block reduces composition work. Ordinary undo keeps
+        the contents of any layer pinned by another USD stage or client.
+        """
         if not self._txs:
             raise RuntimeError("no open transaction to roll back")
-        self._clear_overlay()
         i = len(self._txs) - 1 if tx_id is None else self._index(tx_id)
-        dropped, self._txs = self._txs[i:], self._txs[:i]
+        dropped = [(tid, layer.identifier) for tid, layer in self._txs[i:]]
+        target = self._txs[i - 1][1] if i else self._stage.GetRootLayer()
+        self._stage.SetEditTarget(target)
         sub = self._stage.GetSessionLayer().subLayerPaths
-        with Sdf.ChangeBlock():  # one recomposition for the whole drop
-            for _, layer in dropped:
-                sub.remove(layer.identifier)
-        self._stage.SetEditTarget(self._txs[-1][1] if self._txs else self._stage.GetRootLayer())
+        with Sdf.ChangeBlock():  # one recomposition, including any derived UV opinions
+            self._clear_overlay()
+            prefix = [identifier for _, identifier in reversed(dropped)]
+            if list(sub[:len(prefix)]) == prefix:
+                del sub[:len(prefix)]
+            else:  # preserve unrelated sublayers inserted by other USD clients
+                for identifier in prefix:
+                    sub.remove(identifier)
+            if discard:
+                for _, layer in self._txs[i:]:
+                    layer.Clear()
+            del self._txs[i:]
         return [tid for tid, _ in dropped]
 
     @contextmanager
@@ -238,14 +279,26 @@ class StageManager:
         self._check_no_selection()
         self._clear_overlay()
         with self.transaction(tx_id) as tid:
-            author_scene(self._stage, ir.apply_patch(self.base_ir(), patch), root=BASE)
+            self._author_patch(self.base_ir(), patch, BASE)
         return tid
+
+    def _author_patch(self, base: SceneIR, patch: IRPatch, root: Sdf.Path) -> None:
+        def resolve(current: SceneIR, op: ir.PlaceRelative) -> ir.Transform:
+            # Earlier ops in the same tx can introduce geometry an anchor refers to.
+            author_scene(self._stage, current, root=root)
+            return resolve_anchor(current, op, stage=self._stage)
+
+        scene = ir.apply_patch(base, patch, anchor_resolver=resolve)
+        author_scene(self._stage, scene, root=root)
 
     # --- variants ------------------------------------------------------------
 
-    def add_variant(self, set_name: str, variant: str, scene: SceneIR, tx_id: str | None = None) -> str:
+    def add_variant(
+        self, set_name: str, variant: str, scene: SceneIR | IRPatch, tx_id: str | None = None
+    ) -> str:
         """Authors ``scene`` as the delta of variant ``set_name=variant`` against the base."""
-        self._check_scene(scene)
+        if isinstance(scene, SceneIR):
+            self._check_scene(scene)
         # The delta is taken against the composed scene, so no *other* set may be selected.
         self._check_no_selection(ignore=set_name)
         self._clear_overlay()
@@ -258,7 +311,10 @@ class StageManager:
             vset.SetVariantSelection(variant)  # the variant must compose to be authored into
             layer = self._txs[-1][1]
             with vset.GetVariantEditContext(layer):
-                author_scene(self._stage, scene, root=prim.GetPath())
+                if isinstance(scene, IRPatch):
+                    self._author_patch(self.base_ir(), scene, prim.GetPath())
+                else:
+                    author_scene(self._stage, scene, root=prim.GetPath())
             if previous:
                 vset.SetVariantSelection(previous)
             else:
@@ -303,6 +359,7 @@ class StageManager:
     # --- UV overlay ----------------------------------------------------------
 
     def _clear_overlay(self) -> None:
+        self._export_layout = None
         if self._overlay is not None and not self._overlay.empty:
             self._overlay.Clear()
 
@@ -376,11 +433,19 @@ class StageManager:
                 raise ValueError(f"UV result for {res.node_id!r} does not match stage mesh {r.mesh.prim_path}")
             if len(res.vmapping) and res.vmapping.max() >= len(r.local):
                 raise ValueError(f"UV result for {res.node_id!r} indexes past the stage mesh's vertices")
+        self._export_layout = None
         with Usd.EditContext(self._stage, self._overlay_layer()):
             for r, res in zip(reads, results):
                 author_mesh_data(
                     r.prim, r.local[res.vmapping], res.triangles, res.uvs, weld_map=res.vmapping, normals=normals
                 )
+
+        self._export_layout = results if normals else None
+
+    def ensure_export_uvs(self, results: Sequence[UVResult]) -> None:
+        """Bind this bundle's atlas even when the imported mesh already has source UVs."""
+        if self._export_layout is not results:
+            self.author_uvs(results)
 
     def has_uvs(self) -> bool:
         """True when every active mesh carries a ``primvars:st`` with a value per point."""
@@ -392,14 +457,64 @@ class StageManager:
                 return False
         return bool(meshes)
 
-    def manifest(self) -> str:
+    def _invalidate_spatial(self, notice, sender) -> None:
+        self._spatial = None
+        self._spatial_listener.Revoke()
+        self._spatial_listener = None
+
+    def _spatial_index(self) -> SpatialIndex:
+        if self._spatial is not None:
+            return self._spatial
+        time = Usd.TimeCode.Default()
+        xc = UsdGeom.XformCache(time)
+        records: dict[str, PrimInfo] = {}
+        for prim in Usd.PrimRange(self.asset_prim):
+            if not prim.IsA(UsdGeom.Mesh):
+                continue
+            mesh = UsdGeom.Mesh(prim)
+            counts = mesh.GetFaceVertexCountsAttr().Get()
+            if not counts:
+                continue
+            extent = mesh.GetExtentAttr().Get()
+            if extent is None:
+                extent = UsdGeom.Boundable.ComputeExtentFromPlugins(mesh, time)
+            if extent is None or len(extent) != 2:
+                continue
+            box = Gf.BBox3d(Gf.Range3d(Gf.Vec3d(extent[0]), Gf.Vec3d(extent[1])),
+                            xc.GetLocalToWorldTransform(prim)).ComputeAlignedRange()
+            owner = prim
+            while owner and not owner.HasAttribute("agy:nodeId"):
+                owner = owner.GetParent()
+            nid = owner.GetAttribute("agy:nodeId").Get() if owner else str(prim.GetPath())
+            lo, hi = tuple(box.GetMin()), tuple(box.GetMax())
+            tris = int(np.maximum(0, np.asarray(counts) - 2).sum())
+            material, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
+            mat = material.GetPrim().GetName() if material else None
+            if prev := records.get(nid):
+                lo = tuple(np.minimum(lo, prev.bounds_min))
+                hi = tuple(np.maximum(hi, prev.bounds_max))
+                tris += prev.tris
+                mat = mat if mat == prev.material_id else None
+            records[nid] = PrimInfo(nid, lo, hi, tris, mat, None)
+        self._spatial = SpatialIndex.from_bounds(list(records.values()))
+        # Register only while an index exists. Raw USD edits and variant switches also invalidate it.
+        self._spatial_listener = Tf.Notice.Register(Usd.Notice.ObjectsChanged, self._invalidate_spatial, self._stage)
+        return self._spatial
+
+    def query_region(self, bounds_min, bounds_max, *, limit: int = 32, max_chars: int = 1200,
+                     depth: int | None = None) -> str:
+        """Bounded octree navigation over the composed scene. Bounds are world-space metres."""
+        if not 1 <= limit <= 256 or not 1 <= max_chars <= 4096:
+            raise ValueError("limit must be 1..256 and max_chars must be 1..4096")
+        return self._spatial_index().query_region(bounds_min, bounds_max, depth, limit).to_text(max_chars)
+
+    def manifest(self, *, max_chars: int | None = None) -> str:
         """Terse per-node summary of the composed scene for LLM context."""
         scene = self.scene_ir()
         root = self.asset_prim.GetPath()
         paths = node_paths(scene, root)
-        tris: dict[str, int] = {}
-        for md in self.extract_meshes():
-            tris[md.node_id] = tris.get(md.node_id, 0) + len(md.triangles)
+        index = self._spatial_index()
+        tris = dict(zip(index.ids, index.tris))
         cache = UsdGeom.BBoxCache(Usd.TimeCode.Default(), [UsdGeom.Tokens.default_], useExtentsHint=False)
 
         def bbox(path: Sdf.Path) -> str:
@@ -412,11 +527,21 @@ class StageManager:
             f"# {scene.asset_name} nodes={len(scene.nodes)} mats={len(scene.materials)} "
             f"tris={sum(tris.values())} bbox={bbox(root)}" + (f" variant {sel}" if sel else "")
         )
-        lines = [
-            f"{n.id} {n.kind} {bbox(paths[n.id])} tris={tris.get(n.id, 0)} mat={n.material_id or '-'}"
-            for n in scene.nodes
-        ]
-        return "\n".join([head, *lines])
+        if max_chars is not None and len(head) >= max_chars:
+            return head[:max(0, max_chars)]
+        lines = [head]
+        used = len(head)
+        for i, n in enumerate(scene.nodes):
+            line = f"{n.id} {n.kind} {bbox(paths[n.id])} tris={tris.get(n.id, 0)} mat={n.material_id or '-'}"
+            trailer = f"... +{len(scene.nodes) - i} nodes"
+            reserve = len(trailer) + 1 if i + 1 < len(scene.nodes) else 0
+            if max_chars is not None and used + 1 + len(line) + reserve > max_chars:
+                if used + 1 + len(trailer) <= max_chars:
+                    lines.append(trailer)
+                break
+            lines.append(line)
+            used += len(line) + 1
+        return "\n".join(lines)
 
     def export_layer(self) -> Sdf.Layer:
         """The composed scene (current variant selections, UV overlay included) as one anonymous

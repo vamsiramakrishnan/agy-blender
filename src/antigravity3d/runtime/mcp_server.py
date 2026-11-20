@@ -16,9 +16,10 @@ SDK hook runner here, so every dispatch first calls the *same* gate object
 tool-set scoping, the QA export gate, the raw-script linter gate and the image policy gate. A denial
 comes back as one ``REFUSED ...`` line and the tool never runs.
 
-Tool listing. ``tools/list`` always lists every harness tool. Narrowing the list to the active stage
-would need ``notifications/tools/list_changed`` and a client that re-lists on it; the Antigravity MCP
-docs (``# MCP Servers``) do not say its client does, so scoping is enforced at call time instead.
+Each stdio connection owns a StudioHost. Discovery returns the four management tools plus the active
+asset's stage tools. Opening/selecting assets and switching stages triggers an MCP list-changed
+event when the visible schema set changes. Dispatch independently checks the requested session.
+Read-only subagents retain their explicitly granted, named probes.
 
 Backends. ``GEMINI_API_KEY`` set: ``make_control_plane`` (Decisions API, generative fallback) and a
 real ``ImageForge``. ``AGY3D_OFFLINE=1`` (or no key): the fakes. A Blender pool is attached through
@@ -42,15 +43,17 @@ from typing import Annotated, Any
 from urllib.parse import unquote, urlparse
 
 import anyio
+from mcp.server.lowlevel.server import NotificationOptions
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.stdio import stdio_server
-from mcp_types import JSONRPCError, JSONRPCRequest, JSONRPCResponse
+from mcp_types import JSONRPCError, JSONRPCRequest, JSONRPCResponse, Tool
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import Field
 
 from antigravity3d.harness import tools as T
 from antigravity3d.harness.hooks import InvariantAndSafetyGate, state_header
 from antigravity3d.harness.session import (
-    CTX_REGISTRY_KEY, CTX_SESSION_KEY, open_session, session, set_toolset,
+    CTX_REGISTRY_KEY, CTX_SESSION_KEY, bind_conversation, open_session, session, set_toolset,
 )
 from antigravity3d.harness.traceback_compressor import compress_exception
 from antigravity3d.state import EngineBudget, SceneSessionRegistry
@@ -64,7 +67,7 @@ SESSION_ID_DOC = "Asset session to act on; omit to use the active (most recently
 INSTRUCTIONS = (
     "antigravity-3d asset studio. Call open_asset_session first, then work stage by stage: tools outside the "
     "active stage are refused (set_stage switches). Edit only through apply_scene_ir; export_engine_package is "
-    "refused until Tier-1 QA passed and run_visual_qa scored >= 3.4 on the current geometry. Replies are one line.")
+    "refused until Tier-1 passes and Decisions approves current EEVEE/Cycles lookdev at >= 3.4. Use the returned session_id for native export. Replies are one line.")
 
 
 class McpToolContext:
@@ -170,6 +173,25 @@ class StudioHost:
                 log.exception("management tool failed")
                 return f"ERROR {compress_exception(e)}"
 
+    def visible_tools(self) -> set[str]:
+        names = set(MANAGEMENT_TOOLS)
+        if self.active is not None:
+            stage = session(self.registry, self.active).toolset
+            names.update(fn.__name__ for fn in T.STAGE_TOOLS[stage])
+        return names
+
+    async def change_catalog(self, ctx: Context, fn: Any, *args: Any) -> str:
+        async def change() -> str:
+            previous = self.visible_tools()
+            result = await fn(*args)
+            if self.visible_tools() != previous:
+                if ctx.protocol_version in MODERN_PROTOCOL_VERSIONS:
+                    await ctx.notify_tools_changed()
+                else:
+                    await ctx.session.send_tool_list_changed()
+            return result
+        return await self.run_ordered(change)
+
     # ---- session selection
     def pick(self, session_id: str = "") -> str:
         sid = session_id or self.active
@@ -186,7 +208,7 @@ class StudioHost:
 
     # ---- management tools
     async def open_asset_session(self, asset_name: str, target_engine: str, max_tris: int = 15_000,
-                                 workdir: str = "", workspace: str = "") -> str:
+                                 workdir: str = "", workspace: str = "", conversation_id: str = "") -> str:
         if target_engine not in ENGINES:
             raise ValueError(f"target_engine must be one of {', '.join(ENGINES)}")
         if int(max_tris) < 1:
@@ -202,6 +224,8 @@ class StudioHost:
             self.registry, sid, wd, asset, EngineBudget(target_engine, max_tris=int(max_tris)),  # type: ignore[arg-type]
             plane=self.backends.plane, forge=self.backends.forge, pool=self.backends.pool,
             state_workspace=root)
+        if conversation_id:
+            bind_conversation(conversation_id, sid, self.registry)
         self._set_stage(sid, "BLOCKOUT")
         self.gates[sid] = InvariantAndSafetyGate(self.registry, sid)
         self.active = sid
@@ -277,16 +301,17 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         asset_name: str,
         target_engine: Annotated[str, Field(description="unreal_5 | unity_urp | godot_4 | roblox_r15")],
         ctx: Context,
+        conversation_id: Annotated[str, Field(description="Native conversation ID from the SessionStart header")] = "",
         max_tris: int = 15_000,
         workdir: Annotated[str, Field(description="Session folder; default <workspace>/agy3d_assets/<session id>")] = "",
     ) -> str:
         async def go() -> str:
-            return await host.open_asset_session(asset_name, target_engine, max_tris, workdir, await _workspace_root(ctx))
+            return await host.open_asset_session(asset_name, target_engine, max_tris, workdir, await _workspace_root(ctx), conversation_id)
 
-        return await host.run_ordered(go)
+        return await host.change_catalog(ctx, go)
 
-    async def set_stage(stage: str, session_id: Annotated[str, Field(description=SESSION_ID_DOC)] = "") -> str:
-        return await host.run_ordered(host.set_stage, stage, session_id)
+    async def set_stage(stage: str, ctx: Context, session_id: Annotated[str, Field(description=SESSION_ID_DOC)] = "") -> str:
+        return await host.change_catalog(ctx, host.set_stage, stage, session_id)
 
     async def session_status(session_id: Annotated[str, Field(description=SESSION_ID_DOC)] = "") -> str:
         return await host.run_ordered(host.session_status, session_id)
@@ -319,9 +344,21 @@ async def _workspace_root(ctx: Any) -> str:
     return os.getcwd()
 
 
+class StudioServer(MCPServer):
+    """One client per stdio process; keep discovery bound to its active session."""
+    def __init__(self, host: StudioHost):
+        self.host = host
+        super().__init__(SERVER_NAME, instructions=INSTRUCTIONS)
+
+    async def list_tools(self) -> list[Tool]:
+        async with self.host._order:
+            names = self.host.visible_tools()
+            return [tool for tool in await super().list_tools() if tool.name in names]
+
+
 def build_server(host: StudioHost | None = None) -> MCPServer:
     host = host or StudioHost()
-    server = MCPServer(SERVER_NAME, instructions=INSTRUCTIONS)
+    server = StudioServer(host)
     for name, (fn, doc) in _management(host).items():
         server.add_tool(fn, name=name, description=doc, structured_output=False)
     for name, fn in T.ALL_TOOLS.items():
@@ -337,7 +374,7 @@ class _DrainingStreams:
     The MCP runner stops serving when the read side closes, which would drop the replies of requests
     that arrived just before EOF (a client that pipelines its last calls and closes stdin). This tracks
     request ids from the read side, clears them when the response is written, and holds the read
-    iterator open at EOF until every pending request has been answered (bounded by ``timeout_s``).
+    iterator open at EOF until pending finite requests have been answered. Subscription streams end at EOF.
     """
 
     def __init__(self, timeout_s: float = 600.0) -> None:
@@ -354,7 +391,7 @@ class _DrainingStreams:
             async def _gen(self) -> Any:
                 async for item in inner:
                     msg = getattr(item, "message", None)
-                    if isinstance(msg, JSONRPCRequest):
+                    if isinstance(msg, JSONRPCRequest) and msg.method != "subscriptions/listen":
                         outer.pending.add(msg.id)
                     yield item
                 await outer.drain()
@@ -366,7 +403,7 @@ class _DrainingStreams:
                     await outer.drain()
                     raise
                 msg = getattr(item, "message", None)
-                if isinstance(msg, JSONRPCRequest):
+                if isinstance(msg, JSONRPCRequest) and msg.method != "subscriptions/listen":
                     outer.pending.add(msg.id)
                 return item
 
@@ -417,7 +454,8 @@ async def serve(server: MCPServer) -> None:
     drain = _DrainingStreams()
     async with stdio_server() as (read, write):
         low = server._lowlevel_server
-        await low.run(drain.read(read), drain.write(write), low.create_initialization_options())
+        await low.run(drain.read(read), drain.write(write), low.create_initialization_options(
+            notification_options=NotificationOptions(tools_changed=True)))
 
 
 def main() -> None:

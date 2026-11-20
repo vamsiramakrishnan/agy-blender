@@ -7,11 +7,11 @@
     "--model=gemini-4-hydrogen-low",
     "--title=antigravity-3d weekly failure-to-skill distillation",
     "--",
-    "Weekly antigravity-3d failure-to-skill distillation. Run `uv run python -m antigravity3d.runtime.distill_job` in the workspace; it reads .agy3d/telemetry/tool_calls.jsonl and .agy3d/fixes.jsonl and prints the path of a Markdown proposal. Read that proposal. For each recurring failure or recurring fix it lists, draft the smallest change to the antigravity-3d plugin's skills or rules that would have prevented it, as a unified diff in a new file next to the proposal named skill-diff-<date>.md. Do not edit the plugin itself and do not run any other command. Finish with a three-line summary."
+    "Weekly antigravity-3d failure-to-skill distillation. Run `uv run python -m antigravity3d.runtime.distill_job` in the workspace and read the printed proposal. Report eligible rule IDs with their held-out metrics and evidence digests for human review. If a candidate is withheld, report the missing evidence or regression. Never enable a rule or draft a skill change from an unvalidated cluster."
   ],
   "restart_policy": "always",
   "display_name": "antigravity-3d weekly distillation",
-  "description": "Every Sunday at 03:43 UTC, clusters the week's tool failures and fixes (distill_job) and drafts skill/rule diffs for human review. It never edits the plugin.",
+  "description": "Summarizes observed fixes and held-out replay every Sunday at 03:43 UTC. Promotion requires explicit review.",
   "agent_permissions": {
     "allows_user_interactions": false,
     "access_grants": [

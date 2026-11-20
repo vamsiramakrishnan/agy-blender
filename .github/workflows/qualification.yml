@@ -1,0 +1,90 @@
+name: Wheel and engine qualification
+on:
+  pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: engine-qualification-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+jobs:
+  stock-engines:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      BLENDER_BIN: /tmp/engines/blender-5.3.0-linux-x64/blender
+      GODOT_BIN: /tmp/engines/Godot_v4.7.2-stable_linux.x86_64
+      AGY3D_THREE_JS: /tmp/engines/three.module.min.js
+      AGY3D_BLENDER_SOAK: "1"
+      AGY3D_BLENDER_SKILLS: ${{ github.workspace }}/third-party/blender-skills
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      OMP_NUM_THREADS: "2"
+      OPENBLAS_NUM_THREADS: "2"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: EL4CTEO/blender-skills
+          ref: 9e7e04a603c125a0d17447ab97112fa70a865067
+          path: third-party/blender-skills
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install the distributable and exercise plugin discovery
+        run: |
+          pip wheel --no-deps . -w /tmp/wheels
+          pip install /tmp/wheels/*.whl pytest pytest-asyncio playwright
+          cd /tmp
+          agy3d models
+          agy3d plugin install --target /tmp/installed-plugin
+      - uses: actions/cache@v4
+        with:
+          path: /tmp/engines/archives
+          key: blender5.3.0-godot4.7.2-three0.160.0-linux-x64-v1
+      - name: Install pinned engine binaries and browser
+        run: |
+          mkdir -p /tmp/engines/archives
+          cd /tmp/engines/archives
+          if ! test -f blender.tar.xz; then
+            for mirror in https://mirror.clarkson.edu/blender/release https://ftp.halifax.rwth-aachen.de/blender/release https://download.blender.org/release; do
+              if curl -fsSL --retry 2 --connect-timeout 15 --max-time 240 -o blender.part "$mirror/Blender5.3/blender-5.3.0-linux-x64.tar.xz"; then
+                mv blender.part blender.tar.xz
+                break
+              fi
+            done
+          fi
+          test -f godot.zip || curl --fail --location --retry 3 -o godot.zip https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip
+          gzip -dc "$GITHUB_WORKSPACE/src/antigravity3d/artifacts/vendor/three-r160.module.min.js.gz" > three.js
+          sha256sum -c <<'SUMS'
+          dacb8264197a3f7fda6001285a5a506fc97ee943881261c2c3bd63c882f22e05  blender.tar.xz
+          cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4  godot.zip
+          3e690ac7d180b0aadf0891bea39eec643e29e2d3e75c99b18689518665f69ba6  three.js
+          SUMS
+          tar xf blender.tar.xz -C /tmp/engines
+          unzip -q godot.zip -d /tmp/engines
+          cp three.js "$AGY3D_THREE_JS"
+          if command -v google-chrome >/dev/null; then
+            echo "CHROMIUM_BIN=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          else
+            playwright install --with-deps chromium
+          fi
+      - name: Test native workers, engine imports, rendered frames and inspector channels
+        run: |
+          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_blender_shim.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py
+          python - <<'PYTHON'
+          import xml.etree.ElementTree as ET
+          required = {"test_three_worker_mixed_asset_soak", "test_reviewed_upstream_primitives",
+                      "test_ten_relocated_golden_packages_load_in_stock_godot",
+                      "test_ten_relocated_golden_dcc_engine_silhouettes",
+                      "test_staged_lookdev_and_export_share_one_imported_mesh_atlas",
+                      "test_refinement_lookdev_fixer_and_verification_reuse_the_same_atlas",
+                      "test_browser_channels_canvas_and_budget", "test_exported_inspector_opens_with_browser_offline"}
+          passed = {c.get("name") for c in ET.parse("/tmp/engine-qualification.xml").iter("testcase")
+                    if not any(c.find(tag) is not None for tag in ("skipped", "error", "failure"))}
+          if missing := required - passed:
+              raise SystemExit(f"Required engine qualifications did not pass: {sorted(missing)}")
+          PYTHON

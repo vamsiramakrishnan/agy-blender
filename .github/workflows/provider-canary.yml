@@ -1,0 +1,23 @@
+name: Live Gemini deployment qualification
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  native-usage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: gemini-canary
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e '.[dev]'
+      - name: Require native Decisions usage and a metered 2048px image
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          AGY3D_REQUIRE_NATIVE: "1"
+        run: |
+          test -n "$GEMINI_API_KEY" || { echo 'Set GEMINI_API_KEY in the gemini-canary environment'; exit 1; }
+          python -m pytest -q tests/test_decisions_engine.py::test_live_decisions tests/test_image_forge.py::test_live_image_generation

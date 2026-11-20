@@ -9,20 +9,17 @@ from antigravity3d.tactics.governor import PLANS, Governor, SpendPlan, plan_for,
 
 # --- plan table -------------------------------------------------------------
 
-def test_clutter_rows_for_tiers_0_and_1():
-    for tier_index in (0, 1):
-        p = PLANS[tier_index]
-        assert isinstance(p, SpendPlan)
-        assert p.complexity_tier == tier_index
-        assert p.label == "clutter"
-        assert (p.ortho_candidates, p.pbr_candidates, p.geometry_candidates) == (1, 2, 1)
-        assert p.builder_role == "bulk"
-        assert p.allow_director is False
-        assert p.paintover_loop is False
-        assert p.engine_truth is False
-        assert p.reuse_trim_sheet is True
-        assert p.final_render == "preview"
-        assert p.ceiling_usd == 0.15
+@pytest.mark.parametrize(("tier_index", "label", "pools", "ceiling"), [
+    (0, "clutter", (1, 2, 1), 0.15), (1, "simple", (2, 2, 2), 0.35),
+])
+def test_modest_tiers_use_hydrogen(tier_index, label, pools, ceiling):
+    p = PLANS[tier_index]
+    assert p.complexity_tier == tier_index and p.label == label
+    assert (p.ortho_candidates, p.pbr_candidates, p.geometry_candidates) == pools
+    assert p.builder_role == "worker"
+    assert not p.allow_director and not p.paintover_loop and not p.engine_truth
+    assert p.reuse_trim_sheet and p.final_render == "preview"
+    assert p.ceiling_usd == ceiling
 
 
 def test_standard_row():
@@ -33,7 +30,7 @@ def test_standard_row():
         ortho_candidates=4,
         pbr_candidates=4,
         geometry_candidates=4,
-        builder_role="builder",
+        builder_role="worker",
         allow_director=True,
         paintover_loop=False,
         engine_truth=False,
@@ -51,7 +48,7 @@ def test_hero_row():
         ortho_candidates=4,
         pbr_candidates=6,
         geometry_candidates=8,
-        builder_role="builder",
+        builder_role="director",
         allow_director=True,
         paintover_loop=True,
         engine_truth=True,
@@ -231,11 +228,11 @@ def test_candidates_never_exceeds_plan_value():
     assert g.candidates("pbr", unit_cost=0.001) == 2
 
 
-def test_candidates_returns_one_when_nothing_fits():
+def test_candidates_returns_zero_when_nothing_fits():
     g = Governor(PLANS[0])  # ceiling 0.15
-    assert g.candidates("pbr", unit_cost=1.0) == 1
+    assert g.candidates("pbr", unit_cost=1.0) == 0
     g.charge("image", 0.15)  # budget exhausted
-    assert g.candidates("ortho", unit_cost=0.01) == 1
+    assert g.candidates("ortho", unit_cost=0.01) == 0
 
 
 def test_candidates_zero_unit_cost_keeps_plan_value():

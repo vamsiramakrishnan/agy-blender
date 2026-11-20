@@ -30,11 +30,14 @@ def test_models_prints_every_tier() -> None:
 def test_prop_offline_end_to_end(tmp_path: Path) -> None:
     r = agy("prop", "wooden crate with iron brackets", "--offline", "--engine", "unreal_5", "--out", str(tmp_path / "o"))
     assert r.returncode == 0, r.stdout + r.stderr
-    assert "gates: PASS" in r.stdout and "skipped:" in r.stdout and "engine_import" in r.stdout and "cost:" in r.stdout
-    pkg = tmp_path / "o" / "package"
+    assert "preview gates: PASS" in r.stdout and "publication: unverified" in r.stdout and "cost:" in r.stdout
+    report = json.loads((tmp_path / "o" / "report.json").read_text())
+    assert report["preview_gates_ok"] and not report["verified"] and not report["gates_ok"]
+    assert not (tmp_path / "o" / "package").exists()
+    pkg = Path(report["outputs"]["inspector"]).parent
     (usd,) = pkg.glob("*.usd")
     assert Usd.Stage.Open(str(usd)).GetDefaultPrim()
-    assert (pkg / "inspector.html").exists() and json.loads((tmp_path / "o" / "report.json").read_text())["gates_ok"]
+    assert (pkg / "inspector.html").exists()
 
 
 def test_sanitize_and_nonzero_exit_on_failed_gate(tmp_path: Path) -> None:

@@ -265,6 +265,27 @@ def test_rollback_latency(tmp_path: Path) -> None:
     print(f"\nmedian rollback of a 50-node edit: {median:.3f} ms (min {min(times):.3f}, max {max(times):.3f})")
     assert median < 5.0
 
+    rejected = []
+    for _ in range(31):
+        m.apply_ir(edited)
+        t0 = time.perf_counter()
+        m.rollback(discard=True)
+        rejected.append((time.perf_counter() - t0) * 1e3)
+        assert m.scene_ir() == base
+    print(f"median discard of a rejected 50-node edit: {statistics.median(rejected):.3f} ms")
+    assert statistics.median(rejected) < 1.0
+
+    sparse = IRPatch(ops=[SetTransform(node_id="n0", transform=Transform(translate=(0, 1, 0)))])
+    samples = []
+    for _ in range(31):
+        m.apply_patch(sparse)
+        t0 = time.perf_counter()
+        m.rollback()
+        samples.append((time.perf_counter() - t0) * 1e3)
+        assert m.scene_ir() == base
+    print(f"median rollback of one transform in 50 nodes: {statistics.median(samples):.3f} ms")
+    assert statistics.median(samples) < 1.0
+
 
 def test_add_variant_requires_other_sets_unselected(sm: StageManager) -> None:
     sm.add_variant("a", "x", sm.scene_ir())
@@ -297,3 +318,104 @@ def test_author_uvs_overlay_roundtrip_and_invalidation(sm):
     sm.author_uvs(unwrap_scene(sm.extract_meshes(), EngineBudget("unreal_5")))
     sm.commit_all()  # never baked into the root layer
     assert not sm.has_uvs() and not sm.export_layer().GetPrimAtPath("/__agy_base")
+
+
+def test_relative_ops_order_world_axes_and_rollback(tmp_path):
+    sm = StageManager.create(tmp_path / "scene.usda", "Level")
+    sm.apply_ir(SceneIR(asset_name="Level", nodes=[
+        NodeIR(id="shelf", kind="box", params={"size": (4, 4, 2)},
+               transform=Transform(translate=(5, 10, 1))),
+        NodeIR(id="group", kind="group",
+               transform=Transform(rotate_euler_deg=(0, 0, 90), scale=(2, 3, 1))),
+    ]))
+    before = sm.scene_ir()
+    patch = IRPatch.model_validate({"ops": [
+        {"op": "upsert_node", "node": {"id": "box", "kind": "box", "parent": "group", "params": {"size": [1, 1, 1]}}},
+        {"op": "on_top_of", "node_id": "box", "target_id": "shelf"},
+        {"op": "flush_back", "node_id": "box", "target_id": "shelf", "gap_m": 0.1},
+    ]})
+    tx = sm.apply_patch(patch)
+    box = next(m for m in sm.extract_meshes() if m.node_id == "box")
+    np.testing.assert_allclose(box.points.min(0), [3.5, 9.9, 2], atol=1e-6)
+    np.testing.assert_allclose(box.points.max(0), [6.5, 11.9, 3], atol=1e-6)
+    assert "box " in sm.query_region([4, 9, 2.5], [5, 12, 3])
+    sm.rollback(tx)
+    assert sm.scene_ir() == before and "box " not in sm.query_region([4, 9, 2.5], [5, 12, 3])
+    with pytest.raises(KeyError, match="unknown target"):
+        sm.apply_patch(IRPatch.model_validate({"ops": [*patch.model_dump()["ops"][:1],
+            {"op": "on_top_of", "node_id": "box", "target_id": "absent"}]}))
+    assert sm.scene_ir() == before
+
+
+def test_region_query_reuses_index_and_observes_external_edits(sm):
+    before = sm.query_region([9, -1, -1], [11, 1, 1])
+    assert "body " in before and "leg " in before
+    warm = sm._spatial_index()
+    assert sm._spatial_index() is warm
+    # A consumer may hold the public USD stage and edit it outside the manager.
+    sm.stage.GetPrimAtPath("/Crate/root").GetAttribute("xformOp:translate").Set((100, 0, 0))
+    assert sm.query_region([9, -1, -1], [11, 1, 1]) == "0 prims in region"
+    assert sm._spatial_index() is not warm
+    assert len(sm.query_region([0, -2, -3], [101, 2, 3], max_chars=20)) <= 20
+
+
+def test_relative_mesh_reference_is_anchored_at_stage_and_transactional(tmp_path):
+    import trimesh
+
+    ref = tmp_path / "source.glb"
+    tm = trimesh.creation.box(extents=(1, 2, 3))
+    sc = trimesh.Scene()
+    tf = np.eye(4)
+    tf[:3, 3] = (4, 5, 6)
+    sc.add_geometry(tm, transform=tf)
+    sc.export(ref)
+    sm = StageManager.create(tmp_path / "working.usda", "Level")
+    sm.apply_ir(SceneIR(asset_name="Level", nodes=[
+        NodeIR(id="scan", kind="mesh_ref", params={"path": "source.glb"})
+    ]))
+    m, = sm.extract_meshes()
+    assert len(m.triangles) == 12
+    np.testing.assert_allclose(m.points.min(0), (3.5, -7.5, 4))
+    previous = sm.scene_ir()
+    with pytest.raises(FileNotFoundError):
+        sm.apply_patch(IRPatch(ops=[SetParam(node_id="scan", name="path", value="missing.obj")]))
+    assert sm.scene_ir() == previous
+    assert sm.extract_meshes()[0].points.tolist() == m.points.tolist()
+
+
+def test_import_survives_export_and_source_removal(tmp_path):
+    import trimesh
+
+    source = tmp_path / "part.glb"
+    trimesh.creation.box().export(source)
+    sm = StageManager.create(tmp_path / "working.usda", "Level")
+    sm.apply_ir(SceneIR(asset_name="Level", nodes=[
+        NodeIR(id="scan", kind="mesh_ref", params={"path": "part.glb"}),
+        NodeIR(id="cap", kind="box", params={"size": (.2, .2, .2)}),
+    ]))
+    source.unlink()
+    sm.add_variant("pose", "placed", IRPatch.model_validate({"ops": [
+        {"op": "on_top_of", "node_id": "cap", "target_id": "scan"}
+    ]}))
+    sm.select_variant("pose", "placed")
+    assert next(m.points.min(0)[2] for m in sm.extract_meshes() if m.node_id == "cap") == pytest.approx(.5)
+    out = tmp_path / "asset.usda"
+    sm.export(out)
+    restored = StageManager.open(out)
+    assert len(restored.extract_meshes()[0].triangles) == 12
+
+
+def test_hydrates_marker_only_v02_stage(tmp_path):
+    import trimesh
+    from pxr import Sdf
+
+    source = tmp_path / "part.ply"
+    trimesh.creation.box().export(source)
+    sm = StageManager.create(tmp_path / "legacy.usda", "Level")
+    ir = SceneIR(asset_name="Level", nodes=[NodeIR(id="scan", kind="mesh_ref", params={"path": "part.ply"})])
+    marker = sm.stage.DefinePrim("/__agy_base/scan", "Xform")
+    marker.CreateAttribute("agy:meshRef", Sdf.ValueTypeNames.String).Set("part.ply")
+    sm.stage.GetPrimAtPath("/__agy_base").SetCustomDataByKey("agy:sceneIR", ir.model_dump_json())
+    sm.stage.GetRootLayer().Save()
+    restored = StageManager.open(tmp_path / "legacy.usda")
+    assert len(restored.extract_meshes()[0].triangles) == 12

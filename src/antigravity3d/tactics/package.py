@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from typing import Sequence
 
 import numpy as np
-from pxr import Kind, Sdf, Usd, UsdGeom, UsdShade, Vt
+from pxr import Kind, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, Vt
 
 from antigravity3d.ir import MaterialIR
 from antigravity3d.kernel.compile_ir import _author_material
@@ -71,6 +71,8 @@ def write_package_usd(
         if name:
             prim = _define_mesh(stage, f"/{asset_name}/{name}", _to_native(h.points, engine), h.triangles, None)
             UsdGeom.Imageable(prim).CreatePurposeAttr(UsdGeom.Tokens.guide)
+            UsdPhysics.CollisionAPI.Apply(prim)
+            UsdPhysics.MeshCollisionAPI.Apply(prim).CreateApproximationAttr().Set("convexHull")
     stage.GetRootLayer().Save()
     if textures_from is not None and (Path(textures_from) / "textures").is_dir():
         shutil.copytree(Path(textures_from) / "textures", path.parent / "textures", dirs_exist_ok=True)
@@ -78,17 +80,15 @@ def write_package_usd(
 
 
 def write_glb_package(path: Path, bundle: ExportBundle) -> Path:
-    """GLB with LOD0 meshes, ``<node>_LODk`` meshes and UCX_ hulls (geometry + UVs; textures live in the USD)."""
-    items: list = list(bundle.uvs)
-    names = [u.node_id for u in bundle.uvs]
-    for nid, lods in bundle.lods.items():
-        for k, lod in enumerate(lods[1:], 1):
-            items.append(lod)
-            names.append(f"{nid}_LOD{k}")
-    items += list(bundle.colliders)
-    names += [h.name for h in bundle.colliders]
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    return write_gltf(path, items, names)
+    """Export sanitized geometry as a visible LOD0 plus separate LOD and collider sidecars."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    for i in range(1, min((len(chain) for chain in bundle.lods.values()), default=0)):
+        write_gltf(path.with_name(f"{path.stem}_LOD{i}.glb"), [chain[i] for chain in bundle.lods.values()],
+                   [f"{node}_LOD{i}" for node in bundle.lods])
+    if bundle.colliders:
+        write_gltf(path.with_name(f"{path.stem}_colliders.glb"), bundle.colliders, [h.name for h in bundle.colliders])
+    return write_gltf(path, bundle.uvs)
 
 
 def merged_lods(bundle: ExportBundle) -> list[SimpleNamespace]:

@@ -138,3 +138,45 @@ def test_read_notes(tmp_path):
     f.write_text("{}")
     with pytest.raises(ValueError):
         read_notes(f)
+
+
+@pytest.mark.browser
+def test_browser_channels_canvas_and_budget(tmp_path, scene):
+    import os
+    from pathlib import Path
+
+    source = os.environ.get("AGY3D_THREE_JS")
+    if not source:
+        pytest.skip("set AGY3D_THREE_JS to a local Three.js 0.160.0 module")
+    from playwright.sync_api import sync_playwright
+
+    html = _build(tmp_path, scene, three_js_source=Path(source).read_text())
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(executable_path=os.environ.get("CHROMIUM_BIN"),
+                                     args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
+        try:
+            page = browser.new_page(viewport={"width": 1024, "height": 768})
+            errors = []
+            page.on("pageerror", lambda exc: errors.append(str(exc)))
+            page.goto(html.as_uri())
+            page.wait_for_function("window.__inspectorReady || window.__inspectorError")
+            assert page.evaluate("window.__inspectorError") is None
+            assert page.evaluate("window.__inspectorState.glOk")
+            canvas = page.locator("#gl")
+            assert canvas.is_visible()
+            assert page.locator(".gauge").count() == 3
+            assert page.locator('.gauge[data-state="over"]').count() == 1
+            modes = page.locator("button[data-mode]")
+            assert modes.count() == 10
+            frames = {}
+            for button in modes.all():
+                mode = button.get_attribute("data-mode")
+                button.click()
+                page.evaluate("new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)))")
+                assert page.locator("body").get_attribute("data-channel") == mode
+                assert button.get_attribute("aria-pressed") == "true"
+                frames[mode] = canvas.screenshot()
+            assert frames["albedo"] != frames["prim"]
+            assert not errors, errors
+        finally:
+            browser.close()

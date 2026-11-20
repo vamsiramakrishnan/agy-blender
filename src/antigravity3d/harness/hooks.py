@@ -21,7 +21,9 @@ What the SDK (google-antigravity 0.1.24) actually lets a hook do, verified in
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import hashlib
 import json
 import logging
 import re
@@ -43,7 +45,7 @@ from antigravity3d.harness.tools import (
     ALL_TOOLS, MAP_KEYS, READ_ONLY_TOOL_NAMES, STAGE_TOOLS, _local, export_block_reason,
 )
 from antigravity3d.harness.traceback_compressor import compress_exception
-from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, SceneSessionRegistry
+from antigravity3d.state import SceneSessionRegistry
 
 log = logging.getLogger(__name__)
 
@@ -186,17 +188,23 @@ class InvariantAndSafetyGate(_Shared, PreToolCallDecideHook):
 
     async def _policy(self, s: Session, ref: str) -> str | None:
         if s.plane is None:
-            return None
-        if ref not in self._verdicts:
-            path = _local(ref)
-            if path is not None:
-                uri = await s.forge.upload(path) if s.forge is not None else None
+            return "no decision plane available to screen the material image"
+        path = _local(ref)
+        if path is not None:
+            data = await asyncio.to_thread(path.read_bytes)
+            key = hashlib.sha256(data).hexdigest()
+        else:
+            data = None
+            key = ref
+        if key not in self._verdicts:
+            if data is not None and s.forge is not None:
+                uri = await s.forge.upload(data)
+            elif data is None and "://" in ref and not ref.startswith("file://"):
+                uri = ref
             else:
-                uri = ref if "://" in ref else None
-            if uri is None:
-                return None  # image does not exist yet (or cannot be uploaded): nothing to screen
-            self._verdicts[ref] = await s.plane.policy_gate(uri)
-        v = self._verdicts[ref]
+                return f"could not screen material image {Path(ref).name}"
+            self._verdicts[key] = await s.plane.policy_gate(uri, governor=s.governor)
+        v = self._verdicts[key]
         return None if v.allowed else f"policy gate blocked {Path(ref).name}: {', '.join(v.reasons)}"
 
 
@@ -425,8 +433,8 @@ def unmet_gate(s: Session) -> str | None:
         if not st.last_tier1_ok:
             return "Tier-1 QA has not passed on the current scene: fix and re-apply"
     elif stage == "LOOKDEV":
-        if st.last_tier15_score < EXPORT_MIN_TIER15_SCORE:
-            return f"visual QA not passing (tier15 {st.last_tier15_score:.2f} < {EXPORT_MIN_TIER15_SCORE}): run run_visual_qa and repair"
+        if not st.export_allowed:
+            return f"visual QA not passing: {export_block_reason(st)}"
     elif stage == "EXPORT":
         if s.last_export is None and st.export_allowed:
             return "export requested but not written: call export_engine_package"

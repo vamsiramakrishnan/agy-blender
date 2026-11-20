@@ -76,7 +76,7 @@ async def test_upload_and_auto_upload(tmp_path):
 async def test_genai_backend_sdk_shape():
     """Pure plumbing check with a stub client mirroring google-genai's response shape."""
     out = io.BytesIO()
-    Image.new("RGB", (2, 2), (9, 9, 9)).save(out, "PNG")
+    Image.new("RGB", (2048, 2048), (9, 9, 9)).save(out, "PNG")
     seen = {}
 
     async def generate_content(*, model, contents, config):
@@ -88,10 +88,13 @@ async def test_genai_backend_sdk_shape():
         seen["up"] = config.mime_type
         return SimpleNamespace(uri="https://files/abc")
 
-    client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content),
+    async def count_tokens(**kwargs):
+        return SimpleNamespace(total_tokens=100)
+
+    client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content, count_tokens=count_tokens),
                                                  files=SimpleNamespace(upload=upload)))
     be = GenAIImageBackend(client)
-    data = await be.generate(model="m", prompt="p", images=[b"x"], size=2048, aspect_ratio="1:1")
+    data = await be.generate(model=nb.DEFAULT_IMAGE_MODEL, prompt="p", images=[b"x"], size=2048, aspect_ratio="1:1")
     assert data == out.getvalue() and seen["config"].response_modalities == ["IMAGE"]
     assert seen["config"].image_config.image_size == "2K" and len(seen["contents"]) == 2
     assert await be.upload(b"zz") == "https://files/abc" and seen["up"] == "image/png"
@@ -101,13 +104,16 @@ async def test_genai_backend_sdk_shape():
 
     client.aio.models.generate_content = empty
     with pytest.raises(RuntimeError):
-        await be.generate(model="m", prompt="p")
+        await be.generate(model=nb.DEFAULT_IMAGE_MODEL, prompt="p")
 
 
 @pytest.mark.live
-@pytest.mark.skipif(not os.environ.get("GEMINI_API_KEY"), reason="needs GEMINI_API_KEY")
+@pytest.mark.skipif(not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")), reason="needs Gemini credentials")
 async def test_live_image_generation():
     from google import genai
 
-    g = await ImageForge(client=genai.Client()).seamless_albedo("weathered oak planks", size=1024)
-    assert g.image().size[0] >= 256
+    with genai.Client() as client:
+        g = await ImageForge(client=client).seamless_albedo("weathered oak planks", size=2048)
+    assert g.image().size == (2048, 2048)
+    assert g.receipt.source == "provider_usage" and g.receipt.input_tokens > 0
+    assert g.receipt.image_tokens > 0 and g.receipt.booked_usd > 0

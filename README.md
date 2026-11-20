@@ -4,14 +4,11 @@ antigravity-3d turns a text prompt, or existing mesh files, into game-engine-rea
 
 ## Status
 
-- **Works and is tested offline** (no API key, no Blender). The whole pipeline runs from prompt to exported package, using built-in template geometry and procedural stand-in images. The suite has about 650 automated tests.
-- **Verified against the live Gemini API:** stage agents built on the Antigravity SDK running on `gemini-4-hydrogen` and `gemini-4-carbon`, and image generation. A full non-offline `agy3d prop` run completed but **failed** its quality gates, because the model-authored blockout was weak.
-- **Decisions API not verified live.** `gemini-decision-1` returned 404 for the API key used during development. The decision layer has only been tested against a fake that enforces the SDK's wire format. When the Decisions API is unavailable, the package asks a generative model the same questions. Those answers are marked uncalibrated and cannot auto-approve an asset. That fallback was exercised live on `gemini-4-neon`.
-- **Not verified:**
-  - Anything that runs inside Blender. No Blender was available, so that code is exercised only through a stand-in process.
-  - Imports into Unreal, Unity, Godot or Roblox. No engines were available, so those steps report "skipped".
-  - The plugin bundle inside a running Antigravity app.
-- Dollar costs printed by the tool are estimates from placeholder prices, not real billing figures.
+- An offline run exercises the USD compiler, geometry kernels, material packaging and inspector with deterministic image and judge fixtures. It produces a preview candidate.
+- Stock Blender 5.3 supports the warm worker path over Unix IPC and shared memory. Workbench, EEVEE and CPU Cycles render regression fixtures. Godot 4 is the first target with a rendered verification path. Unreal and Unity adapters currently cover import checks. Roblox lacks a headless verifier.
+- Native Decisions access depends on the project. Interactive grading can use a generative fallback with an uncalibrated verdict. The governed prop DAG requires a native Decisions deployment for paid routing and approval. The credentialed canaries in the test suite exercise native Decisions and Nano Banana independently.
+- The structured CLI author, Decisions and GenMedia report usage with provenance. Monetary estimates depend on the configured deployment rates. Studio acceptance and reconciled billing are separate inputs to the cohort benchmark.
+- Antigravity plugin installation, stage-tool registration and hook behavior have automated tests. Interactive host discovery and studio first-pass acceptance require their respective environments.
 
 ## Install
 
@@ -35,41 +32,19 @@ Build an offline prop. This needs no API key and no Blender:
 agy3d prop "wooden crate with iron brackets" --offline --engine unreal_5 --out out/crate
 ```
 
-Trimmed output of that command. Paths are shortened to `out/crate/`:
+Read `out/crate/report.json` for the candidate paths, skipped steps, provider usage and gate results. `outputs.inspector` opens the asset with PBR channels, LODs and budget gauges. The package contains the USD, USDZ, GLBs, textures and a manifest. Preview runs keep their own output directory so a failed retry cannot replace a verified asset.
 
-```
-agy3d prop: 'wooden crate with iron brackets' -> unreal_5
-  offline: fake decisions, fake images, TemplateAuthor
-DAG prop_to_engine: OK wall=6738ms ok=9 skipped=1 failed=0 overlap=2
-pyramid rounds: A1:approve t15=3.60; B1:approve t15=3.60
-render tier: preview; stopped: {'A': 'converged in 1 round(s)', 'B': 'approved in 1 round(s)', 'C': 'verification run'}
-scores: tier15=3.60 tier1=OK silhouette=3.60 proportion_accuracy=3.60 pbr_realism=3.60 material_separation=3.60 shippability=3.60
-cost: governor(est) $0.4818 | decisions plane $0.002338 over 28 calls | ...
-outputs:
-  usd: out/crate/package/WoodenCrateIron.usd
-  glb: out/crate/package/WoodenCrateIron.glb
-  inspector: out/crate/package/inspector.html
-  report: out/crate/report.json
-skipped:
-  - pyramid:engine_import: unreal_5 binary not found (set $UNREAL_EDITOR_CMD or add UnrealEditor-Cmd to PATH)
-  ...
-gates: PASS
+For a verified Godot publication, configure Gemini access, install Godot and pass a stock Blender executable or the managed sidecar's socket. The live command requires publication by default. Use `--preview` to request a candidate.
+
+```bash
+export GODOT_BIN=/opt/godot/godot
+agy3d prop "wooden crate with iron brackets" --engine godot_4 --out out/live-crate \
+  --blender /opt/blender/blender --require-verified
 ```
 
-The run writes these files under the output directory:
+Set `AGY3D_TEXT_RATES_JSON` to a JSON object mapping each configured text-model ID to its contracted `[input USD per million tokens, output USD per million tokens]` pair. The metered author checks the configured rate before dispatch. Standard tiers use the worker role and hero assets use the director role. Model overrides need matching rates.
 
-- `package/WoodenCrateIron.usd` and `package/WoodenCrateIron.usdz`: the OpenUSD asset.
-- `package/WoodenCrateIron_authoring.usda`: the authoring layer that the Scene IR compiles to.
-- `package/WoodenCrateIron.glb`, `_LOD1.glb`, `_LOD2.glb`, `_LOD3.glb`: the mesh and its LOD levels.
-- `package/WoodenCrateIron_colliders.glb`: collision hulls.
-- `package/textures/`: albedo, normal (DirectX convention) and ORM maps.
-- `package/manifest.json`: the package manifest.
-- `package/inspector.html`: the single-file WebGL inspector for the asset.
-- `package/ortho.png` and `ortho.png`: orthographic reference renders.
-- `WoodenCrateIron_stage.usda` and `report.json`: the stage and the run report.
-- `.agy3d-cache/`: the build cache. Pass `--no-cache` to skip it.
-
-`examples/offline_crate.py` runs the same pipeline from Python. See `examples/README.md`.
+A headless Linux renderer needs a working display or Xvfb. A missing target renderer, a stale verdict, or a simulated judge leaves `verified` false. A successful verified run makes the package visible under the published path. Use `--pool-socket PATH` to reuse workers across CLI processes.
 
 Other subcommands:
 
@@ -82,7 +57,23 @@ agy3d models                                         # print the model tier tabl
 agy3d plugin install [--target DIR] | agy3d plugin validate [PATH]   # install or check the Antigravity plugin
 ```
 
-`prop`, `sanitize`, `kit` and `variants` take `--engine` (`unreal_5`, `unity_urp`, `godot_4` or `roblox_r15`; default `unreal_5`) and an optional `--max-tris N`. `calibrate`, `models` and `plugin` do not. Exit status: `0` means every gate passed, `1` means a gate failed, `2` means a usage or environment error.
+`prop`, `sanitize`, `kit` and `variants` take `--engine` (`unreal_5`, `unity_urp`, `godot_4` or `roblox_r15`; default `unreal_5`) and an optional `--max-tris N`. `calibrate`, `models` and `plugin` do not. Exit status 0 means the requested mode passed its gates. Status 1 signals a failed gate and 2 a usage or environment error.
+
+### Measure the cost per accepted asset
+
+For each brief, run the same prompt and engine budget twice in separate output directories under the same cache policy. Add `--single-candidate` to the baseline only. Record studio first-pass and final acceptance, rework minutes, reconciled spend and input/output tokens across the entire run, including rejected attempts. Use independent human labels. The benchmark rejects reused reports, mismatched budgets, fixture-backed verdicts and first-pass labels without a verified asset.
+
+```json
+{"ceiling_usd": 2.2, "pairs": [
+  {"brief_id": "crate-01",
+   "single": {"report": "baseline/report.json", "first_pass": false, "accepted": true,
+              "rework_minutes": 12, "billed_usd": 0.41, "input_tokens": 9800, "output_tokens": 3200},
+   "governed": {"report": "governed/report.json", "first_pass": true, "accepted": true,
+                "rework_minutes": 0, "billed_usd": 0.70, "input_tokens": 16000, "output_tokens": 5400}}
+]}
+```
+
+These numbers illustrate the input format. `agy3d benchmark cohort.json` reports spend per accepted asset, total tokens, wall p50/p95 and paired quality deltas. The rollout gate needs at least 50 pairs, every governed run within the studio ceiling, and either a 10-point first-pass gain or a 20% reduction in rework minutes.
 
 ## Architecture
 
@@ -147,7 +138,7 @@ Main modules, from the module docstrings:
 - `tactics/governor.py`: cost and quality budget governor.
 - `tactics/cached.py`: Merkle-cache wrappers for the expensive pure steps.
 - `tactics/package.py`: engine-ready export artefacts (UV-split meshes, LODs, hulls).
-- `tactics/distill.py`: failure-to-skill log and clustering.
+- `tactics/distill.py` collects observed repairs. Run `python -m antigravity3d.runtime.distill_job --workspace . --holdout examples/distill-seating-holdout.json` to replay a box-seating fix against two authored examples. Supply independent studio labels for a studio review. An eligible report can be promoted by repeating the command with `--promote seat-floating-box-v1 --evidence DIGEST --reviewed-by NAME`. The scheduled job only writes reports.
 - `dags/prop_to_engine.py`: prompt to engine-ready, reviewed prop package.
 - `dags/environment_kit.py`: modular pieces sharing one trim sheet, assembled into one USD stage.
 - `dags/batch_sanitize.py`: many meshes to safe repairs, UVs, LODs and colliders, then validated export.
@@ -165,7 +156,10 @@ Defined in `src/antigravity3d/models.py`:
 | `worker` | `gemini-4-hydrogen` | LOW | Ephemeral critics, swarm prop builders. |
 | `bulk` | `gemini-4-neon` | LOW | Batch sanitise, trivial IR edits. |
 | `decision` | `gemini-decision-1` | - | Routing, Best-of-N ranking, visual QA, policy. |
-| `image` | `gemini-3.1-flash-lite-image` | - | Orthos, albedo, trim sheets, paint-overs. The SDK default; override it for Nano Banana 2.1. |
+| `image` | `gemini-nano-banana-2.1` | - | 2K blueprints, texture maps, trim sheets, decals and paint-overs. |
+
+The prop DAG writes `ledgers/<asset-key>/spend.sqlite3` under the output directory. The key includes the prompt, engine budget, style content, judge backend and candidate mode. Retries reuse the original route and ledger. Pending reservations count against the ceiling across restarts. Image receipts retain model, provider response ID, token counts by modality, estimated USD and artifact SHA-256. Replays have zero generation cost. When a dispatched request times out or the provider omits modality counts, the ledger retains the reserved amount. For a custom image deployment, set `AGY3D_MODEL_IMAGE` and all three per-million-token rates: `AGY3D_IMAGE_INPUT_USD_PER_M`, `AGY3D_IMAGE_TEXT_OUTPUT_USD_PER_M`, and `AGY3D_IMAGE_IMAGE_OUTPUT_USD_PER_M`. The legacy `AGY3D_IMAGE_MODEL` override takes precedence.
+
 
 The verification notes in `models.py`: `gemini-4-hydrogen`, `gemini-4-carbon` and `gemini-4-neon` answered live against the Gemini API; `gemini-4-argon` exists but is slow. The harness bundled with google-antigravity 0.1.24 names hydrogen, carbon and argon but not neon. The live API rejects `ThinkingLevel.MINIMAL` for neon and hydrogen, so LOW is the floor.
 
@@ -207,10 +201,11 @@ CI (`.github/workflows/ci.yml`) runs this on Python 3.12 and 3.13:
 python -m pytest -q -m "not live and not blender"
 ```
 
-The two markers, defined in `pyproject.toml`:
+Integration markers include:
 
 - `live`: needs `GEMINI_API_KEY` and network access.
-- `blender`: needs a Blender 5.3 or newer binary on `PATH` or in `$BLENDER_BIN`.
+- `blender`: needs a Blender 5.3 or newer binary on `PATH` or in `$BLENDER_BIN`. Set `AGY3D_BLENDER_SOAK=1` to run the 300-render isolation test.
+- `browser`: needs Playwright Chromium and `AGY3D_THREE_JS` pointing to Three.js 0.160.0. The qualification workflow supplies both on a Linux software-rendering runner.
 
 
 ## Known limitations
@@ -219,7 +214,7 @@ The two markers, defined in `pyproject.toml`:
 - Trim-sheet mapping distorts smooth, round shapes.
 - The preview renderer is a software rasteriser, not a PBR render.
 - The LOD-pop and UV-stretch warning thresholds are uncalibrated defaults.
-- Rolling back an edit measured about 2 ms on a 50-node scene. The design target was under 1 ms.
+- Rejected 50-node speculative edits rolled back in 0.71 ms at the median on the development runner. Public undo of a 50-node edit measured about 1 ms. Sub-millisecond worst-case rollback remains unqualified.
 - Collider generation on concave meshes can exceed the 250 ms pipeline target.
 
 ## License

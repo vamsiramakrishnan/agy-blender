@@ -31,6 +31,11 @@ python -m antigravity3d.plugin_install --target ~/.gemini/config --workspace /pa
 python -m antigravity3d.plugin_install --validate plugin/antigravity-3d
 ```
 
+A copy install binds Python hook commands, Python sidecars, and the studio MCP server
+to the interpreter that installed the package. Reinstall after moving or replacing
+the virtual environment. Developer symlinks use the source launchers and need the
+project environment on the host's path.
+
 There is a second way to install: `antigravity3d.plugin_install.register(workspace)`
 adds this folder's parent to `<workspace>/.agents/plugins.json`. Each entry in
 that file is scanned one level deep.
@@ -106,9 +111,10 @@ generated from its signature (no `ctx`; an optional `session_id` is added), plus
   the raw-script linter and the image policy gate. A denial is one
   `REFUSED ...` line. The hook scripts in this plugin check export and raw
   scripts again when the call is an `mcp_tool` step; both read the same QA file.
-- **Stages.** `tools/list` always lists every tool. Narrowing it to the active
-  stage would need `notifications/tools/list_changed` and a client that
-  re-lists, which the docs do not promise, so scoping happens at call time.
+- **Stages.** A new connection lists the four session management tools. Once
+  an asset is open, discovery adds only the active stage's tools. Clients
+  receive a list-change notification when switching catalogs. Calls addressed
+  to a different session still pass through that session's stage gate.
 - **Backends.** `GEMINI_API_KEY` set: `make_control_plane` (Decisions API,
   generative fallback) and a real `ImageForge`. `AGY3D_OFFLINE=1`, or no key: the
   fakes. The Blender pool is attached through `PoolClient` when
@@ -143,8 +149,8 @@ a `strings` dump of that binary.
 | `mcp_config.json` in a plugin root; `mcpServers` map; stdio `command`/`args`/`env` | verified | "# MCP Servers" 300694-300760; plugin layout 306259 |
 | Plugin MCP servers namespaced `<plugin>_<server>` (so `studio` becomes `antigravity-3d_studio`); `mcp(<server>/<tool>)` grants | verified for the server prefix (the packaging example gives `tasks_tasks`); how the harness shows the tool names to the model is **unverified**. The earlier "server names must be prefixed with the plugin name" is not in the docs: the harness adds the prefix itself, so the config key is the bare `studio`. | 319165; 300740-300745; 318662 |
 | `${PLUGIN_ROOT}` / `${PLUGIN_DATA}` expansion in `mcp_config.json` | verified | 319146-319160 |
-| Working directory and workspace of a plugin's stdio MCP server | **unverified**: `uv run --project ${PLUGIN_ROOT}` finds the project only when the plugin is installed inside the workspace tree. The server asks the client for `roots/list` and uses the first root as the workspace for `.agy3d`; if the client has no roots it uses its cwd, and `$AGY3D_STATE_DIR` overrides both. The Antigravity client's `roots/list` behaviour is unverified (a roots-workspace listener exists in the binary, 170395). | |
-| Whether the client re-lists tools on `list_changed` | **unverified**, so the server lists all tools and scopes at call time | |
+| Working directory and workspace of a plugin's stdio MCP server | Copy installs bind Python launchers to the installing interpreter. The first client workspace root sets the default state location, with process cwd as a fallback. Host roots discovery remains unverified. | |
+| Whether the client re-lists tools on `list_changed` | Verified with official MCP clients, pending native Antigravity UI qualification. | |
 | MCP tool results as plain text lines | verified against the `mcp` 2.3.0 client in `tests/test_mcp_server.py`; the harness's own handling of `isError`/text content is unverified | |
 | A matcher of `"*"` is passed through to every tool | verified | 325575 |
 | `sidecar.json` schema | **reconstructed**: the docs say a schema applies, but the binary builds it at runtime from the Go struct tags (lines 257098-280837) and proto descriptor (about 415600-415690). The copy kept at `antigravity3d/runtime/sidecar.schema.json` assumes `additionalProperties: false`. | 298906-298930 |
@@ -154,7 +160,7 @@ a `strings` dump of that binary.
 | `agentapi new-conversation [--model=<flash_lite\|flash\|pro\|model_id>] [--title=] [--profile=]` | verified (usage text) | 282566, 282436, 282541 |
 | `agent_permissions` fields `workspace_uris`, `access_grants`, `allows_user_interactions` | verified | 318565, 318640-318660; proto 415630 |
 | Default sandbox for sidecars and the effect of `sandbox.read_write_paths` | **unverified** | tags 264374, 267396 |
-| `uv run` started from the sidecar's own folder finds the project | **unverified**: true only when the plugin is installed inside the workspace tree | |
+| Python sidecar and MCP commands | Copy installs use the installing environment’s absolute interpreter path. | |
 | Plugins shipping a `workflows/` folder | **not a documented plugin component**: it's a plain file run with `run_workflow(ScriptPath=...)` | run-workflow 314708-314880 |
 | Whether the browser security policy (CSP) of the side pane allows the inspector page's three.js CDN import | **unverified**: generative-UI HTML artifacts block CDNs. Building with `three_js_source` puts the library inline in the page and avoids this. | 310213-310240 |
 

@@ -145,3 +145,63 @@ def test_raycast_only_tests_candidate_prims(monkeypatch):
     monkeypatch.setattr(sp, "vertical_hits", lambda tri, xy, *a: seen.append(len(tri)) or orig(tri, xy, *a))
     idx.raycast_down((30.0, 30.0))
     assert len(seen) < 10  # candidates by index, not all 300 prims
+
+
+def test_sweep_matches_bruteforce_with_10k_sparse_boxes():
+    from antigravity3d.kernel.fast_ops import _candidate_pairs
+
+    # Include overlaps, contacts, and gaps inside the contact tolerance.
+    rng = np.random.default_rng(15)
+    lo = rng.random((180, 3)) * 10
+    hi = lo + rng.random((180, 3)) * 3
+    eps = .005
+    exact = {(i, j) for i in range(len(lo)) for j in range(i + 1, len(lo))
+             if np.all(lo[i] <= hi[j] + eps) and np.all(hi[i] >= lo[j] - eps)}
+    assert set(_candidate_pairs(lo, hi, eps)) == exact
+    box = np.zeros((10_000, 3))
+    box[:, 0] = np.arange(len(box)) * 2
+    t0 = time.perf_counter()
+    assert list(_candidate_pairs(box, box + 1, eps)) == []
+    assert time.perf_counter() - t0 < 1
+
+
+def test_working_set_on_10k_composed_usd_meshes():
+    from pxr import Sdf, Usd
+
+    from antigravity3d.kernel.usd_stage import StageManager
+
+    layer = Sdf.Layer.CreateAnonymous("level.usda")
+    layer.ImportFromString('''#usda 1.0
+(
+    defaultPrim = "Level"
+)
+class Mesh "Surface"
+{
+    float3[] extent = [(0, 0, 0), (1, 1, 0)]
+    int[] faceVertexCounts = [3]
+    int[] faceVertexIndices = [0, 1, 2]
+    point3f[] points = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+}
+def Xform "Level"
+{
+''' + "".join(
+        f'    def Mesh "tile{i}" (references = </Surface>)\n    {{\n'
+        f'        custom string agy:nodeId = "tile{i}"\n'
+        f'        double3 xformOp:translate = ({2 * (i % 100)}, {2 * (i // 100)}, 0)\n'
+        '        uniform token[] xformOpOrder = ["xformOp:translate"]\n    }\n'
+        for i in range(10_000)
+    ) + '}\n')
+    sm = StageManager(Usd.Stage.Open(layer))
+    start = time.perf_counter()
+    assert "10000 prims" in sm.query_region((-1, -1, -1), (200, 200, 1))
+    build = time.perf_counter() - start
+    queries = []
+    for i in range(100):
+        x, y = 2 * i, 2 * i
+        start = time.perf_counter()
+        result = sm.query_region((x, y, -1), (x + .5, y + .5, 1))
+        queries.append(time.perf_counter() - start)
+        assert f"tile{i * 101} " in result and len(result) <= 1200
+    p95 = np.percentile(queries, 95) * 1000
+    print(f"10k USD meshes: cold index + query {build:.3f}s, warm query p95 {p95:.3f}ms")
+    assert p95 < 50
