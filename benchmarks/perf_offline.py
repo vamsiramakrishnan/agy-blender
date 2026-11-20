@@ -16,7 +16,8 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------------------------------------
 import os
 
-THREAD_ENV = {"OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
+THREAD_ENV = {"OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1",
+              "PXR_WORK_THREAD_LIMIT": "1"}  # the last one caps OpenUSD's own worker pool (extra to the brief; see README)
 for _k, _v in THREAD_ENV.items():
     os.environ[_k] = _v
 for _k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_APPLICATION_CREDENTIALS",
@@ -637,7 +638,7 @@ def b_visual_qa(ctx: Ctx) -> list[Case]:
        "Mesh extraction from USD, PNG encoding/saving, upload. Scenes are 12 spheres on a 4x3 grid (triangle count is the closest to the target the sphere segment count allows).")
 def c_contact_sheet(ctx: Ctx) -> list[Case]:
     cases = []
-    for target in (1000, 5000, 20000):
+    for target in ((1000, 5000) if ctx.quick else (1000, 5000, 20000)):
         meshes = sphere_set(target)
         tris = sum(len(m.triangles) for m in meshes)
         for px in ((256,) if ctx.quick else (256, 512)):
@@ -651,7 +652,7 @@ def c_contact_sheet(ctx: Ctx) -> list[Case]:
        "Mesh extraction, PNG encoding, any model call that would consume the marked sheet.")
 def c_marked_sheet(ctx: Ctx) -> list[Case]:
     cases = []
-    for target in (1000, 5000, 20000):
+    for target in ((1000, 5000) if ctx.quick else (1000, 5000, 20000)):
         meshes = sphere_set(target)
         tris = sum(len(m.triangles) for m in meshes)
         cases.append(timeit(lambda: som.marked_contact_sheet(meshes, size=256), ctx,
@@ -878,10 +879,10 @@ def e_package_write(ctx: Ctx) -> list[Case]:
 
 
 @bench("kernel.package.write_large_textures",
-       "ONE SAMPLE, NO WARM-UP (too slow to repeat): the same write_engine_package call as kernel.package.write for the crate with 1024 px albedo/ORM/normal maps per material (512 px in --quick), to show how packaging time scales with texture size.",
+       "ONE SAMPLE, NO WARM-UP (too slow to repeat): the same write_engine_package call as kernel.package.write for the crate with 1024 px albedo/ORM/normal maps per material (384 px in --quick), to show how packaging time scales with texture size.",
        "Stage creation, bundle computation, texture generation (all untimed). A single sample is not a distribution: n=1, p95 null, and the first call also pays any first-use costs.")
 def e_package_large(ctx: Ctx) -> list[Case]:
-    px = 512 if ctx.quick else 1024
+    px = 384 if ctx.quick else 1024
     p = prop_assets(ctx, "crate", px)
     sm = build_stage(ctx.dir("pw") / f"{p.asset}.usda", p.scene)
     out = ctx.dir("pwout")
@@ -1217,9 +1218,10 @@ def run_prop_once(prompt: str, out: Path, *, single: bool, memo: dict, replay: b
     try:
         async def go():
             t0 = time.perf_counter()
+            c0 = time.process_time()  # whole-process CPU (all threads), so overlapping stages are summed, not hidden
             rep = await dag.run(prompt)
-            return rep, (time.perf_counter() - t0) * 1e3
-        rep, wall_ms = asyncio.run(go())
+            return rep, (time.perf_counter() - t0) * 1e3, (time.process_time() - c0) * 1e3
+        rep, wall_ms, cpu_ms = asyncio.run(go())
     finally:
         dag_runner.Dag.run = orig_run
     t_origin = origin[0]
@@ -1235,12 +1237,12 @@ def run_prop_once(prompt: str, out: Path, *, single: bool, memo: dict, replay: b
     fix_union = _overlap_ms(both, 0, float("inf"))
     x = rep.extras
     cache_stats = x["cost"]["cache"] or {}
-    return {"wall_ms": wall_ms, "dag_wall_ms": rep.wall_ms, "nodes": nodes,
+    return {"wall_ms": wall_ms, "cpu_ms": cpu_ms, "dag_wall_ms": rep.wall_ms, "nodes": nodes,
             "fixture_union_ms": fix_union, "fixture_image_ms": _overlap_ms(img, 0, float("inf")),
             "fixture_judge_ms": _overlap_ms(judge, 0, float("inf")),
             "fixture_image_sum_ms": sum(b - a for a, b in backend.spans) * 1e3,
             "fixture_judge_sum_ms": sum(b - a for a, b in client.spans) * 1e3,
-            "local_compute_ms": wall_ms - fix_union,
+            "wall_outside_fixture_spans_ms": wall_ms - fix_union,  # LOWER BOUND on local work: local work overlapping a fixture span is subtracted too
             "decision_calls": len(client.calls), "image_generations": len(backend.calls),
             "image_calls_replayed": sum(1 for c in backend.calls if c.get("replayed")),
             "cache_hits": cache_stats.get("hits"), "cache_misses": cache_stats.get("misses"),
@@ -1263,10 +1265,9 @@ def _pipeline_runs(ctx: Ctx) -> list[dict[str, Any]]:
                     memo: dict = {}
                     cold = run_prop_once(prompt, base, single=single, memo=memo)           # fresh dir + cache
                     warm = run_prop_once(prompt, base, single=single, memo={})             # same dir, same cache
-                    runs = [("cold", cold), ("warm", warm)]
-                    if rep_i == 0:  # one replay per prompt x mode: it is a cross-check of local_compute_ms, not a distribution
-                        runs.append(("cold_image_replay", run_prop_once(prompt, ctx.dir("prop"), single=single, memo=memo, replay=True)))  # fresh cache, fixture images served from memo
-                    for cache_mode, r in runs:
+                    # fresh dir + cache, fixture images served from the bytes the cold run generated: no procedural synthesis runs
+                    replay = run_prop_once(prompt, ctx.dir("prop"), single=single, memo=memo, replay=True)
+                    for cache_mode, r in (("cold", cold), ("warm", warm), ("cold_image_replay", replay)):
                         rows.append({"prompt_key": kind, "prompt": prompt, "mode": mode, "cache": cache_mode, "repeat": rep_i, **r})
                     shutil.rmtree(base, ignore_errors=True)
         return rows
@@ -1278,10 +1279,10 @@ def _med(rows: list[dict], key: str) -> float:
 
 
 @bench("pipeline.prop_to_engine.offline",
-       "PropToEngineDAG.run wall time (in-process, same wiring as `agy3d prop --offline`, bare event-loop start included, unreal_5, max_rounds=4) per prompt x mode x cache state. cache=cold: fresh output dir; cache=warm: second run on the same dir/cache (route decision and image/PBR/export results reused); cache=cold_image_replay: fresh cache but the fixture image backend returns pre-generated bytes instantly, which measures the run without the fixture's procedural texture synthesis. Per-node durations and fixture shares are in extra.",
-       "Interpreter start (see cli.*), Blender, any real network wait. Fixture time (fake image synthesis in a worker thread, fake judge validation) IS inside the wall time; extra.local_compute_ms = wall - union of fixture spans, and the cold_image_replay case gives a direct measurement of the same quantity.")
+       "PropToEngineDAG.run wall time (in-process, same wiring as `agy3d prop --offline`, bare event-loop start included, unreal_5, max_rounds=4) per prompt x mode x cache state. cache=cold: fresh output dir; cache=warm: second run on the same dir/cache (route decision and image/PBR/export results reused); Per-node durations and fixture shares are in extra, with process CPU time (all threads) per run. For the fixture-free figure see pipeline.prop.replayed_images.",
+       "Interpreter start (see cli.*), Blender, any real network wait. Fixture time (fake image synthesis in a worker thread, fake judge validation) IS inside the wall time. extra.wall_outside_fixture_spans_ms is wall minus the union of fixture spans; local work that runs concurrently inside a fixture span (geometry beside speculative PBR) is subtracted too, so it is only a lower bound on local work, not 'local compute'.")
 def h_pipeline(ctx: Ctx) -> list[Case]:
-    rows = _pipeline_runs(ctx)
+    rows = [r for r in _pipeline_runs(ctx) if r["cache"] != "cold_image_replay"]
     cases = []
     for key in dict.fromkeys((r["prompt_key"], r["mode"], r["cache"]) for r in rows):
         sel = [r for r in rows if (r["prompt_key"], r["mode"], r["cache"]) == key]
@@ -1293,7 +1294,8 @@ def h_pipeline(ctx: Ctx) -> list[Case]:
         cases.append(Case(
             {"prompt": sel[0]["prompt"], "mode": key[1], "cache": key[2], "engine": "unreal_5", "repeats": len(sel)},
             [r["wall_ms"] for r in sel],
-            {"node_ms": nodes, "local_compute_ms_median": _med(sel, "local_compute_ms"),
+            {"node_ms": nodes, "cpu_ms_median": _med(sel, "cpu_ms"),
+             "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": _med(sel, "wall_outside_fixture_spans_ms"),
              "fixture_union_ms_median": _med(sel, "fixture_union_ms"),
              "fixture_image_ms_median": _med(sel, "fixture_image_ms"), "fixture_judge_ms_median": _med(sel, "fixture_judge_ms"),
              "fixture_image_sum_ms_median": _med(sel, "fixture_image_sum_ms"),
@@ -1305,6 +1307,24 @@ def h_pipeline(ctx: Ctx) -> list[Case]:
              "gates_ok_verified_publication": all(r["gates_ok"] for r in sel),
              "skipped_nodes": sorted({n for r in sel for n in r["skipped_nodes"]}), "failed_nodes": sorted({n for r in sel for n in r["failed_nodes"]}),
              "tier15": sorted({r["tier15"] for r in sel if r["tier15"] is not None})}))
+    return cases
+
+
+@bench("pipeline.prop.replayed_images",
+       "HEADLINE fixture-free pipeline figure: PropToEngineDAG.run wall time with a fresh output dir and cache (cold) where FakeImageBackend returns, instantly, the bytes the cold run already generated, so no procedural image synthesis runs. Same prompts, modes and repeats as pipeline.prop_to_engine.offline. extra has process CPU time (all threads) for this run and for the cold run.",
+       "Image synthesis (removed). Still included: the fake decisions client (request wire validation, canned answers) and the plane's own request/answer handling, route, USD staging and edits, Tier-1 QA, raster/contact sheets and set-of-mark sheets, UV/LOD/collider, packaging and validation, inspector, report writing, event-loop and thread hops, cache hashing and blob I/O. Interpreter start.")
+def h_replayed(ctx: Ctx) -> list[Case]:
+    rows = _pipeline_runs(ctx)
+    cases = []
+    for key in dict.fromkeys((r["prompt_key"], r["mode"]) for r in rows if r["cache"] == "cold_image_replay"):
+        rp = [r for r in rows if (r["prompt_key"], r["mode"]) == key and r["cache"] == "cold_image_replay"]
+        cd = [r for r in rows if (r["prompt_key"], r["mode"]) == key and r["cache"] == "cold"]
+        cases.append(Case({"prompt": rp[0]["prompt"], "mode": key[1], "engine": "unreal_5", "repeats": len(rp)}, [r["wall_ms"] for r in rp],
+                          {"cpu_ms_median_replayed": _med(rp, "cpu_ms"), "cpu_ms_median_cold_with_fixture_images": _med(cd, "cpu_ms"),
+                           "wall_ms_median_cold_with_fixture_images": _med(cd, "wall_ms"),
+                           "fake_judge_ms_median": _med(rp, "fixture_judge_ms"), "image_calls_replayed": sorted({r["image_calls_replayed"] for r in rp}),
+                           "decision_calls": sorted({r["decision_calls"] for r in rp}),
+                           "preview_gates_ok": all(r["preview_gates_ok"] for r in rp), "dag_ok": all(r["dag_ok"] for r in rp)}))
     return cases
 
 
@@ -1324,7 +1344,8 @@ def h_classification(ctx: Ctx) -> list[Case]:
             table[name] = {"median_duration_ms": _r(dur), "median_fixture_ms": _r(fx), "median_fixture_frac": _r(frac),
                            "class": "fixture-dominated" if frac >= 0.5 else "local deterministic work"}
         cases.append(Case({"mode": mode, "cache": "cold", "runs": len(sel)}, [r["wall_ms"] for r in sel],
-                          {"nodes": table, "local_compute_ms_median": _med(sel, "local_compute_ms"),
+                          {"nodes": table, "cpu_ms_median": _med(sel, "cpu_ms"),
+                           "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": _med(sel, "wall_outside_fixture_spans_ms"),
                            "fixture_union_ms_median": _med(sel, "fixture_union_ms"),
                            "wall_ms_median": _med(sel, "wall_ms")}))
     return cases
@@ -1448,7 +1469,7 @@ def j_throughput(ctx: Ctx) -> list[Case]:
                           [wall], {"assets_per_hour": _r(k / (wall / 1e3) * 3600), "speedup_vs_P1": _r(speed),
                                    "scaling_efficiency": _r(speed / p), "per_job_ms_median": _r(statistics.median(r["ms"] for r in res)),
                                    "distinct_worker_pids": len({r["pid"] for r in res}),
-                                   "all_preview_gates_ok": all(r["preview_gates_ok"] for r in res),
+                                   "preview_gates_passed": sum(bool(r["preview_gates_ok"]) for r in res), "dag_ok_runs": sum(bool(r["dag_ok"]) for r in res),
                                    "parent_cpu_count": os.cpu_count(), "design_doc_claim": "120+ assets/hour on 8 workers (not comparable: 4 vCPUs, fixtures)"}))
     return cases
 
@@ -1456,13 +1477,14 @@ def j_throughput(ctx: Ctx) -> list[Case]:
 # ---------------------------------------------------------------------------------------------------------
 # K. Batch sanitize
 # ---------------------------------------------------------------------------------------------------------
-def make_sanitize_inputs(out: Path, count: int) -> list[Path]:
+def make_sanitize_inputs(out: Path, count: int, quick: bool = False) -> list[Path]:
     """`count` meshes (~200 to ~20k tris) in .ply/.obj; some deliberately defective. Returns paths in order."""
     import trimesh
 
     out.mkdir(parents=True, exist_ok=True)
-    targets = [int(x) for x in np.geomspace(200, 20000, count)]
-    defects = {2: "dup_verts", 6: "flipped", 9: "floating", 12: "dup_verts", 15: "flipped_half", 18: "floating", 21: "dup_verts"}
+    targets = [int(x) for x in np.geomspace(200, 3000 if quick else 20000, count)]
+    defects = ({2: "dup_verts", 6: "flipped", 9: "floating", 12: "dup_verts", 15: "flipped_half", 18: "floating", 21: "dup_verts"}
+               if count >= 24 else {1: "dup_verts", 3: "flipped", 4: "floating", 5: "flipped_half"})
     files = []
     for i, tgt in enumerate(targets):
         shape = ("sphere", "box", "cylinder", "capsule", "torus", "ushape")[i % 6]
@@ -1512,7 +1534,7 @@ def k_sanitize(ctx: Ctx) -> list[Case]:
     from antigravity3d.dags.batch_sanitize import BatchSanitizeDAG
 
     count = 6 if ctx.quick else 24
-    files = make_sanitize_inputs(ctx.dir("sanin"), count)
+    files = make_sanitize_inputs(ctx.dir("sanin"), count, ctx.quick)
     tris_in = {}
     cases = []
     for jobs in (1, 2, 4):
