@@ -657,10 +657,15 @@ def c_marked_sheet(ctx: Ctx) -> list[Case]:
 # ---------------------------------------------------------------------------------------------------------
 def single_meshes(ctx: Ctx) -> list[tuple[str, Any]]:
     def build():
-        out = [(f"sphere_{t}", uv_sphere_mesh(t)) for t in (500, 2000, 10000, 50000)]
+        out = [(f"sphere_{t}", uv_sphere_mesh(t)) for t in ((500, 2000) if ctx.quick else (500, 2000, 10000, 50000))]
         out.append(("u_shape_concave", u_shape_mesh(2000)))
         return out
     return ctx.once("single_meshes", build)
+
+
+def uv_of(ctx: Ctx, label: str, m):
+    """UV unwrap of a single mesh, computed once per run (setup for the LOD benchmark)."""
+    return ctx.once(f"uv:{label}", lambda: fast_ops.unwrap_uvs(m, EngineBudget("unreal_5").texel_density_px_per_m))
 
 
 def _mesh_params(label: str, m) -> dict[str, Any]:
@@ -684,7 +689,7 @@ def d_lod(ctx: Ctx) -> list[Case]:
     budget = EngineBudget("unreal_5")
     cases = []
     for label, m in single_meshes(ctx):
-        u = fast_ops.unwrap_uvs(m, budget.texel_density_px_per_m)
+        u = uv_of(ctx, label, m)
         for with_uvs in (True, False):
             if with_uvs:
                 fn = lambda u=u: fast_ops.generate_lods(u.points, u.triangles, uvs=u.uvs)  # noqa: E731
@@ -720,7 +725,7 @@ def d_collider_concave(ctx: Ctx) -> list[Case]:
                    extra={"hulls": len(hulls), "sources": sorted({h.source for h in hulls})})]
 
 
-def prop_assets(ctx: Ctx, kind: str, textured: bool) -> SimpleNamespace:
+def prop_assets(ctx: Ctx, kind: str, tex_px: int) -> SimpleNamespace:
     """TemplateAuthor prop (crate/barrel) with its stage-extracted meshes and export bundle. Memoised per run."""
     def build() -> SimpleNamespace:
         from antigravity3d.tactics.authoring import TemplateAuthor
@@ -728,24 +733,22 @@ def prop_assets(ctx: Ctx, kind: str, textured: bool) -> SimpleNamespace:
         budget = EngineBudget("unreal_5")
         asset = kind.capitalize()
         scene = asyncio.run(TemplateAuthor().propose(PROMPTS[kind], budget=budget, n=1, context={"asset_name": asset}))[0]
-        tex_px = 0
-        if textured:
-            scene, tex_px = _add_textures(ctx, scene)
+        if tex_px:
+            scene = _add_textures(ctx, scene, tex_px)
         sm = build_stage(ctx.dir(f"{kind}_stage") / f"{asset}.usda", scene)
         meshes = sm.extract_meshes()
         bundle = fast_ops.run_export_pipeline(meshes, budget, asset)
-        return SimpleNamespace(scene=scene, meshes=meshes, bundle=bundle, budget=budget, asset=asset, textured=textured,
+        return SimpleNamespace(scene=scene, meshes=meshes, bundle=bundle, budget=budget, asset=asset, textured=bool(tex_px),
                                tex_px=tex_px, tris=sum(len(m.triangles) for m in meshes), kind=kind)
-    return ctx.once(f"prop:{kind}:{textured}", build)
+    return ctx.once(f"prop:{kind}:{tex_px}", build)
 
 
-def _add_textures(ctx: Ctx, scene):
+def _add_textures(ctx: Ctx, scene, px: int):
     """Give each material a procedural albedo (FakeImageBackend) + derive_pbr ORM and normal, written as PNG files."""
     from antigravity3d.genmedia.nano_banana import FakeImageBackend, ImageForge
     from antigravity3d.genmedia.pbr_deriver import derive_pbr
     from antigravity3d.tactics.common import load_png
 
-    px = 1024 if ctx.quick else 2048
     forge = ImageForge(FakeImageBackend())
     tdir = ctx.dir("textures")
     mats = []
@@ -758,7 +761,7 @@ def _add_textures(ctx: Ctx, scene):
             img.save(p)
             paths[f"{role}_uri"] = str(p)
         mats.append(m.model_copy(update=paths))
-    return scene.model_copy(update={"materials": mats}), px
+    return scene.model_copy(update={"materials": mats})
 
 
 @bench("kernel.export.pipeline",
@@ -772,7 +775,7 @@ def d_pipeline(ctx: Ctx) -> list[Case]:
                             params={"subject": label, **_mesh_params(label, m), "parts": 1},
                             collect=lambda b: dict(b.timings_ms)))
     for kind in ("crate", "barrel"):
-        p = prop_assets(ctx, kind, False)
+        p = prop_assets(ctx, kind, 0)
         cases.append(timeit(lambda p=p: fast_ops.run_export_pipeline(p.meshes, budget, p.asset), ctx,
                             params={"subject": f"{kind} (TemplateAuthor)", "tris": p.tris, "parts": len(p.meshes),
                                     "materials": len(p.scene.materials)},
@@ -791,7 +794,7 @@ def d_pipeline(ctx: Ctx) -> list[Case]:
 def e_tier1(ctx: Ctx) -> list[Case]:
     cases = []
     for kind in ("crate", "barrel"):
-        p = prop_assets(ctx, kind, False)
+        p = prop_assets(ctx, kind, 0)
         rep = fast_ops.tier1_qa(p.meshes, p.budget)
         cases.append(timeit(lambda p=p: fast_ops.tier1_qa(p.meshes, p.budget), ctx,
                             params={"subject": kind, "tris": p.tris, "parts": len(p.meshes)},
@@ -799,17 +802,18 @@ def e_tier1(ctx: Ctx) -> list[Case]:
     return cases
 
 
-def _written_package(ctx: Ctx, kind: str, textured: bool) -> SimpleNamespace:
+def _written_package(ctx: Ctx, kind: str, tex_px: int) -> SimpleNamespace:
     """Package written once (untimed) for the validate benchmarks."""
     def build() -> SimpleNamespace:
-        p = prop_assets(ctx, kind, textured)
+        p = prop_assets(ctx, kind, tex_px)
         sm = build_stage(ctx.dir("pkgstage") / f"{p.asset}.usda", p.scene)
         out = ctx.dir("pkg")
         man = kpackage.write_engine_package(sm, p.bundle, p.budget, out, asset_name=p.asset, qa=_QA)
         return SimpleNamespace(p=p, out=out, man=man)
-    return ctx.once(f"pkgw:{kind}:{textured}", build)
+    return ctx.once(f"pkgw:{kind}:{tex_px}", build)
 
 
+OFFLINE_TEX_PX = 256  # texture size the offline pipeline itself produces (pyramid.synthesize_materials: 256 if forge.offline)
 _QA = {"tier1_ok": True, "tier15": 3.6, "defects": {}, "audit": []}
 
 
@@ -821,7 +825,7 @@ def e_validate_usd(ctx: Ctx) -> list[Case]:
 
     cases = []
     for kind in ("crate", "barrel"):
-        w = _written_package(ctx, kind, True)
+        w = _written_package(ctx, kind, OFFLINE_TEX_PX)
         usd = w.out / w.man.data["usd"]
         stage = Usd.Stage.Open(str(usd))
         mesh_data = [MeshData(u.node_id, f"/{w.p.asset}/{u.node_id}", u.points, u.triangles, u.atlas_id) for u in w.p.bundle.uvs]
@@ -835,12 +839,12 @@ def e_validate_usd(ctx: Ctx) -> list[Case]:
 
 @bench("kernel.package.write",
        "kernel.package.write_engine_package on a fresh stage: UV authoring, textures copied/converted (unreal_5 DirectX normal flip), USD + USDZ + GLB LODs + collider GLB, inspector HTML, hashing, and the function's built-in validation (UsdValidation, engine compliance, cold package validation).",
-       "Stage creation (untimed setup), the UV/LOD/collider bundle (computed once, untimed), deleting the package (untimed teardown). Texture inputs: textured=true gives every material 3 maps (albedo, ORM, normal) from FakeImageBackend + derive_pbr at texture_px; textured=false has no texture inputs, which skips texture copy, hashing and the inspector's texture embedding.")
+       "Stage creation (untimed setup), the UV/LOD/collider bundle (computed once, untimed), deleting the package (untimed teardown). Texture inputs: textured=true gives every material 3 maps (albedo, ORM, normal) from FakeImageBackend + derive_pbr at 256 px (the size the offline pipeline produces); textured=false has no texture inputs, which skips texture copy/flip and the PNG encoding of textures into every GLB.")
 def e_package_write(ctx: Ctx) -> list[Case]:
     cases = []
     for kind in ("crate", "barrel"):
-        for textured in (False, True):
-            p = prop_assets(ctx, kind, textured)
+        for tex_px in (0, OFFLINE_TEX_PX):
+            p = prop_assets(ctx, kind, tex_px)
 
             def setup(p=p) -> Any:
                 sm = build_stage(ctx.dir("pw") / f"{p.asset}.usda", p.scene)
@@ -855,11 +859,30 @@ def e_package_write(ctx: Ctx) -> list[Case]:
                         f"{i.code}" for i in man.issues if i.severity == "critical")[:160])
                 shutil.rmtree(st[1], ignore_errors=True)
                 shutil.rmtree(st[0].stage.GetRootLayer().realPath.rsplit("/", 1)[0], ignore_errors=True)
-            c = timeit(fn, ctx, params={"subject": kind, "tris": p.tris, "textured": textured,
-                                        "texture_px": p.tex_px if textured else None}, setup=setup, teardown=td)
-            c.extra["package_files"] = None
+            c = timeit(fn, ctx, params={"subject": kind, "tris": p.tris, "textured": bool(tex_px),
+                                        "texture_px": tex_px or None, "texture_files": 3 * len(p.scene.materials) if tex_px else 0},
+                       setup=setup, teardown=td)
             cases.append(c)
     return cases
+
+
+@bench("kernel.package.write_large_textures",
+       "ONE SAMPLE, NO WARM-UP (too slow to repeat): the same write_engine_package call as kernel.package.write for the crate with 1024 px albedo/ORM/normal maps per material (512 px in --quick), to show how packaging time scales with texture size.",
+       "Stage creation, bundle computation, texture generation (all untimed). A single sample is not a distribution: n=1, p95 null, and the first call also pays any first-use costs.")
+def e_package_large(ctx: Ctx) -> list[Case]:
+    px = 512 if ctx.quick else 1024
+    p = prop_assets(ctx, "crate", px)
+    sm = build_stage(ctx.dir("pw") / f"{p.asset}.usda", p.scene)
+    out = ctx.dir("pwout")
+    gc.collect()
+    t0 = time.perf_counter_ns()
+    man = kpackage.write_engine_package(sm, p.bundle, p.budget, out, asset_name=p.asset, qa=_QA)
+    ms = (time.perf_counter_ns() - t0) / 1e6
+    if not man.ok:
+        raise RuntimeError("package validation reported critical issues")
+    size = sum(f.stat().st_size for f in out.rglob("*") if f.is_file())
+    return [Case({"subject": "crate", "tris": p.tris, "texture_px": px, "texture_files": 3 * len(p.scene.materials)}, [ms],
+                 {"single_sample_no_warmup": True, "package_bytes": size, "package_files": len(man.files)})]
 
 
 @bench("kernel.package.validate_cold",
@@ -868,7 +891,7 @@ def e_package_write(ctx: Ctx) -> list[Case]:
 def e_validate_cold(ctx: Ctx) -> list[Case]:
     cases = []
     for kind in ("crate", "barrel"):
-        w = _written_package(ctx, kind, True)
+        w = _written_package(ctx, kind, OFFLINE_TEX_PX)
         size = sum(f.stat().st_size for f in w.out.rglob("*") if f.is_file())
         issues = validator.validate_package(w.out)
         cases.append(timeit(lambda: validator.validate_package(w.out), ctx,
@@ -968,7 +991,7 @@ def _cache_cases(ctx: Ctx) -> dict[str, list[Case]]:
     def build() -> dict[str, list[Case]]:
         hit_cases, miss_cases = [], []
         for kind in ("crate", "barrel"):
-            p = prop_assets(ctx, kind, False)
+            p = prop_assets(ctx, kind, 0)
             base = {"subject": kind, "tris": p.tris, "parts": len(p.meshes)}
 
             def setup():
