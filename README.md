@@ -5,6 +5,7 @@ antigravity-3d turns a text prompt, or existing mesh files, into game-engine-rea
 ## Status
 
 - An offline run exercises the USD compiler, geometry kernels, material packaging and inspector with deterministic image and judge fixtures. It produces a preview candidate.
+- Every exported package is loaded in three.js under headless Chromium as a pipeline step (`web_runtime`): the GLB and its LOD files must load, match the manifest (triangles, bounds, materials, textures) and match the USD's silhouette. The step is skipped, with the reason, where no browser is installed.
 - Stock Blender 5.3 supports the warm worker path over Unix IPC and shared memory. Workbench, EEVEE and CPU Cycles render regression fixtures. Godot 4 is the first target with a rendered verification path. Unreal and Unity adapters currently cover import checks. Roblox lacks a headless verifier.
 - Native Decisions access depends on the project. Interactive grading can use a generative fallback with an uncalibrated verdict. The governed prop DAG requires a native Decisions deployment for paid routing and approval. The credentialed canaries in the test suite exercise native Decisions and Nano Banana independently.
 - The structured CLI author, Decisions and GenMedia report usage with provenance. Monetary estimates depend on the configured deployment rates. Studio acceptance and reconciled billing are separate inputs to the cohort benchmark.
@@ -17,6 +18,8 @@ Python 3.11 or newer is required.
 ```bash
 pip install -e ".[dev]"
 ```
+
+Add the `web` extra (`pip install -e ".[dev,web]"`) for the three.js package verifier; it also needs a Chromium or Chrome binary (`$CHROMIUM_BIN`, or one on `PATH`).
 
 Live runs (any command without `--offline`) need a Gemini API key:
 
@@ -206,7 +209,7 @@ Integration markers include:
 
 - `live`: needs `GEMINI_API_KEY` and network access.
 - `blender`: needs a Blender 5.3 or newer binary on `PATH` or in `$BLENDER_BIN`. Set `AGY3D_BLENDER_SOAK=1` to run the 300-render isolation test.
-- `browser`: needs Playwright Chromium and `AGY3D_THREE_JS` pointing to Three.js 0.160.0. The qualification workflow supplies both on a Linux software-rendering runner.
+- `browser`: needs Playwright and Chromium. The inspector tests also need `AGY3D_THREE_JS` pointing to Three.js 0.160.0; the package verifier uses the copy vendored in the wheel. The qualification workflow supplies all of it on a Linux software-rendering runner.
 
 
 ## Known limitations
@@ -214,7 +217,13 @@ Integration markers include:
 - Contact settling is vertical only (no tilting).
 - Trim-sheet mapping distorts smooth, round shapes.
 - The preview renderer is a software rasteriser, not a PBR render.
-- The LOD-pop and UV-stretch warning thresholds are uncalibrated defaults.
+- UV stretch and LOD pop are gates, not warnings. Their thresholds are engineering defaults that no studio acceptance data has calibrated: stretch within the engine budget; LOD levels generated within one pixel of LOD0 on a 1080 px frame; and a pop check per level (silhouette IoU at least 0.90, shading difference at most 0.06, edge drift at most 2.5 px).
+- LOD levels are produced only where the asset gets at least 25% cheaper within that error budget, so some assets ship LOD0 only. A part hidden inside another (a barrel hoop's inner faces) is never dropped at distance, because the measure is surface distance, not visibility.
+- LOD generation measures its error exactly and costs more than plain simplification on dense meshes; see `benchmarks/RESULTS.md`.
+- The material model covers the glTF 2.0 PBR set (emission, alpha modes, double-sided, clearcoat, transmission, index of refraction, sheen, specular). Transmission is thin-surface only: there is no volume (thickness, attenuation). Only the emissive map and the albedo alpha channel were added as textures; the other new parameters are factors.
+- The three.js verifier compares what the runtime loaded with the manifest and the USD silhouette. It does not judge the rendered look, and it says nothing about Unreal, Unity, Godot or Roblox importers; those have their own steps where an engine is installed.
+- In a far LOD level a part can be absent. In USD that part is inactive inside the LOD variant; no importer was run here to confirm how each engine treats it.
+- The inspector's MCP App is tested against the MCP Apps SDK's own host bridge in Chromium, not inside a running Antigravity app.
 - Rejected 50-node speculative edits rolled back in 0.71 ms at the median on the development runner. Public undo of a 50-node edit measured about 1 ms. Sub-millisecond worst-case rollback remains unqualified.
 - Collider generation on concave meshes can exceed the 250 ms pipeline target.
 
