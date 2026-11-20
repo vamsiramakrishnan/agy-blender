@@ -1,5 +1,11 @@
 name: Wheel and engine qualification
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    branches: [main]
+concurrency:
+  group: engine-qualification-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 
@@ -43,9 +49,16 @@ jobs:
         run: |
           mkdir -p /tmp/engines/archives
           cd /tmp/engines/archives
-          test -f blender.tar.xz || curl --fail --location --retry 3 -o blender.tar.xz https://download.blender.org/release/Blender5.3/blender-5.3.0-linux-x64.tar.xz
+          if ! test -f blender.tar.xz; then
+            for mirror in https://mirror.clarkson.edu/blender/release https://ftp.halifax.rwth-aachen.de/blender/release https://download.blender.org/release; do
+              if curl -fsSL --retry 2 --connect-timeout 15 --max-time 240 -o blender.part "$mirror/Blender5.3/blender-5.3.0-linux-x64.tar.xz"; then
+                mv blender.part blender.tar.xz
+                break
+              fi
+            done
+          fi
           test -f godot.zip || curl --fail --location --retry 3 -o godot.zip https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip
-          test -f three.js || curl --fail --location --retry 3 -o three.js https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.module.min.js
+          gzip -dc "$GITHUB_WORKSPACE/src/antigravity3d/artifacts/vendor/three-r160.module.min.js.gz" > three.js
           sha256sum -c <<'SUMS'
           dacb8264197a3f7fda6001285a5a506fc97ee943881261c2c3bd63c882f22e05  blender.tar.xz
           cadd3204e728a35d3f13adb7fd0d7902636b79f6b95c40c265eb73b6c35329e4  godot.zip
@@ -54,6 +67,22 @@ jobs:
           tar xf blender.tar.xz -C /tmp/engines
           unzip -q godot.zip -d /tmp/engines
           cp three.js "$AGY3D_THREE_JS"
-          playwright install --with-deps chromium
+          if command -v google-chrome >/dev/null; then
+            echo "CHROMIUM_BIN=$(command -v google-chrome)" >> "$GITHUB_ENV"
+          else
+            playwright install --with-deps chromium
+          fi
       - name: Test native workers, engine imports, rendered frames and inspector channels
-        run: xvfb-run -a python -m pytest -q tests/test_blender_pool.py tests/test_blender_shim.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py
+        run: |
+          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_blender_shim.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py
+          python - <<'PYTHON'
+          import xml.etree.ElementTree as ET
+          required = {"test_three_worker_mixed_asset_soak", "test_reviewed_upstream_primitives",
+                      "test_ten_relocated_golden_packages_load_in_stock_godot",
+                      "test_ten_relocated_golden_dcc_engine_silhouettes",
+                      "test_browser_channels_canvas_and_budget", "test_exported_inspector_opens_with_browser_offline"}
+          passed = {c.get("name") for c in ET.parse("/tmp/engine-qualification.xml").iter("testcase")
+                    if not any(c.find(tag) is not None for tag in ("skipped", "error", "failure"))}
+          if missing := required - passed:
+              raise SystemExit(f"Required engine qualifications did not pass: {sorted(missing)}")
+          PYTHON

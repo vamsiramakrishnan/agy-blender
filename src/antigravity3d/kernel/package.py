@@ -4,10 +4,11 @@ Layout of ``out_dir`` (everything referenced relative to the USD layer, so the d
 
     <asset>.usd            default prim <asset>; LOD variant set; Colliders/UCX_*; relative texture paths
     <asset>.usdz           same content with textures inside (omitted, with a recorded reason, on failure)
-    <asset>.glb            LOD0, identical topology/UVs to the USD (Y-up, glTF convention)
+    <asset>.glb            LOD0, embedded PBR images and material bindings (Y-up, glTF convention)
     <asset>_LOD<n>.glb     n >= 1
     <asset>_colliders.glb  convex hulls
     textures/              copies of the material maps (normal maps converted to the engine convention)
+    inspector.html         offline Three.js PBR, channels, selectable nodes, LODs and budget gauges
     manifest.json          schema_version, units, tri counts, textures, hashes, validation, versions
 
 Per-engine decisions (see ``ENGINE_RULES`` for the rule table they come from):
@@ -19,8 +20,8 @@ Per-engine decisions (see ``ENGINE_RULES`` for the rule table they come from):
   1.0 and importers honour the metadata. Not converting to centimetres for Unreal is deliberate:
   a baked x100 root scale would affect collider/LOD authoring and buys nothing the importer does not do.
 * normal maps: unreal_5 consumes DirectX (green down); everything else OpenGL (green up). The package
-  holds the engine's convention, whatever convention the material was authored in; the conversion is
-  a green-channel inversion applied exactly when ``material.convention != engine convention``.
+  records the native-engine map as ``textures[].path``. USD Preview Surface and glTF consume +Y;
+  ``textures[].usd_path`` and embedded GLB normals always use that convention.
 """
 
 from __future__ import annotations
@@ -186,6 +187,25 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[di
     unresolved: list[str] = []
     done: dict[tuple[str, bool], str] = {}  # (source, flipped) -> relative path
     owners: dict[str, str] = {}  # relative path -> source it was written for (collision guard)
+    def copy_map(src: Path, flip: bool, convention: str) -> str:
+        source = str(src.resolve())
+        key = (source, flip)
+        if key in done:
+            return done[key]
+        name = f"{src.stem}_{convention}.png" if flip else src.name
+        rel = f"{TEXTURE_DIR}/{name}"
+        if rel in owners and owners[rel] != source:
+            tag = hashlib.sha256(source.encode()).hexdigest()[:12]
+            rel = f"{TEXTURE_DIR}/{Path(name).stem}_{tag}{Path(name).suffix}"
+        (out / TEXTURE_DIR).mkdir(exist_ok=True)
+        if flip:
+            flip_normal_green(src, out / rel)
+        else:
+            shutil.copy2(src, out / rel)
+        owners[rel] = source
+        done[key] = rel
+        return rel
+
     for prim in stage.Traverse():
         if not prim.IsA(UsdShade.Shader) or UsdShade.Shader(prim).GetIdAttr().Get() != "UsdUVTexture":
             continue
@@ -203,28 +223,16 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[di
             continue
         src_conv = str(mat.GetCustomDataByKey("agy:normalConvention") or "opengl")
         flip = is_normal and src_conv != target
-        key = (str(src.resolve()), flip)
-        if key not in done:
-            if flip:
-                name = f"{src.stem}_{target}.png"
-            else:
-                name = src.name
-            rel = f"{TEXTURE_DIR}/{name}"
-            if owners.get(rel, str(src.resolve())) != str(src.resolve()):  # same name, other file
-                rel = f"{TEXTURE_DIR}/{src.stem}_{hashlib.sha256(str(src.resolve()).encode()).hexdigest()[:8]}{Path(name).suffix}"
-            (out / TEXTURE_DIR).mkdir(exist_ok=True)
-            if flip:
-                flip_normal_green(src, out / rel)
-            else:
-                shutil.copy2(src, out / rel)
-            owners[rel] = str(src.resolve())
-            done[key] = rel
-        rel = done[key]
+        rel = copy_map(src, flip, target)
+        # USD Preview Surface and glTF both use +Y. Preserve a separate DirectX map
+        # for native engine import when needed; use canonical USD scale/bias in the archive.
+        usd_rel = copy_map(src, src_conv != "opengl", "opengl") if is_normal else rel
         with Image.open(out / rel) as im:
             width, height = im.size
         cs = shader.GetInput("sourceColorSpace")
         records.append({
             "path": rel,
+            "usd_path": usd_rel,
             "role": "normal" if is_normal else ("orm" if "orm" in prim.GetName().lower() else "albedo"),
             "material": mat_id,
             "width": width,
@@ -235,10 +243,10 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[di
             "color_space": str(cs.Get()) if cs and cs.Get() else None,
             "source": src.name,
         })
-        inp.Set(Sdf.AssetPath(f"./{done[key]}"))  # relative to the layer: the package is relocatable
+        inp.Set(Sdf.AssetPath(f"./{usd_rel}"))  # relative to the layer: the package is relocatable
         if is_normal:
-            set_normal_encoding(shader, target)
-            mat.SetCustomDataByKey("agy:normalConvention", target)
+            set_normal_encoding(shader, "opengl")
+            mat.SetCustomDataByKey("agy:normalConvention", "opengl")
     return records, unresolved
 
 
@@ -264,13 +272,10 @@ def _glb_materials(stage: Usd.Stage, meshes: list[MeshData], out: Path, records:
     images = {}
     maps = {}
     for record in records:
-        key = (record["path"], record["role"] == "normal" and record["convention"] == "directx")
+        key = record["usd_path"]
         if key not in images:
-            with Image.open(out / key[0]) as im:
+            with Image.open(out / key) as im:
                 image = im.convert("RGBA" if record["role"] == "albedo" and ("A" in im.getbands() or "transparency" in im.info) else "RGB")
-            if key[1]:  # glTF tangent normals are +Y for every engine
-                r, g, b = image.split()
-                image = Image.merge("RGB", (r, g.point(lambda x: 255 - x), b))
             images[key] = image
         maps.setdefault(record["material"], {})[record["role"]] = images[key]
 
@@ -474,7 +479,7 @@ def write_engine_package(
     if hulls:
         write_gltf(out / f"{asset_name}_colliders.glb", hulls, [collider_name(engine, asset_name, i, usd=False) for i in range(len(hulls))])
         files.append(f"{asset_name}_colliders.glb")
-    files.extend(dict.fromkeys(t["path"] for t in textures))
+    files.extend(dict.fromkeys(t[key] for t in textures for key in ("path", "usd_path")))
 
     # Use precisely the same seam-split vertices, PBR bindings and +Y normals as the GLB.
     from antigravity3d.tactics.package import merged_lods

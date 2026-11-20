@@ -254,9 +254,10 @@ def test_unreal_normal_map_is_green_flipped_and_godot_is_not(unreal, godot, src)
         if t["role"] != "normal":
             assert (ue.out_dir / t["path"]).read_bytes() == (src / f"{t['role']}.png").read_bytes()
     stage = Usd.Stage.Open(str(ue.out_dir / f"{ASSET}.usd"))
-    assert stage.GetPrimAtPath(f"/{ASSET}/Looks/paint").GetCustomDataByKey("agy:normalConvention") == "directx"
+    assert stage.GetPrimAtPath(f"/{ASSET}/Looks/paint").GetCustomDataByKey("agy:normalConvention") == "opengl"
     nt = UsdShade.Shader(stage.GetPrimAtPath(f"/{ASSET}/Looks/paint/normalTex"))
-    assert nt.GetInput("scale").Get()[1] == -2 and nt.GetInput("bias").Get()[1] == 1
+    assert nt.GetInput("scale").Get()[1] == 2 and nt.GetInput("bias").Get()[1] == -1
+    np.testing.assert_array_equal(_green(ue.out_dir / n_ue["usd_path"]), g_src)
 
 
 def test_directx_marked_material_is_not_double_flipped(src, tmp_path_factory):
@@ -651,3 +652,15 @@ async def test_ten_relocated_golden_dcc_engine_silhouettes(relocated_goldens, tm
             capture = await validator.capture(pkg / f"{name}.glb", png, timeout=45)
             assert capture.ok, (name, capture.log_tail or capture.skipped_reason)
             assert silhouette_iou(blender_frame_png(dcc["image"]), png.read_bytes()) >= MIN_SILHOUETTE_IOU, name
+
+
+def test_missing_source_map_prevents_package_approval(src, tmp_path):
+    local = tmp_path / "materials"
+    shutil.copytree(src, local)
+    sm = _stage(tmp_path, local)
+    budget = EngineBudget("godot_4")
+    bundle = run_export_pipeline(sm.extract_meshes(), budget, ASSET)
+    (local / "orm.png").unlink()
+    manifest = write_engine_package(sm, bundle, budget, tmp_path / "draft", asset_name=ASSET)
+    assert not manifest.ok and manifest.data["validation"]["package_ok"] is False
+    assert {i.code for i in manifest.issues if i.severity == "critical"} >= {"pkg:texture_missing", "pkg:glb_material"}

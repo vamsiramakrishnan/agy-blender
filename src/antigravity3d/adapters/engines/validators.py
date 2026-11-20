@@ -11,6 +11,7 @@ import io
 import json
 import os
 import shutil
+import signal
 import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -113,21 +114,34 @@ class EngineValidator(ABC):
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-                env={**os.environ, **env}, stdin=asyncio.subprocess.DEVNULL)
+                env={**os.environ, **env}, stdin=asyncio.subprocess.DEVNULL, start_new_session=(os.name == "posix"))
         except OSError as e:
             return EngineReport(False, self.engine, f"failed to launch: {e}")
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout)
-        except asyncio.TimeoutError:
-            proc.kill()
+        except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+            try:
+                if os.name == "posix":
+                    os.killpg(proc.pid, signal.SIGKILL)  # xvfb-run may still be waiting for its renderer
+                else:
+                    proc.kill()
+            except ProcessLookupError:
+                pass
             await proc.communicate()
+            if isinstance(exc, asyncio.CancelledError):
+                raise
             return EngineReport(False, self.engine, f"timed out after {timeout}s")
         text = out.decode(errors="replace")
         bad = proc.returncode != 0 or self.success_marker not in text or any(m in text for m in self.error_markers)
         metrics = None
         for line in text.splitlines():
             if line.startswith("AGY_IMPORT_OK {"):
-                metrics = json.loads(line.removeprefix("AGY_IMPORT_OK "))
+                try:
+                    metrics = json.loads(line.removeprefix("AGY_IMPORT_OK "))
+                    if not isinstance(metrics, dict) or not isinstance(metrics.get("triangles"), int) or metrics["triangles"] < 1:
+                        bad = True
+                except ValueError:
+                    bad = True
         return EngineReport(not bad, self.engine, text[-TAIL_CHARS:], metrics=metrics)
 
     @abstractmethod
