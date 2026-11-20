@@ -33,13 +33,17 @@ in parallel. For one file, follow the steps directly.
    `agy3d sanitize FILE --engine ENGINE --out OUT` command welds vertices,
    removes degenerate/duplicate faces, fixes winding and regrounds the mesh.
    Re-import a repaired mesh when available and report remaining failures.
-4. **Build the engine geometry.** Run `generate_lods_and_colliders`. It
-   unwraps UVs and returns per-level triangle counts, hull count and UV
-   stretch. Check these values against the requested engine budget.
-5. **Validate and gate.** `run_usd_validator` until clean, then delegate to the
-   `usd_verifier` subagent for the Tier-1 and Tier-1.5 verdict. Report the
-   verdict line; do not export unless the user asked for it and the gate
-   passed (then hand to `engine-truth-verify`).
+4. **Build the engine geometry.** Switch with `set_stage` to EXPORT, then run
+   `generate_lods_and_colliders`. It unwraps UVs and returns per-level triangle
+   counts, hull count and UV stretch. Check these values against the requested
+   engine budget.
+5. **Validate and gate.** `run_usd_validator` until clean. The gate needs
+   Tier-1 ok and Tier-1.5 at least 3.4; `session_status` shows both, and
+   Tier-1.5 comes from `run_visual_qa`, which runs in BLOCKOUT, VARIANTS and
+   LOOKDEV. `usd_verifier` is offered only in VARIANTS and LOOKDEV, and it
+   reports Tier-1 only, so delegate to it there. Report the verdict line; do
+   not export unless the user asked for it and the gate passed (then hand to
+   `engine-truth-verify`).
 
 ## Output
 
