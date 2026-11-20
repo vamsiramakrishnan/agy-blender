@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import shutil
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
@@ -21,6 +22,7 @@ from PIL import Image, ImageDraw
 from pxr import Usd
 
 from antigravity3d.adapters.engines.validators import MIN_SILHOUETTE_IOU, blender_frame_png, silhouette_iou, validator_for
+from antigravity3d.adapters.engines.web_three import WebThreeValidator
 from antigravity3d.decisions.compose import Action, Thresholds, decide_action, lod_pop_ok, lod_pop_reasons, tier15_score
 from antigravity3d.decisions.models import VisualQAResult
 from antigravity3d.decisions.questions import MARKED_DEFECT_PHRASES
@@ -575,13 +577,17 @@ class _Run:
 
     # ---- Pass C ---------------------------------------------------------------------------------------
 
-    async def guarded(self, name: str, fn: Callable[[], Awaitable[tuple[str, str]]]) -> None:
+    async def guarded_result(self, fn: Callable[[], Awaitable[tuple[str, str]]]) -> tuple[str, str, float]:
+        """Run a sub-step and return (status, detail, start time) without recording it (for overlapping steps)."""
         t0 = time.perf_counter()
         try:
             status, detail = await fn()
         except Exception as e:  # noqa: BLE001 - a failed sub-step is a result, not a crash
             status, detail = "failed", f"{type(e).__name__}: {e}"
-        self.step(name, status, detail, t0)
+        return status, detail, t0
+
+    async def guarded(self, name: str, fn: Callable[[], Awaitable[tuple[str, str]]]) -> None:
+        self.step(name, *await self.guarded_result(fn))
 
     async def pass_c(self) -> None:
         sm, budget, res = self.sm, self.budget, self.res
@@ -608,7 +614,7 @@ class _Run:
 
         await self.guarded("uv_lod_colliders", export)
         if bundle is None:
-            for n in ("usd_package", "usd_validate", "engine_compliance", "lod_pop", "lod_pop_vision", "export_glb", "engine_import", "engine_parity"):
+            for n in ("usd_package", "usd_validate", "engine_compliance", "lod_pop", "lod_pop_vision", "export_glb", "engine_import", "engine_parity", "web_runtime"):
                 self.step(n, "skipped", "UV/LOD/collider stage failed")
             return
 
@@ -662,6 +668,32 @@ class _Run:
             return "passed", f"{p.name} {p.stat().st_size} bytes (+{len(list(pkg.glob('*_LOD*.glb')))} LOD GLB)"
 
         await self.guarded("export_glb", glb)
+
+        async def web_runtime() -> tuple[str, str]:
+            """Load the package as shipped (GLB, LOD GLBs, manifest, USD) in three.js under headless Chromium."""
+            if "glb" not in res.artifacts:
+                return "skipped", "no GLB exported"
+            with tempfile.TemporaryDirectory(prefix="web_three_", dir=self.workdir) as td:
+                rep = await WebThreeValidator().validate(pkg, out_dir=Path(td))
+                if rep.skipped:
+                    return "skipped", rep.skipped_reason or "web runtime verifier unavailable"
+                if rep.screenshot:  # evidence for review; kept beside the package, not inside it
+                    shot = self.workdir / "web_three.png"
+                    shutil.copyfile(rep.screenshot, shot)
+                    res.artifacts["web_render"] = str(shot)
+            res.objects["web_runtime"] = {"checks": [(c.name, c.status, c.detail) for c in rep.checks],
+                                          "silhouette_iou": rep.silhouette_iou, "timings_s": rep.timings_s}
+            if rep.silhouette_iou is not None:
+                res.scores["web_silhouette_iou"] = rep.silhouette_iou
+            if not rep.ok:
+                why = "; ".join(f"{c.name}: {c.detail}" for c in rep.failures[:3]) or rep.log_tail[-200:].replace("\n", " ")
+                return "failed", why[:400]
+            done = sum(c.status == "pass" for c in rep.checks)
+            iou = "" if rep.silhouette_iou is None else f", silhouette IoU {rep.silhouette_iou:.4f} against the USD"
+            return "passed", f"three.js loaded and rendered the package: {done} checks passed{iou}"
+
+        # Independent of the target engine's own import, so it runs while those steps wait on their engine.
+        web_check = asyncio.ensure_future(self.guarded_result(web_runtime))
 
         validator = validator_for(budget.target_engine)
 
@@ -725,6 +757,8 @@ class _Run:
             return "passed", "engine matches DCC"
 
         await self.guarded("engine_parity", parity)
+        status, detail, t0 = await web_check
+        self.step("web_runtime", status, detail, t0)
 
     def compliance(self, stage: Usd.Stage, meshes: list[Any]) -> tuple[str, str]:
         issues = check_engine_compliance(stage, meshes, self.budget)

@@ -177,6 +177,42 @@ async def test_full_run_records_every_step_and_skips_carry_reasons(tmp_path: Pat
     assert res.render_tier == "preview" and res.ok
     assert Path(res.artifacts["usd"]).exists() and Path(res.artifacts["glb"]).exists()
     assert res.to_dict()["skipped"] and all(r["reason"] for r in res.to_dict()["skipped"])
+    # the shipped package is loaded in three.js when a browser exists; otherwise the step says what is missing
+    assert status["web_runtime"] in ("passed", "skipped"), status
+    if status["web_runtime"] == "passed":
+        assert Path(res.artifacts["web_render"]).exists() and res.scores["web_silhouette_iou"] >= 0.98
+        assert not list((tmp_path / "wd").glob("web_three_*")), "the verifier's scratch directory must not be left behind"
+    else:
+        assert "playwright" in skipped["web_runtime"] or "browser" in skipped["web_runtime"]
+
+
+async def test_web_runtime_step_is_skipped_with_the_reason_or_fails_the_run(tmp_path: Path, monkeypatch) -> None:
+    from antigravity3d.adapters.engines import web_three
+    from antigravity3d.tactics import pyramid
+
+    async def run(sub: str):
+        sm, plane = setup(tmp_path / sub, Script())
+        return await refine(sm, plane=plane, author=CallableAuthor(lambda *a, **k: []), governor=Governor(plan_for(2)), budget=BUDGET,
+                            uploader=up, workdir=tmp_path / sub / "wd", forge=ImageForge(FakeImageBackend()), settle_first=False)
+
+    # no browser: skipped with the verifier's own reason, and the run is still a pass
+    monkeypatch.setattr(web_three.WebThreeValidator, "_unavailable", lambda self: "web_three browser not found (set $CHROMIUM_BIN)")
+    res = await run("absent")
+    assert dict(res.skipped)["web_runtime"] == "web_three browser not found (set $CHROMIUM_BIN)" and res.ok
+    assert "web_render" not in res.artifacts
+
+    # the runtime rejects the package: the step fails with the failing checks named, and so does the run
+    class Rejecting(web_three.WebThreeValidator):
+        async def validate(self, package_path, timeout=300, **kw):
+            checks = (web_three.Check("no loader/console/page errors", "fail", "THREE.GLTFLoader: Unexpected end of JSON input"),
+                      web_three.Check("triangles == manifest tris", "pass", "loaded 24, manifest 24"))
+            return web_three.WebThreeReport(False, web_three.ENGINE, "FAIL", checks=checks)
+
+    monkeypatch.setattr(pyramid, "WebThreeValidator", Rejecting)
+    res = await run("rejected")
+    failed = dict(res.failed)
+    assert "Unexpected end of JSON input" in failed["web_runtime"] and "triangles ==" not in failed["web_runtime"]
+    assert not res.ok
 
 
 async def test_hero_plan_with_a_fake_pool_and_no_engine_render(tmp_path: Path) -> None:
