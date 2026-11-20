@@ -26,10 +26,10 @@
     "stage_accounting": "1 call per run_stage with a token reservation; SDK-internal model requests are not counted individually"
   },
   "totals": {
-    "calls": 17,
-    "input_tokens": 84754,
-    "output_tokens": 14683,
-    "thinking_tokens": 27399
+    "calls": 20,
+    "input_tokens": 95578,
+    "output_tokens": 16034,
+    "thinking_tokens": 29916
   },
   "groups": {
     "text": {
@@ -520,6 +520,88 @@
         "median_ms": 16076.3,
         "min_ms": 15148.6,
         "max_ms": 17978.6
+      },
+      "visual_qa:lookdev:gemini-4-neon": {
+        "samples": [
+          {
+            "stage": "lookdev",
+            "backend_kind": "generative_fallback",
+            "backend_model": "gemini-4-neon",
+            "question_count": 21,
+            "calibrated": false,
+            "source": "generative_fallback",
+            "resolution": "high",
+            "plane_latency_ms": 21775.8,
+            "plane_input_tokens": 5381,
+            "plane_output_tokens": 1749,
+            "next_action": "rework_pbr",
+            "skipped": 4,
+            "wall_ms": 21776.6,
+            "backend_requests": 1,
+            "thinking_level": "LOW",
+            "input_tokens": 5381,
+            "output_tokens": 481,
+            "thinking_tokens": 1268
+          },
+          {
+            "stage": "lookdev",
+            "backend_kind": "generative_fallback",
+            "backend_model": "gemini-4-neon",
+            "question_count": 21,
+            "calibrated": false,
+            "source": "generative_fallback",
+            "resolution": "high",
+            "plane_latency_ms": 16662.6,
+            "plane_input_tokens": 5381,
+            "plane_output_tokens": 1081,
+            "next_action": "rework_pbr",
+            "skipped": 4,
+            "wall_ms": 16663.2,
+            "backend_requests": 1,
+            "thinking_level": "LOW",
+            "input_tokens": 5381,
+            "output_tokens": 594,
+            "thinking_tokens": 487
+          }
+        ],
+        "n_ok": 2,
+        "n_failed": 0,
+        "median_ms": 19219.9,
+        "min_ms": 16663.2,
+        "max_ms": 21776.6
+      }
+    },
+    "image": {
+      "image:gemini-nano-banana-2.1": {
+        "samples": [
+          {
+            "requested_size": 1024,
+            "size_tier": "1K",
+            "timeout_s": 180.0,
+            "error": "RuntimeError: image model returned no inline image data",
+            "error_class": "RuntimeError",
+            "input_tokens": 62,
+            "output_tokens": 276,
+            "thinking_tokens": 762,
+            "tokens_known": true,
+            "usage_metadata": {
+              "candidates_token_count": 276,
+              "prompt_token_count": 62,
+              "prompt_tokens_details": [
+                {
+                  "modality": "TEXT",
+                  "token_count": 62
+                }
+              ],
+              "thoughts_token_count": 762,
+              "total_token_count": 1100
+            },
+            "wall_ms": 9717.6,
+            "api_wall_ms": 9717.6
+          }
+        ],
+        "n_ok": 0,
+        "n_failed": 1
       }
     }
   },
