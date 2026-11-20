@@ -1,13 +1,18 @@
-"""Single-file interactive WebGL inspector for one asset.
+"""Interactive WebGL inspector for one asset: one front end, two hosts.
 
-``build_inspector`` writes ONE self-contained ``.html``: geometry (base64
-Float32/Uint32 buffers in a JSON ``<script>`` payload), textures (PNG data
-URIs) and the viewer code are embedded.  The only external fetch is the pinned
-three.js module from cdnjs, unless ``three_js_source`` is given, in which case
-the library is inlined and the page needs no network at all.
+The front end (``apps/inspector/src``, built by ``apps/inspector/build.mjs`` into ``web/``) runs
 
-Summary panels (budget gauges, node table, QA) are rendered server-side as
-plain HTML, so they stay readable even if three.js or WebGL fails to load.
+- **standalone**: :func:`build_inspector` writes ONE self-contained ``.html`` -- geometry (base64
+  Float32/Uint32 buffers in a JSON ``<script>`` payload), textures (PNG data URIs) and the viewer
+  code are embedded. The only external fetch is the pinned three.js module from cdnjs, unless
+  ``three_js_source`` is given, in which case the library is inlined and the page needs no network
+  at all. Notes are exported as a JSON file (:func:`read_notes`).
+- **as an MCP App** inside Antigravity: :func:`app_html` is the document the studio MCP server
+  serves as a ``ui://`` resource (three.js and the MCP Apps SDK bundled in); the same data model
+  (:func:`inspector_payload`) arrives through app-only tools and notes are stored server-side.
+
+Summary panels (budget gauges, node table, QA) are also rendered server-side as plain HTML in the
+standalone file, so they stay readable even if three.js or WebGL fails to load.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ import gzip
 import hashlib
 import html
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -32,6 +38,7 @@ from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, EngineBudget
 THREE_JS_VERSION = "0.160.0"
 THREE_JS_URL = f"https://cdnjs.cloudflare.com/ajax/libs/three.js/{THREE_JS_VERSION}/three.module.min.js"
 NOTES_SCHEMA = "antigravity3d.review_notes/1"
+PAYLOAD_SCHEMA = "antigravity3d.inspector_payload/1"
 
 
 @lru_cache(maxsize=1)
@@ -195,6 +202,153 @@ def _data_uri(png: bytes) -> str:
     return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
 
 
+# --------------------------------------------------------------------------- data model
+
+
+def _png_bytes(data: bytes) -> bytes:
+    """PNG as-is; any other image format Pillow reads is converted (the viewer uses PNG data URIs)."""
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return data
+    import io
+
+    from PIL import Image
+
+    with Image.open(io.BytesIO(data)) as im:
+        buf = io.BytesIO()
+        im.save(buf, "PNG")
+        return buf.getvalue()
+
+
+def _qa_dict(qa: InspectorQA | dict | None) -> dict | None:
+    if qa is None or isinstance(qa, dict):
+        return qa
+    return {"tier1_ok": bool(qa.tier1_ok), "tier1_line": qa.tier1_line, "tier15_score": qa.tier15_score,
+            "defects": {str(k): float(v) for k, v in qa.defects.items()}, "audit_deltas": list(qa.audit_deltas),
+            "threshold": EXPORT_MIN_TIER15_SCORE}
+
+
+def inspector_payload(
+    meshes: list[MeshData],
+    *,
+    asset_name: str,
+    budget: EngineBudget,
+    textures: dict[str, InspectorTextures] | None = None,
+    lods: list[InspectorLod | tuple[str, np.ndarray, np.ndarray]] | None = None,
+    colliders: list[InspectorCollider | tuple[str, np.ndarray, np.ndarray]] | None = None,
+    qa: InspectorQA | dict | None = None,
+    uvs: dict[str, np.ndarray] | None = None,
+    draw_calls: int | None = None,
+    split_textures: bool = False,
+) -> tuple[dict, dict[str, str]]:
+    """The inspector's data model (what the front end renders) and its separately fetched parts.
+
+    Returns ``(payload, parts)``. With ``split_textures`` every texture in ``payload["textures"]`` is
+    a reference ``{"part": "tex/<material>/<kind>", "mime", "bytes"}`` and ``parts`` maps the part
+    name to the base64 PNG (the MCP App fetches them through an app-only tool); otherwise textures
+    are embedded as data URIs and ``parts`` is empty.
+
+    ``payload["revision"]`` is a content hash of everything shown (geometry, UVs, LODs, colliders,
+    texture bytes, budget): the same asset gives the same revision, any visible change a new one.
+    Review notes are tied to it.
+    """
+    textures = textures or {}
+    uvs = uvs or {}
+    lod_list = [InspectorLod(*x) if isinstance(x, tuple) else x for x in (lods or [])]
+    col_list = [InspectorCollider(*x) if isinstance(x, tuple) else x for x in (colliders or [])]
+
+    ids = [m.node_id for m in meshes]
+    if len(set(ids)) != len(ids):
+        raise ValueError("duplicate node_id in meshes")
+    colors = _prim_colors(ids)
+
+    mesh_payload = []
+    for m, color in zip(meshes, colors, strict=True):
+        pos, idx, ntri = _geom(m.points, m.triangles, f"mesh {m.node_id}")
+        uv = uvs.get(m.node_id)
+        uv_b64 = None
+        if uv is not None:
+            uv = np.asarray(uv)
+            if uv.shape != (len(m.points), 2):
+                raise ValueError(f"uvs[{m.node_id!r}] must be ({len(m.points)}, 2), got {uv.shape}")
+            uv_b64 = _b64(uv, "<f4")
+        mesh_payload.append(
+            {"id": m.node_id, "prim": m.prim_path, "mat": m.material_id or "", "color": color, "tris": ntri,
+             "pos": pos, "idx": idx, "uv": uv_b64}
+        )
+
+    digest = hashlib.sha256()
+    tex_payload: dict[str, dict] = {}
+    parts: dict[str, str] = {}
+    for mat in sorted(textures):
+        t = textures[mat]
+        entry: dict = {}
+        for kind, raw in (("albedo", t.albedo_png), ("orm", t.orm_png), ("normal", t.normal_png)):
+            if not raw:
+                continue
+            png = _png_bytes(raw)
+            digest.update(f"tex:{mat}:{kind}:".encode() + hashlib.sha256(png).digest())
+            if split_textures:
+                name = f"tex/{mat}/{kind}"
+                parts[name] = base64.b64encode(png).decode("ascii")
+                entry[kind] = {"part": name, "mime": "image/png", "bytes": len(png)}
+            else:
+                entry[kind] = _data_uri(png)
+        if entry:
+            tex_payload[mat] = entry
+
+    lod_payload = []
+    for lod in lod_list:
+        pos, idx, ntri = _geom(lod.points, lod.triangles, f"lod {lod.label}")
+        lod_payload.append({"label": lod.label, "tris": ntri, "pos": pos, "idx": idx})
+    col_payload = []
+    for c in col_list:
+        pos, idx, _ = _geom(c.points, c.triangles, f"collider {c.name}")
+        col_payload.append({"name": c.name, "pos": pos, "idx": idx})
+
+    if draw_calls is None:
+        draw_calls = len({m.material_id or "" for m in meshes})
+    hulls = len(col_list) if colliders is not None else sum(1 for m in meshes if m.collider)
+    payload = {
+        "schema": PAYLOAD_SCHEMA,
+        "asset_name": asset_name,
+        "three_url": None,
+        "budget": {
+            "target_engine": budget.target_engine,
+            "max_tris": budget.max_tris,
+            "max_draw_calls": budget.max_draw_calls,
+            "max_collision_hulls": budget.max_collision_hulls,
+        },
+        "summary": {"tris": sum(m["tris"] for m in mesh_payload), "draw_calls": int(draw_calls), "hulls": int(hulls)},
+        "meshes": mesh_payload,
+        "lods": lod_payload,
+        "colliders": col_payload,
+        "textures": tex_payload,
+        "qa": _qa_dict(qa),
+    }
+    shown = {k: payload[k] for k in ("asset_name", "budget", "summary", "meshes", "lods", "colliders")}
+    digest.update(json.dumps(shown, sort_keys=True, separators=(",", ":")).encode())
+    payload["revision"] = digest.hexdigest()[:16]
+    return payload, parts
+
+
+@lru_cache(maxsize=4)
+def _web_text(name: str) -> str:
+    return resources.files("antigravity3d.artifacts").joinpath("web", name).read_text("utf-8")
+
+
+def app_html() -> str:
+    """The inspector MCP App document (``web/inspector_app.html``; build: ``apps/inspector/build.mjs``).
+
+    ``$AGY3D_INSPECTOR_APP_HTML`` names another file to serve instead, for fast UI iteration: reopening
+    the view picks up a rebuild without restarting the server (the "Packaging and iterating" advice in
+    the Antigravity MCP Apps docs).
+    """
+    override = os.environ.get("AGY3D_INSPECTOR_APP_HTML")
+    if override:
+        return Path(override).read_text(encoding="utf-8")
+    return _web_text("inspector_app.html")
+
+
 # --------------------------------------------------------------------------- public API
 
 
@@ -212,7 +366,7 @@ def build_inspector(
     draw_calls: int | None = None,
     out_path: Path,
 ) -> Path:
-    """Write the inspector for one asset to ``out_path`` and return it.
+    """Write the standalone inspector for one asset to ``out_path`` and return it.
 
     meshes   LOD0, one entry per node (world-space Z-up, as MeshData).
     textures keyed by ``MeshData.material_id``; used only for meshes that also have UVs.
@@ -223,86 +377,29 @@ def build_inspector(
     three_js_source  ES-module build of three.js (e.g. ``three.module.min.js`` text) to
              inline for fully offline use; otherwise the pinned cdnjs URL is loaded.
     """
-    textures = textures or {}
-    uvs = uvs or {}
-    lod_list = [InspectorLod(*x) if isinstance(x, tuple) else x for x in (lods or [])]
-    col_list = [InspectorCollider(*x) if isinstance(x, tuple) else x for x in (colliders or [])]
+    payload, _ = inspector_payload(meshes, asset_name=asset_name, budget=budget, textures=textures, lods=lods,
+                                   colliders=colliders, qa=qa, uvs=uvs, draw_calls=draw_calls)
+    payload["three_url"] = None if three_js_source is not None else THREE_JS_URL
 
-    ids = [m.node_id for m in meshes]
-    if len(set(ids)) != len(ids):
-        raise ValueError("duplicate node_id in meshes")
-    colors = _prim_colors(ids)
-
-    mesh_payload = []
     rows = []
     legend = ["<ul>"]
-    for m, color in zip(meshes, colors, strict=True):
-        pos, idx, ntri = _geom(m.points, m.triangles, f"mesh {m.node_id}")
-        uv = uvs.get(m.node_id)
-        uv_b64 = None
-        if uv is not None:
-            uv = np.asarray(uv)
-            if uv.shape != (len(m.points), 2):
-                raise ValueError(f"uvs[{m.node_id!r}] must be ({len(m.points)}, 2), got {uv.shape}")
-            uv_b64 = _b64(uv, "<f4")
-        mesh_payload.append(
-            {"id": m.node_id, "prim": m.prim_path, "mat": m.material_id or "", "color": color, "tris": ntri,
-             "pos": pos, "idx": idx, "uv": uv_b64}
-        )
-        sw = f'<span class="sw" style="background:{color}"></span>'
+    for m in payload["meshes"]:
+        sw = f'<span class="sw" style="background:{m["color"]}"></span>'
         rows.append(
-            f'<tr data-node="{_e(m.node_id, quote=True)}" aria-selected="false" title="{_e(m.prim_path, quote=True)}">'
-            f'<td>{sw}<button type="button" class="rowbtn">{_e(m.node_id)}</button></td>'
-            f'<td class="num">{ntri:,}</td><td>{_e(m.material_id or "default")}</td></tr>'
+            f'<tr data-node="{_e(m["id"], quote=True)}" aria-selected="false" title="{_e(m["prim"], quote=True)}">'
+            f'<td>{sw}<button type="button" class="rowbtn">{_e(m["id"])}</button></td>'
+            f'<td class="num">{m["tris"]:,}</td><td>{_e(m["mat"] or "default")}</td></tr>'
         )
-        legend.append(f'<li><span class="sw" style="background:{color}"></span>{_e(m.node_id)}</li>')
+        legend.append(f'<li><span class="sw" style="background:{m["color"]}"></span>{_e(m["id"])}</li>')
     legend.append("</ul>")
-
-    tex_payload: dict[str, dict[str, str]] = {}
-    for mat, t in textures.items():
-        entry = {
-            k: _data_uri(v)
-            for k, v in (("albedo", t.albedo_png), ("orm", t.orm_png), ("normal", t.normal_png))
-            if v
-        }
-        if entry:
-            tex_payload[mat] = entry
-
-    lod_payload = []
-    for lod in lod_list:
-        pos, idx, ntri = _geom(lod.points, lod.triangles, f"lod {lod.label}")
-        lod_payload.append({"label": lod.label, "tris": ntri, "pos": pos, "idx": idx})
-    col_payload = []
-    for c in col_list:
-        pos, idx, _ = _geom(c.points, c.triangles, f"collider {c.name}")
-        col_payload.append({"name": c.name, "pos": pos, "idx": idx})
-
-    total_tris = sum(m["tris"] for m in mesh_payload)
-    if draw_calls is None:
-        draw_calls = len({m.material_id or "" for m in meshes})
-    hulls = len(col_list) if colliders is not None else sum(1 for m in meshes if m.collider)
+    s = payload["summary"]
     gauges = "".join(
         [
-            _gauge("tris", "Triangles", total_tris, budget.max_tris),
-            _gauge("draws", "Draw calls", draw_calls, budget.max_draw_calls),
-            _gauge("hulls", "Collision hulls", hulls, budget.max_collision_hulls),
+            _gauge("tris", "Triangles", s["tris"], budget.max_tris),
+            _gauge("draws", "Draw calls", s["draw_calls"], budget.max_draw_calls),
+            _gauge("hulls", "Collision hulls", s["hulls"], budget.max_collision_hulls),
         ]
     )
-
-    payload = {
-        "asset_name": asset_name,
-        "three_url": None if three_js_source is not None else THREE_JS_URL,
-        "budget": {
-            "target_engine": budget.target_engine,
-            "max_tris": budget.max_tris,
-            "max_draw_calls": budget.max_draw_calls,
-            "max_collision_hulls": budget.max_collision_hulls,
-        },
-        "meshes": mesh_payload,
-        "lods": lod_payload,
-        "colliders": col_payload,
-        "textures": tex_payload,
-    }
 
     if three_js_source is not None:
         inline = (
@@ -325,6 +422,7 @@ def build_inspector(
         "LEGEND": "".join(legend),
         "PAYLOAD": _json_for_script(payload),
         "THREE_INLINE": inline,
+        "APP_JS": _web_text("inspector_standalone.js"),
     }
     out = re.sub(r"@@([A-Z_]+)@@", lambda m: subs[m.group(1)], template)
 

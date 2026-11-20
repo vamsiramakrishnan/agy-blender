@@ -247,3 +247,98 @@ def test_package_glbs_embed_the_texture_files_byte_for_byte(tmp_path, engine, mo
             image = doc["images"][doc["textures"][slot["index"]]["source"]]
             got = view_bytes(doc, binary, image["bufferView"])
             assert hashlib.sha256(got).digest() == hashlib.sha256(on_disk[role]).digest()
+
+
+# --------------------------------------------------------------------------- shading normals
+
+
+def _glb_arrays(path: Path) -> tuple[dict, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    doc, binary = parse(path.read_bytes())
+    prim = doc["meshes"][0]["primitives"][0]
+
+    def read(i, dtype, cols):
+        a = doc["accessors"][i]
+        return np.frombuffer(view_bytes(doc, binary, a["bufferView"]), dtype).reshape(-1, cols)[:a["count"]]
+    a = prim["attributes"]
+    return (doc, read(a["POSITION"], np.float32, 3), read(a["NORMAL"], np.float32, 3),
+            read(a["TEXCOORD_0"], np.float32, 2), read(prim["indices"], np.uint32, 3))
+
+
+def _item(points, tris):
+    p = np.asarray(points, float)
+    return type("M", (), {"points": p, "triangles": np.asarray(tris), "uvs": p[:, :2] * 0.1})()
+
+
+def _box():
+    pts = np.array([[x, y, z] for x in (0, 1) for y in (0, 1) for z in (0, 1)], float)
+    quads = [(0, 2, 3, 1), (4, 5, 7, 6), (0, 1, 5, 4), (2, 6, 7, 3), (0, 4, 6, 2), (1, 3, 7, 5)]
+    return pts, [t for a, b, c, d in quads for t in ((a, b, c), (a, c, d))]
+
+
+def _tube(n, caps):
+    ang = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    ring = np.stack([np.cos(ang), np.sin(ang)], 1)
+    pts = np.vstack([np.c_[ring, np.zeros(n)], np.c_[ring, np.ones(n)]])
+    tris = []
+    for i in range(n):
+        j = (i + 1) % n
+        tris += [(i, j, n + j), (i, n + j, n + i)]
+    if caps:
+        pts = np.vstack([pts, [[0, 0, 0], [0, 0, 1]]])
+        for i in range(n):
+            j = (i + 1) % n
+            tris += [(2 * n, j, i), (2 * n + 1, n + i, n + j)]
+    return pts, tris, ring
+
+
+def test_hard_box_edges_split_vertices_and_get_face_normals(tmp_path):
+    pts, tris = _box()
+    path = write_gltf(tmp_path / "box.glb", [_item(pts, tris)], names=["box"])
+    doc, p, n, uv, idx = _glb_arrays(path)
+    assert len(p) == 24 and len(idx) == 12 and len(uv) == len(p)  # 8 shared corners -> 3 normals each
+    np.testing.assert_allclose(np.linalg.norm(n, axis=1), 1.0, atol=1e-5)
+    assert set(map(tuple, np.abs(np.round(n, 4)))) == {(1, 0, 0), (0, 1, 0), (0, 0, 1)}
+    face_n = np.cross(p[idx[:, 1]] - p[idx[:, 0]], p[idx[:, 2]] - p[idx[:, 0]])
+    assert (np.einsum("ij,ij->i", face_n, n[idx[:, 0]]) > 0).all()  # outward, consistent with winding
+    for c in range(3):  # every vertex normal equals the normal of every triangle using it
+        np.testing.assert_allclose(n[idx[:, c]], n[idx[:, 0]], atol=1e-5)
+
+
+def test_smooth_cylinder_side_keeps_vertices_and_caps_split_at_the_rim(tmp_path):
+    side, tris, ring = _tube(12, caps=False)
+    doc, p, n, _, idx = _glb_arrays(write_gltf(tmp_path / "side.glb", [_item(side, tris)], names=["s"]))
+    assert len(p) == 24  # no crease on the side (30 degrees between neighbours): no new vertices
+    radial = np.c_[side[:, 0], np.zeros(24), -side[:, 1]]  # Z-up (x, y, 0) -> Y-up (x, 0, -y)
+    assert (np.einsum("ij,ij->i", n, radial) > 0.97).all()
+    capped, tris, _ = _tube(12, caps=True)
+    _, p, n, _, _ = _glb_arrays(write_gltf(tmp_path / "cap.glb", [_item(capped, tris)], names=["c"]))
+    assert len(p) == 12 * 2 + 12 * 2 + 2  # side ring + one cap copy of each rim vertex + the two cap centres
+    up = n[np.isclose(p[:, 1], 1.0) & np.isclose(np.hypot(p[:, 0], p[:, 2]), 0.0)]
+    np.testing.assert_allclose(up, [[0, 1, 0]], atol=1e-5)  # +Z (up in the kernel) is +Y in glTF
+
+
+def test_split_only_where_normals_differ_and_is_deterministic():
+    pts = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0], [0, 0, 1]], float)
+    tris = np.array([[0, 1, 2], [1, 3, 2]])  # coplanar: shared vertices 1 and 2 stay shared
+    corner = np.tile([0, 0, 1.0], (6, 1)) + np.random.default_rng(0).normal(0, 1e-9, (6, 3))  # float noise only
+    a = gw.split_by_corner_normals(pts, tris, None, corner)
+    b = gw.split_by_corner_normals(pts, tris, None, corner)
+    assert len(a[0]) == 4 and all(np.array_equal(x, y) for x, y in zip(a[:2] + a[3:], b[:2] + b[3:]))
+    zero = gw.split_by_corner_normals(pts, tris, None, np.zeros((6, 3)))
+    np.testing.assert_allclose(np.linalg.norm(zero[3], axis=1), 1.0)  # degenerate input still yields unit normals
+
+
+def test_normals_match_the_usd_crease_normals(tmp_path):
+    from antigravity3d.kernel.compile_ir import crease_normals
+
+    pts, tris, _ = _tube(16, caps=True)
+    _, p, n, _, idx = _glb_arrays(write_gltf(tmp_path / "t.glb", [_item(pts, tris)], names=["t"], y_up=False))
+    want = crease_normals(pts, np.asarray(tris))  # per corner, as the USD authors them
+    np.testing.assert_allclose(n[idx.reshape(-1)], want, atol=1e-4)
+    np.testing.assert_allclose(p[idx.reshape(-1)], pts[np.asarray(tris).reshape(-1)], atol=1e-6)
+
+
+def test_colliders_carry_no_normals(tmp_path):
+    lod = type("L", (), {"points": np.eye(3), "triangles": np.array([[0, 1, 2]])})()
+    doc, _ = parse(write_gltf(tmp_path / "c.glb", [lod], names=["UCX_a_00"]).read_bytes())
+    assert set(doc["meshes"][0]["primitives"][0]["attributes"]) == {"POSITION"}

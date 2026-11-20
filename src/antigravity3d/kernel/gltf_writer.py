@@ -20,6 +20,11 @@ Design
   the texture has been registered, so ``KHR_materials_clearcoat`` / ``_sheen`` / ``_specular`` ... textures
   share the image and texture tables with the core slots. ``extensionsUsed`` is derived from what is present;
   ``extensions_required`` names the ones a reader must understand.
+* Normals: ``GltfMesh.normals`` is written as NORMAL; ``split_by_corner_normals`` converts the kernel's
+  per-corner crease normals into per-vertex ones. TANGENT is deliberately not written: the glTF spec makes
+  readers derive MikkTSpace tangents from POSITION/NORMAL/TEXCOORD_0 when it is absent (three.js uses screen-space
+  derivatives, Godot's importer generates them, Blender computes its own), and a tangent set of our own could
+  only disagree with theirs.
 * Deterministic: buffers, images, textures, materials and JSON keys appear in first-use order, with a fixed
   ``asset.generator`` (no library version is written), so equal input gives byte-identical files.
 
@@ -139,6 +144,7 @@ class GltfMesh:
     triangles: np.ndarray
     uvs: np.ndarray | None = None
     material: GltfMaterial | None = None
+    normals: np.ndarray | None = None  # one unit normal per vertex (Y-up); see split_by_corner_normals
 
 
 # --------------------------------------------------------------------------- conventions
@@ -155,6 +161,31 @@ def flip_v(uvs: np.ndarray) -> np.ndarray:
     uv = np.array(uvs, dtype=np.float64)
     uv[:, 1] = 1.0 - uv[:, 1]
     return uv
+
+
+def split_by_corner_normals(points: np.ndarray, triangles: np.ndarray, uvs: np.ndarray | None,
+                            corner_normals: np.ndarray, decimals: int = 5):
+    """Turns per-corner normals (3 per triangle) into glTF's one normal per vertex.
+
+    A vertex is duplicated only where its corners carry different normals (a crease), on top of whatever UV
+    seams the input already split. Normals that agree to ``decimals`` places count as equal, so float noise
+    from the smoothing sum never splits a vertex. Vertices stay in input order (new ones follow their source
+    vertex), so the result is deterministic and compact. Returns ``(points, triangles, uvs, normals)``.
+    Zero-length normals (degenerate triangles) become +Z so every normal is a unit vector.
+    """
+    tri = np.asarray(triangles, dtype=np.int64).reshape(-1, 3)
+    n = np.asarray(corner_normals, dtype=np.float64).reshape(-1, 3)
+    if len(n) != tri.size:
+        raise ValueError(f"{len(n)} corner normals for {tri.size} triangle corners")
+    length = np.linalg.norm(n, axis=1, keepdims=True)
+    n = np.where(length > 1e-12, n / np.maximum(length, 1e-12), [0.0, 0.0, 1.0])
+    corner_vertex = tri.reshape(-1)
+    key = np.column_stack([corner_vertex, np.round(n * 10 ** decimals).astype(np.int64)])
+    _, first, inverse = np.unique(key, axis=0, return_index=True, return_inverse=True)
+    src = corner_vertex[first]
+    pts = np.asarray(points)[src]
+    out_uv = None if uvs is None else np.asarray(uvs)[src]
+    return pts, inverse.reshape(-1, 3).astype(np.int64), out_uv, n[first]
 
 
 # --------------------------------------------------------------------------- writer
@@ -282,6 +313,11 @@ def build_glb(meshes: Sequence[GltfMesh], *, extensions_required: Sequence[str] 
         idx = b.accessor(tri.astype(np.uint32).reshape(-1), 5125, "SCALAR", _ELEMENT_ARRAY_BUFFER, bounds=False)
         b.accessors[idx].min, b.accessors[idx].max = [int(tri.min())], [int(tri.max())]
         attrs["POSITION"] = b.accessor(pos, 5126, "VEC3", _ARRAY_BUFFER, bounds=True)
+        if m.normals is not None:
+            nrm = np.asarray(m.normals, dtype=np.float32).reshape(-1, 3)
+            if len(nrm) != len(pos):
+                raise ValueError(f"mesh {m.name!r}: {len(nrm)} normals for {len(pos)} vertices")
+            attrs["NORMAL"] = b.accessor(nrm, 5126, "VEC3", _ARRAY_BUFFER, bounds=False)
         if m.uvs is not None:
             uv = np.asarray(m.uvs, dtype=np.float32).reshape(-1, 2)
             if len(uv) != len(pos):
@@ -318,5 +354,5 @@ def write_glb(path: str | Path, meshes: Sequence[GltfMesh], *, extensions_requir
     return path
 
 
-__all__ = ["EncodedImage", "GltfMaterial", "GltfMesh", "Sampler", "TextureRef", "build_glb", "flip_v",
+__all__ = ["EncodedImage", "GltfMaterial", "GltfMesh", "Sampler", "TextureRef", "build_glb", "flip_v", "split_by_corner_normals",
            "write_glb", "z_up_to_y_up"]

@@ -182,6 +182,12 @@ def test_report_extends_engine_report_and_validator_implements_interface():
 
 
 async def test_skipped_with_reason_when_no_browser(monkeypatch, tmp_path):
+    import sys
+    import types
+
+    # Hold the other precondition constant: this case is "package present, browser absent",
+    # whether or not the Python playwright package happens to be installed on this machine.
+    monkeypatch.setitem(sys.modules, "playwright", types.ModuleType("playwright"))
     monkeypatch.delenv("CHROMIUM_BIN", raising=False)
     monkeypatch.setenv("PATH", "/nonexistent")
     monkeypatch.delenv("PLAYWRIGHT_BROWSERS_PATH", raising=False)

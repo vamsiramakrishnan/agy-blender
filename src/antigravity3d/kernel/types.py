@@ -11,6 +11,9 @@ class MeshData:
     triangles: np.ndarray   # (M, 3) int32
     material_id: str | None = None
     collider: bool = True
+    # (M,) int chart id per triangle when the exact developable UV charts are known (IR primitives, see
+    # compile_ir.primitive_charts); None -> the unwrap stage computes charts (imported / sanitized meshes).
+    uv_charts: np.ndarray | None = None
 
 def gltf_world_bounds(points: Iterable[np.ndarray], *, z_up: bool) -> list[list[float]]:
     """Tight world-space bounds of visual vertices in glTF's right-handed Y-up metres."""

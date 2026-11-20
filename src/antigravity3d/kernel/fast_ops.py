@@ -587,8 +587,13 @@ def write_gltf(
 
     ``materials`` holds one ``gltf_writer.GltfMaterial`` (or None) per item; images inside are embedded as the
     bytes they already hold (see kernel/gltf_writer.py). Items with UVs and no material get a grey default.
+    Items with UVs (the rendered ones; collider hulls have none) also get shading normals: the same crease
+    normals the package USD authors (``compile_ir.crease_normals``, 40 degrees), converted to one per vertex by
+    splitting vertices at creases, so the GLB shades like the USD. Computed from the points, triangles and UVs
+    handed in, whatever their layout.
     """
     from antigravity3d.kernel import gltf_writer as gw
+    from antigravity3d.kernel.compile_ir import crease_normals
 
     default_material = gw.GltfMaterial(name="Default", base_color_factor=(0.5, 0.5, 0.5, 1.0),
                                        metallic_factor=0.0, roughness_factor=0.5)
@@ -596,6 +601,12 @@ def write_gltf(
     for i, it in enumerate(items):
         uv = getattr(it, "uvs", None)
         p = np.asarray(it.points, dtype=np.float64)
+        tris = np.asarray(it.triangles)
+        normals = None
+        if uv is not None:
+            p, tris, uv, normals = gw.split_by_corner_normals(p, tris, uv, crease_normals(p, tris))
+            if y_up:
+                normals = gw.z_up_to_y_up(normals)
         if y_up:
             p = gw.z_up_to_y_up(p)
         material = None
@@ -603,7 +614,7 @@ def write_gltf(
             material = materials[i] if materials and materials[i] is not None else default_material
             uv = gw.flip_v(uv)
         name = names[i] if names else getattr(it, "name", None) or getattr(it, "node_id", None) or f"mesh_{i}"
-        meshes.append(gw.GltfMesh(name, p, np.asarray(it.triangles), uv, material))
+        meshes.append(gw.GltfMesh(name, p, tris, uv, material, normals))
     return gw.write_glb(path, meshes)
 
 

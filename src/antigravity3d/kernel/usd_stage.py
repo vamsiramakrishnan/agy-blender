@@ -44,7 +44,7 @@ from pxr import Gf, Kind, Sdf, Tf, Usd, UsdGeom, UsdShade, UsdUtils
 
 from antigravity3d import ir
 from antigravity3d.ir import IRPatch, SceneIR
-from antigravity3d.kernel.compile_ir import IR_KEY, UV_WELD_KEY, author_mesh_data, author_scene, node_paths, read_ir, resolve_anchor
+from antigravity3d.kernel.compile_ir import IR_KEY, UV_CHART_KEY, UV_WELD_KEY, author_mesh_data, author_scene, node_paths, read_ir, resolve_anchor
 from antigravity3d.kernel.fast_ops import UVResult
 from antigravity3d.kernel.spatial import PrimInfo, SpatialIndex
 from antigravity3d.kernel.types import MeshData
@@ -383,6 +383,8 @@ class StageManager:
             counts = np.asarray(mesh.GetFaceVertexCountsAttr().Get(), dtype=np.int64)
             tris = _triangulate(counts, np.asarray(idx, dtype=np.int64))
             local = np.asarray(pts, dtype=np.float64)
+            charts = prim.GetAttribute(UV_CHART_KEY).Get() if prim.HasAttribute(UV_CHART_KEY) else None
+            charts = np.asarray(charts, dtype=np.int32) if charts is not None and len(charts) == len(tris) == len(counts) else None
             weld = prim.GetAttribute(UV_WELD_KEY).Get() if prim.HasAttribute(UV_WELD_KEY) else None
             if weld is not None and len(weld) == len(local) and len(tris) and tris.max() < len(local):
                 # fold the xatlas seam split back: kernels see the pre-unwrap welded topology
@@ -404,6 +406,7 @@ class StageManager:
                 triangles=tris,
                 material_id=mat.GetPrim().GetName() if mat else None,
                 collider=collider,
+                uv_charts=charts,
             )
             out.append(_MeshRead(prim, md, local))
         return out

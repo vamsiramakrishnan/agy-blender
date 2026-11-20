@@ -102,23 +102,14 @@ def _box(sx: float, sy: float, sz: float) -> tuple[np.ndarray, np.ndarray]:
     return pts, tris
 
 
-def primitive_mesh(node: NodeIR) -> tuple[np.ndarray, np.ndarray]:
-    """(points float32 Nx3, triangles int32 Mx3) for a primitive node, local space."""
+def _profile(node: NodeIR) -> tuple[list[tuple[float, float]], int]:
+    """Top-to-bottom (r, z) lathe profile and segment count of a round primitive."""
     k = node.kind
-    if k == "box":
-        size = node.params.get("size")
-        if not isinstance(size, (tuple, list)) or len(size) != 3:
-            raise ValueError(f"{node.id}: box requires param 'size' as (x, y, z), got {size!r}")
-        if not all(isinstance(s, (int, float)) and math.isfinite(s) and s > 0 for s in size):
-            raise ValueError(f"{node.id}: box size components must be > 0, got {tuple(size)}")
-        return _box(*map(float, size))
-    if k not in PRIMITIVES:
-        raise ValueError(f"{node.id}: kind '{k}' is not a primitive")
     r = _num(node, "radius")
     if k == "sphere":
         n, rings = _int(node, "segments", 24, 3), _int(node, "rings", 12, 2)
         phis = np.linspace(0.0, np.pi, rings + 1)
-        return _lathe([(0.0 if i in (0, rings) else r * math.sin(p), r * math.cos(p)) for i, p in enumerate(phis)], n)
+        return [(0.0 if i in (0, rings) else r * math.sin(p), r * math.cos(p)) for i, p in enumerate(phis)], n
     if k == "capsule":
         h = _num(node, "height", allow_zero=True)
         n = _int(node, "segments", 16, 3)
@@ -126,17 +117,62 @@ def primitive_mesh(node: NodeIR) -> tuple[np.ndarray, np.ndarray]:
         top = [(r * math.sin(p), h / 2 + r * math.cos(p)) for p in np.linspace(0.0, np.pi / 2, cap + 1)]
         bot = [(r * math.sin(p), -h / 2 + r * math.cos(p)) for p in np.linspace(np.pi / 2, np.pi, cap + 1)]
         top[0], bot[-1] = (0.0, top[0][1]), (0.0, bot[-1][1])
-        return _lathe(top + (bot[1:] if h == 0 else bot), n)
+        return top + (bot[1:] if h == 0 else bot), n
     h = _num(node, "height")
     n = _int(node, "segments", 24, 3)
     if k == "cylinder":
-        return _lathe([(0.0, h / 2), (r, h / 2), (r, -h / 2), (0.0, -h / 2)], n)
-    return _lathe([(0.0, h / 2), (r, -h / 2), (0.0, -h / 2)], n)  # cone: apex up
+        return [(0.0, h / 2), (r, h / 2), (r, -h / 2), (0.0, -h / 2)], n
+    return [(0.0, h / 2), (r, -h / 2), (0.0, -h / 2)], n  # cone: apex up
+
+
+def _box_size(node: NodeIR) -> tuple[float, float, float]:
+    size = node.params.get("size")
+    if not isinstance(size, (tuple, list)) or len(size) != 3:
+        raise ValueError(f"{node.id}: box requires param 'size' as (x, y, z), got {size!r}")
+    if not all(isinstance(s, (int, float)) and math.isfinite(s) and s > 0 for s in size):
+        raise ValueError(f"{node.id}: box size components must be > 0, got {tuple(size)}")
+    return float(size[0]), float(size[1]), float(size[2])
+
+
+def primitive_mesh(node: NodeIR) -> tuple[np.ndarray, np.ndarray]:
+    """(points float32 Nx3, triangles int32 Mx3) for a primitive node, local space."""
+    if node.kind == "box":
+        return _box(*_box_size(node))
+    if node.kind not in PRIMITIVES:
+        raise ValueError(f"{node.id}: kind '{node.kind}' is not a primitive")
+    return _lathe(*_profile(node))
+
+
+def primitive_charts(node: NodeIR) -> np.ndarray:
+    """(M,) int32 UV chart id per triangle of :func:`primitive_mesh` (same triangle order).
+
+    The charts are the primitive's exact developable pieces, which are known here at no cost:
+      * box: one chart per face (a rectangle);
+      * cylinder / cone: the side (a rectangle / a circular sector, cut along one generator by the
+        unwrap) and each cap (a polygonal disc);
+      * sphere / capsule: one chart per latitude band. Every band of a lathed mesh is a ring of planar
+        trapezoids (a fan of triangles at a pole) whose vertices all lie on its two boundary rings, so it
+        unfolds with *zero* area and angle distortion (a polygonal conical frustum is developable), and it
+        stays developable under any affine node transform. Two adjacent bands cannot share a chart without
+        a non-isometric map, so a seam per latitude ring is the price of zero distortion.
+    ``fast_ops.unwrap_scene`` unfolds each chart from the *world-space* positions, so a non-uniformly
+    scaled node still gets an exact layout at the requested texel density.
+    """
+    if node.kind == "box":
+        _box_size(node)
+        return (np.arange(12) // 2).astype(np.int32)  # _box lists two triangles per face
+    if node.kind not in PRIMITIVES:
+        raise ValueError(f"{node.id}: kind '{node.kind}' is not a primitive")
+    profile, n = _profile(node)
+    # _lathe emits one block per consecutive profile-row pair: n triangles for a pole fan, 2n for a quad band
+    sizes = [n if 0.0 in (a[0], b[0]) else 2 * n for a, b in pairwise(profile)]
+    return np.repeat(np.arange(len(sizes), dtype=np.int32), sizes)
 
 
 # --- mesh data (UVs / normals) --------------------------------------------------
 
 UV_WELD_KEY = "agy:uvWeldMap"  # int[] per authored vertex: id of the pre-unwrap vertex it was split from
+UV_CHART_KEY = "agy:uvChart"  # int[] per triangle of a primitive: exact developable chart (see primitive_charts)
 CREASE_DEG = 40.0
 
 
@@ -360,6 +396,9 @@ def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path)
     if is_prim:
         pts, tris = primitive_mesh(node)
         author_mesh_data(prim, pts, tris, None, normals=False)
+        prim.CreateAttribute(UV_CHART_KEY, Sdf.ValueTypeNames.IntArray, custom=True).Set(
+            Vt.IntArray.FromNumpy(primitive_charts(node))
+        )
     elif imported:
         # One IR node owns one material and one mesh, including transformed instances.
         points, faces, uvs = [], [], []
@@ -378,6 +417,8 @@ def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path)
         prim.CreateAttribute("agy:meshRef", Sdf.ValueTypeNames.String, custom=True).Set(node.params["path"])
     else:
         _block_authored(prim, ["agy:meshRef"])
+    if not is_prim:  # imported / referenced geometry: charts are computed by the unwrap stage
+        _block_authored(prim, [UV_CHART_KEY])
     if ref_path is not None and not imported:
         if not ref_path.is_file():
             raise FileNotFoundError(ref_path)
