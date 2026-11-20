@@ -541,8 +541,8 @@ def write_engine_package(
         "lod_tris": lod_tris,
         # largest screen fraction (bounding-sphere diameter / frame height) each level is shown at (LOD0: 1.0);
         # levels are generated to lod_diff's screen-space error budget, so a level exists only where it pays off
-        "lod_screen_fractions": [round(float(getattr(lods[n][i], "screen_fraction", 1.0)), 6) if i else 1.0
-                                 for i in range(len(lod_tris)) for n in [next(iter(lods))]] if lods else [1.0],
+        "lod_screen_fractions": [1.0] + [float(min(getattr(c[i], "screen_fraction", 1.0) for c in lods.values()))
+                                         for i in range(1, len(lod_tris))],
         "lod_structure": f"variantSet '{LOD_SET}' on /{asset.GetName()}: LOD0 (base) .. LOD{len(lod_tris) - 1}" if len(lod_tris) > 1 else None,
         "draw_calls": len(batches),
         "glb_batches": batches,

@@ -460,6 +460,8 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
         lod_tris.append(total)
     if any(b > a for a, b in zip(lod_tris, lod_tris[1:])):
         add("lod_order", "critical", None, f"LOD triangle counts must not increase: {lod_tris}")
+    elif any(b == a for a, b in zip(lod_tris, lod_tris[1:])):  # a duplicate level costs a mesh and a file for nothing
+        add("lod_duplicate", "warning", None, f"consecutive LOD levels have equal triangle counts: {lod_tris}")
     if man.get("lod_tris") and lod_tris and list(man["lod_tris"]) != lod_tris and len(lod_names) > 1:
         add("lod_manifest", "warning", None, f"manifest lod_tris {man['lod_tris']} != USD {lod_tris}")
 
