@@ -3,6 +3,7 @@
 // loaded from the pinned CDN URL); notes stay in this page (and in localStorage where the browser
 // allows it) and leave it as an exported JSON file, the format `read_notes` parses.
 import { createInspector, noteKey, NOTE_ASSET } from "./viewer.js";
+import { base64ToArrayBuffer } from "./gltf.js";
 
 const P = JSON.parse(document.getElementById("payload").textContent);
 const NOTES_KEY = "antigravity3d.notes:" + P.asset_name;
@@ -35,7 +36,7 @@ const host = {
   saveDelayMs: 0,
   get notesWhere() { return storageOk ? "Saved in this browser." : "Browser storage unavailable: export before closing."; },
   notes: {
-    save(nodeId, text, revision) {
+    save(nodeId, text, revision /* , sessionId: none for a file */) {
       const key = noteKey(nodeId), now = new Date().toISOString();
       const i = entries.findIndex((n) => noteKey(n.node_id) === key && n.revision === revision);
       if (i >= 0) entries[i] = Object.assign({}, entries[i], { text, updated_at: now });
@@ -54,7 +55,7 @@ const host = {
       setTimeout(() => URL.revokeObjectURL(url), 2000);
     } catch (e) { console.warn("download failed", e); }
   },
-  resolveTexture(ref) { return typeof ref === "string" ? ref : Promise.reject(new Error("texture not embedded")); },
+  loadGlb(model) { return base64ToArrayBuffer(model.glb_b64); }, // the review GLB, embedded in the page
   onSelection: null,
   onNotesChanged: null,
   onAsk: null,

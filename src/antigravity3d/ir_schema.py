@@ -373,6 +373,33 @@ def _member_line(tag: str, obj: dict[str, Any], skip: tuple[str, ...]) -> str:
     return f"{tag} {{{', '.join(fields)}}}"
 
 
+def _shape(s: dict[str, Any]) -> Any:
+    """What a lean schema accepts, bounds and descriptions aside (integer counts as number)."""
+    if "anyOf" in s:
+        return tuple(sorted({repr(_shape(a)) for a in s["anyOf"]}))
+    t = "number" if s.get("type") == "integer" else s.get("type")
+    return (t, _shape(s["items"]) if "items" in s else None, s.get("minItems"))
+
+
+def _union(variants: list[dict[str, Any]]) -> dict[str, Any]:
+    """One lean schema for a property that members type differently: string enums merge into one enum, otherwise an
+    ``anyOf`` of the distinct shapes (bounds dropped: the strict parse checks them per member)."""
+    flat = [a for v in variants for a in v.get("anyOf", [v])]
+    if all("anyOf" not in v for v in variants) and all(v == variants[0] for v in variants):
+        return variants[0]
+    if all(v.get("type") == "string" and "enum" in v for v in flat):
+        return {"type": "string", "enum": list(dict.fromkeys(e for v in flat for e in v["enum"]))}
+    shapes: dict[Any, dict[str, Any]] = {}
+    for v in flat:
+        lean = {k: x for k, x in v.items() if k not in ("minimum", "maximum", "description")}
+        if "items" in lean:
+            lean["items"] = {k: x for k, x in lean["items"].items() if k not in ("minimum", "maximum")}
+        if lean.get("type") == "integer":
+            lean["type"] = "number"
+        shapes.setdefault(_shape(lean), lean)
+    return next(iter(shapes.values())) if len(shapes) == 1 else {"anyOf": list(shapes.values())}
+
+
 def _merge(root: dict[str, Any], alts: list[dict[str, Any]], tag: str, doc: str) -> dict[str, Any]:
     """One object for a tagged union: ``tag`` becomes an enum, properties are merged (a property typed differently by
     different members becomes ``anyOf`` of its distinct lean types), only fields every member requires are required."""

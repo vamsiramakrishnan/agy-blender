@@ -2,8 +2,9 @@
 //
 // - The model-visible tool `open_inspector` delivers a small summary (session, revision, view
 //   directives) as its tool result; every later call to it updates this view.
-// - Geometry, materials and textures come from the app-only tool `inspector_payload` in chunks
-//   (the stored CallToolResult of a model tool call is capped at 1 MiB).
+// - The review metadata ("scene") and the review GLB ("glb": geometry, normals, UVs, materials, textures,
+//   built by the package's glTF writer) come from the app-only tool `inspector_payload` in chunks (the
+//   stored CallToolResult of a model tool call is capped at 1 MiB).
 // - Review notes are saved eagerly to the asset session through `inspector_save_note` (frames are
 //   removed without teardown), QA through `inspector_qa_state`, and what the reviewer selected or
 //   wrote is attached to the next user message with updateModelContext.
@@ -11,6 +12,7 @@
 import * as THREE from "three";
 import { App, applyDocumentTheme, applyHostStyleVariables } from "@modelcontextprotocol/ext-apps";
 import { createInspector } from "./viewer.js";
+import { base64ToArrayBuffer } from "./gltf.js";
 
 const MAX_IN_FLIGHT = 3; // the host allows 4 concurrent calls per app; keep one free for note saves
 let caps = {};
@@ -47,15 +49,6 @@ async function fetchPart(sessionId, revision, part) {
   return chunks.join("");
 }
 
-let textureSlots = 0;
-const textureQueue = [];
-function limited(fn) {
-  return new Promise((resolve, reject) => {
-    const run = () => { textureSlots++; fn().then(resolve, reject).finally(() => { textureSlots--; const n = textureQueue.shift(); if (n) n(); }); };
-    if (textureSlots < 1) run(); else textureQueue.push(run);
-  });
-}
-
 function modelContextText(info) {
   const s = lastSummary || {};
   const lines = [`3D inspector: ${info.asset_name || s.asset || "asset"} (session ${s.session_id}, revision ${info.revision}).`];
@@ -86,15 +79,17 @@ const host = {
   kind: "mcp",
   notesWhere: "Saved to the asset session.",
   notes: {
-    async save(nodeId, text, revision) {
-      if (!current.sessionId) throw new Error("no asset session");
-      const r = await callTool("inspector_save_note", { session_id: current.sessionId, node_id: nodeId == null ? "" : nodeId, text, revision: revision || "" });
+    // Session and revision are the ones the edit was typed under (bound by the viewer), never "whatever is
+    // loaded now": a reload inside the debounce window must not move a note to other geometry or another asset.
+    async save(nodeId, text, revision, sessionId) {
+      if (!sessionId) throw new Error("no asset session");
+      const r = await callTool("inspector_save_note", { session_id: sessionId, node_id: nodeId == null ? "" : nodeId, text, revision: revision || "" });
       return r.notes;
     },
   },
   exportNotes: null, // set after connect when the host offers ui/download-file
-  resolveTexture(ref) {
-    return limited(() => fetchPart(current.sessionId, current.revision, ref.part)).then((b64) => "data:" + (ref.mime || "image/png") + ";base64," + b64);
+  loadGlb(model) {
+    return fetchPart(model.session_id, model.revision, "glb").then(base64ToArrayBuffer);
   },
   onSelection(info) { pushContext(info); },
   onNotesChanged(info) { pushContext(info); },
