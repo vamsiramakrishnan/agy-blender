@@ -20,6 +20,7 @@ library) rather than trimesh. Nothing else deviates from the intended library.
 from __future__ import annotations
 
 import logging
+import math
 import shutil
 import subprocess
 import time
@@ -2079,6 +2080,338 @@ def _hull(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
     return pts, tris.astype(np.int32), float(h.volume)
 
 
+# CoACD's time grows with its input's triangle count, and a modelled solid is often a few dozen planar faces
+# cut into thousands of triangles. Fewer triangles for the same surface is work removed, not quality traded.
+def _ear_clip(poly, xy, area_tol):
+    """Triangulate a simple polygon given as vertex ids, counter-clockwise in the ``xy`` map (ids may repeat where a hole is bridged in).
+
+    A small polygon takes the ear whose smallest angle is largest, which keeps slivers out; a large one takes the first valid ear.
+    Returns None when only zero-area triangles remain."""
+    poly = list(poly)
+    out = []
+    while len(poly) > 3:
+        k = len(poly)
+        pts = [xy[v] for v in poly]
+        conv = [(pts[i][0]-pts[i-1][0])*(pts[(i+1) % k][1]-pts[i-1][1]) - (pts[i][1]-pts[i-1][1])*(pts[(i+1) % k][0]-pts[i-1][0]) for i in range(k)]
+        reflex = [i for i in range(k) if conv[i] <= area_tol]
+        pick = -1
+        best = 0.0
+        for i in range(k):
+            if conv[i] <= area_tol:
+                continue
+            ia, ic = i-1, (i+1) % k
+            ax, ay = pts[ia]; bx, by = pts[i]; cx, cy = pts[ic]
+            ids = (poly[ia], poly[i], poly[ic])
+            ok = True
+            for d in reflex:
+                if poly[d] in ids:
+                    continue
+                dx, dy = pts[d]
+                if ((bx-ax)*(dy-ay) - (by-ay)*(dx-ax) >= -area_tol and (cx-bx)*(dy-by) - (cy-by)*(dx-bx) >= -area_tol
+                        and (ax-cx)*(dy-cy) - (ay-cy)*(dx-cx) >= -area_tol):
+                    ok = False
+                    break
+            if not ok:
+                continue
+            if k > 8:
+                pick = i
+                break
+            l1 = (bx-ax)**2 + (by-ay)**2; l2 = (cx-bx)**2 + (cy-by)**2; l3 = (ax-cx)**2 + (ay-cy)**2
+            score = conv[i] / max(l1*l2, l2*l3, l3*l1)
+            if pick < 0 or score > best + 1e-15:
+                pick, best = i, score
+        if pick < 0:
+            return None
+        out.append((poly[pick-1], poly[pick], poly[(pick+1) % k]))
+        del poly[pick]
+    a, b, c = poly
+    (ax, ay), (bx, by), (cx, cy) = xy[a], xy[b], xy[c]
+    if (bx-ax)*(cy-ay) - (by-ay)*(cx-ax) <= area_tol:
+        return None
+    out.append((a, b, c))
+    return out
+
+
+def _bridge(outer, holes, xy, eps, area_tol):
+    """Join each hole (clockwise) to the outer loop (counter-clockwise) by the shortest bridge that crosses no edge and touches no
+    other vertex, so that the result is one simple polygon. None when a hole cannot be reached."""
+    outer = list(outer)
+    pending = sorted(holes, key=lambda h: -max(xy[v][0] for v in h))
+    for hi, hole in enumerate(pending):
+        edges = []
+        for loop in [outer] + pending[hi:]:
+            for i in range(len(loop)):
+                edges.append((loop[i], loop[(i+1) % len(loop)]))
+        verts = set(v for e in edges for v in e)
+        cands = sorted(((xy[o][0]-xy[h][0])**2 + (xy[o][1]-xy[h][1])**2, oi, hj) for oi, o in enumerate(outer) for hj, h in enumerate(hole))
+        done = False
+        for _, oi, hj in cands:
+            p, q = outer[oi], hole[hj]
+            (px, py), (qx, qy) = xy[p], xy[q]
+            L = math.hypot(qx-px, qy-py)
+            if L <= eps:
+                continue
+            ok = True
+            for w in verts:
+                if w == p or w == q:
+                    continue
+                wx, wy = xy[w]
+                t = ((wx-px)*(qx-px) + (wy-py)*(qy-py)) / (L*L)
+                t = min(1.0, max(0.0, t))
+                if math.hypot(px + t*(qx-px) - wx, py + t*(qy-py) - wy) <= eps:
+                    ok = False
+                    break
+            if ok:
+                for r, s in edges:
+                    if r in (p, q) or s in (p, q):
+                        continue
+                    (rx, ry), (sx, sy) = xy[r], xy[s]
+                    o1 = (qx-px)*(ry-py) - (qy-py)*(rx-px); o2 = (qx-px)*(sy-py) - (qy-py)*(sx-px)
+                    if (o1 > area_tol and o2 > area_tol) or (o1 < -area_tol and o2 < -area_tol):
+                        continue
+                    o3 = (sx-rx)*(py-ry) - (sy-ry)*(px-rx); o4 = (sx-rx)*(qy-ry) - (sy-ry)*(qx-rx)
+                    if (o3 > area_tol and o4 > area_tol) or (o3 < -area_tol and o4 < -area_tol):
+                        continue
+                    ok = False
+                    break
+            if ok:
+                outer = outer[:oi+1] + hole[hj:] + hole[:hj] + [hole[hj], p] + outer[oi+1:]
+                done = True
+                break
+        if not done:
+            return None
+    return outer
+
+
+def _merge_planar(points, tris, rel_tol=1e-8, min_gain=0.8):
+    """Merge coplanar triangles of a closed, consistently wound, welded mesh into the fewest triangles that cover the same faces.
+
+    Neighbouring triangles whose planes agree join into a region. A vertex strictly inside a region, or on a straight edge between
+    exactly two regions, is dropped; each region is then re-triangulated from its boundary loops (holes bridged in). A region whose
+    vertices stray more than ``2 * rel_tol * diagonal`` from its plane, or that cannot be re-triangulated, keeps its triangles and its
+    boundary vertices. Dropped vertices lie within ``2 * rel_tol * diagonal`` of the new surface, so for planar input the surface is
+    unchanged and the vertex set of the convex hull is too. Returns ``(points, tris)``, or None when the gain would be below
+    ``1 - min_gain`` of the triangles (nothing worth a pass) or the mesh does not qualify."""
+    P = np.asarray(points, np.float64)
+    F = np.asarray(tris, np.int64)
+    m, n = len(F), len(P)
+    diag = float(np.linalg.norm(P.max(axis=0) - P.min(axis=0)))
+    eps = rel_tol * diag
+    area_tol = 1e-10 * diag * diag
+    p0, p1, p2 = P[F[:, 0]], P[F[:, 1]], P[F[:, 2]]
+    cr = np.cross(p1 - p0, p2 - p0)
+    ar = np.linalg.norm(cr, axis=1)
+    if (ar <= area_tol).any():
+        return None
+    N = cr / ar[:, None]
+    # half-edge i = 3*f + s goes F[f,s] -> F[f,(s+1)%3]
+    ha = F.reshape(-1)
+    hb = np.roll(F, -1, axis=1).reshape(-1)
+    key = ha * n + hb
+    order = np.argsort(key)
+    sk = key[order]
+    rk = hb * n + ha
+    pos = np.searchsorted(sk, rk)
+    pos[pos >= len(sk)] = 0
+    if not (sk[pos] == rk).all():
+        return None
+    twin = order[pos]
+    f1 = np.arange(3*m) // 3
+    f2 = twin // 3
+    opp = F[f2, (twin % 3 + 2) % 3]           # third vertex of the neighbouring face
+    flat = (np.linalg.norm(N[f1] - N[f2], axis=1) <= 1e-6) & (np.abs(np.einsum("ij,ij->i", N[f1], P[opp] - P[ha])) <= eps)
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    g = coo_matrix((np.ones(int(flat.sum())), (f1[flat], f2[flat])), shape=(m, m))
+    nreg, reg = connected_components(g, directed=False)
+    if nreg > min_gain * m:
+        return None
+    # Each vertex dropped from a closed mesh removes two triangles (Euler), and only a vertex touching one region, or two, can go.
+    pair = np.unique(F.reshape(-1) * nreg + np.repeat(reg, 3))
+    pv, pr = pair // nreg, pair % nreg
+    touching = np.bincount(pv, minlength=n)
+    if 2 * int(((touching == 1) | (touching == 2)).sum()) < (1.0 - min_gain) * m:
+        return None
+    # plane fit per region; a region whose vertices stray from its plane stays as it is
+    w = ar / 2
+    nr = np.zeros((nreg, 3)); np.add.at(nr, reg, N * w[:, None])
+    cen = np.zeros((nreg, 3)); np.add.at(cen, reg, (p0 + p1 + p2) / 3 * w[:, None])
+    wsum = np.bincount(reg, w, nreg)
+    cen /= wsum[:, None]
+    ln = np.linalg.norm(nr, axis=1)
+    nr /= np.maximum(ln, 1e-300)[:, None]
+    dev = np.zeros(nreg)
+    for pk in (p0, p1, p2):
+        np.maximum.at(dev, reg, np.abs(np.einsum("ij,ij->i", pk - cen[reg], nr[reg])))
+    pinned = (dev > 2 * eps) | (np.bincount(reg, minlength=nreg) == 1)
+    # boundary half-edges per region
+    bnd = np.flatnonzero(reg[f1] != reg[f2])
+    bnd_reg = reg[f1[bnd]]
+    o = np.argsort(bnd_reg, kind="stable")
+    bnd, bnd_reg = bnd[o], bnd_reg[o]
+    starts = np.searchsorted(bnd_reg, np.arange(nreg + 1))
+    # the regions touching each vertex are in vregs
+    vregs: dict[int, list[int]] = {}
+    for v, r in zip(pv.tolist(), pr.tolist()):
+        vregs.setdefault(v, []).append(r)
+    ploops: dict[int, list[list[int]]] = {}
+    for r in np.flatnonzero(~pinned).tolist():
+        nxt = {}
+        bad = False
+        for h in bnd[starts[r]:starts[r+1]].tolist():
+            a, b = int(ha[h]), int(hb[h])
+            if a in nxt:
+                bad = True
+                break
+            nxt[a] = b
+        loops = []
+        if not bad:
+            seen = set()
+            for s in sorted(nxt):
+                if s in seen:
+                    continue
+                loop, cur = [], s
+                while cur not in seen:
+                    seen.add(cur); loop.append(cur)
+                    cur = nxt.get(cur, -1)
+                    if cur < 0:
+                        bad = True
+                        break
+                if bad or cur != s:
+                    bad = True
+                    break
+                loops.append(loop)
+        if bad:
+            pinned[r] = True
+        else:
+            ploops[r] = loops
+    # 2-D frames
+    def frame(r):
+        x, y, z = nr[r].tolist()
+        k = min(range(3), key=lambda i: abs((x, y, z)[i]))
+        ax = [0.0, 0.0, 0.0]; ax[k] = 1.0
+        u = (y*ax[2] - z*ax[1], z*ax[0] - x*ax[2], x*ax[1] - y*ax[0])
+        ul = math.sqrt(u[0]**2 + u[1]**2 + u[2]**2)
+        u = (u[0]/ul, u[1]/ul, u[2]/ul)
+        return np.asarray(u), np.asarray((y*u[2] - z*u[1], z*u[0] - x*u[2], x*u[1] - y*u[0]))
+    result: dict[int, list[tuple[int, int, int]]] = {}
+    for _ in range(6):
+        # vertices that may be dropped: interior to one region, or on a straight edge shared by exactly two regions
+        ent: dict[int, list[tuple[int, int, int]]] = {}
+        for r, loops in ploops.items():
+            if pinned[r]:
+                continue
+            for loop in loops:
+                k = len(loop)
+                for i in range(k):
+                    ent.setdefault(loop[i], []).append((r, loop[i-1], loop[(i+1) % k]))
+        drop = set()
+        for v, rs in vregs.items():
+            if any(pinned[r] for r in rs):
+                continue
+            if len(rs) == 1:
+                drop.add(v)
+            elif len(rs) == 2:
+                e = ent.get(v)
+                if e is None or len(e) != 2 or e[0][1] != e[1][2] or e[0][2] != e[1][1]:
+                    continue
+                a, b = P[e[0][1]], P[e[0][2]]
+                ab = b - a
+                t = float(np.dot(P[v] - a, ab) / max(float(np.dot(ab, ab)), 1e-300))
+                if 0.0 < t < 1.0 and np.linalg.norm(a + t * ab - P[v]) <= eps:
+                    drop.add(v)
+        changed = False
+        result.clear()
+        for r, loops in ploops.items():
+            if pinned[r]:
+                continue
+            u, vv = frame(r)
+            keepl = [[x for x in lp if x not in drop] for lp in loops]
+            ids = sorted(set(x for lp in keepl for x in lp))
+            if any(len(lp) < 3 for lp in keepl):
+                pinned[r] = changed = True
+                continue
+            xy = {x: (float(np.dot(P[x], u)), float(np.dot(P[x], vv))) for x in ids}
+            areas = [0.5 * sum(xy[lp[i]][0]*xy[lp[(i+1) % len(lp)]][1] - xy[lp[(i+1) % len(lp)]][0]*xy[lp[i]][1] for i in range(len(lp))) for lp in keepl]
+            outs = [i for i, a in enumerate(areas) if a > 0]
+            if len(outs) != 1 or sum(len(lp) for lp in keepl) > 400:
+                pinned[r] = changed = True
+                continue
+            outer = keepl[outs[0]]
+            holes = [lp for i, lp in enumerate(keepl) if i != outs[0]]
+            poly = _bridge(outer, holes, xy, eps, area_tol) if holes else outer
+            tri = _ear_clip(poly, xy, area_tol) if poly is not None else None
+            if tri is not None:
+                tot = sum(0.5 * ((xy[b][0]-xy[a][0])*(xy[c][1]-xy[a][1]) - (xy[b][1]-xy[a][1])*(xy[c][0]-xy[a][0])) for a, b, c in tri)
+                if abs(tot - sum(areas)) > 1e-9 * max(abs(sum(areas)), 1e-300) + area_tol:
+                    tri = None
+            if tri is None:
+                pinned[r] = changed = True
+                continue
+            result[r] = tri
+        if not changed:
+            break
+    else:
+        return None
+    out = []
+    keep_reg = np.isin(reg, [r for r in range(nreg) if r not in result])
+    out.extend(map(tuple, F[keep_reg].tolist()))
+    for r in sorted(result):
+        out.extend(result[r])
+    if len(out) >= m:
+        return None
+    f = np.asarray(out, np.int64)
+    used = np.unique(f)
+    rm = np.full(n, -1, np.int64); rm[used] = np.arange(len(used))
+    return P[used], rm[f].astype(np.int32)
+
+
+def _decomposition_input(pts: np.ndarray, tri: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The mesh CoACD should decompose: the same closed solid with coplanar triangles merged, or the input itself.
+
+    Only a closed mesh is touched. The merged mesh must still be closed and manifold, with the same volume to within 1e-9."""
+    cid = _canon(pts)
+    wp = np.zeros((int(cid.max()) + 1, 3))
+    wp[cid] = pts
+    wt = cid[tri]
+    if (wt[:, 0] == wt[:, 1]).any() or (wt[:, 1] == wt[:, 2]).any() or (wt[:, 0] == wt[:, 2]).any():
+        return pts, tri
+    merged = _merge_planar(wp, wt)
+    if merged is None:
+        return pts, tri
+    before, after = _topology(wp, wt), _topology(*merged)
+    if not after.closed or after.degenerate or after.duplicates or abs(after.volume - before.volume) > 1e-9 * abs(before.volume):
+        return pts, tri
+    return merged
+
+
+def _closed_bodies(pts: np.ndarray, tri: np.ndarray) -> list[tuple[np.ndarray, np.ndarray]] | None:
+    """The separate bodies of a closed mesh that holds several (as vertices and triangles each), or None when it holds one.
+
+    CoACD's manifold pre-pass costs seconds and is only skipped for a single body, but a mesh of closed bodies needs no repair:
+    each body can be decomposed alone."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    cid = _canon(pts)
+    t = cid[tri]
+    n = int(cid.max()) + 1
+    a = np.concatenate([t[:, 0], t[:, 1]])
+    b = np.concatenate([t[:, 1], t[:, 2]])
+    count, label = connected_components(coo_matrix((np.ones(len(a)), (a, b)), shape=(n, n)), directed=False)
+    if count == 1:
+        return None
+    face_body = label[t[:, 0]]
+    bodies = []
+    for body in range(count):
+        bt = tri[face_body == body]
+        used = np.unique(bt)
+        remap = np.zeros(len(pts), np.int64)
+        remap[used] = np.arange(len(used))
+        bodies.append((pts[used], remap[bt].astype(np.int32)))
+    return bodies
+
+
 def generate_colliders(
     meshes: list[MeshData], max_hulls: int, threshold: float = 0.05, asset_name: str = "Asset"
 ) -> list[Hull]:
@@ -2086,29 +2419,40 @@ def generate_colliders(
 
     coacd.set_log_level("error")
     raw: list[tuple[np.ndarray, np.ndarray, float, str]] = []
-    concave: list[tuple[MeshData, float]] = []
+    concave: list[tuple[np.ndarray, np.ndarray, float, _Topo]] = []
+
+    def sort_out(pts: np.ndarray, tri: np.ndarray, topo: _Topo) -> bool:
+        pp, tt, hv = _hull(pts)
+        if topo.closed and topo.volume > 0 and hv <= topo.volume * 1.02:
+            raw.append((pp, tt, hv, "fast_path"))
+            return True
+        concave.append((pts, tri, hv, topo))
+        return False
+
     for m in meshes:
         if not m.collider or len(m.triangles) == 0:
             continue
         pts = np.asarray(m.points, dtype=np.float64)
-        pp, tt, hv = _hull(pts)
-        topo = _topology(pts, np.asarray(m.triangles))
-        if topo.closed and topo.volume > 0 and hv <= topo.volume * 1.02:
-            raw.append((pp, tt, hv, "fast_path"))
-        else:
-            concave.append((m, hv))
+        tri = np.asarray(m.triangles)
+        topo = _topology(pts, tri)
+        if not sort_out(pts, tri, topo) and topo.closed:
+            bodies = _closed_bodies(pts, tri)
+            if bodies:
+                concave.pop()
+                for bp, bt in bodies:
+                    sort_out(bp, bt, _topology(bp, bt))
     if concave:
         budget_left = max(len(concave), max_hulls - len(raw))
-        for k, (m, hv) in enumerate(sorted(concave, key=lambda x: -x[1])):
+        for k, (pts, tri, hv, topo) in enumerate(sorted(concave, key=lambda x: -x[2])):
             share = max(1, budget_left // (len(concave) - k))
             budget_left -= share
-            pts = np.asarray(m.points, dtype=np.float64)
-            tri = np.asarray(m.triangles)
             # preprocess "off" segfaulted CoACD on overlapping multi-body input, so only skip the
             # manifold pre-pass for a single closed body.
-            clean = _topology(pts, tri).closed and _single_component(pts, tri)
+            clean = topo.closed and _single_component(pts, tri)
+            if topo.closed:
+                pts, tri = _decomposition_input(pts, tri)
             parts = coacd.run_coacd(
-                coacd.Mesh(pts, np.asarray(m.triangles, dtype=np.int32)),
+                coacd.Mesh(pts, np.asarray(tri, dtype=np.int32)),
                 threshold=threshold,
                 max_convex_hull=share,
                 preprocess_mode="off" if clean else "auto",
@@ -2271,6 +2615,9 @@ class ExportBundle:
 
 
 def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name: str) -> ExportBundle:
+    # Colliders depend only on the source meshes, but they are not run on a second thread beside the unwrap: in about
+    # 860 such runs the output never differed from this serial order, yet one died with a segmentation fault inside
+    # scipy's ConvexHull while the other thread was in xatlas (none in 400 serial runs). The gain was 0 to 15%.
     t = {}
     t0 = time.perf_counter()
     uvs = unwrap_scene(meshes, budget)

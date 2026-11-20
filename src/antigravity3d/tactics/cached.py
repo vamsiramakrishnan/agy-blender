@@ -33,8 +33,9 @@ from antigravity3d.tactics.governor import Governor
 from antigravity3d.tactics.common import load_png, png_bytes
 
 # 2: analytic UV charts, screen-space-error LODs; 3: parts absent at far LODs; 4: exact removal bracket;
-# 5: computed UV charts scaled to their surface area and placed by the rectangle packer
-BACKEND_VERSION = "kernel-fast_ops/5"
+# 5: computed UV charts scaled to their surface area and placed by the rectangle packer;
+# 6: collider input with coplanar triangles merged, closed bodies of one mesh decomposed separately
+BACKEND_VERSION = "kernel-fast_ops/6"
 CACHED_TAG = "(cached)"  # appended to GeneratedImage.model on a cache hit
 
 

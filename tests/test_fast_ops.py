@@ -21,6 +21,10 @@ from antigravity3d.kernel.fast_ops import (
     uv_overlap_fraction,
     write_gltf,
     _topology,
+    _canon,
+    _decomposition_input,
+    _merge_planar,
+    _point_triangle_distance,
 )
 from antigravity3d.kernel.types import MeshData
 from antigravity3d.state import EngineBudget
@@ -720,6 +724,116 @@ def test_hull_merge_enforces_cap():
     hulls = generate_colliders(ms, 3)
     assert len(hulls) == 3 and all(h.source in ("fast_path", "merged") for h in hulls)
     assert _covers(hulls, np.vstack([m.points for m in ms])) == 1.0
+
+
+def _voxel_solid(filled, size: float = 0.05):
+    """Closed, welded, outward-wound mesh of a voxel set: every planar face is cut into unit squares."""
+    faces = {(1, 0, 0): [(1, 0, 0), (1, 1, 0), (1, 1, 1), (1, 0, 1)], (-1, 0, 0): [(0, 0, 0), (0, 0, 1), (0, 1, 1), (0, 1, 0)],
+             (0, 1, 0): [(0, 1, 0), (0, 1, 1), (1, 1, 1), (1, 1, 0)], (0, -1, 0): [(0, 0, 0), (1, 0, 0), (1, 0, 1), (0, 0, 1)],
+             (0, 0, 1): [(0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1)], (0, 0, -1): [(0, 0, 0), (0, 1, 0), (1, 1, 0), (1, 0, 0)]}
+    filled = set(filled)
+    vid: dict = {}
+    tris = []
+    for (i, j, k) in sorted(filled):
+        for d, corners in faces.items():
+            if (i + d[0], j + d[1], k + d[2]) in filled:
+                continue
+            q = [vid.setdefault((i + a, j + b, k + c), len(vid)) for a, b, c in corners]
+            tris += [(q[0], q[1], q[2]), (q[0], q[2], q[3])]
+    pts = np.array(sorted(vid, key=vid.get), float) * size
+    return md(trimesh.Trimesh(pts, np.array(tris), process=False), "vox")
+
+
+def _u_prism() -> MeshData:  # concave U, 12 x 8 x 10 voxels: about 2,000 triangles for 30 planar faces
+    return _voxel_solid([(i, j, k) for i in range(12) for j in range(8) for k in range(10) if j < 3 or i < 3 or i >= 9])
+
+
+def _table() -> MeshData:  # a slab on four legs: the slab's underside is one face with four holes
+    return _voxel_solid([(i, j, k) for i in range(16) for j in range(16) for k in range(16) if k >= 13 or ((i < 3 or i >= 13) and (j < 3 or j >= 13))])
+
+
+def _welded(m: MeshData):
+    c = _canon(m.points)
+    p = np.zeros((int(c.max()) + 1, 3))
+    p[c] = m.points
+    return p, c[m.triangles]
+
+
+@pytest.mark.parametrize("make, max_tris", [(_u_prism, 40), (_table, 80)])
+def test_planar_merge_keeps_the_solid_exactly(make, max_tris):
+    m = make()
+    p, t = _welded(m)
+    before = _topology(p, t)
+    out = _merge_planar(p, t)
+    assert out is not None and len(t) > 1000 and len(out[1]) <= max_tris
+    after = _topology(*out)
+    assert after.closed and not after.degenerate and not after.duplicates
+    assert after.volume == pytest.approx(before.volume, rel=1e-12)
+    assert np.allclose(ConvexHull(out[0]).volume, ConvexHull(p).volume, rtol=1e-12)
+    # every original vertex still lies on the new surface
+    tp = out[0][out[1]]
+    near = np.min([_point_triangle_distance(p, *(np.broadcast_to(c, p.shape) for c in tri)) for tri in tp], axis=0)
+    assert near.max() < 1e-9
+    again = _merge_planar(p, t)
+    assert np.array_equal(again[0], out[0]) and np.array_equal(again[1], out[1])  # deterministic
+
+
+def test_planar_merge_leaves_curved_and_open_meshes_alone():
+    tor = md(trimesh.creation.torus(0.5, 0.18, major_sections=40, minor_sections=20), "tor")
+    assert _merge_planar(*_welded(tor)) is None
+    assert _decomposition_input(tor.points, tor.triangles)[1] is tor.triangles
+    u = _u_prism()
+    cut = np.asarray(u.triangles)[:-2]  # open mesh
+    pts, tri = _decomposition_input(u.points, cut)
+    assert tri is cut and pts is u.points
+
+
+def test_decomposition_gets_the_merged_solid_and_hulls_still_cover(monkeypatch):
+    import coacd
+
+    seen = []
+    real = coacd.run_coacd
+
+    def spy(mesh, **kw):
+        seen.append(len(mesh.indices))
+        return real(mesh, **kw)
+
+    monkeypatch.setattr(coacd, "run_coacd", spy)
+    m = _u_prism()
+    vol = trimesh.Trimesh(m.points, m.triangles).volume
+    hulls = generate_colliders([m], 8, asset_name="U")
+    assert seen and max(seen) <= 40 < len(m.triangles)
+    assert 2 <= len(hulls) <= 8 and _covers(hulls, m.points) == 1.0
+    assert vol <= sum(h.volume for h in hulls) <= 1.05 * vol
+    for h in hulls:  # no hull leaves the mesh's own convex hull
+        assert ConvexHull(np.vstack([m.points, h.points])).volume <= ConvexHull(m.points).volume * (1 + 1e-6)  # CoACD returns float32 vertices
+
+
+def test_closed_bodies_in_one_mesh_are_decomposed_one_by_one(monkeypatch):
+    import coacd
+
+    modes = []
+    real = coacd.run_coacd
+
+    def spy(mesh, **kw):
+        modes.append(kw["preprocess_mode"])
+        return real(mesh, **kw)
+
+    monkeypatch.setattr(coacd, "run_coacd", spy)
+    u, v = _u_prism(), _table()
+    pts = np.vstack([u.points, v.points + [2.0, 0, 0], trimesh.creation.box((0.3, 0.3, 0.3)).vertices + [0, 2.0, 0]])
+    box_tris = trimesh.creation.box((0.3, 0.3, 0.3)).faces
+    tri = np.vstack([u.triangles, v.triangles + len(u.points), box_tris + len(u.points) + len(v.points)])
+    m = MeshData("bodies", "/Asset/bodies", pts, tri.astype(np.int32), "m")
+    assert _topology(m.points, m.triangles).closed
+    t = time.perf_counter()
+    hulls = generate_colliders([m], 12, asset_name="B")
+    dt = time.perf_counter() - t
+    # the manifold repair pass costs seconds and would also re-mesh the bodies; closed bodies need neither
+    assert modes == ["off", "off"] and dt < 5.0
+    assert [h.source for h in hulls].count("fast_path") == 1  # the cube
+    assert _covers(hulls, m.points) == 1.0
+    assert sum(h.volume for h in hulls) <= 1.05 * (_topology(u.points, u.triangles).volume + _topology(v.points, v.triangles).volume + 0.027)
 
 
 # ------------------------------------------------------------------ export + timing
