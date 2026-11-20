@@ -369,3 +369,35 @@ def test_write_package_usd_keeps_the_whole_material_including_double_sided(tmp_p
     assert not read_material(UsdShade.Material(stage.GetPrimAtPath("/Kit/Looks/rock_m"))).double_sided
     assert stage.GetPrimAtPath("/Kit/leaf").GetAttribute("doubleSided").Get() is True
     assert not stage.GetPrimAtPath("/Kit/rock").GetAttribute("doubleSided").Get()
+
+
+def test_double_sided_sync_leaves_a_source_meshs_own_value_alone(tmp_path: Path) -> None:
+    from pxr import UsdGeom
+
+    src = Usd.Stage.CreateNew(str(tmp_path / "foliage.usda"))
+    mesh = UsdGeom.Mesh.Define(src, "/Leaf")
+    mesh.CreatePointsAttr([(0, 0, 0), (1, 0, 0), (0, 1, 0)])
+    mesh.CreateFaceVertexCountsAttr([3])
+    mesh.CreateFaceVertexIndicesAttr([0, 1, 2])
+    mesh.CreateDoubleSidedAttr(True)
+    src.SetDefaultPrim(mesh.GetPrim())
+    src.GetRootLayer().Save()
+    nodes = [NodeIR(id="leaf", kind="mesh_ref", params={"path": str(tmp_path / "foliage.usda")}, material_id="one"),
+             NodeIR(id="pane", kind="box", params={"size": [1, 1, 1]}, material_id="two")]
+    two, one = MaterialIR(id="two", double_sided=True), MaterialIR(id="one")
+    scene = SceneIR(asset_name="Mix", nodes=nodes, materials=[two, one])
+    stage = Usd.Stage.CreateInMemory()
+
+    def leaf_sided() -> bool:
+        return bool(stage.GetPrimAtPath("/Mix/leaf/ref").GetAttribute("doubleSided").Get())  # the referenced mesh
+
+    author_scene(stage, scene)
+    assert leaf_sided() and stage.GetPrimAtPath("/Mix/pane").GetAttribute("doubleSided").Get()
+    # the geometry bound to "one" is double-sided, so the reader says so (the glTF material is double-sided for that mesh)
+    assert read_material(UsdShade.Material(stage.GetPrimAtPath("/Mix/Looks/one"))).double_sided
+    author_scene(stage, scene.model_copy(update={"materials": [two.model_copy(update={"roughness": 0.9}), one]}))  # an edit
+    assert leaf_sided()
+    author_scene(stage, scene.model_copy(update={"materials": [two.model_copy(update={"double_sided": False}), one]}))  # cleared
+    assert leaf_sided() and not stage.GetPrimAtPath("/Mix/pane").GetAttribute("doubleSided").Get()
+    author_scene(stage, scene.model_copy(update={"materials": [two.model_copy(update={"double_sided": False}), one]}))  # no-op pass
+    assert leaf_sided()

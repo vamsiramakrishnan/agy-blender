@@ -350,29 +350,41 @@ def _put(owner, name: str, vtype: Sdf.ValueTypeName, value, default) -> UsdShade
     return _set_input(owner, name, vtype, value)
 
 
-def set_double_sided(prim: Usd.Prim, value: bool) -> None:
-    """``UsdGeom.Gprim.doubleSided`` on a bound mesh: authored when True, overwritten when an opinion exists."""
-    if not prim.IsA(UsdGeom.Gprim):  # groups carry no geometry: a material bound to one does not propagate it
-        return
-    attr = prim.GetAttribute("doubleSided")
-    if value or (attr and attr.HasAuthoredValue()):
-        UsdGeom.Gprim(prim).CreateDoubleSidedAttr().Set(bool(value))
+_DS_OWNER = "agy:doubleSidedAuthored"  # customData on a mesh: True while the sync owns its ``doubleSided`` opinion
+
+
+def _sync_mesh(prim: Usd.Prim, want: bool) -> None:
+    """Brings one mesh's ``doubleSided`` to ``want``, touching only what the sync itself authored.
+
+    A mesh that is already double-sided (its source says so, or an earlier sync did) is left alone when ``want``;
+    the sync claims a mesh (marker True) only when it is the one that turns the attribute on, and only a claimed
+    mesh is turned back off. A source mesh's own ``doubleSided = true`` therefore survives every edit.
+    """
+    attr = UsdGeom.Gprim(prim).GetDoubleSidedAttr()
+    if want:
+        if not attr.Get():
+            attr.Set(True)
+            prim.SetCustomDataByKey(_DS_OWNER, True)
+    elif prim.GetCustomDataByKey(_DS_OWNER) is True:
+        attr.Set(False)  # an explicit value in this layer overrides the one authored in a weaker layer
+        prim.SetCustomDataByKey(_DS_OWNER, False)
 
 
 def sync_double_sided(stage: Usd.Stage, root: Usd.Prim, sided_ids: set[str]) -> None:
     """Makes ``doubleSided`` follow the binding the renderer resolves, for every mesh under ``root``.
 
     A mesh gets the opinion when ``ComputeBoundMaterial`` (direct or inherited from a group) lands on a material
-    named in ``sided_ids`` (looks of ``root``); one that no longer resolves to such a material loses it, so
-    re-binding a child or editing a material never leaves a stale value.
+    named in ``sided_ids`` (looks of ``root``); one the sync had switched on that no longer resolves to such a
+    material is switched off, so re-binding a child or editing a material leaves nothing stale and nothing that
+    belongs to a source file is overwritten (see :func:`_sync_mesh`). Walks every mesh under ``root``: callers run
+    it only when a double-sided material is, or was, in play.
     """
     looks = root.GetPath().AppendChild(LOOKS)
     for prim in Usd.PrimRange(root, Usd.PrimIsActive):
         if not prim.IsA(UsdGeom.Gprim):
             continue
         mat, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
-        want = bool(mat) and mat.GetPath().GetParentPath() == looks and mat.GetPath().name in sided_ids
-        set_double_sided(prim, want)
+        _sync_mesh(prim, bool(mat) and mat.GetPath().GetParentPath() == looks and mat.GetPath().name in sided_ids)
 
 
 def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
@@ -483,7 +495,11 @@ class MaterialParams:
 
 
 def bound_double_sided(mat: UsdShade.Material) -> bool:
-    """True when any mesh that resolves to this material (bound directly or through a parent) is double-sided."""
+    """True when any mesh that resolves to this material (bound directly or through a parent) is double-sided.
+
+    Includes a source mesh that carries its own ``doubleSided`` (imported foliage, cloth): the geometry bound to the
+    material decides, so the GLB material is double-sided for that mesh whatever the IR flag says.
+    """
     path = mat.GetPath()
     for prim in mat.GetPrim().GetStage().Traverse():
         if prim.IsA(UsdGeom.Gprim) and UsdGeom.Gprim(prim).GetDoubleSidedAttr().Get():
@@ -740,7 +756,9 @@ def author_scene(
     for p in drop:
         p.SetActive(False)
 
-    sync_double_sided(stage, root_prim, {m.id for m in scene.materials if m.double_sided})
+    sided = {m.id for m in scene.materials if m.double_sided}
+    if sided or any(m.double_sided for m in (prev.materials if prev else ())):  # nothing to set, nothing to clear
+        sync_double_sided(stage, root_prim, sided)
     root_prim.SetCustomDataByKey(IR_KEY, scene.model_dump_json())
 
 

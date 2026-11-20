@@ -256,10 +256,19 @@ def _material_checks(stage: Usd.Stage, add) -> None:
     """Warnings about authored materials whose parameters will not do what they say (via ``read_material``)."""
     from antigravity3d.kernel.compile_ir import read_material
 
+    mixed: set[Sdf.Path] = set()
+    gprims = [p for p in stage.Traverse() if p.IsA(UsdGeom.Gprim)]
+    if any(UsdGeom.Gprim(p).GetDoubleSidedAttr().Get() for p in gprims):  # nothing can disagree otherwise
+        flags: dict[Sdf.Path, set[bool]] = {}
+        for p in gprims:
+            bound = UsdShade.MaterialBindingAPI(p).ComputeBoundMaterial()[0]
+            if bound:
+                flags.setdefault(bound.GetPath(), set()).add(bool(UsdGeom.Gprim(p).GetDoubleSidedAttr().Get()))
+        mixed = {path for path, f in flags.items() if len(f) > 1}
     for prim in stage.Traverse():
         if not prim.IsA(UsdShade.Material):
             continue
-        params = read_material(UsdShade.Material(prim))
+        params = read_material(UsdShade.Material(prim), double_sided=False)  # sidedness is checked below, once
         albedo = params.maps.get("albedo")
         if params.alpha_mode != "OPAQUE" and params.alpha_from_albedo and albedo is not None:
             f = albedo.resolved or albedo.authored
@@ -273,9 +282,7 @@ def _material_checks(stage: Usd.Stage, add) -> None:
             if not has_alpha:
                 add("material_alpha", "warning", prim.GetName(),
                     f"alpha_mode {params.alpha_mode} reads the albedo map's alpha channel but {Path(f).name} has none: fully opaque")
-        sided = {bool(UsdGeom.Gprim(p).GetDoubleSidedAttr().Get()) for p in stage.Traverse()
-                 if p.IsA(UsdGeom.Gprim) and UsdShade.MaterialBindingAPI(p).ComputeBoundMaterial()[0].GetPath() == prim.GetPath()}
-        if len(sided) > 1:
+        if prim.GetPath() in mixed:
             add("material_double_sided", "warning", prim.GetName(),
                 "bound meshes disagree on doubleSided; the GLB exports one material per setting")
 
