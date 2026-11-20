@@ -136,6 +136,24 @@ def test_second_identical_run_hits_the_cache_for_everything(prop_runs) -> None:
     assert rep2.ok and rep2.extras["cost"]["cache"]["hits"] > 0
 
 
+def test_two_runs_of_one_prompt_ship_identical_packages(prop_runs) -> None:
+    """Through the whole pipeline the package is a function of the scene and the budget: a cold-cache run and a
+    warm-cache run of one prompt, in different directories, ship the same bytes. The manifest used to carry each
+    step's duration, which made it the one file that differed; durations belong to the run report."""
+    _, _, runs = prop_runs
+    packages = [Path(rep.extras["outputs"]["usd"]).parent for rep, _, _ in runs]
+    assert packages[0] != packages[1]
+    files = [{str(p.relative_to(pkg)): p.read_bytes() for p in sorted(pkg.rglob("*")) if p.is_file()} for pkg in packages]
+    assert set(files[0]) == set(files[1]) and {"manifest.json", "inspector.html"} <= set(files[0])
+    different = sorted(name for name in files[0] if files[0][name] != files[1][name])
+    assert not different, f"files that differ between two runs of the same prompt: {different}"
+    shipped = json.loads(files[0]["manifest.json"])["evidence"]["steps"]
+    assert shipped and all(set(step) == {"name", "status", "detail"} for step in shipped)
+    recorded = [rep.extras["pyramid"]["steps"] for rep, _, _ in runs]  # the run reports keep timings and cache state
+    assert [s["name"] for s in recorded[0]] == [s["name"] for s in shipped] and all("ms" in s for s in recorded[0])
+    assert [next(s["run"] for s in steps if s["name"] == "uv_lod_colliders") for steps in recorded] == ["cache=miss", "cache=hit"]
+
+
 # --------------------------------------------------------------------------- batch sanitize
 
 

@@ -79,8 +79,9 @@ class RoundTrace:
 class StepResult:
     name: str
     status: str  # "passed" | "warned" | "failed" | "skipped"
-    detail: str = ""
+    detail: str = ""  # what was checked or produced: a fact about the asset, shipped in the package manifest
     ms: float = 0.0
+    run: str = ""  # a fact about this run only (cache state); with ``ms`` it stays in the run report
 
 
 @dataclass
@@ -644,11 +645,10 @@ class _Run:
         async def export() -> tuple[str, str]:
             nonlocal bundle
             bundle = await self.prepare_export_bundle()
-            hit = self.bundle_cache_hit
             res.objects["bundle"] = bundle
             levels = [sum(len(v[k].triangles) for v in bundle.lods.values()) for k in range(min((len(v) for v in bundle.lods.values()), default=0))]
             bad = [u.node_id for u in bundle.uvs if not u.within(budget)]
-            desc = f"uv={len(bundle.uvs)} lod_tris={levels} hulls={len(bundle.colliders)}" + ("" if hit is None else f" cache={'hit' if hit else 'miss'}")
+            desc = f"uv={len(bundle.uvs)} lod_tris={levels} hulls={len(bundle.colliders)}"
             if any(b >= a for a, b in zip(levels, levels[1:])):
                 return "failed", f"LOD triangle counts do not strictly descend: {levels}"
             if bad:
@@ -657,6 +657,8 @@ class _Run:
             return "passed", desc
 
         await self.guarded("uv_lod_colliders", export)
+        if self.bundle_cache_hit is not None:  # the same bundle either way: where it came from is not part of the package
+            res.steps[-1].run = f"cache={'hit' if self.bundle_cache_hit else 'miss'}"
         if bundle is None:
             for n in ("usd_package", "usd_validate", "engine_compliance", "lod_pop", "lod_pop_vision", "export_glb", "engine_import", "engine_parity", "web_runtime"):
                 self.step(n, "skipped", "UV/LOD/collider stage failed")

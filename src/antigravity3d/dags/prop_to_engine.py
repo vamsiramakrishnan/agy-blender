@@ -196,9 +196,11 @@ class PropToEngineDAG:
             manifest["verified"] = res.verified and not getattr(self.forge, "offline", False)
             if "engine_import" in res.objects:
                 manifest["validation"]["engine_import"] = res.objects["engine_import"]
+            # What was checked and how it ended ships with the package. How long each step took is a fact about the run,
+            # not the asset: it stays in the run report, so two runs of one scene still ship identical bytes.
             manifest["evidence"] = {"render_tier": res.render_tier, "lookdev": res.live_lookdev,
                                     "engine_parity": res.live_parity, "silhouette_iou": res.scores.get("engine_silhouette_iou"),
-                                    "steps": [vars(s) for s in res.steps]}
+                                    "steps": [{"name": s.name, "status": s.status, "detail": s.detail} for s in res.steps]}
             if (wd / "ortho.png").exists():
                 shutil.copyfile(wd / "ortho.png", pkg / "ortho.png")
                 out["ortho"] = str(pkg / "ortho.png")
