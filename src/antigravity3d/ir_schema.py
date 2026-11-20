@@ -476,12 +476,10 @@ def _ops_param(min_items: int = 1) -> dict[str, Any]:
 
 
 def apply_scene_ir_parameters() -> dict[str, Any]:
-    return {"type": "object", "properties": {
-        "ops": {**_ops_param(), "description": "A patch: ops applied in order to the current scene."},
-        "nodes": {"type": "array", "items": tool_node_schema(),
-                  "description": "With materials: a full scene that REPLACES the current one. Omit when sending ops."},
-        "materials": {"type": "array", "items": tool_material_schema(), "description": "Materials of a full scene."},
-    }}
+    """Only the patch form is declared: a full scene costs the node and material schemas a second time on every step,
+    and ``upsert_node`` / ``upsert_material`` / ``remove_node`` ops express the same edit."""
+    return {"type": "object", "properties": {"ops": {**_ops_param(), "description": "Applied in order, as one edit."}},
+            "required": ["ops"]}
 
 
 def propose_variants_parameters() -> dict[str, Any]:
