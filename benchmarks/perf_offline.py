@@ -368,6 +368,37 @@ def u_shape_mesh(target_tris: int, name: str = "ushape"):
     return as_mesh(name, pts, tris, "m0")
 
 
+def three_bodies_mesh(name: str = "three_bodies"):
+    """One mesh holding three separate closed bodies: two concave U prisms of different size and a cube.
+
+    Kitbashed and imported meshes are often like this: several closed solids exported as a single mesh."""
+    import trimesh
+
+    a, b = u_shape_mesh(700), u_shape_mesh(1300)
+    cube = trimesh.creation.box(extents=[0.3, 0.3, 0.3])
+    pts, tris, base = [], [], 0
+    for p, t, off in ((a.points, a.triangles, (0.0, 0.0, 0.0)), (b.points, b.triangles, (1.0, 0.0, 0.0)), (cube.vertices, cube.faces, (2.2, 0.2, 0.15))):
+        pts.append(np.asarray(p, np.float64) + np.asarray(off))
+        tris.append(np.asarray(t, np.int64) + base)
+        base += len(p)
+    return as_mesh(name, np.vstack(pts), np.vstack(tris), "m0")
+
+
+def assembly_meshes() -> list:
+    """A 2 m table top with 30 small parts on it (boxes and icospheres of 3 to 5 cm): many small parts next to a few
+    large triangles, which is what a dressed prop or a kit piece looks like to the LOD generator."""
+    import trimesh
+
+    top = trimesh.creation.box(extents=[2.0, 1.0, 0.05]).subdivide()
+    parts = [as_mesh("top", top.vertices + np.array([0, 0, 0.75]), top.faces, "m0")]
+    rng = np.random.default_rng(7)
+    for i in range(30):
+        s = trimesh.creation.icosphere(subdivisions=2, radius=0.03) if i % 2 else trimesh.creation.box(extents=[0.05, 0.04, 0.03])
+        off = np.array([rng.uniform(-0.9, 0.9), rng.uniform(-0.45, 0.45), 0.775 + 0.03])
+        parts.append(as_mesh(f"small{i:02d}", s.vertices + off, s.faces, f"m{i % 3}"))
+    return parts
+
+
 # ---------------------------------------------------------------------------------------------------------
 # Harness session (model-facing tools driven with a stub ToolContext, as tests/test_harness_tools.py does)
 # ---------------------------------------------------------------------------------------------------------
@@ -686,8 +717,8 @@ def _mesh_params(label: str, m) -> dict[str, Any]:
 
 
 @bench("kernel.uv.unwrap",
-       "fast_ops.unwrap_uvs (xatlas unwrap + pack + stretch statistics) at 1024 px/m and the default 2048 atlas resolution.",
-       "Writing UVs to USD, LOD generation. Convex spheres and one concave U prism.")
+       "fast_ops.unwrap_uvs at 1024 px/m and the default 2048 atlas resolution on meshes that need computed charts: xatlas computes the charts, the rectangle packer places them (density search included), plus distortion statistics.",
+       "Writing UVs to USD, LOD generation. Convex spheres and one concave U prism. IR primitives take the exact-chart path, which kernel.export.pipeline exercises (crate, barrel).")
 def d_uv(ctx: Ctx) -> list[Case]:
     budget = EngineBudget("unreal_5")
     return [timeit(lambda m=m: fast_ops.unwrap_uvs(m, budget.texel_density_px_per_m), ctx,
@@ -696,8 +727,8 @@ def d_uv(ctx: Ctx) -> list[Case]:
 
 
 @bench("kernel.lod.generate",
-       "fast_ops.generate_lods with default ratios (1.0, 0.5, 0.25, 0.1): meshoptimizer simplify + cache/overdraw/fetch optimisation per level. with_uvs=true is the pipeline's call (seam-split points + UVs from unwrap, attribute-aware simplify); with_uvs=false is the weld-first path.",
-       "UV unwrap (done once, untimed, for the with_uvs cases), writing LODs anywhere.")
+       "fast_ops.generate_lods: levels bounded by one pixel of a 1080-pixel frame at the size each is shown (meshoptimizer simplify per attempt, a two-sided surface distance measured per attempt, cache/overdraw/fetch optimisation per level). with_uvs=true is the pipeline's call (seam-split points + UVs from unwrap, attribute-aware simplify); with_uvs=false is the weld-first path.",
+       "UV unwrap (done once, untimed, for the with_uvs cases), writing LODs anywhere. Assemblies of several parts: kernel.lod.assembly.")
 def d_lod(ctx: Ctx) -> list[Case]:
     budget = EngineBudget("unreal_5")
     cases = []
@@ -729,13 +760,36 @@ def d_collider_convex(ctx: Ctx) -> list[Case]:
 
 
 @bench("kernel.collider.concave",
-       "fast_ops.generate_colliders (max_hulls=8) on a concave U-shaped prism: topology check, CoACD decomposition (threshold 0.05, the package's settings), per-part hull.",
-       "Hull authoring. CoACD may use threads that OMP_NUM_THREADS does not cap; extra.process_cpu_over_wall shows whether it did.")
+       "fast_ops.generate_colliders (max_hulls=8) on concave input: a U-shaped prism (about 30 planar faces in 2,000 triangles), and one mesh holding three closed bodies (two U prisms and a cube). Topology check, the input CoACD is given, CoACD decomposition (threshold 0.05, the package's settings), per-part hull.",
+       "Hull authoring. CoACD is single-threaded here. extra.tightness is total hull volume over mesh volume (1.0 = the hulls enclose no empty space).")
 def d_collider_concave(ctx: Ctx) -> list[Case]:
-    label, m = [x for x in single_meshes(ctx) if x[0].startswith("u_shape")][0]
-    hulls = fast_ops.generate_colliders([m], 8)
-    return [timeit(lambda: fast_ops.generate_colliders([m], 8), ctx, params=_mesh_params(label, m),
-                   extra={"hulls": len(hulls), "sources": sorted({h.source for h in hulls})})]
+    subjects = [x for x in single_meshes(ctx) if x[0].startswith("u_shape")] + [("three_bodies", three_bodies_mesh())]
+    cases = []
+    for label, m in subjects:
+        hulls = fast_ops.generate_colliders([m], 8)
+        p, t = np.asarray(m.points, np.float64), np.asarray(m.triangles)
+        volume = float(abs(np.einsum("ij,ij->i", p[t[:, 0]], np.cross(p[t[:, 1]], p[t[:, 2]])).sum()) / 6.0)
+        cases.append(timeit(lambda m=m: fast_ops.generate_colliders([m], 8), ctx, params=_mesh_params(label, m),
+                            extra={"hulls": len(hulls), "sources": sorted({h.source for h in hulls}),
+                                   "tightness": round(sum(h.volume for h in hulls) / volume, 4)}))
+    return cases
+
+
+@bench("kernel.lod.assembly",
+       "ONE SAMPLE, NO WARM-UP: fast_ops.generate_asset_lods on a 2 m table top with 30 small parts on it (boxes and icospheres of 3 to 5 cm), with UVs: every part's levels (simplify and measure per attempt) and the search for parts that may be absent at far levels.",
+       "UV unwrap of the parts (once, untimed). One sample because the tree before the second round of fixes needed about a minute for this call; n=1, p95 null, and the first call also pays any first-use costs.")
+def d_lod_assembly(ctx: Ctx) -> list[Case]:
+    parts = assembly_meshes()
+    uvs = fast_ops.unwrap_scene(parts, EngineBudget("unreal_5"))
+    gc.collect()
+    t0 = time.perf_counter_ns()
+    chains = fast_ops.generate_asset_lods(uvs)
+    ms = (time.perf_counter_ns() - t0) / 1e6
+    levels = max(len(c) for c in chains.values())
+    return [Case({"mesh": "assembly_30_on_1", "parts": len(parts), "tris": int(sum(len(m.triangles) for m in parts))}, [ms],
+                 {"single_sample_no_warmup": True,
+                  "lod_tris": [int(sum(c[i].tri_count for c in chains.values() if i < len(c))) for i in range(levels)],
+                  "lod_parts_present": [int(sum(1 for c in chains.values() if i < len(c) and c[i].tri_count)) for i in range(levels)]})]
 
 
 def prop_kinds(ctx: Ctx) -> tuple[str, ...]:
@@ -782,7 +836,7 @@ def _add_textures(ctx: Ctx, scene, px: int):
 
 
 @bench("kernel.export.pipeline",
-       "fast_ops.run_export_pipeline: unwrap_scene (xatlas, one atlas per material) + generate_lods per mesh + generate_colliders. This is the 'UV + LOD + collider outside Blender' figure.",
+       "fast_ops.run_export_pipeline: unwrap_scene (exact charts for IR primitives, xatlas charts otherwise, one atlas per material) + generate_asset_lods + generate_colliders. This is the 'UV + LOD + collider outside Blender' figure.",
        "Package writing/validation, USD authoring, mesh extraction (meshes are prepared untimed). Per-stage medians from ExportBundle.timings_ms are in extra.parts_median_ms.")
 def d_pipeline(ctx: Ctx) -> list[Case]:
     budget = EngineBudget("unreal_5")

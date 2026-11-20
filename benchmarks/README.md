@@ -105,10 +105,11 @@ All `*_ms` values are milliseconds per call of the timed region. `extra` carries
 | `harness.qa.visual_overhead` | `run_visual_qa` against the fake client with a current preview: tool-side overhead only; no model latency exists here | preview render, any model call |
 | `kernel.raster.contact_sheet` | 4-view contact sheet at 256 and 512 px, about 1k / 5k / 20k triangles (12 spheres) | USD mesh extraction, PNG encode |
 | `kernel.som.marked_sheet` | set-of-mark sheet at 256 px, same scenes | extraction, any judge call |
-| `kernel.uv.unwrap` | `unwrap_uvs` at 1024 px/m into a 2048 atlas on UV spheres of about 500 / 2,000 / 10,000 / 50,000 triangles and one concave U prism. These are computed meshes, so the charts come from xatlas; primitives, which get exact charts, are timed in the crate and barrel rows of `kernel.export.pipeline` | USD authoring |
+| `kernel.uv.unwrap` | `unwrap_uvs` at 1024 px/m into a 2048 atlas on UV spheres of about 500 / 2,000 / 10,000 / 50,000 triangles and one concave U prism. These are computed meshes: xatlas computes their charts and the rectangle packer places them; primitives, which get exact charts, are timed in the crate and barrel rows of `kernel.export.pipeline` | USD authoring |
 | `kernel.lod.generate` | `generate_lods`: levels bounded by a measured deviation of one pixel on a 1080-pixel frame (ratio-driven levels before the fixes); `with_uvs` true is the pipeline's call, false the weld-first path. `extra.lod_tris` lists the levels | unwrap |
 | `kernel.collider.convex` | `generate_colliders` on the convex spheres (hull fast path, no CoACD) | hull authoring |
-| `kernel.collider.concave` | `generate_colliders` on the U prism (CoACD) | hull authoring |
+| `kernel.lod.assembly` | `generate_asset_lods` on a 2 m table top with 30 small parts on it, with UVs: every part's levels and the search for parts that may be absent at far levels. One sample, no warm-up (the tree before the second round of fixes took about a minute for this call) | unwrap |
+| `kernel.collider.concave` | `generate_colliders` on the U prism and on one mesh that holds three closed bodies (two U prisms and a cube); CoACD does the decomposition. `extra.tightness` is hull volume over mesh volume | hull authoring |
 | `kernel.export.pipeline` | `run_export_pipeline` (UV + LOD + colliders): the single meshes, and the TemplateAuthor crate and barrel; per-stage split in `parts_median_ms` | mesh extraction, packaging, validation |
 | `kernel.qa.tier1` | `tier1_qa` on the crate and barrel | extraction |
 | `kernel.validate.usd` | `validate_usd(stage)`, `check_engine_compliance`, and `validate_usd(path)` (includes the file open), on the written package USD | package write |
