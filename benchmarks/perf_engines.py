@@ -54,17 +54,13 @@ SHEET_PX = 256
 RENDER_REQUESTS = (("workbench", 3), ("eevee", 3), ("cycles", 2))  # what render_usd callers ask for: 512 px, 16 samples, transparent
 
 EQUIVALENCE = {
-    "uv_unwrap": "NOT the same algorithm. Kernel: xatlas chart computation + packing at a requested texel density + stretch statistics "
-                 "(analytic charts disabled here so both sides compute charts). Blender smart_project: angle-based projection charts + island packing, no density fit. "
-                 "Islands and total UV area are recorded for both; compare them before reading the ratio.",
-    "uv_unwrap_angle_based": "NOT the same algorithm. bpy.ops.uv.unwrap(ANGLE_BASED) needs seams; seams are marked on edges sharper than 40 degrees, so a smooth sphere "
-                             "gets none and unwraps as one chart (check islands). Cheap to run, weak as a comparison.",
-    "lod": "Different algorithms, same targets. Kernel: meshoptimizer simplify per level + cache/overdraw/fetch optimisation + measured surface deviation per level. "
-           "Blender: Decimate (collapse) from the original mesh to each level's triangle count, applied, no deviation measurement. Triangle counts reached are recorded for both.",
-    "convex_hull": "Roughly the same work. Kernel: generate_colliders per part (topology check, scipy ConvexHull, fast path; CoACD only for concave parts). "
-                   "Blender: bmesh.ops.convex_hull on the part's vertices. Hull vertex counts recorded; the kernel also computes volume and a collider mesh.",
-    "sheet_4_views": "Different renderers. Kernel: the software rasteriser's clay sheet (preview_sheet, 4 views, 256 px tiles, labelled). "
-                     "Blender: Workbench engine (studio lighting, flat colour), 4 orthographic 256 px renders written to PNG. Foreground fraction recorded per view.",
+    "uv_unwrap": "NOT the same algorithm. Kernel: xatlas charts + packing at a requested texel density + stretch statistics (analytic charts off, so charts are computed on both sides). "
+                 "Blender: smart_project (angle-based projection charts + island packing, no density fit). Compare islands and uv_area before reading the ratio. "
+                 "'kernel as the pipeline runs it' is unwrap_scene with default settings, where IR primitives get analytic charts.",
+    "uv_unwrap_angle_based": "NOT the same algorithm. uv.unwrap(ANGLE_BASED) needs seams; they are marked on edges sharper than 40 degrees, so a smooth sphere gets none and is one chart (see islands). Weak comparison.",
+    "lod": "Different algorithms, same targets. Kernel: meshoptimizer simplify per level + cache/overdraw optimisation + measured deviation. Blender: the edit-mode Decimate operator (collapse) from the original to each level's triangle count, no deviation measured.",
+    "convex_hull": "Roughly the same work. Kernel: generate_colliders per part (topology check, scipy ConvexHull, also volume and a collider mesh). Blender: bmesh.ops.convex_hull on the part's vertices.",
+    "sheet_4_views": "Different renderers. Kernel: preview_sheet (clay rasteriser, 4 labelled 256 px tiles). Blender: Workbench, 4 renders to PNG. Cameras copy the kernel's view directions, fit rule (projected bounding box fills 0.88 of the frame, centred) and 30 degree pinhole for 'persp'; shading, background and anti-aliasing still differ, so foreground fractions agree only approximately.",
 }
 
 # ------------------------------------------------------------------------------------------------ small helpers
@@ -103,7 +99,15 @@ class Run:
             traceback.print_exc()
         return msg
 
-    def attempt(self, store: dict, key: str, fn: Callable[[], dict], *, share: float = 1.0) -> Any:
+    @staticmethod
+    def error_entry(msg: str, e: BaseException) -> dict[str, Any]:
+        out: dict[str, Any] = {"status": "error", "error": msg}
+        tail = getattr(e, "trace_tail", "")  # BlenderOpError carries the daemon's last traceback lines
+        if tail:
+            out["trace_tail"] = tail
+        return out
+
+    def attempt(self, store: dict, key: str, fn: Callable[[], dict], *, share: float = 1.0, path: str | None = None) -> Any:
         """Runs one measurement; an exception becomes ``{status: error, error: text}`` and never propagates."""
         if self.over(share):
             store[key] = {"status": "skipped", "reason": f"time budget ({self.budget_s:.0f}s) used up"}
@@ -113,12 +117,12 @@ class Run:
             out = fn()
             out.setdefault("status", "ok")
         except Exception as e:  # noqa: BLE001 - a failed measurement must not abort the rest
-            out = {"status": "error", "error": self.record_error(key, e)}
+            out = self.error_entry(self.record_error(path or key, e), e)
         out["wall_s"] = _r(time.perf_counter() - t0, 2)
         store[key] = out
         return out
 
-    async def aattempt(self, store: dict, key: str, fn: Callable[[], Any], *, share: float = 1.0) -> Any:
+    async def aattempt(self, store: dict, key: str, fn: Callable[[], Any], *, share: float = 1.0, path: str | None = None) -> Any:
         if self.over(share):
             store[key] = {"status": "skipped", "reason": f"time budget ({self.budget_s:.0f}s) used up"}
             return None
@@ -127,7 +131,7 @@ class Run:
             out = await fn()
             out.setdefault("status", "ok")
         except Exception as e:  # noqa: BLE001
-            out = {"status": "error", "error": self.record_error(key, e)}
+            out = self.error_entry(self.record_error(path or key, e), e)
         out["wall_s"] = _r(time.perf_counter() - t0, 2)
         store[key] = out
         return out
@@ -271,18 +275,13 @@ def make(part, name="agy_part"):
     me.update()
     ob = bpy.data.objects.new(name, me)
     bpy.context.scene.collection.objects.link(ob)
+    bpy.context.view_layer.update()  # a new object enters the view layer on this call, not lazily
     return ob
 
-def drop(ob):
-    me = ob.data
-    bpy.data.objects.remove(ob, do_unlink=True)
-    bpy.data.meshes.remove(me)
-
 def activate(ob):
-    for o in bpy.context.view_layer.objects:
-        o.select_set(False)
+    # Only ever make the new object active. The layer's object list is not read: objects made earlier
+    # stay in the scene (they are never removed here), and the operators below act on the active object.
     bpy.context.view_layer.objects.active = ob
-    ob.select_set(True)
 
 def tri_count(ob):
     return sum(len(p.vertices) - 2 for p in ob.data.polygons)
@@ -355,7 +354,6 @@ for rep in range(REPS):
             islands += n
             uv_area += a
             tris += tri_count(ob)
-        drop(ob)
     times.append(total * 1000)
 result = {"times_ms": times, "setup_ms_per_part_median": sorted(build_ms)[len(build_ms) // 2], "islands": islands, "uv_area": uv_area, "tris": tris, "parts": len(PARTS)}
 '''
@@ -371,15 +369,17 @@ for rep in range(REPS):
             ob = make(part)
             activate(ob)
             n0 = tri_count(ob)
-            mod = ob.modifiers.new("agy_decimate", "DECIMATE")
-            mod.decimate_type = "COLLAPSE"
-            mod.ratio = min(1.0, max(0.0, target / max(n0, 1)))
+            # The edit-mode operator, so the timed call is the collapse alone. Applying a Decimate modifier
+            # would also time an evaluation of the object's modifier stack, which collapses the mesh as well.
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_all(action="SELECT")
+            ratio = min(1.0, max(0.0, target / max(n0, 1)))
             t0 = time.perf_counter()
-            bpy.ops.object.modifier_apply(modifier=mod.name)
+            bpy.ops.mesh.decimate(ratio=ratio)
             total += time.perf_counter() - t0
+            bpy.ops.object.mode_set(mode="OBJECT")
             if rep == 0:
                 by_level[level + 1] = by_level.get(level + 1, 0) + tri_count(ob)
-            drop(ob)
     times.append(total * 1000)
 result = {"times_ms": times, "tris_by_level": [by_level[k] for k in sorted(by_level)], "parts": len(PARTS)}
 '''
@@ -401,13 +401,12 @@ for rep in range(REPS):
             hull_verts += sum(1 for g in res["geom"] if isinstance(g, bmesh.types.BMVert))
             hull_faces += sum(1 for g in res["geom"] if isinstance(g, bmesh.types.BMFace))
         bm.free()
-        drop(ob)
     times.append(total * 1000)
 result = {"times_ms": times, "hull_vertices": hull_verts, "hull_faces": hull_faces, "parts": len(PARTS)}
 '''
 
 SHEET_SCRIPT = '''
-from mathutils import Vector
+from mathutils import Vector, Matrix
 OUT_PREFIX = "@@OUT@@"
 SIZE = @@SIZE@@
 objs = [make(p, "agy_part_%d" % i) for i, p in enumerate(PARTS)]
@@ -418,32 +417,60 @@ sc.render.resolution_y = SIZE
 sc.render.resolution_percentage = 100
 sc.render.film_transparent = False
 sc.render.image_settings.file_format = "PNG"
+FILL = 0.88
 lo = [min(v[i] for p in PARTS for v in p["v"]) for i in range(3)]
 hi = [max(v[i] for p in PARTS for v in p["v"]) for i in range(3)]
 center = Vector(tuple((lo[i] + hi[i]) / 2 for i in range(3)))
-diameter = max(math.sqrt(sum((hi[i] - lo[i]) ** 2 for i in range(3))), 0.001)
+rad = max(math.sqrt(sum((hi[i] - lo[i]) ** 2 for i in range(3))) / 2, 1e-6)
+allpts = [Vector(v) - center for p in PARTS for v in p["v"]]
+AXIS = {"front": ((1, 0, 0), (0, 0, 1), (0, 1, 0)), "right": ((0, 1, 0), (0, 0, 1), (-1, 0, 0)), "top": ((1, 0, 0), (0, 1, 0), (0, 0, -1))}
+
+def basis(name):
+    if name == "persp":
+        f = Vector((0.55, 0.70, -0.45)).normalized()
+        r = f.cross(Vector((0.0, 0.0, 1.0))).normalized()
+        return r, r.cross(f), f
+    r, u, f = AXIS[name]
+    return Vector(r), Vector(u), Vector(f)
+
 cam_data = bpy.data.cameras.new("agy_cam")
-cam_data.type = "ORTHO"
-cam_data.ortho_scale = diameter * 1.1
-cam_data.clip_start = diameter * 0.01
-cam_data.clip_end = diameter * 5
 cam = bpy.data.objects.new("agy_cam", cam_data)
 bpy.context.scene.collection.objects.link(cam)
+bpy.context.view_layer.update()
 sc.camera = cam
-views = [("front", (0.0, -1.0, 0.0)), ("right", (1.0, 0.0, 0.0)), ("top", (0.0, 0.0, 1.0)), ("persp", (1.4, -2.0, 1.2))]
 times = []
 for rep in range(REPS):
     total = 0.0
-    for name, d in views:
-        v = Vector(d).normalized()
-        cam.location = center + v * diameter * 2
-        cam.rotation_euler = (-v).to_track_quat("-Z", "Y").to_euler()
+    for name in ("front", "right", "top", "persp"):
+        r, u, f = basis(name)
+        persp = name == "persp"
+        dist = rad / math.sin(math.radians(15.0)) * 1.05 if persp else rad * 3.0
+        xs, ys = [], []
+        for d in allpts:
+            z = d.dot(f) + dist if persp else 1.0
+            xs.append(d.dot(r) / z)
+            ys.append(d.dot(u) / z)
+        width = max(max(xs) - min(xs), max(ys) - min(ys), 1e-9) / FILL
+        mid_x, mid_y = (max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2
+        cam_data.sensor_fit = "AUTO"
+        if persp:
+            cam_data.type = "PERSP"
+            cam_data.angle = 2.0 * math.atan(width / 2.0)
+        else:
+            cam_data.type = "ORTHO"
+            cam_data.ortho_scale = width
+        cam_data.shift_x = mid_x / width
+        cam_data.shift_y = mid_y / width
+        cam_data.clip_start = max(dist - rad * 1.5, rad * 0.01)
+        cam_data.clip_end = dist + rad * 2.0
+        cam.location = center - f * dist
+        cam.rotation_euler = Matrix((r, u, -f)).transposed().to_euler()
         sc.render.filepath = OUT_PREFIX + name + ".png"
         t0 = time.perf_counter()
         bpy.ops.render.render(write_still=True)
         total += time.perf_counter() - t0
     times.append(total * 1000)
-result = {"times_ms": times, "views": [n for n, _ in views], "size": SIZE, "parts": len(PARTS)}
+result = {"times_ms": times, "views": ["front", "right", "top", "persp"], "size": SIZE, "parts": len(PARTS)}
 '''
 
 
@@ -461,7 +488,8 @@ def blender_stats(res: dict[str, Any], roundtrip_ms: float, fake: bool) -> dict[
         return {"status": "ok", "fake": True, "note": "script passed the linter; the fake daemon does not execute it", "roundtrip_ms": _r(roundtrip_ms, 1)}
     r = dict(res["result"])
     times = r.pop("times_ms")
-    return {**stats(times), **r, "roundtrip_ms": _r(roundtrip_ms, 1), "timed": "inside Blender, around the operator only"}
+    return {**stats(times), **r, "roundtrip_ms": _r(roundtrip_ms, 1), "roundtrip_ms_per_rep": _r(roundtrip_ms / max(len(times), 1), 1),
+            "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions"}
 
 
 # ------------------------------------------------------------------------------------------------ kernel side
@@ -480,13 +508,18 @@ def time_calls(fn: Callable[[], Any], reps: int) -> tuple[list[float], Any]:
     return samples, last
 
 
-def kernel_uv(meshes: list[Any], reps: int) -> dict[str, Any]:
+def kernel_uv(meshes: list[Any], reps: int, pipeline: bool = False) -> dict[str, Any]:
+    """Like-for-like (computed charts, per part) or, with ``pipeline``, unwrap_scene on the meshes as they come from the stage."""
     from antigravity3d.kernel import fast_ops
     from antigravity3d.state import EngineBudget
 
-    density = EngineBudget("unreal_5").texel_density_px_per_m
+    budget = EngineBudget("unreal_5")
+    density = budget.texel_density_px_per_m
     plain = [replace(m, uv_charts=None) for m in meshes]
-    samples, last = time_calls(lambda: [fast_ops.unwrap_uvs(m, density) for m in plain], reps)
+    if pipeline:
+        samples, last = time_calls(lambda: fast_ops.unwrap_scene(meshes, budget), reps)
+    else:
+        samples, last = time_calls(lambda: [fast_ops.unwrap_uvs(m, density) for m in plain], reps)
     per = [uv_stats_kernel(u) for u in last]
     return {**stats(samples), "islands": sum(p["islands"] for p in per), "uv_area": sum(p["uv_area"] for p in per), "tris": sum(p["tris"] for p in per),
             "parts": len(plain), "chart_source": sorted({p["chart_source"] for p in per}), "texel_density_px_per_m": density}
@@ -537,9 +570,18 @@ async def run_script(pool: Any, source: str, timeout: float = 240.0) -> tuple[di
     return res, (time.perf_counter() - t) * 1000
 
 
-def ratio(b: dict[str, Any], k: dict[str, Any]) -> float | None:
-    bm, km = b.get("median_ms"), k.get("median_ms")
+def ratio(b: dict[str, Any], k: dict[str, Any], field: str = "median_ms") -> float | None:
+    bm, km = b.get(field), k.get("median_ms")
     return _r(bm / km, 1) if bm and km else None
+
+
+def add_ratios(slot: dict[str, Any], kernel: dict[str, Any] | None = None) -> None:
+    """Two ratios, Blender over kernel: operator only, and whole call. The headline is the whole call (what a caller pays)."""
+    b, k = slot.get("blender", {}), kernel if kernel is not None else slot.get("kernel", {})
+    if b.get("status") == "ok" and k.get("status") == "ok":
+        slot["blender_over_kernel_operator_only"] = ratio(b, k)
+        slot["blender_over_kernel_roundtrip"] = ratio(b, k, "roundtrip_ms_per_rep")
+        slot["headline_ratio"] = slot["blender_over_kernel_roundtrip"]
 
 
 async def blender_section(run: Run, subjects: dict[str, Any], workdir: Path) -> None:
@@ -553,10 +595,10 @@ async def blender_section(run: Run, subjects: dict[str, Any], workdir: Path) -> 
     def new_pool() -> Any:
         return BlenderPool(1, fake=True, **pool_kw) if fake else BlenderPool(1, os.environ["BLENDER_BIN"], **pool_kw)
 
-    # cold start: a fresh pool every time; the last one is kept for the rest of the run
+    # cold start: a fresh pool every time (3 samples); the last one is kept for the rest of the run
     cold, ping_first = [], []
     pool = None
-    for i in range(2):
+    for i in range(3):
         candidate = new_pool()
         t = time.perf_counter()
         try:
@@ -567,14 +609,14 @@ async def blender_section(run: Run, subjects: dict[str, Any], workdir: Path) -> 
             await candidate.stop()
             return
         cold.append((time.perf_counter() - t) * 1000)
-        if i == 0:
+        if i < 2:
             await candidate.stop()
         else:
             pool = candidate
-    doc["cold_start_to_first_ping"] = {"status": "ok", **stats(cold), "includes": "process spawn, Blender start, daemon load (incl. reviewed skills if $AGY3D_BLENDER_SKILLS is set), version handshake, first ping"}
+    doc["cold_start_to_first_ping"] = {"status": "ok", **stats(cold), "includes": "pool start: spawn Blender, load the daemon (and reviewed skills when $AGY3D_BLENDER_SKILLS is set), version handshake; then the first ping. Fresh process each sample"}
     assert pool is not None
     try:
-        await run.aattempt(doc, "version", lambda: _version(pool, run))
+        await run.aattempt(doc, "version", lambda: _version(pool, run), path="blender_pool.version")
 
         async def warm_ping() -> dict[str, Any]:
             samples = []
@@ -583,7 +625,7 @@ async def blender_section(run: Run, subjects: dict[str, Any], workdir: Path) -> 
                 await pool.call("ping")
                 samples.append((time.perf_counter() - t) * 1000)
             return stats(samples)
-        await run.aattempt(doc, "warm_ping", warm_ping, share=0.7)
+        await run.aattempt(doc, "warm_ping", warm_ping, share=0.7, path="blender_pool.warm_ping")
 
         imports: dict[str, Any] = {}
         doc["import_usd"] = imports
@@ -597,7 +639,7 @@ async def blender_section(run: Run, subjects: dict[str, Any], workdir: Path) -> 
                     samples.append((time.perf_counter() - t) * 1000)
                 return {**stats(samples), "package_tris": sub["tris"], "package_bytes": sub["usd"].stat().st_size, "objects": len(info.get("objects", [])),
                         "fake": bool(info.get("fake")), "format": "package .usd (reset_scene between calls, untimed)"}
-            await run.aattempt(imports, name, one_import, share=0.7)
+            await run.aattempt(imports, name, one_import, share=0.7, path=f"blender_pool.import_usd.{name}")
 
         renders: dict[str, Any] = {}
         doc["render_usd"] = renders
@@ -612,7 +654,7 @@ async def blender_section(run: Run, subjects: dict[str, Any], workdir: Path) -> 
                     shape = list(getattr(r.get("image"), "shape", [])) or None
                 return {**stats(samples), "first_call_ms": _r(samples[0], 1), "engine": engine, "width": 512, "height": 512, "samples": 16, "transparent": True,
                         "image_shape": shape, "scene": "crate package", "note": "includes import_usd + frame set-up + render + EXR round trip, as render_usd does in the pipeline"}
-            await run.aattempt(renders, engine, one_render, share=0.7)
+            await run.aattempt(renders, engine, one_render, share=0.7, path=f"blender_pool.render_usd.{engine}")
 
         comps: list[dict[str, Any]] = []
         doc["comparisons"] = comps
@@ -637,31 +679,34 @@ async def compare_mesh(run: Run, pool: Any, label: str, meshes: list[Any], workd
     ops = entry["ops"]
     parts = parts_payload(meshes)
 
-    async def pair(key: str, kernel: Callable[[], dict], blender_source: str, timeout: float = 240.0) -> None:
-        slot: dict[str, Any] = {"equivalence": key}
-        ops[key] = slot
-        run.attempt(slot, "kernel", kernel, share=0.7)
-
-        async def blender() -> dict[str, Any]:
+    def blender_call(source: str) -> Callable[[], Any]:
+        async def call() -> dict[str, Any]:
             await pool.call("reset_scene")
-            res, rt = await run_script(pool, blender_source, timeout)
+            res, rt = await run_script(pool, source)
             return blender_stats(res, rt, run.fake)
-        await run.aattempt(slot, "blender", blender, share=0.7)
-        if slot.get("kernel", {}).get("status") == "ok" and slot.get("blender", {}).get("status") == "ok":
-            slot["blender_over_kernel"] = ratio(slot["blender"], slot["kernel"])
+        return call
 
-    await pair("uv_unwrap", lambda: kernel_uv(meshes, reps), script(UV_SCRIPT, parts, reps, OP="smart"))
+    async def pair(op: str, kernel: Callable[[], dict], source: str | None, extra: Callable[[dict], Any] | None = None) -> dict[str, Any]:
+        slot: dict[str, Any] = {"equivalence": op}
+        ops[op] = slot
+        base = f"comparisons.{label}.{op}"
+        run.attempt(slot, "kernel", kernel, share=0.7, path=f"{base}.kernel")
+        if extra is not None:
+            extra(slot)
+        if source is not None:
+            await run.aattempt(slot, "blender", blender_call(source), share=0.7, path=f"{base}.blender")
+            add_ratios(slot)
+        return slot
+
+    def pipeline_row(slot: dict[str, Any]) -> None:
+        run.attempt(slot, "kernel_pipeline", lambda: kernel_uv(meshes, reps, pipeline=True), share=0.7, path=f"comparisons.{label}.uv_unwrap.kernel_pipeline")
+
+    await pair("uv_unwrap", lambda: kernel_uv(meshes, reps), script(UV_SCRIPT, parts, reps, OP="smart"), pipeline_row)
     # the angle-based operator has the same kernel counterpart; only Blender is run again
     slot = {"equivalence": "uv_unwrap_angle_based", "kernel": {"status": "see uv_unwrap.kernel"}}
     ops["uv_unwrap_angle_based"] = slot
-
-    async def angle() -> dict[str, Any]:
-        await pool.call("reset_scene")
-        res, rt = await run_script(pool, script(UV_SCRIPT, parts, reps, OP="angle"))
-        return blender_stats(res, rt, run.fake)
-    await run.aattempt(slot, "blender", angle, share=0.7)
-    if slot["blender"].get("median_ms") and ops["uv_unwrap"].get("kernel", {}).get("median_ms"):
-        slot["blender_over_kernel"] = ratio(slot["blender"], ops["uv_unwrap"]["kernel"])
+    await run.aattempt(slot, "blender", blender_call(script(UV_SCRIPT, parts, reps, OP="angle")), share=0.7, path=f"comparisons.{label}.uv_unwrap_angle_based.blender")
+    add_ratios(slot, ops["uv_unwrap"].get("kernel", {}))
 
     targets: list[list[int]] = []
 
@@ -671,38 +716,39 @@ async def compare_mesh(run: Run, pool: Any, label: str, meshes: list[Any], workd
         return out
     lod_slot: dict[str, Any] = {"equivalence": "lod"}
     ops["lod"] = lod_slot
-    run.attempt(lod_slot, "kernel", lod_kernel, share=0.7)
-    if targets:
+    run.attempt(lod_slot, "kernel", lod_kernel, share=0.7, path=f"comparisons.{label}.lod.kernel")
+    if any(targets):
         async def decimate() -> dict[str, Any]:
             await pool.call("reset_scene")
             res, rt = await run_script(pool, script(DECIMATE_SCRIPT, parts, reps, TARGETS=targets))
             return {**blender_stats(res, rt, run.fake), "targets_tris_by_level": [sum(t[i] for t in targets if i < len(t)) for i in range(max(len(t) for t in targets))]}
-        await run.aattempt(lod_slot, "blender", decimate, share=0.7)
-        if lod_slot.get("kernel", {}).get("status") == "ok" and lod_slot.get("blender", {}).get("status") == "ok":
-            lod_slot["blender_over_kernel"] = ratio(lod_slot["blender"], lod_slot["kernel"])
+        await run.aattempt(lod_slot, "blender", decimate, share=0.7, path=f"comparisons.{label}.lod.blender")
+        add_ratios(lod_slot)
+    elif lod_slot.get("kernel", {}).get("status") == "ok":
+        lod_slot["blender"] = {"status": "no_levels", "reason": "the kernel's LOD chain has no level below LOD0 for this mesh, so there is nothing to decimate"}
     else:
-        lod_slot["blender"] = {"status": "skipped", "reason": "the kernel produced no LOD target (kernel failed or every part is already minimal)"}
+        lod_slot["blender"] = {"status": "skipped", "reason": "the kernel LOD run failed, so there are no target triangle counts"}
 
     await pair("convex_hull", lambda: kernel_hulls(meshes, reps), script(HULL_SCRIPT, parts, reps))
 
     out_dir = workdir / f"sheet_{label}"
     out_dir.mkdir(parents=True, exist_ok=True)
-    sheet_slot: dict[str, Any] = {"equivalence": "sheet_4_views"}
-    ops["sheet_4_views"] = sheet_slot
-    run.attempt(sheet_slot, "kernel", lambda: kernel_sheet(meshes, reps), share=0.7)
+
+    def sheet_source() -> str:
+        return script(SHEET_SCRIPT, parts, min(reps, 3), OUT=f"{out_dir}/", SIZE=SHEET_PX)
 
     async def sheet() -> dict[str, Any]:
-        await pool.call("reset_scene")
-        res, rt = await run_script(pool, script(SHEET_SCRIPT, parts, min(reps, 3), OUT=f"{out_dir}/", SIZE=SHEET_PX))
-        out = blender_stats(res, rt, run.fake)
+        out = await blender_call(sheet_source())()
         if not run.fake:
             from PIL import Image
             import numpy as np
             out["foreground_fraction"] = [_r(fg_fraction(np.asarray(Image.open(out_dir / f"{v}.png").convert("RGB"))), 4) for v in VIEWS]
         return out
-    await run.aattempt(sheet_slot, "blender", sheet, share=0.7)
-    if sheet_slot.get("kernel", {}).get("status") == "ok" and sheet_slot.get("blender", {}).get("status") == "ok":
-        sheet_slot["blender_over_kernel"] = ratio(sheet_slot["blender"], sheet_slot["kernel"])
+    sheet_slot: dict[str, Any] = {"equivalence": "sheet_4_views"}
+    ops["sheet_4_views"] = sheet_slot
+    run.attempt(sheet_slot, "kernel", lambda: kernel_sheet(meshes, reps), share=0.7, path=f"comparisons.{label}.sheet_4_views.kernel")
+    await run.aattempt(sheet_slot, "blender", sheet, share=0.7, path=f"comparisons.{label}.sheet_4_views.blender")
+    add_ratios(sheet_slot)
     return entry
 
 
@@ -719,15 +765,17 @@ def godot_section(run: Run, subjects: dict[str, Any], godot: dict[str, Any]) -> 
     def baseline() -> dict[str, Any]:
         samples = []
         with tempfile.TemporaryDirectory(prefix="agy3d-godot-bench-") as td:
-            Path(td, "project.godot").write_text('config_version=5\n[application]\nconfig/name="agy3d_bench"\n')
+            # the validator's launch (same project file, --headless --path --script) with a script that quits at once instead of loading a package
+            Path(td, "project.godot").write_text('config_version=5\n[application]\nconfig/name="agy3d_check"\n')
+            Path(td, "check.gd").write_text("extends SceneTree\n\nfunc _init():\n    quit(0)\n")
             for _ in range(3):
                 t = time.perf_counter()
-                p = subprocess.run([exe, "--headless", "--path", td, "--quit"], capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
+                p = subprocess.run([exe, "--headless", "--path", td, "--script", "check.gd"], capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
                 samples.append((time.perf_counter() - t) * 1000)
                 if p.returncode != 0:
-                    raise RuntimeError(f"godot --headless --quit exited {p.returncode}: {(p.stdout + p.stderr)[-300:]}")
-        return {**stats(samples), "what": "engine start and exit on an empty project, no import: the fixed cost inside every import time below"}
-    run.attempt(doc, "empty_project_start", baseline, share=1.0)
+                    raise RuntimeError(f"godot --headless --script exited {p.returncode}: {(p.stdout + p.stderr)[-300:]}")
+        return {**stats(samples), "what": "same launch as GodotValidator.validate (--headless --path <project> --script) with a script that quits immediately: engine start, project scan and exit, no glTF load; the fixed cost inside every import time below"}
+    run.attempt(doc, "empty_project_start", baseline, share=1.0, path="godot.empty_project_start")
 
     imports: dict[str, Any] = {}
     doc["import"] = imports
@@ -743,7 +791,7 @@ def godot_section(run: Run, subjects: dict[str, Any], godot: dict[str, Any]) -> 
                 raise RuntimeError(f"Godot rejected {sub['glb'].name}: {report.skipped_reason or report.log_tail[-300:]}")
             return {**stats(samples), "package_tris": sub["tris"], "godot_triangles": (report.metrics or {}).get("triangles"), "glb_bytes": sub["glb"].stat().st_size,
                     "what": "GodotValidator.validate: process start + glTF load + scene generation + mesh walk (the package check CI and the pipeline run)"}
-        run.attempt(imports, name, one, share=1.0)
+        run.attempt(imports, name, one, share=1.0, path=f"godot.import.{name}")
 
     def capture() -> dict[str, Any]:
         sub, samples = subjects["packages"]["crate"], []
@@ -756,7 +804,7 @@ def godot_section(run: Run, subjects: dict[str, Any], godot: dict[str, Any]) -> 
                 if not report.ok or not png.is_file():
                     raise RuntimeError(f"Godot capture failed: {report.skipped_reason or report.log_tail[-300:]}")
         return {**stats(samples), "what": "GodotValidator.capture (gl_compatibility, software GL, 512 px), crate package"}
-    run.attempt(doc, "capture_crate", capture, share=1.0)
+    run.attempt(doc, "capture_crate", capture, share=1.0, path="godot.capture_crate")
 
 
 # ------------------------------------------------------------------------------------------------ report
@@ -765,12 +813,17 @@ def markdown(doc: dict[str, Any]) -> str:
     def ms(x: Any) -> str:
         return "n/a" if x is None else f"{x:,.1f}"
 
-    def cell(d: Any) -> str:
+    def cell(d: Any, field: str = "median_ms") -> str:
         if not isinstance(d, dict):
             return "n/a"
         if d.get("status") == "ok":
-            return ms(d.get("median_ms")) + ("" if d.get("median_ms") is not None else " (fake)")
-        return f"{d.get('status')}"
+            return ms(d.get(field)) if d.get(field) is not None else "(fake)"
+        return {"no_levels": "no levels", "see uv_unwrap.kernel": "see uv_unwrap"}.get(d.get("status"), str(d.get("status")))
+
+    def note(d: Any) -> str:
+        d = d or {}
+        return str(d.get("error") or d.get("reason") or d.get("includes") or d.get("what") or d.get("note") or "")[:160]
+
     lines = ["## Engine benchmark", ""]
     mode = doc.get("mode")
     m = doc.get("machine", {})
@@ -785,29 +838,42 @@ def markdown(doc: dict[str, Any]) -> str:
         lines += ["", "FAKE daemon: plumbing only, these are not Blender or Godot numbers."]
     bp = doc.get("blender_pool", {})
     if bp:
-        lines += ["", "### Blender pool (median ms)", "", "| measurement | median ms | n | note |", "|---|---:|---:|---|"]
+        lines += ["", "### Blender pool (ms)", "", "| measurement | median | first call | n | what it includes / error |", "|---|---:|---:|---:|---|"]
         rows = [("cold start to first ping", bp.get("cold_start_to_first_ping")), ("warm ping", bp.get("warm_ping"))]
         rows += [(f"import_usd {k}", x) for k, x in (bp.get("import_usd") or {}).items()]
         rows += [(f"render_usd {k} 512px 16spp", x) for k, x in (bp.get("render_usd") or {}).items()]
         for name, d in rows:
-            lines.append(f"| {name} | {cell(d)} | {(d or {}).get('n', '')} | {(d or {}).get('error', (d or {}).get('reason', ''))[:100]} |")
-        lines += ["", "### Blender vs kernel, same meshes (median ms; ratio = Blender / kernel)", "",
-                  "| mesh (tris) | operation | kernel ms | Blender ms | ratio | kernel made | Blender made |", "|---|---|---:|---:|---:|---|---|"]
+            first = ms(d.get("first_call_ms")) if isinstance(d, dict) and d.get("first_call_ms") is not None else ""
+            lines.append(f"| {name} | {cell(d)} | {first} | {(d or {}).get('n', '')} | {note(d)} |")
+        lines += ["", "Renders use software GL (the runner has no GPU), so EEVEE's figure is not what a workstation would see. All samples are in the JSON.",
+                  "", "### Blender vs kernel, same meshes (ms)", "",
+                  "Blender columns: operator = timed inside Blender around the operator only; call = the whole `run_script` call per repetition (source lint, mesh build, operator, result), "
+                  "which is what a caller pays. **The ratio is Blender call / kernel**; the operator-only ratio is in brackets.", "",
+                  "| mesh (tris) | operation | kernel | Blender operator | Blender call | ratio: call (operator-only) | kernel made | Blender made |", "|---|---|---:|---:|---:|---:|---|---|"]
+
+        def made(d: dict[str, Any]) -> str:
+            keys = ("islands", "uv_area", "tris_by_level", "hull_vertices", "foreground_fraction")
+            return ", ".join(f"{x}={round(d[x], 3) if isinstance(d[x], float) else d[x]}" for x in keys if x in d)
         for c in bp.get("comparisons", []):
             for op, s in c["ops"].items():
                 k, b = s.get("kernel", {}), s.get("blender", {})
-
-                def made(d: dict[str, Any]) -> str:
-                    keys = ("islands", "tris_by_level", "hull_vertices", "foreground_fraction")
-                    return ", ".join(f"{x}={d[x]}" for x in keys if x in d)
-                lines.append(f"| {c['mesh']} ({c['tris']}) | {op} | {cell(k)} | {cell(b)} | {s.get('blender_over_kernel') or 'n/a'} | {made(k)} | {made(b)} |")
+                head, alt = s.get("headline_ratio"), s.get("blender_over_kernel_operator_only")
+                ratio_cell = f"{head} ({alt})" if head is not None else "n/a"
+                lines.append(f"| {c['mesh']} ({c['tris']}) | {op} | {cell(k)} | {cell(b)} | {cell(b, 'roundtrip_ms_per_rep')} | {ratio_cell} | {made(k)} | {made(b)} |")
+                if "kernel_pipeline" in s:
+                    kp = s["kernel_pipeline"]
+                    lines.append(f"| {c['mesh']} ({c['tris']}) | {op}: kernel as the pipeline runs it | {cell(kp)} | | | | {made(kp)}, charts={kp.get('chart_source')} | |")
+        notes = doc.get("equivalence_notes", {})
+        used = [op for op in notes if any(op in c["ops"] for c in bp.get("comparisons", []))]
+        if used:
+            lines += ["", "What differs between the two sides:", ""] + [f"- **{op}**: {notes[op]}" for op in used]
     g = doc.get("godot", {})
     if g:
-        lines += ["", "### Godot headless (median ms)", "", "| measurement | median ms | note |", "|---|---:|---|"]
+        lines += ["", "### Godot headless (ms)", "", "| measurement | median | n | what it includes / error |", "|---|---:|---:|---|"]
         rows = [("empty project start/exit", g.get("empty_project_start")), ("capture crate", g.get("capture_crate"))]
         rows += [(f"import {k}", x) for k, x in (g.get("import") or {}).items()]
         for name, d in rows:
-            lines.append(f"| {name} | {cell(d)} | {(d or {}).get('error', (d or {}).get('reason', ''))[:100]} |")
+            lines.append(f"| {name} | {cell(d)} | {(d or {}).get('n', '')} | {note(d)} |")
     if doc.get("errors"):
         lines += ["", f"### {len(doc['errors'])} measurement(s) failed or skipped", ""] + [f"- `{e[:220]}`" for e in doc["errors"][:30]]
     lines += ["", f"Wall time {doc.get('total_wall_s')} s.", ""]

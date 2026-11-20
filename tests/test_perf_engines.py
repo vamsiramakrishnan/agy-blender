@@ -74,7 +74,7 @@ def test_fake_run_exercises_every_measurement(fake_run):
     assert p.returncode == 0, p.stderr[-800:]
     assert doc["mode"] == "fake" and doc["fatal"] is None and doc["errors"] == []
     bp = doc["blender_pool"]
-    assert bp["cold_start_to_first_ping"]["status"] == "ok" and bp["cold_start_to_first_ping"]["n"] == 2
+    assert bp["cold_start_to_first_ping"]["status"] == "ok" and bp["cold_start_to_first_ping"]["n"] == 3 and bp["cold_start_to_first_ping"]["includes"]
     assert bp["warm_ping"]["n"] == 30 and bp["version"]["fake"] is True
     assert sorted(bp["import_usd"]) == ["barrel", "crate", "sphere_ir"] and all(v["status"] == "ok" for v in bp["import_usd"].values())
     assert sorted(bp["render_usd"]) == ["cycles", "eevee", "workbench"]
@@ -85,11 +85,16 @@ def test_fake_run_exercises_every_measurement(fake_run):
         assert sorted(c["ops"]) == sorted(OPS)
         for op, slot in c["ops"].items():
             assert slot["equivalence"] in doc["equivalence_notes"]
-            assert slot["blender"]["status"] == "ok" and slot["blender"]["fake"] is True  # linted, not executed
+            assert slot["blender"]["status"] in ("ok", "no_levels")
+            if slot["blender"]["status"] == "ok":
+                assert slot["blender"]["fake"] is True  # linted, not executed
         for op in ("uv_unwrap", "lod", "convex_hull", "sheet_4_views"):
             k = c["ops"][op]["kernel"]
             assert k["status"] == "ok" and k["median_ms"] > 0 and k["n"] >= 2
     uv = bp["comparisons"][0]["ops"]["uv_unwrap"]["kernel"]
+    pipe = bp["comparisons"][0]["ops"]["uv_unwrap"]["kernel_pipeline"]
+    assert pipe["status"] == "ok" and pipe["chart_source"] == ["analytic"]  # primitives are unwrapped from exact charts in the pipeline
+    assert bp["comparisons"][0]["ops"]["lod"]["blender"]["status"] == "no_levels"  # twelve 12-triangle boxes: no level below LOD0
     assert uv["islands"] >= 1 and uv["tris"] == bp["comparisons"][0]["tris"] and uv["chart_source"] == ["computed"]
     assert bp["comparisons"][-1]["ops"]["convex_hull"]["kernel"]["hull_vertices"] > 0
     assert "godot" not in doc  # the fake run never starts Godot
@@ -100,6 +105,8 @@ def test_fake_run_json_on_stdout_equals_the_file_and_markdown_is_written(fake_ru
     p, doc, md = fake_run
     assert stdout_json(p) == json.loads(json.dumps(doc))
     assert "FAKE daemon" in md and "Blender vs kernel" in md and "| crate (144) | lod |" in md
+    assert "no levels" in md and "kernel as the pipeline runs it" in md and "What differs between the two sides" in md and "NOT the same algorithm" in md
+    assert "Blender call" in md and "first call" in md and "no GPU" in md
     for key in ("schema", "mode", "ci", "machine", "versions", "tools", "missing", "errors", "total_wall_s", "fatal", "equivalence_notes"):
         assert key in doc
     assert doc["versions"]["antigravity3d_from"]
@@ -116,7 +123,7 @@ def test_one_unusable_binary_is_recorded_and_the_run_still_exits_zero(tmp_path):
     assert doc["blender_pool"]["cold_start_to_first_ping"]["status"] == "error"
     assert "startup" in doc["blender_pool"]["cold_start_to_first_ping"]["error"]
     assert doc["tools"]["godot"]["available"] is False and "godot" not in doc
-    assert any("cold_start_to_first_ping" in e for e in doc["errors"])
+    assert any(e.startswith("blender_pool.cold_start_to_first_ping:") for e in doc["errors"])
 
 
 def test_benchmark_crash_keeps_the_partial_json_and_exits_nonzero(tmp_path, monkeypatch, capsys):
@@ -143,6 +150,13 @@ def test_measurement_error_is_recorded_per_measurement(tmp_path):
     run.attempt(store, "bad", lambda: (_ for _ in ()).throw(ValueError("no such operator")))
     assert store["good"]["status"] == "ok"
     assert store["bad"] == {"status": "error", "error": "ValueError: no such operator", "wall_s": store["bad"]["wall_s"]}
+
+    class OpError(Exception):
+        trace_tail = "line 1\nline 2"
+    run.attempt(store, "op", lambda: (_ for _ in ()).throw(OpError("boom")), path="comparisons.barrel.lod.blender")
+    assert store["op"]["trace_tail"] == "line 1\nline 2"
+    assert run.errors[-1] == "comparisons.barrel.lod.blender: OpError: boom"
+    run.errors.pop()
     run.budget_s = -1.0
     run.attempt(store, "late", lambda: {"median_ms": 1.0})
     assert store["late"]["status"] == "skipped" and run.errors == ["bad: ValueError: no such operator"]
@@ -168,3 +182,24 @@ def test_island_count_joins_faces_that_share_a_uv_corner():
     a, b, c, d = (0, 0.0, 0.0), (1, 1.0, 0.0), (2, 0.0, 1.0), (3, 1.0, 1.0)
     assert mod.island_count([[a, b, c], [b, c, d]]) == 1
     assert mod.island_count([[a, b, c], [(1, 5.0, 5.0), (2, 5.0, 6.0), (3, 6.0, 6.0)]]) == 2
+
+
+def test_blender_scripts_never_read_the_layer_object_list_or_remove_objects():
+    """A removed object leaves a stale entry in the view layer until Blender syncs it; scripts must not depend on that."""
+    mod = load_module()
+    for body in (mod.UV_SCRIPT, mod.DECIMATE_SCRIPT, mod.HULL_SCRIPT, mod.SHEET_SCRIPT, mod.PRELUDE):
+        assert "view_layer.objects" not in body.replace("view_layer.objects.active = ob", "")
+        assert "objects.remove" not in body and "select_set" not in body
+
+
+def test_godot_baseline_launch_mirrors_the_validator():
+    import inspect
+
+    mod = load_module()
+    src = inspect.getsource(mod.godot_section)
+    assert '"--headless", "--path", td, "--script", "check.gd"' in src and "--quit" not in src
+
+
+def test_sheet_script_copies_the_kernel_fit_rule():
+    mod = load_module()
+    assert "FILL = 0.88" in mod.SHEET_SCRIPT and "0.55, 0.70, -0.45" in mod.SHEET_SCRIPT and "math.radians(15.0)" in mod.SHEET_SCRIPT

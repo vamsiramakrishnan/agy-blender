@@ -122,6 +122,17 @@ jobs:
           if test "${{ steps.engine-bench.outcome }}" != success; then
             echo "::warning title=Engine benchmark::benchmarks/perf_engines.py ${{ steps.engine-bench.outcome }}; see the step log (test results are unaffected)"
           fi
+          # one annotation when any single measurement failed (the step itself stays green)
+          python - <<'PYTHON'
+          import json
+          try:
+              errors = json.load(open("/tmp/engine-bench.json")).get("errors", [])
+          except (OSError, ValueError):
+              errors = []
+          if errors:
+              first = errors[0].replace("\n", " ").replace("%", "%25")[:300]
+              print(f"::warning title=Engine benchmark::{len(errors)} measurement(s) failed; first: {first}")
+          PYTHON
       - name: Upload engine benchmark
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
