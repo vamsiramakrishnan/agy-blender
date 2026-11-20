@@ -100,6 +100,11 @@ def summarize(samples: list[float]) -> dict[str, Any]:
             "min_ms": _r(min(samples)), "max_ms": _r(max(samples)), "mean_ms": _r(statistics.fmean(samples))}
 
 
+class Skipped(Exception):
+    """Raised by a benchmark that cannot run on this machine (for instance no browser): recorded with the reason,
+    not counted as a failure."""
+
+
 @dataclass
 class Case:
     params: dict[str, Any]
@@ -382,6 +387,23 @@ def three_bodies_mesh(name: str = "three_bodies"):
         tris.append(np.asarray(t, np.int64) + base)
         base += len(p)
     return as_mesh(name, np.vstack(pts), np.vstack(tris), "m0")
+
+
+def imperfect_meshes() -> list[tuple[str, Any]]:
+    """Collider input that is not one closed solid, the way imported meshes often arrive."""
+    import trimesh
+
+    a = trimesh.creation.box(extents=[1.0, 1.0, 1.0])
+    b = a.copy()
+    b.apply_translation([1.0, 1.0, 0.0])                      # shares exactly one edge with the first cube
+    cubes = trimesh.util.concatenate([a, b])
+    cubes.merge_vertices()
+    ball = trimesh.creation.uv_sphere(0.4, count=[12, 9])
+    cup = trimesh.creation.cylinder(0.3, 0.8, sections=24)
+    v, f = np.asarray(cup.vertices), np.asarray(cup.faces)
+    return [("two_cubes_sharing_an_edge", as_mesh("cubes", cubes.vertices, cubes.faces)),
+            ("sphere_six_faces_missing", as_mesh("ball", ball.vertices, np.asarray(ball.faces)[:len(ball.faces) - 6])),
+            ("open_cup", as_mesh("cup", v, f[~(v[f][:, :, 2] > 0.39).all(axis=1)]))]
 
 
 def assembly_meshes() -> list:
@@ -790,6 +812,24 @@ def d_lod_assembly(ctx: Ctx) -> list[Case]:
                  {"single_sample_no_warmup": True,
                   "lod_tris": [int(sum(c[i].tri_count for c in chains.values() if i < len(c))) for i in range(levels)],
                   "lod_parts_present": [int(sum(1 for c in chains.values() if i < len(c) and c[i].tri_count)) for i in range(levels)]})]
+
+
+@bench("kernel.collider.imperfect",
+       "ONE SAMPLE EACH, NO WARM-UP: fast_ops.generate_colliders (max_hulls=8) on input that is not one closed solid: two cubes that share an edge, a sphere with six faces missing, an open cup. The whole call: repair of the collider input, decomposition (in a child process with a deadline where its time is not known to be bounded), hulls.",
+       "Hull authoring. One sample because the tree before the second round of fixes took about 9 s, 2 minutes and 45 s for these three; n=1, p95 null. extra.fill is total hull volume over the volume of the input's convex hull (1.0 = one plain hull; lower follows the shape more closely); extra.sources and extra.reasons say how each hull was made.")
+def d_collider_imperfect(ctx: Ctx) -> list[Case]:
+    cases = []
+    for label, m in imperfect_meshes():
+        gc.collect()
+        t0 = time.perf_counter_ns()
+        hulls = fast_ops.generate_colliders([m], 8)
+        ms = (time.perf_counter_ns() - t0) / 1e6
+        convex = fast_ops._hull(np.asarray(m.points, np.float64))[2]
+        cases.append(Case(_mesh_params(label, m), [ms],
+                          {"single_sample_no_warmup": True, "hulls": len(hulls), "sources": sorted({h.source for h in hulls}),
+                           "reasons": sorted({r for r in (getattr(h, "reason", "") for h in hulls) if r}),
+                           "fill": round(sum(h.volume for h in hulls) / convex, 4) if convex > 0 else None}))
+    return cases
 
 
 def prop_kinds(ctx: Ctx) -> tuple[str, ...]:
@@ -1628,6 +1668,44 @@ def k_sanitize(ctx: Ctx) -> list[Case]:
 
 
 # ---------------------------------------------------------------------------------------------------------
+# Web runtime check on written packages (needs Playwright and a Chromium; skipped with the reason otherwise)
+# ---------------------------------------------------------------------------------------------------------
+WEB_VERIFY_RUNS = 4
+
+
+@bench("web.verify",
+       "WebThreeValidator.validate on a written package, four times in a row in this process, for the crate without textures and the crate with six 1,024 px maps (384 px in --quick). The samples are verifications 2 to 4; extra.first_ms is the first one, which also pays whatever a first verification pays (browser start-up where the code keeps a browser running between verifications). Every verification must pass.",
+       "Writing the package (once, untimed). Software GL in headless Chromium, so the render figures are not a GPU's. The shared browser is shut down at the end so the benchmarks after this one start as they would alone.")
+def h_web_verify(ctx: Ctx) -> list[Case]:
+    from antigravity3d.adapters.engines import web_three
+
+    v = web_three.WebThreeValidator()
+    if not v.available():
+        raise Skipped(str(getattr(v, "_unavailable", lambda: None)() or "the web verifier cannot run on this machine"))
+    cases = []
+    try:
+        for px in (0, 384 if ctx.quick else 1024):
+            w = _written_package(ctx, "crate", px)
+            samples, checks = [], 0
+            for _ in range(WEB_VERIFY_RUNS):
+                gc.collect()
+                t0 = time.perf_counter_ns()
+                rep = asyncio.run(v.validate(w.out))
+                samples.append((time.perf_counter_ns() - t0) / 1e6)
+                if not rep.ok:
+                    raise RuntimeError(f"web check did not pass ({px or 'no'} px textures): {(rep.skipped_reason or rep.log_tail or '')[:200]}")
+                checks = len(getattr(rep, "checks", None) or [])
+            size = sum(f.stat().st_size for f in w.out.rglob("*") if f.is_file())
+            cases.append(Case({"subject": "crate", "tris": w.p.tris, "texture_px": px, "texture_files": 3 * len(w.p.scene.materials) if px else 0},
+                              samples[1:], {"first_ms": _r(samples[0]), "checks": checks, "package_bytes": size, "lod_levels": int(w.man.data.get("lod_levels", 0))}))
+    finally:
+        shared = getattr(sys.modules.get("antigravity3d.adapters.engines.web_browser"), "SHARED", None)
+        if shared is not None:
+            shared.shutdown()
+    return cases
+
+
+# ---------------------------------------------------------------------------------------------------------
 # Machine block, runner, CLI
 # ---------------------------------------------------------------------------------------------------------
 def _sh(cmd: list[str]) -> str:
@@ -1709,6 +1787,8 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 cases = b.fn(ctx)
                 entry.update(status="ok", cases=[c.to_json() for c in cases])
+            except Skipped as e:
+                entry.update(status="skipped", reason=str(e)[:300], cases=[])
             except Exception as e:  # noqa: BLE001 - a failing benchmark must not abort the run
                 msg = f"{type(e).__name__}: {e}".replace("\n", " ")[:300]
                 entry.update(status="error", error=msg, cases=[])
@@ -1725,8 +1805,10 @@ def main(argv: list[str] | None = None) -> int:
     doc["machine"]["loadavg_at_end"] = [round(x, 2) for x in os.getloadavg()]
     doc["total_wall_s"] = round(time.perf_counter() - t_start, 1)
     _write(out, doc)
-    bad = [n for n, e in doc["benchmarks"].items() if e["status"] != "ok"]
-    print(f"done in {doc['total_wall_s']} s; {len(names) - len(bad)}/{len(names)} ok" + (f"; failed: {', '.join(bad)}" if bad else ""))
+    bad = [n for n, e in doc["benchmarks"].items() if e["status"] == "error"]
+    skipped = [n for n, e in doc["benchmarks"].items() if e["status"] == "skipped"]
+    print(f"done in {doc['total_wall_s']} s; {len(names) - len(bad) - len(skipped)}/{len(names)} ok"
+          + (f"; skipped: {', '.join(skipped)}" if skipped else "") + (f"; failed: {', '.join(bad)}" if bad else ""))
     return 1 if bad else 0
 
 

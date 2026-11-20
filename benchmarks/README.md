@@ -40,7 +40,9 @@ The JSON is rewritten after every benchmark, so a native crash keeps the results
 is enabled, so the crash leaves a Python traceback naming the benchmark it happened in. (The pre-fix tree ended one
 full run with a segmentation fault as it entered `kernel.cache.hit`; CoACD has crashed on odd input before.) Run the
 benchmarks that are missing with `--only` into a second file; `compare.py --before-rest` reads both. A benchmark that
-raises is recorded as `{"status": "error", "error": "<one line>"}` and the run continues. The exit status is 1 if any
+raises is recorded as `{"status": "error", "error": "<one line>"}` and the run continues; one that cannot run on the
+machine (`web.verify` without Playwright or a browser) is recorded as `{"status": "skipped", "reason": "..."}` and
+is not a failure. The exit status is 1 if any
 benchmark failed. Set `PERF_TRACE=1` to print tracebacks.
 
 All temporary output lives in one `tempfile.TemporaryDirectory()` that is removed on exit. `AGY3D_STATE_DIR` is pointed
@@ -53,7 +55,7 @@ into it, because otherwise the QA state and the fix log are written to `./.agy3d
 {"machine": {cpu_model, logical_cpus, ram_gb, os, python, git_commit, git_dirty_tracked_files, versions{...},
              thread_env, timestamp_utc, quick, loadavg_at_start, loadavg_at_end, offline{...}},
  "quick": bool, "total_wall_s": ...,
- "benchmarks": {"<name>": {"status": "ok"|"error", "includes": "...", "excludes": "...", "bench_wall_s": ...,
+ "benchmarks": {"<name>": {"status": "ok"|"error"|"skipped", "includes": "...", "excludes": "...", "bench_wall_s": ...,
                            "cases": [{"params": {...}, "n", "median_ms", "p95_ms", "min_ms", "max_ms", "mean_ms",
                                       "extra": {...}}]}}}
 ```
@@ -110,6 +112,7 @@ All `*_ms` values are milliseconds per call of the timed region. `extra` carries
 | `kernel.collider.convex` | `generate_colliders` on the convex spheres (hull fast path, no CoACD) | hull authoring |
 | `kernel.lod.assembly` | `generate_asset_lods` on a 2 m table top with 30 small parts on it, with UVs: every part's levels and the search for parts that may be absent at far levels. One sample, no warm-up (the tree before the second round of fixes took about a minute for this call) | unwrap |
 | `kernel.collider.concave` | `generate_colliders` on the U prism and on one mesh that holds three closed bodies (two U prisms and a cube); CoACD does the decomposition. `extra.tightness` is hull volume over mesh volume | hull authoring |
+| `kernel.collider.imperfect` | `generate_colliders` on input that is not one closed solid: two cubes sharing an edge, a sphere with six faces missing, an open cup. One sample each, no warm-up (the tree before the second round of fixes took 9 s, about 2 minutes and 45 s). `extra.sources` and `extra.reasons` say how each hull was made, `extra.fill` how closely the hulls follow the shape | hull authoring |
 | `kernel.export.pipeline` | `run_export_pipeline` (UV + LOD + colliders): the single meshes, and the TemplateAuthor crate and barrel; per-stage split in `parts_median_ms` | mesh extraction, packaging, validation |
 | `kernel.qa.tier1` | `tier1_qa` on the crate and barrel | extraction |
 | `kernel.validate.usd` | `validate_usd(stage)`, `check_engine_compliance`, and `validate_usd(path)` (includes the file open), on the written package USD | package write |
@@ -130,6 +133,7 @@ All `*_ms` values are milliseconds per call of the timed region. `extra` carries
 | `import.usd_stage` | import time of `antigravity3d.kernel.usd_stage` in a fresh interpreter, measured inside the child | interpreter start (reported as `extra.bare_interpreter_wall_ms`) |
 | `throughput.prop_offline` | K = 12 distinct offline prop runs on P = 1, 2, 4 spawned worker processes: wall time, assets per hour, scaling efficiency | worker start-up |
 | `dag.batch_sanitize` | `BatchSanitizeDAG` on 24 generated meshes with jobs = 1, 2, 4 | mesh generation |
+| `web.verify` | `WebThreeValidator.validate` on a written crate package, four times in a row in one process, without textures and with six 1,024 px maps. Samples are verifications 2 to 4; `extra.first_ms` is the first. Skipped where no browser can run | writing the package |
 
 ### Package textures (`kernel.package.*`)
 
