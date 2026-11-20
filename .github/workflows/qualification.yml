@@ -99,9 +99,9 @@ jobs:
       # are labelled with the test outcome in the JSON) but not when the run was cancelled. A measurement that
       # is unavailable is recorded inside the JSON and does not fail anything; a crash of the benchmark itself
       # shows as a failed step plus a warning annotation but does not fail the job, so it cannot mask or replace
-      # the test result. Expected cost: about 3 minutes (2 Blender cold starts of ~5-10 s, 8 renders, 3 Godot packages
-      # x 3 imports, kernel work on 4 meshes); the soft budget inside the script skips late measurements after
-      # 240 s and the step timeout is a hard stop. It imports the installed wheel: the script is run by path, so
+      # the test result. Cost on a hosted runner: about one minute, half of it the three EEVEE renders on software
+      # GL (3 Blender cold starts of ~0.4 s, 8 renders, 3 Godot packages x 3 imports, kernel work on 4 meshes); the
+      # soft budget inside the script skips late measurements after 240 s and the step timeout is a hard stop. It imports the installed wheel: the script is run by path, so
       # only benchmarks/ (for quality_facts) is added to sys.path, never the checkout's src/.
       - name: Time Blender and Godot paths against the native kernels
         id: engine-bench

@@ -55,7 +55,7 @@ RENDER_REQUESTS = (("workbench", 3), ("eevee", 3), ("cycles", 2))  # what render
 
 EQUIVALENCE = {
     "uv_unwrap": "NOT the same algorithm. Kernel: xatlas charts + packing at a requested texel density + stretch statistics (analytic charts off, so charts are computed on both sides). "
-                 "Blender: smart_project (angle-based projection charts + island packing, no density fit). Compare islands and uv_area before reading the ratio. "
+                 "Blender: smart_project (angle-based projection charts + island packing, no density fit). Compare islands, uv_area and area_distortion (mean relative error of UV area against surface area; the pipeline's budget is 0.05) before reading the ratio. "
                  "'kernel as the pipeline runs it' is unwrap_scene with default settings, where IR primitives get analytic charts.",
     "uv_unwrap_angle_based": "NOT the same algorithm. uv.unwrap(ANGLE_BASED) needs seams; they are marked on edges sharper than 40 degrees, so a smooth sphere gets none and is one chart (see islands). Weak comparison.",
     "lod": "Different algorithms, same targets. Kernel: meshoptimizer simplify per level + cache/overdraw optimisation + measured deviation. Blender: the edit-mode Decimate operator (collapse) from the original to each level's triangle count, no deviation measured.",
@@ -213,7 +213,10 @@ def uv_stats_kernel(u: Any) -> dict[str, Any]:
     keys = [[(int(orig[v]), round(float(uv[v, 0]), 5), round(float(uv[v, 1]), 5)) for v in t] for t in tri]
     a, b, c = uv[tri[:, 0]], uv[tri[:, 1]], uv[tri[:, 2]]
     area = float(np.abs((b[:, 0] - a[:, 0]) * (c[:, 1] - a[:, 1]) - (c[:, 0] - a[:, 0]) * (b[:, 1] - a[:, 1])).sum() / 2)
-    return {"islands": island_count(keys), "uv_area": area, "tris": int(len(tri)), "chart_source": u.chart_source}
+    p = np.asarray(u.points, np.float64)
+    surface = float(np.linalg.norm(np.cross(p[tri[:, 1]] - p[tri[:, 0]], p[tri[:, 2]] - p[tri[:, 0]]), axis=1).sum() / 2)
+    return {"islands": island_count(keys), "uv_area": area, "tris": int(len(tri)), "chart_source": u.chart_source,
+            "area_distortion": float(u.stretch_mean), "surface_m2": surface}
 
 
 def build_subjects(workdir: Path, quick: bool) -> dict[str, Any]:
@@ -291,10 +294,13 @@ UV_SCRIPT = '''
 OP = "@@OP@@"
 
 def uv_stats(ob):
+    """Islands, total UV area, and the kernel's area distortion measure (UVResult.stretch_mean): the mean over
+    the surface of |(uv area / 3D area) / (total uv area / total 3D area) - 1|, returned as (sum, surface area)
+    so parts can be combined by area."""
     me = ob.data
     layer = me.uv_layers.active
     if layer is None:
-        return 0, 0.0
+        return 0, 0.0, 0.0, 0.0
     parent = list(range(len(me.polygons)))
     def find(a):
         while parent[a] != a:
@@ -303,6 +309,7 @@ def uv_stats(ob):
         return a
     seen = {}
     area = 0.0
+    faces = []
     for p in me.polygons:
         pts = []
         for li in p.loop_indices:
@@ -321,13 +328,20 @@ def uv_stats(ob):
             x2, y2 = pts[(i + 1) % len(pts)]
             s += x1 * y2 - x2 * y1
         area += abs(s) / 2
-    return len({find(i) for i in range(len(me.polygons))}), area
+        if p.area > 1e-14:
+            faces.append((p.area, abs(s) / 2))
+    surface = sum(a3 for a3, _ in faces)
+    scale = sum(a2 for _, a2 in faces) / surface if surface > 0 else 0.0
+    weighted = sum(abs(a2 / a3 / scale - 1.0) * a3 for a3, a2 in faces) if scale > 0 else 0.0
+    return len({find(i) for i in range(len(me.polygons))}), area, weighted, surface
 
 times = []
 build_ms = []
 islands = 0
 uv_area = 0.0
 tris = 0
+distortion = 0.0
+surface = 0.0
 for rep in range(REPS):
     total = 0.0
     for part in PARTS:
@@ -350,12 +364,15 @@ for rep in range(REPS):
         total += time.perf_counter() - t0
         bpy.ops.object.mode_set(mode="OBJECT")
         if rep == 0:
-            n, a = uv_stats(ob)
+            n, a, d, s3 = uv_stats(ob)
             islands += n
             uv_area += a
+            distortion += d
+            surface += s3
             tris += tri_count(ob)
     times.append(total * 1000)
-result = {"times_ms": times, "setup_ms_per_part_median": sorted(build_ms)[len(build_ms) // 2], "islands": islands, "uv_area": uv_area, "tris": tris, "parts": len(PARTS)}
+result = {"times_ms": times, "setup_ms_per_part_median": sorted(build_ms)[len(build_ms) // 2], "islands": islands, "uv_area": uv_area,
+          "area_distortion": distortion / surface if surface > 0 else 0.0, "tris": tris, "parts": len(PARTS)}
 '''
 
 DECIMATE_SCRIPT = '''
@@ -521,7 +538,9 @@ def kernel_uv(meshes: list[Any], reps: int, pipeline: bool = False) -> dict[str,
     else:
         samples, last = time_calls(lambda: [fast_ops.unwrap_uvs(m, density) for m in plain], reps)
     per = [uv_stats_kernel(u) for u in last]
+    surface = sum(p["surface_m2"] for p in per)
     return {**stats(samples), "islands": sum(p["islands"] for p in per), "uv_area": sum(p["uv_area"] for p in per), "tris": sum(p["tris"] for p in per),
+            "area_distortion": sum(p["area_distortion"] * p["surface_m2"] for p in per) / surface if surface > 0 else 0.0,
             "parts": len(plain), "chart_source": sorted({p["chart_source"] for p in per}), "texel_density_px_per_m": density}
 
 
@@ -852,7 +871,7 @@ def markdown(doc: dict[str, Any]) -> str:
                   "| mesh (tris) | operation | kernel | Blender operator | Blender call | ratio: call (operator-only) | kernel made | Blender made |", "|---|---|---:|---:|---:|---:|---|---|"]
 
         def made(d: dict[str, Any]) -> str:
-            keys = ("islands", "uv_area", "tris_by_level", "hull_vertices", "foreground_fraction")
+            keys = ("islands", "uv_area", "area_distortion", "tris_by_level", "hull_vertices", "foreground_fraction")
             return ", ".join(f"{x}={round(d[x], 3) if isinstance(d[x], float) else d[x]}" for x in keys if x in d)
         for c in bp.get("comparisons", []):
             for op, s in c["ops"].items():
