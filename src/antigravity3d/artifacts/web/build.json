@@ -1,29 +1,33 @@
 {
   "schema": "antigravity3d.inspector_build/1",
-  "inputs_sha256": "a59e7993df4574b6e420d8be8456b1f4500f2b42194e05ed28ff90f6235827bb",
+  "inputs_sha256": "517b73ba1fede94f4cd98eec172206a34383db81a01ac7f9e3ed8580686139b9",
   "inputs": [
     "apps/inspector/build.mjs",
     "apps/inspector/package-lock.json",
     "apps/inspector/package.json",
+    "apps/inspector/src/gltf.js",
     "apps/inspector/src/mcp.js",
     "apps/inspector/src/standalone.js",
     "apps/inspector/src/viewer.js",
     "apps/inspector/test-host/host.js",
     "src/antigravity3d/artifacts/inspector_template.html",
+    "src/antigravity3d/artifacts/vendor/BufferGeometryUtils-r160.js.gz",
+    "src/antigravity3d/artifacts/vendor/GLTFLoader-r160.js.gz",
+    "src/antigravity3d/artifacts/vendor/three-r160-addons.provenance.json",
     "src/antigravity3d/artifacts/vendor/three-r160.module.min.js.gz"
   ],
   "outputs": {
     "src/antigravity3d/artifacts/web/inspector_app.html": {
-      "sha256": "34983300f0b5eb856fb842381b51f772f6f880a69fcc14f7c0f9fc40f15dc85a",
-      "bytes": 1372456
+      "sha256": "51bdb96feaa883ad9b58d6ccdd6f369c68236e48e056d53e204b170131d5125f",
+      "bytes": 1421571
     },
     "src/antigravity3d/artifacts/web/inspector_standalone.js": {
-      "sha256": "b9f1334da2f36d99c0c3419ce878b12fff78dd1056a95b3c609eeea2e4de4c3a",
-      "bytes": 25435
+      "sha256": "0e2000b7b1fd8c4ba348a22886db1646b27c9be368c2c3ab3601ece9bcb59abf",
+      "bytes": 72949
     },
     "src/antigravity3d/artifacts/web/THIRD_PARTY_NOTICES.txt": {
-      "sha256": "44096c956ae96dc1c3caff345afbcb5a2a6d25fba7dbea1b08ba686b318148a2",
-      "bytes": 45223
+      "sha256": "13a2f5285519a585aa14e70a7fac0400673794b0bc11e361330513636c0a7282",
+      "bytes": 45400
     },
     "apps/inspector/test-host/host.bundle.js": {
       "sha256": "54d5ccea1b7d2a6e676d4b6dc0c6a1bfdda4e371c3190417c8262dc65eac4fb5",
@@ -40,6 +44,30 @@
       "source": "src/antigravity3d/artifacts/vendor/three-r160.module.min.js.gz",
       "sha256": "3e690ac7d180b0aadf0891bea39eec643e29e2d3e75c99b18689518665f69ba6",
       "license": "MIT"
+    },
+    {
+      "name": "three/examples/jsm/loaders/GLTFLoader.js",
+      "version": "0.160.0",
+      "source": "src/antigravity3d/artifacts/vendor/GLTFLoader-r160.js.gz",
+      "sha256": "d073b438e6a07e1359741dd5d6c76c953420cc0d4fd84eb1bdde94315540e6a3",
+      "license": "MIT",
+      "provenance": "src/antigravity3d/artifacts/vendor/three-r160-addons.provenance.json",
+      "bundled_into": [
+        "inspector_app.html",
+        "inspector_standalone.js"
+      ]
+    },
+    {
+      "name": "three/examples/jsm/utils/BufferGeometryUtils.js",
+      "version": "0.160.0",
+      "source": "src/antigravity3d/artifacts/vendor/BufferGeometryUtils-r160.js.gz",
+      "sha256": "9be041e96308775d00e2695cc607645b9a9b64fd7c0e759dd8f7c00a8d92becb",
+      "license": "MIT",
+      "provenance": "src/antigravity3d/artifacts/vendor/three-r160-addons.provenance.json",
+      "bundled_into": [
+        "inspector_app.html",
+        "inspector_standalone.js"
+      ]
     },
     {
       "name": "@modelcontextprotocol/client",

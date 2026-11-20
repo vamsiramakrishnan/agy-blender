@@ -33,7 +33,7 @@ async function callTool(name, args) {
   return res.structuredContent || {};
 }
 
-/** Fetch one chunked part (scene JSON or one texture) of the current revision. */
+/** Fetch one chunked part ("scene" metadata JSON or the base64 "glb") of a revision. */
 async function fetchPart(sessionId, revision, part) {
   const first = await callTool("inspector_payload", { session_id: sessionId, revision, part, chunk: 0 });
   const chunks = new Array(first.chunks);

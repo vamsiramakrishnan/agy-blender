@@ -145,7 +145,7 @@ class _View:
     key: tuple
     payload: dict[str, Any]
     scene: str  # payload as JSON text (chunked by inspector_payload)
-    parts: dict[str, str]  # texture parts, base64
+    parts: dict[str, str]  # "glb": the review GLB, base64
 
     @property
     def revision(self) -> str:
@@ -153,7 +153,7 @@ class _View:
 
     @property
     def nodes(self) -> set[str]:
-        return {m["id"] for m in self.payload["meshes"]}
+        return {m["id"] for m in self.payload["nodes"]}
 
     def text(self, part: str) -> str:
         if part == "scene":
@@ -163,56 +163,40 @@ class _View:
         raise LookupError(f"unknown part {part!r}")
 
 
-def _local(uri: str | None) -> Path | None:
-    if not uri:
-        return None
-    from urllib.parse import unquote, urlparse
-
-    u = urlparse(uri)
-    p = Path(unquote(u.path)) if u.scheme == "file" else Path(uri)
-    return p if p.is_file() else None
-
-
 def _build_view(s: Session, key: tuple) -> _View:
     """The inspector payload for the session's current composed stage (caller holds the session lock).
 
-    LOD0 is the stage geometry. When the EXPORT stage has derived the export bundle for this
-    geometry (``generate_lods_and_colliders``), its seam-split UV meshes, LOD chain, convex hulls and
-    the material textures are shown too, exactly as the packaged inspector shows them.
+    LOD0 is the stage geometry. When the EXPORT stage has derived the export bundle for this geometry
+    (``generate_lods_and_colliders``), its seam-split UV meshes, per-node LOD chains and convex hulls are shown
+    instead, exactly what the package GLBs are written from. Materials: :func:`.review_glb.session_materials`.
+    Everything is one review GLB (part ``glb``, base64) plus its metadata (part ``scene``).
     """
-    from antigravity3d.artifacts.inspector import InspectorTextures, inspector_payload
+    import base64
+
+    from antigravity3d.artifacts.inspector import inspector_payload
+    from antigravity3d.artifacts.review_glb import session_materials
     from antigravity3d.kernel.types import MeshData
 
     meshes = s.stage.extract_meshes()
     cached = s._res("bundle")
     bundle = cached[1] if cached and cached[0] == (s.geom_version, s.state.budget) else None
+    materials = session_materials(s.stage.stage, meshes)
     uvs: dict[str, Any] = {}
-    lods: list[tuple[str, Any, Any]] = []
+    lods: Any = None
     colliders = None
-    textures: dict[str, InspectorTextures] = {}
     if bundle is not None:
-        from antigravity3d.tactics.package import merged_lods
-
         by_id = {u.node_id: u for u in bundle.uvs}
         meshes = [MeshData(m.node_id, m.prim_path, by_id[m.node_id].points, by_id[m.node_id].triangles,
                            m.material_id, m.collider) if m.node_id in by_id else m for m in meshes]
         uvs = {u.node_id: u.uvs for u in bundle.uvs}
-        lods = [(f"LOD{i}", m.points, m.triangles) for i, m in enumerate(merged_lods(bundle)) if i]
+        if bundle.lods and set(bundle.lods) == {m.node_id for m in meshes}:
+            lods = bundle.lods  # {node_id: [LOD0, LOD1, ...]}, as the package's *_LODn.glb are written
         colliders = [(h.name, h.points, h.triangles) for h in bundle.colliders]
-        for mat in s.stage.scene_ir().materials:
-            slots = {}
-            for role, uri in (("albedo", mat.albedo_uri), ("orm", mat.orm_uri), ("normal", mat.normal_uri)):
-                path = _local(uri)
-                if path is not None:
-                    slots[role + "_png"] = path.read_bytes()
-            if slots:
-                textures[mat.id] = InspectorTextures(**slots)
-    payload, parts = inspector_payload(
-        meshes, asset_name=s.stage.asset_prim.GetName(), budget=s.state.budget, textures=textures, lods=lods,
-        colliders=colliders, uvs=uvs, split_textures=True)
+    payload, glb = inspector_payload(meshes, asset_name=s.stage.asset_prim.GetName(), budget=s.state.budget,
+                                     materials=materials, lods=lods, colliders=colliders, uvs=uvs)
     payload["session_id"] = s.sid
     scene = json.dumps(payload, separators=(",", ":"))
-    return _View(key, payload, scene, parts)
+    return _View(key, payload, scene, {"glb": base64.b64encode(glb).decode("ascii")})
 
 
 def qa_state(s: Session) -> dict[str, Any]:
@@ -304,8 +288,8 @@ class InspectorService:
             else:
                 directives["node"] = node
         if lod is not None:
-            if not 0 <= int(lod) <= len(p["lods"]):
-                raise ValueError(f"lod must be 0..{len(p['lods'])} (LOD1+ exist after generate_lods_and_colliders)")
+            if not 0 <= int(lod) < len(p["levels"]):
+                raise ValueError(f"lod must be 0..{len(p['levels']) - 1} (LOD1+ exist after generate_lods_and_colliders)")
             directives["lod"] = int(lod)
         if channel:
             if channel not in CHANNELS:
@@ -321,22 +305,23 @@ class InspectorService:
             directives["colliders"] = bool(colliders)
         notes = self._counts(self._notes(s, v))
         qa = qa_state(s)
-        derived = any(m["uv"] for m in p["meshes"])  # the export bundle (UVs, LODs, hulls) exists for this geometry
-        tex_note = (f"{len(p['textures'])} textured materials" if p["textures"] else "none") if derived else \
+        derived = any(m["uv"] for m in p["nodes"])  # the export bundle (UVs, LODs, hulls) exists for this geometry
+        textured = sorted({n["mat"] for n in p["nodes"] if n["maps"]})
+        tex_note = (f"{len(textured)} textured materials" if textured else "none") if derived else \
             "not yet (generate_lods_and_colliders derives UVs, LODs and hulls)"
         summary = {
             "schema": VIEW_SCHEMA, "session_id": s.sid, "asset": p["asset_name"], "engine": p["budget"]["target_engine"],
             "stage": s.toolset, "revision": v.revision, "budget": p["budget"],
-            "counts": {"nodes": len(p["meshes"]), "tris": p["summary"]["tris"], "lods": len(p["lods"]),
-                       "colliders": len(p["colliders"]), "textured_materials": len(p["textures"]),
+            "counts": {"nodes": len(p["nodes"]), "tris": p["summary"]["tris"], "lods": len(p["levels"]) - 1,
+                       "colliders": len(p["colliders"]), "textured_materials": len(textured), "glb_bytes": p["glb"]["bytes"],
                        "scene_chunks": max(1, -(-len(v.scene) // CHUNK_CHARS))},
             "notes": notes,
             "qa": {k: qa[k] for k in ("tier1_ok", "tier15_score", "export_allowed")},
             "view": directives,
         }
         shown = " ".join(f"{k}={'*' if val is None else val}" for k, val in directives.items())
-        text = (f"INSPECTOR {s.sid} asset={p['asset_name']} rev={v.revision} nodes={len(p['meshes'])} "
-                f"tris={p['summary']['tris']} lods={len(p['lods'])} colliders={len(p['colliders'])} "
+        text = (f"INSPECTOR {s.sid} asset={p['asset_name']} rev={v.revision} nodes={len(p['nodes'])} "
+                f"tris={p['summary']['tris']} lods={len(p['levels']) - 1} colliders={len(p['colliders'])} "
                 f"textures={tex_note} "
                 f"notes={notes['current']} current, {notes['stale']} stale" + (f" | view {shown}" if shown else ""))
         return _result(text, summary)
@@ -450,7 +435,7 @@ def register(server: Any, host: Any) -> InspectorService:
     server.add_tool(review_notes, name=NOTES_TOOL, structured_output=False, description=(
         "Review notes the reviewer wrote in the 3D inspector, per node; notes written against an older revision are "
         "marked stale."))
-    for fn, doc in ((inspector_payload, "Inspector app: one chunk of the scene or a texture for a revision."),
+    for fn, doc in ((inspector_payload, "Inspector app: one chunk of the review metadata ('scene') or review GLB ('glb') of a revision."),
                     (inspector_qa_state, "Inspector app: QA gate state of the session."),
                     (inspector_list_notes, "Inspector app: all review notes, with stale flags."),
                     (inspector_save_note, "Inspector app: save (empty text deletes) the note for a node and revision.")):
