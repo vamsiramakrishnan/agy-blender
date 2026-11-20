@@ -289,7 +289,9 @@ UV_PADDING_PX = 2           # gutter between charts, in atlas texels
 # unbounded: on UV spheres of 1.9k / 10k / 50k triangles at 1024 px/m they measure mean area distortion 0.088 /
 # 0.064 / 0.068 (budget 0.05) in 0.30 / 0.83 / 8.2 s (chart growing + LSCM cost grows superlinearly with chart
 # size). A sphere holds 4 pi sr; capping its charts at 1/32 of its area (4 pi / 32 sr each) gives 0.015 / 0.014 /
-# 0.018 in 0.27 / 0.54 / 2.4 s at equal or higher achieved density. Curvature concentrated on sharp edges
+# 0.018 in 0.27 / 0.54 / 2.4 s. More charts mean more gutter: through the export pipeline (1024 px/m, 2048 atlas)
+# the achieved density of those spheres is 0 to 5% lower than with unbounded charts (benchmarks/results/quality.jsonl
+# against results/before/quality.jsonl). Curvature concentrated on sharp edges
 # (box corners, cylinder rims: dihedral above CREASE) is not counted: those edges are chart seams anyway, and
 # capping such meshes only fragments flat charts (measured: a 32-sided cylinder split into one chart per side
 # quad, every rim vertex in three charts, which then locked the LOD simplifier).

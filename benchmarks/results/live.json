@@ -2,34 +2,33 @@
   "machine": {
     "python": "3.13.18",
     "platform": "Linux-6.18.44-fc-v726-x86_64-with-glibc2.39",
-    "package_git_sha": "36313b40999df207c76a36f9d61314f2703ecf42",
+    "package_git_sha": "acfc094cd0e3d825d7bbc4265797b04d9571653a",
     "package_git_dirty": false,
     "sdk_versions": {
       "google-genai": "3.6.1",
       "google-antigravity": "0.1.24",
       "antigravity-3d": "0.2.0"
     },
-    "timestamp": "2026-11-20T02:33:16+00:00"
+    "timestamp": "2026-11-20T06:17:24+00:00"
   },
   "limits": {
     "max_calls": 24,
     "max_tokens": 400000,
     "timeouts_s": {
-      "text": 120.0,
-      "director": 300.0,
       "stage": 600.0,
       "judge": 120.0,
       "image": 180.0
     },
-    "retries": "none (genai HttpRetryOptions attempts=1; package fallback/plane retry loops set to 0; the Antigravity SDK Agent used by `stage` exposes no switch, so its internal retries are unknown)",
+    "retries": "none (genai HttpRetryOptions attempts=1; package fallback/plane retry loops set to 0; stage: Antigravity RetryConfig api_retry max_retries=0; a model-output re-ask, if any, is a counted call)",
     "prices": "none configured; dollar cost is unknown, token counts only",
-    "stage_accounting": "1 call per run_stage with a token reservation; SDK-internal model requests are not counted individually"
+    "stage_accounting": "every model call of a stage run is relayed (ModelRelay) and booked with its own usage"
   },
   "totals": {
-    "calls": 20,
-    "input_tokens": 95578,
-    "output_tokens": 16034,
-    "thinking_tokens": 29916
+    "calls": 23,
+    "input_tokens": 136597,
+    "output_tokens": 63118,
+    "thinking_tokens": 53881,
+    "unknown_usage_reserved_tokens": 12200
   },
   "groups": {
     "text": {
@@ -37,243 +36,377 @@
         "samples": [
           {
             "thinking_level": "low",
-            "timeout_s": 120.0,
-            "wall_ms": 11532.3,
-            "input_tokens": 546,
-            "output_tokens": 1585,
-            "thinking_tokens": 856,
-            "total_tokens_reported": 2987,
+            "timeout_s": 90.0,
+            "max_output_tokens": 16384,
+            "answer_tokens": 8192,
+            "thinking_tokens_allowed": 8192,
+            "wall_ms": 12495.7,
+            "input_tokens": 7238,
+            "output_tokens": 1553,
+            "thinking_tokens": 1079,
+            "total_tokens_reported": 9870,
             "tokens_known": true,
             "finish_reason": "STOP",
             "error": null,
             "status": null,
-            "response_chars": 3559,
+            "response_chars": 3612,
+            "outcome": "ok",
+            "scene_ir_valid": true,
+            "nodes": 13,
+            "materials": 2,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@crate_core",
+            "tris": 156
+          },
+          {
+            "thinking_level": "low",
+            "timeout_s": 90.0,
+            "max_output_tokens": 16384,
+            "answer_tokens": 8192,
+            "thinking_tokens_allowed": 8192,
+            "wall_ms": 13751.2,
+            "input_tokens": 7238,
+            "output_tokens": 630,
+            "thinking_tokens": 1263,
+            "total_tokens_reported": 9131,
+            "tokens_known": true,
+            "finish_reason": "STOP",
+            "error": null,
+            "status": null,
+            "response_chars": 1615,
+            "outcome": "ok",
             "scene_ir_valid": true,
             "nodes": 9,
+            "materials": 2,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@bracket_fl; interpenetration@bracket_fr; interpenetration@crate_body; interpenetration@bracket_bl; interpenetration@bracket_br",
+            "tris": 108
+          },
+          {
+            "thinking_level": "low",
+            "timeout_s": 90.0,
+            "max_output_tokens": 16384,
+            "answer_tokens": 8192,
+            "thinking_tokens_allowed": 8192,
+            "wall_ms": 12210.1,
+            "input_tokens": 7238,
+            "output_tokens": 1140,
+            "thinking_tokens": 1066,
+            "total_tokens_reported": 9444,
+            "tokens_known": true,
+            "finish_reason": "STOP",
+            "error": null,
+            "status": null,
+            "response_chars": 2584,
+            "outcome": "ok",
+            "scene_ir_valid": true,
+            "nodes": 9,
+            "materials": 2,
             "asset_name_matches": true,
             "compiled": true,
             "tier1_ok": true,
             "tier1": "TIER1 OK | warn: interpenetration@crate_body",
             "tris": 108
-          },
-          {
-            "thinking_level": "low",
-            "timeout_s": 120.0,
-            "wall_ms": 12458.5,
-            "input_tokens": 546,
-            "output_tokens": 1772,
-            "thinking_tokens": 944,
-            "total_tokens_reported": 3262,
-            "tokens_known": true,
-            "finish_reason": "STOP",
-            "error": null,
-            "status": null,
-            "response_chars": 3966,
-            "scene_ir_valid": false,
-            "parse_error": "ValidationError: 12 validation errors for SceneIR nodes.0.collider   Input should be a valid boolean, unable to interpret input [type=bool_parsing, input_value='none', input_type=str]     For further ",
-            "tier1_ok": false
-          },
-          {
-            "thinking_level": "low",
-            "timeout_s": 120.0,
-            "wall_ms": 12547.8,
-            "input_tokens": 546,
-            "output_tokens": 1615,
-            "thinking_tokens": 1119,
-            "total_tokens_reported": 3280,
-            "tokens_known": true,
-            "finish_reason": "STOP",
-            "error": null,
-            "status": null,
-            "response_chars": 3549,
-            "scene_ir_valid": false,
-            "parse_error": "ValidationError: 11 validation errors for SceneIR nodes.0.collider   Input should be a valid boolean, unable to interpret input [type=bool_parsing, input_value='box', input_type=str]     For further i",
-            "tier1_ok": false
           }
         ],
         "n_ok": 3,
         "n_failed": 0,
-        "median_ms": 12458.5,
-        "min_ms": 11532.3,
-        "max_ms": 12547.8
+        "median_ms": 12495.7,
+        "min_ms": 12210.1,
+        "max_ms": 13751.2
       },
       "builder:gemini-4-carbon": {
         "samples": [
           {
             "thinking_level": "medium",
-            "timeout_s": 120.0,
-            "wall_ms": 54570.0,
-            "input_tokens": 546,
-            "output_tokens": 3,
-            "thinking_tokens": 4093,
-            "total_tokens_reported": 4642,
+            "timeout_s": 420.0,
+            "max_output_tokens": 32768,
+            "answer_tokens": 16384,
+            "thinking_tokens_allowed": 16384,
+            "wall_ms": 284720.3,
+            "input_tokens": 7238,
+            "output_tokens": 10004,
+            "thinking_tokens": 9846,
+            "total_tokens_reported": 27088,
             "tokens_known": true,
-            "finish_reason": "MAX_TOKENS",
+            "finish_reason": "STOP",
             "error": null,
             "status": null,
-            "response_chars": 0,
-            "scene_ir_valid": false,
-            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a value at line 1 column 0 [type=json_invalid, input_value='', input_type=str]     For further information visit https",
-            "tier1_ok": false
+            "response_chars": 25738,
+            "outcome": "ok",
+            "scene_ir_valid": true,
+            "nodes": 123,
+            "materials": 3,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@brk_bot_fr_yh; interpenetration@brk_bot_fr_xh; interpenetration@brk_bot_fl_yh; interpenetration@brk_bot_fl_xh; interpenetra...",
+            "tris": 2252
           },
           {
             "thinking_level": "medium",
-            "timeout_s": 120.0,
-            "wall_ms": 53758.8,
-            "input_tokens": 546,
-            "output_tokens": 3,
-            "thinking_tokens": 4093,
-            "total_tokens_reported": 4642,
+            "timeout_s": 420.0,
+            "max_output_tokens": 32768,
+            "answer_tokens": 16384,
+            "thinking_tokens_allowed": 16384,
+            "wall_ms": 208775.0,
+            "input_tokens": 7238,
+            "output_tokens": 10286,
+            "thinking_tokens": 9289,
+            "total_tokens_reported": 26813,
             "tokens_known": true,
-            "finish_reason": "MAX_TOKENS",
+            "finish_reason": "STOP",
             "error": null,
             "status": null,
-            "response_chars": 0,
-            "scene_ir_valid": false,
-            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a value at line 1 column 0 [type=json_invalid, input_value='', input_type=str]     For further information visit https",
-            "tier1_ok": false
+            "response_chars": 25977,
+            "outcome": "ok",
+            "scene_ir_valid": true,
+            "nodes": 131,
+            "materials": 4,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@brk_bfl_vx; interpenetration@brk_bfl_vy; interpenetration@brk_bfr_vx; interpenetration@brk_bfr_vy; interpenetration@brk_bbl...",
+            "tris": 2360
           },
           {
             "thinking_level": "medium",
-            "timeout_s": 120.0,
-            "wall_ms": 112393.7,
-            "input_tokens": 546,
-            "output_tokens": 3,
-            "thinking_tokens": 4093,
-            "total_tokens_reported": 4642,
+            "timeout_s": 420.0,
+            "max_output_tokens": 32768,
+            "answer_tokens": 16384,
+            "thinking_tokens_allowed": 16384,
+            "wall_ms": 203134.8,
+            "input_tokens": 7238,
+            "output_tokens": 9965,
+            "thinking_tokens": 9650,
+            "total_tokens_reported": 26853,
             "tokens_known": true,
-            "finish_reason": "MAX_TOKENS",
+            "finish_reason": "STOP",
             "error": null,
             "status": null,
-            "response_chars": 0,
-            "scene_ir_valid": false,
-            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a value at line 1 column 0 [type=json_invalid, input_value='', input_type=str]     For further information visit https",
-            "tier1_ok": false
+            "response_chars": 25493,
+            "outcome": "ok",
+            "scene_ir_valid": true,
+            "nodes": 131,
+            "materials": 3,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@post_fr; interpenetration@brk_fr_xv; interpenetration@brk_fr_yv; interpenetration@post_fl; interpenetration@brk_fl_xv; inte...",
+            "tris": 2360
           }
         ],
         "n_ok": 3,
         "n_failed": 0,
-        "median_ms": 54570.0,
-        "min_ms": 53758.8,
-        "max_ms": 112393.7
+        "median_ms": 208775.0,
+        "min_ms": 203134.8,
+        "max_ms": 284720.3
       },
       "bulk:gemini-4-neon": {
         "samples": [
           {
             "thinking_level": "low",
-            "timeout_s": 120.0,
-            "wall_ms": 35693.0,
-            "input_tokens": 546,
-            "output_tokens": 2722,
-            "thinking_tokens": 1374,
-            "total_tokens_reported": 4642,
+            "timeout_s": 90.0,
+            "max_output_tokens": 16384,
+            "answer_tokens": 8192,
+            "thinking_tokens_allowed": 8192,
+            "wall_ms": 29716.6,
+            "input_tokens": 7238,
+            "output_tokens": 1893,
+            "thinking_tokens": 1988,
+            "total_tokens_reported": 11119,
             "tokens_known": true,
-            "finish_reason": "MAX_TOKENS",
+            "finish_reason": "STOP",
             "error": null,
             "status": null,
-            "response_chars": 6042,
-            "scene_ir_valid": false,
-            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a list at line 260 column 26 [type=json_invalid, input_value='{\\n  \"asset_name\": \"Wood...     \"size\": [0.03, 1.1', inp",
-            "tier1_ok": false
+            "response_chars": 5014,
+            "outcome": "ok",
+            "scene_ir_valid": true,
+            "nodes": 26,
+            "materials": 3,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@frame_bot_front; interpenetration@post_fl; interpenetration@crate_body; interpenetration@brace_left; interpenetration@frame...",
+            "tris": 300
           },
           {
             "thinking_level": "low",
-            "timeout_s": 120.0,
-            "wall_ms": 27221.1,
-            "input_tokens": 546,
-            "output_tokens": 2625,
-            "thinking_tokens": 1471,
-            "total_tokens_reported": 4642,
+            "timeout_s": 90.0,
+            "max_output_tokens": 16384,
+            "answer_tokens": 8192,
+            "thinking_tokens_allowed": 8192,
+            "wall_ms": 38552.8,
+            "input_tokens": 7238,
+            "output_tokens": 1747,
+            "thinking_tokens": 1410,
+            "total_tokens_reported": 10395,
             "tokens_known": true,
-            "finish_reason": "MAX_TOKENS",
+            "finish_reason": "STOP",
             "error": null,
             "status": null,
-            "response_chars": 5870,
-            "scene_ir_valid": false,
-            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a string at line 248 column 9 [type=json_invalid, input_value='{\\n  \"asset_name\": \"Wood...   },\\n    {\\n      \"id', in",
-            "tier1_ok": false
+            "response_chars": 4350,
+            "outcome": "ok",
+            "scene_ir_valid": true,
+            "nodes": 25,
+            "materials": 3,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@post_fl; interpenetration@rail_bot_l; interpenetration@crate_core; interpenetration@rail_bot_f; interpenetration@post_bl; i...",
+            "tris": 300
           },
           {
             "thinking_level": "low",
-            "timeout_s": 120.0,
-            "wall_ms": 29973.1,
-            "input_tokens": 546,
-            "output_tokens": 2389,
-            "thinking_tokens": 1707,
-            "total_tokens_reported": 4642,
+            "timeout_s": 90.0,
+            "max_output_tokens": 16384,
+            "answer_tokens": 8192,
+            "thinking_tokens_allowed": 8192,
+            "wall_ms": 36139.1,
+            "input_tokens": 7238,
+            "output_tokens": 1919,
+            "thinking_tokens": 2418,
+            "total_tokens_reported": 11575,
             "tokens_known": true,
-            "finish_reason": "MAX_TOKENS",
+            "finish_reason": "STOP",
             "error": null,
             "status": null,
-            "response_chars": 5345,
-            "scene_ir_valid": false,
-            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a value at line 226 column 22 [type=json_invalid, input_value='{\\n  \"asset_name\": \"Wood...n        \"scale\": [1.0,', in",
-            "tier1_ok": false
+            "response_chars": 4971,
+            "outcome": "ok",
+            "scene_ir_valid": true,
+            "nodes": 26,
+            "materials": 3,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@post_fl; interpenetration@rail_bot_l; interpenetration@brace_l; interpenetration@crate_core; interpenetration@rail_bot_f; i...",
+            "tris": 300
           }
         ],
         "n_ok": 3,
         "n_failed": 0,
-        "median_ms": 29973.1,
-        "min_ms": 27221.1,
-        "max_ms": 35693.0
+        "median_ms": 36139.1,
+        "min_ms": 29716.6,
+        "max_ms": 38552.8
       },
       "director:gemini-4-argon": {
         "samples": [
           {
             "thinking_level": "high",
-            "timeout_s": 300.0,
-            "wall_ms": 111846.8,
-            "input_tokens": 546,
-            "output_tokens": 3,
-            "thinking_tokens": 4093,
-            "total_tokens_reported": 4642,
+            "timeout_s": 480.0,
+            "max_output_tokens": 32768,
+            "answer_tokens": 16384,
+            "thinking_tokens_allowed": 16384,
+            "wall_ms": 261564.7,
+            "input_tokens": 7238,
+            "output_tokens": 17634,
+            "thinking_tokens": 7893,
+            "total_tokens_reported": 32765,
             "tokens_known": true,
-            "finish_reason": "MAX_TOKENS",
+            "finish_reason": "STOP",
             "error": null,
             "status": null,
-            "response_chars": 0,
-            "scene_ir_valid": false,
-            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a value at line 1 column 0 [type=json_invalid, input_value='', input_type=str]     For further information visit https",
-            "tier1_ok": false
+            "response_chars": 39024,
+            "outcome": "ok",
+            "scene_ir_valid": true,
+            "nodes": 168,
+            "materials": 4,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@brk_bfr_yx; interpenetration@brk_bfr_xy; interpenetration@brk_bfl_yx; interpenetration@brk_bfl_xy; interpenetration@brk_bbr...",
+            "tris": 3204
           }
         ],
         "n_ok": 1,
         "n_failed": 0,
-        "median_ms": 111846.8,
-        "min_ms": 111846.8,
-        "max_ms": 111846.8
+        "median_ms": 261564.7,
+        "min_ms": 261564.7,
+        "max_ms": 261564.7
       }
     },
     "stage": {
       "worker:gemini-4-hydrogen": {
         "samples": [
           {
+            "task": "crate",
             "timeout_s": 600.0,
             "thinking_level": "low",
-            "wall_s": 8.98,
-            "wall_ms": 8982.5,
-            "prompt_tokens": 21739,
-            "output_tokens": 381,
-            "thinking_tokens": 243,
-            "total_tokens": 22363,
+            "wall_s": 7.85,
+            "wall_ms": 7849.4,
+            "model_calls": 3,
+            "prompt_tokens_per_call": [
+              2170,
+              2704,
+              2864
+            ],
+            "static_chars_first_call": 6613,
+            "prompt_tokens": 7738,
+            "output_tokens": 360,
+            "thinking_tokens": 231,
             "tokens_known": true,
+            "total_tokens": 8329,
+            "calls": [
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2170,
+                "cached_tokens": 0,
+                "output_tokens": 231,
+                "thinking_tokens": 187,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 3.51,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2704,
+                "cached_tokens": 0,
+                "output_tokens": 18,
+                "thinking_tokens": 15,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 1.71,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2864,
+                "cached_tokens": 655,
+                "output_tokens": 111,
+                "thinking_tokens": 29,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 2.2,
+                "error": null
+              }
+            ],
             "tool_calls": 2,
             "tool_durations_ms": [
               {
                 "tool": "apply_scene_ir",
-                "ms": 21.94,
+                "ms": 26.51,
                 "error": false,
                 "soft_fail": false
               },
               {
                 "tool": "run_visual_qa",
-                "ms": 116.31,
+                "ms": 156.86,
                 "error": false,
                 "soft_fail": false
               }
             ],
-            "tool_time_s": 0.138,
-            "model_side_s": 8.84,
+            "first_edit_valid": true,
+            "edit_calls": 1,
+            "tool_time_s": 0.183,
+            "model_side_s": 7.67,
             "telemetry_summary": {
               "calls": 2,
               "errors": 0,
@@ -283,49 +416,101 @@
                   "calls": 1,
                   "errors": 0,
                   "soft_failures": 0,
-                  "total_ms": 21.94,
-                  "p50_ms": 21.94
+                  "total_ms": 26.51,
+                  "p50_ms": 26.51
                 },
                 "run_visual_qa": {
                   "calls": 1,
                   "errors": 0,
                   "soft_failures": 0,
-                  "total_ms": 116.31,
-                  "p50_ms": 116.31
+                  "total_ms": 156.86,
+                  "p50_ms": 156.86
                 }
               }
             },
             "stop_continuations": 0,
+            "final_text": "Built the wooden crate blockout with two box primitives (`crate_body` 0.8x0.8x0.6m at z=0.3m and `crate_lid` 0.84x0.84x0.08m placed `on_top_of` `crate_body`) and assigned `wood_mat` (24 tris, 1 draw). Visual QA passed (`approve`, `tier15=3.60`). No geometry repairs remain.",
             "final_nodes": 2,
-            "tier1_ok": true
+            "tier1_ok": true,
+            "qa_last": "QA[blockout] approve tier15=3.60\nwhy: all gates pass (tier15 3.60, silhouette 3.60)",
+            "qa_approved": true,
+            "task_ok": true
           },
           {
+            "task": "crate",
             "timeout_s": 600.0,
             "thinking_level": "low",
-            "wall_s": 6.94,
-            "wall_ms": 6940.0,
-            "prompt_tokens": 21878,
-            "output_tokens": 446,
-            "thinking_tokens": 237,
-            "total_tokens": 22561,
+            "wall_s": 7.71,
+            "wall_ms": 7712.2,
+            "model_calls": 3,
+            "prompt_tokens_per_call": [
+              2170,
+              2665,
+              2822
+            ],
+            "static_chars_first_call": 6613,
+            "prompt_tokens": 7657,
+            "output_tokens": 383,
+            "thinking_tokens": 200,
             "tokens_known": true,
+            "total_tokens": 8240,
+            "calls": [
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2170,
+                "cached_tokens": 0,
+                "output_tokens": 223,
+                "thinking_tokens": 159,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 2.35,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2665,
+                "cached_tokens": 0,
+                "output_tokens": 18,
+                "thinking_tokens": 12,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 1.57,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2822,
+                "cached_tokens": 616,
+                "output_tokens": 142,
+                "thinking_tokens": 29,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 3.45,
+                "error": null
+              }
+            ],
             "tool_calls": 2,
             "tool_durations_ms": [
               {
                 "tool": "apply_scene_ir",
-                "ms": 15.27,
+                "ms": 18.83,
                 "error": false,
                 "soft_fail": false
               },
               {
                 "tool": "run_visual_qa",
-                "ms": 103.9,
+                "ms": 99.83,
                 "error": false,
                 "soft_fail": false
               }
             ],
+            "first_edit_valid": true,
+            "edit_calls": 1,
             "tool_time_s": 0.119,
-            "model_side_s": 6.82,
+            "model_side_s": 7.59,
             "telemetry_summary": {
               "calls": 2,
               "errors": 0,
@@ -335,64 +520,218 @@
                   "calls": 1,
                   "errors": 0,
                   "soft_failures": 0,
-                  "total_ms": 15.27,
-                  "p50_ms": 15.27
+                  "total_ms": 18.83,
+                  "p50_ms": 18.83
                 },
                 "run_visual_qa": {
                   "calls": 1,
                   "errors": 0,
                   "soft_failures": 0,
-                  "total_ms": 103.9,
-                  "p50_ms": 103.9
+                  "total_ms": 99.83,
+                  "p50_ms": 99.83
                 }
               }
             },
             "stop_continuations": 0,
+            "final_text": "Blockout complete:\n- Created `wood_mat` material and two box primitives: `crate_body` (1.0 x 1.0 x 0.8 m, grounded at z=0.4 m) and `crate_lid` (1.04 x 1.04 x 0.08 m, aligned `on_top_of` `crate_body`).\n- Scene stats: 2 nodes, 24 tris, 1 draw call (within budget).\n- Visual QA passed (`approve`, tier15",
             "final_nodes": 2,
-            "tier1_ok": true
+            "tier1_ok": true,
+            "qa_last": "QA[blockout] approve tier15=3.60\nwhy: all gates pass (tier15 3.60, silhouette 3.60)",
+            "qa_approved": true,
+            "task_ok": true
           }
         ],
         "n_ok": 2,
         "n_failed": 0,
-        "median_ms": 7961.2,
-        "min_ms": 6940.0,
-        "max_ms": 8982.5
+        "median_ms": 7780.8,
+        "min_ms": 7712.2,
+        "max_ms": 7849.4
       },
       "builder:gemini-4-carbon": {
         "samples": [
           {
+            "task": "crate",
             "timeout_s": 600.0,
             "thinking_level": "medium",
-            "wall_s": 32.47,
-            "wall_ms": 32473.4,
-            "prompt_tokens": 28741,
-            "output_tokens": 567,
-            "thinking_tokens": 892,
-            "total_tokens": 30200,
-            "tokens_known": true,
-            "tool_calls": 3,
+            "error": "AntigravityExecutionError: model unreachable: Error 502, Message: relay: upstream unreachable, Status: , Details: []: Error 502, Message: relay: upstream unreachable, Status: , Details: []",
+            "error_class": "AntigravityExecutionError",
+            "wall_s": 347.29,
+            "wall_ms": 347286.3,
+            "model_calls": 3,
+            "prompt_tokens_per_call": [
+              2170,
+              2796,
+              null
+            ],
+            "static_chars_first_call": 6613,
+            "prompt_tokens": 4966,
+            "output_tokens": 261,
+            "thinking_tokens": 343,
+            "tokens_known": false,
+            "total_tokens": 5570,
+            "calls": [
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2170,
+                "cached_tokens": 0,
+                "output_tokens": 240,
+                "thinking_tokens": 270,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 8.54,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2796,
+                "cached_tokens": 0,
+                "output_tokens": 21,
+                "thinking_tokens": 73,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 38.28,
+                "error": null
+              },
+              {
+                "finish_reason": null,
+                "prompt_tokens": null,
+                "cached_tokens": null,
+                "output_tokens": null,
+                "thinking_tokens": null,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": null,
+                "error": "RemoteDisconnected: Remote end closed connection without response"
+              }
+            ],
+            "tool_calls": 2,
             "tool_durations_ms": [
               {
                 "tool": "apply_scene_ir",
-                "ms": 17.71,
+                "ms": 16.33,
                 "error": false,
                 "soft_fail": false
               },
               {
                 "tool": "render_preview",
-                "ms": 110.9,
+                "ms": 106.22,
+                "error": false,
+                "soft_fail": false
+              }
+            ],
+            "first_edit_valid": true,
+            "edit_calls": 1,
+            "tool_time_s": 0.123,
+            "model_side_s": 347.16,
+            "final_nodes": 2,
+            "tier1_ok": true,
+            "qa_last": null,
+            "qa_approved": false,
+            "task_ok": false
+          }
+        ],
+        "n_ok": 0,
+        "n_failed": 1
+      },
+      "flush_repair:worker:gemini-4-hydrogen": {
+        "samples": [
+          {
+            "task": "flush_repair",
+            "timeout_s": 600.0,
+            "thinking_level": "low",
+            "wall_s": 8.25,
+            "wall_ms": 8251.1,
+            "model_calls": 4,
+            "prompt_tokens_per_call": [
+              2220,
+              2453,
+              2996,
+              3156
+            ],
+            "static_chars_first_call": 6613,
+            "prompt_tokens": 10825,
+            "output_tokens": 290,
+            "thinking_tokens": 330,
+            "tokens_known": true,
+            "total_tokens": 11445,
+            "calls": [
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2220,
+                "cached_tokens": 0,
+                "output_tokens": 16,
+                "thinking_tokens": 14,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 1.69,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2453,
+                "cached_tokens": 0,
+                "output_tokens": 151,
+                "thinking_tokens": 274,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 3.48,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2996,
+                "cached_tokens": 0,
+                "output_tokens": 18,
+                "thinking_tokens": 15,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 1.09,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 3156,
+                "cached_tokens": 947,
+                "output_tokens": 105,
+                "thinking_tokens": 27,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 1.62,
+                "error": null
+              }
+            ],
+            "tool_calls": 3,
+            "tool_durations_ms": [
+              {
+                "tool": "inspect_manifest",
+                "ms": 11.26,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "apply_scene_ir",
+                "ms": 19.15,
                 "error": false,
                 "soft_fail": false
               },
               {
                 "tool": "run_visual_qa",
-                "ms": 26.21,
+                "ms": 98.77,
                 "error": false,
                 "soft_fail": false
               }
             ],
-            "tool_time_s": 0.155,
-            "model_side_s": 32.32,
+            "first_edit_valid": true,
+            "edit_calls": 1,
+            "tool_time_s": 0.129,
+            "model_side_s": 8.12,
             "telemetry_summary": {
               "calls": 3,
               "errors": 0,
@@ -402,41 +741,238 @@
                   "calls": 1,
                   "errors": 0,
                   "soft_failures": 0,
-                  "total_ms": 17.71,
-                  "p50_ms": 17.71
+                  "total_ms": 19.15,
+                  "p50_ms": 19.15
                 },
-                "render_preview": {
+                "inspect_manifest": {
                   "calls": 1,
                   "errors": 0,
                   "soft_failures": 0,
-                  "total_ms": 110.9,
-                  "p50_ms": 110.9
+                  "total_ms": 11.26,
+                  "p50_ms": 11.26
                 },
                 "run_visual_qa": {
                   "calls": 1,
                   "errors": 0,
                   "soft_failures": 0,
-                  "total_ms": 26.21,
-                  "p50_ms": 26.21
+                  "total_ms": 98.77,
+                  "p50_ms": 98.77
                 }
               }
             },
             "stop_continuations": 0,
-            "final_nodes": 2,
-            "tier1_ok": true
+            "final_text": "- Aligned `lid` flush on top of `body` (`gap_m=0`).\n- Added cylindrical `handle` (`radius=0.02`, `height=0.3`, rotated 90\u00b0 around Y to lie along X) centered and resting flush on top of `lid`.\n- Ran visual QA: approved (`tier15=3.60`), Tier-1 OK (`nodes=3`, `tris=120`, `draws=1`).",
+            "final_nodes": 3,
+            "tier1_ok": true,
+            "qa_last": "QA[blockout] approve tier15=3.60\nwhy: all gates pass (tier15 3.60, silhouette 3.60)",
+            "qa_approved": true,
+            "task_ok": true,
+            "flush": {
+              "ok": true,
+              "lid_gap_m": 0.0,
+              "handle_gap_m": 0.0,
+              "handle_extent_m": [
+                0.3,
+                0.04,
+                0.04
+              ],
+              "handle_offcentre_m": 0.0
+            }
           }
         ],
         "n_ok": 1,
         "n_failed": 0,
-        "median_ms": 32473.4,
-        "min_ms": 32473.4,
-        "max_ms": 32473.4
+        "median_ms": 8251.1,
+        "min_ms": 8251.1,
+        "max_ms": 8251.1
+      },
+      "flush_repair:builder:gemini-4-carbon": {
+        "samples": [
+          {
+            "task": "flush_repair",
+            "timeout_s": 600.0,
+            "thinking_level": "medium",
+            "wall_s": 341.41,
+            "wall_ms": 341412.1,
+            "model_calls": 5,
+            "prompt_tokens_per_call": [
+              2220,
+              2448,
+              3081,
+              3555,
+              3905
+            ],
+            "static_chars_first_call": 6613,
+            "prompt_tokens": 15209,
+            "output_tokens": 341,
+            "thinking_tokens": 705,
+            "tokens_known": true,
+            "total_tokens": 16255,
+            "calls": [
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2220,
+                "cached_tokens": 0,
+                "output_tokens": 16,
+                "thinking_tokens": 9,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 194.56,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2448,
+                "cached_tokens": 0,
+                "output_tokens": 149,
+                "thinking_tokens": 369,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 109.88,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 3081,
+                "cached_tokens": 0,
+                "output_tokens": 28,
+                "thinking_tokens": 89,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 25.42,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 3555,
+                "cached_tokens": 1032,
+                "output_tokens": 18,
+                "thinking_tokens": 205,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 5.3,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 3905,
+                "cached_tokens": 1506,
+                "output_tokens": 130,
+                "thinking_tokens": 33,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 5.85,
+                "error": null
+              }
+            ],
+            "tool_calls": 5,
+            "tool_durations_ms": [
+              {
+                "tool": "inspect_manifest",
+                "ms": 7.09,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "apply_scene_ir",
+                "ms": 16.32,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "inspect_manifest",
+                "ms": 5.55,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "render_preview",
+                "ms": 106.84,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "run_visual_qa",
+                "ms": 13.31,
+                "error": false,
+                "soft_fail": false
+              }
+            ],
+            "first_edit_valid": true,
+            "edit_calls": 1,
+            "tool_time_s": 0.149,
+            "model_side_s": 341.26,
+            "telemetry_summary": {
+              "calls": 5,
+              "errors": 0,
+              "soft_failures": 0,
+              "by_tool": {
+                "apply_scene_ir": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 16.32,
+                  "p50_ms": 16.32
+                },
+                "inspect_manifest": {
+                  "calls": 2,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 12.64,
+                  "p50_ms": 7.09
+                },
+                "render_preview": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 106.84,
+                  "p50_ms": 106.84
+                },
+                "run_visual_qa": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 13.31,
+                  "p50_ms": 13.31
+                }
+              }
+            },
+            "stop_continuations": 0,
+            "final_text": "Seated `lid` flush on top of `body` (z = 0.50..0.56 m) and added cylindrical `handle` (radius 0.02 m, length 0.30 m, oriented along X) centred and resting flush on top of `lid` (z = 0.56..0.60 m). Tier-1 checks and visual QA passed (`approve`, tier15 = 3.60, 120 tris, 1 draw). Remaining for downstre",
+            "final_nodes": 3,
+            "tier1_ok": true,
+            "qa_last": "QA[blockout] approve tier15=3.60\nwhy: all gates pass (tier15 3.60, silhouette 3.60)",
+            "qa_approved": true,
+            "task_ok": true,
+            "flush": {
+              "ok": true,
+              "lid_gap_m": 0.0,
+              "handle_gap_m": 0.0,
+              "handle_extent_m": [
+                0.3,
+                0.04,
+                0.04
+              ],
+              "handle_offcentre_m": 0.0
+            }
+          }
+        ],
+        "n_ok": 1,
+        "n_failed": 0,
+        "median_ms": 341412.1,
+        "min_ms": 341412.1,
+        "max_ms": 341412.1
       }
     },
     "judge": {
       "native_probe": {
         "available": false,
-        "wall_ms": 311.9,
+        "wall_ms": 44.1,
         "input_tokens": 0,
         "output_tokens": 0,
         "thinking_tokens": 0,
@@ -462,17 +998,17 @@
             "calibrated": false,
             "source": "generative_fallback",
             "resolution": "low",
-            "plane_latency_ms": 16075.8,
+            "plane_latency_ms": 16471.8,
             "plane_input_tokens": 2312,
-            "plane_output_tokens": 975,
+            "plane_output_tokens": 1006,
             "next_action": null,
             "skipped": 16,
-            "wall_ms": 16076.3,
+            "wall_ms": 16472.4,
             "backend_requests": 1,
             "thinking_level": "LOW",
             "input_tokens": 2312,
-            "output_tokens": 203,
-            "thinking_tokens": 772
+            "output_tokens": 169,
+            "thinking_tokens": 837
           },
           {
             "stage": "blockout",
@@ -482,17 +1018,17 @@
             "calibrated": false,
             "source": "generative_fallback",
             "resolution": "low",
-            "plane_latency_ms": 15148.3,
+            "plane_latency_ms": 22421.5,
             "plane_input_tokens": 2312,
-            "plane_output_tokens": 801,
+            "plane_output_tokens": 907,
             "next_action": null,
             "skipped": 16,
-            "wall_ms": 15148.6,
+            "wall_ms": 22421.9,
             "backend_requests": 1,
             "thinking_level": "LOW",
             "input_tokens": 2312,
             "output_tokens": 167,
-            "thinking_tokens": 634
+            "thinking_tokens": 740
           },
           {
             "stage": "blockout",
@@ -502,24 +1038,24 @@
             "calibrated": false,
             "source": "generative_fallback",
             "resolution": "low",
-            "plane_latency_ms": 17978.3,
+            "plane_latency_ms": 18423.9,
             "plane_input_tokens": 2312,
-            "plane_output_tokens": 977,
+            "plane_output_tokens": 991,
             "next_action": null,
             "skipped": 16,
-            "wall_ms": 17978.6,
+            "wall_ms": 18424.2,
             "backend_requests": 1,
             "thinking_level": "LOW",
             "input_tokens": 2312,
-            "output_tokens": 199,
-            "thinking_tokens": 778
+            "output_tokens": 168,
+            "thinking_tokens": 823
           }
         ],
         "n_ok": 3,
         "n_failed": 0,
-        "median_ms": 16076.3,
-        "min_ms": 15148.6,
-        "max_ms": 17978.6
+        "median_ms": 18424.2,
+        "min_ms": 16472.4,
+        "max_ms": 22421.9
       },
       "visual_qa:lookdev:gemini-4-neon": {
         "samples": [
@@ -531,17 +1067,17 @@
             "calibrated": false,
             "source": "generative_fallback",
             "resolution": "high",
-            "plane_latency_ms": 21775.8,
+            "plane_latency_ms": 21483.3,
             "plane_input_tokens": 5381,
-            "plane_output_tokens": 1749,
+            "plane_output_tokens": 1715,
             "next_action": "rework_pbr",
             "skipped": 4,
-            "wall_ms": 21776.6,
+            "wall_ms": 21484.1,
             "backend_requests": 1,
             "thinking_level": "LOW",
             "input_tokens": 5381,
-            "output_tokens": 481,
-            "thinking_tokens": 1268
+            "output_tokens": 408,
+            "thinking_tokens": 1307
           },
           {
             "stage": "lookdev",
@@ -551,41 +1087,62 @@
             "calibrated": false,
             "source": "generative_fallback",
             "resolution": "high",
-            "plane_latency_ms": 16662.6,
+            "plane_latency_ms": 21321.1,
             "plane_input_tokens": 5381,
-            "plane_output_tokens": 1081,
+            "plane_output_tokens": 1512,
             "next_action": "rework_pbr",
             "skipped": 4,
-            "wall_ms": 16663.2,
+            "wall_ms": 21321.8,
             "backend_requests": 1,
             "thinking_level": "LOW",
             "input_tokens": 5381,
-            "output_tokens": 594,
-            "thinking_tokens": 487
+            "output_tokens": 397,
+            "thinking_tokens": 1115
           }
         ],
         "n_ok": 2,
         "n_failed": 0,
-        "median_ms": 19219.9,
-        "min_ms": 16663.2,
-        "max_ms": 21776.6
+        "median_ms": 21402.9,
+        "min_ms": 21321.8,
+        "max_ms": 21484.1
       }
     },
     "image": {
-      "image:gemini-nano-banana-2.1": {
+      "image:gemini-nano-banana-2.1:1K": {
         "samples": [
           {
             "requested_size": 1024,
             "size_tier": "1K",
             "timeout_s": 180.0,
-            "error": "RuntimeError: image model returned no inline image data",
-            "error_class": "RuntimeError",
+            "max_output_tokens": 3680,
+            "wall_ms": 12401.8,
+            "pixel_size": [
+              1024,
+              1024
+            ],
+            "bytes": 1883976,
+            "model": "gemini-nano-banana-2.1",
+            "receipt_input_tokens": 62,
+            "receipt_output_tokens": 1402,
+            "receipt_image_tokens": 1120,
+            "receipt_thinking_tokens": 544,
+            "receipt_unitemized_output_tokens": 282,
+            "receipt_missing_usage_fields": [],
+            "receipt_finish_reason": "STOP",
+            "receipt_source": "provider_usage",
             "input_tokens": 62,
-            "output_tokens": 276,
-            "thinking_tokens": 762,
+            "output_tokens": 1402,
+            "thinking_tokens": 544,
             "tokens_known": true,
+            "finish_reason": "STOP",
             "usage_metadata": {
-              "candidates_token_count": 276,
+              "candidates_token_count": 1402,
+              "candidates_tokens_details": [
+                {
+                  "modality": "IMAGE",
+                  "token_count": 1120
+                }
+              ],
               "prompt_token_count": 62,
               "prompt_tokens_details": [
                 {
@@ -593,15 +1150,71 @@
                   "token_count": 62
                 }
               ],
-              "thoughts_token_count": 762,
-              "total_token_count": 1100
+              "thoughts_token_count": 544,
+              "total_token_count": 2008
             },
-            "wall_ms": 9717.6,
-            "api_wall_ms": 9717.6
+            "api_wall_ms": 12106.5
           }
         ],
-        "n_ok": 0,
-        "n_failed": 1
+        "n_ok": 1,
+        "n_failed": 0,
+        "median_ms": 12401.8,
+        "min_ms": 12401.8,
+        "max_ms": 12401.8
+      },
+      "image:gemini-nano-banana-2.1:2K": {
+        "samples": [
+          {
+            "requested_size": 2048,
+            "size_tier": "2K",
+            "timeout_s": 180.0,
+            "max_output_tokens": 4240,
+            "wall_ms": 20892.6,
+            "pixel_size": [
+              2048,
+              2048
+            ],
+            "bytes": 7693401,
+            "model": "gemini-nano-banana-2.1",
+            "receipt_input_tokens": 62,
+            "receipt_output_tokens": 2001,
+            "receipt_image_tokens": 1680,
+            "receipt_thinking_tokens": 804,
+            "receipt_unitemized_output_tokens": 321,
+            "receipt_missing_usage_fields": [],
+            "receipt_finish_reason": "STOP",
+            "receipt_source": "provider_usage",
+            "input_tokens": 62,
+            "output_tokens": 2001,
+            "thinking_tokens": 804,
+            "tokens_known": true,
+            "finish_reason": "STOP",
+            "usage_metadata": {
+              "candidates_token_count": 2001,
+              "candidates_tokens_details": [
+                {
+                  "modality": "IMAGE",
+                  "token_count": 1680
+                }
+              ],
+              "prompt_token_count": 62,
+              "prompt_tokens_details": [
+                {
+                  "modality": "TEXT",
+                  "token_count": 62
+                }
+              ],
+              "thoughts_token_count": 804,
+              "total_token_count": 2867
+            },
+            "api_wall_ms": 19540.1
+          }
+        ],
+        "n_ok": 1,
+        "n_failed": 0,
+        "median_ms": 20892.6,
+        "min_ms": 20892.6,
+        "max_ms": 20892.6
       }
     }
   },

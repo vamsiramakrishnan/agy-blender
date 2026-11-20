@@ -1,14 +1,28 @@
-# Offline performance benchmarks
+# Performance benchmarks
 
-`perf_offline.py` measures the deterministic, local parts of antigravity-3d: the USD kernel, the QA / UV / LOD /
-collider / packaging kernels, the model-facing harness tools, the in-process pipelines, and the CLI. It makes no
-network calls and no model or API calls. It never starts Blender or Godot.
+Four tools and the report written from them:
+
+- `perf_offline.py` measures the deterministic, local parts of antigravity-3d. Most of this page is about it.
+- `perf_live.py` measures the model-facing components against the real API, within hard call and token limits. See
+  "Live probes".
+- `compare.py` prints a before/after table from two offline result files. See "Comparing two runs".
+- `quality_facts.py` records what the export pipeline produces, not how long it takes: UV distortion, achieved texel
+  density and the LOD chain of the offline props and of computed spheres. See "Quality facts".
+- [`RESULTS.md`](RESULTS.md) is the written report; `results/` holds the data it was written from. See "Result files".
+
+## Offline benchmarks
+
+`perf_offline.py` measures the USD kernel, the QA / UV / LOD / collider / packaging kernels, the model-facing harness
+tools, the in-process pipelines, and the CLI. It makes no network calls and no model or API calls. It never starts
+Blender or Godot. The pipeline benchmarks do start headless Chromium, for the three.js verification step, when
+Playwright is installed (`pip install -e '.[web]'`); without it that step is skipped and recorded as skipped, and the
+pipeline and CLI figures come out about 1.5 s lower per asset than the committed ones.
 
 It is not a live-latency benchmark. Anything that waits on a model or an image API in a real run is replaced by the
 package's fakes here, so those waits are zero (or, for fake image synthesis, replaced by local CPU work, see
 "Fixture time" below).
 
-## Run
+### Run
 
 ```
 . .venv/bin/activate
@@ -22,15 +36,18 @@ Expected wall time on the 4-vCPU reference box with nothing else running: the qu
 run about 12 to 15 minutes. Timings taken while another job uses the CPU are not comparable; the JSON records the load
 average at start and end so a contaminated run can be recognised.
 
-The JSON is rewritten after every benchmark, so a native crash (CoACD has crashed on odd input before) keeps the
-results gathered so far. A benchmark that raises is recorded as `{"status": "error", "error": "<one line>"}` and the
-run continues. The exit status is 1 if any benchmark failed. Set `PERF_TRACE=1` to print tracebacks.
+The JSON is rewritten after every benchmark, so a native crash keeps the results gathered so far, and `faulthandler`
+is enabled, so the crash leaves a Python traceback naming the benchmark it happened in. (The pre-fix tree ended one
+full run with a segmentation fault as it entered `kernel.cache.hit`; CoACD has crashed on odd input before.) Run the
+benchmarks that are missing with `--only` into a second file; `compare.py --before-rest` reads both. A benchmark that
+raises is recorded as `{"status": "error", "error": "<one line>"}` and the run continues. The exit status is 1 if any
+benchmark failed. Set `PERF_TRACE=1` to print tracebacks.
 
 All temporary output lives in one `tempfile.TemporaryDirectory()` that is removed on exit. `AGY3D_STATE_DIR` is pointed
 into it, because otherwise the QA state and the fix log are written to `./.agy3d` in the current directory. After a run,
 `pgrep -f "daemon.py|mcp_server|worker_daemon"` should print nothing.
 
-## Output
+### Output
 
 ```
 {"machine": {cpu_model, logical_cpus, ram_gb, os, python, git_commit, git_dirty_tracked_files, versions{...},
@@ -44,7 +61,7 @@ into it, because otherwise the QA state and the fix log are written to `./.agy3d
 All `*_ms` values are milliseconds per call of the timed region. `extra` carries per-case detail: sub-timings
 (`parts_median_ms`), result facts (hull counts, gate results, issue codes), and `process_cpu_over_wall`.
 
-## Methodology
+### Methodology
 
 * Timer: `time.perf_counter_ns()` around the timed call only.
 * Warm-up: 2 untimed iterations, then one `gc.collect()`; the garbage collector stays enabled while timing.
@@ -74,7 +91,7 @@ All `*_ms` values are milliseconds per call of the timed region. `extra` carries
   triangle default of `EngineBudget`; the triangle count of each scene is in `params.tris`. The base scene is committed
   (`commit_all`) before kernel-level edit benchmarks, so an edit is one transaction on a clean base.
 
-## Benchmarks
+### Benchmarks
 
 | Name | Timed region | Not in the timed region |
 | --- | --- | --- |
@@ -88,8 +105,8 @@ All `*_ms` values are milliseconds per call of the timed region. `extra` carries
 | `harness.qa.visual_overhead` | `run_visual_qa` against the fake client with a current preview: tool-side overhead only; no model latency exists here | preview render, any model call |
 | `kernel.raster.contact_sheet` | 4-view contact sheet at 256 and 512 px, about 1k / 5k / 20k triangles (12 spheres) | USD mesh extraction, PNG encode |
 | `kernel.som.marked_sheet` | set-of-mark sheet at 256 px, same scenes | extraction, any judge call |
-| `kernel.uv.unwrap` | `unwrap_uvs` (xatlas, 1024 px/m, 2048 atlas) on UV spheres of about 500 / 2,000 / 10,000 / 50,000 triangles and one concave U prism | USD authoring |
-| `kernel.lod.generate` | `generate_lods`, default ratios; `with_uvs` true is the pipeline's call, false the weld-first path | unwrap |
+| `kernel.uv.unwrap` | `unwrap_uvs` at 1024 px/m into a 2048 atlas on UV spheres of about 500 / 2,000 / 10,000 / 50,000 triangles and one concave U prism. These are computed meshes, so the charts come from xatlas; primitives, which get exact charts, are timed in the crate and barrel rows of `kernel.export.pipeline` | USD authoring |
+| `kernel.lod.generate` | `generate_lods`: levels bounded by a measured deviation of one pixel on a 1080-pixel frame (ratio-driven levels before the fixes); `with_uvs` true is the pipeline's call, false the weld-first path. `extra.lod_tris` lists the levels | unwrap |
 | `kernel.collider.convex` | `generate_colliders` on the convex spheres (hull fast path, no CoACD) | hull authoring |
 | `kernel.collider.concave` | `generate_colliders` on the U prism (CoACD) | hull authoring |
 | `kernel.export.pipeline` | `run_export_pipeline` (UV + LOD + colliders): the single meshes, and the TemplateAuthor crate and barrel; per-stage split in `parts_median_ms` | mesh extraction, packaging, validation |
@@ -104,7 +121,7 @@ All `*_ms` values are milliseconds per call of the timed region. `extra` carries
 | `kernel.cache.hit` / `kernel.cache.miss` | `cached_export_pipeline` against a populated or an empty local blob store; the miss/hit ratio is in `extra` | the store creation |
 | `ipc.blender_pool.fake` | **stand-in daemon, IPC overhead only**: ping round trip, and a 1024x1024x4 float32 fake render read back through shared memory | everything real Blender does |
 | `mcp.roundtrip.apply_scene_ir` | `apply_scene_ir` as an MCP `tools/call` to the real stdio server in offline mode; `extra.mcp_overhead_ms` is the median minus the same tool called directly on an equivalent session | server start-up, handshake, undo |
-| `pipeline.prop_to_engine.offline` | `PropToEngineDAG.run` in process, same wiring as `agy3d prop --offline`, for 5 prompts, governed and single-candidate, cold and warm cache | interpreter start |
+| `pipeline.prop_to_engine.offline` | `PropToEngineDAG.run` in process, same wiring as `agy3d prop --offline`, for 5 prompts, governed and single-candidate, cold and warm cache. Includes the three.js verification of the written package (headless Chromium) when Playwright is installed | interpreter start |
 | `pipeline.prop.replayed_images` | headline fixture-free pipeline wall time (fixture images replayed), with CPU time | image synthesis |
 | `pipeline.prop_to_engine.node_classification` | per-node fixture share, derived from the cold runs above | |
 | `cli.prop.offline` | `agy3d prop ... --offline` as a subprocess, wall time (3 runs) | |
@@ -113,15 +130,15 @@ All `*_ms` values are milliseconds per call of the timed region. `extra` carries
 | `throughput.prop_offline` | K = 12 distinct offline prop runs on P = 1, 2, 4 spawned worker processes: wall time, assets per hour, scaling efficiency | worker start-up |
 | `dag.batch_sanitize` | `BatchSanitizeDAG` on 24 generated meshes with jobs = 1, 2, 4 | mesh generation |
 
-## Package textures (`kernel.package.*`)
+### Package textures (`kernel.package.*`)
 
 `kernel.package.write` is run twice per prop. `textured: false` gives the materials no texture files. `textured: true`
 gives every material three 256 px maps (albedo from `FakeImageBackend`, ORM and normal from `derive_pbr`; 256 px is what
-the offline pipeline itself generates), so the texture copy, the DirectX normal flip (unreal_5) and the PNG embedding in
-every GLB level are exercised. The untextured number is a lower bound on a real package. `write_large_textures` shows how
+the offline pipeline itself generates), so the texture copy, the DirectX normal flip (unreal_5) and the embedding of the
+texture files in every GLB level are exercised. The untextured number is a lower bound on a real package. `write_large_textures` shows how
 the time grows with texture size.
 
-## Fixture time (pipeline benchmarks)
+### Fixture time (pipeline benchmarks)
 
 The fake image backend draws its textures and orthographic sheets on the local CPU, which a real run would not do. The
 fake decisions client validates every request against the real wire format, which costs CPU a real run would spend
@@ -145,7 +162,7 @@ waiting. For each DAG run the harness records the wall-clock spans spent inside 
 `cache = warm` is a second run on the same output directory and cache, so the routing decision, generated images, derived
 PBR maps and the export bundle are reused.
 
-## Reading the numbers against the design-doc claims
+### Reading the numbers against the design-doc claims
 
 | Claim | Where to look | Note |
 | --- | --- | --- |
@@ -154,7 +171,7 @@ PBR maps and the export bundle are reused.
 | UV + LOD + collider < 250 ms outside Blender | `kernel.export.pipeline`, crate and barrel rows | `parts_median_ms` shows which stage dominates |
 | 120+ assets/hour on 8 workers | `throughput.prop_offline` | 4 vCPUs, fixture images and judges: only the deterministic local portion; not comparable with a live node |
 
-## Caveats
+### Caveats
 
 * Run it on a quiet machine. The box has 4 vCPUs; `throughput.prop_offline` at P = 4 and the MCP server (a second
   process) compete with whatever else is running.
@@ -171,7 +188,7 @@ PBR maps and the export bundle are reused.
 * Every case's `extra.process_cpu_over_wall` should be about 1.0 for single-threaded kernels. A value well above 1 means a
   library ran threads that the environment variables did not cap.
 
-## Comparison run with default threading
+### Comparison run with default threading
 
 The main run pins the numeric libraries and OpenUSD to one thread so results are comparable between machines. To see
 what the same operations cost with each library's own defaults, set `AGY3D_BENCH_THREADS=default`:
@@ -183,3 +200,77 @@ AGY3D_BENCH_THREADS=default python benchmarks/perf_offline.py \
 ```
 
 `machine.thread_pinning` in the JSON records which mode produced a file.
+
+## Comparing two runs
+
+```bash
+python benchmarks/compare.py benchmarks/results/before/offline_paired.json benchmarks/results/offline.json \
+  --before-rest benchmarks/results/before/offline_paired_rest.json \
+  --repeat benchmarks/results/before/offline_repeat.json --changed
+```
+
+`compare.py` matches benchmarks by name and cases by their parameters and prints both medians and the change. It
+measures nothing. Two things decide whether its table can be trusted:
+
+* **Measure both sides in one session.** The machine drifted within a day: the pre-fix code, run again three to four
+  hours after the first report's run, was 4 to 6% slower at the median, more than 10% slower on about a quarter of
+  the cases, and up to 1.4 times slower, with no change to the code. A before file from another day or another hour
+  compares the machine, not the code. To measure an older commit beside the current one,
+  check it out with `git worktree add <dir> <commit>`, and run its own harness with `PYTHONPATH=<dir>/src` from that
+  directory, immediately before or after the current tree, with nothing else running.
+* **Know each benchmark's own noise.** A flat 10% threshold (`--noise`) is right for the kernels and wrong for the
+  tool-level edit benchmarks, where two runs of identical code differed by up to 26% in the median. `--repeat` takes
+  another run of the first side's code; the ratio between that run and the first file, times the `--noise` floor,
+  becomes each case's noise band, shown in the last column, and only a change beyond it is reported. One repeat gives
+  a lower bound on the noise: a row that barely clears its band needs a second look before anyone acts on it.
+
+`--before-rest` reads benchmarks the first file lacks from further files, for a run that was split. `--changed` omits
+rows within noise, `--only` filters by name prefix.
+
+## Quality facts
+
+```bash
+python benchmarks/quality_facts.py > benchmarks/results/quality.jsonl
+```
+
+A faster kernel that produces worse UVs or LODs is not an improvement, and timings cannot show the difference. This
+script runs the export pipeline on the five offline template props and on computed UV spheres and prints one JSON line
+per subject: area and angle distortion of the worst part, the lowest achieved texel density and whether the requested
+density was reached, where the charts came from, and the LOD chain with the on-screen size each level is used at and
+its deviation from LOD0. It runs against whichever tree is first on `PYTHONPATH`, so the same script measures an older
+commit from a worktree; fields that tree does not record come out null, and its deviation figure is the simplifier's
+own estimate, where the final code measures the distance. No network, no model calls, a few seconds.
+
+## Live probes
+
+`perf_live.py` calls the real model APIs, so it spends quota. It measures the components one at a time, not the governed
+pipeline: one-shot authoring on each of the four tiers with the request production sends, a stage-agent session on two
+tasks, the visual-QA judge, and one texture per size tier.
+
+```bash
+python benchmarks/perf_live.py --dry-run                                   # print the plan; no client, no network
+python benchmarks/perf_live.py --out benchmarks/results/live.json          # needs GEMINI_API_KEY
+python benchmarks/perf_live.py --self-test                                 # the spend limiter against a stub
+```
+
+* The limits are enforced in code, before every call: `--max-calls` (default 24) and `--max-tokens` (default 400,000,
+  input plus output plus thinking). When one would be exceeded the run stops, writes what it has and records why.
+* A stage run counts as one call against `--max-calls`; each of its model calls goes through a local relay that checks
+  the token limit first and books the reported usage. A call whose usage never arrives keeps its reservation booked.
+* Retries are off everywhere (the SDK's, the package's own loops, the Antigravity harness's), so a provider error is a
+  failed sample, not a hidden second call.
+* No price is read or set. The files report tokens, never dollars.
+* Sample counts are 1 to 3 per entry. Read the results as observations, not distributions.
+
+## Result files
+
+| File | What it is |
+| --- | --- |
+| `results/offline.json` | The code after the fixes (the commit is in `machine.git_commit`), full offline run |
+| `results/offline_default_threads.json` | The same code with library-default threading, subset named above |
+| `results/live.json` | The live probes on the code after the fixes |
+| `results/quality.jsonl`, `results/before/quality.jsonl` | `quality_facts.py` on the final code and on the pre-fix tree |
+| `results/before/offline_paired.json` | The pre-fix tree (`14814fd`), measured immediately before `results/offline.json`. This run ended with a segmentation fault after 23 of 35 benchmarks |
+| `results/before/offline_paired_rest.json` | The other 12 benchmarks of the pre-fix tree, measured immediately after `results/offline.json` |
+| `results/before/offline_repeat.json` | Another full run of the pre-fix tree, about an hour before `offline_paired.json`: the same-code repeat behind the noise bands |
+| `results/before/offline.json`, `offline_default_threads.json`, `live.json` | The first report's data, three to four hours earlier the same day, kept as published. Do not compare timings in these with the files above: the machine was faster then |

@@ -1,0 +1,3416 @@
+{
+ "machine": {
+  "cpu_model": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "logical_cpus": 4,
+  "ram_gb": 15.7,
+  "os": "Linux 6.18.44-fc-v726",
+  "python": "3.13.18",
+  "git_commit": "14814fdb2a3d1ce14b97923865441727b246d42d",
+  "git_dirty_tracked_files": 0,
+  "versions": {
+   "antigravity-3d": "0.2.0",
+   "usd-core": "26.11",
+   "trimesh": "5.2.1",
+   "xatlas": "0.0.11",
+   "meshoptimizer": "0.2.30a0",
+   "coacd": "1.0.14",
+   "numpy": "2.5.5",
+   "scipy": "1.18.1",
+   "pillow": "13.0.0"
+  },
+  "thread_pinning": "pinned_to_1",
+  "thread_env": {
+   "OMP_NUM_THREADS": "1",
+   "OPENBLAS_NUM_THREADS": "1",
+   "MKL_NUM_THREADS": "1",
+   "PXR_WORK_THREAD_LIMIT": "1"
+  },
+  "timestamp_utc": "2026-11-20T07:13:45Z",
+  "quick": false,
+  "loadavg_at_start": [
+   2.29,
+   2.07,
+   1.44
+  ],
+  "offline": {
+   "GEMINI_API_KEY_set": false,
+   "AGY3D_OFFLINE": "1"
+  },
+  "loadavg_at_end": [
+   1.81,
+   1.85,
+   1.53
+  ]
+ },
+ "quick": false,
+ "benchmarks": {
+  "kernel.cache.hit": {
+   "includes": "tactics.cached.cached_export_pipeline on a populated LocalBlobStore: ir_subtree_key/node_key hashing, blob read, npz decode into an ExportBundle, hit accounting.",
+   "excludes": "The original compute. Local disk store only (no GCS tier). extra.miss_over_hit_median_ratio compares with kernel.cache.miss.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "subject": "crate",
+      "tris": 144,
+      "parts": 12
+     },
+     "n": 268,
+     "median_ms": 10.3935,
+     "p95_ms": 14.7408,
+     "min_ms": 9.2829,
+     "max_ms": 24.4976,
+     "mean_ms": 11.1692,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99,
+      "miss_over_hit_median_ratio": 25.9,
+      "miss_median_ms": 268.9923
+     }
+    },
+    {
+     "params": {
+      "subject": "barrel",
+      "tris": 320,
+      "parts": 4
+     },
+     "n": 733,
+     "median_ms": 3.8379,
+     "p95_ms": 5.7624,
+     "min_ms": 3.2018,
+     "max_ms": 7.0425,
+     "mean_ms": 4.073,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98,
+      "miss_over_hit_median_ratio": 74.2,
+      "miss_median_ms": 284.9426
+     }
+    }
+   ],
+   "bench_wall_s": 15.45
+  },
+  "kernel.cache.miss": {
+   "includes": "cached_export_pipeline on an empty store (fresh directory per iteration): key hashing, run_export_pipeline, bundle npz encode, blob write, then decode of the returned bundle.",
+   "excludes": "Creating the empty store (untimed).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "subject": "crate",
+      "tris": 144,
+      "parts": 12
+     },
+     "n": 11,
+     "median_ms": 268.9923,
+     "p95_ms": null,
+     "min_ms": 243.3449,
+     "max_ms": 363.2938,
+     "mean_ms": 288.4555,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99,
+      "miss_over_hit_median_ratio": 25.9,
+      "hit_median_ms": 10.3935
+     }
+    },
+    {
+     "params": {
+      "subject": "barrel",
+      "tris": 320,
+      "parts": 4
+     },
+     "n": 10,
+     "median_ms": 284.9426,
+     "p95_ms": null,
+     "min_ms": 268.4738,
+     "max_ms": 386.1501,
+     "mean_ms": 303.8432,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99,
+      "miss_over_hit_median_ratio": 74.2,
+      "hit_median_ms": 3.8379
+     }
+    }
+   ],
+   "bench_wall_s": 0.0
+  },
+  "ipc.blender_pool.fake": {
+   "includes": "STAND-IN ONLY, IPC OVERHEAD ONLY: BlenderPool(1, fake=True) (a CPython daemon, no bpy, no Blender). Case op=ping is one request/response over the socketpair; op=render_1024x1024x4_f32 requests a fake render and reads the 16.8 MB float32 image back through shared memory (the daemon synthesises the gradient with numpy: that cost is included).",
+   "excludes": "Everything about real Blender: start-up, scene import, rendering. These numbers say nothing about real render time. Pool start-up is excluded.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "op": "ping",
+      "workers": 1,
+      "fake": true
+     },
+     "n": 2000,
+     "median_ms": 0.0727,
+     "p95_ms": 0.1034,
+     "min_ms": 0.0691,
+     "max_ms": 0.6869,
+     "mean_ms": 0.0782,
+     "extra": {
+      "pool_start_ms_not_timed": 119.2901,
+      "warmup_iters": 2
+     }
+    },
+    {
+     "params": {
+      "op": "render_1024x1024x4_f32",
+      "payload_bytes": 16777216,
+      "workers": 1,
+      "fake": true
+     },
+     "n": 118,
+     "median_ms": 25.0919,
+     "p95_ms": 30.1469,
+     "min_ms": 22.0117,
+     "max_ms": 36.7921,
+     "mean_ms": 25.6037,
+     "extra": {
+      "warmup_iters": 2
+     }
+    }
+   ],
+   "bench_wall_s": 3.54
+  },
+  "mcp.roundtrip.apply_scene_ir": {
+   "includes": "tools/call apply_scene_ir (accepted one-node SetTransform) through the real MCP stdio server (python -m antigravity3d.runtime.mcp_server, offline) driven by the official mcp client: client framing, pipe I/O, server dispatch + session gate + the tool itself. extra.direct_median_ms is the same tool called in-process on an identical session (base scene applied as one open transaction, as over MCP); extra.mcp_overhead_ms = mcp median - direct median.",
+   "excludes": "Server start-up/handshake/open_asset_session (reported in extra, not in samples), the undo between iterations (untimed). The server is a separate process, so its CPU competes with the client on this 4-vCPU box.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3,
+      "transport": "mcp stdio, offline server"
+     },
+     "n": 208,
+     "median_ms": 6.8494,
+     "p95_ms": 8.4759,
+     "min_ms": 5.5037,
+     "max_ms": 13.5558,
+     "mean_ms": 7.0288,
+     "extra": {
+      "initialize_ms_not_timed": 1317.5442,
+      "open_session_and_scene_ms_not_timed": 361.4323,
+      "warmup_iters": 2,
+      "direct_median_ms": 5.2094,
+      "mcp_overhead_ms": 1.64
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3,
+      "transport": "mcp stdio, offline server"
+     },
+     "n": 64,
+     "median_ms": 23.7664,
+     "p95_ms": 29.7646,
+     "min_ms": 18.7218,
+     "max_ms": 33.4879,
+     "mean_ms": 23.9939,
+     "extra": {
+      "initialize_ms_not_timed": 1508.043,
+      "open_session_and_scene_ms_not_timed": 574.4049,
+      "warmup_iters": 2,
+      "direct_median_ms": 19.3716,
+      "mcp_overhead_ms": 4.3948
+     }
+    }
+   ],
+   "bench_wall_s": 18.53
+  },
+  "pipeline.prop_to_engine.offline": {
+   "includes": "PropToEngineDAG.run wall time (in-process, same wiring as `agy3d prop --offline`, bare event-loop start included, unreal_5, max_rounds=4) per prompt x mode x cache state. cache=cold: fresh output dir; cache=warm: second run on the same dir/cache (route decision and image/PBR/export results reused); Per-node durations and fixture shares are in extra, with process CPU time (all threads) per run. For the fixture-free figure see pipeline.prop.replayed_images.",
+   "excludes": "Interpreter start (see cli.*), Blender, any real network wait. Fixture time (fake image synthesis in a worker thread, fake judge validation) IS inside the wall time. extra.wall_outside_fixture_spans_ms is wall minus the union of fixture spans; local work that runs concurrently inside a fixture span (geometry beside speculative PBR) is subtracted too, so it is only a lower bound on local work, not 'local compute'.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "prompt": "wooden crate with iron brackets",
+      "mode": "governed",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2338.5624,
+     "p95_ms": null,
+     "min_ms": 2335.8221,
+     "max_ms": 2358.9998,
+     "mean_ms": 2344.4614,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 7.6327,
+        "median_fixture_frac": 0.05,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0146,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 123.8818,
+        "median_fixture_frac": 0.8937,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.5182,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 433.8935,
+        "median_fixture_frac": 0.417,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 451.2123,
+        "median_fixture_frac": 0.4019,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1774.6933,
+        "median_fixture_frac": 0.0009,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 7.8053,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0076,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1492,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 3211.0761,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 2075.9266,
+      "fixture_union_ms_median": 283.0733,
+      "fixture_image_ms_median": 278.5355,
+      "fixture_judge_ms_median": 4.5378,
+      "fixture_image_sum_ms_median": 1037.2173,
+      "decision_calls": [
+       8
+      ],
+      "image_generations": [
+       12
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        15
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden crate with iron brackets",
+      "mode": "governed",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1922.4046,
+     "p95_ms": null,
+     "min_ms": 1593.8774,
+     "max_ms": 1971.1227,
+     "mean_ms": 1829.1349,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.4894,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0127,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 19.5167,
+        "median_fixture_frac": 0.0405,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.6016,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 302.3991,
+        "median_fixture_frac": 0.0059,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 214.5479,
+        "median_fixture_frac": 0.0057,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1551.9331,
+        "median_fixture_frac": 0.0011,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 7.5358,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0059,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1646,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 2232.0862,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1918.1796,
+      "fixture_union_ms_median": 4.2249,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 4.2249,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        15,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden crate with iron brackets",
+      "mode": "single_candidate",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2128.0638,
+     "p95_ms": null,
+     "min_ms": 2093.6262,
+     "max_ms": 2174.614,
+     "mean_ms": 2132.1013,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 6.109,
+        "median_fixture_frac": 0.0534,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.015,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 88.9632,
+        "median_fixture_frac": 0.8784,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.3289,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 137.1419,
+        "median_fixture_frac": 0.3592,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 205.0443,
+        "median_fixture_frac": 0.2231,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1817.175,
+        "median_fixture_frac": 0.0009,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 10.3414,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0061,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1652,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 2315.8199,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 2008.4449,
+      "fixture_union_ms_median": 119.6189,
+      "fixture_image_ms_median": 116.1318,
+      "fixture_judge_ms_median": 3.2705,
+      "fixture_image_sum_ms_median": 155.5982,
+      "decision_calls": [
+       8
+      ],
+      "image_generations": [
+       3
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        6
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden crate with iron brackets",
+      "mode": "single_candidate",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1627.6541,
+     "p95_ms": null,
+     "min_ms": 1627.5406,
+     "max_ms": 1650.873,
+     "mean_ms": 1635.3559,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.4811,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0139,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 8.1317,
+        "median_fixture_frac": 0.0456,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.8836,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 138.6258,
+        "median_fixture_frac": 0.0323,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 76.8231,
+        "median_fixture_frac": 0.0448,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1476.9504,
+        "median_fixture_frac": 0.001,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 10.2185,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0054,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1573,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1682.2145,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1624.9823,
+      "fixture_union_ms_median": 5.8468,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 5.8468,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        6,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "rusty metal barrel",
+      "mode": "governed",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 3128.3905,
+     "p95_ms": null,
+     "min_ms": 3121.4484,
+     "max_ms": 3219.5466,
+     "mean_ms": 3156.4618,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 6.3777,
+        "median_fixture_frac": 0.0538,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0151,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 90.9154,
+        "median_fixture_frac": 0.8619,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.0734,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 561.879,
+        "median_fixture_frac": 0.2997,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 455.8129,
+        "median_fixture_frac": 0.3381,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 2487.8451,
+        "median_fixture_frac": 0.0006,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 6.1078,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0058,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1607,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 4262.0783,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 2902.8611,
+      "fixture_union_ms_median": 247.833,
+      "fixture_image_ms_median": 243.2838,
+      "fixture_judge_ms_median": 4.5493,
+      "fixture_image_sum_ms_median": 900.095,
+      "decision_calls": [
+       8
+      ],
+      "image_generations": [
+       12
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        15
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "rusty metal barrel",
+      "mode": "governed",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2233.7832,
+     "p95_ms": null,
+     "min_ms": 2176.8245,
+     "max_ms": 2251.4,
+     "mean_ms": 2220.6692,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.4739,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0116,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 19.6165,
+        "median_fixture_frac": 0.0288,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.8552,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 458.1108,
+        "median_fixture_frac": 0.0074,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 187.1306,
+        "median_fixture_frac": 0.0149,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1715.5238,
+        "median_fixture_frac": 0.0008,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 6.0819,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0061,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1634,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 2862.1378,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 2218.8061,
+      "fixture_union_ms_median": 5.1781,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 5.1781,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        15,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "rusty metal barrel",
+      "mode": "single_candidate",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2847.973,
+     "p95_ms": null,
+     "min_ms": 2747.3185,
+     "max_ms": 2861.6928,
+     "mean_ms": 2818.9948,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 7.11,
+        "median_fixture_frac": 0.0421,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0147,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 92.7834,
+        "median_fixture_frac": 0.8742,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.2336,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 251.0513,
+        "median_fixture_frac": 0.1977,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 192.0785,
+        "median_fixture_frac": 0.2394,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 2487.6608,
+        "median_fixture_frac": 0.0006,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.8461,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0061,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1884,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 3076.5585,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 2714.3556,
+      "fixture_union_ms_median": 133.6174,
+      "fixture_image_ms_median": 130.8204,
+      "fixture_judge_ms_median": 3.0748,
+      "fixture_image_sum_ms_median": 164.8423,
+      "decision_calls": [
+       8
+      ],
+      "image_generations": [
+       3
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        6
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "rusty metal barrel",
+      "mode": "single_candidate",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1938.2408,
+     "p95_ms": null,
+     "min_ms": 1870.3654,
+     "max_ms": 1976.067,
+     "mean_ms": 1928.2244,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.3902,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0119,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 7.2273,
+        "median_fixture_frac": 0.0462,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.5337,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 233.4159,
+        "median_fixture_frac": 0.0038,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 80.7941,
+        "median_fixture_frac": 0.0086,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1688.8538,
+        "median_fixture_frac": 0.0009,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 6.6369,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0071,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1546,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1983.3385,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1931.7016,
+      "fixture_union_ms_median": 2.6815,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 2.6815,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        6,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "oak dining table",
+      "mode": "governed",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1453.129,
+     "p95_ms": null,
+     "min_ms": 1427.4503,
+     "max_ms": 1506.3275,
+     "mean_ms": 1462.3023,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 6.2038,
+        "median_fixture_frac": 0.051,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0155,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 97.4451,
+        "median_fixture_frac": 0.8705,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.9892,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 255.6012,
+        "median_fixture_frac": 0.3112,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 320.4022,
+        "median_fixture_frac": 0.2493,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 980.1129,
+        "median_fixture_frac": 0.0015,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 4.9304,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0063,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.195,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1940.8922,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1260.6934,
+      "fixture_union_ms_median": 166.7569,
+      "fixture_image_ms_median": 162.8732,
+      "fixture_judge_ms_median": 3.8837,
+      "fixture_image_sum_ms_median": 547.0391,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       8
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        10
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "oak dining table",
+      "mode": "governed",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1179.2594,
+     "p95_ms": null,
+     "min_ms": 1144.9743,
+     "max_ms": 1210.1062,
+     "mean_ms": 1178.1133,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.5356,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0121,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 19.3132,
+        "median_fixture_frac": 0.0335,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.876,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 203.0505,
+        "median_fixture_frac": 0.006,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 142.0904,
+        "median_fixture_frac": 0.0044,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 949.5083,
+        "median_fixture_frac": 0.0025,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.0661,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0053,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1618,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1340.0829,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1175.3895,
+      "fixture_union_ms_median": 4.6805,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 4.6805,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       6
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        10,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "oak dining table",
+      "mode": "single_candidate",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1353.3074,
+     "p95_ms": null,
+     "min_ms": 1286.2247,
+     "max_ms": 1392.871,
+     "mean_ms": 1344.1343,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 5.5578,
+        "median_fixture_frac": 0.0505,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0165,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 96.981,
+        "median_fixture_frac": 0.8602,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.555,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 83.6416,
+        "median_fixture_frac": 0.4902,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 192.8172,
+        "median_fixture_frac": 0.1969,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1050.3055,
+        "median_fixture_frac": 0.0016,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.9677,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0061,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1756,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1372.3622,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1241.3897,
+      "fixture_union_ms_median": 124.3315,
+      "fixture_image_ms_median": 120.4812,
+      "fixture_judge_ms_median": 3.0775,
+      "fixture_image_sum_ms_median": 120.4812,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       2
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        4
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "oak dining table",
+      "mode": "single_candidate",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 993.0365,
+     "p95_ms": null,
+     "min_ms": 945.0733,
+     "max_ms": 997.6024,
+     "mean_ms": 978.5707,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.5565,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0123,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 7.7129,
+        "median_fixture_frac": 0.0454,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.8164,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 84.0729,
+        "median_fixture_frac": 0.0072,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 69.4647,
+        "median_fixture_frac": 0.0045,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 883.0354,
+        "median_fixture_frac": 0.0019,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 4.4065,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0058,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1567,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1006.6394,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 990.5854,
+      "fixture_union_ms_median": 2.4512,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 2.4512,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       6
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        4,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "iron street lamp post",
+      "mode": "governed",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2097.979,
+     "p95_ms": null,
+     "min_ms": 2042.4418,
+     "max_ms": 2168.7869,
+     "mean_ms": 2103.0692,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 6.2653,
+        "median_fixture_frac": 0.0447,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0189,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 98.771,
+        "median_fixture_frac": 0.8439,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.8518,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 348.5171,
+        "median_fixture_frac": 0.487,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 414.1228,
+        "median_fixture_frac": 0.4209,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1558.8981,
+        "median_fixture_frac": 0.0009,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.57,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0054,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1865,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 2889.5177,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1837.349,
+      "fixture_union_ms_median": 258.0724,
+      "fixture_image_ms_median": 253.7348,
+      "fixture_judge_ms_median": 4.3376,
+      "fixture_image_sum_ms_median": 914.3861,
+      "decision_calls": [
+       8
+      ],
+      "image_generations": [
+       12
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        15
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": false,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "iron street lamp post",
+      "mode": "governed",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1668.0758,
+     "p95_ms": null,
+     "min_ms": 1649.5585,
+     "max_ms": 1735.5205,
+     "mean_ms": 1684.3849,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.5703,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0146,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 20.1966,
+        "median_fixture_frac": 0.0326,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.8818,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 267.145,
+        "median_fixture_frac": 0.0334,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 181.1696,
+        "median_fixture_frac": 0.0434,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1365.3286,
+        "median_fixture_frac": 0.0009,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.2582,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0062,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1813,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1956.1663,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1656.5404,
+      "fixture_union_ms_median": 11.5354,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 11.5354,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        15,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": false,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "iron street lamp post",
+      "mode": "single_candidate",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1759.3936,
+     "p95_ms": null,
+     "min_ms": 1693.5139,
+     "max_ms": 1861.8368,
+     "mean_ms": 1771.5815,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 6.6463,
+        "median_fixture_frac": 0.0414,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0154,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 97.2296,
+        "median_fixture_frac": 0.8794,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.7528,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 130.5633,
+        "median_fixture_frac": 0.3348,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 181.3578,
+        "median_fixture_frac": 0.2418,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1483.9803,
+        "median_fixture_frac": 0.001,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.4575,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0065,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.155,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1966.923,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1646.1784,
+      "fixture_union_ms_median": 134.8823,
+      "fixture_image_ms_median": 132.3389,
+      "fixture_judge_ms_median": 3.0208,
+      "fixture_image_sum_ms_median": 163.9818,
+      "decision_calls": [
+       8
+      ],
+      "image_generations": [
+       3
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        6
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": false,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "iron street lamp post",
+      "mode": "single_candidate",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1590.6421,
+     "p95_ms": null,
+     "min_ms": 1561.6189,
+     "max_ms": 1716.3576,
+     "mean_ms": 1622.8728,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.4379,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0113,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 7.5809,
+        "median_fixture_frac": 0.039,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.5523,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 135.4265,
+        "median_fixture_frac": 0.006,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 80.6914,
+        "median_fixture_frac": 0.0074,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1439.717,
+        "median_fixture_frac": 0.001,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 7.0854,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.006,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1805,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1589.8675,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1588.1389,
+      "fixture_union_ms_median": 2.5032,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 2.5032,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        6,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": false,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden storage shelf",
+      "mode": "governed",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1627.5971,
+     "p95_ms": null,
+     "min_ms": 1623.3667,
+     "max_ms": 1704.6329,
+     "mean_ms": 1651.8656,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 5.5801,
+        "median_fixture_frac": 0.0477,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0142,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 111.5103,
+        "median_fixture_frac": 0.8762,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.5437,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 289.2042,
+        "median_fixture_frac": 0.3065,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 346.8208,
+        "median_fixture_frac": 0.2556,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1169.6954,
+        "median_fixture_frac": 0.0013,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.8552,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0056,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1534,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 2148.5843,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1441.3393,
+      "fixture_union_ms_median": 205.5685,
+      "fixture_image_ms_median": 201.8186,
+      "fixture_judge_ms_median": 4.0367,
+      "fixture_image_sum_ms_median": 626.076,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       8
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        10
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden storage shelf",
+      "mode": "governed",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1263.1861,
+     "p95_ms": null,
+     "min_ms": 1191.8596,
+     "max_ms": 1280.6066,
+     "mean_ms": 1245.2175,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.4699,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0114,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 19.6882,
+        "median_fixture_frac": 0.0382,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.2379,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 245.4669,
+        "median_fixture_frac": 0.0047,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 164.2117,
+        "median_fixture_frac": 0.0035,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1001.9719,
+        "median_fixture_frac": 0.0015,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 6.7988,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0059,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.2279,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1501.1204,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1259.9835,
+      "fixture_union_ms_median": 3.2027,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 3.2027,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       6
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        10,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden storage shelf",
+      "mode": "single_candidate",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1542.322,
+     "p95_ms": null,
+     "min_ms": 1406.6294,
+     "max_ms": 1589.0307,
+     "mean_ms": 1512.6607,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 7.7998,
+        "median_fixture_frac": 0.0563,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0186,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 80.107,
+        "median_fixture_frac": 0.8427,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.9719,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 115.1966,
+        "median_fixture_frac": 0.3214,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 207.1116,
+        "median_fixture_frac": 0.1831,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1201.8562,
+        "median_fixture_frac": 0.0012,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 6.2854,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0054,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1817,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1566.7376,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1402.7162,
+      "fixture_union_ms_median": 114.2495,
+      "fixture_image_ms_median": 111.4307,
+      "fixture_judge_ms_median": 2.9928,
+      "fixture_image_sum_ms_median": 111.4307,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       2
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        4
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden storage shelf",
+      "mode": "single_candidate",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1194.3155,
+     "p95_ms": null,
+     "min_ms": 1130.6611,
+     "max_ms": 1196.986,
+     "mean_ms": 1173.9875,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.5239,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0127,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 9.5271,
+        "median_fixture_frac": 0.0382,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.3047,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 109.0274,
+        "median_fixture_frac": 0.0067,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 62.1968,
+        "median_fixture_frac": 0.0047,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1060.5264,
+        "median_fixture_frac": 0.0014,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 7.5688,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0071,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1534,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1193.2495,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1191.6097,
+      "fixture_union_ms_median": 2.7058,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 2.7058,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       6
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        4,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    }
+   ],
+   "bench_wall_s": 165.25
+  },
+  "pipeline.prop.replayed_images": {
+   "includes": "HEADLINE fixture-free pipeline figure: PropToEngineDAG.run wall time with a fresh output dir and cache (cold) where FakeImageBackend returns, instantly, the bytes the cold run already generated, so no procedural image synthesis runs. Same prompts, modes and repeats as pipeline.prop_to_engine.offline. extra has process CPU time (all threads) for this run and for the cold run.",
+   "excludes": "Image synthesis (removed). Still included: the fake decisions client (request wire validation, canned answers) and the plane's own request/answer handling, route, USD staging and edits, Tier-1 QA, raster/contact sheets and set-of-mark sheets, UV/LOD/collider, packaging and validation, inspector, report writing, event-loop and thread hops, cache hashing and blob I/O. Interpreter start.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "prompt": "wooden crate with iron brackets",
+      "mode": "governed",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2224.5741,
+     "p95_ms": null,
+     "min_ms": 2201.2744,
+     "max_ms": 2278.7715,
+     "mean_ms": 2234.8733,
+     "extra": {
+      "cpu_ms_median_replayed": 2646.9702,
+      "cpu_ms_median_cold_with_fixture_images": 3211.0761,
+      "wall_ms_median_cold_with_fixture_images": 2338.5624,
+      "fake_judge_ms_median": 4.8437,
+      "image_calls_replayed": [
+       12
+      ],
+      "decision_calls": [
+       8
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden crate with iron brackets",
+      "mode": "single_candidate",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1980.834,
+     "p95_ms": null,
+     "min_ms": 1871.4575,
+     "max_ms": 2003.5066,
+     "mean_ms": 1951.9327,
+     "extra": {
+      "cpu_ms_median_replayed": 2117.2147,
+      "cpu_ms_median_cold_with_fixture_images": 2315.8199,
+      "wall_ms_median_cold_with_fixture_images": 2128.0638,
+      "fake_judge_ms_median": 2.9779,
+      "image_calls_replayed": [
+       3
+      ],
+      "decision_calls": [
+       8
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "rusty metal barrel",
+      "mode": "governed",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2952.8882,
+     "p95_ms": null,
+     "min_ms": 2950.7944,
+     "max_ms": 3098.9859,
+     "mean_ms": 3000.8895,
+     "extra": {
+      "cpu_ms_median_replayed": 3661.1612,
+      "cpu_ms_median_cold_with_fixture_images": 4262.0783,
+      "wall_ms_median_cold_with_fixture_images": 3128.3905,
+      "fake_judge_ms_median": 4.5374,
+      "image_calls_replayed": [
+       12
+      ],
+      "decision_calls": [
+       8
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "rusty metal barrel",
+      "mode": "single_candidate",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2789.1677,
+     "p95_ms": null,
+     "min_ms": 2672.2198,
+     "max_ms": 3022.7274,
+     "mean_ms": 2828.0383,
+     "extra": {
+      "cpu_ms_median_replayed": 2965.8224,
+      "cpu_ms_median_cold_with_fixture_images": 3076.5585,
+      "wall_ms_median_cold_with_fixture_images": 2847.973,
+      "fake_judge_ms_median": 3.6966,
+      "image_calls_replayed": [
+       3
+      ],
+      "decision_calls": [
+       8
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "oak dining table",
+      "mode": "governed",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1223.7749,
+     "p95_ms": null,
+     "min_ms": 1206.3781,
+     "max_ms": 1325.7534,
+     "mean_ms": 1251.9688,
+     "extra": {
+      "cpu_ms_median_replayed": 1418.1165,
+      "cpu_ms_median_cold_with_fixture_images": 1940.8922,
+      "wall_ms_median_cold_with_fixture_images": 1453.129,
+      "fake_judge_ms_median": 3.6958,
+      "image_calls_replayed": [
+       8
+      ],
+      "decision_calls": [
+       7
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "oak dining table",
+      "mode": "single_candidate",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1194.1367,
+     "p95_ms": null,
+     "min_ms": 1091.8552,
+     "max_ms": 1267.0454,
+     "mean_ms": 1184.3458,
+     "extra": {
+      "cpu_ms_median_replayed": 1202.1275,
+      "cpu_ms_median_cold_with_fixture_images": 1372.3622,
+      "wall_ms_median_cold_with_fixture_images": 1353.3074,
+      "fake_judge_ms_median": 2.6764,
+      "image_calls_replayed": [
+       2
+      ],
+      "decision_calls": [
+       7
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "iron street lamp post",
+      "mode": "governed",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1933.8979,
+     "p95_ms": null,
+     "min_ms": 1877.3734,
+     "max_ms": 1989.8193,
+     "mean_ms": 1933.6969,
+     "extra": {
+      "cpu_ms_median_replayed": 2301.3625,
+      "cpu_ms_median_cold_with_fixture_images": 2889.5177,
+      "wall_ms_median_cold_with_fixture_images": 2097.979,
+      "fake_judge_ms_median": 5.2486,
+      "image_calls_replayed": [
+       12
+      ],
+      "decision_calls": [
+       8
+      ],
+      "preview_gates_ok": false,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "iron street lamp post",
+      "mode": "single_candidate",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1676.1465,
+     "p95_ms": null,
+     "min_ms": 1656.0526,
+     "max_ms": 1716.5547,
+     "mean_ms": 1682.9179,
+     "extra": {
+      "cpu_ms_median_replayed": 1810.1601,
+      "cpu_ms_median_cold_with_fixture_images": 1966.923,
+      "wall_ms_median_cold_with_fixture_images": 1759.3936,
+      "fake_judge_ms_median": 2.8977,
+      "image_calls_replayed": [
+       3
+      ],
+      "decision_calls": [
+       8
+      ],
+      "preview_gates_ok": false,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden storage shelf",
+      "mode": "governed",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1520.9166,
+     "p95_ms": null,
+     "min_ms": 1508.268,
+     "max_ms": 1588.4414,
+     "mean_ms": 1539.2087,
+     "extra": {
+      "cpu_ms_median_replayed": 1809.0471,
+      "cpu_ms_median_cold_with_fixture_images": 2148.5843,
+      "wall_ms_median_cold_with_fixture_images": 1627.5971,
+      "fake_judge_ms_median": 3.5655,
+      "image_calls_replayed": [
+       8
+      ],
+      "decision_calls": [
+       7
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden storage shelf",
+      "mode": "single_candidate",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1410.7103,
+     "p95_ms": null,
+     "min_ms": 1375.6826,
+     "max_ms": 1509.4211,
+     "mean_ms": 1431.938,
+     "extra": {
+      "cpu_ms_median_replayed": 1447.347,
+      "cpu_ms_median_cold_with_fixture_images": 1566.7376,
+      "wall_ms_median_cold_with_fixture_images": 1542.322,
+      "fake_judge_ms_median": 2.7896,
+      "image_calls_replayed": [
+       2
+      ],
+      "decision_calls": [
+       7
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    }
+   ],
+   "bench_wall_s": 0.0
+  },
+  "pipeline.prop_to_engine.node_classification": {
+   "includes": "Derived from the same runs as pipeline.prop_to_engine.offline (cold cache only): for each DAG node, the median share of its own duration during which a fixture call (fake image synthesis or fake judge) was in progress. A node is 'fixture-dominated' when that share is >= 0.5, otherwise 'local deterministic work'. The 'samples' are the per-run cold wall times.",
+   "excludes": "Warm runs. A node's wall duration overlaps other nodes (pbr runs beside geometry), so node durations do not sum to wall time. Shares assume node windows from DagReport and fixture spans use the same clock (they do, to within the event-loop start-up of Dag.run).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "mode": "governed",
+      "cache": "cold",
+      "runs": 15
+     },
+     "n": 15,
+     "median_ms": 2097.979,
+     "p95_ms": null,
+     "min_ms": 1427.4503,
+     "max_ms": 3219.5466,
+     "mean_ms": 2143.6321,
+     "extra": {
+      "nodes": {
+       "route": {
+        "median_duration_ms": 6.2653,
+        "median_fixture_ms": 0.2838,
+        "median_fixture_frac": 0.05,
+        "class": "local deterministic work"
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0149,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "ortho": {
+        "median_duration_ms": 98.771,
+        "median_fixture_ms": 84.8211,
+        "median_fixture_frac": 0.8639,
+        "class": "fixture-dominated"
+       },
+       "propose": {
+        "median_duration_ms": 2.368,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "geometry": {
+        "median_duration_ms": 348.5171,
+        "median_fixture_ms": 165.129,
+        "median_fixture_frac": 0.3375,
+        "class": "local deterministic work"
+       },
+       "pbr": {
+        "median_duration_ms": 414.1228,
+        "median_fixture_ms": 165.129,
+        "median_fixture_frac": 0.3381,
+        "class": "local deterministic work"
+       },
+       "pyramid": {
+        "median_duration_ms": 1558.8981,
+        "median_fixture_ms": 1.5514,
+        "median_fixture_frac": 0.001,
+        "class": "local deterministic work"
+       },
+       "package": {
+        "median_duration_ms": 6.1078,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "inspector": {
+        "median_duration_ms": 0.0058,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "report": {
+        "median_duration_ms": 0.1552,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       }
+      },
+      "cpu_ms_median": 2889.5177,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1837.349,
+      "fixture_union_ms_median": 247.833,
+      "wall_ms_median": 2097.979
+     }
+    },
+    {
+     "params": {
+      "mode": "single_candidate",
+      "cache": "cold",
+      "runs": 15
+     },
+     "n": 15,
+     "median_ms": 1759.3936,
+     "p95_ms": null,
+     "min_ms": 1286.2247,
+     "max_ms": 2861.6928,
+     "mean_ms": 1915.8945,
+     "extra": {
+      "nodes": {
+       "route": {
+        "median_duration_ms": 6.6463,
+        "median_fixture_ms": 0.2988,
+        "median_fixture_frac": 0.0505,
+        "class": "local deterministic work"
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0159,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "ortho": {
+        "median_duration_ms": 92.7834,
+        "median_fixture_ms": 82.1378,
+        "median_fixture_frac": 0.8742,
+        "class": "fixture-dominated"
+       },
+       "propose": {
+        "median_duration_ms": 2.2336,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "geometry": {
+        "median_duration_ms": 121.1187,
+        "median_fixture_ms": 43.7132,
+        "median_fixture_frac": 0.3348,
+        "class": "local deterministic work"
+       },
+       "pbr": {
+        "median_duration_ms": 197.7263,
+        "median_fixture_ms": 43.7132,
+        "median_fixture_frac": 0.2231,
+        "class": "local deterministic work"
+       },
+       "pyramid": {
+        "median_duration_ms": 1483.9803,
+        "median_fixture_ms": 1.4783,
+        "median_fixture_frac": 0.001,
+        "class": "local deterministic work"
+       },
+       "package": {
+        "median_duration_ms": 6.2854,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "inspector": {
+        "median_duration_ms": 0.0061,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "report": {
+        "median_duration_ms": 0.1756,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       }
+      },
+      "cpu_ms_median": 1966.923,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1646.1784,
+      "fixture_union_ms_median": 124.3315,
+      "wall_ms_median": 1759.3936
+     }
+    }
+   ],
+   "bench_wall_s": 0.0
+  },
+  "cli.prop.offline": {
+   "includes": "Subprocess wall time of `agy3d prop \"wooden crate with iron brackets\" --offline --out DIR` (fresh DIR each run): console-script start, imports, the whole offline pipeline, report printing, process exit.",
+   "excludes": "Nothing in-process is subtracted: this is what a shell user waits for. Exit status 0 is required (preview gates passed).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "prompt": "wooden crate with iron brackets",
+      "engine": "unreal_5",
+      "runs": 3
+     },
+     "n": 3,
+     "median_ms": 4202.9428,
+     "p95_ms": null,
+     "min_ms": 4200.9135,
+     "max_ms": 4359.2286,
+     "mean_ms": 4254.3616,
+     "extra": {
+      "first_run_ms": 4200.9135
+     }
+    }
+   ],
+   "bench_wall_s": 12.76
+  },
+  "cli.models": {
+   "includes": "Subprocess wall time of `agy3d models` (prints a static table): console-script start + CLI module imports + exit. A proxy for CLI cold start.",
+   "excludes": "Pipeline work. Not a warm number: each run is a new interpreter (OS file cache is warm after the first run, which is kept).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "runs": 5
+     },
+     "n": 5,
+     "median_ms": 651.0347,
+     "p95_ms": null,
+     "min_ms": 591.8707,
+     "max_ms": 727.9321,
+     "mean_ms": 656.5022,
+     "extra": {}
+    }
+   ],
+   "bench_wall_s": 3.28
+  },
+  "import.usd_stage": {
+   "includes": "In a fresh interpreter: perf_counter around `import antigravity3d.kernel.usd_stage` only (pxr + numpy + package imports it pulls in), measured inside the child. extra.bare_interpreter_wall_ms is `python -c pass` subprocess wall time for reference.",
+   "excludes": "Interpreter start-up (reported separately). First-call lazy costs (UsdValidation registry load, etc.) are not included.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "module": "antigravity3d.kernel.usd_stage",
+      "runs": 5
+     },
+     "n": 5,
+     "median_ms": 320.8106,
+     "p95_ms": null,
+     "min_ms": 305.8938,
+     "max_ms": 352.9959,
+     "mean_ms": 324.982,
+     "extra": {
+      "bare_interpreter_wall_ms": 18.0392
+     }
+    }
+   ],
+   "bench_wall_s": 2.09
+  },
+  "throughput.prop_offline": {
+   "includes": "K distinct offline prop runs (PropToEngineDAG, governed mode, unreal_5; prompt/author seed vary per job, each job has its own empty cache dir) executed by P spawned worker processes (ProcessPoolExecutor, spawn). One timed sample per P: wall time from submitting the K jobs to the last result.",
+   "excludes": "Worker start-up and module imports (workers are started and warmed first). This is the deterministic local portion with fixture images and fixture judges, not a live throughput figure: a live run waits on APIs and would overlap differently. 4 vCPUs only, so P=4 contends with the parent and anything else on the box.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "jobs_K": 12,
+      "worker_processes_P": 1,
+      "start_method": "spawn",
+      "threads_per_process": 1
+     },
+     "n": 1,
+     "median_ms": 26224.8579,
+     "p95_ms": null,
+     "min_ms": 26224.8579,
+     "max_ms": 26224.8579,
+     "mean_ms": 26224.8579,
+     "extra": {
+      "assets_per_hour": 1647.2921,
+      "speedup_vs_P1": 1.0,
+      "scaling_efficiency": 1.0,
+      "per_job_ms_median": 2190.4886,
+      "distinct_worker_pids": 1,
+      "preview_gates_passed": 11,
+      "dag_ok_runs": 12,
+      "parent_cpu_count": 4,
+      "design_doc_claim": "120+ assets/hour on 8 workers (not comparable: 4 vCPUs, fixtures)"
+     }
+    },
+    {
+     "params": {
+      "jobs_K": 12,
+      "worker_processes_P": 2,
+      "start_method": "spawn",
+      "threads_per_process": 1
+     },
+     "n": 1,
+     "median_ms": 14777.4517,
+     "p95_ms": null,
+     "min_ms": 14777.4517,
+     "max_ms": 14777.4517,
+     "mean_ms": 14777.4517,
+     "extra": {
+      "assets_per_hour": 2923.3728,
+      "speedup_vs_P1": 1.7747,
+      "scaling_efficiency": 0.8873,
+      "per_job_ms_median": 2402.8588,
+      "distinct_worker_pids": 2,
+      "preview_gates_passed": 11,
+      "dag_ok_runs": 12,
+      "parent_cpu_count": 4,
+      "design_doc_claim": "120+ assets/hour on 8 workers (not comparable: 4 vCPUs, fixtures)"
+     }
+    },
+    {
+     "params": {
+      "jobs_K": 12,
+      "worker_processes_P": 4,
+      "start_method": "spawn",
+      "threads_per_process": 1
+     },
+     "n": 1,
+     "median_ms": 10900.1586,
+     "p95_ms": null,
+     "min_ms": 10900.1586,
+     "max_ms": 10900.1586,
+     "mean_ms": 10900.1586,
+     "extra": {
+      "assets_per_hour": 3963.2451,
+      "speedup_vs_P1": 2.4059,
+      "scaling_efficiency": 0.6015,
+      "per_job_ms_median": 3028.5398,
+      "distinct_worker_pids": 4,
+      "preview_gates_passed": 11,
+      "dag_ok_runs": 12,
+      "parent_cpu_count": 4,
+      "design_doc_claim": "120+ assets/hour on 8 workers (not comparable: 4 vCPUs, fixtures)"
+     }
+    }
+   ],
+   "bench_wall_s": 57.96
+  },
+  "dag.batch_sanitize": {
+   "includes": "BatchSanitizeDAG.run over generated meshes (load, Tier-1 before, shape-preserving repair, Tier-1 after, UV+LOD+collider export pipeline, USD+GLB write, UsdValidation + engine compliance) with max_parallel=jobs, unreal_5 default budget. One timed sample per jobs value: wall time of the whole batch.",
+   "excludes": "Mesh generation (untimed). The DAG parallelises with asyncio.to_thread, i.e. threads in one process, not processes. Meshes above 15,000 triangles exceed the default unreal_5 tri budget and are reported 'needs_attention'; that is a property of the inputs, listed in extra.status_counts / extra.attention_reasons.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "meshes": 24,
+      "jobs": 1,
+      "engine": "unreal_5",
+      "max_tris": 15000
+     },
+     "n": 1,
+     "median_ms": 43222.7106,
+     "p95_ms": null,
+     "min_ms": 43222.7106,
+     "max_ms": 43222.7106,
+     "mean_ms": 43222.7106,
+     "extra": {
+      "meshes_per_minute": 33.3158,
+      "per_mesh_median_ms": 539.7,
+      "per_mesh_sum_of_stage_ms_note": "each mesh's own load+repair+export+validate stage times; overlap when jobs>1",
+      "gates_passed_ok_rows": 21,
+      "status_counts": {
+       "ok": 21,
+       "needs_attention": 3
+      },
+      "all_gates_ok": false,
+      "attention_reasons": {
+       "tri_budget": 3,
+       "unreal_5:tri_budget": 3
+      },
+      "input_tris_min_max": [
+       192,
+       28320
+      ]
+     }
+    },
+    {
+     "params": {
+      "meshes": 24,
+      "jobs": 2,
+      "engine": "unreal_5",
+      "max_tris": 15000
+     },
+     "n": 1,
+     "median_ms": 32439.1989,
+     "p95_ms": null,
+     "min_ms": 32439.1989,
+     "max_ms": 32439.1989,
+     "mean_ms": 32439.1989,
+     "extra": {
+      "meshes_per_minute": 44.3907,
+      "per_mesh_median_ms": 653.35,
+      "per_mesh_sum_of_stage_ms_note": "each mesh's own load+repair+export+validate stage times; overlap when jobs>1",
+      "gates_passed_ok_rows": 21,
+      "status_counts": {
+       "ok": 21,
+       "needs_attention": 3
+      },
+      "all_gates_ok": false,
+      "attention_reasons": {
+       "tri_budget": 3,
+       "unreal_5:tri_budget": 3
+      },
+      "input_tris_min_max": [
+       192,
+       28320
+      ]
+     }
+    },
+    {
+     "params": {
+      "meshes": 24,
+      "jobs": 4,
+      "engine": "unreal_5",
+      "max_tris": 15000
+     },
+     "n": 1,
+     "median_ms": 27587.1212,
+     "p95_ms": null,
+     "min_ms": 27587.1212,
+     "max_ms": 27587.1212,
+     "mean_ms": 27587.1212,
+     "extra": {
+      "meshes_per_minute": 52.1983,
+      "per_mesh_median_ms": 1486.45,
+      "per_mesh_sum_of_stage_ms_note": "each mesh's own load+repair+export+validate stage times; overlap when jobs>1",
+      "gates_passed_ok_rows": 21,
+      "status_counts": {
+       "ok": 21,
+       "needs_attention": 3
+      },
+      "all_gates_ok": false,
+      "attention_reasons": {
+       "tri_budget": 3,
+       "unreal_5:tri_budget": 3
+      },
+      "input_tris_min_max": [
+       192,
+       28320
+      ]
+     }
+    }
+   ],
+   "bench_wall_s": 103.98
+  }
+ },
+ "total_wall_s": 384.6
+}

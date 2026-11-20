@@ -30,6 +30,7 @@ os.environ["AGY3D_OFFLINE"] = "1"
 import argparse
 import asyncio
 import contextlib
+import faulthandler
 import gc
 import hashlib
 import json
@@ -1637,6 +1638,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{n:<48} {b.includes[:90]}")
         return 0
     names = _select(a.only)
+    faulthandler.enable()  # a native crash (xatlas, CoACD) leaves a Python traceback saying which benchmark it was in
     _load()
     logging.getLogger().setLevel(logging.ERROR)
     out = Path(a.out)

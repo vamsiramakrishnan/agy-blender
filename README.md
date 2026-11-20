@@ -224,8 +224,10 @@ Integration markers include:
 - The three.js verifier compares what the runtime loaded with the manifest and the USD silhouette. It does not judge the rendered look, and it says nothing about Unreal, Unity, Godot or Roblox importers; those have their own steps where an engine is installed.
 - In a far LOD level a part can be absent. In USD that part is inactive inside the LOD variant; no importer was run here to confirm how each engine treats it.
 - The inspector's MCP App is tested against the MCP Apps SDK's own host bridge in Chromium, not inside a running Antigravity app.
-- Rejected 50-node speculative edits rolled back in 0.71 ms at the median on the development runner. Public undo of a 50-node edit measured about 1 ms. Sub-millisecond worst-case rollback remains unqualified.
-- Collider generation on concave meshes can exceed the 250 ms pipeline target.
+- Rolling back a rejected 50-node speculative edit takes 0.17 ms at the median on the development machine, and an undo that keeps history 0.65 ms (2.0 ms at 200 nodes). The first read after a rollback costs about 4 ms more at 50 nodes. Sub-millisecond worst-case rollback remains unqualified.
+- Collider generation on concave meshes can exceed the 250 ms pipeline target: CoACD takes about 450 ms on a 2,000-triangle concave mesh.
+- Unwrapping a computed (imported) mesh pays the UV packer's fixed cost, about a quarter of a second when the surface does not fit the atlas at the requested density. Primitives get exact charts and do not go through that packer.
+- The three.js verification makes an offline run 0.6 to 0.9 s longer per asset; see `benchmarks/RESULTS.md` for what that buys and what would reduce it.
 
 ## License
 
