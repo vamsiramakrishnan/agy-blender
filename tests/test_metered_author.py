@@ -305,7 +305,7 @@ async def test_admission_sequences_candidates_under_the_ceiling_and_none_is_drop
 
 async def test_every_candidate_has_an_outcome_with_its_reason(monkeypatch):
     limit = reservation_limit()
-    script = {1: "truncated", 2: "empty", 3: "garbled", 4: asyncio.TimeoutError(), 5: RuntimeError("boom")}
+    script = {1: "truncated", 2: "empty", 3: "garbled", 4: TimeoutError(), 5: RuntimeError("boom")}
     ep = ScriptedEndpoint(script)
     a, budget, context, gov = author_with(monkeypatch, ep, ceiling=10 * limit)
     result = await a.propose_with_outcomes("crate", budget=budget, n=6, context=context)
@@ -336,7 +336,7 @@ async def test_candidate_that_can_no_longer_be_admitted_is_recorded_with_the_num
 
 async def test_no_usable_candidate_names_what_happened_to_each(monkeypatch):
     limit = reservation_limit()
-    ep = ScriptedEndpoint({0: "truncated", 1: "empty", 2: asyncio.TimeoutError()})
+    ep = ScriptedEndpoint({0: "truncated", 1: "empty", 2: TimeoutError()})
     a, budget, context, gov = author_with(monkeypatch, ep, ceiling=10 * limit)
     with pytest.raises(AuthorTruncated) as e:  # the first error keeps its type and its usage
         await a.propose("crate", budget=budget, n=3, context=context)

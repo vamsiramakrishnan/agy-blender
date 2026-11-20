@@ -256,7 +256,7 @@ def usage_tokens(response: Any) -> dict[str, int] | None:
 
 def is_timeout(exc: BaseException) -> bool:
     """A request timeout from asyncio, httpx / httpcore, or the API's own 504 DEADLINE_EXCEEDED."""
-    if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+    if isinstance(exc, TimeoutError):
         return True
     if any("Timeout" in cls.__name__ for cls in type(exc).__mro__):
         return True

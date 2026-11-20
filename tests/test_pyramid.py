@@ -240,7 +240,7 @@ from google.genai import types as genai_types  # noqa: E402
 
 from antigravity3d.models import tier  # noqa: E402
 from antigravity3d.tactics.governor import BudgetExceeded  # noqa: E402
-from antigravity3d.tactics.metered_author import AuthorNoAnswer, AuthorTruncated, MeteredAuthor  # noqa: E402
+from antigravity3d.tactics.metered_author import AuthorNoAnswer, MeteredAuthor  # noqa: E402
 
 LID_DOWN_JSON = json.dumps({"ops": [{"op": "set_transform", "node_id": "lid", "transform": {"translate": [0, 0, 1.025]}}]})
 
@@ -299,8 +299,7 @@ async def test_truncated_repair_without_director_permission_is_a_recorded_stop(t
 
 
 async def test_empty_answer_on_the_director_is_not_retried_and_names_the_cause(tmp_path: Path, monkeypatch) -> None:
-    ep = TierEndpoint({tier("worker").model: "STOP", tier("director").model: "MAX_TOKENS"})
-    ep.finishes[tier("worker").model] = "MAX_TOKENS"
+    ep = TierEndpoint({tier("worker").model: "MAX_TOKENS", tier("director").model: "MAX_TOKENS"})
     gov = Governor(plan_for(2))
     sm, plane = setup(tmp_path, broken_script(ep))
     res = await run_a(sm, plane, metered(monkeypatch, ep, gov), tmp_path, governor=gov)

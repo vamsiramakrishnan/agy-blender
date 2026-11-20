@@ -8,6 +8,7 @@ import trimesh
 from scipy.spatial import ConvexHull
 
 from antigravity3d.kernel.fast_ops import (
+    ExportBundle,
     compress_texture_ktx2,
     generate_colliders,
     generate_lods,
@@ -280,6 +281,48 @@ def test_surface_deviation_is_exact():
     brute = max(brute, max(min(_point_triangle_distance(np.repeat(s[None], len(t), 0), p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]))
                            for s in samples))
     assert _surface_deviation(p, t, p, t1, 0.0) == pytest.approx(brute, abs=1e-12) and brute > 0
+
+
+def test_surface_index_is_exact_on_dense_meshes():
+    # > 2048 triangles takes the box-tree pruning path; it must agree with brute force exactly
+    from antigravity3d.kernel.fast_ops import _point_triangle_distance, _SurfaceIndex
+
+    tm = trimesh.creation.icosphere(4, 0.5)
+    p, t = np.asarray(tm.vertices, float), np.asarray(tm.faces, np.int64)
+    rng = np.random.default_rng(0)
+    q = rng.normal(size=(300, 3)) * 0.4
+    brute = np.array([_point_triangle_distance(np.repeat(x[None], len(t), 0), p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]).min() for x in q])
+    index = _SurfaceIndex(p, t)
+    assert np.allclose(index.distances(q, 0.0), brute, atol=1e-12)
+    d = index.distances(q, 0.05)
+    assert np.allclose(d[brute > 0.05], brute[brute > 0.05], atol=1e-12) and (d[brute <= 0.05] <= 0.05).all()
+    assert index.exceeds(q, brute.max() - 1e-9) and not index.exceeds(q, brute.max() + 1e-9)
+
+
+def test_assembly_drops_only_parts_whose_removal_is_invisible():
+    from antigravity3d.kernel.fast_ops import generate_asset_lods
+    from antigravity3d.kernel.lod_diff import lod_pop_report
+    from antigravity3d.tactics.package import merged_lods
+
+    body = _prim("box", {"size": (1.0, 1.0, 0.8)}, nid="body")
+    plate = _prim("box", {"size": (0.3, 0.05, 0.01)}, nid="plate")  # 1 cm thick, lying on the top face
+    plate = MeshData("plate", "/Asset/plate", plate.points + [0, 0, 0.405], plate.triangles, "m", uv_charts=plate.uv_charts)
+    knob = _prim("box", {"size": (0.03, 0.03, 0.03)}, nid="knob")  # small, but floating 40 cm above the body
+    knob = MeshData("knob", "/Asset/knob", knob.points + [0, 0, 0.8], knob.triangles, "m", uv_charts=knob.uv_charts)
+    wing = _prim("box", {"size": (0.6, 0.6, 0.6)}, nid="wing")  # large part beside the body
+    wing = MeshData("wing", "/Asset/wing", wing.points + [0.8, 0, 0], wing.triangles, "m", uv_charts=wing.uv_charts)
+    uvs = unwrap_scene([body, plate, knob, wing], BUDGET)
+    chains = generate_asset_lods(uvs, min_reduction=0.05)
+    n = len(chains["body"])
+    assert n >= 2 and all(len(c) == n for c in chains.values())
+    assert chains["plate"][-1].tri_count == 0 and chains["plate"][-1].points.shape == (0, 3)  # absent: no geometry
+    for nid in ("body", "knob", "wing"):
+        assert all(lod.tri_count == 12 for lod in chains[nid]), nid  # never dropped (and boxes do not simplify)
+    absent = [lod.tri_count == 0 for lod in chains["plate"]]
+    assert absent == sorted(absent)  # once absent, absent at every farther level
+    bundle = ExportBundle("A", uvs, chains, [])
+    rep = lod_pop_report(merged_lods(bundle))
+    assert rep.ok(), rep.one_line()
 
 
 # ------------------------------------------------------------------ colliders

@@ -9,7 +9,7 @@ Layout of ``out_dir`` (everything referenced relative to the USD layer, so the d
     <asset>_colliders.glb  convex hulls
     textures/              copies of the material maps (normal maps converted to the engine convention)
     inspector.html         offline Three.js PBR, channels, selectable nodes, LODs and budget gauges
-    manifest.json          schema_version, units, tri counts, textures, hashes, validation, versions
+    manifest.json          schema_version, units, tri counts, textures, materials, hashes, validation, versions
 
 Per-engine decisions (see ``ENGINE_RULES`` for the rule table they come from):
 
@@ -43,7 +43,9 @@ from PIL import Image
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 from antigravity3d.artifacts.inspector import InspectorQA, build_inspector, bundled_three_js
-from antigravity3d.kernel.compile_ir import MapSource, MaterialParams, author_mesh_data, read_material, set_normal_encoding
+from antigravity3d.kernel.compile_ir import (
+    IR_KEY, MapSource, MaterialParams, author_mesh_data, read_ir, read_material, set_normal_encoding,
+)
 from antigravity3d.kernel.fast_ops import ExportBundle, Hull, Issue, LOD, UVResult, write_gltf
 from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, TextureRef
 from antigravity3d.kernel.types import MeshData, gltf_world_bounds
@@ -196,7 +198,7 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[di
         name = f"{src.stem}_{convention}.png" if flip else src.name
         rel = f"{TEXTURE_DIR}/{name}"
         if rel in owners and owners[rel] != source:
-            tag = hashlib.sha256(source.encode()).hexdigest()[:12]
+            tag = _sha256(src)[:12]  # the file's content, never where it lives: names must not depend on the author's directory
             rel = f"{TEXTURE_DIR}/{Path(name).stem}_{tag}{Path(name).suffix}"
         (out / TEXTURE_DIR).mkdir(exist_ok=True)
         if flip:
@@ -217,7 +219,9 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[di
             continue
         mat = prim.GetParent()
         mat_id = mat.GetName()
-        is_normal = "normal" in prim.GetName().lower()
+        lowered = prim.GetName().lower()
+        is_normal = "normal" in lowered
+        role = "normal" if is_normal else next((r for r in ("orm", "emissive") if r in lowered), "albedo")
         src = _local_file(v.resolvedPath or v.path)
         if src is None:
             unresolved.append(v.path)
@@ -234,7 +238,7 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[di
         records.append({
             "path": rel,
             "usd_path": usd_rel,
-            "role": "normal" if is_normal else ("orm" if "orm" in prim.GetName().lower() else "albedo"),
+            "role": role,
             "material": mat_id,
             "width": width,
             "height": height,
@@ -248,15 +252,49 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[di
         if is_normal:
             set_normal_encoding(shader, "opengl")
             mat.SetCustomDataByKey("agy:normalConvention", "opengl")
+    _relativise_embedded_ir(stage, records)
     return records, unresolved
+
+
+_IR_URI_FIELD = {"albedo": "albedo_uri", "orm": "orm_uri", "normal": "normal_uri", "emissive": "emissive_uri"}
+
+
+def _relativise_embedded_ir(stage: Usd.Stage, records: list[dict[str, Any]]) -> None:
+    """Makes the scene IR embedded in the exported layer say what the rewritten shaders say.
+
+    The IR keeps the author's source URIs (absolute local paths); the shaders were just pointed at
+    ``./textures/<file>``. Left alone, the IR would leak the path into every shipped file, make two exports of one
+    scene differ, and point a re-opened, relocated package at files that are not there. Each recorded map becomes
+    the packaged file relative to the layer; a normal map was converted to the USD (OpenGL) convention when copied,
+    so the IR's ``normal_convention`` follows. Maps that were not found on disk stay as authored.
+    """
+    asset = stage.GetDefaultPrim()
+    scene = read_ir(asset)
+    if scene is None:
+        return
+    by_material: dict[str, dict[str, str]] = {}
+    for record in records:
+        by_material.setdefault(record["material"], {})[_IR_URI_FIELD[record["role"]]] = f"./{record['usd_path']}"
+    materials = []
+    for m in scene.materials:
+        update = dict(by_material.get(m.id, {}))
+        if "normal_uri" in update:
+            update["normal_convention"] = "opengl"
+        materials.append(m.model_copy(update=update) if update else m)
+    asset.SetCustomDataByKey(IR_KEY, scene.model_copy(update={"materials": materials}).model_dump_json())
 
 
 def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict[str, list[str]],
                      materials: dict[str, GltfMaterial], suffix: str) -> None:
     items = []
     bound = []
-    for nodes in batches.values():
-        group = [parts[node] for node in nodes]
+    names = []
+    for name, nodes in batches.items():
+        group = [parts[node] for node in nodes if len(parts[node].triangles)]  # a part absent at this LOD is omitted
+        if not group:  # every member absent: no node, one draw call fewer
+            continue
+        names.append(name)
+        nodes = [node for node in nodes if len(parts[node].triangles)]
         if len(group) == 1:
             items.append(group[0])
         else:
@@ -265,7 +303,7 @@ def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict
             items.append(LOD(1., np.vstack([p.points for p in group]), indices,
                              np.vstack([p.uvs for p in group]), 0., 0.))
         bound.append(materials.get(nodes[0]))
-    write_gltf(path, items, [name + suffix for name in batches], materials=bound)
+    write_gltf(path, items, [name + suffix for name in names], materials=bound)
 
 
 def _flip_green_png(image: EncodedImage) -> EncodedImage:
@@ -364,7 +402,8 @@ def gltf_materials(stage: Usd.Stage, meshes: Sequence[MeshData], *, package_dir:
             params = read_material(mat, double_sided=sided)
             flip = base is None and params.normal_convention == "directx"
             by_key[key] = gltf_material(
-                params, lambda role: (ref := params.maps.get(role)) and load(ref, flip and role == "normal"), double_sided=sided)
+                params, lambda role, params=params, flip=flip: (ref := params.maps.get(role)) and load(ref, flip and role == "normal"),
+                double_sided=sided)
         by_node[mesh.node_id] = by_key[key]
     return by_node
 
@@ -406,11 +445,32 @@ _GEOMETRY_PROPS = frozenset({
 })
 
 
+def _inspector_lods(lods: Mapping[str, list], levels: int):
+    """LOD data for the inspector: the per-node chains, unless a part is absent at some level (a LOD with no
+    triangles), in which case the merged per-level meshes (label, points, triangles) the inspector also accepts.
+    The per-node review GLB cannot pack an empty part yet; merged levels keep the LOD switcher truthful."""
+    if levels <= 1:
+        return None
+    if all(len(chain[i].triangles) for chain in lods.values() for i in range(levels)):
+        return dict(lods)
+    out = []
+    for i in range(1, levels):
+        present = [chain[i] for chain in lods.values() if len(chain[i].triangles)]
+        offsets = np.cumsum([0] + [len(x.points) for x in present[:-1]])
+        out.append((f"LOD{i}", np.vstack([x.points for x in present]),
+                    np.vstack([x.triangles + o for x, o in zip(present, offsets)])))
+    return out
+
+
 def _author_lod_variants(
     stage: Usd.Stage, asset: Usd.Prim, targets: list[tuple[str, np.ndarray, np.ndarray, list]]
 ) -> list[int]:
     """LOD structure: variant set ``LOD`` on the asset prim, variants ``LOD0..LODn``.
 
+    A part absent at a level (a LOD with no triangles: its removal is within the level's error budget) is
+    deactivated inside that variant (``active = false``) rather than given an empty mesh: an inactive prim is
+    pruned from composition, so every importer and traversal skips it and validators never see an empty
+    ``points`` array, while visibility=invisible would still be imported by DCCs/engines as a mesh.
     Chosen over sibling prims (``<asset>_LOD1``...) because one switch retargets every mesh of the asset
     consistently, materials/transforms/colliders are shared instead of duplicated, and viewers that
     understand variants (usdview, Omniverse, UE's LOD variant import) expose it directly. Every variant,
@@ -440,6 +500,9 @@ def _author_lod_variants(
         with vset.GetVariantEditContext():
             for path, inv33, trans, lods in targets:
                 lod = lods[i]
+                if not len(lod.triangles):
+                    stage.GetPrimAtPath(path).SetActive(False)
+                    continue
                 local = (np.asarray(lod.points, dtype=np.float64) - trans) @ inv33
                 author_mesh_data(stage.GetPrimAtPath(path), local, lod.triangles, lod.uvs, weld_map=None)
     vset.SetVariantSelection("LOD0")
@@ -590,7 +653,7 @@ def write_engine_package(
                         for m, u in zip(meshes, uvs, strict=True)]
     viewer = build_inspector(inspector_meshes, asset_name=asset_name, budget=budget, materials=materials,
                              uvs={u.node_id: u.uvs for u in uvs},
-                             lods=dict(lods) if glb_levels > 1 else None,
+                             lods=_inspector_lods(lods, glb_levels),
                              colliders=[(name, h.points, h.triangles) for name, h in zip(names, hulls)],
                              qa=InspectorQA(bool(qa.get("tier1_ok")), tier15_score=qa.get("tier15"),
                                             defects=qa.get("defects", {}), audit_deltas=qa.get("audit", [])) if qa else None,
@@ -621,6 +684,11 @@ def write_engine_package(
         # levels are generated to lod_diff's screen-space error budget, so a level exists only where it pays off
         "lod_screen_fractions": [1.0] + [float(min(getattr(c[i], "screen_fraction", 1.0) for c in lods.values()))
                                          for i in range(1, len(lod_tris))],
+        # GLB nodes (draw calls) per level: a level drops a node when every part in it is absent there
+        "lod_glb_nodes": [list(batches)] + [[b for b, nodes in batches.items() if any(len(lods[n][i].triangles) for n in nodes)]
+                                            for i in range(1, glb_levels)],
+        "lod_draw_calls": [len(batches)] + [sum(1 for nodes in batches.values() if any(len(lods[n][i].triangles) for n in nodes))
+                                            for i in range(1, glb_levels)],
         "lod_structure": f"variantSet '{LOD_SET}' on /{asset.GetName()}: LOD0 (base) .. LOD{len(lod_tris) - 1}" if len(lod_tris) > 1 else None,
         "draw_calls": len(batches),
         "glb_batches": batches,
@@ -636,6 +704,7 @@ def write_engine_package(
         "collider_glb_nodes": [collider_name(engine, asset_name, i, usd=False) for i in range(len(hulls))],
         "collider_structure": f"/{asset.GetName()}/{COLLIDERS_SCOPE}/<name>: purpose=guide, CollisionAPI+MeshCollisionAPI convexHull" if names else None,
         "textures": textures,
+        "materials": material_inventory(materials),
         "qa": {k: v for k, v in qa.items() if k != "audit"},
         "audit": qa.get("audit", []),
         "versions": _versions(),

@@ -56,6 +56,8 @@ class Issue:
 
 def _canon(points: np.ndarray, q: float = 1e-6) -> np.ndarray:
     """Per-vertex canonical id after quantised position welding."""
+    if not len(points):  # a part absent at a LOD level has no vertices
+        return np.zeros(0, np.int64)
     k = np.round(points / q).astype(np.int64)
     k -= k.min(axis=0)
     span = k.max(axis=0) + 1
@@ -1275,8 +1277,21 @@ def _absent(s: "_Simplifier", screen_fraction: float) -> LOD:
                0.0, 0.0, float(screen_fraction))
 
 
+def _removal_floor(simp: dict[str, "_Simplifier"]) -> dict[str, float]:
+    """Per part, the exact largest distance from its vertices to all the other parts at LOD0: a lower bound
+    (less the others' simplification deviation) of the deviation its removal causes at any level, computed
+    once per asset so most candidates are rejected without building a search structure per level."""
+    out = {}
+    for nid, s in simp.items():
+        rest = [(o.ref[0], o.ref[1]) for n, o in simp.items() if n != nid]
+        p, t = _gather(rest)
+        out[nid] = float(_SurfaceIndex(p, t).distances(s.ref[0][np.unique(s.ref[1])], 0.0).max()) if len(t) else np.inf
+    return out
+
+
 def _droppable(simp: dict[str, "_Simplifier"], picks: dict[str, tuple[np.ndarray, float]], already: set[str], budget: float,
-               asset0: list[tuple[np.ndarray, np.ndarray]], min_iou: float, object_px: float) -> set[str]:
+               asset0: list[tuple[np.ndarray, np.ndarray]], min_iou: float, object_px: float,
+               floor: dict[str, float] | None = None) -> set[str]:
     """Parts that may be absent at a level: removing them keeps the asset within the level's budget.
 
     A part P may go when every point of its LOD0 surface is within ``budget`` of what remains drawn at this
@@ -1296,6 +1311,9 @@ def _droppable(simp: dict[str, "_Simplifier"], picks: dict[str, tuple[np.ndarray
         rest = [n for n in simp if n not in gone and n != nid]
         if not rest:
             break
+        # removing parts only moves the rest farther away; simplifying it moves it by at most its deviation
+        if floor is not None and floor[nid] - max(picks[n][1] for n in rest) > limit:
+            continue
         pts, tris, off = [], [], 0
         for n in rest:
             pts.append(simp[n].ref[0])
@@ -1360,10 +1378,12 @@ def generate_asset_lods(
     prev_tris = sum(len(s.idx0) // 3 for s in simp.values())
     dropped: set[str] = set()  # parts absent at the last emitted level stay absent further out
     asset0 = [(s.ref[0], s.ref[1]) for s in simp.values()]
+    floor = _removal_floor(simp) if len(simp) > 1 else {}
     for f in fr[1:]:
         budget = ld.lod_error_budget_m(radius, f, error_px=error_px, screen_px=screen_px)
         picks = {nid: s.within(budget, silhouette_tol) for nid, s in simp.items()}
-        gone = _droppable(simp, picks, dropped, budget, asset0, 1.0 - silhouette_tol, f * screen_px) if len(simp) > 1 else set()
+        gone = (_droppable(simp, picks, dropped, budget, asset0, 1.0 - silhouette_tol, f * screen_px, floor)
+                if len(simp) > 1 else set())
         tris = sum(len(idx) // 3 for nid, (idx, _) in picks.items() if nid not in gone)
         if tris >= prev_tris or tris > (1.0 - min_reduction) * prev_tris:  # never a duplicate level
             continue

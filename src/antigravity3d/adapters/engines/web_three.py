@@ -204,7 +204,11 @@ class PassRule:
 PASS_RULE = PassRule()
 
 #: manifest texture role -> three.js material slots that must be bound for it
-ROLE_SLOTS = {"albedo": ("map",), "normal": ("normalMap",), "orm": ("aoMap", "roughnessMap", "metalnessMap")}
+ROLE_SLOTS = {"albedo": ("map",), "normal": ("normalMap",), "orm": ("aoMap", "roughnessMap", "metalnessMap"),
+              "emissive": ("emissiveMap",)}
+#: glTF texture slot (manifest ``materials[].texture_slots``) -> three.js material slots bound for it
+GLTF_SLOTS = {"baseColorTexture": ("map",), "normalTexture": ("normalMap",), "occlusionTexture": ("aoMap",),
+              "metallicRoughnessTexture": ("roughnessMap", "metalnessMap"), "emissiveTexture": ("emissiveMap",)}
 
 
 @dataclass(frozen=True)
@@ -262,12 +266,13 @@ _PAGE = """<!doctype html>
 import * as THREE from 'three';
 import { GLTFLoader } from './vendor/examples/jsm/loaders/GLTFLoader.js';
 const job = JSON.parse(document.getElementById('job').textContent);
-const out = { done: false, errors: [], shader_errors: [], programs: [], main: null, lods: [], render: null, png: null };
+const out = { done: false, errors: [], shader_errors: [], programs: [], main: null, lods: [], render: null, png: null, mask_png: null };
 window.__agy = out;
 const bytes = (b64) => { const s = atob(b64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u.buffer; };
 const parse = (b64) => new Promise((ok, bad) => new GLTFLoader().parse(bytes(b64), '', ok, (e) => bad(e)));
 const SLOT_KEYS = { map: ['pbr', 'baseColorTexture'], metalnessMap: ['pbr', 'metallicRoughnessTexture'], roughnessMap: ['pbr', 'metallicRoughnessTexture'],
                     normalMap: [null, 'normalTexture'], aoMap: [null, 'occlusionTexture'], emissiveMap: [null, 'emissiveTexture'] };
+const c3 = (c) => (c ? [c.r, c.g, c.b] : null), num = (v) => (typeof v === 'number' ? v : null);
 const imgSize = (t) => { const i = t && t.image; return i ? [i.width || i.naturalWidth || 0, i.height || i.naturalHeight || 0] : [0, 0]; };
 
 function describe(gltf) {
@@ -295,7 +300,13 @@ function describe(gltf) {
     const missing = declared.filter((s) => !slots[s] || !slots[s].width || !slots[s].height);
     return { name: m.name, type: m.type, fallback_default: idx === undefined, declared, slots, missing_slots: missing,
              color: m.color ? m.color.getHexString() : null, metalness: m.metalness, roughness: m.roughness,
-             flatShading: !!m.flatShading, doubleSided: m.side === THREE.DoubleSide, transparent: !!m.transparent };
+             flatShading: !!m.flatShading, doubleSided: m.side === THREE.DoubleSide, transparent: !!m.transparent,
+             json_alpha_mode: jm ? (jm.alphaMode || 'OPAQUE') : null, json_extensions: jm ? Object.keys(jm.extensions || {}) : [],
+             params: {
+               color: c3(m.color), opacity: m.opacity, alphaTest: m.alphaTest, emissive: c3(m.emissive), emissiveIntensity: m.emissiveIntensity,
+               physical: !!m.isMeshPhysicalMaterial, clearcoat: num(m.clearcoat), clearcoatRoughness: num(m.clearcoatRoughness),
+               transmission: num(m.transmission), ior: num(m.ior), sheen: num(m.sheen), sheenColor: c3(m.sheenColor),
+               sheenRoughness: num(m.sheenRoughness), specularIntensity: num(m.specularIntensity), specularColor: c3(m.specularColor) } };
   });
   const box = new THREE.Box3().setFromObject(gltf.scene);
   return { meshes, mesh_count: meshes.length, triangles: tris, non_triangle_objects: nonTri, materials,
@@ -342,6 +353,13 @@ async function main() {
   out.render = { draw_calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, gl_error: gl.getError(), context_lost: gl.isContextLost() };
   out.programs = (renderer.info.programs || []).map((p) => ({ name: p.name, diagnostics: p.diagnostics || null }));
   out.png = document.getElementById('c').toDataURL('image/png');
+  // The silhouette must be geometry, not material: a second frame of the same scene with every material replaced by
+  // an opaque, double-sided white one. Glass, cut-outs and blended materials change the beauty frame's alpha;
+  // they cannot change this one.
+  scene.overrideMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+  renderer.render(scene, camera);
+  gl.finish();
+  out.mask_png = document.getElementById('c').toDataURL('image/png');
   out.done = true;
 }
 main().catch((e) => { out.errors.push('page: ' + String((e && e.stack) || e)); out.done = true; });
@@ -374,11 +392,14 @@ def build_page(out_dir: Path, glb: bytes, bounds_m, lods: dict[str, bytes] | Non
 
 def evaluate(raw: dict, console: list[dict], page_errors: list[str], blocked: list[str], manifest: dict | None,
              shot_png: bytes | None, reference: bytes | None, rule: PassRule = PASS_RULE,
-             *, reference_note: str = "", reference_issue: str | None = None) -> tuple[list[Check], float | None]:
+             *, reference_note: str = "", reference_issue: str | None = None,
+             mask_png: bytes | None = None) -> tuple[list[Check], float | None]:
     """Turn browser evidence into checks. Pure: canned data in, verdict out.
 
     ``raw`` is the page's ``window.__agy`` object, ``console`` the captured console messages
-    (``{"type", "text"}``), ``manifest`` the package manifest (or None).
+    (``{"type", "text"}``), ``manifest`` the package manifest (or None). ``shot_png`` is the frame as the loader's
+    materials render it; ``mask_png`` is the same view with every material replaced by opaque white, and is what
+    framing and the silhouette are judged on (geometry only). Without it the beauty frame's alpha is used.
     """
     checks: list[Check] = []
 
@@ -427,7 +448,7 @@ def evaluate(raw: dict, console: list[dict], page_errors: list[str], blocked: li
     if shot_png is None:
         add("rendered frame", False, "no frame captured")
     else:
-        iou = _frame_checks(add, shot_png, reference, rule, reference_note if not reference_issue else "reference unusable")
+        iou = _frame_checks(add, shot_png, mask_png, reference, rule, reference_note if not reference_issue else "reference unusable")
     return checks, iou
 
 
@@ -489,12 +510,18 @@ def _manifest_checks(add, main: dict, lods: list[dict], render: dict, manifest: 
             "; ".join(bad[:6]) if bad else f"{len(textures)} texture(s) match")
 
 
-def _frame_checks(add, shot_png: bytes, reference: bytes | None, rule: PassRule, ref_note: str) -> float | None:
+def _frame_checks(add, shot_png: bytes, mask_png: bytes | None, reference: bytes | None, rule: PassRule,
+                  ref_note: str) -> float | None:
     from PIL import Image
 
     with Image.open(io.BytesIO(shot_png)) as im:
-        rgba = np.asarray(im.convert("RGBA"))
-    mask = rgba[..., 3] >= 128
+        beauty = np.asarray(im.convert("RGBA"))
+    if mask_png is not None:
+        with Image.open(io.BytesIO(mask_png)) as im:
+            silhouette = np.asarray(im.convert("RGBA"))
+    else:
+        silhouette = beauty
+    mask = silhouette[..., 3] >= 128
     frac = float(mask.mean())
     add("frame has foreground", frac >= rule.min_foreground_fraction,
         f"foreground {frac:.3f} of frame (floor {rule.min_foreground_fraction})")
@@ -503,13 +530,18 @@ def _frame_checks(add, shot_png: bytes, reference: bytes | None, rule: PassRule,
     m = rule.border_margin_px
     touching = bool(mask[:m].any() or mask[-m:].any() or mask[:, :m].any() or mask[:, -m:].any())
     add("asset framed (does not touch frame edge)", not touching, "touches edge" if touching else "inside frame")
-    lum = float((0.2126 * rgba[..., 0] + 0.7152 * rgba[..., 1] + 0.0722 * rgba[..., 2])[mask].mean())
-    add("asset is lit (not black)", lum >= rule.min_mean_luminance, f"mean luminance {lum:.1f}/255 (floor {rule.min_mean_luminance})")
+    seen = beauty[..., 3] >= 128  # pixels the materials actually draw: a cut-out or glass may leave some undrawn
+    if not seen.any():
+        add("asset is lit (not black)", None, "no pixel of the beauty frame is drawn (fully transparent materials)")
+    else:
+        lum = float((0.2126 * beauty[..., 0] + 0.7152 * beauty[..., 1] + 0.0722 * beauty[..., 2])[seen].mean())
+        add("asset is lit (not black)", lum >= rule.min_mean_luminance,
+            f"mean luminance {lum:.1f}/255 (floor {rule.min_mean_luminance})")
     if reference is None:
         add("silhouette IoU vs reference", None, ref_note or "no reference render available")
         return None
     try:
-        iou = silhouette_iou(reference, shot_png)
+        iou = silhouette_iou(reference, mask_png if mask_png is not None else shot_png)
     except ValueError as e:
         add("silhouette IoU vs reference", False, str(e))
         return None
@@ -699,14 +731,17 @@ class WebThreeValidator(EngineValidator):
             shot = None
             if raw.get("png"):
                 shot = base64.b64decode(raw["png"].split(",", 1)[1])
+            mask = base64.b64decode(raw["mask_png"].split(",", 1)[1]) if raw.get("mask_png") else None
             checks, iou = evaluate(raw, run["console"], run["page_errors"], run["blocked"], manifest, shot, ref_png, rule,
-                                   reference_note=ref_note, reference_issue=ref_issue)
+                                   reference_note=ref_note, reference_issue=ref_issue, mask_png=mask)
             shot_path = None
             if out_dir is not None:
                 work.mkdir(parents=True, exist_ok=True)
                 if shot:
                     (work / "web_three.png").write_bytes(shot)
                     shot_path = str(work / "web_three.png")
+                if mask:
+                    (work / "silhouette.png").write_bytes(mask)
                 if ref_png:
                     (work / "reference.png").write_bytes(ref_png)
             main = raw.get("main")

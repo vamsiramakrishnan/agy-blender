@@ -66,7 +66,7 @@ class MaterialIR(_Model):
     specular_color: Color3 = (1.0, 1.0, 1.0)
 
     @model_validator(mode="after")
-    def _coherent(self) -> "MaterialIR":
+    def _coherent(self) -> MaterialIR:
         def bad(why: str) -> ValueError:
             return ValueError(f"material {self.id}: {why}")
 

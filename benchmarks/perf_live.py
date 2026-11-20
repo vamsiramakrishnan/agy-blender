@@ -14,9 +14,10 @@ Spend control, enforced in code
     binds those.  Failed calls count, and a dispatched call whose usage is unknown (timeout, error, or no usage
     metadata) keeps its pre-call token reservation booked against ``--max-tokens``.  No retries here; SDK retry is switched off (``attempts=1``) and the package
     backends' own retry loops are disabled (``max_parse_retries=0``, ``max_retries=0``).
-  * The ``stage`` group drives the Antigravity SDK Agent, which talks to the model on its own connection. Its internal
-    model requests cannot be intercepted, so a stage run counts as ONE call with an estimated token reservation checked
-    up front and its reported usage booked afterwards; the 600 s timeout bounds it.
+  * The ``stage`` group drives the Antigravity SDK Agent with its model endpoint pointed at a local relay
+    (``ModelRelay``, ``GeminiAPIEndpoint(base_url=...)``) that forwards each model call to the Gemini API, so every
+    call is counted and the limiter is checked before each one; the SDK's own retries are set to 0. Tasks: ``crate``
+    (the original) and ``flush_repair`` (a floating lid made flush plus a handle on it: needs a repair edit).
   * No price / rate environment variable is read or set here. Dollar cost is never reported; tokens only.
 """
 from __future__ import annotations
@@ -293,9 +294,169 @@ async def text_group(client: CountedClient, plan: tuple[tuple[str, int], ...], o
 
 # ----------------------------------------------------------------------------------------------- group: stage
 
+# A part that must sit flush on another, starting from a scene where it does not: needs at least one repair edit.
+FLUSH_PROMPT = ("The crate's lid floats above its body. Make the lid sit flush on the body (no gap, no overlap) and add a "
+                "cylindrical handle (id handle, radius 0.02 m, length 0.3 m) lying along X, resting on top of the lid at its "
+                "centre. Then run visual QA.")
+STAGE_TASKS = ("crate", "flush_repair")
+STAGE_TASK_PLAN = {"crate": STAGE_PLAN, "flush_repair": (("worker", 1), ("builder", 1))}
+STAGE_CALL_EST = 12_000  # per model call inside a stage run: token reservation checked by the relay before forwarding
+GEMINI_UPSTREAM = "https://generativelanguage.googleapis.com"
+EDIT_TOOLS = ("apply_scene_ir", "propose_variants", "apply_shader_diff")
 
-async def stage_group(limiter: Limiter, plan: tuple[tuple[str, int], ...], out: dict[str, Any], flush: Any) -> None:
-    """run_stage('BLOCKOUT') with the real model, FAKE decisions and FAKE image backend (as the package's live test)."""
+
+def _flush_seed() -> Any:
+    from antigravity3d.ir import SceneIR
+
+    box = lambda nid, size, z: {"id": nid, "kind": "box", "params": {"size": size}, "transform": {"translate": [0, 0, z]}}  # noqa: E731
+    return SceneIR.model_validate({"asset_name": "Crate", "nodes": [box("body", [0.8, 0.6, 0.5], 0.25),
+                                                                     box("lid", [0.84, 0.64, 0.06], 0.60)]})
+
+
+def _flush_check(meshes: list[Any]) -> dict[str, Any]:
+    """The flush task's own success test, from world-space vertices: lid on body, handle on lid along X."""
+    import numpy as np
+
+    bb = {m.node_id: (m.points.min(axis=0), m.points.max(axis=0)) for m in meshes}
+    if not {"body", "lid", "handle"} <= set(bb):
+        return {"ok": False, "why": f"nodes {sorted(bb)}"}
+    gap_lid = float(bb["lid"][0][2] - bb["body"][1][2])
+    gap_handle = float(bb["handle"][0][2] - bb["lid"][1][2])
+    ext = bb["handle"][1] - bb["handle"][0]
+    centred = float(np.abs((bb["handle"][0][:2] + bb["handle"][1][:2]) / 2 - (bb["lid"][0][:2] + bb["lid"][1][:2]) / 2).max())
+    ok = abs(gap_lid) <= 2e-3 and abs(gap_handle) <= 2e-3 and abs(float(ext[0]) - 0.3) <= 0.01 and float(ext[1]) <= 0.05 and centred <= 0.01
+    return {"ok": ok, "lid_gap_m": round(gap_lid, 4), "handle_gap_m": round(gap_handle, 4),
+            "handle_extent_m": [round(float(x), 3) for x in ext], "handle_offcentre_m": round(centred, 4)}
+
+
+def _static_chars(body: dict[str, Any]) -> dict[str, int]:
+    system = "".join(p.get("text", "") for p in (body.get("systemInstruction") or {}).get("parts", []))
+    decls = [d for t in body.get("tools") or [] for d in t.get("functionDeclarations") or []]
+    tools = sum(len(json.dumps(d, separators=(",", ":"))) for d in decls)
+    return {"system_chars": len(system), "tool_chars": tools, "tools": len(decls)}
+
+
+class ModelRelay:
+    """Local relay between the Antigravity harness and the Gemini API, so a stage run's model calls are counted.
+
+    The harness posts plain Gemini REST requests to ``GeminiAPIEndpoint(base_url=...)``; the relay forwards each one
+    upstream (key from the environment, never logged), and books its reported tokens on the limiter (a stage run still
+    counts as one limiter call, booked by ``stage_group``). The token limit is checked BEFORE every forwarded call
+    (``STAGE_CALL_EST`` reservation); a call that would exceed it is answered with HTTP 400 and never reaches the API.
+    Network failures and answers without usage keep their reservation booked.
+    """
+
+    def __init__(self, limiter: Limiter, upstream: str = GEMINI_UPSTREAM) -> None:
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        self.limiter, self.upstream = limiter, upstream
+        self.calls: list[dict[str, Any]] = []
+        self.aborted: str | None = None
+        self._lock = threading.Lock()
+        relay = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802 - http.server API
+                raw = self.rfile.read(int(self.headers.get("content-length", 0)))
+                status, payload = relay.forward(self.path, raw)
+                self.send_response(status)
+                self.send_header("Content-Type", "text/event-stream" if status == 200 else "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            def log_message(self, *a: Any) -> None:
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+
+    def forward(self, path: str, raw: bytes) -> tuple[int, bytes]:
+        import urllib.error
+        import urllib.request
+
+        body = json.loads(raw or b"{}")
+        rec: dict[str, Any] = {"path": path.split("?")[0].rsplit("/", 1)[-1], **_static_chars(body)}
+        with self._lock:
+            try:
+                if self.limiter.tokens + STAGE_CALL_EST > self.limiter.max_tokens:
+                    raise LimitReached(f"max_tokens={self.limiter.max_tokens} would be exceeded (used {self.limiter.tokens}, "
+                                       f"next stage model call reserves ~{STAGE_CALL_EST})")
+            except LimitReached as e:
+                self.aborted = str(e)
+                rec["refused"] = str(e)
+                self.calls.append(rec)
+                return 400, json.dumps({"error": {"code": 400, "message": f"benchmark spend limit: {e}"}}).encode()
+            key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
+            req = urllib.request.Request(self.upstream + path, data=raw, method="POST",
+                                         headers={"Content-Type": "application/json", "x-goog-api-key": key})
+            t0 = time.perf_counter()
+            try:
+                with urllib.request.urlopen(req, timeout=TIMEOUTS["stage"]) as r:
+                    status, payload = r.status, r.read()
+            except urllib.error.HTTPError as e:
+                status, payload = e.code, e.read()
+            except Exception as e:  # noqa: BLE001 - network failure: unknown usage, keep the reservation
+                self.limiter.unknown_usage_reserved += STAGE_CALL_EST
+                rec.update(error=one_line(e, 200), tokens_known=False)
+                self.calls.append(rec)
+                return 502, json.dumps({"error": {"code": 502, "message": "relay: upstream unreachable"}}).encode()
+            rec["wall_s"] = round(time.perf_counter() - t0, 2)
+            usage: dict[str, Any] = {}
+            finish = None
+            for line in payload.decode("utf-8", "replace").splitlines():
+                if line.startswith("data: "):
+                    try:
+                        event = json.loads(line[6:])
+                    except json.JSONDecodeError:
+                        continue
+                    usage = event.get("usageMetadata") or usage
+                    finish = next((c.get("finishReason") for c in event.get("candidates") or [] if c.get("finishReason")), finish)
+            rec["finish_reason"] = finish
+            rec["usage"] = usage
+            if status == 200 and usage:
+                inp, out, think = (int(usage.get(k) or 0) for k in ("promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount"))
+                self.limiter.input_tokens += inp
+                self.limiter.output_tokens += out
+                self.limiter.thinking_tokens += think
+                rec.update(prompt_tokens=inp, output_tokens=out, thinking_tokens=think,
+                           cached_tokens=int(usage.get("cachedContentTokenCount") or 0), tokens_known=True)
+            elif status >= 500 or status == 200:  # no usage reported: may have been billed
+                self.limiter.unknown_usage_reserved += STAGE_CALL_EST
+                rec.update(status=status, tokens_known=False)
+            else:  # rejected request (4xx): not billed
+                rec.update(status=status, error=payload.decode("utf-8", "replace")[:300], tokens_known=True)
+            self.calls.append(rec)
+            return status, payload
+
+
+def _relay_config(relay: ModelRelay) -> Any:
+    """Route every model of a stage config through the relay, with the SDK's own retries off."""
+    from google.antigravity import types
+    from google.antigravity.models import GeminiAPIEndpoint
+
+    def configure(cfg: Any) -> Any:
+        models = [m.model_copy(update={"endpoint": GeminiAPIEndpoint(base_url=relay.url, api_key="via-relay",
+                                                                      options=m.endpoint.options)}) for m in cfg.models]
+        retry = types.RetryConfig(api_retry=types.ModelAPIRetryConfig(max_retries=0),
+                                  model_output_retry=types.ModelOutputRetryConfig(max_retries=0))
+        return cfg.model_copy(update={"model": None, "models": models, "retry_config": retry})
+
+    return configure
+
+
+async def stage_group(limiter: Limiter, plan: tuple[tuple[str, int], ...], out: dict[str, Any], flush: Any,
+                      tasks: tuple[str, ...] = ("crate",)) -> None:
+    """run_stage('BLOCKOUT') with the real model, FAKE decisions and FAKE image backend (as the package's live test).
+
+    Every model call of the stage goes through :class:`ModelRelay`, so calls, per-call prompt tokens and the static
+    prompt size are measured, and the limiter is checked before each call."""
     from antigravity3d.decisions.engine import DecisionControlPlane
     from antigravity3d.decisions.fakes import FakeDecisionsClient
     from antigravity3d.genmedia.nano_banana import FakeImageBackend, ImageForge
@@ -305,60 +466,84 @@ async def stage_group(limiter: Limiter, plan: tuple[tuple[str, int], ...], out: 
     from antigravity3d.models import tier
     from antigravity3d.state import EngineBudget, SceneSessionRegistry
 
-    for role, n in plan:
-        mt = tier(role)  # type: ignore[arg-type]
-        key = f"{role}:{mt.model}"
-        samples: list[dict[str, Any]] = []
-        out[key] = {"samples": samples}
-        for i in range(n):
-            limiter.before(f"stage {mt.model}", EST_TOKENS["stage"])
-            reg, sid = SceneSessionRegistry(), f"bench-{role}-{i}"
-            budget = EngineBudget("unreal_5")
-            workdir = Path(tempfile.mkdtemp(prefix="perf_live_stage_"))
-            S.open_session(reg, sid, workdir / sid, "Crate", budget, plane=DecisionControlPlane(FakeDecisionsClient()),
-                           forge=ImageForge(FakeImageBackend()))
-            sample: dict[str, Any] = {"timeout_s": TIMEOUTS["stage"], "thinking_level": mt.thinking.value if mt.thinking else None}
-            t0 = time.perf_counter()
-            run = None
-            try:
-                run = await run_stage("BLOCKOUT", sid, STAGE_PROMPT, registry=reg, role=role, timeout_s=TIMEOUTS["stage"])
-            except Exception as e:  # noqa: BLE001
-                sample.update(error=one_line(e), error_class=type(e).__name__)
-            wall_s = time.perf_counter() - t0
-            sample["wall_s"] = round(wall_s, 2)
-            sample["wall_ms"] = round(wall_s * 1000, 1)
-            u = run.usage if run else None
-            tk = _usage_tuple(u)
-            if tk is not None:
-                sample.update(prompt_tokens=tk[0], output_tokens=tk[1], thinking_tokens=tk[2],
-                              total_tokens=int(getattr(u, "total_token_count", None) or 0), tokens_known=True)
-                limiter.record(*tk)
-            else:  # unknown usage (failure/timeout): book the reservation so the limiter stays conservative
-                sample["tokens_known"] = False
-                sample["reserved_tokens"] = EST_TOKENS["stage"]
-                limiter.record_unknown(EST_TOKENS["stage"])
-            try:
-                s = S.session(reg, sid)
-                tel_path = s.workdir / "telemetry.jsonl"
-                recs = [json.loads(x) for x in tel_path.read_text().splitlines() if x.strip()] if tel_path.exists() else []
-                sample["tool_calls"] = len(recs)
-                sample["tool_durations_ms"] = [{"tool": r["tool"], "ms": r["ms"], "error": r["error"], "soft_fail": r["soft_fail"]}
-                                               for r in recs]
-                tool_ms = sum(r["ms"] or 0 for r in recs)
-                sample["tool_time_s"] = round(tool_ms / 1000, 3)
-                sample["model_side_s"] = round(wall_s - tool_ms / 1000, 2)
-                if run:
-                    sample["telemetry_summary"] = run.telemetry
-                    sample["stop_continuations"] = run.stop_continuations
-                scene = s.stage.base_ir()
-                sample["final_nodes"] = len(scene.nodes)
-                sample["tier1_ok"] = tier1_qa(s.stage.extract_meshes(), budget).ok if scene.nodes else False
-            except Exception as e:  # noqa: BLE001
-                sample["post_error"] = one_line(e, 200)
-            samples.append(sample)
-            out[key] = stats_block(samples)
-            _progress("stage", mt.model, sample, limiter)
-            flush()
+    relay = ModelRelay(limiter)
+    try:
+        for task in tasks:
+            prompt, seed = (STAGE_PROMPT, None) if task == "crate" else (FLUSH_PROMPT, _flush_seed())
+            roles = dict(plan) if task == "crate" else {r: n for r, n in STAGE_TASK_PLAN[task] if r in dict(plan)}
+            for role, n in roles.items():
+                mt = tier(role)  # type: ignore[arg-type]
+                key = f"{task}:{role}:{mt.model}" if task != "crate" else f"{role}:{mt.model}"
+                samples: list[dict[str, Any]] = []
+                out[key] = {"samples": samples}
+                for i in range(n):
+                    if relay.aborted:
+                        raise LimitReached(relay.aborted)
+                    limiter.before(f"stage {task} {mt.model}", STAGE_CALL_EST)
+                    reg, sid = SceneSessionRegistry(), f"bench-{task}-{role}-{i}"
+                    budget = EngineBudget("unreal_5")
+                    workdir = Path(tempfile.mkdtemp(prefix="perf_live_stage_"))
+                    S.open_session(reg, sid, workdir / sid, "Crate", budget, plane=DecisionControlPlane(FakeDecisionsClient()),
+                                   forge=ImageForge(FakeImageBackend()))
+                    if seed is not None:
+                        S.session(reg, sid).stage.apply_ir(seed)
+                    sample: dict[str, Any] = {"task": task, "timeout_s": TIMEOUTS["stage"],
+                                              "thinking_level": mt.thinking.value if mt.thinking else None}
+                    first_call = len(relay.calls)
+                    t0 = time.perf_counter()
+                    run = None
+                    try:
+                        run = await run_stage("BLOCKOUT", sid, prompt, registry=reg, role=role, timeout_s=TIMEOUTS["stage"],
+                                              configure=_relay_config(relay))
+                    except Exception as e:  # noqa: BLE001
+                        sample.update(error=one_line(e), error_class=type(e).__name__)
+                    wall_s = time.perf_counter() - t0
+                    limiter.calls += 1  # the run is one limiter call; its model calls' tokens were booked by the relay
+                    calls = relay.calls[first_call:]
+                    main = [c for c in calls if c.get("tools", 0) > 3]  # the stage agent (subagents declare fewer tools)
+                    sample.update(wall_s=round(wall_s, 2), wall_ms=round(wall_s * 1000, 1), model_calls=len(calls),
+                                  prompt_tokens_per_call=[c.get("prompt_tokens") for c in calls],
+                                  static_chars_first_call=(main[0]["system_chars"] + main[0]["tool_chars"]) if main else None,
+                                  prompt_tokens=sum(c.get("prompt_tokens") or 0 for c in calls),
+                                  output_tokens=sum(c.get("output_tokens") or 0 for c in calls),
+                                  thinking_tokens=sum(c.get("thinking_tokens") or 0 for c in calls),
+                                  tokens_known=all(c.get("tokens_known") for c in calls))
+                    sample["total_tokens"] = sample["prompt_tokens"] + sample["output_tokens"] + sample["thinking_tokens"]
+                    try:
+                        s = S.session(reg, sid)
+                        tel_path = s.workdir / "telemetry.jsonl"
+                        recs = [json.loads(x) for x in tel_path.read_text().splitlines() if x.strip()] if tel_path.exists() else []
+                        sample["tool_calls"] = len(recs)
+                        sample["tool_durations_ms"] = [{"tool": r["tool"], "ms": r["ms"], "error": r["error"], "soft_fail": r["soft_fail"]}
+                                                       for r in recs]
+                        edits = [r for r in recs if r["tool"] in EDIT_TOOLS]
+                        sample["first_edit_valid"] = bool(edits) and not (edits[0]["error"] or edits[0]["soft_fail"])
+                        sample["edit_calls"] = len(edits)
+                        tool_ms = sum(r["ms"] or 0 for r in recs)
+                        sample["tool_time_s"] = round(tool_ms / 1000, 3)
+                        sample["model_side_s"] = round(wall_s - tool_ms / 1000, 2)
+                        if run:
+                            sample["telemetry_summary"] = run.telemetry
+                            sample["stop_continuations"] = run.stop_continuations
+                            sample["final_text"] = run.text[:300]
+                        scene = s.stage.base_ir()
+                        meshes = s.stage.extract_meshes()
+                        sample["final_nodes"] = len(scene.nodes)
+                        sample["tier1_ok"] = tier1_qa(meshes, budget).ok if scene.nodes else False
+                        sample["qa_last"] = s.state.audit_deltas[-1] if s.state.audit_deltas else None
+                        sample["qa_approved"] = bool(sample["qa_last"]) and " approve" in sample["qa_last"]
+                        sample["task_ok"] = sample["tier1_ok"] and sample["qa_approved"]
+                        if task == "flush_repair":
+                            sample["flush"] = _flush_check(meshes)
+                            sample["task_ok"] = sample["task_ok"] and sample["flush"]["ok"]
+                    except Exception as e:  # noqa: BLE001
+                        sample["post_error"] = one_line(e, 200)
+                    samples.append(sample)
+                    out[key] = stats_block(samples)
+                    _progress("stage", f"{task}/{mt.model}", sample, limiter)
+                    flush()
+    finally:
+        relay.close()
 
 
 # ----------------------------------------------------------------------------------------------- group: judge
@@ -519,7 +704,13 @@ def build_plan(groups: list[str], roles: list[str] | None, n_override: int | Non
         for role, n in STAGE_PLAN:
             if keep(role):
                 rows.append(dict(group="stage", role=role, model=tier(role).model, n=nn(n),  # type: ignore[arg-type]
-                                 timeout_s=TIMEOUTS["stage"], calls=nn(n), note="counts as 1 call each; SDK-internal requests not interceptable"))
+                                 timeout_s=TIMEOUTS["stage"], calls=nn(n),
+                                 note="task crate; 1 call per run, its model calls relayed and their tokens booked"))
+        for role, n in STAGE_TASK_PLAN["flush_repair"]:
+            if keep(role):
+                rows.append(dict(group="stage", role=role, model=tier(role).model, n=nn(n),  # type: ignore[arg-type]
+                                 timeout_s=TIMEOUTS["stage"], calls=nn(n),
+                                 note="task flush_repair; 1 call per run, its model calls relayed and booked"))
     if "judge" in groups:
         rows.append(dict(group="judge", role="decision", model="gemini-decision-1 (native probe)", n=1, timeout_s=TIMEOUTS["judge"], calls=1))
         for stg, n in JUDGE_PLAN:
@@ -583,7 +774,8 @@ async def run_groups(args: argparse.Namespace, client_factory: Any, limiter: Lim
             if g == "text":
                 await text_group(get_client(), tuple((r, nn(n)) for r, n in TEXT_PLAN if keep(r)), groups[g], flush)
             elif g == "stage":
-                await stage_group(limiter, tuple((r, nn(n)) for r, n in STAGE_PLAN if keep(r)), groups[g], flush)
+                await stage_group(limiter, tuple((r, nn(n)) for r, n in STAGE_PLAN if keep(r)), groups[g], flush,
+                                  tasks=tuple(args.stage_tasks))
             elif g == "judge":
                 await judge_group(get_client(), tuple((s, nn(n)) for s, n in JUDGE_PLAN), groups[g], flush)
             elif g == "image":
@@ -598,9 +790,9 @@ def make_result(args: argparse.Namespace, limiter: Limiter) -> dict[str, Any]:
     return {"machine": machine_info(),
             "limits": {"max_calls": args.max_calls, "max_tokens": args.max_tokens, "timeouts_s": TIMEOUTS,
                        "retries": "none (genai HttpRetryOptions attempts=1; package fallback/plane retry loops set to 0; "
-                                  "the Antigravity SDK Agent used by `stage` exposes no switch, so its internal retries are unknown)",
+                                  "stage: Antigravity RetryConfig api_retry/model_output_retry max_retries=0)",
                        "prices": "none configured; dollar cost is unknown, token counts only",
-                       "stage_accounting": "1 call per run_stage with a token reservation; SDK-internal model requests are not counted individually"},
+                       "stage_accounting": "every model call of a stage run is relayed (ModelRelay) and booked with its own usage"},
             "totals": limiter.totals(), "groups": {}, "aborted": None}
 
 
@@ -742,6 +934,7 @@ def main() -> int:
     ap.add_argument("--self-test", action="store_true", help="exercise the spend limiter against a stub (no network)")
     ap.add_argument("--n-override", type=int, default=None, help=argparse.SUPPRESS)  # dev: samples per entry
     ap.add_argument("--roles", nargs="+", default=None, help=argparse.SUPPRESS)  # dev: restrict text/stage tiers
+    ap.add_argument("--stage-tasks", nargs="+", choices=STAGE_TASKS, default=list(STAGE_TASKS), help=argparse.SUPPRESS)
     args = ap.parse_args()
     if args.self_test:
         return self_test()

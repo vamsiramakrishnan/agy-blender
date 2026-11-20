@@ -14,11 +14,11 @@ from PIL import Image
 from antigravity3d.artifacts.inspector import (
     THREE_JS_URL,
     InspectorQA,
-    InspectorTextures,
     ReviewNote,
     build_inspector,
     read_notes,
 )
+from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, TextureRef
 from antigravity3d.kernel.types import MeshData
 from antigravity3d.state import EngineBudget
 
@@ -27,6 +27,21 @@ def _png(rgb: tuple[int, int, int]) -> bytes:
     buf = io.BytesIO()
     Image.new("RGB", (8, 8), rgb).save(buf, "PNG")
     return buf.getvalue()
+
+
+def _material(mid: str, albedo: tuple[int, int, int] = (200, 10, 10)) -> GltfMaterial:
+    """A textured material as the package binds one: white base colour under the albedo map, one ORM texture
+    shared by occlusion and metallic-roughness, a normal map."""
+    orm = TextureRef(EncodedImage.from_bytes(_png((255, 128, 0)), f"{mid}_orm"))
+    return GltfMaterial(name=mid, base_color_texture=TextureRef(EncodedImage.from_bytes(_png(albedo), f"{mid}_albedo")),
+                        metallic_roughness_texture=orm, occlusion_texture=orm,
+                        normal_texture=TextureRef(EncodedImage.from_bytes(_png((128, 128, 255)), f"{mid}_normal")))
+
+
+def _materials(meshes, albedo: tuple[int, int, int] = (200, 10, 10)) -> dict[str, GltfMaterial]:
+    """``{node_id: GltfMaterial}``, one object per material id (meshes of one material share it)."""
+    made = {mid: _material(mid, albedo) for mid in dict.fromkeys(m.material_id for m in meshes)}
+    return {m.node_id: made[m.material_id] for m in meshes}
 
 
 def _mesh(node_id: str, tm: trimesh.Trimesh, mat: str) -> MeshData:
@@ -41,7 +56,7 @@ def scene():
     sph = trimesh.creation.icosphere(subdivisions=1, radius=0.3)
     meshes = [_mesh("body", box, "m_a"), _mesh("pole", cyl, "m_a"), _mesh("ball", sph, "m_b")]
     uvs = {m.node_id: np.zeros((len(m.points), 2), np.float32) for m in meshes}
-    tex = {k: InspectorTextures(_png((200, 10, 10)), _png((255, 128, 0)), _png((128, 128, 255))) for k in ("m_a", "m_b")}
+    tex = _materials(meshes)
     lods = [("LOD1", np.asarray(box.vertices), np.asarray(box.faces))]
     cols = [("hull_body", np.asarray(box.vertices), np.asarray(box.faces))]
     return meshes, uvs, tex, lods, cols
@@ -58,7 +73,7 @@ def _build(tmp_path, scene, **kw):
     args = dict(
         asset_name="crate",
         budget=EngineBudget("unreal_5", max_tris=15_000, max_draw_calls=1, max_collision_hulls=8),
-        textures=tex, lods=lods, colliders=cols, uvs=uvs, out_path=tmp_path / "crate.html",
+        materials=tex, lods=lods, colliders=cols, uvs=uvs, out_path=tmp_path / "crate.html",
     )
     args.update(kw)
     return build_inspector(meshes, **args)
@@ -284,15 +299,15 @@ def test_payload_revision_is_a_content_hash(scene):
 
     meshes, uvs, tex, lods, cols = scene
     budget = EngineBudget("unreal_5")
-    a, glb_a = inspector_payload(meshes, asset_name="crate", budget=budget, textures=tex, uvs=uvs, lods=lods, colliders=cols)
-    b, glb_b = inspector_payload(meshes, asset_name="crate", budget=budget, textures=tex, uvs=uvs, lods=lods, colliders=cols)
+    a, glb_a = inspector_payload(meshes, asset_name="crate", budget=budget, materials=tex, uvs=uvs, lods=lods, colliders=cols)
+    b, glb_b = inspector_payload(meshes, asset_name="crate", budget=budget, materials=tex, uvs=uvs, lods=lods, colliders=cols)
     assert a["revision"] == b["revision"] and len(a["revision"]) == 16 and glb_a == glb_b  # deterministic
     moved = [MeshData(m.node_id, m.prim_path, m.points + 0.01, m.triangles, m.material_id) for m in meshes]
     assert inspector_payload(moved, asset_name="crate", budget=budget)[0]["revision"] != \
         inspector_payload(meshes, asset_name="crate", budget=budget)[0]["revision"]
-    retextured = {k: InspectorTextures(_png((10, 200, 10)), t.orm_png, t.normal_png) for k, t in tex.items()}
-    assert inspector_payload(meshes, asset_name="crate", budget=budget, textures=retextured, uvs=uvs)[0]["revision"] != \
-        inspector_payload(meshes, asset_name="crate", budget=budget, textures=tex, uvs=uvs)[0]["revision"]
+    retextured = _materials(meshes, albedo=(10, 200, 10))
+    assert inspector_payload(meshes, asset_name="crate", budget=budget, materials=retextured, uvs=uvs)[0]["revision"] != \
+        inspector_payload(meshes, asset_name="crate", budget=budget, materials=tex, uvs=uvs)[0]["revision"]
 
 
 def test_welded_box_shades_flat_from_glb_normals():
@@ -440,10 +455,10 @@ def test_mcp_app_in_a_browser_host(tmp_path, scene):
         payload["session_id"] = session_id  # as runtime/inspector_server.py adds it
         return payload, glb
 
-    rev1 = canned("Crate-abc123", meshes, textures=tex, uvs=uvs, lods=lods, colliders=cols)
+    rev1 = canned("Crate-abc123", meshes, materials=tex, uvs=uvs, lods=lods, colliders=cols)
     moved = [MeshData(m.node_id, m.prim_path, m.points + np.array([0.0, 0.0, 0.25]), m.triangles, m.material_id) for m in meshes[:2]]
-    rev2 = canned("Crate-abc123", moved, textures=tex, uvs={k: v for k, v in uvs.items() if k != "ball"}, lods=lods, colliders=cols)
-    rev3 = canned("Other-def456", moved, asset="other crate", textures=tex, uvs={k: v for k, v in uvs.items() if k != "ball"})
+    rev2 = canned("Crate-abc123", moved, materials=tex, uvs={k: v for k, v in uvs.items() if k != "ball"}, lods=lods, colliders=cols)
+    rev3 = canned("Other-def456", moved, asset="other crate", materials=tex, uvs={k: v for k, v in uvs.items() if k != "ball"})
 
     app_dir, host_dir = tmp_path / "app", tmp_path / "host"
     app_dir.mkdir(), host_dir.mkdir()

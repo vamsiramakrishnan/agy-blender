@@ -53,15 +53,6 @@ def bundled_three_js() -> str:
 
 
 @dataclass(frozen=True)
-class InspectorTextures:
-    """PNG bytes for one material id. ORM = occlusion (R), roughness (G), metallic (B)."""
-
-    albedo_png: bytes | None = None
-    orm_png: bytes | None = None
-    normal_png: bytes | None = None
-
-
-@dataclass(frozen=True)
 class InspectorLod:
     """A reduced mesh, world-space Z-up like MeshData. Shown as LOD1..n (LOD0 = ``meshes``)."""
 
@@ -206,7 +197,6 @@ def inspector_payload(
     asset_name: str,
     budget: EngineBudget,
     materials: Mapping[str, GltfMaterial] | None = None,
-    textures: dict[str, InspectorTextures] | None = None,
     lods: list[LodInput] | Mapping[str, Sequence[Any]] | None = None,
     colliders: list[InspectorCollider | tuple[str, np.ndarray, np.ndarray]] | None = None,
     qa: InspectorQA | dict | None = None,
@@ -219,8 +209,6 @@ def inspector_payload(
     uvs        keyed by ``node_id``, (N, 2) per-vertex, bottom-left origin (USD/OpenGL).
     materials  ``{node_id: GltfMaterial}``: the materials the package GLBs bind (or, in a session,
                :func:`.review_glb.session_materials`). Textures are shown only on meshes with UVs.
-    textures   transitional, for callers that still pass PNG maps per material id (see
-               :func:`.review_glb.materials_from_png_maps`); ignored when ``materials`` is given.
     lods       either per-node chains ``{node_id: [LOD0, LOD1, ...]}`` of objects with ``points``,
                ``triangles`` and ``uvs`` (shown with their materials, like the package's ``*_LODn.glb``),
                or merged levels ``[(label, points, triangles), ...]`` (shown as one untextured mesh each).
@@ -230,14 +218,13 @@ def inspector_payload(
     ``payload["revision"]`` is a content hash of everything shown (the GLB bytes and the metadata): the
     same asset gives the same revision, any visible change a new one. Review notes are tied to it.
     """
-    from antigravity3d.artifacts.review_glb import ReviewPart, build_review, materials_from_png_maps
+    from antigravity3d.artifacts.review_glb import ReviewPart, build_review
 
     uvs = uvs or {}
     ids = [m.node_id for m in meshes]
     if len(set(ids)) != len(ids):
         raise ValueError("duplicate node_id in meshes")
-    if materials is None:
-        materials = materials_from_png_maps(textures or {}, {m.node_id: m.material_id for m in meshes})
+    materials = materials or {}
     colors = _prim_colors(ids)
 
     lod0, nodes = [], []
@@ -327,7 +314,6 @@ def build_inspector(
     asset_name: str,
     budget: EngineBudget,
     materials: Mapping[str, GltfMaterial] | None = None,
-    textures: dict[str, InspectorTextures] | None = None,
     lods: list[LodInput] | Mapping[str, Sequence[Any]] | None = None,
     colliders: list[InspectorCollider | tuple[str, np.ndarray, np.ndarray]] | None = None,
     qa: InspectorQA | None = None,
@@ -338,13 +324,13 @@ def build_inspector(
 ) -> Path:
     """Write the standalone inspector for one asset to ``out_path`` and return it.
 
-    meshes, materials, textures, uvs, lods, colliders, draw_calls: see :func:`inspector_payload`.
+    meshes, materials, uvs, lods, colliders, draw_calls: see :func:`inspector_payload`.
     The asset is embedded as the review GLB (base64 in the JSON payload); the page loads it with GLTFLoader.
     three_js_source  ES-module build of three.js (e.g. ``three.module.min.js`` text) to
              inline for fully offline use; otherwise the pinned cdnjs URL is loaded.
     """
     payload, glb = inspector_payload(meshes, asset_name=asset_name, budget=budget, materials=materials,
-                                     textures=textures, lods=lods, colliders=colliders, qa=qa, uvs=uvs,
+                                     lods=lods, colliders=colliders, qa=qa, uvs=uvs,
                                      draw_calls=draw_calls)
     payload["three_url"] = None if three_js_source is not None else THREE_JS_URL
     payload["glb_b64"] = base64.b64encode(glb).decode("ascii")

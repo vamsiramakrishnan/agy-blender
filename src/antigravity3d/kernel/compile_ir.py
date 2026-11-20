@@ -370,11 +370,11 @@ def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
     color = _set_input(surf, "diffuseColor", Sdf.ValueTypeNames.Color3f, Gf.Vec3f(*m.base_color))
     rough = _set_input(surf, "roughness", Sdf.ValueTypeNames.Float, m.roughness)
     metal = _set_input(surf, "metallic", Sdf.ValueTypeNames.Float, m.metallic)
-    for field, name, vtype, default in SURFACE_PARAMS:
-        _put(surf, name, vtype, getattr(m, field), default)
+    for key, name, vtype, default in SURFACE_PARAMS:
+        _put(surf, name, vtype, getattr(m, key), default)
     _put(surf, "opacityThreshold", _F, m.alpha_cutoff if m.alpha_mode == "MASK" else 0.0, 0.0)
-    for field, name, vtype, default in INTERFACE_PARAMS:
-        _put(mat, name, vtype, getattr(m, field), default)
+    for key, name, vtype, default in INTERFACE_PARAMS:
+        _put(mat, name, vtype, getattr(m, key), default)
     alpha_from_albedo = m.alpha_mode != "OPAQUE" and bool(m.albedo_uri)
     if alpha_from_albedo:  # the connection below needs the input to exist even at opacity 1
         _set_input(surf, "opacity", _F, m.opacity)
@@ -527,8 +527,8 @@ def read_material(mat: UsdShade.Material, *, double_sided: bool | None = None) -
     mode = get(mat, "alpha_mode", "")
     if mode not in ("OPAQUE", "MASK", "BLEND"):
         mode = "MASK" if threshold > 0 else ("BLEND" if opacity < 1.0 or source(shader, "opacity") else "OPAQUE")
-    values = {field: get(mat, name, default) for field, name, _, default in INTERFACE_PARAMS if field != "alpha_mode"}
-    values.update({field: get(shader, name, default) for field, name, _, default in SURFACE_PARAMS})
+    values = {key: get(mat, name, default) for key, name, _, default in INTERFACE_PARAMS if key != "alpha_mode"}
+    values.update({key: get(shader, name, default) for key, name, _, default in SURFACE_PARAMS})
     convention = mat.GetPrim().GetCustomDataByKey("agy:normalConvention") if mat else None
     return MaterialParams(
         name=mat.GetPath().name if mat else "",

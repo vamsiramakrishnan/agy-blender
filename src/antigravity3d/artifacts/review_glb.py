@@ -22,21 +22,16 @@ ones the package GLBs use; in an asset session :func:`session_materials` reads t
 from __future__ import annotations
 
 import hashlib
-import io
 import weakref
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
 
 import numpy as np
 
 from antigravity3d.kernel.gltf_writer import (
-    EncodedImage,
     GltfMaterial,
     GltfMesh,
-    TextureRef,
     build_glb,
     flip_v,
     split_by_corner_normals,
@@ -147,114 +142,14 @@ def build_review(
 # --------------------------------------------------------------------------- materials of a session
 
 
-def _asset_file(value: Any) -> Path | None:
-    """Local file behind a USD asset value (resolved path, plain path or file:// URI)."""
-    if value is None:
-        return None
-    raw = getattr(value, "resolvedPath", "") or getattr(value, "path", "") or str(value)
-    u = urlparse(raw)
-    p = Path(unquote(u.path)) if u.scheme == "file" else Path(raw)
-    return p if raw and p.is_file() else None
-
-
-def _flip_green(image: EncodedImage) -> EncodedImage:
-    """DirectX (Y-) -> OpenGL (Y+) normal map, which glTF requires. Decodes and PNG-encodes once."""
-    from PIL import Image, ImageOps
-
-    with Image.open(io.BytesIO(image.data)) as im:
-        rgb = im.convert("RGB")
-        r, g, b = rgb.split()
-        buf = io.BytesIO()
-        Image.merge("RGB", (r, ImageOps.invert(g), b)).save(buf, "PNG")
-    return EncodedImage(buf.getvalue(), "image/png", hashlib.sha256(buf.getvalue()).hexdigest(), image.name, True)
-
-
 def session_materials(stage: Any, meshes: Sequence[Any]) -> dict[str, GltfMaterial]:
     """``{node_id: GltfMaterial}`` for the meshes of a composed asset-session stage.
 
-    The one place the inspector derives materials in a session (the package passes its own GLB materials).
-    Same mapping as the package GLB (``kernel/package.py``, ``_glb_materials``): the bound material's
-    ``UsdPreviewSurface``; ``diffuseColor`` -> base colour (white when an albedo map is bound), the albedo,
-    packed ORM (occlusion + metallic-roughness, one texture) and normal maps; metallic/roughness factors 1.0
-    when the ORM map drives them. Images are the files the ``UsdUVTexture`` shaders reference, embedded as
-    they are; a DirectX normal map (``agy:normalConvention``) is converted to glTF's OpenGL convention.
-    Point this at the single material reader once it exists (see the module docstring).
+    This is the package's own derivation (:func:`antigravity3d.kernel.package.gltf_materials`) applied to a live
+    stage: textures are read from where the ``UsdUVTexture`` shaders resolve, and a DirectX normal map is
+    converted to glTF's OpenGL convention. The inspector therefore shows a session with exactly the materials
+    an export of it would ship. Imported lazily because ``kernel.package`` imports this package.
     """
-    from pxr import Sdf, UsdShade
+    from antigravity3d.kernel.package import gltf_materials
 
-    files: dict[Path, EncodedImage] = {}
-    by_path: dict[Any, GltfMaterial] = {}
-    out: dict[str, GltfMaterial] = {}
-
-    def image(path: Path, flip: bool) -> EncodedImage:
-        key = (path, flip)
-        if key not in files:
-            img = EncodedImage.from_file(path)
-            files[key] = _flip_green(img) if flip else img
-        return files[key]
-
-    def texture_file(inp: Any) -> Path | None:
-        if not inp or not inp.HasConnectedSource():
-            return None
-        src = inp.GetConnectedSource()
-        shader = UsdShade.Shader(src[0].GetPrim()) if src else None
-        if not shader or shader.GetIdAttr().Get() != "UsdUVTexture":
-            return None
-        f = shader.GetInput("file")
-        return _asset_file(f.Get()) if f else None
-
-    for mesh in meshes:
-        prim = stage.GetPrimAtPath(Sdf.Path(mesh.prim_path))
-        if not prim:
-            continue
-        mat, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
-        if not mat:
-            continue
-        path = mat.GetPath()
-        if path not in by_path:
-            shader, _, _ = mat.ComputeSurfaceSource()
-            if not shader:
-                continue
-            albedo = texture_file(shader.GetInput("diffuseColor"))
-            orm = texture_file(shader.GetInput("roughness")) or texture_file(shader.GetInput("metallic"))
-            normal = texture_file(shader.GetInput("normal"))
-            directx = mat.GetPrim().GetCustomDataByKey("agy:normalConvention") == "directx"
-            tex = {k: TextureRef(image(p, k == "normal" and directx)) for k, p in
-                   (("albedo", albedo), ("orm", orm), ("normal", normal)) if p is not None}
-
-            def value(name: str, default: Any) -> Any:
-                inp = shader.GetInput(name)
-                v = inp.Get() if inp else None
-                return default if v is None else v
-
-            color = [1.0] * 3 if "albedo" in tex else [float(c) for c in value("diffuseColor", (0.8, 0.8, 0.8))]
-            by_path[path] = GltfMaterial(
-                name=path.name, base_color_factor=(*color, 1.0), base_color_texture=tex.get("albedo"),
-                normal_texture=tex.get("normal"), occlusion_texture=tex.get("orm"),
-                metallic_roughness_texture=tex.get("orm"),
-                metallic_factor=1.0 if "orm" in tex else float(value("metallic", 0.0)),
-                roughness_factor=1.0 if "orm" in tex else float(value("roughness", 0.5)),
-            )
-        out[mesh.node_id] = by_path[path]
-    return out
-
-
-def materials_from_png_maps(textures: Mapping[str, Any], material_ids: Mapping[str, str | None]) -> dict[str, GltfMaterial]:
-    """Transitional: ``{material_id: InspectorTextures}`` (PNG bytes per map) -> ``{node_id: GltfMaterial}``.
-
-    Only for callers of :func:`antigravity3d.artifacts.inspector.build_inspector` that still pass
-    ``textures=`` (``kernel/package.py`` until it passes its GLB materials as ``materials=``). Same mapping as
-    the package GLB: white base colour under an albedo map, one ORM texture for occlusion and
-    metallic-roughness, factors 1.0.
-    """
-    made: dict[str, GltfMaterial] = {}
-    for mid, t in textures.items():
-        slots = {k: TextureRef(EncodedImage.from_bytes(v, f"{mid}_{k}")) for k, v in
-                 (("albedo", t.albedo_png), ("orm", t.orm_png), ("normal", t.normal_png)) if v}
-        if slots:
-            made[mid] = GltfMaterial(
-                name=mid, base_color_factor=(1.0, 1.0, 1.0, 1.0) if "albedo" in slots else (0.8, 0.8, 0.8, 1.0),
-                base_color_texture=slots.get("albedo"), metallic_roughness_texture=slots.get("orm"),
-                occlusion_texture=slots.get("orm"), normal_texture=slots.get("normal"),
-                metallic_factor=1.0 if "orm" in slots else 0.0, roughness_factor=1.0 if "orm" in slots else 0.5)
-    return {node: made[mid] for node, mid in material_ids.items() if mid in made}
+    return gltf_materials(stage, meshes)
