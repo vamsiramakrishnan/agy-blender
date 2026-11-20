@@ -1024,6 +1024,28 @@ class _SurfaceIndex:
                     return True
         return False
 
+    def max_distance(self, samples: np.ndarray) -> float:
+        """Exact max over samples of the distance to the surface: cheap per-sample upper bounds first, then exact
+        values in order of decreasing bound until no remaining bound can beat the best exact value."""
+        if not len(samples):
+            return 0.0
+        if not self.m:
+            return np.inf
+        n, k = len(samples), min(8, self.m)
+        nn = np.asarray(self.tree.query(samples, k=k)[1]).reshape(n, k)
+        f = nn.reshape(-1)
+        ub = _point_triangle_distance(np.repeat(samples, k, axis=0), self.a[f], self.b[f], self.c[f]).reshape(n, k).min(axis=1)
+        order = np.argsort(-ub, kind="stable")
+        best = 0.0
+        step = 16
+        for s0 in range(0, n, step):
+            ids = order[s0:s0 + step]
+            if ub[ids[0]] <= best:  # no remaining upper bound can beat the exact maximum found
+                break
+            best = max(best, float(self.distances(samples[ids], 0.0).max()))
+            step = min(step * 2, 1024)
+        return best
+
     def _refine(self, ub: np.ndarray, ids: np.ndarray, sl: np.ndarray, r2: np.ndarray, c2: np.ndarray) -> None:
         if len(r2):
             d = np.full(len(ids), np.inf)
@@ -1194,26 +1216,7 @@ class _Simplifier:
                    None if self.uv is None else v[:, 3:5].copy(), dev / self.scale, dev, float(screen_fraction))
 
 
-LOD_DROP_MAX_SAMPLES = 200_000  # a part needing more surface samples than this is never dropped (conservative)
-
-
-def _dense_samples(p: np.ndarray, t: np.ndarray, spacing: float) -> np.ndarray | None:
-    """Barycentric grid on every triangle, sub-triangle edges <= ``spacing``: every surface point is then
-    within spacing / sqrt(3) of a sample (circumradius bound), so a 1-Lipschitz distance measured on the
-    samples is exact to that cover radius. None when that would take more than LOD_DROP_MAX_SAMPLES."""
-    a, b, c = p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]
-    longest = np.max(np.stack([np.linalg.norm(b - a, axis=1), np.linalg.norm(c - b, axis=1), np.linalg.norm(a - c, axis=1)]), axis=0)
-    k = np.maximum(np.ceil(longest / max(spacing, 1e-12)), 1).astype(np.int64)
-    if int(((k + 1) * (k + 2) // 2).sum()) > LOD_DROP_MAX_SAMPLES:
-        return None
-    out = []
-    for kk in np.unique(k):
-        sel = k == kk
-        i, j = np.meshgrid(np.arange(kk + 1), np.arange(kk + 1), indexing="ij")
-        ok = (i + j) <= kk
-        u, v = (i[ok] / kk)[None, :, None], (j[ok] / kk)[None, :, None]
-        out.append((a[sel][:, None] * (1 - u - v) + b[sel][:, None] * u + c[sel][:, None] * v).reshape(-1, 3))
-    return np.vstack(out)
+LOD_DROP_MAX_PIECES = 200_000  # a part needing more bisected pieces than this to settle is kept (conservative)
 
 
 def _gather(ms: Sequence[tuple[np.ndarray, np.ndarray]]) -> tuple[np.ndarray, np.ndarray]:
@@ -1278,62 +1281,123 @@ def _absent(s: "_Simplifier", screen_fraction: float) -> LOD:
                0.0, 0.0, float(screen_fraction))
 
 
-def _removal_floor(simp: dict[str, "_Simplifier"]) -> dict[str, float]:
-    """Per part, the exact largest distance from its vertices to all the other parts at LOD0: a lower bound
-    (less the others' simplification deviation) of the deviation its removal causes at any level, computed
-    once per asset so most candidates are rejected without building a search structure per level."""
-    out = {}
-    for nid, s in simp.items():
-        rest = [(o.ref[0], o.ref[1]) for n, o in simp.items() if n != nid]
-        p, t = _gather(rest)
-        out[nid] = float(_SurfaceIndex(p, t).distances(s.ref[0][np.unique(s.ref[1])], 0.0).max()) if len(t) else np.inf
-    return out
+def _convex_upper(index: "_SurfaceIndex", tri: np.ndarray) -> np.ndarray:
+    """Per triangle S (corners (n, 3, 3)) an upper bound of max over x in S of the distance from x to the
+    indexed surface: for any one indexed triangle T, x -> dist(x, T) is convex, so its maximum over S is at
+    a corner; the distance to the surface is <= the distance to T for every T. Takes the best T among the 4
+    nearest (by centroid) to each corner and to S's centroid. Exact upper bound, no sampling term."""
+    n = len(tri)
+    q = np.concatenate([tri, tri.mean(axis=1, keepdims=True)], axis=1).reshape(-1, 3)  # 4 query points per S
+    k = min(4, index.m)
+    cand = np.asarray(index.tree.query(q, k=k)[1]).reshape(n, 4 * k)  # candidate T per S
+    rows = np.repeat(np.arange(n), 4 * k * 3)
+    corner = np.tile(np.repeat(np.arange(3), 1), n * 4 * k)
+    tids = np.repeat(cand.reshape(-1), 3)
+    pts = tri[rows, corner]
+    d = _point_triangle_distance(pts, index.a[tids], index.b[tids], index.c[tids]).reshape(n, 4 * k, 3)
+    return d.max(axis=2).min(axis=1)
 
 
-def _droppable(simp: dict[str, "_Simplifier"], picks: dict[str, tuple[np.ndarray, float]], already: set[str], budget: float,
-               asset0: list[tuple[np.ndarray, np.ndarray]], min_iou: float, object_px: float,
-               floor: dict[str, float] | None = None) -> set[str]:
-    """Parts that may be absent at a level: removing them keeps the asset within the level's budget.
+class _Removal:
+    """Decides, per level, which parts may be absent: a part P may go when the largest distance D from its LOD0
+    surface to what remains drawn is within the level's budget, and the asset's silhouette keeps the pop
+    tolerance. Everything that does not depend on the level is computed once and reused by every level.
 
-    A part P may go when every point of its LOD0 surface is within ``budget`` of what remains drawn at this
-    level (the other parts' meshes at this level): the asset's two-sided surface distance to LOD0 is then still
-    <= budget (the other direction is the remaining parts' own measured deviation). Measured on a sample grid
-    with spacing budget / 4 whose cover radius (budget / 4 / sqrt 3) is subtracted from the limit, so the bound
-    is exact, not sampled. And the asset's silhouette, seen from 13 directions at its on-screen size, must keep
-    IoU >= ``min_iou`` against LOD0. Greedy, smallest surface first, ties by name; parts already absent at the
-    previous level stay absent. Never every part."""
-    gone = set(already)
-    sil: _Silhouettes | None = None  # LOD0 silhouettes, rendered on first need and shared by every candidate
-    spacing = budget / 4
-    limit = budget - spacing / np.sqrt(3)
-    order = sorted((nid for nid in simp if nid not in gone),
-                   key=lambda n: (float(_tri_areas(simp[n].ref[0], simp[n].ref[1], 3).sum()), n))
-    for nid in order:
-        rest = [n for n in simp if n not in gone and n != nid]
-        if not rest:
-            break
-        # removing parts only moves the rest farther away; simplifying it moves it by at most its deviation
-        if floor is not None and floor[nid] - max(picks[n][1] for n in rest) > limit:
-            continue
-        pts, tris, off = [], [], 0
-        for n in rest:
-            pts.append(simp[n].ref[0])
-            tris.append(picks[n][0].reshape(-1, 3).astype(np.int64) + off)
-            off += len(simp[n].ref[0])
-        index = _SurfaceIndex(np.vstack(pts), np.vstack(tris))
-        # the part's own vertices first: exact, cheap, and a lower bound of the maximum
-        if index.exceeds(simp[nid].ref[0][np.unique(simp[nid].ref[1])], limit):
-            continue
-        samples = _dense_samples(simp[nid].ref[0], simp[nid].ref[1], spacing)
-        if samples is None or index.exceeds(samples, limit):
-            continue
-        level = [(simp[n].ref[0], picks[n][0].reshape(-1, 3)) for n in simp if n not in gone and n != nid]
-        if sil is None:
-            sil = _Silhouettes(asset0, object_px)
-        if sil.iou(level) < min_iou:
-            continue
-        gone.add(nid)
-    return gone
+    D is bracketed exactly, without a sampling term: lo = the largest exact distance of P's vertices (D >= lo),
+    hi = the largest convex upper bound of P's triangles (see _convex_upper; D <= hi). The bracket against the
+    other parts at LOD0 minus the parts already gone is cached per (part, remaining set). Remaining parts may be
+    simplified at a level, which moves their surface by at most their measured deviation d, so a level compares
+    [lo - d, hi + d] with its budget. Only a budget inside that bracket triggers work that is not cached:
+    bisecting just the triangles whose bound is above the budget, against the level's own meshes."""
+
+    def __init__(self, simp: dict[str, "_Simplifier"], silhouette_iou: float) -> None:
+        self.simp = simp
+        self.min_iou = silhouette_iou
+        self.area = {n: float(_tri_areas(s.ref[0], s.ref[1], 3).sum()) for n, s in simp.items()}
+        self.tris = {n: len(s.idx0) // 3 for n, s in simp.items()}
+        self._index: dict[frozenset, _SurfaceIndex] = {}
+        self._bracket: dict[tuple[str, frozenset], tuple[float, float]] = {}
+        self._asset0 = [(s.ref[0], s.ref[1]) for s in simp.values()]
+        self._sil: dict[float, _Silhouettes] = {}
+
+    def _rest_index(self, rest: frozenset) -> _SurfaceIndex:
+        if rest not in self._index:
+            self._index[rest] = _SurfaceIndex(*_gather([(self.simp[n].ref[0], self.simp[n].ref[1]) for n in sorted(rest)]))
+        return self._index[rest]
+
+    def _bracket_of(self, nid: str, index: _SurfaceIndex) -> tuple[float, float]:
+        s = self.simp[nid]
+        lo = index.max_distance(s.ref[0][np.unique(s.ref[1])])
+        hi = float(_convex_upper(index, s.ref[0][s.ref[1]]).max())
+        return lo, max(hi, lo)
+
+    @staticmethod
+    def _settle(index: _SurfaceIndex, tri: np.ndarray, budget: float) -> bool:
+        """D <= budget? Bisect (longest edge) only the triangles whose convex bound exceeds the budget; any
+        corner or midpoint farther than the budget proves "no"; too many pieces keeps the part (conservative)."""
+        pieces = 0
+        while len(tri):
+            up = _convex_upper(index, tri)
+            tri = tri[up > budget]
+            if not len(tri):
+                return True
+            e = np.stack([np.linalg.norm(tri[:, (i + 1) % 3] - tri[:, i], axis=1) for i in range(3)], axis=1)
+            k = e.argmax(axis=1)
+            rows = np.arange(len(tri))
+            a, b, c = tri[rows, k], tri[rows, (k + 1) % 3], tri[rows, (k + 2) % 3]
+            mid = (a + b) / 2
+            if index.exceeds(mid, budget):
+                return False
+            pieces += 2 * len(tri)
+            if pieces > LOD_DROP_MAX_PIECES:
+                return False
+            tri = np.concatenate([np.stack([a, mid, c], axis=1), np.stack([mid, b, c], axis=1)])
+        return True
+
+    def _decide(self, nid: str, rest: list[str], picks: dict[str, tuple[np.ndarray, float]], budget: float) -> bool:
+        key = (nid, frozenset(rest))
+        if key not in self._bracket:
+            self._bracket[key] = self._bracket_of(nid, self._rest_index(key[1]))
+        lo, hi = self._bracket[key]
+        slack = max(picks[n][1] for n in rest)
+        if lo - slack > budget:
+            return False
+        if hi + slack <= budget:
+            return True
+        s = self.simp[nid]
+        index = (self._rest_index(key[1]) if slack == 0 else
+                 _SurfaceIndex(*_gather([(self.simp[n].ref[0], picks[n][0].reshape(-1, 3)) for n in rest])))
+        return self._settle(index, s.ref[0][s.ref[1]], budget)
+
+    def droppable(self, picks: dict[str, tuple[np.ndarray, float]], already: set[str], budget: float, object_px: float,
+                  needed: int) -> set[str]:
+        """Greedy set of parts absent at this level (smallest surface first, ties by name; parts absent at the
+        previous level stay absent; never every part). ``needed``: triangles removal must save for the level to
+        be worth emitting; when even removing every candidate cannot save that many, nothing is measured."""
+        gone = set(already)
+        order = sorted((n for n in self.simp if n not in gone), key=lambda n: (self.area[n], n))
+        if len(order) < 2 or sum(self.tris[n] for n in order) - min(self.tris[n] for n in order) < needed:
+            return gone
+        new: list[str] = []
+        for nid in order:
+            rest = [n for n in self.simp if n not in gone and n != nid]
+            if not rest:
+                break
+            if self._decide(nid, rest, picks, budget):
+                gone.add(nid)
+                new.append(nid)
+        if not new:
+            return gone
+        if object_px not in self._sil:
+            self._sil[object_px] = _Silhouettes(self._asset0, object_px)
+        sil = self._sil[object_px]
+
+        def view(absent: set[str]):
+            return [(self.simp[n].ref[0], picks[n][0].reshape(-1, 3)) for n in self.simp if n not in absent]
+
+        while new and sil.iou(view(gone)) < self.min_iou:  # test the set once; back off the latest part only if it fails
+            gone.discard(new.pop())
+        return gone
 
 
 def generate_asset_lods(
@@ -1378,13 +1442,13 @@ def generate_asset_lods(
     chains = {nid: [s.level(s.idx0, 0.0, 1.0)] for nid, s in simp.items()}
     prev_tris = sum(len(s.idx0) // 3 for s in simp.values())
     dropped: set[str] = set()  # parts absent at the last emitted level stay absent further out
-    asset0 = [(s.ref[0], s.ref[1]) for s in simp.values()]
-    floor = _removal_floor(simp) if len(simp) > 1 else {}
+    removal = _Removal(simp, 1.0 - silhouette_tol) if len(simp) > 1 else None
     for f in fr[1:]:
         budget = ld.lod_error_budget_m(radius, f, error_px=error_px, screen_px=screen_px)
         picks = {nid: s.within(budget, silhouette_tol) for nid, s in simp.items()}
-        gone = (_droppable(simp, picks, dropped, budget, asset0, 1.0 - silhouette_tol, f * screen_px, floor)
-                if len(simp) > 1 else set())
+        kept = sum(len(idx) // 3 for nid, (idx, _) in picks.items() if nid not in dropped)
+        needed = kept - int((1.0 - min_reduction) * prev_tris)  # what removal must still save for this level to pay
+        gone = removal.droppable(picks, dropped, budget, f * screen_px, needed) if removal is not None else set()
         tris = sum(len(idx) // 3 for nid, (idx, _) in picks.items() if nid not in gone)
         if tris >= prev_tris or tris > (1.0 - min_reduction) * prev_tris:  # never a duplicate level
             continue
