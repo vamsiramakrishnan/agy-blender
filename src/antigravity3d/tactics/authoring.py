@@ -406,7 +406,9 @@ class AgentAuthor:
     """Model-driven author on the harness: one BLOCKOUT stage-agent session per candidate / repair.
 
     Lazily imports ``antigravity3d.harness`` (heavy, needs the SDK and GEMINI_API_KEY); only used when not offline.
-    ``propose`` opens ``n`` isolated sessions concurrently and reads each resulting IR back from its stage manager.
+    ``propose`` opens ``n`` isolated sessions concurrently and reads each resulting IR back from its stage manager;
+    a session that fails, times out or builds nothing is a recorded outcome (``propose_with_outcomes``), and when no
+    session produced a scene the first failure is raised.
     ``repair`` opens a session on the current scene, hands the agent the located defects and returns the whole
     corrected scene as upserts of every changed node (an IRPatch), or None when nothing changed.
     """
@@ -456,15 +458,53 @@ class AgentAuthor:
             finally:
                 S.DEFAULT_REGISTRY.drop(sid)
 
-    async def propose(self, prompt: str, *, budget: EngineBudget, n: int, context: dict[str, Any]) -> list[SceneIR]:
+    async def propose_with_outcomes(self, prompt: str, *, budget: EngineBudget, n: int, context: dict[str, Any]) -> Any:
+        """One BLOCKOUT stage session per requested candidate, each with its recorded outcome: the contract of
+        ``MeteredAuthor.propose_with_outcomes``, so no requested candidate ends unnamed. Raises only when no session
+        produced a scene: the first failure, naming what happened to every candidate when several were requested.
+        (Failed sessions used to be dropped, so a caller asking for one candidate got an empty list and no cause.)"""
+        from antigravity3d.tactics.metered_author import CandidateOutcome, ProposeResult  # lazy, like the harness
+
         self.calls["propose"] += 1
         self._budget = budget
         asset = context.get("asset_name") or _slug(prompt)
         emph = ("overall proportions", "construction detail", "symmetry", "clean minimal forms")
         task = (f"Build a blockout of: {prompt}. The asset name is {asset}; budget {budget.max_tris} tris, at most {budget.max_draw_calls} materials. "
                 "Z-up metres, standing on the ground (min z = 0), parts touching, no interpenetration. Use apply_scene_ir (materials included) then stop. Emphasis: ")
-        res = await asyncio.gather(*(self._session(f"cand{i}", asset, budget, task + emph[i % len(emph)]) for i in range(n)), return_exceptions=True)
-        return [r for r in res if isinstance(r, SceneIR)]
+        timeout = STAGE_TIMEOUT_S if self.timeout_s is None else self.timeout_s
+
+        async def candidate(i: int) -> tuple[SceneIR | None, Any, Exception | None]:
+            try:
+                scene = await self._session(f"cand{i}", asset, budget, task + emph[i % len(emph)])
+            except Exception as exc:  # noqa: BLE001 - recorded per candidate; raised below if nothing was produced
+                timed_out = isinstance(exc, TimeoutError)
+                if timed_out and not str(exc):  # asyncio's TimeoutError carries no text
+                    exc.args = (f"stage session for candidate #{i} gave no result within {timeout:.0f} s",)
+                detail = " ".join(str(exc).split())
+                return None, CandidateOutcome(i, "timed_out" if timed_out else "error", detail if timed_out else f"{type(exc).__name__}: {detail}"), exc
+            if not scene.nodes:
+                empty = ValueError(f"stage session for candidate #{i} ended with no nodes in the scene")
+                return None, CandidateOutcome(i, "invalid", str(empty)), empty
+            return scene, CandidateOutcome(i, "produced"), None
+
+        # A cancellation of this task cancels every session (gather) and propagates, as does a session's own
+        # non-Exception BaseException.
+        results = await asyncio.gather(*(candidate(i) for i in range(n)), return_exceptions=True)
+        for r in results:
+            if isinstance(r, BaseException):
+                raise r
+        scenes = [scene for scene, _, _ in results if scene is not None]
+        outcomes = [outcome for _, outcome, _ in results]
+        if scenes or not results:
+            return ProposeResult(scenes, outcomes)
+        first = results[0][2]
+        if len(outcomes) > 1:  # keep the first error's type; name what happened to every candidate
+            first.args = (f"{first.args[0] if first.args else first}; no stage session of {len(outcomes)} produced a scene: "
+                          f"{ProposeResult([], outcomes).summary()}",)
+        raise first
+
+    async def propose(self, prompt: str, *, budget: EngineBudget, n: int, context: dict[str, Any]) -> list[SceneIR]:
+        return (await self.propose_with_outcomes(prompt, budget=budget, n=n, context=context)).scenes
 
     async def repair(self, scene: SceneIR, *, action: Any, located: dict[str, list[str]], manifest: str) -> IRPatch | None:
         self.calls["repair"] += 1
