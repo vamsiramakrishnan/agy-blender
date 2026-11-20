@@ -265,6 +265,13 @@ def _set_input(shader: UsdShade.Shader, name: str, vtype: Sdf.ValueTypeName, val
     return inp
 
 
+def set_normal_encoding(shader: UsdShade.Shader, convention: str) -> None:
+    """Decode packed normals to the +Y tangent frame consumed by UsdPreviewSurface."""
+    y = -2 if convention == "directx" else 2
+    shader.CreateInput("scale", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(2, y, 2, 1))
+    shader.CreateInput("bias", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(-1, -y / 2, -1, 0))
+
+
 def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
     mat = UsdShade.Material.Define(stage, path)
     if not mat.GetPrim().IsActive():
@@ -305,8 +312,7 @@ def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
         metal.ConnectToSource(orm.CreateOutput("b", Sdf.ValueTypeNames.Float))
     if m.normal_uri:
         nt = tex("normalTex", m.normal_uri, "raw")
-        nt.CreateInput("scale", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(2, 2, 2, 1))
-        nt.CreateInput("bias", Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(-1, -1, -1, 0))
+        set_normal_encoding(nt, m.normal_convention)
         normal = surf.CreateInput("normal", Sdf.ValueTypeNames.Normal3f)
         normal.ConnectToSource(nt.CreateOutput("rgb", Sdf.ValueTypeNames.Float3))
 

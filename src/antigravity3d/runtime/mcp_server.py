@@ -16,9 +16,10 @@ SDK hook runner here, so every dispatch first calls the *same* gate object
 tool-set scoping, the QA export gate, the raw-script linter gate and the image policy gate. A denial
 comes back as one ``REFUSED ...`` line and the tool never runs.
 
-Tool listing. ``tools/list`` always lists every harness tool. Narrowing the list to the active stage
-would need ``notifications/tools/list_changed`` and a client that re-lists on it; the Antigravity MCP
-docs (``# MCP Servers``) do not say its client does, so scoping is enforced at call time instead.
+Each stdio connection owns a StudioHost. Discovery returns the four management tools plus the active
+asset's stage tools. Opening/selecting assets and switching stages triggers an MCP list-changed
+event when the visible schema set changes. Dispatch independently checks the requested session.
+Read-only subagents retain their explicitly granted, named probes.
 
 Backends. ``GEMINI_API_KEY`` set: ``make_control_plane`` (Decisions API, generative fallback) and a
 real ``ImageForge``. ``AGY3D_OFFLINE=1`` (or no key): the fakes. A Blender pool is attached through
@@ -42,9 +43,11 @@ from typing import Annotated, Any
 from urllib.parse import unquote, urlparse
 
 import anyio
+from mcp.server.lowlevel.server import NotificationOptions
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.stdio import stdio_server
-from mcp_types import JSONRPCError, JSONRPCRequest, JSONRPCResponse
+from mcp_types import JSONRPCError, JSONRPCRequest, JSONRPCResponse, Tool
+from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import Field
 
 from antigravity3d.harness import tools as T
@@ -170,6 +173,25 @@ class StudioHost:
                 log.exception("management tool failed")
                 return f"ERROR {compress_exception(e)}"
 
+    def visible_tools(self) -> set[str]:
+        names = set(MANAGEMENT_TOOLS)
+        if self.active is not None:
+            stage = session(self.registry, self.active).toolset
+            names.update(fn.__name__ for fn in T.STAGE_TOOLS[stage])
+        return names
+
+    async def change_catalog(self, ctx: Context, fn: Any, *args: Any) -> str:
+        async def change() -> str:
+            previous = self.visible_tools()
+            result = await fn(*args)
+            if self.visible_tools() != previous:
+                if ctx.protocol_version in MODERN_PROTOCOL_VERSIONS:
+                    await ctx.notify_tools_changed()
+                else:
+                    await ctx.session.send_tool_list_changed()
+            return result
+        return await self.run_ordered(change)
+
     # ---- session selection
     def pick(self, session_id: str = "") -> str:
         sid = session_id or self.active
@@ -286,10 +308,10 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         async def go() -> str:
             return await host.open_asset_session(asset_name, target_engine, max_tris, workdir, await _workspace_root(ctx), conversation_id)
 
-        return await host.run_ordered(go)
+        return await host.change_catalog(ctx, go)
 
-    async def set_stage(stage: str, session_id: Annotated[str, Field(description=SESSION_ID_DOC)] = "") -> str:
-        return await host.run_ordered(host.set_stage, stage, session_id)
+    async def set_stage(stage: str, ctx: Context, session_id: Annotated[str, Field(description=SESSION_ID_DOC)] = "") -> str:
+        return await host.change_catalog(ctx, host.set_stage, stage, session_id)
 
     async def session_status(session_id: Annotated[str, Field(description=SESSION_ID_DOC)] = "") -> str:
         return await host.run_ordered(host.session_status, session_id)
@@ -322,9 +344,21 @@ async def _workspace_root(ctx: Any) -> str:
     return os.getcwd()
 
 
+class StudioServer(MCPServer):
+    """One client per stdio process; keep discovery bound to its active session."""
+    def __init__(self, host: StudioHost):
+        self.host = host
+        super().__init__(SERVER_NAME, instructions=INSTRUCTIONS)
+
+    async def list_tools(self) -> list[Tool]:
+        async with self.host._order:
+            names = self.host.visible_tools()
+            return [tool for tool in await super().list_tools() if tool.name in names]
+
+
 def build_server(host: StudioHost | None = None) -> MCPServer:
     host = host or StudioHost()
-    server = MCPServer(SERVER_NAME, instructions=INSTRUCTIONS)
+    server = StudioServer(host)
     for name, (fn, doc) in _management(host).items():
         server.add_tool(fn, name=name, description=doc, structured_output=False)
     for name, fn in T.ALL_TOOLS.items():
@@ -420,7 +454,8 @@ async def serve(server: MCPServer) -> None:
     drain = _DrainingStreams()
     async with stdio_server() as (read, write):
         low = server._lowlevel_server
-        await low.run(drain.read(read), drain.write(write), low.create_initialization_options())
+        await low.run(drain.read(read), drain.write(write), low.create_initialization_options(
+            notification_options=NotificationOptions(tools_changed=True)))
 
 
 def main() -> None:

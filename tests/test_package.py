@@ -255,6 +255,8 @@ def test_unreal_normal_map_is_green_flipped_and_godot_is_not(unreal, godot, src)
             assert (ue.out_dir / t["path"]).read_bytes() == (src / f"{t['role']}.png").read_bytes()
     stage = Usd.Stage.Open(str(ue.out_dir / f"{ASSET}.usd"))
     assert stage.GetPrimAtPath(f"/{ASSET}/Looks/paint").GetCustomDataByKey("agy:normalConvention") == "directx"
+    nt = UsdShade.Shader(stage.GetPrimAtPath(f"/{ASSET}/Looks/paint/normalTex"))
+    assert nt.GetInput("scale").Get()[1] == -2 and nt.GetInput("bias").Get()[1] == 1
 
 
 def test_directx_marked_material_is_not_double_flipped(src, tmp_path_factory):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import os
@@ -30,6 +31,7 @@ def server_env(state: Path) -> dict[str, str]:
 
 @asynccontextmanager
 async def client(tmp_path: Path):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     params = StdioServerParameters(command=sys.executable, args=["-m", "antigravity3d.runtime.mcp_server"],
                                    env=server_env(tmp_path / "state"), cwd=str(tmp_path))
     async with stdio_client(params) as (read, write):
@@ -48,8 +50,17 @@ async def call(s: ClientSession, name: str, **args) -> str:
 async def test_tools_list_has_harness_tools_with_clean_schemas(tmp_path):
     async with client(tmp_path) as s:
         tools = {t.name: t for t in (await s.list_tools()).tools}
-    assert set(tools) == set(T.ALL_TOOLS) | MANAGEMENT
+        assert set(tools) == MANAGEMENT
+        await call(s, "open_asset_session", asset_name="Catalog", target_engine="godot_4")
+        for stage, entries in T.STAGE_TOOLS.items():
+            await call(s, "set_stage", stage=stage)
+            catalog = {t.name: t for t in (await s.list_tools()).tools}
+            assert set(catalog) == {fn.__name__ for fn in entries} | MANAGEMENT
+            tools.update(catalog)
     for name, fn in T.ALL_TOOLS.items():
+        if name not in tools:
+            assert name in T.READ_ONLY_TOOL_NAMES
+            continue
         t = tools[name]
         props = t.input_schema["properties"]
         assert "ctx" not in props and "session_id" in props, name
@@ -176,7 +187,9 @@ def test_pipelined_calls_are_ordered_drained_and_stdout_is_protocol_only(tmp_pat
     assert text[3].startswith("SESSION Crate-")
     assert text[4].startswith("OK tx="), text[4]
     assert "nodes=2" in text[5]
-    assert len(by_id[2]["result"]["tools"]) == len(T.ALL_TOOLS) + len(MANAGEMENT)
+    assert {t["name"] for t in by_id[2]["result"]["tools"]} == MANAGEMENT
+    assert by_id[1]["result"]["capabilities"]["tools"]["listChanged"]
+    assert any(f.get("method") == "notifications/tools/list_changed" for f in frames)
     # nothing left running from this server's process group
     end = time.time() + 5
     while time.time() < end:
@@ -188,3 +201,19 @@ def test_pipelined_calls_are_ordered_drained_and_stdout_is_protocol_only(tmp_pat
     else:
         os.killpg(pgid, signal.SIGKILL)
         pytest.fail("child processes outlived the server")
+
+
+async def test_two_stdio_clients_keep_independent_stage_catalogs(tmp_path):
+    async with client(tmp_path / "first") as first, client(tmp_path / "second") as second:
+        await asyncio.gather(
+            call(first, "open_asset_session", asset_name="First", target_engine="godot_4"),
+            call(second, "open_asset_session", asset_name="Second", target_engine="unity_urp"),
+        )
+        await call(first, "set_stage", stage="LOOKDEV")
+        await call(second, "set_stage", stage="EXPORT")
+        left, right = await asyncio.gather(first.list_tools(), second.list_tools())
+        assert {t.name for t in left.tools} == MANAGEMENT | {f.__name__ for f in T.STAGE_TOOLS["LOOKDEV"]}
+        assert {t.name for t in right.tools} == MANAGEMENT | {f.__name__ for f in T.STAGE_TOOLS["EXPORT"]}
+        assert (await call(first, "export_engine_package", out_name="wrong_stage")).startswith("REFUSED")
+        # A subagent with an explicit read-only grant can still call its named probe.
+        assert "nodes=0" in await call(first, "inspect_manifest")

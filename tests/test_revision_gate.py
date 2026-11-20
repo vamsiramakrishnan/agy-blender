@@ -149,3 +149,33 @@ async def test_external_texture_change_requires_new_render(tmp_path):
     albedo.write_bytes(b"externally changed after QA")
     assert "material files changed" in await T.export_engine_package(env.ctx, "pkg")
     assert not env.state.export_allowed and not (s.export_dir / "pkg").exists()
+
+
+async def test_one_hundred_interleaved_session_export_attempts(tmp_path, monkeypatch):
+    """Two logical assets share a native hook workspace and publish through independent USD locks."""
+    state_dir = tmp_path / "state"
+    monkeypatch.setenv("AGY3D_STATE_DIR", str(state_dir))
+    simulate_engine_import(monkeypatch)
+    a = make_session(tmp_path, sid="gate-a", stage="EXPORT")
+    b = make_session(tmp_path, sid="gate-b", stage="EXPORT")
+    await asyncio.gather(*(T.apply_scene_ir(json.dumps(CRATE), e.ctx) for e in (a, b)))
+    attempts = []
+    for round_num in range(50):
+        # Alternate the approved session. Queue both exports before resolving the revision under lock.
+        allowed = a if round_num % 2 else b
+        blocked = b if allowed is a else a
+        record_approval(allowed)
+        record_approval(blocked)
+        async with blocked.reg.locked(blocked.sid):
+            stale = asyncio.create_task(T.export_engine_package(blocked.ctx, "pkg"))
+            good = asyncio.create_task(T.export_engine_package(allowed.ctx, "pkg"))
+            await asyncio.sleep(0)
+            blocked.sess().visuals_changed()
+        ok, denied = await asyncio.gather(good, stale)
+        assert ok.startswith("EXPORTED") and denied.startswith("REFUSED"), (round_num, ok, denied)
+        assert read_qa_state(allowed.ctx.conversation_id).export_allowed
+        assert not read_qa_state(blocked.ctx.conversation_id).export_allowed
+        manifest = json.loads((allowed.sess().export_dir / "pkg" / "manifest.json").read_text())
+        assert manifest["qa"]["revision"] == allowed.state.revision != blocked.state.revision
+        attempts.extend([ok, denied])
+    assert len(attempts) == 100 and sum(r.startswith("EXPORTED") for r in attempts) == 50

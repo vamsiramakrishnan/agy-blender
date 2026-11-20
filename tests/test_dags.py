@@ -179,7 +179,10 @@ async def test_batch_sanitize_repairs_broken_mesh_and_isolates_a_bad_file(tmp_pa
     for r in (b, cyl, rows["prop.usda"]):
         stage = Usd.Stage.Open(r["outputs"]["usd"])
         assert any(p.GetName().startswith("UCX_") for p in stage.Traverse())
-        assert len(trimesh.load(r["outputs"]["glb"], force="scene").geometry) >= 2
+        glb = Path(r["outputs"]["glb"])
+        geometry = trimesh.load(glb, force="scene").geometry
+        assert sum(len(g.faces) for g in geometry.values()) == r["tris_after"]
+        assert glb.with_name(glb.stem + "_colliders.glb").is_file()
         assert r["validate_critical"] == [] and r["compliance_critical"] == []
     assert not rep.extras["gates_ok"] and json.loads((tmp_path / "out" / "report.json").read_text())["rows"]
     assert rep.extras["skipped"][0]["reason"]

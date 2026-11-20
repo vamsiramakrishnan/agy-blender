@@ -430,6 +430,7 @@ class AgentAuthor:
         return run_stage
 
     async def _session(self, tag: str, asset: str, budget: EngineBudget, prompt: str, seed_scene: SceneIR | None = None) -> SceneIR:
+        import tempfile
         import uuid
         from pathlib import Path
 
@@ -437,8 +438,8 @@ class AgentAuthor:
 
         run_stage = self._run_stage()
         sid = f"{tag}-{uuid.uuid4().hex[:8]}"
-        import tempfile
-
+        if self.workdir is not None:
+            Path(self.workdir).mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=self.workdir, prefix=f"{sid}-") as directory:
             S.open_session(None, sid, Path(directory), asset, budget, plane=self.plane, forge=self.forge)
             try:

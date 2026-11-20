@@ -43,7 +43,7 @@ from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, UsdUtils
 from trimesh.visual.material import PBRMaterial
 
 from antigravity3d.artifacts.inspector import InspectorQA, InspectorTextures, build_inspector, bundled_three_js
-from antigravity3d.kernel.compile_ir import author_mesh_data
+from antigravity3d.kernel.compile_ir import author_mesh_data, set_normal_encoding
 from antigravity3d.kernel.fast_ops import ExportBundle, Hull, Issue, LOD, UVResult, write_gltf
 from antigravity3d.kernel.types import MeshData
 from antigravity3d.kernel.validator import (
@@ -237,6 +237,7 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[di
         })
         inp.Set(Sdf.AssetPath(f"./{done[key]}"))  # relative to the layer: the package is relocatable
         if is_normal:
+            set_normal_encoding(shader, target)
             mat.SetCustomDataByKey("agy:normalConvention", target)
     return records, unresolved
 

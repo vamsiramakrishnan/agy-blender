@@ -250,3 +250,34 @@ async def test_gate_decide_is_the_shared_decision_path(tmp_path):
     assert not (await gate.decide("forge_pbr_material", {})).allow
     assert "BLOCKOUT" in (await gate.decide("forge_pbr_material", {})).message
     assert (await gate.decide("apply_scene_ir", {"ops_json": "{}"})).allow
+
+
+async def test_twenty_tool_turns_admit_no_inline_image_history(tmp_path):
+    """Replay the host's exact pre-turn and tool pipelines with a new attached PNG each turn."""
+    import io
+    from PIL import Image
+
+    env = make_session(tmp_path)
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    runner, hooks = runner_for(env)
+    tools = ToolRunner(T.STAGE_TOOLS["BLOCKOUT"])
+    tools.set_context(env.ctx)
+    history = []
+    for i in range(20):
+        png = io.BytesIO()
+        Image.new("RGB", (8, 8), (i, 35, 50)).save(png, "PNG")
+        image = types.Image(data=png.getvalue(), mime_type="image/png")
+        clean, uris = await H.sanitize_prompt([f"Review frame {i}", image], env.sess())
+        prompt = H.with_state_header(clean, env.sess())
+        decision, turn_ctx = await runner.dispatch_pre_turn(prompt)
+        assert decision.allow and len(uris) == 1
+        name = "run_visual_qa" if i % 2 else "render_preview"
+        call = types.ToolCall(name=name, args={}, id=f"turn-{i}")
+        decision, call, op = await runner.dispatch_pre_tool_call(turn_ctx, call)
+        assert decision.allow
+        [result] = await tools.process_tool_calls([call])
+        await runner.dispatch_post_tool_call(op, result)
+        history.extend([*prompt, result.result])
+        assert all(isinstance(part, str) and not H._looks_like_image(part) for part in history)
+    assert len(env.backend.uploads) >= 20
+    assert hooks[H.VisionEvictionHook].violations == []
