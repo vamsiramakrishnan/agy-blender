@@ -49,43 +49,51 @@ class OutputBudget:
         return self.answer_tokens + self.thinking_tokens
 
 
-# ``max_output_tokens`` per (role, operation) = answer budget + thinking allowance for the role's thinking level.
+# ``max_output_tokens`` per authoring role = answer budget + thinking allowance for the role's thinking level. Both
+# operations use the role's row: a repair may restate up to the whole scene. Measured 2026-11-20 on the propose request
+# (prompt "wooden crate with iron corner brackets", schema-constrained, cap not reached, finish STOP, valid SceneIR):
 #
-# Answer budgets (schema-constrained JSON is compact):
-#   propose: a 9-node / 2-material crate was 664 tokens (hydrogen) and 1,0xx-1,4xx on the other tiers (see the
-#            report in benchmarks/RESULTS.md); roughly 70 tokens per node. 8,192 holds ~110 nodes, far above the
-#            15,000-triangle prop budgets, so a complex hero prop is not cut off.
-#   repair:  a patch re-states only flagged nodes; 4,096 holds ~55 node upserts.
-# Thinking allowances (thoughts_token_count observed on the propose request, cap not reached):
-#   LOW    hydrogen 804-1,119, neon 1,374-1,707 (2026-11-20)                    -> 8,192  (>= 4.8x the maximum seen)
-#   MEDIUM carbon: see MEASURED_THINKING_TOKENS                                 -> 16,384
-#   HIGH   argon:  see MEASURED_THINKING_TOKENS                                 -> 24,576
-# Every cap stays within the model's output_token_limit (MODEL_OUTPUT_TOKEN_LIMIT); a hero (director) request is
-# sized by the director's own measured thinking, never by a worker-tier figure.
-_ANSWER = {"propose": 8_192, "repair": 4_096}
-_THINKING = {"low": 8_192, "medium": 16_384, "high": 24_576}
-AUTHOR_OUTPUT_BUDGETS: dict[tuple[str, str], OutputBudget] = {
-    (role, op): OutputBudget(_ANSWER[op], _THINKING[level])
-    for role, level in (("worker", "low"), ("bulk", "low"), ("builder", "medium"), ("director", "high"))
-    for op in ("propose", "repair")
+#   role      model             level   answer tokens (nodes)   thinking tokens            -> answer + thinking = cap
+#   worker    gemini-4-hydrogen low        664 (9)              804-1,119 (5 samples)      ->  8,192 +  8,192 = 16,384
+#   bulk      gemini-4-neon     low      1,919 (25)             1,374-1,707 (4 samples)    ->  8,192 +  8,192 = 16,384
+#   builder   gemini-4-carbon   medium  11,178 (138)            7,642                      -> 16,384 + 16,384 = 32,768
+#   director  gemini-4-argon    high    11,208 (112)            7,179                      -> 16,384 + 16,384 = 32,768
+#
+# Headroom: LOW tiers get >= 4x the largest answer and >= 4.8x the largest thinking seen. Carbon and argon are bounded
+# by their output_token_limit (32,768): their cap is the model maximum, giving 1.46x the answer and >= 2.1x the
+# thinking seen. A hero (director) call is sized by argon's own measurement, never by a worker-tier figure.
+# Repairs (hydrogen, 2 flagged nodes): 92 answer + 515 thinking tokens.
+AUTHOR_OUTPUT_BUDGETS: dict[str, OutputBudget] = {
+    "worker": OutputBudget(answer_tokens=8_192, thinking_tokens=8_192),
+    "bulk": OutputBudget(answer_tokens=8_192, thinking_tokens=8_192),
+    "builder": OutputBudget(answer_tokens=16_384, thinking_tokens=16_384),
+    "director": OutputBudget(answer_tokens=16_384, thinking_tokens=16_384),
 }
-# Raw evidence behind _THINKING: thoughts_token_count per tier on the propose request (cap not reached).
+# Raw evidence behind the table: thoughts_token_count / answer tokens per model and level on the propose request.
 MEASURED_THINKING_TOKENS: dict[str, tuple[int, ...]] = {
     "gemini-4-hydrogen/low": (856, 944, 1119, 804, 1072),
-    "gemini-4-neon/low": (1374, 1471, 1707),
+    "gemini-4-neon/low": (1374, 1471, 1707, 1401),
+    "gemini-4-carbon/medium": (7642,),
+    "gemini-4-argon/high": (7179,),
+}
+MEASURED_ANSWER_TOKENS: dict[str, tuple[int, ...]] = {
+    "gemini-4-hydrogen/low": (664,),
+    "gemini-4-neon/low": (1919,),
+    "gemini-4-carbon/medium": (11178,),
+    "gemini-4-argon/high": (11208,),
 }
 # models.get(...).output_token_limit on this key, 2026-11-20.
 MODEL_OUTPUT_TOKEN_LIMIT = {HYDROGEN: 65_536, NEON: 65_536, CARBON: 32_768, ARGON: 32_768}
-# Prompt tokens the API bills for response_json_schema, per byte of compact schema JSON. Measured: the propose
-# schema (6,055 bytes) added 5,085 prompt tokens (0.84/byte); see tests/test_metered_author.py. 1.0 is the bound.
+# Prompt tokens the API bills for response_json_schema, per byte of compact schema JSON. Measured: the propose schema
+# (6,055 bytes) added 5,085 prompt tokens (0.84/byte), the repair schema (9,939 bytes) 7,066 (0.71/byte). 1.0 bounds both.
 SCHEMA_INPUT_TOKENS_PER_BYTE = 1.0
 
 
-def output_budget(role: str, operation: str) -> OutputBudget:
+def output_budget(role: str) -> OutputBudget:
     try:
-        return AUTHOR_OUTPUT_BUDGETS[(role, operation)]
+        return AUTHOR_OUTPUT_BUDGETS[role]
     except KeyError:
-        raise ValueError(f"no output budget for role {role!r} / operation {operation!r}") from None
+        raise ValueError(f"no authoring output budget for role {role!r}") from None
 
 
 def schema_input_token_bound(schema: dict[str, Any]) -> int:
@@ -153,7 +161,7 @@ def build_author_request(role: str, operation: Operation, task: str, *, budget: 
     ``output`` overrides the table only for measurement (the benchmark's sizing probes); production never passes it.
     """
     mt = tier(role)  # type: ignore[arg-type]
-    out = output or output_budget(role, operation)
+    out = output or output_budget(role)
     limit = MODEL_OUTPUT_TOKEN_LIMIT.get(mt.model)
     if limit is not None and out.max_output_tokens > limit:
         raise ValueError(f"{role} {operation}: {out.max_output_tokens} output tokens exceed {mt.model}'s limit {limit}")
@@ -208,11 +216,12 @@ def check_response(req: AuthorRequest, response: Any, usage: dict[str, int] | No
 def usage_tokens(response: Any) -> dict[str, int] | None:
     """Billed tokens from usage metadata: input, output (answer + thinking) and the thinking share; None if absent."""
     u = getattr(response, "usage_metadata", None)
-    if u is None or u.prompt_token_count is None or u.total_token_count is None:
+    prompt, total = getattr(u, "prompt_token_count", None), getattr(u, "total_token_count", None)
+    if prompt is None or total is None:
         return None
-    thinking = u.thoughts_token_count or 0
-    output = max(u.total_token_count - u.prompt_token_count, (u.candidates_token_count or 0) + thinking)
-    return {"input_tokens": u.prompt_token_count, "output_tokens": output, "thinking_tokens": thinking}
+    thinking = getattr(u, "thoughts_token_count", None) or 0
+    output = max(total - prompt, (getattr(u, "candidates_token_count", None) or 0) + thinking)
+    return {"input_tokens": prompt, "output_tokens": output, "thinking_tokens": thinking}
 
 
 def _rates(model: str) -> tuple[float, float]:
@@ -227,8 +236,9 @@ def _rates(model: str) -> tuple[float, float]:
 class MeteredAuthor:
     """Bound to one route's budget, spend ledger and image references, including during repair.
 
-    No automatic re-request on truncation: the table above gives every tier >= 4.8x its observed thinking, so a
-    MAX_TOKENS finish means a runaway generation that a larger re-request would most likely repeat at higher cost.
+    No automatic re-request on truncation. The cap is sized from measurements with headroom (and is the model maximum
+    for carbon / argon, so there is no larger budget to retry with); a MAX_TOKENS finish therefore means a runaway
+    generation that a re-request would most likely repeat, billing the cap twice.
     The typed error carries the finish reason and billed usage; the caller decides.
     """
 

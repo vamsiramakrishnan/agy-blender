@@ -159,13 +159,19 @@ def reference_png(meshes: list[MeshData], bounds_m) -> bytes:
 
 
 def usd_meshes(usd_path: Path) -> list[MeshData]:
-    """Visible (non-guide) meshes of the package USD at its default LOD, in world Y-up metres."""
+    """Visible (non-guide) meshes of the package USD at its default LOD, in glTF world Y-up metres.
+
+    Derived from the stage itself: composed world transforms (root rotation included), then the stage's
+    ``upAxis`` (Z-up stages, i.e. Unreal packages, map (x, y, z) -> (x, z, -y) like the GLB writer) and
+    ``metersPerUnit``."""
     from pxr import Usd, UsdGeom
 
     stage = Usd.Stage.Open(str(usd_path))
     if stage is None or not stage.GetDefaultPrim():
         raise ValueError(f"{usd_path}: cannot open or no default prim")
     cache = UsdGeom.XformCache()
+    z_up = UsdGeom.GetStageUpAxis(stage) == UsdGeom.Tokens.z
+    unit = UsdGeom.GetStageMetersPerUnit(stage) or 1.0
     out = []
     for prim in Usd.PrimRange(stage.GetDefaultPrim()):
         if not prim.IsA(UsdGeom.Mesh) or UsdGeom.Imageable(prim).ComputePurpose() != UsdGeom.Tokens.default_:
@@ -177,7 +183,9 @@ def usd_meshes(usd_path: Path) -> list[MeshData]:
             continue
         m = np.array(cache.GetLocalToWorldTransform(prim)).T  # pxr is row-vector; transpose to column form
         p = np.asarray(pts, np.float64)
-        p = p @ m[:3, :3].T + m[:3, 3]
+        p = (p @ m[:3, :3].T + m[:3, 3]) * unit
+        if z_up:
+            p = np.stack([p[:, 0], p[:, 2], -p[:, 1]], axis=1)
         tris, i = [], 0
         for c in counts:
             tris.extend((idx[i], idx[i + k], idx[i + k + 1]) for k in range(1, c - 1))
@@ -391,7 +399,7 @@ def build_page(out_dir: Path, glb: bytes, bounds_m, lods: dict[str, bytes] | Non
 
 def evaluate(raw: dict, console: list[dict], page_errors: list[str], blocked: list[str], manifest: dict | None,
              shot_png: bytes | None, reference: bytes | None, rule: PassRule = PASS_RULE,
-             *, reference_note: str = "") -> tuple[list[Check], float | None]:
+             *, reference_note: str = "", reference_issue: str | None = None) -> tuple[list[Check], float | None]:
     """Turn browser evidence into checks. Pure: canned data in, verdict out.
 
     ``raw`` is the page's ``window.__agy`` object, ``console`` the captured console messages
@@ -438,10 +446,13 @@ def evaluate(raw: dict, console: list[dict], page_errors: list[str], blocked: li
         _manifest_checks(add, main, raw.get("lods", []), r, manifest)
 
     iou = None
+    if reference_issue:
+        add("reference usable", False, f"reference unusable: {reference_issue}")
+        reference = None
     if shot_png is None:
         add("rendered frame", False, "no frame captured")
     else:
-        iou = _frame_checks(add, shot_png, reference, rule, reference_note)
+        iou = _frame_checks(add, shot_png, reference, rule, reference_note if not reference_issue else "reference unusable")
     return checks, iou
 
 
@@ -676,6 +687,12 @@ class WebThreeValidator(EngineValidator):
                     ref_meshes = usd_meshes(usd)
                 except Exception as e:  # noqa: BLE001  pxr missing or unreadable USD
                     ref_note = f"cannot derive reference from {usd.name}: {e}"
+        ref_issue = None
+        if ref_meshes and bounds is not None:
+            pts = np.vstack([m.points for m in ref_meshes])
+            ref_issue = bounds_issue(bounds, [pts.min(axis=0).tolist(), pts.max(axis=0).tolist()])
+            if ref_issue:
+                ref_meshes = None
         if bounds is None:
             if ref_meshes:
                 pts = np.vstack([m.points for m in ref_meshes])
@@ -700,7 +717,7 @@ class WebThreeValidator(EngineValidator):
             if raw.get("png"):
                 shot = base64.b64decode(raw["png"].split(",", 1)[1])
             checks, iou = evaluate(raw, run["console"], run["page_errors"], run["blocked"], manifest, shot, ref_png, rule,
-                                   reference_note=ref_note)
+                                   reference_note=ref_note, reference_issue=ref_issue)
             shot_path = None
             if out_dir is not None:
                 work.mkdir(parents=True, exist_ok=True)

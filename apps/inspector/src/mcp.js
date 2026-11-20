@@ -178,6 +178,12 @@ app.ontoolresult = (result) => {
     ui.message(text || "The inspector tool failed.");
     return;
   }
+  if (!result.structuredContent) {
+    // A refused call (bad node id, no session, ...) comes back as one ERROR line without a summary.
+    const text = (result.content || []).filter((c) => c.type === "text").map((c) => c.text).join(" ");
+    if (!ui.state.loaded) ui.message(text || "No inspector data.");
+    return;
+  }
   show(result.structuredContent).catch(report);
 };
 app.ontoolcancelled = () => { if (!ui.state.loaded) ui.message("Cancelled."); };

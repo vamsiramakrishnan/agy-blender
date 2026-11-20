@@ -122,7 +122,7 @@ async def test_ambiguous_failure_retries_reserve_again_and_billed_refusal_retain
     with pytest.raises(RuntimeError, match="no inline image"):
         await forge.with_governor(roomy).seamless_albedo("safety refusal")
     refusal, = roomy.receipts()
-    assert refusal["source"] == "provider_usage" and refusal["status"] == "RuntimeError"
+    assert refusal["source"] == "provider_usage" and refusal["status"] == "ImageNotReturned"
     assert refusal["booked_usd"] > 0 and refusal["artifact_sha256"] is None
 
 
@@ -146,3 +146,52 @@ def test_unpriced_image_model_requires_configured_rates(monkeypatch):
     monkeypatch.setenv("AGY3D_IMAGE_TEXT_OUTPUT_USD_PER_M", "6")
     monkeypatch.setenv("AGY3D_IMAGE_INPUT_USD_PER_M", "2")
     assert ImageRates.for_model("private-deployment").ceiling(1000, 1000) == pytest.approx(0.011)
+
+
+async def test_image_cap_leaves_room_for_thinking_and_the_image():
+    """Live 2026-11-20: a 1K request capped at 2,048 returned no image after 276 + 762 thinking tokens; the image alone
+    is 1,120 tokens. The cap is the provider-reported image size plus the non-image allowance."""
+    from antigravity3d.genmedia import nano_banana as nb
+
+    observed_non_image = (276 + 762, 311 + 608, 277 + 707)
+    for tier, image in (("1K", 1120), ("2K", 1680)):
+        cap = nb.GenAIImageBackend.output_limit(tier)
+        assert cap >= image + 2 * max(observed_non_image), tier
+    assert nb.GenAIImageBackend.output_limit(None) == nb.GenAIImageBackend.output_limit("1K")
+    provider = Provider()
+    await ImageForge(client=provider.client, governor=Governor(plan_for(3))).seamless_albedo("x", size=2048)
+    assert provider.calls[0][1].max_output_tokens == nb.GenAIImageBackend.output_limit("2K")
+
+
+async def test_unitemized_candidate_tokens_are_booked_from_provider_usage():
+    """Live shape: candidates_tokens_details itemizes only IMAGE (1,120 of 1,431 candidate tokens at 1K)."""
+    provider = Provider()
+    provider.response.usage_metadata = types.GenerateContentResponseUsageMetadata(
+        prompt_token_count=62, candidates_token_count=1431, thoughts_token_count=608,
+        candidates_tokens_details=[types.ModalityTokenCount(modality="IMAGE", token_count=1120)])
+    provider.response.candidates[0].finish_reason = types.FinishReason.STOP
+    image = await ImageForge(client=provider.client, governor=Governor(plan_for(3))).seamless_albedo("oak")
+    r = image.receipt
+    assert r.source == "provider_usage" and r.image_tokens == 1120 and r.unitemized_output_tokens == 311
+    assert r.booked_usd == pytest.approx((62 * 1.5 + 608 * 7.5 + 1120 * 30 + 311 * 30) / 1e6)
+    assert r.finish_reason == "STOP" and r.missing_usage_fields == ()
+
+
+async def test_missing_usage_fields_are_named_and_the_reservation_kept():
+    provider = Provider()
+    provider.response.usage_metadata = types.GenerateContentResponseUsageMetadata(
+        prompt_token_count=62, candidates_token_count=276, thoughts_token_count=762)
+    provider.response.candidates = [types.Candidate(finish_reason=types.FinishReason.MAX_TOKENS)]
+    gov = Governor(plan_for(3))
+    with pytest.raises(nb_errors().ImageNotReturned) as e:
+        await ImageForge(client=provider.client, governor=gov).seamless_albedo("oak", size=1024)
+    assert e.value.finish_reason == "MAX_TOKENS" and e.value.usage["thoughts_token_count"] == 762
+    rec, = gov.receipts()
+    assert rec["source"] == "reservation_estimate" and rec["booked_usd"] == rec["reserved_usd"]
+    assert rec["missing_usage_fields"] == ["candidates_tokens_details"] and rec["finish_reason"] == "MAX_TOKENS"
+
+
+def nb_errors():
+    from antigravity3d.genmedia import nano_banana
+
+    return nano_banana

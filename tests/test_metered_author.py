@@ -13,7 +13,7 @@ from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.governor import BudgetExceeded, Governor, plan_for
 from antigravity3d import ir_schema
 from antigravity3d.tactics.metered_author import (
-    AUTHOR_OUTPUT_BUDGETS, MEASURED_THINKING_TOKENS, MODEL_OUTPUT_TOKEN_LIMIT, AuthorNoAnswer, AuthorTruncated,
+    AUTHOR_OUTPUT_BUDGETS, MEASURED_ANSWER_TOKENS, MEASURED_THINKING_TOKENS, MODEL_OUTPUT_TOKEN_LIMIT, AuthorNoAnswer, AuthorTruncated,
     MeteredAuthor, build_author_request, propose_task, schema_input_token_bound,
 )
 
@@ -111,7 +111,7 @@ async def test_dispatched_request_is_the_shared_builders_request(monkeypatch):
     expected = build_author_request(role, "propose", task, budget=budget, context=context, timeout_s=5, asset_name="Crate")
     assert sent["contents"] == expected.contents and sent["config"] == expected.config
     assert sent["config"].response_json_schema == ir_schema.scene_response_schema("Crate")
-    assert sent["config"].max_output_tokens == AUTHOR_OUTPUT_BUDGETS[(role, "propose")].max_output_tokens
+    assert sent["config"].max_output_tokens == AUTHOR_OUTPUT_BUDGETS[role].max_output_tokens
     assert sent["config"].thinking_config.thinking_level.name == tier(role).thinking.name
     assert sent["contents"][0].parts[0].text.startswith(ir_schema.ir_rules_text())
 
@@ -124,14 +124,14 @@ async def test_repair_sends_the_patch_schema_and_the_directors_budget(monkeypatc
     assert patch.ops[0].value == (1, 1, 2)
     cfg = ep.generated[-1]["config"]
     assert cfg.response_json_schema == ir_schema.patch_response_schema()
-    assert cfg.max_output_tokens == AUTHOR_OUTPUT_BUDGETS[("director", "repair")].max_output_tokens
+    assert cfg.max_output_tokens == AUTHOR_OUTPUT_BUDGETS["director"].max_output_tokens
 
 
 async def test_reservation_covers_counted_input_schema_bound_and_the_whole_output_cap(monkeypatch):
     a, ep, budget, context, gov = make_author(monkeypatch)
     await a.propose("crate", budget=budget, n=1, context=context)
     [rec] = gov.receipts()
-    out = AUTHOR_OUTPUT_BUDGETS[(gov.plan.builder_role, "propose")]
+    out = AUTHOR_OUTPUT_BUDGETS[gov.plan.builder_role]
     bound = schema_input_token_bound(ir_schema.scene_response_schema("Crate"))
     assert rec["reserved_usd"] == pytest.approx(cost(100 + bound, out.max_output_tokens))
     assert rec["max_output_tokens"] == out.answer_tokens + out.thinking_tokens
@@ -143,16 +143,19 @@ def test_schema_input_bound_covers_the_measured_schema_tokens():
     assert schema_input_token_bound(ir_schema.scene_response_schema("WoodenCrateWithIron")) >= 5_085
 
 
-def test_output_budget_table_fits_each_model_and_measured_thinking():
-    for (role, op), out in AUTHOR_OUTPUT_BUDGETS.items():
+def test_output_budget_table_fits_each_model_and_measured_usage():
+    assert set(AUTHOR_OUTPUT_BUDGETS) >= {"worker", "bulk", "builder", "director"}
+    for role, out in AUTHOR_OUTPUT_BUDGETS.items():
         mt = tier(role)
-        assert out.max_output_tokens <= MODEL_OUTPUT_TOKEN_LIMIT[mt.model], (role, op)
-        seen = MEASURED_THINKING_TOKENS.get(f"{mt.model}/{mt.thinking.value}")
-        if seen:
-            assert out.thinking_tokens >= 2 * max(seen), (role, op, seen)
-    assert {r for r, _ in AUTHOR_OUTPUT_BUDGETS} >= {"worker", "bulk", "builder", "director"}
-    by = {r: AUTHOR_OUTPUT_BUDGETS[(r, "propose")].thinking_tokens for r in ("worker", "builder", "director")}
-    assert by["worker"] < by["builder"] < by["director"]  # a hero call is never sized by a worker-tier assumption
+        key = f"{mt.model}/{mt.thinking.value}"
+        assert out.max_output_tokens <= MODEL_OUTPUT_TOKEN_LIMIT[mt.model], role
+        thinking, answer = MEASURED_THINKING_TOKENS[key], MEASURED_ANSWER_TOKENS[key]
+        assert out.thinking_tokens >= 2 * max(thinking), (role, thinking)
+        assert out.answer_tokens >= 1.4 * max(answer), (role, answer)
+        # the measured worst case (largest answer + largest thinking) fits the cap with headroom
+        assert out.max_output_tokens >= 1.7 * (max(answer) + max(thinking)), role
+    by = {r: AUTHOR_OUTPUT_BUDGETS[r].max_output_tokens for r in ("worker", "builder", "director")}
+    assert by["worker"] < by["builder"] <= by["director"]  # a hero call is never sized by a worker-tier assumption
 
 
 async def test_plan_that_cannot_admit_its_tier_fails_loudly_with_the_numbers(monkeypatch):
@@ -160,7 +163,7 @@ async def test_plan_that_cannot_admit_its_tier_fails_loudly_with_the_numbers(mon
     monkeypatch.setenv("AGY3D_TEXT_RATES_JSON", json.dumps({tier("director").model: [1, 100]}))
     with pytest.raises(BudgetExceeded) as e:
         await a.propose("crate", budget=budget, n=1, context=context)
-    out = AUTHOR_OUTPUT_BUDGETS[("director", "propose")]
+    out = AUTHOR_OUTPUT_BUDGETS["director"]
     msg = str(e.value)
     assert "ceiling $1.00" in msg and f"{out.max_output_tokens} output tokens" in msg and f"{out.thinking_tokens} thinking" in msg
     assert not ep.generated and not gov.receipts()
@@ -201,3 +204,32 @@ async def test_no_usable_candidate_is_a_typed_error_and_settles(monkeypatch, fin
     assert e.value.usage["input_tokens"] == 100
     [rec] = gov.receipts()
     assert rec["booked_usd"] == pytest.approx(cost(100, 50)) and rec["status"] == "AuthorNoAnswer"
+
+
+async def test_live_benchmark_sends_the_production_request(monkeypatch):
+    """benchmarks/perf_live.py's text group must dispatch exactly build_author_request's contents and config."""
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parent.parent / "benchmarks" / "perf_live.py"
+    spec = importlib.util.spec_from_file_location("perf_live_under_test", path)
+    perf = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(perf)
+    sent = []
+
+    class Models:
+        async def generate_content(self, **kw):
+            sent.append(kw)
+            return SimpleNamespace(text="{}", usage_metadata=None, prompt_feedback=None,
+                                   candidates=[SimpleNamespace(finish_reason=types.FinishReason.STOP)])
+
+    client = perf.CountedClient(SimpleNamespace(aio=SimpleNamespace(models=Models(), decisions=None)), perf.Limiter(10, 10**9))
+    await perf.text_group(client, (("worker", 1), ("director", 1)), {}, lambda: None)
+    from antigravity3d.tactics.authoring import _slug
+
+    asset = _slug(perf.ASSET_PROMPT)
+    task = propose_task(perf.ASSET_PROMPT, index=0, n=1, asset_name=asset, references=False)
+    for kw, role in zip(sent, ("worker", "director"), strict=True):
+        req = build_author_request(role, "propose", task, budget=EngineBudget("unreal_5"), context={},
+                                   timeout_s=perf.text_timeout(role), asset_name=asset)
+        assert kw["model"] == req.model and kw["contents"] == req.contents and kw["config"] == req.config

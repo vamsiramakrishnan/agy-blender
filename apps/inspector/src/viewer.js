@@ -385,7 +385,7 @@ export function createInspector(host) {
     if (v.preset) setPreset(v.preset);
     if (v.wireframe != null) setWire(v.wireframe);
     if (v.colliders != null) setColl(v.colliders);
-    if (v.node !== undefined && v.node !== "") selectNode(v.node, false);
+    if ("node" in v) selectNode(v.node, false); // null = whole asset
   }
 
   function setLayout(layout, height) {

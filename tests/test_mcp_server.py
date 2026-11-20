@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -20,9 +21,13 @@ from mcp.client.subscriptions import listen
 
 from antigravity3d.harness import tools as T
 from antigravity3d.plugin_install import bundle_dir
-from test_harness_tools import CRATE
+from test_harness_tools import CRATE, box
 
-MANAGEMENT = {"open_asset_session", "set_stage", "session_status", "list_sessions"}
+# Session-level tools, listed whatever the stage: session management plus the inspector MCP App's model tools.
+MANAGEMENT = {"open_asset_session", "set_stage", "session_status", "list_sessions", "open_inspector", "review_notes"}
+# The inspector MCP App's app-only tools: listed (the host needs their _meta) but hidden from the model.
+APP_ONLY = {"inspector_payload", "inspector_qa_state", "inspector_list_notes", "inspector_save_note"}
+ALWAYS = MANAGEMENT | APP_ONLY
 
 
 def server_env(state: Path) -> dict[str, str]:
@@ -31,10 +36,10 @@ def server_env(state: Path) -> dict[str, str]:
 
 
 @asynccontextmanager
-async def client(tmp_path: Path, *, modern: bool = False):
+async def client(tmp_path: Path, *, modern: bool = False, env: dict[str, str] | None = None):
     tmp_path.mkdir(parents=True, exist_ok=True)
     params = StdioServerParameters(command=sys.executable, args=["-m", "antigravity3d.runtime.mcp_server"],
-                                   env=server_env(tmp_path / "state"), cwd=str(tmp_path))
+                                   env={**server_env(tmp_path / "state"), **(env or {})}, cwd=str(tmp_path))
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as s:
             if modern:
@@ -54,12 +59,12 @@ async def call(s: ClientSession, name: str, **args) -> str:
 async def test_tools_list_has_harness_tools_with_clean_schemas(tmp_path):
     async with client(tmp_path) as s:
         tools = {t.name: t for t in (await s.list_tools()).tools}
-        assert set(tools) == MANAGEMENT
+        assert set(tools) == ALWAYS
         await call(s, "open_asset_session", asset_name="Catalog", target_engine="godot_4")
         for stage, entries in T.STAGE_TOOLS.items():
             await call(s, "set_stage", stage=stage)
             catalog = {t.name: t for t in (await s.list_tools()).tools}
-            assert set(catalog) == {fn.__name__ for fn in entries} | MANAGEMENT
+            assert set(catalog) == {fn.__name__ for fn in entries} | ALWAYS
             tools.update(catalog)
     for name, fn in T.ALL_TOOLS.items():
         if name not in tools:
@@ -88,7 +93,7 @@ def test_hook_script_tool_list_matches_the_server():
         import _common
     finally:
         sys.path.pop(0)
-    assert set(_common.STUDIO_TOOLS) == set(T.ALL_TOOLS) | MANAGEMENT
+    assert set(_common.STUDIO_TOOLS) == set(T.ALL_TOOLS) | ALWAYS
 
 
 async def test_session_stage_scoping_export_gate_and_linter(tmp_path):
@@ -191,7 +196,7 @@ def test_pipelined_calls_are_ordered_drained_and_stdout_is_protocol_only(tmp_pat
     assert text[3].startswith("SESSION Crate-")
     assert text[4].startswith("OK tx="), text[4]
     assert "nodes=2" in text[5]
-    assert {t["name"] for t in by_id[2]["result"]["tools"]} == MANAGEMENT
+    assert {t["name"] for t in by_id[2]["result"]["tools"]} == ALWAYS
     assert by_id[1]["result"]["capabilities"]["tools"]["listChanged"]
     assert any(f.get("method") == "notifications/tools/list_changed" for f in frames)
     # nothing left running from this server's process group
@@ -216,8 +221,8 @@ async def test_two_stdio_clients_keep_independent_stage_catalogs(tmp_path):
         await call(first, "set_stage", stage="LOOKDEV")
         await call(second, "set_stage", stage="EXPORT")
         left, right = await asyncio.gather(first.list_tools(), second.list_tools())
-        assert {t.name for t in left.tools} == MANAGEMENT | {f.__name__ for f in T.STAGE_TOOLS["LOOKDEV"]}
-        assert {t.name for t in right.tools} == MANAGEMENT | {f.__name__ for f in T.STAGE_TOOLS["EXPORT"]}
+        assert {t.name for t in left.tools} == ALWAYS | {f.__name__ for f in T.STAGE_TOOLS["LOOKDEV"]}
+        assert {t.name for t in right.tools} == ALWAYS | {f.__name__ for f in T.STAGE_TOOLS["EXPORT"]}
         assert (await call(first, "export_engine_package", out_name="wrong_stage")).startswith("REFUSED")
         # A subagent with an explicit read-only grant can still call its named probe.
         assert "nodes=0" in await call(first, "inspect_manifest")
@@ -231,3 +236,169 @@ async def test_modern_client_receives_catalog_invalidation(tmp_path):
             await call(session, "set_stage", stage="LOOKDEV")
             await asyncio.wait_for(anext(changes), timeout=5)
             assert "apply_scene_ir" not in {t.name for t in (await session.list_tools()).tools}
+
+
+# --------------------------------------------------------------------------- inspector MCP App
+# Expected values are the ones in the Antigravity docs ("# Developing MCP Apps"): resource MIME type,
+# tool _meta keys, visibility and entrypoints.
+
+APP_URI = "ui://antigravity-3d/inspector.html"
+APP_MIME = "text/html;profile=mcp-app"
+
+
+async def raw(s: ClientSession, name: str, **args):
+    res = await s.call_tool(name, args)
+    assert not res.is_error, res.content
+    return res
+
+
+async def fetch_part(s: ClientSession, sid: str, revision: str, part: str = "scene") -> str:
+    first = (await raw(s, "inspector_payload", session_id=sid, revision=revision, part=part, chunk=0)).structured_content
+    data = [first["data"]]
+    for i in range(1, first["chunks"]):
+        nxt = (await raw(s, "inspector_payload", session_id=sid, revision=revision, part=part, chunk=i)).structured_content
+        assert nxt["chunks"] == first["chunks"] and nxt["revision"] == revision
+        data.append(nxt["data"])
+    return "".join(data)
+
+
+async def test_inspector_app_resource_and_tool_metadata(tmp_path):
+    from antigravity3d.runtime.inspector_server import ui_meta_problems
+
+    async with client(tmp_path) as s:
+        init_caps = s.get_server_capabilities()
+        assert init_caps is not None and init_caps.resources is not None  # the host requires the resources capability
+        resources = (await s.list_resources()).resources
+        app = [r for r in resources if str(r.uri) == APP_URI]
+        assert len(app) == 1 and app[0].mime_type == APP_MIME
+        assert app[0].meta == {"ui": {"prefersBorder": True}}
+        contents = (await s.read_resource(APP_URI)).contents
+        assert len(contents) == 1 and contents[0].mime_type == APP_MIME and contents[0].meta == {"ui": {"prefersBorder": True}}
+        html = contents[0].text
+        assert 0 < len(html.encode()) < 10 * 1024 * 1024  # documented 10 MiB limit
+        assert html.lstrip().lower().startswith("<!doctype html>")
+        # self-contained: no external scripts, styles, frames or base (the default CSP is default-src 'none')
+        assert not re.search(r"<(script|link|iframe|base)\b[^>]*\b(src|href)\s*=", html, re.I)
+
+        tools = {t.name: t for t in (await s.list_tools()).tools}
+        assert tools["open_inspector"].meta == {
+            "ui": {"resourceUri": APP_URI},
+            "com.google.antigravity/ui": {"entrypoints": [{"type": "aux_pane", "title": "3D Inspector"},
+                                                          {"type": "global", "title": "3D Inspector"}]},
+        }
+        assert tools["open_inspector"].input_schema.get("required", []) == []  # entrypoint launches call it with {}
+        assert not (tools["review_notes"].meta or {}).get("ui")  # visible to the model
+        assert tools["review_notes"].input_schema.get("required", []) == []
+        for name in APP_ONLY:
+            assert tools[name].meta == {"ui": {"visibility": ["app"]}}, name
+        assert ui_meta_problems([(t.name, t.meta) for t in tools.values()],
+                                [(str(r.uri), r.mime_type) for r in resources]) == []
+        # entrypoint launch before any session: a sensible empty view, not an error
+        res = await raw(s, "open_inspector")
+        assert res.structured_content["session_id"] is None and "open_asset_session" in res.content[0].text
+
+
+def test_ui_meta_checker_reports_what_the_host_would_drop():
+    from antigravity3d.runtime.inspector_server import ui_meta_problems
+
+    errs = "\n".join(ui_meta_problems(
+        [("a", {"ui": {"resourceUri": "https://x/app.html"}}), ("b", {"ui": {"visibility": ["model", "user"]}}),
+         ("c", {"com.google.antigravity/ui": {"entrypoints": [{"type": "aux_pane"}]}}),
+         ("d", {"ui": {"resourceUri": APP_URI}, "com.google.antigravity/ui": {"entrypoints": [{"type": "panel"}]}}),
+         ("e", {"ui": {"resourceUri": "ui://other/app.html"}})],
+        [(APP_URI, APP_MIME), ("ui://x/y.html", "text/html")]))
+    for needle in ("tool a: ui.resourceUri must start with ui://", "tool b: ui.visibility", "tool c: entrypoints are only kept",
+                   "tool d: unknown entrypoint type 'panel'", "tool e: ui.resourceUri ui://other/app.html is not a resource",
+                   "resource ui://x/y.html: MIME"):
+        assert needle in errs, needle
+
+
+async def test_inspector_payload_notes_and_qa_round_trip(tmp_path):
+    work = tmp_path / "crate_session"
+    async with client(tmp_path, env={"AGY3D_TEST_INSPECTOR_CHUNK_CHARS": "700"}) as s:
+        sid = (await call(s, "open_asset_session", asset_name="Crate", target_engine="godot_4", workdir=str(work))).split()[1]
+        assert (await call(s, "apply_scene_ir", ops_json=json.dumps(CRATE))).startswith("OK")
+
+        res = await raw(s, "open_inspector")
+        summary = res.structured_content
+        assert summary["session_id"] == sid and summary["asset"] == "Crate" and summary["view"] == {}
+        assert summary["counts"]["nodes"] == 2 and summary["counts"]["tris"] == 24 and summary["counts"]["scene_chunks"] > 1
+        assert len(json.dumps(summary)) < 4096  # small: large data comes from the app-only tool
+        text = res.content[0].text
+        assert text.startswith(f"INSPECTOR {sid} asset=Crate rev={summary['revision']} nodes=2 tris=24") and "\n" not in text
+
+        rev = summary["revision"]
+        payload = json.loads(await fetch_part(s, sid, rev))
+        assert payload["revision"] == rev and payload["session_id"] == sid
+        assert [m["id"] for m in payload["meshes"]] == ["body", "lid"] and payload["lods"] == [] and payload["colliders"] == []
+        assert payload["budget"]["target_engine"] == "godot_4"
+        bad = await s.call_tool("inspector_payload", {"session_id": sid, "revision": "0" * 16, "part": "scene", "chunk": 0})
+        assert bad.is_error and bad.structured_content["current_revision"] == rev
+
+        # the agent drives the open view
+        res = await raw(s, "open_inspector", node="lid", channel="clay", view="top", wireframe=True)
+        assert res.structured_content["view"] == {"node": "lid", "channel": "clay", "preset": "top", "wireframe": True}
+        assert (await raw(s, "open_inspector", node="*")).structured_content["view"] == {"node": None}
+        assert (await call(s, "open_inspector", node="nope")).startswith("ERROR") and "lid" in await call(s, "open_inspector", node="nope")
+        assert (await call(s, "open_inspector", channel="xray")).startswith("ERROR")
+        assert (await call(s, "open_inspector", lod=3)).startswith("ERROR")
+
+        # notes: saved against node + revision, listed for the app and readable by the model
+        saved = (await raw(s, "inspector_save_note", session_id=sid, node_id="lid", text="lid too thin\nmake it 2x", revision=rev)).structured_content
+        assert saved["note"]["node_id"] == "lid" and saved["note"]["revision"] == rev and saved["counts"] == {"current": 1, "stale": 0}
+        await raw(s, "inspector_save_note", session_id=sid, text="overall too clean", revision=rev)
+        await raw(s, "inspector_save_note", session_id=sid, node_id="lid", text="lid too thin, make it 2x", revision=rev)  # edit in place
+        listed = (await raw(s, "inspector_list_notes", session_id=sid)).structured_content
+        assert sorted((n["node_id"] or "", n["text"], n["stale"]) for n in listed["notes"]) == [
+            ("", "overall too clean", False), ("lid", "lid too thin, make it 2x", False)]
+        notes_text = await call(s, "review_notes")
+        assert notes_text.startswith(f"NOTES {sid} asset=Crate rev={rev}: 2 current, 0 stale")
+        assert "[current] node lid" in notes_text and "lid too thin, make it 2x" in notes_text and "whole asset" in notes_text
+        assert (await call(s, "inspector_save_note", session_id=sid, node_id="ghost", text="x", revision=rev)).startswith("ERROR")
+        assert json.loads((work / "review_notes.json").read_text())["schema"] == "antigravity3d.review_notes/2"
+
+        qa = (await raw(s, "inspector_qa_state", session_id=sid)).structured_content
+        assert qa["revision"] == rev and qa["qa"]["tier1_ok"] is True and qa["qa"]["export_allowed"] is False
+        assert qa["qa"]["threshold"] == 3.4 and qa["qa"]["stage"] == "BLOCKOUT"
+
+        # a geometry edit: new revision, earlier notes kept and marked stale (never dropped)
+        edit = {"ops": [box("lid", (1.05, 0.85, 0.16), 0.68)]}
+        assert (await call(s, "apply_scene_ir", ops_json=json.dumps(edit))).startswith("OK")
+        new_rev = (await raw(s, "open_inspector")).structured_content["revision"]
+        assert new_rev != rev
+        listed = (await raw(s, "inspector_list_notes", session_id=sid)).structured_content
+        assert len(listed["notes"]) == 2 and all(n["stale"] for n in listed["notes"]) and listed["revision"] == new_rev
+        notes_text = await call(s, "review_notes")
+        assert ": 0 current, 2 stale" in notes_text and f"[stale, rev {rev}] node lid" in notes_text
+        assert (await call(s, "review_notes", include_stale=False)).endswith("(no review notes yet: the reviewer writes them in the inspector, open_inspector)")
+        # emptying a note deletes it
+        await raw(s, "inspector_save_note", session_id=sid, text="", revision=rev)
+        assert len((await raw(s, "inspector_list_notes", session_id=sid)).structured_content["notes"]) == 1
+
+        # the EXPORT stage's derived data (UVs, LOD chain, hulls) shows up in the payload
+        await call(s, "set_stage", stage="EXPORT")
+        assert (await call(s, "generate_lods_and_colliders")).startswith("LODS")
+        summary = (await raw(s, "open_inspector", lod=1, colliders=True)).structured_content
+        assert summary["counts"]["lods"] >= 1 and summary["counts"]["colliders"] >= 1 and summary["view"] == {"lod": 1, "colliders": True}
+        payload = json.loads(await fetch_part(s, sid, summary["revision"]))
+        assert all(m["uv"] for m in payload["meshes"]) and payload["lods"] and payload["colliders"]
+
+
+async def test_review_notes_survive_a_server_restart(tmp_path):
+    work = tmp_path / "persist"
+    async with client(tmp_path / "one") as s:
+        await call(s, "open_asset_session", asset_name="Crate", target_engine="unity_urp", workdir=str(work))
+        await call(s, "apply_scene_ir", ops_json=json.dumps(CRATE))
+        summary = (await raw(s, "open_inspector")).structured_content
+        await raw(s, "inspector_save_note", session_id=summary["session_id"], node_id="body", text="chamfer the edges",
+                  revision=summary["revision"])
+    async with client(tmp_path / "two") as s:
+        sid = (await call(s, "open_asset_session", asset_name="Crate", target_engine="unity_urp", workdir=str(work))).split()[1]
+        assert sid != summary["session_id"]
+        await call(s, "apply_scene_ir", ops_json=json.dumps(CRATE))
+        again = (await raw(s, "open_inspector")).structured_content
+        assert again["revision"] == summary["revision"]  # same content, same revision
+        assert again["notes"] == {"current": 1, "stale": 0}
+        notes = (await raw(s, "inspector_list_notes", session_id=sid)).structured_content["notes"]
+        assert [(n["node_id"], n["text"], n["stale"]) for n in notes] == [("body", "chamfer the edges", False)]
+        assert "chamfer the edges" in await call(s, "review_notes")

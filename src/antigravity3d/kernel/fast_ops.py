@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 FALLBACKS = {
     "lod_simplify": "meshopt.simplify_sloppy on exception (trimesh needs fast_simplification, absent)",
     "lod_attr_binding": "meshoptimizer 0.2.30a0 leaves simplifyWithAttributes' ctypes argtypes unset (TypeError on call); we set them ourselves on the same native symbol",
-    "uv_overflow": "xatlas re-run with texels_per_unit=0 (auto-fit) when requested density overflows the atlas",
+    "uv_overflow": "when the requested density cannot fit one atlas, the same charts are re-packed with texels_per_unit=0 (auto-fit); charts are never recomputed",
 }
 
 Severity = Literal["critical", "warning"]
@@ -278,6 +278,8 @@ def _check_pair(a, b, add) -> None:
 
 # --------------------------------------------------------------------------- UVs
 
+UV_PADDING_PX = 2           # gutter between charts, in atlas texels
+
 
 @dataclass(frozen=True)
 class UVResult:
@@ -292,6 +294,8 @@ class UVResult:
     resolution: int
     atlas_id: str | None = None
     fitted: bool = True         # False: requested density overflowed, re-fit with lower density
+    charts: str = "computed"    # "analytic": exact developable charts from the IR; "computed": xatlas charts
+    angle_distortion: float = 0.0  # area-weighted mean (sigma_max / sigma_min - 1) of the UV map (0 = conformal)
 
     def within(self, budget: EngineBudget) -> bool:
         return self.stretch_mean <= budget.max_uv_stretch
@@ -314,56 +318,277 @@ def _stretch(points, tris, uvs) -> tuple[float, float]:
     return float((dev * w).sum()), float(dev.max())
 
 
-def _pack(group: list[MeshData], density: float, resolution: int):
+def _angle_distortion(points, tris, uvs) -> float:
+    """Area-weighted mean of (sigma1 / sigma2 - 1) of each triangle's 3D -> UV Jacobian (0 = no shear)."""
+    p = np.asarray(points, np.float64)[tris]
+    q = np.asarray(uvs, np.float64)[tris]
+    e1, e2 = p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]
+    l1 = np.linalg.norm(e1, axis=1)
+    a3 = 0.5 * np.linalg.norm(np.cross(e1, e2), axis=1)
+    ok = (a3 > 1e-14) & (l1 > 0)
+    if not ok.any():
+        return 0.0
+    x = e1[ok] / l1[ok, None]
+    y = np.cross(np.cross(e1[ok], e2[ok]), x)
+    y /= np.linalg.norm(y, axis=1, keepdims=True)
+    P = np.stack([np.stack([l1[ok], np.zeros(ok.sum())], 1), np.stack([(e2[ok] * x).sum(1), (e2[ok] * y).sum(1)], 1)], 1)  # rows: edges in 2D
+    Q = np.stack([q[ok, 1] - q[ok, 0], q[ok, 2] - q[ok, 0]], 1)
+    J = np.linalg.solve(P, Q)  # (2,2): local 3D frame -> uv
+    s = np.linalg.svd(J, compute_uv=False)
+    r = np.where(s[:, 1] > 0, s[:, 0] / np.maximum(s[:, 1], 1e-30) - 1.0, 0.0)
+    w = a3[ok] / a3[ok].sum()
+    return float((r * w).sum())
+
+
+def _unfold_charts(points: np.ndarray, tris: np.ndarray, charts: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Isometric unfolding of known developable charts. Returns (vmapping, triangles, uv in metres).
+
+    Each chart is laid out triangle by triangle along a breadth-first spanning tree of its edge adjacency,
+    every triangle keeping its exact 3D edge lengths (so distortion is zero for a developable chart). A
+    vertex reached along two paths that disagree (the cut of a closed ring, e.g. a cylinder's side) is split,
+    which places the seam deterministically. Triangle order is preserved; UV winding is counter-clockwise.
+    """
+    p = np.asarray(points, np.float64)
+    t = np.asarray(tris, np.int64)
+    m = len(t)
+    corner = np.zeros((m, 3, 2))
+    chart_of = np.asarray(charts, np.int64).copy()
+    # edge -> faces within a chart (undirected, keyed by chart and sorted vertex pair)
+    e = np.concatenate([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]])
+    f = np.tile(np.arange(m), 3)
+    slot = np.repeat(np.arange(3), m)
+    key = np.stack([chart_of[f], e.min(1), e.max(1)], 1)
+    order = np.lexsort((key[:, 2], key[:, 1], key[:, 0]))
+    ks = key[order]
+    same = np.flatnonzero((ks[1:] == ks[:-1]).all(1))
+    nbr: list[list[tuple[int, int]]] = [[] for _ in range(m)]  # (neighbour face, local edge slot of this face)
+    for i in same:
+        a, b = order[i], order[i + 1]
+        nbr[f[a]].append((int(f[b]), int(slot[a])))
+        nbr[f[b]].append((int(f[a]), int(slot[b])))
+    placed = np.zeros(m, bool)
+    next_chart = int(chart_of.max()) + 1 if m else 0
+    seen_root: set[int] = set()
+
+    def lay_first(fi: int) -> None:
+        a, b, c = p[t[fi]]
+        ab = np.linalg.norm(b - a)
+        x = np.dot(c - a, b - a) / max(ab, 1e-30)
+        y = np.linalg.norm(np.cross(b - a, c - a)) / max(ab, 1e-30)
+        corner[fi] = [[0.0, 0.0], [ab, 0.0], [x, y]]
+
+    for root in range(m):
+        if placed[root]:
+            continue
+        if int(chart_of[root]) in seen_root:  # a second edge-connected component of one chart: its own chart
+            comp_chart = next_chart
+            next_chart += 1
+        else:
+            comp_chart = int(chart_of[root])
+            seen_root.add(comp_chart)
+        lay_first(root)
+        placed[root] = True
+        chart_of[root] = comp_chart
+        queue = [root]
+        qi = 0
+        while qi < len(queue):
+            fi = queue[qi]
+            qi += 1
+            for gi, s in nbr[fi]:
+                if placed[gi]:
+                    continue
+                va, vb = t[fi, s], t[fi, (s + 1) % 3]
+                ga = int(np.flatnonzero(t[gi] == va)[0])
+                gb = int(np.flatnonzero(t[gi] == vb)[0])
+                gc = 3 - ga - gb
+                A, B = corner[fi, s], corner[fi, (s + 1) % 3]
+                d = B - A
+                dab = float(np.hypot(*d))
+                la = float(np.linalg.norm(p[t[gi, gc]] - p[va]))
+                lb = float(np.linalg.norm(p[t[gi, gc]] - p[vb]))
+                x = (la * la - lb * lb + dab * dab) / (2 * max(dab, 1e-30))
+                y = np.sqrt(max(la * la - x * x, 0.0))
+                ex = d / max(dab, 1e-30)
+                ey = np.array([-ex[1], ex[0]])
+                cand = A + x * ex + y * ey
+                tri_uv = np.zeros((3, 2))
+                tri_uv[ga], tri_uv[gb], tri_uv[gc] = A, B, cand
+                u0, u1, u2 = tri_uv
+                if (u1[0] - u0[0]) * (u2[1] - u0[1]) - (u1[1] - u0[1]) * (u2[0] - u0[0]) < 0:
+                    tri_uv[gc] = A + x * ex - y * ey
+                corner[gi] = tri_uv
+                placed[gi] = True
+                chart_of[gi] = comp_chart
+                queue.append(gi)
+    # weld corners: same source vertex, same chart and (within tolerance) the same uv
+    span = float(np.ptp(p, axis=0).max()) if len(p) else 1.0
+    tol = 1e-7 * max(span, 1e-9)
+    cv = t.reshape(-1)
+    cc = np.repeat(chart_of, 3)
+    cu = corner.reshape(-1, 2)
+    grp = np.lexsort((cc, cv))
+    ids = np.empty(len(cv), np.int64)
+    out_v: list[int] = []
+    out_uv: list[np.ndarray] = []
+    start = 0
+    gkey = np.stack([cv[grp], cc[grp]], 1)
+    cuts = np.flatnonzero((gkey[1:] != gkey[:-1]).any(1)) + 1
+    for g in np.split(grp, cuts):
+        reps: list[int] = []
+        for k in g:
+            for r in reps:
+                if np.abs(out_uv[r] - cu[k]).max() <= tol:
+                    ids[k] = r
+                    break
+            else:
+                ids[k] = len(out_v)
+                reps.append(len(out_v))
+                out_v.append(int(cv[k]))
+                out_uv.append(cu[k])
+        start += len(g)
+    return np.asarray(out_v, np.int64), ids.reshape(-1, 3).astype(np.int32), np.asarray(out_uv, np.float64).reshape(-1, 2)
+
+
+@dataclass
+class _Charted:
+    """A mesh with its chart layout: seam-split vertices, triangles and per-vertex UVs in metres."""
+    mesh: MeshData
+    vmap: np.ndarray
+    tris: np.ndarray
+    uv_m: np.ndarray
+    kind: str
+
+
+def _xatlas_options(resolution: int, tpu: float, *, input_uvs: bool):
     import xatlas
 
-    for tpu in (density, 0.0):
+    co = xatlas.ChartOptions()
+    co.use_input_mesh_uvs = input_uvs
+    po = xatlas.PackOptions()
+    po.resolution = resolution
+    po.texels_per_unit = float(tpu)
+    po.padding = UV_PADDING_PX
+    po.bruteForce = False
+    po.rotate_charts = True
+    return co, po
+
+
+def _computed_charts(meshes: list[MeshData], density: float, resolution: int):
+    """xatlas chart computation (the expensive, superlinear part) for meshes without known charts.
+
+    The pack of this run is at the requested density. When everything is computed and it already fits one
+    ``resolution`` atlas, the atlas is returned as is; otherwise only the charts are kept (as UVs in metres)
+    for a pack-only pass, so charts are never computed twice.
+    """
+    import xatlas
+
+    atlas = xatlas.Atlas()
+    for m in meshes:
+        atlas.add_mesh(np.ascontiguousarray(m.points, dtype=np.float32), np.ascontiguousarray(m.triangles, dtype=np.uint32))
+    feasible = density * density * sum(float(_tri_areas(np.asarray(m.points, np.float64), np.asarray(m.triangles), 3).sum())
+                                        for m in meshes) <= resolution * resolution
+    co, po = _xatlas_options(resolution if feasible else 0, density, input_uvs=False)
+    atlas.generate(co, po)
+    out = []
+    scale = np.array([atlas.width, atlas.height], np.float64) / float(atlas.texels_per_unit or density)
+    for i, m in enumerate(meshes):
+        vm, idx, uv = atlas.get_mesh(i)
+        out.append(_Charted(m, vm.astype(np.int64), idx.reshape(-1, 3).astype(np.int32), uv.astype(np.float64) * scale, "computed"))
+    done = atlas if feasible and atlas.atlas_count == 1 else None
+    return out, done
+
+
+def _pack_charted(charted: list[_Charted], density: float, resolution: int):
+    """Pack known charts (input UVs in metres) into one atlas. Returns (atlas, fitted).
+
+    The requested density is tried only when the charts' total area can fit at all; otherwise (or when the
+    pack overflows) xatlas fits the density to the resolution (texels_per_unit=0) in a second pack. Charts
+    are never recomputed: both passes use the same input UVs.
+    """
+    import xatlas
+
+    area = sum(float(_tri_areas(np.asarray(c.mesh.points, np.float64)[c.vmap], c.tris, 3).sum()) for c in charted)
+    tries = ([density] if density * density * area <= resolution * resolution else []) + [0.0]
+    for tpu in tries:
         atlas = xatlas.Atlas()
-        for m in group:
-            atlas.add_mesh(np.ascontiguousarray(m.points, dtype=np.float32), np.ascontiguousarray(m.triangles, dtype=np.uint32))
-        po = xatlas.PackOptions()
-        po.resolution = resolution
-        po.texels_per_unit = float(tpu)
-        po.padding = 2
-        po.bruteForce = False
-        po.rotate_charts = True
-        co = xatlas.ChartOptions()
+        for c in charted:
+            atlas.add_mesh(np.ascontiguousarray(np.asarray(c.mesh.points)[c.vmap], dtype=np.float32),
+                           np.ascontiguousarray(c.tris, dtype=np.uint32), uvs=np.ascontiguousarray(c.uv_m, dtype=np.float32))
+        co, po = _xatlas_options(resolution, tpu, input_uvs=True)
         atlas.generate(co, po)
         if atlas.atlas_count == 1:
             return atlas, tpu == density
     return atlas, False
 
 
-def _results(group: list[MeshData], atlas, fitted: bool, resolution: int, atlas_id: str | None) -> list[UVResult]:
+def _charted(m: MeshData) -> _Charted | None:
+    if m.uv_charts is None or len(m.uv_charts) != len(m.triangles) or len(m.triangles) == 0:
+        return None
+    vmap, tris, uv = _unfold_charts(m.points, m.triangles, m.uv_charts)
+    return _Charted(m, vmap, tris, uv, "analytic")
+
+
+def _atlas_uv(atlas, uv: np.ndarray, resolution: int) -> np.ndarray:
+    """xatlas normalises UVs by the atlas' *cropped* width and height, which differ from each other and from
+    ``resolution``; map to the ``resolution`` x ``resolution`` texture the atlas is baked into, so texels stay
+    square and the reported density is the real one."""
+    return np.asarray(uv, np.float64) * (np.array([atlas.width, atlas.height], np.float64) / float(resolution))
+
+
+def _result(m: MeshData, vm: np.ndarray, tris: np.ndarray, uv: np.ndarray, fitted: bool, resolution: int,
+            atlas_id: str | None, kind: str) -> UVResult:
+    pts = np.asarray(m.points, dtype=np.float64)[vm]
+    uv = np.clip(uv.astype(np.float32), 0.0, 1.0)
+    a3, a2 = _tri_areas(pts, tris, 3).sum(), _tri_areas(uv, tris, 2).sum()
+    dens = float(np.sqrt(a2 / a3) * resolution) if a3 > 0 and a2 > 0 else 0.0
+    sm, sx = _stretch(pts, tris, uv)
+    return UVResult(m.node_id, pts, tris, uv, vm, dens, sm, sx, resolution, atlas_id, fitted, kind,
+                    _angle_distortion(pts, tris, uv))
+
+
+def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_id: str | None) -> list[UVResult]:
+    known = [_charted(m) for m in group]
+    todo = [m for m, c in zip(group, known) if c is None]
+    if todo and len(todo) == len(group):
+        charted, done = _computed_charts(todo, density, resolution)
+        if done is not None:  # one generate: charts + pack at the requested density
+            out = []
+            for i, c in enumerate(charted):
+                vm, idx, uv = done.get_mesh(i)
+                out.append(_result(c.mesh, vm.astype(np.int64), idx.reshape(-1, 3).astype(np.int32), _atlas_uv(done, uv, resolution), True, resolution,
+                                   atlas_id, "computed"))
+            return out
+    elif todo:
+        charted, _ = _computed_charts(todo, density, 0)
+    else:
+        charted = []
+    it = iter(charted)
+    full = [c if c is not None else next(it) for c in known]
+    atlas, fitted = _pack_charted(full, density, resolution)
     out = []
-    for i, m in enumerate(group):
+    for i, c in enumerate(full):
         vm, idx, uv = atlas.get_mesh(i)
-        vm = vm.astype(np.int64)
-        pts = np.asarray(m.points, dtype=np.float64)[vm]
-        tris = idx.reshape(-1, 3).astype(np.int32)
-        uv = np.clip(uv.astype(np.float32), 0.0, 1.0)
-        a3, a2 = _tri_areas(pts, tris, 3).sum(), _tri_areas(uv, tris, 2).sum()
-        dens = float(np.sqrt(a2 / a3) * resolution) if a3 > 0 and a2 > 0 else 0.0
-        sm, sx = _stretch(pts, tris, uv)
-        out.append(UVResult(m.node_id, pts, tris, uv, vm, dens, sm, sx, resolution, atlas_id, fitted))
+        out.append(_result(c.mesh, c.vmap[vm.astype(np.int64)], idx.reshape(-1, 3).astype(np.int32), _atlas_uv(atlas, uv, resolution), fitted,
+                           resolution, atlas_id, c.kind))
     return out
 
 
 def unwrap_uvs(mesh: MeshData, texel_density_px_per_m: float, resolution: int = 2048) -> UVResult:
-    atlas, fitted = _pack([mesh], texel_density_px_per_m, resolution)
-    return _results([mesh], atlas, fitted, resolution, mesh.material_id)[0]
+    return _unwrap_group([mesh], texel_density_px_per_m, resolution, mesh.material_id)[0]
 
 
 def unwrap_scene(meshes: list[MeshData], budget: EngineBudget, resolution: int = 2048) -> list[UVResult]:
-    """One atlas per material id; results are returned in input order."""
+    """One atlas per material id; results are returned in input order.
+
+    Meshes that carry exact charts (``MeshData.uv_charts``, set for IR primitives) are unfolded
+    isometrically and only packed; the others get xatlas charts, computed once.
+    """
     groups: dict[str | None, list[int]] = {}
     for i, m in enumerate(meshes):
         groups.setdefault(m.material_id, []).append(i)
     res: list[UVResult | None] = [None] * len(meshes)
     for mat, ids in groups.items():
-        group = [meshes[i] for i in ids]
-        atlas, fitted = _pack(group, budget.texel_density_px_per_m, resolution)
-        for i, r in zip(ids, _results(group, atlas, fitted, resolution, mat)):
+        for i, r in zip(ids, _unwrap_group([meshes[i] for i in ids], budget.texel_density_px_per_m, resolution, mat)):
             res[i] = r
     return res  # type: ignore[return-value]
 

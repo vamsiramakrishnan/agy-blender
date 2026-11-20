@@ -21,6 +21,11 @@ asset's stage tools. Opening/selecting assets and switching stages triggers an M
 event when the visible schema set changes. Dispatch independently checks the requested session.
 Read-only subagents retain their explicitly granted, named probes.
 
+Inspector MCP App. The 3D review inspector is served as an MCP App (``ui://`` resource, the
+model-visible ``open_inspector`` / ``review_notes`` and four app-only ``inspector_*`` tools); all of it
+lives in :mod:`antigravity3d.runtime.inspector_server` and is wired in by the "inspector MCP App"
+section below. Those tools are session-level like the management tools: listed whatever the stage.
+
 Backends. ``GEMINI_API_KEY`` set: ``make_control_plane`` (Decisions API, generative fallback) and a
 real ``ImageForge``. ``AGY3D_OFFLINE=1`` (or no key): the fakes. A Blender pool is attached through
 ``PoolClient`` when ``$AGY3D_POOL_SOCKET`` names an existing socket.
@@ -56,6 +61,7 @@ from antigravity3d.harness.session import (
     CTX_REGISTRY_KEY, CTX_SESSION_KEY, bind_conversation, open_session, session, set_toolset,
 )
 from antigravity3d.harness.traceback_compressor import compress_exception
+from antigravity3d.runtime import inspector_server as inspector_app
 from antigravity3d.state import EngineBudget, SceneSessionRegistry
 
 log = logging.getLogger("antigravity3d.mcp")
@@ -174,7 +180,7 @@ class StudioHost:
                 return f"ERROR {compress_exception(e)}"
 
     def visible_tools(self) -> set[str]:
-        names = set(MANAGEMENT_TOOLS)
+        names = set(MANAGEMENT_TOOLS) | set(inspector_app.TOOL_NAMES)
         if self.active is not None:
             stage = session(self.registry, self.active).toolset
             names.update(fn.__name__ for fn in T.STAGE_TOOLS[stage])
@@ -364,8 +370,18 @@ def build_server(host: StudioHost | None = None) -> MCPServer:
     for name, fn in T.ALL_TOOLS.items():
         w = _wrapper(name, fn, host)
         server.add_tool(w, name=name, description=w.__doc__, structured_output=False)
+    register_inspector_app(server, host)
     server._agy3d_host = host  # type: ignore[attr-defined]
     return server
+
+
+# --------------------------------------------------------------------------- inspector MCP App
+# Self-contained: the resource, tools, notes store and payload builder are in runtime/inspector_server.py.
+
+
+def register_inspector_app(server: MCPServer, host: StudioHost) -> None:
+    """Serves the 3D review inspector as an MCP App on this server (see :mod:`.inspector_server`)."""
+    host.inspector = inspector_app.register(server, host)  # type: ignore[attr-defined]
 
 
 class _DrainingStreams:

@@ -44,13 +44,22 @@ STAGE_PROMPT = "Build a simple wooden crate with a separate lid from two boxes, 
 ALBEDO_PROMPT = "weathered oak planks"
 GROUPS = ("text", "stage", "judge", "image")
 
-TIMEOUTS = {"text": 120.0, "director": 300.0, "stage": 600.0, "judge": 120.0, "image": 180.0}
+TIMEOUTS = {"text": 120.0, "builder": 300.0, "director": 300.0, "stage": 600.0, "judge": 120.0, "image": 180.0}
+# Text samples are dispatched with the production request (metered_author.build_author_request); carbon and argon
+# write ~11k answer + ~7-8k thinking tokens for the crate prompt (carbon took 200 s once), hence 300 s.
 # (role, n) per group. Judge: (stage, n).
 TEXT_PLAN = (("worker", 3), ("builder", 3), ("bulk", 3), ("director", 1))
 STAGE_PLAN = (("worker", 2), ("builder", 1))
 JUDGE_PLAN = (("blockout", 3), ("lookdev", 2))
+IMAGE_PLAN = (1024, 2048)  # one seamless albedo per size tier (1K, 2K)
 # Token reservations checked before each call (a floor-check, not a budget): real usage is booked after the call.
-EST_TOKENS = {"text": 8_000, "director": 12_000, "stage": 40_000, "judge": 6_000, "image": 2_500, "probe": 200}
+# Text: the request's own max_output_tokens plus TEXT_INPUT_EST (rules + budget + task ~1k, schema ~5k prompt tokens).
+TEXT_INPUT_EST = 7_000
+EST_TOKENS = {"stage": 40_000, "judge": 6_000, "image": 4_500, "probe": 200}
+
+
+def text_timeout(role: str) -> float:
+    return TIMEOUTS.get(role, TIMEOUTS["text"])
 
 
 # ----------------------------------------------------------------------------------------------- spend limiter
@@ -232,55 +241,53 @@ def _sample_from_event(ev: dict[str, Any] | None) -> dict[str, Any]:
 
 
 async def text_group(client: CountedClient, plan: tuple[tuple[str, int], ...], out: dict[str, Any], flush: Any) -> None:
-    """The live author's request (MeteredAuthor._generate / .propose, minus count_tokens and the spend governor)."""
-    from google.genai import types
-
-    from antigravity3d.harness.agents import _IR_RULES
-    from antigravity3d.ir import SceneIR
-    from antigravity3d.models import tier
+    """Exactly the request MeteredAuthor.propose sends (metered_author.build_author_request), minus count_tokens and
+    the spend governor; the response is classified with the same check_response / parse as production."""
     from antigravity3d.state import EngineBudget
     from antigravity3d.tactics.authoring import _slug
+    from antigravity3d.tactics.metered_author import (
+        AuthorOutcomeError, build_author_request, check_response, propose_task, usage_tokens,
+    )
 
     budget = EngineBudget("unreal_5")
     asset = _slug(ASSET_PROMPT)
-    task = (f"Build design 1/1 for {ASSET_PROMPT}. Use the attached references. Return one JSON SceneIR "
-            f"with asset_name={asset!r}, nodes and materials. Ground all parts. Include material assignments.")
-    prompt_text = f"{_IR_RULES}\nBudget: {json.dumps(asdict(budget))}\n{task}"
+    task = propose_task(ASSET_PROMPT, index=0, n=1, asset_name=asset, references=False)
     for role, n in plan:
-        mt = tier(role)  # type: ignore[arg-type]
-        timeout = TIMEOUTS["director"] if role == "director" else TIMEOUTS["text"]
-        client.timeout_s, client.est_tokens = timeout, EST_TOKENS["director" if role == "director" else "text"]
-        key = f"{role}:{mt.model}"
+        timeout = text_timeout(role)
+        req = build_author_request(role, "propose", task, budget=budget, context={}, timeout_s=timeout, asset_name=asset)
+        client.timeout_s, client.est_tokens = timeout, TEXT_INPUT_EST + req.max_output_tokens
+        key = f"{role}:{req.model}"
         samples: list[dict[str, Any]] = []
         out[key] = {"samples": samples}
         for i in range(n):
-            http = types.HttpOptions(timeout=int(timeout * 1000), retry_options=types.HttpRetryOptions(attempts=1))
-            cfg = types.GenerateContentConfig(
-                response_mime_type="application/json", max_output_tokens=4096, candidate_count=1,
-                thinking_config=types.ThinkingConfig(thinking_level=mt.thinking.value.upper()) if mt.thinking else None,
-                http_options=http, automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
-            contents = [types.Content(role="user", parts=[types.Part.from_text(text=prompt_text)])]
             n_ev = len(client.events)
-            sample: dict[str, Any] = {"thinking_level": mt.thinking.value if mt.thinking else None, "timeout_s": timeout}
+            mt = req.config.thinking_config
+            sample: dict[str, Any] = {"thinking_level": mt.thinking_level.name.lower() if mt else None, "timeout_s": timeout,
+                                      "max_output_tokens": req.max_output_tokens, "answer_tokens": req.budget.answer_tokens,
+                                      "thinking_tokens_allowed": req.budget.thinking_tokens}
+            resp = None
             try:
-                resp = await client.aio.models.generate_content(model=mt.model, contents=contents, config=cfg)
-                text = resp.text or ""
+                resp = await client.aio.models.generate_content(model=req.model, contents=req.contents, config=req.config)
             except LimitReached:
                 raise
             except Exception:  # noqa: BLE001 - already in the event log
-                text = None
+                pass
             sample.update(_sample_from_event(client.events[n_ev] if len(client.events) > n_ev else None))
-            if text is not None:
-                sample["response_chars"] = len(text)
+            if resp is not None:
                 try:
-                    scene = SceneIR.model_validate_json(text)
-                    sample.update(scene_ir_valid=True, nodes=len(scene.nodes), asset_name_matches=scene.asset_name == asset)
+                    text = check_response(req, resp, usage_tokens(resp))
+                    sample["response_chars"] = len(text)
+                    scene = req.parse(text)
+                    sample.update(outcome="ok", scene_ir_valid=True, nodes=len(scene.nodes), materials=len(scene.materials),
+                                  asset_name_matches=scene.asset_name == asset)
                     sample.update(compile_tier1(scene, budget))
+                except AuthorOutcomeError as e:
+                    sample.update(outcome=type(e).__name__, scene_ir_valid=False, parse_error=one_line(e, 200), tier1_ok=False)
                 except Exception as e:  # noqa: BLE001
-                    sample.update(scene_ir_valid=False, parse_error=one_line(e, 200), tier1_ok=False)
+                    sample.update(outcome="invalid", scene_ir_valid=False, parse_error=one_line(e, 200), tier1_ok=False)
             samples.append(sample)
             out[key] = stats_block(samples)
-            _progress("text", mt.model, sample, client.limiter)
+            _progress("text", req.model, sample, client.limiter)
             flush()
 
 
@@ -443,40 +450,47 @@ async def judge_group(client: CountedClient, plan: tuple[tuple[str, int], ...], 
 # ----------------------------------------------------------------------------------------------- group: image
 
 
-async def image_group(client: CountedClient, out: dict[str, Any], flush: Any) -> None:
-    """ONE seamless albedo via the real ImageForge/GenAIImageBackend (smallest size tier the backend maps: 1K)."""
-    from antigravity3d.genmedia.nano_banana import ImageForge, default_image_model
+async def image_group(client: CountedClient, out: dict[str, Any], flush: Any, sizes: tuple[int, ...] = IMAGE_PLAN) -> None:
+    """One seamless albedo per size in ``sizes`` via the real ImageForge/GenAIImageBackend (production request + receipt)."""
+    from antigravity3d.genmedia.nano_banana import GenAIImageBackend, ImageForge, _size_tier, default_image_model
+    from antigravity3d.tactics.governor import Governor, plan_for
 
     client.timeout_s, client.est_tokens = TIMEOUTS["image"], EST_TOKENS["image"]
     model = default_image_model()
-    key = f"image:{model}"
-    sample: dict[str, Any] = {"requested_size": 1024, "size_tier": "1K", "timeout_s": TIMEOUTS["image"]}
-    n_ev = len(client.events)
-    try:
-        # http timeout: the backend sets retry attempts=1 itself; the client-level timeout is configured in main().
-        g = await ImageForge(client=client, model=model).seamless_albedo(ALBEDO_PROMPT, size=1024)
-        w, h = g.image().size
-        rc = g.receipt
-        sample.update(wall_ms=round(g.latency_ms, 1), pixel_size=[w, h], bytes=len(g.png_bytes), model=g.model,
-                      receipt_input_tokens=rc.input_tokens, receipt_output_tokens=rc.output_tokens,
-                      receipt_image_tokens=rc.image_tokens, receipt_thinking_tokens=rc.thinking_tokens,
-                      receipt_source=rc.source)  # booked_usd deliberately NOT recorded: dollar cost is unknown here
-    except LimitReached:
-        raise
-    except Exception as e:  # noqa: BLE001
-        sample.update(error=one_line(e), error_class=type(e).__name__)
-    if len(client.events) > n_ev:
-        ev = client.events[n_ev]
-        sample.update({k: ev[k] for k in ("input_tokens", "output_tokens", "thinking_tokens", "tokens_known") if k in ev})
-        if "usage_raw" in ev:
-            sample["usage_metadata"] = ev["usage_raw"]
-        sample.setdefault("wall_ms", ev["wall_ms"])
-        sample["api_wall_ms"] = ev["wall_ms"]
-        if ev.get("error") and "error" not in sample:
-            sample["error"] = ev["error"]
-    out[key] = stats_block([sample])
-    _progress("image", model, sample, client.limiter)
-    flush()
+    for size in sizes:
+        tier_name = _size_tier(size)
+        key = f"image:{model}:{tier_name}"
+        sample: dict[str, Any] = {"requested_size": size, "size_tier": tier_name, "timeout_s": TIMEOUTS["image"],
+                                  "max_output_tokens": GenAIImageBackend.output_limit(tier_name)}
+        n_ev = len(client.events)
+        try:
+            # A roomy ledger: the benchmark measures the request, not a plan's admission (no rates are read here).
+            g = await ImageForge(client=client, model=model, governor=Governor(plan_for(3))).seamless_albedo(ALBEDO_PROMPT, size=size)
+            w, h = g.image().size
+            rc = g.receipt
+            sample.update(wall_ms=round(g.latency_ms, 1), pixel_size=[w, h], bytes=len(g.png_bytes), model=g.model,
+                          receipt_input_tokens=rc.input_tokens, receipt_output_tokens=rc.output_tokens,
+                          receipt_image_tokens=rc.image_tokens, receipt_thinking_tokens=rc.thinking_tokens,
+                          receipt_unitemized_output_tokens=rc.unitemized_output_tokens,
+                          receipt_missing_usage_fields=list(rc.missing_usage_fields), receipt_finish_reason=rc.finish_reason,
+                          receipt_source=rc.source)  # booked_usd deliberately NOT recorded: dollar cost is unknown here
+        except LimitReached:
+            raise
+        except Exception as e:  # noqa: BLE001
+            sample.update(error=one_line(e), error_class=type(e).__name__)
+        if len(client.events) > n_ev:
+            ev = client.events[n_ev]
+            sample.update({k: ev[k] for k in ("input_tokens", "output_tokens", "thinking_tokens", "tokens_known", "finish_reason")
+                           if k in ev})
+            if "usage_raw" in ev:
+                sample["usage_metadata"] = ev["usage_raw"]
+            sample.setdefault("wall_ms", ev["wall_ms"])
+            sample["api_wall_ms"] = ev["wall_ms"]
+            if ev.get("error") and "error" not in sample:
+                sample["error"] = ev["error"]
+        out[key] = stats_block([sample])
+        _progress("image", f"{model} {tier_name}", sample, client.limiter)
+        flush()
 
 
 # ----------------------------------------------------------------------------------------------- plan / driver
@@ -500,7 +514,7 @@ def build_plan(groups: list[str], roles: list[str] | None, n_override: int | Non
         for role, n in TEXT_PLAN:
             if keep(role):
                 rows.append(dict(group="text", role=role, model=tier(role).model, n=nn(n),  # type: ignore[arg-type]
-                                 timeout_s=TIMEOUTS["director" if role == "director" else "text"], calls=nn(n)))
+                                 timeout_s=text_timeout(role), calls=nn(n)))
     if "stage" in groups:
         for role, n in STAGE_PLAN:
             if keep(role):
@@ -512,7 +526,8 @@ def build_plan(groups: list[str], roles: list[str] | None, n_override: int | Non
             rows.append(dict(group="judge", role=f"visual_qa:{stg}", model=f"{tier('bulk').model} (generative fallback)", n=nn(n),
                              timeout_s=TIMEOUTS["judge"], calls=nn(n), note="1 request per evaluate unless packets split"))
     if "image" in groups:
-        rows.append(dict(group="image", role="image", model=tier("image").model, n=1, timeout_s=TIMEOUTS["image"], calls=1))
+        rows.append(dict(group="image", role="image", model=tier("image").model, n=len(IMAGE_PLAN), timeout_s=TIMEOUTS["image"],
+                         calls=len(IMAGE_PLAN), note="sizes " + ", ".join(map(str, IMAGE_PLAN))))
     return rows
 
 
@@ -632,10 +647,11 @@ def self_test() -> int:
     n_calls = {"n": 0}
 
     class Usage:
-        prompt_token_count, candidates_token_count, thoughts_token_count = 100, 200, 50
+        prompt_token_count, candidates_token_count, thoughts_token_count, total_token_count = 100, 200, 50, 350
 
     class Resp:
-        text, usage_metadata, candidates = payload, Usage(), []
+        text, usage_metadata, prompt_feedback = payload, Usage(), None
+        candidates = [pytypes.SimpleNamespace(finish_reason="STOP")]
 
     class StubModels:
         async def generate_content(self, **kw: Any) -> Any:
@@ -669,7 +685,8 @@ def self_test() -> int:
     result = make_result(args, lim)
     asyncio.run(run_groups(args, lambda: stub, lim, result, lambda: None))
     assert result["aborted"] and "max_tokens=7000" in result["aborted"] and lim.calls == 0, (result["aborted"], lim.calls)
-    print(f"ok  reservation (8000) > max_tokens (7000) refuses before any call; aborted={result['aborted']!r}")
+    print(f"ok  reservation (input estimate + max_output_tokens) > max_tokens (7000) refuses before any call; "
+          f"aborted={result['aborted']!r}")
 
     # 4) a dispatched call with unknown usage keeps its reservation, so repeated failures cannot stay admissible
     class FailModels:

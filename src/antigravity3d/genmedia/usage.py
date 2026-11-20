@@ -48,19 +48,46 @@ class ImageReceipt:
     status: str = "ok"
     width: int | None = None
     height: int | None = None
+    finish_reason: str | None = None
+    # candidates_token_count minus the itemized candidates_tokens_details (billed at the higher output rate)
+    unitemized_output_tokens: int | None = None
+    # usage_metadata fields the provider did not return, when they forced the reservation estimate
+    missing_usage_fields: tuple[str, ...] = ()
 
     @classmethod
     def from_response(cls, response: Any, *, model: str, op: str, rates: ImageRates, limit: float) -> ImageReceipt:
+        """Book provider-reported tokens wherever they exist.
+
+        Observed on gemini-nano-banana-2.1 (2026-11-20): ``candidates_tokens_details`` itemizes only the IMAGE tokens
+        (1K: 1,120 of 1,431 candidate tokens; 2K: 1,680 of 1,957). The remainder is reported in the total but not
+        itemized; it is booked at the higher of the text and image output rates (an upper bound, recorded as
+        ``unitemized_output_tokens``). Only when a count is genuinely absent is the reservation kept, and the missing
+        field is named in ``missing_usage_fields``.
+        """
         usage = getattr(response, "usage_metadata", None)
         inputs = getattr(usage, "prompt_token_count", None)
         outputs = getattr(usage, "candidates_token_count", None)
         thoughts = getattr(usage, "thoughts_token_count", None) or 0
         modalities = getattr(usage, "candidates_tokens_details", None) or []
-        image = sum(int(item.token_count) for item in modalities if item.modality == "IMAGE")
-        complete = inputs is not None and outputs is not None and sum(int(item.token_count) for item in modalities) == outputs
-        if complete:
-            booked = (inputs * rates.input + (outputs - image + thoughts) * rates.text + image * rates.image) / 1_000_000
-        else:
-            booked = limit
-        return cls(model, op, "provider_usage" if complete else "reservation_estimate", booked,
-                   inputs, outputs, image if modalities else None, thoughts, getattr(response, "response_id", None))
+        cands = getattr(response, "candidates", None) or []
+        fr = getattr(cands[0], "finish_reason", None) if cands else None
+        finish = str(getattr(fr, "name", fr)) if fr is not None else None
+        by_modality: dict[str, int] = {}
+        for item in modalities:
+            name = str(getattr(item.modality, "name", item.modality))
+            by_modality[name] = by_modality.get(name, 0) + int(item.token_count or 0)
+        missing = tuple(name for name, value in (("usage_metadata", usage), ("prompt_token_count", inputs),
+                                                 ("candidates_token_count", outputs),
+                                                 ("candidates_tokens_details", modalities or None)) if value is None)
+        if usage is None:
+            missing = ("usage_metadata",)
+        image = by_modality.get("IMAGE", 0)
+        if not missing:
+            text = by_modality.get("TEXT", 0)
+            unitemized = max(0, outputs - sum(by_modality.values()))
+            booked = (inputs * rates.input + (text + thoughts) * rates.text + image * rates.image
+                      + unitemized * max(rates.text, rates.image)) / 1_000_000
+            return cls(model, op, "provider_usage", booked, inputs, outputs, image, thoughts,
+                       getattr(response, "response_id", None), finish_reason=finish, unitemized_output_tokens=unitemized)
+        return cls(model, op, "reservation_estimate", limit, inputs, outputs, image if modalities else None, thoughts,
+                   getattr(response, "response_id", None), finish_reason=finish, missing_usage_fields=missing)
