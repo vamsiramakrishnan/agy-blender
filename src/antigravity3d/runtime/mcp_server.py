@@ -50,7 +50,7 @@ from pydantic import Field
 from antigravity3d.harness import tools as T
 from antigravity3d.harness.hooks import InvariantAndSafetyGate, state_header
 from antigravity3d.harness.session import (
-    CTX_REGISTRY_KEY, CTX_SESSION_KEY, open_session, session, set_toolset,
+    CTX_REGISTRY_KEY, CTX_SESSION_KEY, bind_conversation, open_session, session, set_toolset,
 )
 from antigravity3d.harness.traceback_compressor import compress_exception
 from antigravity3d.state import EngineBudget, SceneSessionRegistry
@@ -64,7 +64,7 @@ SESSION_ID_DOC = "Asset session to act on; omit to use the active (most recently
 INSTRUCTIONS = (
     "antigravity-3d asset studio. Call open_asset_session first, then work stage by stage: tools outside the "
     "active stage are refused (set_stage switches). Edit only through apply_scene_ir; export_engine_package is "
-    "refused until Tier-1 QA passed and run_visual_qa scored >= 3.4 on the current geometry. Replies are one line.")
+    "refused until Tier-1 passes and Decisions approves current EEVEE/Cycles lookdev at >= 3.4. Use the returned session_id for native export. Replies are one line.")
 
 
 class McpToolContext:
@@ -186,7 +186,7 @@ class StudioHost:
 
     # ---- management tools
     async def open_asset_session(self, asset_name: str, target_engine: str, max_tris: int = 15_000,
-                                 workdir: str = "", workspace: str = "") -> str:
+                                 workdir: str = "", workspace: str = "", conversation_id: str = "") -> str:
         if target_engine not in ENGINES:
             raise ValueError(f"target_engine must be one of {', '.join(ENGINES)}")
         if int(max_tris) < 1:
@@ -202,6 +202,8 @@ class StudioHost:
             self.registry, sid, wd, asset, EngineBudget(target_engine, max_tris=int(max_tris)),  # type: ignore[arg-type]
             plane=self.backends.plane, forge=self.backends.forge, pool=self.backends.pool,
             state_workspace=root)
+        if conversation_id:
+            bind_conversation(conversation_id, sid, self.registry)
         self._set_stage(sid, "BLOCKOUT")
         self.gates[sid] = InvariantAndSafetyGate(self.registry, sid)
         self.active = sid
@@ -277,11 +279,12 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         asset_name: str,
         target_engine: Annotated[str, Field(description="unreal_5 | unity_urp | godot_4 | roblox_r15")],
         ctx: Context,
+        conversation_id: Annotated[str, Field(description="Native conversation ID from the SessionStart header")] = "",
         max_tris: int = 15_000,
         workdir: Annotated[str, Field(description="Session folder; default <workspace>/agy3d_assets/<session id>")] = "",
     ) -> str:
         async def go() -> str:
-            return await host.open_asset_session(asset_name, target_engine, max_tris, workdir, await _workspace_root(ctx))
+            return await host.open_asset_session(asset_name, target_engine, max_tris, workdir, await _workspace_root(ctx), conversation_id)
 
         return await host.run_ordered(go)
 

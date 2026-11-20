@@ -42,8 +42,8 @@ class Script:
 
     def __call__(self, req: dict) -> dict:
         qs = req["questions"]
-        if any("@" in q for q in qs):  # set-of-mark localisation (LOD-pop items share the "@" syntax but are not marked defects)
-            return {q: self.locate for q in qs if q.split("@")[0] in MARKED_DEFECT_PHRASES}
+        if any("__" in q for q in qs):  # set-of-mark localisation (LOD-pop items share the "__" syntax but are not marked defects)
+            return {q: self.locate for q in qs if q.split("__")[0] in MARKED_DEFECT_PHRASES}
         if "score_silhouette" not in qs:
             return {}
         kind = "lookdev" if "defect_cg_plastic" in qs else "blockout"

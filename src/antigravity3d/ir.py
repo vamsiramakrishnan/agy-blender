@@ -7,6 +7,7 @@ layer. Units are metres, Z-up, right-handed; rotations are XYZ Euler degrees.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -76,13 +77,15 @@ class SceneIR(_Model):
             if n.material_id is not None and n.material_id not in mat_ids:
                 raise ValueError(f"{n.id}: unknown material {n.material_id}")
         parents = {n.id: n.parent for n in self.nodes}
+        checked = set()
         for start in parents:
             seen, cur = set(), start
-            while cur is not None:
+            while cur is not None and cur not in checked:
                 if cur in seen:
                     raise ValueError(f"{start}: parent cycle")
                 seen.add(cur)
                 cur = parents[cur]
+            checked.update(seen)
         return self
 
 
@@ -123,17 +126,34 @@ class AssignMaterial(_Model):
     material_id: NodeId
 
 
+class PlaceRelative(_Model):
+    """One-shot placement in world space. Back is the +Y face in this Z-up convention."""
+
+    op: Literal["on_top_of", "flush_back"]
+    node_id: NodeId
+    target_id: NodeId
+    gap_m: float = Field(0.0, ge=0, allow_inf_nan=False)
+
+
 IROp = Annotated[
-    Union[UpsertNode, RemoveNode, SetTransform, SetParam, UpsertMaterial, AssignMaterial],
+    Union[UpsertNode, RemoveNode, SetTransform, SetParam, UpsertMaterial, AssignMaterial, PlaceRelative],
     Field(discriminator="op"),
 ]
 
 
-class IRPatch(_Model):
+class SceneIRDiff(_Model):
     ops: list[IROp] = Field(min_length=1)
 
 
-def apply_patch(scene: SceneIR, patch: IRPatch) -> SceneIR:
+IRPatch = SceneIRDiff  # existing clients import IRPatch
+
+
+def apply_patch(
+    scene: SceneIR,
+    patch: SceneIRDiff,
+    *,
+    anchor_resolver: Callable[[SceneIR, PlaceRelative], Transform] | None = None,
+) -> SceneIR:
     """Returns a new validated SceneIR with ``patch`` applied (pure function)."""
     nodes = {n.id: n for n in scene.nodes}
     mats = {m.id: m for m in scene.materials}
@@ -152,7 +172,13 @@ def apply_patch(scene: SceneIR, patch: IRPatch) -> SceneIR:
             if op.node_id not in nodes:
                 raise KeyError(f"{op.op}: unknown node {op.node_id}")
             node = nodes[op.node_id]
-            if isinstance(op, SetTransform):
+            if isinstance(op, PlaceRelative):
+                from antigravity3d.kernel.compile_ir import resolve_anchor
+
+                current = SceneIR(asset_name=scene.asset_name, nodes=list(nodes.values()), materials=list(mats.values()))
+                transform = (anchor_resolver or resolve_anchor)(current, op)
+                nodes[op.node_id] = node.model_copy(update={"transform": transform})
+            elif isinstance(op, SetTransform):
                 nodes[op.node_id] = node.model_copy(update={"transform": op.transform})
             elif isinstance(op, SetParam):
                 nodes[op.node_id] = node.model_copy(

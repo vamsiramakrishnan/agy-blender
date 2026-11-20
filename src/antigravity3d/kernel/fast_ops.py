@@ -160,6 +160,23 @@ class Tier1Report:
         return s if len(s) <= limit else s[: limit - 3] + "..."
 
 
+def _candidate_pairs(lo: np.ndarray, hi: np.ndarray, eps: float):
+    """Sweep on the most dispersed axis, then reject separated boxes on the other two."""
+    span = hi - lo
+    axis = int(np.argmax(np.ptp(lo + span / 2, axis=0) / (span.mean(0) + 1e-12)))
+    order = np.argsort(lo[:, axis], kind="stable")
+    starts = lo[order, axis]
+    ends = np.searchsorted(starts, hi[order, axis] + eps, side="right")
+    for k, end in enumerate(ends):
+        if end <= k + 1:
+            continue
+        i = order[k]
+        possible = order[k + 1:end]
+        keep = np.all((lo[possible] <= hi[i] + eps) & (hi[possible] >= lo[i] - eps), axis=1)
+        for j in possible[keep]:
+            yield (i, j) if i < j else (j, i)
+
+
 def tier1_qa(
     meshes: list[MeshData], budget: EngineBudget, ground_tol: float = 0.01, touch_eps: float = 0.005
 ) -> Tier1Report:
@@ -208,6 +225,7 @@ def tier1_qa(
         add("draw_call_budget", "critical", None, f"{draw_calls} draw calls > {budget.max_draw_calls}")
 
     bbox = None
+    n_candidates = 0
     if valid:
         lo = np.min([v[2] for v in valid], axis=0)
         hi = np.max([v[3] for v in valid], axis=0)
@@ -215,18 +233,15 @@ def tier1_qa(
         if abs(lo[2]) > ground_tol:
             kind = "floating" if lo[2] > 0 else "sunk below ground"
             add("ungrounded", "warning", None, f"min z {lo[2]:.4f} m ({kind}, tol {ground_tol})")
+        touched = np.zeros(len(valid), dtype=bool)
+        bounds_lo, bounds_hi = np.asarray([v[2] for v in valid]), np.asarray([v[3] for v in valid])
+        for i, j in _candidate_pairs(bounds_lo, bounds_hi, touch_eps):
+            touched[i] = touched[j] = True
+            n_candidates += 1
+            _check_pair(valid[i], valid[j], add)
         if len(valid) > 1:
-            for i, (m, _, l, h) in enumerate(valid):
-                if l[2] <= ground_tol:
-                    continue
-                if not any(
-                    j != i and (l - touch_eps <= v[3]).all() and (h + touch_eps >= v[2]).all()
-                    for j, v in enumerate(valid)
-                ):
-                    add("floating_part", "warning", m.node_id, f"AABB touches nothing; min z {l[2]:.3f}")
-        for i in range(len(valid)):
-            for j in range(i + 1, len(valid)):
-                _check_pair(valid[i], valid[j], add)
+            for i in np.flatnonzero(~touched & (bounds_lo[:, 2] > ground_tol)):
+                add("floating_part", "warning", valid[i][0].node_id, f"AABB touches nothing; min z {bounds_lo[i, 2]:.3f}")
 
     ms = (time.perf_counter() - t0) * 1e3
     stats = {
@@ -236,6 +251,7 @@ def tier1_qa(
         "max_tris": budget.max_tris,
         "max_draw_calls": budget.max_draw_calls,
         "bbox": bbox,
+        "candidate_pairs": n_candidates,
         "ms": round(ms, 2),
     }
     return Tier1Report(not any(i.severity == "critical" for i in issues), issues, stats)
@@ -564,11 +580,16 @@ def write_gltf(
     items: Sequence[LOD | MeshData | UVResult | Hull],
     names: Sequence[str] | None = None,
     y_up: bool = True,
+    *,
+    materials: Sequence | None = None,
 ) -> Path:
     """Writes a GLB. Our world is Z-up; glTF is Y-up, so (x,y,z) -> (x,z,-y) unless y_up=False."""
     import trimesh
     from trimesh.visual import TextureVisuals
+    from trimesh.visual.material import PBRMaterial
 
+    default_material = PBRMaterial(name="Default", baseColorFactor=[0.5, 0.5, 0.5, 1.0],
+                                   metallicFactor=0.0, roughnessFactor=0.5)
     path = Path(path)
     scene = trimesh.Scene()
     for i, it in enumerate(items):
@@ -578,7 +599,8 @@ def write_gltf(
             p = np.stack([p[:, 0], p[:, 2], -p[:, 1]], axis=1)
         tm = trimesh.Trimesh(p, np.asarray(it.triangles), process=False)
         if uv is not None:
-            tm.visual = TextureVisuals(uv=np.asarray(uv, dtype=np.float64))
+            material = materials[i] if materials and materials[i] is not None else default_material
+            tm.visual = TextureVisuals(uv=np.asarray(uv, dtype=np.float64), material=material)
         name = names[i] if names else getattr(it, "name", None) or getattr(it, "node_id", None) or f"mesh_{i}"
         scene.add_geometry(tm, node_name=name, geom_name=name)
     path.write_bytes(scene.export(file_type="glb"))

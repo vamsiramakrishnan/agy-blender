@@ -293,3 +293,11 @@ def test_derive_pbr_prepare_is_opt_in():
     prepped = derive_pbr(lit, tileable=False, prepare=True)
     assert baked_light_score(prepped.albedo) < baked_light_score(lit) and lum(prepped.albedo).min() >= 29.5
     assert prepped.normal.size == (64, 64)
+
+
+def test_large_tileable_lowpass_matches_wrapped_convolution():
+    from antigravity3d.genmedia.pbr_deriver import _blur
+
+    arr = np.random.default_rng(921).random((144, 257), dtype=np.float32)
+    spatial = ndi.gaussian_filter(arr, sigma=32, mode="wrap")
+    assert np.allclose(_blur(arr, 32, tileable=True), spatial, atol=2e-5)

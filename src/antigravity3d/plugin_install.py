@@ -67,6 +67,45 @@ def _is_our_plugin(path: Path) -> bool:
         return False
 
 
+def _bind_python_launchers(dest: Path) -> None:
+    """Bind copied launchers to the interpreter that owns the installed runtime."""
+    # Resolving the symlink would escape a venv and lose its installed packages.
+    python = str(Path(sys.executable).absolute())
+    mcp_file = dest / "mcp_config.json"
+    config = json.loads(mcp_file.read_text())
+    studio = config["mcpServers"]["studio"]
+    studio.update(command=python, args=["-m", "antigravity3d.runtime.mcp_server"])
+    mcp_file.write_text(json.dumps(config, indent=2) + "\n")
+
+    for path in sorted((dest / "sidecars").glob("*/sidecar.json")):
+        sidecar = json.loads(path.read_text())
+        args = sidecar.get("args", [])
+        if sidecar.get("command") == "uv" and args[:3] == ["run", "python", "-m"]:
+            sidecar.update(command=python, args=args[2:])
+        elif path.parent.name == "weekly_distill":
+            old = "uv run python -m antigravity3d.runtime.distill_job"
+            command = shlex.join([python, "-m", "antigravity3d.runtime.distill_job"])
+            sidecar["args"] = [arg.replace(old, command) for arg in args]
+            grants = sidecar["agent_permissions"]["access_grants"]
+            sidecar["agent_permissions"]["access_grants"] = [g.replace(old, command) for g in grants]
+        else:
+            continue
+        path.write_text(json.dumps(sidecar, indent=2) + "\n")
+
+    hook_file = dest / "hooks.json"
+    hooks = json.loads(hook_file.read_text())
+    for group in hooks.values():
+        for event, items in group.items():
+            if event == "enabled":
+                continue
+            for item in items:
+                for handler in item.get("hooks", [item]):
+                    argv = shlex.split(handler["command"])
+                    if argv[0] == "python3":
+                        handler["command"] = shlex.join([python, *argv[1:]])
+    hook_file.write_text(json.dumps(hooks, indent=2) + "\n")
+
+
 def _personalize(dest: Path, workspace: Path | None, depot: Path | None) -> None:
     """Fills install-time absolute paths into sidecar permissions (narrowest documented grants)."""
     for sc in sorted((dest / "sidecars").glob("*/sidecar.json")):
@@ -111,6 +150,7 @@ def install(target_root: Path | None = None, *, symlink: bool = False,
         dest.symlink_to(src.resolve(), target_is_directory=True)
     else:
         shutil.copytree(src, dest, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"))
+        _bind_python_launchers(dest)
         _personalize(dest, workspace, depot)
     return dest
 

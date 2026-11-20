@@ -60,3 +60,10 @@ def test_install_with_fake_bpy():
     bpy.agy_compat.set_engine(scene, "BLENDER_EEVEE_NEXT")
     assert scene.render.engine == "BLENDER_EEVEE"
     assert bpy.agy_compat.pass_name("Z") == "Depth"
+
+
+def test_rewrite_imported_asset_representation_and_bindcode():
+    code, changes = S.rewrite_source(
+        'from __future__ import annotations\nfrom bpy.types import AssetHandle as AH\nthumb = img.bindcode')
+    assert "from bpy.types import AssetRepresentation as AH" in code and "import gpu.texture" in code
+    compile(code, "<shim>", "exec")

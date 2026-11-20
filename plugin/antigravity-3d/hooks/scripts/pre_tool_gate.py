@@ -71,9 +71,16 @@ def decide(payload: dict[str, Any]) -> dict[str, Any]:
     names = c.tool_names(tool_call)
     _record_start(payload, tool_call)
 
+    if c.is_tool(names, ("open_asset_session",)) and c.is_studio_mcp_call(tool_call, names):
+        if not c.conv_id(payload) or c.tool_args(tool_call).get("conversation_id") != c.conv_id(payload):
+            return {"decision": "deny", "reason": "pass this conversation's ID from the session header to open_asset_session"}
+
     if c.is_tool(names, c.EXPORT_TOOLS):
         try:
-            ok, reason = c.export_gate(c.state_root(payload), c.conv_id(payload))
+            sid = c.tool_args(tool_call).get("session_id", "")
+            if c.is_studio_mcp_call(tool_call, names) and not sid:
+                return {"decision": "deny", "reason": "pass the session_id from open_asset_session for native export"}
+            ok, reason = c.export_gate(c.state_root(payload), c.conv_id(payload), sid)
         except Exception as e:  # noqa: BLE001 - fail closed
             return {"decision": "deny", "reason": f"export gate could not read QA state ({e}); failing closed"}
         return {"decision": "allow" if ok else "deny", "reason": reason}

@@ -3,12 +3,6 @@
     blender --background --factory-startup --python daemon.py -- --socket <path>
     python daemon.py --fake --socket <path>          # tests: no bpy
 
-The protocol/dispatch core (everything above ``# ---- bpy handlers``) is plain
-CPython and VERIFIED HERE through the ``--fake`` handler set. The bpy handlers
-are written against the Blender 5.3 Python API but have NEVER been executed in
-this container (no Blender binary); treat them as unverified until the
-``@pytest.mark.blender`` tests have run on a real build.
-
 Serving is strictly sequential on the main thread (bpy is not thread-safe).
 Shared-memory results are created by this process (it is the owner) and are
 unlinked lazily: at the start of the next request -- the pool copies a buffer
@@ -51,12 +45,28 @@ def _load_sibling(stem: str) -> Any:
     return mod
 
 
+def _bootstrap_msgpack() -> None:
+    """Stock Blender isolates sys.path. Import only the host's msgpack package."""
+    path = os.environ.get("AGY3D_MSGPACK_INIT")
+    if path is None or importlib.util.find_spec("msgpack") is not None:
+        return
+    spec = importlib.util.spec_from_file_location("msgpack", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load msgpack from {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["msgpack"] = module
+    # msgpack automatically uses its Python implementation for a foreign Python ABI.
+    spec.loader.exec_module(module)
+
+
+_bootstrap_msgpack()
 proto = _load_sibling("protocol")
 linter = _load_sibling("linter")
 shim = _load_sibling("shim_5_3")
 
 Handler = Callable[[dict[str, Any]], Any]
 OPS: dict[str, Handler] = {}
+PRIMITIVES: dict[str, Callable[..., dict[str, Any]]] = {}
 DENOISER_CHAIN = ("DLSS", "OPTIX", "OPENIMAGEDENOISE")  # preference order; filtered by what the build offers
 ENGINE_IDS = {"workbench": "BLENDER_WORKBENCH", "eevee": "BLENDER_EEVEE", "cycles": "CYCLES"}
 SAFE_MODULES = linter.ALLOWED_MODULES
@@ -136,7 +146,27 @@ def _ping(a: dict[str, Any]) -> dict[str, Any]:
 def _version(a: dict[str, Any]) -> dict[str, Any]:
     bpy = sys.modules.get("bpy")
     return {"daemon": DAEMON_VERSION, "python": sys.version.split()[0], "fake": bpy is None or bool(getattr(bpy, "_agy_fake", False)),
-            "blender": getattr(getattr(bpy, "app", None), "version_string", None), "ops": sorted(OPS)}
+            "blender_version": getattr(getattr(bpy, "app", None), "version", None),
+            "blender": getattr(getattr(bpy, "app", None), "version_string", None), "ops": sorted(OPS), "primitives": sorted(PRIMITIVES)}
+
+
+def _import_snapshot(path: str) -> dict[str, Any]:
+    OPS["reset_scene"]({})
+    imported = OPS["import_usd"]({"path": path})
+    if not imported.get("fake") and not imported["renderable"]:
+        raise ValueError("USD snapshot contains no renderable geometry")
+    return imported
+
+
+@op("render_usd")
+def _render_usd(a: dict[str, Any]) -> dict[str, Any]:
+    """Render a complete immutable USD snapshot on the worker handling this request."""
+    imported = _import_snapshot(a["path"])
+    result = OPS["render"](a)
+    if "mesh_stats" in PRIMITIVES:
+        stats = PRIMITIVES["mesh_stats"]()
+        result["mesh_stats"] = {key: stats[key] for key in ("total_tris", "total_verts", "draw_calls_est")}
+    return {**result, "objects": imported.get("objects", []), "fake": bool(imported.get("fake"))}
 
 
 @op("run_script")
@@ -231,11 +261,57 @@ def register_fake_ops() -> None:
         return {"fake": True, "paths": paths}
 
 
-# ---- bpy handlers (written to spec against Blender 5.3; UNVERIFIED here)
+# ---- bpy handlers
 def register_bpy_ops(bpy: Any) -> None:
     import numpy as np
 
+    from mathutils import Vector
+
+    if bpy.app.version[:2] < (5, 3):
+        raise RuntimeError(f"Blender 5.3+ required, got {bpy.app.version_string}")
     shim.install(bpy)
+    checkout = os.environ.get("AGY3D_BLENDER_SKILLS")
+    if checkout:
+        PRIMITIVES.update(_load_sibling("skills").load_reviewed(Path(checkout)))
+
+        @op("inspect_usd")
+        def inspect_usd(a: dict[str, Any]) -> dict[str, Any]:
+            run = PRIMITIVES[a["primitive"]]
+            _import_snapshot(a["path"])
+            return run(**a.get("kwargs", {}))
+
+    geometry_types = {"MESH", "CURVE", "SURFACE", "FONT", "META", "VOLUME", "POINTCLOUD"}
+
+    def frame_scene(scene: Any, width: int, height: int) -> None:
+        if scene.camera is None:
+            bpy.context.view_layer.update()
+            corners = [obj.matrix_world @ Vector(corner)
+                       for obj in scene.objects if obj.type in geometry_types and not obj.hide_render
+                       for corner in obj.bound_box]
+            if not corners:
+                corners = [Vector((-1, -1, -1)), Vector((1, 1, 1))]
+            low = Vector(tuple(min(p[i] for p in corners) for i in range(3)))
+            high = Vector(tuple(max(p[i] for p in corners) for i in range(3)))
+            center = (low + high) / 2
+            diameter = max((high - low).length, 0.001)
+            camera = bpy.data.cameras.new("Lookdev camera")
+            obj = bpy.data.objects.new(camera.name, camera)
+            scene.collection.objects.link(obj)
+            camera.type = "ORTHO"
+            camera.ortho_scale = diameter * 1.1 * max(width / height, height / width)
+            camera.clip_start = diameter * 0.01
+            camera.clip_end = diameter * 5
+            view = Vector((1.4, -2.0, 1.2)).normalized()
+            obj.location = center + view * diameter * 2
+            obj.rotation_euler = (-view).to_track_quat("-Z", "Y").to_euler()
+            scene.camera = obj
+        if not any(obj.type == "LIGHT" and not obj.hide_render for obj in scene.objects):
+            for name, direction, energy in (("Key", (2, -3, 4), 3.0), ("Fill", (-2, 1, 2), 1.0)):
+                light = bpy.data.lights.new(name, "SUN")
+                light.energy = energy
+                obj = bpy.data.objects.new(light.name, light)
+                scene.collection.objects.link(obj)
+                obj.rotation_euler = (-Vector(direction)).to_track_quat("-Z", "Y").to_euler()
 
     def _obj(name: str) -> Any:
         obj = bpy.data.objects.get(name)
@@ -245,8 +321,12 @@ def register_bpy_ops(bpy: Any) -> None:
 
     @op("import_usd")
     def import_usd(a: dict[str, Any]) -> dict[str, Any]:
-        bpy.ops.wm.usd_import(filepath=a["path"])
-        return {"objects": [o.name for o in bpy.context.scene.objects]}
+        before = set(bpy.data.objects)
+        if "FINISHED" not in bpy.ops.wm.usd_import(filepath=a["path"]):
+            raise RuntimeError(f"USD import failed for {a['path']}")
+        imported = set(bpy.data.objects) - before
+        return {"objects": sorted(obj.name for obj in imported),
+                "renderable": any(obj.type in geometry_types and not obj.hide_render for obj in imported)}
 
     @op("export_usd")
     def export_usd(a: dict[str, Any]) -> dict[str, Any]:
@@ -265,14 +345,18 @@ def register_bpy_ops(bpy: Any) -> None:
             raise ValueError(f"unknown engine {engine!r}")
         w, h, samples = int(a.get("width", 512)), int(a.get("height", 512)), int(a.get("samples", 16))
         scene = bpy.context.scene
+        frame_scene(scene, w, h)
         scene.render.engine = ENGINE_IDS[engine]
         scene.render.resolution_x, scene.render.resolution_y = w, h
         scene.render.resolution_percentage = 100
+        scene.render.film_transparent = bool(a.get("transparent", False))
         used = None
         if engine == "cycles":
             cy = scene.cycles
             cy.samples = samples
-            items = [i.identifier for i in bpy.types.CyclesRenderSettings.bl_rna.properties["denoiser"].enum_items]
+            # Static RNA enum_items is empty. Cycles populates this list per device.
+            from cycles.properties import enum_denoiser
+            items = [item[0] for item in enum_denoiser(cy, bpy.context)]
             used = pick_denoiser(a.get("denoiser", "auto"), items)
             cy.use_denoising = used is not None
             if used:
@@ -349,7 +433,6 @@ def register_bpy_ops(bpy: Any) -> None:
         bpy.context.view_layer.objects.active = obj
         if not obj.data.materials:
             m = bpy.data.materials.new(f"{obj.name}_bake")
-            m.use_nodes = True
             obj.data.materials.append(m)
         nt = obj.active_material.node_tree
         paths = []
@@ -399,6 +482,26 @@ def dispatch(msg: dict[str, Any]) -> dict[str, Any]:
         return proto.error_response(mid, e, "".join(traceback.format_exc().splitlines(True)[-6:]))
 
 
+def serve_connection(conn: socket.socket, parent_pid: int, poll: float = 0.25) -> bool:
+    """Return True after a clean shutdown request, False when a connection disappears."""
+    try:
+        while parent_alive(parent_pid):
+            if not select.select([conn], [], [], poll)[0]:
+                continue
+            msg = proto.recv_msg(conn)
+            if msg is None:
+                break
+            if msg.get("op") == "shutdown":
+                proto.send_msg(conn, proto.ok_response(msg.get("id", 0), {"bye": True}))
+                return True
+            proto.send_msg(conn, dispatch(msg))
+    except (proto.ProtocolError, OSError):
+        pass
+    finally:
+        PUBLISHED.release()
+    return False
+
+
 def serve(sock_path: str, parent_pid: int, poll: float = 0.25) -> None:
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
@@ -406,30 +509,13 @@ def serve(sock_path: str, parent_pid: int, poll: float = 0.25) -> None:
             os.unlink(sock_path)
         srv.bind(sock_path)
         srv.listen(1)
-        running = True
-        while running and parent_alive(parent_pid):
+        while parent_alive(parent_pid):
             if not select.select([srv], [], [], poll)[0]:
                 continue
             conn, _ = srv.accept()
             with conn:
-                while running and parent_alive(parent_pid):
-                    if not select.select([conn], [], [], poll)[0]:
-                        continue
-                    try:
-                        msg = proto.recv_msg(conn)
-                    except (proto.ProtocolError, OSError):
-                        break
-                    if msg is None:
-                        break
-                    if msg.get("op") == "shutdown":
-                        PUBLISHED.release()
-                        proto.send_msg(conn, proto.ok_response(msg.get("id", 0), {"bye": True}))
-                        running = False
-                        break
-                    try:
-                        proto.send_msg(conn, dispatch(msg))
-                    except OSError:
-                        break
+                if serve_connection(conn, parent_pid, poll):
+                    break
     finally:
         PUBLISHED.release()
         srv.close()
@@ -444,7 +530,9 @@ def main(argv: list[str] | None = None) -> int:
     if "--" in argv:  # blender ... --python daemon.py -- --socket X
         argv = argv[argv.index("--") + 1:]
     p = argparse.ArgumentParser()
-    p.add_argument("--socket", required=True)
+    transport = p.add_mutually_exclusive_group(required=True)
+    transport.add_argument("--socket")
+    transport.add_argument("--socket-fd", type=int)
     p.add_argument("--fake", action="store_true")
     p.add_argument("--parent-pid", type=int, default=os.getppid())
     ns = p.parse_args(argv)
@@ -459,7 +547,11 @@ def main(argv: list[str] | None = None) -> int:
         register_fake_ops()
     else:
         register_bpy_ops(bpy)
-    serve(ns.socket, ns.parent_pid)
+    if ns.socket_fd is None:
+        serve(ns.socket, ns.parent_pid)
+    else:
+        with socket.socket(fileno=ns.socket_fd) as conn:
+            serve_connection(conn, ns.parent_pid)
     return 0
 
 

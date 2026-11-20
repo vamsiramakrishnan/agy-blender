@@ -24,6 +24,7 @@ from antigravity3d.kernel.types import MeshData
 from antigravity3d.kernel.usd_stage import StageManager
 from antigravity3d.kernel.validator import validate_usd
 from antigravity3d.state import EngineBudget
+from antigravity3d.tactics.governor import Governor
 from antigravity3d.tactics.cached import CachedForge
 from antigravity3d.tactics.package import write_package_usd
 
@@ -63,7 +64,8 @@ class EnvironmentKitDAG:
     def __init__(self, *, forge: Any, author: Any, workdir: Path | str, budget: EngineBudget, plane: Any = None, pool: Any = None,
                  cache: Any = None, sheet: TrimSheet | None = None, sheet_resolution: int = 2048,
                  max_parallel: int | None = None) -> None:
-        self.forge = CachedForge(forge, cache) if cache is not None else forge
+        forge = forge.with_governor(Governor(forge.governor.plan, journal=Path(workdir) / "spend.sqlite3"))
+        self.forge = CachedForge(forge, cache, budget=budget) if cache is not None else forge
         self.author, self.out, self.budget, self.plane, self.pool = author, Path(workdir), budget, plane, pool
         self.sheet, self.max_parallel = sheet or TrimSheet.standard(sheet_resolution), max_parallel
 
@@ -204,7 +206,7 @@ class EnvironmentKitDAG:
         mapped: list[MappedPiece] = rep.results.get("map_trim") or []
         skipped = [{"step": f"dag:{n.name}", "reason": n.reason} for n in rep.nodes.values() if n.status == "skipped" and n.reason and not n.blocked]
         rep.extras = {
-            "prompt": prompt, "n_pieces": n_pieces, "kit_usd": asm.get("path"), "trim_sheet": (rep.results.get("trim_sheet") or {}).get("path"),
+            "prompt": prompt, "n_pieces": n_pieces, "kit_usd": asm.get("path"), "genmedia_receipts": self.forge.governor.receipts(), "trim_sheet": (rep.results.get("trim_sheet") or {}).get("path"),
             "pieces": rep.results.get("export_pieces") or {}, "vram": r.get("vram"), "settle_dz": asm.get("settle_dz"), "piece_min_z": r.get("piece_min_z"),
             "spatial_overview": asm.get("overview"), "backdrop": rep.results.get("backdrop"), "skipped": skipped,
             "trim_issues": [i for mp in mapped for i in mp.issues],

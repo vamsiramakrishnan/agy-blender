@@ -61,7 +61,7 @@ def validate_request(model: str, input: Any, questions: dict[str, Any]) -> int:
     if not 1 <= len(questions) <= 1000:
         raise FakeWireError(f"need 1-1000 questions, got {len(questions)}")
     for qid, q in questions.items():
-        if not qid or qid != qid.strip():
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", qid):
             raise FakeWireError(f"bad question id {qid!r}")
         t = q.get("type")
         if t not in ("noul", "choice", "score"):
@@ -131,7 +131,7 @@ class FakeDecisionsClient:
     block_reason / block_if(request)  return prompt_feedback with a block reason and no answers
     uncalibrated  responses are tagged `calibrated=False` (as the generative fallback does)
 
-    Programmed values for per-item questions (ids "<bank id>@<n>": LOD pairs, rig poses, set-of-mark badges)
+    Programmed values for per-item questions (ids "<bank id>__<n>": LOD pairs, rig poses, set-of-mark badges)
     are looked up by the full id first, then by the bare bank id.
     """
 
@@ -166,15 +166,17 @@ class FakeDecisionsClient:
         out: dict[str, Any] = {}
         for qid, q in questions.items():
             v = prog.get(qid)
-            if v is None and "@" in qid:
-                v = prog.get(qid.rsplit("@", 1)[0])
+            if v is None and "__" in qid:
+                v = prog.get(qid.rsplit("__", 1)[0])
             if v is not None and not isinstance(v, (int, float, str)):
                 out[qid] = v
             elif q["type"] == "noul":
                 p = min(0.99, max(0.01, float(self.default_noul if v is None else v)))
                 out[qid] = NoulAnswer(noul=p, confidence=max(p, 1 - p))
             elif q["type"] == "score":
-                out[qid] = score_answer(float(self.default_score if v is None else v), len(q["criteria"]))
+                levels = len(q["criteria"])
+                value = min(self.default_score, levels - 1) if v is None else float(v)
+                out[qid] = score_answer(value, levels)
             else:
                 opts = list(q["criteria"])
                 win = opts[0] if v is None else str(v)

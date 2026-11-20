@@ -107,7 +107,7 @@ def test_prop_dag_outputs_are_real(prop_runs) -> None:
     names = [p.GetName() for p in stage.Traverse()]
     assert any(n.startswith("UCX_") for n in names)  # colliders named for Unreal
     glb = trimesh.load(out["glb"], force="scene")
-    assert len(glb.geometry) >= 3
+    assert 1 <= len(glb.geometry) <= UE.max_draw_calls
     pyr = x["pyramid"]
     lod = next(s["detail"] for s in pyr["steps"] if s["name"] == "uv_lod_colliders")
     tris = json.loads(lod.split("lod_tris=")[1].split("]")[0] + "]")
@@ -132,7 +132,7 @@ def test_second_identical_run_hits_the_cache_for_everything(prop_runs) -> None:
     assert after1[1] > 0  # run 1 filled the cache (images, PBR, UV/LOD/colliders)
     assert after2[1] == before2[1], "run 2 must have no cache misses"
     assert after2[0] - before2[0] >= after1[1]
-    assert cache.stats.saved_cost_usd > 0 and cache.stats.saved_ms > 0
+    assert cache.stats.saved_cost_usd == 0 and cache.stats.saved_ms > 0  # fake generation has no bill
     assert rep2.ok and rep2.extras["cost"]["cache"]["hits"] > 0
 
 
@@ -259,3 +259,17 @@ async def test_batch_sanitize_godot_target_uses_valid_usd_collider_names(tmp_pat
     stage = Usd.Stage.Open(r["outputs"]["usd"])
     names = [p.GetName() for p in stage.Traverse()]
     assert any(n.startswith("UCX_") for n in names) and not any("-" in n for n in names)
+
+
+async def test_required_publication_preserves_previous_generation_on_missing_proof(tmp_path):
+    published = tmp_path / "package"
+    published.mkdir()
+    (published / "previous").write_bytes(b"verified before this run")
+    dag = PropToEngineDAG(plane=make_plane(), forge=ImageForge(FakeImageBackend()), author=TemplateAuthor(),
+                          workdir=tmp_path, budget=UE, require_verified=True)
+    report = await dag.run("oak wine barrel")
+    assert not report.ok and not report.extras["verified"] and not report.extras["gates_ok"]
+    assert list(published.iterdir()) == [published / "previous"]
+    candidate = Path(report.extras["outputs"]["manifest"])
+    assert candidate.is_relative_to(tmp_path / "runs")
+    assert json.loads(candidate.read_text())["verified"] is False

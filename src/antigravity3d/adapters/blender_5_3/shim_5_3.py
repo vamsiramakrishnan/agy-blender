@@ -1,18 +1,7 @@
-"""Compatibility shim: normalise pre-5.3 Blender API usage in legacy scripts
-(e.g. the open-source ``EL4CTEO/blender-skills`` scripts).
+"""Compatibility helpers for legacy scripts running on Blender 5.3.
 
-Layout
-------
-(a) Pure-Python, bpy-free tables and normalisers (top of file). VERIFIED HERE by
-    unit tests -- but only as string/AST logic. The *values* in the tables are
-    transcribed from the migration notes in the task brief, not checked against
-    a Blender 5.3 binary. Anything uncertain lives in a ``*_MAP`` / ``*_SYMBOL``
-    constant so correcting it is a one-line edit.
-(b) ``install(bpy)``: thin runtime patch layer. UNVERIFIED without a Blender 5.3
-    binary; written to spec only. RNA properties cannot be monkey-patched, so
-    most fixes are done by ``rewrite_source`` (AST rewrite before execution);
-    ``install`` only exposes helper functions under ``bpy.agy_compat`` for the
-    cases that need runtime logic.
+The AST rewrite handles renamed identifiers. Runtime-only helpers, including
+RNA property checks and GPU textures, are installed on bpy.agy_compat.
 """
 
 from __future__ import annotations
@@ -86,6 +75,14 @@ class _Rewriter(ast.NodeTransformer):
             self._solver(node.value)
         return self.generic_visit(node)
 
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> ast.AST:
+        if node.module == "bpy.types":
+            for alias in node.names:
+                if alias.name == ASSET_HANDLE_OLD:
+                    alias.name = ASSET_REPRESENTATION_NEW
+                    self.changes.append("AssetHandle")
+        return node
+
     def visit_Name(self, node: ast.Name) -> ast.AST:
         if node.id == ASSET_HANDLE_OLD:
             self.changes.append("AssetHandle")
@@ -118,12 +115,20 @@ def rewrite_source(source: str) -> tuple[str, list[str]]:
     tree = rw.visit(tree)
     if not rw.changes:
         return source, []
+    if "bindcode" in rw.changes:
+        # Execute GPU texture lookups even when the old script never imported gpu.
+        idx = 0
+        if tree.body and isinstance(tree.body[0], ast.Expr) and isinstance(tree.body[0].value, ast.Constant):
+            idx += 1
+        while idx < len(tree.body) and isinstance(tree.body[idx], ast.ImportFrom) and tree.body[idx].module == "__future__":
+            idx += 1
+        tree.body.insert(idx, ast.Import(names=[ast.alias(name="gpu.texture")]))
     return ast.unparse(ast.fix_missing_locations(tree)), rw.changes
 
 
 # ---- (b) runtime patches --------------------------------------------------------------
 def install(bpy: Any) -> None:
-    """Exposes ``bpy.agy_compat`` helpers. UNVERIFIED without a Blender 5.3 binary.
+    """Exposes ``bpy.agy_compat`` helpers inside the worker.
 
     Helpers: ``set_engine`` (normalises engine ids), ``set_boolean_solver``,
     ``pass_name``, ``get_prop`` / ``set_prop`` (bpy.props vs ID custom
@@ -152,11 +157,12 @@ def install(bpy: Any) -> None:
             idblock[key] = value
 
     def safe_set_name(pg: Any, value: str) -> bool:
-        if is_readonly_propgroup_assignment("name"):
-            try:
-                pg.name = value
-            except (AttributeError, TypeError):
-                return False
+        if pg.is_property_readonly("name"):
+            return False
+        try:
+            pg.name = value
+        except (AttributeError, TypeError):
+            return False
         return True
 
     def texture_from_image(image: Any) -> Any:
@@ -172,8 +178,3 @@ def install(bpy: Any) -> None:
     ns.pass_name = normalize_pass_name
     ns.rewrite_source = rewrite_source
     bpy.agy_compat = ns
-    if hasattr(bpy.types, ASSET_HANDLE_OLD) is False and hasattr(bpy.types, ASSET_REPRESENTATION_NEW):
-        try:
-            setattr(bpy.types, ASSET_HANDLE_OLD, getattr(bpy.types, ASSET_REPRESENTATION_NEW))
-        except (AttributeError, TypeError):
-            pass  # bpy.types may be immutable; rewrite_source covers scripts instead

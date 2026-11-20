@@ -77,34 +77,35 @@ class RegionResult:
 
     def to_text(self, max_chars: int = 1200) -> str:
         """Terse deterministic rendering; ``len(result) <= max_chars`` always."""
-        lines: list[str] = []
+        if max_chars <= 0:
+            return ""
         if self.kind == "prims":
             head = f"{self.total_prims} prims in region"
-            for p in self.prims:
-                tag = f" [{p.tag}]" if p.tag else ""
-                lines.append(
-                    f"{p.node_id} {_fmt(p.bounds_min)}-{_fmt(p.bounds_max)} {p.tris}t"
-                    f"{' m=' + p.material_id if p.material_id else ''}{tag}"
-                )
+            rows = (
+                f"{p.node_id} {_fmt(p.bounds_min)}-{_fmt(p.bounds_max)} {p.tris}t"
+                f"{' m=' + p.material_id if p.material_id else ''}{' [' + p.tag + ']' if p.tag else ''}"
+                for p in self.prims
+            )
+            total = len(self.prims)
         else:
             head = f"{self.total_prims} prims in region, {len(self.cells)} cells (drill down with depth/bounds)"
-            for c in self.cells:
-                tags = ",".join(f"{t}x{n}" for t, n in c.top_tags)
-                lines.append(
-                    f"cell {c.path or 'root'} d{c.depth} {_fmt(c.bounds_min)}-{_fmt(c.bounds_max)} "
-                    f"{c.n_prims}p {c.tris}t{' ' + tags if tags else ''}"
-                )
+            rows = (
+                f"cell {c.path or 'root'} d{c.depth} {_fmt(c.bounds_min)}-{_fmt(c.bounds_max)} "
+                f"{c.n_prims}p {c.tris}t" + "".join(f" {tag}x{count}" for tag, count in c.top_tags)
+                for c in self.cells
+            )
+            total = len(self.cells)
         out = [head]
         used = len(head)
-        for i, ln in enumerate(lines):
-            tail = f"\n... +{len(lines) - i} more"
+        for i, ln in enumerate(rows):
+            tail = f"\n... +{total - i} more"
             if used + 1 + len(ln) + len(tail) > max_chars:
                 out.append(tail[1:])
                 break
             out.append(ln)
             used += 1 + len(ln)
         text = "\n".join(out)
-        return text if len(text) <= max_chars else text[: max(0, max_chars - 1)] + "~"
+        return text if len(text) <= max_chars else text[:max_chars - 1] + "~"
 
 
 class _Node:
@@ -142,6 +143,29 @@ class SpatialIndex:
             else:
                 self.lo[i] = self.hi[i] = 0.0
             self.tris[i] = len(m.triangles)
+        self.materials = [m.material_id for m in self.meshes]
+        self._build_tree()
+
+    @classmethod
+    def from_bounds(cls, prims: list[PrimInfo]) -> SpatialIndex:
+        """Build a navigation-only index without retaining any vertex or triangle buffers."""
+        idx = cls.__new__(cls)
+        idx.max_depth, idx.leaf_capacity = 8, 8
+        idx.meshes = None
+        idx.n = len(prims)
+        idx.ids = [p.node_id for p in prims]
+        idx.materials = [p.material_id for p in prims]
+        idx.semantic = {p.node_id: p.tag for p in prims if p.tag}
+        idx._index = {nid: i for i, nid in enumerate(idx.ids)}
+        if len(idx._index) != idx.n:
+            raise ValueError("duplicate node_id in bounds")
+        idx.lo = np.array([p.bounds_min for p in prims], dtype=float).reshape(-1, 3)
+        idx.hi = np.array([p.bounds_max for p in prims], dtype=float).reshape(-1, 3)
+        idx.tris = np.array([p.tris for p in prims], dtype=np.int64)
+        idx._build_tree()
+        return idx
+
+    def _build_tree(self) -> None:
         self.centroid = (self.lo + self.hi) / 2
         self.tags = [self.semantic.get(nid) for nid in self.ids]
         self.order = np.arange(self.n)
@@ -172,10 +196,9 @@ class SpatialIndex:
 
     # -- helpers -----------------------------------------------------------------
     def _info(self, i: int) -> PrimInfo:
-        m = self.meshes[i]
         return PrimInfo(
             self.ids[i], tuple(map(float, self.lo[i])), tuple(map(float, self.hi[i])),
-            int(self.tris[i]), m.material_id, self.tags[i],
+            int(self.tris[i]), self.materials[i], self.tags[i],
         )
 
     def _cell(self, node: _Node, idx: np.ndarray) -> CellSummary:
@@ -197,7 +220,9 @@ class SpatialIndex:
             nd = stack.pop()
             if not self._overlaps(nd.lo, nd.hi, bmin, bmax):
                 continue
-            if nd.children:
+            if np.all(bmin <= nd.lo) and np.all(bmax >= nd.hi):
+                found.append(self.order[nd.start:nd.end])
+            elif nd.children:
                 stack.extend(nd.children)
             else:
                 idx = self.order[nd.start:nd.end]
@@ -239,14 +264,18 @@ class SpatialIndex:
 
         Cells are returned when ``depth`` is given or the hit count exceeds
         ``limit``; with no explicit depth the deepest level whose cell count still
-        fits within ``limit`` is used (never shallower than depth 1).
+        fits within ``limit`` is used.
         """
         bmin, bmax = np.asarray(bounds_min, float), np.asarray(bounds_max, float)
+        if bmin.shape != (3,) or bmax.shape != (3,) or not np.all(bmin <= bmax):
+            raise ValueError("region bounds must be ordered 3-vectors")
+        if limit < 1 or (depth is not None and not 0 <= depth <= self.max_depth):
+            raise ValueError("invalid region result limit or octree depth")
         idx = self._prims_in(bmin, bmax)
         if depth is None and len(idx) <= limit:
             return RegionResult("prims", len(idx), prims=[self._info(i) for i in sorted(idx, key=lambda i: self.ids[i])])
         if depth is None:
-            depth = 1
+            depth = 0
             while depth < self.max_depth:
                 if len(self._cells_at(depth + 1, bmin, bmax)) > limit:
                     break
@@ -291,6 +320,8 @@ class SpatialIndex:
         Only prims whose AABB contains the point in XY (and reaches below z_start)
         are tested, using a vectorised vertical ray/triangle kernel (edge-inclusive).
         """
+        if self.meshes is None:
+            raise ValueError("raycast requires triangle geometry")
         x, y = float(xy[0]), float(xy[1])
         zs = np.inf if z_start is None else float(z_start)
         bmin = np.array([x, y, -np.inf])

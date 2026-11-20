@@ -110,12 +110,12 @@ async def test_session_stage_scoping_export_gate_and_linter(tmp_path):
         assert (await call(s, "render_preview")).startswith("PREVIEW #1")
         assert (await call(s, "run_visual_qa")).startswith("QA[blockout] approve")
         status = await call(s, "session_status")
-        assert "tier1=ok" in status and "export=allowed" in status
+        assert "tier1=ok" in status and "export=blocked" in status
         await call(s, "set_stage", stage="EXPORT")
         assert (await call(s, "generate_lods_and_colliders")).startswith("LODS 2 nodes")
         assert (await call(s, "run_usd_validator")).startswith("USD ")
         r = await call(s, "export_engine_package", out_name="crate_pkg")
-        assert r.startswith("EXPORTED crate_pkg"), r
+        assert r.startswith("REFUSED") and "approval" in r, r
 
         # the QA record is on disk for the plugin hooks
         qa = json.loads((tmp_path / "state" / "qa" / "latest.json").read_text())

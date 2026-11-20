@@ -368,7 +368,7 @@ def test_manifest_contents_and_clean_validation(unreal, godot):
     for _, bundle, pm in (unreal, godot):
         man = json.loads((pm.out_dir / "manifest.json").read_text())
         assert man["schema_version"] == 1 and man["asset"] == ASSET and man["usd"] == f"{ASSET}.usd"
-        assert man["tris"] == man["lod_tris"][0] and man["draw_calls"] == 1
+        assert man["tris"] == man["lod_tris"][0] and man["draw_calls"] == 3
         assert man["qa"] == {"tier1_ok": True, "tier15": 3.9}
         assert {"target_px_per_m", "mean_px_per_m"} <= set(man["texel_density"])
         assert {"usd", "trimesh", "xatlas", "meshoptimizer", "python"} <= set(man["versions"])
@@ -465,3 +465,187 @@ def test_reexport_into_same_directory_replaces_old_files(src, tmp_path):
     pm = write_engine_package(sm, {"uvs": bundle.uvs, "lods": bundle.lods, "colliders": bundle.colliders}, budget, out, asset_name=ASSET)
     assert pm.ok and (out / "textures" / "stale.png").exists()  # unknown files are never deleted
     assert validate_package(out) == []
+
+
+@pytest.mark.parametrize("fx", ["unreal", "godot"])
+def test_relocated_glbs_embed_correct_pbr_pixels_at_every_lod(fx, request, tmp_path, src):
+    import io
+    import struct
+
+    _, _, pm = request.getfixturevalue(fx)
+    glbs = tmp_path / "moved"
+    glbs.mkdir()
+    for glb in pm.out_dir.glob("*.glb"):
+        if "colliders" in glb.stem:
+            continue
+        data = shutil.copy(glb, glbs)
+        blob = Path(data).read_bytes()
+        length = struct.unpack_from("<I", blob, 12)[0]
+        doc = json.loads(blob[20:20 + length])
+        binary = blob[28 + length:]
+        for mesh in doc["meshes"]:
+            for primitive in mesh["primitives"]:
+                assert "TEXCOORD_0" in primitive["attributes"]
+                mat = doc["materials"][primitive["material"]]
+                assert mat["name"] == "paint"
+                pbr = mat["pbrMetallicRoughness"]
+                for role, slot in (("albedo", pbr["baseColorTexture"]), ("orm", pbr["metallicRoughnessTexture"]),
+                                   ("orm", mat["occlusionTexture"]), ("normal", mat["normalTexture"])):
+                    image = doc["images"][doc["textures"][slot["index"]]["source"]]
+                    view = doc["bufferViews"][image["bufferView"]]
+                    offset = view.get("byteOffset", 0)
+                    with Image.open(io.BytesIO(binary[offset:offset + view["byteLength"]])) as actual:
+                        with Image.open(src / f"{role}.png") as expected:
+                            np.testing.assert_array_equal(actual, expected)
+
+
+def test_validator_rejects_uv_only_glb_even_with_matching_geometry_and_hashes(godot, tmp_path):
+    from antigravity3d.kernel.fast_ops import write_gltf
+    from antigravity3d.kernel.package import _sha256
+
+    _, bundle, pm = godot
+    out = tmp_path / "broken"
+    shutil.copytree(pm.out_dir, out)
+    glb = write_gltf(out / f"{ASSET}.glb", bundle.uvs)
+    manifest = json.loads((out / "manifest.json").read_text())
+    manifest["file_hashes"][glb.name]["sha256"] = _sha256(glb)
+    (out / "manifest.json").write_text(json.dumps(manifest))
+    assert "pkg:glb_material" in {issue.code for issue in validate_package(out)}
+
+
+async def test_godot_loads_relocated_pbr_and_counts_real_surfaces(godot, tmp_path):
+    from antigravity3d.adapters.engines.validators import GodotValidator
+
+    validator = GodotValidator()
+    if not validator.available():
+        pytest.skip("set GODOT_BIN to run the stock Godot import")
+    _, _, pm = godot
+    glb = tmp_path / "relocated.glb"
+    shutil.copyfile(pm.out_dir / f"{ASSET}.glb", glb)
+    report = await validator.validate(glb, timeout=30)
+    assert report.ok, report.log_tail
+    assert report.metrics == {"triangles": pm.data["tris"], "surfaces": 3, "textured_surfaces": 3,
+                              "normal_surfaces": 3, "orm_surfaces": 3}
+
+
+async def test_godot_renders_relocated_package(godot, tmp_path):
+    from antigravity3d.adapters.engines.validators import GodotValidator
+
+    _, _, pm = godot
+    validator = GodotValidator()
+    glb = tmp_path / "relocated.glb"
+    shutil.copyfile(pm.out_dir / f"{ASSET}.glb", glb)
+    png = tmp_path / "frame.png"
+    report = await validator.capture(glb, png, timeout=45)
+    if report.skipped:
+        pytest.skip(report.skipped_reason)
+    assert report.ok, report.log_tail
+    with Image.open(png) as image:
+        assert image.size == (512, 512) and len(image.convert("L").getcolors(256)) > 10
+
+
+@pytest.mark.browser
+def test_exported_inspector_opens_with_browser_offline(godot):
+    import os
+
+    if not os.environ.get("AGY3D_THREE_JS"):
+        pytest.skip("run in the browser qualification job")
+    from playwright.sync_api import sync_playwright
+
+    path = godot[2].out_dir / "inspector.html"
+    with sync_playwright() as pw:
+        with pw.chromium.launch(executable_path=os.getenv("CHROMIUM_BIN"),
+                                args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]) as browser:
+            ctx = browser.new_context(offline=True)
+            page = ctx.new_page()
+            page.goto(path.resolve().as_uri())
+            page.wait_for_function("window.__inspectorReady || window.__inspectorError")
+            assert page.evaluate("window.__inspectorState.glOk")
+            for mode in ("albedo", "orm", "normal"):
+                page.locator(f'button[data-mode="{mode}"]').click()
+                assert page.locator("body").get_attribute("data-channel") == mode
+
+
+def test_static_draw_batches_fit_limit_and_retain_prim_attribution(godot, tmp_path):
+    sm, bundle, _ = godot
+    budget = EngineBudget("godot_4", max_draw_calls=1)
+    pm = write_engine_package(sm, bundle, budget, tmp_path, asset_name=ASSET)
+    assert pm.ok and pm.data["draw_calls"] == 1
+    assert sorted(pm.data["glb_batches"]["Batch_0"]) == ["ball", "base", "slab"]
+    assert validate_package(tmp_path) == []
+    glb = trimesh.load(tmp_path / f"{ASSET}.glb", force="scene")
+    assert len(glb.geometry) == 1 and len(glb.geometry["Batch_0"].faces) == pm.data["tris"]
+
+
+@pytest.fixture(scope="module")
+def relocated_goldens(tmp_path_factory):
+    root = tmp_path_factory.mktemp("portable_goldens")
+    sources = root / "source_maps"
+    sources.mkdir()
+    maps = _maps(sources)
+    goldens = []
+    primitives = [
+        ("Crate", "box", {"size": (1, .6, .9)}),
+        ("Slab", "box", {"size": (2, .6, .15)}),
+        ("RingBlank", "cylinder", {"radius": .7, "height": .2}),
+        ("Pillar", "cylinder", {"radius": .2, "height": 1.5}),
+        ("Cone", "cone", {"radius": .7, "height": .8}),
+        ("Spire", "cone", {"radius": .4, "height": 1.6, "segments": 6}),
+        ("Orb", "sphere", {"radius": .6}),
+        ("FacetedOrb", "sphere", {"radius": .4, "segments": 8, "rings": 4}),
+        ("Canister", "capsule", {"radius": .3, "height": .7}),
+        ("Pin", "capsule", {"radius": .15, "height": 1.3}),
+    ]
+    for i, (name, kind, params) in enumerate(primitives):
+        work = root / name
+        work.mkdir()
+        mat = MaterialIR(id="surface", normal_convention="opengl" if i % 2 else "directx", **maps)
+        sm = StageManager.create(work / "working.usda", name)
+        sm.apply_ir(SceneIR(asset_name=name, materials=[mat], nodes=[NodeIR(id="body", kind=kind, params=params,
+                    transform=Transform(translate=(.1, -.2, .5)), material_id=mat.id)]))
+        budget = EngineBudget("godot_4")
+        bundle = run_export_pipeline(sm.extract_meshes(), budget, name)
+        pm = write_engine_package(sm, bundle, budget, work / "out", asset_name=name)
+        assert pm.ok, pm.issues
+        destination = root / "relocated" / name
+        destination.parent.mkdir(exist_ok=True)
+        pm.out_dir.rename(destination)
+        goldens.append((name, destination))
+    shutil.rmtree(sources)
+    return goldens
+
+
+async def test_ten_relocated_golden_packages_load_in_stock_godot(relocated_goldens):
+    from antigravity3d.adapters.engines.validators import GodotValidator
+
+    validator = GodotValidator()
+    if not validator.available():
+        pytest.skip("Godot binary required for the ten-package import test")
+    for name, pkg in relocated_goldens:
+        assert validate_package(pkg) == []
+        manifest = json.loads((pkg / "manifest.json").read_text())
+        report = await validator.validate(pkg / f"{name}.glb", timeout=30)
+        assert report.ok, (name, report.log_tail)
+        assert report.metrics == {"triangles": manifest["tris"], "surfaces": 1, "textured_surfaces": 1,
+                                  "normal_surfaces": 1, "orm_surfaces": 1}
+
+
+@pytest.mark.blender
+async def test_ten_relocated_golden_dcc_engine_silhouettes(relocated_goldens, tmp_path):
+    import os
+    from antigravity3d.adapters.blender_5_3.pool import BlenderPool, find_blender
+    from antigravity3d.adapters.engines.validators import GodotValidator, MIN_SILHOUETTE_IOU, blender_frame_png, silhouette_iou
+
+    validator = GodotValidator()
+    if not find_blender() or not validator.available():
+        pytest.skip("Blender 5.3 and Godot required for measured engine parity")
+    if not os.getenv("DISPLAY") and not os.getenv("WAYLAND_DISPLAY") and not shutil.which("xvfb-run"):
+        pytest.skip("graphics renderer required for stock Godot capture")
+    async with BlenderPool(1, startup_timeout=120) as pool:
+        for name, pkg in relocated_goldens:
+            dcc = await pool.call("render_usd", path=str(pkg / f"{name}.usd"), engine="cycles",
+                                  width=512, height=512, samples=2, denoiser="none", transparent=True)
+            png = tmp_path / f"{name}.png"
+            capture = await validator.capture(pkg / f"{name}.glb", png, timeout=45)
+            assert capture.ok, (name, capture.log_tail or capture.skipped_reason)
+            assert silhouette_iou(blender_frame_png(dcc["image"]), png.read_bytes()) >= MIN_SILHOUETTE_IOU, name

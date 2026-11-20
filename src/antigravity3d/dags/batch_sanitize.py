@@ -17,9 +17,11 @@ import numpy as np
 import trimesh
 from pxr import Usd, UsdGeom
 
+from antigravity3d.tactics.governor import Governor, plan_for
 from antigravity3d.dags.runner import Dag, DagReport, NodeCtx
 from antigravity3d.kernel.compile_ir import USD_EXTS
 from antigravity3d.kernel.fast_ops import run_export_pipeline, tier1_qa
+from antigravity3d.kernel.mesh_io import triangle_parts
 from antigravity3d.kernel.raster import contact_sheet
 from antigravity3d.kernel.types import MeshData
 from antigravity3d.kernel.usd_stage import StageManager, _triangulate
@@ -72,18 +74,11 @@ def load_meshes(path: Path | str) -> list[MeshData]:
     if ext in USD_EXTS:
         meshes = _load_usd(path)
     else:
-        scene = trimesh.load(str(path), force="scene")
         used: set[str] = set()
-        meshes = []
-        for node in scene.graph.nodes_geometry:
-            tf, gname = scene.graph[node]
-            g = scene.geometry[gname]
-            if not isinstance(g, trimesh.Trimesh) or len(g.faces) == 0:
-                continue
-            p = trimesh.transform_points(np.asarray(g.vertices, np.float64), tf)
-            if ext in (".glb", ".gltf"):  # glTF is Y-up; the pipeline is Z-up
-                p = np.stack([p[:, 0], -p[:, 2], p[:, 1]], axis=1)
-            meshes.append(MeshData(_ident(str(node), used), "", p, np.asarray(g.faces, np.int32)))
+        meshes = [
+            MeshData(_ident(name, used), "", points, faces)
+            for name, points, faces, _ in triangle_parts(path)
+        ]
     if not meshes:
         raise ValueError(f"{path.name}: no triangle meshes found")
     return meshes
@@ -230,7 +225,9 @@ class BatchSanitizeDAG:
             sheet = await asyncio.to_thread(contact_sheet, fixed_meshes)
             from antigravity3d.decisions.compose import decide_action, tier15_score
 
-            q = await self.plane.evaluate_visual_qa(await self.up(png_bytes(sheet)), stage="blockout")
+            governor = Governor(plan_for(0), journal=out_dir / "spend.sqlite3")
+            q = await self.plane.evaluate_visual_qa(await self.up(png_bytes(sheet)), stage="blockout", governor=governor)
+            row["decision_receipts"] = governor.receipts()
             row["visual"] = {"tier15": tier15_score(q), "action": decide_action(q, None, "blockout").kind}
             t["visual_check"] = (clock() - t0) * 1e3
         if crit_left or val or comp:

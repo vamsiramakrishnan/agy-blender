@@ -1,7 +1,6 @@
 import asyncio
 import glob
 import os
-import shutil
 import signal
 import subprocess
 import sys
@@ -116,7 +115,7 @@ async def test_clean_stop_leaves_nothing():
     await pool.start()
     pids, tmp, prefix = [p for p in pool.worker_pids if p], pool.tmpdir, pool.prefix
     await pool.call("render", width=16, height=16)
-    assert os.path.isdir(tmp) and glob.glob(f"{tmp}/*.sock")
+    assert os.path.isdir(tmp) and all(alive(pid) for pid in pids)
     await pool.stop()
     assert not os.path.exists(tmp)
     assert glob.glob(f"/dev/shm/{prefix}*") == []
@@ -168,20 +167,18 @@ async def test_missing_blender_binary(monkeypatch):
         await BlenderPool(1).start()
 
 
-def test_daemon_exits_when_parent_dies(tmp_path):
-    sock = str(tmp_path / "d.sock")
+def test_daemon_exits_when_parent_dies():
     code = (
-        "import subprocess,sys,time\n"
-        f"p=subprocess.Popen([sys.executable,{str(DAEMON)!r},'--fake','--socket',{sock!r}])\n"
+        "import socket,subprocess,sys,time\n"
+        "a,b=socket.socketpair()\n"
+        f"p=subprocess.Popen([sys.executable,{str(DAEMON)!r},'--fake','--socket-fd',str(b.fileno())],"
+        "pass_fds=(b.fileno(),))\n"
+        "b.close()\n"
         "print(p.pid,flush=True)\ntime.sleep(60)\n"
     )
     parent = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
     try:
         child = int(parent.stdout.readline())
-        for _ in range(100):
-            if os.path.exists(sock):
-                break
-            time.sleep(0.05)
         assert alive(child)
         parent.kill()
         parent.wait()
@@ -189,17 +186,135 @@ def test_daemon_exits_when_parent_dies(tmp_path):
         while alive(child) and time.monotonic() < end:
             time.sleep(0.05)
         assert not alive(child), "daemon orphaned"
-        assert not os.path.exists(sock)
     finally:
         parent.kill()
 
 
+def write_cube_snapshot(path, name, proportions):
+    path.write_text(
+        '#usda 1.0\n(\n    upAxis = "Z"\n    metersPerUnit = 1\n)\n'
+        f'def Cube "{name}" {{\n'
+        '    double3 xformOp:translate = (42, 7, 20)\n'
+        f'    double3 xformOp:scale = {proportions}\n'
+        '    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:scale"]\n}\n'
+    )
+
+
 @pytest.mark.blender
-async def test_real_blender_ping_and_render():
+async def test_real_blender_concurrent_snapshots(tmp_path):
     if not find_blender():
         pytest.skip("no Blender binary ($BLENDER_BIN or PATH)")
+    bar, cube = tmp_path / "bar.usda", tmp_path / "cube.usda"
+    write_cube_snapshot(bar, "Bar", (4, 0.3, 0.3))
+    write_cube_snapshot(cube, "Cube", (1, 1, 1))
+    paths = [cube, bar, bar, cube]
+    async with BlenderPool(2, startup_timeout=120) as pool:
+        pids = pool.worker_pids
+        assert (await pool.call("version"))["blender_version"][:2] >= [5, 3]
+        results = await pool.map("render_usd", [
+            {"path": str(path), "engine": "cycles", "width": 48, "height": 48, "samples": 2, "denoiser": "none"}
+            for path in paths
+        ])
+        assert pool.worker_pids == pids
+        for path, result in zip(paths, results, strict=True):
+            assert not result["fake"] and result["objects"] == [path.stem.title()]
+            image = result["image"]
+            assert image.shape == (48, 48, 4) and np.isfinite(image).all()
+            assert np.ptp(image[:, :, :3]) > 0.1
+        assert not np.allclose(results[0]["image"], results[1]["image"])
+        assert np.allclose(results[0]["image"], results[3]["image"], atol=1e-4)
+        empty = tmp_path / "empty.usda"
+        empty.write_text('#usda 1.0\ndef Xform "Empty" {}\n')
+        with pytest.raises(BlenderOpError, match="no renderable geometry"):
+            await pool.call("render_usd", path=str(empty), engine="cycles")
+
+
+@pytest.mark.blender
+@pytest.mark.parametrize("engine", ["eevee", "workbench", "cycles"])
+async def test_real_blender_lookdev_engines(tmp_path, engine):
+    if not find_blender():
+        pytest.skip("no Blender binary ($BLENDER_BIN or PATH)")
+    path = tmp_path / "cube.usda"
+    write_cube_snapshot(path, "Cube", (1, 1, 1))
     async with BlenderPool(1, startup_timeout=120) as pool:
-        assert (await pool.call("version"))["blender"]
-        await pool.call("reset_scene")
-        r = await pool.call("render", engine="workbench", width=64, height=64, samples=1)
-        assert r["image"].shape == (64, 64, 4)
+        r = await pool.call("render_usd", path=str(path), engine=engine, width=32, height=24, samples=2, transparent=True)
+        assert r["image"].shape == (24, 32, 4) and r["engine"] == engine
+        assert np.std(r["image"][:, :, :3]) > 0.01
+        assert r["image"][:, :, 3].min() == 0 and r["image"][:, :, 3].max() > 0.95
+
+
+@pytest.mark.blender
+async def test_reviewed_upstream_primitives(tmp_path):
+    if not find_blender() or not os.environ.get("AGY3D_BLENDER_SKILLS"):
+        pytest.skip("requires stock Blender and the pinned AGY3D_BLENDER_SKILLS checkout")
+    path = tmp_path / "cube.usda"
+    write_cube_snapshot(path, "Cube", (1, 1, 1))
+    async with BlenderPool(1, startup_timeout=120) as pool:
+        assert (await pool.call("version"))["primitives"] == ["mesh_stats", "qa_check"]
+        report = await pool.call("inspect_usd", path=str(path), primitive="mesh_stats", kwargs={"budget": "web"})
+        assert report["total_tris"] == 12 and report["budget"]["pass"]
+        qa = await pool.call("inspect_usd", path=str(path), primitive="qa_check", kwargs={"profile": "game"})
+        assert "Cube" in qa["objects"] and not qa["pass"]   # fixture has no material
+        with pytest.raises(BlenderOpError, match="KeyError"):
+            await pool.call("inspect_usd", path=str(path), primitive="unlisted")
+        rendered = await pool.call("render_usd", path=str(path), engine="cycles", width=24, height=24, samples=2)
+        assert rendered["mesh_stats"]["total_tris"] == 12
+
+
+def test_unreviewed_blender_skills_are_rejected_before_import(tmp_path):
+    from antigravity3d.adapters.blender_5_3.skills import load_reviewed
+
+    helper = tmp_path / "skills/blender-game-optimization/scripts/_bpyx.py"
+    helper.parent.mkdir(parents=True)
+    helper.write_text("raise AssertionError('unapproved code executed')")
+    with pytest.raises(ValueError, match="unexpected blender-skills source digest"):
+        load_reviewed(tmp_path)
+
+
+@pytest.mark.blender
+async def test_three_worker_mixed_asset_soak(tmp_path):
+    if not find_blender() or os.environ.get("AGY3D_BLENDER_SOAK") != "1":
+        pytest.skip("set AGY3D_BLENDER_SOAK=1 with stock Blender to run 300 renders")
+    shapes = {"Bar": (4, 0.3, 0.3), "Cube": (1, 1, 1), "Column": (0.4, 0.4, 3)}
+    paths = {}
+    for name, scale in shapes.items():
+        paths[name] = tmp_path / f"{name}.usda"
+        write_cube_snapshot(paths[name], name, scale)
+    async with BlenderPool(3, startup_timeout=120) as pool:
+        pids = pool.worker_pids
+        options = dict(engine="cycles", width=24, height=24, samples=1, denoiser="none")
+        reference = {name: (await pool.call("render_usd", path=str(path), **options))["image"]
+                     for name, path in paths.items()}
+        for name, baseline in reference.items():
+            assert all(not np.allclose(baseline, ref, atol=1e-4) for k, ref in reference.items() if k != name)
+        for _ in range(100):
+            results = await pool.map("render_usd", [{"path": str(path), **options} for path in paths.values()])
+            for (name, baseline), result in zip(reference.items(), results, strict=True):
+                assert result["objects"] == [name]
+                np.testing.assert_allclose(result["image"], baseline, atol=1e-4)
+        latencies_ms = []
+        for _ in range(150):
+            start = time.perf_counter_ns()
+            assert (await pool.call("ping"))["pong"]
+            latencies_ms.append((time.perf_counter_ns() - start) / 1e6)
+        p95_ms = float(np.percentile(latencies_ms, 95))
+        print(f"Blender warm idle ping p95: {p95_ms:.3f} ms (150 calls, 3 workers)")
+        assert p95_ms < 10, f"warm idle ping p95 {p95_ms:.3f} ms exceeds the 10 ms budget"
+        assert pool.worker_pids == pids
+
+
+@pytest.mark.blender
+async def test_real_blender_legacy_migrations():
+    if not find_blender():
+        pytest.skip("requires stock Blender")
+    async with BlenderPool(1, startup_timeout=120) as pool:
+        result = await pool.call(
+            "run_script", legacy=True, source=(
+                'import bpy\n'
+                'from bpy.types import AssetHandle as OldHandle\n'
+                'scene = bpy.context.scene\n'
+                'scene.render.engine = "BLENDER_EEVEE_NEXT"\n'
+                'modifier = bpy.data.objects["Cube"].modifiers.new("Test", "BOOLEAN")\n'
+                'modifier.solver = "FAST"\n'
+                'result = [scene.render.engine, modifier.solver, OldHandle == bpy.types.AssetRepresentation]'))
+        assert result["result"] == ["BLENDER_EEVEE", "FLOAT", True]

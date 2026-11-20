@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -30,6 +31,22 @@ class EngineBudget:
     require_manifold: bool = True
 
 
+@dataclass(frozen=True)
+class VisualVerdict:
+    revision: str
+    target: str
+    stage: str
+    renderer: str
+    backend: str
+    action: str
+    texture_hash: str = ""
+
+    def qualifies(self, revision: str, target: str) -> bool:
+        return (bool(revision and target) and self.revision == revision and self.target == target
+                and self.stage in {"lookdev", "final"} and self.renderer in {"eevee", "cycles"}
+                and self.backend == "decisions" and self.action == "approve")
+
+
 @dataclass
 class AssetSessionState:
     session_id: str
@@ -42,6 +59,9 @@ class AssetSessionState:
     paintover_uri: str | None = None
     last_tier1_ok: bool = False
     last_tier15_score: float = 0.0
+    revision: str = field(default_factory=lambda: uuid.uuid4().hex)
+    verdict: VisualVerdict | None = None
+    validator_ok: bool | None = None
     audit_deltas: list[str] = field(default_factory=list)
 
     def add_audit_delta(self, line: str) -> None:
@@ -51,7 +71,8 @@ class AssetSessionState:
 
     @property
     def export_allowed(self) -> bool:
-        return self.last_tier1_ok and self.last_tier15_score >= EXPORT_MIN_TIER15_SCORE
+        return (self.validator_ok is not False and self.last_tier1_ok and EXPORT_MIN_TIER15_SCORE <= self.last_tier15_score <= 4.0
+                and self.verdict is not None and self.verdict.qualifies(self.revision, self.budget.target_engine))
 
 
 class SceneSessionRegistry:

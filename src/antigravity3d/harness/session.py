@@ -9,18 +9,24 @@ ToolContext state under :data:`CTX_SESSION_KEY`.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from antigravity3d.decisions.compose import Thresholds
 from antigravity3d.decisions.engine import DecisionControlPlane
 from antigravity3d.genmedia.nano_banana import ImageForge
+from antigravity3d.kernel.cache import BuildCache, LocalBlobStore
+from antigravity3d.tactics.cached import CachedForge
+from antigravity3d.tactics.governor import Governor, plan_for
 from antigravity3d.kernel.usd_stage import StageManager
 from antigravity3d.runtime import qa_state
-from antigravity3d.state import AssetSessionState, EngineBudget, SceneSessionRegistry
+from antigravity3d.state import AssetSessionState, EngineBudget, SceneSessionRegistry, VisualVerdict
 
 log = logging.getLogger(__name__)
 DEFAULT_REGISTRY = SceneSessionRegistry()
@@ -44,6 +50,9 @@ class Preview:
     uri: str
     geom_version: int
     index: int
+    kind: str = "clay"
+    texture_hash: str = ""
+    image_hash: str = ""
 
 
 @dataclass
@@ -54,7 +63,7 @@ class Session:
     state: AssetSessionState
     stage: StageManager
     plane: DecisionControlPlane | None
-    forge: ImageForge | None
+    forge: CachedForge | None
     pool: Any
     thresholds: Thresholds
     workdir: Path
@@ -75,6 +84,10 @@ class Session:
         self.registry.attach(self.sid, name, value)
 
     @property
+    def governor(self) -> Governor:
+        return self.registry.resource(self.sid, "governor")
+
+    @property
     def geom_version(self) -> int:
         return int(self._res(R_GEOM_VERSION, 0))
 
@@ -93,11 +106,36 @@ class Session:
     def set_last_export(self, path: Path | None) -> None:
         self._set(R_LAST_EXPORT, path)
 
-    def add_preview(self, path: Path, uri: str, geom_version: int | None = None) -> Preview:
+    def add_preview(self, path: Path, uri: str, geom_version: int | None = None, *, kind: str = "clay",
+                    texture_hash: str = "") -> Preview:
         version = self.geom_version if geom_version is None else geom_version
-        p = Preview(path, uri, version, len(self.previews) + 1)
-        self._set(R_PREVIEWS, [*self.previews, p])
+        if version != self.geom_version:
+            raise RuntimeError("geometry changed during render; re-run")
+        prev = self.previews
+        image_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        p = Preview(path, uri, version, prev[-1].index + 1 if prev else 1, kind, texture_hash, image_hash)
+        self._set(R_PREVIEWS, [*prev[-7:], p])
         return p
+
+    def texture_digest(self) -> str:
+        """Fingerprint externally mutable image bytes used by this composed scene."""
+        digest = hashlib.sha256()
+        seen: dict[Path, bytes] = {}
+        for mat in sorted(self.stage.scene_ir().materials, key=lambda m: m.id):
+            for slot in ("albedo_uri", "orm_uri", "normal_uri"):
+                ref = getattr(mat, slot)
+                if not ref:
+                    continue
+                parsed = urlparse(ref)
+                path = Path(unquote(parsed.path) if parsed.scheme == "file" else ref)
+                if path not in seen:
+                    if not path.is_file():
+                        raise ValueError(f"texture unavailable: {mat.id}.{slot}")
+                    with path.open("rb") as fh:
+                        seen[path] = hashlib.file_digest(fh, "sha256").digest()
+                digest.update(f"{mat.id}:{slot}:".encode())
+                digest.update(seen[path])
+        return digest.hexdigest() if seen else ""
 
     def latest_preview(self) -> Preview | None:
         """The newest contact sheet, only if it still matches the current geometry."""
@@ -108,32 +146,57 @@ class Session:
         """Mirrors the stage manager's transaction stack into the serialisable state."""
         self.state.tx_stack = list(self.stage.tx_stack)
 
-    def visuals_changed(self) -> None:
+    def revoke_approval(self) -> None:
+        """Withdraw a qualifying on-disk receipt before accepting a different scene or verdict."""
+        old = self.state.verdict
+        if self.state.export_allowed:
+            self.state.verdict = None
+            try:
+                self.persist_qa(strict=True)
+            except BaseException:
+                self.state.verdict = old
+                raise
+
+    def visuals_changed(self, *, tier1_ok: bool | None = None) -> None:
         """Any geometry/material change: invalidate the visual score and stale previews."""
+        self.revoke_approval()
+        self.state.validator_ok = None
+        if tier1_ok is not None:
+            self.state.last_tier1_ok = tier1_ok
         self._set(R_GEOM_VERSION, self.geom_version + 1)
+        self.state.revision = uuid.uuid4().hex
+        self.state.verdict = None
+        self.set_last_export(None)
         self.state.last_tier15_score = 0.0
         self.sync_tx()
         self.persist_qa()
 
-    def set_tier15(self, score: float) -> None:
+    def set_tier15(self, score: float, verdict: VisualVerdict, preview: Preview | None = None) -> None:
         """Records a visual-QA score (the only other writer of the gate fields besides Tier-1)."""
+        self._set("graded_preview", preview)
+        self.state.verdict = verdict
         self.state.last_tier15_score = score
         self.persist_qa()
 
-    def persist_qa(self) -> None:
+    def persist_qa(self, *, strict: bool = False) -> None:
         """Single writer of the on-disk QA record the plugin's hook processes read.
 
-        Called whenever ``last_tier1_ok`` / ``last_tier15_score`` change. A failed write never fails
-        the tool: it is logged once per process and the in-memory gate stays authoritative.
+        Revoking a published approval requires durable invalidation. Diagnostic writes log once
+        when unavailable. Every publisher also rechecks the live state under the session lock.
         """
         global _qa_write_warned
-        convs = [c for c, (reg, sid) in list(_bindings.items()) if sid == self.sid and reg is self.registry]
+        with _bind_guard:
+            convs = [c for c, (reg, sid) in _bindings.items() if sid == self.sid and reg is self.registry]
         try:
-            qa_state.write_qa_state(
-                tier1_ok=self.state.last_tier1_ok, tier15_score=self.state.last_tier15_score, session_id=self.sid,
-                conversation_id=convs[-1] if convs else "", asset=self.stage.asset_prim.GetName(),
-                workspace=self._res(R_QA_WORKSPACE, self.workdir))
+            for conv in convs or [""]:
+                qa_state.write_qa_state(
+                    tier1_ok=self.state.last_tier1_ok, tier15_score=self.state.last_tier15_score, session_id=self.sid,
+                    conversation_id=conv, asset=self.stage.asset_prim.GetName(), revision=self.state.revision,
+                    target=self.state.budget.target_engine, verdict=self.state.verdict, validator_ok=self.state.validator_ok,
+                    workspace=self._res(R_QA_WORKSPACE, self.workdir))
         except Exception as e:  # noqa: BLE001 - persistence is best-effort
+            if strict:
+                raise RuntimeError("could not revoke the prior export approval") from e
             if not _qa_write_warned:
                 _qa_write_warned = True
                 log.warning("could not persist QA state (plugin hooks will see stale verdicts): %s", e)
@@ -147,7 +210,7 @@ def open_session(
     budget: EngineBudget,
     *,
     plane: DecisionControlPlane | None,
-    forge: ImageForge | None,
+    forge: ImageForge | CachedForge | None,
     pool: Any = None,
     thresholds: Thresholds | None = None,
     state_workspace: str | Path | None = None,
@@ -165,11 +228,16 @@ def open_session(
     artifacts, exports = workdir / "artifacts", workdir / "export"
     artifacts.mkdir(exist_ok=True)
     exports.mkdir(exist_ok=True)
+    ledger = Governor(forge.governor.plan if forge else plan_for(2), journal=workdir / "spend.sqlite3")
+    if forge is not None:
+        forge = forge.with_governor(ledger)
+        if not isinstance(forge, CachedForge):
+            forge = CachedForge(forge, BuildCache(LocalBlobStore(workdir / ".agy3d-cache")), budget=budget)
     usd_path = workdir / f"{asset_name}.usda"
     stage = StageManager.create(usd_path, asset_name)
     state = registry.create(AssetSessionState(session_id=session_id, usd_stage_path=usd_path, budget=budget))
     for name, res in (
-        (R_STAGE, stage), (R_PLANE, plane), (R_FORGE, forge), (R_POOL, pool),
+        (R_STAGE, stage), (R_PLANE, plane), (R_FORGE, forge), (R_POOL, pool), ("governor", ledger),
         (R_THRESHOLDS, thresholds or Thresholds()), (R_WORKDIR, workdir), (R_ARTIFACTS, artifacts),
         (R_EXPORTS, exports), (R_PREVIEWS, []), (R_GEOM_VERSION, 0), (R_LAST_EXPORT, None),
         (R_QA_WORKSPACE, Path(state_workspace).resolve() if state_workspace else workdir),
@@ -195,7 +263,9 @@ def set_toolset(registry: SceneSessionRegistry, session_id: str, toolset: str) -
 
 def bind_conversation(conversation_id: str, session_id: str, registry: SceneSessionRegistry | None = None) -> None:
     with _bind_guard:
-        _bindings[conversation_id] = (registry if registry is not None else DEFAULT_REGISTRY, session_id)
+        bound = (registry if registry is not None else DEFAULT_REGISTRY, session_id)
+        _bindings[conversation_id] = bound
+    session(*bound).persist_qa()
 
 
 def unbind_conversation(conversation_id: str) -> None:

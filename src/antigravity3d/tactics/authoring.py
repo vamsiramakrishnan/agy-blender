@@ -410,13 +410,19 @@ class AgentAuthor:
     corrected scene as upserts of every changed node (an IRPatch), or None when nothing changed.
     """
 
-    def __init__(self, *, plane: Any = None, forge: Any = None, workdir: Any = None, role: str = "worker", timeout_s: float = 300.0) -> None:
-        import tempfile
-
+    def __init__(self, *, plane: Any = None, forge: Any = None, workdir: Any = None, client: Any = None, role: str = "worker", timeout_s: float = 300.0) -> None:
         self.plane, self.forge, self.role, self.timeout_s = plane, forge, role, timeout_s
-        self.workdir = workdir or tempfile.mkdtemp(prefix="agy3d-agent-")
+        self.client = client
+        self._budget: EngineBudget | None = None
+        self.workdir = workdir
         self.calls = {"propose": 0, "repair": 0}
         self.usage: list[Any] = []
+
+    def bind(self, governor: Any, budget: EngineBudget, context: dict[str, Any]) -> IRAuthor:
+        from google import genai
+        from antigravity3d.tactics.metered_author import MeteredAuthor
+
+        return MeteredAuthor(self.client or genai.Client(), governor, budget, context, timeout_s=self.timeout_s)
 
     def _run_stage(self) -> Callable[..., Any]:
         from antigravity3d.harness.agents import run_stage  # lazy
@@ -431,16 +437,23 @@ class AgentAuthor:
 
         run_stage = self._run_stage()
         sid = f"{tag}-{uuid.uuid4().hex[:8]}"
-        S.open_session(None, sid, Path(self.workdir) / sid, asset, budget, plane=self.plane, forge=self.forge)
-        stage = S.DEFAULT_REGISTRY.resource(sid, S.R_STAGE)
-        if seed_scene is not None:
-            stage.apply_ir(seed_scene)
-        run = await run_stage("BLOCKOUT", sid, prompt, role=self.role, timeout_s=self.timeout_s)
-        self.usage.append(run.usage)
-        return stage.base_ir()
+        import tempfile
+
+        with tempfile.TemporaryDirectory(dir=self.workdir, prefix=f"{sid}-") as directory:
+            S.open_session(None, sid, Path(directory), asset, budget, plane=self.plane, forge=self.forge)
+            try:
+                stage = S.DEFAULT_REGISTRY.resource(sid, S.R_STAGE)
+                if seed_scene is not None:
+                    stage.apply_ir(seed_scene)
+                run = await run_stage("BLOCKOUT", sid, prompt, role=self.role, timeout_s=self.timeout_s)
+                self.usage.append(run.usage)
+                return stage.base_ir()
+            finally:
+                S.DEFAULT_REGISTRY.drop(sid)
 
     async def propose(self, prompt: str, *, budget: EngineBudget, n: int, context: dict[str, Any]) -> list[SceneIR]:
         self.calls["propose"] += 1
+        self._budget = budget
         asset = context.get("asset_name") or _slug(prompt)
         emph = ("overall proportions", "construction detail", "symmetry", "clean minimal forms")
         task = (f"Build a blockout of: {prompt}. The asset name is {asset}; budget {budget.max_tris} tris, at most {budget.max_draw_calls} materials. "
@@ -452,22 +465,22 @@ class AgentAuthor:
         self.calls["repair"] += 1
         task = (f"Repair this blockout. QA verdict: {getattr(action, 'kind', action)}; reasons: {getattr(action, 'reasons', [])}. "
                 f"Located problems (defect -> node ids): {located}. Current manifest:\n{manifest}\nFix only what is flagged with apply_scene_ir.")
-        from antigravity3d.state import EngineBudget as EB
-
-        new = await self._session("repair", scene.asset_name, EB("unreal_5"), task, seed_scene=scene)
+        if self._budget is None:
+            raise ValueError("repair requires the target budget of a prior proposal")
+        new = await self._session("repair", scene.asset_name, self._budget, task, seed_scene=scene)
         old = {n.id: n for n in scene.nodes}
         ops: list[IROp] = [UpsertNode(node=n) for n in new.nodes if old.get(n.id) != n]
         ops += [UpsertMaterial(material=m) for m in new.materials if m not in scene.materials]
         return IRPatch(ops=ops) if ops else None
 
 
-def best_author(*, plane: Any = None, forge: Any = None, workdir: Any = None, live: bool = True) -> tuple[IRAuthor, str]:
+def best_author(*, plane: Any = None, forge: Any = None, workdir: Any = None, client: Any = None, live: bool = True) -> tuple[IRAuthor, str]:
     """AgentAuthor when the harness imports (and ``live``), else TemplateAuthor; with a note saying which and why."""
     if live:
         try:
-            a = AgentAuthor(plane=plane, forge=forge, workdir=workdir)
+            a = AgentAuthor(plane=plane, forge=forge, workdir=workdir, client=client)
             a._run_stage()
-            return a, "author: harness AgentAuthor (BLOCKOUT stage agent, role=worker)"
+            return a, "author: Gemini JSON IR with per-route token admission"
         except Exception as e:  # noqa: BLE001 - harness optional
             return TemplateAuthor(), f"harness unavailable ({type(e).__name__}: {e}); using TemplateAuthor"
     return TemplateAuthor(), "TemplateAuthor"

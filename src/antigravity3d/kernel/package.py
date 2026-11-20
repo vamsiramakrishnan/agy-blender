@@ -26,6 +26,7 @@ Per-engine decisions (see ``ENGINE_RULES`` for the rule table they come from):
 from __future__ import annotations
 
 import hashlib
+import io
 import importlib.metadata as md
 import json
 import platform
@@ -39,9 +40,11 @@ from typing import Any, Mapping
 import numpy as np
 from PIL import Image
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, UsdUtils
+from trimesh.visual.material import PBRMaterial
 
+from antigravity3d.artifacts.inspector import InspectorQA, InspectorTextures, build_inspector, bundled_three_js
 from antigravity3d.kernel.compile_ir import author_mesh_data
-from antigravity3d.kernel.fast_ops import ExportBundle, Hull, Issue, UVResult, write_gltf
+from antigravity3d.kernel.fast_ops import ExportBundle, Hull, Issue, LOD, UVResult, write_gltf
 from antigravity3d.kernel.types import MeshData
 from antigravity3d.kernel.validator import (
     ENGINE_RULES,
@@ -63,7 +66,7 @@ NORMAL_CONVENTION = {"unreal_5": "directx", "unity_urp": "opengl", "godot_4": "o
 class PackageManifest:
     out_dir: Path
     data: dict[str, Any]
-    issues: list[Issue] = field(default_factory=list)  # validate_package result
+    issues: list[Issue] = field(default_factory=list)  # USD, engine and package checks
 
     @property
     def files(self) -> list[str]:
@@ -194,7 +197,7 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[di
         mat = prim.GetParent()
         mat_id = mat.GetName()
         is_normal = "normal" in prim.GetName().lower()
-        src = _local_file(v.path)
+        src = _local_file(v.resolvedPath or v.path)
         if src is None:
             unresolved.append(v.path)
             continue
@@ -216,25 +219,80 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[di
                 shutil.copy2(src, out / rel)
             owners[rel] = str(src.resolve())
             done[key] = rel
-            with Image.open(out / rel) as im:
-                width, height = im.size
-            cs = shader.GetInput("sourceColorSpace")
-            records.append({
-                "path": rel,
-                "role": "normal" if is_normal else ("orm" if "orm" in prim.GetName().lower() else "albedo"),
-                "material": mat_id,
-                "width": width,
-                "height": height,
-                "convention": (target if is_normal else None),
-                "authored_convention": (src_conv if is_normal else None),
-                "converted": flip,
-                "color_space": str(cs.Get()) if cs and cs.Get() else None,
-                "source": src.name,
-            })
+        rel = done[key]
+        with Image.open(out / rel) as im:
+            width, height = im.size
+        cs = shader.GetInput("sourceColorSpace")
+        records.append({
+            "path": rel,
+            "role": "normal" if is_normal else ("orm" if "orm" in prim.GetName().lower() else "albedo"),
+            "material": mat_id,
+            "width": width,
+            "height": height,
+            "convention": (target if is_normal else None),
+            "authored_convention": (src_conv if is_normal else None),
+            "converted": flip,
+            "color_space": str(cs.Get()) if cs and cs.Get() else None,
+            "source": src.name,
+        })
         inp.Set(Sdf.AssetPath(f"./{done[key]}"))  # relative to the layer: the package is relocatable
         if is_normal:
             mat.SetCustomDataByKey("agy:normalConvention", target)
     return records, unresolved
+
+
+def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict[str, list[str]],
+                     materials: dict[str, PBRMaterial], suffix: str) -> None:
+    items = []
+    bound = []
+    for nodes in batches.values():
+        group = [parts[node] for node in nodes]
+        if len(group) == 1:
+            items.append(group[0])
+        else:
+            offsets = np.cumsum([0] + [len(p.points) for p in group[:-1]])
+            indices = np.vstack([p.triangles + offset for p, offset in zip(group, offsets)])
+            items.append(LOD(1., np.vstack([p.points for p in group]), indices,
+                             np.vstack([p.uvs for p in group]), 0., 0.))
+        bound.append(materials.get(nodes[0]))
+    write_gltf(path, items, [name + suffix for name in batches], materials=bound)
+
+
+def _glb_materials(stage: Usd.Stage, meshes: list[MeshData], out: Path, records: list[dict]) -> dict:
+    """Build glTF metallic-roughness bindings from the selected, composed USD materials."""
+    images = {}
+    maps = {}
+    for record in records:
+        key = (record["path"], record["role"] == "normal" and record["convention"] == "directx")
+        if key not in images:
+            with Image.open(out / key[0]) as im:
+                image = im.convert("RGBA" if record["role"] == "albedo" and ("A" in im.getbands() or "transparency" in im.info) else "RGB")
+            if key[1]:  # glTF tangent normals are +Y for every engine
+                r, g, b = image.split()
+                image = Image.merge("RGB", (r, g.point(lambda x: 255 - x), b))
+            images[key] = image
+        maps.setdefault(record["material"], {})[record["role"]] = images[key]
+
+    by_path = {}
+    by_node = {}
+    for mesh in meshes:
+        mat, _ = UsdShade.MaterialBindingAPI(stage.GetPrimAtPath(mesh.prim_path)).ComputeBoundMaterial()
+        if not mat:
+            continue
+        path = mat.GetPath()
+        if path not in by_path:
+            shader, _, _ = mat.ComputeSurfaceSource()
+            tex = maps.get(path.name, {})
+            color = [1.0] * 3 if "albedo" in tex else list(shader.GetInput("diffuseColor").Get())
+            by_path[path] = PBRMaterial(
+                name=path.name, baseColorFactor=[*color, 1.0], baseColorTexture=tex.get("albedo"),
+                normalTexture=tex.get("normal"), occlusionTexture=tex.get("orm"),
+                metallicRoughnessTexture=tex.get("orm"),
+                metallicFactor=1.0 if "orm" in tex else shader.GetInput("metallic").Get(),
+                roughnessFactor=1.0 if "orm" in tex else shader.GetInput("roughness").Get(),
+            )
+        by_node[mesh.node_id] = by_path[path]
+    return by_node
 
 
 _GEOMETRY_PROPS = frozenset({
@@ -338,6 +396,8 @@ def write_engine_package(
     ``lods`` and ``colliders`` (and optional ``timings_ms``).
     """
     uvs, lods, hulls, timings = _parts(bundle_or_parts)
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", asset_name):
+        raise ValueError("package asset_name must be a USD identifier")
     qa = dict(qa or {})
     engine = budget.target_engine
     out = Path(out_dir)
@@ -393,17 +453,54 @@ def write_engine_package(
     except Exception as e:  # noqa: BLE001 - pxr raises Tf.ErrorException
         usdz_skipped = f"{type(e).__name__}: {e}"[:200]
 
-    write_gltf(out / f"{asset_name}.glb", uvs)
+    materials = _glb_materials(stage, meshes, out, textures)
+    # Preserve selectable nodes where the draw budget allows it. Static props whose
+    # node count exceeds the budget are submitted in one world-space batch per material.
+    batches = {u.node_id: [u.node_id] for u in uvs}
+    if len(batches) > budget.max_draw_calls:
+        groups: dict[str | None, list[str]] = {}
+        for mesh in meshes:
+            groups.setdefault(mesh.material_id, []).append(mesh.node_id)
+        batches = {f"Batch_{i}": members for i, members in enumerate(groups.values())}
+    _write_glb_level(out / f"{asset_name}.glb", {u.node_id: u for u in uvs}, batches, materials, "")
     files.append(f"{asset_name}.glb")
-    glb_levels = min((len(v) for v in lods.values()), default=0)
+    glb_levels = levels
     for i in range(1, glb_levels):
-        nodes = sorted(lods)
-        write_gltf(out / f"{asset_name}_LOD{i}.glb", [lods[n][i] for n in nodes], [f"{n}_LOD{i}" for n in nodes])
-        files.append(f"{asset_name}_LOD{i}.glb")
+        suffix = f"_LOD{i}"
+        _write_glb_level(out / f"{asset_name}{suffix}.glb", {n: chain[i] for n, chain in lods.items()},
+                         batches, materials, suffix)
+        files.append(f"{asset_name}{suffix}.glb")
     if hulls:
         write_gltf(out / f"{asset_name}_colliders.glb", hulls, [collider_name(engine, asset_name, i, usd=False) for i in range(len(hulls))])
         files.append(f"{asset_name}_colliders.glb")
-    files.extend(t["path"] for t in textures)
+    files.extend(dict.fromkeys(t["path"] for t in textures))
+
+    # Use precisely the same seam-split vertices, PBR bindings and +Y normals as the GLB.
+    from antigravity3d.tactics.package import merged_lods
+
+    inspector_meshes = [MeshData(m.node_id, m.prim_path, u.points, u.triangles, m.material_id)
+                        for m, u in zip(meshes, uvs, strict=True)]
+    inspector_maps = {}
+    for material in materials.values():
+        if material.name in inspector_maps:
+            continue
+        slots = {}
+        for role, image in (("albedo", material.baseColorTexture), ("orm", material.metallicRoughnessTexture),
+                            ("normal", material.normalTexture)):
+            if image is not None:
+                buf = io.BytesIO()
+                image.save(buf, "PNG")
+                slots[role + "_png"] = buf.getvalue()
+        inspector_maps[material.name] = InspectorTextures(**slots)
+    merged = merged_lods(ExportBundle(asset_name, uvs, lods, hulls))
+    viewer = build_inspector(inspector_meshes, asset_name=asset_name, budget=budget, textures=inspector_maps,
+                             uvs={u.node_id: u.uvs for u in uvs},
+                             lods=[(f"LOD{i}", m.points, m.triangles) for i, m in enumerate(merged) if i],
+                             colliders=[(name, h.points, h.triangles) for name, h in zip(names, hulls)],
+                             qa=InspectorQA(bool(qa.get("tier1_ok")), tier15_score=qa.get("tier15"),
+                                            defects=qa.get("defects", {}), audit_deltas=qa.get("audit", [])) if qa else None,
+                             draw_calls=len(batches), three_js_source=bundled_three_js(), out_path=out / "inspector.html")
+    files.append(viewer.name)
 
     # package-level validators (UsdValidation + engine rules) on the file we actually wrote
     mesh_data = [MeshData(u.node_id, f"/{asset.GetName()}/{u.node_id}", u.points, u.triangles, u.atlas_id) for u in uvs]
@@ -416,6 +513,7 @@ def write_engine_package(
         "asset": asset_name,
         "target_engine": engine,
         "usd": usd_path.name,
+        "inspector": viewer.name,
         "usdz": usdz_name,
         "usdz_skipped": usdz_skipped,
         "units": units,
@@ -425,7 +523,8 @@ def write_engine_package(
         "lod_levels": max(glb_levels, len(lod_tris)),
         "lod_tris": lod_tris,
         "lod_structure": f"variantSet '{LOD_SET}' on /{asset.GetName()}: LOD0 (base) .. LOD{len(lod_tris) - 1}" if len(lod_tris) > 1 else None,
-        "draw_calls": len({u.atlas_id for u in uvs}),
+        "draw_calls": len(batches),
+        "glb_batches": batches,
         "texel_density": {
             "target_px_per_m": budget.texel_density_px_per_m,
             "mean_px_per_m": round(float(np.mean(dens)), 2) if dens else None,
@@ -449,11 +548,12 @@ def write_engine_package(
     mpath = out / "manifest.json"
     mpath.write_text(json.dumps(data, indent=1))
     pkg_issues = validate_package(out)  # cold re-open of what was just written
+    issues = usd_issues + eng_issues + pkg_issues
     data["validation"] = {
         "usd": [_issue_dict(i) for i in usd_issues],
         "engine": [_issue_dict(i) for i in eng_issues],
         "package": [_issue_dict(i) for i in pkg_issues],
-        "package_ok": not any(i.severity == "critical" for i in pkg_issues),
+        "package_ok": not any(i.severity == "critical" for i in issues),
     }
     mpath.write_text(json.dumps(data, indent=1))  # the manifest is not in file_hashes, so this is stable
-    return PackageManifest(out, data, pkg_issues)
+    return PackageManifest(out, data, issues)

@@ -27,9 +27,9 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from antigravity3d.state import EXPORT_MIN_TIER15_SCORE
+from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, VisualVerdict
 
-SCHEMA = "agy3d.qa_state/1"
+SCHEMA = "agy3d.qa_state/2"
 _SAFE_KEY = re.compile(r"[^A-Za-z0-9_.-]")
 
 
@@ -54,12 +54,17 @@ class QAState:
     session_id: str = ""
     conversation_id: str = ""
     asset: str = ""
+    revision: str = ""
+    target: str = ""
+    verdict: VisualVerdict | None = None
+    validator_ok: bool | None = None
     ts: float = 0.0
     schema: str = SCHEMA
 
     @property
     def export_allowed(self) -> bool:
-        return bool(self.tier1_ok) and float(self.tier15_score) >= EXPORT_MIN_TIER15_SCORE
+        return (self.validator_ok is not False and self.tier1_ok is True and EXPORT_MIN_TIER15_SCORE <= self.tier15_score <= 4.0
+                and self.verdict is not None and self.verdict.qualifies(self.revision, self.target))
 
 
 def _atomic_write_json(path: Path, obj: object) -> None:
@@ -84,30 +89,33 @@ def write_qa_state(
     session_id: str = "",
     conversation_id: str = "",
     asset: str = "",
+    revision: str = "",
+    target: str = "",
+    verdict: VisualVerdict | None = None,
+    validator_ok: bool | None = None,
     workspace: Path | str | None = None,
 ) -> QAState:
     """Records a QA verdict. Call from the QA tools after every Tier-1 / Tier-1.5 run."""
-    st = QAState(bool(tier1_ok), float(tier15_score), session_id, conversation_id, asset, time.time())
+    st = QAState(bool(tier1_ok), float(tier15_score), session_id, conversation_id, asset, revision, target, verdict, validator_ok, time.time())
     qa_dir = state_root(workspace) / "qa"
     payload = asdict(st)
-    for key in {k for k in (session_id, conversation_id) if k}:
+    for key in dict.fromkeys(k for k in (session_id, conversation_id) if k):
         _atomic_write_json(qa_dir / f"{safe_key(key)}.json", payload)
     _atomic_write_json(qa_dir / "latest.json", payload)
     return st
 
 
 def read_qa_state(key: str | None = None, workspace: Path | str | None = None) -> QAState | None:
-    """Per-key record if present, else ``latest.json``; None when nothing was recorded."""
-    qa_dir = state_root(workspace) / "qa"
-    candidates = ([qa_dir / f"{safe_key(key)}.json"] if key else []) + [qa_dir / "latest.json"]
-    for p in candidates:
-        try:
-            d = json.loads(p.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if isinstance(d, dict) and d.get("schema") == SCHEMA:
-            return QAState(
-                bool(d.get("tier1_ok")), float(d.get("tier15_score", 0.0)), str(d.get("session_id", "")),
-                str(d.get("conversation_id", "")), str(d.get("asset", "")), float(d.get("ts", 0.0)),
-            )
-    return None
+    """Read the exact session/conversation key. Only an unkeyed diagnostic read uses latest."""
+    name = safe_key(key) if key else "latest"
+    try:
+        data = json.loads((state_root(workspace) / "qa" / f"{name}.json").read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or data.get("schema") != SCHEMA:
+            return None
+        if key and key not in (data.get("session_id"), data.get("conversation_id")):
+            return None
+        if data.get("verdict") is not None:
+            data["verdict"] = VisualVerdict(**data["verdict"])
+        return QAState(**data)
+    except (OSError, ValueError, TypeError, KeyError):
+        return None

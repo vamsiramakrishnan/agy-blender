@@ -25,7 +25,7 @@ CARBON = "gemini-4-carbon"
 NEON = "gemini-4-neon"
 ARGON = "gemini-4-argon"
 DECISION = "gemini-decision-1"
-IMAGE = "gemini-3.1-flash-lite-image"  # SDK default image model; override for Nano Banana 2.1
+IMAGE = "gemini-nano-banana-2.1"
 
 
 @dataclass(frozen=True)
@@ -55,6 +55,8 @@ def tier(role: Role) -> ModelTier:
     """Returns the effective tier for ``role`` after env overrides."""
     base = _DEFAULTS[role]
     model = os.environ.get(f"AGY3D_MODEL_{role.upper()}", base.model)
+    if role == "image":
+        model = os.environ.get("AGY3D_IMAGE_MODEL") or model
     if model == NEON and os.environ.get("AGY3D_NEON_AVAILABLE") == "0":
         model = HYDROGEN
     return ModelTier(role, model, base.thinking, base.purpose)

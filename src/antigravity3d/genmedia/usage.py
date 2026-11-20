@@ -1,0 +1,66 @@
+"""Nano Banana standard-tier image metering (per-million-token USD, excluding tax)."""
+
+from __future__ import annotations
+
+import math
+import os
+from dataclasses import dataclass
+from typing import Any
+
+from antigravity3d.models import IMAGE
+
+
+@dataclass(frozen=True)
+class ImageRates:
+    input: float
+    text: float
+    image: float
+
+    @classmethod
+    def for_model(cls, model: str) -> ImageRates:
+        # https://ai.google.dev/gemini-api/docs/pricing#gemini-nano-banana-2.1
+        configured = [os.getenv(f"AGY3D_IMAGE_{k}_USD_PER_M") for k in ("INPUT", "TEXT_OUTPUT", "IMAGE_OUTPUT")]
+        if not any(configured) and model == IMAGE:
+            return cls(1.50, 7.50, 30.00)
+        if not all(configured):
+            raise ValueError(f"configure all three image token rates for {model}")
+        rates = [float(v) for v in configured]
+        if not all(math.isfinite(v) and v >= 0 for v in rates):
+            raise ValueError("image token rates must be finite and non-negative")
+        return cls(*rates)
+
+    def ceiling(self, inputs: int, outputs: int) -> float:
+        return (inputs * self.input + outputs * max(self.text, self.image)) / 1_000_000
+
+
+@dataclass(frozen=True)
+class ImageReceipt:
+    model: str
+    operation: str
+    source: str  # provider_usage, reservation_estimate, offline, cache
+    booked_usd: float
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    image_tokens: int | None = None
+    thinking_tokens: int | None = None
+    response_id: str | None = None
+    artifact_sha256: str | None = None
+    status: str = "ok"
+    width: int | None = None
+    height: int | None = None
+
+    @classmethod
+    def from_response(cls, response: Any, *, model: str, op: str, rates: ImageRates, limit: float) -> ImageReceipt:
+        usage = getattr(response, "usage_metadata", None)
+        inputs = getattr(usage, "prompt_token_count", None)
+        outputs = getattr(usage, "candidates_token_count", None)
+        thoughts = getattr(usage, "thoughts_token_count", None) or 0
+        modalities = getattr(usage, "candidates_tokens_details", None) or []
+        image = sum(int(item.token_count) for item in modalities if item.modality == "IMAGE")
+        complete = inputs is not None and outputs is not None and sum(int(item.token_count) for item in modalities) == outputs
+        if complete:
+            booked = (inputs * rates.input + (outputs - image + thoughts) * rates.text + image * rates.image) / 1_000_000
+        else:
+            booked = limit
+        return cls(model, op, "provider_usage" if complete else "reservation_estimate", booked,
+                   inputs, outputs, image if modalities else None, thoughts, getattr(response, "response_id", None))

@@ -7,7 +7,7 @@ object on stdout. Hooks run synchronously in the agent loop, so everything
 here is cheap: no third-party imports, no network, small files only.
 
 State lives under ``$AGY3D_STATE_DIR`` or ``<first workspace>/.agy3d``; the
-format matches ``antigravity3d.runtime.qa_state`` (schema agy3d.qa_state/1).
+format matches ``antigravity3d.runtime.qa_state`` (schema agy3d.qa_state/2).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-QA_SCHEMA = "agy3d.qa_state/1"
+QA_SCHEMA = "agy3d.qa_state/2"
 EXPORT_MIN_TIER15_SCORE = 3.4
 
 EXPORT_TOOLS = ("export_engine_package",)
@@ -36,7 +36,7 @@ MUTATING_TOOLS = (
 # gate decisions itself before dispatch; tests/test_mcp_server.py keeps this list equal to its tools/list.
 STUDIO_TOOLS = (
     "open_asset_session", "set_stage", "session_status", "list_sessions",
-    "apply_scene_ir", "inspect_manifest", "undo_last_edit", "render_preview", "run_visual_qa", "qa_probe",
+    "apply_scene_ir", "inspect_manifest", "query_region", "undo_last_edit", "render_preview", "run_visual_qa", "qa_probe",
     "propose_variants", "select_variant", "promote_variant", "forge_pbr_material", "apply_shader_diff",
     "run_paintover_loop", "render_lookdev", "generate_lods_and_colliders", "run_usd_validator",
     "export_engine_package", "run_bpy_script",
@@ -142,13 +142,25 @@ def is_tool(names: list[str], wanted: tuple[str, ...]) -> str | None:
 # ---------------------------------------------------------------- QA gate
 
 
-def read_qa(root: Path, conversation: str) -> dict[str, Any] | None:
-    qa_dir = root / "qa"
-    for p in ([qa_dir / f"{safe_key(conversation)}.json"] if conversation else []) + [qa_dir / "latest.json"]:
-        d = read_json(p)
-        if isinstance(d, dict) and d.get("schema") == QA_SCHEMA:
-            return d
-    return None
+def read_qa(root: Path, conversation: str, session_id: str = "") -> dict[str, Any] | None:
+    if not conversation:
+        return None
+    key = session_id or conversation
+    d = read_json(root / "qa" / f"{safe_key(key)}.json")
+    if not isinstance(d, dict) or d.get("schema") != QA_SCHEMA or d.get("conversation_id") != conversation:
+        return None
+    if session_id:
+        return d if d.get("session_id") == session_id else None
+    # A conversation may have closed since its last edit. Consult the canonical session
+    # receipt in case another bound conversation has since edited or re-evaluated it.
+    if sid := d.get("session_id"):
+        canonical = read_json(root / "qa" / f"{safe_key(sid)}.json")
+        if not isinstance(canonical, dict) or canonical.get("schema") != QA_SCHEMA or canonical.get("session_id") != sid:
+            return None
+        if canonical.get("revision") != d.get("revision") or canonical.get("verdict") != d.get("verdict"):
+            return None
+        return canonical
+    return d
 
 
 def read_dirty(root: Path, conversation: str) -> dict[str, Any] | None:
@@ -156,17 +168,25 @@ def read_dirty(root: Path, conversation: str) -> dict[str, Any] | None:
     return d if isinstance(d, dict) else None
 
 
-def export_gate(root: Path, conversation: str) -> tuple[bool, str]:
+def export_gate(root: Path, conversation: str, session_id: str = "") -> tuple[bool, str]:
     """(ok, one-line reason). Raises on unreadable-but-present state; callers decide fail mode."""
-    qa = read_qa(root, conversation)
+    qa = read_qa(root, conversation, session_id)
     if qa is None:
         return False, ("no QA verdict recorded: run run_usd_validator and run_visual_qa "
                        "(usd_verifier subagent) before export_engine_package")
+    if qa.get("validator_ok") is False:
+        return False, "USD or target-engine validation failed for this revision"
     score = float(qa.get("tier15_score", 0.0))
-    if not qa.get("tier1_ok"):
+    if qa.get("tier1_ok") is not True:
         return False, "Tier-1 QA has not passed: fix the run_usd_validator / Tier-1 findings, then re-run QA"
-    if score < EXPORT_MIN_TIER15_SCORE:
+    if not EXPORT_MIN_TIER15_SCORE <= score <= 4.0:
         return False, f"Tier-1.5 score {score:.2f} < {EXPORT_MIN_TIER15_SCORE}: iterate lookdev/blockout and re-run QA"
+    v = qa.get("verdict")
+    if (not isinstance(v, dict) or not qa.get("revision") or not qa.get("target")
+            or v.get("revision") != qa["revision"] or v.get("target") != qa["target"]
+            or v.get("stage") not in {"lookdev", "final"} or v.get("renderer") not in {"eevee", "cycles"}
+            or v.get("backend") != "decisions" or v.get("action") != "approve"):
+        return False, "current revision needs a Decisions lookdev/final approval on an EEVEE or Cycles render"
     dirty = read_dirty(root, conversation)
     if dirty and float(dirty.get("last_mutation_ts", 0)) > float(qa.get("ts", 0)):
         return False, (f"scene changed by {dirty.get('tool', 'a mutating tool')} after the last QA run "

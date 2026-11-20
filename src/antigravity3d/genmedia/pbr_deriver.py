@@ -7,6 +7,7 @@ from typing import Literal
 
 import numpy as np
 from PIL import Image
+from scipy import fft
 from scipy import ndimage as ndi
 
 Convention = Literal["opengl", "directx"]
@@ -36,6 +37,12 @@ def _lum(rgb: np.ndarray) -> np.ndarray:
 
 
 def _blur(a: np.ndarray, sigma: float, tileable: bool) -> np.ndarray:
+    if tileable and a.ndim == 2 and sigma >= 32:
+        # Periodic convolution at production texture resolution. The separable spatial
+        # kernel otherwise grows to thousands of taps per texel for de-lighting.
+        spectrum = fft.rfft2(a)
+        filtered = ndi.fourier_gaussian(spectrum, sigma, n=a.shape[-1], axis=-1)
+        return fft.irfft2(filtered, s=a.shape)
     return ndi.gaussian_filter(a, sigma, mode=_mode(tileable))
 
 

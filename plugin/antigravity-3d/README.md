@@ -31,6 +31,11 @@ python -m antigravity3d.plugin_install --target ~/.gemini/config --workspace /pa
 python -m antigravity3d.plugin_install --validate plugin/antigravity-3d
 ```
 
+A copy install binds Python hook commands, Python sidecars, and the studio MCP server
+to the interpreter that installed the package. Reinstall after moving or replacing
+the virtual environment. Developer symlinks use the source launchers and need the
+project environment on the host's path.
+
 There is a second way to install: `antigravity3d.plugin_install.register(workspace)`
 adds this folder's parent to `<workspace>/.agents/plugins.json`. Each entry in
 that file is scanned one level deep.
@@ -154,7 +159,7 @@ a `strings` dump of that binary.
 | `agentapi new-conversation [--model=<flash_lite\|flash\|pro\|model_id>] [--title=] [--profile=]` | verified (usage text) | 282566, 282436, 282541 |
 | `agent_permissions` fields `workspace_uris`, `access_grants`, `allows_user_interactions` | verified | 318565, 318640-318660; proto 415630 |
 | Default sandbox for sidecars and the effect of `sandbox.read_write_paths` | **unverified** | tags 264374, 267396 |
-| `uv run` started from the sidecar's own folder finds the project | **unverified**: true only when the plugin is installed inside the workspace tree | |
+| Python sidecar and MCP commands | Copy installs use the installing environment’s absolute interpreter path. | |
 | Plugins shipping a `workflows/` folder | **not a documented plugin component**: it's a plain file run with `run_workflow(ScriptPath=...)` | run-workflow 314708-314880 |
 | Whether the browser security policy (CSP) of the side pane allows the inspector page's three.js CDN import | **unverified**: generative-UI HTML artifacts block CDNs. Building with `three_js_source` puts the library inline in the page and avoids this. | 310213-310240 |
 

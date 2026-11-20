@@ -23,6 +23,7 @@ from antigravity3d.ir import MaterialIR, SceneIR
 from antigravity3d.kernel.usd_stage import StageManager
 from antigravity3d.kernel.validator import validate_usd
 from antigravity3d.state import EngineBudget
+from antigravity3d.tactics.governor import Governor
 from antigravity3d.tactics.cached import CachedForge
 from antigravity3d.tactics.common import load_png, png_bytes
 
@@ -133,7 +134,7 @@ class VariantFactoryDAG:
     def __init__(self, *, workdir: Path | str, budget: EngineBudget, forge: Any = None, plane: Any = None, looks: tuple[str, ...] = LOOKS,
                  cache: Any = None, pool: Any = None, max_parallel: int = 2) -> None:
         self.out, self.budget, self.looks, self.plane, self.pool = Path(workdir), budget, tuple(looks), plane, pool
-        self.forge = CachedForge(forge, cache) if (forge is not None and cache is not None) else forge
+        self.forge = CachedForge(forge, cache, budget=budget) if (forge is not None and cache is not None) else forge
         self.max_parallel = max_parallel
 
     async def variants_for(self, asset: Path, out_dir: Path) -> dict[str, Any]:
@@ -147,9 +148,11 @@ class VariantFactoryDAG:
         bases = {m.id: await asyncio.to_thread(base_maps, m, asset.parent) for m in scene.materials}
         decals: dict[str, Image.Image] = {}
         if self.forge is not None:
+            forge = self.forge.with_governor(Governor(self.forge.governor.plan, journal=out_dir / "spend.sqlite3"))
             for look, prompt in OVERLAY_PROMPT.items():
                 if look in self.looks:
-                    decals[look] = load_png((await self.forge.decal(prompt, size=256)).png_bytes).convert("RGBA")
+                    decals[look] = load_png((await forge.decal(prompt, size=256 if forge.offline else 2048)).png_bytes).convert("RGBA")
+            row["genmedia_receipts"] = forge.governor.receipts()
         scenes: dict[str, SceneIR] = {}
         for look in self.looks:
             mats, stats = [], {}

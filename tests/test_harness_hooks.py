@@ -12,7 +12,7 @@ from google.antigravity.tools.tool_runner import ToolRunner
 from antigravity3d.decisions.fakes import FakeDecisionsClient
 from antigravity3d.harness import hooks as H
 from antigravity3d.harness import tools as T
-from test_harness_tools import CRATE, make_session
+from test_harness_tools import CRATE, make_session, record_approval, simulate_engine_import
 
 
 def runner_for(env) -> tuple[HookRunner, dict[type, object]]:
@@ -49,6 +49,8 @@ async def test_export_gate(tmp_path):
     res, _ = await pre(runner, tctx, "export_engine_package", out_name="pkg")
     assert not res.allow and "tier15>=3.4" in res.message and "\n" not in res.message
     await T.run_visual_qa(env.ctx)
+    assert not (await pre(runner, tctx, "export_engine_package", out_name="pkg"))[0].allow
+    record_approval(env)
     res, _ = await pre(runner, tctx, "export_engine_package", out_name="pkg")
     assert res.allow
 
@@ -104,7 +106,7 @@ async def test_policy_gate_on_existing_image(tmp_path):
     res, _ = await pre(runner, tctx, "apply_shader_diff", material_id="m", diff_json=json.dumps({"roughness": 0.4}))
     assert res.allow and len(env.client.calls) == calls  # nothing to screen: no extra Decisions call
     res, _ = await pre(runner, tctx, "apply_shader_diff", material_id="m", diff_json=json.dumps({"albedo_uri": "/nope/missing.png"}))
-    assert res.allow  # image does not exist yet: not screenable here
+    assert not res.allow and "could not screen" in res.message
 
 
 async def test_traceback_compression(tmp_path):
@@ -140,7 +142,8 @@ async def test_stop_hook_continuation_is_bounded(tmp_path):
     assert by[H.QAStopHook].continued == 2
 
 
-async def test_stop_hook_lookdev_and_export_gates(tmp_path):
+async def test_stop_hook_lookdev_and_export_gates(tmp_path, monkeypatch):
+    simulate_engine_import(monkeypatch)
     env = make_session(tmp_path, stage="LOOKDEV")
     runner, _ = runner_for(env)
     tctx = await turn(runner, env)
@@ -148,6 +151,8 @@ async def test_stop_hook_lookdev_and_export_gates(tmp_path):
     res = await runner.dispatch_stop(tctx, types.StopArgs())
     assert res.decision == types.StopDecision.CONTINUE and "visual QA not passing" in res.reason
     await T.run_visual_qa(env.ctx)
+    assert (await runner.dispatch_stop(tctx, types.StopArgs())).decision == types.StopDecision.CONTINUE
+    record_approval(env)
     assert (await runner.dispatch_stop(tctx, types.StopArgs())).decision == types.StopDecision.ALLOW_STOP
     env2 = make_session(tmp_path, sid="s2", stage="EXPORT")
     r2, _ = runner_for(env2)
@@ -155,6 +160,7 @@ async def test_stop_hook_lookdev_and_export_gates(tmp_path):
     assert (await r2.dispatch_stop(t2, types.StopArgs())).decision == types.StopDecision.ALLOW_STOP  # blocked export: no loop
     await T.apply_scene_ir(json.dumps(CRATE), env2.ctx)
     await T.run_visual_qa(env2.ctx)
+    record_approval(env2)
     res = await r2.dispatch_stop(t2, types.StopArgs())
     assert res.decision == types.StopDecision.CONTINUE and "export_engine_package" in res.reason
     await T.export_engine_package(env2.ctx, "pkg")
@@ -197,7 +203,7 @@ async def test_state_header_required_on_turns(tmp_path):
     await T.run_visual_qa(env.ctx)
     hdr = H.state_header(env.sess())
     assert hdr.startswith("[STATE stage=BLOCKOUT tools=BLOCKOUT engine=unreal_5") and "nodes=2" in hdr
-    assert "tier1=ok tier15=3.60 export=allowed" in hdr and "QA[blockout] approve" in hdr
+    assert "tier1=ok tier15=3.60 export=blocked" in hdr and "QA[blockout] approve" in hdr
     res, tctx = await runner.dispatch_pre_turn(H.with_state_header("continue", env.sess()))
     assert res.allow and tctx.get_state("agy3d.header_seen")
 

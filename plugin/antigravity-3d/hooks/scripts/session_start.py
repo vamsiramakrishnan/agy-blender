@@ -43,6 +43,8 @@ def build_message(payload: dict[str, Any]) -> str:
              + (f"target {engine}: " if engine else "no target engine set (budget.json); defaults: ")
              + f"<= {b['max_tris']} tris, <= {b['max_draw_calls']} draw calls, "
                f"{b['texel_density_px_per_m']} px/m, <= {b['max_collision_hulls']} hulls."]
+    if c.conv_id(payload):
+        lines.append(f"Use conversation_id={c.conv_id(payload)} when opening a native asset session and its session_id on export.")
     if engine in ENGINE_NOTES:
         lines.append(ENGINE_NOTES[engine] + ".")
     if cfg.get("stage"):

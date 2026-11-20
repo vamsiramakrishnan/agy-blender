@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import base64
 import colorsys
+import gzip
 import hashlib
 import html
 import json
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from importlib import resources
 from pathlib import Path
 
@@ -30,6 +32,14 @@ from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, EngineBudget
 THREE_JS_VERSION = "0.160.0"
 THREE_JS_URL = f"https://cdnjs.cloudflare.com/ajax/libs/three.js/{THREE_JS_VERSION}/three.module.min.js"
 NOTES_SCHEMA = "antigravity3d.review_notes/1"
+
+
+@lru_cache(maxsize=1)
+def bundled_three_js() -> str:
+    vendor = resources.files("antigravity3d.artifacts").joinpath("vendor")
+    license_text = vendor.joinpath("THREE-LICENSE.txt").read_text("utf-8")
+    source = gzip.decompress(vendor.joinpath("three-r160.module.min.js.gz").read_bytes())
+    return f"/*{license_text}*/\n" + source.decode("utf-8")
 
 
 @dataclass(frozen=True)
@@ -199,6 +209,7 @@ def build_inspector(
     qa: InspectorQA | None = None,
     uvs: dict[str, np.ndarray] | None = None,
     three_js_source: str | None = None,
+    draw_calls: int | None = None,
     out_path: Path,
 ) -> Path:
     """Write the inspector for one asset to ``out_path`` and return it.
@@ -267,12 +278,13 @@ def build_inspector(
         col_payload.append({"name": c.name, "pos": pos, "idx": idx})
 
     total_tris = sum(m["tris"] for m in mesh_payload)
-    draw_calls = len({m.material_id or "" for m in meshes})
+    if draw_calls is None:
+        draw_calls = len({m.material_id or "" for m in meshes})
     hulls = len(col_list) if colliders is not None else sum(1 for m in meshes if m.collider)
     gauges = "".join(
         [
             _gauge("tris", "Triangles", total_tris, budget.max_tris),
-            _gauge("draws", "Draw calls (materials)", draw_calls, budget.max_draw_calls),
+            _gauge("draws", "Draw calls", draw_calls, budget.max_draw_calls),
             _gauge("hulls", "Collision hulls", hulls, budget.max_collision_hulls),
         ]
     )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import struct
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -281,6 +282,43 @@ def _mesh_tris(prim: Usd.Prim) -> int:
     return int(np.maximum(np.asarray(counts, dtype=np.int64) - 2, 0).sum()) if counts else 0
 
 
+def _glb_json(path: Path) -> dict:
+    with path.open("rb") as stream:
+        magic, version, size, length, chunk = struct.unpack("<4sIII4s", stream.read(20))
+        if (magic, version, chunk) != (b"glTF", 2, b"JSON") or size != path.stat().st_size or length > size - 20:
+            raise ValueError(f"invalid GLB header in {path.name}")
+        return json.loads(stream.read(length))
+
+
+def _validate_glb_materials(path: Path, suffix: str, bindings: dict[str, tuple[str, set[str]]]) -> list[Issue]:
+    """All authored per-mesh PBR slots must reference images in this GLB's own binary chunk."""
+    issues = []
+    try:
+        doc = _glb_json(path)
+        nodes = {n.get("name"): n for n in doc["nodes"]}
+        for node, (material, roles) in bindings.items():
+            primitives = doc["meshes"][nodes[node + suffix]["mesh"]]["primitives"]
+            for p in primitives:
+                mat = doc["materials"][p["material"]]
+                if mat.get("name") != material:
+                    raise ValueError(f"{node} expected material {material}, got {mat.get('name')}")
+                if roles and "TEXCOORD_0" not in p["attributes"]:
+                    raise ValueError(f"{node} has no texture coordinates")
+                pbr = mat.get("pbrMetallicRoughness", {})
+                slots = {"albedo": [(pbr, "baseColorTexture")], "orm": [(pbr, "metallicRoughnessTexture"),
+                         (mat, "occlusionTexture")], "normal": [(mat, "normalTexture")]}
+                for role in roles:
+                    for obj, slot in slots[role]:
+                        texture = doc["textures"][obj[slot]["index"]]
+                        image = doc["images"][texture["source"]]
+                        view = doc["bufferViews"][image["bufferView"]]
+                        if view["byteLength"] < 1 or "uri" in doc["buffers"][view["buffer"]]:
+                            raise ValueError(f"{node}/{slot} must be an embedded image")
+    except (IndexError, KeyError, TypeError, ValueError, OSError, struct.error) as e:
+        issues.append(Issue("pkg:glb_material", "critical", path.name, str(e)[:300]))
+    return issues
+
+
 def validate_package(out_dir: str | Path) -> list[Issue]:
     """Cold re-open of a written engine package (see kernel/package.py) and consistency checks.
 
@@ -361,6 +399,7 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
     hull_re = re.compile(rules.hull_prim_regex) if rules and rules.hull_prim_regex else None
     lod_tris: list[int] = []
     colliders: list[Usd.Prim] = []
+    bindings: dict[str, tuple[str, set[str]]] = {}
     for variant in lod_names or [None]:
         if vset is not None:
             vset.SetVariantSelection(variant)
@@ -376,6 +415,9 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
             total += _mesh_tris(prim)
             mat, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
             textured = bool(mat and _material_files(mat.GetPrim()))
+            if mat and variant in (None, lod_names[0] if lod_names else None):
+                roles = {role for role in ("albedo", "orm", "normal") if mat.GetPrim().GetChild(role + "Tex")}
+                bindings[prim.GetName()] = (mat.GetPrim().GetName(), roles)
             pv = UsdGeom.PrimvarsAPI(prim).GetPrimvar("st")
             st = pv.Get() if pv else None
             tag = f"{prim.GetName()}" + (f"[{variant}]" if variant else "")
@@ -406,10 +448,33 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
             sc = trimesh.load(glb)
             geoms = list(sc.geometry.values()) if hasattr(sc, "geometry") else [sc]
             glb_tris = sum(len(g.faces) for g in geoms)
+            draw_count = sum(len(m["primitives"]) for m in _glb_json(glb)["meshes"])
+            if draw_count > man.get("budget", {}).get("max_draw_calls", draw_count):
+                add("draw_budget", "critical", glb.name, f"{draw_count} render primitives exceed draw-call budget")
+            if "glb_batches" in man and draw_count != man["draw_calls"]:
+                add("draw_count", "critical", glb.name, "manifest draw count differs from the GLB")
             if glb_tris != lod_tris[0]:
                 add("glb_tris", "critical", glb.name, f"GLB has {glb_tris} tris, USD LOD0 has {lod_tris[0]}")
         except Exception as e:  # noqa: BLE001 - unreadable GLB
             add("glb_open", "critical", glb.name, str(e))
+
+    batches = man.get("glb_batches")
+    if batches:
+        actual_bindings = {}
+        covered = []
+        for batch, members in batches.items():
+            covered.extend(members)
+            slot = {bindings.get(m, (None, set()))[0] for m in members}
+            if len(slot) != 1 or not members:
+                add("glb_batch", "critical", batch, "one draw cannot bind multiple materials")
+            elif members[0] in bindings:
+                actual_bindings[batch] = bindings[members[0]]
+        if sorted(covered) != sorted(p.GetName() for p in Usd.PrimRange(root) if p.IsA(UsdGeom.Mesh) and not is_collider_prim(p, hull_re)):
+            add("glb_batch", "critical", None, "batches must partition all visual meshes")
+        bindings = actual_bindings
+    for level in range(max(1, len(lod_tris))):
+        suffix = f"_LOD{level}" if level else ""
+        issues.extend(_validate_glb_materials(out / f"{asset}{suffix}.glb", suffix, bindings))
 
     # colliders
     max_hulls = (man.get("budget") or {}).get("max_collision_hulls")

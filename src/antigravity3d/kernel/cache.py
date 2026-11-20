@@ -9,6 +9,7 @@ upstream change invalidates exactly the downstream nodes.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import hashlib
 import io
@@ -168,6 +169,26 @@ class LocalBlobStore:
             raise ValueError(f"invalid cache key {key!r}")
         return self.root / key[:2] / key[2:4] / key
 
+    @contextlib.asynccontextmanager
+    async def writing(self, key: str):
+        """Coordinate paid cache fills across workers sharing a POSIX cache volume."""
+        if os.name != "posix":
+            yield
+            return
+        import fcntl
+
+        path = self._path(key).with_suffix(".lock")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Retain the lock inode. Unlinking while a waiter is opening it breaks mutual exclusion.
+        with path.open("a+b") as file:
+            while True:
+                try:
+                    fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    await asyncio.sleep(0.02)
+            yield
+
     def get(self, key: str) -> bytes | None:
         try:
             raw = self._path(key).read_bytes()
@@ -284,6 +305,12 @@ class BuildCache:
             s.saved_cost_usd += cost
             s.saved_ms += ms
 
+    def credit_savings(self, *, cost_usd: float, ms: float) -> None:
+        """Credit metered savings known only after a shared in-flight build finishes."""
+        with self._lock:
+            self.stats.saved_cost_usd += cost_usd
+            self.stats.saved_ms += ms
+
     def _miss(self) -> None:
         with self._lock:
             self.stats.misses += 1
@@ -326,16 +353,22 @@ class BuildCache:
         fut = asyncio.get_running_loop().create_future()
         self._inflight[key] = fut
         try:
-            data = self.store.get(key)
-            if data is not None:
-                self._hit(data, saved_cost_usd, saved_ms)
-                fut.set_result(data)
-                return data, True
-            self._miss()
-            data = await compute()
-            self.store.put(key, data)
+            data = await asyncio.to_thread(self.store.get, key)
+            if data is None:
+                local = self.store.local if isinstance(self.store, TieredStore) else self.store
+                guard = local.writing(key) if isinstance(local, LocalBlobStore) else contextlib.nullcontext()
+                async with guard:
+                    if isinstance(local, LocalBlobStore):
+                        data = await asyncio.to_thread(self.store.get, key)
+                    if data is None:
+                        self._miss()
+                        data = await compute()
+                        await asyncio.to_thread(self.store.put, key, data)
+                        fut.set_result(data)
+                        return data, False
+            self._hit(data, saved_cost_usd, saved_ms)
             fut.set_result(data)
-            return data, False
+            return data, True
         except BaseException as e:
             if not fut.done():
                 fut.set_exception(e)

@@ -1,7 +1,7 @@
 """Warm pool of Blender daemons.
 
-``BlenderPool(size, blender_bin, fake=False)``: N daemons, each with its own
-Unix socket in a private temp dir. ``call`` takes an idle worker from an asyncio
+``BlenderPool(size, blender_bin, fake=False)``: N daemons, each with an inherited private
+Unix stream socket. The temporary directory holds worker startup logs. ``call`` takes an idle worker from an asyncio
 queue, so concurrency is bounded by ``size``.
 
 Buffer ownership: results carrying ``{shm, shape, dtype}`` are *copied out* into
@@ -12,12 +12,6 @@ pool additionally sweeps ``/dev/shm/<prefix>*`` when it replaces a worker or sto
 A worker that times out, drops the connection or dies is killed and replaced
 (lazily restarted, with a background warm-up) and the call raises ``WorkerError``.
 
-Verified here with ``fake=True`` (plain CPython daemons). Real Blender spawning
-(``--background --factory-startup --python daemon.py -- --socket ...``) is written
-to spec only. Blender's Python has no msgpack, so the child gets PYTHONPATH
-including the directory that holds the host's ``msgpack`` package; whether the
-host's compiled msgpack loads there depends on matching Python ABIs, otherwise
-msgpack's pure-Python fallback is used.
 """
 
 from __future__ import annotations
@@ -28,6 +22,7 @@ import itertools
 import os
 import shutil
 import signal
+import socket
 import sys
 import tempfile
 import uuid
@@ -62,13 +57,6 @@ def find_blender(explicit: str | None = None) -> str | None:
     return shutil.which("blender")
 
 
-def _short_tmpdir() -> str:
-    base = tempfile.gettempdir()
-    if len(base) > 60:  # AF_UNIX paths are limited to ~104 bytes
-        base = "/tmp"
-    return tempfile.mkdtemp(prefix="agy3d-pool-", dir=base)
-
-
 class _Worker:
     def __init__(self, pool: BlenderPool, idx: int):
         self.pool, self.idx, self.gen = pool, idx, 0
@@ -89,52 +77,45 @@ class _Worker:
 
     async def ensure_started(self) -> None:
         async with self.lock:
-            if self.proc is not None and self.proc.returncode is not None:
-                await self._teardown()
             if not self.ready:
+                if self.proc is not None:
+                    await self._teardown()
                 await self._spawn()
 
     async def _spawn(self) -> None:
         pool = self.pool
         self.gen += 1
-        sock = os.path.join(pool.tmpdir, f"w{self.idx}-{self.gen}.sock")
-        log = open(os.path.join(pool.tmpdir, f"w{self.idx}-{self.gen}.log"), "wb")
+        log_path = os.path.join(pool.tmpdir, f"w{self.idx}-{self.gen}.log")
         env = {**os.environ, "AGY3D_SHM_PREFIX": self.shm_prefix, **pool.extra_env}
         if pool.fake:
-            cmd = [sys.executable, str(DAEMON), "--fake", "--socket", sock, "--parent-pid", str(os.getpid())]
+            cmd = [sys.executable, str(DAEMON), "--fake"]
         else:
             import msgpack
-            site = str(Path(msgpack.__file__).resolve().parent.parent)
-            env["PYTHONPATH"] = os.pathsep.join(p for p in (site, env.get("PYTHONPATH", "")) if p)
-            cmd = [pool.blender_bin or "", "--background", "--factory-startup", "--python", str(DAEMON),
-                   "--", "--socket", sock, "--parent-pid", str(os.getpid())]
+            env["AGY3D_MSGPACK_INIT"] = str(Path(msgpack.__file__).resolve())
+            cmd = [pool.blender_bin or "", "--background", "--factory-startup", "--python-exit-code", "1",
+                   "--python", str(DAEMON), "--"]
+        parent, child = socket.socketpair()
         try:
-            self.proc = await asyncio.create_subprocess_exec(
-                *cmd, stdin=asyncio.subprocess.DEVNULL, stdout=log, stderr=log, env=env, start_new_session=True)
-        finally:
-            log.close()
-        try:
-            await asyncio.wait_for(self._connect(sock), pool.startup_timeout)
-            resp = await asyncio.wait_for(self._roundtrip_raw("ping", {}), pool.startup_timeout)
-            if not resp.get("ok"):
-                raise WorkerError("startup", f"ping failed: {resp}")
+            with child, open(log_path, "wb") as log:
+                cmd.extend(["--socket-fd", str(child.fileno()), "--parent-pid", str(os.getpid())])
+                self.proc = await asyncio.create_subprocess_exec(
+                    *cmd, stdin=asyncio.subprocess.DEVNULL, stdout=log, stderr=log, env=env,
+                    pass_fds=(child.fileno(),), start_new_session=True)
+            self.reader, self.writer = await asyncio.open_unix_connection(sock=parent)
+            resp = await asyncio.wait_for(self._roundtrip_raw("version", {}), pool.startup_timeout)
+            version = resp.get("result", {})
+            if not resp.get("ok") or version.get("fake") != pool.fake or "render_usd" not in version.get("ops", []):
+                raise WorkerError("startup", "incompatible worker capabilities")
+            if not pool.fake and tuple(version.get("blender_version") or ())[:2] < (5, 3):
+                raise WorkerError("startup", f"Blender 5.3+ required, got {version.get('blender')}")
         except BaseException as e:
-            tail = self._log_tail(os.path.join(pool.tmpdir, f"w{self.idx}-{self.gen}.log"))
+            if self.writer is None:
+                parent.close()
+            tail = self._log_tail(log_path)
             await self._teardown()
             if isinstance(e, asyncio.CancelledError):
                 raise
-            raise WorkerError("startup", f"worker {self.idx} did not come up ({type(e).__name__}); log: {tail}") from e
-
-    async def _connect(self, sock: str) -> None:
-        assert self.proc
-        while True:
-            if self.proc.returncode is not None:
-                raise ConnectionError(f"daemon exited with {self.proc.returncode}")
-            try:
-                self.reader, self.writer = await asyncio.open_unix_connection(sock)
-                return
-            except (FileNotFoundError, ConnectionRefusedError):
-                await asyncio.sleep(0.02)
+            raise WorkerError("startup", f"worker {self.idx} did not come up ({e!s}); log: {tail}") from e
 
     @staticmethod
     def _log_tail(path: str) -> str:
@@ -219,12 +200,16 @@ class BlenderPool:
             return
         if not self.fake and not self.blender_bin:
             raise FileNotFoundError("no Blender binary: set $BLENDER_BIN or put `blender` on PATH")
-        self.tmpdir = _short_tmpdir()
+        self.tmpdir = tempfile.mkdtemp(prefix="agy3d-pool-")
         self._started = True
         self._workers = [_Worker(self, i) for i in range(self.size)]
+        starters = [asyncio.create_task(w.ensure_started()) for w in self._workers]
         try:
-            await asyncio.gather(*(w.ensure_started() for w in self._workers))
+            await asyncio.gather(*starters)
         except BaseException:
+            for task in starters:
+                task.cancel()
+            await asyncio.gather(*starters, return_exceptions=True)
             await self.stop()
             raise
         for w in self._workers:

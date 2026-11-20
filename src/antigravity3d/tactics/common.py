@@ -12,8 +12,9 @@ from PIL import Image
 
 Uploader = Callable[[bytes], Awaitable[str]]
 
-# Notional generation prices (USD) used for governor budgeting; the real backend reports no cost.
-IMAGE_USD = {"ortho": 0.04, "albedo": 0.04, "trim": 0.04, "decal": 0.03, "paintover": 0.04}
+# Published standard-tier 2K image-output cost, used for candidate planning only.
+# ImageForge separately reserves the capped input/output cost and reconciles provider usage.
+IMAGE_USD = dict.fromkeys(("ortho", "albedo", "trim", "decal", "paintover"), 0.0504)
 
 
 def png_bytes(img: Image.Image | np.ndarray) -> bytes:

@@ -16,9 +16,14 @@ class DecisionError(RuntimeError):
 class PromptBlockedError(DecisionError):
     """The input tripped a content filter (`prompt_feedback.block_reason`); no answers exist."""
 
-    def __init__(self, reason: str, message: str | None = None, tag: str = "") -> None:
+    def __init__(self, reason: str, message: str | None = None, tag: str = "", *, result: DecisionResult | None = None) -> None:
         super().__init__(f"decision input blocked ({reason}) [{tag}]: {message or ''}".strip())
         self.reason, self.detail, self.tag = reason, message, tag
+        self.result = result
+
+
+class DecisionBudgetError(ValueError):
+    """The complete request exceeds the pre-dispatch input budget."""
 
 
 class TransientDecisionError(DecisionError):
@@ -56,6 +61,8 @@ class DecisionResult:
     output_tokens: int = 0
     cost_known: bool = True  # False: est_cost_usd is 0.0 only because no price is configured
     source: str = "decisions"  # "decisions" | "generative_fallback" | "fake"
+
+    booked_usd: float = 0.0  # amount settled against the caller's asset governor
 
     def noul(self, qid: str) -> float:
         return self.answers[qid].noul  # type: ignore[return-value]
@@ -105,6 +112,9 @@ class CandidateScore:
     blocked: bool = False
     utility: float | None = None
     result: DecisionResult | None = None
+    policy: PolicyVerdict | None = None
+    error: str | None = None
+    billed_on_error: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -161,6 +171,7 @@ class PlaneStats:
     output_tokens: int = 0
     uncalibrated_calls: int = 0
     unknown_cost_calls: int = 0
+    measured_knee_overruns: int = 0
     cost_usd: float = 0.0
     retries: int = 0
     latencies_ms: list[float] = field(default_factory=list)
@@ -192,6 +203,7 @@ class PlaneStats:
             "output_tokens": self.output_tokens,
             "uncalibrated_calls": self.uncalibrated_calls,
             "unknown_cost_calls": self.unknown_cost_calls,
+            "measured_knee_overruns": self.measured_knee_overruns,
             "cost_usd": round(self.cost_usd, 8),
             "retries": self.retries,
             "p50_ms": self.percentile(50),
