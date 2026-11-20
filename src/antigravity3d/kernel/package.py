@@ -46,7 +46,7 @@ from antigravity3d.artifacts.inspector import InspectorQA, build_inspector, bund
 from antigravity3d.kernel.compile_ir import (
     IR_KEY, MapSource, MaterialParams, author_mesh_data, read_ir, read_material, set_normal_encoding,
 )
-from antigravity3d.kernel.fast_ops import ExportBundle, Hull, Issue, LOD, UVResult, write_gltf
+from antigravity3d.kernel.fast_ops import ExportBundle, Hull, Issue, LOD, UVResult, gltf_default_material, write_gltf
 from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, TextureRef
 from antigravity3d.kernel.types import MeshData, gltf_world_bounds
 from antigravity3d.kernel.usdz import create_usdz
@@ -704,7 +704,7 @@ def write_engine_package(
         "collider_glb_nodes": [collider_name(engine, asset_name, i, usd=False) for i in range(len(hulls))],
         "collider_structure": f"/{asset.GetName()}/{COLLIDERS_SCOPE}/<name>: purpose=guide, CollisionAPI+MeshCollisionAPI convexHull" if names else None,
         "textures": textures,
-        "materials": material_inventory(materials),
+        "materials": material_inventory({**{u.node_id: gltf_default_material() for u in uvs}, **materials}),
         "qa": {k: v for k, v in qa.items() if k != "audit"},
         "audit": qa.get("audit", []),
         "versions": _versions(),

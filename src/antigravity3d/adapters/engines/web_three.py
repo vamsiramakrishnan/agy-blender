@@ -9,7 +9,7 @@ returned it (no material substitution) and reports
 * every loader / console / page / shader error and warning,
 * facts read back from the loaded scene (meshes, triangles, materials, bound texture slots and
   their pixel sizes, bounds, draw calls),
-* a transparent-background frame whose alpha silhouette is compared with an independent reference
+* a transparent-background silhouette frame (material-free second render) compared with an independent reference
   render of the package's USD (``kernel.raster.render_buffers`` with an explicit matching camera)
   through the existing ``silhouette_iou``.
 
@@ -720,10 +720,15 @@ class WebThreeValidator(EngineValidator):
     Verified: the GLB parses with the stock GLTFLoader without errors/warnings; shaders compile; every
     texture slot the glTF declares is bound to a decoded image of the manifest's size; triangle counts
     (main + each LOD GLB), mesh count, draw calls, bounds and material/texture lists agree with the
-    manifest; the frame is framed, lit, and its alpha silhouette overlaps an independent reference
-    (kernel rasteriser of the package USD) at the Godot gate.
-    Not verified: colour/PBR look (no photometric reference), normal-map orientation, KHR extensions
-    beyond what three reads, other web runtimes (Babylon, model-viewer), GPUs (software GL only here).
+    manifest; every loaded material's parameters (base colour and alpha, alpha mode and cut-off, double-sided,
+    emissive colour and strength, clearcoat, transmission, IOR, sheen, specular, metallic, roughness) and bound
+    texture slots equal the manifest's ``materials`` inventory, with no material loaded that the manifest does
+    not list; the frame is framed, lit, and its silhouette overlaps an independent reference (kernel rasteriser
+    of the package USD) at the Godot gate. The silhouette comes from a second render of the loaded scene with
+    every material replaced by opaque double-sided white, so glass, cut-outs and blended materials cannot change it.
+    Not verified: colour/PBR look (no photometric reference; the loaded values are compared, not the pixels
+    they produce), normal-map orientation, KHR extensions beyond what three reads, other web runtimes (Babylon,
+    model-viewer), GPUs (software GL only here).
     """
 
     engine, env_var, binary_names = ENGINE, "CHROMIUM_BIN", CHROMIUM_NAMES

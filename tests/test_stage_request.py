@@ -15,13 +15,21 @@ from __future__ import annotations
 import json
 
 import pytest
+from gemini_stub import (
+    GeminiStub,
+    call,
+    declarations,
+    prompt_breakdown,
+    sections,
+    system_text,
+    text,
+)
 from google.antigravity import Agent
+from test_harness_tools import CRATE, make_session
 
 from antigravity3d import ir_schema
 from antigravity3d.harness import agents as A
 from antigravity3d.harness import tools as T
-from gemini_stub import GeminiStub, call, declarations, prompt_breakdown, sections, system_text, text
-from test_harness_tools import CRATE, make_session
 
 #            stage: (before, budget) static chars per call
 STATIC_BUDGET = {"BLOCKOUT": (26_224, 7_000), "TWEAK": (25_351, 6_600), "VARIANTS": (25_946, 15_500),
@@ -93,8 +101,10 @@ async def test_json_string_in_place_of_ops_is_accepted(tmp_path):
 
 
 async def test_typed_variants_and_shader_diff(tmp_path):
-    lid = lambda h, z: {"op": "upsert_node", "node": {"id": "lid", "kind": "box", "params": {"size": [1.05, 0.85, h]},  # noqa: E731
-                                                      "transform": {"translate": [0, 0, z]}}}
+    def lid(h: float, z: float) -> dict:
+        return {"op": "upsert_node", "node": {"id": "lid", "kind": "box", "params": {"size": [1.05, 0.85, h]},
+                                              "transform": {"translate": [0, 0, z]}}}
+
     env = make_session(tmp_path, stage="VARIANTS")
     assert (await T.apply_scene_ir(CRATE["ops"], env.ctx)).startswith("OK")
     r = await T.propose_variants("lid", [{"name": "flat", "ops": [lid(0.08, 0.64)]}, {"name": "tall", "ops": [lid(0.3, 0.75)]}], env.ctx)
@@ -116,7 +126,7 @@ async def test_undeclared_subagents_cannot_be_started(tmp_path):
               call("invoke_subagent", Subagents=[{"TypeName": "rogue", "Role": "R", "Prompt": "go"}]),
               call("invoke_subagent", Subagents=[{"TypeName": "research", "Role": "R", "Prompt": "look"}]),
               text("done")]
-    env, stub = await run(tmp_path, "LOOKDEV", script, subagents=True)
+    _, stub = await run(tmp_path, "LOOKDEV", script, subagents=True)
     main = [b for b in stub.requests if "LOOKDEV stage agent" in system_text(b)]
     outs = " ".join(tool_outputs(main[-1]))
     assert outs.count("is not available in the LOOKDEV stage") == 3, outs
@@ -126,7 +136,7 @@ async def test_undeclared_subagents_cannot_be_started(tmp_path):
 
 async def test_declared_subagent_runs_with_its_own_short_prompt(tmp_path):
     script = [call("invoke_subagent", Subagents=[{"TypeName": "usd_verifier", "Role": "Verifier", "Prompt": "check"}])]
-    env, stub = await run(tmp_path, "LOOKDEV", script)
+    _, stub = await run(tmp_path, "LOOKDEV", script)
     sub = [b for b in stub.requests if "usd_verifier subagent" in system_text(b)]
     assert sub, "the declared subagent did not start"
     assert set(declarations(sub[0])) == {"inspect_manifest", "run_usd_validator", "send_message"}

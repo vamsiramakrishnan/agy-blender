@@ -7,10 +7,11 @@ layer. Units are metres, Z-up, right-handed; rotations are XYZ Euler degrees.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 Vec3 = tuple[float, float, float]
 NodeId = Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$", max_length=64)]
@@ -27,7 +28,15 @@ class Transform(_Model):
 
 
 UnitFloat = Annotated[float, Field(ge=0.0, le=1.0, allow_inf_nan=False)]
-Color3 = tuple[UnitFloat, UnitFloat, UnitFloat]  # linear RGB, each 0..1
+
+
+def _unit_rgb(v: tuple[float, float, float]) -> tuple[float, float, float]:
+    if not all(math.isfinite(c) and 0.0 <= c <= 1.0 for c in v):
+        raise ValueError(f"colour components must be within [0, 1], got {v}")
+    return v
+
+
+Color3 = Annotated[tuple[float, float, float], AfterValidator(_unit_rgb)]  # linear RGB, each 0..1
 AlphaMode = Literal["OPAQUE", "MASK", "BLEND"]  # glTF names: opaque, cut-out at alpha_cutoff, blended
 
 
@@ -35,7 +44,7 @@ class MaterialIR(_Model):
     """A glTF 2.0 metallic-roughness material plus the ratified ``KHR_materials_*`` parameters game assets need.
 
     Names are glTF's, in snake_case, except ``opacity`` (``baseColorFactor[3]``, UsdPreviewSurface's own name) and
-    ``thickness`` is absent on purpose (no ``KHR_materials_volume``: transmission is thin-surface). Every new field
+    there is no thickness/volume (transmission is thin-surface, no ``KHR_materials_volume``). Every new field
     defaults to the glTF default, so a document written before they existed validates unchanged. The cross-field
     rules reject input that would silently do nothing or contradict itself (see ``_coherent``).
     """

@@ -754,7 +754,7 @@ def test_silhouette_and_framing_are_judged_on_the_geometry_pass_not_on_alpha() -
 
 def _pbr_package(tmp_path, materials, name="Mat"):
     """A one-box GLB from the package's writer with ``materials`` ({name: GltfMaterial}), its inventory and reference."""
-    from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMesh, TextureRef, build_glb  # noqa: F401
+    from antigravity3d.kernel.gltf_writer import GltfMesh, build_glb
     from antigravity3d.kernel.package import material_inventory
 
     tm = trimesh.creation.box((1.0, 0.8, 0.6), transform=trimesh.transformations.translation_matrix((0, 0.4, 0)))
@@ -816,6 +816,7 @@ def test_browser_runtime_received_what_was_authored_and_silhouette_stays_geometr
 def test_browser_silhouette_iou_does_not_depend_on_the_material(runtime, tmp_path):
     ious = {}
     for case in ("opaque", "glass", "cutout", "blend"):
+        (tmp_path / case).mkdir()
         d, tm, man = _pbr_package(tmp_path / case, _material_cases()[case])
         ious[case] = _verify(d, _reference(tm, man)).silhouette_iou
     assert max(ious.values()) - min(ious.values()) < 1e-6, ious  # identical geometry, identical mask

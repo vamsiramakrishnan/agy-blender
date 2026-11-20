@@ -386,6 +386,8 @@ def _validate_material_inventory(path: Path, inventory: list[dict]) -> list[Issu
                 return [Issue("pkg:material_inventory", "critical", rec["name"],
                               f"manifest material {rec['name']!r} is not in {path.name} as stated: {rec}"[:300])]
             left.pop(hit)
+        # a mesh without UVs gets a factor-only copy of its material (same name, no texture slots): not a stranger
+        left = [a for a in left if a["name"] not in {rec["name"] for rec in want}]
         if left:
             return [Issue("pkg:material_inventory", "critical", path.name,
                           f"{len(left)} GLB material(s) missing from the manifest: {[a['name'] for a in left]}")]

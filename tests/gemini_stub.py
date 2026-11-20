@@ -21,10 +21,10 @@ import threading
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 Answer = dict[str, Any] | Callable[[dict[str, Any]], dict[str, Any]]
-_SECTION = re.compile(r"<([a-z_]{3,40})>\n(.*?)\n</\1>", re.S)
+_SECTION = re.compile(r"<([a-z_]{3,40})>\n(.*?)\n</\1>", re.DOTALL)
 
 
 def text(t: str) -> dict[str, Any]:
@@ -47,7 +47,7 @@ class GeminiStub:
         stub = self
 
         class Handler(BaseHTTPRequestHandler):
-            def do_POST(self) -> None:  # noqa: N802 - http.server API
+            def do_POST(self) -> None:  # http.server API name
                 body = json.loads(self.rfile.read(int(self.headers.get("content-length", 0))) or b"{}")
                 with stub._lock:
                     stub.requests.append(body)
@@ -70,11 +70,11 @@ class GeminiStub:
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
 
-    def __enter__(self) -> "GeminiStub":
+    def __enter__(self) -> Self:
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         return self
 
-    def __exit__(self, *exc: Any) -> None:
+    def __exit__(self, *exc: object) -> None:
         self.server.shutdown()
         self.server.server_close()
 

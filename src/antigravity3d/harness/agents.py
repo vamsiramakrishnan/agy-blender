@@ -5,24 +5,53 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from dataclasses import dataclass, field
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import pydantic
 from google.antigravity import Agent, types
-from google.antigravity.connections.local.local_connection_config import LocalAgentConfig
+from google.antigravity.connections.local.local_connection_config import (
+    LocalAgentConfig,
+)
 from google.antigravity.hooks import policy
-from google.antigravity.models import GeminiAPIEndpoint, GeminiModelOptions, ModelTarget, ModelType
+from google.antigravity.models import (
+    GeminiAPIEndpoint,
+    GeminiModelOptions,
+    ModelTarget,
+    ModelType,
+)
 from google.antigravity.triggers import TriggerContext
 
 from antigravity3d.harness.hooks import (
-    QAStopHook, TelemetryHook, VisionEvictionHook, _Shared, sanitize_prompt, stage_hooks, state_header, with_state_header,
+    QAStopHook,
+    TelemetryHook,
+    VisionEvictionHook,
+    _Shared,
+    sanitize_prompt,
+    stage_hooks,
+    state_header,
+    with_state_header,
 )
 from antigravity3d.harness.session import (
-    CTX_REGISTRY_KEY, CTX_SESSION_KEY, DEFAULT_REGISTRY, bind_conversation, session, set_toolset, unbind_conversation,
+    CTX_REGISTRY_KEY,
+    CTX_SESSION_KEY,
+    DEFAULT_REGISTRY,
+    bind_conversation,
+    session,
+    set_toolset,
+    unbind_conversation,
 )
-from antigravity3d.harness.tools import STAGE_SUBAGENTS, STAGE_TOOLS, SUBAGENT_TOOLS, TOOLSET_STAGE
+from antigravity3d.harness.tools import (
+    STAGE_SUBAGENTS,
+    STAGE_TOOLS,
+    SUBAGENT_TOOLS,
+    TOOLSET_STAGE,
+)
+from antigravity3d.ir_schema import (  # prose the tool schemas cannot carry
+    IR_SEMANTICS,
+    OP_SEMANTICS,
+)
 from antigravity3d.models import Role, tier
 from antigravity3d.state import SceneSessionRegistry
 
@@ -45,8 +74,6 @@ TOOL_OUTPUT_MAX_TOKENS = 1_500  # backstop; harness tools already return one-lin
 #   tools return one-line deltas and URIs). INVOKE_SUBAGENT only where the stage has a subagent (tools.STAGE_SUBAGENTS).
 STAGE_BUILTINS = [types.BuiltinTools.FINISH]
 STAGE_BEHAVIOR = types.AgentBehavior.MINIMAL
-
-from antigravity3d.ir_schema import IR_SEMANTICS, OP_SEMANTICS  # noqa: E402 - prose the tool schemas cannot carry
 
 # Only what a schema cannot say: units, axes, anchors, ground contact, id rules. Field names and types are in the
 # tool declarations (generated from the same IR schema), so they are not repeated here.
@@ -77,10 +104,10 @@ _SUBAGENT_TEXT = {
 def _system(toolset: str, subagents: tuple[str, ...] | None = None) -> str:
     """The whole system prompt of a stage agent (it replaces the SDK default; see STAGE_BEHAVIOR). ``subagents``
     defaults to the stage's own (``tools.STAGE_SUBAGENTS``)."""
-    parts = [f"You are the {toolset} stage agent of a game-asset pipeline. Nobody answers questions: work autonomously "
-             "until the stage's stop condition holds, then reply with a short plain-text report of what changed and what "
-             "remains. You edit the asset only through the tools; tool replies are one-line deltas; a refused or failed call "
-             "says why in one line. Every prompt starts with a [STATE ...] header: trust it over older messages."]
+    parts = [(f"You are the {toolset} stage agent of a game-asset pipeline. Nobody answers questions: work autonomously "
+              "until the stage's stop condition holds, then reply with a short plain-text report of what changed and what "
+              "remains. You edit the asset only through the tools; tool replies are one-line deltas; a refused or failed "
+              "call says why in one line. Every prompt starts with a [STATE ...] header: trust it over older messages.")]
     if toolset in _IR_STAGES:
         parts.append(_IR_RULES)
     parts.append(_STAGE_TEXT[toolset])

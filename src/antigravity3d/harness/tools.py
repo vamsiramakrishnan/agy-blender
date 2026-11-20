@@ -25,17 +25,36 @@ from google.antigravity.tools.tool_runner import ToolWithSchema
 from PIL import Image
 
 from antigravity3d import ir, ir_schema
-from antigravity3d.adapters.engines.validators import MIN_SILHOUETTE_IOU, blender_frame_png, silhouette_iou
 from antigravity3d.adapters.blender_5_3.linter import UnsafeScriptError, assert_safe
-from antigravity3d.decisions.compose import Action, decide_action, engine_parity_reasons, rank, tier15_score
+from antigravity3d.adapters.engines.validators import (
+    MIN_SILHOUETTE_IOU,
+    blender_frame_png,
+    silhouette_iou,
+)
+from antigravity3d.decisions.compose import (
+    Action,
+    decide_action,
+    engine_parity_reasons,
+    rank,
+    tier15_score,
+)
 from antigravity3d.genmedia.pbr_deriver import delight, roughness_breakup
 from antigravity3d.harness.session import Preview, Session, resolve
 from antigravity3d.harness.traceback_compressor import compress_exception
-from antigravity3d.ir import IRPatch, MaterialIR, SceneIR, SetTransform, UpsertMaterial
-from antigravity3d.kernel.fast_ops import ExportBundle, Tier1Report, run_export_pipeline, tier1_qa
+from antigravity3d.ir import IRPatch, MaterialIR, SetTransform, UpsertMaterial
+from antigravity3d.kernel.fast_ops import (
+    ExportBundle,
+    Tier1Report,
+    run_export_pipeline,
+    tier1_qa,
+)
 from antigravity3d.kernel.raster import contact_sheet
 from antigravity3d.kernel.validator import check_engine_compliance, validate_usd
-from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, AssetSessionState, VisualVerdict
+from antigravity3d.state import (
+    EXPORT_MIN_TIER15_SCORE,
+    AssetSessionState,
+    VisualVerdict,
+)
 from antigravity3d.tactics.cached import cached_derive_pbr
 
 PREVIEW_PX = 256  # per view; the sheet is 2x2

@@ -1,5 +1,6 @@
 """The glTF PBR material model end to end: IR rules, USD homes, the one reader, the glTF derivation, the manifest."""
 
+# ruff: noqa: C408
 from __future__ import annotations
 
 import io
@@ -52,9 +53,7 @@ def _factors(m: MaterialIR) -> dict:
 def _assert_same(read: dict, want: dict) -> None:
     assert read.keys() == want.keys()
     for k, w in want.items():
-        if isinstance(w, (tuple, list)):
-            assert read[k] == pytest.approx(w, abs=1e-6), k
-        elif isinstance(w, float):
+        if isinstance(w, (tuple, list, float)):
             assert read[k] == pytest.approx(w, abs=1e-6), k
         else:
             assert read[k] == w, k
@@ -88,7 +87,7 @@ def test_defaults_are_the_gltf_defaults_and_old_documents_validate() -> None:
     (dict(specular=0.0, specular_color=(0.5, 0.5, 0.5)), "specular is 0"),
     (dict(ior=0.9), "greater than or equal to 1"),
     (dict(clearcoat=1.5), "less than or equal to 1"),
-    (dict(emissive_color=(2.0, 0.0, 0.0)), "less than or equal to 1"),
+    (dict(emissive_color=(2.0, 0.0, 0.0)), "within"),
     (dict(alpha_mode="MULTIPLY"), "OPAQUE"),
 ])
 def test_incoherent_or_out_of_range_material_is_rejected_with_an_actionable_message(fields, needle) -> None:
@@ -124,7 +123,7 @@ def test_double_sidedness_follows_assignment_and_material_edits(tmp_path: Path) 
     two, one = MaterialIR(id="two", double_sided=True), MaterialIR(id="one")
     base = _scene(two, one)
     author_scene(stage, base)
-    sided = lambda n: bool(stage.GetPrimAtPath(f"/Mix/{n}").GetAttribute("doubleSided").Get())  # noqa: E731
+    sided = lambda n: bool(stage.GetPrimAtPath(f"/Mix/{n}").GetAttribute("doubleSided").Get())
     assert (sided("n0"), sided("n1")) == (True, False)
     swapped = base.model_copy(update={"nodes": [base.nodes[0].model_copy(update={"material_id": "one"}),
                                                   base.nodes[1].model_copy(update={"material_id": "two"})]})
@@ -314,3 +313,23 @@ def test_live_session_derivation_flips_a_directx_normal_map_in_memory(tmp_path) 
     out = _gltf(stage, scene)["n0"].normal_texture.image
     flipped = np.asarray(Image.open(io.BytesIO(out.data)).convert("RGB"))
     assert (flipped[..., 1] == 255 - ref[..., 1]).all() and (flipped[..., 0] == ref[..., 0]).all()
+
+
+def test_inventory_lists_the_default_material_of_unbound_meshes(tmp_path) -> None:
+    root = tmp_path / "u"
+    root.mkdir()
+    sm = StageManager.create(root / "s.usda", "Mix")
+    sm.apply_ir(SceneIR(asset_name="Mix", nodes=[NodeIR(id="n0", kind="box", params={"size": [1, 1, 1]})]))
+    budget = EngineBudget("godot_4")
+    man = P.write_engine_package(sm, run_export_pipeline(sm.extract_meshes(), budget, "Mix"), budget, root / "pkg", asset_name="Mix").data
+    assert [m["name"] for m in man["materials"]] == ["Default"] and man["validation"]["package_ok"]
+
+
+def test_agent_facing_rules_name_the_new_fields_and_their_cross_rules() -> None:
+    from antigravity3d import ir_schema
+
+    text = ir_schema.ir_rules_text()
+    for field in ("alpha_mode", "alpha_cutoff", "opacity", "double_sided", "emissive_color", "emissive_strength", "emissive_uri",
+                  "clearcoat", "transmission", "ior", "sheen_color", "specular_color"):
+        assert field in text
+    assert "MASK needs alpha_cutoff" in text

@@ -308,7 +308,9 @@ EDIT_TOOLS = ("apply_scene_ir", "propose_variants", "apply_shader_diff")
 def _flush_seed() -> Any:
     from antigravity3d.ir import SceneIR
 
-    box = lambda nid, size, z: {"id": nid, "kind": "box", "params": {"size": size}, "transform": {"translate": [0, 0, z]}}  # noqa: E731
+    def box(nid: str, size: list[float], z: float) -> dict[str, Any]:
+        return {"id": nid, "kind": "box", "params": {"size": size}, "transform": {"translate": [0, 0, z]}}
+
     return SceneIR.model_validate({"asset_name": "Crate", "nodes": [box("body", [0.8, 0.6, 0.5], 0.25),
                                                                      box("lid", [0.84, 0.64, 0.06], 0.60)]})
 
@@ -357,7 +359,7 @@ class ModelRelay:
         relay = self
 
         class Handler(BaseHTTPRequestHandler):
-            def do_POST(self) -> None:  # noqa: N802 - http.server API
+            def do_POST(self) -> None:  # http.server API name
                 raw = self.rfile.read(int(self.headers.get("content-length", 0)))
                 status, payload = relay.forward(self.path, raw)
                 self.send_response(status)

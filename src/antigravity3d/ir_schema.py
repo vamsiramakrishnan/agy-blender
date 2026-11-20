@@ -279,7 +279,11 @@ IR_SEMANTICS = (
     "Scene IR: metres, Z-up, right-handed, rotations XYZ Euler degrees. Primitives are centred on their local origin; "
     "cylinder/cone/capsule axis is local Z (cone base at -height/2, apex at +height/2). A group is a transform-only "
     "parent; mesh_ref params.path is a local asset path. id fields match [A-Za-z_][A-Za-z0-9_]* (at most 64 chars) "
-    "and parent / material_id / node_id / target_id must name an existing node / material."
+    "and parent / material_id / node_id / target_id must name an existing node / material. Materials are glTF 2.0 PBR: "
+    "colours are linear RGB 0-1; alpha_mode MASK needs alpha_cutoff and an albedo_uri whose alpha channel is the shape, "
+    "BLEND needs opacity < 1 or an albedo_uri with alpha (with an albedo_uri leave opacity at 1); emissive_uri, "
+    "emissive_strength need a non-black emissive_color; transmission (thin glass) needs metallic < 1; clearcoat_roughness "
+    "needs clearcoat > 0; sheen_roughness needs sheen_color; double_sided for thin shells (leaves, cloth, decals)."
 )
 OP_SEMANTICS = (
     "Anchors use world AABBs. on_top_of centres X/Y and aligns bottom to target top. flush_back aligns +Y faces. "
