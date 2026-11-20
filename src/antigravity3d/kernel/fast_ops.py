@@ -1034,8 +1034,11 @@ class LOD:
     points: np.ndarray           # (V, 3) float64 (float32 precision)
     triangles: np.ndarray        # (M, 3) int32
     uvs: np.ndarray | None
-    error: float                 # measured deviation from LOD0 relative to the mesh scale (meshopt simplify_scale)
-    error_m: float               # same, in metres (two-sided, sampled surface distance; see _surface_deviation)
+    error: float                 # bound on the deviation from LOD0, relative to the mesh scale (meshopt simplify_scale)
+    # The same in metres: no sample of the two-sided surface distance exceeds it, and it is within the level's
+    # budget. It is a bound, not the largest sampled distance: a sample is only settled exactly when it could
+    # exceed the budget (see _surface_deviation), so the true deviation is often well below this value.
+    error_m: float
     screen_fraction: float = 1.0  # largest screen fraction (bounding-sphere diameter / frame height) it is shown at
 
     @property
