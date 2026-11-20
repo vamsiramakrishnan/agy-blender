@@ -26,10 +26,10 @@
     "stage_accounting": "1 call per run_stage with a token reservation; SDK-internal model requests are not counted individually"
   },
   "totals": {
-    "calls": 16,
-    "input_tokens": 82442,
-    "output_tokens": 14484,
-    "thinking_tokens": 26621
+    "calls": 17,
+    "input_tokens": 84754,
+    "output_tokens": 14683,
+    "thinking_tokens": 27399
   },
   "groups": {
     "text": {
@@ -493,13 +493,33 @@
             "input_tokens": 2312,
             "output_tokens": 167,
             "thinking_tokens": 634
+          },
+          {
+            "stage": "blockout",
+            "backend_kind": "generative_fallback",
+            "backend_model": "gemini-4-neon",
+            "question_count": 9,
+            "calibrated": false,
+            "source": "generative_fallback",
+            "resolution": "low",
+            "plane_latency_ms": 17978.3,
+            "plane_input_tokens": 2312,
+            "plane_output_tokens": 977,
+            "next_action": null,
+            "skipped": 16,
+            "wall_ms": 17978.6,
+            "backend_requests": 1,
+            "thinking_level": "LOW",
+            "input_tokens": 2312,
+            "output_tokens": 199,
+            "thinking_tokens": 778
           }
         ],
-        "n_ok": 2,
+        "n_ok": 3,
         "n_failed": 0,
-        "median_ms": 15612.5,
+        "median_ms": 16076.3,
         "min_ms": 15148.6,
-        "max_ms": 16076.3
+        "max_ms": 17978.6
       }
     }
   },
