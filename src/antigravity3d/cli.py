@@ -184,15 +184,24 @@ async def cmd_sanitize(a: argparse.Namespace) -> int:
 
 async def cmd_kit(a: argparse.Namespace) -> int:
     from antigravity3d.dags.environment_kit import EnvironmentKitDAG
+    from antigravity3d.tactics.governor import BudgetExceeded
 
     _, forge, author, notes = await make_collaborators(a.offline, need_plane=False)
-    rep = await EnvironmentKitDAG(forge=forge, author=author, workdir=Path(a.out), budget=_budget(a), sheet_resolution=1024 if a.offline else 4096).run(
-        a.prompt, a.pieces, a.splat)
+    try:
+        rep = await EnvironmentKitDAG(forge=forge, author=author, workdir=Path(a.out), budget=_budget(a), sheet_resolution=1024 if a.offline else 4096).run(
+            a.prompt, a.pieces, a.splat)
+    except BudgetExceeded as e:  # live authoring is admitted against a ceiling; a missing price is a refusal, not a crash
+        raise CliError(str(e)) from e
     x = rep.extras
     print(f"agy3d kit: {a.prompt!r} x{a.pieces} -> {a.engine}")
     for n in notes:
         print(f"  {n}")
     print(rep.summary())
+    sp = x["spend"]
+    print(f"spend: {sp['summary']} (kit ceiling = ${sp['per_asset_ceiling_usd']:.2f} x ({a.pieces} pieces + 1 trim sheet))")
+    bad = [o for o in x["authoring"]["pieces"] if o["status"] != "produced"]
+    for o in bad:
+        print(f"  piece #{o['index']} {o['piece']}: {o['status']}" + (f" ({o['detail']})" if o["detail"] else ""))
     if x.get("vram"):
         v = x["vram"]
         print(f"vram: shared trim {v['shared_bytes'] / 2**20:.1f} MiB vs unique textures {v['unique_bytes'] / 2**20:.1f} MiB ({v['ratio']:.1f}x; BC7: {v['compressed']['ratio']:.1f}x)")
@@ -322,7 +331,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("kit", help="modular environment kit on one shared trim sheet")
     p.add_argument("prompt")
     common(p)
-    p.add_argument("--pieces", type=int, default=4)
+    p.add_argument("--pieces", type=_positive_int, default=4)
     p.add_argument("--offline", action="store_true")
     p.add_argument("--splat", default=None, help="optional .ply/.spz Gaussian-splat backdrop (recorded; import needs Blender)")
     p.set_defaults(fn=cmd_kit)
