@@ -316,3 +316,263 @@ def ir_rules_text() -> str:
     lines.append("patch: " + _obj_line(patch, patch) + '; each op is {"op": <name>, ...fields}: ' + "; ".join(ops))
     lines.append(OP_SEMANTICS)
     return "\n".join(lines)
+
+
+# --- tool parameters: the same IR as function declarations -----------------------------------------------------
+#
+# A response schema is sent once per authoring call; a tool declaration is re-sent on every step of a stage loop.
+# The per-kind union above costs about 7k prompt tokens as a patch schema, so the tools declare a *lean* form derived
+# mechanically from the same wire models: each union (op, node kind, set_param name) becomes one object whose
+# discriminator is an enum and whose properties are the union of the members' properties, with each member's own
+# required fields stated in the discriminator's description. Everything the lean form cannot express (which params
+# belong to which kind, id patterns, exclusive bounds) is enforced by ``parse_ops`` / ``parse_tool_scene``: one model
+# per discriminator value, so an error names the op index, the op, the field and what was expected.
+
+_DROP = frozenset({"title", "default", "pattern", "maxLength", "minLength", "additionalProperties", "discriminator"})
+
+
+def _lean(root: dict[str, Any], node: Any) -> Any:
+    """Inline ``$ref``s, drop keywords that only cost tokens, unwrap ``X|null``, ``prefixItems`` of one type -> items."""
+    if isinstance(node, list):
+        return [_lean(root, x) for x in node]
+    if not isinstance(node, dict):
+        return node
+    if "$ref" in node:
+        return _lean(root, root["$defs"][node["$ref"].rsplit("/", 1)[-1]])
+    out: dict[str, Any] = {}
+    for key, value in node.items():
+        if key in _DROP:
+            continue
+        if key == "const":
+            out["enum"] = [value]
+        elif key == "exclusiveMinimum":
+            out.setdefault("minimum", value)
+        elif key == "properties":
+            out[key] = {k: _lean(root, v) for k, v in value.items()}
+        elif key == "prefixItems":
+            items = [_lean(root, x) for x in value]
+            if all(i == items[0] for i in items):
+                out["items"] = items[0]
+            else:
+                out["prefixItems"] = items
+        else:
+            out[key] = _lean(root, value)
+    for key in ("anyOf", "oneOf"):
+        if key in out:
+            alts = [a for a in out.pop(key) if a.get("type") != "null"]
+            if len(alts) == 1:
+                out.update(alts[0])
+            else:
+                out["anyOf"] = alts
+    return out
+
+
+def _member_line(tag: str, obj: dict[str, Any], skip: tuple[str, ...]) -> str:
+    req = set(obj.get("required", ()))
+    fields = [f if f in req else f"{f}?" for f in obj.get("properties", {}) if f not in skip]
+    return f"{tag} {{{', '.join(fields)}}}"
+
+
+def _merge(root: dict[str, Any], alts: list[dict[str, Any]], tag: str, doc: str) -> dict[str, Any]:
+    """One object for a tagged union: ``tag`` becomes an enum, properties are merged (a property typed differently by
+    different members becomes ``anyOf`` of its distinct lean types), only fields every member requires are required."""
+    members = [_resolve(root, a)[1] for a in alts]
+    props: dict[str, Any] = {}
+    tags: list[str] = []
+    lines: dict[str, str] = {}
+    for m in members:
+        t = m["properties"][tag]
+        values = [t["const"]] if "const" in t else t["enum"]
+        tags += [v for v in values if v not in tags]
+        lines.setdefault("|".join(values), _member_line("|".join(values), m, (tag,)))
+        for name, prop in m["properties"].items():
+            if name == tag:
+                continue
+            props.setdefault(name, []).append(_lean(root, prop))
+    props = {name: _union(variants) for name, variants in props.items()}
+    required = [tag] + [f for f in props if all(f in m.get("required", ()) for m in members)]
+    desc = f"{doc}: " + "; ".join(lines.values())
+    return {"type": "object", "properties": {tag: {"type": "string", "enum": tags, "description": desc}, **props},
+            "required": required}
+
+
+def _node_schema(root: dict[str, Any]) -> dict[str, Any]:
+    alts = root["$defs"]["WireUpsertNode"]["properties"]["node"]["anyOf"]
+    node = _merge(root, alts, "kind", "required fields per kind")
+    params = [_resolve(root, _resolve(root, a)[1]["properties"]["params"])[1] for a in alts]
+    merged: dict[str, Any] = {}
+    per_kind = []
+    for kind, p in zip([_resolve(root, a)[1]["properties"]["kind"]["const"] for a in alts], params, strict=True):
+        for name, prop in p.get("properties", {}).items():
+            merged.setdefault(name, _lean(root, prop))
+        req = set(p.get("required", ()))
+        fields = [f if f in req else f"{f}?={json.dumps(v['default'])}" if "default" in v else f"{f}?"
+                  for f, v in p.get("properties", {}).items()]
+        per_kind.append(f"{kind} {{{', '.join(fields)}}}")
+    node["properties"]["kind"]["description"] = "params per kind: " + "; ".join(per_kind)
+    node["properties"]["params"] = {"type": "object", "properties": merged,
+                                    "description": "only the params of this node's kind (see kind)"}
+    return node
+
+
+@functools.cache
+def _tool_parts() -> str:
+    patch = raw_schema("patch")
+    op = _merge(patch, patch["properties"]["ops"]["items"]["anyOf"], "op", "fields per op")
+    node = _node_schema(patch)
+    for container in ("node",):  # upsert_node.node -> the lean node
+        op["properties"][container] = node
+    material = _lean(patch, patch["$defs"]["MaterialIR"])
+    return json.dumps({"op": op, "node": node, "material": material})
+
+
+def tool_op_schema() -> dict[str, Any]:
+    """One patch op, lean form (see the section comment)."""
+    return json.loads(_tool_parts())["op"]
+
+
+def tool_node_schema() -> dict[str, Any]:
+    return json.loads(_tool_parts())["node"]
+
+
+def tool_material_schema(*, partial: bool = False) -> dict[str, Any]:
+    """``MaterialIR`` as a tool parameter; ``partial`` drops ``id`` and every requirement (a diff onto a material)."""
+    m = json.loads(_tool_parts())["material"]
+    if partial:
+        m["properties"].pop("id", None)
+        m.pop("required", None)
+    return m
+
+
+def _ops_param(min_items: int = 1) -> dict[str, Any]:
+    return {"type": "array", "items": tool_op_schema(), "minItems": min_items}
+
+
+def apply_scene_ir_parameters() -> dict[str, Any]:
+    return {"type": "object", "properties": {
+        "ops": {**_ops_param(), "description": "A patch: ops applied in order to the current scene."},
+        "nodes": {"type": "array", "items": tool_node_schema(),
+                  "description": "With materials: a full scene that REPLACES the current one. Omit when sending ops."},
+        "materials": {"type": "array", "items": tool_material_schema(), "description": "Materials of a full scene."},
+    }}
+
+
+def propose_variants_parameters() -> dict[str, Any]:
+    return {"type": "object", "properties": {
+        "set_name": {"type": "string", "description": "Variant set name, e.g. lid."},
+        "variants": {"type": "array", "minItems": 1, "description": "Each variant is a patch on the base scene.",
+                     "items": {"type": "object", "properties": {"name": {"type": "string"}, "ops": _ops_param()},
+                               "required": ["name", "ops"]}},
+    }, "required": ["set_name", "variants"]}
+
+
+def apply_shader_diff_parameters() -> dict[str, Any]:
+    return {"type": "object", "properties": {
+        "material_id": {"type": "string", "description": "Material to create or change."},
+        "diff": {**tool_material_schema(partial=True), "description": "Only the fields to change."},
+        "assign_to": {"type": "array", "items": {"type": "string"}, "description": "Node ids to bind this material to."},
+    }, "required": ["material_id"]}
+
+
+# --- strict parse of tool arguments, with errors a model can act on -------------------------------------------
+
+
+def _op_models_by_tag() -> dict[tuple[str, str | None], type[_Wire]]:
+    out: dict[tuple[str, str | None], type[_Wire]] = {}
+    for m in OP_MODELS:
+        name_ann = m.model_fields.get("name")
+        name = get_args(name_ann.annotation)[0] if name_ann is not None and get_args(name_ann.annotation) else None
+        for tag in get_args(m.model_fields["op"].annotation):
+            out[(tag, name)] = m
+    return out
+
+
+OP_BY_TAG = _op_models_by_tag()
+NODE_BY_KIND = NODE_MODELS
+MAX_ERRORS = 3
+
+
+class IRArgumentError(ValueError):
+    """Tool arguments that do not match the IR; the message is one line naming where and what."""
+
+
+def _loc(prefix: str, loc: tuple[Any, ...]) -> str:
+    out = prefix
+    for part in loc:
+        out += f"[{part}]" if isinstance(part, int) else f".{part}"
+    return out
+
+
+def _explain(prefix: str, err: Any) -> list[str]:
+    from pydantic import ValidationError
+
+    if not isinstance(err, ValidationError):
+        return [f"{prefix}: {err}"]
+    out = []
+    for e in err.errors(include_url=False):
+        loc = tuple(p for p in e["loc"] if p not in NODE_BY_KIND)  # drop the union-member hop of a tagged union
+        got = "" if e["type"] == "missing" else f" (got {json.dumps(e.get('input'), default=str)[:40]})"
+        out.append(f"{_loc(prefix, loc)}: {e['msg']}{got}")
+    return out
+
+
+def _parse_op(i: int, op: Any) -> tuple[BaseModel | None, list[str]]:
+    where = f"ops[{i}]"
+    if not isinstance(op, dict):
+        return None, [f"{where}: expected an object with an 'op' field"]
+    tag = op.get("op")
+    name = op.get("name") if tag == "set_param" else None
+    model = OP_BY_TAG.get((tag, name))
+    if model is None:
+        if tag == "set_param":
+            names = sorted(n for t, n in OP_BY_TAG if t == "set_param")
+            return None, [f"{where}: set_param name must be one of {', '.join(names)} (got {name!r})"]
+        tags = sorted({t for t, _ in OP_BY_TAG})
+        return None, [f"{where}: unknown op {tag!r}; one of {', '.join(tags)}"]
+    where = f"{where}({tag}{'/' + name if name else ''})"
+    node = op.get("node") if tag == "upsert_node" else None
+    if isinstance(node, dict) and node.get("kind") not in NODE_BY_KIND:
+        return None, [f"{where}.node.kind: one of {', '.join(NODE_BY_KIND)} (got {node.get('kind')!r})"]
+    try:
+        return model.model_validate(op), []
+    except ValueError as e:
+        return None, _explain(where, e)
+
+
+def _raise(errors: list[str]) -> None:
+    more = f" (+{len(errors) - MAX_ERRORS} more)" if len(errors) > MAX_ERRORS else ""
+    raise IRArgumentError("invalid IR: " + "; ".join(errors[:MAX_ERRORS]) + more)
+
+
+def parse_ops(ops: Any) -> ir.IRPatch:
+    """Strict parse of a tool's ``ops`` list into ``ir.IRPatch``; raises ``IRArgumentError`` (one line)."""
+    if not isinstance(ops, list) or not ops:
+        _raise(["ops: expected a non-empty list of ops"])
+    parsed, errors = [], []
+    for i, op in enumerate(ops):
+        model, errs = _parse_op(i, op)
+        parsed.append(model)
+        errors += errs
+    if errors:
+        _raise(errors)
+    try:
+        return patch_from_wire(WirePatch(ops=parsed))
+    except ValueError as e:
+        _raise(_explain("patch", e))
+        raise  # unreachable
+
+
+def parse_tool_scene(asset_name: str, nodes: Any, materials: Any) -> ir.SceneIR:
+    """Strict parse of a full scene given as tool arguments (``materials`` may be omitted)."""
+    payload = {"asset_name": asset_name, "nodes": nodes, "materials": materials if materials is not None else []}
+    errors = []
+    for i, n in enumerate(nodes if isinstance(nodes, list) else []):
+        if isinstance(n, dict) and n.get("kind") not in NODE_BY_KIND:
+            errors.append(f"nodes[{i}].kind: one of {', '.join(NODE_BY_KIND)} (got {n.get('kind')!r})")
+    if errors:
+        _raise(errors)
+    try:
+        return scene_from_wire(WireScene.model_validate(payload))
+    except ValueError as e:
+        _raise(_explain("scene", e))
+        raise  # unreachable

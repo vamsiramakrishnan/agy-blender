@@ -304,15 +304,18 @@ export function createInspector(host) {
     if (i >= 0) notes[i] = Object.assign({}, notes[i], { text, updated_at: now });
     else notes.push({ id: "local-" + key, node_id: nodeId, text, revision: rev, updated_at: now, stale: false });
   }
+  function sessionOf(model) { return model ? (model.session_id || null) : null; }
+  /** Sends the pending edit with the revision and session it was typed under (captured at input time). */
   function flushNote() {
     if (!pendingSave) return Promise.resolve();
     const p = pendingSave; pendingSave = null; clearTimeout(p.timer);
-    return save(p.nodeId, p.text);
+    return save(p.nodeId, p.text, p.revision, p.sessionId);
   }
-  function save(nodeId, text) {
+  function save(nodeId, text, revision, sessionId) {
     updateNotesStatus("Saving…");
-    return Promise.resolve(host.notes.save(nodeId, text, P ? P.revision : null)).then((list) => {
-      if (list) setNotes(list); else renderNoteList();
+    return Promise.resolve(host.notes.save(nodeId, text, revision, sessionId)).then((list) => {
+      // the reply lists the notes of the session the edit belongs to: only show it if that is still on screen
+      if (list && sessionId === sessionOf(P)) setNotes(list); else renderNoteList();
       updateNotesStatus("Saved.");
       if (host.onNotesChanged) host.onNotesChanged(Object.assign(selectionInfo(), { edited: { node_id: nodeId, text } }));
     }).catch((e) => {
@@ -325,7 +328,8 @@ export function createInspector(host) {
     localUpsert(nodeId, text);
     if (pendingSave && pendingSave.nodeId !== nodeId) flushNote();
     if (pendingSave) clearTimeout(pendingSave.timer);
-    pendingSave = { nodeId, text, timer: setTimeout(flushNote, host.saveDelayMs != null ? host.saveDelayMs : 400) };
+    pendingSave = { nodeId, text, revision: P.revision || null, sessionId: sessionOf(P),
+                    timer: setTimeout(flushNote, host.saveDelayMs != null ? host.saveDelayMs : 400) };
     updateNotesStatus("Editing…");
   });
   $("note-text").addEventListener("blur", () => { flushNote(); });
@@ -363,12 +367,15 @@ export function createInspector(host) {
 
   /* ---------- loading a data model ---------- */
   function load(payload) {
-    const sameAsset = P && payload && P.asset_name === payload.asset_name;
+    // An edit still in its debounce window belongs to what was on screen when it was typed: send it now,
+    // against its own revision and session (it then lists as stale against the new revision, which is right).
+    flushNote();
+    const sameAsset = P && payload && P.asset_name === payload.asset_name && sessionOf(P) === sessionOf(payload);
     P = payload;
     state.loaded = true;
     state.revision = P.revision || null;
     if (!sameAsset) { state.selected = null; state.userMoved = false; }
-    if (state.selected != null && !P.meshes.some((m) => m.id === state.selected)) state.selected = null;
+    if (state.selected != null && !P.nodes.some((m) => m.id === state.selected)) state.selected = null;
     if (state.lod >= lodLevels().length) state.lod = 0;
     if (!modeAvailable(state.mode)) state.mode = "lit";
     message("");
