@@ -282,17 +282,28 @@ class StageManager:
         self._check_no_selection()
         self._clear_overlay()
         with self.transaction(tx_id) as tid:
-            self._author_patch(self.base_ir(), patch, BASE)
+            base = self.base_ir()
+            self._author_patch(base, patch, BASE, prev=base)  # BASE composes exactly the base IR just read
         return tid
 
-    def _author_patch(self, base: SceneIR, patch: IRPatch, root: Sdf.Path) -> None:
+    def _author_patch(self, base: SceneIR, patch: IRPatch, root: Sdf.Path, *, prev: SceneIR | None = None) -> None:
+        """Applies ``patch`` to ``base`` and authors the result under ``root``.
+
+        ``prev`` is the IR currently composed on ``root`` when the caller already holds it; ``author_scene`` then
+        does not parse the embedded scene description a second time. Leave it None when ``root`` may compose
+        something other than ``base`` (a variant being edited): ``author_scene`` reads it from the stage.
+        """
+        last = prev
+
         def resolve(current: SceneIR, op: ir.PlaceRelative) -> ir.Transform:
             # Earlier ops in the same tx can introduce geometry an anchor refers to.
-            author_scene(self._stage, current, root=root)
+            nonlocal last
+            author_scene(self._stage, current, root=root, prev=last)
+            last = current  # what ``root`` composes from here on
             return resolve_anchor(current, op, stage=self._stage)
 
         scene = ir.apply_patch(base, patch, anchor_resolver=resolve)
-        author_scene(self._stage, scene, root=root)
+        author_scene(self._stage, scene, root=root, prev=last)
 
     # --- variants ------------------------------------------------------------
 
