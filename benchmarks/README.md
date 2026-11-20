@@ -158,8 +158,8 @@ PBR maps and the export bundle are reused.
 
 * Run it on a quiet machine. The box has 4 vCPUs; `throughput.prop_offline` at P = 4 and the MCP server (a second
   process) compete with whatever else is running.
-* `dag.batch_sanitize` parallelises with `asyncio.to_thread`, so `jobs` > 1 means threads in one process, not processes.
-  Stages that hold the GIL do not scale; the result shows the package's behaviour, it is not a harness setting.
+* `dag.batch_sanitize` runs each file in a worker process: `jobs` is the number of workers, and one worker is used even at `jobs` = 1 so that a crash in a native library fails one file, not the batch. Each sample's wall time includes about a second of worker start-up.
+  The harness pins native thread pools to one thread per process, so scaling with `jobs` is the workers' own.
 * Some inputs exceed the default `unreal_5` limits and are reported as such, not adjusted: meshes above 15,000 triangles
   in `dag.batch_sanitize` come back `needs_attention`, and a prompt that fails a gate in the offline pipeline is reported
   with its gate result (`preview_gates_ok`, `failed_nodes`, `skipped_nodes` in `extra`). `gates_ok_verified_publication`

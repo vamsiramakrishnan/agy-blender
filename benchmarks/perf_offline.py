@@ -1533,7 +1533,7 @@ def make_sanitize_inputs(out: Path, count: int, quick: bool = False) -> list[Pat
 
 @bench("dag.batch_sanitize",
        "BatchSanitizeDAG.run over generated meshes (load, Tier-1 before, shape-preserving repair, Tier-1 after, UV+LOD+collider export pipeline, USD+GLB write, UsdValidation + engine compliance) with max_parallel=jobs, unreal_5 default budget. One timed sample per jobs value: wall time of the whole batch.",
-       "Mesh generation (untimed). The DAG parallelises with asyncio.to_thread, i.e. threads in one process, not processes. Meshes above 15,000 triangles exceed the default unreal_5 tri budget and are reported 'needs_attention'; that is a property of the inputs, listed in extra.status_counts / extra.attention_reasons.")
+       "Mesh generation (untimed). The DAG runs each file in a worker process (jobs = number of workers; one worker even at jobs=1, for crash isolation), so the wall time includes about a second of worker start-up per jobs value. Meshes above 15,000 triangles exceed the default unreal_5 tri budget and are reported 'needs_attention'; that is a property of the inputs, listed in extra.status_counts / extra.attention_reasons.")
 def k_sanitize(ctx: Ctx) -> list[Case]:
     from antigravity3d.dags.batch_sanitize import BatchSanitizeDAG
 
