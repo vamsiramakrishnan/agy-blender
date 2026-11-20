@@ -22,6 +22,7 @@ from PIL import Image, ImageDraw
 from pxr import Usd
 
 from antigravity3d.adapters.engines.validators import MIN_SILHOUETTE_IOU, blender_frame_png, silhouette_iou, validator_for
+from antigravity3d.adapters.engines import web_three
 from antigravity3d.adapters.engines.web_three import WebThreeValidator
 from antigravity3d.decisions.compose import Action, Thresholds, decide_action, lod_pop_ok, lod_pop_reasons, tier15_score
 from antigravity3d.decisions.models import VisualQAResult
@@ -740,8 +741,19 @@ class _Run:
 
         # Independent of the target engine's own import, so it runs while those steps wait on their engine.
         web_check = asyncio.ensure_future(self.guarded_result(web_runtime))
+        try:
+            await self._engine_steps(validator_for(budget.target_engine))
+        except BaseException:
+            web_check.cancel()  # pass C was cancelled or crashed: stop the verification with it, and let it clean up
+            await asyncio.wait({web_check})
+            raise
+        status, detail, t0 = await web_check
+        self.step("web_runtime", status, detail, t0)
 
-        validator = validator_for(budget.target_engine)
+    async def _engine_steps(self, validator: Any) -> None:
+        """engine_import, engine_capture and engine_parity on the exported package (pass C, after the export)."""
+        budget, res = self.budget, self.res
+        pkg = self.workdir / "package"
 
         async def engine() -> tuple[str, str]:
             if "glb" not in res.artifacts:
@@ -803,8 +815,6 @@ class _Run:
             return "passed", "engine matches DCC"
 
         await self.guarded("engine_parity", parity)
-        status, detail, t0 = await web_check
-        self.step("web_runtime", status, detail, t0)
 
     def compliance(self, stage: Usd.Stage, meshes: list[Any]) -> tuple[str, str]:
         issues = check_engine_compliance(stage, meshes, self.budget)
@@ -831,10 +841,19 @@ async def refine(
         workdir=Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="agy3d-pyramid-")), fixlog=fixlog, asset_id=asset_id,
         prompt=prompt, textures=textures, settle_first=settle_first, engine_render_uri=engine_render_uri, require_verified=require_verified)
     run.workdir.mkdir(parents=True, exist_ok=True)
-    await run.pass_a()
-    if run_pass_b and run.res.stopped.get("A") != "empty scene":
-        await run.pass_b()
-    if run_pass_c and run.res.stopped.get("A") != "empty scene":
-        await run.pass_c()
+    # Pass C ends with the web-runtime check: its browser starts now, while passes A and B run, and is closed again
+    # if this run fails or is cancelled before it is used.
+    browser = web_three.prestart() if run_pass_c else None
+    ok = False
+    try:
+        await run.pass_a()
+        if run_pass_b and run.res.stopped.get("A") != "empty scene":
+            await run.pass_b()
+        if run_pass_c and run.res.stopped.get("A") != "empty scene":
+            await run.pass_c()
+        ok = run.res.ok
+    finally:
+        if browser is not None:
+            await browser.aclose(keep=ok)
     run.res.objects["maps"] = run.maps
     return run.res

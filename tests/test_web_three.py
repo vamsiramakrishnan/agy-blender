@@ -10,6 +10,7 @@ import gzip
 import hashlib
 import io
 import json
+import os
 import re
 import struct
 import time
@@ -19,6 +20,7 @@ import pytest
 import trimesh
 from PIL import Image
 
+from antigravity3d.adapters.engines import web_browser as B
 from antigravity3d.adapters.engines import web_three as W
 from antigravity3d.adapters.engines.validators import (
     MIN_SILHOUETTE_IOU,
@@ -945,3 +947,341 @@ def test_browser_a_manifest_that_misstates_the_material_fails(case, edit, needle
     failed = _failed(_verify(d, _reference(tm, man)))
     key = "loaded materials == manifest material inventory (parameters and bound slots)"
     assert key in failed and needle in failed[key], failed
+
+
+# --------------------------------------------------------------------------- the process's shared browser
+
+
+#: the verification page's environment as it was rendered on every run before it was shared: PMREMGenerator in the page
+_IN_PAGE_ENVIRONMENT = """async function environment() {
+  const renderer = window.__renderer;
+  const s = new THREE.Scene(), g = new THREE.SphereGeometry(10, 32, 16), c = new THREE.Color(), sky = new THREE.Color(job.rig.env_sky), gnd = new THREE.Color(job.rig.env_ground);
+  const col = []; const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) { c.copy(gnd).lerp(sky, (p.getY(i) / 10 + 1) / 2); col.push(c.r, c.g, c.b); }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  s.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  const pm = new THREE.PMREMGenerator(renderer), t = pm.fromScene(s).texture; pm.dispose(); return t;
+}
+"""
+
+
+def _in_page_environment_page() -> str:
+    page = W._PAGE
+    start, end = page.index("async function environment() {"), page.index("async function main() {")
+    page = page[:start] + _IN_PAGE_ENVIRONMENT + page[end:]
+    return page.replace("renderer.debug.checkShaderErrors = true;", "renderer.debug.checkShaderErrors = true; window.__renderer = renderer;")
+
+
+def _tagged(tag: str) -> list[int]:
+    """Live processes whose environment carries ``tag``: a driver, a Chromium or one of its helpers started under it."""
+    out = []
+    for name in os.listdir("/proc"):
+        if not name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{name}/environ", "rb") as f:
+                env = f.read()
+            with open(f"/proc/{name}/stat", "rb") as f:
+                stat = f.read()
+        except OSError:
+            continue
+        if f"AGY3D_PROC_TAG={tag}".encode() in env.split(b"\0") and stat[stat.rindex(b")") + 2:][:1] != b"Z":
+            out.append(int(name))  # the scenario's own interpreter has exited by the time this is asked
+    return out
+
+
+def _gone(tag: str, within: float = 15.0) -> list[int]:
+    deadline = time.monotonic() + within
+    while (left := _tagged(tag)) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    return left
+
+
+def _bytes_of(data_url: str) -> bytes:
+    return base64.b64decode(data_url.split(",", 1)[1])
+
+
+@pytest.mark.browser
+def test_browser_shared_environment_renders_what_the_page_rendered_itself(good, tmp_path, monkeypatch):
+    """The prefiltered environment loaded from the shared bytes lights the package exactly as PMREMGenerator in the page
+    did: the silhouette frame is identical and the beauty frame differs at most in the odd edge pixel that SwiftShader's
+    threads already decide differently from run to run with either environment."""
+    _, man, d = good
+
+    def frames(sub):
+        page_dir = tmp_path / sub
+        W.build_page(page_dir, (d / "Crate.glb").read_bytes(), man["glb_bounds_m"])
+        run = asyncio.run(W.run_page(page_dir, W.WebThreeValidator().binary(), 60))
+        assert not run["raw"]["errors"] and not run["blocked"], run
+        return _bytes_of(run["raw"]["png"]), _bytes_of(run["raw"]["mask_png"]), page_dir
+
+    shared = [frames(f"shared{i}") for i in range(2)]
+    assert (shared[0][2] / W.ENV_FILE).read_bytes() == (shared[1][2] / W.ENV_FILE).read_bytes()  # kept beside the page
+    monkeypatch.setattr(W, "_PAGE", _in_page_environment_page())
+    own = [frames(f"own{i}") for i in range(2)]
+    assert {m for _, m, _ in shared} == {m for _, m, _ in own} and len({m for _, m, _ in own}) == 1
+    for a in (s for s, _, _ in shared):
+        for b in (o for o, _, _ in own):
+            diff = np.abs(np.asarray(Image.open(io.BytesIO(a)), np.int16) - np.asarray(Image.open(io.BytesIO(b)), np.int16)).max(axis=2)
+            assert (diff > 0).sum() <= 2, (diff > 0).sum()
+
+
+@pytest.mark.browser
+def test_browser_is_reused_across_event_loops_and_threads(good, runtime, tmp_path):
+    """One ``asyncio.run`` per package, and a worker thread: later verifications reuse the running browser."""
+    import threading
+
+    tm, man, d = good
+    ref = _reference(tm, man)
+    assert _verify(d, ref).ok
+    launches = B.SHARED.launches
+    reps = [_verify(d, ref) for _ in range(2)]
+    box = {}
+    t = threading.Thread(target=lambda: box.update(rep=_verify(d, ref)))
+    t.start()
+    t.join(120)
+    reps.append(box["rep"])
+    assert all(r.ok for r in reps), [r.summary() for r in reps]
+    assert B.SHARED.launches == launches, "a later verification started its own browser"
+    assert len({r.diagnostics["browser"] for r in reps}) == 1
+
+
+@pytest.mark.browser
+def test_browser_concurrent_verifications_do_not_see_each_other(good, runtime, tmp_path):
+    """Two packages at once on one browser: each gets its own context, so the broken one's loader errors, console
+    warnings and requests stay in its own report."""
+    tm, man, d = good
+    ref = _reference(tm, man)
+
+    def dangle(doc, blob):
+        doc["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"]["index"] = 99
+
+    bad = _write_pkg(tmp_path, _edit_glb(_glb_of(tm), dangle), man)
+
+    async def both():
+        return await asyncio.gather(*(W.WebThreeValidator().validate(p, 60, reference=ref) for p in (d, bad, d)))
+
+    good_a, broken, good_b = asyncio.run(both())
+    assert not broken.ok and broken.failures
+    for rep in (good_a, good_b):
+        assert rep.ok, rep.summary()
+        assert not rep.diagnostics["errors"] and not rep.diagnostics["blocked_requests"] and not rep.diagnostics["page_errors"]
+        assert not [c for c in rep.diagnostics["console"] if c["type"] in ("error", "warning") and "GPU stall" not in c["text"]]
+
+
+def _session() -> B.Session:
+    s = B.SHARED._session
+    assert s is not None and s.alive()
+    return s
+
+
+def _browser_pid(s: B.Session) -> int:
+    kids = B._children().get(s.driver.pid, [])
+    assert kids, "the driver has no browser process"
+    return kids[0]
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("how", ["crashed", "closed", "hung"])
+def test_browser_a_dead_or_hung_browser_is_replaced(how, good, runtime, monkeypatch):
+    import signal
+
+    tm, man, d = good
+    ref = _reference(tm, man)
+    assert _verify(d, ref).ok
+    s = _session()
+    if how == "crashed":
+        os.kill(_browser_pid(s), signal.SIGKILL)
+    elif how == "closed":
+        B.SHARED.submit(s.browser.close()).result(30)
+    else:
+        monkeypatch.setattr(B, "CONTEXT_TIMEOUT_S", 3.0)
+        monkeypatch.setattr(B, "CLOSE_TIMEOUT_S", 2.0)
+        os.kill(_browser_pid(s), signal.SIGSTOP)
+    t0 = time.monotonic()
+    rep = _verify(d, ref)
+    assert rep.ok, rep.summary()
+    assert _session().generation > s.generation
+    assert time.monotonic() - t0 < 40
+    if how == "hung":
+        assert not B._children().get(s.driver.pid) and s.driver.returncode is not None, "the hung browser was not killed"
+
+
+@pytest.mark.browser
+def test_browser_verification_timeout_is_honoured_and_the_browser_stays_usable(good, runtime, tmp_path, monkeypatch):
+    tm, man, d = good
+    ref = _reference(tm, man)
+    hung = W._PAGE.replace("const job = JSON.parse", "for (;;) {}\nconst job = JSON.parse")  # the page's script never returns
+    assert hung != W._PAGE
+    monkeypatch.setattr(W, "_PAGE", hung)
+    t0 = time.monotonic()
+    rep = asyncio.run(W.WebThreeValidator().validate(d, 3, reference=ref))
+    assert not rep.ok and "browser run failed" in rep.log_tail and "Timeout" in rep.log_tail
+    assert time.monotonic() - t0 < 3 + 15 + 2 * B.CLOSE_TIMEOUT_S
+    monkeypatch.undo()
+    assert _verify(d, ref).ok
+
+
+_SCENARIO = r'''
+import asyncio, json, os, sys, time
+from pathlib import Path
+
+from antigravity3d.adapters.engines import web_browser as B, web_three as W
+
+
+
+def tagged():
+    """Processes started under this run's tag other than this interpreter (and its multiprocessing workers): the
+    Playwright driver, Chromium and Chromium's helpers."""
+    out = []
+    for name in os.listdir("/proc"):
+        if not name.isdigit() or int(name) == os.getpid():
+            continue
+        try:
+            env = open(f"/proc/{name}/environ", "rb").read().split(b"\0")
+            stat = open(f"/proc/{name}/stat", "rb").read()
+            cmd = open(f"/proc/{name}/cmdline", "rb").read().split(b"\0")[0]
+        except (OSError, ValueError):
+            continue
+        if f"AGY3D_PROC_TAG={tag}".encode() in env and stat[stat.rindex(b")") + 2:][:1] != b"Z" and os.path.basename(cmd) != os.path.basename(sys.executable.encode()):
+            out.append(int(name))
+    return out
+
+
+def gone(within=15.0):
+    deadline = time.monotonic() + within
+    while (left := tagged()) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    return left
+
+
+async def until_running():
+    while not B.SHARED.running:
+        await asyncio.sleep(0.05)
+
+
+def dag():
+    from antigravity3d.dags.prop_to_engine import PropToEngineDAG
+    from antigravity3d.decisions.engine import DecisionControlPlane
+    from antigravity3d.decisions.fakes import FakeDecisionsClient
+    from antigravity3d.genmedia.nano_banana import FakeImageBackend, ImageForge
+    from antigravity3d.state import EngineBudget
+    from antigravity3d.tactics.authoring import TemplateAuthor
+
+    plane = DecisionControlPlane(FakeDecisionsClient(answers={"pipeline_dag": "prop_to_engine", "needs_ortho_blueprint": 0.9, "complexity_tier": 2.0}))
+    return PropToEngineDAG(plane=plane, forge=ImageForge(FakeImageBackend()), author=TemplateAuthor(), workdir=work, budget=EngineBudget("unreal_5"))
+
+
+
+if __name__ == "__main__":  # spawned multiprocessing workers import this file again
+    tag, scenario, pkg = sys.argv[1], sys.argv[2], Path(sys.argv[3])
+    work = Path(sys.argv[4])
+    report = {}
+    if scenario == "exit":  # verified, browser kept for the next package, then the interpreter ends
+        rep = asyncio.run(W.WebThreeValidator().validate(pkg, 60))
+        report = {"ok": rep.ok, "running": len(tagged())}
+    elif scenario == "verification_cancelled":
+        async def main():
+            task = asyncio.ensure_future(W.WebThreeValidator().validate(pkg, 60))
+            await until_running()
+            await asyncio.sleep(0.3)
+            report["running"] = len(tagged())
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                report["cancelled"] = True
+        asyncio.run(main())
+        report["left"] = gone()
+    elif scenario in ("run_cancelled", "run_failed"):
+        from antigravity3d.dags import prop_to_engine
+
+        async def refine(*a, **k):  # the run gets as far as the pyramid, with the browser starting in the background
+            await until_running()
+            report["running"] = len(tagged())
+            if scenario == "run_failed":
+                raise RuntimeError("the pyramid failed")
+            await asyncio.sleep(3600)
+        prop_to_engine.refine = refine
+
+        async def main():
+            task = asyncio.ensure_future(dag().run("oak wine barrel"))
+            if scenario == "run_cancelled":
+                while "running" not in report:
+                    await asyncio.sleep(0.05)
+                task.cancel()
+            try:
+                rep = await task
+                report["dag_ok"] = rep.ok
+            except asyncio.CancelledError:
+                report["cancelled"] = True
+        asyncio.run(main())
+        report["left"] = gone()
+    elif scenario == "run_succeeded":  # a whole offline run: the browser was started early and is kept afterwards
+        rep = asyncio.run(dag().run("oak wine barrel"))
+        steps = {s["name"]: s["status"] for s in rep.extras["pyramid"]["steps"]}
+        report = {"dag_ok": rep.ok, "web_runtime": steps.get("web_runtime"), "running": len(tagged()), "launches": B.SHARED.launches}
+    elif scenario == "spawned_worker":  # multiprocessing workers leave through os._exit, which skips atexit
+        import concurrent.futures as cf
+        import multiprocessing as mp
+
+        import tests_web_worker
+        with cf.ProcessPoolExecutor(1, mp_context=mp.get_context("spawn")) as ex:
+            report["ok"] = ex.submit(tests_web_worker.verify, str(pkg)).result()
+            report["running"] = len(tagged())
+        report["left"] = gone()
+    print(json.dumps(report))
+'''
+
+_WORKER = '''
+import asyncio
+from antigravity3d.adapters.engines.web_three import WebThreeValidator
+
+
+def verify(pkg):
+    return asyncio.run(WebThreeValidator().validate(pkg, 60)).ok
+'''
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("scenario", ["exit", "verification_cancelled", "run_cancelled", "run_failed", "run_succeeded", "spawned_worker"])
+def test_browser_no_driver_or_browser_outlives_the_interpreter_or_a_failed_or_cancelled_run(scenario, good, runtime, tmp_path):
+    import subprocess
+    import sys
+    import uuid
+
+    _, _, d = good
+    tag = uuid.uuid4().hex
+    (tmp_path / "scenario.py").write_text(_SCENARIO)
+    (tmp_path / "tests_web_worker.py").write_text(_WORKER)
+    env = dict(os.environ, AGY3D_PROC_TAG=tag, PYTHONPATH=os.pathsep.join([str(tmp_path), os.environ.get("PYTHONPATH", "")]))
+    p = subprocess.run([sys.executable, str(tmp_path / "scenario.py"), tag, scenario, str(d), str(tmp_path / "work")],
+                       env=env, capture_output=True, text=True, timeout=300, cwd=tmp_path, check=False)
+    assert p.returncode == 0, p.stderr[-3000:]
+    report = json.loads(p.stdout.strip().splitlines()[-1])
+    assert report["running"] > 0, report  # the browser really was up at the checkpoint
+    if scenario in ("verification_cancelled", "run_cancelled"):
+        assert report["cancelled"]
+    if scenario == "run_failed":
+        assert report["dag_ok"] is False
+    if scenario == "run_succeeded":
+        assert report["dag_ok"] and report["web_runtime"] == "passed" and report["launches"] == 1
+    if scenario in ("exit", "spawned_worker"):
+        assert report["ok"]
+    assert report.get("left", []) == [], report  # gone while the interpreter was still running
+    assert _gone(tag) == [], "a driver or browser outlived the interpreter"
+
+
+@pytest.mark.browser
+def test_browser_command_line_in_fresh_interpreters(l_packages, tmp_path):
+    """``python -m ...web_three PACKAGE`` still works, and does not hang: in a fresh interpreter the browser thread imports
+    nothing that could deadlock with the reference thread's first import of pxr (it did about every other run)."""
+    import subprocess
+    import sys
+
+    d = l_packages["godot_4"]  # a real package: its USD reference is rendered on a worker thread beside the browser
+    for i in range(4):
+        p = subprocess.run([sys.executable, "-m", "antigravity3d.adapters.engines.web_three", str(d), "--out", str(tmp_path / f"o{i}")],
+                           capture_output=True, text=True, timeout=120, check=False)
+        assert p.returncode == 0 and p.stdout.startswith("web_three: PASS"), p.stdout[-2000:] + p.stderr[-2000:]
+    assert {f.name for f in (tmp_path / "o0").iterdir()} == {"page.html", "vendor", "env", "web_three.png", "silhouette.png", "reference.png"}

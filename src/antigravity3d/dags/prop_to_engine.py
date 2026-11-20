@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from antigravity3d.adapters.engines import web_three
 from antigravity3d.kernel.publish import publish_directory
 from antigravity3d.kernel.validator import validate_package
 from antigravity3d.dags.routing import Route, resolve_route
@@ -252,7 +253,15 @@ class PropToEngineDAG:
     async def run(self, prompt: str) -> DagReport:
         """Runs the DAG; ``report.extras`` carries outputs, gates, costs and every skipped step with its reason."""
         wd = self._run_dir()
-        rep = await self.build(prompt, run_dir=wd).run(max_parallel=self.max_parallel)
+        # The web-runtime verifier's browser starts now and comes up while the asset is authored and refined, instead
+        # of being waited for after the export. It stays up for the next run only if this one succeeds.
+        browser = web_three.prestart()
+        ok = False
+        try:
+            rep = await self.build(prompt, run_dir=wd).run(max_parallel=self.max_parallel)
+            ok = rep.ok
+        finally:
+            await browser.aclose(keep=ok)
         res: PyramidResult | None = rep.results.get("pyramid")
         route: Route | None = rep.results.get("route")
         skipped = [{"step": f"dag:{n.name}", "reason": n.reason} for n in rep.nodes.values() if n.status == "skipped" and n.reason]
