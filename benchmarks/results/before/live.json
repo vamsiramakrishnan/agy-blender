@@ -1,0 +1,609 @@
+{
+  "machine": {
+    "python": "3.13.18",
+    "platform": "Linux-6.18.44-fc-v726-x86_64-with-glibc2.39",
+    "package_git_sha": "36313b40999df207c76a36f9d61314f2703ecf42",
+    "package_git_dirty": false,
+    "sdk_versions": {
+      "google-genai": "3.6.1",
+      "google-antigravity": "0.1.24",
+      "antigravity-3d": "0.2.0"
+    },
+    "timestamp": "2026-11-20T02:33:16+00:00"
+  },
+  "limits": {
+    "max_calls": 24,
+    "max_tokens": 400000,
+    "timeouts_s": {
+      "text": 120.0,
+      "director": 300.0,
+      "stage": 600.0,
+      "judge": 120.0,
+      "image": 180.0
+    },
+    "retries": "none (genai HttpRetryOptions attempts=1; package fallback/plane retry loops set to 0; the Antigravity SDK Agent used by `stage` exposes no switch, so its internal retries are unknown)",
+    "prices": "none configured; dollar cost is unknown, token counts only",
+    "stage_accounting": "1 call per run_stage with a token reservation; SDK-internal model requests are not counted individually"
+  },
+  "totals": {
+    "calls": 20,
+    "input_tokens": 95578,
+    "output_tokens": 16034,
+    "thinking_tokens": 29916
+  },
+  "groups": {
+    "text": {
+      "worker:gemini-4-hydrogen": {
+        "samples": [
+          {
+            "thinking_level": "low",
+            "timeout_s": 120.0,
+            "wall_ms": 11532.3,
+            "input_tokens": 546,
+            "output_tokens": 1585,
+            "thinking_tokens": 856,
+            "total_tokens_reported": 2987,
+            "tokens_known": true,
+            "finish_reason": "STOP",
+            "error": null,
+            "status": null,
+            "response_chars": 3559,
+            "scene_ir_valid": true,
+            "nodes": 9,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@crate_body",
+            "tris": 108
+          },
+          {
+            "thinking_level": "low",
+            "timeout_s": 120.0,
+            "wall_ms": 12458.5,
+            "input_tokens": 546,
+            "output_tokens": 1772,
+            "thinking_tokens": 944,
+            "total_tokens_reported": 3262,
+            "tokens_known": true,
+            "finish_reason": "STOP",
+            "error": null,
+            "status": null,
+            "response_chars": 3966,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 12 validation errors for SceneIR nodes.0.collider   Input should be a valid boolean, unable to interpret input [type=bool_parsing, input_value='none', input_type=str]     For further ",
+            "tier1_ok": false
+          },
+          {
+            "thinking_level": "low",
+            "timeout_s": 120.0,
+            "wall_ms": 12547.8,
+            "input_tokens": 546,
+            "output_tokens": 1615,
+            "thinking_tokens": 1119,
+            "total_tokens_reported": 3280,
+            "tokens_known": true,
+            "finish_reason": "STOP",
+            "error": null,
+            "status": null,
+            "response_chars": 3549,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 11 validation errors for SceneIR nodes.0.collider   Input should be a valid boolean, unable to interpret input [type=bool_parsing, input_value='box', input_type=str]     For further i",
+            "tier1_ok": false
+          }
+        ],
+        "n_ok": 3,
+        "n_failed": 0,
+        "median_ms": 12458.5,
+        "min_ms": 11532.3,
+        "max_ms": 12547.8
+      },
+      "builder:gemini-4-carbon": {
+        "samples": [
+          {
+            "thinking_level": "medium",
+            "timeout_s": 120.0,
+            "wall_ms": 54570.0,
+            "input_tokens": 546,
+            "output_tokens": 3,
+            "thinking_tokens": 4093,
+            "total_tokens_reported": 4642,
+            "tokens_known": true,
+            "finish_reason": "MAX_TOKENS",
+            "error": null,
+            "status": null,
+            "response_chars": 0,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a value at line 1 column 0 [type=json_invalid, input_value='', input_type=str]     For further information visit https",
+            "tier1_ok": false
+          },
+          {
+            "thinking_level": "medium",
+            "timeout_s": 120.0,
+            "wall_ms": 53758.8,
+            "input_tokens": 546,
+            "output_tokens": 3,
+            "thinking_tokens": 4093,
+            "total_tokens_reported": 4642,
+            "tokens_known": true,
+            "finish_reason": "MAX_TOKENS",
+            "error": null,
+            "status": null,
+            "response_chars": 0,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a value at line 1 column 0 [type=json_invalid, input_value='', input_type=str]     For further information visit https",
+            "tier1_ok": false
+          },
+          {
+            "thinking_level": "medium",
+            "timeout_s": 120.0,
+            "wall_ms": 112393.7,
+            "input_tokens": 546,
+            "output_tokens": 3,
+            "thinking_tokens": 4093,
+            "total_tokens_reported": 4642,
+            "tokens_known": true,
+            "finish_reason": "MAX_TOKENS",
+            "error": null,
+            "status": null,
+            "response_chars": 0,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a value at line 1 column 0 [type=json_invalid, input_value='', input_type=str]     For further information visit https",
+            "tier1_ok": false
+          }
+        ],
+        "n_ok": 3,
+        "n_failed": 0,
+        "median_ms": 54570.0,
+        "min_ms": 53758.8,
+        "max_ms": 112393.7
+      },
+      "bulk:gemini-4-neon": {
+        "samples": [
+          {
+            "thinking_level": "low",
+            "timeout_s": 120.0,
+            "wall_ms": 35693.0,
+            "input_tokens": 546,
+            "output_tokens": 2722,
+            "thinking_tokens": 1374,
+            "total_tokens_reported": 4642,
+            "tokens_known": true,
+            "finish_reason": "MAX_TOKENS",
+            "error": null,
+            "status": null,
+            "response_chars": 6042,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a list at line 260 column 26 [type=json_invalid, input_value='{\\n  \"asset_name\": \"Wood...     \"size\": [0.03, 1.1', inp",
+            "tier1_ok": false
+          },
+          {
+            "thinking_level": "low",
+            "timeout_s": 120.0,
+            "wall_ms": 27221.1,
+            "input_tokens": 546,
+            "output_tokens": 2625,
+            "thinking_tokens": 1471,
+            "total_tokens_reported": 4642,
+            "tokens_known": true,
+            "finish_reason": "MAX_TOKENS",
+            "error": null,
+            "status": null,
+            "response_chars": 5870,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a string at line 248 column 9 [type=json_invalid, input_value='{\\n  \"asset_name\": \"Wood...   },\\n    {\\n      \"id', in",
+            "tier1_ok": false
+          },
+          {
+            "thinking_level": "low",
+            "timeout_s": 120.0,
+            "wall_ms": 29973.1,
+            "input_tokens": 546,
+            "output_tokens": 2389,
+            "thinking_tokens": 1707,
+            "total_tokens_reported": 4642,
+            "tokens_known": true,
+            "finish_reason": "MAX_TOKENS",
+            "error": null,
+            "status": null,
+            "response_chars": 5345,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a value at line 226 column 22 [type=json_invalid, input_value='{\\n  \"asset_name\": \"Wood...n        \"scale\": [1.0,', in",
+            "tier1_ok": false
+          }
+        ],
+        "n_ok": 3,
+        "n_failed": 0,
+        "median_ms": 29973.1,
+        "min_ms": 27221.1,
+        "max_ms": 35693.0
+      },
+      "director:gemini-4-argon": {
+        "samples": [
+          {
+            "thinking_level": "high",
+            "timeout_s": 300.0,
+            "wall_ms": 111846.8,
+            "input_tokens": 546,
+            "output_tokens": 3,
+            "thinking_tokens": 4093,
+            "total_tokens_reported": 4642,
+            "tokens_known": true,
+            "finish_reason": "MAX_TOKENS",
+            "error": null,
+            "status": null,
+            "response_chars": 0,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 1 validation error for SceneIR   Invalid JSON: EOF while parsing a value at line 1 column 0 [type=json_invalid, input_value='', input_type=str]     For further information visit https",
+            "tier1_ok": false
+          }
+        ],
+        "n_ok": 1,
+        "n_failed": 0,
+        "median_ms": 111846.8,
+        "min_ms": 111846.8,
+        "max_ms": 111846.8
+      }
+    },
+    "stage": {
+      "worker:gemini-4-hydrogen": {
+        "samples": [
+          {
+            "timeout_s": 600.0,
+            "thinking_level": "low",
+            "wall_s": 8.98,
+            "wall_ms": 8982.5,
+            "prompt_tokens": 21739,
+            "output_tokens": 381,
+            "thinking_tokens": 243,
+            "total_tokens": 22363,
+            "tokens_known": true,
+            "tool_calls": 2,
+            "tool_durations_ms": [
+              {
+                "tool": "apply_scene_ir",
+                "ms": 21.94,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "run_visual_qa",
+                "ms": 116.31,
+                "error": false,
+                "soft_fail": false
+              }
+            ],
+            "tool_time_s": 0.138,
+            "model_side_s": 8.84,
+            "telemetry_summary": {
+              "calls": 2,
+              "errors": 0,
+              "soft_failures": 0,
+              "by_tool": {
+                "apply_scene_ir": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 21.94,
+                  "p50_ms": 21.94
+                },
+                "run_visual_qa": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 116.31,
+                  "p50_ms": 116.31
+                }
+              }
+            },
+            "stop_continuations": 0,
+            "final_nodes": 2,
+            "tier1_ok": true
+          },
+          {
+            "timeout_s": 600.0,
+            "thinking_level": "low",
+            "wall_s": 6.94,
+            "wall_ms": 6940.0,
+            "prompt_tokens": 21878,
+            "output_tokens": 446,
+            "thinking_tokens": 237,
+            "total_tokens": 22561,
+            "tokens_known": true,
+            "tool_calls": 2,
+            "tool_durations_ms": [
+              {
+                "tool": "apply_scene_ir",
+                "ms": 15.27,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "run_visual_qa",
+                "ms": 103.9,
+                "error": false,
+                "soft_fail": false
+              }
+            ],
+            "tool_time_s": 0.119,
+            "model_side_s": 6.82,
+            "telemetry_summary": {
+              "calls": 2,
+              "errors": 0,
+              "soft_failures": 0,
+              "by_tool": {
+                "apply_scene_ir": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 15.27,
+                  "p50_ms": 15.27
+                },
+                "run_visual_qa": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 103.9,
+                  "p50_ms": 103.9
+                }
+              }
+            },
+            "stop_continuations": 0,
+            "final_nodes": 2,
+            "tier1_ok": true
+          }
+        ],
+        "n_ok": 2,
+        "n_failed": 0,
+        "median_ms": 7961.2,
+        "min_ms": 6940.0,
+        "max_ms": 8982.5
+      },
+      "builder:gemini-4-carbon": {
+        "samples": [
+          {
+            "timeout_s": 600.0,
+            "thinking_level": "medium",
+            "wall_s": 32.47,
+            "wall_ms": 32473.4,
+            "prompt_tokens": 28741,
+            "output_tokens": 567,
+            "thinking_tokens": 892,
+            "total_tokens": 30200,
+            "tokens_known": true,
+            "tool_calls": 3,
+            "tool_durations_ms": [
+              {
+                "tool": "apply_scene_ir",
+                "ms": 17.71,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "render_preview",
+                "ms": 110.9,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "run_visual_qa",
+                "ms": 26.21,
+                "error": false,
+                "soft_fail": false
+              }
+            ],
+            "tool_time_s": 0.155,
+            "model_side_s": 32.32,
+            "telemetry_summary": {
+              "calls": 3,
+              "errors": 0,
+              "soft_failures": 0,
+              "by_tool": {
+                "apply_scene_ir": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 17.71,
+                  "p50_ms": 17.71
+                },
+                "render_preview": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 110.9,
+                  "p50_ms": 110.9
+                },
+                "run_visual_qa": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 26.21,
+                  "p50_ms": 26.21
+                }
+              }
+            },
+            "stop_continuations": 0,
+            "final_nodes": 2,
+            "tier1_ok": true
+          }
+        ],
+        "n_ok": 1,
+        "n_failed": 0,
+        "median_ms": 32473.4,
+        "min_ms": 32473.4,
+        "max_ms": 32473.4
+      }
+    },
+    "judge": {
+      "native_probe": {
+        "available": false,
+        "wall_ms": 311.9,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "thinking_tokens": 0,
+        "tokens_known": false,
+        "error": "NotFoundError: Error code: 404",
+        "error_class": "NotFoundError",
+        "status": null
+      },
+      "sheet": {
+        "sheet_px": [
+          512,
+          512
+        ],
+        "sheet_bytes": 10070
+      },
+      "visual_qa:blockout:gemini-4-neon": {
+        "samples": [
+          {
+            "stage": "blockout",
+            "backend_kind": "generative_fallback",
+            "backend_model": "gemini-4-neon",
+            "question_count": 9,
+            "calibrated": false,
+            "source": "generative_fallback",
+            "resolution": "low",
+            "plane_latency_ms": 16075.8,
+            "plane_input_tokens": 2312,
+            "plane_output_tokens": 975,
+            "next_action": null,
+            "skipped": 16,
+            "wall_ms": 16076.3,
+            "backend_requests": 1,
+            "thinking_level": "LOW",
+            "input_tokens": 2312,
+            "output_tokens": 203,
+            "thinking_tokens": 772
+          },
+          {
+            "stage": "blockout",
+            "backend_kind": "generative_fallback",
+            "backend_model": "gemini-4-neon",
+            "question_count": 9,
+            "calibrated": false,
+            "source": "generative_fallback",
+            "resolution": "low",
+            "plane_latency_ms": 15148.3,
+            "plane_input_tokens": 2312,
+            "plane_output_tokens": 801,
+            "next_action": null,
+            "skipped": 16,
+            "wall_ms": 15148.6,
+            "backend_requests": 1,
+            "thinking_level": "LOW",
+            "input_tokens": 2312,
+            "output_tokens": 167,
+            "thinking_tokens": 634
+          },
+          {
+            "stage": "blockout",
+            "backend_kind": "generative_fallback",
+            "backend_model": "gemini-4-neon",
+            "question_count": 9,
+            "calibrated": false,
+            "source": "generative_fallback",
+            "resolution": "low",
+            "plane_latency_ms": 17978.3,
+            "plane_input_tokens": 2312,
+            "plane_output_tokens": 977,
+            "next_action": null,
+            "skipped": 16,
+            "wall_ms": 17978.6,
+            "backend_requests": 1,
+            "thinking_level": "LOW",
+            "input_tokens": 2312,
+            "output_tokens": 199,
+            "thinking_tokens": 778
+          }
+        ],
+        "n_ok": 3,
+        "n_failed": 0,
+        "median_ms": 16076.3,
+        "min_ms": 15148.6,
+        "max_ms": 17978.6
+      },
+      "visual_qa:lookdev:gemini-4-neon": {
+        "samples": [
+          {
+            "stage": "lookdev",
+            "backend_kind": "generative_fallback",
+            "backend_model": "gemini-4-neon",
+            "question_count": 21,
+            "calibrated": false,
+            "source": "generative_fallback",
+            "resolution": "high",
+            "plane_latency_ms": 21775.8,
+            "plane_input_tokens": 5381,
+            "plane_output_tokens": 1749,
+            "next_action": "rework_pbr",
+            "skipped": 4,
+            "wall_ms": 21776.6,
+            "backend_requests": 1,
+            "thinking_level": "LOW",
+            "input_tokens": 5381,
+            "output_tokens": 481,
+            "thinking_tokens": 1268
+          },
+          {
+            "stage": "lookdev",
+            "backend_kind": "generative_fallback",
+            "backend_model": "gemini-4-neon",
+            "question_count": 21,
+            "calibrated": false,
+            "source": "generative_fallback",
+            "resolution": "high",
+            "plane_latency_ms": 16662.6,
+            "plane_input_tokens": 5381,
+            "plane_output_tokens": 1081,
+            "next_action": "rework_pbr",
+            "skipped": 4,
+            "wall_ms": 16663.2,
+            "backend_requests": 1,
+            "thinking_level": "LOW",
+            "input_tokens": 5381,
+            "output_tokens": 594,
+            "thinking_tokens": 487
+          }
+        ],
+        "n_ok": 2,
+        "n_failed": 0,
+        "median_ms": 19219.9,
+        "min_ms": 16663.2,
+        "max_ms": 21776.6
+      }
+    },
+    "image": {
+      "image:gemini-nano-banana-2.1": {
+        "samples": [
+          {
+            "requested_size": 1024,
+            "size_tier": "1K",
+            "timeout_s": 180.0,
+            "error": "RuntimeError: image model returned no inline image data",
+            "error_class": "RuntimeError",
+            "input_tokens": 62,
+            "output_tokens": 276,
+            "thinking_tokens": 762,
+            "tokens_known": true,
+            "usage_metadata": {
+              "candidates_token_count": 276,
+              "prompt_token_count": 62,
+              "prompt_tokens_details": [
+                {
+                  "modality": "TEXT",
+                  "token_count": 62
+                }
+              ],
+              "thoughts_token_count": 762,
+              "total_token_count": 1100
+            },
+            "wall_ms": 9717.6,
+            "api_wall_ms": 9717.6
+          }
+        ],
+        "n_ok": 0,
+        "n_failed": 1
+      }
+    }
+  },
+  "aborted": null
+}

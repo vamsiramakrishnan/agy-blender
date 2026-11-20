@@ -765,7 +765,10 @@ def _pbr_package(tmp_path, materials, name="Mat"):
     material = materials
     mesh = GltfMesh("body", pos, tri, uvs=uv, material=material, normals=nrm)
     inv = material_inventory({"body": material})
-    man = _manifest(tm, draw_calls=1, glb_batches={"body": ["body"]}, textures=[], materials=inv)
+    roles = {"baseColorTexture": "albedo", "normalTexture": "normal", "metallicRoughnessTexture": "orm", "emissiveTexture": "emissive"}
+    records = [{"material": rec["name"], "role": roles[slot], "width": 32, "height": 32}
+               for rec in inv for slot in rec["texture_slots"] if slot in roles]
+    man = _manifest(tm, draw_calls=1, glb_batches={"body": ["body"]}, textures=records, materials=inv)
     return _write_pkg(tmp_path, build_glb([mesh]), man, name), tm, man
 
 
