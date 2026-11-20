@@ -31,7 +31,7 @@ from antigravity3d.genmedia.pbr_deriver import PBRMaps, delight, edge_wear, roug
 from antigravity3d.ir import (
     AssignMaterial, IRPatch, MaterialIR, RemoveNode, SceneIR, SetParam, SetTransform, UpsertMaterial, UpsertNode, apply_patch,
 )
-from antigravity3d.kernel.fast_ops import ExportBundle, run_export_pipeline, tier1_qa
+from antigravity3d.kernel.fast_ops import ExportBundle, describe_collider_sources, run_export_pipeline, tier1_qa
 from antigravity3d.kernel.lod_diff import PopThresholds, lod_pop_report
 from antigravity3d.kernel.raster import CLAY, render_buffers
 from antigravity3d.kernel.settle import settle
@@ -650,6 +650,8 @@ class _Run:
             levels = [sum(len(v[k].triangles) for v in bundle.lods.values()) for k in range(min((len(v) for v in bundle.lods.values()), default=0))]
             bad = [u.node_id for u in bundle.uvs if not u.within(budget)]
             desc = f"uv={len(bundle.uvs)} lod_tris={levels} hulls={len(bundle.colliders)}"
+            if any(h.source == "body_hull" for h in bundle.colliders):  # a hull that is not a decomposition is never silent
+                desc += f" ({describe_collider_sources(bundle.colliders)})"
             if any(b >= a for a, b in zip(levels, levels[1:])):
                 return "failed", f"LOD triangle counts do not strictly descend: {levels}"
             if bad:

@@ -2249,7 +2249,10 @@ class Hull:
     points: np.ndarray
     triangles: np.ndarray
     volume: float
-    source: Literal["fast_path", "coacd", "merged"]
+    source: Literal["fast_path", "coacd", "merged", "body_hull"]
+    #: why a hull is not what the mesh asked for: the repair the input needed, or why decomposition gave way to the hull of a body.
+    #: "body_hull" is the convex hull of a whole body, the fallback where no decomposition finished or none was possible.
+    reason: str = ""
 
 
 def _hull(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
@@ -2575,6 +2578,7 @@ def _decomposition_input(pts: np.ndarray, tri: np.ndarray) -> tuple[np.ndarray, 
 
 def _closed_bodies(pts: np.ndarray, tri: np.ndarray) -> list[tuple[np.ndarray, np.ndarray]] | None:
     """The separate bodies of a closed mesh that holds several (as vertices and triangles each), or None when it holds one.
+    Bodies that only touch at a vertex are separate.
 
     CoACD's manifold pre-pass costs seconds and is only skipped for a single body, but a mesh of closed bodies needs no repair:
     each body can be decomposed alone."""
@@ -2584,15 +2588,18 @@ def _closed_bodies(pts: np.ndarray, tri: np.ndarray) -> list[tuple[np.ndarray, n
     cid = _canon(pts)
     t = cid[tri]
     n = int(cid.max()) + 1
-    a = np.concatenate([t[:, 0], t[:, 1]])
-    b = np.concatenate([t[:, 1], t[:, 2]])
-    count, label = connected_components(coo_matrix((np.ones(len(a)), (a, b)), shape=(n, n)), directed=False)
+    # faces are one body when they share an edge: bodies that only touch at a vertex are separate
+    key = np.concatenate([np.minimum(t[:, i], t[:, (i + 1) % 3]) * n + np.maximum(t[:, i], t[:, (i + 1) % 3]) for i in range(3)])
+    face = np.tile(np.arange(len(t)), 3)
+    order = np.argsort(key, kind="stable")
+    same = np.flatnonzero(key[order][1:] == key[order][:-1])
+    a, b = face[order[same]], face[order[same + 1]]
+    count, label = connected_components(coo_matrix((np.ones(len(a)), (a, b)), shape=(len(t), len(t))), directed=False)
     if count == 1:
         return None
-    face_body = label[t[:, 0]]
     bodies = []
     for body in range(count):
-        bt = tri[face_body == body]
+        bt = tri[label == body]
         used = np.unique(bt)
         remap = np.zeros(len(pts), np.int64)
         remap[used] = np.arange(len(used))
@@ -2600,21 +2607,95 @@ def _closed_bodies(pts: np.ndarray, tri: np.ndarray) -> list[tuple[np.ndarray, n
     return bodies
 
 
+#: One budget for every decomposition that runs in a child process, in one place. The slowest legitimate decomposition measured
+#: (a curved concave solid, CoACD with the repair pass off) takes 0.9 ms per triangle, and a thin shell made solid (the hardest
+#: class that still finishes) 6 ms per triangle up to 2,000 triangles, 12 s at most. The budget is three times the per-triangle
+#: figure with a floor of 30 s: a run that exceeds it is not a slow decomposition but one that is not coming back.
+DECOMPOSITION_BUDGET_FLOOR_S = 30.0
+DECOMPOSITION_BUDGET_PER_TRIANGLE_S = 3 * 0.9e-3
+#: A clean closed body is decomposed in this process (no process start on the common path) up to this many triangles, which
+#: take about 25 s; beyond it the run is long enough to be worth a deadline.
+IN_PROCESS_MAX_TRIANGLES = 25_000
+#: Thickness of the solid made from an open surface, as a fraction of the body's extent. Measured on a cup, a bowl, a wavy sheet and
+#: a sphere with a large opening: at 0.005 the hulls reach no further from the surface than the ones CoACD's own repair pass gave
+#: (0.25% against 0.4%) and cover it better; each doubling doubles the hull volume claimed beyond the surface.
+SHELL_THICKNESS = 0.005
+
+
+def decomposition_budget_s(triangles: int) -> float:
+    return max(DECOMPOSITION_BUDGET_FLOOR_S, DECOMPOSITION_BUDGET_PER_TRIANGLE_S * triangles)
+
+
+def _solid_from_surface(pts: np.ndarray, tri: np.ndarray, thickness: float) -> tuple[np.ndarray, np.ndarray] | None:
+    """A closed solid of the given thickness around an open, consistently wound surface (each vertex moved half the thickness
+    to both sides along its normal, the boundary walled), or None when the result is not a closed solid."""
+    from antigravity3d.kernel.collider_repair import _closed_volume
+
+    f = np.asarray(tri, np.int64)
+    n = len(pts)
+    vn = np.zeros_like(pts)
+    fn = np.cross(pts[f[:, 1]] - pts[f[:, 0]], pts[f[:, 2]] - pts[f[:, 0]])
+    for k in range(3):
+        np.add.at(vn, f[:, k], fn)
+    vn /= np.maximum(np.linalg.norm(vn, axis=1, keepdims=True), 1e-300)
+    a = np.concatenate([f[:, 0], f[:, 1], f[:, 2]])
+    b = np.concatenate([f[:, 1], f[:, 2], f[:, 0]])
+    edge = set(zip(a.tolist(), b.tolist()))
+    walls = [w for x, y in sorted(edge) if (y, x) not in edge for w in ((x, n + x, n + y), (x, n + y, y))]
+    solid_pts = np.vstack([pts + vn * thickness / 2, pts - vn * thickness / 2])
+    solid_tri = np.vstack([f, f[:, ::-1] + n, np.array(walls, np.int64).reshape(-1, 3)])
+    closed, volume = _closed_volume(solid_pts, solid_tri)
+    if not closed or volume == 0:
+        return None
+    return solid_pts, (solid_tri[:, ::-1] if volume < 0 else solid_tri).astype(np.int32)
+
+
+def _safe_hull(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
+    """``_hull``, and for points that lie in one plane the hull of the same points thickened by a thousandth of their extent."""
+    from scipy.spatial import QhullError
+
+    try:
+        return _hull(points)
+    except QhullError:
+        e = max(float(np.ptp(points, axis=0).max()) * 1e-3, 1e-6)
+        return _hull(np.vstack([points + d for d in (np.zeros(3), [0, 0, e], [0, e, 0], [e, 0, 0])]))
+
+
+def _coacd_params(threshold: float, share: int, off: bool) -> dict:
+    return dict(threshold=threshold, max_convex_hull=share, preprocess_mode="off" if off else "auto", resolution=500,
+                mcts_iterations=40, mcts_nodes=10, max_ch_vertex=64, decimate=True, seed=0)
+
+
+@dataclass
+class _Piece:
+    """One body to decompose: what CoACD is given, and what stands in for it if it cannot be."""
+    pts: np.ndarray
+    tri: np.ndarray
+    hull_pts: np.ndarray           # the hull of this stands in when no decomposition comes back
+    volume_hint: float             # orders pieces (largest first); the volume of the convex hull of the body
+    bounded: bool                  # run in a child process with a deadline
+    reason: str = ""               # what repair the input needed, carried to the hulls
+
+
 def generate_colliders(
     meshes: list[MeshData], max_hulls: int, threshold: float = 0.05, asset_name: str = "Asset"
 ) -> list[Hull]:
     import coacd
 
-    coacd.set_log_level("error")
-    raw: list[tuple[np.ndarray, np.ndarray, float, str]] = []
-    concave: list[tuple[np.ndarray, np.ndarray, float, _Topo]] = []
+    from antigravity3d.kernel import collider_worker
+    from antigravity3d.kernel.collider_repair import repair_collider_mesh
 
-    def sort_out(pts: np.ndarray, tri: np.ndarray, topo: _Topo) -> bool:
+    coacd.set_log_level("error")
+    raw: list[tuple[np.ndarray, np.ndarray, float, str, str]] = []
+    concave: list[_Piece] = []
+
+    def sort_out(pts: np.ndarray, tri: np.ndarray, topo: _Topo, reason: str = "", bounded: bool = False) -> bool:
+        """A closed body goes to the hull fast path if convex, else to decomposition (under a deadline if ``bounded``)."""
         pp, tt, hv = _hull(pts)
         if topo.closed and topo.volume > 0 and hv <= topo.volume * 1.02:
-            raw.append((pp, tt, hv, "fast_path"))
+            raw.append((pp, tt, hv, "fast_path", reason))
             return True
-        concave.append((pts, tri, hv, topo))
+        concave.append(_Piece(pts, tri, pts, hv, bounded=bounded, reason=reason))
         return False
 
     for m in meshes:
@@ -2623,44 +2704,78 @@ def generate_colliders(
         pts = np.asarray(m.points, dtype=np.float64)
         tri = np.asarray(m.triangles)
         topo = _topology(pts, tri)
-        if not sort_out(pts, tri, topo) and topo.closed:
-            bodies = _closed_bodies(pts, tri)
-            if bodies:
-                concave.pop()
-                for bp, bt in bodies:
-                    sort_out(bp, bt, _topology(bp, bt))
+        if topo.closed and topo.volume > 0:
+            if not sort_out(pts, tri, topo):
+                bodies = _closed_bodies(pts, tri)
+                if bodies:
+                    concave.pop()
+                    for bp, bt in bodies:
+                        sort_out(bp, bt, _topology(bp, bt))
+            continue
+        # Not one closed manifold body: CoACD's own repair pass would rebuild it as a dense shell (hundreds of thousands of
+        # triangles, minutes to decompose). Repair a private copy instead and decompose what comes out.
+        rep = repair_collider_mesh(pts, tri)
+        why = ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in rep.notes.items()
+                        if v and k in ("welded", "degenerate", "duplicate", "flipped", "capped", "nonmanifold_edges", "split_vertices"))
+        why = f"repaired input ({why})" if why else "repaired input"
+        for body in rep.bodies:
+            if body.kind == "closed":
+                # closed by vertex index; where a test by position disagrees the body touches itself, and the repair-free
+                # decomposition of such a body is not known to be bounded
+                sort_out(body.points, body.triangles, _Topo(0, 0, 0, 0, 0, body.volume), why,
+                         bounded=not _topology(body.points, body.triangles).closed)
+            elif body.kind == "pinched":
+                # closed surface with non-manifold vertices left (it touches itself): measured to take minutes even with the
+                # repair pass off, so no decomposition is attempted
+                pp, tt, hv = _safe_hull(body.points)
+                raw.append((pp, tt, hv, "body_hull", f"{why}; surface touches itself at an edge or vertex, not decomposed"))
+            else:
+                thick = SHELL_THICKNESS * float(np.linalg.norm(np.ptp(body.points, axis=0)))
+                solid = _solid_from_surface(body.points, body.triangles, thick)
+                if solid is None:
+                    pp, tt, hv = _safe_hull(body.points)
+                    raw.append((pp, tt, hv, "body_hull", f"{why}; open surface that could not be made solid, not decomposed"))
+                else:
+                    hp, _, hv = _safe_hull(solid[0])
+                    concave.append(_Piece(solid[0], solid[1], solid[0], hv, bounded=True, reason=f"{why}; open surface made solid"))
     if concave:
         budget_left = max(len(concave), max_hulls - len(raw))
-        for k, (pts, tri, hv, topo) in enumerate(sorted(concave, key=lambda x: -x[2])):
+        for k, piece in enumerate(sorted(concave, key=lambda x: -x.volume_hint)):
             share = max(1, budget_left // (len(concave) - k))
             budget_left -= share
-            # preprocess "off" segfaulted CoACD on overlapping multi-body input, so only skip the
-            # manifold pre-pass for a single closed body.
-            clean = topo.closed and _single_component(pts, tri)
-            if topo.closed:
+            pts, tri = piece.pts, piece.tri
+            # preprocess "off" segfaulted CoACD on overlapping multi-body input, so the manifold pre-pass is only skipped for
+            # a single closed body; every such body is closed here, by position (as given) or by index (repaired)
+            if not piece.bounded:                       # (position-closed, so the coplanar merge applies)
                 pts, tri = _decomposition_input(pts, tri)
-            parts = coacd.run_coacd(
-                coacd.Mesh(pts, np.asarray(tri, dtype=np.int32)),
-                threshold=threshold,
-                max_convex_hull=share,
-                preprocess_mode="off" if clean else "auto",
-                resolution=500,
-                mcts_iterations=40,
-                mcts_nodes=10,
-                max_ch_vertex=64,
-                decimate=True,
-                seed=0,
-            )
+            bounded = piece.bounded or len(tri) > IN_PROCESS_MAX_TRIANGLES
+            if bounded:
+                out = collider_worker.run_in_child(pts, tri, _coacd_params(threshold, share, True), decomposition_budget_s(len(tri)))
+                parts, fail = out.parts, out.reason
+            else:
+                parts, fail = coacd.run_coacd(coacd.Mesh(pts, np.asarray(tri, dtype=np.int32)), **_coacd_params(threshold, share, True)), ""
+            if parts is None:
+                pp, tt, hv2 = _safe_hull(piece.hull_pts)
+                raw.append((pp, tt, hv2, "body_hull", "; ".join(x for x in (piece.reason, f"decomposition stopped: {fail}") if x)))
+                continue
             for v, _f in parts:
                 pp, tt, hv2 = _hull(np.asarray(v, dtype=np.float64))
-                raw.append((pp, tt, hv2, "coacd"))
+                raw.append((pp, tt, hv2, "coacd", piece.reason))
     while len(raw) > max(1, max_hulls):
         raw.sort(key=lambda h: h[2])
         a, b = raw[0], raw[1]
         pp, tt, hv = _hull(np.vstack([a[0], b[0]]))
-        raw = [(pp, tt, hv, "merged")] + raw[2:]
+        raw = [(pp, tt, hv, "merged", "; ".join(dict.fromkeys(x for x in (a[4], b[4]) if x)))] + raw[2:]
     raw.sort(key=lambda h: -h[2])
-    return [Hull(f"UCX_{asset_name}_{i:02d}", p, t, v, s) for i, (p, t, v, s) in enumerate(raw)]
+    return [Hull(f"UCX_{asset_name}_{i:02d}", p, t, v, s, r) for i, (p, t, v, s, r) in enumerate(raw)]
+
+
+def describe_collider_sources(hulls: list[Hull]) -> str:
+    """"coacd, body_hull (decomposition stopped: timeout after 30 s)": the sources of a set of hulls, with every reason a hull
+    is not a plain decomposition or hull, so that a fallback is never silent."""
+    sources = sorted({h.source for h in hulls})
+    reasons = sorted({h.reason for h in hulls if h.source == "body_hull" and h.reason})
+    return ", ".join(sources) + (f" ({'; '.join(reasons)})" if reasons else "")
 
 
 # --------------------------------------------------------------------------- export

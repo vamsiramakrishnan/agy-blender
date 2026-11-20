@@ -9,7 +9,8 @@ Layout of ``out_dir`` (everything referenced relative to the USD layer, so the d
     <asset>_colliders.glb  convex hulls
     textures/              copies of the material maps (normal maps converted to the engine convention)
     inspector.html         offline Three.js PBR, channels, selectable nodes, LODs and budget gauges
-    manifest.json          schema_version, units, tri counts, textures, materials, glb_images, hashes, validation, versions
+    manifest.json          schema_version, units, tri counts, textures, materials, glb_images, collider_sources, hashes,
+                           validation, versions
 
 Images: ``<asset>.glb`` is the single-file deliverable and embeds every image; each image is byte-for-byte the
 ``textures/`` file the USD references. A far LOD file is never shipped without its package, so it references those
@@ -722,6 +723,7 @@ def write_engine_package(
         },
         "uv": {"primvar": "st", "interpolation": "vertex", "normals": "faceVarying (crease 40 deg)"},
         "colliders": names,
+        "collider_sources": [{"name": n, "source": h.source, "reason": h.reason} for n, h in zip(names, hulls)],
         "collider_glb_nodes": [collider_name(engine, asset_name, i, usd=False) for i in range(len(hulls))],
         "collider_structure": f"/{asset.GetName()}/{COLLIDERS_SCOPE}/<name>: purpose=guide, CollisionAPI+MeshCollisionAPI convexHull" if names else None,
         "textures": textures,

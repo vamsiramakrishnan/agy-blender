@@ -35,8 +35,9 @@ from antigravity3d.tactics.common import load_png, png_bytes
 # 2: analytic UV charts, screen-space-error LODs; 3: parts absent at far LODs; 4: exact removal bracket;
 # 5: computed UV charts scaled to their surface area and placed by the rectangle packer;
 # 6: collider input with coplanar triangles merged, closed bodies of one mesh decomposed separately;
-# 7: computed UV charts re-flattened (as rigid as possible) and all counter-clockwise
-BACKEND_VERSION = "kernel-fast_ops/7"
+# 7: computed UV charts re-flattened (as rigid as possible) and all counter-clockwise;
+# 8: collider input repaired before decomposition (welded, holes capped, bodies pulled apart), open surfaces made solid
+BACKEND_VERSION = "kernel-fast_ops/8"
 CACHED_TAG = "(cached)"  # appended to GeneratedImage.model on a cache hit
 
 
@@ -180,7 +181,7 @@ def _bundle_to_bytes(b: ExportBundle) -> bytes:
                                       "screen_fraction": lod.screen_fraction})
     for i, h in enumerate(b.colliders):
         arrays.update({f"hull{i}_p": h.points, f"hull{i}_t": h.triangles})
-        meta["hulls"].append({"name": h.name, "volume": h.volume, "source": h.source})
+        meta["hulls"].append({"name": h.name, "volume": h.volume, "source": h.source, "reason": h.reason})
     buf = io.BytesIO()
     np.savez(buf, __meta__=np.frombuffer(json.dumps(meta, default=float).encode(), np.uint8), **arrays)
     return buf.getvalue()
@@ -193,7 +194,7 @@ def _bundle_from_bytes(data: bytes) -> ExportBundle:
                         **{k: v for k, v in m.items() if k not in ("points", "triangles", "uvs", "vmapping")}) for i, m in enumerate(meta["uvs"])]
         lods = {nid: [LOD(m["ratio"], z[f"lod_{nid}_{j}_p"], z[f"lod_{nid}_{j}_t"], z[f"lod_{nid}_{j}_uv"] if m["uv"] else None, m["error"], m["error_m"],
                           m.get("screen_fraction", 1.0)) for j, m in enumerate(ms)] for nid, ms in meta["lods"].items()}
-        hulls = [Hull(m["name"], z[f"hull{i}_p"], z[f"hull{i}_t"], m["volume"], m["source"]) for i, m in enumerate(meta["hulls"])]
+        hulls = [Hull(m["name"], z[f"hull{i}_p"], z[f"hull{i}_t"], m["volume"], m["source"], m.get("reason", "")) for i, m in enumerate(meta["hulls"])]
     return ExportBundle(meta["asset"], uvs, lods, hulls, dict(meta["timings"]))
 
 

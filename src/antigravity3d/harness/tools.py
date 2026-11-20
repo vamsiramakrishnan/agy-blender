@@ -45,6 +45,7 @@ from antigravity3d.ir import IRPatch, MaterialIR, SetTransform, UpsertMaterial
 from antigravity3d.kernel.fast_ops import (
     ExportBundle,
     Tier1Report,
+    describe_collider_sources,
     run_export_pipeline,
     tier1_qa,
 )
@@ -637,7 +638,7 @@ async def generate_lods_and_colliders(ctx: ToolContext) -> str:
     levels = min((len(v) for v in b.lods.values()), default=0)
     lod_tris = [sum(v[i].tri_count for v in b.lods.values()) for i in range(levels)]
     stretch = max((u.stretch_mean for u in b.uvs), default=0.0)
-    srcs = ",".join(sorted({h.source for h in b.colliders}))
+    srcs = describe_collider_sources(b.colliders)
     return (f"LODS {len(b.lods)} nodes x {levels} levels tris={'/'.join(map(str, lod_tris))} | "
             f"colliders {len(b.colliders)} hulls ({srcs}) | uv stretch {stretch:.3f} | {b.timings_ms.get('total', 0):.0f}ms")
 
