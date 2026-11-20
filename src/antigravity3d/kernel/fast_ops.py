@@ -938,8 +938,16 @@ def _point_triangle_distance(p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.
 
 class _SurfaceIndex:
     """Search structure over one triangle mesh, built once and queried many times: centroids in a KD-tree
-    (first pass), triangle bounding boxes (exact pruning bound) and, for large meshes, a KD-tree over the
-    box centres so the second pass only visits boxes that can be closer than the bound found."""
+    (first pass) and triangle bounding boxes (exact pruning bound). The exhaustive pass looks for every box
+    closer than a bound through KD-trees over box centres, one per size class: a box can only be closer than
+    ``r`` if its centre is within ``r`` plus its half-diagonal, and one tree with the largest half-diagonal of
+    the whole mesh would make one table-top triangle turn every query into a scan of every triangle."""
+
+    SIZE_CLASS_FACTOR = 4.0   # half-diagonals within a class differ by at most this factor ...
+    SIZE_CLASSES = 8          # ... except the last class, which holds everything smaller
+    BRUTE_PAIRS = 2_000_000   # sample x box pairs tested at once without a tree (and the chunk size)
+    BRUTE_BOXES = 8192        # sample x box pairs below which the exhaustive pass tests every box
+    DENSE_PAIRS = 4096        # below this many sample x triangle pairs, exact distances are computed outright
 
     def __init__(self, p: np.ndarray, t: np.ndarray) -> None:
         from scipy.spatial import cKDTree
@@ -951,8 +959,7 @@ class _SurfaceIndex:
         self.tree = cKDTree((self.a + self.b + self.c) / 3) if self.m else None
         self.lo = np.minimum(np.minimum(self.a, self.b), self.c)
         self.hi = np.maximum(np.maximum(self.a, self.b), self.c)
-        self._box_tree = None
-        self._half = 0.0
+        self._classes: list | None = None
         self._t = t
         self._p = p
         self._partner: np.ndarray | None = None
@@ -989,13 +996,92 @@ class _SurfaceIndex:
             self._partner = part
         return self._partner
 
-    def _boxes(self):
+    def _size_classes(self) -> list:
+        """[(triangle ids, largest half-diagonal, KD-tree over their box centres or None)], one entry per size
+        class. Small classes are tested exhaustively (a tree would cost more than it prunes)."""
         from scipy.spatial import cKDTree
 
-        if self._box_tree is None:
-            self._box_tree = cKDTree((self.lo + self.hi) / 2)
-            self._half = float(np.linalg.norm((self.hi - self.lo) / 2, axis=1).max())
-        return self._box_tree, self._half
+        if self._classes is None:
+            half = np.linalg.norm((self.hi - self.lo) / 2, axis=1)
+            top = float(half.max()) if self.m else 0.0
+            if top > 0:
+                k = np.floor(np.log(top / np.maximum(half, top * 1e-300)) / np.log(self.SIZE_CLASS_FACTOR))
+                k = np.minimum(k, self.SIZE_CLASSES - 1).astype(np.int64)
+            else:
+                k = np.zeros(self.m, np.int64)
+            centre = (self.lo + self.hi) / 2
+            self._classes = []
+            for cls in np.unique(k):
+                ids = np.flatnonzero(k == cls)
+                self._classes.append((ids, float(half[ids].max()), cKDTree(centre[ids]) if len(ids) > 64 else None))
+        return self._classes
+
+    def _pairs(self, sl: np.ndarray, bound: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Every (sample row, triangle) whose bounding box is closer to the sample than ``bound[row]``: the only
+        triangles that can be closer than the bound. Exact: a box closer than r has its centre within r plus
+        its half-diagonal, and the tree query uses the class's largest half-diagonal (with a rounding margin)."""
+        import itertools
+
+        rows, cols = [], []
+        if len(sl) * self.m <= self.BRUTE_BOXES:  # few pairs: test every box, no class trees needed
+            classes = [(np.arange(self.m), 0.0, None)]
+        else:
+            classes = self._size_classes()
+        for ids, half, tree in classes:
+            if tree is None:
+                r2 = np.repeat(np.arange(len(sl)), len(ids))
+                c2 = np.tile(ids, len(sl))
+            else:
+                hits = tree.query_ball_point(sl, (bound + half) * (1 + 1e-9) + 1e-12, return_sorted=False)
+                cnt = np.fromiter(map(len, hits), np.int64, len(hits))
+                if not cnt.sum():
+                    continue
+                r2 = np.repeat(np.arange(len(sl)), cnt)
+                c2 = ids[np.fromiter(itertools.chain.from_iterable(hits), np.int64, int(cnt.sum()))]
+            gap = np.maximum(np.maximum(self.lo[c2] - sl[r2], sl[r2] - self.hi[c2]), 0.0)
+            keep = np.sqrt(np.einsum("ij,ij->i", gap, gap)) < bound[r2]
+            rows.append(r2[keep])
+            cols.append(c2[keep])
+        if not rows:
+            return np.zeros(0, np.int64), np.zeros(0, np.int64)
+        return np.concatenate(rows), np.concatenate(cols)
+
+    def _chunks(self, n: int):
+        """Sample slices small enough that the exhaustively tested classes stay within BRUTE_PAIRS pairs."""
+        if n * self.m <= self.BRUTE_BOXES:
+            return iter((slice(0, n),))
+        brute = sum(len(ids) for ids, _, tree in self._size_classes() if tree is None)
+        step = max(1, self.BRUTE_PAIRS // max(brute, 64))
+        return (slice(s0, s0 + step) for s0 in range(0, n, step))
+
+    def _exact(self, ub: np.ndarray, ids: np.ndarray, samples: np.ndarray) -> None:
+        """Lower ub[ids] to the exact distance of samples[ids]: the minimum over every triangle whose box is
+        closer than the current bound (any closer triangle is one of them)."""
+        for sl_ in self._chunks(len(ids)):
+            part = ids[sl_]
+            sl = samples[part]
+            r2, c2 = self._pairs(sl, ub[part])
+            self._refine(ub, part, sl, r2, c2)
+
+    def _first_bound(self, samples: np.ndarray) -> np.ndarray:
+        """Per-sample upper bound: the distance to the triangle with the nearest centroid."""
+        nn = np.asarray(self.tree.query(samples, k=1)[1]).reshape(-1)
+        return _point_triangle_distance(samples, self.a[nn], self.b[nn], self.c[nn])
+
+    def _settle(self, ub: np.ndarray, ids: np.ndarray, samples: np.ndarray, limit: float) -> None:
+        """Passes two and three of :meth:`distances` on samples[ids] (whose first bound exceeds ``limit``):
+        tighten with the 8 nearest centroids, then make exact every value still above ``limit``. Each sample is
+        settled independently, so settling a subset gives those samples the values the whole set would."""
+        k = min(8, self.m)
+        if k > 1:
+            nn = np.asarray(self.tree.query(samples[ids], k=k)[1]).reshape(len(ids), k)
+            rows = np.repeat(ids, k)
+            f = nn.reshape(-1)
+            d = _point_triangle_distance(samples[rows], self.a[f], self.b[f], self.c[f]).reshape(len(ids), k).min(axis=1)
+            ub[ids] = np.minimum(ub[ids], d)
+            ids = ids[ub[ids] > limit]
+        if len(ids):
+            self._exact(ub, ids, samples)
 
     def distances(self, samples: np.ndarray, limit: float) -> np.ndarray:
         """Per-sample distance to the surface, exact wherever it exceeds ``limit`` (else an upper bound
@@ -1007,76 +1093,87 @@ class _SurfaceIndex:
             return np.zeros(0)
         if not self.m:
             return np.full(n, np.inf)
-        nn = np.asarray(self.tree.query(samples, k=1)[1]).reshape(-1)  # any triangle gives an upper bound
-        ub = _point_triangle_distance(samples, self.a[nn], self.b[nn], self.c[nn])
+        ub = self._first_bound(samples)  # any triangle gives an upper bound
         far = np.flatnonzero(ub > limit)
-        k = min(8, self.m)
-        if len(far) and k > 1:  # tighten with the 8 nearest centroids before the exhaustive pass
-            nn = np.asarray(self.tree.query(samples[far], k=k)[1]).reshape(len(far), k)
-            rows = np.repeat(far, k)
-            f = nn.reshape(-1)
-            d = _point_triangle_distance(samples[rows], self.a[f], self.b[f], self.c[f]).reshape(len(far), k).min(axis=1)
-            ub[far] = np.minimum(ub[far], d)
-            far = far[ub[far] > limit]
-        if not len(far):
-            return ub
-        if self.m <= 2048:  # small target: bounding-box bound against every triangle
-            step = max(1, 2_000_000 // self.m)
-            for s0 in range(0, len(far), step):
-                ids = far[s0:s0 + step]
-                sl = samples[ids]
-                gap = np.maximum(np.maximum(self.lo[None] - sl[:, None], sl[:, None] - self.hi[None]), 0.0)
-                r2, c2 = np.nonzero(np.sqrt(np.einsum("ijk,ijk->ij", gap, gap)) < ub[ids][:, None])
-                self._refine(ub, ids, sl, r2, c2)
-            return ub
-        import itertools
-
-        tree, half = self._boxes()
-        sl = samples[far]
-        hits = tree.query_ball_point(sl, ub[far] + half)  # every box that can hold a closer triangle
-        cnt = np.fromiter(map(len, hits), np.int64, len(hits))
-        r2 = np.repeat(np.arange(len(far)), cnt)
-        c2 = np.fromiter(itertools.chain.from_iterable(hits), np.int64, int(cnt.sum()))
-        gap = np.maximum(np.maximum(self.lo[c2] - sl[r2], sl[r2] - self.hi[c2]), 0.0)
-        keep = np.sqrt(np.einsum("ij,ij->i", gap, gap)) < ub[far][r2]
-        self._refine(ub, far, sl, r2[keep], c2[keep])
+        if len(far):
+            self._settle(ub, far, samples, limit)
         return ub
 
+    @staticmethod
+    def _batches(ub: np.ndarray, limit: float):
+        """The samples whose bound exceeds ``limit``, in order of decreasing bound, in batches of 64 doubling to
+        4096 (the order in which :meth:`max_distance` makes them exact)."""
+        far = np.flatnonzero(ub > limit)
+        far = far[np.argsort(-ub[far], kind="stable")]
+        s0, step = 0, 64
+        while s0 < len(far):
+            yield far[s0:s0 + step]
+            s0, step = s0 + step, min(step * 2, 4096)
+
+    HEAD = 256  # samples settled first, farthest bound first: enough to find a maximum above the limit
+
+    def _head_tail(self, samples: np.ndarray, limit: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """(first bounds, the HEAD samples with the largest bounds above ``limit``, the other samples above it)."""
+        ub = self._first_bound(samples)
+        far = np.flatnonzero(ub > limit)
+        if len(far) > self.HEAD:
+            far = far[np.argsort(-ub[far], kind="stable")]
+        return ub, far[:self.HEAD], far[self.HEAD:]
+
+    def max_over(self, samples: np.ndarray, limit: float) -> float:
+        """``distances(samples, limit).max()``, the same value, without settling samples that cannot change it:
+        the samples with the largest first bounds are settled first, and once a value above ``limit`` is found
+        (it is exact) the samples whose first bound is not above it cannot hold the maximum. When no sample
+        exceeds ``limit`` every candidate is settled, exactly as :meth:`distances` does."""
+        if not len(samples):
+            return 0.0
+        if not self.m:
+            return np.inf
+        ub, head, tail = self._head_tail(samples, limit)
+        best = -np.inf
+        if len(head):
+            self._settle(ub, head, samples, limit)
+            best = float(ub[head].max())
+        if len(tail):
+            if best > limit:
+                tail = tail[ub[tail] > best]
+            if len(tail):
+                self._settle(ub, tail, samples, limit)
+                best = max(best, float(ub[tail].max()))
+        return best if best > limit else float(ub.max())
+
     def exceeds(self, samples: np.ndarray, limit: float) -> bool:
-        """True iff some sample is farther than ``limit`` from the surface (exact), stopping at the first proof:
-        candidates are refined exactly in small batches, farthest upper bound first."""
+        """True iff some sample is farther than ``limit`` from the surface (exact): the samples with the largest
+        first bounds are settled first, the others only when none of those exceeds."""
         if not len(samples):
             return False
         if not self.m:
             return True
-        nn = np.asarray(self.tree.query(samples, k=1)[1]).reshape(-1)
-        ub = _point_triangle_distance(samples, self.a[nn], self.b[nn], self.c[nn])
-        far = np.flatnonzero(ub > limit)
-        far = far[np.argsort(-ub[far], kind="stable")]
-        for s0, step in ((0, 64), (64, 4096)):
-            chunk = far[s0:s0 + step] if step == 64 else far[s0:]
-            for c0 in range(0, len(chunk), step):
-                ids = chunk[c0:c0 + step]
-                if self.distances(samples[ids], limit).max() > limit:
+        ub, head, tail = self._head_tail(samples, limit)
+        for ids in (head, tail):
+            if len(ids):
+                self._settle(ub, ids, samples, limit)
+                if ub[ids].max() > limit:
                     return True
         return False
 
     def nearest(self, samples: np.ndarray) -> np.ndarray:
         """Index of the exactly nearest triangle of each sample (8 nearest centroids, then every triangle whose
-        bounding box is closer than the distance found)."""
+        bounding box is closer than the distance found; on a tie the centroid search's pick stays, else the
+        lowest index)."""
         n, k = len(samples), min(8, self.m)
         nn = np.asarray(self.tree.query(samples, k=k)[1]).reshape(n, k)
         f = nn.reshape(-1)
         d = _point_triangle_distance(np.repeat(samples, k, axis=0), self.a[f], self.b[f], self.c[f]).reshape(n, k)
         j = d.argmin(axis=1)
         best, arg = d[np.arange(n), j], nn[np.arange(n), j]
-        for s0 in range(0, n, max(1, 2_000_000 // self.m)):
-            sl = samples[s0:s0 + max(1, 2_000_000 // self.m)]
-            gap = np.maximum(np.maximum(self.lo[None] - sl[:, None], sl[:, None] - self.hi[None]), 0.0)
-            r2, c2 = np.nonzero(np.sqrt(np.einsum("ijk,ijk->ij", gap, gap)) < best[s0:s0 + len(sl)][:, None])
+        for sl_ in self._chunks(n):
+            sl = samples[sl_]
+            s0 = sl_.start
+            r2, c2 = self._pairs(sl, best[sl_])
             if len(r2):
                 d2 = _point_triangle_distance(sl[r2], self.a[c2], self.b[c2], self.c[c2])
-                order = np.lexsort((d2, r2))  # per row, the smallest distance first
+                order = np.lexsort((c2, d2, r2))  # per row, the smallest distance first, then the lowest index
                 r2, c2, d2 = r2[order], c2[order], d2[order]
                 first = np.r_[True, r2[1:] != r2[:-1]]
                 rows = s0 + r2[first]
@@ -1084,26 +1181,38 @@ class _SurfaceIndex:
                 best[rows[better]], arg[rows[better]] = d2[first][better], c2[first][better]
         return arg
 
+    def exact(self, samples: np.ndarray) -> np.ndarray:
+        """Exact distance of every sample to the surface."""
+        n = len(samples)
+        if n * self.m <= self.DENSE_PAIRS:
+            f = np.tile(np.arange(self.m), n)
+            d = _point_triangle_distance(np.repeat(samples, self.m, axis=0), self.a[f], self.b[f], self.c[f])
+            return d.reshape(n, self.m).min(axis=1)
+        ub = self._first_bound(samples)
+        self._settle(ub, np.arange(n), samples, -1.0)
+        return ub
+
     def max_distance(self, samples: np.ndarray) -> float:
-        """Exact max over samples of the distance to the surface: cheap per-sample upper bounds first, then exact
-        values in order of decreasing bound until no remaining bound can beat the best exact value."""
-        if not len(samples):
+        """Exact max over samples of the distance to the surface. Small problems: every sample against every
+        triangle at once. Otherwise per-sample upper bounds (nearest centroid's triangle) first, then samples in
+        order of decreasing bound, each batch tightened with the 8 nearest centroids and made exact where it
+        can still beat the best exact value, until no remaining bound can."""
+        n = len(samples)
+        if not n:
             return 0.0
         if not self.m:
             return np.inf
-        n, k = len(samples), min(8, self.m)
-        nn = np.asarray(self.tree.query(samples, k=k)[1]).reshape(n, k)
-        f = nn.reshape(-1)
-        ub = _point_triangle_distance(np.repeat(samples, k, axis=0), self.a[f], self.b[f], self.c[f]).reshape(n, k).min(axis=1)
-        order = np.argsort(-ub, kind="stable")
+        if n * self.m <= self.DENSE_PAIRS:
+            f = np.tile(np.arange(self.m), n)
+            d = _point_triangle_distance(np.repeat(samples, self.m, axis=0), self.a[f], self.b[f], self.c[f])
+            return float(d.reshape(n, self.m).min(axis=1).max())
+        ub = self._first_bound(samples)
         best = 0.0
-        step = 16
-        for s0 in range(0, n, step):
-            ids = order[s0:s0 + step]
+        for ids in self._batches(ub, -np.inf):
             if ub[ids[0]] <= best:  # no remaining upper bound can beat the exact maximum found
                 break
-            best = max(best, float(self.distances(samples[ids], 0.0).max()))
-            step = min(step * 2, 1024)
+            self._settle(ub, ids, samples, best)
+            best = max(best, float(ub[ids].max()))
         return best
 
     def _refine(self, ub: np.ndarray, ids: np.ndarray, sl: np.ndarray, r2: np.ndarray, c2: np.ndarray) -> None:
@@ -1117,29 +1226,42 @@ def _one_sided(samples: np.ndarray, p: np.ndarray, t: np.ndarray, limit: float) 
     """max over samples of the distance to surface (p, t), decided exactly against ``limit`` (exact whenever it
     exceeds ``limit``, otherwise an upper bound that is still <= ``limit``: the accept / reject decision is
     never wrong). See _SurfaceIndex.distances."""
-    d = _SurfaceIndex(p, t).distances(np.asarray(samples, np.float64), limit)
-    return float(d.max()) if len(d) else 0.0
+    return _SurfaceIndex(p, t).max_over(np.asarray(samples, np.float64), limit)
 
 
 def _coarse_samples(p1: np.ndarray, t1: np.ndarray) -> np.ndarray:
+    """Centroids and edge midpoints of the triangles, each shared edge's midpoint once (both triangles of an
+    edge give the same point, and a repeated sample cannot change a maximum)."""
     a, b, c = p1[t1[:, 0]], p1[t1[:, 1]], p1[t1[:, 2]]
-    return np.vstack([(a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2])
+    e = np.sort(np.concatenate([t1[:, [0, 1]], t1[:, [1, 2]], t1[:, [2, 0]]]), axis=1).astype(np.int64)
+    key = np.unique(e[:, 0] * (int(e.max(initial=0)) + 1) + e[:, 1])
+    i, j = np.divmod(key, int(e.max(initial=0)) + 1)
+    return np.vstack([(a + b + c) / 3, (p1[i] + p1[j]) / 2])
+
+
+def _distinct_points(p: np.ndarray) -> np.ndarray:
+    """The rows of p without exact repeats (a seam-split mesh repeats every seam position once per chart)."""
+    p = np.ascontiguousarray(p, np.float64)
+    if not len(p):
+        return p
+    _, first = np.unique(p.view(np.dtype((np.void, p.dtype.itemsize * p.shape[1]))).ravel(), return_index=True)
+    return p[np.sort(first)]
 
 
 def _surface_deviation(p0: np.ndarray, t0: np.ndarray, p1: np.ndarray, t1: np.ndarray, limit: float,
-                       ref_index: _SurfaceIndex | None = None) -> float:
+                       ref_index: _SurfaceIndex | None = None, ref_vertices: np.ndarray | None = None) -> float:
     """Two-sided surface distance (a sampled Hausdorff distance) between a mesh (p0, t0) and its
-    simplification (p1, t1), in the units of the points, decided exactly against ``limit`` (see _one_sided).
-    Reference -> simplified: the reference's vertices (where an edge collapse moves the surface most).
-    Simplified -> reference: centroids and edge midpoints of the coarse triangles (chords and bulges; its
-    vertices are reference vertices, at distance 0). ``ref_index``: a prebuilt index of (p0, t0) to reuse.
-    A value above ``limit`` is exact for the side that exceeded it (the other side is then not measured)."""
+    simplification (p1, t1), in the units of the points, decided exactly against ``limit`` (see
+    _SurfaceIndex.max_over). Reference -> simplified: the reference's vertices (where an edge collapse moves
+    the surface most). Simplified -> reference: centroids and edge midpoints of the coarse triangles (chords and
+    bulges; its vertices are reference vertices, at distance 0). ``ref_index``, ``ref_vertices``: a prebuilt
+    index of (p0, t0) and its distinct used vertices to reuse. A value above ``limit`` is exact for the side
+    that exceeded it (the other side is then not measured)."""
+    d1 = _SurfaceIndex(p1, t1).max_over(_distinct_points(p0[np.unique(t0)]) if ref_vertices is None else ref_vertices, limit)
+    if d1 > limit:  # already rejected (and exact): skip the other side
+        return d1
     ref = ref_index if ref_index is not None else _SurfaceIndex(p0, t0)
-    d1 = _SurfaceIndex(p1, t1).distances(p0[np.unique(t0)], limit)
-    if len(d1) and d1.max() > limit:  # already rejected (and exact): skip the other side
-        return float(d1.max())
-    d2 = ref.distances(_coarse_samples(p1, t1), limit)
-    return float(max(d1.max() if len(d1) else 0.0, d2.max() if len(d2) else 0.0))
+    return float(max(d1, ref.max_over(_coarse_samples(p1, t1), limit)))
 
 
 # 13 view directions (axes, face and body diagonals; opposite directions project identically)
@@ -1152,7 +1274,10 @@ def _projected_areas(p: np.ndarray, t: np.ndarray) -> np.ndarray:
     """Silhouette area of a closed mesh seen along each of _VIEW_DIRS: (1/2) sum |n . d| a (Cauchy's
     projection formula; exact for convex parts, counts overlapping layers otherwise)."""
     n = np.cross(p[t[:, 1]] - p[t[:, 0]], p[t[:, 2]] - p[t[:, 0]]) / 2  # area-weighted normals
-    return 0.5 * np.abs(n @ _VIEW_DIRS.T).sum(axis=0)
+    # in row blocks: one (n, 3) x (3, 13) product hands a large n to the threaded BLAS path, measured ten times
+    # slower than the same product in blocks, which gives a bit-identical result
+    proj = np.vstack([n[i:i + 4096] @ _VIEW_DIRS.T for i in range(0, len(n), 4096)]) if len(n) else np.zeros((0, len(_VIEW_DIRS)))
+    return 0.5 * np.abs(proj).sum(axis=0)
 
 
 class _Simplifier:
@@ -1201,6 +1326,7 @@ class _Simplifier:
         self._floor = 0.0  # largest budget known to remove nothing: smaller budgets cannot do better
         self._measured: dict[bytes, tuple[float, float]] = {}
         self._ref_index: _SurfaceIndex | None = None  # built on first measurement, reused by every level/attempt
+        self._ref_vertices: np.ndarray | None = None  # the reference's used vertices (its side's samples), likewise
 
     @property
     def ref_index(self) -> _SurfaceIndex:
@@ -1239,8 +1365,10 @@ class _Simplifier:
         key = idx.tobytes()
         if key not in self._measured:
             sil = self.silhouette_change(idx)
+            if sil <= silhouette_tol and self._ref_vertices is None:
+                self._ref_vertices = _distinct_points(self.ref[0][np.unique(self.ref[1])])
             dev = (_surface_deviation(self.ref[0], self.ref[1], self.ref[0], idx.reshape(-1, 3).astype(np.int64), limit,
-                                      self.ref_index) if sil <= silhouette_tol else np.inf)
+                                      self.ref_index, self._ref_vertices) if sil <= silhouette_tol else np.inf)
             self._measured[key] = (sil, dev)
         return self._measured[key]
 
@@ -1347,6 +1475,18 @@ def _absent(s: "_Simplifier", screen_fraction: float) -> LOD:
                0.0, 0.0, float(screen_fraction))
 
 
+def _convex_bound(tri: np.ndarray, cand: tuple[np.ndarray, np.ndarray, np.ndarray],
+                  partner: tuple[np.ndarray, np.ndarray, np.ndarray]) -> np.ndarray:
+    """Per triangle S (corners (n, 3, 3)) the bound of :func:`_convex_upper` from 4 candidate triangles per S:
+    ``cand`` and ``partner`` are their corners and those of their coplanar partners, (4 n, 3) each."""
+    n = len(tri)
+    pts = np.repeat(tri, 4, axis=0).reshape(-1, 3)  # per S: 4 candidates x 3 corners
+    d = _point_triangle_distance(pts, *(np.repeat(x, 3, axis=0) for x in cand))
+    # T joined with its coplanar partner is still convex: distance = min of the halves
+    d = np.minimum(d, _point_triangle_distance(pts, *(np.repeat(x, 3, axis=0) for x in partner))).reshape(n, 4, 3)
+    return d.max(axis=2).min(axis=1)
+
+
 def _convex_upper(index: "_SurfaceIndex", tri: np.ndarray, *, return_candidates: bool = False):
     """Per triangle S (corners (n, 3, 3)) an upper bound of max over x in S of the distance from x to the
     indexed surface: for any one indexed triangle T, x -> dist(x, T) is convex, so its maximum over S is at a
@@ -1355,12 +1495,8 @@ def _convex_upper(index: "_SurfaceIndex", tri: np.ndarray, *, return_candidates:
     n = len(tri)
     q = np.concatenate([tri, tri.mean(axis=1, keepdims=True)], axis=1).reshape(-1, 3)
     cand = index.nearest(q).reshape(n, 4)
-    tids = np.repeat(cand.reshape(-1), 3)  # per S: 4 candidates x 3 corners
-    pts = np.repeat(tri, 4, axis=0).reshape(-1, 3)
-    d = _point_triangle_distance(pts, index.a[tids], index.b[tids], index.c[tids])
-    pt = index.partner[tids]  # T joined with its coplanar partner is still convex: distance = min of the halves
-    d = np.minimum(d, _point_triangle_distance(pts, index.a[pt], index.b[pt], index.c[pt])).reshape(n, 4, 3)
-    up = d.max(axis=2).min(axis=1)
+    c, pt = cand.reshape(-1), index.partner[cand.reshape(-1)]
+    up = _convex_bound(tri, (index.a[c], index.b[c], index.c[c]), (index.a[pt], index.b[pt], index.c[pt]))
     return (up, cand) if return_candidates else up
 
 
@@ -1387,6 +1523,13 @@ class _Removal:
         self._asset0 = [(s.ref[0], s.ref[1]) for s in simp.values()]
         self._sil: dict[float, _Silhouettes] = {}
         self._probe: dict[str, np.ndarray] = {}
+        self._query: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        self._part: dict[str, _SurfaceIndex] = {}
+        self._near: dict[tuple[str, str, str], tuple[np.ndarray, np.ndarray]] = {}
+        self._lo_search: dict[tuple[str, frozenset], dict] = {}
+        used = {n: s.ref[0][np.unique(s.ref[1])] for n, s in simp.items()}
+        self._lo3 = {n: p.min(axis=0) for n, p in used.items()}  # bounding boxes of the parts' LOD0 surfaces
+        self._hi3 = {n: p.max(axis=0) for n, p in used.items()}
 
     def _rest_index(self, rest: frozenset) -> _SurfaceIndex:
         if rest not in self._index:
@@ -1396,13 +1539,63 @@ class _Removal:
             self._index[rest] = index
         return self._index[rest]
 
+    def _part_index(self, nid: str) -> _SurfaceIndex:
+        if nid not in self._part:
+            self._part[nid] = _SurfaceIndex(*self.simp[nid].ref)
+        return self._part[nid]
+
     def _probes(self, nid: str) -> np.ndarray:
-        """The part's vertices and triangle centroids."""
+        """The part's vertices and triangle centroids (each distinct position once)."""
         if nid not in self._probe:
             p, t = self.simp[nid].ref
             a, b, c = p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]
-            self._probe[nid] = np.vstack([p[np.unique(t)], (a + b + c) / 3])
+            self._probe[nid] = _distinct_points(np.vstack([p[np.unique(t)], (a + b + c) / 3]))
         return self._probe[nid]
+
+    def _queries(self, nid: str) -> tuple[np.ndarray, np.ndarray]:
+        """(the part's triangles as corners (n, 3, 3), their corners and centroids (4 n, 3)): _convex_upper's
+        query points."""
+        if nid not in self._query:
+            s = self.simp[nid]
+            tri = s.ref[0][s.ref[1]]
+            self._query[nid] = (tri, np.concatenate([tri, tri.mean(axis=1, keepdims=True)], axis=1).reshape(-1, 3))
+        return self._query[nid]
+
+    def _nearest_in(self, kind: str, nid: str, q: str, pts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """(exact distance, nearest triangle of part q) of each of nid's probe ("probe") or query ("query")
+        points, cached: it does not depend on the level or on which other parts remain."""
+        key = (kind, nid, q)
+        if key not in self._near:
+            index = self._part_index(q)
+            n, m = len(pts), index.m
+            if n * m <= index.DENSE_PAIRS:  # small: every point against every triangle at once
+                f = np.tile(np.arange(m), n)
+                d = _point_triangle_distance(np.repeat(pts, m, axis=0), index.a[f], index.b[f], index.c[f]).reshape(n, m)
+                j = d.argmin(axis=1)
+                self._near[key] = (d[np.arange(n), j], j)
+            else:
+                j = index.nearest(pts)
+                self._near[key] = (_point_triangle_distance(pts, index.a[j], index.b[j], index.c[j]), j)
+        return self._near[key]
+
+    def _to_rest(self, kind: str, nid: str, pts: np.ndarray, rest: frozenset) -> tuple[np.ndarray, list, np.ndarray, np.ndarray]:
+        """Per point: exact distance to the remaining parts' LOD0 surface, then the owning part (an index into
+        the returned names) and triangle of a nearest triangle. Distances to the union are the minimum over the
+        parts, from per-part results cached across remaining sets and levels; a part whose bounding box is
+        farther from every point than the distance already found cannot lower it and is not measured."""
+        names = sorted(rest)
+        gap = np.stack([np.linalg.norm(np.maximum(np.maximum(self._lo3[q] - pts, pts - self._hi3[q]), 0.0), axis=1)
+                        for q in names])
+        cur = np.full(len(pts), np.inf)
+        own = np.zeros(len(pts), np.int64)
+        tri = np.zeros(len(pts), np.int64)
+        for qi in sorted(range(len(names)), key=lambda i: (float(gap[i].min()), names[i])):
+            if (gap[qi] > cur * (1 + 1e-9) + 1e-12).all():  # (with a rounding margin) farther than what was found
+                continue
+            d, j = self._nearest_in(kind, nid, names[qi], pts)
+            better = d < cur
+            cur[better], own[better], tri[better] = d[better], qi, j[better]
+        return cur, names, own, tri
 
     def _entry(self, nid: str, rest: frozenset) -> list:
         """[lo, hi, parts owning the triangles hi was measured against] of (part, remaining set), all None at
@@ -1418,24 +1611,98 @@ class _Removal:
         return min((e[1] for (n, r), e in self._bracket.items()
                     if n == nid and rest <= r and e[1] is not None and e[2] is not None and e[2] <= rest), default=np.inf)
 
-    def _lo(self, nid: str, rest: frozenset) -> float:
+    def _lo(self, nid: str, rest: frozenset, need: float = np.inf) -> float:
         """Exact largest distance to ``rest`` at LOD0 of the part's vertices and triangle centroids: a lower
         bound of D that already rejects a long pole or a wide board (their centres are far from everything
-        else)."""
+        else). The search stops once an exact distance above ``need`` is found (any exact distance of a point
+        of the part is a lower bound of D, and that one already decides) and resumes if a later question needs
+        more: the largest value found so far is returned."""
         e = self._entry(nid, rest)
-        if e[0] is None:
-            e[0] = self._rest_index(rest).max_distance(self._probes(nid))
+        st = self._lo_search.get((nid, rest))
+        if st is None:
+            st = self._lo_search[(nid, rest)] = self._lo_start(nid, rest)
+        if not st["done"] and max(e[0] or 0.0, st["best"]) <= need:
+            self._lo_resume(nid, st, need)
+        e[0] = max(e[0] or 0.0, st["best"])
         return e[0]
 
+    def _lo_start(self, nid: str, rest: frozenset) -> dict:
+        """State of the search for the largest probe distance to ``rest``. Per (part, other part), cached
+        across remaining sets and levels: an upper bound per probe (nearest centroid's triangle) and exact
+        distances computed only where needed. Probes are made exact in order of decreasing upper bound until no
+        remaining bound can beat the largest exact value; another part only takes part where its bounding box
+        is closer to the probe than the bound."""
+        x = self._probes(nid)
+        names = sorted(rest)
+        gap = {q: self._box_gap(nid, q) for q in names}
+        up = np.full(len(x), np.inf)
+        for q in sorted(names, key=lambda q: (float(gap[q].min()), q)):
+            if (gap[q] > up * (1 + 1e-9) + 1e-12).all():  # (with a rounding margin) farther than the bound
+                continue
+            up = np.minimum(up, self._pair(nid, q)[0])
+        near = [q for q in names if not (gap[q] > up * (1 + 1e-9) + 1e-12).all()]
+        return {"up": up, "gap": gap, "near": near, "order": np.argsort(-up, kind="stable"), "pos": 0, "step": 16,
+                "best": 0.0, "done": False}
+
+    def _lo_resume(self, nid: str, st: dict, need: float) -> None:
+        up, gap, order = st["up"], st["gap"], st["order"]
+        while st["pos"] < len(order):
+            ids = order[st["pos"]:st["pos"] + st["step"]]
+            if up[ids[0]] <= st["best"]:  # no remaining upper bound can beat the exact maximum found
+                break
+            d = up[ids].copy()
+            for q in st["near"]:
+                mask = ~(gap[q][ids] > d * (1 + 1e-9) + 1e-12)
+                if mask.any():
+                    d[mask] = np.minimum(d[mask], self._pair_exact(nid, q, ids[mask]))
+            st["best"] = max(st["best"], float(d.max()))
+            st["pos"], st["step"] = st["pos"] + st["step"], min(st["step"] * 2, 4096)
+            if st["best"] > need:
+                return
+        st["done"] = True
+
+    def _box_gap(self, nid: str, q: str) -> np.ndarray:
+        """Per probe of nid, its distance to part q's bounding box (a lower bound of its distance to q)."""
+        key = ("gap", nid, q)
+        if key not in self._near:
+            x = self._probes(nid)
+            self._near[key] = np.linalg.norm(np.maximum(np.maximum(self._lo3[q] - x, x - self._hi3[q]), 0.0), axis=1)
+        return self._near[key]
+
+    def _pair(self, nid: str, q: str) -> list:
+        """[upper bound, exact distance or NaN] per probe of nid against part q (see _lo_start)."""
+        key = ("pair", nid, q)
+        if key not in self._near:
+            x, index = self._probes(nid), self._part_index(q)
+            if len(x) * index.m <= index.DENSE_PAIRS:  # small: exact outright, cheaper than bounding first
+                d = index.exact(x)
+                self._near[key] = [d, d.copy()]
+            else:
+                self._near[key] = [index._first_bound(x), np.full(len(x), np.nan)]
+        return self._near[key]
+
+    def _pair_exact(self, nid: str, q: str, ids: np.ndarray) -> np.ndarray:
+        _, ex = self._pair(nid, q)
+        todo = ids[np.isnan(ex[ids])]
+        if len(todo):
+            ex[todo] = self._part_index(q).exact(self._probes(nid)[todo])
+        return ex[ids]
+
     def _hi(self, nid: str, rest: frozenset) -> float:
-        """Largest convex upper bound of the part's triangles against ``rest`` at LOD0 (D <= hi)."""
+        """Largest convex upper bound of the part's triangles against ``rest`` at LOD0 (D <= hi; see
+        _convex_upper: T ranges over a nearest triangle of the remaining parts for each corner and centroid)."""
         e = self._entry(nid, rest)
         if e[1] is None:
-            s = self.simp[nid]
-            index = self._rest_index(rest)
-            up, cand = _convex_upper(index, s.ref[0][s.ref[1]], return_candidates=True)
-            used = np.concatenate([cand.reshape(-1), index.partner[cand.reshape(-1)]])
-            e[1], e[2] = float(up.max()), frozenset(index.owner[used])
+            tri, q = self._queries(nid)
+            _, names, own, t = self._to_rest("query", nid, q, rest)
+            cand = [np.zeros((len(q), 3)) for _ in range(6)]
+            for qi in np.unique(own):
+                index, m = self._part_index(names[qi]), own == qi
+                j, pj = t[m], index.partner[t[m]]
+                for k, x in enumerate((index.a[j], index.b[j], index.c[j], index.a[pj], index.b[pj], index.c[pj])):
+                    cand[k][m] = x
+            up = _convex_bound(tri, tuple(cand[:3]), tuple(cand[3:]))
+            e[1], e[2] = float(up.max()), frozenset(names[qi] for qi in np.unique(own))
         return e[1]
 
     @staticmethod
@@ -1469,7 +1736,7 @@ class _Removal:
             return False
         if self._hi_known(nid, r) + slack <= budget:
             return True
-        if self._lo(nid, r) - slack > budget:
+        if self._lo(nid, r, budget + slack) - slack > budget:
             return False
         hi = self._hi(nid, r)
         # hi used triangles of a few parts only: each moved by at most its own measured deviation
@@ -1492,20 +1759,28 @@ class _Removal:
                   needed: int) -> set[str]:
         """Greedy set of parts absent at this level (smallest surface first, ties by name; parts absent at the
         previous level stay absent; never every part). ``needed``: triangles removal must save for the level to
-        be worth emitting; when even removing every candidate cannot save that many, nothing is measured."""
+        be worth emitting; when even removing every candidate cannot save that many, nothing is measured, and the
+        search stops as soon as the parts not yet decided could no longer make up the difference (the level is
+        not emitted then, whatever the rest of the search would find)."""
         gone = set(already)
         order = sorted((n for n in self.simp if n not in gone), key=lambda n: (self.area[n], n))
         if len(order) < 2 or sum(self.tris[n] for n in order) - min(self.tris[n] for n in order) < needed:
             return gone
+        saves = [len(picks[n][0]) // 3 for n in order]  # what absence saves at this level
+        saved, undecided = 0, sum(saves)
         new: list[str] = []
-        for nid in order:
+        for nid, save in zip(order, saves):
+            if saved + undecided < needed:
+                return gone
+            undecided -= save
             rest = [n for n in self.simp if n not in gone and n != nid]
             if not rest:
                 break
             if self._decide(nid, rest, picks, budget):
                 gone.add(nid)
                 new.append(nid)
-        if not new:
+                saved += save
+        if not new or saved < needed:
             return gone
         if object_px not in self._sil:
             self._sil[object_px] = _Silhouettes(self._asset0, object_px)

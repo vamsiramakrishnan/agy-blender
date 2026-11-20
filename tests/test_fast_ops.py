@@ -316,6 +316,117 @@ def test_convex_upper_bounds_the_true_distance():
     assert up.max() == pytest.approx(0.04, abs=1e-9)  # the strap's outer face is 4 cm off the side: tight bound
 
 
+def _plate_with_pebbles():
+    """One large two-triangle plate under 60 small spheres: a mesh whose triangle sizes differ by 1000x."""
+    plate = trimesh.Trimesh([(-1, -1, 0), (1, -1, 0), (1, 1, 0), (-1, 1, 0)], [(0, 1, 2), (0, 2, 3)], process=False)
+    rng = np.random.default_rng(3)
+    pebbles = []
+    for _ in range(60):
+        s = trimesh.creation.icosphere(2, 0.01)
+        s.apply_translation((*rng.uniform(-0.9, 0.9, 2), 0.02))
+        pebbles.append(s)
+    tm = trimesh.util.concatenate([plate, *pebbles])
+    return np.asarray(tm.vertices, float), np.asarray(tm.faces, np.int64)
+
+
+def test_surface_index_exact_search_does_not_scan_everything_for_one_large_triangle(monkeypatch):
+    # The exhaustive pass may only visit triangles whose box is closer than the bound found. With one search
+    # margin for the whole mesh (its largest half-diagonal, the plate's 1.4 m), every query would visit all
+    # 19,202 triangles: an assembly of small parts on a table top would take a minute to get its LODs.
+    import scipy.spatial
+
+    from antigravity3d.kernel import fast_ops as F
+
+    p, t = _plate_with_pebbles()
+    q = np.random.default_rng(4).uniform((-1, -1, 0.0), (1, 1, 0.06), (400, 3))
+    a, b, c = p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]
+    brute = np.array([F._point_triangle_distance(np.repeat(x[None], len(t), 0), a, b, c).min() for x in q])
+    visited = []
+
+    class Tree(scipy.spatial.cKDTree):  # counts the boxes the exhaustive pass is handed
+        def query_ball_point(self, x, r, *args, **kw):
+            hits = super().query_ball_point(x, r, *args, **kw)
+            visited.append(sum(map(len, hits)))
+            return hits
+
+    monkeypatch.setattr(scipy.spatial, "cKDTree", Tree)
+    index = F._SurfaceIndex(p, t)
+    assert np.array_equal(index.distances(q, 0.0), brute)  # exact: the same minimum of the same values
+    assert index.max_distance(q) == brute.max()
+    assert sum(visited) < 0.01 * len(q) * len(t), sum(visited)
+
+
+@pytest.mark.parametrize("limit", [0.0, 0.004, 0.01, 0.02, 0.05, 1.0])
+def test_max_over_and_exceeds_agree_with_the_full_distances(limit):
+    # max_over settles only what can change the maximum; it must return exactly distances(...).max()
+    from antigravity3d.kernel.fast_ops import _SurfaceIndex
+
+    p, t = _plate_with_pebbles()
+    index = _SurfaceIndex(p, t)
+    q = np.random.default_rng(5).uniform((-1, -1, -0.02), (1, 1, 0.08), (3000, 3))
+    full = index.distances(q, limit)
+    assert index.max_over(q, limit) == full.max()
+    assert index.exceeds(q, limit) == bool(full.max() > limit)
+
+
+def test_coarse_samples_and_projected_areas_keep_their_values():
+    # shared edge midpoints are taken once and the silhouette product runs in row blocks: same maximum, same bits
+    from antigravity3d.kernel.fast_ops import _VIEW_DIRS, _coarse_samples, _projected_areas, _SurfaceIndex
+
+    tm = trimesh.creation.icosphere(5, 0.5)  # 20,480 triangles: more than one block
+    p, t = np.asarray(tm.vertices, float), np.asarray(tm.faces, np.int64)
+    a, b, c = p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]
+    per_triangle = np.vstack([(a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2])
+    shared = _coarse_samples(p, t)
+    assert len(shared) == len(t) + len(t) * 3 // 2  # closed mesh: every edge shared by two triangles
+    assert {r.tobytes() for r in shared} == {r.tobytes() for r in per_triangle}
+    index = _SurfaceIndex(p * 1.01, t)
+    assert index.max_over(shared, 0.0) == index.max_over(per_triangle, 0.0)
+    n = np.cross(b - a, c - a) / 2
+    assert np.array_equal(_projected_areas(p, t), 0.5 * np.abs(n @ _VIEW_DIRS.T).sum(axis=0))
+
+
+def test_removal_bounds_from_per_part_results_match_the_union():
+    # lo and hi are assembled from per-part results cached across remaining sets: lo must equal the exact
+    # largest probe distance to the union of the remaining parts, and hi must bound every point of the part
+    from antigravity3d.kernel.fast_ops import _Removal, _Simplifier, _SurfaceIndex, _gather
+
+    rng = np.random.default_rng(6)
+    parts = {"base": trimesh.creation.box((1.0, 1.0, 0.1))}
+    for i in range(6):
+        m = trimesh.creation.icosphere(1, 0.05) if i % 2 else trimesh.creation.box((0.08, 0.05, 0.04))
+        m.apply_translation((*rng.uniform(-0.4, 0.4, 2), 0.08))
+        parts[f"p{i}"] = m
+    simp = {n: _Simplifier(np.asarray(m.vertices, float), np.asarray(m.faces), None) for n, m in parts.items()}
+    removal = _Removal(simp, 0.9)
+    for nid in ("p0", "p1", "base"):
+        for rest in (frozenset(simp) - {nid}, frozenset({"base", "p2", "p3"}) - {nid}):
+            union = _SurfaceIndex(*_gather([simp[n].ref for n in sorted(rest)]))
+            assert removal._lo(nid, rest) == union.max_distance(removal._probes(nid))
+            s = simp[nid]
+            w = rng.dirichlet((1, 1, 1), 50)
+            dense = np.einsum("sk,nkd->nsd", w, s.ref[0][s.ref[1]]).reshape(-1, 3)
+            assert removal._hi(nid, rest) >= union.distances(dense, 0.0).max() - 1e-12
+
+
+def test_removal_search_stops_when_the_level_cannot_pay():
+    # a level is emitted only if it saves `needed` triangles; once the parts not yet decided cannot make that
+    # up, nothing more is measured (the result is discarded either way)
+    from antigravity3d.kernel.fast_ops import _Removal, _Simplifier
+
+    parts = {f"b{i}": trimesh.creation.box((0.1, 0.1, 0.1)) for i in range(6)}
+    for i, m in enumerate(parts.values()):
+        m.apply_translation((i * 0.5, 0, 0))  # far apart: none can go at a small budget
+    simp = {n: _Simplifier(np.asarray(m.vertices, float), np.asarray(m.faces), None) for n, m in parts.items()}
+    removal = _Removal(simp, 0.9)
+    decided = []
+    real = removal._decide
+    removal._decide = lambda nid, *a: (decided.append(nid), real(nid, *a))[1]
+    picks = {n: (s.idx0, 0.0) for n, s in simp.items()}
+    assert removal.droppable(picks, set(), 0.001, 540.0, needed=36) == set()  # 3 of 6 boxes would have to go
+    assert len(decided) == 4  # after 4 refusals the last 2 boxes (24 triangles) cannot save 36
+
+
 def test_assembly_drops_only_parts_whose_removal_is_invisible():
     from antigravity3d.kernel.fast_ops import generate_asset_lods
     from antigravity3d.kernel.lod_diff import lod_pop_report
