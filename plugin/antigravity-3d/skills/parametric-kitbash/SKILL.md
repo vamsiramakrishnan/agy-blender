@@ -17,8 +17,9 @@ blockout; if an op is missing, report it instead of using the escape hatch.
 1. **Read the stage.** `inspect_manifest` for the current node tree, units
    (must be metres, Z-up) and the registered orthos and parts list.
 2. **Primary forms first.** Emit one Scene IR patch that creates the major
-   parts as parametric primitives (box, cylinder, capsule, sweep, lathe,
-   bevelled box) named from the parts list, sized from the ortho
+   parts as parametric primitives (box, cylinder, cone, sphere, capsule;
+   group for a transform-only parent; mesh_ref for an existing mesh file)
+   named from the parts list, sized from the ortho
    measurements in metres, parented in a clean hierarchy. Apply with
    `apply_scene_ir`. Keep each patch small (one part group per patch) so a
    failed patch is cheap to roll back.

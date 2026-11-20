@@ -79,8 +79,36 @@ def _deny(msg: str) -> HookResult:
 # --------------------------------------------------------------------------- state header
 
 
+BINDINGS_CAP = 1500  # characters of the LOOKDEV node listing (the manifest tool's own cap)
+
+
+def _bindings_line(scene: Any) -> str:
+    """``bound: wood=body,lid; iron=strap_0; (none)=handle``: the nodes that can carry a material, by material.
+
+    The LOOKDEV stage assigns materials to nodes by id and has no manifest tool in its five-tool set, so its
+    state header carries the ids. Longer listings are cut at BINDINGS_CAP with the number of nodes left out.
+    """
+    groups: dict[str, list[str]] = {}
+    for n in scene.nodes:
+        if n.kind != "group":
+            groups.setdefault(n.material_id or "(none)", []).append(n.id)
+    if not groups:
+        return ""
+    total = sum(len(v) for v in groups.values())
+    out, shown = "", 0
+    for mid, ids in groups.items():
+        for i, nid in enumerate(ids):
+            piece = (f"{'; ' if out else ''}{mid}={nid}" if i == 0 else f",{nid}")
+            if len(out) + len(piece) > BINDINGS_CAP:
+                return f"\nbound: {out} ... +{total - shown} more node(s)"
+            out += piece
+            shown += 1
+    return f"\nbound: {out}"
+
+
 def state_header(s: Session) -> str:
-    """Compact current-state block: one status line plus the <=8 newest audit deltas."""
+    """Compact current-state block: one status line, for LOOKDEV the nodes by material, and the <=8 newest
+    audit deltas."""
     st, b = s.state, s.state.budget
     scene = s.stage.base_ir()
     mats = ",".join(m.id for m in scene.materials) or "-"
@@ -89,6 +117,8 @@ def state_header(s: Session) -> str:
             f"nodes={len(scene.nodes)} mats={mats} open_tx={len(st.tx_stack)} | "
             f"tier1={'ok' if st.last_tier1_ok else 'no'} tier15={st.last_tier15_score:.2f} "
             f"export={'allowed' if st.export_allowed else 'blocked'}]")
+    if s.toolset == "LOOKDEV":
+        head += _bindings_line(scene)
     return head + ("\naudit:\n" + "\n".join(st.audit_deltas) if st.audit_deltas else "")
 
 

@@ -318,3 +318,31 @@ async def test_gate_enforces_stage_subagents(tmp_path):
     S.set_toolset(env.reg, env.sid, "BLOCKOUT")
     res = await gate.decide("invoke_subagent", inv("usd_verifier"))
     assert not res.allow and "available: none" in res.message
+
+
+async def test_lookdev_header_lists_the_nodes_by_material(tmp_path):
+    """LOOKDEV assigns materials to nodes by id and has no manifest tool: its header carries the ids."""
+    env = make_session(tmp_path)
+    await T.apply_scene_ir(json.dumps({"ops": [
+        {"op": "upsert_material", "material": {"id": "wood", "base_color": [0.5, 0.3, 0.2]}},
+        *CRATE["ops"],
+        {"op": "assign_material", "node_id": "body", "material_id": "wood"},
+    ]}), env.ctx)
+    assert "bound:" not in H.state_header(env.sess())  # geometry stages have inspect_manifest instead
+    S.set_toolset(env.reg, env.sid, "LOOKDEV")
+    hdr = H.state_header(env.sess())
+    line = next(x for x in hdr.splitlines() if x.startswith("bound: "))
+    assert line == "bound: wood=body; (none)=lid"
+    assert hdr.splitlines()[0].startswith("[STATE ") and hdr.splitlines()[0].endswith("]")  # the status line is intact
+
+    class Node:
+        def __init__(self, i):
+            self.id, self.kind, self.material_id = f"plank_{i:04d}", "box", "wood"
+
+    class Scene:
+        nodes = [Node(i) for i in range(400)]
+
+    long = H._bindings_line(Scene)
+    assert len(long) <= H.BINDINGS_CAP + 40 and long.endswith("more node(s)")
+    shown = long.count("plank_")
+    assert 0 < shown < 400 and f"+{400 - shown} more node(s)" in long

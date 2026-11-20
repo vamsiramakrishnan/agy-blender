@@ -88,7 +88,8 @@ _STAGE_TEXT: dict[str, str] = {
                 "is OK and QA shows no geometry repair.",
     "TWEAK": "Use query_region for a bounded spatial working set. Apply the requested parameter edits with apply_scene_ir.",
     "VARIANTS": "Explore alternatives as variants (propose_variants), select each and run_visual_qa, promote the best.",
-    "LOOKDEV": "Create materials with forge_pbr_material, tune and assign them with apply_shader_diff (assign_to), then "
+    "LOOKDEV": "The header's 'bound:' line lists the node ids by current material. Create materials with forge_pbr_material, "
+               "tune and assign them with apply_shader_diff (assign_to takes those node ids), then "
                "render_lookdev with EEVEE/Cycles and run_visual_qa until Decisions approves (tier15 >= 3.4). Images are never shown to you; reason from QA lines.",
     "EXPORT": "Run generate_lods_and_colliders and run_usd_validator, then export_engine_package. Export is refused until QA "
               "approved the current scene; report what blocks it instead of retrying.",
