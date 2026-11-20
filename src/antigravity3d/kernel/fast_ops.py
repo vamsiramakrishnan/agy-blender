@@ -340,8 +340,9 @@ def _angle_distortion(points, tris, uvs) -> float:
     return float((r * w).sum())
 
 
-def _unfold_charts(points: np.ndarray, tris: np.ndarray, charts: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Isometric unfolding of known developable charts. Returns (vmapping, triangles, uv in metres).
+def _unfold_charts(points: np.ndarray, tris: np.ndarray, charts: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Isometric unfolding of known developable charts. Returns (vmapping, triangles, uv in metres, chart per
+    triangle); a chart that is not edge-connected gets a new id per component.
 
     Each chart is laid out triangle by triangle along a breadth-first spanning tree of its edge adjacency,
     every triangle keeping its exact 3D edge lengths (so distortion is zero for a developable chart). A
@@ -446,7 +447,8 @@ def _unfold_charts(points: np.ndarray, tris: np.ndarray, charts: np.ndarray) -> 
                 out_v.append(int(cv[k]))
                 out_uv.append(cu[k])
         start += len(g)
-    return np.asarray(out_v, np.int64), ids.reshape(-1, 3).astype(np.int32), np.asarray(out_uv, np.float64).reshape(-1, 2)
+    return (np.asarray(out_v, np.int64), ids.reshape(-1, 3).astype(np.int32), np.asarray(out_uv, np.float64).reshape(-1, 2),
+            chart_of)
 
 
 @dataclass
@@ -486,7 +488,7 @@ def _charted(m: MeshData, max_extent_m: float | None = None) -> _Charted | None:
     charts = np.asarray(m.uv_charts, np.int64).copy()
     tris = np.asarray(m.triangles, np.int64)
     for _ in range(4):
-        vmap, t2, uv = _unfold_charts(m.points, tris, charts)
+        vmap, t2, uv, charts = _unfold_charts(m.points, tris, charts)
         if max_extent_m is None:
             break
         # per-chart extent in its min-area frame; cut along the long axis into equal slabs of triangle centroids
@@ -503,8 +505,10 @@ def _charted(m: MeshData, max_extent_m: float | None = None) -> _Charted | None:
             k = int(np.ceil(wh[ax] / max_extent_m))
             coord = (cent[sel] @ R.T)[:, ax] - lo[ax]
             slab = np.minimum((coord / wh[ax] * k).astype(np.int64), k - 1)
-            if len(np.unique(slab)) < 2:
-                continue  # one triangle spans the whole length (e.g. a tall pole): cannot cut, density will fit
+            along = (uv[t2[sel]] @ R.T)[..., ax]  # (n, 3) corner coordinates on the long axis
+            span = max(float(np.ptp(along[slab == j])) for j in np.unique(slab))
+            if len(np.unique(slab)) < 2 or span > max_extent_m:
+                continue  # triangles span the length (a box face, a tall pole): no cut helps, the density will fit
             nxt[sel] = np.where(slab == 0, c, top + slab - 1)
             top += k - 1
             changed = True

@@ -500,3 +500,96 @@ def test_browser_capture_interface_writes_png(good, tmp_path, runtime):
     png = tmp_path / "sub" / "engine.png"
     rep = asyncio.run(runtime.capture(d, png))
     assert png.is_file() and isinstance(rep, EngineReport)
+
+
+# --------------------------------------------------------------------------- every target engine (real exporter)
+
+ENGINES = ["unreal_5", "unity_urp", "godot_4", "roblox_r15"]
+
+
+def _export_l_block(tmp, engine: str):
+    """Asymmetric L-shaped block with a post, written by the real kernel export (``write_engine_package``).
+
+    Unreal packages come out Z-up in USD, the others Y-up with a root rotation; every GLB is Y-up."""
+    from antigravity3d.ir import MaterialIR, NodeIR, SceneIR, Transform
+    from antigravity3d.kernel.fast_ops import run_export_pipeline
+    from antigravity3d.kernel.package import write_engine_package
+    from antigravity3d.kernel.usd_stage import StageManager
+    from antigravity3d.state import EngineBudget
+
+    maps = {}
+    for k, seed in (("albedo", 1), ("orm", 2), ("normal", 3)):
+        (tmp / f"{k}.png").write_bytes(_noise(seed, 32))
+        maps[f"{k}_uri"] = str(tmp / f"{k}.png")
+
+    def box(i, size, at):
+        return NodeIR(id=i, kind="box", params={"size": size}, transform=Transform(translate=at), material_id="stone")
+
+    scene = SceneIR(asset_name="Lblock", materials=[MaterialIR(id="stone", **maps)], nodes=[
+        box("arm_x", (1.2, 0.4, 0.4), (0.6, 0.2, 0.2)), box("arm_y", (0.4, 0.6, 0.4), (0.2, 0.7, 0.2)),
+        box("post", (0.3, 0.3, 0.8), (1.05, 0.2, 0.8))])
+    sm = StageManager.create(tmp / "work.usda", "Lblock")
+    sm.apply_ir(scene)
+    budget = EngineBudget(engine)
+    bundle = run_export_pipeline(sm.extract_meshes(), budget, "Lblock")
+    pm = write_engine_package(sm, bundle, budget, tmp / engine, asset_name="Lblock", qa={"tier1_ok": True, "tier15": 3.9})
+    assert pm.ok
+    return tmp / engine
+
+
+@pytest.fixture(scope="module")
+def l_packages(tmp_path_factory, runtime):
+    out = {}
+    for e in ENGINES:
+        out[e] = _export_l_block(tmp_path_factory.mktemp(f"l_{e}"), e)
+    return out
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("engine", ENGINES)
+def test_browser_asymmetric_block_passes_for_every_target_engine(engine, l_packages, tmp_path):
+    from antigravity3d.adapters.engines.web_three import usd_meshes
+
+    pkg = l_packages[engine]
+    man = json.loads((pkg / "manifest.json").read_text())
+    rep = _verify(pkg, out_dir=tmp_path)
+    assert rep.ok, rep.summary()
+    assert rep.silhouette_iou >= MIN_SILHOUETTE_IOU
+    # the reference was derived from the stage and lands in the GLB's frame by construction
+    pts = np.vstack([m.points for m in usd_meshes(next(pkg.glob("*.usd")))])
+    np.testing.assert_allclose([pts.min(0), pts.max(0)], man["glb_bounds_m"], atol=1e-4)
+
+
+@pytest.mark.browser
+def test_browser_reference_bounds_mismatch_is_reported_as_unusable(l_packages, tmp_path):
+    """If the reference's own bounds disagree with glb_bounds_m the report says so instead of scoring a silhouette."""
+    import shutil
+
+    pkg = tmp_path / "pkg"
+    shutil.copytree(l_packages["unreal_5"], pkg)
+    man = json.loads((pkg / "manifest.json").read_text())
+    (pkg / "manifest.json").write_text(json.dumps({**man, "glb_bounds_m": [[0, 0, 0], [5, 5, 5]]}))
+    rep = _verify(pkg)
+    failed = _failed(rep)
+    assert not rep.ok and "reference unusable" in failed["reference usable"]
+    assert rep.silhouette_iou is None
+
+
+def _rotate_nodes(doc, blob, quat):
+    for n in doc["nodes"]:
+        n["rotation"] = quat
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("name,quat", [("z_up_export", [-0.70710678, 0, 0, 0.70710678]), ("yaw_90", [0, 0.70710678, 0, 0.70710678])])
+def test_browser_axis_error_in_the_glb_is_still_caught(name, quat, l_packages, tmp_path):
+    import shutil
+
+    pkg = tmp_path / "pkg"
+    shutil.copytree(l_packages["godot_4"], pkg)
+    glb = next(p for p in pkg.glob("*.glb") if "_LOD" not in p.stem and "colliders" not in p.stem)
+    glb.write_bytes(_edit_glb(glb.read_bytes(), lambda d, b: _rotate_nodes(d, b, quat)))
+    rep = _verify(pkg)
+    failed = _failed(rep)
+    assert not rep.ok and rep.silhouette_iou < MIN_SILHOUETTE_IOU, rep.summary()
+    assert "silhouette IoU vs reference" in failed and "loaded bounds == manifest glb_bounds_m (Y-up)" in failed

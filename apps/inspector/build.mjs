@@ -15,6 +15,8 @@
 //   build.json                  input hash, output hashes, bundled third-party packages
 //                               (version, lockfile integrity, licence)
 //   THIRD_PARTY_NOTICES.txt     licence texts of everything bundled into inspector_app.html
+// and, for the browser test only (not shipped), apps/inspector/test-host/dist/host.bundle.js: the
+// SDK's AppBridge plus test-host/host.js, a minimal MCP Apps host.
 //
 // Third-party code is bundled unmodified (esbuild only links and minifies it).
 import { build } from "esbuild";
@@ -47,7 +49,7 @@ function walk(dir) {
 export function inputFiles() {
   return [
     join(HERE, "build.mjs"), join(HERE, "package.json"), join(HERE, "package-lock.json"),
-    ...walk(join(HERE, "src")), TEMPLATE, THREE_GZ,
+    ...walk(join(HERE, "src")), join(HERE, "test-host", "host.js"), TEMPLATE, THREE_GZ,
   ].map((p) => posix(relative(REPO, p))).sort();
 }
 
@@ -93,6 +95,7 @@ async function main() {
   };
   const mcp = await build({ ...common, entryPoints: [join(HERE, "src", "mcp.js")], alias: { three: threePath } });
   const standalone = await build({ ...common, entryPoints: [join(HERE, "src", "standalone.js")] });
+  const testHost = await build({ ...common, entryPoints: [join(HERE, "test-host", "host.js")] });
 
   // Third-party packages that actually ended up in the app bundle (from esbuild's metafile).
   const used = new Set();
@@ -137,13 +140,19 @@ async function main() {
     PAYLOAD: "null", THREE_INLINE: "", APP_JS: mcpJs,
   });
 
-  mkdirSync(OUT, { recursive: true });
+  const hostJs = "/* Test host for tests/test_inspector_app.py (not shipped). Bundles @modelcontextprotocol/ext-apps app-bridge; licences: src/antigravity3d/artifacts/web/THIRD_PARTY_NOTICES.txt */\n"
+    + testHost.outputFiles[0].text;
+  // repo-relative output path -> text
   const outputs = {
-    "inspector_app.html": appHtml,
-    "inspector_standalone.js": standaloneJs,
-    "THIRD_PARTY_NOTICES.txt": notices,
+    [posix(relative(REPO, join(OUT, "inspector_app.html")))]: appHtml,
+    [posix(relative(REPO, join(OUT, "inspector_standalone.js")))]: standaloneJs,
+    [posix(relative(REPO, join(OUT, "THIRD_PARTY_NOTICES.txt")))]: notices,
+    [posix(relative(REPO, join(HERE, "test-host", "dist", "host.bundle.js")))]: hostJs,
   };
-  for (const [name, text] of Object.entries(outputs)) writeFileSync(join(OUT, name), text);
+  for (const [rel, text] of Object.entries(outputs)) {
+    mkdirSync(dirname(join(REPO, rel)), { recursive: true });
+    writeFileSync(join(REPO, rel), text);
+  }
   const files = inputFiles();
   const record = {
     schema: SCHEMA,

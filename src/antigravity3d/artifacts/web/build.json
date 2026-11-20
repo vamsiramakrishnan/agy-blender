@@ -1,6 +1,6 @@
 {
   "schema": "antigravity3d.inspector_build/1",
-  "inputs_sha256": "c835f096f13e210bc0a85a92595b2e3fb0955437d33c42cef4060c45f8a62813",
+  "inputs_sha256": "f00a77fd475dd90434c63526c29bd5e05cf55b25defaeaacc53ba6e205df71e5",
   "inputs": [
     "apps/inspector/build.mjs",
     "apps/inspector/package-lock.json",
@@ -8,21 +8,26 @@
     "apps/inspector/src/mcp.js",
     "apps/inspector/src/standalone.js",
     "apps/inspector/src/viewer.js",
+    "apps/inspector/test-host/host.js",
     "src/antigravity3d/artifacts/inspector_template.html",
     "src/antigravity3d/artifacts/vendor/three-r160.module.min.js.gz"
   ],
   "outputs": {
-    "inspector_app.html": {
+    "src/antigravity3d/artifacts/web/inspector_app.html": {
       "sha256": "ce74be80868af44c27ed55040d659feb05362aa3c1b6ffe67869e2465f080197",
       "bytes": 1372394
     },
-    "inspector_standalone.js": {
+    "src/antigravity3d/artifacts/web/inspector_standalone.js": {
       "sha256": "4bcf58ff1841c1f77020381a1e5e0c02110ad3d64e3672e16be0d85ee522f82e",
       "bytes": 25373
     },
-    "THIRD_PARTY_NOTICES.txt": {
+    "src/antigravity3d/artifacts/web/THIRD_PARTY_NOTICES.txt": {
       "sha256": "44096c956ae96dc1c3caff345afbcb5a2a6d25fba7dbea1b08ba686b318148a2",
       "bytes": 45223
+    },
+    "apps/inspector/test-host/dist/host.bundle.js": {
+      "sha256": "babcc7266a02c897b5f607c69abfdba24d3b0537c438fdb70616ad6f6840f343",
+      "bytes": 667254
     }
   },
   "toolchain": {
