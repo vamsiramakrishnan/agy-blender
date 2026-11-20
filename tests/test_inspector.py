@@ -196,8 +196,13 @@ def test_browser_channels_canvas_and_budget(tmp_path, scene):
 
     html = _build(tmp_path, scene, three_js_source=Path(source).read_text())
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(executable_path=os.environ.get("CHROMIUM_BIN"),
-                                     args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
+        try:
+            browser = pw.chromium.launch(executable_path=os.environ.get("CHROMIUM_BIN"),
+                                         args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
+        except Exception as e:  # same convention as the other browser tests: no browser here, not a failure
+            if "Executable doesn't exist" in str(e):
+                pytest.skip("no Chromium for this Playwright; set CHROMIUM_BIN")
+            raise
         try:
             page = browser.new_page(viewport={"width": 1024, "height": 768})
             errors = []

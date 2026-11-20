@@ -560,8 +560,14 @@ def test_exported_inspector_opens_with_browser_offline(godot):
 
     path = godot[2].out_dir / "inspector.html"
     with sync_playwright() as pw:
-        with pw.chromium.launch(executable_path=os.getenv("CHROMIUM_BIN"),
-                                args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]) as browser:
+        try:
+            launched = pw.chromium.launch(executable_path=os.getenv("CHROMIUM_BIN"),
+                                          args=["--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
+        except Exception as e:  # same convention as the other browser tests: no browser here, not a failure
+            if "Executable doesn't exist" in str(e):
+                pytest.skip("no Chromium for this Playwright; set CHROMIUM_BIN")
+            raise
+        with launched as browser:
             ctx = browser.new_context(offline=True)
             page = ctx.new_page()
             page.goto(path.resolve().as_uri())
