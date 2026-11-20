@@ -1,0 +1,86 @@
+{
+  "machine": {
+    "python": "3.13.18",
+    "platform": "Linux-6.18.44-fc-v726-x86_64-with-glibc2.39",
+    "package_git_sha": "36313b40999df207c76a36f9d61314f2703ecf42",
+    "package_git_dirty": false,
+    "sdk_versions": {
+      "google-genai": "3.6.1",
+      "google-antigravity": "0.1.24",
+      "antigravity-3d": "0.2.0"
+    },
+    "timestamp": "2026-11-20T02:33:16+00:00"
+  },
+  "limits": {
+    "max_calls": 24,
+    "max_tokens": 400000,
+    "timeouts_s": {
+      "text": 120.0,
+      "director": 300.0,
+      "stage": 600.0,
+      "judge": 120.0,
+      "image": 180.0
+    },
+    "retries": "none (genai HttpRetryOptions attempts=1; package fallback/plane retry loops set to 0; the Antigravity SDK Agent used by `stage` exposes no switch, so its internal retries are unknown)",
+    "prices": "none configured; dollar cost is unknown, token counts only",
+    "stage_accounting": "1 call per run_stage with a token reservation; SDK-internal model requests are not counted individually"
+  },
+  "totals": {
+    "calls": 2,
+    "input_tokens": 1092,
+    "output_tokens": 3357,
+    "thinking_tokens": 1800
+  },
+  "groups": {
+    "text": {
+      "worker:gemini-4-hydrogen": {
+        "samples": [
+          {
+            "thinking_level": "low",
+            "timeout_s": 120.0,
+            "wall_ms": 11532.3,
+            "input_tokens": 546,
+            "output_tokens": 1585,
+            "thinking_tokens": 856,
+            "total_tokens_reported": 2987,
+            "tokens_known": true,
+            "finish_reason": "STOP",
+            "error": null,
+            "status": null,
+            "response_chars": 3559,
+            "scene_ir_valid": true,
+            "nodes": 9,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@crate_body",
+            "tris": 108
+          },
+          {
+            "thinking_level": "low",
+            "timeout_s": 120.0,
+            "wall_ms": 12458.5,
+            "input_tokens": 546,
+            "output_tokens": 1772,
+            "thinking_tokens": 944,
+            "total_tokens_reported": 3262,
+            "tokens_known": true,
+            "finish_reason": "STOP",
+            "error": null,
+            "status": null,
+            "response_chars": 3966,
+            "scene_ir_valid": false,
+            "parse_error": "ValidationError: 12 validation errors for SceneIR nodes.0.collider   Input should be a valid boolean, unable to interpret input [type=bool_parsing, input_value='none', input_type=str]     For further ",
+            "tier1_ok": false
+          }
+        ],
+        "n_ok": 2,
+        "n_failed": 0,
+        "median_ms": 11995.4,
+        "min_ms": 11532.3,
+        "max_ms": 12458.5
+      }
+    }
+  },
+  "aborted": null
+}
