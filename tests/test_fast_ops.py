@@ -161,6 +161,54 @@ def test_unwrap_scene_shared_atlas():
         assert abs(r.texel_density - 200) / 200 < 0.25 and r.uvs.max() <= 1
 
 
+def _prim(kind: str, params: dict, scale=(1.0, 1.0, 1.0), mat: str = "m", nid: str | None = None) -> MeshData:
+    from antigravity3d.ir import NodeIR
+    from antigravity3d.kernel.compile_ir import primitive_charts, primitive_mesh
+
+    node = NodeIR(id=kind, kind=kind, params=params)
+    pts, tris = primitive_mesh(node)
+    nid = nid or kind
+    return MeshData(nid, f"/Asset/{nid}", np.asarray(pts, np.float64) * scale, tris, mat, uv_charts=primitive_charts(node))
+
+
+PRIMS = [("box", {"size": (0.6, 0.4, 0.3)}), ("cylinder", {"radius": 0.2, "height": 0.5}), ("cone", {"radius": 0.2, "height": 0.4}),
+         ("sphere", {"radius": 0.3}), ("capsule", {"radius": 0.15, "height": 0.3}), ("capsule", {"radius": 0.15, "height": 0.0})]
+
+
+@pytest.mark.parametrize("kind,params", PRIMS)
+def test_primitive_charts_unfold_exactly(kind, params):
+    # non-uniform scale: the charts stay developable, so the layout is still exact at the requested density
+    m = _prim(kind, params, scale=(1.0, 1.5, 0.8))
+    u = unwrap_uvs(m, 1024.0, 2048)
+    assert u.chart_source == "analytic" and u.fitted
+    assert len(u.triangles) == len(m.triangles) and np.allclose(u.points, m.points[u.vmapping])
+    assert u.stretch_mean < 1e-4 and u.stretch_max < 1e-3 and u.angle_distortion < 1e-4
+    assert u.texel_density == pytest.approx(1024.0, rel=1e-3)
+    assert uv_overlap_fraction([u], 1024) == 0.0 and u.uvs.min() >= 0 and u.uvs.max() <= 1
+    a = u.uvs[u.triangles].astype(np.float64)
+    signed = (a[:, 1, 0] - a[:, 0, 0]) * (a[:, 2, 1] - a[:, 0, 1]) - (a[:, 1, 1] - a[:, 0, 1]) * (a[:, 2, 0] - a[:, 0, 0])
+    assert (signed > 0).all()  # no mirrored triangles
+
+
+def test_overflow_fits_one_square_atlas_without_distortion():
+    # 2 x 3 x 0.5 m box at 1024 px/m needs ~2.5x the 2048^2 atlas: density drops uniformly, texels stay square
+    for charts in (True, False):
+        m = _prim("box", {"size": (2.0, 3.0, 0.5)})
+        if not charts:
+            m = MeshData(m.node_id, m.prim_path, m.points, m.triangles, "m")
+        u = unwrap_uvs(m, 1024.0, 2048)
+        assert not u.fitted and 300 < u.texel_density < 1024 and u.uvs.max() <= 1
+        # before: xatlas's fit mode grew the atlas past 2048 and the UVs were squeezed into the square (angle 0.28)
+        assert u.stretch_mean < 1e-2 and u.angle_distortion < 1e-2, (charts, u.stretch_mean, u.angle_distortion)
+        assert uv_overlap_fraction([u]) < 0.01
+
+
+def test_computed_charts_meet_the_stretch_budget_on_curved_meshes():
+    m = md(trimesh.creation.uv_sphere(0.5, count=[32, 16]), "ball")
+    u = unwrap_uvs(m, 1024.0, 2048)
+    assert u.chart_source == "computed" and u.stretch_mean <= BUDGET.max_uv_stretch, u.stretch_mean
+
+
 # ------------------------------------------------------------------ LODs
 
 
@@ -186,6 +234,52 @@ def test_lods_monotonic_and_closed(with_uv):
         else:
             assert _topology(l.points, l.triangles).closed  # position-welded topology stays closed
     assert lods[-1].error > 0 and lods[-1].tri_count <= 0.15 * len(tri)
+
+
+def test_lods_follow_the_screen_space_budget_and_never_duplicate():
+    from antigravity3d.kernel.fast_ops import generate_asset_lods
+    from antigravity3d.kernel.lod_diff import LOD_MIN_REDUCTION, lod_error_budget_m
+
+    boxes = [_prim("box", {"size": (0.5, 0.5, 0.5)}, nid="a"), _prim("box", {"size": (0.1, 0.1, 0.6)}, nid="b")]
+    chains = generate_asset_lods(unwrap_scene(boxes, BUDGET))
+    assert [len(c) for c in chains.values()] == [1, 1]  # nothing to remove from boxes: LOD0 only, no copies
+
+    m = md(trimesh.creation.icosphere(4, 0.5), "sph")
+    u = unwrap_uvs(m, 512, 2048)
+    lods = generate_asset_lods([u])["sph"]
+    radius = np.linalg.norm(np.ptp(u.points, axis=0)) / 2
+    tris = [l.tri_count for l in lods]
+    assert len(lods) >= 3 and all(b <= (1 - LOD_MIN_REDUCTION) * a for a, b in zip(tris, tris[1:]))
+    fr = [l.screen_fraction for l in lods]
+    assert fr[0] == 1.0 and all(b < a for a, b in zip(fr, fr[1:]))
+    for l in lods[1:]:
+        assert 0 < l.error_m <= lod_error_budget_m(radius, l.screen_fraction) + 1e-9
+        assert l.uvs.shape == (len(l.points), 2) and _topology(l.points, l.triangles).closed
+
+
+def test_seam_split_cylinder_simplifies_along_its_seams():
+    # xatlas charts split every rim vertex; meshoptimizer re-welds by position and collapses along seams
+    m = md(trimesh.creation.cylinder(0.3, 1.0, sections=32), "cyl")
+    b = run_export_pipeline([m], BUDGET, "Cyl")
+    tris = [l.tri_count for l in b.lods["cyl"]]
+    assert len(tris) >= 2 and tris[-1] < 0.6 * tris[0], tris
+    for l in b.lods["cyl"][1:]:
+        assert l.uvs is not None and l.uvs.min() >= 0 and l.uvs.max() <= 1
+
+
+def test_surface_deviation_is_exact():
+    from antigravity3d.kernel.fast_ops import _point_triangle_distance, _Simplifier, _surface_deviation
+
+    m = md(trimesh.creation.cylinder(0.3, 1.0, sections=24), "c")
+    s = _Simplifier(m.points, m.triangles, None)
+    p, t = s.ref
+    t1 = s._run(0.03).reshape(-1, 3).astype(np.int64)
+    a, b, c = p[t1[:, 0]], p[t1[:, 1]], p[t1[:, 2]]
+    samples = np.vstack([(a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2])
+    brute = max(min(_point_triangle_distance(np.repeat(v[None], len(t1), 0), a, b, c)) for v in p[np.unique(t)])
+    brute = max(brute, max(min(_point_triangle_distance(np.repeat(s[None], len(t), 0), p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]))
+                           for s in samples))
+    assert _surface_deviation(p, t, p, t1, 0.0) == pytest.approx(brute, abs=1e-12) and brute > 0
 
 
 # ------------------------------------------------------------------ colliders

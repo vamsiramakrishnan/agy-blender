@@ -426,7 +426,7 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
             if not prim.IsA(UsdGeom.Mesh):
                 continue
             if is_collider_prim(prim, hull_re):
-                if variant in (None, lod_names[0]):
+                if variant is None or variant == lod_names[0]:  # no LOD set (one level) or LOD0
                     colliders.append(prim)
                 continue
             mesh = UsdGeom.Mesh(prim)

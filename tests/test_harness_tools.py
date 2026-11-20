@@ -241,8 +241,9 @@ async def test_export_refused_then_allowed_and_reloads(env, monkeypatch):
     assert set(glb.geometry) == {"body", "lid"} and sum(len(g.faces) for g in glb.geometry.values()) == 24
     hulls = trimesh.load(out / "Crate_colliders.glb")
     assert all(n.startswith("UCX_Crate_") for n in hulls.geometry)
-    assert (out / "Crate_LOD1.glb").is_file()
     man = json.loads((out / "manifest.json").read_text())
+    # two boxes cannot get cheaper within any screen-space error budget: one level, no duplicate LOD files
+    assert not list(out.glob("Crate_LOD*.glb")) and man["lod_tris"] == [24] and man["lod_screen_fractions"] == [1.0]
     assert man["budget"]["max_tris"] == 15000 and man["qa"]["tier1_ok"] and man["qa"]["tier15"] >= 3.4
     assert man["schema_version"] == 1 and man["validation"]["package_ok"] and "pkg ok" in r
     assert (out / "Crate.usdz").is_file() and man["usd"] == "Crate.usd"

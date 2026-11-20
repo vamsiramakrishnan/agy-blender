@@ -164,14 +164,19 @@ class LodPopReport:
         return sheet
 
 
-def lod_camera(ref_points: np.ndarray, view: View, size: int, screen_fraction: float, fov_deg: float = DEFAULT_FOV_DEG) -> tuple[Camera, float]:
-    """True pinhole (persp) or orthographic camera at the switch distance; returns (camera, distance_m)."""
+def lod_camera(ref_points: np.ndarray, view: View, size: int, screen_fraction: float, fov_deg: float = DEFAULT_FOV_DEG,
+               frame_px: float | None = None) -> tuple[Camera, float]:
+    """True pinhole (persp) or orthographic camera at the switch distance; returns (camera, distance_m).
+
+    ``frame_px``: height of the virtual frame the screen fraction refers to (default: the image ``size``).
+    A larger frame renders a ``size`` x ``size`` window of it centred on the object, at that frame's pixel scale."""
     pts = np.asarray(ref_points, np.float64)
     lo, hi = pts.min(axis=0), pts.max(axis=0)
     rad = max(float(np.linalg.norm(hi - lo)) / 2, 1e-6)
     dist = transition_distance(rad, screen_fraction, fov_deg)
     persp = view == "persp"
-    scale = (size / 2) / math.tan(math.radians(fov_deg) / 2) if persp else size * screen_fraction / (2 * rad)
+    frame = float(size if frame_px is None else frame_px)
+    scale = (frame / 2) / math.tan(math.radians(fov_deg) / 2) if persp else frame * screen_fraction / (2 * rad)
     return Camera(view, _basis(view), (lo + hi) / 2, persp, dist if persp else 0.0, scale, np.zeros(2), size), dist
 
 
@@ -197,10 +202,11 @@ def render_lod_pair(
     view: View = "persp",
     fov_deg: float = DEFAULT_FOV_DEG,
     reference: Any = None,
+    frame_px: float | None = None,
 ) -> LodPair:
     """lod_a/lod_b: anything with .points/.triangles (LOD, MeshData). Camera is framed on `reference`
-    (default lod_a) so both render from identical camera and distance."""
-    cam, dist = lod_camera((lod_a if reference is None else reference).points, view, size, screen_fraction, fov_deg)
+    (default lod_a) so both render from identical camera and distance. ``frame_px``: see :func:`lod_camera`."""
+    cam, dist = lod_camera((lod_a if reference is None else reference).points, view, size, screen_fraction, fov_deg, frame_px)
     ra = render_buffers([_mesh(lod_a, "a")], view, size, camera=cam)
     rb = render_buffers([_mesh(lod_b, "b")], view, size, camera=cam)
     ma, mb = ra.prim_id >= 0, rb.prim_id >= 0
@@ -234,7 +240,7 @@ def render_lod_pair(
         return Image.fromarray(a[by:by + side, bx:bx + side]).resize((size, size), Image.NEAREST)
 
     return LodPair(screen_fraction, float(dist), ra.color, rb.color, ma, mb, box, up(ra.color), up(rb.color), up(heat),
-                   iou, shade, haus, screen_fraction * size)
+                   iou, shade, haus, screen_fraction * (size if frame_px is None else frame_px))
 
 
 def lod_pop_report(
@@ -244,13 +250,23 @@ def lod_pop_report(
     view: View = "persp",
     transitions: Sequence[float] | None = None,
     fov_deg: float = DEFAULT_FOV_DEG,
+    frame_px: float | None = LOD_REFERENCE_SCREEN_PX,
 ) -> LodPopReport:
     """Pop metrics for every adjacent pair, camera framed on lods[0] at each switch's screen fraction
-    (the levels' own ``screen_fraction`` when they carry one, see :func:`lod_transitions`)."""
+    (the levels' own ``screen_fraction`` when they carry one, see :func:`lod_transitions`).
+
+    Pixels are those of a ``frame_px``-tall frame (the generator's LOD_REFERENCE_SCREEN_PX), so the thresholds
+    mean what the error budget means: each pair renders a ``size`` window of that frame around the object. An
+    object larger than the window (near switches) is rendered as large as fits, i.e. at a coarser scale than
+    the frame. Rendering the whole frame at ``size`` instead (frame_px=None, the earlier protocol) shows a far
+    switch as a few pixels: a lamp post at 10% screen is 26 px tall there and its 8 cm pole covers no pixel, so
+    a pole that collapses scores IoU 1.0."""
     fr = tuple(transitions) if transitions is not None else lod_transitions(lods)
     pairs, rows = [], []
     for i, f in enumerate(fr):
-        p = render_lod_pair(lods[i], lods[i + 1], screen_fraction=f, size=size, view=view, fov_deg=fov_deg, reference=lods[0])
+        frame = None if frame_px is None else min(float(frame_px), size / ((1 + 2 * CROP_MARGIN) * f))
+        p = render_lod_pair(lods[i], lods[i + 1], screen_fraction=f, size=size, view=view, fov_deg=fov_deg, reference=lods[0],
+                            frame_px=frame)
         pairs.append(p)
         rows.append(PairMetrics(i, i, i + 1, f, p.distance_m, p.iou, p.shading_diff, p.boundary_px, p.score,
                                 len(lods[i].triangles), len(lods[i + 1].triangles)))

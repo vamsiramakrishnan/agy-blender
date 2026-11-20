@@ -166,9 +166,11 @@ async def test_full_run_records_every_step_and_skips_carry_reasons(tmp_path: Pat
     status = {s.name: s.status for s in res.steps}
     skipped = dict(res.skipped)
     assert not res.failed, res.failed
-    for name in ("textures", "uv_lod_colliders", "usd_validate", "engine_compliance", "lod_pop", "lod_pop_vision", "export_glb"):
+    for name in ("textures", "uv_lod_colliders", "usd_validate", "engine_compliance", "export_glb"):
         assert status[name] == "passed", (name, status)
-    assert {"locate_defects", "render_tier", "paintover", "engine_import", "engine_parity"} <= set(skipped)
+    # an all-box prop has nothing to simplify within the screen-space error budget: LOD0 only, nothing to pop
+    assert {"locate_defects", "render_tier", "paintover", "engine_import", "engine_parity", "lod_pop", "lod_pop_vision"} <= set(skipped)
+    assert "LOD0 only" in skipped["lod_pop"]
     assert all(reason.strip() for reason in skipped.values())
     assert "no locate_defects" in skipped["locate_defects"] or "no locate_defects" in skipped["locate_defects"].replace("plane has ", "")
     assert "not found" in skipped["engine_import"] and "paintover_loop disabled" in skipped["paintover"] and "no Blender pool" in skipped["render_tier"]

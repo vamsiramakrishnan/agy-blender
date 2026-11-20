@@ -279,13 +279,17 @@ def _check_pair(a, b, add) -> None:
 # --------------------------------------------------------------------------- UVs
 
 UV_PADDING_PX = 2           # gutter between charts, in atlas texels
-# Computed (xatlas) charts are capped at this fraction of the mesh's surface area. Measured on UV spheres of
-# 1.9k / 10k / 50k triangles at 1024 px/m (the worst case: curvature everywhere): xatlas's default unbounded
-# charts give mean area distortion 0.088 / 0.064 / 0.068 (above the 0.05 budget) and take 0.30 / 0.83 / 8.2 s,
-# because chart growing and LSCM cost grows superlinearly with chart size; capped at 1/32 they give 0.015 /
-# 0.014 / 0.018 in 0.27 / 0.54 / 2.4 s, at equal or higher achieved density and ~+25% seam vertices. Flat-faced
-# meshes (the concave U prism) are unaffected (identical charts).
-UV_MAX_CHART_AREA_FRACTION = 1.0 / 32
+# Computed (xatlas) charts may each flatten at most this much *smooth* Gaussian curvature (steradians). LSCM is
+# conformal, so its area distortion grows with the curvature a chart flattens, and xatlas's default charts are
+# unbounded: on UV spheres of 1.9k / 10k / 50k triangles at 1024 px/m they measure mean area distortion 0.088 /
+# 0.064 / 0.068 (budget 0.05) in 0.30 / 0.83 / 8.2 s (chart growing + LSCM cost grows superlinearly with chart
+# size). A sphere holds 4 pi sr; capping its charts at 1/32 of its area (4 pi / 32 sr each) gives 0.015 / 0.014 /
+# 0.018 in 0.27 / 0.54 / 2.4 s at equal or higher achieved density. Curvature concentrated on sharp edges
+# (box corners, cylinder rims: dihedral above CREASE) is not counted: those edges are chart seams anyway, and
+# capping such meshes only fragments flat charts (measured: a 32-sided cylinder split into one chart per side
+# quad, every rim vertex in three charts, which then locked the LOD simplifier).
+UV_CHART_CURVATURE_SR = 4.0 * np.pi / 32
+UV_SMOOTH_CREASE_DEG = 40.0
 UV_MIN_RECT_FILL = 0.6      # exact charts filling less of their bounding rectangle are cut (see _charted)
 
 
@@ -638,13 +642,56 @@ def _pack_analytic(charted: list[_Charted], density: float, resolution: int) -> 
     return out, d
 
 
-def _xatlas_options(resolution: int, tpu: float, *, input_uvs: bool, surface_area: float = 0.0):
+def _smooth_curvature(meshes: Sequence[MeshData]) -> float:
+    """Total |angle defect| (discrete Gaussian curvature, sr) at closed vertices whose incident edges all bend
+    less than UV_SMOOTH_CREASE_DEG; vertices on sharp creases or open borders are left out."""
+    total = 0.0
+    for m in meshes:
+        p = np.asarray(m.points, np.float64)
+        cid = _canon(p)
+        t = cid[np.asarray(m.triangles, np.int64)]
+        q = p[np.unique(cid, return_index=True)[1]]
+        e1, e2, e3 = q[t[:, 1]] - q[t[:, 0]], q[t[:, 2]] - q[t[:, 1]], q[t[:, 0]] - q[t[:, 2]]
+        fn = np.cross(e1, -e3)
+        ok = np.linalg.norm(fn, axis=1) > 1e-20
+        if not ok.any():
+            continue
+        t, e1, e2, e3, fn = t[ok], e1[ok], e2[ok], e3[ok], fn[ok]
+        fn /= np.linalg.norm(fn, axis=1, keepdims=True)
+
+        def ang(u: np.ndarray, v: np.ndarray) -> np.ndarray:
+            return np.arctan2(np.linalg.norm(np.cross(u, v), axis=1), (u * v).sum(1))
+
+        n = len(q)
+        defect = np.full(n, 2 * np.pi)
+        np.subtract.at(defect, t[:, 0], ang(e1, -e3))
+        np.subtract.at(defect, t[:, 1], ang(e2, -e1))
+        np.subtract.at(defect, t[:, 2], ang(e3, -e2))
+        a = np.concatenate([t[:, 0], t[:, 1], t[:, 2]])
+        b = np.concatenate([t[:, 1], t[:, 2], t[:, 0]])
+        f = np.tile(np.arange(len(t)), 3)
+        key = np.minimum(a, b) * n + np.maximum(a, b)
+        order = np.argsort(key, kind="stable")
+        ks = key[order]
+        start = np.flatnonzero(np.r_[True, ks[1:] != ks[:-1]])
+        count = np.diff(np.r_[start, len(ks)])
+        sharp = np.zeros(n, bool)
+        two = start[count == 2]
+        bend = np.degrees(np.arccos(np.clip((fn[f[order[two]]] * fn[f[order[two + 1]]]).sum(1), -1, 1)))
+        hard = np.r_[start[count != 2], two[bend >= UV_SMOOTH_CREASE_DEG]]  # open / non-manifold / creased
+        sharp[a[order[hard]]] = sharp[b[order[hard]]] = True
+        total += float(np.abs(defect[~sharp & np.isin(np.arange(n), t)]).sum())
+    return total
+
+
+def _xatlas_options(resolution: int, tpu: float, *, input_uvs: bool, surface_area: float = 0.0,
+                    smooth_curvature: float = 0.0):
     import xatlas
 
     co = xatlas.ChartOptions()
     co.use_input_mesh_uvs = input_uvs
-    if not input_uvs and surface_area > 0:
-        co.max_chart_area = float(surface_area * UV_MAX_CHART_AREA_FRACTION)
+    if not input_uvs and surface_area > 0 and smooth_curvature > UV_CHART_CURVATURE_SR:
+        co.max_chart_area = float(surface_area * UV_CHART_CURVATURE_SR / smooth_curvature)
     po = xatlas.PackOptions()
     po.resolution = resolution
     po.texels_per_unit = float(tpu)
@@ -654,7 +701,8 @@ def _xatlas_options(resolution: int, tpu: float, *, input_uvs: bool, surface_are
     return co, po
 
 
-def _xatlas_fit(add, density: float, resolution: int, *, input_uvs: bool, surface_area: float = 0.0):
+def _xatlas_fit(add, density: float, resolution: int, *, input_uvs: bool, surface_area: float = 0.0,
+                smooth_curvature: float = 0.0):
     """xatlas generate into a *single* atlas no larger than ``resolution`` at the highest density reached.
 
     xatlas's own fit mode (texels_per_unit=0) estimates a density but then grows the atlas past
@@ -668,7 +716,7 @@ def _xatlas_fit(add, density: float, resolution: int, *, input_uvs: bool, surfac
 
     atlas = xatlas.Atlas()
     add(atlas, None)
-    co, po = _xatlas_options(0, density, input_uvs=input_uvs, surface_area=surface_area)
+    co, po = _xatlas_options(0, density, input_uvs=input_uvs, surface_area=surface_area, smooth_curvature=smooth_curvature)
     atlas.generate(co, po)
     tpu = float(density)
     for _ in range(6):
@@ -746,7 +794,7 @@ def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_
         ca = xatlas.Atlas()
         for m in todo:
             ca.add_mesh(np.ascontiguousarray(m.points, dtype=np.float32), np.ascontiguousarray(m.triangles, dtype=np.uint32))
-        co, po = _xatlas_options(0, density, input_uvs=False, surface_area=_area(todo))
+        co, po = _xatlas_options(0, density, input_uvs=False, surface_area=_area(todo), smooth_curvature=_smooth_curvature(todo))
         ca.generate(co, po)
         sc = np.array([ca.width, ca.height], np.float64) / float(ca.texels_per_unit or density)
         it = iter(range(len(todo)))
@@ -757,7 +805,9 @@ def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_
                 c = _Charted(m, vm.astype(np.int64), idx.reshape(-1, 3).astype(np.int32), uv.astype(np.float64) * sc, "computed")
             filled.append(c)
         known = filled
-    atlas, tpu = _xatlas_fit(add, density, resolution, input_uvs=all(c is not None for c in known), surface_area=_area(group))
+    computed = [m for m, c in zip(group, known) if c is None]
+    atlas, tpu = _xatlas_fit(add, density, resolution, input_uvs=not computed, surface_area=_area(computed),
+                             smooth_curvature=_smooth_curvature(computed))
     fitted = tpu >= density * (1 - 1e-9)
     out = []
     for i, (m, c) in enumerate(zip(group, known)):
@@ -1098,7 +1148,7 @@ def generate_asset_lods(
         budget = ld.lod_error_budget_m(radius, f, error_px=error_px, screen_px=screen_px)
         picks = {nid: s.within(budget, silhouette_tol) for nid, s in simp.items()}
         tris = sum(len(idx) // 3 for idx, _ in picks.values())
-        if tris > (1.0 - min_reduction) * prev_tris:
+        if tris >= prev_tris or tris > (1.0 - min_reduction) * prev_tris:  # never a duplicate level
             continue
         for nid, (idx, dev) in picks.items():
             chains[nid].append(simp[nid].level(idx, dev, f))
