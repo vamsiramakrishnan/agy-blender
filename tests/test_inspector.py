@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import re
@@ -63,25 +64,51 @@ def _build(tmp_path, scene, **kw):
     return build_inspector(meshes, **args)
 
 
+def _glb(payload: dict):
+    """The review GLB embedded in a standalone payload, parsed with pygltflib, plus a reader for accessors."""
+    import pygltflib
+
+    data = base64.b64decode(payload["glb_b64"])
+    g = pygltflib.GLTF2.load_from_bytes(data)
+    blob = g.binary_blob()
+
+    def read(accessor: int) -> np.ndarray:
+        acc = g.accessors[accessor]
+        view = g.bufferViews[acc.bufferView]
+        dtype = {5126: "<f4", 5125: "<u4"}[acc.componentType]
+        width = {"SCALAR": 1, "VEC2": 2, "VEC3": 3}[acc.type]
+        return np.frombuffer(blob, dtype, acc.count * width, view.byteOffset or 0).reshape(acc.count, width)
+
+    return g, read, data
+
+
 def test_round_trip_and_y_up(tmp_path, scene):
+    """The asset travels as the review GLB: Y-up positions, crease normals, glTF UVs, materials, LODs, hulls."""
     meshes = scene[0]
     html = _build(tmp_path, scene).read_text(encoding="utf-8")
     p = _payload(html)
-    assert [m["id"] for m in p["meshes"]] == ["body", "pole", "ball"]
-    for m, src in zip(p["meshes"], meshes, strict=True):
-        pos = np.frombuffer(base64.b64decode(m["pos"]), "<f4").reshape(-1, 3)
-        idx = np.frombuffer(base64.b64decode(m["idx"]), "<u4").reshape(-1, 3)
-        assert pos.shape == src.points.shape and idx.shape == src.triangles.shape
-        assert m["tris"] == len(src.triangles)
-        # Z-up (x, y, z) -> Y-up (x, z, -y)
-        np.testing.assert_allclose(pos, np.stack([src.points[:, 0], src.points[:, 2], -src.points[:, 1]], 1), atol=1e-6)
-        assert m["uv"] is not None
-    body = np.frombuffer(base64.b64decode(p["meshes"][0]["pos"]), "<f4").reshape(-1, 3)
-    assert body[:, 1].max() == pytest.approx(3.0)  # 3 m tall box: height is three.js Y
+    assert [m["id"] for m in p["nodes"]] == ["body", "pole", "ball"]
+    g, read, data = _glb(p)
+    assert hashlib.sha256(data).hexdigest() == p["glb"]["sha256"] and len(data) == p["glb"]["bytes"]
+    lod0 = p["levels"][0]
+    assert [part["node"] for part in lod0["parts"]] == ["body", "pole", "ball"]
+    for part, src in zip(lod0["parts"], meshes, strict=True):
+        prim = g.meshes[g.nodes[part["glb"]].mesh].primitives[0]
+        pos, nrm, idx = read(prim.attributes.POSITION), read(prim.attributes.NORMAL), read(prim.indices).reshape(-1, 3)
+        assert part["tris"] == len(src.triangles) == len(idx) and part["uv"] and prim.attributes.TEXCOORD_0 is not None
+        # Z-up (x, y, z) -> Y-up (x, z, -y); vertices are only duplicated (crease / seam splits), never moved
+        yup = np.stack([src.points[:, 0], src.points[:, 2], -src.points[:, 1]], 1)
+        gap = np.abs(pos[:, None, :] - yup[None, :, :]).max(axis=2)
+        assert gap.min(axis=1).max() < 1e-6 and gap.min(axis=0).max() < 1e-6  # same point set (float32)
+        np.testing.assert_allclose(np.linalg.norm(nrm, axis=1), 1.0, atol=1e-5)
+        assert prim.material is not None and set(part["maps"]) == {"albedo", "orm", "normal"}
+    body = read(g.meshes[g.nodes[lod0["parts"][0]["glb"]].mesh].primitives[0].attributes.POSITION)
+    assert body[:, 1].max() == pytest.approx(3.0)  # 3 m tall box: height is glTF / three.js Y
     assert body[:, 1].min() == pytest.approx(0.0)
-    assert len(p["lods"]) == 1 and len(p["colliders"]) == 1
-    assert set(p["textures"]) == {"m_a", "m_b"}
-    assert p["textures"]["m_a"]["albedo"].startswith("data:image/png;base64,")
+    assert len(p["levels"]) == 2 and p["levels"][1]["parts"][0]["node"] is None and len(p["colliders"]) == 1
+    hull = g.meshes[g.nodes[p["colliders"][0]["glb"]].mesh].primitives[0]
+    assert hull.attributes.NORMAL is None and hull.material is None  # hulls as the package writes them
+    assert len(g.materials) == 2 and len(g.images) == 3  # m_a and m_b share three identical PNGs: embedded once
 
 
 def test_self_contained_urls(tmp_path, scene):
@@ -123,7 +150,9 @@ def test_missing_textures_and_bad_input(tmp_path, scene):
         meshes, asset_name="bare", budget=EngineBudget("godot_4"), out_path=tmp_path / "sub" / "bare.html"
     )
     p = _payload(out.read_text())
-    assert p["textures"] == {} and p["lods"] == [] and p["colliders"] == []
+    assert all(not n["maps"] and not n["uv"] for n in p["nodes"]) and len(p["levels"]) == 1 and p["colliders"] == []
+    g, _, _ = _glb(p)
+    assert not g.images and not g.materials
     with pytest.raises(ValueError):
         build_inspector(meshes, asset_name="x", budget=EngineBudget("godot_4"), uvs={"body": np.zeros((2, 2))}, out_path=tmp_path / "x.html")
 
@@ -193,7 +222,10 @@ def _build_inputs() -> list[str]:
     files = [APP_DIR / "build.mjs", APP_DIR / "package.json", APP_DIR / "package-lock.json",
              *(p for p in (APP_DIR / "src").rglob("*") if p.is_file()), APP_DIR / "test-host" / "host.js",
              REPO / "src/antigravity3d/artifacts/inspector_template.html",
-             REPO / "src/antigravity3d/artifacts/vendor/three-r160.module.min.js.gz"]
+             REPO / "src/antigravity3d/artifacts/vendor/three-r160.module.min.js.gz",
+             REPO / "src/antigravity3d/artifacts/vendor/GLTFLoader-r160.js.gz",
+             REPO / "src/antigravity3d/artifacts/vendor/BufferGeometryUtils-r160.js.gz",
+             REPO / "src/antigravity3d/artifacts/vendor/three-r160-addons.provenance.json"]
     return sorted(p.relative_to(REPO).as_posix() for p in files)
 
 
@@ -222,13 +254,18 @@ def test_committed_app_build_is_current():
     assert all(re.fullmatch(r"\d+\.\d+\.\d+", v) for v in pkg["devDependencies"].values()), "pin exact versions"
     bundled = {b["name"]: b for b in record["bundled"]}
     assert bundled["three"]["version"] == "0.160.0"
+    provenance = json.loads((REPO / "src/antigravity3d/artifacts/vendor/three-r160-addons.provenance.json").read_text())
+    for name, gz in (("three/examples/jsm/loaders/GLTFLoader.js", "GLTFLoader-r160.js.gz"),
+                     ("three/examples/jsm/utils/BufferGeometryUtils.js", "BufferGeometryUtils-r160.js.gz")):
+        assert bundled[name]["sha256"] == provenance["files"][gz]["sha256_uncompressed"], name
     assert bundled["@modelcontextprotocol/ext-apps"]["version"] == pkg["devDependencies"]["@modelcontextprotocol/ext-apps"]
     for name, b in bundled.items():
         assert b["license"], name
-        if name != "three":
+        if not name.startswith("three"):  # three and its addons come from the vendored files, not npm
             assert b["integrity"] == lock["packages"][f"node_modules/{name}"]["integrity"], name
     notices = (REPO / "src/antigravity3d/artifacts/web/THIRD_PARTY_NOTICES.txt").read_text()
-    assert all(name in notices for name in bundled)
+    assert all(name in notices for name in bundled if not name.startswith("three/"))
+    assert "GLTFLoader.js" in notices and "three-r160-addons.provenance.json" in notices
 
 
 def test_mcp_app_document_is_self_contained():
@@ -247,16 +284,51 @@ def test_payload_revision_is_a_content_hash(scene):
 
     meshes, uvs, tex, lods, cols = scene
     budget = EngineBudget("unreal_5")
-    a, parts = inspector_payload(meshes, asset_name="crate", budget=budget, textures=tex, uvs=uvs, lods=lods,
-                                 colliders=cols, split_textures=True)
-    b, _ = inspector_payload(meshes, asset_name="crate", budget=budget, textures=tex, uvs=uvs, lods=lods, colliders=cols)
-    assert a["revision"] == b["revision"] and len(a["revision"]) == 16
-    assert a["textures"]["m_a"]["albedo"] == {"part": "tex/m_a/albedo", "mime": "image/png", "bytes": len(tex["m_a"].albedo_png)}
-    assert base64.b64decode(parts["tex/m_a/albedo"]) == tex["m_a"].albedo_png
-    assert b["textures"]["m_a"]["albedo"].startswith("data:image/png;base64,")
+    a, glb_a = inspector_payload(meshes, asset_name="crate", budget=budget, textures=tex, uvs=uvs, lods=lods, colliders=cols)
+    b, glb_b = inspector_payload(meshes, asset_name="crate", budget=budget, textures=tex, uvs=uvs, lods=lods, colliders=cols)
+    assert a["revision"] == b["revision"] and len(a["revision"]) == 16 and glb_a == glb_b  # deterministic
     moved = [MeshData(m.node_id, m.prim_path, m.points + 0.01, m.triangles, m.material_id) for m in meshes]
     assert inspector_payload(moved, asset_name="crate", budget=budget)[0]["revision"] != \
         inspector_payload(meshes, asset_name="crate", budget=budget)[0]["revision"]
+    retextured = {k: InspectorTextures(_png((10, 200, 10)), t.orm_png, t.normal_png) for k, t in tex.items()}
+    assert inspector_payload(meshes, asset_name="crate", budget=budget, textures=retextured, uvs=uvs)[0]["revision"] != \
+        inspector_payload(meshes, asset_name="crate", budget=budget, textures=tex, uvs=uvs)[0]["revision"]
+
+
+def test_welded_box_shades_flat_from_glb_normals():
+    """A welded, indexed box (8 shared corners, as the stage extracts it) gets the shipped crease normals:
+    every corner of every face carries that face's normal. The page no longer computes normals."""
+    from antigravity3d.artifacts.inspector import inspector_payload
+
+    box = trimesh.creation.box((1, 2, 3))
+    assert len(box.vertices) == 8
+    p, glb = inspector_payload([MeshData("body", "/A/body", np.asarray(box.vertices), np.asarray(box.faces), "m")],
+                               asset_name="a", budget=EngineBudget("godot_4"))
+    g, read, _ = _glb({**p, "glb_b64": base64.b64encode(glb).decode()})
+    prim = g.meshes[0].primitives[0]
+    pos, nrm, idx = read(prim.attributes.POSITION), read(prim.attributes.NORMAL), read(prim.indices).reshape(-1, 3)
+    assert len(pos) == 24  # split at the 90 degree creases: 3 copies of each corner
+    face = np.cross(pos[idx[:, 1]] - pos[idx[:, 0]], pos[idx[:, 2]] - pos[idx[:, 0]])
+    face /= np.linalg.norm(face, axis=1, keepdims=True)
+    for corner in range(3):
+        np.testing.assert_allclose(nrm[idx[:, corner]], face, atol=1e-6)  # flat: vertex normal == face normal
+
+
+def test_review_mesh_conversion_matches_the_package_writer(tmp_path, scene):
+    """The review GLB's per-mesh conversion is byte-identical to what fast_ops.write_gltf ships for the same items."""
+    from types import SimpleNamespace
+
+    from antigravity3d.artifacts.review_glb import gltf_mesh
+    from antigravity3d.kernel.fast_ops import write_gltf
+    from antigravity3d.kernel.gltf_writer import build_glb
+
+    meshes, uvs, *_ = scene
+    items = [SimpleNamespace(points=m.points, triangles=m.triangles, uvs=uvs[m.node_id], node_id=m.node_id) for m in meshes]
+    hull = SimpleNamespace(points=meshes[0].points, triangles=meshes[0].triangles, name="hull")
+    shipped = write_gltf(tmp_path / "shipped.glb", [*items, hull], [*(i.node_id for i in items), "hull"]).read_bytes()
+    review = build_glb([*(gltf_mesh(i.node_id, i.points, i.triangles, i.uvs, None, shade=True) for i in items),
+                        gltf_mesh("hull", hull.points, hull.triangles, None, None, shade=False)])
+    assert review == shipped
 
 
 LIGHT_VARS = {
