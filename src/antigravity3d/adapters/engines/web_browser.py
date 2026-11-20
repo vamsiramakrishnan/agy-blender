@@ -323,13 +323,16 @@ class SharedChromium:
 
 
 class Lease:
-    """One user of the shared browser. Release it exactly once; ``keep=False`` closes the browser if it was the last."""
+    """One user of the shared browser. Release it exactly once; ``keep=False`` closes the browser if it was the last.
 
-    def __init__(self, pool: SharedChromium) -> None:
+    ``Lease(None)`` holds nothing: it is what a caller gets where no browser can run (no Playwright, no Chromium), so
+    the caller releases it the same way and nothing here is imported or started."""
+
+    def __init__(self, pool: SharedChromium | None) -> None:
         self._pool, self._done = pool, False
 
     def release(self, keep: bool = True) -> concurrent.futures.Future | None:
-        if self._done:
+        if self._done or self._pool is None:
             return None
         self._done = True
         return self._pool._release(keep)

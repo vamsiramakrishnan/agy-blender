@@ -886,7 +886,7 @@ def prestart() -> web_browser.Lease:
     a cancellation that closes the browser. When the verifier cannot run here, nothing is started."""
     v = WebThreeValidator()
     if not v.available():
-        return web_browser.SHARED.lease()
+        return web_browser.Lease(None)  # the step will be skipped with its reason; taking a real lease imports Playwright
     return web_browser.SHARED.lease(environment_map, exe=v.binary(), args=_launch_args())
 
 

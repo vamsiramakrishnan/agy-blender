@@ -200,6 +200,23 @@ async def test_skipped_with_reason_when_no_browser(monkeypatch, tmp_path):
     assert isinstance(rep, EngineReport) and rep.skipped and not rep.ok and "CHROMIUM_BIN" in rep.skipped_reason
 
 
+async def test_prestart_without_playwright_starts_nothing_and_releases_cleanly(monkeypatch):
+    """A machine without the Python playwright package runs the pipeline with the web check skipped. The pipeline
+    takes its browser lease before any pass runs, so that lease must not need Playwright either."""
+    import sys
+
+    from antigravity3d.adapters.engines import web_browser
+
+    monkeypatch.setitem(sys.modules, "playwright", None)  # makes ``import playwright`` raise ImportError
+    monkeypatch.setitem(sys.modules, "playwright.async_api", None)
+    leases, thread = web_browser.SHARED._leases, web_browser.SHARED._thread
+    lease = W.prestart()
+    assert web_browser.SHARED._leases == leases and web_browser.SHARED._thread is thread
+    assert lease.release(keep=True) is None
+    await lease.aclose(keep=False)
+    assert web_browser.SHARED._leases == leases
+
+
 async def test_skipped_with_reason_when_playwright_missing(monkeypatch, tmp_path):
     import sys
 
