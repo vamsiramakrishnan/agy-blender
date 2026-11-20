@@ -1,0 +1,125 @@
+{
+  "machine": {
+    "python": "3.13.18",
+    "platform": "Linux-6.18.44-fc-v726-x86_64-with-glibc2.39",
+    "package_git_sha": "5a440fa80dad7ec74e62df3afca7e4df1e68b72a",
+    "package_git_dirty": false,
+    "sdk_versions": {
+      "google-genai": "3.6.1",
+      "google-antigravity": "0.1.24",
+      "antigravity-3d": "0.2.0"
+    },
+    "timestamp": "2026-11-20T19:37:11+00:00"
+  },
+  "limits": {
+    "max_calls": 3,
+    "max_tokens": 60000,
+    "timeouts_s": {
+      "stage": 600.0,
+      "judge": 120.0,
+      "image": 180.0
+    },
+    "retries": "none (genai HttpRetryOptions attempts=1; package fallback/plane retry loops set to 0; stage: Antigravity RetryConfig api_retry max_retries=0; a model-output re-ask, if any, is a counted call)",
+    "prices": "none configured; dollar cost is unknown, token counts only",
+    "stage_accounting": "every model call of a stage run is relayed (ModelRelay) and booked with its own usage"
+  },
+  "totals": {
+    "calls": 3,
+    "input_tokens": 21714,
+    "output_tokens": 3577,
+    "thinking_tokens": 3124,
+    "unknown_usage_reserved_tokens": 0
+  },
+  "groups": {
+    "text": {
+      "worker:gemini-4-hydrogen": {
+        "samples": [
+          {
+            "thinking_level": "low",
+            "timeout_s": 90.0,
+            "max_output_tokens": 16384,
+            "answer_tokens": 8192,
+            "thinking_tokens_allowed": 8192,
+            "wall_ms": 11501.0,
+            "input_tokens": 7238,
+            "output_tokens": 1307,
+            "thinking_tokens": 1096,
+            "total_tokens_reported": 9641,
+            "tokens_known": true,
+            "finish_reason": "STOP",
+            "error": null,
+            "status": null,
+            "response_chars": 3098,
+            "outcome": "ok",
+            "scene_ir_valid": true,
+            "nodes": 10,
+            "materials": 2,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@crate_body",
+            "tris": 108
+          },
+          {
+            "thinking_level": "low",
+            "timeout_s": 90.0,
+            "max_output_tokens": 16384,
+            "answer_tokens": 8192,
+            "thinking_tokens_allowed": 8192,
+            "wall_ms": 15444.4,
+            "input_tokens": 7238,
+            "output_tokens": 1132,
+            "thinking_tokens": 919,
+            "total_tokens_reported": 9289,
+            "tokens_known": true,
+            "finish_reason": "STOP",
+            "error": null,
+            "status": null,
+            "response_chars": 2616,
+            "outcome": "ok",
+            "scene_ir_valid": true,
+            "nodes": 9,
+            "materials": 2,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@crate_core",
+            "tris": 108
+          },
+          {
+            "thinking_level": "low",
+            "timeout_s": 90.0,
+            "max_output_tokens": 16384,
+            "answer_tokens": 8192,
+            "thinking_tokens_allowed": 8192,
+            "wall_ms": 11048.6,
+            "input_tokens": 7238,
+            "output_tokens": 1138,
+            "thinking_tokens": 1109,
+            "total_tokens_reported": 9485,
+            "tokens_known": true,
+            "finish_reason": "STOP",
+            "error": null,
+            "status": null,
+            "response_chars": 2650,
+            "outcome": "ok",
+            "scene_ir_valid": true,
+            "nodes": 9,
+            "materials": 2,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@crate_body",
+            "tris": 108
+          }
+        ],
+        "n_ok": 3,
+        "n_failed": 0,
+        "median_ms": 11501.0,
+        "min_ms": 11048.6,
+        "max_ms": 15444.4
+      }
+    }
+  },
+  "aborted": null
+}

@@ -1,6 +1,6 @@
 # Performance benchmarks
 
-Four tools and the report written from them:
+Five tools and the report written from them:
 
 - `perf_offline.py` measures the deterministic, local parts of antigravity-3d. Most of this page is about it.
 - `perf_live.py` measures the model-facing components against the real API, within hard call and token limits. See
@@ -8,6 +8,8 @@ Four tools and the report written from them:
 - `compare.py` prints a before/after table from two offline result files. See "Comparing two runs".
 - `quality_facts.py` records what the export pipeline produces, not how long it takes: UV distortion, achieved texel
   density and the LOD chain of the offline props and of computed spheres. See "Quality facts".
+- `perf_engines.py` times a real Blender and a real Godot, and Blender against the kernels on the same meshes. It runs
+  in CI, where those binaries are. See "Engine benchmark (CI)".
 - [`RESULTS.md`](RESULTS.md) is the written report; `results/` holds the data it was written from. See "Result files".
 
 ## Offline benchmarks
@@ -15,8 +17,9 @@ Four tools and the report written from them:
 `perf_offline.py` measures the USD kernel, the QA / UV / LOD / collider / packaging kernels, the model-facing harness
 tools, the in-process pipelines, and the CLI. It makes no network calls and no model or API calls. It never starts
 Blender or Godot. The pipeline benchmarks do start headless Chromium, for the three.js verification step, when
-Playwright is installed (`pip install -e '.[web]'`); without it that step is skipped and recorded as skipped, and the
-pipeline and CLI figures come out about 1.5 s lower per asset than the committed ones.
+Playwright is installed (`pip install -e '.[web]'`); without it that step is skipped and recorded as skipped, the
+pipeline and CLI figures come out lower than the committed ones by the time of that step (about 0.7 s per asset once a
+browser is running, more for the first asset of a process), and `web.verify` is recorded as skipped.
 
 It is not a live-latency benchmark. Anything that waits on a model or an image API in a real run is replaced by the
 package's fakes here, so those waits are zero (or, for fake image synthesis, replaced by local CPU work, see
@@ -82,8 +85,10 @@ All `*_ms` values are milliseconds per call of the timed region. `extra` carries
   `PXR_WORK_THREAD_LIMIT=1` is set as well (an addition to the brief) because OpenUSD runs its own worker pool, which
   otherwise shows up as CPU time above wall time in the validation benchmarks. The values are recorded in
   `machine.thread_env`. `extra.process_cpu_over_wall` (process CPU seconds over wall seconds across the timed loop,
-  including setup) shows whether anything still ran threads: CoACD is the thing to watch, because the package gives it no
-  thread argument. The throughput benchmarks use processes, each single-threaded by the same settings.
+  including setup) shows whether anything still ran threads. CoACD, which the package gives no thread argument, measured
+  single-threaded. A decomposition that runs in a child process (input that is not one clean closed body) spends its
+  CPU there, so the ratio falls below 1 for those cases. The throughput benchmarks use processes, each single-threaded
+  by the same settings.
 * Offline: `GEMINI_API_KEY`, `GOOGLE_API_KEY`, Vertex variables and `AGY3D_POOL_SOCKET` are removed from this process and
   from every subprocess it starts, and `AGY3D_OFFLINE=1` is set. The decisions are `FakeDecisionsClient`, images are
   `FakeImageBackend`, authoring is `TemplateAuthor`, the CLI is run with `--offline`.
@@ -209,8 +214,7 @@ AGY3D_BENCH_THREADS=default python benchmarks/perf_offline.py \
 ## Comparing two runs
 
 ```bash
-python benchmarks/compare.py benchmarks/results/before/offline_paired.json benchmarks/results/offline.json \
-  --before-rest benchmarks/results/before/offline_paired_rest.json \
+python benchmarks/compare.py benchmarks/results/before/offline.json benchmarks/results/offline.json \
   --repeat benchmarks/results/before/offline_repeat.json --changed
 ```
 
@@ -220,9 +224,11 @@ measures nothing. Two things decide whether its table can be trusted:
 * **Measure both sides in one session.** The machine drifted within a day: the pre-fix code, run again three to four
   hours after the first report's run, was 4 to 6% slower at the median, more than 10% slower on about a quarter of
   the cases, and up to 1.4 times slower, with no change to the code. A before file from another day or another hour
-  compares the machine, not the code. To measure an older commit beside the current one,
-  check it out with `git worktree add <dir> <commit>`, and run its own harness with `PYTHONPATH=<dir>/src` from that
-  directory, immediately before or after the current tree, with nothing else running.
+  compares the machine, not the code. To measure an older commit beside the current one, check it out with
+  `git worktree add <dir> <commit>` and run the harness from that directory with `PYTHONPATH=<dir>/src`, immediately
+  before or after the current tree, with nothing else running. Use the current harness for both when it has
+  benchmarks the older one lacks (`python <current>/benchmarks/perf_offline.py`, still from `<dir>`): the result
+  file records the commit of the code that was measured, and the harness's own when it differs.
 * **Know each benchmark's own noise.** A flat 10% threshold (`--noise`) is right for the kernels and wrong for the
   tool-level edit benchmarks, where two runs of identical code differed by up to 26% in the median. `--repeat` takes
   another run of the first side's code; the ratio between that run and the first file, times the `--noise` floor,
@@ -231,6 +237,8 @@ measures nothing. Two things decide whether its table can be trusted:
 
 `--before-rest` reads benchmarks the first file lacks from further files, for a run that was split. `--changed` omits
 rows within noise, `--only` filters by name prefix.
+Cases are matched by their parameters, leaving out a package's size in bytes, which older result files recorded
+among them although it is something the code produced.
 
 ## Quality facts
 
@@ -267,15 +275,69 @@ python benchmarks/perf_live.py --self-test                                 # the
 * No price is read or set. The files report tokens, never dollars.
 * Sample counts are 1 to 3 per entry. Read the results as observations, not distributions.
 
+## Engine benchmark (CI)
+
+`perf_engines.py` times the paths that need a real Blender and a real Godot. The benchmark machine has neither, so
+it runs in the `stock-engines` job of the qualification workflow, on every pull request, after the engine tests,
+against the pinned Blender 5.3.0 and Godot 4.7.2. It cannot fail the job: a measurement that is unavailable is
+recorded inside the JSON, and the step raises one warning when any measurement failed.
+
+```
+xvfb-run -a python benchmarks/perf_engines.py --out /tmp/engine-bench.json --markdown /tmp/engine-bench.md
+python benchmarks/perf_engines.py --fake --quick --out /tmp/fake.json      # plumbing only, anywhere
+```
+
+It needs `$BLENDER_BIN` and `$GODOT_BIN`; without them it says what is missing and exits 0. `--fake` runs every code
+path against the worker pool's fake daemon, which only lints the Blender scripts: those are not Blender numbers and
+the JSON says so (`mode: "fake"`).
+
+What it measures:
+
+- **The Blender worker pool**: cold start to the first answered ping (a fresh process each sample), a warm ping,
+  `import_usd` of three written packages, and `render_usd` of the crate with Workbench, EEVEE and Cycles at the
+  size the pipeline asks for (512 px, 16 samples). The runner has no GPU, so EEVEE's figure is software GL and is
+  not what a workstation would see.
+- **Blender against the kernels, same meshes**: UV unwrap, decimation to the kernel's own triangle counts, convex
+  hull, and a four-view sheet, on the crate, the barrel and two spheres. The Blender side reports two times: the
+  operator alone, timed inside Blender, and the whole `run_script` call per repetition, which is what a caller
+  pays. The ratio in the table uses the whole call.
+- **Godot**: the package check the pipeline runs (`GodotValidator.validate`), a capture, and the same launch with a
+  script that quits at once, so the difference is the import itself.
+
+The two sides do not run the same algorithms, and the table says so under itself. Read these before the ratios:
+
+- Unwrap: the kernel computes charts with a bound on distortion and packs them at a requested texel density;
+  Blender's Smart UV Project projects and packs with neither. Both sides report islands, UV area and the area
+  distortion the pipeline gates on (budget 0.05), computed by the same formula. A second kernel row gives the time
+  of the path the pipeline takes for the same mesh, where primitives get exact charts.
+- LOD: the kernel simplifies, measures the deviation of every attempt and optimises the result; Blender's edit-mode
+  Decimate collapses to the same triangle counts and measures nothing.
+- Hull: roughly the same work; the kernel also checks topology and computes volume.
+- Sheet: different renderers. The Blender cameras copy the kernel's framing, and both sides report the fraction of
+  pixels covered so that a mismatch would show.
+
+The job uploads `engine-bench.json` and `engine-bench.md` as the artifact `engine-bench` and writes the Markdown
+into the job summary. `results/engines_ci.json` is the artifact of one run; its `ci` block names the commit and
+the runner. Hosted runners differ from run to run (two CPU models were seen in three runs), so compare the two
+sides within one file, not one file with another.
+
 ## Result files
+
+The second round's files are at the top of `results/`; the first round's are kept as published in `results/round1/`.
 
 | File | What it is |
 | --- | --- |
-| `results/offline.json` | The code after the fixes (the commit is in `machine.git_commit`), full offline run |
-| `results/offline_default_threads.json` | The same code with library-default threading, subset named above |
-| `results/live.json` | The live probes on the code after the fixes |
-| `results/quality.jsonl`, `results/before/quality.jsonl` | `quality_facts.py` on the final code and on the pre-fix tree |
-| `results/before/offline_paired.json` | The pre-fix tree (`14814fd`), measured immediately before `results/offline.json`. This run ended with a segmentation fault after 23 of 35 benchmarks |
-| `results/before/offline_paired_rest.json` | The other 12 benchmarks of the pre-fix tree, measured immediately after `results/offline.json` |
-| `results/before/offline_repeat.json` | Another full run of the pre-fix tree, about an hour before `offline_paired.json`: the same-code repeat behind the noise bands |
-| `results/before/offline.json`, `offline_default_threads.json`, `live.json` | The first report's data, three to four hours earlier the same day, kept as published. Do not compare timings in these with the files above: the machine was faster then |
+| `results/offline.json` | The code after the second round (`machine.git_commit`), full offline run |
+| `results/before/offline.json` | The tree the second round started from (`5a440fa`), measured with the same harness in the same session, immediately before `results/offline.json` |
+| `results/before/offline_repeat.json` | The same tree again, immediately after `results/offline.json`: the same-code repeat behind the noise bands |
+| `results/compare.md` | `compare.py` on those three files: every case, with its noise band |
+| `results/edit_recheck.json` | The edit-loop benchmarks alone, three alternating runs of each tree: the paired run flagged three of those rows as slower, and this shows they are not |
+| `results/quality.jsonl`, `results/before/quality.jsonl` | `quality_facts.py` on the two trees |
+| `results/engines_ci.json` | `perf_engines.py` from the `stock-engines` job on the final code (GitHub runner, Blender 5.3.0, Godot 4.7.2) |
+| `results/live_stage.json` | Stage runs on the builder tier, re-measured in the second round |
+| `results/live_schema_before.json`, `results/live_schema_after.json` | The paired authoring check of the old and the new response schema on the smallest tier |
+| `results/round1/offline.json`, `offline_default_threads.json`, `live.json`, `quality.jsonl` | The first round's final code (`f9e039a`) |
+| `results/round1/before/` | The first round's "before" files: `offline_paired.json` and `offline_paired_rest.json` (the pre-fix tree `14814fd` beside the final one), `offline_repeat.json` (its same-code repeat), `quality.jsonl`, and the first report's data (`offline.json`, `offline_default_threads.json`, `live.json`) |
+
+Do not compare timings across the two rounds' files, or with the first report's: the machine was not the same from
+one session to the next.

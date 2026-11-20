@@ -1,0 +1,1516 @@
+{
+ "schema": 1,
+ "mode": "real",
+ "ci": {
+  "sha": "3410ef2f959eb168ad965aba5704af6d998c9624",
+  "run_id": "44831357386",
+  "ref": "refs/pull/4/merge",
+  "runner": "GitHub Actions 1000040929",
+  "image": "ubuntu24",
+  "tests_outcome": "success"
+ },
+ "machine": {
+  "cpu_model": "AMD EPYC 9V74 80-Core Processor",
+  "cpu_count": 4,
+  "cpus_usable": 4,
+  "platform": "Linux-7.0.0-1017-azure-x86_64-with-glibc2.39",
+  "python": "3.12.16",
+  "loadavg_at_start": [
+   2.49,
+   1.52,
+   0.64
+  ],
+  "omp_num_threads": "2",
+  "libgl_software": "1",
+  "display": ":99"
+ },
+ "versions": {
+  "antigravity3d": "0.2.0",
+  "antigravity3d_from": "/opt/hostedtoolcache/Python/3.12.16/x64/lib/python3.12/site-packages/antigravity3d",
+  "blender": "5.3.0",
+  "blender_python": "3.13.13",
+  "godot": "4.7.2.stable.official.ed1daf0bf"
+ },
+ "fatal": null,
+ "equivalence_notes": {
+  "uv_unwrap": "NOT the same algorithm. Kernel: xatlas charts + packing at a requested texel density + stretch statistics (analytic charts off, so charts are computed on both sides). Blender: smart_project (angle-based projection charts + island packing, no density fit). Compare islands, uv_area and area_distortion (mean relative error of UV area against surface area; the pipeline's budget is 0.05) before reading the ratio. 'kernel as the pipeline runs it' is unwrap_scene with default settings, where IR primitives get analytic charts.",
+  "uv_unwrap_angle_based": "NOT the same algorithm. uv.unwrap(ANGLE_BASED) needs seams; they are marked on edges sharper than 40 degrees, so a smooth sphere gets none and is one chart (see islands). Weak comparison.",
+  "lod": "Different algorithms, same targets. Kernel: meshoptimizer simplify per level + cache/overdraw optimisation + measured deviation. Blender: the edit-mode Decimate operator (collapse) from the original to each level's triangle count, no deviation measured.",
+  "convex_hull": "Roughly the same work. Kernel: generate_colliders per part (topology check, scipy ConvexHull, also volume and a collider mesh). Blender: bmesh.ops.convex_hull on the part's vertices.",
+  "sheet_4_views": "Different renderers. Kernel: preview_sheet (clay rasteriser, 4 labelled 256 px tiles). Blender: Workbench, 4 renders to PNG. Cameras copy the kernel's view directions, fit rule (projected bounding box fills 0.88 of the frame, centred) and 30 degree pinhole for 'persp'; shading, background and anti-aliasing still differ, so foreground fractions agree only approximately."
+ },
+ "tools": {
+  "blender": {
+   "available": true,
+   "path": "/tmp/engines/blender-5.3.0-linux-x64/blender"
+  },
+  "godot": {
+   "available": true,
+   "path": "/tmp/engines/Godot_v4.7.2-stable_linux.x86_64"
+  }
+ },
+ "missing": [],
+ "setup": {
+  "wall_s": 4.1,
+  "packages": {
+   "crate": {
+    "tris": 144,
+    "parts": 12,
+    "files": [
+     "Crate.usd",
+     "Crate.usdz",
+     "Crate.glb",
+     "Crate_LOD1.glb",
+     "Crate_LOD2.glb",
+     "Crate_colliders.glb",
+     "inspector.html"
+    ],
+    "ok": true
+   },
+   "barrel": {
+    "tris": 320,
+    "parts": 4,
+    "files": [
+     "Barrel.usd",
+     "Barrel.usdz",
+     "Barrel.glb",
+     "Barrel_LOD1.glb",
+     "Barrel_colliders.glb",
+     "inspector.html"
+    ],
+    "ok": true
+   },
+   "sphere_ir": {
+    "tris": 5040,
+    "parts": 1,
+    "files": [
+     "Ball.usd",
+     "Ball.usdz",
+     "Ball.glb",
+     "Ball_LOD1.glb",
+     "Ball_LOD2.glb",
+     "Ball_LOD3.glb",
+     "Ball_LOD4.glb",
+     "Ball_colliders.glb",
+     "inspector.html"
+    ],
+    "ok": true
+   }
+  },
+  "comparison_meshes": {
+   "crate": {
+    "parts": 12,
+    "tris": 144
+   },
+   "barrel": {
+    "parts": 4,
+    "tris": 320
+   },
+   "sphere_1920": {
+    "parts": 1,
+    "tris": 1920
+   },
+   "sphere_10080": {
+    "parts": 1,
+    "tris": 10080
+   }
+  }
+ },
+ "blender_pool": {
+  "cold_start_to_first_ping": {
+   "status": "ok",
+   "n": 3,
+   "median_ms": 442.25,
+   "min_ms": 440.33,
+   "max_ms": 447.2,
+   "samples_ms": [
+    440.3,
+    442.2,
+    447.2
+   ],
+   "includes": "pool start: spawn Blender, load the daemon (and reviewed skills when $AGY3D_BLENDER_SKILLS is set), version handshake; then the first ping. Fresh process each sample"
+  },
+  "version": {
+   "daemon": "0.1.0",
+   "blender": "5.3.0",
+   "blender_version": [
+    5,
+    3,
+    0
+   ],
+   "python": "3.13.13",
+   "fake": false,
+   "status": "ok",
+   "wall_s": 0.0
+  },
+  "warm_ping": {
+   "n": 30,
+   "median_ms": 0.07,
+   "min_ms": 0.06,
+   "max_ms": 0.1,
+   "samples_ms": [
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1,
+    0.1
+   ],
+   "status": "ok",
+   "wall_s": 0.0
+  },
+  "import_usd": {
+   "crate": {
+    "n": 3,
+    "median_ms": 5.06,
+    "min_ms": 4.98,
+    "max_ms": 27.19,
+    "samples_ms": [
+     27.2,
+     5.0,
+     5.1
+    ],
+    "package_tris": 144,
+    "package_bytes": 16037,
+    "objects": 15,
+    "fake": false,
+    "format": "package .usd (reset_scene between calls, untimed)",
+    "status": "ok",
+    "wall_s": 0.14
+   },
+   "barrel": {
+    "n": 3,
+    "median_ms": 3.78,
+    "min_ms": 3.29,
+    "max_ms": 3.79,
+    "samples_ms": [
+     3.3,
+     3.8,
+     3.8
+    ],
+    "package_tris": 320,
+    "package_bytes": 34830,
+    "objects": 7,
+    "fake": false,
+    "format": "package .usd (reset_scene between calls, untimed)",
+    "status": "ok",
+    "wall_s": 0.11
+   },
+   "sphere_ir": {
+    "n": 3,
+    "median_ms": 4.78,
+    "min_ms": 4.74,
+    "max_ms": 5.45,
+    "samples_ms": [
+     5.4,
+     4.8,
+     4.7
+    ],
+    "package_tris": 5040,
+    "package_bytes": 756914,
+    "objects": 4,
+    "fake": false,
+    "format": "package .usd (reset_scene between calls, untimed)",
+    "status": "ok",
+    "wall_s": 0.12
+   }
+  },
+  "render_usd": {
+   "workbench": {
+    "n": 3,
+    "median_ms": 137.64,
+    "min_ms": 132.79,
+    "max_ms": 484.57,
+    "samples_ms": [
+     484.6,
+     137.6,
+     132.8
+    ],
+    "first_call_ms": 484.6,
+    "engine": "workbench",
+    "width": 512,
+    "height": 512,
+    "samples": 16,
+    "transparent": true,
+    "image_shape": [
+     512,
+     512,
+     4
+    ],
+    "scene": "crate package",
+    "note": "includes import_usd + frame set-up + render + EXR round trip, as render_usd does in the pipeline",
+    "status": "ok",
+    "wall_s": 0.76
+   },
+   "eevee": {
+    "n": 3,
+    "median_ms": 11776.73,
+    "min_ms": 5022.68,
+    "max_ms": 11795.8,
+    "samples_ms": [
+     5022.7,
+     11776.7,
+     11795.8
+    ],
+    "first_call_ms": 5022.7,
+    "engine": "eevee",
+    "width": 512,
+    "height": 512,
+    "samples": 16,
+    "transparent": true,
+    "image_shape": [
+     512,
+     512,
+     4
+    ],
+    "scene": "crate package",
+    "note": "includes import_usd + frame set-up + render + EXR round trip, as render_usd does in the pipeline",
+    "status": "ok",
+    "wall_s": 28.6
+   },
+   "cycles": {
+    "n": 2,
+    "median_ms": 3489.29,
+    "min_ms": 3464.48,
+    "max_ms": 3514.1,
+    "samples_ms": [
+     3514.1,
+     3464.5
+    ],
+    "first_call_ms": 3514.1,
+    "engine": "cycles",
+    "width": 512,
+    "height": 512,
+    "samples": 16,
+    "transparent": true,
+    "image_shape": [
+     512,
+     512,
+     4
+    ],
+    "scene": "crate package",
+    "note": "includes import_usd + frame set-up + render + EXR round trip, as render_usd does in the pipeline",
+    "status": "ok",
+    "wall_s": 6.98
+   }
+  },
+  "comparisons": [
+   {
+    "mesh": "crate",
+    "parts": 12,
+    "tris": 144,
+    "verts": 96,
+    "reps": 5,
+    "ops": {
+     "uv_unwrap": {
+      "equivalence": "uv_unwrap",
+      "kernel": {
+       "n": 5,
+       "median_ms": 43.68,
+       "min_ms": 42.81,
+       "max_ms": 46.42,
+       "samples_ms": [
+        42.8,
+        42.9,
+        46.4,
+        43.7,
+        43.8
+       ],
+       "islands": 72,
+       "uv_area": 1.6685710222270633,
+       "tris": 144,
+       "area_distortion": 6.147364753252408e-08,
+       "parts": 12,
+       "chart_source": [
+        "computed"
+       ],
+       "texel_density_px_per_m": 1024.0,
+       "status": "ok",
+       "wall_s": 0.27
+      },
+      "kernel_pipeline": {
+       "n": 5,
+       "median_ms": 32.49,
+       "min_ms": 32.28,
+       "max_ms": 32.77,
+       "samples_ms": [
+        32.3,
+        32.4,
+        32.5,
+        32.8,
+        32.5
+       ],
+       "islands": 72,
+       "uv_area": 1.1364275481589718,
+       "tris": 144,
+       "area_distortion": 8.4124843963641e-08,
+       "parts": 12,
+       "chart_source": [
+        "analytic"
+       ],
+       "texel_density_px_per_m": 1024.0,
+       "status": "ok",
+       "wall_s": 0.2
+      },
+      "blender": {
+       "n": 5,
+       "median_ms": 2.05,
+       "min_ms": 1.57,
+       "max_ms": 2.56,
+       "samples_ms": [
+        1.6,
+        1.7,
+        2.0,
+        2.2,
+        2.6
+       ],
+       "setup_ms_per_part_median": 1.228564000030019,
+       "islands": 68,
+       "uv_area": 6.039168346415217,
+       "area_distortion": 6.661177291611173e-08,
+       "tris": 144,
+       "parts": 12,
+       "roundtrip_ms": 111.3,
+       "roundtrip_ms_per_rep": 22.3,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "status": "ok",
+       "wall_s": 0.15
+      },
+      "blender_over_kernel_operator_only": 0.0,
+      "blender_over_kernel_roundtrip": 0.5,
+      "headline_ratio": 0.5
+     },
+     "uv_unwrap_angle_based": {
+      "equivalence": "uv_unwrap_angle_based",
+      "kernel": {
+       "status": "see uv_unwrap.kernel"
+      },
+      "blender": {
+       "n": 5,
+       "median_ms": 3.07,
+       "min_ms": 2.77,
+       "max_ms": 3.7,
+       "samples_ms": [
+        2.8,
+        2.8,
+        3.1,
+        3.3,
+        3.7
+       ],
+       "setup_ms_per_part_median": 1.3206529999933991,
+       "islands": 64,
+       "uv_area": 6.039165818757367,
+       "area_distortion": 8.368330263507568e-08,
+       "tris": 144,
+       "parts": 12,
+       "roundtrip_ms": 122.0,
+       "roundtrip_ms_per_rep": 24.4,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "status": "ok",
+       "wall_s": 0.16
+      },
+      "blender_over_kernel_operator_only": 0.1,
+      "blender_over_kernel_roundtrip": 0.6,
+      "headline_ratio": 0.6
+     },
+     "lod": {
+      "equivalence": "lod",
+      "kernel": {
+       "n": 5,
+       "median_ms": 3.82,
+       "min_ms": 3.72,
+       "max_ms": 4.14,
+       "samples_ms": [
+        3.8,
+        3.8,
+        3.7,
+        3.8,
+        4.1
+       ],
+       "tris_by_level": [
+        144
+       ],
+       "parts": 12,
+       "status": "ok",
+       "wall_s": 0.02
+      },
+      "blender": {
+       "status": "no_levels",
+       "reason": "the kernel's LOD chain has no level below LOD0 for this mesh, so there is nothing to decimate"
+      }
+     },
+     "convex_hull": {
+      "equivalence": "convex_hull",
+      "kernel": {
+       "n": 5,
+       "median_ms": 3.96,
+       "min_ms": 3.94,
+       "max_ms": 4.5,
+       "samples_ms": [
+        3.9,
+        4.0,
+        4.5,
+        4.0,
+        3.9
+       ],
+       "hulls": 12,
+       "hull_vertices": 96,
+       "hull_faces": 144,
+       "sources": [
+        "fast_path"
+       ],
+       "parts": 12,
+       "status": "ok",
+       "wall_s": 0.02
+      },
+      "blender": {
+       "n": 5,
+       "median_ms": 0.87,
+       "min_ms": 0.86,
+       "max_ms": 0.92,
+       "samples_ms": [
+        0.9,
+        0.9,
+        0.9,
+        0.9,
+        0.9
+       ],
+       "hull_vertices": 96,
+       "hull_faces": 144,
+       "parts": 12,
+       "roundtrip_ms": 67.0,
+       "roundtrip_ms_per_rep": 13.4,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "status": "ok",
+       "wall_s": 0.1
+      },
+      "blender_over_kernel_operator_only": 0.2,
+      "blender_over_kernel_roundtrip": 3.4,
+      "headline_ratio": 3.4
+     },
+     "sheet_4_views": {
+      "equivalence": "sheet_4_views",
+      "kernel": {
+       "n": 5,
+       "median_ms": 51.52,
+       "min_ms": 51.1,
+       "max_ms": 53.76,
+       "samples_ms": [
+        51.5,
+        51.1,
+        51.4,
+        52.3,
+        53.8
+       ],
+       "views": [
+        "front",
+        "right",
+        "top",
+        "persp"
+       ],
+       "size": 256,
+       "foreground_fraction": [
+        0.5473,
+        0.5832,
+        0.6827,
+        0.4778
+       ],
+       "status": "ok",
+       "wall_s": 0.78
+      },
+      "blender": {
+       "n": 3,
+       "median_ms": 128.46,
+       "min_ms": 123.26,
+       "max_ms": 226.85,
+       "samples_ms": [
+        226.8,
+        123.3,
+        128.5
+       ],
+       "views": [
+        "front",
+        "right",
+        "top",
+        "persp"
+       ],
+       "size": 256,
+       "parts": 12,
+       "roundtrip_ms": 498.0,
+       "roundtrip_ms_per_rep": 166.0,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "foreground_fraction": [
+        0.5594,
+        0.5958,
+        0.6963,
+        0.4886
+       ],
+       "status": "ok",
+       "wall_s": 0.56
+      },
+      "blender_over_kernel_operator_only": 2.5,
+      "blender_over_kernel_roundtrip": 3.2,
+      "headline_ratio": 3.2
+     }
+    }
+   },
+   {
+    "mesh": "barrel",
+    "parts": 4,
+    "tris": 320,
+    "verts": 168,
+    "reps": 5,
+    "ops": {
+     "uv_unwrap": {
+      "equivalence": "uv_unwrap",
+      "kernel": {
+       "n": 5,
+       "median_ms": 25.89,
+       "min_ms": 25.56,
+       "max_ms": 26.64,
+       "samples_ms": [
+        25.6,
+        25.9,
+        25.8,
+        26.2,
+        26.6
+       ],
+       "islands": 29,
+       "uv_area": 1.1182394840218524,
+       "tris": 320,
+       "area_distortion": 1.8407344758777494e-06,
+       "parts": 4,
+       "chart_source": [
+        "computed"
+       ],
+       "texel_density_px_per_m": 1024.0,
+       "status": "ok",
+       "wall_s": 0.16
+      },
+      "kernel_pipeline": {
+       "n": 5,
+       "median_ms": 17.25,
+       "min_ms": 17.22,
+       "max_ms": 17.58,
+       "samples_ms": [
+        17.2,
+        17.2,
+        17.3,
+        17.6,
+        17.3
+       ],
+       "islands": 15,
+       "uv_area": 1.1182394738787589,
+       "tris": 320,
+       "area_distortion": 2.5272756014276074e-07,
+       "parts": 4,
+       "chart_source": [
+        "analytic"
+       ],
+       "texel_density_px_per_m": 1024.0,
+       "status": "ok",
+       "wall_s": 0.11
+      },
+      "blender": {
+       "n": 5,
+       "median_ms": 0.72,
+       "min_ms": 0.67,
+       "max_ms": 0.76,
+       "samples_ms": [
+        0.7,
+        0.7,
+        0.7,
+        0.7,
+        0.8
+       ],
+       "setup_ms_per_part_median": 0.8235939999963193,
+       "islands": 18,
+       "uv_area": 2.1005340597248607,
+       "area_distortion": 0.04747839574188481,
+       "tris": 320,
+       "parts": 4,
+       "roundtrip_ms": 47.8,
+       "roundtrip_ms_per_rep": 9.6,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "status": "ok",
+       "wall_s": 0.08
+      },
+      "blender_over_kernel_operator_only": 0.0,
+      "blender_over_kernel_roundtrip": 0.4,
+      "headline_ratio": 0.4
+     },
+     "uv_unwrap_angle_based": {
+      "equivalence": "uv_unwrap_angle_based",
+      "kernel": {
+       "status": "see uv_unwrap.kernel"
+      },
+      "blender": {
+       "n": 5,
+       "median_ms": 3.96,
+       "min_ms": 3.89,
+       "max_ms": 3.98,
+       "samples_ms": [
+        4.0,
+        3.9,
+        3.9,
+        4.0,
+        4.0
+       ],
+       "setup_ms_per_part_median": 0.9697649999793612,
+       "islands": 12,
+       "uv_area": 1.7469924858537869,
+       "area_distortion": 0.4128660245536872,
+       "tris": 320,
+       "parts": 4,
+       "roundtrip_ms": 64.2,
+       "roundtrip_ms_per_rep": 12.8,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "status": "ok",
+       "wall_s": 0.1
+      },
+      "blender_over_kernel_operator_only": 0.2,
+      "blender_over_kernel_roundtrip": 0.5,
+      "headline_ratio": 0.5
+     },
+     "lod": {
+      "equivalence": "lod",
+      "kernel": {
+       "n": 5,
+       "median_ms": 8.92,
+       "min_ms": 8.79,
+       "max_ms": 9.12,
+       "samples_ms": [
+        8.9,
+        9.1,
+        8.8,
+        9.1,
+        8.8
+       ],
+       "tris_by_level": [
+        320,
+        36
+       ],
+       "parts": 4,
+       "status": "ok",
+       "wall_s": 0.05
+      },
+      "blender": {
+       "n": 5,
+       "median_ms": 0.14,
+       "min_ms": 0.14,
+       "max_ms": 0.18,
+       "samples_ms": [
+        0.2,
+        0.1,
+        0.1,
+        0.1,
+        0.1
+       ],
+       "tris_by_level": [
+        36
+       ],
+       "parts": 4,
+       "roundtrip_ms": 20.0,
+       "roundtrip_ms_per_rep": 4.0,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "targets_tris_by_level": [
+        36
+       ],
+       "status": "ok",
+       "wall_s": 0.05
+      },
+      "blender_over_kernel_operator_only": 0.0,
+      "blender_over_kernel_roundtrip": 0.4,
+      "headline_ratio": 0.4
+     },
+     "convex_hull": {
+      "equivalence": "convex_hull",
+      "kernel": {
+       "n": 5,
+       "median_ms": 1.94,
+       "min_ms": 1.9,
+       "max_ms": 2.0,
+       "samples_ms": [
+        2.0,
+        2.0,
+        1.9,
+        1.9,
+        1.9
+       ],
+       "hulls": 4,
+       "hull_vertices": 160,
+       "hull_faces": 304,
+       "sources": [
+        "fast_path"
+       ],
+       "parts": 4,
+       "status": "ok",
+       "wall_s": 0.01
+      },
+      "blender": {
+       "n": 5,
+       "median_ms": 0.65,
+       "min_ms": 0.63,
+       "max_ms": 0.67,
+       "samples_ms": [
+        0.7,
+        0.7,
+        0.6,
+        0.6,
+        0.6
+       ],
+       "hull_vertices": 160,
+       "hull_faces": 304,
+       "parts": 4,
+       "roundtrip_ms": 30.4,
+       "roundtrip_ms_per_rep": 6.1,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "status": "ok",
+       "wall_s": 0.06
+      },
+      "blender_over_kernel_operator_only": 0.3,
+      "blender_over_kernel_roundtrip": 3.1,
+      "headline_ratio": 3.1
+     },
+     "sheet_4_views": {
+      "equivalence": "sheet_4_views",
+      "kernel": {
+       "n": 5,
+       "median_ms": 94.63,
+       "min_ms": 92.88,
+       "max_ms": 95.56,
+       "samples_ms": [
+        95.0,
+        94.4,
+        95.6,
+        94.6,
+        92.9
+       ],
+       "views": [
+        "front",
+        "right",
+        "top",
+        "persp"
+       ],
+       "size": 256,
+       "foreground_fraction": [
+        0.5875,
+        0.5875,
+        0.5988,
+        0.4492
+       ],
+       "status": "ok",
+       "wall_s": 0.65
+      },
+      "blender": {
+       "n": 3,
+       "median_ms": 122.76,
+       "min_ms": 121.46,
+       "max_ms": 125.66,
+       "samples_ms": [
+        125.7,
+        121.5,
+        122.8
+       ],
+       "views": [
+        "front",
+        "right",
+        "top",
+        "persp"
+       ],
+       "size": 256,
+       "parts": 4,
+       "roundtrip_ms": 392.9,
+       "roundtrip_ms_per_rep": 131.0,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "foreground_fraction": [
+        0.6,
+        0.6,
+        0.6086,
+        0.4593
+       ],
+       "status": "ok",
+       "wall_s": 0.44
+      },
+      "blender_over_kernel_operator_only": 1.3,
+      "blender_over_kernel_roundtrip": 1.4,
+      "headline_ratio": 1.4
+     }
+    }
+   },
+   {
+    "mesh": "sphere_1920",
+    "parts": 1,
+    "tris": 1920,
+    "verts": 962,
+    "reps": 5,
+    "ops": {
+     "uv_unwrap": {
+      "equivalence": "uv_unwrap",
+      "kernel": {
+       "n": 5,
+       "median_ms": 45.39,
+       "min_ms": 44.88,
+       "max_ms": 45.76,
+       "samples_ms": [
+        44.9,
+        44.9,
+        45.7,
+        45.8,
+        45.4
+       ],
+       "islands": 39,
+       "uv_area": 0.6449825877461399,
+       "tris": 1920,
+       "area_distortion": 0.005864047883292876,
+       "parts": 1,
+       "chart_source": [
+        "computed"
+       ],
+       "texel_density_px_per_m": 1024.0,
+       "status": "ok",
+       "wall_s": 0.28
+      },
+      "kernel_pipeline": {
+       "n": 5,
+       "median_ms": 45.73,
+       "min_ms": 45.05,
+       "max_ms": 50.23,
+       "samples_ms": [
+        50.2,
+        45.7,
+        45.6,
+        45.8,
+        45.1
+       ],
+       "islands": 39,
+       "uv_area": 0.6449825877461399,
+       "tris": 1920,
+       "area_distortion": 0.005864047883292876,
+       "parts": 1,
+       "chart_source": [
+        "computed"
+       ],
+       "texel_density_px_per_m": 1024.0,
+       "status": "ok",
+       "wall_s": 0.3
+      },
+      "blender": {
+       "n": 5,
+       "median_ms": 1.63,
+       "min_ms": 1.63,
+       "max_ms": 1.74,
+       "samples_ms": [
+        1.7,
+        1.6,
+        1.6,
+        1.7,
+        1.6
+       ],
+       "setup_ms_per_part_median": 3.408924999973806,
+       "islands": 8,
+       "uv_area": 0.5513006953195941,
+       "area_distortion": 0.10494887747610857,
+       "tris": 1920,
+       "parts": 1,
+       "roundtrip_ms": 132.7,
+       "roundtrip_ms_per_rep": 26.5,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "status": "ok",
+       "wall_s": 0.17
+      },
+      "blender_over_kernel_operator_only": 0.0,
+      "blender_over_kernel_roundtrip": 0.6,
+      "headline_ratio": 0.6
+     },
+     "uv_unwrap_angle_based": {
+      "equivalence": "uv_unwrap_angle_based",
+      "kernel": {
+       "status": "see uv_unwrap.kernel"
+      },
+      "blender": {
+       "n": 5,
+       "median_ms": 65.87,
+       "min_ms": 65.7,
+       "max_ms": 66.59,
+       "samples_ms": [
+        65.9,
+        66.6,
+        65.9,
+        65.7,
+        65.8
+       ],
+       "setup_ms_per_part_median": 3.9440729999569157,
+       "islands": 1802,
+       "uv_area": 0.4687498469429692,
+       "area_distortion": 0.38588068380118534,
+       "tris": 1920,
+       "parts": 1,
+       "roundtrip_ms": 455.5,
+       "roundtrip_ms_per_rep": 91.1,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "status": "ok",
+       "wall_s": 0.49
+      },
+      "blender_over_kernel_operator_only": 1.5,
+      "blender_over_kernel_roundtrip": 2.0,
+      "headline_ratio": 2.0
+     },
+     "lod": {
+      "equivalence": "lod",
+      "kernel": {
+       "n": 5,
+       "median_ms": 27.3,
+       "min_ms": 24.86,
+       "max_ms": 32.98,
+       "samples_ms": [
+        24.9,
+        29.6,
+        24.9,
+        33.0,
+        27.3
+       ],
+       "tris_by_level": [
+        1920,
+        752,
+        406,
+        178
+       ],
+       "parts": 1,
+       "status": "ok",
+       "wall_s": 0.17
+      },
+      "blender": {
+       "n": 5,
+       "median_ms": 5.95,
+       "min_ms": 5.92,
+       "max_ms": 5.96,
+       "samples_ms": [
+        5.9,
+        5.9,
+        5.9,
+        6.0,
+        6.0
+       ],
+       "tris_by_level": [
+        752,
+        406,
+        178
+       ],
+       "parts": 1,
+       "roundtrip_ms": 181.6,
+       "roundtrip_ms_per_rep": 36.3,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "targets_tris_by_level": [
+        752,
+        406,
+        178
+       ],
+       "status": "ok",
+       "wall_s": 0.22
+      },
+      "blender_over_kernel_operator_only": 0.2,
+      "blender_over_kernel_roundtrip": 1.3,
+      "headline_ratio": 1.3
+     },
+     "convex_hull": {
+      "equivalence": "convex_hull",
+      "kernel": {
+       "n": 5,
+       "median_ms": 5.21,
+       "min_ms": 5.15,
+       "max_ms": 5.23,
+       "samples_ms": [
+        5.2,
+        5.2,
+        5.1,
+        5.1,
+        5.2
+       ],
+       "hulls": 1,
+       "hull_vertices": 962,
+       "hull_faces": 1920,
+       "sources": [
+        "fast_path"
+       ],
+       "parts": 1,
+       "status": "ok",
+       "wall_s": 0.03
+      },
+      "blender": {
+       "n": 5,
+       "median_ms": 2.39,
+       "min_ms": 2.35,
+       "max_ms": 2.4,
+       "samples_ms": [
+        2.4,
+        2.4,
+        2.3,
+        2.4,
+        2.4
+       ],
+       "hull_vertices": 962,
+       "hull_faces": 1920,
+       "parts": 1,
+       "roundtrip_ms": 111.3,
+       "roundtrip_ms_per_rep": 22.3,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "status": "ok",
+       "wall_s": 0.15
+      },
+      "blender_over_kernel_operator_only": 0.5,
+      "blender_over_kernel_roundtrip": 4.3,
+      "headline_ratio": 4.3
+     },
+     "sheet_4_views": {
+      "equivalence": "sheet_4_views",
+      "kernel": {
+       "n": 5,
+       "median_ms": 45.79,
+       "min_ms": 45.4,
+       "max_ms": 46.23,
+       "samples_ms": [
+        45.5,
+        45.8,
+        45.4,
+        45.9,
+        46.2
+       ],
+       "views": [
+        "front",
+        "right",
+        "top",
+        "persp"
+       ],
+       "size": 256,
+       "foreground_fraction": [
+        0.6069,
+        0.6069,
+        0.6044,
+        0.6067
+       ],
+       "status": "ok",
+       "wall_s": 0.31
+      },
+      "blender": {
+       "n": 3,
+       "median_ms": 143.59,
+       "min_ms": 137.87,
+       "max_ms": 147.6,
+       "samples_ms": [
+        143.6,
+        147.6,
+        137.9
+       ],
+       "views": [
+        "front",
+        "right",
+        "top",
+        "persp"
+       ],
+       "size": 256,
+       "parts": 1,
+       "roundtrip_ms": 522.8,
+       "roundtrip_ms_per_rep": 174.3,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "foreground_fraction": [
+        0.618,
+        0.618,
+        0.6154,
+        0.6179
+       ],
+       "status": "ok",
+       "wall_s": 0.57
+      },
+      "blender_over_kernel_operator_only": 3.1,
+      "blender_over_kernel_roundtrip": 3.8,
+      "headline_ratio": 3.8
+     }
+    }
+   },
+   {
+    "mesh": "sphere_10080",
+    "parts": 1,
+    "tris": 10080,
+    "verts": 5042,
+    "reps": 3,
+    "ops": {
+     "uv_unwrap": {
+      "equivalence": "uv_unwrap",
+      "kernel": {
+       "n": 3,
+       "median_ms": 230.68,
+       "min_ms": 227.56,
+       "max_ms": 244.49,
+       "samples_ms": [
+        227.6,
+        230.7,
+        244.5
+       ],
+       "islands": 45,
+       "uv_area": 0.5893235890616138,
+       "tris": 10080,
+       "area_distortion": 0.004616081246429939,
+       "parts": 1,
+       "chart_source": [
+        "computed"
+       ],
+       "texel_density_px_per_m": 1024.0,
+       "status": "ok",
+       "wall_s": 1.06
+      },
+      "kernel_pipeline": {
+       "n": 3,
+       "median_ms": 226.69,
+       "min_ms": 226.63,
+       "max_ms": 241.94,
+       "samples_ms": [
+        226.6,
+        226.7,
+        241.9
+       ],
+       "islands": 45,
+       "uv_area": 0.5893235890616138,
+       "tris": 10080,
+       "area_distortion": 0.004616081246429939,
+       "parts": 1,
+       "chart_source": [
+        "computed"
+       ],
+       "texel_density_px_per_m": 1024.0,
+       "status": "ok",
+       "wall_s": 0.98
+      },
+      "blender": {
+       "n": 3,
+       "median_ms": 7.69,
+       "min_ms": 7.66,
+       "max_ms": 7.73,
+       "samples_ms": [
+        7.7,
+        7.7,
+        7.7
+       ],
+       "setup_ms_per_part_median": 13.8485039999523,
+       "islands": 6,
+       "uv_area": 0.5832410418671498,
+       "area_distortion": 0.10378285073695585,
+       "tris": 10080,
+       "parts": 1,
+       "roundtrip_ms": 644.3,
+       "roundtrip_ms_per_rep": 214.8,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "status": "ok",
+       "wall_s": 0.68
+      },
+      "blender_over_kernel_operator_only": 0.0,
+      "blender_over_kernel_roundtrip": 0.9,
+      "headline_ratio": 0.9
+     },
+     "uv_unwrap_angle_based": {
+      "equivalence": "uv_unwrap_angle_based",
+      "kernel": {
+       "status": "see uv_unwrap.kernel"
+      },
+      "blender": {
+       "n": 3,
+       "median_ms": 75.88,
+       "min_ms": 75.88,
+       "max_ms": 76.28,
+       "samples_ms": [
+        76.3,
+        75.9,
+        75.9
+       ],
+       "setup_ms_per_part_median": 14.408448999972734,
+       "islands": 9924,
+       "uv_area": 0.4861105086430689,
+       "area_distortion": 0.4054928633474394,
+       "tris": 10080,
+       "parts": 1,
+       "roundtrip_ms": 855.0,
+       "roundtrip_ms_per_rep": 285.0,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "status": "ok",
+       "wall_s": 0.89
+      },
+      "blender_over_kernel_operator_only": 0.3,
+      "blender_over_kernel_roundtrip": 1.2,
+      "headline_ratio": 1.2
+     },
+     "lod": {
+      "equivalence": "lod",
+      "kernel": {
+       "n": 3,
+       "median_ms": 78.29,
+       "min_ms": 77.31,
+       "max_ms": 82.55,
+       "samples_ms": [
+        78.3,
+        77.3,
+        82.6
+       ],
+       "tris_by_level": [
+        10080,
+        2280,
+        1424,
+        444,
+        176
+       ],
+       "parts": 1,
+       "status": "ok",
+       "wall_s": 0.32
+      },
+      "blender": {
+       "n": 3,
+       "median_ms": 47.08,
+       "min_ms": 46.69,
+       "max_ms": 47.28,
+       "samples_ms": [
+        47.1,
+        47.3,
+        46.7
+       ],
+       "tris_by_level": [
+        2280,
+        1424,
+        444,
+        176
+       ],
+       "parts": 1,
+       "roundtrip_ms": 856.7,
+       "roundtrip_ms_per_rep": 285.6,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "targets_tris_by_level": [
+        2280,
+        1424,
+        444,
+        176
+       ],
+       "status": "ok",
+       "wall_s": 0.9
+      },
+      "blender_over_kernel_operator_only": 0.6,
+      "blender_over_kernel_roundtrip": 3.6,
+      "headline_ratio": 3.6
+     },
+     "convex_hull": {
+      "equivalence": "convex_hull",
+      "kernel": {
+       "n": 3,
+       "median_ms": 28.85,
+       "min_ms": 28.73,
+       "max_ms": 29.37,
+       "samples_ms": [
+        28.8,
+        29.4,
+        28.7
+       ],
+       "hulls": 1,
+       "hull_vertices": 5042,
+       "hull_faces": 10080,
+       "sources": [
+        "fast_path"
+       ],
+       "parts": 1,
+       "status": "ok",
+       "wall_s": 0.12
+      },
+      "blender": {
+       "n": 3,
+       "median_ms": 12.88,
+       "min_ms": 12.43,
+       "max_ms": 13.17,
+       "samples_ms": [
+        13.2,
+        12.9,
+        12.4
+       ],
+       "hull_vertices": 5034,
+       "hull_faces": 10064,
+       "parts": 1,
+       "roundtrip_ms": 584.2,
+       "roundtrip_ms_per_rep": 194.7,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "status": "ok",
+       "wall_s": 0.62
+      },
+      "blender_over_kernel_operator_only": 0.4,
+      "blender_over_kernel_roundtrip": 6.7,
+      "headline_ratio": 6.7
+     },
+     "sheet_4_views": {
+      "equivalence": "sheet_4_views",
+      "kernel": {
+       "n": 3,
+       "median_ms": 63.53,
+       "min_ms": 63.36,
+       "max_ms": 64.86,
+       "samples_ms": [
+        63.5,
+        63.4,
+        64.9
+       ],
+       "views": [
+        "front",
+        "right",
+        "top",
+        "persp"
+       ],
+       "size": 256,
+       "foreground_fraction": [
+        0.6083,
+        0.6083,
+        0.6073,
+        0.6081
+       ],
+       "status": "ok",
+       "wall_s": 0.31
+      },
+      "blender": {
+       "n": 3,
+       "median_ms": 200.66,
+       "min_ms": 196.78,
+       "max_ms": 204.82,
+       "samples_ms": [
+        200.7,
+        196.8,
+        204.8
+       ],
+       "views": [
+        "front",
+        "right",
+        "top",
+        "persp"
+       ],
+       "size": 256,
+       "parts": 1,
+       "roundtrip_ms": 1153.3,
+       "roundtrip_ms_per_rep": 384.4,
+       "timed": "median_ms is inside Blender around the operator only; roundtrip_ms_per_rep is the whole run_script call (source lint, mesh build, operator, result) divided by repetitions",
+       "foreground_fraction": [
+        0.6191,
+        0.6191,
+        0.6184,
+        0.619
+       ],
+       "status": "ok",
+       "wall_s": 1.21
+      },
+      "blender_over_kernel_operator_only": 3.2,
+      "blender_over_kernel_roundtrip": 6.1,
+      "headline_ratio": 6.1
+     }
+    }
+   }
+  ]
+ },
+ "godot": {
+  "empty_project_start": {
+   "n": 3,
+   "median_ms": 155.23,
+   "min_ms": 153.65,
+   "max_ms": 155.47,
+   "samples_ms": [
+    155.5,
+    155.2,
+    153.6
+   ],
+   "what": "same launch as GodotValidator.validate (--headless --path <project> --script) with a script that quits immediately: engine start, project scan and exit, no glTF load; the fixed cost inside every import time below",
+   "status": "ok",
+   "wall_s": 0.46
+  },
+  "import": {
+   "crate": {
+    "n": 3,
+    "median_ms": 157.25,
+    "min_ms": 154.6,
+    "max_ms": 159.23,
+    "samples_ms": [
+     159.2,
+     154.6,
+     157.2
+    ],
+    "package_tris": 144,
+    "godot_triangles": 144,
+    "glb_bytes": 13684,
+    "what": "GodotValidator.validate: process start + glTF load + scene generation + mesh walk (the package check CI and the pipeline run)",
+    "status": "ok",
+    "wall_s": 0.47
+   },
+   "barrel": {
+    "n": 3,
+    "median_ms": 158.17,
+    "min_ms": 157.22,
+    "max_ms": 159.3,
+    "samples_ms": [
+     158.2,
+     159.3,
+     157.2
+    ],
+    "package_tris": 320,
+    "godot_triangles": 320,
+    "glb_bytes": 19624,
+    "what": "GodotValidator.validate: process start + glTF load + scene generation + mesh walk (the package check CI and the pipeline run)",
+    "status": "ok",
+    "wall_s": 0.47
+   },
+   "sphere_ir": {
+    "n": 3,
+    "median_ms": 158.5,
+    "min_ms": 157.75,
+    "max_ms": 159.57,
+    "samples_ms": [
+     157.7,
+     159.6,
+     158.5
+    ],
+    "package_tris": 5040,
+    "godot_triangles": 5040,
+    "glb_bytes": 238884,
+    "what": "GodotValidator.validate: process start + glTF load + scene generation + mesh walk (the package check CI and the pipeline run)",
+    "status": "ok",
+    "wall_s": 0.48
+   }
+  },
+  "capture_crate": {
+   "n": 2,
+   "median_ms": 611.2,
+   "min_ms": 456.37,
+   "max_ms": 766.03,
+   "samples_ms": [
+    766.0,
+    456.4
+   ],
+   "what": "GodotValidator.capture (gl_compatibility, software GL, 512 px), crate package",
+   "status": "ok",
+   "wall_s": 1.22
+  }
+ },
+ "errors": [],
+ "total_wall_s": 59.3
+}

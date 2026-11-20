@@ -53,7 +53,7 @@ class OutputBudget:
 # ``max_output_tokens`` per authoring role = answer budget + thinking allowance for the role's thinking level. Both
 # operations use the role's row: a repair may restate up to the whole scene. Measured 2026-11-20 on the propose request
 # (prompt "wooden crate with iron corner brackets", schema-constrained; every sample finished STOP with a valid SceneIR;
-# the last three samples of each tier, one for argon, are the run in benchmarks/results/live.json):
+# the last three samples of each tier, one for argon, are the run in benchmarks/results/round1/live.json):
 #
 #   role      model             level   answer tokens (nodes)               thinking tokens         -> answer + thinking
 #   worker    gemini-4-hydrogen low     630-1,553 (9-13), 7 samples         804-1,263, 11 samples   ->  8,192 +  8,192
@@ -77,7 +77,7 @@ AUTHOR_OUTPUT_BUDGETS: dict[str, OutputBudget] = {
     "director": OutputBudget(answer_tokens=16_384, thinking_tokens=16_384),
 }
 # Raw evidence behind the table (propose request). Older hydrogen/neon thinking samples were taken without a response
-# schema (benchmarks/results/live.json); answer sizes only from schema-constrained responses.
+# schema (benchmarks/results/round1/live.json); answer sizes only from schema-constrained responses.
 MEASURED_THINKING_TOKENS: dict[str, tuple[int, ...]] = {
     "gemini-4-hydrogen/low": (856, 944, 1119, 804, 1072, 940, 1082, 880, 1079, 1263, 1066),
     "gemini-4-neon/low": (1374, 1471, 1707, 1401, 1482, 1704, 1988, 1410, 2418),
