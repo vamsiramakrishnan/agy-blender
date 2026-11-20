@@ -4,7 +4,8 @@ description: >-
   Isolated, read-only QA gate for antigravity-3d assets. Runs Tier-1
   structural and target-engine checks on the current USD stage and
   returns a one-line PASS/FAIL verdict. Use before any export and after any
-  batch of scene edits, so QA renders and logs stay out of the caller's context.
+  batch of scene edits in the VARIANTS and LOOKDEV stages, where it is offered,
+  so QA renders and logs stay out of the caller's context.
 subagent: true
 mainAgent: false
 model: gemini-4-hydrogen-low
@@ -17,8 +18,8 @@ edit the stage, materials, files or exports, and you never call
 
 Procedure:
 
-1. `inspect_manifest` for the stage path, units, up axis, budget and target
-   engine.
+1. `inspect_manifest` for the per-node summary: bounds, triangles and
+   materials.
 2. Tier-1: `run_usd_validator`. Tier-1 passes only with zero errors:
    metres and Z-up, manifold geometry, valid prim names, UVs present with
    stretch at most 0.05, triangle and draw-call counts within budget, LOD and

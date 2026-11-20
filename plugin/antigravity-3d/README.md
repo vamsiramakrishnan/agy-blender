@@ -57,7 +57,7 @@ dashboard. Following the docs, the plugin never turns itself on.
 | `skills/pbr-material-forge` | Albedo Best-of-6, de-lighting, ORM and normal derivation, then a policy gate. |
 | `skills/game-ready-sanitizer` | Makes existing files game-ready: UVs, LODs, colliders, validator. |
 | `skills/engine-truth-verify` | Export, headless engine import, then a parity check against the stage. |
-| `agents/usd_verifier.md` | Isolated, read-only subagent that runs the Tier-1 and Tier-1.5 QA gate and returns a two-line verdict. |
+| `agents/usd_verifier.md` | Isolated, read-only subagent that runs the Tier-1 structural check (`run_usd_validator`) and returns a two-line verdict. |
 | `agents/lookdev_critic.md` | Isolated visual critic that returns a two-line audit delta. |
 | `mcp_config.json` | Registers the stdio MCP server `studio` (`python -m antigravity3d.runtime.mcp_server`, launched with `uv run --project ${PLUGIN_ROOT}`). The harness namespaces plugin servers `<plugin>_<server>`, so it appears as `antigravity-3d_studio`. See "MCP server" below. |
 | `hooks.json` | Wires the four hook scripts in `hooks/scripts/`. It sits at the plugin root because native plugins must not use `hooks/hooks.json`. |
@@ -110,7 +110,7 @@ generated from its signature (no `ctx`; an optional `session_id` is added), plus
   the raw-script linter and the image policy gate. A denial is one
   `REFUSED ...` line. The hook scripts in this plugin check export and raw
   scripts again when the call is an `mcp_tool` step; both read the same QA file.
-- **Stages.** A new connection lists the four session management tools. Once
+- **Stages.** A new connection lists the four session management tools and the inspector's `open_inspector` and `review_notes`. Once
   an asset is open, discovery adds only the active stage's tools. Clients
   receive a list-change notification when switching catalogs. Calls addressed
   to a different session still pass through that session's stage gate.
@@ -125,8 +125,8 @@ generated from its signature (no `ctx`; an optional `session_id` is added), plus
   request it already received before it exits (`_DrainingStreams`).
 - **Sessions.** The active session is the last one opened or selected with
   `set_stage`; pass `session_id` to act on another.
-- The two schedule sidecars that start conversations carry explicit
-  `mcp(antigravity-3d_studio/<tool>)` grants, never `mcp(*)`.
+- The nightly variant factory carries explicit `mcp(antigravity-3d_studio/<tool>)`
+  grants, never `mcp(*)`. The weekly distillation carries only its `command(...)` grant.
 
 ## 3D review inspector (MCP App)
 
