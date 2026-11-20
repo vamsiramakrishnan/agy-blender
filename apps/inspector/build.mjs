@@ -10,7 +10,7 @@
 // Outputs (committed, under src/antigravity3d/artifacts/web/):
 //   inspector_app.html          the MCP App: one self-contained document (shell + three.js r160 +
 //                               MCP Apps SDK + src/mcp.js), served as ui://antigravity-3d/inspector.html
-//   inspector_standalone.js     src/standalone.js + src/viewer.js; inspector.py inlines it into the
+//   inspector_standalone.js     src/standalone.js + src/viewer.js + GLTFLoader (three's core is loaded at run time); inspector.py inlines it into the
 //                               standalone inspector.html next to the embedded payload
 //   build.json                  input hash, output hashes, bundled third-party packages
 //                               (version, lockfile integrity, licence)
@@ -33,6 +33,11 @@ const OUT = join(ARTIFACTS, "web");
 const TEMPLATE = join(ARTIFACTS, "inspector_template.html");
 const THREE_GZ = join(ARTIFACTS, "vendor", "three-r160.module.min.js.gz");
 const THREE_SHA256 = "3e690ac7d180b0aadf0891bea39eec643e29e2d3e75c99b18689518665f69ba6"; // three@0.160.0 build/three.module.min.js
+// GLTFLoader and its one dependency, vendored unmodified from three@0.160.0 with their provenance record
+// (src/antigravity3d/artifacts/vendor/three-r160-addons.provenance.json); this build checks them against it.
+const ADDONS = { "GLTFLoader-r160.js.gz": "examples/jsm/loaders/GLTFLoader.js",
+  "BufferGeometryUtils-r160.js.gz": "examples/jsm/utils/BufferGeometryUtils.js" };
+const PROVENANCE = join(ARTIFACTS, "vendor", "three-r160-addons.provenance.json");
 const SCHEMA = "antigravity3d.inspector_build/1";
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
@@ -50,6 +55,7 @@ export function inputFiles() {
   return [
     join(HERE, "build.mjs"), join(HERE, "package.json"), join(HERE, "package-lock.json"),
     ...walk(join(HERE, "src")), join(HERE, "test-host", "host.js"), TEMPLATE, THREE_GZ,
+    ...Object.keys(ADDONS).map((f) => join(ARTIFACTS, "vendor", f)), PROVENANCE,
   ].map((p) => posix(relative(REPO, p))).sort();
 }
 
@@ -88,13 +94,30 @@ async function main() {
   const threePath = join(tmp, "three.module.min.js");
   writeFileSync(threePath, threeBytes);
 
+  // GLTFLoader is linked against whichever three.js namespace the host has: bundled in the MCP App, loaded
+  // at run time (inlined module or pinned CDN URL) in the standalone page. So it is compiled once into a
+  // factory that receives `require("three")` from the caller, instead of a static import.
+  const provenance = JSON.parse(readFileSync(PROVENANCE, "utf8"));
+  for (const [gz, rel] of Object.entries(ADDONS)) {
+    const bytes = gunzipSync(readFileSync(join(ARTIFACTS, "vendor", gz)));
+    if (sha256(bytes) !== provenance.files[gz].sha256_uncompressed) throw new Error(`${gz} does not match its provenance record`);
+    mkdirSync(dirname(join(tmp, rel)), { recursive: true });
+    writeFileSync(join(tmp, rel), bytes);
+  }
+  writeFileSync(join(tmp, "gltf-entry.js"), 'export { GLTFLoader } from "./examples/jsm/loaders/GLTFLoader.js";\n');
+  const gltfCjs = await build({ entryPoints: [join(tmp, "gltf-entry.js")], bundle: true, format: "cjs", platform: "browser",
+    target: ["es2020"], minify: true, charset: "ascii", legalComments: "none", write: false, external: ["three"], logLevel: "warning" });
+  writeFileSync(join(tmp, "gltf-factory.js"), "export default function gltfFactory(require) {\n"
+    + "var module = { exports: {} }, exports = module.exports;\n" + gltfCjs.outputFiles[0].text + "\nreturn module.exports;\n}\n");
+
   const common = {
     bundle: true, format: "iife", platform: "browser", target: ["es2020"], minify: true,
     charset: "ascii", legalComments: "none", write: false, metafile: true, logLevel: "warning",
     define: { "process.env.NODE_ENV": '"production"' },
   };
-  const mcp = await build({ ...common, entryPoints: [join(HERE, "src", "mcp.js")], alias: { three: threePath } });
-  const standalone = await build({ ...common, entryPoints: [join(HERE, "src", "standalone.js")] });
+  const factoryAlias = { "agy3d-gltf-factory": join(tmp, "gltf-factory.js") };
+  const mcp = await build({ ...common, entryPoints: [join(HERE, "src", "mcp.js")], alias: { three: threePath, ...factoryAlias } });
+  const standalone = await build({ ...common, entryPoints: [join(HERE, "src", "standalone.js")], alias: factoryAlias });
   const testHost = await build({ ...common, entryPoints: [join(HERE, "test-host", "host.js")] });
 
   // Third-party packages that actually ended up in the app bundle (from esbuild's metafile).
@@ -106,7 +129,7 @@ async function main() {
     if (name) used.add(name);
   }
   for (const p of Object.keys(standalone.metafile.inputs)) {
-    if (packageOf(p) || p.includes("three.module")) throw new Error(`standalone bundle must not contain third-party code: ${p}`);
+    if (packageOf(p) || p.includes("three.module")) throw new Error(`standalone bundle must not contain the SDK or three.js core: ${p}`);
   }
   if (!threeUsed) throw new Error("three.js is missing from the app bundle");
   const packages = [...used].sort().map((name) => {
@@ -121,7 +144,8 @@ async function main() {
   const notices = [
     "Third-party software bundled into inspector_app.html (antigravity-3d inspector MCP App).",
     "",
-    `three 0.160.0 (MIT), build/three.module.min.js sha256 ${THREE_SHA256}`,
+    `three 0.160.0 (MIT): build/three.module.min.js sha256 ${THREE_SHA256}; ${Object.values(ADDONS).join(", ")} `
+      + `(provenance: src/antigravity3d/artifacts/vendor/three-r160-addons.provenance.json). Same licence:`,
     threeLicense.trim(),
     ...packages.flatMap((p) => ["", "-".repeat(72), `${p.name} ${p.version} (${p.license}), ${p.integrity}`,
       (p.license_text || "(no licence file in the package; licence field: " + p.license + ")").trim()]),
@@ -162,6 +186,9 @@ async function main() {
     toolchain: { esbuild: lock.packages["node_modules/esbuild"].version },
     bundled: [
       { name: "three", version: "0.160.0", source: "src/antigravity3d/artifacts/vendor/three-r160.module.min.js.gz", sha256: THREE_SHA256, license: "MIT" },
+      ...Object.entries(ADDONS).map(([gz, rel]) => ({ name: `three/${rel}`, version: "0.160.0", source: `src/antigravity3d/artifacts/vendor/${gz}`,
+        sha256: provenance.files[gz].sha256_uncompressed, license: "MIT", provenance: "src/antigravity3d/artifacts/vendor/three-r160-addons.provenance.json",
+        bundled_into: ["inspector_app.html", "inspector_standalone.js"] })),
       ...packages.map(({ license_text, ...p }) => p),
     ],
   };

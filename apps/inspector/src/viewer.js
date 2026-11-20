@@ -1,15 +1,21 @@
 // The inspector front end shared by both hosts: the standalone inspector.html (embedded payload,
 // notes exported as a file) and the Antigravity MCP App (data and notes through the MCP server).
 // Everything host-specific comes in through the `host` object given to createInspector().
+//
+// The asset itself is the "review GLB" (antigravity3d/artifacts/review_glb.py): built by the same glTF
+// writer and conversion as the package GLBs, loaded with three's GLTFLoader. Geometry, normals, UVs and
+// materials are the GLB's; the debug channels below are overrides on the loaded meshes, never a second
+// geometry or material path.
+import { gltfLoaderFor, parseGlb } from "./gltf.js";
 
 export const MODES = ["lit", "clay", "albedo", "orm", "occ", "rough", "metal", "normal", "uv", "prim"];
 export const PRESETS = ["front", "right", "top", "persp"];
 const TEX_KINDS = { albedo: "albedo", orm: "orm", occ: "orm", rough: "orm", metal: "orm", normal: "normal" };
 const REASONS = {
-  albedo: "No albedo texture with UVs on this asset", orm: "No ORM texture with UVs on this asset",
-  occ: "No ORM texture with UVs on this asset", rough: "No ORM texture with UVs on this asset",
-  metal: "No ORM texture with UVs on this asset", normal: "No normal map with UVs on this asset",
-  uv: "No UVs supplied for this asset", prim: "Prim colours are per node and exist on LOD0 only",
+  albedo: "No albedo texture with UVs at this LOD", orm: "No ORM texture with UVs at this LOD",
+  occ: "No ORM texture with UVs at this LOD", rough: "No ORM texture with UVs at this LOD",
+  metal: "No ORM texture with UVs at this LOD", normal: "No normal map with UVs at this LOD",
+  uv: "No UVs at this LOD", prim: "This LOD level is one merged mesh without per-node parts",
 };
 export const NOTE_ASSET = "__asset__";
 
@@ -30,12 +36,6 @@ function el(tag, attrs, children) {
   return e;
 }
 
-function b64(s, Type) {
-  const bin = atob(s), n = bin.length, u8 = new Uint8Array(n);
-  for (let i = 0; i < n; i++) u8[i] = bin.charCodeAt(i);
-  return new Type(u8.buffer);
-}
-
 export function noteKey(nodeId) { return nodeId == null ? NOTE_ASSET : nodeId; }
 
 /** A three.js colour usable from CSS: host variables can be any CSS colour syntax, three only parses some. */
@@ -52,9 +52,9 @@ function cssColor(THREE, name, fallback) {
 /**
  * host = {
  *   kind: "standalone" | "mcp",
- *   notes: { save(nodeId|null, text, revision) -> Promise<entries[]> },
+ *   notes: { save(nodeId|null, text, revision, sessionId) -> Promise<entries[]> },  // bound at edit time
  *   exportNotes(doc) | null,          // file export of the notes (standalone: download)
- *   resolveTexture(ref) -> Promise<data URI>,
+ *   loadGlb(payload) -> Promise<ArrayBuffer>,   // the review GLB of this payload's revision
  *   onSelection(info, fromUser), onNotesChanged(info), onAsk() | null, onRefresh() | null,
  * }
  */
