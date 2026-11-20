@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "studio": {
+      "command": "uv",
+      "args": ["run", "--project", "${PLUGIN_ROOT}", "python", "-m", "antigravity3d.runtime.mcp_server"],
+      "env": {
+        "AGY3D_POOL_SOCKET": "/tmp/agy3d/pool.sock"
+      }
+    }
+  }
+}

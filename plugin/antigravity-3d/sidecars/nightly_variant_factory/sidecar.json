@@ -1,0 +1,34 @@
+{
+  "builtin": "schedule",
+  "args": [
+    "CRON_TZ=UTC 17 2 * * *",
+    "agentapi",
+    "new-conversation",
+    "--model=gemini-4-carbon-medium",
+    "--title=antigravity-3d nightly variant factory",
+    "--",
+    "Nightly antigravity-3d variant factory. Read the variant queue at .agy3d/variants/queue.json in the workspace (a JSON list of {asset, stage, variants, target_engine}); if it is missing or empty, reply 'nothing queued' and stop. For each queued asset, create the requested number of variants as parameter-only Scene IR patches with apply_scene_ir on a copy of its USD stage (never edit the source stage), following the parametric-kitbash and pbr-material-forge skills. Gate every variant with the usd_verifier subagent; export only variants whose verdict is PASS (Tier-1 ok, Tier-1.5 >= 3.4) with export_engine_package. Finish with one line per variant: <asset>/<variant>: PASS|FAIL <tier15> <package path or blocker>."
+  ],
+  "restart_policy": "always",
+  "display_name": "antigravity-3d nightly variant factory",
+  "description": "Every night at 02:17 UTC, starts a conversation that turns the queued assets in .agy3d/variants/queue.json into QA-gated parametric variants and exports the ones that pass.",
+  "agent_permissions": {
+    "allows_user_interactions": false,
+    "access_grants": [
+      "mcp(antigravity-3d_studio/open_asset_session)",
+      "mcp(antigravity-3d_studio/set_stage)",
+      "mcp(antigravity-3d_studio/session_status)",
+      "mcp(antigravity-3d_studio/apply_scene_ir)",
+      "mcp(antigravity-3d_studio/inspect_manifest)",
+      "mcp(antigravity-3d_studio/undo_last_edit)",
+      "mcp(antigravity-3d_studio/render_preview)",
+      "mcp(antigravity-3d_studio/run_visual_qa)",
+      "mcp(antigravity-3d_studio/qa_probe)",
+      "mcp(antigravity-3d_studio/forge_pbr_material)",
+      "mcp(antigravity-3d_studio/apply_shader_diff)",
+      "mcp(antigravity-3d_studio/generate_lods_and_colliders)",
+      "mcp(antigravity-3d_studio/run_usd_validator)",
+      "mcp(antigravity-3d_studio/export_engine_package)"
+    ]
+  }
+}
