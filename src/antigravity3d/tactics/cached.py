@@ -146,11 +146,17 @@ def cached_derive_pbr(cache: BuildCache, albedo_png: bytes, *, metallic_hint: fl
 # --------------------------------------------------------------------------- UV / LOD / colliders
 
 
-def export_key(scene: SceneIR, budget: EngineBudget) -> str:
+def export_key(scene: SceneIR, budget: EngineBudget, meshes: list[MeshData] | None = None) -> str:
     # UVs/LODs/colliders do not depend on texture files, whose (workdir-specific) paths would defeat reuse
     scene = scene.model_copy(update={"materials": [m.model_copy(update={"albedo_uri": None, "orm_uri": None, "normal_uri": None}) for m in scene.materials]})
     roots = sorted(n.id for n in scene.nodes if n.parent is None)
-    return node_key("export.uv_lod_collider", inputs={"asset": scene.asset_name, "budget": asdict(budget)},
+    inputs = {"asset": scene.asset_name, "budget": asdict(budget)}
+    if meshes is not None and any(n.kind == "mesh_ref" for n in scene.nodes):
+        # The same external path can resolve to different geometry in another stage/run.
+        inputs["composed_meshes"] = [
+            (m.node_id, m.material_id, m.collider, hashlib.sha256(np.ascontiguousarray(m.points, dtype="<f8")).hexdigest(),
+             hashlib.sha256(np.ascontiguousarray(m.triangles, dtype="<i4")).hexdigest()) for m in meshes]
+    return node_key("export.uv_lod_collider", inputs=inputs,
                     upstream=[ir_subtree_key(scene, r) for r in roots], backend_version=BACKEND_VERSION)
 
 
@@ -188,7 +194,7 @@ def _bundle_from_bytes(data: bytes) -> ExportBundle:
 
 def cached_export_pipeline(cache: BuildCache, scene: SceneIR, meshes: list[MeshData], budget: EngineBudget) -> tuple[ExportBundle, bool]:
     """``run_export_pipeline`` behind the cache. The key covers IR content, so call it with meshes of that IR."""
-    data, hit = cached_bytes(cache, export_key(scene, budget), lambda: _bundle_to_bytes(run_export_pipeline(meshes, budget, scene.asset_name)))
+    data, hit = cached_bytes(cache, export_key(scene, budget, meshes), lambda: _bundle_to_bytes(run_export_pipeline(meshes, budget, scene.asset_name)))
     return _bundle_from_bytes(data), hit
 
 

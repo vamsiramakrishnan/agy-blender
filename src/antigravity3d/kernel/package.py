@@ -411,7 +411,7 @@ def write_engine_package(
     _clean_previous(out)
     notes: list[str] = []
 
-    stage_manager.author_uvs(uvs)
+    stage_manager.ensure_export_uvs(uvs)
     meshes = stage_manager.extract_meshes()
     xc = UsdGeom.XformCache()
     src_stage = stage_manager.stage

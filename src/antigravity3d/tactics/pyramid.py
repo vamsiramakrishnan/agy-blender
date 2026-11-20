@@ -28,7 +28,7 @@ from antigravity3d.genmedia.pbr_deriver import PBRMaps, delight, edge_wear, roug
 from antigravity3d.ir import (
     AssignMaterial, IRPatch, MaterialIR, RemoveNode, SceneIR, SetParam, SetTransform, UpsertMaterial, UpsertNode, apply_patch,
 )
-from antigravity3d.kernel.fast_ops import ExportBundle, run_export_pipeline, tier1_qa, unwrap_scene
+from antigravity3d.kernel.fast_ops import ExportBundle, run_export_pipeline, tier1_qa
 from antigravity3d.kernel.lod_diff import PopThresholds, lod_pop_report
 from antigravity3d.kernel.raster import CLAY, render_buffers
 from antigravity3d.kernel.settle import settle
@@ -236,6 +236,9 @@ class _Run:
         self.maps: dict[str, PBRMaps] = {}
         self.render_png: bytes | None = None
         self.locate_noted = False
+        self.bundle_revision: tuple[str, ...] | None = None
+        self.export_bundle: ExportBundle | None = None
+        self.bundle_cache_hit: bool | None = None
 
     # ---- bookkeeping --------------------------------------------------------------------------------
 
@@ -441,8 +444,20 @@ class _Run:
             t[mid] = tuple(float(x) for x in np.asarray(m.albedo.convert("RGB"), np.float32).reshape(-1, 3).mean(0) / 255.0)  # type: ignore[assignment]
         return t
 
+    async def prepare_export_bundle(self) -> ExportBundle:
+        revision = tuple(self.sm.tx_stack)
+        if self.export_bundle is None or self.bundle_revision != revision:
+            meshes, scene = self.sm.extract_meshes(), self.sm.scene_ir()
+            if self.cache is None:
+                self.export_bundle = await asyncio.to_thread(run_export_pipeline, meshes, self.budget, scene.asset_name)
+            else:
+                self.export_bundle, self.bundle_cache_hit = await asyncio.to_thread(
+                    cached_export_pipeline, self.cache, scene, meshes, self.budget)
+            self.bundle_revision = revision
+        self.sm.ensure_export_uvs(self.export_bundle.uvs)
+        return self.export_bundle
+
     async def render_lookdev(self) -> tuple[bytes, str]:
-        meshes = self.sm.extract_meshes()
         engine = self.governor.plan.final_render
         if self.require_verified and engine == "preview":
             engine = "eevee"
@@ -453,9 +468,7 @@ class _Run:
             self.note_tier("preview (pool is fake: no real Blender)")
         else:
             try:
-                if not self.sm.has_uvs():
-                    uvs = await asyncio.to_thread(unwrap_scene, meshes, self.budget)
-                    self.sm.author_uvs(uvs)
+                await self.prepare_export_bundle()
                 with tempfile.TemporaryDirectory(prefix="lookdev-", dir=self.workdir) as td:
                     usd = Path(td) / "scene.usdc"
                     self.sm.export(usd)
@@ -470,7 +483,7 @@ class _Run:
             except Exception as e:  # noqa: BLE001 - fall back to the preview rasteriser
                 self.note_tier(f"preview (Blender render failed: {type(e).__name__}: {e})")
         self.res.render_tier = "preview"
-        return png_bytes(preview_sheet(meshes, self.tint())), "preview"
+        return png_bytes(preview_sheet(self.sm.extract_meshes(), self.tint())), "preview"
 
     def note_tier(self, why: str) -> None:
         if not any(s.name == "render_tier" for s in self.res.steps):
@@ -581,10 +594,8 @@ class _Run:
 
         async def export() -> tuple[str, str]:
             nonlocal bundle
-            if self.cache is not None:
-                bundle, hit = await asyncio.to_thread(cached_export_pipeline, self.cache, scene, meshes, budget)
-            else:
-                bundle, hit = await asyncio.to_thread(run_export_pipeline, meshes, budget, scene.asset_name), None
+            bundle = await self.prepare_export_bundle()
+            hit = self.bundle_cache_hit
             res.objects["bundle"] = bundle
             levels = [sum(len(v[k].triangles) for v in bundle.lods.values()) for k in range(min((len(v) for v in bundle.lods.values()), default=0))]
             bad = [u.node_id for u in bundle.uvs if not u.within(budget)]

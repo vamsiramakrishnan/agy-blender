@@ -85,6 +85,7 @@ class StageManager:
         self._txs: list[tuple[str, Sdf.Layer]] = []  # bottom -> top; holds layers alive
         self._spatial: SpatialIndex | None = None
         self._spatial_listener = None
+        self._export_layout: Sequence[UVResult] | None = None
         self._overlay: Sdf.Layer | None = None  # UV overlay, see module docstring
 
     # --- construction ----------------------------------------------------------
@@ -358,6 +359,7 @@ class StageManager:
     # --- UV overlay ----------------------------------------------------------
 
     def _clear_overlay(self) -> None:
+        self._export_layout = None
         if self._overlay is not None and not self._overlay.empty:
             self._overlay.Clear()
 
@@ -431,11 +433,19 @@ class StageManager:
                 raise ValueError(f"UV result for {res.node_id!r} does not match stage mesh {r.mesh.prim_path}")
             if len(res.vmapping) and res.vmapping.max() >= len(r.local):
                 raise ValueError(f"UV result for {res.node_id!r} indexes past the stage mesh's vertices")
+        self._export_layout = None
         with Usd.EditContext(self._stage, self._overlay_layer()):
             for r, res in zip(reads, results):
                 author_mesh_data(
                     r.prim, r.local[res.vmapping], res.triangles, res.uvs, weld_map=res.vmapping, normals=normals
                 )
+
+        self._export_layout = results if normals else None
+
+    def ensure_export_uvs(self, results: Sequence[UVResult]) -> None:
+        """Bind this bundle's atlas even when the imported mesh already has source UVs."""
+        if self._export_layout is not results:
+            self.author_uvs(results)
 
     def has_uvs(self) -> bool:
         """True when every active mesh carries a ``primvars:st`` with a value per point."""

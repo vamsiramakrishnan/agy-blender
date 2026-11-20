@@ -89,7 +89,7 @@ async def _commit(s: Session, apply: Callable[[], str]) -> tuple[str | None, Tie
     Caller holds the session lock. Returns (tx id or None if rolled back, report).
     """
     cached = s._res("bundle")
-    restore_uvs = cached is not None and cached[0] == s.geom_version
+    restore_uvs = cached is not None and cached[0] == (s.geom_version, s.state.budget)
     tid = None
     try:
         tid = apply()
@@ -475,8 +475,7 @@ async def render_lookdev(ctx: ToolContext, engine: str = "eevee") -> str:
         async with s.registry.locked(s.sid):
             version = s.geom_version
             texture_hash = s.texture_digest()
-            if any(getattr(m, key) for m in s.stage.base_ir().materials for key in MAP_KEYS) and not s.stage.has_uvs():
-                await _bundle(s)
+            await _bundle(s)
             s.stage.export(src)
         res = await s.pool.call("render_usd", path=str(src), engine=engine, width=512, height=512, transparent=True)
     finally:
@@ -507,14 +506,14 @@ async def render_lookdev(ctx: ToolContext, engine: str = "eevee") -> str:
 async def _bundle(s: Session) -> ExportBundle:
     # Caller owns the session lock. Only detached mesh arrays go to the native worker thread.
     cached = s._res("bundle")
-    if cached and cached[0] == s.geom_version:
+    revision = (s.geom_version, s.state.budget)
+    if cached and cached[0] == revision:
         bundle = cached[1]
     else:
         bundle = await asyncio.to_thread(run_export_pipeline, s.stage.extract_meshes(), s.state.budget,
                                          s.stage.asset_prim.GetName())
-        s._set("bundle", (s.geom_version, bundle))
-    if not s.stage.has_uvs():
-        s.stage.author_uvs(bundle.uvs)
+        s._set("bundle", (revision, bundle))
+    s.stage.ensure_export_uvs(bundle.uvs)
     return bundle
 
 

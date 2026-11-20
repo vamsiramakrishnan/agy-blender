@@ -74,12 +74,14 @@ jobs:
           fi
       - name: Test native workers, engine imports, rendered frames and inspector channels
         run: |
-          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_blender_shim.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py
+          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_blender_shim.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py
           python - <<'PYTHON'
           import xml.etree.ElementTree as ET
           required = {"test_three_worker_mixed_asset_soak", "test_reviewed_upstream_primitives",
                       "test_ten_relocated_golden_packages_load_in_stock_godot",
                       "test_ten_relocated_golden_dcc_engine_silhouettes",
+                      "test_staged_lookdev_and_export_share_one_imported_mesh_atlas",
+                      "test_refinement_lookdev_fixer_and_verification_reuse_the_same_atlas",
                       "test_browser_channels_canvas_and_budget", "test_exported_inspector_opens_with_browser_offline"}
           passed = {c.get("name") for c in ET.parse("/tmp/engine-qualification.xml").iter("testcase")
                     if not any(c.find(tag) is not None for tag in ("skipped", "error", "failure"))}
