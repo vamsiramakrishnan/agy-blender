@@ -37,6 +37,54 @@ class MaterialIR(_Model):
     normal_convention: Literal["opengl", "directx"] = "opengl"
 
 
+PositiveFloat = Annotated[float, Field(gt=0, allow_inf_nan=False)]
+NonNegativeFloat = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+
+
+class BoxParams(_Model):
+    size: tuple[PositiveFloat, PositiveFloat, PositiveFloat] = Field(description="full extents x, y, z")
+
+
+class CylinderParams(_Model):
+    radius: PositiveFloat
+    height: PositiveFloat
+    segments: int = Field(24, ge=3)
+
+
+class ConeParams(_Model):
+    radius: PositiveFloat = Field(description="base radius; base at -height/2, apex at +height/2")
+    height: PositiveFloat
+    segments: int = Field(24, ge=3)
+
+
+class SphereParams(_Model):
+    radius: PositiveFloat
+    segments: int = Field(24, ge=3)
+    rings: int = Field(12, ge=2)
+
+
+class CapsuleParams(_Model):
+    radius: PositiveFloat
+    height: NonNegativeFloat = Field(description="length of the cylinder part, caps excluded")
+    segments: int = Field(16, ge=3)
+
+
+class MeshRefParams(_Model):
+    path: str = Field(min_length=1, description="glTF/OBJ/PLY/USD file to reference")
+
+
+class GroupParams(_Model):
+    """No params: a pure transform parent."""
+
+
+# Typed ``NodeIR.params`` per kind: what the kernel (``kernel/compile_ir.py``) reads. ``NodeIR.params`` itself stays a
+# free-form dict for backward compatibility; the model-facing schema (``antigravity3d.ir_schema``) is built from this.
+NODE_PARAMS: dict[str, type[_Model]] = {
+    "box": BoxParams, "cylinder": CylinderParams, "cone": ConeParams, "sphere": SphereParams,
+    "capsule": CapsuleParams, "mesh_ref": MeshRefParams, "group": GroupParams,
+}
+
+
 class NodeIR(_Model):
     """One scene node. Primitives are centred on their local origin.
 

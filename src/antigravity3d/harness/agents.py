@@ -33,13 +33,9 @@ COMPACTION_TOKENS = 48_000
 TOOL_OUTPUT_MAX_TOKENS = 1_500  # backstop; harness tools already return one-liners
 STAGE_BUILTINS = [types.BuiltinTools.FINISH, types.BuiltinTools.VIEW_FILE, types.BuiltinTools.INVOKE_SUBAGENT]
 
-_IR_RULES = """Scene IR (metres, Z-up, right-handed, rotations XYZ Euler degrees). Primitives are centred on their local origin:
-box params.size=[x,y,z] full extents; cylinder radius,height[,segments=24] axis local Z; cone radius,height (base -h/2, apex +h/2);
-sphere radius[,segments,rings]; capsule radius,height; group = transform-only parent; mesh_ref params.path = local asset path. node: {"id","kind","params","transform":
-{"translate","rotate_euler_deg","scale"},"parent","material_id","collider"}; ids match [A-Za-z_][A-Za-z0-9_]*.
-Ops: {"op":"upsert_node","node":{...}}, remove_node{node_id}, set_transform{node_id,transform}, set_param{node_id,name,value},
-upsert_material{material:{id,base_color,metallic,roughness}}, assign_material{node_id,material_id}, on_top_of{node_id,target_id,gap_m}, flush_back{node_id,target_id,gap_m}.
-Anchors use world AABBs. on_top_of centres X/Y and aligns bottom to target top. flush_back aligns +Y faces. gap_m defaults to 0. For ground contact use z = half the primitive height."""
+from antigravity3d.ir_schema import ir_rules_text  # noqa: E402 - the IR rules are generated from the IR schema
+
+_IR_RULES = ir_rules_text()
 
 _STAGE_TEXT: dict[str, str] = {
     "BLOCKOUT": "Build the asset's blockout from primitives with apply_scene_ir (one patch can hold many ops). Each edit is "

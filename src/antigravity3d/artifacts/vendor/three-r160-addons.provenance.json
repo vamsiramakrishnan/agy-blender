@@ -1,0 +1,32 @@
+{
+ "package": "three@0.160.0",
+ "source": "npm registry, fetched with 'npm pack three@0.160.0'",
+ "tarball_integrity": "sha512-DLU8lc0zNIPkM7rH5/e1Ks1Z8tWCGRq6g8mPowdDJpw1CFBJMU7UoJjC6PefXW7z//SSl0b2+GCw14LB+uDhng==",
+ "tarball_sha1": "cd1e4dbd01aee0719280a9086d75545db52b7a8f",
+ "files": {
+  "GLTFLoader-r160.js.gz": {
+   "npm_path": "package/examples/jsm/loaders/GLTFLoader.js",
+   "sha256_uncompressed": "d073b438e6a07e1359741dd5d6c76c953420cc0d4fd84eb1bdde94315540e6a3",
+   "bytes_uncompressed": 108522,
+   "sha256_gz": "4a3b54120fa1961d693be17e1cc92222cad2e351ff7a7f079d7d97d636b43235"
+  },
+  "BufferGeometryUtils-r160.js.gz": {
+   "npm_path": "package/examples/jsm/utils/BufferGeometryUtils.js",
+   "sha256_uncompressed": "9be041e96308775d00e2695cc607645b9a9b64fd7c0e759dd8f7c00a8d92becb",
+   "bytes_uncompressed": 31906,
+   "sha256_gz": "0c20e5f8b0a31a01747f9aea09feb825bbec0a6158ed3ae45fdfd923133d1e8c"
+  },
+  "three-r160.module.min.js.gz": {
+   "npm_path": "package/build/three.module.min.js",
+   "sha256_uncompressed": "3e690ac7d180b0aadf0891bea39eec643e29e2d3e75c99b18689518665f69ba6",
+   "bytes_uncompressed": 670681,
+   "sha256_gz": "f8b4ac843494bb8df21d9d53dcf1a6a1a354434192deb2d6c8601d49b66d816b",
+   "note": "pre-existing vendored file; verified byte-identical to the npm build"
+  }
+ },
+ "license": {
+  "file": "THREE-0.160.0-npm-LICENSE.txt",
+  "npm_path": "package/LICENSE",
+  "sha256": "852e0e8699169bf9f6fdc6bda3e682d078dcbc738b5d33e74df594721bff271d"
+ }
+}

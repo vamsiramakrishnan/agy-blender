@@ -583,28 +583,28 @@ def write_gltf(
     *,
     materials: Sequence | None = None,
 ) -> Path:
-    """Writes a GLB. Our world is Z-up; glTF is Y-up, so (x,y,z) -> (x,z,-y) unless y_up=False."""
-    import trimesh
-    from trimesh.visual import TextureVisuals
-    from trimesh.visual.material import PBRMaterial
+    """Writes a GLB. Our world is Z-up; glTF is Y-up, so (x,y,z) -> (x,z,-y) unless y_up=False.
 
-    default_material = PBRMaterial(name="Default", baseColorFactor=[0.5, 0.5, 0.5, 1.0],
-                                   metallicFactor=0.0, roughnessFactor=0.5)
-    path = Path(path)
-    scene = trimesh.Scene()
+    ``materials`` holds one ``gltf_writer.GltfMaterial`` (or None) per item; images inside are embedded as the
+    bytes they already hold (see kernel/gltf_writer.py). Items with UVs and no material get a grey default.
+    """
+    from antigravity3d.kernel import gltf_writer as gw
+
+    default_material = gw.GltfMaterial(name="Default", base_color_factor=(0.5, 0.5, 0.5, 1.0),
+                                       metallic_factor=0.0, roughness_factor=0.5)
+    meshes = []
     for i, it in enumerate(items):
         uv = getattr(it, "uvs", None)
         p = np.asarray(it.points, dtype=np.float64)
         if y_up:
-            p = np.stack([p[:, 0], p[:, 2], -p[:, 1]], axis=1)
-        tm = trimesh.Trimesh(p, np.asarray(it.triangles), process=False)
+            p = gw.z_up_to_y_up(p)
+        material = None
         if uv is not None:
             material = materials[i] if materials and materials[i] is not None else default_material
-            tm.visual = TextureVisuals(uv=np.asarray(uv, dtype=np.float64), material=material)
+            uv = gw.flip_v(uv)
         name = names[i] if names else getattr(it, "name", None) or getattr(it, "node_id", None) or f"mesh_{i}"
-        scene.add_geometry(tm, node_name=name, geom_name=name)
-    path.write_bytes(scene.export(file_type="glb"))
-    return path
+        meshes.append(gw.GltfMesh(name, p, np.asarray(it.triangles), uv, material))
+    return gw.write_glb(path, meshes)
 
 
 def compress_texture_ktx2(png_path: str | Path, out_path: str | Path, mode: Literal["uastc", "etc1s"] = "uastc") -> Path | None:

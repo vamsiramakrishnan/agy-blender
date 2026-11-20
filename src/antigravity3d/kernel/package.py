@@ -41,11 +41,11 @@ from typing import Any, Mapping
 import numpy as np
 from PIL import Image
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, UsdUtils
-from trimesh.visual.material import PBRMaterial
 
 from antigravity3d.artifacts.inspector import InspectorQA, InspectorTextures, build_inspector, bundled_three_js
 from antigravity3d.kernel.compile_ir import author_mesh_data, set_normal_encoding
 from antigravity3d.kernel.fast_ops import ExportBundle, Hull, Issue, LOD, UVResult, write_gltf
+from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, TextureRef
 from antigravity3d.kernel.types import MeshData, gltf_world_bounds
 from antigravity3d.kernel.validator import (
     ENGINE_RULES,
@@ -250,8 +250,18 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[di
     return records, unresolved
 
 
+def _inspector_png(image: EncodedImage) -> bytes:
+    """The inspector labels its images PNG: PNG bytes pass through unchanged, a JPEG is transcoded once."""
+    if image.mime_type == "image/png":
+        return image.data
+    buf = io.BytesIO()
+    with Image.open(io.BytesIO(image.data)) as im:
+        im.convert("RGB").save(buf, "PNG")
+    return buf.getvalue()
+
+
 def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict[str, list[str]],
-                     materials: dict[str, PBRMaterial], suffix: str) -> None:
+                     materials: dict[str, GltfMaterial], suffix: str) -> None:
     items = []
     bound = []
     for nodes in batches.values():
@@ -268,16 +278,19 @@ def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict
 
 
 def _glb_materials(stage: Usd.Stage, meshes: list[MeshData], out: Path, records: list[dict]) -> dict:
-    """Build glTF metallic-roughness bindings from the selected, composed USD materials."""
-    images = {}
-    maps = {}
+    """Build glTF metallic-roughness bindings from the selected, composed USD materials.
+
+    Each distinct texture file in ``textures/`` is read once and embedded as the bytes it holds (no decode, no
+    re-encode), so the GLB image is bit-identical to the file the USD references. The ORM map is one
+    ``TextureRef`` shared by the occlusion and metallic-roughness slots.
+    """
+    files: dict[str, EncodedImage] = {}
+    maps: dict[str, dict[str, TextureRef]] = {}
     for record in records:
         key = record["usd_path"]
-        if key not in images:
-            with Image.open(out / key) as im:
-                image = im.convert("RGBA" if record["role"] == "albedo" and ("A" in im.getbands() or "transparency" in im.info) else "RGB")
-            images[key] = image
-        maps.setdefault(record["material"], {})[record["role"]] = images[key]
+        if key not in files:
+            files[key] = EncodedImage.from_file(out / key)
+        maps.setdefault(record["material"], {})[record["role"]] = TextureRef(files[key])
 
     by_path = {}
     by_node = {}
@@ -290,12 +303,12 @@ def _glb_materials(stage: Usd.Stage, meshes: list[MeshData], out: Path, records:
             shader, _, _ = mat.ComputeSurfaceSource()
             tex = maps.get(path.name, {})
             color = [1.0] * 3 if "albedo" in tex else list(shader.GetInput("diffuseColor").Get())
-            by_path[path] = PBRMaterial(
-                name=path.name, baseColorFactor=[*color, 1.0], baseColorTexture=tex.get("albedo"),
-                normalTexture=tex.get("normal"), occlusionTexture=tex.get("orm"),
-                metallicRoughnessTexture=tex.get("orm"),
-                metallicFactor=1.0 if "orm" in tex else shader.GetInput("metallic").Get(),
-                roughnessFactor=1.0 if "orm" in tex else shader.GetInput("roughness").Get(),
+            by_path[path] = GltfMaterial(
+                name=path.name, base_color_factor=(*color, 1.0), base_color_texture=tex.get("albedo"),
+                normal_texture=tex.get("normal"), occlusion_texture=tex.get("orm"),
+                metallic_roughness_texture=tex.get("orm"),
+                metallic_factor=1.0 if "orm" in tex else shader.GetInput("metallic").Get(),
+                roughness_factor=1.0 if "orm" in tex else shader.GetInput("roughness").Get(),
             )
         by_node[mesh.node_id] = by_path[path]
     return by_node
@@ -491,12 +504,10 @@ def write_engine_package(
         if material.name in inspector_maps:
             continue
         slots = {}
-        for role, image in (("albedo", material.baseColorTexture), ("orm", material.metallicRoughnessTexture),
-                            ("normal", material.normalTexture)):
-            if image is not None:
-                buf = io.BytesIO()
-                image.save(buf, "PNG")
-                slots[role + "_png"] = buf.getvalue()
+        for role, ref in (("albedo", material.base_color_texture), ("orm", material.metallic_roughness_texture),
+                          ("normal", material.normal_texture)):
+            if ref is not None:
+                slots[role + "_png"] = _inspector_png(ref.image)  # the embedded bytes: nothing is re-encoded
         inspector_maps[material.name] = InspectorTextures(**slots)
     merged = merged_lods(ExportBundle(asset_name, uvs, lods, hulls))
     viewer = build_inspector(inspector_meshes, asset_name=asset_name, budget=budget, textures=inspector_maps,
