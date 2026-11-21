@@ -207,7 +207,9 @@ python -m pytest -q -m "not live and not blender"
 
 Integration markers include:
 
-- `live`: needs `GEMINI_API_KEY` and network access.
+- `live`: real model calls and image generations (a stage-agent session, a judge call, a 2K image). They run only when
+  asked for, with `--run-live` or `AGY3D_RUN_LIVE=1`, and need `GEMINI_API_KEY`. A key in the environment alone does
+  not run them, so a plain `pytest` never spends quota.
 - `blender`: needs a Blender 5.3 or newer binary on `PATH` or in `$BLENDER_BIN`. Set `AGY3D_BLENDER_SOAK=1` to run the 300-render isolation test.
 - `browser`: needs Playwright and Chromium. The inspector tests also need `AGY3D_THREE_JS` pointing to Three.js 0.160.0; the package verifier uses the copy vendored in the wheel. The qualification workflow supplies all of it on a Linux software-rendering runner.
 
