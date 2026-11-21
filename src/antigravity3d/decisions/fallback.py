@@ -23,9 +23,12 @@ import logging
 import math
 import os
 import re
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+from antigravity3d import service_answer
 
 from .models import DecisionError
 
@@ -296,6 +299,15 @@ class _Blocked(Exception):
         self.reason, self.detail = reason, detail
 
 
+@dataclass
+class _Dispatches:
+    """What happened to the generate_content dispatches of one ``create``: how many returned an answer, and the
+    ``service_answer`` outcome of each that failed."""
+
+    served: int = 0
+    failed: list[tuple[str, BaseException]] = field(default_factory=list)
+
+
 class GenerativeDecisionsBackend:
     """Drop-in for the genai client's `.aio.decisions.create`, answered by `generate_content`.
 
@@ -326,16 +338,25 @@ class GenerativeDecisionsBackend:
             raise ValueError("create() needs at least one question")
         chunks = self._chunks(questions)
         sem = asyncio.Semaphore(self.max_concurrency)
+        seen = _Dispatches()
 
         async def run(c: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], Usage]:
             async with sem:
-                return await self._answer_chunk(input, c)
+                return await self._answer_chunk(input, c, seen)
 
-        try:
-            done = await asyncio.gather(*(run(c) for c in chunks))
-        except _Blocked as b:
-            fb = type("PromptFeedback", (), {"block_reason": b.reason, "block_reason_message": b.detail})()
+        # Every chunk is awaited, so what each dispatch did is known before this call says how it ended. A cancellation
+        # still cancels every chunk (gather) and propagates.
+        results = await asyncio.gather(*(run(c) for c in chunks), return_exceptions=True)
+        errors = [r for r in results if isinstance(r, BaseException)]
+        for e in errors:
+            if not isinstance(e, Exception):
+                raise e
+        if blocked := next((e for e in errors if isinstance(e, _Blocked)), None):
+            fb = type("PromptFeedback", (), {"block_reason": blocked.reason, "block_reason_message": blocked.detail})()
             return GenerativeDecisionResponse({}, Usage(), None, self.model, prompt_feedback=fb, n_chunks=len(chunks))
+        if errors:
+            raise self._failure(errors, seen)
+        done = results
         answers: dict[str, dict[str, Any]] = {}
         usage = Usage()
         for a, u in done:
@@ -345,6 +366,26 @@ class GenerativeDecisionsBackend:
             usage.thoughts_tokens += u.thoughts_tokens
         cost = cost_usd(self.model, usage.total_input_tokens, usage.total_output_tokens)
         return GenerativeDecisionResponse(answers, usage, cost, self.model, n_chunks=len(chunks), thinking_level=self.thinking_level)
+
+    @staticmethod
+    def _failure(errors: list[BaseException], seen: _Dispatches) -> BaseException:
+        """The exception one failed ``create`` raises. The engine books an attempt by it: a not-served answer books
+        nothing, so it is raised as such only when NO dispatch of this call was served and every failed one was turned
+        away. When some were served (their usage is lost with the call) or the failures differ, the outcome of the call is
+        unknown and its whole reservation is kept (``OutcomeUnknown``, which says how many were served and turned away)."""
+        first = errors[0]
+        outcomes = [o for o, _ in seen.failed]
+        turned_away = outcomes.count("not_served")
+        if not seen.failed:
+            return first  # a failure after an answer (unparseable, truncated) or before any dispatch: as it always was
+        if final := next((e for o, e in seen.failed if o == "final"), None):
+            return final  # a request the service refused (a client error) or that ran out its deadline: as it always was
+        if seen.served == 0 and len(errors) == len(seen.failed) and len(set(outcomes)) == 1:
+            return first  # every dispatch failed the same way and none was served: the engine classifies it as it is
+        return service_answer.OutcomeUnknown(
+            f"{len(seen.failed)} of {seen.served + len(seen.failed)} judge dispatch(es) failed ({turned_away} turned away by "
+            f"the service), {seen.served} served: {service_answer.describe(first)}", cause=first, served=seen.served,
+            failed=len(seen.failed), turned_away=turned_away)
 
     def _chunks(self, questions: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
         items = list(questions.items())
@@ -380,11 +421,12 @@ class GenerativeDecisionsBackend:
             total += (n + above_default + unseen + JUDGE_MAX_OUTPUT_TOKENS) * (self.max_parse_retries + 1)
         return total
 
-    async def _answer_chunk(self, input_blocks: Any, questions: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], Usage]:
+    async def _answer_chunk(self, input_blocks: Any, questions: dict[str, Any],
+                            seen: _Dispatches | None = None) -> tuple[dict[str, dict[str, Any]], Usage]:
         total = Usage()
         last: Exception | None = None
         for attempt in range(self.max_parse_retries + 1):
-            text, u = await self._generate(input_blocks, questions)
+            text, u = await self._generate(input_blocks, questions, seen)
             total.total_input_tokens += u.total_input_tokens
             total.total_output_tokens += u.total_output_tokens
             total.thoughts_tokens += u.thoughts_tokens
@@ -395,8 +437,11 @@ class GenerativeDecisionsBackend:
                 log.warning("generative fallback: unusable answer (%s); %s", e, "retrying" if attempt < self.max_parse_retries else "giving up")
         raise MalformedGenerativeAnswer(f"{last} (after {self.max_parse_retries + 1} attempts)") from last
 
-    async def _generate(self, input_blocks: Any, questions: dict[str, Any]) -> tuple[str | None, Usage]:
+    async def _generate(self, input_blocks: Any, questions: dict[str, Any],
+                        seen: _Dispatches | None = None) -> tuple[str | None, Usage]:
         from google.genai import errors, types
+
+        seen = seen if seen is not None else _Dispatches()
 
         while True:
             parts = blocks_to_parts(input_blocks, honor_resolution=self._honor_resolution)
@@ -407,9 +452,16 @@ class GenerativeDecisionsBackend:
                 thinking_config=types.ThinkingConfig(thinking_level=getattr(types.ThinkingLevel, self.thinking_level)),
                 max_output_tokens=JUDGE_MAX_OUTPUT_TOKENS,
                 http_options=types.HttpOptions(timeout=int(self.timeout_s * 1000)))
+            sent = time.monotonic()
             try:
-                resp = await self._client.aio.models.generate_content(
-                    model=self.model, contents=[types.Content(role="user", parts=parts)], config=cfg)
+                try:
+                    resp = await self._client.aio.models.generate_content(
+                        model=self.model, contents=[types.Content(role="user", parts=parts)], config=cfg)
+                except Exception as e:
+                    if not (isinstance(e, errors.ClientError) and getattr(e, "code", None) == 400):  # a 400 is retried below or raised
+                        seen.failed.append((service_answer.classify(e, time.monotonic() - sent, deadline_s=self.timeout_s), e))
+                    raise
+                seen.served += 1
             except errors.ClientError as e:
                 msg = str(e).lower()
                 if getattr(e, "code", None) == 400 and "thinking level" in msg and self.thinking_level in _THINKING_LADDER[:-1]:

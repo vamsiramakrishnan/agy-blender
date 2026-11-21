@@ -28,7 +28,7 @@ from typing import Any, Callable, Literal
 
 from google.genai import types
 
-from antigravity3d import ir_schema
+from antigravity3d import ir_schema, service_answer
 from antigravity3d.decisions.fallback import PRICE_TABLE_USD_PER_M
 from antigravity3d.ir import IRPatch, SceneIR
 from antigravity3d.kernel.kit_metric import context_brief
@@ -118,6 +118,10 @@ AUTHOR_TIMEOUT_S: dict[str, float] = {"worker": 90.0, "bulk": 90.0, "builder": 5
 # tokens (0.64 and 0.61 per byte). The repair schema was measured only in the older, larger spelling (9,939 bytes ->
 # 7,066 tokens, 0.71/byte; 9,289 bytes now). 1.0 bounds all of them.
 SCHEMA_INPUT_TOKENS_PER_BYTE = 1.0
+# Retries of an authoring attempt whose outcome is unknown (a broken connection, a 500): each keeps its whole
+# reservation (an argon repair reserved 45,486 tokens of a 210,000 ceiling live), so one. A request the service said it
+# did not serve books nothing and follows the shared schedule (service_answer.DEFAULT_POLICY).
+AUTHOR_UNKNOWN_RETRIES = 1
 
 
 def output_budget(role: str) -> OutputBudget:
@@ -155,6 +159,19 @@ class AuthorTimedOut(AuthorOutcomeError):
 
 class AuthorInvalid(AuthorOutcomeError, ValueError):
     """A complete answer that does not parse or validate. Billed usage is booked."""
+
+
+class AuthorUnavailable(AuthorOutcomeError):
+    """The service gave no answer after the shared retry schedule (``service_answer``): it said it did not serve the
+    request (503 UNAVAILABLE, 429 RESOURCE_EXHAUSTED), or failed on its side (500, 502), or the connection broke.
+    ``attempts``: every failed attempt with its outcome and the wait after it. ``nothing_booked``: every attempt was
+    turned away, so the ledger holds nothing for this call; otherwise the attempts that may have run kept their
+    reservation."""
+
+    def __init__(self, message: str, *, attempts: list[dict[str, Any]], nothing_booked: bool, code: int | None,
+                 status: str | None, **meta: Any) -> None:
+        super().__init__(message, **meta)
+        self.attempts, self.nothing_booked, self.code, self.status = attempts, nothing_booked, code, status
 
 
 @dataclass(frozen=True)
@@ -272,11 +289,7 @@ def usage_tokens(response: Any) -> dict[str, int] | None:
 
 def is_timeout(exc: BaseException) -> bool:
     """A request timeout from asyncio, httpx / httpcore, or the API's own 504 DEADLINE_EXCEEDED."""
-    if isinstance(exc, TimeoutError):
-        return True
-    if any("Timeout" in cls.__name__ for cls in type(exc).__mro__):
-        return True
-    return getattr(exc, "code", None) == 504 or getattr(exc, "status", None) == "DEADLINE_EXCEEDED"
+    return service_answer.is_timeout(exc)
 
 
 def author_timeout(role: str) -> float:
@@ -299,7 +312,7 @@ def expected_output_tokens(role: str) -> int:
 @dataclass(frozen=True)
 class CandidateOutcome:
     """What happened to one requested candidate. ``status``: produced, not_admitted, truncated, no_answer, invalid,
-    timed_out or error."""
+    timed_out, unavailable (no answer from the service after the shared retry schedule) or error."""
 
     index: int
     status: str
@@ -309,6 +322,8 @@ class CandidateOutcome:
     admission_wait_s: float = 0.0
     reserved_usd: float | None = None
     reserved_tokens: float | None = None  # token ledgers only (then reserved_usd stays None)
+    # the failed attempts before the outcome, each with the service's answer and the wait after it (service_answer)
+    service_retries: list[dict[str, Any]] | None = None
 
     @property
     def produced(self) -> bool:
@@ -318,7 +333,16 @@ class CandidateOutcome:
         d = asdict(self)
         if self.reserved_tokens is None:  # a money outcome keeps exactly the keys it always had
             del d["reserved_tokens"]
+        if not self.service_retries:  # only when there was a retry
+            del d["service_retries"]
         return d
+
+
+def outcome_status(exc: BaseException) -> str:
+    """The candidate-outcome status of an authoring failure."""
+    return ("not_admitted" if isinstance(exc, BudgetExceeded) else "truncated" if isinstance(exc, AuthorTruncated)
+            else "timed_out" if isinstance(exc, AuthorTimedOut) else "unavailable" if isinstance(exc, AuthorUnavailable)
+            else "no_answer" if isinstance(exc, AuthorNoAnswer) else "invalid" if isinstance(exc, AuthorInvalid) else "error")
 
 
 @dataclass(frozen=True)
@@ -369,9 +393,14 @@ class MeteredAuthor:
     """
 
     def __init__(self, client: Any, governor: Governor, budget: EngineBudget, context: dict, *,
-                 timeout_s: float | None = None) -> None:
+                 timeout_s: float | None = None, retry: service_answer.RetryPolicy | None = None) -> None:
         self.client, self.governor, self.budget = client, governor, budget
         self.context, self.timeout_s = dict(context), timeout_s
+        # None: the shared schedule (service_answer.DEFAULT_POLICY, read at call time) with AUTHOR_UNKNOWN_RETRIES
+        self.retry = retry
+        # Retries of an attempt whose outcome is unknown; a caller with a recovery round of its own (a kit) sets 0.
+        self.unknown_retries = AUTHOR_UNKNOWN_RETRIES
+        self.last_service_retries: list[dict[str, Any]] = []  # the failed attempts of the latest repair (waits included)
 
     def timeout_for(self, role: str) -> float:
         return author_timeout(role) if self.timeout_s is None else self.timeout_s
@@ -404,8 +433,25 @@ class MeteredAuthor:
         tokens = self.governor.unit == "tokens"  # a token ledger: worst case and booking in tokens, no price applied
         pin, pout = (None, None) if tokens else _rates(req.model)
         api = self.client.aio.models
-        counted = await api.count_tokens(model=req.model, contents=req.contents,
-                                         config=types.CountTokensConfig(http_options=req.config.http_options))
+        policy = self.retry or service_answer.DEFAULT_POLICY.with_unknown_retries(self.unknown_retries)
+        deadline_s = req.config.http_options.timeout / 1000
+        tracker = service_answer.Tracker(policy)
+        while True:  # counting is free: a count the service turned away, or whose connection broke, is asked again
+            sent = time.monotonic()
+            try:
+                counted = await api.count_tokens(model=req.model, contents=req.contents,
+                                                 config=types.CountTokensConfig(http_options=req.config.http_options))
+                break
+            except Exception as exc:
+                elapsed = time.monotonic() - sent
+                outcome = service_answer.classify(exc, elapsed, deadline_s=deadline_s)
+                if outcome == "unknown":
+                    outcome = "not_served"  # nothing is billed for counting, whatever happened to it
+                if outcome == "final" or not await tracker.failed(exc, elapsed, outcome):
+                    if outcome == "final":
+                        raise
+                    raise self._unavailable(req, exc, tracker, "counting its input", booked_any=False) from exc
+        trace["service_retries"] = tracker.record()
         n = counted.total_tokens
         if not isinstance(n, int) or n <= 0:
             raise BudgetExceeded(f"no input token count for {req.model}")
@@ -427,25 +473,57 @@ class MeteredAuthor:
                                    "answer_tokens": req.budget.answer_tokens, "thinking_tokens_allowed": req.budget.thinking_tokens}
         if not tokens:
             receipt.update(input_usd_per_m=pin, output_usd_per_m=pout)
-        t0 = time.monotonic()
-        try:
-            # Waits for outstanding reservations to settle; fails at once only when this can never fit the ceiling.
-            hold = await self.governor.reserve_wait(f"author.{req.operation}", limit, receipt=receipt)
-        except BudgetExceeded as e:
-            raise BudgetExceeded(f"plan {self.governor.plan.label!r}: {e}; request: {detail}") from e
-        trace.update(admission_wait_s=round(time.monotonic() - t0, 3), **{"reserved_tokens" if tokens else "reserved_usd": limit})
-        booked = None
-        try:
+        base_receipt = receipt
+        booked_any = False  # whether an attempt of this call kept a reservation (it may have run)
+        waited = 0.0
+        while True:
+            receipt = dict(base_receipt)
+            if tracker.attempts:  # a retried call: which attempt this is, and what came before it
+                receipt.update(attempt=tracker.n, service_retries=tracker.record())
+            t0 = time.monotonic()
+            try:
+                # Waits for outstanding reservations to settle; fails at once only when this can never fit the ceiling.
+                hold = await self.governor.reserve_wait(f"author.{req.operation}", limit, receipt=receipt)
+            except BudgetExceeded as e:
+                raise BudgetExceeded(f"plan {self.governor.plan.label!r}: {e}; request: {detail}") from e
+            waited += time.monotonic() - t0
+            trace.update(admission_wait_s=round(waited, 3), **{"reserved_tokens" if tokens else "reserved_usd": limit})
+            sent = time.monotonic()
             try:
                 result = await api.generate_content(model=req.model, contents=req.contents, config=req.config)
-            except Exception as exc:
+            except BaseException as exc:
+                elapsed = time.monotonic() - sent
+                outcome = service_answer.classify(exc, elapsed, deadline_s=deadline_s)
+                receipt["status"] = type(exc).__name__
+                if outcome == "not_served":  # the service said it did not run it: nothing is booked
+                    receipt.update(service_answer.not_served_receipt(exc, tracker.n, elapsed), usage_known=True)
+                    hold.settle(0.0, receipt=receipt)
+                else:  # it may have run: the whole reservation is retained
+                    if is_timeout(exc):  # raised as AuthorTimedOut below, and the receipt says so (as it always did)
+                        receipt.update(finish_reason="TIMEOUT", status="AuthorTimedOut" if outcome == "final" else receipt["status"])
+                    if isinstance(exc, Exception):
+                        receipt.update(service_answer=service_answer.describe(exc), elapsed_s=round(elapsed, 3))
+                    receipt["usage_known"] = False
+                    hold.settle(None, receipt=receipt)
+                    booked_any = True
+                if not isinstance(exc, Exception):
+                    raise
+                if outcome != "final" and await tracker.failed(exc, elapsed, outcome):
+                    trace["service_retries"] = tracker.record()
+                    continue
+                trace["service_retries"] = tracker.record()
                 if is_timeout(exc):
-                    receipt["finish_reason"] = "TIMEOUT"
                     raise AuthorTimedOut(
-                        f"{req.role} {req.operation} on {req.model}: timed out after {req.config.http_options.timeout / 1000:.0f}s "
-                        f"({type(exc).__name__}); the whole reservation {self.governor.fmt(limit)} is retained", finish_reason="TIMEOUT",
+                        f"{req.role} {req.operation} on {req.model}: timed out after {elapsed:.0f}s of {deadline_s:.0f}s "
+                        f"({type(exc).__name__}); the whole reservation {self.governor.fmt(limit)} is retained"
+                        + (f"; {tracker.summary()}" if len(tracker.attempts) > 1 else ""), finish_reason="TIMEOUT",
                         **_meta(req, None)) from exc
-                raise
+                if outcome == "final":
+                    raise  # a client error (4xx): a bug in the request, not an outcome
+                raise self._unavailable(req, exc, tracker, "generating", booked_any=booked_any) from exc
+            break
+        booked = None
+        try:
             usage = usage_tokens(result)
             trace["usage"] = usage
             if usage is not None:
@@ -467,6 +545,19 @@ class MeteredAuthor:
         finally:
             receipt["usage_known"] = booked is not None
             hold.settle(booked, receipt=receipt)
+
+    def _unavailable(self, req: AuthorRequest, exc: BaseException, tracker: service_answer.Tracker, doing: str, *,
+                     booked_any: bool) -> AuthorUnavailable:
+        code, status = service_answer.code_status(exc)
+        rejected = sum(a.outcome == "not_served" for a in tracker.attempts)
+        booking = ("nothing booked: the service turned every attempt away" if not booked_any
+                   else f"nothing booked for the {rejected} attempt(s) turned away; the attempts that may have run kept their reservation"
+                   if rejected else "every attempt that may have run kept its reservation")
+        return AuthorUnavailable(
+            f"{req.role} {req.operation} on {req.model}: no answer while {doing} after {len(tracker.attempts)} attempt(s) over "
+            f"{tracker.waited_s:.0f} s of waiting; the service answered {service_answer.describe(exc)} ({booking})",
+            attempts=tracker.record(), nothing_booked=not booked_any, code=code, status=status,
+            finish_reason=status or type(exc).__name__, **_meta(req, None))
 
     def request(self, role: str, operation: Operation, task: str, *, asset_name: str | None = None) -> AuthorRequest:
         return build_author_request(role, operation, task, budget=self.budget, context=self.context,
@@ -491,16 +582,15 @@ class MeteredAuthor:
                     raise AuthorInvalid(f"{role} propose: candidate must contain nodes for the requested asset {asset!r}",
                                         finish_reason="STOP", **_meta(req, trace.get("usage")))
             except Exception as exc:  # noqa: BLE001 - classified and recorded; nothing is dropped unnamed
-                status = ("not_admitted" if isinstance(exc, BudgetExceeded) else "truncated" if isinstance(exc, AuthorTruncated)
-                          else "timed_out" if isinstance(exc, AuthorTimedOut) else "no_answer" if isinstance(exc, AuthorNoAnswer)
-                          else "invalid" if isinstance(exc, AuthorInvalid) else "error")
+                status = outcome_status(exc)
                 text = _one_line(exc) if status != "error" else f"{type(exc).__name__}: {_one_line(exc)}"
                 return None, CandidateOutcome(i, status, text, getattr(exc, "finish_reason", None),
                                               getattr(exc, "usage", None) or trace.get("usage"),
                                               trace.get("admission_wait_s", 0.0), trace.get("reserved_usd"),
-                                              trace.get("reserved_tokens")), exc
+                                              trace.get("reserved_tokens"), trace.get("service_retries") or None), exc
             return scene, CandidateOutcome(i, "produced", "", "STOP", trace.get("usage"), trace.get("admission_wait_s", 0.0),
-                                           trace.get("reserved_usd"), trace.get("reserved_tokens")), None
+                                           trace.get("reserved_usd"), trace.get("reserved_tokens"),
+                                           trace.get("service_retries") or None), None
 
         # A cancellation of this task cancels every candidate (gather) and propagates; a candidate that itself raises a
         # non-Exception BaseException (CancelledError, KeyboardInterrupt) propagates too.
@@ -533,5 +623,10 @@ class MeteredAuthor:
         if role == "director" and not self.governor.plan.allow_director:
             raise BudgetExceeded("director escalation is outside this asset's plan")
         task = repair_task(scene, reasons=action.reasons, located=located, manifest=manifest)
-        patch = await self._generate(self.request(role, "repair", task))
+        trace: dict[str, Any] = {}
+        self.last_service_retries = []
+        try:
+            patch = await self._generate(self.request(role, "repair", task), trace)
+        finally:
+            self.last_service_retries = list(trace.get("service_retries") or [])
         return patch if patch.ops else None

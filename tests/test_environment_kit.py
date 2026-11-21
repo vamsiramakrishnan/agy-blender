@@ -337,7 +337,8 @@ async def test_a_transient_error_is_retried_once_and_the_kit_is_complete(tmp_pat
     pieces = x["authoring"]["pieces"]
     assert [len(o["attempts"]) for o in pieces] == [1, 1, 2, 1] and [o["status"] for o in pieces] == ["produced"] * 4
     first, second = pieces[2]["attempts"]
-    assert first["status"] == "error" and "ConnectionError" in first["detail"] and second["status"] == "produced" and second["usage"]
+    # a broken connection is named: the service gave no answer ("unavailable"; it was "error" before that class existed)
+    assert first["status"] == "unavailable" and "ConnectionError" in first["detail"] and second["status"] == "produced" and second["usage"]
     assert len(x["authoring"]["receipts"]) == 5 and list(x["pieces"]) == [o["piece"] for o in pieces]
 
 

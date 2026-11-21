@@ -17,6 +17,8 @@ from dataclasses import replace
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, Sequence
 
+from antigravity3d import service_answer
+
 from . import questions as Q
 from .models import (
     Answer, CandidateScore, DecisionBudgetError, DecisionError, DecisionResult, EngineParityResult, ItemQA, LodPopResult, PlaneStats,
@@ -116,7 +118,11 @@ def normalise_answer(raw: Any) -> Answer:
 
 
 def _is_transient(exc: BaseException) -> bool:
-    if isinstance(exc, (asyncio.TimeoutError, ConnectionError, TimeoutError)):
+    """A failure a second attempt can plausibly get past: a retryable HTTP code, a timeout, or a broken connection
+    (builtin ``ConnectionError``, httpx's ``TransportError`` family by class name: ``service_answer.is_transport``)."""
+    if isinstance(exc, (asyncio.TimeoutError, ConnectionError, TimeoutError, service_answer.OutcomeUnknown)):
+        return True
+    if service_answer.is_transport(exc) or service_answer.is_timeout(exc):
         return True
     code = _get(exc, "code") or _get(exc, "status_code")
     return isinstance(code, int) and code in RETRYABLE_CODES
@@ -158,12 +164,16 @@ class DecisionControlPlane:
     """``preview``: the run is an unverified preview, so an uncalibrated backend may judge it (its calls admitted against
     the ceiling like any other). Off by default; nothing verified may run on a preview plane (see ``preview_copy``)."""
 
-    def __init__(self, client: Any, model: str = DEFAULT_MODEL, *, max_retries: int = 3, backoff_s: float = 0.5,
-                 sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep, backend_kind: str | None = None,
-                 preview: bool = False) -> None:
+    def __init__(self, client: Any, model: str = DEFAULT_MODEL, *, max_retries: int = 3,
+                 sleep: Callable[[float], Awaitable[Any]] | None = None, backend_kind: str | None = None,
+                 preview: bool = False, retry: service_answer.RetryPolicy | None = None) -> None:
+        """Retries follow the shared schedule (``service_answer``): an answer that says the request was not served books
+        nothing and is retried up to ``retry.not_served_retries`` times; a failure whose outcome is unknown keeps its
+        reservation and is retried up to ``max_retries`` times. ``sleep`` (default: the policy's) is for tests;
+        ``retry`` replaces the shared policy (``service_answer.NO_RETRY`` sends every call once)."""
         self._client, self.model = client, model
         self.backend_kind = backend_kind or _infer_backend_kind(client)
-        self.max_retries, self.backoff_s, self._sleep = max_retries, backoff_s, sleep
+        self.max_retries, self._sleep, self.retry = max_retries, sleep, retry
         self.stats = PlaneStats()
         self.preview = bool(preview)
         self.hard_policy_flags: list[str] = []  # hard policy flags an uncalibrated preview judge raised (they fail a preview)
@@ -227,6 +237,9 @@ class DecisionControlPlane:
         booked, booked_tokens = 0.0, 0  # money and tokens: a ledger books one of them, never both
         attempts, t0 = 0, time.perf_counter()
         own_deadline = getattr(self._client, "timeout_s", None)  # the fallback judge sends its own deadline with each request
+        policy = self.retry if self.retry is not None else service_answer.DEFAULT_POLICY.with_unknown_retries(self.max_retries)
+        sleep = self._sleep or policy.sleep
+        tracker = service_answer.Tracker(policy)
         while True:
             attempts += 1
             sent = time.perf_counter()
@@ -238,35 +251,54 @@ class DecisionControlPlane:
                 resp = await self._client.aio.decisions.create(model=self.model, input=payload, questions=questions)
                 break
             except BaseException as exc:
-                # Dispatch may have reached the service before a timeout or cancellation.
+                elapsed = time.perf_counter() - sent
+                outcome = service_answer.classify(exc, elapsed, deadline_s=float(own_deadline) if own_deadline else None)
+                if outcome == "final" and not own_deadline and isinstance(exc, Exception) and _is_transient(exc):
+                    outcome = "unknown"  # a timeout with no deadline of this request's own: retried, as it always was
+                wait = tracker.decide(exc, elapsed, outcome) if isinstance(exc, Exception) and not _blocked_reason(exc) else None
                 if reservation is not None:
-                    reservation.settle(receipt={**receipt, "source": "offline" if self.backend_kind == "fake" else "reservation_estimate",
-                                                "status": type(exc).__name__, "attempt": attempts})
-                    if token_ledger:
-                        booked_tokens += int(hold)
+                    note: dict[str, Any] = {"next_wait_s": wait} if wait is not None else {}
+                    if isinstance(exc, service_answer.OutcomeUnknown):  # the fallback: some dispatches served, some not
+                        note.update(served_dispatches=exc.served, failed_dispatches=exc.failed,
+                                    turned_away_dispatches=exc.turned_away, service_answer=service_answer.describe(exc.cause))
+                    if outcome == "not_served":  # the service said it did not run the request: nothing is booked
+                        reservation.settle(0.0, receipt={**receipt, "source": "offline" if self.backend_kind == "fake" else "service_answer",
+                                                         **service_answer.not_served_receipt(exc, attempts, elapsed), **note})
+                        if on_settle:
+                            on_settle(0.0)
                     else:
-                        booked += hold
-                    if on_settle:
-                        on_settle(0.0 if token_ledger else hold)
+                        # Dispatch may have reached the service before a timeout, a cancellation or a broken connection.
+                        if isinstance(exc, Exception) and not isinstance(exc, service_answer.OutcomeUnknown):
+                            note.setdefault("service_answer", service_answer.describe(exc))
+                        reservation.settle(receipt={**receipt, "source": "offline" if self.backend_kind == "fake" else "reservation_estimate",
+                                                    "status": type(exc).__name__, "attempt": attempts, **note})
+                        if token_ledger:
+                            booked_tokens += int(hold)
+                        else:
+                            booked += hold
+                        if on_settle:
+                            on_settle(0.0 if token_ledger else hold)
                 if reason := _blocked_reason(exc):
                     raise PromptBlockedError(reason, tag=tag) from exc
                 if not isinstance(exc, Exception):
                     raise
-                if not _is_transient(exc):
+                if outcome == "final":
+                    if _is_transient(exc) and own_deadline:
+                        # The request ran for the whole deadline this client gave it (the service answers 504
+                        # DEADLINE_EXCEEDED then). Sent again with the same deadline it holds a second reservation for the
+                        # same outcome: live on 2026-11-21 a texture ranking that takes about three minutes was sent twice
+                        # at 60 s, which held 48,508 tokens for no answer. A transient failure that comes back early (an
+                        # overloaded service, a gateway) is still retried.
+                        raise TransientDecisionError(f"{tag}: no answer within the {float(own_deadline):.0f} s request deadline; "
+                                                     f"not sent again: {exc}") from exc
                     raise
-                if own_deadline and time.perf_counter() - sent >= 0.9 * float(own_deadline):
-                    # The request ran for the whole deadline this client gave it (the service answers 504
-                    # DEADLINE_EXCEEDED then). Sent again with the same deadline it holds a second reservation for the
-                    # same outcome: live on 2026-11-21 a texture ranking that takes about three minutes was sent twice
-                    # at 60 s, which held 48,508 tokens for no answer. A transient failure that comes back early (an
-                    # overloaded service, a gateway) is still retried below.
-                    raise TransientDecisionError(f"{tag}: no answer within the {float(own_deadline):.0f} s request deadline; "
-                                                 f"not sent again: {exc}") from exc
-                if attempts > self.max_retries:
-                    raise TransientDecisionError(f"{tag}: gave up after {attempts} attempts: {exc}") from exc
-                delay = self.backoff_s * 2 ** (attempts - 1)
-                log.warning("decision %r transient failure (%s); retry %d in %.2fs", tag, exc, attempts, delay)
-                await self._sleep(delay)
+                if wait is None:
+                    rejected = sum(a.outcome == "not_served" for a in tracker.attempts)
+                    raise TransientDecisionError(
+                        f"{tag}: gave up after {attempts} attempts ({tracker.waited_s:.0f} s of waiting; {rejected} turned away "
+                        f"by the service, nothing booked for those): {service_answer.describe(exc)}") from exc
+                log.warning("decision %r: %s (%s); retry %d in %.0fs", tag, outcome, service_answer.describe(exc), attempts, wait)
+                await sleep(wait)
         latency_ms = (time.perf_counter() - t0) * 1000
         usage = _get(resp, "usage")
         measured = _get(usage, "total_input_tokens")

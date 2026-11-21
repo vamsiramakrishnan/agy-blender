@@ -21,6 +21,7 @@ import numpy as np
 from antigravity3d.ir import (
     IRPatch, IROp, MaterialIR, NodeIR, SceneIR, SetParam, SetTransform, Transform, UpsertMaterial, UpsertNode, apply_patch,
 )
+from antigravity3d import service_answer
 from antigravity3d.kernel.compile_ir import primitive_mesh
 from antigravity3d.kernel.settle import beside_a_part
 from antigravity3d.state import EngineBudget
@@ -544,6 +545,12 @@ class CallableAuthor:
         return None if self._repair is None else await _call(self._repair, scene, action=action, located=located, manifest=manifest)
 
 
+def _service_failure(exc: BaseException) -> bool:
+    """A failure on the service's side or of the connection (``service_answer``), not a bug in the request. The
+    session's timing is not one request's, so it is never taken for a quick rejection."""
+    return service_answer.classify(exc, float("inf")) != "final"
+
+
 class AgentAuthor:
     """Model-driven author on the harness: one BLOCKOUT stage-agent session per candidate / repair.
 
@@ -629,6 +636,8 @@ class AgentAuthor:
                 if timed_out and not str(exc):  # asyncio's TimeoutError carries no text
                     exc.args = (f"stage session for candidate #{i} gave no result within {timeout:.0f} s",)
                 detail = " ".join(str(exc).split())
+                if not timed_out and _service_failure(exc):  # the SDK's own API retries ran out: the service gave no answer
+                    return None, CandidateOutcome(i, "unavailable", f"stage session: {service_answer.describe(exc)}"), exc
                 return None, CandidateOutcome(i, "timed_out" if timed_out else "error", detail if timed_out else f"{type(exc).__name__}: {detail}"), exc
             if not scene.nodes:
                 empty = ValueError(f"stage session for candidate #{i} ended with no nodes in the scene")
@@ -661,7 +670,20 @@ class AgentAuthor:
                 + (f"\n{self._art}" if getattr(self, "_art", "") else ""))
         if self._budget is None:
             raise ValueError("repair requires the target budget of a prior proposal")
-        new = await self._session("repair", scene.asset_name, self._budget, task, seed_scene=scene)
+        try:
+            new = await self._session("repair", scene.asset_name, self._budget, task, seed_scene=scene)
+        except Exception as exc:
+            if isinstance(exc, TimeoutError) or not _service_failure(exc):
+                raise
+            from antigravity3d.tactics.metered_author import AuthorUnavailable  # lazy, like the harness
+
+            code, status = service_answer.code_status(exc)
+            # The stage session is not metered here (no reservation); the Antigravity SDK's own API retries ran first.
+            raise AuthorUnavailable(f"{self.role} repair (stage session): no answer from the service after the SDK's "
+                                    f"retries: {service_answer.describe(exc)}", attempts=[], nothing_booked=False, code=code,
+                                    status=status, model=str(getattr(exc, "model", "") or "stage-session"), role=self.role,
+                                    operation="repair", finish_reason=status or type(exc).__name__, usage=None,
+                                    max_output_tokens=0) from exc
         old = {n.id: n for n in scene.nodes}
         ops: list[IROp] = [UpsertNode(node=n) for n in new.nodes if old.get(n.id) != n]
         ops += [UpsertMaterial(material=m) for m in new.materials if m not in scene.materials]

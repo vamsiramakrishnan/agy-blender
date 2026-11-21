@@ -70,7 +70,9 @@ SHEET_MATERIAL = "kit_trim"
 # Failures a second request can plausibly fix. "off_metric" is a complete, valid scene whose size, pivot or faces miss the
 # kit's metric: its second request carries the violated numbers (context["kit_feedback"]), which a model can follow; the
 # same single extra round bounds it, so a kit still makes at most 2 x n_pieces authoring calls.
-RETRYABLE = ("error", "timed_out", "no_answer", "invalid", "off_metric")
+# "unavailable": the service gave no answer after the shared retry schedule (service_answer); before that class existed the
+# same failure was an "error", which this round already retried.
+RETRYABLE = ("error", "timed_out", "unavailable", "no_answer", "invalid", "off_metric")
 COLLIDER_HULLS = 4  # hulls per kit piece (the export_pieces call to generate_colliders)
 AUTHOR_PARALLEL = 8  # authoring calls in flight at once; the ceiling's admission is the real limit, this keeps one kit from opening unbounded connections
 
@@ -117,13 +119,10 @@ def _failure_status(exc: BaseException) -> str:
     if isinstance(exc, BudgetExceeded):
         return "not_admitted"
     try:
-        from antigravity3d.tactics.metered_author import AuthorInvalid, AuthorNoAnswer, AuthorTimedOut, AuthorTruncated
+        from antigravity3d.tactics.metered_author import outcome_status
     except ImportError:  # the live provider SDK is not installed: nothing here can have raised these
         return "error"
-    for cls, status in ((AuthorTruncated, "truncated"), (AuthorTimedOut, "timed_out"), (AuthorNoAnswer, "no_answer"), (AuthorInvalid, "invalid")):
-        if isinstance(exc, cls):
-            return status
-    return "error"
+    return outcome_status(exc)
 
 
 def _convex_groups(meshes: list[MeshData], limit: int = COLLIDER_HULLS) -> list[MeshData]:
@@ -295,6 +294,10 @@ class EnvironmentKitDAG:
     def build(self, prompt: str, n_pieces: int, splat: Path | str | None = None) -> Dag:
         out, sheet = self.out, self.sheet
         self._author = self._govern(n_pieces)
+        if hasattr(self._author, "unknown_retries"):
+            # The kit's own recovery round is the one extra request a piece whose outcome is unknown gets ("at most
+            # 2 x n_pieces authoring calls"); an answer that says it was not served is still retried on the shared schedule.
+            self._author.unknown_retries = 0
         # trim_sheet and pieces meet only at map_trim: once one fails, the other's paid calls buy nothing (the sheet is
         # not reused by a rerun, a piece is not written before export), so it is stopped.
         dag = Dag("environment_kit", stop_unusable=True)

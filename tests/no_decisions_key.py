@@ -16,6 +16,13 @@
 * Image calls: a PNG of the requested size; usage 62 input, image tokens of the tier + 321, 804 thinking (measured 2K).
   The request's text is logged as ``prompt`` (``image_prompts()``).
 * Files API resumable upload: a file URI.
+* ``fail``: calls the service turns away or whose connection breaks, as it did live on 2026-11-21. Each rule is a dict:
+  ``kind`` ("judge", "author:propose", "author:repair", "image"), ``how`` ("503": 503 UNAVAILABLE with the live message,
+  "429": 429 RESOURCE_EXHAUSTED, both answered at once; "drop": the socket is closed without a response, so the client
+  sees the connection break), ``times`` (the first N matching calls; None: every one) and, for a judge call, optionally
+  ``questions`` (it matches only a call asking one of these question ids, without the __N suffix) and ``exclude`` (not
+  a call asking any of these: pass A's blockout QA asks score_silhouette without next_action). A matched call is
+  logged as ``<kind>:<how>`` and is never served (``generated()`` does not count it).
 
     with NoDecisionsKey() as api:        # api.url, api.requests (path, kind)
         monkeypatch.setenv("GOOGLE_GEMINI_BASE_URL", api.url); monkeypatch.setenv("GEMINI_API_KEY", "dummy")
@@ -28,6 +35,7 @@ import base64
 import io
 import json
 import re
+import socket
 import threading
 import time
 import uuid
@@ -38,13 +46,18 @@ import numpy as np
 from PIL import Image
 
 KIT_TEMPLATES = ("wall_segment", "floor_tile", "pillar", "doorway")
+DROP = -1  # answer(): close the connection without a response
+UNAVAILABLE_503 = json.dumps({"error": {"code": 503, "message": "This model is currently experiencing high demand. Spikes in demand "
+                                        "are usually temporary. Please try again later.", "status": "UNAVAILABLE"}}).encode()
+EXHAUSTED_429 = json.dumps({"error": {"code": 429, "message": "Resource has been exhausted (e.g. check quota).",
+                                      "status": "RESOURCE_EXHAUSTED"}}).encode()
 
 
 class NoDecisionsKey:
     def __init__(self, *, defect: float = 0.05, policy: float = 0.02, score_level: str | None = None,
                  overrides: dict[str, float] | None = None, refuse_questions: tuple[str, ...] = (),
                  image_delay_s: float = 0.0, judge_delay_s: float = 0.0, author_delay_s: float = 0.0,
-                 sheet_labels_are_text: bool = True) -> None:
+                 sheet_labels_are_text: bool = True, fail: list[dict[str, Any]] | None = None) -> None:
         self.defect, self.policy, self.score_level = defect, policy, score_level
         # A judge call asking any of these question ids (without the __N suffix) answers 400 INVALID_ARGUMENT, as the
         # live API answered every geometry grading call on 2026-11-21: a step that fails early, on demand.
@@ -59,6 +72,7 @@ class NoDecisionsKey:
         self.sheet_labels_are_text = sheet_labels_are_text
         self.author_delay_s = author_delay_s  # a live hydrogen propose took 10-38 s
         self.overrides = dict(overrides or {})  # question id (without the __N suffix) -> P(yes)
+        self.fail = [dict(rule, hits=0) for rule in (fail or [])]
         self.requests: list[dict[str, Any]] = []
         self._png: dict[int, bytes] = {}
         self._lock = threading.Lock()
@@ -73,8 +87,11 @@ class NoDecisionsKey:
                 for k, v in (headers or {}).items():
                     self.send_header(k, v)
                 self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
+                try:
+                    self.end_headers()
+                    self.wfile.write(payload)
+                except (BrokenPipeError, ConnectionResetError):  # the client stopped waiting (a cancelled call): nothing to answer
+                    self.close_connection = True
 
             def do_GET(self) -> None:  # noqa: N802 - http.server API
                 api._log(self.path, "404")
@@ -83,6 +100,13 @@ class NoDecisionsKey:
             def do_POST(self) -> None:  # noqa: N802 - http.server API
                 raw = self.rfile.read(int(self.headers.get("content-length") or 0))
                 status, payload, headers = api.answer(self.path, dict(self.headers), raw)
+                if status == DROP:  # the connection breaks: closed with no response at all
+                    self.close_connection = True
+                    try:
+                        self.connection.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+                    return
                 self._send(status, payload, headers)
 
             def log_message(self, *a: Any) -> None:
@@ -136,6 +160,10 @@ class NoDecisionsKey:
         gc = body.get("generationConfig") or {}
         schema = gc.get("responseJsonSchema") or gc.get("responseSchema")
         prompt = len(json.dumps(body)) // 4
+        if (failure := self._failure(gc, schema)) is not None:
+            kind, how = failure
+            self._log(path, f"{kind}:{how}", t=arrived)
+            return (DROP, b"", {}) if how == "drop" else (503, UNAVAILABLE_503, {}) if how == "503" else (429, EXHAUSTED_429, {})
         if "IMAGE" in (gc.get("responseModalities") or []):
             self._log(path, "image:sent", t=arrived)  # dispatched: billed even if the caller stops waiting for it
             if self.image_delay_s:
@@ -184,6 +212,28 @@ class NoDecisionsKey:
         ev = {"candidates": [{"content": {"role": "model", **content}, "finishReason": "STOP"}], "usageMetadata": usage,
               "responseId": uuid.uuid4().hex}
         return 200, json.dumps(ev).encode(), {}
+
+    def _failure(self, gc: dict[str, Any], schema: dict[str, Any] | None) -> tuple[str, str] | None:
+        """The (kind, how) of a fail rule this call matches and that still has a hit left, else None."""
+        props = (schema or {}).get("properties") or {}
+        kind = ("image" if "IMAGE" in (gc.get("responseModalities") or []) else "author:propose" if "nodes" in props
+                else "author:repair" if schema and set(props) == {"ops"} else "judge" if schema else "text")
+        asked = {re.sub(r"__\d+$", "", q) for q in props}
+        with self._lock:
+            for rule in self.fail:
+                if rule["kind"] != kind or rule.get("questions") and not asked & set(rule["questions"]):
+                    continue
+                if asked & set(rule.get("exclude") or ()):
+                    continue
+                if rule.get("times") is not None and rule["hits"] >= rule["times"]:
+                    continue
+                rule["hits"] += 1
+                return kind, str(rule.get("how", "503"))
+        return None
+
+    def failures(self) -> list[str]:
+        """The kinds logged for calls turned away or dropped (``<kind>:503``, ``<kind>:drop``...)."""
+        return [r["kind"] for r in self.requests if r["kind"].rsplit(":", 1)[-1] in ("503", "429", "drop")]
 
     def _judge(self, schema: dict[str, Any]) -> dict[str, Any]:
         out: dict[str, Any] = {}

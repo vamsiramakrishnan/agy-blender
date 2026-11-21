@@ -108,13 +108,14 @@ class PyramidResult:
     render_tier: str = "preview"
     cost_usd: float = 0.0
     tier1_ok: bool = False
-    tier15: float = 0.0
+    tier15: float | None = 0.0  # None: the judge never answered (``judge_unavailable`` says why); never a zero it did not give
     scores: dict[str, float] = field(default_factory=dict)
     defects: dict[str, float] = field(default_factory=dict)
     needs_review: bool = False
     artifacts: dict[str, str] = field(default_factory=dict)  # name -> path / uri
     objects: dict[str, Any] = field(default_factory=dict)  # live objects (bundle, meshes, maps); not serialised
     author_calls: int = 0
+    judge_unavailable: str = ""  # why a visual QA verdict is missing (the pass's stop reason and a failed step say it too)
     unit: str = "usd"  # the ledger's unit; on a token ledger no dollar figure exists and cost_usd is written as null
 
     engine_truth_required: bool = False
@@ -145,7 +146,8 @@ class PyramidResult:
 
     @property
     def ok(self) -> bool:
-        return (not self.failed and self.tier1_ok and self.tier15 >= EXPORT_MIN_TIER15_SCORE and not self.needs_review
+        return (not self.failed and self.tier1_ok and self.tier15 is not None and self.tier15 >= EXPORT_MIN_TIER15_SCORE
+                and not self.needs_review
                 and (not self.engine_truth_required or self.live_lookdev and self.live_parity))
 
     def summary(self) -> str:
@@ -157,6 +159,8 @@ class PyramidResult:
     def to_dict(self) -> dict[str, Any]:
         d = {k: getattr(self, k) for k in ("asset", "stopped", "converged", "render_tier", "cost_usd", "tier1_ok", "tier15", "scores",
                                            "defects", "needs_review", "artifacts", "author_calls", "audit", "ok", "verified", "live_lookdev", "live_parity", "engine_truth_required")}
+        if self.judge_unavailable:  # only when it happened: a run the judge answered writes the keys it always wrote
+            d["judge_unavailable"] = self.judge_unavailable
         d["rounds"] = [vars(r) for r in self.rounds]
         if self.unit != "usd":  # no price applied: no dollar figure (a token number never goes into a *_usd key)
             d.update(cost_usd=None, spend_unit=self.unit)
@@ -277,6 +281,24 @@ def preview_sheet(meshes: list[Any], tint: dict[str | None, tuple[float, float, 
     return sheet
 
 
+class JudgeUnavailable(Exception):
+    """A visual QA verdict could not be had: the judge call failed after the shared retry schedule (``service_answer``),
+    was not admitted, or answered nothing usable. A pass that meets it stops, never approves, and the run goes on to
+    export what exists with its gates failed and this reason recorded."""
+
+
+def _judge_failure(exc: BaseException) -> bool:
+    """A judge (or its upload) failure, as opposed to a bug here: the decisions error family, a refused admission, an
+    outcome the retries could not get past, or a service / transport failure."""
+    from antigravity3d import service_answer
+    from antigravity3d.decisions.models import DecisionError
+
+    # Not DecisionBudgetError: that is a configuration refusal (an unpriced judge on a governed run), which stays one.
+    return (isinstance(exc, (DecisionError, BudgetExceeded, service_answer.OutcomeUnknown))
+            or isinstance(exc, Exception) and service_answer.classify(exc, float("inf")) != "final"
+            or service_answer.is_timeout(exc) and isinstance(exc, Exception))
+
+
 @dataclass
 class _QA:
     result: VisualQAResult
@@ -338,8 +360,15 @@ class _Run:
         r.needs_review = q.action.kind == "escalate_human" or not getattr(self.plane, "calibrated", True)
 
     async def qa(self, stage: str, png: bytes, legend: dict[int, str] | None = None) -> _QA:
-        uri = await self.upload(png)
-        r = await self.plane.evaluate_visual_qa(uri, self.ortho_uri, self.style_uri, stage, marked_legend=legend, governor=self.governor)
+        try:
+            uri = await self.upload(png)
+            r = await self.plane.evaluate_visual_qa(uri, self.ortho_uri, self.style_uri, stage, marked_legend=legend, governor=self.governor)
+        except Exception as e:
+            if not _judge_failure(e):
+                raise
+            from antigravity3d import service_answer
+
+            raise JudgeUnavailable(f"{stage} visual QA: {service_answer.describe(e, 300)}") from e
         action = decide_action(r, self.th, stage)
         cost = r.result.booked_usd
         self.res.cost_usd += cost
@@ -406,6 +435,17 @@ class _Run:
         self.res.cost_usd += sum(charges)
         return located
 
+    def judge_unavailable(self, pass_name: str, rnd: int, e: JudgeUnavailable, rolled_back: str = "") -> None:
+        """Stop the pass on a missing verdict: never approved, the reason recorded where the gates, the report, the
+        manifest (its evidence steps) and the last lines carry it. Tier-1 keeps its own (deterministic) result."""
+        res = self.res
+        reason = f"judge unavailable: {e}"
+        res.stopped[pass_name] = reason
+        res.converged[pass_name] = False
+        res.needs_review = True  # nothing judged this state: a person must look
+        res.judge_unavailable = res.judge_unavailable or f"pass {pass_name} round {rnd}: {e}"
+        self.step(f"visual_qa_{pass_name}", "failed", (f"{reason} (round {rnd})" + (f"; {rolled_back}" if rolled_back else ""))[:400])
+
     async def author_repair(self, q: _QA, located: dict[str, list[str]]) -> tuple[Any, bool]:
         """One author repair call: ``(patch, failed)``. A failed call is a recorded result, not a crash.
 
@@ -419,15 +459,26 @@ class _Run:
         res = self.res
         sm = self.sm
 
+        def waits() -> str:
+            """The service's refusals and the waits before this repair's answer (a fact about the run: ``StepResult.run``)."""
+            tries = getattr(self.author, "last_service_retries", None) or []
+            return "; ".join(f"attempt {a['attempt']} {a['outcome']}: {a['answer'][:120]}"
+                             + (f", waited {a['wait_s']:.0f} s" if a.get("wait_s") is not None else "") for a in tries)
+
         def fail(reason: str) -> tuple[None, bool]:
             res.stopped["A"] = f"author repair failed: {reason}"
             res.converged["A"] = False
             self.step("author_repair", "warned", reason)
+            res.steps[-1].run = waits()
             return None, True
 
         res.author_calls += 1
         try:
-            return await self.author.repair(sm.base_ir(), action=q.action, located=located, manifest=sm.manifest()), False
+            patch = await self.author.repair(sm.base_ir(), action=q.action, located=located, manifest=sm.manifest())
+            if run := waits():  # served after the service turned attempts away: the waits are recorded
+                self.step("author_repair", "passed", "answered after the service turned attempt(s) away")
+                res.steps[-1].run = run
+            return patch, False
         except BudgetExceeded as e:
             return fail(f"not admitted: {e}")
         except AuthorOutcomeError as first:
@@ -479,7 +530,19 @@ class _Run:
             meshes = sm.extract_meshes()
             t1 = tier1_qa(meshes, self.budget)
             sheet = marked_contact_sheet(meshes, size=256)
-            q = await self.qa("blockout", png_bytes(sheet.image), sheet.legend)
+            try:
+                q = await self.qa("blockout", png_bytes(sheet.image), sheet.legend)
+            except JudgeUnavailable as e:
+                undone = ""
+                if pending is not None:  # the change this verdict was to judge is undone: what ships is what was judged
+                    sm.rollback(pending.tx)
+                    res.tier1_ok, res.tier15, res.scores, res.defects = pending.tier1_ok, pending.t15, pending.scores, pending.defects
+                    undone = (f"rolled back the unjudged {pending.origin} change of round {rnd - 1} "
+                              f"({len(pending.ops)} op(s): {', '.join(pending.ops[:4])}; {pending.note[:80]})")
+                else:  # never judged: Tier-1 says what it found, the judge's scores are missing, not zero
+                    res.tier1_ok, res.tier15, res.scores, res.defects = t1.ok, None, {}, {}
+                self.judge_unavailable("A", rnd, e, undone)
+                return
             tr = self.trace("A", rnd, t1, q, "preview")
             if pending is not None:
                 if _crit(t1) > pending.n_crit or q.t15 < pending.t15 - EPS:
@@ -679,9 +742,20 @@ class _Run:
         pending: tuple[dict[str, PBRMaps], float, str, dict[str, float], list[str]] | None = None
         for rnd in range(1, min(self.max_rounds, LOOKDEV_ROUNDS) + 1):
             png, tier = await self.render_lookdev()
-            self.render_png = png
+            judged_png, self.render_png = self.render_png, png
             t1 = tier1_qa(self.sm.extract_meshes(), self.budget)
-            q = await self.qa("lookdev", png)
+            try:
+                q = await self.qa("lookdev", png)
+            except JudgeUnavailable as e:
+                undone = ""
+                if pending is not None:  # the fixer this verdict was to judge is undone: the maps that ship were judged
+                    old, _, fx, _, _ = pending
+                    self.maps = old
+                    self.write_textures()
+                    self.render_png = judged_png  # the render of the maps that ship
+                    undone = f"rolled back the unjudged deterministic fixer {fx} of round {rnd - 1}"
+                self.judge_unavailable("B", rnd, e, undone)
+                break
             tr = self.trace("B", rnd, t1, q, tier)
             if pending is not None:
                 old, old_t15, fx, defects, params = pending

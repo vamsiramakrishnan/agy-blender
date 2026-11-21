@@ -231,7 +231,9 @@ async def cmd_prop(a: argparse.Namespace) -> int:
         print("pyramid steps:  " + ", ".join(f"{s['name']}={s['status']}" for s in res["steps"]))
         print(f"render tier: {res['render_tier']}; stopped: {res['stopped']}")
     sc = x.get("scores") or {}
-    print("scores: " + (f"tier15={sc.get('tier15', 0):.2f} tier1={'OK' if sc.get('tier1_ok') else 'FAIL'} " + " ".join(f"{k[6:]}={v:.2f}" for k, v in sc.items() if k.startswith("score_")) if sc else "n/a"))
+    t15 = sc.get("tier15", 0)
+    t15 = f"{t15:.2f}" if t15 is not None else "n/a (" + (res.get("judge_unavailable") or "never judged") + ")"
+    print("scores: " + (f"tier15={t15} tier1={'OK' if sc.get('tier1_ok') else 'FAIL'} " + " ".join(f"{k[6:]}={v:.2f}" for k, v in sc.items() if k.startswith("score_")) if sc else "n/a"))
     c = x["cost"]
     if c.get("spend_unit") == "tokens":  # no price applied: tokens and images only, never a dollar sign
         cs = f" cache hits={c['cache']['hits']} misses={c['cache']['misses']}" if c.get("cache") else ""
@@ -253,16 +255,19 @@ async def cmd_prop(a: argparse.Namespace) -> int:
     for f in res.get("failed_outputs", []):  # an output that could not be made (the FBX): not a blocked package, but plainly a failure
         print(f"FAILED OUTPUT {f['step']}: {f['reason']}")
     failed = [n.name for n in rep.nodes.values() if n.status == "failed"]
+    # a pass the judge could not judge: the last line says so (its step is failed, its stop reason names the cause)
+    unjudged = "; ".join(f"pass {k} {v}" for k, v in (res.get("stopped") or {}).items() if str(v).startswith("judge unavailable"))
     if strict:
         print("publication: " + ("published and verified" if x["published"] else "qualified preview" if x["verified"] else "unverified"))
-        return _print_gate(x["gates_ok"], f"failed nodes: {failed}" if failed else "verified publication required")
+        return _print_gate(x["gates_ok"], f"failed nodes: {failed}" if failed else unjudged[:300] if unjudged
+                           else "verified publication required")
     if pv := x.get("preview"):  # judged by an uncalibrated judge: the last lines say so
         print(f"publication: UNVERIFIED PREVIEW (verified=false; judged by {pv['judge']['label']})")
         print(f"  judge: {pv['judge']['meaning']}")
         print("review: required (the judge is uncalibrated; a person must review this package before any use)")
     else:
         print("publication: " + ("published and verified" if x["published"] else "qualified preview" if x["verified"] else "unverified"))
-    print(f"preview gates: {'PASS' if x['preview_gates_ok'] else 'FAIL'}")
+    print(f"preview gates: {'PASS' if x['preview_gates_ok'] else 'FAIL'}" + (f" ({unjudged[:300]})" if unjudged else ""))
     return 0 if x["preview_gates_ok"] else 1
 
 

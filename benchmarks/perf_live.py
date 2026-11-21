@@ -609,6 +609,9 @@ async def judge_group(client: CountedClient, plan: tuple[tuple[str, int], ...], 
     backend = plane._client
     backend.max_parse_retries, backend.timeout_s = 0, TIMEOUTS["judge"]
     plane.max_retries = 0
+    from antigravity3d import service_answer
+
+    plane.retry = service_answer.NO_RETRY  # not even a 503 the service turned away: every call is counted once
     uri, sheet_info = sheet or await _contact_sheet_data_uri()
     out["sheet"] = sheet_info
     for stage, n in plan:
@@ -649,6 +652,7 @@ async def judge_group(client: CountedClient, plan: tuple[tuple[str, int], ...], 
 async def image_group(client: CountedClient, out: dict[str, Any], flush: Any, sizes: tuple[int, ...] = IMAGE_PLAN) -> None:
     """One seamless albedo per size in ``sizes`` via the real ImageForge/GenAIImageBackend (production request + receipt)."""
     from antigravity3d.genmedia.nano_banana import GenAIImageBackend, ImageForge, _size_tier, default_image_model
+    from antigravity3d.service_answer import NO_RETRY
     from antigravity3d.tactics.governor import Governor, plan_for
 
     client.timeout_s, client.est_tokens = TIMEOUTS["image"], EST_TOKENS["image"]
@@ -661,7 +665,9 @@ async def image_group(client: CountedClient, out: dict[str, Any], flush: Any, si
         n_ev = len(client.events)
         try:
             # A roomy ledger: the benchmark measures the request, not a plan's admission (no rates are read here).
-            g = await ImageForge(client=client, model=model, governor=Governor(plan_for(3))).seamless_albedo(ALBEDO_PROMPT, size=size)
+            forge = ImageForge(client=client, model=model, governor=Governor(plan_for(3)))
+            forge.retry = NO_RETRY  # retries: none, as the report says
+            g = await forge.seamless_albedo(ALBEDO_PROMPT, size=size)
             w, h = g.image().size
             rc = g.receipt
             sample.update(wall_ms=round(g.latency_ms, 1), pixel_size=[w, h], bytes=len(g.png_bytes), model=g.model,
