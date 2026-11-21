@@ -303,6 +303,20 @@ What it measures:
   pays. The ratio in the table uses the whole call.
 - **Godot**: the package check the pipeline runs (`GodotValidator.validate`), a capture, and the same launch with a
   script that quits at once, so the difference is the import itself.
+- **Upstream checks survey** (`upstream_survey.py`, JSON key `upstream_checks`, schema 2): what the reviewed
+  EL4CTEO/blender-skills scripts vendored in the worker (`qa_check`, `mesh_stats`, `texel_density`, `kit_check`; their
+  commit and hashes are in the JSON) say about what the pipeline ships, beside what the project's own checks say
+  (`tier1_qa`, manifest triangles, draw calls, achieved texel density, UV distortion and overlap). Subjects: the
+  crate, barrel and sphere packaged for each target engine (each package USD, and the GLB once per distinct file),
+  five planted defects with known answers (coplanar overlapping tops, faces pressed back to back, a floating part,
+  inverted winding, no UVs), and an offline kit (unreal_5 and godot_4), each piece checked with upstream's defaults
+  and with the origin the piece templates imply, since the project states no grid or pivot convention. Every
+  topology check runs twice: on the scene as imported, and after the worker merges coincident vertices
+  (`inspect_usd(weld=True)`), because the package writes one vertex per (position, UV) and the GLB splits at seams
+  too. Measurement only: nothing is gated on it. Each call records kwargs, triangles, duration and its outcome
+  (`ok`, `error`, `checks_skipped` when `qa_check` skipped its z-fighting and floating checks above `max_tris`, or
+  `skipped` for the time budget, at 80 % of it, leaving time for the Godot section that follows). It is skipped, with the reason, when the worker has no primitives.
+  In CI the step clears `$AGY3D_BLENDER_SKILLS` so the worker uses the vendored scripts, as production does.
 
 The two sides do not run the same algorithms, and the table says so under itself. Read these before the ratios:
 

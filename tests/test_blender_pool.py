@@ -243,22 +243,101 @@ async def test_real_blender_lookdev_engines(tmp_path, engine):
         assert r["image"][:, :, 3].min() == 0 and r["image"][:, :, 3].max() > 0.95
 
 
+PRIMITIVE_NAMES = ["kit_check", "mesh_stats", "qa_check", "texel_density"]
+
+
 @pytest.mark.blender
 async def test_reviewed_upstream_primitives(tmp_path):
-    if not find_blender() or not os.environ.get("AGY3D_BLENDER_SKILLS"):
-        pytest.skip("requires stock Blender and the pinned AGY3D_BLENDER_SKILLS checkout")
+    if not find_blender():
+        pytest.skip("requires stock Blender")
     path = tmp_path / "cube.usda"
     write_cube_snapshot(path, "Cube", (1, 1, 1))
-    async with BlenderPool(1, startup_timeout=120) as pool:
-        assert (await pool.call("version"))["primitives"] == ["mesh_stats", "qa_check"]
+    # The vendored copy, as production loads it. CI also sets $AGY3D_BLENDER_SKILLS (for the byte comparison below);
+    # an empty value means unset.
+    async with BlenderPool(1, startup_timeout=120, extra_env={"AGY3D_BLENDER_SKILLS": ""}) as pool:
+        version = await pool.call("version")
+        assert version["primitives"] == PRIMITIVE_NAMES, version.get("primitives_error")
+        assert version["primitives_source"]["kind"] == "vendored" and version["primitives_error"] is None
         report = await pool.call("inspect_usd", path=str(path), primitive="mesh_stats", kwargs={"budget": "web"})
-        assert report["total_tris"] == 12 and report["budget"]["pass"]
+        assert report["total_tris"] == 12 and report["budget"]["pass"] and report["agy_inspect"]["objects"] == ["Cube"]
         qa = await pool.call("inspect_usd", path=str(path), primitive="qa_check", kwargs={"profile": "game"})
         assert "Cube" in qa["objects"] and not qa["pass"]   # fixture has no material
+        kit = await pool.call("inspect_usd", path=str(path), primitive="kit_check", kwargs={"grid": 0.5, "pivot": "center"})
+        assert kit["pieces"]["Cube"]["dims_m"] == pytest.approx([2.0, 2.0, 2.0]) and not kit["fixed"]
+        assert not any("pivot" in e for e in kit["pieces"]["Cube"]["errors"])
+        corner = await pool.call("inspect_usd", path=str(path), primitive="kit_check", kwargs={})
+        assert any("pivot is not at the corner" in e for e in corner["pieces"]["Cube"]["errors"])
+        texel = await pool.call("inspect_usd", path=str(path), primitive="texel_density", kwargs={"res": 1024})
+        assert texel["res"] == 1024 and "Cube" in texel["objects"]
+        welded = await pool.call("inspect_usd", path=str(path), primitive="qa_check", kwargs={}, weld=True)
+        weld = welded["agy_inspect"]["weld"]["objects"]["Cube"]
+        assert weld["verts_after"] <= weld["verts_before"] and welded["objects"]["Cube"]["boundary_edges"] == 0
+        for primitive, kwargs in (("kit_check", {"fix": True}), ("texel_density", {"set": 512.0}), ("qa_check", {"objects": ["Cube"]})):
+            with pytest.raises(BlenderOpError, match="does not accept"):
+                await pool.call("inspect_usd", path=str(path), primitive=primitive, kwargs=kwargs)
         with pytest.raises(BlenderOpError, match="KeyError"):
             await pool.call("inspect_usd", path=str(path), primitive="unlisted")
         rendered = await pool.call("render_usd", path=str(path), engine="cycles", width=24, height=24, samples=2)
         assert rendered["mesh_stats"]["total_tris"] == 12
+    if os.environ.get("AGY3D_BLENDER_SKILLS"):  # the override loads the same reviewed files from the checkout
+        async with BlenderPool(1, startup_timeout=120) as pool:
+            version = await pool.call("version")
+            assert version["primitives"] == PRIMITIVE_NAMES and version["primitives_source"]["kind"] == "checkout", version
+
+
+@pytest.mark.blender
+def test_vendored_blender_skills_match_the_pinned_checkout():
+    """CI checks EL4CTEO/blender-skills out at the pinned commit: every vendored file must be byte-identical to it."""
+    from antigravity3d.adapters.blender_5_3 import skills
+
+    checkout = os.environ.get("AGY3D_BLENDER_SKILLS")
+    if not checkout:
+        pytest.skip("set AGY3D_BLENDER_SKILLS to a checkout of the pinned upstream commit")
+    root = Path(checkout)
+    head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    assert head == skills.UPSTREAM_COMMIT
+    for rel in (skills.HELPER[0], *(rel for rel, _ in skills.PINNED_SCRIPTS.values()), skills.LICENSE[0]):
+        assert (skills.VENDOR_DIR / rel).read_bytes() == (root / rel).read_bytes(), rel
+    assert (skills.VENDOR_DIR / skills.HELPER[0]).read_bytes() == (root / "shared/_bpyx.py").read_bytes()  # upstream's source of truth
+
+
+@pytest.mark.blender
+async def test_upstream_primitives_on_a_package_match_the_fake_shape_and_weld_closes_seams(tmp_path):
+    """The fake worker's results have the real scripts' shape, and inspect_usd(weld=True) restores a box's connectivity."""
+    if not find_blender():
+        pytest.skip("requires stock Blender")
+    from antigravity3d.ir import MaterialIR, NodeIR, SceneIR, Transform
+    from antigravity3d.kernel import fast_ops
+    from antigravity3d.kernel.package import write_engine_package
+    from antigravity3d.kernel.usd_stage import StageManager
+    from antigravity3d.state import EngineBudget
+
+    budget = EngineBudget("unreal_5")
+    scene = SceneIR(asset_name="Block", materials=[MaterialIR(id="m0")],
+                    nodes=[NodeIR(id="block", kind="box", params={"size": (1.0, 0.5, 0.25)}, material_id="m0", transform=Transform(translate=(0, 0, 0.125)))])
+    sm = StageManager.create(tmp_path / "Block.usda", "Block")
+    sm.apply_ir(scene)
+    sm.commit_all()
+    bundle = fast_ops.run_export_pipeline(sm.extract_meshes(), budget, "Block")
+    usd = str(write_engine_package(sm, bundle, budget, tmp_path / "package", asset_name="Block", qa={"tier1_ok": True}).out_dir / "Block.usd")
+    calls = {"mesh_stats": {"budget": "pc"}, "qa_check": {"profile": "game"}, "kit_check": {"texture": 1024}, "texel_density": {"res": 1024}}
+    per_object = {"mesh_stats": "objects", "qa_check": "objects", "kit_check": "pieces", "texel_density": "objects"}
+    async with BlenderPool(1, fake=True) as fake, BlenderPool(1, startup_timeout=120, extra_env={"AGY3D_BLENDER_SKILLS": ""}) as real:
+        for name, kwargs in calls.items():
+            f = await fake.call("inspect_usd", path=usd, primitive=name, kwargs=kwargs)
+            r = await real.call("inspect_usd", path=usd, primitive=name, kwargs=kwargs)
+            assert "block" in r["agy_inspect"]["objects"], r["agy_inspect"]  # whether guide colliders come along is recorded by the benchmark
+            assert set(r) == set(f) - {"fake"}, name
+            assert set(r[per_object[name]]["block"]) <= set(f[per_object[name]]["FakeMesh"]), name
+        welded = await real.call("inspect_usd", path=usd, primitive="qa_check", kwargs={"profile": "game"}, weld=True)
+        assert welded["agy_inspect"]["weld"]["objects"]["block"]["verts_after"] == 8
+        block = welded["objects"]["block"]
+        assert (block["boundary_edges"], block["islands"], block["duplicate_verts"], block["inside_out_islands"]) == (0, 1, 0, 0)
+        glb = str(Path(usd).with_suffix(".glb"))  # the same asset as shipped in the GLB, through Blender's glTF importer
+        welded = await real.call("inspect_usd", path=glb, primitive="qa_check", kwargs={"profile": "game"}, weld=True)
+        assert welded["agy_inspect"]["importer"] == "gltf" and len(welded["agy_inspect"]["objects"]) == 1
+        (block,) = welded["objects"].values()
+        assert (block["boundary_edges"], block["islands"], block["inside_out_islands"]) == (0, 1, 0)
 
 
 def test_unreviewed_blender_skills_are_rejected_before_import(tmp_path):

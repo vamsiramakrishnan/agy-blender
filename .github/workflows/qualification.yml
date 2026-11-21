@@ -79,6 +79,8 @@ jobs:
           python - <<'PYTHON'
           import xml.etree.ElementTree as ET
           required = {"test_three_worker_mixed_asset_soak", "test_reviewed_upstream_primitives",
+                      "test_vendored_blender_skills_match_the_pinned_checkout",
+                      "test_upstream_primitives_on_a_package_match_the_fake_shape_and_weld_closes_seams",
                       "test_ten_relocated_golden_packages_load_in_stock_godot",
                       "test_ten_relocated_golden_dcc_engine_silhouettes",
                       "test_staged_lookdev_and_export_share_one_imported_mesh_atlas",
@@ -104,7 +106,7 @@ jobs:
       # shows as a failed step plus a warning annotation but does not fail the job, so it cannot mask or replace
       # the test result. Cost on a hosted runner: about one minute, half of it the three EEVEE renders on software
       # GL (3 Blender cold starts of ~0.4 s, 8 renders, 3 Godot packages x 3 imports, kernel work on 4 meshes); the
-      # soft budget inside the script skips late measurements after 240 s and the step timeout is a hard stop. It imports the installed wheel: the script is run by path, so
+      # upstream checks survey (about 125 inspect_usd calls on small packages, planted defects and kit pieces) is estimated at 40-80 s more, unmeasured on a runner so far. The soft budget inside the script skips late measurements after 240 s (the survey stops at 80 % of it) and the step timeout is a hard stop. It imports the installed wheel: the script is run by path, so
       # only benchmarks/ (for quality_facts) is added to sys.path, never the checkout's src/.
       - name: Time Blender and Godot paths against the native kernels
         id: engine-bench
@@ -113,6 +115,9 @@ jobs:
         timeout-minutes: 7
         env:
           AGY_BENCH_TESTS_OUTCOME: ${{ steps.tests.outcome }}
+          # empty = unset: the benchmark's worker loads the vendored upstream scripts, as production does (the
+          # checkout above is only for the byte comparison in the tests); the JSON records the source it used
+          AGY3D_BLENDER_SKILLS: ""
         run: xvfb-run -a python benchmarks/perf_engines.py --out /tmp/engine-bench.json --markdown /tmp/engine-bench.md
       - name: Engine benchmark summary
         if: ${{ !cancelled() }}

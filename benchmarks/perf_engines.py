@@ -14,7 +14,10 @@ What is measured, each in its own try/except (an error is recorded as text, the 
   * the same geometry operations done by Blender and by this project's kernels on the same meshes in the same
     process on the same machine: UV unwrap, LOD decimation to the kernel's triangle counts, convex hull, and a
     4-view clay sheet. Both sides record what they produced; ``equivalence`` says where the work differs;
-  * Godot's headless import of three written packages, the way the engine validator does it.
+  * Godot's headless import of three written packages, the way the engine validator does it;
+  * the upstream checks survey (``upstream_survey.py``, JSON key ``upstream_checks``): what the reviewed
+    EL4CTEO/blender-skills scripts in the worker say about the packages, planted defects and a kit, beside what the
+    project's own checks say. Measurement only.
 
 Blender scripts run through the pool's ``run_script`` (they pass the linter, which is also checked in
 ``--fake`` mode). Blender-side times are taken inside Blender around the operator only (mesh construction and
@@ -43,7 +46,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
 
-SCHEMA = 1
+SCHEMA = 2  # 2: upstream_checks (the upstream checks survey)
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:  # quality_facts lives next to this file; antigravity3d comes from the installed wheel
     sys.path.insert(0, str(HERE))
@@ -219,20 +222,13 @@ def uv_stats_kernel(u: Any) -> dict[str, Any]:
             "area_distortion": float(u.stretch_mean), "surface_m2": surface}
 
 
-def build_subjects(workdir: Path, quick: bool) -> dict[str, Any]:
-    """Meshes (stage-extracted parts, in world space) and written packages for the three package subjects."""
-    import numpy as np  # noqa: F401
-    import quality_facts
-
+def prop_scenes() -> dict[str, tuple[Any, str]]:
+    """{subject: (SceneIR, asset name)}: the template author's crate and barrel, and an IR sphere."""
     from antigravity3d.ir import MaterialIR, NodeIR, SceneIR, Transform
-    from antigravity3d.kernel import fast_ops
-    from antigravity3d.kernel.package import write_engine_package
-    from antigravity3d.kernel.usd_stage import StageManager
     from antigravity3d.state import EngineBudget
     from antigravity3d.tactics.authoring import TemplateAuthor
 
     budget = EngineBudget("unreal_5")
-    qa = {"tier1_ok": True, "tier15": 3.6, "defects": {}, "audit": []}
     scenes: dict[str, tuple[Any, str]] = {}
     for name, prompt in PROMPTS.items():
         scenes[name] = (asyncio.run(TemplateAuthor().propose(prompt, budget=budget, n=1, context={"asset_name": name.capitalize()}))[0], name.capitalize())
@@ -240,6 +236,22 @@ def build_subjects(workdir: Path, quick: bool) -> dict[str, Any]:
                    nodes=[NodeIR(id="ball", kind="sphere", params={"radius": 0.5, "segments": 72, "rings": 36}, material_id="m0",
                                  transform=Transform(translate=(0.0, 0.0, 0.5)))])
     scenes["sphere_ir"] = (ball, "Ball")
+    return scenes
+
+
+def build_subjects(workdir: Path, quick: bool) -> dict[str, Any]:
+    """Meshes (stage-extracted parts, in world space) and written packages for the three package subjects."""
+    import numpy as np  # noqa: F401
+    import quality_facts
+
+    from antigravity3d.kernel import fast_ops
+    from antigravity3d.kernel.package import write_engine_package
+    from antigravity3d.kernel.usd_stage import StageManager
+    from antigravity3d.state import EngineBudget
+
+    budget = EngineBudget("unreal_5")
+    qa = {"tier1_ok": True, "tier15": 3.6, "defects": {}, "audit": []}
+    scenes = prop_scenes()
     subjects: dict[str, Any] = {}
     for name, (scene, asset) in scenes.items():
         d = workdir / name
@@ -256,7 +268,7 @@ def build_subjects(workdir: Path, quick: bool) -> dict[str, Any]:
     for target in ((2000,) if quick else (2000, 10000)):
         m = quality_facts.sphere(target)
         comparisons[f"sphere_{len(m.triangles)}"] = [m]
-    return {"packages": subjects, "comparison_meshes": comparisons}
+    return {"packages": subjects, "comparison_meshes": comparisons, "scenes": scenes}
 
 
 def parts_payload(meshes: list[Any]) -> list[dict[str, Any]]:
@@ -632,7 +644,7 @@ async def blender_section(run: Run, subjects: dict[str, Any], workdir: Path) -> 
             await candidate.stop()
         else:
             pool = candidate
-    doc["cold_start_to_first_ping"] = {"status": "ok", **stats(cold), "includes": "pool start: spawn Blender, load the daemon (and reviewed skills when $AGY3D_BLENDER_SKILLS is set), version handshake; then the first ping. Fresh process each sample"}
+    doc["cold_start_to_first_ping"] = {"status": "ok", **stats(cold), "includes": "pool start: spawn Blender, load the daemon and the reviewed upstream scripts (vendored, or the $AGY3D_BLENDER_SKILLS checkout), version handshake; then the first ping. Fresh process each sample"}
     assert pool is not None
     try:
         await run.aattempt(doc, "version", lambda: _version(pool, run), path="blender_pool.version")
@@ -680,6 +692,13 @@ async def blender_section(run: Run, subjects: dict[str, Any], workdir: Path) -> 
         for label, meshes in subjects["comparison_meshes"].items():
             entry = await compare_mesh(run, pool, label, meshes, workdir)
             comps.append(entry)
+
+        # last: everything above has its own budget share (0.7); the survey stops at 0.8 and records what it skipped
+        import upstream_survey
+        try:
+            await upstream_survey.survey_section(run, pool, subjects["scenes"], workdir)
+        except Exception as e:  # noqa: BLE001 - a crash of the survey is recorded; the rest of the benchmark stands
+            run.doc.setdefault("upstream_checks", {}).update(status="error", error=run.record_error("upstream_checks", e))
     finally:
         await pool.stop()
 
@@ -893,6 +912,11 @@ def markdown(doc: dict[str, Any]) -> str:
         rows += [(f"import {k}", x) for k, x in (g.get("import") or {}).items()]
         for name, d in rows:
             lines.append(f"| {name} | {cell(d)} | {(d or {}).get('n', '')} | {note(d)} |")
+    try:
+        import upstream_survey
+        lines += upstream_survey.markdown(doc)
+    except Exception as e:  # noqa: BLE001 - the summary must still be written
+        lines += ["", f"(upstream checks summary failed: {type(e).__name__}: {e})"]
     if doc.get("errors"):
         lines += ["", f"### {len(doc['errors'])} measurement(s) failed or skipped", ""] + [f"- `{e[:220]}`" for e in doc["errors"][:30]]
     lines += ["", f"Wall time {doc.get('total_wall_s')} s.", ""]

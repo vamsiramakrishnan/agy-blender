@@ -63,10 +63,17 @@ _bootstrap_msgpack()
 proto = _load_sibling("protocol")
 linter = _load_sibling("linter")
 shim = _load_sibling("shim_5_3")
+skills = _load_sibling("skills")  # reviewed upstream primitives: loads nothing until load_reviewed is called
 
 Handler = Callable[[dict[str, Any]], Any]
 OPS: dict[str, Handler] = {}
 PRIMITIVES: dict[str, Callable[..., dict[str, Any]]] = {}
+PRIMITIVES_INFO: dict[str, Any] = {"source": None, "error": None}  # where the primitives came from, or why there are none
+# (imported, weld) -> (names of the imported mesh objects, weld report or None); set by register_*_ops
+PREPARE: dict[str, Callable[[dict[str, Any], bool], tuple[list[str], dict[str, Any] | None]]] = {}
+# inspect_usd(weld=True) merges vertices closer than this, per imported mesh: coincident seam copies are
+# bit-identical float32 points, and no real feature of an asset is a micrometre wide
+WELD_DISTANCE_M = 1e-6
 DENOISER_CHAIN = ("DLSS", "OPTIX", "OPENIMAGEDENOISE")  # preference order; filtered by what the build offers
 ENGINE_IDS = {"workbench": "BLENDER_WORKBENCH", "eevee": "BLENDER_EEVEE", "cycles": "CYCLES"}
 SAFE_MODULES = linter.ALLOWED_MODULES
@@ -147,14 +154,20 @@ def _version(a: dict[str, Any]) -> dict[str, Any]:
     bpy = sys.modules.get("bpy")
     return {"daemon": DAEMON_VERSION, "python": sys.version.split()[0], "fake": bpy is None or bool(getattr(bpy, "_agy_fake", False)),
             "blender_version": getattr(getattr(bpy, "app", None), "version", None),
-            "blender": getattr(getattr(bpy, "app", None), "version_string", None), "ops": sorted(OPS), "primitives": sorted(PRIMITIVES)}
+            "blender": getattr(getattr(bpy, "app", None), "version_string", None), "ops": sorted(OPS), "primitives": sorted(PRIMITIVES),
+            "primitives_source": PRIMITIVES_INFO["source"], "primitives_error": PRIMITIVES_INFO["error"]}
+
+
+GLTF_EXTS = (".glb", ".gltf")
 
 
 def _import_snapshot(path: str) -> dict[str, Any]:
+    """Empty scene + one file: glTF (``.glb``/``.gltf``) through Blender's glTF importer, anything else as USD."""
     OPS["reset_scene"]({})
-    imported = OPS["import_usd"]({"path": path})
+    kind = "gltf" if Path(path).suffix.lower() in GLTF_EXTS else "usd"
+    imported = OPS[f"import_{kind}"]({"path": path})
     if not imported.get("fake") and not imported["renderable"]:
-        raise ValueError("USD snapshot contains no renderable geometry")
+        raise ValueError(f"{kind.upper()} snapshot contains no renderable geometry")
     return imported
 
 
@@ -163,10 +176,98 @@ def _render_usd(a: dict[str, Any]) -> dict[str, Any]:
     """Render a complete immutable USD snapshot on the worker handling this request."""
     imported = _import_snapshot(a["path"])
     result = OPS["render"](a)
-    if "mesh_stats" in PRIMITIVES:
-        stats = PRIMITIVES["mesh_stats"]()
-        result["mesh_stats"] = {key: stats[key] for key in ("total_tris", "total_verts", "draw_calls_est")}
+    if "mesh_stats" in PRIMITIVES and not imported.get("fake"):  # the fake worker has no scene to count
+        try:
+            names, _ = PREPARE["prepare"](imported, False)
+        except ValueError:  # renderable but no mesh object (curves, volumes): nothing for mesh_stats to count
+            names = []
+        if names:
+            stats = PRIMITIVES["mesh_stats"](objects=names)  # exactly what was imported, whatever the selection
+            result["mesh_stats"] = {key: stats[key] for key in ("total_tris", "total_verts", "draw_calls_est")}
     return {**result, "objects": imported.get("objects", []), "fake": bool(imported.get("fake"))}
+
+
+@op("inspect_usd")
+def _inspect_usd(a: dict[str, Any]) -> dict[str, Any]:
+    """Import a USD (or ``.glb``/``.gltf``) snapshot into an empty scene and run one reviewed primitive on it, as a measurement.
+
+    ``primitive`` names the script; ``kwargs`` must stay inside its contract (``skills.PRIMITIVE_KWARGS``): the
+    call is refused before anything is imported otherwise. The worker passes ``objects`` itself: the mesh objects
+    the import produced (upstream's default is "the selection, else everything visible", which depends on what the
+    importer left selected). ``weld=True`` merges coincident vertices of each imported mesh first (see
+    :data:`WELD_DISTANCE_M`); UVs are per face corner in Blender, so they are unchanged, and only connectivity
+    differs: UV seams of the package's seam-split points stop being open edges. The result is the script's own,
+    plus one key, ``agy_inspect``: the objects measured and the weld report.
+    """
+    name = a.get("primitive")
+    kwargs = skills.check_kwargs(name, a.get("kwargs"))
+    run = PRIMITIVES.get(name)
+    if run is None:
+        raise KeyError(f"primitive {name!r} is not loaded in this worker (loaded: {sorted(PRIMITIVES)}; "
+                       f"load error: {PRIMITIVES_INFO['error']})")
+    weld = a.get("weld", False)
+    if not isinstance(weld, bool):
+        raise TypeError(f"weld must be true or false, got {weld!r}")
+    imported = _import_snapshot(a["path"])
+    names, welded = PREPARE["prepare"](imported, weld)
+    result = run(objects=names, **kwargs)
+    result["agy_inspect"] = {"objects": names, "weld": welded, "importer": "gltf" if Path(a["path"]).suffix.lower() in GLTF_EXTS else "usd"}
+    return result
+
+
+def register_reviewed_primitives() -> None:
+    """Load the vendored upstream scripts (or the $AGY3D_BLENDER_SKILLS checkout); a failure is reported, not raised.
+
+    Rendering and the other operations do not depend on the primitives, so a worker whose primitives cannot be
+    loaded still starts; ``version`` says why they are missing and ``inspect_usd`` refuses with that reason.
+    """
+    root, kind = skills.source_root()
+    try:
+        PRIMITIVES.update(skills.load_reviewed(root))
+        PRIMITIVES_INFO.update(source={"kind": kind, "path": str(root), "commit": skills.UPSTREAM_COMMIT}, error=None)
+    except Exception as e:  # noqa: BLE001 - reported through version / inspect_usd
+        PRIMITIVES_INFO.update(source={"kind": kind, "path": str(root), "commit": skills.UPSTREAM_COMMIT},
+                               error=f"{type(e).__name__}: {e}"[:400])
+
+
+def fake_primitive(name: str) -> Callable[..., dict[str, Any]]:
+    """A stand-in with the result shape of the real script (top-level keys and per-object keys), marked fake.
+
+    The values are placeholders (one object, ``FakeMesh``, with zero metrics): the fake worker has no scene.
+    """
+    obj = "FakeMesh"
+
+    def mesh_stats(objects: list[str] | None = None, budget: str | None = None) -> dict[str, Any]:
+        rep: dict[str, Any] = {
+            "ok": True, "objects": {obj: {"tris": 0, "verts": 0, "materials": 0, "modifiers": [], "uv_maps": 0, "shape_keys": 0}},
+            "total_tris": 0, "total_verts": 0, "draw_calls_est": 1, "unique_materials": 0, "textures": [],
+            "texture_vram_mb_uncompressed": 0.0, "bones": 0, "kind": "prop", "fake": True}
+        if budget:
+            limits = dict.fromkeys(("char_tris", "prop_tris", "materials", "tex", "bones"))
+            rep["budget"] = {"name": budget, "limits": limits, "over": [], "pass": True}
+        return rep
+
+    def qa_check(objects: list[str] | None = None, profile: str = "game", eps: float = 0.001, tol: float = 0.002, max_tris: int = 300000, uv: bool = True) -> dict[str, Any]:
+        metrics: dict[str, Any] = dict.fromkeys(
+            ("verts", "faces", "tris", "ngons", "boundary_edges", "nonmanifold_edges", "wire_edges", "loose_verts", "degenerate_faces",
+             "zero_length_edges", "inconsistent_normals_edges", "duplicate_verts", "islands", "inside_out_islands", "materials"), 0)
+        metrics["scale"] = [1.0, 1.0, 1.0]
+        if uv:  # an object with a UV map (without one, the real script reports only uv_maps=0)
+            metrics.update(uv_maps=1, uv_oob_pct=0.0, uv_zero_area_faces=0, uv_overlap_pct=0.0, uv_coverage_pct=0.0)
+        return {"ok": True, "pass": True, "errors": [], "warnings": [], "ground_z": 0.0, "zfighting": [], "floating": [],
+                "back_to_back": [], "enclosed": [], "objects": {obj: metrics}, "fake": True}
+
+    def kit_check(objects: list[str] | None = None, grid: float = 0.5, pivot: str = "corner", texture: int = 2048, tol: float = 0.001, prefix: str = "SM_") -> dict[str, Any]:
+        if pivot not in ("corner", "bottom-center", "center"):
+            raise ValueError("--pivot must be corner, bottom-center or center")
+        return {"ok": True, "pass": True, "grid_m": grid, "pivot": pivot, "fixed": False,
+                "pieces": {obj: {"dims_m": [0.0, 0.0, 0.0], "tris": 0, "texel_px_per_m": None, "errors": [], "warnings": []}}, "fake": True}
+
+    def texel_density(objects: list[str] | None = None, res: int = 2048) -> dict[str, Any]:
+        return {"ok": True, "res": res,
+                "objects": {obj: {"px_per_m": 0.0, "island_min": 0.0, "island_max": 0.0, "islands": 0, "spread": 0.0}}, "fake": True}
+
+    return {"mesh_stats": mesh_stats, "qa_check": qa_check, "kit_check": kit_check, "texel_density": texel_density}[name]
 
 
 @op("run_script")
@@ -240,7 +341,7 @@ def register_fake_ops() -> None:
     def crash(a: dict[str, Any]) -> None:
         os._exit(int(a.get("code", 3)))
 
-    for name in ("import_usd", "export_usd", "reset_scene", "import_splat"):
+    for name in ("import_usd", "import_gltf", "export_usd", "reset_scene", "import_splat"):
         OPS[name] = (lambda n: lambda a: {"fake": True, "op": n, **{k: v for k, v in a.items() if k != "source"}})(name)
 
     @op("apply_geonodes")
@@ -248,6 +349,16 @@ def register_fake_ops() -> None:
         spec = prepare_tree_spec(a["tree_json"])
         return {"fake": True, "object": a["object_name"], "is_preview": bool(a.get("is_preview", True)),
                 "inputs": [i["name"] for i in spec["inputs"]]}
+
+    for name in skills.PRIMITIVE_KWARGS:
+        PRIMITIVES[name] = fake_primitive(name)
+    PRIMITIVES_INFO.update(source={"kind": "fake", "path": None, "commit": None}, error=None)
+
+    def prepare_fake(imported: dict[str, Any], weld: bool) -> tuple[list[str], dict[str, Any] | None]:
+        names = ["FakeMesh"]
+        return names, ({"distance_m": WELD_DISTANCE_M, "objects": {n: {"verts_before": 0, "verts_after": 0} for n in names}, "fake": True}
+                       if weld else None)
+    PREPARE["prepare"] = prepare_fake
 
     @op("bake_maps")
     def bake_fake(a: dict[str, Any]) -> dict[str, Any]:
@@ -270,15 +381,36 @@ def register_bpy_ops(bpy: Any) -> None:
     if bpy.app.version[:2] < (5, 3):
         raise RuntimeError(f"Blender 5.3+ required, got {bpy.app.version_string}")
     shim.install(bpy)
-    checkout = os.environ.get("AGY3D_BLENDER_SKILLS")
-    if checkout:
-        PRIMITIVES.update(_load_sibling("skills").load_reviewed(Path(checkout)))
+    register_reviewed_primitives()
 
-        @op("inspect_usd")
-        def inspect_usd(a: dict[str, Any]) -> dict[str, Any]:
-            run = PRIMITIVES[a["primitive"]]
-            _import_snapshot(a["path"])
-            return run(**a.get("kwargs", {}))
+    def prepare(imported: dict[str, Any], weld: bool) -> tuple[list[str], dict[str, Any] | None]:
+        """The imported mesh objects (by name), with transforms evaluated; optionally welded (see inspect_usd)."""
+        bpy.context.view_layer.update()  # matrix_world of freshly imported objects is evaluated here, not lazily
+        objs = [bpy.data.objects[n] for n in imported["objects"] if bpy.data.objects[n].type == "MESH"]
+        if not objs:  # an empty list would make upstream fall back to the selection
+            raise ValueError("the import produced no mesh objects")
+        report = None
+        if weld:
+            import bmesh
+
+            report = {"distance_m": WELD_DISTANCE_M, "objects": {}}
+            seen: set[int] = set()
+            for ob in objs:
+                me = ob.data
+                if me.as_pointer() in seen:  # mesh data shared by two objects is welded once
+                    continue
+                seen.add(me.as_pointer())
+                bm = bmesh.new()
+                bm.from_mesh(me)
+                before = len(bm.verts)
+                bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=WELD_DISTANCE_M)
+                bm.to_mesh(me)
+                bm.free()
+                me.update()
+                report["objects"][ob.name] = {"verts_before": before, "verts_after": len(me.vertices)}
+            bpy.context.view_layer.update()
+        return [ob.name for ob in objs], report
+    PREPARE["prepare"] = prepare
 
     geometry_types = {"MESH", "CURVE", "SURFACE", "FONT", "META", "VOLUME", "POINTCLOUD"}
 
@@ -324,6 +456,22 @@ def register_bpy_ops(bpy: Any) -> None:
         before = set(bpy.data.objects)
         if "FINISHED" not in bpy.ops.wm.usd_import(filepath=a["path"]):
             raise RuntimeError(f"USD import failed for {a['path']}")
+        imported = set(bpy.data.objects) - before
+        return {"objects": sorted(obj.name for obj in imported),
+                "renderable": any(obj.type in geometry_types and not obj.hide_render for obj in imported)}
+
+    @op("import_gltf")
+    def import_gltf(a: dict[str, Any]) -> dict[str, Any]:
+        """Blender's bundled glTF importer (add-on io_scene_gltf2, enabled in factory settings), default options."""
+        import addon_utils
+
+        if not addon_utils.check("io_scene_gltf2")[1]:  # (enabled by default, loaded)
+            addon_utils.enable("io_scene_gltf2", default_set=True)
+        if not addon_utils.check("io_scene_gltf2")[1]:
+            raise RuntimeError("the glTF importer (add-on io_scene_gltf2) is not available in this Blender")
+        before = set(bpy.data.objects)
+        if "FINISHED" not in bpy.ops.import_scene.gltf(filepath=a["path"]):
+            raise RuntimeError(f"glTF import failed for {a['path']}")
         imported = set(bpy.data.objects) - before
         return {"objects": sorted(obj.name for obj in imported),
                 "renderable": any(obj.type in geometry_types and not obj.hide_render for obj in imported)}

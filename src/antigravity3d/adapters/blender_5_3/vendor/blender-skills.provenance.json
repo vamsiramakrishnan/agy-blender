@@ -1,0 +1,42 @@
+{
+ "repository": "https://github.com/EL4CTEO/blender-skills",
+ "commit": "9e7e04a603c125a0d17447ab97112fa70a865067",
+ "release": "1.3.2",
+ "source": "git checkout of the commit above; files copied byte for byte, upstream layout kept under blender-skills/",
+ "use": "executed inside the Blender worker (adapters/blender_5_3/skills.py) after a SHA-256 check against the digests pinned in skills.py; never imported outside Blender",
+ "files": {
+  "skills/blender-game-optimization/scripts/_bpyx.py": {
+   "upstream_path": "skills/blender-game-optimization/scripts/_bpyx.py",
+   "bytes": 4524,
+   "sha256": "90f44d70198b199cd922e4e57f7e55c56a3041d3a498ef7d444b019f9795d2ff",
+   "note": "shared helper; byte-identical to upstream shared/_bpyx.py (its source of truth) and to the 25 other copies under skills/*/scripts/. One copy is vendored; the loader provides it to every script as the module _bpyx"
+  },
+  "skills/blender-game-optimization/scripts/mesh_stats.py": {
+   "upstream_path": "skills/blender-game-optimization/scripts/mesh_stats.py",
+   "bytes": 3920,
+   "sha256": "6f48790b87b90cd15d4c20e6884dcfedf9aa65292f4afcc7fad9fcf7eb8216bc"
+  },
+  "skills/blender-asset-qa/scripts/qa_check.py": {
+   "upstream_path": "skills/blender-asset-qa/scripts/qa_check.py",
+   "bytes": 20244,
+   "sha256": "37d01051f98fdafd3a9f13f7525804174c68a7bacb446d5bd5b2f43fc2785cca"
+  },
+  "skills/blender-environment-kits/scripts/kit_check.py": {
+   "upstream_path": "skills/blender-environment-kits/scripts/kit_check.py",
+   "bytes": 6179,
+   "sha256": "5130ad74e2c19dd1839e354a06abd204bafeead277cc447107db017f359e20e5"
+  },
+  "skills/blender-retopology-uv/scripts/texel_density.py": {
+   "upstream_path": "skills/blender-retopology-uv/scripts/texel_density.py",
+   "bytes": 4693,
+   "sha256": "9fd15366aa20aa3005163745b12aae216c0b23a5fdafa0bbec98c1786f0c3cd6"
+  }
+ },
+ "license": {
+  "file": "LICENSE",
+  "upstream_path": "LICENSE",
+  "spdx": "MIT",
+  "bytes": 1064,
+  "sha256": "d81d0037e3a29a01ccfefaae420d5ba73e905cabf3995700e9075c7205c06cc5"
+ }
+}
