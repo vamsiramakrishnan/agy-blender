@@ -63,14 +63,27 @@ IMAGE_NON_IMAGE_OUTPUT_ALLOWANCE = 2_560
 # image of the run's hard image limit, so one. An attempt the service said it did not serve books nothing, counts no image
 # and follows the shared schedule (service_answer.DEFAULT_POLICY).
 IMAGE_UNKNOWN_RETRIES = 1
+# An answer that came back without an image is asked again once (finding of 2026-11-21: one albedo call of three
+# finished MAX_TOKENS after 652 output tokens with no image part, and in single-candidate mode its material shipped flat).
+# The same rule as the judge's one re-ask after an unusable answer (decisions.fallback, max_parse_retries=1): a served
+# answer, billed, so a count of its own and not the service-failure schedule (service_answer.RetryPolicy, whose waits
+# and outcomes are about answers the service did not give). Only for the finish reasons below (ImageNotReturned.may_ask_again).
+IMAGE_NO_IMAGE_REASKS = 1
+NO_IMAGE_REASK_FINISH = frozenset({"MAX_TOKENS", "STOP", "NO_IMAGE"})
 
 
 class ImageNotReturned(RuntimeError):
-    """The provider answered without an image (MAX_TOKENS, a safety stop, no candidate). Carries what was billed."""
+    """The provider answered without an image (MAX_TOKENS, a safety stop, no candidate). Carries what was billed.
 
-    def __init__(self, message: str, *, finish_reason: str | None, usage: dict[str, Any] | None) -> None:
+    ``block_reason``: the prompt's block reason when the provider refused the prompt itself. ``attempts``: when the
+    answer was asked again (``ImageForge.no_image_reasks``), every attempt's finish reason, usage and response id."""
+
+    def __init__(self, message: str, *, finish_reason: str | None, usage: dict[str, Any] | None,
+                 block_reason: str | None = None, response_id: str | None = None,
+                 attempts: list[dict[str, Any]] | None = None) -> None:
         super().__init__(message)
-        self.finish_reason, self.usage = finish_reason, usage
+        self.finish_reason, self.usage, self.block_reason = finish_reason, usage, block_reason
+        self.response_id, self.attempts = response_id, attempts or []
 
     @classmethod
     def from_response(cls, resp: Any) -> ImageNotReturned:
@@ -80,8 +93,18 @@ class ImageNotReturned(RuntimeError):
         u = getattr(resp, "usage_metadata", None)
         usage = None if u is None else {k: getattr(u, k, None) for k in ("prompt_token_count", "candidates_token_count",
                                                                         "thoughts_token_count", "total_token_count")}
-        return cls(f"image model returned no inline image data (finish_reason {finish}; usage {usage})",
-                   finish_reason=finish, usage=usage)
+        br = getattr(getattr(resp, "prompt_feedback", None), "block_reason", None)
+        block = str(getattr(br, "name", br)) if br else None
+        return cls(f"image model returned no inline image data (finish_reason {finish}; usage {usage})"
+                   + (f"; prompt blocked ({block})" if block else ""),
+                   finish_reason=finish, usage=usage, block_reason=block, response_id=getattr(resp, "response_id", None))
+
+    @property
+    def may_ask_again(self) -> bool:
+        """An answer that ran out of room or simply held no image: the same request may well return one. Never a
+        refusal (a blocked prompt, a safety / prohibited-content / recitation / blocklist stop, or no candidate at all,
+        which is how a refused prompt answers) and never an unknown stop (OTHER, IMAGE_OTHER, ...)."""
+        return self.block_reason is None and self.finish_reason in NO_IMAGE_REASK_FINISH
 
 
 def _size_tier(size: int | None) -> str | None:
@@ -241,6 +264,7 @@ class ImageForge:
         self.governor = governor or (backend.governor if isinstance(backend, GenAIImageBackend) else Governor(plan_for(2)))
         self.max_request_usd = max_request_usd
         self.retry: service_answer.RetryPolicy | None = None  # None: the shared schedule, read at call time
+        self.no_image_reasks = IMAGE_NO_IMAGE_REASKS  # answers without an image asked again (see the constant)
 
     def with_governor(self, governor: Governor) -> ImageForge:
         bound = copy(self)
@@ -284,10 +308,49 @@ class ImageForge:
             if self.max_request_usd is None:
                 raise ValueError("a custom image backend requires a contracted max_request_usd for admission")
             limit = self.max_request_usd
+        no_image: list[ImageNotReturned] = []  # earlier answers of this call that came back without an image
+        while True:  # one pass per answer asked for: the first, then at most ``no_image_reasks`` more (sdk only)
+            if no_image:
+                tracker = service_answer.Tracker(policy)  # a new request: its own service-failure schedule
+            try:
+                return await self._attempt(op, prompt, images=images, size=size, size_tier=size_tier, aspect=aspect,
+                                           key_alpha=key_alpha, limit=limit, tokens=tokens, rates=rates, sdk=sdk,
+                                           tracker=tracker, start=start, no_image=no_image)
+            except ImageNotReturned as exc:
+                no_image.append(exc)
+                if not (sdk and exc.may_ask_again and len(no_image) <= self.no_image_reasks):
+                    if len(no_image) > 1:
+                        raise self._no_image_again(no_image) from exc
+                    raise
+
+    @staticmethod
+    def _no_image_again(answers: list[ImageNotReturned]) -> ImageNotReturned:
+        """Every answer was without an image: one error naming each attempt (first, so a truncated note keeps them)."""
+        def named(i: int, e: ImageNotReturned) -> str:
+            u = e.usage or {}
+            n = (u.get("candidates_token_count") or 0) + (u.get("thoughts_token_count") or 0)
+            return f"#{i + 1} {e.finish_reason}, " + (f"{n} output tokens" if u else "usage unknown")
+
+        names = [named(i, e) for i, e in enumerate(answers)]
+        last = answers[-1]
+        return ImageNotReturned(f"no image in {len(answers)} answers ({'; '.join(names)}); asked again once, each attempt "
+                                f"booked as billed; last: {last}", finish_reason=last.finish_reason, usage=last.usage,
+                                block_reason=last.block_reason, response_id=last.response_id,
+                                attempts=[{"attempt": i + 1, "finish_reason": e.finish_reason, "usage": e.usage,
+                                           "response_id": e.response_id} for i, e in enumerate(answers)])
+
+    async def _attempt(self, op: str, prompt: str, *, images: Sequence[bytes], size: int | None, size_tier: str | None,
+                       aspect: str, key_alpha: bool, limit: float, tokens: bool, rates: ImageRates | None, sdk: bool,
+                       tracker: service_answer.Tracker, start: float, no_image: list[ImageNotReturned]) -> GeneratedImage:
+        """One admitted request (with its own service-failure retries) and its answer. ``no_image``: the earlier
+        answers of this call that held no image; a re-ask says so on its receipt."""
+        backend = self._backend
+        again: dict[str, Any] = ({"reask": len(no_image), "reask_after": [
+            {"finish_reason": e.finish_reason, "response_id": e.response_id} for e in no_image]} if no_image else {})
         while True:
             receipt = ImageReceipt(self.model, op, "offline" if self.offline else "reservation_estimate", 0.0 if tokens else limit,
                                    status="dispatched", booked_tokens=int(limit) if tokens else None)
-            extra: dict[str, Any] = {"attempt": tracker.n, "service_retries": tracker.record()} if tracker.attempts else {}
+            extra: dict[str, Any] = {**again, **({"attempt": tracker.n, "service_retries": tracker.record()} if tracker.attempts else {})}
             # One image per call against the ledger's image limit (when it has one); kept unless the call is known to
             # have produced no image.
             hold = self.governor.reserve("image." + op, limit, receipt={**receipt.to_dict(), **extra}, images=1)
@@ -310,11 +373,21 @@ class ImageForge:
                         continue
                     raise
             break
+        # Whether an image was produced is read from the response itself, never inferred from token counts (a response
+        # may carry aggregate counts and no modality breakdown): bytes in the answer count one image; a complete answer
+        # with no image part (ImageNotReturned) counts none; anything else is unknown and keeps counting one.
+        counted: tuple[int, str] | None = None
         try:
             if sdk:
                 receipt = (ImageReceipt.from_response_tokens(response, model=self.model, op=op, limit_tokens=int(limit)) if tokens
                            else ImageReceipt.from_response(response, model=self.model, op=op, rates=rates, limit=limit))
-                raw = backend._extract(response)
+                counted = (1, "outcome unknown")
+                try:
+                    raw = backend._extract(response)
+                except ImageNotReturned:
+                    counted = (0, "no image in response")
+                    raise
+                counted = (1, "image in response")  # served: counted even if it then fails its own checks
             else:
                 raw = await backend.generate(model=self.model, prompt=prompt, images=images, size=size, aspect_ratio=aspect)
             png, width, height = await asyncio.to_thread(_final_png, raw, key_alpha)
@@ -326,8 +399,9 @@ class ImageForge:
             receipt = replace(receipt, status=type(exc).__name__)
             raise
         finally:
-            hold.settle(receipt.booked_tokens if tokens else receipt.booked_usd, receipt={**receipt.to_dict(), **extra},
-                        images=receipt.generated_image)
+            n_images = receipt.generated_image if counted is None else counted[0]
+            hold.settle(receipt.booked_tokens if tokens else receipt.booked_usd, images=n_images,
+                        receipt={**receipt.to_dict(), **extra, **({"image_counted": counted[1]} if counted else {})})
         uri = await backend.upload(png, display_name="agy3d-generated") if self.auto_upload else None
         return GeneratedImage(png, uri, prompt, self.model, (time.perf_counter() - start) * 1000, receipt)
 

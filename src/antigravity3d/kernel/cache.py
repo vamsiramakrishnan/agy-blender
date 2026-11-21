@@ -295,6 +295,18 @@ class BuildCache:
         self.stats = CacheStats()
         self._lock = threading.Lock()
         self._inflight: dict[str, asyncio.Future[bytes]] = {}
+        # Files-API URI -> sha256 of the bytes uploaded under it, for the uploads made through this cache's forge. A URI
+        # changes with every upload (they expire), so a key over a request that references a file uses its content.
+        self._uploads: dict[str, str] = {}
+
+    def note_upload(self, uri: str, data: bytes) -> None:
+        with self._lock:
+            self._uploads[uri] = hashlib.sha256(data).hexdigest()
+
+    def upload_digest(self, uri: str) -> str | None:
+        """sha256 of what was uploaded as ``uri`` through this cache, or None when it was not."""
+        with self._lock:
+            return self._uploads.get(uri)
 
     def _hit(self, data: bytes, cost: float, ms: float, deduped: bool = False) -> None:
         with self._lock:

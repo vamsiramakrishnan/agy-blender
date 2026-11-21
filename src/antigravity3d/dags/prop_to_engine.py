@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import shutil
 import tempfile
 from dataclasses import asdict, dataclass, replace
@@ -33,7 +34,7 @@ from antigravity3d.ir import SceneIR
 from antigravity3d.kernel.usd_stage import StageManager
 from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.authoring import AgentAuthor, IRAuthor, _slug
-from antigravity3d.tactics.cached import CachedForge
+from antigravity3d.tactics.cached import CachedForge, DesignRecord
 from antigravity3d.tactics.common import uploader_for
 from antigravity3d.tactics.distill import FixLog
 from antigravity3d.tactics.pyramid import PyramidResult, default_texture_px, materials_by_area, refine, synthesize_materials
@@ -50,6 +51,11 @@ class Proposal:
 
 class ImageLimitRefused(RuntimeError):
     """The routed plan cannot run inside the user's image limit; raised before any image is requested."""
+
+
+class CeilingLeftRefused(RuntimeError):
+    """A rerun on an asset whose ledger already holds spend: what is left of the token ceiling cannot admit the largest
+    single call the run must make. Raised before any generation call of this run."""
 
 
 def plan_images(route: Route) -> int:
@@ -89,12 +95,31 @@ def preview_record(plane: Any, governor: Any, res: PyramidResult | None) -> dict
     return out
 
 
+def prior_spend_line(g: Any) -> str:
+    """What a rerun finds in the asset's ledger, in plain words with the numbers, said before any call."""
+    if g.unit == "tokens":
+        used = f"{g.spent:,.0f} of {g.ceiling:,.0f} tokens (no price applied) already used, {g.remaining:,.0f} remaining"
+        more = "rerun with a higher --token-ceiling to give it more"
+    else:
+        used = f"${g.spent:.4f} of the plan's ${g.ceiling:.2f} already used, ${g.remaining:.4f} remaining"
+        more = "the plan's ceiling is the most it may use"
+    imgs = f"; {g.images_used} of {g.max_images} images used" if g.max_images is not None else ""
+    return (f"this asset's ledger already holds spend from earlier runs in this --out: {used}{imgs}. The limits cover "
+            f"every run of this asset together, so this run has only what is left; {more}.")
+
+
 class PropToEngineDAG:
     def __init__(self, *, plane: Any, forge: Any, author: IRAuthor, workdir: Path | str, budget: EngineBudget, pool: Any = None, cache: Any = None,
                  thresholds: Thresholds | None = None, style_anchor: Path | str | bytes | None = None, fixlog: FixLog | None = None,
                  max_rounds: int = 4, max_parallel: int | None = None, single_candidate: bool = False,
                  require_verified: bool = False, art_direction: ArtDirection | None = None,
-                 token_ceiling: int | None = None, max_images: int | None = None) -> None:
+                 token_ceiling: int | None = None, max_images: int | None = None, new_design: bool = False,
+                 announce: Any = None, min_call_tokens: int | None = None) -> None:
+        """``new_design``: author a new design instead of continuing from the one recorded beside the image cache by an
+        earlier run in this workdir (``DesignRecord``); the image cache is used as always. ``announce``: called with a
+        line of text before any call when this asset's ledger already holds spend from earlier runs.
+        ``min_call_tokens``: the largest single call this run must be able to make (the start-up check's figure); a
+        rerun whose ledger has less than that left is refused before any call (``CeilingLeftRefused``)."""
         if require_verified and getattr(plane, "preview", False):
             raise ValueError("a verified run cannot use a preview decision plane")
         self.art = art_direction
@@ -104,6 +129,10 @@ class PropToEngineDAG:
         budget = art_direction.budget(budget, "prop") if art_direction is not None else budget  # only ever lowers it
         self.plane, self.author, self.budget, self.pool, self.cache = plane, author, budget, pool, cache
         self.forge = CachedForge(forge, cache, budget=budget) if cache is not None and forge is not None else forge
+        self.record = DesignRecord(cache, fresh=new_design) if cache is not None else None
+        self.announce, self.min_call_tokens = announce, min_call_tokens
+        self._image_short: tuple[int, int, str] | None = None  # (need, left, refusal) deferred to propose on a rerun
+        self._before: tuple[float, int] | None = None  # (spend, images) this asset's ledger held before this run
         self.workdir, self.th, self.style_anchor, self.fixlog = Path(workdir), thresholds or Thresholds(), style_anchor, fixlog
         if self.preview_judging:
             self.th = replace(self.th, trust_uncalibrated=True)
@@ -151,6 +180,18 @@ class PropToEngineDAG:
             rd = await resolve_route(self.workdir, prompt, self.budget, reference, single_candidate=self.single_candidate,
                                      plane=self.plane, token_ceiling=self.token_ceiling, max_images=self.max_images)
             self._governor = rd.governor
+            g = rd.governor
+            self._before = rd.prior
+            if rd.prior[0] > 0 or rd.prior[1] > 0:  # a rerun: say why less is left (before any call when the route is reused)
+                ctx.data(prior_spend={g.key("spent"): rd.prior[0], "images_used": rd.prior[1]})
+                if self.announce is not None:
+                    self.announce(prior_spend_line(g))
+                if g.unit == "tokens" and self.min_call_tokens and g.remaining < self.min_call_tokens:
+                    raise CeilingLeftRefused(
+                        f"--token-ceiling {g.ceiling:,.0f}: earlier runs of this asset in this --out already used {g.spent:,.0f} "
+                        f"tokens, so {g.remaining:,.0f} remain, and the largest single call this run must make can bill up to "
+                        f"{self.min_call_tokens:,} tokens; the smallest ceiling that lets it continue is "
+                        f"{math.ceil(g.spent) + self.min_call_tokens:,} tokens (nothing was generated in this run)")
             if rd.pipeline != "prop_to_engine":
                 ctx.note(f"router preferred {rd.pipeline!r}; running prop_to_engine as requested")
             ctx.data(pipeline=rd.pipeline, complexity=rd.complexity, plan=rd.plan.label, reused=rd.reused,
@@ -159,12 +200,20 @@ class PropToEngineDAG:
             if rd.governor.unit == "tokens":  # the plan's own image need, against the user's image limit, before any image
                 need = plan_images(rd)
                 ctx.data(images_planned_min=need)
-                if rd.governor.max_images is not None and need > rd.governor.max_images - rd.governor.images_used:
-                    raise ImageLimitRefused(
-                        f"plan {rd.plan.label!r} needs at least {need} image(s) (ortho best-of-{rd.plan.ortho_candidates if rd.needs_ortho else 0}, "
-                        f"albedo best-of-{rd.plan.pbr_candidates} per material" + (", one paint-over" if rd.plan.paintover_loop else "")
-                        + f") and {rd.governor.images_summary()} are counted; only the routing call was made. Rerun with "
-                        "--single-candidate or ask the user for a higher --max-images")
+                short = rd.governor.max_images is not None and need > rd.governor.max_images - rd.governor.images_used
+                refusal = (
+                    f"plan {rd.plan.label!r} needs at least {need} image(s) (ortho best-of-{rd.plan.ortho_candidates if rd.needs_ortho else 0}, "
+                    f"albedo best-of-{rd.plan.pbr_candidates} per material" + (", one paint-over" if rd.plan.paintover_loop else "")
+                    + f") and {rd.governor.images_summary()} are counted; only the routing call was made. Rerun with "
+                    "--single-candidate or ask the user for a higher --max-images")
+                if short and self.record is not None and not self.record.fresh and (rd.prior[0] > 0 or rd.prior[1] > 0):
+                    # A rerun with the design record on: whether it continues from a recorded design (whose images are
+                    # cached and count none) is known once the authoring request is built. The propose step decides
+                    # there, before any authoring call, and refuses as here when no design is recorded.
+                    self._image_short = (need, rd.governor.max_images - rd.governor.images_used, refusal)
+                    ctx.data(image_check="deferred to propose: rerun with a design record")
+                elif short:
+                    raise ImageLimitRefused(refusal)
             return rd
 
         async def style(ctx: NodeCtx) -> dict[str, Any]:
@@ -199,7 +248,8 @@ class PropToEngineDAG:
                        "style_uri": ctx["style_anchor"]["uri"] if ctx["style_anchor"] else None}
             if self.art is not None:  # the author brief (metered_author.build_author_request appends it to the request)
                 context["art_direction"] = author_text(self.art)
-            author = self.author.bind(r.governor, self.budget, context) if isinstance(self.author, AgentAuthor) else self.author
+            author = (self.author.bind(r.governor, self.budget, context, record=self.record) if isinstance(self.author, AgentAuthor)
+                      else self.author)
             # Size the best-of-N by what a candidate is expected to cost (authoring from the measurements, plus grading);
             # admission then sequences the candidates under the ceiling by their worst case, waiting for settlements.
             n_plan = r.governor.plan.geometry_candidates
@@ -215,6 +265,16 @@ class PropToEngineDAG:
             if n < n_plan:
                 ctx.note(f"ceiling {r.governor.fmt(r.governor.ceiling)} sizes geometry best-of-{n_plan} down to {n} "
                          f"({r.governor.fmt(r.governor.remaining)} remaining)")
+            if self._image_short is not None:  # deferred from the route step: a rerun short of images under --max-images
+                need, left, refusal = self._image_short
+                recorded = author.recorded_candidates(prompt, n=n, context=context) if hasattr(author, "recorded_candidates") else 0
+                if recorded < n:  # a new design would need new images: refused before any authoring call, as on a first run
+                    raise ImageLimitRefused(refusal.replace("only the routing call was made", "no authoring call was made")
+                                            + f" (no design for this request is recorded in this --out: {recorded} of {n})")
+                ctx.note(f"plan {r.plan.label!r} could ask for at least {need} image(s) and {left} remain under --max-images; "
+                         f"continuing from the {n} design(s) recorded in this --out: images already generated for them are "
+                         "reused and count none, and a material beyond the limit ships untextured and is named in the warnings")
+                ctx.data(image_check={"need_at_least": need, "left": left, "recorded_designs": recorded})
             with_outcomes = getattr(author, "propose_with_outcomes", None)
             if with_outcomes is not None:
                 result = await with_outcomes(prompt, budget=self.budget, n=n, context=context)
@@ -396,6 +456,13 @@ class PropToEngineDAG:
                      "receipts": route.governor.receipts() if route else [], "plane": self.plane.stats.summary(), "cache": cache, "plan": route.governor.summary() if route else None},
             "pyramid": res.to_dict() if res else None, "workdir": str(self.workdir)}
         gov = route.governor if route else getattr(self, "_governor", None)
+        if self.record is not None:  # designs and repairs reused from the record (no call) and recorded in this run
+            rep.extras["cost"]["design_record"] = self.record.summary()
+        if gov is not None and self._before is not None and (self._before[0] > 0 or self._before[1] > 0):
+            # a rerun on an asset with earlier spend: the ledger is the asset's; this is what this run added to it
+            rep.extras["cost"]["this_run"] = {gov.key("spent"): gov.spent - self._before[0],
+                                              "images": gov.images_used - self._before[1],
+                                              "before": {gov.key("spent"): self._before[0], "images": self._before[1]}}
         if self.token_ceiling is not None:  # token ledger: no dollar figure anywhere, every figure names its unit
             c = rep.extras["cost"]
             del c["governor_usd"]

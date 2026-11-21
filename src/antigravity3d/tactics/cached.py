@@ -3,6 +3,7 @@
 * image generation   keyed by (op, prompt/emphasis, style-anchor digest, model, backend seed)
 * PBR derivation     keyed by (albedo digest, derive params)
 * UV + LOD + colliders keyed by the ``ir_subtree_key`` of every root node + budget + backend version
+* authored designs   keyed by the whole authoring request (``DesignRecord``): a rerun continues from the design it paid for
 
 A hit credits the saved USD and the *measured* compute time of the original miss (stored beside the blob).
 Uploads are never cached: Files-API URIs expire, so a hit re-uploads the cached bytes.
@@ -14,9 +15,10 @@ import asyncio
 import hashlib
 import io
 import json
+import threading
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from typing import Any
 
 import numpy as np
@@ -24,7 +26,7 @@ import numpy as np
 from antigravity3d.genmedia.nano_banana import GeneratedImage
 from antigravity3d.genmedia.usage import ImageReceipt
 from antigravity3d.genmedia.pbr_deriver import PBRMaps, derive_pbr
-from antigravity3d.ir import SceneIR
+from antigravity3d.ir import IRPatch, SceneIR
 from antigravity3d.kernel.cache import BuildCache, ir_subtree_key, node_key, stable_hash
 from antigravity3d.kernel.coplanar import opaque_materials
 from antigravity3d.kernel.fast_ops import LOD, ExportBundle, Hull, UVResult, run_export_pipeline
@@ -87,17 +89,33 @@ class CachedForge:
     def __getattr__(self, name: str) -> Any:  # upload, auto_upload, ...
         return getattr(self._forge, name)
 
+    async def upload(self, path_or_bytes: Any, **kw: Any) -> str:
+        """The forge's Files-API upload; the URI is noted with the digest of its bytes (``BuildCache.upload_digest``)."""
+        uri = await self._forge.upload(path_or_bytes, **kw)
+        if isinstance(path_or_bytes, (bytes, bytearray)):
+            self.cache.note_upload(uri, bytes(path_or_bytes))
+        return uri
+
     def with_governor(self, governor: Governor) -> CachedForge:
         return CachedForge(self._forge.with_governor(governor), self.cache, seed=self._seed, budget=self.budget)
 
+    def _key(self, op: str, key_args: dict[str, Any]) -> str:
+        return node_key(f"img.{op}", inputs={**key_args, "budget": self.budget, "seed": self._seed},
+                        backend_version=f"{self._forge.cache_namespace}|{self.model}")
+
+    def has_trim_sheet(self, prompt: str, *, size: int = 2048) -> bool:
+        """Whether :meth:`trim_sheet` with these arguments would be served from the cache (no call, no image)."""
+        return self.cache.store.get(self._key("trim", {"prompt": prompt, "size": size})) is not None
+
     async def _gen(self, op: str, key_args: dict[str, Any], call: Callable[[], Awaitable[GeneratedImage]]) -> GeneratedImage:
-        key = node_key(f"img.{op}", inputs={**key_args, "budget": self.budget, "seed": self._seed},
-                       backend_version=f"{self._forge.cache_namespace}|{self.model}")
+        key = self._key(op, key_args)
         fresh: list[GeneratedImage] = []
 
         async def compute() -> bytes:
             g = await call()
             fresh.append(g)
+            if g.uri:  # uploaded by the forge itself (auto_upload): a request that references it is keyed by its bytes
+                self.cache.note_upload(g.uri, g.png_bytes)
             meta = {"ms": g.latency_ms, "usd": g.receipt.booked_usd, "response_id": g.receipt.response_id}
             await to_thread_drained(self.cache.store.put, _meta_key(key), json.dumps(meta).encode())
             return g.png_bytes
@@ -130,6 +148,105 @@ class CachedForge:
     async def paint_over(self, render_png: bytes, direction: str) -> GeneratedImage:
         return await self._gen("paintover", {"render": _digest(render_png), "prompt": direction},
                                lambda: self._forge.paint_over(render_png, direction))
+
+
+# --------------------------------------------------------------------------- authored designs
+
+DESIGN_RECORD_VERSION = "design-record/1"
+
+
+@dataclass(frozen=True)
+class RecordedAnswer:
+    answer: SceneIR | IRPatch
+    key: str
+    original: dict[str, Any]  # what the original call cost: unit, booked, usage, model, role, operation
+
+
+class DesignRecord:
+    """Every answered authoring request of a run (a design, or a repair), beside the image cache, so a rerun with the
+    same ``--out`` continues from the design it paid for instead of buying a different one.
+
+    The key is the whole request (``tactics.metered_author.AuthorRequest``): model, role, operation, contents (the rules
+    text, budget, task with its brief, art direction and attached references) and generation config (thinking level,
+    output cap, response schema), plus the candidate's index. Any change to any of them misses by construction. A file
+    reference counts by the sha256 of the bytes uploaded under it (a Files-API URI changes with every upload); a URI
+    not uploaded through this cache stays in the key as it is (a safe miss). The value is the answer after the
+    project's own parsing and what the original call cost.
+
+    ``fresh`` (``--new-design``): nothing is read, and every new answer replaces the recorded one, so the next rerun
+    continues from it. The image cache is untouched either way.
+    """
+
+    def __init__(self, cache: BuildCache, *, fresh: bool = False) -> None:
+        self.cache, self.fresh = cache, fresh
+        self.reused: list[dict[str, Any]] = []  # one entry per answer taken from the record in this run
+        self.recorded = 0  # answers written in this run
+        self._lock = threading.Lock()
+
+    def _content(self, part: dict[str, Any]) -> dict[str, Any]:
+        uri = (part.get("file_data") or {}).get("file_uri")
+        digest = self.cache.upload_digest(uri) if uri else None
+        if digest is None:
+            return part
+        return {**part, "file_data": {**part["file_data"], "file_uri": None, "uploaded_sha256": digest}}
+
+    def key(self, req: Any, index: int | None) -> str:
+        contents = [{**c, "parts": [self._content(p) for p in c.get("parts") or []]}
+                    for c in (x.model_dump(mode="json", exclude_none=True) for x in req.contents)]
+        # http_options (the timeout, the SDK's own retries) changes how the request is sent, not what it asks
+        config = req.config.model_dump(mode="json", exclude_none=True, exclude={"http_options"})
+        return "design-" + stable_hash({"v": DESIGN_RECORD_VERSION, "model": req.model, "role": req.role,
+                                        "operation": req.operation, "contents": contents, "config": config,
+                                        "index": index})
+
+    def get(self, key: str) -> RecordedAnswer | None:
+        if self.fresh:
+            return None
+        raw = self.cache.store.get(key)
+        if raw is None:
+            return None
+        try:
+            data = json.loads(raw)
+            model = {"SceneIR": SceneIR, "IRPatch": IRPatch}[data["type"]]
+            return RecordedAnswer(model.model_validate(data["answer"]), key, dict(data["original"]))
+        except Exception:  # noqa: BLE001 - a record this version cannot read is a miss, never a failure
+            return None
+
+    def put(self, key: str, answer: SceneIR | IRPatch, original: dict[str, Any]) -> None:
+        kind = "SceneIR" if isinstance(answer, SceneIR) else "IRPatch"  # IRPatch is ir.SceneIRDiff
+        data = {"v": DESIGN_RECORD_VERSION, "type": kind, "answer": answer.model_dump(mode="json"),
+                "original": original}
+        self.cache.store.put(key, json.dumps(data, sort_keys=True).encode())
+        with self._lock:
+            self.recorded += 1
+
+    def note_reuse(self, hit: RecordedAnswer) -> None:
+        with self._lock:
+            self.reused.append({"operation": hit.original.get("operation"), "key": hit.key[:23], "original": hit.original})
+
+    def summary(self) -> dict[str, Any]:
+        """What this run took from the record and what it added; ``original_booked``: what the reused answers cost
+        when they were bought, by unit (nothing of it is booked again)."""
+        by_unit: dict[str, float] = {}
+        for r in self.reused:
+            o = r["original"]
+            if o.get("booked") is not None:
+                by_unit[o.get("unit") or "?"] = by_unit.get(o.get("unit") or "?", 0.0) + float(o["booked"])
+        ops = [r["operation"] for r in self.reused]
+        return {"reused": len(self.reused), "reused_designs": ops.count("propose"), "reused_repairs": ops.count("repair"),
+                "recorded": self.recorded, "new_design": self.fresh, "original_booked": by_unit}
+
+    def line(self) -> str:
+        return self.summary_line(self.summary())
+
+    @staticmethod
+    def summary_line(s: dict[str, Any]) -> str:
+        """The run summary's line for :meth:`summary` (also read back from a report)."""
+        cost = ", ".join(f"{v:,.0f} tokens" if u == "tokens" else f"${v:.4f}" if u == "usd" else f"{v} {u}"
+                         for u, v in s["original_booked"].items())
+        return (f"design record: {s['reused_designs']} design(s) and {s['reused_repairs']} repair(s) reused, no call made"
+                + (f" (originally {cost}, not booked again)" if cost else "") + f"; {s['recorded']} recorded"
+                + ("; --new-design: the record was not read" if s["new_design"] else ""))
 
 
 # --------------------------------------------------------------------------- PBR derivation
@@ -218,4 +335,4 @@ def cached_export_pipeline(cache: BuildCache, scene: SceneIR, meshes: list[MeshD
     return _bundle_from_bytes(data), hit
 
 
-__all__ = ["CachedForge", "cached_derive_pbr", "cached_export_pipeline", "export_key", "stable_hash"]
+__all__ = ["CachedForge", "DesignRecord", "RecordedAnswer", "cached_derive_pbr", "cached_export_pipeline", "export_key", "stable_hash"]

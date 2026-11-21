@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import math
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -56,7 +57,7 @@ from antigravity3d.kernel.usd_stage import StageManager
 from antigravity3d.kernel.validator import validate_usd
 from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.authoring import AgentAuthor
-from antigravity3d.tactics.cached import CachedForge
+from antigravity3d.tactics.cached import CachedForge, DesignRecord
 from antigravity3d.tactics.common import to_thread_drained
 from antigravity3d.tactics.governor import BudgetExceeded, Governor, SpendPlan
 from antigravity3d.tactics.package import write_package_usd
@@ -250,10 +251,16 @@ class EnvironmentKitDAG:
     def __init__(self, *, forge: Any, author: Any, workdir: Path | str, budget: EngineBudget, plane: Any = None, pool: Any = None,
                  cache: Any = None, sheet: TrimSheet | None = None, sheet_resolution: int = 2048,
                  max_parallel: int | None = None, author_parallel: int = AUTHOR_PARALLEL, art_direction: ArtDirection | None = None,
-                 metric: KitMetric | None = None, token_ceiling: int | None = None, max_images: int | None = None) -> None:
+                 metric: KitMetric | None = None, token_ceiling: int | None = None, max_images: int | None = None,
+                 new_design: bool = False, announce: Any = None) -> None:
         """``art_direction``: a named style. It lowers each piece's triangle budget where its look calls for it (never
         raises it), sets the trim sheet's size and palette, the pieces' shading crease, and adds its briefs to the trim
-        sheet prompt and the piece author's request. None changes nothing."""
+        sheet prompt and the piece author's request. None changes nothing.
+
+        ``cache``: the trim sheet goes through the image cache and every piece's answered authoring request is recorded
+        beside it (``DesignRecord``), so a rerun in the same workdir continues from what it paid for; ``new_design``
+        asks for new pieces instead (the cached sheet is still used). ``announce``: called with a line of text before any
+        call when the kit's ledger already holds spend from earlier runs."""
         if author_parallel < 1:
             raise ValueError("author_parallel must be at least 1")
         # The user's token ceiling is the most the WHOLE kit may use: one pool all pieces and the sheet draw from (never
@@ -265,6 +272,9 @@ class EnvironmentKitDAG:
             if art_direction.texture_px_kit is not None:
                 sheet_resolution = art_direction.texture_px(budget.target_engine, "kit", sheet_resolution)
         self._forge_in, self._cache = forge, cache
+        self.record = DesignRecord(cache, fresh=new_design) if cache is not None else None
+        self.announce = announce
+        self._before: tuple[float, int] = (0.0, 0)  # (spend, images) the kit's ledger held before this run
         self.forge = forge  # replaced by the kit's own ledger-bound forge in _govern, once the piece count is known
         self.author, self.out, self.budget, self.plane, self.pool = author, Path(workdir), budget, plane, pool
         self.sheet, self.max_parallel, self.author_parallel = sheet or TrimSheet.standard(sheet_resolution), max_parallel, author_parallel
@@ -284,12 +294,23 @@ class EnvironmentKitDAG:
         self.base_plan = self._forge_in.governor.plan
         self.governor = Governor(plan, journal=self.out / ("spend_tokens.sqlite3" if self.token_ceiling is not None else "spend.sqlite3"),
                                  **({"token_ceiling": self.token_ceiling, "max_images": self.max_images} if self.token_ceiling is not None else {}))
+        self._before = (self.governor.spent, self.governor.images_used)
+        if self.rerun and self.announce is not None:
+            from antigravity3d.dags.prop_to_engine import prior_spend_line
+
+            self.announce(prior_spend_line(self.governor))
         forge = self._forge_in.with_governor(self.governor)
         self.forge = CachedForge(forge, self._cache, budget=self.budget) if self._cache is not None else forge
         # Same rule as the prop pipeline: a live AgentAuthor authors through the metered, admitted path. Other authors
         # (the offline template author, injected test doubles) spend nothing and are used as given.
         context = {"art_direction": author_text(self.art)} if self.art is not None else {}
-        return self.author.bind(self.governor, self.budget, context) if isinstance(self.author, AgentAuthor) else self.author
+        return (self.author.bind(self.governor, self.budget, context, record=self.record) if isinstance(self.author, AgentAuthor)
+                else self.author)
+
+    @property
+    def rerun(self) -> bool:
+        """The kit's ledger held spend or images before this run (an earlier run in this workdir)."""
+        return self._before[0] > 0 or self._before[1] > 0
 
     def build(self, prompt: str, n_pieces: int, splat: Path | str | None = None) -> Dag:
         out, sheet = self.out, self.sheet
@@ -298,8 +319,9 @@ class EnvironmentKitDAG:
             # The kit's own recovery round is the one extra request a piece whose outcome is unknown gets ("at most
             # 2 x n_pieces authoring calls"); an answer that says it was not served is still retried on the shared schedule.
             self._author.unknown_retries = 0
-        # trim_sheet and pieces meet only at map_trim: once one fails, the other's paid calls buy nothing (the sheet is
-        # not reused by a rerun, a piece is not written before export), so it is stopped.
+        # trim_sheet and pieces meet only at map_trim: once one fails, the other's paid calls buy nothing more for this
+        # run (with the cache on, what was already answered is kept for a rerun: the sheet in the image cache, each piece
+        # in the design record), so it is stopped.
         dag = Dag("environment_kit", stop_unusable=True)
 
         async def trim_sheet(ctx: NodeCtx) -> dict[str, Any]:
@@ -590,14 +612,25 @@ class EnvironmentKitDAG:
         from antigravity3d.genmedia.nano_banana import _TRIM
 
         brief = texture_brief(self.art)
-        text = _TRIM.format(prompt=f"{prompt}. {self.sheet.layout_prompt()}" + (f" {brief}" if brief else ""))
-        sheet = image_worst_tokens(self._forge_in, text, self.sheet.resolution)
+        sheet_prompt = f"{prompt}. {self.sheet.layout_prompt()}" + (f" {brief}" if brief else "")  # as trim_sheet asks it
+        sheet = image_worst_tokens(self._forge_in, _TRIM.format(prompt=sheet_prompt), self.sheet.resolution)
         piece = author_worst_tokens(self._author, asset_name="Piece00", kit=True)
+        # A rerun with the cache on whose trim sheet is cached: the sheet is served with no call and no image.
+        cached_sheet = self.rerun and isinstance(self.forge, CachedForge) and self.forge.has_trim_sheet(sheet_prompt, size=self.sheet.resolution)
+        if cached_sheet:
+            sheet = 0
         need = sheet + piece
         if g.max_images is None and sheet:
             raise BudgetExceeded("a token-limited kit generates one trim sheet image: pass --max-images (at least 1); nothing was requested")
         if g.max_images is not None and sheet and g.max_images - g.images_used < 1:
             raise BudgetExceeded(f"the trim sheet needs 1 image and {g.images_summary()} are counted; nothing was requested")
+        if g.remaining < need and self.rerun:  # what is LEFT of the ceiling, after the earlier runs of this kit
+            raise BudgetExceeded(f"token ceiling {g.token_ceiling:,}: earlier runs of this kit in this --out already used {g.spent:,.0f} "
+                                 f"tokens, so {g.remaining:,.0f} remain, and the kit's first calls can bill up to {need:,} "
+                                 + ("(one piece's authoring call; the trim sheet is cached)" if cached_sheet else
+                                    f"(the trim sheet {sheet:,} and one piece's authoring call {piece:,})")
+                                 + f"; the smallest ceiling that lets it continue is {math.ceil(g.spent) + need:,} tokens "
+                                   "(nothing was requested in this run)")
         if g.remaining < need:
             raise BudgetExceeded(f"token ceiling {g.token_ceiling:,} ({g.fmt(g.remaining)} left) cannot admit the kit's first calls: "
                                  f"the trim sheet can bill up to {sheet:,} tokens and one piece's authoring call up to {piece:,}, "
@@ -638,6 +671,12 @@ class EnvironmentKitDAG:
                                               for rr in mp.results if rr.report] for mp in mapped},
             "gates_ok": bool(rep.ok and asm and "error" not in (rep.results.get("backdrop") or {}) and not r.get("kit_validate_critical") and all(r.get("tier1_ok", {}).values()) and not any(mp.issues for mp in mapped)
                             and bool((rep.results.get("kit_check") or {}).get("pass")) and bool((rep.results.get("snap") or {}).get("pass")))}
+        if self.record is not None:  # pieces reused from the record (no call) and recorded in this run
+            rep.extras["design_record"] = self.record.summary()
+        if self.rerun:  # the ledger is the kit's, across runs: what this run added to it
+            g = self.governor
+            rep.extras["this_run"] = {g.key("spent"): g.spent - self._before[0], "images": g.images_used - self._before[1],
+                                      "before": {g.key("spent"): self._before[0], "images": self._before[1]}}
         if self.art is not None:
             record = self.art.manifest_record(budget=self.budget, asset_class="kit", texture_px=self.sheet.resolution)
             if self.art.texture_filter is not None:  # a kit ships USD only, and UsdUVTexture has no filter input

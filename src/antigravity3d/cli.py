@@ -111,6 +111,18 @@ def _print_skips(skipped: list[dict[str, Any]]) -> None:
         print(f"  - {s['step']}: {s['reason']}")
 
 
+def _print_record_and_run(c: dict[str, Any]) -> None:
+    """The design record's line (reused / recorded) and, on a rerun, what this run added to the asset's ledger."""
+    from antigravity3d.tactics.cached import DesignRecord
+
+    if (d := c.get("design_record")) is not None:
+        print(DesignRecord.summary_line(d))
+    if (t := c.get("this_run")) is not None:
+        spent = t.get("spent_tokens", t.get("spent_usd", 0))
+        amount = f"{spent:,.0f} tokens" if "spent_tokens" in t else f"${spent:.4f}"
+        print(f"this run: {amount} and {t['images']} image(s); the ledger's totals above include the earlier runs of this asset")
+
+
 def _print_gate(ok: bool, why: str = "") -> int:
     print(f"gates: {'PASS' if ok else 'FAIL'}" + (f" ({why})" if why else ""))
     return 0 if ok else 1
@@ -176,6 +188,7 @@ def preflight_prop(a: argparse.Namespace, plane: Any, author: Any, strict: bool)
                        + ("" if a.single_candidate else " (--single-candidate needs the fewest images: 1 blueprint + 1 per material)"))
     judge, writer = judge_worst_tokens(plane), author_worst_tokens(_bound_author(author, a))
     need = max(judge, writer)
+    a.min_call_tokens = need  # a rerun compares it with what is LEFT of the ceiling (prop_to_engine, the route step)
     if a.token_ceiling < need:
         raise CliError(f"--token-ceiling {a.token_ceiling:,} cannot admit this run's calls: one judge call can bill up to "
                        f"{judge:,} tokens and one authoring call up to {writer:,}; the smallest ceiling that can admit them "
@@ -216,12 +229,15 @@ async def cmd_prop(a: argparse.Namespace) -> int:
             plane=plane, forge=forge, author=author, workdir=out, budget=_budget(a), pool=pool,
             cache=cache, style_anchor=a.style, fixlog=FixLog.for_prop(out), max_rounds=a.max_rounds,
             require_verified=strict, single_candidate=a.single_candidate, art_direction=a.art_direction,
+            new_design=a.new_design, announce=lambda line: print(f"note: {line}", flush=True),
+            min_call_tokens=getattr(a, "min_call_tokens", None),
             **({"token_ceiling": a.token_ceiling, "max_images": a.max_images} if a.token_ceiling is not None else {}),
         )
         rep = await dag.run(a.prompt)
     x = rep.extras
-    if (rn := rep.nodes.get("route")) is not None and (rn.error or "").startswith("ImageLimitRefused"):
-        raise CliError(rn.error.split(": ", 1)[1])  # the whole refusal, with its numbers (the summary line truncates)
+    for step in ("route", "propose"):  # refusals before any generation of this run: the whole text, with its numbers
+        if (rn := rep.nodes.get(step)) is not None and (rn.error or "").startswith(("ImageLimitRefused", "CeilingLeftRefused")):
+            raise CliError(rn.error.split(": ", 1)[1])
     print(f"agy3d prop: {a.prompt!r} -> {a.engine}")
     for n in notes:
         print(f"  {n}")
@@ -244,6 +260,7 @@ async def cmd_prop(a: argparse.Namespace) -> int:
     else:
         cs = f" cache hits={c['cache']['hits']} misses={c['cache']['misses']} saved=${c['cache']['saved_cost_usd']:.2f}/{c['cache']['saved_ms']:.0f}ms" if c.get("cache") else ""
         print(f"cost: governor(est) ${c['governor_usd']:.4f} | decisions plane ${c['plane']['cost_usd']:.6f} over {c['plane']['calls']} calls | {c['plan']}{cs}")
+    _print_record_and_run(c)
     print("outputs:")
     for k, v in x["outputs"].items():
         print(f"  {k}: {v}")
@@ -320,8 +337,12 @@ async def cmd_kit(a: argparse.Namespace) -> int:
         raise CliError(str(e)) from e
     if a.token_ceiling is None and a.max_images is not None:
         raise CliError("--max-images applies to a token-limited kit: pass --token-ceiling N with it")
+    from antigravity3d.kernel.cache import BuildCache, LocalBlobStore
+
     _, forge, author, notes = await make_collaborators(a.offline, need_plane=False)
     limits = {"token_ceiling": a.token_ceiling, "max_images": a.max_images} if a.token_ceiling is not None else {}
+    Path(a.out).mkdir(parents=True, exist_ok=True)
+    cache = None if a.no_cache else BuildCache(LocalBlobStore(Path(a.out) / ".agy3d-cache"))
     try:
         async with AsyncExitStack() as stack:
             pool = None
@@ -334,7 +355,8 @@ async def cmd_kit(a: argparse.Namespace) -> int:
 
                 pool = await stack.enter_async_context(BlenderPool(1, blender_bin=a.blender))
             rep = await EnvironmentKitDAG(forge=forge, author=author, workdir=Path(a.out), budget=_budget(a), sheet_resolution=1024 if a.offline else 4096,
-                                          art_direction=a.art_direction, metric=metric, pool=pool, **limits).run(a.prompt, a.pieces, a.splat)
+                                          art_direction=a.art_direction, metric=metric, pool=pool, cache=cache, new_design=a.new_design,
+                                          announce=lambda line: print(f"note: {line}", flush=True), **limits).run(a.prompt, a.pieces, a.splat)
     except BudgetExceeded as e:  # live authoring is admitted against a ceiling; a missing price is a refusal, not a crash
         raise CliError(str(e)) from e
     x = rep.extras
@@ -348,6 +370,7 @@ async def cmd_kit(a: argparse.Namespace) -> int:
         print(f"spend (tokens, no price applied): {sp['summary']} ({sp['rule']})")
     else:
         print(f"spend: {sp['summary']} (kit ceiling = ${sp['per_asset_ceiling_usd']:.2f} x ({a.pieces} pieces + 1 trim sheet))")
+    _print_record_and_run({"design_record": x.get("design_record"), "this_run": x.get("this_run")})
     bad = [o for o in x["authoring"]["pieces"] if o["status"] != "produced"]
     for o in bad:
         print(f"  piece #{o['index']} {o['piece']}: {o['status']}" + (f" ({o['detail']})" if o["detail"] else ""))
@@ -475,6 +498,16 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--max-images", type=_count, default=None, metavar="M",
                        help="the most images the command may generate; required with --token-ceiling")
 
+    def cache_flags(p: argparse.ArgumentParser) -> None:
+        g = p.add_mutually_exclusive_group()
+        g.add_argument("--no-cache", action="store_true",
+                       help="use no cache folder (OUT/.agy3d-cache): no cached images and no recorded designs are read "
+                            "or written")
+        g.add_argument("--new-design", action="store_true",
+                       help="ask the author for a new design instead of continuing from the one an earlier run in this "
+                            "--out paid for (recorded in OUT/.agy3d-cache); cached images are still reused where their "
+                            "request is unchanged, and the new design replaces the recorded one")
+
     def common(p: argparse.ArgumentParser, out: bool = True) -> None:
         p.add_argument("--engine", choices=ENGINES, default="unreal_5")
         p.add_argument("--max-tris", type=int, default=None, help="triangle budget (default: engine budget default)")
@@ -491,7 +524,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--art-direction", type=_art_direction, default=None, metavar="ID",
                    help="named art direction (see skills/art-direction); composes with --style")
     p.add_argument("--max-rounds", type=int, default=4)
-    p.add_argument("--no-cache", action="store_true")
+    cache_flags(p)
     worker = p.add_mutually_exclusive_group()
     worker.add_argument("--blender", metavar="PATH", help="start a warm worker with this Blender executable")
     worker.add_argument("--pool-socket", metavar="PATH", help="connect to a running Blender sidecar")
@@ -523,6 +556,7 @@ def build_parser() -> argparse.ArgumentParser:
                         "4 m walls), optionally with overrides, e.g. interior,module=4,wall_height=3.5,pivot=bottom-center")
     p.add_argument("--offline", action="store_true")
     p.add_argument("--splat", default=None, help="optional .ply/.spz Gaussian-splat backdrop (recorded; import needs Blender)")
+    cache_flags(p)
     worker = p.add_mutually_exclusive_group()
     worker.add_argument("--blender", metavar="PATH", help="start a warm worker with this Blender executable (adds the blender_kit_check node)")
     worker.add_argument("--pool-socket", metavar="PATH", help="connect to a running Blender sidecar")

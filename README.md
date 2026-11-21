@@ -66,6 +66,17 @@ agy3d kit "ruined stone temple" --pieces 4 --token-ceiling 400000 --max-images 1
 - Without `--preview`, or with `--require-verified`, such a key is refused at start with the command to run instead. A ceiling too small for one judge call and one authoring call is also refused at start, with the smallest ceiling that can work. In both cases nothing is generated.
 - In an Antigravity session the same switch is `open_asset_session(preview=true, token_ceiling=N, max_images=M)`, or `start_preview` on an open session. The plugin asks you to approve both numbers.
 
+### Rerunning in the same output directory
+
+`prop` and `kit` keep a cache folder, `OUT/.agy3d-cache`. It holds every generated image, keyed by its request, and every answered authoring request (each design and each repair), keyed by the whole request: model, thinking level, output cap, rules text, budget, art direction, references (by the bytes uploaded) and the task with its brief, plus the candidate's number. A run that ends early, whether stopped, refused by a ceiling or ended by a service error, keeps what it paid for. Running the same command again with the same `--out` continues from the recorded design: no authoring call is made, its images come from the cache, and the run summary says `design record: N design(s) ... reused, no call made (originally ...)`. The ledger gets a receipt with `"source": "record"` that books nothing and names what the original call cost. Any change to the request misses: a different brief, budget, tier, art direction, or a new version of the rules text or schema.
+
+- `--new-design` asks the author for a new design instead and keeps every cached image whose request is unchanged. The new design replaces the recorded one, so the next rerun continues from it.
+- `--no-cache` uses no cache folder: nothing is read or written there.
+- The cache folder holds your brief's designs (the scenes authored for it, named after it) as well as the images. Delete the folder to remove them; the run's `report.json` beside it also holds the brief.
+- The spend ledger is the asset's own and covers every run in this `--out` together. A rerun says at start how much is already used and how much is left, and its summary adds `this run: ...`. Raise `--token-ceiling` or `--max-images` to give it more. A rerun is refused before any call when what is left of the ceiling cannot admit its largest single call; the refusal names what was already used, what remains, and the smallest ceiling that lets it continue. A rerun that is short of images continues only when it can continue from a recorded design: images already generated for that design count none, and a material beyond the limit ships untextured and is named. Without a recorded design, a rerun short of images is refused before any authoring call, as a first run is. So is a rerun with `--new-design`.
+- Best-of-N: on a rerun with less left in the ledger, the router may plan fewer candidates. Their requests then say "design 1/3" instead of "1/4", so those designs are asked for again.
+- An albedo or other image call answered without an image (finish `MAX_TOKENS`, `STOP` or `NO_IMAGE`, with no image part) is asked again once. Both attempts are booked as billed, and the one without an image counts no image. A refusal (a safety or prohibited-content stop, a blocked prompt) is never asked again. If the second answer has no image either, the material is left untextured and both attempts are named.
+
 A headless Linux renderer needs a working display or Xvfb. A missing target renderer, a stale verdict, or a simulated judge leaves `verified` false. A successful verified run makes the package visible under the published path. Use `--pool-socket PATH` to reuse workers across CLI processes.
 
 Other subcommands:
@@ -158,7 +169,7 @@ Main modules, from the module docstrings:
 - `tactics/pyramid.py`: multi-resolution refinement: silhouette lock, lookdev, final verification.
 - `tactics/tournament.py`: speculative Best-of-N.
 - `tactics/governor.py`: cost and quality budget governor.
-- `tactics/cached.py`: Merkle-cache wrappers for the expensive pure steps.
+- `tactics/cached.py`: Merkle-cache wrappers for the expensive pure steps, and the design record (`DesignRecord`) of answered authoring requests.
 - `tactics/package.py`: engine-ready export artefacts (UV-split meshes, LODs, hulls).
 - `tactics/distill.py` collects observed repairs. Run `python -m antigravity3d.runtime.distill_job --workspace . --holdout examples/distill-seating-holdout.json` to replay a box-seating fix against two authored examples. Supply independent studio labels for a studio review. An eligible report can be promoted by repeating the command with `--promote seat-floating-box-v1 --evidence DIGEST --reviewed-by NAME`. The scheduled job only writes reports.
 - `dags/prop_to_engine.py`: prompt to engine-ready, reviewed prop package.

@@ -25,6 +25,8 @@ class Route:
     governor: Governor
     cost_usd: float
     reused: bool
+    # (spend, images) the asset's ledger held before this run made any call: earlier runs in the same workdir
+    prior: tuple[float, int] = (0.0, 0)
 
 
 async def resolve_route(workdir: Path, prompt: str, budget: EngineBudget, style: bytes | None, *,
@@ -57,8 +59,11 @@ async def resolve_route(workdir: Path, prompt: str, budget: EngineBudget, style:
         if row is not None:
             data = json.loads(row[0])
             plan = SpendPlan(**data.pop("plan"))
-            return Route(**data, plan=plan, governor=Governor(plan, journal=spend, **ledger), cost_usd=0.0, reused=True)
+            governor = Governor(plan, journal=spend, **ledger)
+            return Route(**data, plan=plan, governor=governor, cost_usd=0.0, reused=True,
+                         prior=(governor.spent, governor.images_used))
         bootstrap = Governor(plan_for(0), journal=spend, **ledger)
+        prior = (bootstrap.spent, bootstrap.images_used)  # a run that ended while routing may have left spend
         decision = await plane.route_pipeline(prompt, "# empty project: new asset", governor=bootstrap)
         if not decision.result.calibrated and not getattr(plane, "preview", False):
             raise ValueError("the asset spend plan requires a calibrated routing decision")
@@ -68,4 +73,5 @@ async def resolve_route(workdir: Path, prompt: str, budget: EngineBudget, style:
         data = {"pipeline": decision.pipeline, "needs_ortho": decision.needs_ortho,
                 "needs_ortho_p": decision.needs_ortho_p, "complexity": decision.complexity}
         db.execute("INSERT INTO route VALUES(1, ?)", (json.dumps({**data, "plan": asdict(plan)}),))
-        return Route(**data, plan=plan, governor=Governor(plan, journal=spend, **ledger), cost_usd=decision.result.booked_usd, reused=False)
+        return Route(**data, plan=plan, governor=Governor(plan, journal=spend, **ledger), cost_usd=decision.result.booked_usd,
+                     reused=False, prior=prior)

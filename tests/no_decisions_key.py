@@ -26,6 +26,9 @@
   ``questions`` (it matches only a call asking one of these question ids, without the __N suffix) and ``exclude`` (not
   a call asking any of these: pass A's blockout QA asks score_silhouette without next_action). A matched call is
   logged as ``<kind>:<how>`` and is never served (``generated()`` does not count it).
+  For an image call, ``how`` may also be "no_image": served and billed, but answered as the live call of 2026-11-21 was,
+  finish MAX_TOKENS after 652 output tokens with no image part (logged ``image:no_image``, counted by ``generated()``);
+  ``prompt`` (a substring of the image request's text) narrows the rule to one material.
 
     with NoDecisionsKey() as api:        # api.url, api.requests (path, kind)
         monkeypatch.setenv("GOOGLE_GEMINI_BASE_URL", api.url); monkeypatch.setenv("GEMINI_API_KEY", "dummy")
@@ -137,7 +140,7 @@ class NoDecisionsKey:
 
     def generated(self) -> int:
         """Generation calls served (judge, author, image): what would be billed."""
-        return sum(r["kind"] in ("judge", "author:propose", "author:repair", "image:sent") for r in self.requests)
+        return sum(r["kind"] in ("judge", "author:propose", "author:repair", "image:sent", "image:no_image") for r in self.requests)
 
     # ---- answers
     def answer(self, path: str, headers: dict[str, str], raw: bytes) -> tuple[int, bytes, dict[str, str]]:
@@ -165,9 +168,15 @@ class NoDecisionsKey:
         gc = body.get("generationConfig") or {}
         schema = gc.get("responseJsonSchema") or gc.get("responseSchema")
         prompt = len(json.dumps(body)) // 4
-        if (failure := self._failure(gc, schema)) is not None:
+        if (failure := self._failure(gc, schema, _text(body))) is not None:
             kind, how = failure
-            self._log(path, f"{kind}:{how}", t=arrived)
+            self._log(path, f"{kind}:{how}", t=arrived, **({"prompt": _text(body)} if how == "no_image" else {}))
+            if how == "no_image":
+                usage = {"promptTokenCount": 62, "candidatesTokenCount": 40, "thoughtsTokenCount": 612, "totalTokenCount": 714,
+                         "candidatesTokensDetails": [{"modality": "TEXT", "tokenCount": 40}]}
+                ev = {"candidates": [{"content": {"role": "model", "parts": [{"text": "..."}]}, "finishReason": "MAX_TOKENS"}],
+                      "usageMetadata": usage, "responseId": uuid.uuid4().hex}
+                return 200, json.dumps(ev).encode(), {}
             return (DROP, b"", {}) if how == "drop" else (503, UNAVAILABLE_503, {}) if how == "503" else (429, EXHAUSTED_429, {})
         if "IMAGE" in (gc.get("responseModalities") or []):
             self._log(path, "image:sent", t=arrived)  # dispatched: billed even if the caller stops waiting for it
@@ -218,7 +227,7 @@ class NoDecisionsKey:
               "responseId": uuid.uuid4().hex}
         return 200, json.dumps(ev).encode(), {}
 
-    def _failure(self, gc: dict[str, Any], schema: dict[str, Any] | None) -> tuple[str, str] | None:
+    def _failure(self, gc: dict[str, Any], schema: dict[str, Any] | None, text: str = "") -> tuple[str, str] | None:
         """The (kind, how) of a fail rule this call matches and that still has a hit left, else None."""
         props = (schema or {}).get("properties") or {}
         kind = ("image" if "IMAGE" in (gc.get("responseModalities") or []) else "author:propose" if "nodes" in props
@@ -229,6 +238,8 @@ class NoDecisionsKey:
                 if rule["kind"] != kind or rule.get("questions") and not asked & set(rule["questions"]):
                     continue
                 if asked & set(rule.get("exclude") or ()):
+                    continue
+                if rule.get("prompt") and rule["prompt"] not in text:
                     continue
                 if rule.get("times") is not None and rule["hits"] >= rule["times"]:
                     continue

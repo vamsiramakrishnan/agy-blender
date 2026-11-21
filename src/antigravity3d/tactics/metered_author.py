@@ -395,6 +395,8 @@ class CandidateOutcome:
     reserved_tokens: float | None = None  # token ledgers only (then reserved_usd stays None)
     # the failed attempts before the outcome, each with the service's answer and the wait after it (service_answer)
     service_retries: list[dict[str, Any]] | None = None
+    # taken from the design record (no call was made): what the original answer cost (DesignRecord)
+    recorded: dict[str, Any] | None = None
 
     @property
     def produced(self) -> bool:
@@ -406,6 +408,8 @@ class CandidateOutcome:
             del d["reserved_tokens"]
         if not self.service_retries:  # only when there was a retry
             del d["service_retries"]
+        if self.recorded is None:  # only for an answer from the design record
+            del d["recorded"]
         return d
 
 
@@ -464,8 +468,11 @@ class MeteredAuthor:
     """
 
     def __init__(self, client: Any, governor: Governor, budget: EngineBudget, context: dict, *,
-                 timeout_s: float | None = None, retry: service_answer.RetryPolicy | None = None) -> None:
+                 timeout_s: float | None = None, retry: service_answer.RetryPolicy | None = None,
+                 record: Any = None) -> None:
         self.client, self.governor, self.budget = client, governor, budget
+        # tactics.cached.DesignRecord: answered requests of earlier runs in the same --out, reused without a call (None: off)
+        self.record = record
         self.context, self.timeout_s = dict(context), timeout_s
         # None: the shared schedule (service_answer.DEFAULT_POLICY, read at call time) with AUTHOR_UNKNOWN_RETRIES
         self.retry = retry
@@ -601,6 +608,7 @@ class MeteredAuthor:
             if usage is not None:
                 booked = cost(usage["input_tokens"], usage["output_tokens"])
                 receipt.update(usage)
+            trace["booked"] = booked if booked is not None else limit  # what the ledger keeps for this answer
             candidates = getattr(result, "candidates", None) or []
             receipt["finish_reason"] = _name(getattr(candidates[0], "finish_reason", None)) if candidates else None
             text = check_response(req, result, usage)
@@ -617,6 +625,35 @@ class MeteredAuthor:
         finally:
             receipt["usage_known"] = booked is not None
             hold.settle(booked, receipt=receipt)
+
+    async def _answer(self, req: AuthorRequest, trace: dict[str, Any], *, index: int | None,
+                      keep: Callable[[Any], bool] = lambda answer: True) -> Any:
+        """The answer to ``req``: from the design record when an earlier run in this ``--out`` asked exactly this (no
+        call, not even a count; a receipt that says where it came from and what it originally cost, nothing booked),
+        else from :meth:`_generate`, and then recorded at once, so a run that ends later keeps what it paid for.
+        ``keep``: whether an answer is worth recording (a candidate for another asset is not)."""
+        record = self.record
+        key = record.key(req, index) if record is not None else None
+        if key is not None:
+            hit = await asyncio.to_thread(record.get, key)
+            if hit is not None:
+                self._book_reuse(req, hit)
+                record.note_reuse(hit)
+                trace.update(recorded=hit.original, **{"reserved_tokens" if self.governor.unit == "tokens" else "reserved_usd": 0.0})
+                return hit.answer
+        answer = await self._generate(req, trace)
+        if key is not None and keep(answer):
+            original = {"unit": self.governor.unit, "booked": trace.get("booked"), "usage": trace.get("usage"),
+                        "model": req.model, "role": req.role, "operation": req.operation}
+            await asyncio.shield(asyncio.to_thread(record.put, key, answer, original))  # a stop never leaves it half written
+        return answer
+
+    def _book_reuse(self, req: AuthorRequest, hit: Any) -> None:
+        receipt = {"model": req.model, "role": req.role, "source": "record", "status": "ok", "usage_known": True,
+                   "record_key": hit.key[:23], "original": hit.original,
+                   "booked_reason": "the same request was answered in an earlier run of this --out (design record): "
+                                    "no call was made and nothing is booked; 'original' is what that answer cost"}
+        self.governor.reserve(f"author.{req.operation}", 0.0, receipt=receipt).settle(0.0, receipt=receipt)
 
     def _unavailable(self, req: AuthorRequest, exc: BaseException, tracker: service_answer.Tracker, doing: str, *,
                      booked_any: bool) -> AuthorUnavailable:
@@ -652,7 +689,7 @@ class MeteredAuthor:
             task = propose_task(prompt, index=i, n=n, asset_name=asset, references=refs, brief=brief)
             try:
                 req = self.request(role, "propose", task, asset_name=asset, kit=bool(brief))
-                scene = await self._generate(req, trace)
+                scene = await self._answer(req, trace, index=i, keep=lambda s: s.asset_name == asset and bool(s.nodes))
                 if scene.asset_name != asset or not scene.nodes:
                     raise AuthorInvalid(f"{role} propose: candidate must contain nodes for the requested asset {asset!r}",
                                         finish_reason="STOP", **_meta(req, trace.get("usage")))
@@ -665,7 +702,7 @@ class MeteredAuthor:
                                               trace.get("reserved_tokens"), trace.get("service_retries") or None), exc
             return scene, CandidateOutcome(i, "produced", "", "STOP", trace.get("usage"), trace.get("admission_wait_s", 0.0),
                                            trace.get("reserved_usd"), trace.get("reserved_tokens"),
-                                           trace.get("service_retries") or None), None
+                                           trace.get("service_retries") or None, trace.get("recorded")), None
 
         # A cancellation of this task cancels every candidate (gather) and propagates; a candidate that itself raises a
         # non-Exception BaseException (CancelledError, KeyboardInterrupt) propagates too.
@@ -686,6 +723,16 @@ class MeteredAuthor:
             first.args = (f"{first.args[0] if first.args else first}; no usable candidate of {len(outcomes)} requested: {names}",)
         raise first
 
+    def recorded_candidates(self, prompt: str, *, n: int, context: dict[str, Any]) -> int:
+        """How many of the ``n`` candidates :meth:`propose_with_outcomes` would take from the design record (no call is
+        made to find out: the keys of the very requests it would send)."""
+        if self.record is None or self.record.fresh:
+            return 0
+        asset, refs, role, brief = context["asset_name"], has_references(self.context), self.governor.plan.builder_role, context_brief(context)
+        return sum(self.record.get(self.record.key(self.request(role, "propose", propose_task(
+            prompt, index=i, n=n, asset_name=asset, references=refs, brief=brief), asset_name=asset, kit=bool(brief)), i)) is not None
+            for i in range(n))
+
     async def propose(self, prompt: str, *, budget: EngineBudget, n: int, context: dict[str, Any]) -> list[SceneIR]:
         return (await self.propose_with_outcomes(prompt, budget=budget, n=n, context=context)).scenes
 
@@ -701,7 +748,7 @@ class MeteredAuthor:
         trace: dict[str, Any] = {}
         self.last_service_retries = []
         try:
-            patch = await self._generate(self.request(role, "repair", task), trace)
+            patch = await self._answer(self.request(role, "repair", task), trace, index=None)
         finally:
             self.last_service_retries = list(trace.get("service_retries") or [])
         return patch if patch.ops else None

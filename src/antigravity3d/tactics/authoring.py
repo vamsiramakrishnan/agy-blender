@@ -572,11 +572,16 @@ class AgentAuthor:
         self.calls = {"propose": 0, "repair": 0}
         self.usage: list[Any] = []
 
-    def bind(self, governor: Any, budget: EngineBudget, context: dict[str, Any]) -> IRAuthor:
+    def bind(self, governor: Any, budget: EngineBudget, context: dict[str, Any], *, record: Any = None) -> IRAuthor:
+        """The governed one-shot author for one asset. ``record``: the run's ``tactics.cached.DesignRecord`` (answered
+        requests of earlier runs in the same ``--out`` are reused without a call), or None.
+
+        The stage-session path (:meth:`_session`) is not recorded: its result is a multi-turn tool trajectory of the
+        harness, and nothing a key could hold (the harness's tools and prompts) would invalidate it when they change."""
         from google import genai
         from antigravity3d.tactics.metered_author import MeteredAuthor
 
-        return MeteredAuthor(self.client or genai.Client(), governor, budget, context, timeout_s=self.timeout_s)
+        return MeteredAuthor(self.client or genai.Client(), governor, budget, context, timeout_s=self.timeout_s, record=record)
 
     def _run_stage(self) -> Callable[..., Any]:
         from antigravity3d.harness.agents import run_stage  # lazy

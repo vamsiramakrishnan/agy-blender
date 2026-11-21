@@ -66,7 +66,8 @@ class ImageReceipt:
 
     @property
     def generated_image(self) -> int:
-        """1 unless the provider reported its output and it held no image tokens (a known 'no image')."""
+        """1 unless the provider reported its output and it held no image tokens (a known 'no image'). A fallback only:
+        ``ImageForge`` counts from the response itself (image bytes or none) wherever it has one."""
         return 0 if self.source == "provider_usage" and self.image_tokens == 0 else 1
 
     @classmethod
@@ -115,8 +116,11 @@ class ImageReceipt:
         inputs = getattr(usage, "prompt_token_count", None)
         outputs = getattr(usage, "candidates_token_count", None)
         thoughts = getattr(usage, "thoughts_token_count", None) or 0
-        image = sum(int(i.token_count or 0) for i in (getattr(usage, "candidates_tokens_details", None) or [])
-                    if str(getattr(i.modality, "name", i.modality)) == "IMAGE")
+        details = getattr(usage, "candidates_tokens_details", None) or []
+        # No modality breakdown: the image tokens are not known (None), never 0. Whether an image came back is read from
+        # the response by the caller (ImageForge), not from this figure.
+        image = (sum(int(i.token_count or 0) for i in details if str(getattr(i.modality, "name", i.modality)) == "IMAGE")
+                 if details else None)
         cands = getattr(response, "candidates", None) or []
         fr = getattr(cands[0], "finish_reason", None) if cands else None
         finish = str(getattr(fr, "name", fr)) if fr is not None else None
