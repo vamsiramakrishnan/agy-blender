@@ -202,6 +202,7 @@ async def test_fake_worker_offers_every_primitive_with_the_real_result_shape():
             assert result.pop("fake") is True and set(result) == keys, name
             welded = await pool.call("inspect_usd", path="/no/such.usd", primitive=name, kwargs=kwargs, weld=True)
             assert welded["agy_inspect"]["weld"]["distance_m"] == 1e-6 and welded["agy_inspect"]["weld"]["fake"] is True
+            assert set(welded["agy_inspect"]["weld"]["objects"]["FakeMesh"]) == {"verts_before", "verts_after", "parts", "coincident_between_parts"}
         with pytest.raises(BlenderOpError, match="weld must be true or false"):
             await pool.call("inspect_usd", path="x.usd", primitive="qa_check", weld=0.01)
         qa = await pool.call("inspect_usd", path="x.usd", primitive="qa_check", kwargs={})

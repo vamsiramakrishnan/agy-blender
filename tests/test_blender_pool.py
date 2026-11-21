@@ -333,7 +333,7 @@ async def test_upstream_primitives_on_a_package_match_the_fake_shape_and_weld_cl
             assert set(r) == set(f) - {"fake"}, name
             assert set(r[per_object[name]]["block"]) <= set(f[per_object[name]]["FakeMesh"]), name
         welded = await real.call("inspect_usd", path=usd, primitive="qa_check", kwargs={"profile": "game"}, weld=True)
-        assert welded["agy_inspect"]["weld"]["objects"]["block"]["verts_after"] == 8
+        assert welded["agy_inspect"]["weld"]["objects"]["block"] == {"verts_before": 24, "verts_after": 8, "parts": 1, "coincident_between_parts": 0}
         block = welded["objects"]["block"]
         assert (block["boundary_edges"], block["islands"], block["duplicate_verts"], block["inside_out_islands"]) == (0, 1, 0, 0)
         glb = str(Path(usd).with_suffix(".glb"))  # the same asset as shipped in the GLB, through Blender's glTF importer

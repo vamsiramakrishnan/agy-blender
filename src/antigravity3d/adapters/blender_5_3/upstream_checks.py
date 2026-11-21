@@ -9,10 +9,17 @@ answer reads, so the prop pipeline (pass C) and the kit DAG say the same thing:
 * Topology checks run on the file with coincident vertices merged (``weld=True``): the package's GLB and USD split
   vertices at UV seams and hard edges, and read unmerged ``qa_check`` misses floating and inverted parts and
   reports duplicate vertices and open boundaries that are not defects (``benchmarks/README.md``, "Upstream checks survey").
+* The merge is made part by part (``daemon.weld_within_parts``). A GLB that batches the parts of a material into one
+  mesh puts separate closed parts in one object, and parts in contact have vertices at one position (a lid on a body
+  of the same footprint). Merged across parts they read as one surface whose faces are wound against each other: the
+  55-part crate of 2026-11-21 failed the Roblox profile on "16 edges with inconsistent face winding" with every part
+  closed and consistently wound. What stays is the positions two parts share, which upstream reports as duplicate
+  vertices (a warning); :func:`read_duplicates` says which of those are parts in contact.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from antigravity3d.adapters.blender_5_3 import skills
@@ -24,6 +31,7 @@ from antigravity3d.kernel.fast_ops import TOUCH_TOL
 # that passes the fast check fails in Blender. Upstream's own default is the same 2 mm.
 QA_TOL_M = TOUCH_TOL
 FLOATING_PREFIX = "floating/detached part in "
+DUPLICATES = re.compile(r"(?P<object>.+): duplicate verts=(?P<n>\d+) loose verts=0")
 SHOWN_WARNINGS = 4
 MAX_DETAIL = 600
 
@@ -90,16 +98,35 @@ def read_floating(result: dict[str, Any]) -> tuple[list[str], list[str], list[st
     return errors, resting, standing
 
 
+def read_duplicates(result: dict[str, Any]) -> dict[str, int]:
+    """{upstream warning: vertices} for each "duplicate verts" warning that is parts in contact and nothing else.
+
+    qa_check counts the vertices that have another within 0.01 mm, halved. After the merge within parts no part has two
+    vertices at one position, and the worker reports how many vertices share a position with a vertex of another part
+    (``agy_inspect.weld.objects[..].coincident_between_parts``). When that accounts for the whole count the warning is
+    two parts touching at a corner, not vertices somebody forgot to merge. The upstream result is not altered."""
+    objects = ((result.get("agy_inspect") or {}).get("weld") or {}).get("objects") or {}
+    read: dict[str, int] = {}
+    for w in result.get("warnings") or []:
+        m = DUPLICATES.fullmatch(w)
+        apart = int((objects.get(m["object"]) or {}).get("coincident_between_parts") or 0) if m else 0
+        if m and apart and int(m["n"]) == apart // 2:
+            read[w] = apart
+    return read
+
+
 def qa_verdict(result: dict[str, Any], profile: str) -> tuple[str, str]:
     """("failed" | "passed", detail) for a ``qa_check`` result. The detail is a fact about the file (no timings).
 
     Upstream's errors are quoted as it wrote them. A "floating" piece that rests on the ground is read as a separate
     piece, not a defect, and the detail says both."""
     errors, resting, standing = read_floating(result)
-    warnings = list(result.get("warnings") or [])
+    contact = read_duplicates(result)
+    warnings = [w + (f" (all {contact[w]} are vertices of separate parts in contact, not unmerged duplicates)" if w in contact else "")
+                for w in result.get("warnings") or []]
     objects = result.get("objects") or {}
     tris = sum(int(o.get("tris", 0)) for o in objects.values())
-    head = f"{source('qa_check')}, {profile} profile, vertices merged: {len(objects)} object(s), {tris} tris"
+    head = f"{source('qa_check')}, {profile} profile, vertices merged part by part: {len(objects)} object(s), {tris} tris"
     if standing:
         return "failed", (head + f"; {len(standing)} error(s): " + "; ".join(standing))[:MAX_DETAIL]
     shown = "; ".join(warnings[:SHOWN_WARNINGS]) + (f"; +{len(warnings) - SHOWN_WARNINGS} more" if len(warnings) > SHOWN_WARNINGS else "")
@@ -125,9 +152,12 @@ async def asset_qa(pool: Any, glb: str, target_engine: str) -> tuple[str, str, d
         return "skipped", str(e), {}
     status, detail = qa_verdict(r, profile)
     errors, resting, _ = read_floating(r)
+    weld = ((r.get("agy_inspect") or {}).get("weld") or {}).get("objects") or {}
     return status, detail, {"script": "qa_check", "repository": skills.UPSTREAM_REPOSITORY, "commit": skills.UPSTREAM_COMMIT,
-                            "profile": profile, "merged": True, "tol_m": QA_TOL_M, "errors": errors, "resting_on_ground": resting,
-                            "warnings": list(r.get("warnings") or [])}
+                            "profile": profile, "merged": True, "merged_within": "parts", "tol_m": QA_TOL_M, "errors": errors,
+                            "resting_on_ground": resting, "warnings": list(r.get("warnings") or []),
+                            "parts_in_contact_share_vertices": {k: v for k, v in sorted(read_duplicates(r).items())},
+                            "pieces_after_merge": {k: int(v.get("parts") or 0) for k, v in sorted(weld.items())}}
 
 
 def kit_verdict(results: dict[str, dict[str, Any]]) -> tuple[bool, dict[str, Any]]:

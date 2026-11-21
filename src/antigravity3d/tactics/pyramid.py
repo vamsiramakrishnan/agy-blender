@@ -1012,7 +1012,7 @@ class _Run:
             return "passed", f"three.js loaded and rendered the package: {done} checks passed{iou}"
 
         async def blender_asset_qa() -> tuple[str, str]:
-            """EL4CTEO/blender-skills' qa_check on the GLB the engines import, vertices merged (upstream_checks.asset_qa)."""
+            """EL4CTEO/blender-skills' qa_check on the GLB the engines import, vertices merged part by part (upstream_checks.asset_qa)."""
             if "glb" not in res.artifacts:
                 return "skipped", "no GLB exported"
             status, detail, data = await upstream_checks.asset_qa(self.pool, res.artifacts["glb"], budget.target_engine)

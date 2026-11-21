@@ -75,8 +75,8 @@ PRIMITIVES_INFO: dict[str, Any] = {"source": None, "error": None}  # where the p
 PREPARE: dict[str, Callable[[dict[str, Any], bool], tuple[list[str], dict[str, Any] | None]]] = {}
 # names of the imported mesh objects -> their connected pieces (see inspect_usd's ``agy_inspect.pieces``)
 PIECES: dict[str, Callable[[list[str]], list[dict[str, Any]] | None]] = {}
-# inspect_usd(weld=True) merges vertices closer than this, per imported mesh: coincident seam copies are
-# bit-identical float32 points, and no real feature of an asset is a micrometre wide
+# inspect_usd(weld=True) merges vertices closer than this, per connected part of each imported mesh: coincident seam
+# copies are bit-identical float32 points, and no real feature of an asset is a micrometre wide
 WELD_DISTANCE_M = 1e-6
 DENOISER_CHAIN = ("DLSS", "OPTIX", "OPENIMAGEDENOISE")  # preference order; filtered by what the build offers
 ENGINE_IDS = {"workbench": "BLENDER_WORKBENCH", "eevee": "BLENDER_EEVEE", "cycles": "CYCLES"}
@@ -211,10 +211,11 @@ def _inspect_usd(a: dict[str, Any]) -> dict[str, Any]:
     ``primitive`` names the script; ``kwargs`` must stay inside its contract (``skills.PRIMITIVE_KWARGS``): the
     call is refused before anything is imported otherwise. The worker passes ``objects`` itself: the mesh objects
     the import produced (upstream's default is "the selection, else everything visible", which depends on what the
-    importer left selected). ``weld=True`` merges coincident vertices of each imported mesh first (see
-    :data:`WELD_DISTANCE_M`); UVs are per face corner in Blender, so they are unchanged, and only connectivity
-    differs: UV seams of the package's seam-split points stop being open edges. The result is the script's own,
-    plus one key, ``agy_inspect``: the objects measured and the weld report.
+    importer left selected). ``weld=True`` merges coincident vertices of each imported mesh first, part by part (see
+    :data:`WELD_DISTANCE_M` and ``weld_within_parts``); UVs are per face corner in Blender, so they are unchanged, and
+    only connectivity differs: UV seams of the package's seam-split points stop being open edges, and two parts in
+    contact stay two parts. The result is the script's own, plus one key, ``agy_inspect``: the objects measured and
+    the weld report (per object: vertices before and after, parts, vertices left coincident with another part's).
     """
     name = a.get("primitive")
     kwargs = skills.check_kwargs(name, a.get("kwargs"))
@@ -403,7 +404,8 @@ def register_fake_ops() -> None:
 
     def prepare_fake(imported: dict[str, Any], weld: bool) -> tuple[list[str], dict[str, Any] | None]:
         names = ["FakeMesh"]
-        return names, ({"distance_m": WELD_DISTANCE_M, "objects": {n: {"verts_before": 0, "verts_after": 0} for n in names}, "fake": True}
+        return names, ({"distance_m": WELD_DISTANCE_M, "fake": True,
+                        "objects": {n: {"verts_before": 0, "verts_after": 0, "parts": 0, "coincident_between_parts": 0} for n in names}}
                        if weld else None)
     PREPARE["prepare"] = prepare_fake
     PIECES["pieces"] = lambda names: None  # the fake worker has no scene: no pieces key
@@ -434,6 +436,108 @@ def register_bpy_ops(bpy: Any) -> None:
     shim.install(bpy)
     register_reviewed_primitives()
 
+    def weld_within_parts(bmesh: Any, bm: Any, dist: float) -> tuple[int, int]:
+        """Merge the coincident vertices of ``bm`` part by part; returns (parts, vertices left coincident with a vertex
+        of another part).
+
+        The file splits every part at its UV seams and hard edges, so its copies of a vertex must be merged before
+        topology can be read. Two different parts in contact also have vertices at one position (a lid on a box of the
+        same footprint, a plate flush with a corner): merged as well, they stop being two closed shells and read as one
+        surface with edges shared by four faces and faces wound against each other, which is how a sound Roblox
+        package failed ``qa_check`` on "edges with inconsistent face winding" (2026-11-21). So the parts are found
+        first. Faces belong to one part when they share a vertex of the file, or an edge position:
+
+        * used by exactly two faces: a seam of one surface, whichever way the two are wound (a face wound the wrong
+          way stays in its part, and is reported);
+        * used by more: the faces are taken in order around the edge, and a face is joined to the next one across the
+          solid it bounds (the material behind a face is on the side its normal points away from). A lid on a body
+          gives body side with body top, and lid bottom with lid side, though body top and lid bottom lie in one
+          plane. A face left without a partner (the rim of a part whose contact face was not shipped) joins nothing.
+        """
+        from math import atan2, tau
+
+        doubles = bmesh.ops.find_doubles(bm, verts=bm.verts[:], dist=dist)["targetmap"]
+        bm.verts.ensure_lookup_table()
+        bm.verts.index_update()
+        bm.faces.index_update()
+        bm.normal_update()
+        position = {v.index: t.index for v, t in doubles.items()}  # vertex -> the vertex that stands for its position
+        parent = list(range(len(bm.faces)))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(a: int, b: int) -> None:
+            a, b = find(a), find(b)
+            if a != b:
+                parent[b] = a
+
+        for v in bm.verts:
+            faces = v.link_faces
+            for f in faces[1:]:
+                union(faces[0].index, f.index)
+        used: dict[tuple[int, int], list[tuple[Any, int]]] = {}  # edge position -> (face, +1 along it / -1 against it)
+        for f in bm.faces:
+            for loop in f.loops:
+                a = position.get(loop.vert.index, loop.vert.index)
+                b = position.get(loop.link_loop_next.vert.index, loop.link_loop_next.vert.index)
+                if a != b:
+                    used.setdefault((a, b) if a < b else (b, a), []).append((f, 1 if a < b else -1))
+        for (a, b), faces in used.items():
+            if len(faces) == 2:
+                union(faces[0][0].index, faces[1][0].index)
+                continue
+            if len(faces) < 2:
+                continue
+            axis = bm.verts[b].co - bm.verts[a].co
+            if axis.length < 1e-12:
+                continue
+            axis.normalize()
+            # the direction in which each face leaves the edge; with the edge pointing at the viewer, the material
+            # behind a face that runs along the edge lies clockwise of it, and counter-clockwise for one that runs against
+            into = [(f.normal.cross(axis * sense), f, sense) for f, sense in faces]
+            u = next((t.normalized() for t, _, _ in into if t.length > 1e-9), None)
+            if u is None:
+                continue
+            v = axis.cross(u)
+            around = [(atan2(t.dot(v), t.dot(u)) % tau, f, sense) for t, f, sense in into if t.length > 1e-9]
+            taken: set[int] = set()
+            for angle, f, sense in around:
+                if sense != -1:
+                    continue
+                best = None
+                for other, g, sense_g in around:
+                    if sense_g != 1 or g.index in taken:
+                        continue
+                    turn = (other - angle) % tau
+                    if turn < 1e-6:
+                        turn = tau  # a face in the same half-plane bounds no solid with this one
+                    if best is None or turn < best[0]:
+                        best = (turn, g)
+                if best is not None:
+                    taken.add(best[1].index)
+                    union(f.index, best[1].index)
+        keep: dict[tuple[int, int], Any] = {}
+        target: dict[Any, Any] = {}
+        parts_at: dict[int, set[int]] = {}
+        for vert in bm.verts:
+            if not vert.link_faces:
+                continue
+            at, part = position.get(vert.index, vert.index), find(vert.link_faces[0].index)
+            parts_at.setdefault(at, set()).add(part)
+            if (at, part) in keep:
+                target[vert] = keep[(at, part)]
+            else:
+                keep[(at, part)] = vert
+        apart = sum(len(parts) for parts in parts_at.values() if len(parts) > 1)
+        n_parts = len({find(f.index) for f in bm.faces})
+        if target:
+            bmesh.ops.weld_verts(bm, targetmap=target)
+        return n_parts, apart
+
     def prepare(imported: dict[str, Any], weld: bool) -> tuple[list[str], dict[str, Any] | None]:
         """The imported mesh objects (by name), with transforms evaluated; optionally welded (see inspect_usd)."""
         bpy.context.view_layer.update()  # matrix_world of freshly imported objects is evaluated here, not lazily
@@ -454,11 +558,12 @@ def register_bpy_ops(bpy: Any) -> None:
                 bm = bmesh.new()
                 bm.from_mesh(me)
                 before = len(bm.verts)
-                bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=WELD_DISTANCE_M)
+                parts, apart = weld_within_parts(bmesh, bm, WELD_DISTANCE_M)
                 bm.to_mesh(me)
                 bm.free()
                 me.update()
-                report["objects"][ob.name] = {"verts_before": before, "verts_after": len(me.vertices)}
+                report["objects"][ob.name] = {"verts_before": before, "verts_after": len(me.vertices), "parts": parts,
+                                              "coincident_between_parts": apart}
             bpy.context.view_layer.update()
         return [ob.name for ob in objs], report
     PREPARE["prepare"] = prepare

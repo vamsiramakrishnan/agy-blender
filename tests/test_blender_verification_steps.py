@@ -8,6 +8,7 @@ file with the kit's metric. Without a real worker both are skipped with the reas
 from __future__ import annotations
 
 import json
+import struct
 from pathlib import Path
 from typing import Any
 
@@ -91,6 +92,23 @@ async def test_a_worker_without_the_script_is_a_skip_and_a_worker_that_dies_is_a
     assert status == "skipped" and "not loaded" in detail
     with pytest.raises(WorkerError):
         await upstream_checks.asset_qa(Stub(error=WorkerError("died", "connection lost")), "a.glb", "unreal_5")
+
+
+def test_duplicate_vertices_that_are_parts_in_contact_are_read_as_that_and_others_are_not():
+    """After the merge within parts, the positions two parts share are what upstream counts as duplicate vertices. The
+    worker says how many vertices those are; the warning is read as parts in contact only when they account for all of it."""
+    dup = "Batch_0: duplicate verts=16 loose verts=0"
+    weld = lambda apart: {"agy_inspect": {"weld": {"objects": {"Batch_0": {"parts": 36, "coincident_between_parts": apart}}}}}  # noqa: E731
+    result = {"errors": [], "warnings": [dup, "hidden back-to-back faces: a<->b (2 pairs)"], "objects": {"Batch_0": {"tris": 544}}}
+    assert upstream_checks.read_duplicates({**result, **weld(32)}) == {dup: 32}
+    status, detail = upstream_checks.qa_verdict({**result, **weld(32)}, "roblox")
+    assert status == "passed" and "vertices merged part by part" in detail
+    assert dup + " (all 32 are vertices of separate parts in contact, not unmerged duplicates)" in detail  # upstream's text, then the reading
+    for other in (weld(0), weld(8), {}):  # some of the duplicates are not parts in contact, or nothing is known: left as written
+        assert upstream_checks.read_duplicates({**result, **other}) == {}
+        assert "parts in contact" not in upstream_checks.qa_verdict({**result, **other}, "roblox")[1]
+    loose = {**result, "warnings": ["Batch_0: duplicate verts=16 loose verts=3"], **weld(32)}  # loose vertices are a defect of their own
+    assert upstream_checks.read_duplicates(loose) == {}
 
 
 async def test_errors_fail_the_step_with_upstreams_text_and_warnings_stay_as_evidence():
@@ -293,6 +311,42 @@ async def test_separate_boxes_resting_on_the_ground_pass_and_a_part_hovering_5_c
     raised = [box("base", (1, 1, 1), (0, 0, 0.5)), box("raised", (0.3, 0.3, 0.3), (3, 0, 0.35))]  # separate, 20 cm off the ground
     status, _, _ = await upstream_checks.asset_qa(blender_pool, package_glb(tmp_path / "raised", raised), "unreal_5")
     assert status == "failed"
+
+
+def flip_first_triangle(glb: Path) -> None:
+    """Rewrite the GLB with the first triangle of its first mesh wound the other way (two indices swapped in place)."""
+    raw = bytearray(glb.read_bytes())
+    n = struct.unpack_from("<I", raw, 12)[0]
+    doc = json.loads(raw[20:20 + n])
+    acc = doc["accessors"][doc["meshes"][0]["primitives"][0]["indices"]]
+    at = 20 + n + 8 + doc["bufferViews"][acc["bufferView"]].get("byteOffset", 0) + acc.get("byteOffset", 0)
+    size = {5123: 2, 5125: 4}[acc["componentType"]]
+    raw[at + size:at + 3 * size] = raw[at + 2 * size:at + 3 * size] + raw[at + size:at + 2 * size]
+    glb.write_bytes(raw)
+
+
+@pytest.mark.blender
+@needs_blender
+async def test_separate_parts_sharing_edges_in_one_mesh_pass_and_a_miswound_part_still_fails(tmp_path, blender_pool):
+    """A lid on a body of the same footprint: every part is a closed, consistently wound box, and their rims share four
+    edges. With more parts than the draw-call budget the GLB puts them in one mesh. Merged across the mesh they read as
+    one surface with faces wound against each other, and qa_check failed the asset on "edges with inconsistent face
+    winding" (the 55-part crate on roblox_r15, 2026-11-21); merged part by part they are what they are. Negative
+    control: the same file with one triangle really wound the other way still fails, with upstream's message."""
+    nodes = [box("body", (1.0, 0.6, 0.4), (0, 0, 0.2)), box("lid", (1.0, 0.6, 0.1), (0, 0, 0.45)), box("cap", (1.0, 0.6, 0.05), (0, 0, 0.525)),
+             box("pad_a", (0.2, 0.2, 0.05), (-0.3, 0, 0.575)), box("pad_b", (0.2, 0.2, 0.05), (0.3, 0, 0.575))]
+    _, _, pkg = roblox_scene(tmp_path, "Stack", nodes)
+    assert list(pkg.data["glb_batches"]) == ["Batch_0"]  # five parts, one mesh
+    glb = pkg.out_dir / "Stack.glb"
+    status, detail, data = await upstream_checks.asset_qa(blender_pool, str(glb), "roblox_r15")
+    assert status == "passed" and "inconsistent face winding" not in detail and "non-manifold" not in detail, detail
+    assert data["pieces_after_merge"] == {"Batch_0": 5} and data["merged_within"] == "parts"  # five closed boxes, as authored
+    # body/lid and lid/cap share their four rim corners: 8 positions, 16 vertices, read as parts in contact
+    assert list(data["parts_in_contact_share_vertices"].values()) == [16], data
+    assert "(all 16 are vertices of separate parts in contact, not unmerged duplicates)" in detail
+    flip_first_triangle(glb)
+    status, detail, _ = await upstream_checks.asset_qa(blender_pool, str(glb), "roblox_r15")
+    assert status == "failed" and "edges with inconsistent face winding" in detail, detail
 
 
 class OffPivot:
