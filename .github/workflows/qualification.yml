@@ -75,7 +75,7 @@ jobs:
       - name: Test native workers, engine imports, rendered frames and inspector channels
         id: tests
         run: |
-          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py
+          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_fbx_export.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py
           python - <<'PYTHON'
           import xml.etree.ElementTree as ET
           required = {"test_three_worker_mixed_asset_soak", "test_reviewed_upstream_primitives",
@@ -95,6 +95,12 @@ jobs:
                       "test_kit_pipeline_imports_the_splat_with_a_real_worker",
                       *(f"test_structural_rules_match_what_blender_does[{k}]" for k in ("AG016", "AG022", "AG022b")),
                       "test_upstream_primitives_on_a_package_match_the_fake_shape_and_weld_closes_seams",
+                      *(f"test_fbx_export_each_preset_on_a_textured_multipart_package[{preset}]" for preset in ("unity", "unreal", "roblox")),
+                      "test_fbx_round_trip_catches_a_planted_scale_error_and_a_quarter_turn",
+                      "test_fbx_contract_refuses_excluded_keywords_presets_and_paths_outside_the_directory",
+                      "test_fbx_export_that_fails_its_comparison_removes_what_it_wrote",
+                      "test_fbx_two_materials_one_slot_each_and_the_roblox_limits_are_reported",
+                      "test_fake_worker_result_has_the_real_results_keys",
                       "test_ten_relocated_golden_packages_load_in_stock_godot",
                       "test_ten_relocated_golden_dcc_engine_silhouettes",
                       "test_staged_lookdev_and_export_share_one_imported_mesh_atlas",

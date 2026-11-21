@@ -64,10 +64,12 @@ proto = _load_sibling("protocol")
 linter = _load_sibling("linter")
 shim = _load_sibling("shim_5_3")
 skills = _load_sibling("skills")  # reviewed upstream primitives: loads nothing until load_reviewed is called
+fbx = _load_sibling("fbx_export")  # FBX export and its round-trip proof (bpy is imported inside its functions)
 
 Handler = Callable[[dict[str, Any]], Any]
 OPS: dict[str, Handler] = {}
-PRIMITIVES: dict[str, Callable[..., dict[str, Any]]] = {}
+PRIMITIVES: dict[str, Callable[..., dict[str, Any]]] = {}  # measurements: what inspect_usd may run
+WRITERS: dict[str, Callable[..., dict[str, Any]]] = {}  # reviewed scripts that write a file: only export_fbx runs them
 PRIMITIVES_INFO: dict[str, Any] = {"source": None, "error": None}  # where the primitives came from, or why there are none
 # (imported, weld) -> (names of the imported mesh objects, weld report or None); set by register_*_ops
 PREPARE: dict[str, Callable[[dict[str, Any], bool], tuple[list[str], dict[str, Any] | None]]] = {}
@@ -167,7 +169,7 @@ def _version(a: dict[str, Any]) -> dict[str, Any]:
     bpy = sys.modules.get("bpy")
     return {"daemon": DAEMON_VERSION, "python": sys.version.split()[0], "fake": bpy is None or bool(getattr(bpy, "_agy_fake", False)),
             "blender_version": getattr(getattr(bpy, "app", None), "version", None),
-            "blender": getattr(getattr(bpy, "app", None), "version_string", None), "ops": sorted(OPS), "primitives": sorted(PRIMITIVES),
+            "blender": getattr(getattr(bpy, "app", None), "version_string", None), "ops": sorted(OPS), "primitives": sorted(PRIMITIVES), "writers": sorted(WRITERS),
             "primitives_source": PRIMITIVES_INFO["source"], "primitives_error": PRIMITIVES_INFO["error"]}
 
 
@@ -236,11 +238,19 @@ def register_reviewed_primitives() -> None:
     """
     root, kind = skills.source_root()
     try:
-        PRIMITIVES.update(skills.load_reviewed(root))
+        loaded = skills.load_reviewed(root)
+        PRIMITIVES.update({k: v for k, v in loaded.items() if k not in skills.PINNED_WRITERS})
+        WRITERS.update({k: v for k, v in loaded.items() if k in skills.PINNED_WRITERS})
         PRIMITIVES_INFO.update(source={"kind": kind, "path": str(root), "commit": skills.UPSTREAM_COMMIT}, error=None)
     except Exception as e:  # noqa: BLE001 - reported through version / inspect_usd
         PRIMITIVES_INFO.update(source={"kind": kind, "path": str(root), "commit": skills.UPSTREAM_COMMIT},
                                error=f"{type(e).__name__}: {e}"[:400])
+
+
+def _export_script_record() -> dict[str, Any]:
+    source = PRIMITIVES_INFO["source"] or {}
+    return {"name": "export_asset.py", "repository": skills.UPSTREAM_REPOSITORY, "commit": skills.UPSTREAM_COMMIT,
+            "sha256": skills.PINNED_WRITERS["export_asset"][1], "source": source.get("kind")}
 
 
 def fake_primitive(name: str) -> Callable[..., dict[str, Any]]:
@@ -365,6 +375,27 @@ def register_fake_ops() -> None:
 
     for name in skills.PRIMITIVE_KWARGS:
         PRIMITIVES[name] = fake_primitive(name)
+
+    def fake_fbx(a: dict[str, Any], *, verify: bool) -> dict[str, Any]:
+        """The real contract (the same ``check_export_request``) and the real result's keys; no scene, so nothing is written
+        or measured: ``ok`` is False and ``fake`` True, and a caller must treat that as "not exported"."""
+        req = skills.check_export_request(a, verify=verify)
+        names = fbx.plan(req["preset"], req["asset_name"], 1 + len(req["lods"]), 1 if req["colliders"] else 0)
+        path = req["fbx"] if verify else req["final"]
+        result: dict[str, Any] = {
+            "ok": False, "fake": True, "preset": req["preset"], "asset_name": req["asset_name"],
+            "fbx": {"path": path, "bytes": 0, "sha256": None}, "blender": None, "seconds": {"total": 0.0},
+            "header": {}, "comparison": {"ok": False, "checks": []}, "maps": {"source": {}, "fbx": {}, "lost": []},
+            "verified": "Nothing was exported or compared: the fake worker has no Blender.", "not_verified": list(fbx.NOT_VERIFIED)}
+        if not verify:
+            result.update(script=_export_script_record(), sources={"levels": [], "collision_hulls": None}, join=[], limits=None,
+                          contents={"render_meshes": [{"name": n} for n in names["render"]], "collision_hulls": names["hulls"], "omitted": names["omitted"]},
+                          textures={"mode": "embedded" if req["preset"] == "roblox" else "relative_reference", "rebound": [], "embedded_bytes": 0, "references": []})
+        return result
+
+    WRITERS["export_asset"] = lambda **kw: {"ok": False, "fake": True, "files": []}  # never reached: the fake ops below write nothing
+    OPS["export_fbx"] = lambda a: fake_fbx(a, verify=False)
+    OPS["verify_fbx"] = lambda a: fake_fbx(a, verify=True)
     PRIMITIVES_INFO.update(source={"kind": "fake", "path": None, "commit": None}, error=None)
 
     def prepare_fake(imported: dict[str, Any], weld: bool) -> tuple[list[str], dict[str, Any] | None]:
@@ -491,6 +522,24 @@ def register_bpy_ops(bpy: Any) -> None:
         imported = set(bpy.data.objects) - before
         return {"objects": sorted(obj.name for obj in imported),
                 "renderable": any(obj.type in geometry_types and not obj.hide_render for obj in imported)}
+
+    @op("export_fbx")
+    def export_fbx(a: dict[str, Any]) -> dict[str, Any]:
+        """Package GLBs -> one FBX of the target engine, proven equal to its sources by re-import and header parse.
+
+        The request is checked by ``skills.check_export_request`` (a contract of its own: one file, where the worker
+        says); the reviewed upstream ``export_asset`` runs only with the worker's own arguments. See ``fbx_export``.
+        """
+        req = skills.check_export_request(a)
+        writer = WRITERS.get("export_asset")
+        if writer is None:
+            raise KeyError(f"export_asset is not loaded in this worker (load error: {PRIMITIVES_INFO['error']})")
+        return fbx.export_fbx(bpy, req, writer, OPS["import_gltf"], OPS["reset_scene"], _export_script_record())
+
+    @op("verify_fbx")
+    def verify_fbx(a: dict[str, Any]) -> dict[str, Any]:
+        """The export's comparison, for an FBX that already exists (read only); raises when it does not match its sources."""
+        return fbx.verify_fbx(bpy, skills.check_export_request(a, verify=True), OPS["import_gltf"], OPS["reset_scene"])
 
     @op("export_usd")
     def export_usd(a: dict[str, Any]) -> dict[str, Any]:

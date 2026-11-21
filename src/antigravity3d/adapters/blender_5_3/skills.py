@@ -1,6 +1,6 @@
 """Reviewed EL4CTEO/blender-skills primitives for the Blender worker.
 
-Four upstream scripts (and their shared helper ``_bpyx``) are vendored byte for byte, in upstream's layout, under
+Five upstream scripts (and their shared helper ``_bpyx``) are vendored byte for byte, in upstream's layout, under
 ``vendor/blender-skills/`` next to this file, with upstream's MIT ``LICENSE``; ``vendor/blender-skills.provenance.json``
 records the repository, commit, release, and each file's upstream path, size and SHA-256. Every file is checked
 against the digest pinned below before any of them is executed: that check is what "reviewed" means here, and a
@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -37,6 +38,12 @@ PINNED_SCRIPTS = {
     "kit_check": ("skills/blender-environment-kits/scripts/kit_check.py", "5130ad74e2c19dd1839e354a06abd204bafeead277cc447107db017f359e20e5"),
     "texel_density": ("skills/blender-retopology-uv/scripts/texel_density.py", "9fd15366aa20aa3005163745b12aae216c0b23a5fdafa0bbec98c1786f0c3cd6"),
 }
+# The one script that WRITES a file. It is pinned and loaded with the others but kept out of PRIMITIVE_KWARGS, so
+# ``inspect_usd`` (a measurement) can never run it; only the ``export_fbx`` operation does, through
+# :func:`check_export_request`.
+PINNED_WRITERS = {
+    "export_asset": ("skills/blender-export-pipelines/scripts/export_asset.py", "58534892042e5c954f0875b3b41b45c2609b7a4ec5dc44f6c06922b06cbd6c88"),
+}
 LICENSE = ("LICENSE", "d81d0037e3a29a01ccfefaae420d5ba73e905cabf3995700e9075c7205c06cc5")
 
 # The keyword arguments each primitive accepts from a caller of the worker. The list must be exact: every upstream
@@ -52,6 +59,84 @@ PRIMITIVE_KWARGS: dict[str, frozenset[str]] = {
     "kit_check": frozenset({"grid", "pivot", "texture", "tol", "prefix"}),
     "texel_density": frozenset({"res"}),
 }
+
+
+# ---- the contract of the one writer: "writes exactly one file, where the worker says"
+#
+# Presets: the three static FBX presets of export_asset.py. Left out on purpose: unity_skeletal and unreal_skeletal
+# (no skeleton in a package), roblox_gltf / godot / web / gltf / usd (the project writes glTF and USD itself and
+# validates them elsewhere). The caller names no path of its own for the output and no exporter keyword: the worker
+# passes upstream's ``preset``, ``objects`` (what it built), ``out`` (``<out_dir>/<asset_name>.fbx`` through a temporary
+# name) and ``no_anim=True``; ``set``, ``batch``, ``collection``, ``draco`` and ``out`` are never reachable.
+EXPORT_PRESETS = ("unity", "unreal", "roblox")
+EXCLUDED_PRESETS = ("unity_skeletal", "unreal_skeletal", "roblox_gltf", "godot", "web", "gltf", "usd")
+EXPORT_REQUEST_KEYS = frozenset({"source", "lods", "colliders", "textures_dir", "out_dir", "asset_name", "preset"})
+VERIFY_REQUEST_KEYS = frozenset({"source", "lods", "colliders", "textures_dir", "fbx", "asset_name", "preset"})
+ASSET_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]{0,63}")
+MAX_LOD_FILES = 7  # LOD0 plus seven: Unity's LOD Group takes at most eight levels
+
+
+def _file(request: dict[str, Any], key: str) -> str:
+    value = request.get(key)
+    if not isinstance(value, str) or not value or "\0" in value:
+        raise TypeError(f"export: {key} must be a non-empty path string, got {value!r}")
+    if not os.path.isfile(value):
+        raise FileNotFoundError(f"export: {key} is not a file: {value}")
+    return value
+
+
+def check_export_request(request: Any, *, verify: bool = False) -> dict[str, Any]:
+    """The validated request of ``export_fbx`` (or, with ``verify``, of ``verify_fbx``); raises for anything outside the contract.
+
+    Everything is checked before Blender touches the disk: only the keys of the contract, one of the three presets, an
+    asset name that is a plain identifier, source files that exist and are glTF, an output directory that exists and an
+    output path that, after resolving symbolic links, is a file of that very directory (it is also refused when it is a
+    symbolic link). Returns a new dict with ``final`` (the output path) for a write.
+    """
+    if not isinstance(request, dict):
+        raise TypeError(f"export: the request must be a mapping, got {type(request).__name__}")
+    allowed = VERIFY_REQUEST_KEYS if verify else EXPORT_REQUEST_KEYS
+    refused = sorted(set(request) - allowed)
+    if refused:
+        raise ValueError(f"export does not accept {refused} through the worker (it writes one file, where the worker says); allowed: {sorted(allowed)}")
+    preset = request.get("preset")
+    if preset not in EXPORT_PRESETS:
+        why = "not offered: the package's own glTF and USD writers cover it, or it needs a skeleton" if preset in EXCLUDED_PRESETS else "unknown"
+        raise ValueError(f"export preset {preset!r} is {why}; allowed: {list(EXPORT_PRESETS)}")
+    name = request.get("asset_name")
+    if not isinstance(name, str) or not ASSET_NAME.fullmatch(name):
+        raise ValueError(f"export: asset_name must match {ASSET_NAME.pattern}, got {name!r}")
+    out: dict[str, Any] = {"preset": preset, "asset_name": name, "source": _file(request, "source")}
+    lods = request.get("lods") or []
+    if not isinstance(lods, (list, tuple)) or len(lods) > MAX_LOD_FILES:
+        raise ValueError(f"export: lods must be a list of at most {MAX_LOD_FILES} files")
+    out["lods"] = [_file({"lod": lod}, "lod") for lod in lods]
+    out["colliders"] = _file(request, "colliders") if request.get("colliders") is not None else None
+    for key in ("source", "colliders"):
+        if out[key] is not None and Path(out[key]).suffix.lower() not in (".glb", ".gltf"):
+            raise ValueError(f"export: {key} must be a .glb or .gltf file, got {out[key]!r}")
+    for lod in out["lods"]:
+        if Path(lod).suffix.lower() not in (".glb", ".gltf"):
+            raise ValueError(f"export: lods must be .glb or .gltf files, got {lod!r}")
+    textures = request.get("textures_dir")
+    if textures is not None and (not isinstance(textures, str) or not os.path.isdir(textures)):
+        raise ValueError(f"export: textures_dir must be an existing directory, got {textures!r}")
+    out["textures_dir"] = textures
+    if verify:
+        fbx = request.get("fbx")
+        if not isinstance(fbx, str) or not os.path.isfile(fbx) or Path(fbx).suffix.lower() != ".fbx":
+            raise ValueError(f"verify: fbx must be an existing .fbx file, got {fbx!r}")
+        out["fbx"] = fbx
+        return out
+    directory = request.get("out_dir")
+    if not isinstance(directory, str) or not directory or "\0" in directory or not os.path.isdir(directory):
+        raise ValueError(f"export: out_dir must be an existing directory, got {directory!r}")
+    real_dir = os.path.realpath(directory)
+    final = os.path.join(real_dir, f"{name}.fbx")
+    if os.path.realpath(os.path.dirname(final)) != real_dir or os.path.islink(final) or os.path.isdir(final):
+        raise ValueError(f"export: {final} is not a plain file path inside {real_dir}")
+    out["out_dir"], out["final"] = real_dir, final
+    return out
 
 
 def source_root() -> tuple[Path, str]:
@@ -91,7 +176,7 @@ def _module(path: Path, source: bytes) -> ModuleType:
 
 
 def load_reviewed(root: Path | None = None) -> dict[str, Callable[..., dict[str, Any]]]:
-    """``{name: run}`` for every pinned script under ``root`` (default: the vendored copy).
+    """``{name: run}`` for every pinned script, measurements and writers, under ``root`` (default: the vendored copy).
 
     Every file is read and checked before any is executed, so one unexpected file stops the load before any
     upstream code runs. The scripts prepend their own directory to ``sys.path`` and import ``_bpyx``; both are
@@ -99,7 +184,7 @@ def load_reviewed(root: Path | None = None) -> dict[str, Callable[..., dict[str,
     """
     root = VENDOR_DIR if root is None else Path(root)
     helper = (root / HELPER[0], _verified(root / HELPER[0], HELPER[1]))
-    scripts = {name: (root / rel, _verified(root / rel, digest)) for name, (rel, digest) in PINNED_SCRIPTS.items()}
+    scripts = {name: (root / rel, _verified(root / rel, digest)) for name, (rel, digest) in {**PINNED_SCRIPTS, **PINNED_WRITERS}.items()}
     original_path = sys.path.copy()
     previous_helper = sys.modules.get("_bpyx")
     try:

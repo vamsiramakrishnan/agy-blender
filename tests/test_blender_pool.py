@@ -257,6 +257,7 @@ async def test_reviewed_upstream_primitives(tmp_path):
     async with BlenderPool(1, startup_timeout=120, extra_env={"AGY3D_BLENDER_SKILLS": ""}) as pool:
         version = await pool.call("version")
         assert version["primitives"] == PRIMITIVE_NAMES, version.get("primitives_error")
+        assert version["writers"] == ["export_asset"], "the FBX writer is loaded, and is not an inspect_usd primitive"
         assert version["primitives_source"]["kind"] == "vendored" and version["primitives_error"] is None
         report = await pool.call("inspect_usd", path=str(path), primitive="mesh_stats", kwargs={"budget": "web"})
         assert report["total_tris"] == 12 and report["budget"]["pass"] and report["agy_inspect"]["objects"] == ["Cube"]
@@ -277,6 +278,8 @@ async def test_reviewed_upstream_primitives(tmp_path):
                 await pool.call("inspect_usd", path=str(path), primitive=primitive, kwargs=kwargs)
         with pytest.raises(BlenderOpError, match="KeyError"):
             await pool.call("inspect_usd", path=str(path), primitive="unlisted")
+        with pytest.raises(BlenderOpError, match="KeyError"):  # the writer cannot be run as a measurement
+            await pool.call("inspect_usd", path=str(path), primitive="export_asset", kwargs={"preset": "unity"})
         rendered = await pool.call("render_usd", path=str(path), engine="cycles", width=24, height=24, samples=2)
         assert rendered["mesh_stats"]["total_tris"] == 12
     if os.environ.get("AGY3D_BLENDER_SKILLS"):  # the override loads the same reviewed files from the checkout
@@ -296,7 +299,7 @@ def test_vendored_blender_skills_match_the_pinned_checkout():
     root = Path(checkout)
     head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
     assert head == skills.UPSTREAM_COMMIT
-    for rel in (skills.HELPER[0], *(rel for rel, _ in skills.PINNED_SCRIPTS.values()), skills.LICENSE[0]):
+    for rel in (skills.HELPER[0], *(rel for rel, _ in [*skills.PINNED_SCRIPTS.values(), *skills.PINNED_WRITERS.values()]), skills.LICENSE[0]):
         assert (skills.VENDOR_DIR / rel).read_bytes() == (root / rel).read_bytes(), rel
     assert (skills.VENDOR_DIR / skills.HELPER[0]).read_bytes() == (root / "shared/_bpyx.py").read_bytes()  # upstream's source of truth
 
