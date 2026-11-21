@@ -16,7 +16,9 @@ from antigravity3d.kernel.fast_ops import tier1_qa
 from antigravity3d.kernel.raster import contact_sheet
 from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.cached import CACHED_TAG, cached_derive_pbr
-from antigravity3d.tactics.common import GRADE_TOKENS_EST, IMAGE_TOKENS_EST, IMAGE_USD, Uploader, load_png, png_bytes, uploader_for
+from antigravity3d.tactics.common import (
+    GRADE_TOKENS_EST, IMAGE_TOKENS_EST, IMAGE_USD, Uploader, load_png, png_bytes, to_thread_drained, uploader_for,
+)
 from antigravity3d.tactics.governor import Governor
 
 GRADE_USD_EST = 0.0002  # one low-resolution Decisions request; used only to size N under a ceiling
@@ -271,11 +273,11 @@ async def pbr_tournament(
         img, report = prepare_albedo(load_png(t.winner.payload), metallic=metallic_hint >= 0.5)
         return (png_bytes(img) if report.changed else t.winner.payload), report.one_line()
 
-    out.albedo_png, out.prep = await asyncio.to_thread(prepare_winner)
+    out.albedo_png, out.prep = await to_thread_drained(prepare_winner)
     if cache is not None:
-        out.maps, out.derive_cache_hit = await asyncio.to_thread(cached_derive_pbr, cache, out.albedo_png, metallic_hint=metallic_hint)
+        out.maps, out.derive_cache_hit = await to_thread_drained(cached_derive_pbr, cache, out.albedo_png, metallic_hint=metallic_hint)
     else:
-        out.maps = await asyncio.to_thread(derive_pbr, load_png(out.albedo_png), metallic_hint=metallic_hint)
+        out.maps = await to_thread_drained(derive_pbr, load_png(out.albedo_png), metallic_hint=metallic_hint)
     out.derive_ms = (time.perf_counter() - d0) * 1e3
     return out
 

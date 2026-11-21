@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 from collections.abc import Awaitable, Callable
@@ -22,6 +23,20 @@ IMAGE_USD = dict.fromkeys(("ortho", "albedo", "trim", "decal", "paintover"), 0.0
 IMAGE_TOKENS_EST = 2_867
 GRADE_TOKENS_EST = 3_318
 QA_TOKENS_EST = 10_414
+
+
+async def to_thread_drained(fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:
+    """``asyncio.to_thread`` that, when its caller is cancelled (a stopped DAG node), waits for the thread to finish
+    before letting the cancellation through: a thread cannot be interrupted, so nothing it does (a cache write, a
+    derivation) may outlive the step that reports itself stopped."""
+    work = asyncio.ensure_future(asyncio.to_thread(fn, *args, **kwargs))
+    try:
+        return await asyncio.shield(work)
+    except asyncio.CancelledError:
+        try:
+            await work
+        finally:
+            raise
 
 
 def png_bytes(img: Image.Image | np.ndarray) -> bytes:

@@ -57,6 +57,7 @@ from antigravity3d.kernel.validator import validate_usd
 from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.authoring import AgentAuthor
 from antigravity3d.tactics.cached import CachedForge
+from antigravity3d.tactics.common import to_thread_drained
 from antigravity3d.tactics.governor import BudgetExceeded, Governor, SpendPlan
 from antigravity3d.tactics.package import write_package_usd
 
@@ -294,7 +295,9 @@ class EnvironmentKitDAG:
     def build(self, prompt: str, n_pieces: int, splat: Path | str | None = None) -> Dag:
         out, sheet = self.out, self.sheet
         self._author = self._govern(n_pieces)
-        dag = Dag("environment_kit")
+        # trim_sheet and pieces meet only at map_trim: once one fails, the other's paid calls buy nothing (the sheet is
+        # not reused by a rerun, a piece is not written before export), so it is stopped.
+        dag = Dag("environment_kit", stop_unusable=True)
 
         async def trim_sheet(ctx: NodeCtx) -> dict[str, Any]:
             brief = texture_brief(self.art)
@@ -349,7 +352,7 @@ class EnvironmentKitDAG:
                 if not scenes:  # an author that returns nothing and raises nothing used to surface as an IndexError
                     outcome.update(status="no_answer", detail="the author returned no scene")
                     return None, outcome
-                built = await asyncio.to_thread(build, k, scenes[0])
+                built = await to_thread_drained(build, k, scenes[0])  # writes src/<piece>.usda: never left running after a stop
                 if isinstance(built, str):  # a scene that does not build is that piece's outcome
                     outcome.update(status="invalid", detail=built)
                     return None, outcome
@@ -615,7 +618,7 @@ class EnvironmentKitDAG:
         asm = rep.results.get("assemble") or {}
         mapped: list[MappedPiece] = rep.results.get("map_trim") or []
         receipts = self.governor.receipts()
-        skipped = [{"step": f"dag:{n.name}", "reason": n.reason} for n in rep.nodes.values() if n.status == "skipped" and n.reason and not n.blocked]
+        skipped = [{"step": f"dag:{n.name}", "reason": n.reason} for n in rep.nodes.values() if n.status in ("skipped", "stopped") and n.reason and not n.blocked]
         rep.extras = {
             "prompt": prompt, "n_pieces": n_pieces, "kit_usd": asm.get("path"), "genmedia_receipts": [r for r in receipts if r["category"].startswith("image.")],
             "authoring": {"pieces": self.authoring, "receipts": [r for r in receipts if r["category"].startswith("author.")], "parallel": self.author_parallel,

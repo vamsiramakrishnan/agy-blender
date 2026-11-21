@@ -409,6 +409,32 @@ class Governor:
             return 0
         return max(0, min(base, 1 + math.floor(room / unit_cost)))
 
+    def allocate(self, kind: str, k: int, *, unit_cost: float | None = None, images_each: int = 0) -> list[int]:
+        """Best-of-N for each of ``k`` items (ordered by priority, first = most important), sharing what is left.
+
+        Every item gets one candidate before any gets a second, up to the plan's N each, while the total fits the
+        remaining budget (``total * unit_cost <= remaining``, the rule of :meth:`candidates`) and the image limit (each
+        candidate generates ``images_each`` images). When everything fits, every item gets the plan's N, as
+        ``candidates`` would give each; when not, the leftover goes to the earlier items instead of being lost to a
+        uniform N that is zero as soon as one round does not fit for all."""
+        if kind not in _KINDS:
+            raise ValueError(f"unknown candidate kind {kind!r}; expected one of {sorted(_KINDS)}")
+        if k <= 0:
+            return []
+        per = getattr(self._plan, _KINDS[kind])
+        total = per * k
+        if images_each > 0 and self.max_images is not None:
+            total = min(total, max(0, self.max_images - self.images_used) // images_each)
+        if unit_cost is not None and unit_cost < 0:
+            raise ValueError(f"costs must be non-negative, got unit_cost={unit_cost!r}")
+        if unit_cost:
+            room = self.remaining + _TOLERANCE - unit_cost
+            total = 0 if room < 0 else min(total, 1 + math.floor(room / unit_cost))
+        counts = [0] * k
+        for i in range(total):  # round robin: one each, then a second each, ...
+            counts[i % k] += 1
+        return counts
+
     def may_escalate_to_director(self, estimated_usd: float) -> bool:
         return self._plan.allow_director and self.can_afford(estimated_usd)
 

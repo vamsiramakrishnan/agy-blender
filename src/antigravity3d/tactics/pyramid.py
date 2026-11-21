@@ -53,7 +53,7 @@ from antigravity3d.tactics.governor import BudgetExceeded, Governor
 from antigravity3d.tactics import reviewed_rules
 from antigravity3d.kernel.package import write_engine_package
 from antigravity3d.tactics.package import merged_lods
-from antigravity3d.tactics.tournament import PBRTournamentResult, image_est, pbr_tournament
+from antigravity3d.tactics.tournament import PBRTournamentResult, TournamentResult, image_est, pbr_tournament
 
 EPS = 1e-9
 LOOKDEV_ROUNDS = 3
@@ -176,18 +176,59 @@ async def synthesize_materials(
     scene: SceneIR, forge: Any, *, plane: Any, governor: Governor, prompt: str, uploader: Uploader | None = None,
     cache: Any = None, size: int | None = None, concurrency: int | None = None, brief: str = "",
 ) -> dict[str, PBRTournamentResult]:
-    """One ``pbr_tournament`` per material, concurrently; N is sized so all materials together fit the budget.
+    """One ``pbr_tournament`` per material, concurrently, with best-of-N allocated per material.
+
+    ``scene.materials`` is in priority order (the caller puts the largest surfaces first: ``materials_by_area``). Every
+    material gets one candidate before any gets a second, up to the plan's N, within the images and budget left
+    (``Governor.allocate``); when everything fits, each gets the plan's N. A material that gets no candidate is in the
+    result with no maps and its reason in ``tournament.notes["not_textured"]``, never silently left flat.
 
     Each material's albedo prompt is ``texture_prompt(m, brief)``: its surface words, never the asset brief.
     ``brief``: an art direction's texture brief, appended to every material prompt ('' appends nothing). ``prompt`` is
     not used for the textures (the asset brief drew object parts into them)."""
     size = size or default_texture_px(forge)
-    k = max(1, len(scene.materials))
-    n = governor.candidates("pbr", unit_cost=k * image_est(governor, "albedo"), images_each=k)
+    mats = list(scene.materials)
+    unit = image_est(governor, "albedo")
+    counts = governor.allocate("pbr", len(mats), unit_cost=unit, images_each=1)
     outs = await asyncio.gather(*(pbr_tournament(
         texture_prompt(m, brief), forge, plane=plane, governor=governor, material_id=m.id, metallic_hint=m.metallic,
-        uploader=uploader, n=n, size=size, cache=cache, concurrency=concurrency) for m in scene.materials))
-    return {m.id: o for m, o in zip(scene.materials, outs)}
+        uploader=uploader, n=n, size=size, cache=cache, concurrency=concurrency) for m, n in zip(mats, counts) if n > 0))
+    done = iter(outs)
+    result: dict[str, PBRTournamentResult] = {}
+    for m, n in zip(mats, counts):
+        if n > 0:
+            result[m.id] = next(done)
+            continue
+        if getattr(governor, "max_images", None) is not None and governor.max_images - governor.images_used < 1:
+            why = f"image limit reached ({governor.images_summary()}): larger surfaces were textured first"
+        else:
+            fmt = getattr(governor, "fmt", lambda x: f"${x:.5f}")
+            why = f"budget: {fmt(governor.remaining)} left, one candidate needs about {fmt(unit)}; larger surfaces were textured first"
+        t = TournamentResult("pbr", 0, None, [], {}, notes={"not_textured": why})
+        t.unit = getattr(governor, "unit", "usd")
+        result[m.id] = PBRTournamentResult(m.id, t)
+    return result
+
+
+def materials_by_area(meshes: list[Any], materials: list[MaterialIR]) -> list[MaterialIR]:
+    """``materials`` ordered by the surface area they cover in ``meshes`` (largest first; ties keep their order)."""
+    area: dict[str | None, float] = {}
+    for m in meshes:
+        pts, tri = np.asarray(m.points, np.float64), np.asarray(m.triangles)
+        if len(tri):
+            a, b, c = pts[tri[:, 0]], pts[tri[:, 1]], pts[tri[:, 2]]
+            area[m.material_id] = area.get(m.material_id, 0.0) + float(np.linalg.norm(np.cross(b - a, c - a), axis=1).sum() / 2)
+    return sorted(materials, key=lambda mat: -area.get(mat.id, 0.0))
+
+
+def _why_untextured(r: PBRTournamentResult) -> str:
+    t = r.tournament
+    if t.notes.get("not_textured"):
+        return t.notes["not_textured"]
+    first = next(iter((t.failures or t.disqualified).values()), None)
+    if first is not None:
+        return f"every candidate failed ({len(t.failures)} failed, {len(t.disqualified)} disqualified); first: {first}"[:200]
+    return "no candidate won its tournament"
 
 
 def default_texture_px(forge: Any) -> int:
@@ -513,11 +554,18 @@ class _Run:
 
     async def resolve_textures(self) -> dict[str, PBRMaps]:
         t = self.textures
+        synth = lambda: synthesize_materials(  # noqa: E731 - the materials the scene has now, largest surfaces first
+            self.sm.base_ir().model_copy(update={"materials": materials_by_area(self.sm.extract_meshes(), self.sm.base_ir().materials)}),
+            self.forge, plane=self.plane, governor=self.governor, prompt=self.prompt or self.res.asset, uploader=self.upload,
+            cache=self.cache, size=self.texture_px(), brief=texture_brief(self.art))
         if t is None and self.forge is not None:
-            t = await synthesize_materials(self.sm.base_ir(), self.forge, plane=self.plane, governor=self.governor, prompt=self.prompt or self.res.asset,
-                                           uploader=self.upload, cache=self.cache, size=self.texture_px(), brief=texture_brief(self.art))
+            t = await synth()
         elif inspect.isawaitable(t):
             t = await t
+            if t is None and self.forge is not None:  # the speculative synthesis was skipped: synthesise here, as above
+                t = await synth()
+        self.untextured = {k: _why_untextured(v) for k, v in (t or {}).items()
+                           if isinstance(v, PBRTournamentResult) and v.maps is None}
         return {k: (v.maps if isinstance(v, PBRTournamentResult) else v) for k, v in (t or {}).items() if (v.maps if isinstance(v, PBRTournamentResult) else v) is not None}
 
     def write_textures(self) -> dict[str, dict[str, str]]:
@@ -609,8 +657,12 @@ class _Run:
         except Exception as e:  # noqa: BLE001
             self.step("textures", "failed", f"{type(e).__name__}: {e}", t0)
             return
+        missing = getattr(self, "untextured", {})
+        why = "; ".join(f"{k}: {v}" for k, v in missing.items())
         if not self.maps and not self.res.engine_truth_required:
-            self.step("textures", "skipped", "no PBR textures available (no forge and none supplied)")
+            # the true cause: nothing could be generated or supplied, or every material's synthesis came back empty
+            self.step("textures", "skipped", f"no material was textured: {why}" if missing
+                      else "no PBR textures available (no forge and none supplied)")
             self.res.stopped["B"] = "no textures"
             return
         scene = self.sm.base_ir()
@@ -622,6 +674,8 @@ class _Run:
         if ops:
             self.sm.apply_patch(IRPatch(ops=ops))
         self.step("textures", "passed", f"{len(paths)} material(s) textured", t0)
+        if missing:  # a material without a texture ships its flat colour: say which and why
+            self.step("textures_missing", "warned", f"{len(missing)} material(s) left untextured (flat colour): {why}"[:400])
         pending: tuple[dict[str, PBRMaps], float, str, dict[str, float], list[str]] | None = None
         for rnd in range(1, min(self.max_rounds, LOOKDEV_ROUNDS) + 1):
             png, tier = await self.render_lookdev()

@@ -120,9 +120,12 @@ def test_prop_dag_outputs_are_real(prop_runs) -> None:
     assert any("binary not found" in s["reason"] for s in x["skipped"])
 
 
-def test_prop_dag_runs_texture_synthesis_while_geometry_compiles(prop_runs) -> None:
+def test_prop_dag_runs_texture_synthesis_while_pass_a_runs(prop_runs) -> None:
+    """Materials start once geometry has a winner (never after a geometry failure) and overlap the pyramid's pass A,
+    which does not use them; the pyramid awaits them before pass B."""
     n = prop_runs[2][0][0].nodes
-    assert n["geometry"].start_ms < n["pbr"].end_ms and n["pbr"].start_ms < n["geometry"].end_ms
+    assert n["pbr"].start_ms >= n["geometry"].end_ms - 1 and n["pyramid"].start_ms < n["pbr"].end_ms
+    assert n["pyramid"].start_ms < n["pbr"].start_ms + 5 and n["pyramid"].late == ("pbr",) and "pbr" not in n["pyramid"].deps
     assert n["style_anchor"].status == "skipped" and n["ortho"].status == "ok" and n["propose"].start_ms >= n["ortho"].end_ms - 1
 
 

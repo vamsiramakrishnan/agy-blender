@@ -30,6 +30,7 @@ from antigravity3d.kernel.coplanar import opaque_materials
 from antigravity3d.kernel.fast_ops import LOD, ExportBundle, Hull, UVResult, run_export_pipeline
 from antigravity3d.kernel.types import MeshData
 from antigravity3d.state import EngineBudget
+from antigravity3d.tactics.common import to_thread_drained
 from antigravity3d.tactics.governor import Governor
 from antigravity3d.tactics.common import load_png, png_bytes
 
@@ -98,7 +99,7 @@ class CachedForge:
             g = await call()
             fresh.append(g)
             meta = {"ms": g.latency_ms, "usd": g.receipt.booked_usd, "response_id": g.receipt.response_id}
-            await asyncio.to_thread(self.cache.store.put, _meta_key(key), json.dumps(meta).encode())
+            await to_thread_drained(self.cache.store.put, _meta_key(key), json.dumps(meta).encode())
             return g.png_bytes
 
         data, hit = await self.cache.aget_or_compute(key, compute)

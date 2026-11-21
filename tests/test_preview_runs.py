@@ -168,7 +168,7 @@ def test_a_run_built_to_hit_the_image_limit_refuses_before_any_image(key, tmp_pa
     err = capsys.readouterr().err
     assert rc == 2
     assert "needs at least 4 image(s)" in err and "--single-candidate" in err and "only the routing call was made" in err
-    assert not [k for k in api.kinds() if k.startswith("image:")]
+    assert not [k for k in api.kinds() if k == "image:sent"]
 
 
 def test_the_image_limit_caps_candidates_and_is_never_passed(key, tmp_path, capsys):
@@ -176,7 +176,7 @@ def test_the_image_limit_caps_candidates_and_is_never_passed(key, tmp_path, caps
     prop(tmp_path, "--preview", "--token-ceiling", "150000", "--max-images", "2", "--single-candidate", *FAST)
     capsys.readouterr()
     x = report(tmp_path)
-    assert x["cost"]["images"] <= 2 and len([k for k in api.kinds() if k.startswith("image:")]) <= 2
+    assert x["cost"]["images"] <= 2 and len([k for k in api.kinds() if k == "image:sent"]) <= 2
     assert sum(r.get("images", 0) for r in x["cost"]["receipts"]) <= 2
 
 
@@ -209,7 +209,7 @@ def test_kit_draws_every_piece_and_the_sheet_from_one_token_pool(key, tmp_path, 
     x = data.get("extras", data)
     sp = x["spend"]
     assert sp["unit"] == "tokens" and sp["ceiling_tokens"] == 150_000 and sp["spent_tokens"] <= 150_000 and sp["images"] <= 1
-    assert usd_numbers(x) == [] and len([k for k in api.kinds() if k.startswith("image:")]) == 1
+    assert usd_numbers(x) == [] and len([k for k in api.kinds() if k == "image:sent"]) == 1
 
 
 @pytest.mark.parametrize("args, says", [
@@ -512,3 +512,4 @@ async def test_the_judges_count_sends_no_per_image_resolution_and_is_never_an_un
     with pytest.raises(RuntimeError):
         await b.create(input=low, questions=qs)
     assert [p.media_resolution is not None for p in generated[-1][:2]] == [True, True], "the judging call keeps the resolutions"
+

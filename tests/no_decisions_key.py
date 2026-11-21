@@ -26,6 +26,7 @@ import io
 import json
 import re
 import threading
+import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Self
@@ -38,8 +39,15 @@ KIT_TEMPLATES = ("wall_segment", "floor_tile", "pillar", "doorway")
 
 class NoDecisionsKey:
     def __init__(self, *, defect: float = 0.05, policy: float = 0.02, score_level: str | None = None,
-                 overrides: dict[str, float] | None = None) -> None:
+                 overrides: dict[str, float] | None = None, refuse_questions: tuple[str, ...] = (),
+                 image_delay_s: float = 0.0, judge_delay_s: float = 0.0, author_delay_s: float = 0.0) -> None:
         self.defect, self.policy, self.score_level = defect, policy, score_level
+        # A judge call asking any of these question ids (without the __N suffix) answers 400 INVALID_ARGUMENT, as the
+        # live API answered every geometry grading call on 2026-11-21: a step that fails early, on demand.
+        self.refuse_questions = tuple(refuse_questions)
+        self.image_delay_s = image_delay_s  # how long an image call takes (a live 2K image took about 21 s)
+        self.judge_delay_s = judge_delay_s  # a live fallback judge call took 16-22 s
+        self.author_delay_s = author_delay_s  # a live hydrogen propose took 10-38 s
         self.overrides = dict(overrides or {})  # question id (without the __N suffix) -> P(yes)
         self.requests: list[dict[str, Any]] = []
         self._png: dict[int, bytes] = {}
@@ -83,17 +91,18 @@ class NoDecisionsKey:
 
     def _log(self, path: str, kind: str, **extra: Any) -> None:
         with self._lock:
-            self.requests.append({"path": path, "kind": kind, **extra})
+            self.requests.append({"path": path, "kind": kind, "t": time.monotonic(), **extra})  # extra may set t (arrival)
 
     def kinds(self) -> list[str]:
         return [r["kind"] for r in self.requests]
 
     def generated(self) -> int:
         """Generation calls served (judge, author, image): what would be billed."""
-        return sum(r["kind"] in ("judge", "author:propose", "author:repair") or r["kind"].startswith("image:") for r in self.requests)
+        return sum(r["kind"] in ("judge", "author:propose", "author:repair", "image:sent") for r in self.requests)
 
     # ---- answers
     def answer(self, path: str, headers: dict[str, str], raw: bytes) -> tuple[int, bytes, dict[str, str]]:
+        arrived = time.monotonic()
         if path.startswith("/upload/"):
             if headers.get("X-Goog-Upload-Command", "").startswith("start"):
                 return 200, b"{}", {"X-Goog-Upload-URL": f"{self.url}/upload-session/{uuid.uuid4().hex}"}
@@ -118,6 +127,9 @@ class NoDecisionsKey:
         schema = gc.get("responseJsonSchema") or gc.get("responseSchema")
         prompt = len(json.dumps(body)) // 4
         if "IMAGE" in (gc.get("responseModalities") or []):
+            self._log(path, "image:sent", t=arrived)  # dispatched: billed even if the caller stops waiting for it
+            if self.image_delay_s:
+                time.sleep(self.image_delay_s)
             tier = (gc.get("imageConfig") or {}).get("imageSize") or "1K"
             size, img = {"1K": (1024, 1120), "2K": (2048, 1680), "4K": (4096, 4096)}[tier]
             usage = {"promptTokenCount": 62, "candidatesTokenCount": img + 321, "thoughtsTokenCount": 804,
@@ -125,6 +137,7 @@ class NoDecisionsKey:
             content = {"parts": [{"inlineData": {"mimeType": "image/png", "data": base64.b64encode(self._image(size)).decode()}}]}
             kind = f"image:{tier}"
         elif schema and "nodes" in (schema.get("properties") or {}):
+            time.sleep(self.author_delay_s)
             content = {"parts": [{"text": json.dumps(self._scene(body))}]}
             usage = {"promptTokenCount": prompt, "candidatesTokenCount": 1140, "thoughtsTokenCount": 1066, "totalTokenCount": prompt + 2206}
             kind = "author:propose"
@@ -132,7 +145,11 @@ class NoDecisionsKey:
             content = {"parts": [{"text": json.dumps({"ops": []})}]}
             usage = {"promptTokenCount": prompt, "candidatesTokenCount": 92, "thoughtsTokenCount": 515, "totalTokenCount": prompt + 607}
             kind = "author:repair"
+        elif schema and any(re.sub(r"__\d+$", "", q) in self.refuse_questions for q in (schema.get("properties") or {})):
+            self._log(path, "judge:refused")
+            return 400, b'{"error": {"code": 400, "message": "Request contains an invalid argument. (stand-in)", "status": "INVALID_ARGUMENT"}}', {}
         elif schema:
+            time.sleep(self.judge_delay_s)
             content = {"parts": [{"text": json.dumps(self._judge(schema))}]}
             usage = {"promptTokenCount": 2312, "candidatesTokenCount": 169, "thoughtsTokenCount": 837, "totalTokenCount": 3318}
             kind = "judge"
@@ -141,7 +158,7 @@ class NoDecisionsKey:
             usage = {"promptTokenCount": prompt, "candidatesTokenCount": 1, "totalTokenCount": prompt + 1}
             kind = "text"
         extra = {"prompt": _text(body)} if kind.startswith("image:") else {}
-        self._log(path, kind, max_output_tokens=gc.get("maxOutputTokens"), **extra)
+        self._log(path, kind, max_output_tokens=gc.get("maxOutputTokens"), t=arrived, **extra)
         ev = {"candidates": [{"content": {"role": "model", **content}, "finishReason": "STOP"}], "usageMetadata": usage,
               "responseId": uuid.uuid4().hex}
         return 200, json.dumps(ev).encode(), {}
@@ -180,7 +197,7 @@ class NoDecisionsKey:
 
     def image_prompts(self) -> list[str]:
         """The text of every image request served, in order."""
-        return [r["prompt"] for r in self.requests if r["kind"].startswith("image:")]
+        return [r["prompt"] for r in self.requests if r["kind"].startswith("image:") and "prompt" in r]
 
     def _image(self, size: int) -> bytes:
         if size not in self._png:

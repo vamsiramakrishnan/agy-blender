@@ -36,7 +36,7 @@ from antigravity3d.tactics.authoring import AgentAuthor, IRAuthor, _slug
 from antigravity3d.tactics.cached import CachedForge
 from antigravity3d.tactics.common import uploader_for
 from antigravity3d.tactics.distill import FixLog
-from antigravity3d.tactics.pyramid import PyramidResult, default_texture_px, refine, synthesize_materials
+from antigravity3d.tactics.pyramid import PyramidResult, default_texture_px, materials_by_area, refine, synthesize_materials
 from antigravity3d.tactics.tournament import geometry_tournament, grade_est, ortho_tournament
 
 
@@ -125,7 +125,9 @@ class PropToEngineDAG:
 
     def build(self, prompt: str, *, run_dir: Path | None = None) -> Dag:
         wd, asset = run_dir or self._run_dir(), _slug(prompt)
-        dag = Dag("prop_to_engine")
+        # Stop a branch nobody can use any more (the speculative materials once geometry has failed): its later paid
+        # calls would buy nothing. Every node here feeds the package; none makes something kept on a failed run.
+        dag = Dag("prop_to_engine", stop_unusable=True)
 
         style_read: asyncio.Task[bytes] | None = None
 
@@ -237,19 +239,26 @@ class PropToEngineDAG:
             ctx.data(**t.to_dict())
             return t
 
-        async def pbr(ctx: NodeCtx) -> Any:  # speculative: starts as soon as the material list is known
+        async def pbr(ctx: NodeCtx) -> Any:  # starts once geometry has a winner: textures for the design that ships
             p: Proposal = ctx["propose"]
             r: Route = ctx["route"]
-            mats = list({m.id: m for s in p.scenes for m in s.materials}.values())
+            # The winning scene's materials only (the losers' would never ship), largest surface first, so that when the
+            # allowance does not cover every material the visible ones get their textures and best-of-N.
+            winner = p.stage.base_ir()
+            mats = materials_by_area(p.stage.extract_meshes(), list(winner.materials))
             if not mats:
-                ctx.skip("proposed scenes have no materials")
+                ctx.skip("the winning scene has no materials")
             try:
                 out = await synthesize_materials(SceneIR(asset_name=asset, materials=mats), self.forge, plane=self.plane, governor=r.governor,
                                                  prompt=prompt, uploader=self.up, cache=self.cache, size=self._texture_px(),
                                                  brief=texture_brief(self.art))
             except Exception as e:  # noqa: BLE001 - the pyramid will retry synthesis itself
                 ctx.skip(f"speculative PBR synthesis failed ({type(e).__name__}: {e}); pyramid will retry")
-            ctx.data(materials={k: v.tournament.to_dict() for k, v in out.items()})
+            ctx.data(materials={k: v.tournament.to_dict() for k, v in out.items()},
+                     **({"not_textured": nt} if (nt := {k: v.tournament.notes["not_textured"] for k, v in out.items()
+                                                        if v.tournament.notes.get("not_textured")}) else {}))
+            if nt:
+                ctx.note("left untextured: " + "; ".join(f"{k}: {v}" for k, v in nt.items()))
             return out
 
         async def pyramid(ctx: NodeCtx) -> PyramidResult:
@@ -259,7 +268,7 @@ class PropToEngineDAG:
             res = await refine(p.stage, plane=self.plane, author=p.author, governor=r.governor, budget=self.budget, thresholds=self.th,
                                ortho_uri=ort.winner.uri if ort else None, style_uri=st["uri"] if st else None, max_rounds=self.max_rounds,
                                forge=self.forge, uploader=self.up, pool=self.pool, cache=self.cache, workdir=wd, fixlog=self.fixlog,
-                               asset_id=asset, prompt=prompt, textures=ctx["pbr"], require_verified=self.require_verified, art=self.art)
+                               asset_id=asset, prompt=prompt, textures=ctx.late("pbr"), require_verified=self.require_verified, art=self.art)
             ctx.data(ok=res.ok, tier15=res.tier15, render_tier=res.render_tier, stopped=res.stopped)
             return res
 
@@ -344,10 +353,12 @@ class PropToEngineDAG:
 
         for name, fn, deps in (("route", route, ()), ("style_anchor", style, ("route",)), ("ortho", ortho, ("route", "style_anchor")),
                                ("propose", propose, ("route", "ortho", "style_anchor")), ("geometry", geometry, ("propose", "route", "ortho")),
-                               ("pbr", pbr, ("propose", "route", "style_anchor")), ("pyramid", pyramid, ("geometry", "pbr", "propose", "route", "ortho", "style_anchor")),
+                               ("pbr", pbr, ("propose", "route", "style_anchor", "geometry")), ("pyramid", pyramid, ("geometry", "propose", "route", "ortho", "style_anchor")),
                                ("package", package, ("pyramid", "propose")), ("inspector", inspector, ("package", "pyramid", "propose")),
                                ("report", report, ("inspector", "pyramid", "route"))):
-            dag.node(name, fn, deps)
+            # The materials start once geometry has a winner (never for a run whose geometry failed); the pyramid starts
+            # on geometry alone and awaits them only before pass B, so pass A overlaps them instead of waiting.
+            dag.node(name, fn, deps, late=("pbr",) if name == "pyramid" else ())
         return dag
 
     async def run(self, prompt: str) -> DagReport:
@@ -364,7 +375,7 @@ class PropToEngineDAG:
             await browser.aclose(keep=ok)
         res: PyramidResult | None = rep.results.get("pyramid")
         route: Route | None = rep.results.get("route")
-        skipped = [{"step": f"dag:{n.name}", "reason": n.reason} for n in rep.nodes.values() if n.status == "skipped" and n.reason]
+        skipped = [{"step": f"dag:{n.name}", "reason": n.reason} for n in rep.nodes.values() if n.status in ("skipped", "stopped") and n.reason]
         skipped += [{"step": f"pyramid:{s}", "reason": r} for s, r in (res.skipped if res else [])]
         outputs = {**(rep.results.get("package") or {}), **({"inspector": rep.results["inspector"]} if rep.results.get("inspector") else {})}
         cache = None if self.cache is None else asdict(self.cache.stats)
