@@ -215,6 +215,8 @@ class PropToEngineDAG:
             manifest["verified"] = res.verified and not getattr(self.forge, "offline", False)
             if "engine_import" in res.objects:
                 manifest["validation"]["engine_import"] = res.objects["engine_import"]
+            if "blender_asset_qa" in res.objects:  # a real worker ran it; a skipped run records nothing here (the step says why)
+                manifest["validation"]["blender_asset_qa"] = res.objects["blender_asset_qa"]
             # What was checked and how it ended ships with the package. How long each step took is a fact about the run,
             # not the asset: it stays in the run report, so two runs of one scene still ship identical bytes.
             manifest["evidence"] = {"render_tier": res.render_tier, "lookdev": res.live_lookdev,

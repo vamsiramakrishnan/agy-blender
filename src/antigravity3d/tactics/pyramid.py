@@ -21,6 +21,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from pxr import Usd
 
+from antigravity3d.adapters.blender_5_3 import upstream_checks
 from antigravity3d.adapters.engines.validators import MIN_SILHOUETTE_IOU, blender_frame_png, silhouette_iou, validator_for
 from antigravity3d.adapters.engines import web_three
 from antigravity3d.adapters.engines.web_three import WebThreeValidator
@@ -686,7 +687,7 @@ class _Run:
         if self.bundle_cache_hit is not None:  # the same bundle either way: where it came from is not part of the package
             res.steps[-1].run = f"cache={'hit' if self.bundle_cache_hit else 'miss'}"
         if bundle is None:
-            for n in ("usd_package", "usd_validate", "engine_compliance", "lod_pop", "lod_pop_vision", "export_glb", "engine_import", "engine_parity", "web_runtime"):
+            for n in ("usd_package", "usd_validate", "engine_compliance", "lod_pop", "lod_pop_vision", "export_glb", "engine_import", "engine_parity", "web_runtime", "blender_asset_qa"):
                 self.step(n, "skipped", "UV/LOD/collider stage failed")
             return
 
@@ -777,16 +778,28 @@ class _Run:
             iou = "" if rep.silhouette_iou is None else f", silhouette IoU {rep.silhouette_iou:.4f} against the USD"
             return "passed", f"three.js loaded and rendered the package: {done} checks passed{iou}"
 
-        # Independent of the target engine's own import, so it runs while those steps wait on their engine.
-        web_check = asyncio.ensure_future(self.guarded_result(web_runtime))
+        async def blender_asset_qa() -> tuple[str, str]:
+            """EL4CTEO/blender-skills' qa_check on the GLB the engines import, vertices merged (upstream_checks.asset_qa)."""
+            if "glb" not in res.artifacts:
+                return "skipped", "no GLB exported"
+            status, detail, data = await upstream_checks.asset_qa(self.pool, res.artifacts["glb"], budget.target_engine)
+            if data:
+                res.objects["blender_asset_qa"] = data
+            return status, detail
+
+        # Both are independent of the target engine's own import, so they run while those steps wait on their engine.
+        side = {"web_runtime": asyncio.ensure_future(self.guarded_result(web_runtime)),
+                "blender_asset_qa": asyncio.ensure_future(self.guarded_result(blender_asset_qa))}
         try:
             await self._engine_steps(validator_for(budget.target_engine))
         except BaseException:
-            web_check.cancel()  # pass C was cancelled or crashed: stop the verification with it, and let it clean up
-            await asyncio.wait({web_check})
+            for task in side.values():
+                task.cancel()  # pass C was cancelled or crashed: stop the verification with it, and let it clean up
+            await asyncio.wait(set(side.values()))
             raise
-        status, detail, t0 = await web_check
-        self.step("web_runtime", status, detail, t0)
+        for name, task in side.items():
+            status, detail, t0 = await task
+            self.step(name, status, detail, t0)
 
     async def _engine_steps(self, validator: Any) -> None:
         """engine_import, engine_capture and engine_parity on the exported package (pass C, after the export)."""

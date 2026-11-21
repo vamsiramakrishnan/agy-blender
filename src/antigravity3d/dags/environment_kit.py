@@ -42,6 +42,7 @@ from typing import Any
 import numpy as np
 from pxr import Gf, Sdf, Usd, UsdGeom
 
+from antigravity3d.adapters.blender_5_3 import upstream_checks
 from antigravity3d.art_direction import ArtDirection, author_text, png_bytes, texture_brief
 from antigravity3d.dags.runner import Dag, DagReport, NodeCtx
 from antigravity3d.ir import MaterialIR, SceneIR
@@ -501,6 +502,28 @@ class EnvironmentKitDAG:
                 ctx.note("kit check failed: " + "; ".join(f"{n}: {e}" for n, p in res["pieces"].items() for e in p["errors"]))
             return res
 
+        async def blender_kit_check(ctx: NodeCtx) -> dict[str, Any]:
+            """EL4CTEO/blender-skills' kit_check on every piece file, vertices merged, with this kit's grid, pivot and sheet size.
+
+            Needs a real Blender worker: without one the node is skipped with the reason and the gates do not change.
+            A piece with an error fails the node, and so the kit's gates."""
+            if reason := upstream_checks.unavailable_reason(self.pool):
+                ctx.skip(reason)
+            results: dict[str, dict[str, Any]] = {}
+            for name, path in ctx["export_pieces"].items():
+                try:
+                    results[name] = await upstream_checks.run_primitive(self.pool, path, "kit_check", {
+                        "grid": metric.grid_m, "pivot": metric.pivot, "texture": self.sheet.resolution, "prefix": ""})
+                except upstream_checks.CheckUnavailable as e:
+                    ctx.skip(str(e))
+            ok, summary = upstream_checks.kit_verdict(results)
+            ctx.data(blender_kit_check_pass=ok, pieces_checked=len(summary))
+            res = {"pass": ok, "source": upstream_checks.source("kit_check"), "grid_m": metric.grid_m, "pivot": metric.pivot,
+                   "texture_px": self.sheet.resolution, "merged": True, "pieces": summary}
+            if not ok:
+                raise RuntimeError(f"{res['source']}: " + "; ".join(f"{n}: {e}" for n, v in summary.items() for e in v["errors"])[:500])
+            return res
+
         async def snap(ctx: NodeCtx) -> dict[str, Any]:
             res = await asyncio.to_thread(snap_test, metric, {p.name: (p.template, p.meshes) for p in ctx["pieces"]})
             # the assemblies as instanced references to the exported pieces, to look at
@@ -526,6 +549,7 @@ class EnvironmentKitDAG:
 
         for name, fn, deps in (("trim_sheet", trim_sheet, ()), ("pieces", pieces, ()), ("map_trim", map_trim, ("trim_sheet", "pieces")),
                                ("kit_check", kit_check, ("map_trim",)), ("snap", snap, ("pieces", "export_pieces")),
+                               ("blender_kit_check", blender_kit_check, ("export_pieces",)),
                                ("export_pieces", export_pieces, ("map_trim",)), ("assemble", assemble, ("export_pieces", "map_trim")),
                                ("backdrop", backdrop, ("assemble",)), ("splat_import", splat_import, ("backdrop",)),
                                ("report", report, ("assemble", "map_trim", "backdrop", "splat_import"))):
@@ -561,6 +585,7 @@ class EnvironmentKitDAG:
             "trim_issues": [i for mp in mapped for i in mp.issues],
             "metric": self.metric.to_dict(), "metric_checks": {n: (c.to_dict() if c else None) for n, c in self.checks.items()},
             "kit_check": rep.results.get("kit_check"), "snap": rep.results.get("snap"),
+            "blender_kit_check": rep.results.get("blender_kit_check"),
             "trim_reports": {mp.piece.name: [{"node": rr.node_id, "mapped_area_fraction": rr.report.mapped_area_fraction, "max_density_dev": rr.report.max_density_dev}
                                               for rr in mp.results if rr.report] for mp in mapped},
             "gates_ok": bool(rep.ok and asm and "error" not in (rep.results.get("backdrop") or {}) and not r.get("kit_validate_critical") and all(r.get("tier1_ok", {}).values()) and not any(mp.issues for mp in mapped)

@@ -219,8 +219,18 @@ async def cmd_kit(a: argparse.Namespace) -> int:
         raise CliError(str(e)) from e
     _, forge, author, notes = await make_collaborators(a.offline, need_plane=False)
     try:
-        rep = await EnvironmentKitDAG(forge=forge, author=author, workdir=Path(a.out), budget=_budget(a), sheet_resolution=1024 if a.offline else 4096,
-                                      art_direction=a.art_direction, metric=metric).run(a.prompt, a.pieces, a.splat)
+        async with AsyncExitStack() as stack:
+            pool = None
+            if a.pool_socket:
+                from antigravity3d.runtime.worker_daemon import PoolClient
+
+                pool = await stack.enter_async_context(PoolClient(a.pool_socket))
+            elif a.blender:
+                from antigravity3d.adapters.blender_5_3.pool import BlenderPool
+
+                pool = await stack.enter_async_context(BlenderPool(1, blender_bin=a.blender))
+            rep = await EnvironmentKitDAG(forge=forge, author=author, workdir=Path(a.out), budget=_budget(a), sheet_resolution=1024 if a.offline else 4096,
+                                          art_direction=a.art_direction, metric=metric, pool=pool).run(a.prompt, a.pieces, a.splat)
     except BudgetExceeded as e:  # live authoring is admitted against a ceiling; a missing price is a refusal, not a crash
         raise CliError(str(e)) from e
     x = rep.extras
@@ -253,6 +263,15 @@ async def cmd_kit(a: argparse.Namespace) -> int:
         for v in sn["layouts"].values():
             for p in v["problems"]:
                 print(f"  {p}")
+    if x.get("blender_kit_check"):
+        bk = x["blender_kit_check"]
+        print(f"blender kit check: {'PASS' if bk['pass'] else 'FAIL'} ({len(bk['pieces'])} pieces; {bk['source']})")
+    elif rep.nodes["blender_kit_check"].status == "failed":
+        print(f"blender kit check: FAIL ({rep.nodes['blender_kit_check'].error})")
+    if a.splat and rep.nodes["splat_import"].status == "ok":  # what the file became in Blender (the skip, if any, is listed below)
+        print("splat import: " + ", ".join(f"{k}={v}" for k, v in rep.nodes["splat_import"].data.items()))
+    elif a.splat and not (a.blender or a.pool_socket):  # the request was given and could not be honoured: say how to get it
+        print(f"splat import: NOT DONE: {a.splat} needs a Blender worker; pass --blender PATH or --pool-socket PATH")
     print(f"trim issues: {len(x['trim_issues'])}; piece min z: {x.get('piece_min_z')}")
     print(f"outputs: kit={x['kit_usd']} trim_sheet={x['trim_sheet']} pieces={len(x['pieces'])} report={a.out}/report.json")
     _print_skips(x["skipped"])
@@ -389,6 +408,9 @@ def build_parser() -> argparse.ArgumentParser:
                         "4 m walls), optionally with overrides, e.g. interior,module=4,wall_height=3.5,pivot=bottom-center")
     p.add_argument("--offline", action="store_true")
     p.add_argument("--splat", default=None, help="optional .ply/.spz Gaussian-splat backdrop (recorded; import needs Blender)")
+    worker = p.add_mutually_exclusive_group()
+    worker.add_argument("--blender", metavar="PATH", help="start a warm worker with this Blender executable (adds the blender_kit_check node)")
+    worker.add_argument("--pool-socket", metavar="PATH", help="connect to a running Blender sidecar")
     p.add_argument("--art-direction", type=_art_direction, default=None, metavar="ID", help="named art direction (see skills/art-direction)")
     p.set_defaults(fn=cmd_kit)
 

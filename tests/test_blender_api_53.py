@@ -465,6 +465,16 @@ async def test_kit_pipeline_imports_the_splat_with_a_real_worker(tmp_path):
     assert result["mode"] == "gaussian_splat" and result["points"] == 3 and result["kinds"] == ["gaussian_splat"]
 
 
+def test_kit_cli_imports_the_splat_with_a_real_blender(tmp_path):
+    splat = tmp_path / "backdrop.spz"
+    write_spz(splat)
+    done = subprocess.run([sys.executable, "-m", "antigravity3d.cli", "kit", "ruined stone temple", "--pieces", "2", "--offline",
+                           "--out", str(tmp_path / "kit"), "--splat", str(splat), "--blender", os.environ["BLENDER_BIN"]],
+                          capture_output=True, text=True, timeout=600)
+    assert done.returncode == 0, done.stdout[-2000:] + done.stderr[-2000:]
+    assert "splat import/render requires" not in done.stdout and "gates: PASS" in done.stdout
+
+
 def test_kit_cli_without_a_worker_skips_the_splat_naming_what_is_missing(tmp_path):
     splat = tmp_path / "backdrop.ply"
     write_ply(splat, True)
@@ -472,3 +482,4 @@ def test_kit_cli_without_a_worker_skips_the_splat_naming_what_is_missing(tmp_pat
                            "--out", str(tmp_path / "kit"), "--splat", str(splat)], capture_output=True, text=True, timeout=600)
     assert done.returncode == 0, done.stdout[-1500:] + done.stderr[-1500:]
     assert "dag:splat_import: splat import/render requires a real Blender pool (none provided)" in done.stdout
+    assert f"splat import: NOT DONE: {splat} needs a Blender worker; pass --blender PATH or --pool-socket PATH" in done.stdout

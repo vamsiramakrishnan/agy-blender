@@ -75,7 +75,7 @@ jobs:
       - name: Test native workers, engine imports, rendered frames and inspector channels
         id: tests
         run: |
-          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_fbx_export.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py
+          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_fbx_export.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py tests/test_blender_verification_steps.py
           python - <<'PYTHON'
           import xml.etree.ElementTree as ET
           required = {"test_three_worker_mixed_asset_soak", "test_reviewed_upstream_primitives",
@@ -92,7 +92,7 @@ jobs:
                       "test_real_compat_helpers", "test_real_pass_name_map_names_sockets_that_exist",
                       "test_linter_tables_match_blender", "test_the_cross_check_catches_a_name_that_still_works",
                       "test_gpu_calls_without_init_do_not_work_in_background", "test_the_specular_bsdf_node_still_has_a_specular_input",
-                      "test_kit_pipeline_imports_the_splat_with_a_real_worker",
+                      "test_kit_pipeline_imports_the_splat_with_a_real_worker", "test_kit_cli_imports_the_splat_with_a_real_blender",
                       *(f"test_structural_rules_match_what_blender_does[{k}]" for k in ("AG016", "AG022", "AG022b")),
                       "test_upstream_primitives_on_a_package_match_the_fake_shape_and_weld_closes_seams",
                       *(f"test_fbx_export_each_preset_on_a_textured_multipart_package[{preset}]" for preset in ("unity", "unreal", "roblox")),
@@ -116,6 +116,14 @@ jobs:
                       "test_capped_hull_imports_in_stock_godot_as_its_collision_shape",
                       "test_godot_draws_a_package_without_hidden_contact_faces_like_the_closed_one",
                       *(f"test_upstream_kit_check_passes_every_piece_of_an_offline_kit[{metric}]" for metric in ("interior", "exterior")),
+                      "test_a_clean_crate_passes_the_blender_asset_qa_step",
+                      "test_the_blender_asset_qa_result_reaches_the_package_manifest",
+                      "test_planted_z_fighting_fails_the_blender_asset_qa_step_with_upstreams_message",
+                      "test_separate_boxes_resting_on_the_ground_pass_and_a_part_hovering_5_cm_fails",
+                      "test_a_roblox_batch_over_the_triangle_limit_fails_where_the_per_part_rule_passes",
+                      "test_a_kit_piece_moved_off_its_pivot_fails_the_blender_kit_check_node_and_the_gates",
+                      "test_native_export_of_a_crate_passes_the_check_with_a_real_worker",
+                      *(f"test_kit_passes_the_blender_kit_check_node[{metric}]" for metric in ("interior", "exterior")),
                       *(f"test_browser_asymmetric_block_passes_for_every_target_engine[{engine}]"
                         for engine in ("unreal_5", "unity_urp", "godot_4", "roblox_r15"))}
           passed = {c.get("name") for c in ET.parse("/tmp/engine-qualification.xml").iter("testcase")

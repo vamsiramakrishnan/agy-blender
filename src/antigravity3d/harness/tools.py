@@ -707,6 +707,14 @@ async def _verify_engine(s: Session, pkg: Any, asset: str) -> str | None:
         return f"{smoke.engine} import: {' '.join((smoke.skipped_reason or smoke.log_tail).split())[-160:]}"
     if issue := smoke.geometry_issue(pkg.data):
         return issue
+    from antigravity3d.adapters.blender_5_3 import upstream_checks
+
+    try:  # independent of the engine: a second opinion on the shipped GLB; skipped (recorded, never passed) without a real worker
+        qa_status, qa_detail, qa_data = await upstream_checks.asset_qa(s.pool, str(glb), s.state.budget.target_engine)
+    except Exception as e:  # noqa: BLE001 - a worker that errors is a failed check, as for the engine import
+        qa_status, qa_detail, qa_data = "failed", f"{type(e).__name__}: {e}"[:300], {}
+    if qa_status == "failed":
+        return f"blender_asset_qa: {qa_detail}"
     image_path = pkg.out_dir / "engine.png"
     capture = await validator.capture(glb, image_path)
     if not capture.ok:
@@ -724,6 +732,7 @@ async def _verify_engine(s: Session, pkg: Any, asset: str) -> str | None:
         pkg.data["files"].append(name)
         pkg.data["file_hashes"][name] = {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
     pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": True, "metrics": smoke.metrics, "bounds_m": smoke.bounds_m}
+    pkg.data["validation"]["blender_asset_qa"] = {"status": qa_status, "detail": qa_detail, **qa_data}
     pkg.data["validation"]["engine_parity"] = {"ok": True, "silhouette_iou": overlap, "scores": parity.scores}
     return None
 

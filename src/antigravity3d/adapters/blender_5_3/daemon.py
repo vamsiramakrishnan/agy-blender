@@ -73,6 +73,8 @@ WRITERS: dict[str, Callable[..., dict[str, Any]]] = {}  # reviewed scripts that 
 PRIMITIVES_INFO: dict[str, Any] = {"source": None, "error": None}  # where the primitives came from, or why there are none
 # (imported, weld) -> (names of the imported mesh objects, weld report or None); set by register_*_ops
 PREPARE: dict[str, Callable[[dict[str, Any], bool], tuple[list[str], dict[str, Any] | None]]] = {}
+# names of the imported mesh objects -> their connected pieces (see inspect_usd's ``agy_inspect.pieces``)
+PIECES: dict[str, Callable[[list[str]], list[dict[str, Any]] | None]] = {}
 # inspect_usd(weld=True) merges vertices closer than this, per imported mesh: coincident seam copies are
 # bit-identical float32 points, and no real feature of an asset is a micrometre wide
 WELD_DISTANCE_M = 1e-6
@@ -226,7 +228,8 @@ def _inspect_usd(a: dict[str, Any]) -> dict[str, Any]:
     imported = _import_snapshot(a["path"])
     names, welded = PREPARE["prepare"](imported, weld)
     result = run(objects=names, **kwargs)
-    result["agy_inspect"] = {"objects": names, "weld": welded, "importer": "gltf" if Path(a["path"]).suffix.lower() in GLTF_EXTS else "usd"}
+    pieces = PIECES["pieces"](names) if name == "qa_check" else None
+    result["agy_inspect"] = {"objects": names, "weld": welded, **({"pieces": pieces} if pieces is not None else {}), "importer": "gltf" if Path(a["path"]).suffix.lower() in GLTF_EXTS else "usd"}
     return result
 
 
@@ -403,6 +406,7 @@ def register_fake_ops() -> None:
         return names, ({"distance_m": WELD_DISTANCE_M, "objects": {n: {"verts_before": 0, "verts_after": 0} for n in names}, "fake": True}
                        if weld else None)
     PREPARE["prepare"] = prepare_fake
+    PIECES["pieces"] = lambda names: None  # the fake worker has no scene: no pieces key
 
     @op("bake_maps")
     def bake_fake(a: dict[str, Any]) -> dict[str, Any]:
@@ -458,6 +462,41 @@ def register_bpy_ops(bpy: Any) -> None:
             bpy.context.view_layer.update()
         return [ob.name for ob in objs], report
     PREPARE["prepare"] = prepare
+
+    def pieces(names: list[str]) -> list[dict[str, Any]]:
+        """The connected pieces (vertices joined by edges, world space) of each named object, as qa_check's detached-part
+        test sees them: object, vertex count, bounding-box centre and lowest and highest z. A fact about the scene beside
+        the upstream result, which does not carry the lowest point of what it reports."""
+        import bmesh
+
+        out = []
+        for name in names:
+            bm = bmesh.new()
+            bm.from_mesh(bpy.data.objects[name].data)
+            bm.transform(bpy.data.objects[name].matrix_world)
+            bm.verts.ensure_lookup_table()
+            parent = list(range(len(bm.verts)))
+
+            def find(i: int) -> int:
+                while parent[i] != i:
+                    parent[i] = parent[parent[i]]
+                    i = parent[i]
+                return i
+            for e in bm.edges:
+                a, b = find(e.verts[0].index), find(e.verts[1].index)
+                if a != b:
+                    parent[a] = b
+            groups: dict[int, list[Any]] = {}
+            for v in bm.verts:
+                groups.setdefault(find(v.index), []).append(v.co)
+            for pts in groups.values():
+                lo = [min(p[i] for p in pts) for i in range(3)]
+                hi = [max(p[i] for p in pts) for i in range(3)]
+                out.append({"object": name, "verts": len(pts), "center": [round((lo[i] + hi[i]) / 2, 3) for i in range(3)],
+                            "min_z": round(lo[2], 5), "max_z": round(hi[2], 5)})
+            bm.free()
+        return out
+    PIECES["pieces"] = pieces
 
     geometry_types = {"MESH", "CURVE", "SURFACE", "FONT", "META", "VOLUME", "POINTCLOUD"}
 

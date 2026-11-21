@@ -47,7 +47,9 @@ class SnapshotPool:
         self.size = size
         self.samples = []
 
-    async def call(self, op, *, path, engine, **_):
+    async def call(self, op, *, path, engine=None, **_):
+        if op == "inspect_usd":  # the export's independent check: this double is no Blender, so its answer is marked fake (a skip)
+            return {"fake": True}
         assert op == "render_usd"
         self.samples.append(uv_corners(Usd.Stage.Open(path)))
         image = np.zeros((self.size, self.size, 4), dtype=np.float32)

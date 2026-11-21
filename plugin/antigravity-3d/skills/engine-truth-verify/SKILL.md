@@ -30,6 +30,14 @@ re-run QA.
    under `validation.engine_import`. (Roblox has no headless importer, so only
    the validator runs.) Treat import warnings about scale, missing textures,
    collision or LOD groups as failures.
+   When a real Blender worker is attached (the plugin's pool sidecar), the
+   same export also runs EL4CTEO/blender-skills' qa_check script on the exported GLB
+   with coincident vertices merged and the target engine's profile, and refuses
+   the package (`REFUSED blender_asset_qa: ...`, nothing written) when that
+   script reports an error. Its result, including its warnings, is recorded in
+   `manifest.json` under `validation.blender_asset_qa`; without a real worker it
+   is recorded as skipped with the reason, never as passed. A refusal here names
+   what the script found: fix it on the stage and re-run QA.
 4. **Parity check.** `export_engine_package` already compares the engine
    render with the stage render (silhouette IoU and a parity score) and refuses
    the package on a mismatch; the figures are in `validation.engine_parity` of
