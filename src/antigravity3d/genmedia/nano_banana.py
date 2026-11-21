@@ -254,23 +254,30 @@ class ImageForge:
         start = time.perf_counter()
         backend = self._backend
         sdk = isinstance(backend, GenAIImageBackend)
-        rates = ImageRates.for_model(self.model) if sdk else None
+        tokens = self.governor.unit == "tokens"  # a token ledger: the worst case is counted input + output cap, unpriced
+        rates = ImageRates.for_model(self.model) if sdk and not tokens else None
         size_tier = _size_tier(size)
         if sdk:
             inputs = await backend.input_bound(self.model, prompt, images)
-            limit = rates.ceiling(inputs, backend.output_limit(size_tier))
+            limit = inputs + backend.output_limit(size_tier) if tokens else rates.ceiling(inputs, backend.output_limit(size_tier))
         elif self.offline:
             limit = 0.0
+        elif tokens:
+            raise ValueError("a custom image backend cannot be admitted against a token ceiling: it reports no tokens")
         else:
             if self.max_request_usd is None:
                 raise ValueError("a custom image backend requires a contracted max_request_usd for admission")
             limit = self.max_request_usd
-        receipt = ImageReceipt(self.model, op, "offline" if self.offline else "reservation_estimate", limit, status="dispatched")
-        hold = self.governor.reserve("image." + op, limit, receipt=asdict(receipt))
+        receipt = ImageReceipt(self.model, op, "offline" if self.offline else "reservation_estimate", 0.0 if tokens else limit,
+                               status="dispatched", booked_tokens=int(limit) if tokens else None)
+        # One image per call against the ledger's image limit (when it has one); kept unless the call is known to
+        # have produced no image.
+        hold = self.governor.reserve("image." + op, limit, receipt=receipt.to_dict(), images=1)
         try:
             if sdk:
                 response = await backend._generate_content(self.model, prompt, images, size_tier, aspect)
-                receipt = ImageReceipt.from_response(response, model=self.model, op=op, rates=rates, limit=limit)
+                receipt = (ImageReceipt.from_response_tokens(response, model=self.model, op=op, limit_tokens=int(limit)) if tokens
+                           else ImageReceipt.from_response(response, model=self.model, op=op, rates=rates, limit=limit))
                 raw = backend._extract(response)
             else:
                 raw = await backend.generate(model=self.model, prompt=prompt, images=images, size=size, aspect_ratio=aspect)
@@ -283,7 +290,8 @@ class ImageForge:
             receipt = replace(receipt, status=type(exc).__name__)
             raise
         finally:
-            hold.settle(receipt.booked_usd, receipt=asdict(receipt))
+            hold.settle(receipt.booked_tokens if tokens else receipt.booked_usd, receipt=receipt.to_dict(),
+                        images=receipt.generated_image)
         uri = await backend.upload(png, display_name="agy3d-generated") if self.auto_upload else None
         return GeneratedImage(png, uri, prompt, self.model, (time.perf_counter() - start) * 1000, receipt)
 

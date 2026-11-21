@@ -53,6 +53,12 @@ class VisualVerdict:
                 and self.stage in {"lookdev", "final"} and self.renderer in {"eevee", "cycles"}
                 and self.backend == "decisions" and self.action == "approve")
 
+    def qualifies_preview(self, revision: str, target: str) -> bool:
+        """The gate of an unverified PREVIEW export only: an approving lookdev/final verdict on the current revision,
+        from any judge on any render. Never a substitute for :meth:`qualifies`."""
+        return (bool(revision and target) and self.revision == revision and self.target == target
+                and self.stage in {"lookdev", "final"} and self.action == "approve")
+
 
 @dataclass
 class AssetSessionState:
@@ -71,6 +77,9 @@ class AssetSessionState:
     verdict: VisualVerdict | None = None
     validator_ok: bool | None = None
     audit_deltas: list[str] = field(default_factory=list)
+    # An unverified preview session (opened or switched with the user's token ceiling and image limit): its export is
+    # a package labelled verified=false / preview=true, gated by VisualVerdict.qualifies_preview. Never set otherwise.
+    preview: bool = False
 
     def add_audit_delta(self, line: str) -> None:
         """Appends one audit line, keeping only the newest MAX_AUDIT_DELTAS."""
@@ -79,8 +88,12 @@ class AssetSessionState:
 
     @property
     def export_allowed(self) -> bool:
-        return (self.validator_ok is not False and self.last_tier1_ok and EXPORT_MIN_TIER15_SCORE <= self.last_tier15_score <= 4.0
-                and self.verdict is not None and self.verdict.qualifies(self.revision, self.budget.target_engine))
+        """The export gate of this session: the verified gate, or (preview sessions only) the preview gate."""
+        base = (self.validator_ok is not False and self.last_tier1_ok and EXPORT_MIN_TIER15_SCORE <= self.last_tier15_score <= 4.0
+                and self.verdict is not None)
+        if self.preview:
+            return base and self.verdict.qualifies_preview(self.revision, self.budget.target_engine)  # type: ignore[union-attr]
+        return base and self.verdict.qualifies(self.revision, self.budget.target_engine)  # type: ignore[union-attr]
 
 
 class SceneSessionRegistry:

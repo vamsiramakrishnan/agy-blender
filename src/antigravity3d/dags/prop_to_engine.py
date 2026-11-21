@@ -16,7 +16,7 @@ import hashlib
 import json
 import shutil
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +35,7 @@ from antigravity3d.tactics.cached import CachedForge
 from antigravity3d.tactics.common import uploader_for
 from antigravity3d.tactics.distill import FixLog
 from antigravity3d.tactics.pyramid import PyramidResult, default_texture_px, refine, synthesize_materials
-from antigravity3d.tactics.tournament import GRADE_USD_EST, geometry_tournament, ortho_tournament
+from antigravity3d.tactics.tournament import geometry_tournament, grade_est, ortho_tournament
 
 
 @dataclass
@@ -46,16 +46,65 @@ class Proposal:
     author: IRAuthor
 
 
+class ImageLimitRefused(RuntimeError):
+    """The routed plan cannot run inside the user's image limit; raised before any image is requested."""
+
+
+def plan_images(route: Route) -> int:
+    """The fewest images the routed plan generates: its ortho best-of-N (when the router asked for a blueprint), its albedo
+    best-of-N for at least one material, and the hero plan's paint-over."""
+    p = route.plan
+    return (p.ortho_candidates if route.needs_ortho else 0) + p.pbr_candidates + (1 if p.paintover_loop else 0)
+
+
+def preview_ok(res: PyramidResult, preview_judging: bool) -> bool:
+    """The preview gates. On a preview plane the review that an uncalibrated judge always requires does not fail them
+    (``needs_review`` stays true and is printed); a hard policy flag, an escalation to a person or any failed gate does."""
+    if not preview_judging or not res.needs_review:
+        return res.ok
+    escalated = any(t.action == "escalate_human" for t in res.rounds)
+    return not escalated and (res.ok or _ok_but_for_uncalibrated_review(res))
+
+
+def _ok_but_for_uncalibrated_review(res: PyramidResult) -> bool:
+    from dataclasses import replace as _r
+
+    return _r(res, needs_review=False).ok
+
+
+def preview_record(plane: Any, governor: Any, res: PyramidResult | None) -> dict[str, Any]:
+    """What a preview package and its run report say about themselves: never verified, who judged, what that means."""
+    from antigravity3d.decisions.engine import UNCALIBRATED_MEANING
+
+    calibrated = bool(getattr(plane, "calibrated", True))
+    out: dict[str, Any] = {
+        "verified": False, "preview": True,
+        "judge": {"label": getattr(plane, "judge_label", "unknown"), "calibrated": calibrated,
+                  "meaning": UNCALIBRATED_MEANING if not calibrated else "a preview is never verified, whoever judged it"},
+        "needs_review": True}
+    if governor is not None:
+        out["spend"] = {"unit": governor.unit, "summary": governor.summary()}
+    return out
+
+
 class PropToEngineDAG:
     def __init__(self, *, plane: Any, forge: Any, author: IRAuthor, workdir: Path | str, budget: EngineBudget, pool: Any = None, cache: Any = None,
                  thresholds: Thresholds | None = None, style_anchor: Path | str | bytes | None = None, fixlog: FixLog | None = None,
                  max_rounds: int = 4, max_parallel: int | None = None, single_candidate: bool = False,
-                 require_verified: bool = False, art_direction: ArtDirection | None = None) -> None:
+                 require_verified: bool = False, art_direction: ArtDirection | None = None,
+                 token_ceiling: int | None = None, max_images: int | None = None) -> None:
+        if require_verified and getattr(plane, "preview", False):
+            raise ValueError("a verified run cannot use a preview decision plane")
         self.art = art_direction
+        self.token_ceiling, self.max_images = token_ceiling, max_images
+        # A preview plane may let an uncalibrated judge steer (rank, repair, gate); its verdicts never clear anything.
+        self.preview_judging = bool(getattr(plane, "preview", False)) and not require_verified
         budget = art_direction.budget(budget, "prop") if art_direction is not None else budget  # only ever lowers it
         self.plane, self.author, self.budget, self.pool, self.cache = plane, author, budget, pool, cache
         self.forge = CachedForge(forge, cache, budget=budget) if cache is not None and forge is not None else forge
         self.workdir, self.th, self.style_anchor, self.fixlog = Path(workdir), thresholds or Thresholds(), style_anchor, fixlog
+        if self.preview_judging:
+            self.th = replace(self.th, trust_uncalibrated=True)
         self.max_rounds, self.max_parallel = max_rounds, max_parallel
         self.require_verified = require_verified
         self.single_candidate = single_candidate
@@ -95,12 +144,23 @@ class PropToEngineDAG:
                 "cache_enabled": self.cache is not None, "strict": self.require_verified,
                 **({"art_direction": self.art.id} if self.art is not None else {}),
             })
-            rd = await resolve_route(self.workdir, prompt, self.budget, reference,
-                                     single_candidate=self.single_candidate, plane=self.plane)
+            rd = await resolve_route(self.workdir, prompt, self.budget, reference, single_candidate=self.single_candidate,
+                                     plane=self.plane, token_ceiling=self.token_ceiling, max_images=self.max_images)
+            self._governor = rd.governor
             if rd.pipeline != "prop_to_engine":
                 ctx.note(f"router preferred {rd.pipeline!r}; running prop_to_engine as requested")
-            ctx.data(pipeline=rd.pipeline, complexity=rd.complexity, plan=rd.plan.label,
-                     ceiling_usd=rd.plan.ceiling_usd, reused=rd.reused)
+            ctx.data(pipeline=rd.pipeline, complexity=rd.complexity, plan=rd.plan.label, reused=rd.reused,
+                     **({"ceiling_usd": rd.plan.ceiling_usd} if rd.governor.unit == "usd" else
+                        {"ceiling_tokens": rd.governor.token_ceiling, "max_images": rd.governor.max_images}))
+            if rd.governor.unit == "tokens":  # the plan's own image need, against the user's image limit, before any image
+                need = plan_images(rd)
+                ctx.data(images_planned_min=need)
+                if rd.governor.max_images is not None and need > rd.governor.max_images - rd.governor.images_used:
+                    raise ImageLimitRefused(
+                        f"plan {rd.plan.label!r} needs at least {need} image(s) (ortho best-of-{rd.plan.ortho_candidates if rd.needs_ortho else 0}, "
+                        f"albedo best-of-{rd.plan.pbr_candidates} per material" + (", one paint-over" if rd.plan.paintover_loop else "")
+                        + f") and {rd.governor.images_summary()} are counted; only the routing call was made. Rerun with "
+                        "--single-candidate or ask the user for a higher --max-images")
             return rd
 
         async def style(ctx: NodeCtx) -> dict[str, Any]:
@@ -140,16 +200,17 @@ class PropToEngineDAG:
             # admission then sequences the candidates under the ceiling by their worst case, waiting for settlements.
             n_plan = r.governor.plan.geometry_candidates
             profile = author.cost_profile(asset_name=asset) if hasattr(author, "cost_profile") else None
+            g, k = grade_est(r.governor), r.governor.key
             if profile is None:
-                n, sizing = r.governor.candidates("geometry", unit_cost=GRADE_USD_EST), {"basis": "grading only (author not metered or no rates)"}
+                n, sizing = r.governor.candidates("geometry", unit_cost=g), {"basis": "grading only (author not metered or no rates)"}
             else:
                 expected, worst = profile
-                n = r.governor.candidates("geometry", unit_cost=expected + GRADE_USD_EST, admit_cost=worst + GRADE_USD_EST)
-                sizing = {"basis": "expected author cost + grading", "expected_candidate_usd": expected + GRADE_USD_EST,
-                          "worst_case_candidate_usd": worst + GRADE_USD_EST, "remaining_usd": r.governor.remaining}
+                n = r.governor.candidates("geometry", unit_cost=expected + g, admit_cost=worst + g)
+                sizing = {"basis": "expected author cost + grading", k("expected_candidate"): expected + g,
+                          k("worst_case_candidate"): worst + g, k("remaining"): r.governor.remaining}
             if n < n_plan:
-                ctx.note(f"ceiling ${r.governor.plan.ceiling_usd:.2f} sizes geometry best-of-{n_plan} down to {n} "
-                         f"(${r.governor.remaining:.4f} remaining)")
+                ctx.note(f"ceiling {r.governor.fmt(r.governor.ceiling)} sizes geometry best-of-{n_plan} down to {n} "
+                         f"({r.governor.fmt(r.governor.remaining)} remaining)")
             with_outcomes = getattr(author, "propose_with_outcomes", None)
             if with_outcomes is not None:
                 result = await with_outcomes(prompt, budget=self.budget, n=n, context=context)
@@ -212,7 +273,11 @@ class PropToEngineDAG:
             out["authoring_usd"] = str(authoring_path)
             manifest_path = pkg / "manifest.json"
             manifest = json.loads(manifest_path.read_text())
-            manifest["verified"] = res.verified and not getattr(self.forge, "offline", False)
+            # Never verified on a preview plane or an uncalibrated judge, whatever the steps say.
+            manifest["verified"] = (res.verified and not getattr(self.forge, "offline", False) and not self.preview_judging
+                                    and bool(getattr(self.plane, "calibrated", True)))
+            if self.preview_judging:  # what a person could mistake for a verified result says what it is
+                manifest.update(preview_record(self.plane, self._governor, res))
             if "engine_import" in res.objects:
                 manifest["validation"]["engine_import"] = res.objects["engine_import"]
             if "blender_asset_qa" in res.objects:  # a real worker ran it; a skipped run records nothing here (the step says why)
@@ -260,7 +325,7 @@ class PropToEngineDAG:
             r: Route = ctx["route"]
             if self.require_verified and not (res.verified and not getattr(self.forge, "offline", False)):
                 raise RuntimeError("publication requires calibrated lookdev, real DCC pixels, target import, and captured engine parity")
-            return {"ok": res.ok, "spent_usd": r.governor.spent, "plan": r.governor.summary()}
+            return {"ok": res.ok, r.governor.key("spent"): r.governor.spent, "plan": r.governor.summary()}
 
         for name, fn, deps in (("route", route, ()), ("style_anchor", style, ("route",)), ("ortho", ortho, ("route", "style_anchor")),
                                ("propose", propose, ("route", "ortho", "style_anchor")), ("geometry", geometry, ("propose", "route", "ortho")),
@@ -296,13 +361,26 @@ class PropToEngineDAG:
             "geometry_candidates": {k: v for k, v in (rep.nodes["propose"].data if "propose" in rep.nodes else {}).items()
                                     if k in ("n_planned", "n_requested", "n_proposed", "outcomes", "sizing")},
             "budget": asdict(self.budget), "decision_backend": self.plane.backend_kind,
-            "preview_gates_ok": bool(res and res.ok and "inspector" in outputs),
+            "preview_gates_ok": bool(res and preview_ok(res, self.preview_judging) and "inspector" in outputs
+                                     and not (self.preview_judging and getattr(self.plane, "hard_policy_flags", None))),
             "verified": bool(rep.ok and rep.nodes["package"].data.get("verified")),
             "gates_ok": bool(rep.ok and rep.nodes["package"].data.get("verified")),
             "scores": {"tier15": res.tier15, "tier1_ok": res.tier1_ok, **(res.scores if res else {})} if res else {},
             "cost": {"governor_usd": route.governor.spent if route else 0.0, "by_category": route.governor.by_category if route else {},
                      "receipts": route.governor.receipts() if route else [], "plane": self.plane.stats.summary(), "cache": cache, "plan": route.governor.summary() if route else None},
             "pyramid": res.to_dict() if res else None, "workdir": str(self.workdir)}
+        gov = route.governor if route else getattr(self, "_governor", None)
+        if self.token_ceiling is not None:  # token ledger: no dollar figure anywhere, every figure names its unit
+            c = rep.extras["cost"]
+            del c["governor_usd"]
+            c.update(spend_unit="tokens", price_applied=False, governor_tokens=gov.spent if gov else 0,
+                     ceiling_tokens=self.token_ceiling, max_images=self.max_images, images=gov.images_used if gov else 0)
+            c["plane"] = {**c["plane"], "cost_usd": None}
+            if c.get("cache"):
+                c["cache"] = {**c["cache"], "saved_cost_usd": None}
+        if self.preview_judging:
+            rep.extras["preview"] = preview_record(self.plane, gov, res)
+            rep.extras["needs_review"] = True
         if self.art is not None:
             rep.extras["art_direction"] = self.art.manifest_record(budget=self.budget, asset_class="prop", texture_px=self._texture_px())
         report_path = wd / "report.json"

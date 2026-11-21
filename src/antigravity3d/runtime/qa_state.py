@@ -60,11 +60,15 @@ class QAState:
     validator_ok: bool | None = None
     ts: float = 0.0
     schema: str = SCHEMA
+    preview: bool = False  # an unverified preview session; absent in older records, which are therefore never previews
 
     @property
     def export_allowed(self) -> bool:
-        return (self.validator_ok is not False and self.tier1_ok is True and EXPORT_MIN_TIER15_SCORE <= self.tier15_score <= 4.0
-                and self.verdict is not None and self.verdict.qualifies(self.revision, self.target))
+        base = (self.validator_ok is not False and self.tier1_ok is True and EXPORT_MIN_TIER15_SCORE <= self.tier15_score <= 4.0
+                and self.verdict is not None)
+        if self.preview is True:
+            return base and self.verdict.qualifies_preview(self.revision, self.target)  # type: ignore[union-attr]
+        return base and self.verdict.qualifies(self.revision, self.target)  # type: ignore[union-attr]
 
 
 def _atomic_write_json(path: Path, obj: object) -> None:
@@ -94,9 +98,11 @@ def write_qa_state(
     verdict: VisualVerdict | None = None,
     validator_ok: bool | None = None,
     workspace: Path | str | None = None,
+    preview: bool = False,
 ) -> QAState:
     """Records a QA verdict. Call from the QA tools after every Tier-1 / Tier-1.5 run."""
-    st = QAState(bool(tier1_ok), float(tier15_score), session_id, conversation_id, asset, revision, target, verdict, validator_ok, time.time())
+    st = QAState(bool(tier1_ok), float(tier15_score), session_id, conversation_id, asset, revision, target, verdict, validator_ok,
+                 time.time(), preview=bool(preview))
     qa_dir = state_root(workspace) / "qa"
     payload = asdict(st)
     for key in dict.fromkeys(k for k in (session_id, conversation_id) if k):

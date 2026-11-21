@@ -8,7 +8,7 @@ antigravity-3d turns a text prompt, or existing mesh files, into game-engine-rea
 - Every exported package is loaded in three.js under headless Chromium as a pipeline step (`web_runtime`): the GLB and its LOD files must load, match the manifest (triangles, bounds, materials, textures) and match the USD's silhouette. The step is skipped, with the reason, where no browser is installed.
 - When a real Blender worker is attached (`--blender`, `--pool-socket`, or the plugin's pool sidecar through `$AGY3D_POOL_SOCKET`), the exported GLB is also checked by a script the project did not write: `qa_check` of EL4CTEO/blender-skills (pinned commit, vendored by hash), run by the worker on the GLB with coincident vertices merged and the target engine's profile (`roblox` for Roblox, `game` otherwise). It is the pipeline step `blender_asset_qa` (and a record under `validation.blender_asset_qa` in `manifest.json`). An error from it (a floating or inverted part, z-fighting, missing UVs or materials, a Roblox mesh over 20,000 triangles) fails the step, so the run is not `ok` and not `verified`, as a failed engine import is; its warnings are kept in the manifest. Without a real worker the step is skipped with the reason and changes nothing: a fake worker's result is never counted. It runs in `agy3d prop` and in a native session's `export_engine_package`. `agy3d kit --blender PATH` (or `--pool-socket`) likewise runs that repository's `kit_check` on every piece file with the kit's grid, pivot and sheet size (node `blender_kit_check`; an error fails the kit's gates).
 - Stock Blender 5.3 supports the warm worker path over Unix IPC and shared memory. Workbench, EEVEE and CPU Cycles render regression fixtures. Godot 4 is the first target with a rendered verification path. Unreal and Unity adapters currently cover import checks. Roblox lacks a headless verifier.
-- Native Decisions access depends on the project. Interactive grading can use a generative fallback with an uncalibrated verdict. The governed prop DAG requires a native Decisions deployment for paid routing and approval. The credentialed canaries in the test suite exercise native Decisions and Nano Banana independently.
+- Native Decisions access depends on the project. A verified run needs a native Decisions deployment. On a key without it, the only live output is an unverified preview. It is judged by an uncalibrated generative fallback and bounded by your own token and image limits (see "Keys without the native Decisions API" below). The credentialed canaries in the test suite exercise native Decisions and Nano Banana independently.
 - The structured CLI author, Decisions and GenMedia report usage with provenance. Monetary estimates depend on the configured deployment rates. Studio acceptance and reconciled billing are separate inputs to the cohort benchmark.
 - Antigravity plugin installation, stage-tool registration and hook behavior have automated tests. Interactive host discovery and studio first-pass acceptance require their respective environments.
 
@@ -47,6 +47,21 @@ agy3d prop "wooden crate with iron brackets" --engine godot_4 --out out/live-cra
 ```
 
 Set `AGY3D_TEXT_RATES_JSON` to a JSON object mapping each configured text-model ID to its contracted `[input USD per million tokens, output USD per million tokens]` pair. The metered author checks the configured rate before dispatch. Standard tiers use the worker role and hero assets use the director role. Model overrides need matching rates.
+
+### Keys without the native Decisions API or text prices
+
+A key whose `decisions.create` answers 404 cannot produce a verified package. It can produce an unverified preview, judged by a generative fallback. That judge is uncalibrated: it may route, rank candidates, drive the repair rounds and fail a gate, but it never verifies, publishes or clears anything. Without configured prices, spend is bounded by two limits you state: a token ceiling, which is input plus output tokens with no price applied, and a hard image count.
+
+```bash
+agy3d prop "wooden crate with iron brackets" --preview --token-ceiling 150000 --max-images 4 --single-candidate --out out/preview-crate
+agy3d kit "ruined stone temple" --pieces 4 --token-ceiling 400000 --max-images 1 --out out/preview-kit
+```
+
+- `--token-ceiling` is the most the whole command may use. For a kit, every piece and the trim sheet draw from it. Every call reserves its worst case, in tokens, before it is sent, and books the provider's reported usage afterwards. Receipts say `"unit": "tokens", "price_applied": false`.
+- `--max-images` is required with `--token-ceiling` whenever the command can generate an image. Without `--single-candidate`, a prop's plan needs several images per material.
+- The preview's `manifest.json` says `verified: false`, `preview: true`, who judged it and what that means. The command ends with `publication: UNVERIFIED PREVIEW` and `review: required`. Exit status 0 means every other gate passed; a hard policy flag, an escalation to a person or a failed gate exits 1.
+- Without `--preview`, or with `--require-verified`, such a key is refused at start with the command to run instead. A ceiling too small for one judge call and one authoring call is also refused at start, with the smallest ceiling that can work. In both cases nothing is generated.
+- In an Antigravity session the same switch is `open_asset_session(preview=true, token_ceiling=N, max_images=M)`, or `start_preview` on an open session. The plugin asks you to approve both numbers.
 
 A headless Linux renderer needs a working display or Xvfb. A missing target renderer, a stale verdict, or a simulated judge leaves `verified` false. A successful verified run makes the package visible under the published path. Use `--pool-socket PATH` to reuse workers across CLI processes.
 
@@ -217,6 +232,7 @@ Integration markers include:
 
 ## Known limitations
 
+- Without the native Decisions API nothing is verified. A preview's judge reports probabilities that are not calibrated, and a token ceiling bounds tokens, not money: image tokens cost far more than text tokens, which is why the image count is a separate limit.
 - Contact settling is vertical only (no tilting).
 - Trim-sheet mapping distorts smooth, round shapes.
 - The preview renderer is a software rasteriser, not a PBR render.

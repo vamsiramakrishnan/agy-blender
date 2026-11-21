@@ -308,13 +308,17 @@ class CandidateOutcome:
     usage: dict[str, int] | None = None
     admission_wait_s: float = 0.0
     reserved_usd: float | None = None
+    reserved_tokens: float | None = None  # token ledgers only (then reserved_usd stays None)
 
     @property
     def produced(self) -> bool:
         return self.status == "produced"
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        if self.reserved_tokens is None:  # a money outcome keeps exactly the keys it always had
+            del d["reserved_tokens"]
+        return d
 
 
 @dataclass(frozen=True)
@@ -374,6 +378,7 @@ class MeteredAuthor:
 
     def cost_profile(self, role: str | None = None, *, asset_name: str = "asset") -> tuple[float, float] | None:
         """(expected, worst-case) USD of one propose call for sizing a best-of-N, or None when no rates are known.
+        On a token ledger the same pair in tokens (never None).
 
         Expected = mean measured output tokens (``expected_output_tokens``); worst case = the full cap, which is what
         admission reserves. Input is estimated from the request text (3 bytes per token) plus the schema bound, because
@@ -382,19 +387,22 @@ class MeteredAuthor:
         role = role or self.governor.plan.builder_role
         req = self.request(role, "propose", propose_task("x", index=0, n=1, asset_name=asset_name,
                                                           references=has_references(self.context)), asset_name=asset_name)
+        text = "".join(p.text or "" for c in req.contents for p in c.parts)
+        tokens_in = math.ceil(len(text.encode()) / 3) + schema_input_token_bound(req.schema)
+        if self.governor.unit == "tokens":  # a token ledger: the same figures in tokens, no price applied
+            return float(tokens_in + expected_output_tokens(role)), float(tokens_in + req.max_output_tokens)
         try:
             pin, pout = _rates(req.model)
         except BudgetExceeded:
             return None
-        text = "".join(p.text or "" for c in req.contents for p in c.parts)
-        tokens_in = math.ceil(len(text.encode()) / 3) + schema_input_token_bound(req.schema)
         expected = usage_cost_usd(tokens_in, expected_output_tokens(role), usd_per_m_in=pin, usd_per_m_out=pout)
         worst = usage_cost_usd(tokens_in, req.max_output_tokens, usd_per_m_in=pin, usd_per_m_out=pout)
         return expected, worst
 
     async def _generate(self, req: AuthorRequest, trace: dict[str, Any] | None = None) -> Any:
         trace = {} if trace is None else trace
-        pin, pout = _rates(req.model)
+        tokens = self.governor.unit == "tokens"  # a token ledger: worst case and booking in tokens, no price applied
+        pin, pout = (None, None) if tokens else _rates(req.model)
         api = self.client.aio.models
         counted = await api.count_tokens(model=req.model, contents=req.contents,
                                          config=types.CountTokensConfig(http_options=req.config.http_options))
@@ -405,23 +413,27 @@ class MeteredAuthor:
         input_bound = n + schema_bound
 
         def cost(inputs: int, outputs: int) -> float:
+            if tokens:
+                return float(inputs + outputs)
             return usage_cost_usd(inputs, outputs, usd_per_m_in=pin, usd_per_m_out=pout)
 
         limit = cost(input_bound, req.max_output_tokens)
         detail = (f"{req.role} ({req.model}) {req.operation}: up to {input_bound} input tokens ({n} counted + {schema_bound} "
                   f"schema bound) and {req.max_output_tokens} output tokens ({req.budget.answer_tokens} answer + "
-                  f"{req.budget.thinking_tokens} thinking) at ${pin}/${pout} per M = ${limit:.5f}")
+                  f"{req.budget.thinking_tokens} thinking) " + (f"= {limit:,.0f} tokens (no price applied)" if tokens
+                                                                  else f"at ${pin}/${pout} per M = ${limit:.5f}"))
         receipt: dict[str, Any] = {"model": req.model, "role": req.role, "counted_input_tokens": n,
                                    "schema_input_tokens_bound": schema_bound, "max_output_tokens": req.max_output_tokens,
-                                   "answer_tokens": req.budget.answer_tokens, "thinking_tokens_allowed": req.budget.thinking_tokens,
-                                   "input_usd_per_m": pin, "output_usd_per_m": pout}
+                                   "answer_tokens": req.budget.answer_tokens, "thinking_tokens_allowed": req.budget.thinking_tokens}
+        if not tokens:
+            receipt.update(input_usd_per_m=pin, output_usd_per_m=pout)
         t0 = time.monotonic()
         try:
             # Waits for outstanding reservations to settle; fails at once only when this can never fit the ceiling.
             hold = await self.governor.reserve_wait(f"author.{req.operation}", limit, receipt=receipt)
         except BudgetExceeded as e:
             raise BudgetExceeded(f"plan {self.governor.plan.label!r}: {e}; request: {detail}") from e
-        trace.update(admission_wait_s=round(time.monotonic() - t0, 3), reserved_usd=limit)
+        trace.update(admission_wait_s=round(time.monotonic() - t0, 3), **{"reserved_tokens" if tokens else "reserved_usd": limit})
         booked = None
         try:
             try:
@@ -431,7 +443,7 @@ class MeteredAuthor:
                     receipt["finish_reason"] = "TIMEOUT"
                     raise AuthorTimedOut(
                         f"{req.role} {req.operation} on {req.model}: timed out after {req.config.http_options.timeout / 1000:.0f}s "
-                        f"({type(exc).__name__}); the whole reservation ${limit:.5f} is retained", finish_reason="TIMEOUT",
+                        f"({type(exc).__name__}); the whole reservation {self.governor.fmt(limit)} is retained", finish_reason="TIMEOUT",
                         **_meta(req, None)) from exc
                 raise
             usage = usage_tokens(result)
@@ -485,9 +497,10 @@ class MeteredAuthor:
                 text = _one_line(exc) if status != "error" else f"{type(exc).__name__}: {_one_line(exc)}"
                 return None, CandidateOutcome(i, status, text, getattr(exc, "finish_reason", None),
                                               getattr(exc, "usage", None) or trace.get("usage"),
-                                              trace.get("admission_wait_s", 0.0), trace.get("reserved_usd")), exc
+                                              trace.get("admission_wait_s", 0.0), trace.get("reserved_usd"),
+                                              trace.get("reserved_tokens")), exc
             return scene, CandidateOutcome(i, "produced", "", "STOP", trace.get("usage"), trace.get("admission_wait_s", 0.0),
-                                           trace.get("reserved_usd")), None
+                                           trace.get("reserved_usd"), trace.get("reserved_tokens")), None
 
         # A cancellation of this task cancels every candidate (gather) and propagates; a candidate that itself raises a
         # non-Exception BaseException (CancelledError, KeyboardInterrupt) propagates too.

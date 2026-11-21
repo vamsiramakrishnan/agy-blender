@@ -96,7 +96,7 @@ async def make_collaborators(offline: bool, *, need_plane: bool = True, workdir:
             from antigravity3d.decisions.engine import DecisionControlPlane
 
             plane = DecisionControlPlane(client)
-        notes.append(f"decision backend: {plane.backend_kind}" + ("" if plane.calibrated else " (UNCALIBRATED: cannot auto-approve)"))
+        notes.append(f"decision backend: {plane.backend_kind}" + ("" if plane.calibrated else " (UNCALIBRATED: can judge only an unverified preview)"))
     forge = ImageForge(client=client)
     author, note = best_author(client=client, plane=plane, forge=forge, workdir=workdir)
     notes.append(note)
@@ -114,6 +114,73 @@ def _print_gate(ok: bool, why: str = "") -> int:
     return 0 if ok else 1
 
 
+# --------------------------------------------------------------------------- start-up checks (before any model call)
+
+
+def _text_prices_configured() -> bool:
+    """True when some authoring role's model has configured text prices (AGY3D_TEXT_RATES_JSON or the price table)."""
+    from antigravity3d.models import tier
+    from antigravity3d.tactics.governor import BudgetExceeded
+    from antigravity3d.tactics.metered_author import _rates
+
+    for role in ("worker", "bulk", "builder", "director"):
+        try:
+            _rates(tier(role).model)  # type: ignore[arg-type]
+            return True
+        except BudgetExceeded:
+            continue
+    return False
+
+
+def _bound_author(author: Any, a: argparse.Namespace) -> Any:
+    """The live author bound to a throwaway token ledger, only to ask it for its worst case (nothing is called)."""
+    from antigravity3d.tactics.authoring import AgentAuthor
+    from antigravity3d.tactics.governor import Governor, plan_for
+
+    if not isinstance(author, AgentAuthor):
+        return author
+    return author.bind(Governor(plan_for(1), token_ceiling=a.token_ceiling), _budget(a), {})
+
+
+def preflight_prop(a: argparse.Namespace, plane: Any, author: Any, strict: bool) -> Any:
+    """Refuse at start, with what is missing and what to run instead, every live run that would be refused later
+    anyway; return the plane the run uses (the preview copy when an uncalibrated judge will judge a preview)."""
+    from antigravity3d.tactics.token_plan import author_worst_tokens, judge_worst_tokens, plan_lines
+
+    if a.offline:
+        return plane
+    quoted = json.dumps(a.prompt)
+    uncalibrated = plane is not None and not plane.calibrated
+    if uncalibrated and strict:
+        raise CliError("the native Decisions API is not available on this key (decisions.create answered 404 or permission "
+                       "denied), and a verified run needs it: nothing was generated. For an UNVERIFIED preview judged by the "
+                       "generative fallback (uncalibrated), run: "
+                       f"agy3d prop {quoted} --preview --token-ceiling N --max-images M --out {a.out}")
+    if a.token_ceiling is None:
+        if uncalibrated:
+            raise CliError("a preview judged by the generative fallback (uncalibrated) has no price to bound its judge in "
+                           "dollars: pass your own --token-ceiling N and --max-images M (nothing was generated)")
+        from antigravity3d.tactics.authoring import AgentAuthor
+
+        if isinstance(author, AgentAuthor) and not _text_prices_configured():  # the metered author would refuse every call
+            raise CliError("no text prices are configured (AGY3D_TEXT_RATES_JSON) for any authoring model, so live authoring "
+                           "cannot be bounded in dollars: pass your own --token-ceiling N and --max-images M to bound the "
+                           "run in tokens and images instead (nothing was generated)")
+        return plane
+    if a.max_images is None:
+        lines = "; ".join(plan_lines(single_candidate=a.single_candidate, max_rounds=a.max_rounds))
+        raise CliError("--token-ceiling needs --max-images: a token says almost nothing about what an image costs. With these "
+                       f"flags the router's plans need: {lines}. Pass --max-images M"
+                       + ("" if a.single_candidate else " (--single-candidate needs the fewest images: 1 blueprint + 1 per material)"))
+    judge, writer = judge_worst_tokens(plane), author_worst_tokens(_bound_author(author, a))
+    need = max(judge, writer)
+    if a.token_ceiling < need:
+        raise CliError(f"--token-ceiling {a.token_ceiling:,} cannot admit this run's calls: one judge call can bill up to "
+                       f"{judge:,} tokens and one authoring call up to {writer:,}; the smallest ceiling that can admit them "
+                       f"is {need:,} tokens (nothing was generated)")
+    return plane.preview_copy() if uncalibrated and not strict else plane
+
+
 # --------------------------------------------------------------------------- commands
 
 
@@ -125,9 +192,14 @@ async def cmd_prop(a: argparse.Namespace) -> int:
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     strict = a.require_verified if a.require_verified is not None else not a.offline
+    if a.token_ceiling is None and a.max_images is not None:
+        raise CliError("--max-images applies to a token-limited run: pass --token-ceiling N with it")
     if not a.offline and not os.environ.get("GEMINI_API_KEY"):
         raise CliError("GEMINI_API_KEY is not set (use --offline to run on the fakes)")
     async with AsyncExitStack() as stack:
+        # The backend probe and the start-up checks come first: a run that would be refused does not start Blender.
+        plane, forge, author, notes = await make_collaborators(a.offline, workdir=out / "agent")
+        plane = preflight_prop(a, plane, author, strict)  # refuses here, before any model call, what would fail later
         pool = None
         if a.pool_socket:
             from antigravity3d.runtime.worker_daemon import PoolClient
@@ -137,15 +209,17 @@ async def cmd_prop(a: argparse.Namespace) -> int:
             from antigravity3d.adapters.blender_5_3.pool import BlenderPool
 
             pool = await stack.enter_async_context(BlenderPool(1, blender_bin=a.blender))
-        plane, forge, author, notes = await make_collaborators(a.offline, workdir=out / "agent")
         cache = None if a.no_cache else BuildCache(LocalBlobStore(out / ".agy3d-cache"))
         dag = PropToEngineDAG(
             plane=plane, forge=forge, author=author, workdir=out, budget=_budget(a), pool=pool,
             cache=cache, style_anchor=a.style, fixlog=FixLog.for_prop(out), max_rounds=a.max_rounds,
             require_verified=strict, single_candidate=a.single_candidate, art_direction=a.art_direction,
+            **({"token_ceiling": a.token_ceiling, "max_images": a.max_images} if a.token_ceiling is not None else {}),
         )
         rep = await dag.run(a.prompt)
     x = rep.extras
+    if (rn := rep.nodes.get("route")) is not None and (rn.error or "").startswith("ImageLimitRefused"):
+        raise CliError(rn.error.split(": ", 1)[1])  # the whole refusal, with its numbers (the summary line truncates)
     print(f"agy3d prop: {a.prompt!r} -> {a.engine}")
     for n in notes:
         print(f"  {n}")
@@ -159,8 +233,13 @@ async def cmd_prop(a: argparse.Namespace) -> int:
     sc = x.get("scores") or {}
     print("scores: " + (f"tier15={sc.get('tier15', 0):.2f} tier1={'OK' if sc.get('tier1_ok') else 'FAIL'} " + " ".join(f"{k[6:]}={v:.2f}" for k, v in sc.items() if k.startswith("score_")) if sc else "n/a"))
     c = x["cost"]
-    cs = f" cache hits={c['cache']['hits']} misses={c['cache']['misses']} saved=${c['cache']['saved_cost_usd']:.2f}/{c['cache']['saved_ms']:.0f}ms" if c.get("cache") else ""
-    print(f"cost: governor(est) ${c['governor_usd']:.4f} | decisions plane ${c['plane']['cost_usd']:.6f} over {c['plane']['calls']} calls | {c['plan']}{cs}")
+    if c.get("spend_unit") == "tokens":  # no price applied: tokens and images only, never a dollar sign
+        cs = f" cache hits={c['cache']['hits']} misses={c['cache']['misses']}" if c.get("cache") else ""
+        print(f"spend (tokens, no price applied): {c['plan']} | decisions plane {c['plane']['calls']} calls, "
+              f"{c['plane']['input_tokens']:,} input + {c['plane']['output_tokens']:,} output tokens{cs}")
+    else:
+        cs = f" cache hits={c['cache']['hits']} misses={c['cache']['misses']} saved=${c['cache']['saved_cost_usd']:.2f}/{c['cache']['saved_ms']:.0f}ms" if c.get("cache") else ""
+        print(f"cost: governor(est) ${c['governor_usd']:.4f} | decisions plane ${c['plane']['cost_usd']:.6f} over {c['plane']['calls']} calls | {c['plan']}{cs}")
     print("outputs:")
     for k, v in x["outputs"].items():
         print(f"  {k}: {v}")
@@ -172,11 +251,24 @@ async def cmd_prop(a: argparse.Namespace) -> int:
         for w in warned:
             print(f"  - {w['name']}: {w['detail']}")
     failed = [n.name for n in rep.nodes.values() if n.status == "failed"]
-    print("publication: " + ("published and verified" if x["published"] else "qualified preview" if x["verified"] else "unverified"))
     if strict:
+        print("publication: " + ("published and verified" if x["published"] else "qualified preview" if x["verified"] else "unverified"))
         return _print_gate(x["gates_ok"], f"failed nodes: {failed}" if failed else "verified publication required")
+    if pv := x.get("preview"):  # judged by an uncalibrated judge: the last lines say so
+        print(f"publication: UNVERIFIED PREVIEW (verified=false; judged by {pv['judge']['label']})")
+        print(f"  judge: {pv['judge']['meaning']}")
+        print("review: required (the judge is uncalibrated; a person must review this package before any use)")
+    else:
+        print("publication: " + ("published and verified" if x["published"] else "qualified preview" if x["verified"] else "unverified"))
     print(f"preview gates: {'PASS' if x['preview_gates_ok'] else 'FAIL'}")
     return 0 if x["preview_gates_ok"] else 1
+
+
+def _count(text: str) -> int:
+    n = int(text)
+    if n < 0:
+        raise argparse.ArgumentTypeError("must be at least 0")
+    return n
 
 
 def _positive_int(text: str) -> int:
@@ -217,7 +309,10 @@ async def cmd_kit(a: argparse.Namespace) -> int:
         metric = KitMetric.parse(getattr(a, "metric", None))
     except ValueError as e:
         raise CliError(str(e)) from e
+    if a.token_ceiling is None and a.max_images is not None:
+        raise CliError("--max-images applies to a token-limited kit: pass --token-ceiling N with it")
     _, forge, author, notes = await make_collaborators(a.offline, need_plane=False)
+    limits = {"token_ceiling": a.token_ceiling, "max_images": a.max_images} if a.token_ceiling is not None else {}
     try:
         async with AsyncExitStack() as stack:
             pool = None
@@ -230,7 +325,7 @@ async def cmd_kit(a: argparse.Namespace) -> int:
 
                 pool = await stack.enter_async_context(BlenderPool(1, blender_bin=a.blender))
             rep = await EnvironmentKitDAG(forge=forge, author=author, workdir=Path(a.out), budget=_budget(a), sheet_resolution=1024 if a.offline else 4096,
-                                          art_direction=a.art_direction, metric=metric, pool=pool).run(a.prompt, a.pieces, a.splat)
+                                          art_direction=a.art_direction, metric=metric, pool=pool, **limits).run(a.prompt, a.pieces, a.splat)
     except BudgetExceeded as e:  # live authoring is admitted against a ceiling; a missing price is a refusal, not a crash
         raise CliError(str(e)) from e
     x = rep.extras
@@ -240,7 +335,10 @@ async def cmd_kit(a: argparse.Namespace) -> int:
     _print_art(a.art_direction)
     print(rep.summary())
     sp = x["spend"]
-    print(f"spend: {sp['summary']} (kit ceiling = ${sp['per_asset_ceiling_usd']:.2f} x ({a.pieces} pieces + 1 trim sheet))")
+    if sp.get("unit") == "tokens":
+        print(f"spend (tokens, no price applied): {sp['summary']} ({sp['rule']})")
+    else:
+        print(f"spend: {sp['summary']} (kit ceiling = ${sp['per_asset_ceiling_usd']:.2f} x ({a.pieces} pieces + 1 trim sheet))")
     bad = [o for o in x["authoring"]["pieces"] if o["status"] != "produced"]
     for o in bad:
         print(f"  piece #{o['index']} {o['piece']}: {o['status']}" + (f" ({o['detail']})" if o["detail"] else ""))
@@ -361,6 +459,13 @@ def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="agy3d", description="antigravity-3d: layered agentic 3D & game-asset pipelines")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
+    def limits(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--token-ceiling", type=_positive_int, default=None, metavar="N",
+                       help="the most tokens (input + output, thinking included) the whole command may use; spend is then "
+                            "counted in tokens and no price is applied (for keys without configured prices)")
+        p.add_argument("--max-images", type=_count, default=None, metavar="M",
+                       help="the most images the command may generate; required with --token-ceiling")
+
     def common(p: argparse.ArgumentParser, out: bool = True) -> None:
         p.add_argument("--engine", choices=ENGINES, default="unreal_5")
         p.add_argument("--max-tris", type=int, default=None, help="triangle budget (default: engine budget default)")
@@ -388,6 +493,7 @@ def build_parser() -> argparse.ArgumentParser:
                              help="build a review candidate without requiring publication (default for --offline)")
     p.add_argument("--single-candidate", action="store_true",
                    help="use one candidate per tournament for matched baseline measurement")
+    limits(p)
     p.set_defaults(fn=cmd_prop)
 
     p = sub.add_parser("sanitize", help="batch-repair meshes (GLB/OBJ/PLY/STL/USD)")
@@ -412,6 +518,7 @@ def build_parser() -> argparse.ArgumentParser:
     worker.add_argument("--blender", metavar="PATH", help="start a warm worker with this Blender executable (adds the blender_kit_check node)")
     worker.add_argument("--pool-socket", metavar="PATH", help="connect to a running Blender sidecar")
     p.add_argument("--art-direction", type=_art_direction, default=None, metavar="ID", help="named art direction (see skills/art-direction)")
+    limits(p)
     p.set_defaults(fn=cmd_kit)
 
     p = sub.add_parser("variants", help="look variants (pristine/muddy/snow_dusted/battle_scarred) as a USD variant set")

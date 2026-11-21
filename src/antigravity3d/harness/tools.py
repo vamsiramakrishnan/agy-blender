@@ -31,6 +31,7 @@ from antigravity3d.adapters.engines.validators import (
     blender_frame_png,
     silhouette_iou,
 )
+from antigravity3d.decisions.models import DecisionBudgetError
 from antigravity3d.decisions.compose import (
     Action,
     decide_action,
@@ -69,6 +70,9 @@ MANIFEST_CAP = 1500
 TOOLSET_STAGE = {"BLOCKOUT": "BLOCKOUT", "TWEAK": "BLOCKOUT", "VARIANTS": "BLOCKOUT", "LOOKDEV": "LOOKDEV", "EXPORT": "EXPORT"}
 QA_STAGE = {"ROUTE": "blockout", "BLOCKOUT": "blockout", "LOOKDEV": "lookdev", "EXPORT": "final", "DONE": "final"}
 MAP_KEYS = ("albedo_uri", "orm_uri", "normal_uri")
+# The remedy a session without the native Decisions API names (open result, run_visual_qa, export refusal).
+PREVIEW_SWITCH = ("ask the user whether they want an unverified preview and for their two limits (a token ceiling and an "
+                  "image limit), then call start_preview with them; the scene is kept")
 
 ToolFn = Callable[..., Awaitable[str]]
 
@@ -123,8 +127,14 @@ def export_block_reason(state: AssetSessionState) -> str | None:
         missing.append("a passing Tier-1 QA (last edit failed or none yet)")
     if not EXPORT_MIN_TIER15_SCORE <= state.last_tier15_score <= 4.0:
         missing.append(f"tier15>={EXPORT_MIN_TIER15_SCORE} (have {state.last_tier15_score:.2f}; run run_visual_qa after the last edit)")
+    if state.preview:
+        if not state.verdict or not state.verdict.qualifies_preview(state.revision, state.budget.target_engine):
+            missing.append("an approving lookdev/final visual QA verdict on the current revision")
+        return "PREVIEW export blocked: needs " + " and ".join(missing)
     if not state.verdict or not state.verdict.qualifies(state.revision, state.budget.target_engine):
         missing.append("current lookdev/final approval from Decisions on an EEVEE/Cycles render")
+        if state.verdict is not None and state.verdict.backend != "decisions":
+            missing.append(f"(the judge is not the native Decisions API: {PREVIEW_SWITCH})")
     return "export blocked: needs " + " and ".join(missing)
 
 
@@ -356,7 +366,12 @@ async def run_visual_qa(ctx: ToolContext) -> str:
         s.state.verdict = None
         s.persist_qa()
         target = s.state.budget.target_engine
-    prev, res, t15, action = await _visual_qa(s)
+    try:
+        prev, res, t15, action = await _visual_qa(s)
+    except DecisionBudgetError as e:
+        if s.plane is not None and not s.plane.calibrated and not s.state.preview:
+            raise RuntimeError(f"visual QA refused: the native Decisions API is not available on this key; {PREVIEW_SWITCH}") from None
+        raise
     async with s.registry.locked(s.sid):
         if (s.geom_version != prev.geom_version or s._res("visual_qa_attempt") != attempt
                 or target != s.state.budget.target_engine or action.stage != QA_STAGE.get(s.state.active_stage)):
@@ -364,8 +379,11 @@ async def run_visual_qa(ctx: ToolContext) -> str:
         if prev.kind in {"eevee", "cycles"} and prev.texture_hash != s.texture_digest():
             return "STALE: material files changed since the render; render again"
         source = res.result.source if res.result.calibrated else "uncalibrated"
+        # A preview may be judged on a clay render, which carries no texture hash: pin the material files as they are
+        # now, so export still refuses if they change after this verdict.
+        texture_hash = prev.texture_hash or (s.texture_digest() if s.state.preview else "")
         s.set_tier15(t15, VisualVerdict(s.state.revision, target, action.stage, prev.kind,
-                                      source, action.kind, prev.texture_hash), prev)
+                                      source, action.kind, texture_hash), prev)
         delta = action.audit_delta()
         s.state.add_audit_delta(delta)
         fix = await _auto_fix(s, action) if action.kind == "auto_fix" else ""
@@ -486,7 +504,8 @@ async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, ca
         raise RuntimeError(f"no candidate generated: {results[0]}")
     uris = await asyncio.gather(*(s.forge.upload(g.png_bytes) for g in gens))
     scores = await s.plane.rank_candidates("pbr", uris, governor=s.governor)
-    allowed = [v for v in scores if not v.blocked and not v.error and v.result and v.result.calibrated]
+    # An uncalibrated ranking counts only in a preview session (the plane's preview copy); it never clears policy.
+    allowed = [v for v in scores if not v.blocked and not v.error and v.result and (v.result.calibrated or s.plane.preview)]
     if not allowed:
         reasons = sorted({r for v in scores if v.policy for r in v.policy.reasons})
         return f"BLOCKED: all candidates failed the policy gate ({', '.join(reasons)[:100] or 'review required'})"
@@ -691,6 +710,22 @@ async def _validate_snapshot(s: Session, path: Path) -> str:
     return f"{fmt('USD', usd)} | {fmt(s.state.budget.target_engine, eng)}"[:300]
 
 
+async def _blender_asset_qa(s: Session, pkg: Any, glb: Path) -> str | None:
+    """The Blender-side check of the shipped GLB (``upstream_checks.asset_qa``): independent of the target engine and of
+    whoever judged the asset, so a verified export and a preview export both run it. Returns the refusal when it fails;
+    otherwise records the result in the manifest. Without a real worker it is recorded as skipped, never as passed."""
+    from antigravity3d.adapters.blender_5_3 import upstream_checks
+
+    try:
+        status, detail, data = await upstream_checks.asset_qa(s.pool, str(glb), s.state.budget.target_engine)
+    except Exception as e:  # noqa: BLE001 - a worker that errors is a failed check, as for the engine import
+        status, detail, data = "failed", f"{type(e).__name__}: {e}"[:300], {}
+    if status == "failed":
+        return f"blender_asset_qa: {detail}"
+    pkg.data["validation"]["blender_asset_qa"] = {"status": status, "detail": detail, **data}
+    return None
+
+
 async def _verify_engine(s: Session, pkg: Any, asset: str) -> str | None:
     from antigravity3d.adapters.engines.validators import validator_for
 
@@ -707,14 +742,8 @@ async def _verify_engine(s: Session, pkg: Any, asset: str) -> str | None:
         return f"{smoke.engine} import: {' '.join((smoke.skipped_reason or smoke.log_tail).split())[-160:]}"
     if issue := smoke.geometry_issue(pkg.data):
         return issue
-    from antigravity3d.adapters.blender_5_3 import upstream_checks
-
-    try:  # independent of the engine: a second opinion on the shipped GLB; skipped (recorded, never passed) without a real worker
-        qa_status, qa_detail, qa_data = await upstream_checks.asset_qa(s.pool, str(glb), s.state.budget.target_engine)
-    except Exception as e:  # noqa: BLE001 - a worker that errors is a failed check, as for the engine import
-        qa_status, qa_detail, qa_data = "failed", f"{type(e).__name__}: {e}"[:300], {}
-    if qa_status == "failed":
-        return f"blender_asset_qa: {qa_detail}"
+    if refusal := await _blender_asset_qa(s, pkg, glb):
+        return refusal
     image_path = pkg.out_dir / "engine.png"
     capture = await validator.capture(glb, image_path)
     if not capture.ok:
@@ -732,7 +761,6 @@ async def _verify_engine(s: Session, pkg: Any, asset: str) -> str | None:
         pkg.data["files"].append(name)
         pkg.data["file_hashes"][name] = {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
     pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": True, "metrics": smoke.metrics, "bounds_m": smoke.bounds_m}
-    pkg.data["validation"]["blender_asset_qa"] = {"status": qa_status, "detail": qa_detail, **qa_data}
     pkg.data["validation"]["engine_parity"] = {"ok": True, "silhouette_iou": overlap, "scores": parity.scores}
     return None
 
@@ -765,7 +793,11 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
             if not pkg.ok:
                 crit = [i.code for i in pkg.issues if i.severity == "critical"]
                 return f"REFUSED package validation failed: {', '.join(dict.fromkeys(crit))[:140]}"
-            if reason := await _verify_engine(s, pkg, asset):
+            if st.preview:
+                if reason := await _preview_engine_import(s, pkg, asset):
+                    return f"REFUSED {reason}"
+                pkg.data.update(preview_label(s))
+            elif reason := await _verify_engine(s, pkg, asset):
                 return f"REFUSED {reason}"
             (candidate / "manifest.json").write_text(json.dumps(pkg.data, indent=1), encoding="utf-8")
             if st.verdict.texture_hash != s.texture_digest():
@@ -773,8 +805,44 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
                 return "REFUSED material files changed during package validation"
             publish_directory(candidate, out)
         s.set_last_export(out)
-    return (f"EXPORTED {name}: usd+glb, {pkg.n_lod_files} LOD glbs, {len(b.colliders)} UCX hulls, "
-            f"{len(pkg.data['textures'])} maps, manifest.json | pkg ok")
+    head = f"EXPORTED PREVIEW {name} (UNVERIFIED; judged by {pkg.data['judge']['label']})" if st.preview else f"EXPORTED {name}"
+    return (f"{head}: usd+glb, {pkg.n_lod_files} LOD glbs, {len(b.colliders)} UCX hulls, "
+            f"{len(pkg.data['textures'])} maps, manifest.json | pkg ok" + (f" | spend {s.governor.summary()}" if st.preview else ""))
+
+
+def preview_label(s: Session) -> dict[str, Any]:
+    """What a preview package's manifest says about itself: never verified, who judged it and what that means."""
+    from antigravity3d.decisions.engine import UNCALIBRATED_MEANING
+
+    plane = s.plane
+    return {"verified": False, "preview": True,
+            "judge": {"label": plane.judge_label if plane is not None else "none",
+                      "calibrated": bool(plane is not None and plane.calibrated),
+                      "meaning": UNCALIBRATED_MEANING if plane is not None and not plane.calibrated
+                      else "a preview is never verified, whoever judged it"},
+            "spend": {"unit": s.governor.unit, "summary": s.governor.summary()}}
+
+
+async def _preview_engine_import(s: Session, pkg: Any, asset: str) -> str | None:
+    """A preview export runs the target engine's headless import when it can: a failed import refuses the package, an
+    unavailable importer is recorded. Engine parity is not checked (it would need the native judge)."""
+    from antigravity3d.adapters.engines.validators import validator_for
+
+    glb = pkg.out_dir / f"{asset}.glb"
+    if refusal := await _blender_asset_qa(s, pkg, glb):  # a geometry check: it does not depend on who judged the asset
+        return refusal
+    smoke = await validator_for(s.state.budget.target_engine).validate(glb)
+    if smoke.skipped:
+        pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": None,
+                                                   "skipped": smoke.skipped_reason or "importer unavailable"}
+        return None
+    if not smoke.ok:
+        return f"{smoke.engine} import: {' '.join(smoke.log_tail.split())[-160:]}"
+    if issue := smoke.geometry_issue(pkg.data):
+        return issue
+    pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": True, "metrics": smoke.metrics, "bounds_m": smoke.bounds_m}
+    pkg.data["validation"]["engine_parity"] = {"ok": None, "skipped": "preview: parity needs the native Decisions API"}
+    return None
 
 
 @_guard

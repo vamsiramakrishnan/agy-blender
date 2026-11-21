@@ -27,7 +27,7 @@ from antigravity3d.plugin_install import bundle_dir
 from test_harness_tools import CRATE, box
 
 # Session-level tools, listed whatever the stage: session management plus the inspector MCP App's model tools.
-MANAGEMENT = {"open_asset_session", "set_stage", "session_status", "list_sessions", "open_inspector", "review_notes"}
+MANAGEMENT = {"open_asset_session", "start_preview", "set_stage", "session_status", "list_sessions", "open_inspector", "review_notes"}
 # The inspector MCP App's app-only tools: listed (the host needs their _meta) but hidden from the model.
 APP_ONLY = {"inspector_payload", "inspector_qa_state", "inspector_list_notes", "inspector_save_note"}
 ALWAYS = MANAGEMENT | APP_ONLY

@@ -225,7 +225,17 @@ def qa_state(s: Session) -> dict[str, Any]:
         "audit_deltas": list(st.audit_deltas),
         "defects": {},
         "stage": s.toolset,
+        **(_preview_fields(s) if st.preview else {}),
     }
+
+
+def _preview_fields(s: Session) -> dict[str, Any]:
+    """A preview session's QA panel says what it is. The built panel renders the audit list, so the label leads it;
+    the structured fields are there for any client."""
+    label = s.plane.judge_label if s.plane is not None else "none"
+    line = f"PREVIEW (UNVERIFIED): judged by {label}; an export is labelled verified=false and needs a person's review"
+    return {"preview": True, "verified": False, "judge": label, "spend": s.governor.summary(),
+            "audit_deltas": [line, *s.state.audit_deltas]}
 
 
 def _result(text: str, structured: dict[str, Any] | None = None, *, error: bool = False) -> CallToolResult:
@@ -321,7 +331,7 @@ class InspectorService:
                        "colliders": len(p["colliders"]), "textured_materials": len(textured), "glb_bytes": p["glb"]["bytes"],
                        "scene_chunks": max(1, -(-len(v.scene) // CHUNK_CHARS))},
             "notes": notes,
-            "qa": {k: qa[k] for k in ("tier1_ok", "tier15_score", "export_allowed")},
+            "qa": {k: qa[k] for k in ("tier1_ok", "tier15_score", "export_allowed", "preview", "judge") if k in qa},
             "view": directives,
         }
         shown = " ".join(f"{k}={'*' if val is None else val}" for k, val in directives.items())
@@ -370,7 +380,7 @@ class InspectorService:
         s = self._session(session_id)
         v = await self._view(s)
         qa = qa_state(s)
-        return _result(f"QA tier1={'ok' if qa['tier1_ok'] else 'fail'} tier15={qa['tier15_score']} "
+        return _result(("PREVIEW (UNVERIFIED) " if qa.get("preview") else "") + f"QA tier1={'ok' if qa['tier1_ok'] else 'fail'} tier15={qa['tier15_score']} "
                        f"export={'allowed' if qa['export_allowed'] else 'blocked'} rev={v.revision}",
                        {"session_id": s.sid, "revision": v.revision, "qa": qa})
 

@@ -317,6 +317,37 @@ async def test_native_export_is_refused_when_the_worker_reports_errors(tmp_path,
     assert stub.calls and stub.calls[0][1]["weld"] is True and stub.calls[0][1]["path"].endswith("Crate.glb")
 
 
+async def test_a_preview_export_runs_the_same_check_before_the_engine_import(tmp_path, monkeypatch):
+    # An unverified preview is exported through its own engine step (no parity, any judge); the Blender check is about
+    # the file, not the judge, so it runs there too: refused on errors, recorded as skipped without a real worker.
+    from types import SimpleNamespace
+
+    from antigravity3d.adapters.engines import validators
+    from antigravity3d.harness import tools as T
+
+    asked = []
+
+    class NoImporter:
+        async def validate(self, glb):
+            asked.append(str(glb))
+            return SimpleNamespace(skipped=True, skipped_reason="no importer here", engine="godot_4", ok=False)
+
+    monkeypatch.setattr(validators, "validator_for", lambda engine: NoImporter())
+    (tmp_path / "Crate.glb").write_bytes(b"glTF")
+    state = SimpleNamespace(budget=SimpleNamespace(target_engine="godot_4"))
+
+    stub = Stub({"ok": True, "pass": False, "errors": ["body: floating/detached part in body"], "warnings": [], "objects": {"Batch_0": {"tris": 24}}})
+    pkg = SimpleNamespace(out_dir=tmp_path, data={"validation": {}})
+    reason = await T._preview_engine_import(SimpleNamespace(pool=stub, state=state), pkg, "Crate")
+    assert reason.startswith("blender_asset_qa:") and "floating/detached part" in reason
+    assert not asked and "blender_asset_qa" not in pkg.data["validation"], "refused before the engine import, nothing recorded"
+
+    pkg = SimpleNamespace(out_dir=tmp_path, data={"validation": {}})
+    assert await T._preview_engine_import(SimpleNamespace(pool=None, state=state), pkg, "Crate") is None
+    assert pkg.data["validation"]["blender_asset_qa"]["status"] == "skipped" and "no Blender pool" in pkg.data["validation"]["blender_asset_qa"]["detail"]
+    assert pkg.data["validation"]["engine_import"]["skipped"] == "no importer here" and asked == [str(tmp_path / "Crate.glb")]
+
+
 @pytest.mark.blender
 @needs_blender
 async def test_native_export_of_a_crate_passes_the_check_with_a_real_worker(tmp_path, monkeypatch, blender_pool):

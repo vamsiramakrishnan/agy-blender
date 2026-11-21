@@ -46,13 +46,13 @@ from antigravity3d.kernel.som import marked_contact_sheet
 from antigravity3d.kernel.validator import check_engine_compliance, engine_texture_px, validate_usd
 from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, EngineBudget
 from antigravity3d.tactics.cached import cached_export_pipeline
-from antigravity3d.tactics.common import IMAGE_USD, Uploader, png_bytes, uploader_for
+from antigravity3d.tactics.common import QA_TOKENS_EST, Uploader, png_bytes, uploader_for
 from antigravity3d.tactics.distill import FixLog, FixRecord
 from antigravity3d.tactics.governor import BudgetExceeded, Governor
 from antigravity3d.tactics import reviewed_rules
 from antigravity3d.kernel.package import write_engine_package
 from antigravity3d.tactics.package import merged_lods
-from antigravity3d.tactics.tournament import GRADE_USD_EST, PBRTournamentResult, pbr_tournament
+from antigravity3d.tactics.tournament import PBRTournamentResult, image_est, pbr_tournament
 
 EPS = 1e-9
 LOOKDEV_ROUNDS = 3
@@ -111,6 +111,7 @@ class PyramidResult:
     artifacts: dict[str, str] = field(default_factory=dict)  # name -> path / uri
     objects: dict[str, Any] = field(default_factory=dict)  # live objects (bundle, meshes, maps); not serialised
     author_calls: int = 0
+    unit: str = "usd"  # the ledger's unit; on a token ledger no dollar figure exists and cost_usd is written as null
 
     engine_truth_required: bool = False
     live_lookdev: bool = False
@@ -142,12 +143,16 @@ class PyramidResult:
     def summary(self) -> str:
         r = "; ".join(f"{t.stage}{t.n}:{t.action}{'(rolled back)' if t.rolled_back else ''} t15={t.tier15:.2f}" for t in self.rounds)
         st = ", ".join(f"{s.name}={s.status}" for s in self.steps)
-        return f"pyramid[{self.asset}] ok={self.ok} tier={self.render_tier} cost=${self.cost_usd:.4f} | {r} | {st}"
+        cost = f"${self.cost_usd:.4f}" if self.unit == "usd" else "n/a (token ledger)"
+        return f"pyramid[{self.asset}] ok={self.ok} tier={self.render_tier} cost={cost} | {r} | {st}"
 
     def to_dict(self) -> dict[str, Any]:
         d = {k: getattr(self, k) for k in ("asset", "stopped", "converged", "render_tier", "cost_usd", "tier1_ok", "tier15", "scores",
                                            "defects", "needs_review", "artifacts", "author_calls", "audit", "ok", "verified", "live_lookdev", "live_parity", "engine_truth_required")}
         d["rounds"] = [vars(r) for r in self.rounds]
+        if self.unit != "usd":  # no price applied: no dollar figure (a token number never goes into a *_usd key)
+            d.update(cost_usd=None, spend_unit=self.unit)
+            d["rounds"] = [{**r, "cost_usd": None} for r in d["rounds"]]
         d["steps"] = [vars(s) for s in self.steps]
         d["fix_records"] = [vars(f) for f in self.fix_records]
         d["skipped"] = [{"step": n, "reason": r} for n, r in self.skipped]
@@ -166,7 +171,7 @@ async def synthesize_materials(
     ``brief``: an art direction's texture brief, appended to every material prompt ('' appends nothing)."""
     size = size or default_texture_px(forge)
     k = max(1, len(scene.materials))
-    n = governor.candidates("pbr", unit_cost=k * (IMAGE_USD["albedo"] + GRADE_USD_EST))
+    n = governor.candidates("pbr", unit_cost=k * image_est(governor, "albedo"), images_each=k)
     outs = await asyncio.gather(*(pbr_tournament(
         f"{prompt}: {m.id} surface" + (f". {brief}" if brief else ""), forge, plane=plane, governor=governor, material_id=m.id, metallic_hint=m.metallic,
         uploader=uploader, n=n, size=size, cache=cache, concurrency=concurrency) for m in scene.materials))
@@ -249,7 +254,8 @@ class _Run:
     def __init__(self, sm: Any, **kw: Any) -> None:
         self.sm = sm
         self.__dict__.update(kw)
-        self.res = PyramidResult(asset=sm.asset_prim.GetName(), engine_truth_required=self.require_verified or self.governor.plan.engine_truth)
+        self.res = PyramidResult(asset=sm.asset_prim.GetName(), engine_truth_required=self.require_verified or self.governor.plan.engine_truth,
+                                 unit=getattr(self.governor, "unit", "usd"))
         self.maps: dict[str, PBRMaps] = {}
         self.render_png: bytes | None = None
         self.locate_noted = False
@@ -444,7 +450,7 @@ class _Run:
             if rnd == self.max_rounds:
                 res.stopped["A"] = "rounds exhausted"
                 return
-            if not self.governor.can_afford(QA_EST_USD):
+            if not self.governor.can_afford(self.governor.est(usd=QA_EST_USD, tokens=QA_TOKENS_EST)):
                 res.stopped["A"] = "budget exhausted"
                 return
             before = dict(n_crit=_crit(t1), t15=q.t15, tier1_ok=t1.ok, scores=dict(q.result.scores), defects=dict(q.result.defects))
@@ -463,7 +469,7 @@ class _Run:
                     res.stopped["A"] = f"auto_fix reground: {why}"
                     return
             else:
-                if q.action.kind == "escalate_director" and not self.governor.may_escalate_to_director(QA_EST_USD):
+                if q.action.kind == "escalate_director" and not self.governor.may_escalate_to_director(self.governor.est(usd=QA_EST_USD, tokens=QA_TOKENS_EST)):
                     res.stopped["A"] = "escalate_director not permitted by spend plan"
                     return
                 patch, failed = await self.author_repair(q, located)
@@ -759,7 +765,8 @@ class _Run:
             r = await fn(await self.upload(png_bytes(rep.pair_sheet())), len(rep.transitions), governor=self.governor)
             self.res.cost_usd += r.result.booked_usd
             reasons = lod_pop_reasons(r, self.th)
-            return ("passed", "all LOD pairs imperceptible") if lod_pop_ok(r, self.th) else ("failed", "; ".join(reasons[:3]))
+            judged = "" if r.result.calibrated else " (judged by the generative fallback, uncalibrated: not verification)"
+            return ("passed", "all LOD pairs imperceptible" + judged) if lod_pop_ok(r, self.th) else ("failed", "; ".join(reasons[:3]))
 
         await self.guarded("lod_pop_vision", pop_vision)
 
@@ -880,7 +887,7 @@ class _Run:
             if not engine_parity_ok(r, self.th):
                 return "failed", "; ".join(engine_parity_reasons(r, self.th)[:3])
             res.live_parity = bool(r.result.calibrated and r.result.source == "decisions" and "engine_render" in res.artifacts)
-            return "passed", "engine matches DCC"
+            return "passed", "engine matches DCC" + ("" if r.result.calibrated else " (judged by the generative fallback, uncalibrated: not verification)")
 
         await self.guarded("engine_parity", parity)
 

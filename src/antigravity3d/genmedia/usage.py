@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import os
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from antigravity3d.models import IMAGE
@@ -53,6 +53,21 @@ class ImageReceipt:
     unitemized_output_tokens: int | None = None
     # usage_metadata fields the provider did not return, when they forced the reservation estimate
     missing_usage_fields: tuple[str, ...] = ()
+    # Token ledgers only (Governor(token_ceiling=...)): the tokens booked, input + output + thinking, no price applied.
+    # ``booked_usd`` is then 0.0 and is never written (the token ledger's receipts carry no *_usd key).
+    booked_tokens: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """The receipt as written to the ledger; a money receipt has exactly the keys it always had."""
+        d = asdict(self)
+        if self.booked_tokens is None:
+            del d["booked_tokens"]
+        return d
+
+    @property
+    def generated_image(self) -> int:
+        """1 unless the provider reported its output and it held no image tokens (a known 'no image')."""
+        return 0 if self.source == "provider_usage" and self.image_tokens == 0 else 1
 
     @classmethod
     def from_response(cls, response: Any, *, model: str, op: str, rates: ImageRates, limit: float) -> ImageReceipt:
@@ -91,3 +106,27 @@ class ImageReceipt:
                        getattr(response, "response_id", None), finish_reason=finish, unitemized_output_tokens=unitemized)
         return cls(model, op, "reservation_estimate", limit, inputs, outputs, image if modalities else None, thoughts,
                    getattr(response, "response_id", None), finish_reason=finish, missing_usage_fields=missing)
+
+    @classmethod
+    def from_response_tokens(cls, response: Any, *, model: str, op: str, limit_tokens: int) -> ImageReceipt:
+        """Token-ledger receipt: input + candidates + thinking tokens as the provider reported them, no price applied.
+        Any count missing keeps the whole reservation (``source`` reservation_estimate), as the money receipt does."""
+        usage = getattr(response, "usage_metadata", None)
+        inputs = getattr(usage, "prompt_token_count", None)
+        outputs = getattr(usage, "candidates_token_count", None)
+        thoughts = getattr(usage, "thoughts_token_count", None) or 0
+        image = sum(int(i.token_count or 0) for i in (getattr(usage, "candidates_tokens_details", None) or [])
+                    if str(getattr(i.modality, "name", i.modality)) == "IMAGE")
+        cands = getattr(response, "candidates", None) or []
+        fr = getattr(cands[0], "finish_reason", None) if cands else None
+        finish = str(getattr(fr, "name", fr)) if fr is not None else None
+        missing = tuple(n for n, v in (("usage_metadata", usage), ("prompt_token_count", inputs),
+                                       ("candidates_token_count", outputs)) if v is None)
+        if usage is None:
+            missing = ("usage_metadata",)
+        if missing:
+            return cls(model, op, "reservation_estimate", 0.0, inputs, outputs, None, thoughts,
+                       getattr(response, "response_id", None), finish_reason=finish, missing_usage_fields=missing,
+                       booked_tokens=int(limit_tokens))
+        return cls(model, op, "provider_usage", 0.0, inputs, outputs, image, thoughts, getattr(response, "response_id", None),
+                   finish_reason=finish, booked_tokens=int(inputs) + int(outputs) + int(thoughts))

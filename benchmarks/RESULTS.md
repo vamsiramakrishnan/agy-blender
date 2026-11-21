@@ -25,7 +25,7 @@ The first round's report follows this one, unchanged, from "First round" down. T
 | Textures were embedded once per GLB file | Far LOD files reference `textures/`: the crate package with six 1,024 px maps went from 69.7 to 49.5 MB |
 | Environment-kit authoring was outside the spend ceiling | Admitted against one kit ledger, concurrent, every piece accounted for |
 | No Blender and no game engine ran on the benchmark machine | Still none on this machine. CI now times Blender 5.3 and Godot 4.7 against the kernels on every pull request |
-| Visual QA ran on the fallback judge; the governed live pipeline was not run | Unchanged. The native Decisions API still returns 404 on the development key |
+| Visual QA ran on the fallback judge; the governed live pipeline was not run | Unchanged, and on this key it could not run: every governed judgement refused an unpriced fallback, and authoring refused without prices. An unverified preview mode with token and image limits now exists (README, "Keys without the native Decisions API"); it has not been run live yet. The native Decisions API still returns 404 on the development key |
 | The inspector was not tried inside a running Antigravity application | Unchanged |
 | Artist-judged quality and dollar cost were not measured | Unchanged |
 

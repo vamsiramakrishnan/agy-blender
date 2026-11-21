@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import copy
 import json
 import logging
 import time
@@ -146,18 +147,51 @@ def _infer_backend_kind(client: Any) -> str:
     return "decisions"
 
 
+UNCALIBRATED_JUDGE = "generative fallback, uncalibrated"
+UNCALIBRATED_MEANING = ("probabilities are a generative model's self-report, not calibrated Decisions output: they may "
+                        "steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it")
+PREVIEW_REMEDY = ("an unverified preview judged by the generative fallback (uncalibrated) needs the user's own limits: "
+                  "a token ceiling and an image limit")
+
+
 class DecisionControlPlane:
+    """``preview``: the run is an unverified preview, so an uncalibrated backend may judge it (its calls admitted against
+    the ceiling like any other). Off by default; nothing verified may run on a preview plane (see ``preview_copy``)."""
+
     def __init__(self, client: Any, model: str = DEFAULT_MODEL, *, max_retries: int = 3, backoff_s: float = 0.5,
-                 sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep, backend_kind: str | None = None) -> None:
+                 sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep, backend_kind: str | None = None,
+                 preview: bool = False) -> None:
         self._client, self.model = client, model
         self.backend_kind = backend_kind or _infer_backend_kind(client)
         self.max_retries, self.backoff_s, self._sleep = max_retries, backoff_s, sleep
         self.stats = PlaneStats()
+        self.preview = bool(preview)
+        self.hard_policy_flags: list[str] = []  # hard policy flags an uncalibrated preview judge raised (they fail a preview)
 
     @property
     def calibrated(self) -> bool:
         """False when answers come from the generative fallback (self-reported, uncalibrated)."""
         return self.backend_kind != "generative_fallback"
+
+    @property
+    def judge_label(self) -> str:
+        return UNCALIBRATED_JUDGE if not self.calibrated else ("fake (offline)" if self.backend_kind == "fake" else "native Decisions API")
+
+    def preview_copy(self) -> "DecisionControlPlane":
+        """The same backend and stats, with ``preview`` set: for one preview run or session on a shared plane."""
+        other = copy.copy(self)
+        other.preview = True
+        other.hard_policy_flags = []
+        return other
+
+    async def worst_case_tokens(self, payload: Any, questions: dict[str, Q.Question]) -> int:
+        """Most tokens one dispatch can bill on this backend: native Decisions, its documented input cap (no output
+        is generated); the fallback, its counted input and capped output for every chunk and attempt; fakes, 0."""
+        if self.backend_kind == "fake":
+            return 0
+        if self.backend_kind == "decisions":
+            return MODEL_INPUT_LIMIT
+        return int(await self._client.aio.decisions.worst_case_tokens(input=payload, questions=questions))
 
     async def evaluate(self, input_blocks: str | Sequence[Block], questions: dict[str, Q.Question], *, tag: str,
                        governor: Governor | None = None, charge_as: str | None = None,
@@ -175,14 +209,22 @@ class DecisionControlPlane:
         if self.backend_kind == "decisions" and not isinstance(payload, str):
             if any(b.get("type") == "image" and "uri" in b and not b["uri"].startswith("https://") for b in payload):
                 raise ValueError("native Decisions image inputs require a Files API URI, HTTPS URL or inline data")
-        if governor is not None and not self.calibrated:
-            raise DecisionBudgetError("cannot reserve an unpriced generative fallback for automatic judging")
+        token_ledger = governor is not None and getattr(governor, "unit", "usd") == "tokens"
+        if governor is not None and not self.calibrated and not self.preview:
+            raise DecisionBudgetError("cannot reserve an unpriced generative fallback for automatic judging: the native "
+                                      f"Decisions API is not available, so only a preview can be judged ({PREVIEW_REMEDY})")
+        if governor is not None and not self.calibrated and not token_ledger:
+            raise DecisionBudgetError("cannot reserve an unpriced generative fallback for automatic judging in dollars: "
+                                      "no price is configured; a preview run needs a token ceiling")
         category = charge_as or tag
         if governor is not None and self.backend_kind == "decisions" and self.model != DEFAULT_MODEL:
             raise DecisionBudgetError(f"no configured spend bound for {self.model}")
-        hold = 0.0 if self.backend_kind == "fake" else MODEL_INPUT_LIMIT * PRICE_PER_M_INPUT_USD / 1e6
+        if token_ledger:  # the worst case in tokens: counted where it can be counted, never an estimate
+            hold = float(await self.worst_case_tokens(payload, questions))
+        else:
+            hold = 0.0 if self.backend_kind == "fake" else MODEL_INPUT_LIMIT * PRICE_PER_M_INPUT_USD / 1e6
         receipt = {"model": self.model, "operation": tag, "estimated_input_tokens": est, "questions": len(questions)}
-        booked = 0.0
+        booked, booked_tokens = 0.0, 0  # money and tokens: a ledger books one of them, never both
         attempts, t0 = 0, time.perf_counter()
         while True:
             attempts += 1
@@ -198,9 +240,12 @@ class DecisionControlPlane:
                 if reservation is not None:
                     reservation.settle(receipt={**receipt, "source": "offline" if self.backend_kind == "fake" else "reservation_estimate",
                                                 "status": type(exc).__name__, "attempt": attempts})
-                    booked += hold
+                    if token_ledger:
+                        booked_tokens += int(hold)
+                    else:
+                        booked += hold
                     if on_settle:
-                        on_settle(hold)
+                        on_settle(0.0 if token_ledger else hold)
                 if reason := _blocked_reason(exc):
                     raise PromptBlockedError(reason, tag=tag) from exc
                 if not isinstance(exc, Exception):
@@ -229,7 +274,18 @@ class DecisionControlPlane:
             cost, cost_known, source = (float(c) if c is not None else 0.0), c is not None, self.backend_kind
         fb = _get(resp, "prompt_feedback")
         blocked = fb is not None and _get(fb, "block_reason")
-        if reservation is not None:
+        if reservation is not None and token_ledger:
+            usage_known = measured is not None and (self.backend_kind != "generative_fallback"
+                                                    or _get(usage, "total_output_tokens") is not None)
+            settled_t = 0 if self.backend_kind == "fake" else int(measured) + out_tokens if usage_known else int(hold)
+            billing = "offline" if self.backend_kind == "fake" else "provider_usage" if usage_known else "reservation_estimate"
+            reservation.settle(settled_t, receipt={**receipt, "source": billing, "input_tokens": measured,
+                                                   "output_tokens": out_tokens, "attempt": attempts,
+                                                   "status": "blocked" if blocked else "ok"})
+            if on_settle:
+                on_settle(0.0)
+            booked_tokens += settled_t
+        elif reservation is not None:
             settled = 0.0 if self.backend_kind == "fake" else cost if cost_known else hold
             billing = "offline" if self.backend_kind == "fake" else "provider_usage" if cost_known else "reservation_estimate"
             reservation.settle(settled, receipt={**receipt, "source": billing, "input_tokens": measured,
@@ -244,7 +300,8 @@ class DecisionControlPlane:
                           cost_known=cost_known)
         answers = {} if blocked else {qid: normalise_answer(a) for qid, a in (_get(resp, "answers") or {}).items()}
         result = DecisionResult(tag, answers, latency_ms, tokens, est, cost, len(questions), attempts,
-                                calibrated=calibrated, output_tokens=out_tokens, cost_known=cost_known, source=source, booked_usd=booked)
+                                calibrated=calibrated, output_tokens=out_tokens, cost_known=cost_known, source=source, booked_usd=booked,
+                                booked_tokens=booked_tokens)
         if blocked:
             raise PromptBlockedError(str(blocked), _get(fb, "block_reason_message"), tag, result=result)
         if set(answers) - set(questions):
@@ -288,7 +345,8 @@ class DecisionControlPlane:
                        latency_ms=(time.perf_counter() - started) * 1000, n_questions=len(questions),
                        input_tokens=sum(r.input_tokens for r in results), est_input_tokens=sum(r.est_input_tokens for r in results),
                        output_tokens=sum(r.output_tokens for r in results), est_cost_usd=sum(r.est_cost_usd for r in results),
-                       booked_usd=sum(r.booked_usd for r in results), attempts=sum(r.attempts for r in results),
+                       booked_usd=sum(r.booked_usd for r in results), booked_tokens=sum(r.booked_tokens for r in results),
+                       attempts=sum(r.attempts for r in results),
                        calibrated=all(r.calibrated for r in results), cost_known=all(r.cost_known for r in results))
 
     async def route_pipeline(self, prompt: str, manifest_txt: str, ref_img_uri: str | None = None, *,
@@ -369,7 +427,7 @@ class DecisionControlPlane:
             start = stop
 
         async def score_batch(first: int, end: int, images: list[Block], asked: dict[str, Q.Question]) -> list[CandidateScore]:
-            if governor is not None and not self.calibrated:
+            if governor is not None and not self.calibrated and not self.preview:
                 verdict = _policy_verdict({}, calibrated=False)
                 return [CandidateScore(i, candidate_uris[i], kind, blocked=True, policy=verdict) for i in range(first, end)]
             charges: list[float] = []
@@ -389,7 +447,7 @@ class DecisionControlPlane:
             for i in range(first, end):
                 suffix = f"__{i + 1}"
                 values = {qid.removesuffix(suffix): answer.value for qid, answer in result.answers.items() if qid.endswith(suffix)}
-                verdict = _policy_verdict({key: values[key] for key in Q.POLICY_QUESTIONS}, result.calibrated)
+                verdict = self._note(_policy_verdict({key: values[key] for key in Q.POLICY_QUESTIONS}, result.calibrated, preview=self.preview))
                 scores.append(CandidateScore(i, candidate_uris[i], kind,
                                              {key: val for key, val in values.items() if key.startswith("defect_")},
                                              {key: val for key, val in values.items() if key.startswith("score_")},
@@ -409,7 +467,12 @@ class DecisionControlPlane:
             res = await self.evaluate([image_block(image_uri, POLICY_RESOLUTION)], qs, tag="policy", governor=governor)
         except PromptBlockedError as e:
             return PolicyVerdict(False, True, {}, True, (f"input filter: {e.reason}",))
-        return _policy_verdict({key: res.noul(key) for key in qs}, res.calibrated)
+        return self._note(_policy_verdict({key: res.noul(key) for key in qs}, res.calibrated, preview=self.preview))
+
+    def _note(self, verdict: PolicyVerdict) -> PolicyVerdict:
+        if self.preview:
+            self.hard_policy_flags += [k for k, v in verdict.flags.items() if v >= POLICY_BLOCK_P]
+        return verdict
 
     # ---- engine parity / LOD pop / rig ROM / set-of-mark ------------------------------------------------
 
@@ -498,10 +561,17 @@ def _clean_name(name: object) -> str:
     return " ".join(str(name).replace("{", "(").replace("}", ")").split())
 
 
-def _policy_verdict(flags: dict[str, float], calibrated: bool) -> PolicyVerdict:
+UNCALIBRATED_POLICY = "uncalibrated policy verdict requires review"
+
+
+def _policy_verdict(flags: dict[str, float], calibrated: bool, *, preview: bool = False) -> PolicyVerdict:
+    """In a preview an uncalibrated verdict may still block (a hard flag) but never clears: a candidate without a hard
+    flag stays eligible for ranking with ``needs_review`` and the review reason recorded."""
     hard = [key for key, value in flags.items() if value >= POLICY_BLOCK_P]
     soft = [f"review {key}" for key, value in flags.items() if POLICY_REVIEW_P <= value < POLICY_BLOCK_P]
     reasons = hard + soft
     if not calibrated:
-        reasons.append("uncalibrated policy verdict requires review")
+        reasons.append(UNCALIBRATED_POLICY)
+        if preview:
+            return PolicyVerdict(not hard, True, flags, reasons=tuple(reasons))
     return PolicyVerdict(not reasons, bool(reasons), flags, reasons=tuple(reasons))

@@ -15,6 +15,13 @@ Uploader = Callable[[bytes], Awaitable[str]]
 # Published standard-tier 2K image-output cost, used for candidate planning only.
 # ImageForge separately reserves the capped input/output cost and reconciles provider usage.
 IMAGE_USD = dict.fromkeys(("ortho", "albedo", "trim", "decal", "paintover"), 0.0504)
+# The same planning figures for a token ledger (Governor(token_ceiling=...)), from measured provider usage
+# (benchmarks/results/round1/live.json): one 2K image 62 input + 2,001 candidate + 804 thinking tokens; one low-resolution
+# grading call on the generative fallback 2,312 input + 1,006 output; one visual-QA round (lookdev 5,381 + 1,715, plus a
+# locate call like a grading call). Sizing only: admission always reserves the counted worst case.
+IMAGE_TOKENS_EST = 2_867
+GRADE_TOKENS_EST = 3_318
+QA_TOKENS_EST = 10_414
 
 
 def png_bytes(img: Image.Image | np.ndarray) -> bytes:

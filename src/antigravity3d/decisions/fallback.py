@@ -70,6 +70,14 @@ DEFAULT_TIMEOUT_S = 60.0
 _RESOLUTION_LEVEL = {"low": "MEDIA_RESOLUTION_LOW", "medium": "MEDIA_RESOLUTION_MEDIUM", "high": "MEDIA_RESOLUTION_HIGH",
                      "ultra_high": "MEDIA_RESOLUTION_ULTRA_HIGH"}
 _THINKING_LADDER = ("MINIMAL", "LOW", "MEDIUM", "HIGH")  # stepped up when a model rejects the requested level
+# max_output_tokens of one judge request (answer + thinking share it). Measured 2026-11-20 on gemini-4-neon, thinking
+# LOW, the fallback answering the pipeline's own question sets (benchmarks/results/round1/live.json, judge group):
+#   blockout,  9 questions: 167-169 answer + 740-837 thinking  (907-1,006 output tokens), 3 samples
+#   lookdev,  21 questions: 397-408 answer + 1,115-1,307 thinking (1,512-1,715 output tokens), 2 samples
+# A chunk holds at most DEFAULT_CHUNK_SIZE (40) questions: about twice the lookdev answer, ~820 tokens. 8,192 is 4.7x the
+# largest output seen. Without a cap the bound was the model's own limit (65,536 per attempt), which no token ceiling
+# a person would state can admit. A cut-off answer raises GenerativeTruncated and is never re-asked at the same size.
+JUDGE_MAX_OUTPUT_TOKENS = 8_192
 
 SYSTEM_INSTRUCTION = (
     "You are a calibrated visual quality judge answering a batch of independent questions about the provided inputs. "
@@ -92,8 +100,8 @@ class MalformedGenerativeAnswer(GenerativeDecisionError):
 class GenerativeTruncated(GenerativeDecisionError):
     """finish_reason MAX_TOKENS: the answer is incomplete, so it is never parsed and never re-asked.
 
-    No ``max_output_tokens`` is set on judge requests, so the cap reached is the model's own output limit (65,536 on
-    gemini-4-neon): a runaway generation that an identical re-ask would most likely repeat at the same cost.
+    Judge requests are capped at ``JUDGE_MAX_OUTPUT_TOKENS`` (4.7x the largest measured output), so reaching it is a
+    runaway generation that an identical re-ask would most likely repeat at the same cost.
     ``usage`` is what the provider billed for the truncated attempt.
     """
 
@@ -305,8 +313,7 @@ class GenerativeDecisionsBackend:
                      model: str | None = None) -> GenerativeDecisionResponse:
         if not questions:
             raise ValueError("create() needs at least one question")
-        items = list(questions.items())
-        chunks = [dict(items[i:i + self.chunk_size]) for i in range(0, len(items), self.chunk_size)]
+        chunks = self._chunks(questions)
         sem = asyncio.Semaphore(self.max_concurrency)
 
         async def run(c: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], Usage]:
@@ -327,6 +334,30 @@ class GenerativeDecisionsBackend:
             usage.thoughts_tokens += u.thoughts_tokens
         cost = cost_usd(self.model, usage.total_input_tokens, usage.total_output_tokens)
         return GenerativeDecisionResponse(answers, usage, cost, self.model, n_chunks=len(chunks), thinking_level=self.thinking_level)
+
+    def _chunks(self, questions: Mapping[str, Mapping[str, Any]]) -> list[dict[str, Any]]:
+        items = list(questions.items())
+        return [dict(items[i:i + self.chunk_size]) for i in range(0, len(items), self.chunk_size)]
+
+    async def worst_case_tokens(self, input_blocks: str | Sequence[Mapping[str, Any]],
+                                questions: Mapping[str, Mapping[str, Any]]) -> int:
+        """The most tokens one ``create`` can bill: for every chunk and every attempt it may make (one plus
+        ``max_parse_retries``), the counted input (contents and rendered questions, by the model's tokenizer), one token
+        per byte of the response schema and of the system instruction (billed but not countable, as for authoring),
+        and ``JUDGE_MAX_OUTPUT_TOKENS``. Counting is free; nothing is generated."""
+        from google.genai import types
+
+        total = 0
+        for chunk in self._chunks(questions):
+            parts = blocks_to_parts(input_blocks, honor_resolution=self._honor_resolution)
+            parts.append(types.Part(text=render_questions(chunk)))
+            counted = await self._client.aio.models.count_tokens(model=self.model, contents=[types.Content(role="user", parts=parts)])
+            n = getattr(counted, "total_tokens", None)
+            if not isinstance(n, int) or n <= 0:
+                raise GenerativeDecisionError(f"no input token count for {self.model}: cannot bound the judge call")
+            unseen = len(json.dumps(build_response_schema(chunk), separators=(",", ":")).encode()) + len(SYSTEM_INSTRUCTION.encode())
+            total += (n + unseen + JUDGE_MAX_OUTPUT_TOKENS) * (self.max_parse_retries + 1)
+        return total
 
     async def _answer_chunk(self, input_blocks: Any, questions: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], Usage]:
         total = Usage()
@@ -353,6 +384,7 @@ class GenerativeDecisionsBackend:
                 system_instruction=SYSTEM_INSTRUCTION, response_mime_type="application/json",
                 response_json_schema=build_response_schema(questions),
                 thinking_config=types.ThinkingConfig(thinking_level=getattr(types.ThinkingLevel, self.thinking_level)),
+                max_output_tokens=JUDGE_MAX_OUTPUT_TOKENS,
                 http_options=types.HttpOptions(timeout=int(self.timeout_s * 1000)))
             try:
                 resp = await self._client.aio.models.generate_content(
@@ -392,6 +424,9 @@ class GenerativeDecisionsBackend:
 class _Decisions:
     def __init__(self, owner: GenerativeDecisionsBackend) -> None:
         self._o = owner
+
+    async def worst_case_tokens(self, *, input: Any, questions: Mapping[str, Any]) -> int:
+        return await self._o.worst_case_tokens(input, questions)
 
     async def create(self, *, model: str | None = None, input: Any, questions: Mapping[str, Any]) -> GenerativeDecisionResponse:
         return await self._o.create(model=model, input=input, questions=questions)

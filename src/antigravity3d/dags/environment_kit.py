@@ -98,6 +98,9 @@ def kit_plan(plan: SpendPlan, n_pieces: int) -> SpendPlan:
     return replace(plan, ceiling_usd=plan.ceiling_usd * (n_pieces + 1))
 
 
+RESERVED = {"usd": "reserved_usd", "tokens": "reserved_tokens"}  # an outcome's reservation, named by the ledger's unit
+
+
 class PiecesFailed(RuntimeError):
     """One or more pieces were not authored. The message names the outcome of every piece."""
 
@@ -247,12 +250,15 @@ class EnvironmentKitDAG:
     def __init__(self, *, forge: Any, author: Any, workdir: Path | str, budget: EngineBudget, plane: Any = None, pool: Any = None,
                  cache: Any = None, sheet: TrimSheet | None = None, sheet_resolution: int = 2048,
                  max_parallel: int | None = None, author_parallel: int = AUTHOR_PARALLEL, art_direction: ArtDirection | None = None,
-                 metric: KitMetric | None = None) -> None:
+                 metric: KitMetric | None = None, token_ceiling: int | None = None, max_images: int | None = None) -> None:
         """``art_direction``: a named style. It lowers each piece's triangle budget where its look calls for it (never
         raises it), sets the trim sheet's size and palette, the pieces' shading crease, and adds its briefs to the trim
         sheet prompt and the piece author's request. None changes nothing."""
         if author_parallel < 1:
             raise ValueError("author_parallel must be at least 1")
+        # The user's token ceiling is the most the WHOLE kit may use: one pool all pieces and the sheet draw from (never
+        # multiplied by the piece count, unlike the per-asset dollar plan).
+        self.token_ceiling, self.max_images = token_ceiling, max_images
         self.art = art_direction
         if art_direction is not None:
             budget = art_direction.budget(budget, "kit")
@@ -276,7 +282,8 @@ class EnvironmentKitDAG:
         """Bind the forge and a live author to ONE ledger sized for the whole kit. Returns the author to call."""
         plan = kit_plan(self._forge_in.governor.plan, n_pieces)
         self.base_plan = self._forge_in.governor.plan
-        self.governor = Governor(plan, journal=self.out / "spend.sqlite3")
+        self.governor = Governor(plan, journal=self.out / ("spend_tokens.sqlite3" if self.token_ceiling is not None else "spend.sqlite3"),
+                                 **({"token_ceiling": self.token_ceiling, "max_images": self.max_images} if self.token_ceiling is not None else {}))
         forge = self._forge_in.with_governor(self.governor)
         self.forge = CachedForge(forge, self._cache, budget=self.budget) if self._cache is not None else forge
         # Same rule as the prop pipeline: a live AgentAuthor authors through the metered, admitted path. Other authors
@@ -319,7 +326,7 @@ class EnvironmentKitDAG:
             async def attempt(k: int) -> tuple[SceneIR | None, dict[str, Any]]:
                 tpl, name = names[k]
                 outcome: dict[str, Any] = {"index": k, "piece": name, "template": tpl, "status": "produced", "detail": "", "finish_reason": None,
-                                           "usage": None, "admission_wait_s": 0.0, "reserved_usd": None}
+                                           "usage": None, "admission_wait_s": 0.0, RESERVED[self.governor.unit]: None}
                 try:
                     async with gate:
                         context = {"asset_name": name, "template": tpl, "seed": k, "kit_metric": metric}
@@ -330,7 +337,7 @@ class EnvironmentKitDAG:
                         if with_outcomes is not None:  # the metered author: its recorded outcome carries usage, wait and reservation
                             result = await with_outcomes(f"{prompt} {tpl.replace('_', ' ')}", **call)
                             scenes, recorded = result.scenes, result.outcomes[0].to_dict()
-                            outcome.update({key: recorded[key] for key in ("status", "detail", "finish_reason", "usage", "admission_wait_s", "reserved_usd")})
+                            outcome.update({key: recorded.get(key) for key in ("status", "detail", "finish_reason", "usage", "admission_wait_s", RESERVED[self.governor.unit])})
                         else:
                             scenes = await author.propose(f"{prompt} {tpl.replace('_', ' ')}", **call)
                 except Exception as exc:  # noqa: BLE001 - recorded per piece; the step fails below with all of them listed
@@ -382,7 +389,7 @@ class EnvironmentKitDAG:
                     results[k] = r
                     tries[k].append(r[1])
             for k, (scene, o) in enumerate(results):
-                o["attempts"] = [{key: t[key] for key in ("status", "detail", "finish_reason", "usage", "admission_wait_s", "reserved_usd")} for t in tries[k]]
+                o["attempts"] = [{key: t[key] for key in ("status", "detail", "finish_reason", "usage", "admission_wait_s", RESERVED[self.governor.unit])} for t in tries[k]]
             res: list[Piece] = [piece for piece, _ in results if piece is not None]
             self.checks = {names[k][1]: checks.get(k) for k in range(n_pieces)}
             self.authoring = [outcome for _, outcome in results]
@@ -556,15 +563,52 @@ class EnvironmentKitDAG:
             dag.node(name, fn, deps)
         return dag
 
+    def _spend_record(self, n_pieces: int) -> dict[str, Any]:
+        g = self.governor
+        if g.unit == "usd":
+            return {"rule": "ceiling = per-asset plan ceiling x (n_pieces + 1 shared trim sheet), one ledger for images and authoring",
+                    "plan": self.base_plan.label, "per_asset_ceiling_usd": self.base_plan.ceiling_usd, "ceiling_usd": g.plan.ceiling_usd,
+                    "spent_usd": g.spent, "by_category": g.by_category, "summary": g.summary()}
+        return {"rule": f"the user's token ceiling is the whole kit's pool: {n_pieces} piece(s) and 1 trim sheet draw from it "
+                        f"(about {g.token_ceiling // (n_pieces + 1):,} tokens each if shared evenly); no price applied",
+                "unit": "tokens", "price_applied": False, "plan": self.base_plan.label, "ceiling_tokens": g.token_ceiling,
+                "spent_tokens": g.spent, "max_images": g.max_images, "images": g.images_used, "by_category": g.by_category,
+                "summary": g.summary()}
+
+    def _check_token_start(self, prompt: str, n_pieces: int) -> None:
+        """Before any call: the trim sheet image and one piece's first authoring call run at once, so the pool must admit
+        both worst cases together; and the sheet needs one image under the image limit."""
+        from antigravity3d.tactics.token_plan import author_worst_tokens, image_worst_tokens
+
+        g = self.governor
+        from antigravity3d.genmedia.nano_banana import _TRIM
+
+        brief = texture_brief(self.art)
+        text = _TRIM.format(prompt=f"{prompt}. {self.sheet.layout_prompt()}" + (f" {brief}" if brief else ""))
+        sheet = image_worst_tokens(self._forge_in, text, self.sheet.resolution)
+        piece = author_worst_tokens(self._author, asset_name="Piece00")
+        need = sheet + piece
+        if g.max_images is None and sheet:
+            raise BudgetExceeded("a token-limited kit generates one trim sheet image: pass --max-images (at least 1); nothing was requested")
+        if g.max_images is not None and sheet and g.max_images - g.images_used < 1:
+            raise BudgetExceeded(f"the trim sheet needs 1 image and {g.images_summary()} are counted; nothing was requested")
+        if g.remaining < need:
+            raise BudgetExceeded(f"token ceiling {g.token_ceiling:,} ({g.fmt(g.remaining)} left) cannot admit the kit's first calls: "
+                                 f"the trim sheet can bill up to {sheet:,} tokens and one piece's authoring call up to {piece:,}, "
+                                 f"together {need:,}; that is the smallest ceiling that can start this kit (nothing was requested)")
+
     async def run(self, prompt: str, n_pieces: int = 4, splat: Path | str | None = None) -> DagReport:
         dag = self.build(prompt, n_pieces, splat)
         profile = getattr(self._author, "cost_profile", None)
-        if profile is not None and profile(asset_name="Piece00") is None:  # refuse before the first image or piece is paid for
+        if self.token_ceiling is not None:  # refuse before the first image or piece if the first calls cannot be admitted
+            self._check_token_start(prompt, n_pieces)
+        elif profile is not None and profile(asset_name="Piece00") is None:  # refuse before the first image or piece is paid for
             from antigravity3d.models import tier
 
             role = self.governor.plan.builder_role
             raise BudgetExceeded(f"live kit authoring is metered and no text prices are configured for {tier(role).model!r} (the {role!r} role that authors the pieces): "
-                                 f"set AGY3D_TEXT_RATES_JSON to a JSON object mapping {tier(role).model!r} to [USD per million input tokens, USD per million output tokens]; "
+                                 f"set AGY3D_TEXT_RATES_JSON to a JSON object mapping {tier(role).model!r} to [USD per million input tokens, USD per million output tokens], "
+                                 f"or bound the kit in tokens and images instead with your own --token-ceiling N --max-images M; "
                                  f"nothing was requested or spent")
         rep = await dag.run(max_parallel=self.max_parallel)
         r = rep.results.get("report") or {}
@@ -576,9 +620,7 @@ class EnvironmentKitDAG:
             "prompt": prompt, "n_pieces": n_pieces, "kit_usd": asm.get("path"), "genmedia_receipts": [r for r in receipts if r["category"].startswith("image.")],
             "authoring": {"pieces": self.authoring, "receipts": [r for r in receipts if r["category"].startswith("author.")], "parallel": self.author_parallel,
                           "metered": hasattr(self._author, "cost_profile")},
-            "spend": {"rule": "ceiling = per-asset plan ceiling x (n_pieces + 1 shared trim sheet), one ledger for images and authoring",
-                      "plan": self.base_plan.label, "per_asset_ceiling_usd": self.base_plan.ceiling_usd, "ceiling_usd": self.governor.plan.ceiling_usd,
-                      "spent_usd": self.governor.spent, "by_category": self.governor.by_category, "summary": self.governor.summary()},
+            "spend": self._spend_record(n_pieces),
             "trim_sheet": (rep.results.get("trim_sheet") or {}).get("path"),
             "pieces": rep.results.get("export_pieces") or {}, "vram": r.get("vram"), "settle_dz": asm.get("settle_dz"), "piece_min_z": r.get("piece_min_z"),
             "spatial_overview": asm.get("overview"), "backdrop": rep.results.get("backdrop"), "skipped": skipped,

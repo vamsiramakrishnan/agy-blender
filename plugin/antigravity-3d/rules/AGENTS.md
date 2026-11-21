@@ -64,6 +64,15 @@ glob-scoped rule files add detail when matching files are in play:
   visual score is at least 3.4 for the current state of the scene. Any edit
   after QA makes the verdict stale; re-run QA. The PreToolUse hook enforces
   this and the Stop hook refuses to finish while a changed asset is ungated.
+- A verified export needs an approval from the native Decisions API. When the
+  key has no access to it, `open_asset_session` says so: visual QA and export
+  will be refused. Do not work around that. Ask the user whether they want an
+  UNVERIFIED preview, and ask for their two limits: a token ceiling and an image
+  limit. Never choose those numbers yourself. Then call `start_preview` with
+  them (the scene is kept), or open the session with `preview` and both limits.
+  The user is shown both numbers and approves before the preview opens. A
+  preview is judged by an uncalibrated judge and its package says
+  `verified: false`; it is never verified and must not be presented as such.
 - Where your stage offers them, delegate gating to the `usd_verifier` subagent
   (VARIANTS and LOOKDEV) and visual critique to the `lookdev_critic` subagent
   (LOOKDEV) so their renders and logs stay out of your context.

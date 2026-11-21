@@ -66,6 +66,27 @@ def _record_start(payload: dict[str, Any], tool_call: dict[str, Any]) -> None:
         c.warn(payload, f"could not record start time: {e}")
 
 
+def preview_decision(args: dict[str, Any]) -> dict[str, Any]:
+    """``ask`` (the strongest decision this platform offers short of deny): the user sees the two limits the model
+    passed and approves or refuses the unverified preview. Missing or malformed limits are denied outright."""
+    def whole(v: Any) -> int | None:
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            return None
+        return n if str(n) == str(v).strip() or n == v else None
+
+    tokens, images = whole(args.get("token_ceiling")), whole(args.get("max_images"))
+    if tokens is None or tokens <= 0 or images is None or images < 0:
+        return {"decision": "deny", "reason": "an unverified preview needs the USER's token_ceiling and max_images: ask the "
+                                              "user for both numbers, never choose them"}
+    return {"decision": "ask", "reason": (f"Open an UNVERIFIED antigravity-3d preview limited to {tokens:,} tokens (no price "
+                                          f"applied) and {images} generated image(s)? It is judged by whatever judge this key "
+                                          "has (the generative fallback, uncalibrated, when the native Decisions API is "
+                                          "unavailable) and its package is labelled verified=false. Approve only if these "
+                                          "are your limits.")}
+
+
 def decide(payload: dict[str, Any]) -> dict[str, Any]:
     tool_call = payload.get("toolCall") if isinstance(payload.get("toolCall"), dict) else {}
     names = c.tool_names(tool_call)
@@ -74,6 +95,12 @@ def decide(payload: dict[str, Any]) -> dict[str, Any]:
     if c.is_tool(names, ("open_asset_session",)) and c.is_studio_mcp_call(tool_call, names):
         if not c.conv_id(payload) or c.tool_args(tool_call).get("conversation_id") != c.conv_id(payload):
             return {"decision": "deny", "reason": "pass this conversation's ID from the session header to open_asset_session"}
+
+    # The limits of an unverified preview are the user's, not the model's: the user sees both numbers and decides.
+    preview_call = c.is_tool(names, ("start_preview",)) or (
+        c.is_tool(names, ("open_asset_session",)) and c.tool_args(tool_call).get("preview") in (True, "true", "True", 1))
+    if preview_call and c.is_studio_mcp_call(tool_call, names):
+        return preview_decision(c.tool_args(tool_call))
 
     if c.is_tool(names, c.EXPORT_TOOLS):
         try:
