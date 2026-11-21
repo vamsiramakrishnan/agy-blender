@@ -246,7 +246,7 @@ async def test_export_refused_then_allowed_and_reloads(env, monkeypatch):
     # two boxes cannot get cheaper within any screen-space error budget: one level, no duplicate LOD files
     assert not list(out.glob("Crate_LOD*.glb")) and man["lod_tris"] == [24] and man["lod_screen_fractions"] == [1.0]
     assert man["budget"]["max_tris"] == 15000 and man["qa"]["tier1_ok"] and man["qa"]["tier15"] >= 3.4
-    assert man["schema_version"] == 2 and man["validation"]["package_ok"] and "pkg ok" in r
+    assert man["schema_version"] == 3 and man["validation"]["package_ok"] and "pkg ok" in r
     assert (out / "Crate.usdz").is_file() and man["usd"] == "Crate.usd"
     assert env.sess().stage.has_uvs()  # UVs are authored into the working stage by the export pipeline
     for m in (p for p in stage.Traverse() if p.GetName() in ("body", "lid")):
