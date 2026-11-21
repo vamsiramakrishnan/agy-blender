@@ -907,3 +907,106 @@ async def test_godot_measures_nested_node_transforms_and_rejects_changed_bounds(
     np.testing.assert_allclose(imp.bounds_m, [transformed.min(0), transformed.max(0)], atol=1e-5)
     assert "bounds drift" in imp.geometry_issue(manifest)
     assert "pkg:glb_bounds" in {issue.code for issue in validate_package(pkg)}
+
+
+# --------------------------------------------------------------------------- collision hulls in stock Godot
+
+_GODOT_HULLS = """extends SceneTree
+
+func _init():
+    call_deferred("run")
+
+func run():
+    var out := {}
+    for file in OS.get_environment("AGY_HULL_FILES").split(","):
+        var packed = load("res://" + file)
+        if packed == null:
+            out[file] = {"error": "load failed"}; continue
+        var scene: Node = packed.instantiate()
+        root.add_child(scene)
+        var shapes := []
+        for s in scene.find_children("*", "CollisionShape3D", true, false):
+            var n := -1
+            if s.shape is ConvexPolygonShape3D:
+                n = s.shape.points.size()
+            shapes.append({"class": s.shape.get_class(), "points": n, "body": s.get_parent().get_class()})
+        await physics_frame
+        await physics_frame
+        var space = root.world_3d.direct_space_state
+        var hits := []
+        var count := 400
+        for i in count:
+            var y := 1.0 - (i + 0.5) * 2.0 / count
+            var r := sqrt(1.0 - y * y)
+            var d := Vector3(cos(i * 2.399963229728653) * r, y, sin(i * 2.399963229728653) * r)
+            var hit = space.intersect_ray(PhysicsRayQueryParameters3D.create(d * 10.0, Vector3.ZERO))
+            hits.append(hit.position.length() if hit.has("position") else -1.0)
+        out[file] = {"shapes": shapes, "hits": hits}
+        scene.free()
+        await physics_frame
+    out["engine"] = str(ProjectSettings.get_setting("physics/3d/physics_engine"))
+    print("AGY_HULLS ", JSON.stringify(out))
+    quit(0)
+"""
+
+
+def _ray_radius(points: np.ndarray, dirs: np.ndarray) -> np.ndarray:
+    """Distance from the origin along each direction to the surface of the convex hull of ``points``."""
+    from scipy.spatial import ConvexHull
+
+    eq = ConvexHull(points).equations
+    nd = dirs @ eq[:, :3].T
+    with np.errstate(divide="ignore"):
+        return np.where(nd > 1e-12, -eq[:, 3] / nd, np.inf).min(axis=1)
+
+
+def test_capped_hull_imports_in_stock_godot_as_its_collision_shape(tmp_path):
+    """A godot_4 package of a dense sphere ships a hull capped to Jolt's 256 points. Stock Godot (Jolt, the default for
+    new projects) imports ``<asset>_colliders.glb`` through its ``-convcolonly`` naming hint as one static
+    ConvexPolygonShape3D with every shipped point, and ray casts meet it where the shipped hull is, never more than 1 mm
+    inside the part's own hull. The uncapped 1,986-point hull of the same part, by contrast, comes back smaller than
+    itself (Jolt stops building at 256 points): that is the defect the cap removes."""
+    import os
+    import subprocess
+
+    from antigravity3d.kernel.fast_ops import generate_colliders, write_gltf
+
+    exe = os.environ.get("GODOT_BIN") or shutil.which("godot")
+    if not exe:
+        pytest.skip("set GODOT_BIN to run the stock Godot import")
+    sm = StageManager.create(tmp_path / "ball.usda", "Ball")
+    sm.apply_ir(SceneIR(asset_name="Ball", nodes=[NodeIR(id="ball", kind="sphere", params={"radius": 0.5, "segments": 64, "rings": 32})]))
+    budget = EngineBudget("godot_4")
+    bundle = run_export_pipeline(sm.extract_meshes(), budget, "Ball")
+    pm = write_engine_package(sm, bundle, budget, tmp_path / "pkg", asset_name="Ball")
+    assert pm.ok and validate_package(pm.out_dir) == []
+    (capped,) = bundle.colliders
+    (raw,) = generate_colliders(sm.extract_meshes(), budget.max_collision_hulls, asset_name="Ball")
+    assert len(capped.points) <= 256 < len(raw.points)
+    proj = tmp_path / "godot"
+    proj.mkdir()
+    (proj / "project.godot").write_text('config_version=5\n[application]\nconfig/name="hulls"\n[physics]\n3d/physics_engine="Jolt Physics"\n')
+    (proj / "check.gd").write_text(_GODOT_HULLS)
+    shutil.copyfile(pm.out_dir / "Ball_colliders.glb", proj / "capped.glb")
+    write_gltf(proj / "raw.glb", [raw], [collider_name("godot_4", "Ball", 0, usd=False)])
+    env = {**os.environ, "AGY_HULL_FILES": "capped.glb,raw.glb"}
+    subprocess.run([exe, "--headless", "--path", str(proj), "--import"], env=env, capture_output=True, timeout=180, check=True)
+    run = subprocess.run([exe, "--headless", "--path", str(proj), "--script", "check.gd"], env=env, capture_output=True,
+                         text=True, timeout=180)
+    line = next((ln for ln in run.stdout.splitlines() if ln.startswith("AGY_HULLS ")), None)
+    assert line, run.stdout[-2000:] + run.stderr[-2000:]
+    out = json.loads(line.removeprefix("AGY_HULLS "))
+    assert out["engine"] == "Jolt Physics"
+    i = np.arange(400) + 0.5
+    y = 1.0 - 2.0 * i / 400
+    dirs = np.c_[np.cos((i - 0.5) * 2.399963229728653) * np.sqrt(1 - y * y), y, np.sin((i - 0.5) * 2.399963229728653) * np.sqrt(1 - y * y)]
+    to_y_up = lambda p: np.c_[p[:, 0], p[:, 2], -p[:, 1]]  # noqa: E731 - the GLB's axes
+    part = _ray_radius(to_y_up(raw.points), dirs)            # the part's own hull
+    for file, hull in (("capped.glb", capped), ("raw.glb", raw)):
+        rec = out[file]
+        assert rec.get("shapes") == [{"class": "ConvexPolygonShape3D", "points": len(hull.points), "body": "StaticBody3D"}], rec
+        assert min(rec["hits"]) > 0
+    capped_hits = np.asarray(out["capped.glb"]["hits"])
+    assert np.abs(capped_hits - _ray_radius(to_y_up(capped.points), dirs)).max() < 1e-3
+    assert (capped_hits - part).min() > -1e-3
+    assert (np.asarray(out["raw.glb"]["hits"]) - part).min() < -2e-3

@@ -2665,6 +2665,231 @@ def _safe_hull(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
         return _hull(np.vstack([points + d for d in (np.zeros(3), [0, 0, e], [0, e, 0], [e, 0, 0])]))
 
 
+@dataclass(frozen=True)
+class HullLimit:
+    """What a target engine accepts in one convex collision mesh (see ``validator.ENGINE_RULES``), each quantity as the
+    engine counts it on the mesh that ships; ``None`` = no limit on it.
+
+    ``vertices``: distinct points (PhysX vertices, Jolt hull points). ``triangles``: triangles of the shipped
+    triangulation (Unity). ``planar_faces``: polygons, coplanar triangles counted once (PhysX faces)."""
+    vertices: int | None = None
+    triangles: int | None = None
+    planar_faces: int | None = None
+    label: str = ""
+
+    @property
+    def max_vertices(self) -> int:
+        """The most vertices a triangulated convex hull within this limit can have (V vertices make 2V - 4 triangles)."""
+        v = self.vertices if self.vertices is not None else 10**9
+        return min(v, (self.triangles + 4) // 2) if self.triangles is not None else v
+
+    def excess(self, n_vertices: int, n_triangles: int, n_planes: int) -> str:
+        """Empty when a hull of these counts is accepted, else what is over the limit ("300 vertices > 256")."""
+        out = []
+        for n, cap, what in ((n_vertices, self.vertices, "vertices"), (n_triangles, self.triangles, "triangles"),
+                             (n_planes, self.planar_faces, "planar faces")):
+            if cap is not None and n > cap:
+                out.append(f"{n} {what} > {cap}")
+        return ", ".join(out)
+
+
+def hull_plane_count(points: np.ndarray, triangles: np.ndarray, rel_tol: float = 1e-5) -> int:
+    """Number of planar faces of a closed convex triangle mesh: triangles that share an edge are one face when each one's
+    far vertex lies within ``rel_tol`` of the diagonal from the other's plane. The tolerance is well above float32
+    rounding (USD and glTF store points as float32, which tilts the plane of a small triangle) and well below the step
+    between two real faces of a collision hull."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    p = np.asarray(points, np.float64)
+    t = np.asarray(triangles, np.int64).reshape(-1, 3)
+    m = len(t)
+    if m == 0:
+        return 0
+    tol = rel_tol * max(float(np.linalg.norm(np.ptp(p[np.unique(t)], axis=0))), 1e-300)
+    n = np.cross(p[t[:, 1]] - p[t[:, 0]], p[t[:, 2]] - p[t[:, 0]])
+    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-300)
+    d = np.einsum("ij,ij->i", n, p[t[:, 0]])
+    # half-edge (a, b) of face f, with its far vertex; the twin is (b, a)
+    a, b, far = t.reshape(-1), np.roll(t, -1, axis=1).reshape(-1), np.roll(t, -2, axis=1).reshape(-1)
+    face = np.repeat(np.arange(m), 3)
+    key = a * (int(t.max()) + 1) + b
+    twin_key = b * (int(t.max()) + 1) + a
+    order = np.argsort(key)
+    pos = np.clip(np.searchsorted(key[order], twin_key), 0, len(key) - 1)
+    has = key[order][pos] == twin_key
+    f1, f2 = face[has], face[order[pos[has]]]
+    v1, v2 = far[has], far[order[pos[has]]]
+    flat = (np.abs(np.einsum("ij,ij->i", n[f1], p[v2]) - d[f1]) <= tol) & (np.abs(np.einsum("ij,ij->i", n[f2], p[v1]) - d[f2]) <= tol)
+    count, _ = connected_components(coo_matrix((np.ones(int(flat.sum())), (f1[flat], f2[flat])), shape=(m, m)), directed=False)
+    return int(count)
+
+
+#: Vertices of a capped hull that lie closer together than this fraction of the hull's diagonal are welded: one point
+#: of a float32 mesh (as USD and glTF store it) cannot tell them apart. A welded vertex moves inward by at most this much,
+#: which bounds how far the part can lie outside the capped hull (1 um per metre of diagonal).
+HULL_WELD_REL = 1e-6
+
+
+def _dot3(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``a @ b.T`` for (n, 3) and (m, 3) arrays, as three products: BLAS threads gain nothing on an inner dimension of 3,
+    and on a busy machine they made this 10 to 60 times slower."""
+    return a[:, None, 0] * b[None, :, 0] + a[:, None, 1] * b[None, :, 1] + a[:, None, 2] * b[None, :, 2]
+
+
+def _halfspace_vertices(normals: np.ndarray, offsets: np.ndarray, interior: np.ndarray, weld: float) -> np.ndarray:
+    """The vertices of the polytope ``normals @ x <= offsets``, those within ``weld`` of each other welded."""
+    from scipy.sparse.csgraph import connected_components
+    from scipy.sparse import coo_matrix
+    from scipy.spatial import HalfspaceIntersection, cKDTree
+
+    hs = HalfspaceIntersection(np.c_[normals, -offsets], interior)
+    v = hs.intersections
+    pairs = cKDTree(v).query_pairs(weld, output_type="ndarray")
+    if len(pairs):
+        _, lab = connected_components(coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(len(v), len(v))),
+                                      directed=False)
+        _, first = np.unique(lab, return_index=True)
+        v = v[np.sort(first)]
+    return v
+
+
+def _even_directions(n: int) -> np.ndarray:
+    """``n`` unit vectors spread evenly over the sphere (Fibonacci lattice); deterministic."""
+    i = np.arange(n) + 0.5
+    z = 1.0 - 2.0 * i / n
+    r = np.sqrt(np.maximum(0.0, 1.0 - z * z))
+    phi = i * (math.pi * (3.0 - math.sqrt(5.0)))
+    return np.c_[np.cos(phi) * r, np.sin(phi) * r, z]
+
+
+def _plane_cap(p0: np.ndarray, t0: np.ndarray, limit: HullLimit, seed: int = 0):
+    """Enclosing hull within ``limit`` as an intersection of supporting half-spaces of the hull ``(p0, t0)``.
+
+    Starts from the six axis-aligned supporting planes and, while the result stays within the limit, adds the cuts
+    that remove most: for the vertices lying furthest outside the original hull, the original face plane the vertex
+    lies furthest beyond, or the supporting plane in its direction from the centre when that cuts deeper. Every plane
+    supports the original hull, so the result contains it (up to the vertex weld, ``HULL_WELD_REL`` of the diagonal).
+    A polytope of F planes has up to 2F - 4 vertices. Returns ``(points, triangles, volume, planes, reach)``, ``reach``
+    being how far its vertices lie beyond the original face planes at most, or None when no plane set fits."""
+    diag = float(np.linalg.norm(np.ptp(p0, axis=0)))
+    weld = HULL_WELD_REL * diag
+    fn = np.cross(p0[t0[:, 1]] - p0[t0[:, 0]], p0[t0[:, 2]] - p0[t0[:, 0]])
+    ln = np.linalg.norm(fn, axis=1)
+    ok = ln > 1e-12 * diag * diag
+    N = fn[ok] / ln[ok, None]
+    D = np.einsum("ij,ij->i", N, p0[t0[ok, 0]])
+    # coplanar triangles give one candidate plane
+    _, first = np.unique(np.round(np.c_[N, D / diag] * 1e9).astype(np.int64), axis=0, return_index=True)
+    first.sort()
+    N, D = N[first], D[first]
+    centre = p0.mean(axis=0)
+    axes = np.vstack([np.eye(3), -np.eye(3)]) if seed <= 6 else _even_directions(seed)
+    planes_n = [a for a in axes]
+    planes_d = [float(x) for x in _dot3(p0, axes).max(axis=0)]
+
+    def build(nn, dd):
+        # every vertex of a half-space intersection is extreme: its triangulated hull has 2V - 4 triangles
+        hp = _halfspace_vertices(np.asarray(nn), np.asarray(dd), centre, weld)
+        return hp, None, None, limit.excess(len(hp), 2 * len(hp) - 4, len(nn))
+
+    best = build(planes_n, planes_d)
+    if best[3]:  # a box (8 vertices, 12 triangles, 6 faces) is over the limit: no plane set can do better
+        return None
+    step = None
+    known: dict[bytes, tuple[int, float]] = {}                # vertex -> (deepest original plane, how far beyond it)
+    while True:
+        hp = best[0]
+        keys = [x.tobytes() for x in hp]
+        fresh = [i for i, k in enumerate(keys) if k not in known]
+        if fresh:                                             # a vertex kept from the last round keeps its answer
+            viol = _dot3(hp[fresh], N) - D                    # how far each vertex lies beyond each original plane
+            jf = viol.argmax(axis=1)
+            for i, j, v in zip(fresh, jf.tolist(), viol[np.arange(len(fresh)), jf].tolist()):
+                known[keys[i]] = (j, v)
+        jbest = np.array([known[k][0] for k in keys], np.int64)
+        vbest = np.array([known[k][1] for k in keys])
+        if vbest.max() <= weld:
+            break                                             # the original hull itself: nothing left to cut
+        order = np.argsort(-vbest, kind="stable")
+        order = order[vbest[order] > weld]
+        room = limit.max_vertices - len(hp)
+        if limit.planar_faces is not None:
+            room = min(room, limit.planar_faces - len(planes_n))
+        k = step if step is not None else max(1, room // 8)
+        U = hp[order] - centre
+        U /= np.maximum(np.linalg.norm(U, axis=1, keepdims=True), 1e-300)
+        new_n, new_d, seen = [], [], set()
+        chunk = max(32, 2 * k)
+        for r, i in enumerate(order.tolist()):
+            if r % chunk == 0:                                # supporting planes of the original hull, as far as needed
+                part = slice(r, r + chunk)
+                HU = _dot3(p0, U[part]).max(axis=0)
+                deep = np.einsum("ij,ij->i", hp[order[part]], U[part]) - HU > vbest[order[part]]
+            if deep[r % chunk]:
+                new_n.append(U[r])
+                new_d.append(float(HU[r % chunk]))
+                if len(new_n) >= k:
+                    break
+                continue
+            j = int(jbest[i])
+            if j in seen:
+                continue
+            seen.add(j)
+            new_n.append(N[j])
+            new_d.append(float(D[j]))
+            if len(new_n) >= k:
+                break
+        if not new_n:
+            break
+        trial = build(planes_n + new_n, planes_d + new_d)
+        if trial[3]:
+            if k == 1:
+                break                                         # one more plane would exceed the limit
+            step = max(1, k // 2)                             # near the limit: fewer planes at a time
+            continue
+        planes_n += new_n
+        planes_d += new_d
+        best = trial
+    # every vertex of ``best`` was measured at the top of the last round
+    reach = max(0.0, max(known[x.tobytes()][1] for x in best[0]))
+    hp, ht, hv = _hull(best[0])
+    return hp, ht, hv, len(planes_n), reach
+
+
+#: how a hull's ``reason`` starts its note when ``_limit_hull`` replaced it
+CAPPED_MARK = "capped to the engine's hull limit"
+
+
+def _limit_hull(pts: np.ndarray, tris: np.ndarray, volume: float, limit: HullLimit):
+    """A convex hull that an engine with ``limit`` accepts and that still encloses the hull ``(pts, tris)``.
+
+    Returns ``(points, triangles, volume, note)``; the input itself (note "") when it is within the limit, else the
+    supporting half-space construction of ``_plane_cap``. The same input gives the same output bit for bit.
+
+    Measured against it (sphere 64x32, capsule, cylinder 256): a subset of the hull's vertices pushed out from the
+    centre until it encloses (per-vertex factors from a linear program) claimed 1.3 to 2 times the excess volume on a
+    sphere and far more on elongated shapes."""
+    excess = limit.excess(len(pts), len(tris), hull_plane_count(pts, tris) if limit.planar_faces is not None else 0)
+    if not excess:
+        return pts, tris, volume, ""
+    p0 = np.asarray(pts, np.float64)
+    t0 = np.asarray(tris, np.int64)
+    # Two starts: the six axis planes (best where the hull has few large faces: a cylinder keeps its own faces) and
+    # supporting planes in evenly spread directions for most of the plane budget (best on curved hulls: a sphere's worst
+    # corner comes down by about a fifth). The one whose corners reach least far beyond the original hull is kept.
+    planes_budget = min(limit.max_vertices // 2 + 2, limit.planar_faces if limit.planar_faces is not None else 10**9)
+    found = [r for r in (_plane_cap(p0, t0, limit), _plane_cap(p0, t0, limit, seed=int(0.9 * planes_budget)))
+             if r is not None]
+    if not found:
+        raise ValueError(f"no enclosing hull within the engine's limit ({limit.label}): {excess}")
+    hp, ht, hv, planes, reach = min(found, key=lambda r: (r[4], r[2]))
+    note = (f"{CAPPED_MARK}{f' ({limit.label})' if limit.label else ''}: {excess}; now "
+            f"{len(hp)} vertices, {len(ht)} triangles, {planes} planes, volume {hv / volume - 1:+.2%}, "
+            f"corners up to {reach * 1e3:.1f} mm beyond the original hull's face planes")
+    return hp, ht.astype(np.int32), hv, note
+
+
 def _coacd_params(threshold: float, share: int, off: bool) -> dict:
     return dict(threshold=threshold, max_convex_hull=share, preprocess_mode="off" if off else "auto", resolution=500,
                 mcts_iterations=40, mcts_nodes=10, max_ch_vertex=64, decimate=True, seed=0)
@@ -2682,8 +2907,14 @@ class _Piece:
 
 
 def generate_colliders(
-    meshes: list[MeshData], max_hulls: int, threshold: float = 0.05, asset_name: str = "Asset"
+    meshes: list[MeshData], max_hulls: int, threshold: float = 0.05, asset_name: str = "Asset", *,
+    limit: HullLimit | None = None,
 ) -> list[Hull]:
+    """Convex collision hulls for the collider meshes, at most ``max_hulls`` of them.
+
+    ``limit``: what the target engine accepts in one convex mesh (``hull_limit(engine)``); every hull over it, from
+    any path (fast path, decomposition, merge, body hull), is replaced by an enclosing hull within it, and the
+    hull's ``reason`` says so. ``None`` leaves hulls as computed."""
     import coacd
 
     from antigravity3d.kernel import collider_worker
@@ -2770,8 +3001,24 @@ def generate_colliders(
         a, b = raw[0], raw[1]
         pp, tt, hv = _hull(np.vstack([a[0], b[0]]))
         raw = [(pp, tt, hv, "merged", "; ".join(dict.fromkeys(x for x in (a[4], b[4]) if x)))] + raw[2:]
+    if limit is not None:
+        capped = []
+        for pp, tt, hv, src, why in raw:
+            pp, tt, hv2, note = _limit_hull(pp, tt, hv, limit)
+            capped.append((pp, tt, hv2, src, "; ".join(x for x in (why, note) if x)))
+        raw = capped
     raw.sort(key=lambda h: -h[2])
     return [Hull(f"UCX_{asset_name}_{i:02d}", p, t, v, s, r) for i, (p, t, v, s, r) in enumerate(raw)]
+
+
+def hull_limit(engine: str | None) -> HullLimit | None:
+    """The convex-hull limit of a target engine, from ``validator.ENGINE_RULES``; None when it has none or is unknown."""
+    if engine is None:
+        return None
+    from antigravity3d.kernel.validator import ENGINE_RULES
+
+    rules = ENGINE_RULES.get(engine)  # type: ignore[call-overload]
+    return rules.hull_limit if rules is not None else None
 
 
 def describe_collider_sources(hulls: list[Hull]) -> str:
@@ -2779,6 +3026,10 @@ def describe_collider_sources(hulls: list[Hull]) -> str:
     is not a plain decomposition or hull, so that a fallback is never silent."""
     sources = sorted({h.source for h in hulls})
     reasons = sorted({h.reason for h in hulls if h.source == "body_hull" and h.reason})
+    capped = [h for h in hulls if CAPPED_MARK in h.reason]
+    if capped:
+        reasons.append(f"{len(capped)} capped to the engine's hull limit, volume "
+                       + ", ".join(h.reason.split("volume ", 1)[-1].split(",", 1)[0] for h in capped))
     return ", ".join(sources) + (f" ({'; '.join(reasons)})" if reasons else "")
 
 
@@ -2933,7 +3184,7 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
     t1 = time.perf_counter()
     lods = generate_asset_lods(uvs)
     t2 = time.perf_counter()
-    hulls = generate_colliders(meshes, budget.max_collision_hulls, asset_name=asset_name)
+    hulls = generate_colliders(meshes, budget.max_collision_hulls, asset_name=asset_name, limit=hull_limit(budget.target_engine))
     t3 = time.perf_counter()
     t = {"uv": (t1 - t0) * 1e3, "lod": (t2 - t1) * 1e3, "colliders": (t3 - t2) * 1e3, "total": (t3 - t0) * 1e3}
     return ExportBundle(asset_name, uvs, lods, hulls, {k: round(v, 2) for k, v in t.items()})

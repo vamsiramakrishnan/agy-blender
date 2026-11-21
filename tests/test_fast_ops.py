@@ -998,3 +998,61 @@ def test_seam_copies_that_differ_by_rounding_noise_do_not_open_cracks():
         open_edges = edges[count == 1]
         on_a_rim = (np.abs(z[open_edges]) < 1e-9).all(axis=1) | (np.abs(z[open_edges] - 1.0) < 1e-9).all(axis=1)
         assert on_a_rim.all(), f"level with {lod.tri_count} triangles has {int((~on_a_rim).sum())} open edges along the seam"
+
+
+# --------------------------------------------------------------------------- engine hull limits
+
+
+def _dense(kind: str, **params) -> MeshData:
+    from antigravity3d.ir import NodeIR
+    from antigravity3d.kernel.compile_ir import primitive_mesh
+
+    p, t = primitive_mesh(NodeIR(id=kind, kind=kind, params=params))
+    return MeshData(kind, f"/Asset/{kind}", np.asarray(p, np.float64), np.asarray(t, np.int32), "m")
+
+
+@pytest.mark.parametrize("engine", ["unreal_5", "unity_urp", "godot_4"])
+def test_hulls_over_an_engine_limit_are_replaced_by_enclosing_hulls_within_it(engine):
+    """A dense convex part takes the fast path; its own hull (1,986 vertices for a 64x32 sphere) is over every PhysX and
+    Jolt limit. The replacement is within the engine's limit as the validator counts it, contains the original hull,
+    is no smaller, says why it differs, and is the same bit for bit on a second run."""
+    from antigravity3d.kernel.fast_ops import CAPPED_MARK, hull_limit
+    from antigravity3d.kernel.validator import hull_limit_issue
+
+    for m in (_dense("sphere", radius=0.5, segments=64, rings=32), _dense("cylinder", radius=0.3, height=2.0, segments=256),
+              _dense("capsule", radius=0.25, height=1.5, segments=48)):
+        (orig,) = generate_colliders([m], 8, asset_name="P")
+        assert hull_limit_issue(engine, orig.points, orig.triangles)  # the subject is over the limit
+        (h,) = generate_colliders([m], 8, asset_name="P", limit=hull_limit(engine))
+        again = generate_colliders([m], 8, asset_name="P", limit=hull_limit(engine))[0]
+        assert np.array_equal(h.points, again.points) and np.array_equal(h.triangles, again.triangles) and h.reason == again.reason
+        assert hull_limit_issue(engine, h.points, h.triangles) == "", m.node_id
+        assert h.source == "fast_path" and h.reason.startswith(CAPPED_MARK)
+        eq = ConvexHull(h.points).equations
+        diag = float(np.linalg.norm(np.ptp(orig.points, axis=0)))
+        assert (orig.points @ eq[:, :3].T + eq[:, 3]).max() <= 2e-6 * diag  # encloses (weld tolerance 1e-6 of the diagonal)
+        assert orig.volume <= h.volume <= 1.08 * orig.volume
+        assert trimesh.Trimesh(h.points, h.triangles).is_convex
+
+
+def test_hulls_within_the_limit_and_engines_without_one_are_left_as_computed():
+    from antigravity3d.kernel.fast_ops import hull_limit
+
+    small = md(trimesh.creation.cylinder(0.3, 1, sections=32), "cyl")      # 64 vertices, 124 triangles
+    dense = _dense("sphere", radius=0.5, segments=64, rings=32)
+    assert hull_limit("roblox_r15") is None and hull_limit(None) is None
+    for m, engine in ((small, "unity_urp"), (small, "godot_4"), (dense, "roblox_r15")):
+        (a,) = generate_colliders([m], 8, limit=hull_limit(engine))
+        (b,) = generate_colliders([m], 8)
+        assert np.array_equal(a.points, b.points) and np.array_equal(a.triangles, b.triangles) and a.reason == b.reason == ""
+
+
+def test_export_pipeline_caps_hulls_for_its_target_engine():
+    from antigravity3d.kernel.fast_ops import CAPPED_MARK, describe_collider_sources
+
+    m = _dense("sphere", radius=0.5, segments=64, rings=32)
+    for engine, vertices in (("godot_4", 256), ("unity_urp", 129)):
+        (h,) = run_export_pipeline([m], EngineBudget(engine), "Ball").colliders
+        assert len(h.points) <= vertices and CAPPED_MARK in h.reason
+        assert "capped to the engine's hull limit" in describe_collider_sources([h])
+    assert len(run_export_pipeline([m], EngineBudget("roblox_r15"), "Ball").colliders[0].points) == 1986

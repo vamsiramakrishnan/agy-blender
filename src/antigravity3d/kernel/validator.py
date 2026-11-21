@@ -13,7 +13,7 @@ from urllib.parse import unquote
 import numpy as np
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, UsdValidation
 
-from antigravity3d.kernel.fast_ops import Issue
+from antigravity3d.kernel.fast_ops import HullLimit, Issue, hull_plane_count
 from antigravity3d.kernel.types import MeshData, bounds_issue, gltf_world_bounds
 from antigravity3d.state import EngineBudget, TargetEngine
 
@@ -65,6 +65,8 @@ class EngineRules:
     max_textures_per_material: int | None
     require_pow2_textures: bool
     notes: str = ""
+    #: what one convex collision mesh may hold; ``generate_colliders`` caps hulls to it and ``validate_package`` checks it
+    hull_limit: HullLimit | None = None
 
 
 # Studio-auditable. Entries marked UNCERTAIN are conservative hints, not documented hard limits.
@@ -79,6 +81,14 @@ ENGINE_RULES: dict[TargetEngine, EngineRules] = {
         max_texture_px=8192,                 # UNCERTAIN: practical import hint (larger needs VT)
         max_textures_per_material=None,
         require_pow2_textures=True,          # mip streaming wants pow2
+        # PROJECT CHOICE, not an Epic limit. Epic documents no vertex or face limit for UCX hulls (FBX Static Mesh Pipeline
+        # page, https://dev.epicgames.com/documentation/en-us/unreal-engine/fbx-static-mesh-pipeline-in-unreal-engine),
+        # and UE5 simulates with Chaos, not PhysX. The numbers are PhysX's, the engine UE4 imported UCX hulls into and the
+        # source of the common "255" UCX rule: "The number of vertices and faces of a convex mesh in PhysX is limited to
+        # 255." (https://nvidia-omniverse.github.io/PhysX/physx/5.6.1/docs/Geometry.html). Conservative: a hull within
+        # it ships unchanged through any PhysX-derived path. No Epic or engine-source statement on simplification of UCX
+        # hulls at import was found (only forum reports).
+        hull_limit=HullLimit(vertices=255, planar_faces=255, label="unreal_5: PhysX 255 vertices, 255 faces (project choice)"),
     ),
     "unity_urp": EngineRules(
         native_up_axis="Y",
@@ -89,7 +99,14 @@ ENGINE_RULES: dict[TargetEngine, EngineRules] = {
         max_tris_per_mesh=None,              # 16-bit index buffers cap at 65535 verts; not enforced here
         max_texture_px=8192,                 # UNCERTAIN: default importer Max Size
         max_textures_per_material=None,
-        require_pow2_textures=False,         # NPOT works but loses compression on some targets
+        # "NPOT Texture sizes generally take slightly more memory and might be slower for the GPU to sample [...] If the
+        # platform or GPU does not support NPOT Texture sizes, Unity scales and pads the Texture up to the next power of
+        # two size." (Unity Manual, Importing textures,
+        # https://docs.unity.com/en-us/engine/6000.6/manual/materials-and-shaders/textures/importing-textures). A warning.
+        require_pow2_textures=True,
+        # "Convex mesh colliders are limited to 255 triangles." (Unity Manual, Mesh Collider component reference,
+        # https://docs.unity3d.com/Manual/class-MeshCollider.html). 255 triangles is at most 129 vertices.
+        hull_limit=HullLimit(triangles=255, label="unity_urp: convex Mesh Collider 255 triangles"),
     ),
     "godot_4": EngineRules(
         native_up_axis="Y",
@@ -100,18 +117,43 @@ ENGINE_RULES: dict[TargetEngine, EngineRules] = {
         max_tris_per_mesh=None,
         max_texture_px=16384,                # UNCERTAIN: GPU-dependent
         max_textures_per_material=None,
+        # "Using power-of-two texture sizes is recommended, but is not required." (Godot docs, Importing images,
+        # https://docs.godotengine.org/en/stable/tutorials/assets_pipeline/importing_images.html): no warning.
         require_pow2_textures=False,
+        # ConvexPolygonShape3D documents no limit, and Godot Physics keeps every point (measured: a 1,986-point hull
+        # imported by stock Godot 4.7.2 answers ray casts within 0.2 mm of the hull). But "By default, new projects will use [Jolt] as the physics engine"
+        # (https://docs.godotengine.org/en/stable/tutorials/physics/using_jolt_physics.html), and Jolt's ConvexHullShape
+        # has cMaxPointsInHull = 256; past it the hull builder stops early (MaxVerticesReached) and drops points
+        # (Jolt/Physics/Collision/Shape/ConvexHullShape.h and .cpp, github.com/jrouwe/JoltPhysics). Measured in stock
+        # Godot 4.7.2 with Jolt: that 1,986-point hull answers ray casts up to 7.1 mm inside itself; capped, within 0.7 mm.
+        hull_limit=HullLimit(vertices=256, label="godot_4: Jolt 256 hull points"),
     ),
     "roblox_r15": EngineRules(
         native_up_axis="Y",
-        allowed_up_axes=("Y",),              # UNCERTAIN: Roblox importer is Y-up
-        meters_per_unit=(1.0, 0.28),         # UNCERTAIN: 1 stud ~ 0.28 m
+        # Roblox imports .fbx, .gltf and .obj, not USD (https://create.roblox.com/docs/art/modeling/3d-importer); the
+        # GLB is Y-up by the glTF spec. The importer's World Up defaults to "Top". The USD axis is a package convention.
+        allowed_up_axes=("Y",),
+        # "Length 1 stud 28 cm" (https://create.roblox.com/docs/physics/units). The importer's "Scale Unit [...] By
+        # default, this is set to Studs" (3D importer page): a metre GLB needs Scale Unit = Meters on import.
+        meters_per_unit=(1.0, 0.28),
         name_regex=r"^[A-Za-z0-9_]+$",
         hull_prim_regex=None,
-        max_tris_per_mesh=10_000,            # MeshPart import limit
-        max_texture_px=1024,                 # larger textures are downscaled
-        max_textures_per_material=4,         # SurfaceAppearance: Color/Normal/Metalness/Roughness
+        # "Individual meshes can not exceed 20,000 triangles." (https://create.roblox.com/docs/art/modeling/specifications)
+        max_tris_per_mesh=20_000,
+        # "Roblox supports up to 1024x1024 pixel spaces for texture maps."
+        # (https://create.roblox.com/docs/art/modeling/texture-specifications)
+        max_texture_px=1024,
+        # "apply up to four physically-based rendering (PBR) textures within a SurfaceAppearance"
+        # (https://create.roblox.com/docs/parts/meshes): Color/Normal/Metalness/Roughness
+        max_textures_per_material=4,
+        # the texture specifications state no power-of-two requirement
         require_pow2_textures=False,
+        # No documented limit, and nothing to limit: Roblox does not import collision meshes. A MeshPart's collision is
+        # built from its render mesh by CollisionFidelity (Box, Hull, Default, PreciseConvexDecomposition)
+        # (https://create.roblox.com/docs/workspace/collisions). The hulls in a Roblox package are left as computed.
+        hull_limit=None,
+        notes="Roblox does not read the package's collision hulls (CollisionFidelity rebuilds collision from the render "
+              "mesh); they are left as computed, deliberately.",
     ),
 }
 
@@ -164,6 +206,44 @@ def _image_size(path: str) -> tuple[int, int] | None:
         return None
 
 
+#: Largest dimension, in metres, above or below which an asset is reported as implausibly scaled for a prop or a kit
+#: piece (a warning with the numbers; never a gate, never a silent rescale). The project's own templates measure 0.65 m
+#: (crate) to 3.6 m (lamp post) at their largest; upstream real-world references put a door at 2.0-2.13 m, a person at
+#: 1.7-1.8 m and the smallest kitbash module at 0.05 m (arjun988 prop-artist SKILL.md, realistic-style SKILL.md,
+#: prop-artist/references/kitbash-library.md). 20 m leaves room for large environment pieces (5x the largest template)
+#: and is what any part of 20 cm or more becomes when its centimetres are read as metres; 1 cm is a fifth of the
+#: smallest kitbash module. Formats without a unit (OBJ, PLY, STL) are where a wrong unit arrives.
+SCALE_MAX_M = 20.0
+SCALE_MIN_M = 0.01
+#: where a unit conversion must land to be offered as the likely reading (kitbash module to the largest template)
+SCALE_TYPICAL_M = (0.05, 4.0)
+_UNIT_READINGS = (("centimetres", 0.01), ("millimetres", 0.001), ("inches", 0.0254))
+
+
+def scale_issue(meshes: list[MeshData]) -> str:
+    """Why the asset's size is implausible for a prop or a kit piece, with the unit readings that would make it plausible,
+    or "" when its largest dimension lies within ``SCALE_MIN_M``..``SCALE_MAX_M``."""
+    pts = [np.asarray(m.points, dtype=np.float64).reshape(-1, 3) for m in meshes if len(m.points)]
+    if not pts:
+        return ""
+    allp = np.vstack(pts)
+    size = allp.max(axis=0) - allp.min(axis=0)
+    largest = float(size.max())
+    if SCALE_MIN_M <= largest <= SCALE_MAX_M:
+        return ""
+    dims = f"(x {size[0]:.3g}, y {size[1]:.3g}, z {size[2]:.3g} m)"
+    lo, hi = SCALE_TYPICAL_M
+    if largest > SCALE_MAX_M:
+        head = f"largest dimension {largest:.3g} m {dims} is above {SCALE_MAX_M:g} m, implausible for a prop or kit piece"
+        readings = [(f"{unit} read as metres", f) for unit, f in _UNIT_READINGS]
+    else:
+        head = f"largest dimension {largest:.3g} m {dims} is below {SCALE_MIN_M:g} m, implausible for a prop or kit piece"
+        readings = [("metres written as centimetres", 100.0), ("metres written as millimetres", 1000.0)]
+    fits = [f"{why}: {largest * f:.3g} m (scale x{f:g})" for why, f in readings if lo <= largest * f <= hi]
+    tail = ("; if " + "; or ".join(fits)) if fits else f"; no common unit conversion brings it to {lo:g}-{hi:g} m"
+    return f"{head}{tail}. Not rescaled: check the source unit."
+
+
 def check_engine_compliance(stage: Usd.Stage | None, meshes: list[MeshData], budget: EngineBudget) -> list[Issue]:
     rules = ENGINE_RULES[budget.target_engine]
     eng = budget.target_engine
@@ -184,6 +264,8 @@ def check_engine_compliance(stage: Usd.Stage | None, meshes: list[MeshData], bud
     draws = len({m.material_id for m in meshes})
     if draws > budget.max_draw_calls:
         add("draw_call_budget", "critical", None, f"{draws} draw calls > {budget.max_draw_calls}")
+    if why := scale_issue(meshes):
+        add("implausible_scale", "warning", None, why)
 
     if stage is None:
         return out
@@ -227,6 +309,10 @@ def check_engine_compliance(stage: Usd.Stage | None, meshes: list[MeshData], bud
     any_tex = any(textures.values())
     for prim in mesh_prims:
         if is_collider_prim(prim, hull_re):
+            mesh = UsdGeom.Mesh(prim)
+            if why := hull_limit_issue(eng, np.asarray(mesh.GetPointsAttr().Get() or [], dtype=np.float64),
+                                       _triangle_indices(mesh)):
+                add("hull_limit", "critical", prim.GetName(), f"convex collision mesh over the engine's limit: {why}")
             continue
         pv = UsdGeom.PrimvarsAPI(prim)
         has_uv = any(pv.GetPrimvar(n) and pv.GetPrimvar(n).HasValue() for n in ("st", "st0", "UVMap"))
@@ -319,6 +405,36 @@ def _is_convex(points: np.ndarray, tris: np.ndarray, tol: float = 1e-3) -> bool:
     p = points[tris]
     vol = abs(float(np.einsum("ij,ij->i", p[:, 0], np.cross(p[:, 1], p[:, 2])).sum() / 6.0))
     return len(np.unique(hull.simplices)) == len(np.unique(tris)) and abs(vol - hull.volume) <= tol * max(hull.volume, 1e-12)
+
+
+def hull_limit_issue(engine: str | None, points: np.ndarray, triangles: np.ndarray) -> str:
+    """What a convex collision mesh holds beyond its engine's hull limit (``EngineRules.hull_limit``), or "".
+
+    Vertices are counted as distinct positions of the vertices the triangles use (an engine welds coincident ones);
+    faces as triangles, or planar faces where the engine counts polygons."""
+    rules = ENGINE_RULES.get(engine)  # type: ignore[arg-type]
+    limit = rules.hull_limit if rules is not None else None
+    tris = np.asarray(triangles, dtype=np.int64).reshape(-1, 3)
+    if limit is None or not len(tris):
+        return ""
+    pts = np.asarray(points, dtype=np.float64).reshape(-1, 3)
+    n_vertices = len(np.unique(pts[np.unique(tris)], axis=0))
+    planes = hull_plane_count(pts, tris) if limit.planar_faces is not None else 0
+    excess = limit.excess(n_vertices, len(tris), planes)
+    return f"{excess} ({limit.label})" if excess else ""
+
+
+def _triangle_indices(mesh: UsdGeom.Mesh) -> np.ndarray:
+    """Triangle vertex indices of a mesh (polygons fanned), as an (n, 3) array."""
+    counts = np.asarray(mesh.GetFaceVertexCountsAttr().Get() or [], dtype=np.int64)
+    idx = np.asarray(mesh.GetFaceVertexIndicesAttr().Get() or [], dtype=np.int64)
+    if len(counts) and (counts == 3).all():
+        return idx.reshape(-1, 3)
+    out, start = [], 0
+    for c in counts.tolist():
+        out.extend((idx[start], idx[start + k], idx[start + k + 1]) for k in range(1, c - 1))
+        start += c
+    return np.asarray(out, dtype=np.int64).reshape(-1, 3)
 
 
 def _mesh_tris(prim: Usd.Prim) -> int:
@@ -691,7 +807,8 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
     manifest, every mesh bound to a textured material has ``st`` (count matches its interpolation) in
     every LOD variant, every texture path is relative, resolves and stays inside the package, LOD
     triangle counts never increase, the GLB LOD0 matches the USD LOD0, collider prims are named per the
-    engine rules, tagged ``UsdPhysics`` convexHull + purpose guide, and are really convex. GLB images: LOD0 embeds
+    engine rules, tagged ``UsdPhysics`` convexHull + purpose guide, are really convex, and stay within the engine's hull
+    limit (``EngineRules.hull_limit``; in the USD and in ``<asset>_colliders.glb``). GLB images: LOD0 embeds
     every image; far LOD files reference ``textures/`` files that exist, lie inside ``textures/`` and hash as the
     manifest records, embed none, and bind the same image content as LOD0 (see ``_check_glb_images``). An
     ``art_direction`` record (schema_version 3) is checked against the files (see ``_check_art_direction``).
@@ -922,6 +1039,24 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
         idx = np.asarray(mesh.GetFaceVertexIndicesAttr().Get() or [], dtype=np.int64).reshape(-1, 3)
         if not _is_convex(pts, idx):
             add("collider_convex", "critical", n, "collider mesh is not convex")
+        if why := hull_limit_issue(engine, pts, idx):
+            add("collider_limit", "critical", n, f"convex collision mesh over the engine's limit: {why}")
+    # the collider GLB carries the same hulls under engine names (what Godot's importer reads): check what it holds
+    glb_hulls = out / f"{asset}_colliders.glb"
+    if man.get("collider_glb_nodes") and glb_hulls.is_file():
+        try:
+            import trimesh
+
+            scene = trimesh.load(glb_hulls, force="scene", process=False)
+            for node in man["collider_glb_nodes"]:
+                if node not in scene.graph.nodes_geometry:
+                    add("collider_glb", "critical", node, f"{glb_hulls.name} has no mesh node {node!r}")
+                    continue
+                geom = scene.geometry[scene.graph[node][1]]
+                if why := hull_limit_issue(engine, np.asarray(geom.vertices), np.asarray(geom.faces)):
+                    add("collider_limit", "critical", node, f"{glb_hulls.name}: convex collision mesh over the engine's limit: {why}")
+        except Exception as e:  # noqa: BLE001 - unreadable GLB
+            add("glb_open", "critical", glb_hulls.name, str(e)[:200])
     _check_art_direction(out, man, root, hull_re, add)
     want_names = man.get("colliders")
     if want_names is not None and sorted(want_names) != sorted(p.GetName() for p in colliders):

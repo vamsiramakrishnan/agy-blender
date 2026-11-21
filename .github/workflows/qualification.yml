@@ -93,6 +93,7 @@ jobs:
                       "test_browser_far_lods_load_their_referenced_textures_and_match_lod0",
                       "test_browser_far_lod_with_a_missing_texture_fails",
                       "test_styled_package_imports_in_stock_godot_and_passes_the_web_check",
+                      "test_capped_hull_imports_in_stock_godot_as_its_collision_shape",
                       *(f"test_browser_asymmetric_block_passes_for_every_target_engine[{engine}]"
                         for engine in ("unreal_5", "unity_urp", "godot_4", "roblox_r15"))}
           passed = {c.get("name") for c in ET.parse("/tmp/engine-qualification.xml").iter("testcase")
