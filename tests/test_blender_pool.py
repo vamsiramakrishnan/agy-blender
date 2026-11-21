@@ -397,3 +397,30 @@ async def test_real_blender_legacy_migrations():
                 'modifier.solver = "FAST"\n'
                 'result = [scene.render.engine, modifier.solver, OldHandle == bpy.types.AssetRepresentation]'))
         assert result["result"] == ["BLENDER_EEVEE", "FLOAT", True]
+
+
+@pytest.mark.blender
+@pytest.mark.parametrize("which", ["interior", "exterior"])
+async def test_upstream_kit_check_passes_every_piece_of_an_offline_kit(tmp_path, which):
+    """EL4CTEO/blender-skills' kit check, run by the worker on the piece files a kit ships (coincident vertices
+    merged, as every topology check on these files must be), with the kit's own grid, pivot and sheet size: no
+    piece has an error. Before kits were built to one metric every object failed it."""
+    if not find_blender():
+        pytest.skip("no Blender binary ($BLENDER_BIN or PATH)")
+    from antigravity3d.dags.environment_kit import EnvironmentKitDAG
+    from antigravity3d.genmedia.nano_banana import FakeImageBackend, ImageForge
+    from antigravity3d.kernel.kit_metric import KitMetric
+    from antigravity3d.state import EngineBudget
+    from antigravity3d.tactics.authoring import TemplateAuthor
+
+    metric = KitMetric.parse(which)
+    dag = EnvironmentKitDAG(forge=ImageForge(FakeImageBackend()), author=TemplateAuthor(), workdir=tmp_path / "kit",
+                            budget=EngineBudget("unreal_5"), sheet_resolution=1024, metric=metric)
+    rep = await dag.run("ruined stone temple", 4)
+    assert rep.ok and rep.extras["gates_ok"], rep.summary()
+    async with BlenderPool(1, startup_timeout=120) as pool:
+        for name, path in rep.extras["pieces"].items():
+            r = await pool.call("inspect_usd", path=path, primitive="kit_check", weld=True,
+                                kwargs={"grid": metric.grid_m, "pivot": metric.pivot, "texture": 1024, "prefix": ""})
+            (obj, rec), = r["pieces"].items()  # one mesh per piece (Blender may suffix the name: the root prim has it too)
+            assert obj.startswith(name) and r["pass"] and not rec["errors"], (name, obj, rec)

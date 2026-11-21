@@ -159,13 +159,60 @@ def _convex_groups(meshes: list[MeshData], limit: int = COLLIDER_HULLS) -> list[
     return out
 
 
-def ship_masks(meshes: list[MeshData]) -> list[np.ndarray]:
-    """Which triangles of each part ship, one boolean mask per part in triangle order. Every triangle today. Parts that
-    are stacked full-depth have contact faces between them that nothing can see (the top and bottom of every course);
-    the exact test for those (a triangle completely covered by an opposite-facing coplanar face of another closed part)
-    belongs to the prop export in ``kernel/fast_ops.py`` and plugs in here: the masks are applied per part BEFORE the
-    parts are merged into the piece's one mesh, so a dropped face never needs to be found again in the merged mesh."""
-    return [np.ones(len(m.triangles), bool) for m in meshes]
+def ship_masks(meshes: list[MeshData], budget: EngineBudget | None = None) -> list[np.ndarray]:
+    """Which triangles of each part ship, one boolean mask per part in triangle order.
+
+    Parts that are stacked full-depth have contact faces between them that nothing can see (the top and bottom of
+    every course, the caps between a pillar's drums). A triangle completely covered by an opposite-facing coplanar
+    face of another closed part of the SAME piece does not ship: the test is the prop export's
+    (``fast_ops.hidden_contact_faces``), and so is the rule for when it applies (``fast_ops.contact_faces_removable``:
+    not for an engine that requires closed render meshes, not when the run asked to keep them). Faces on a piece's
+    outer boundary are never hidden within the piece, so the faces that mate with a neighbouring piece stay.
+    The masks are applied per part BEFORE the parts are merged into the piece's one mesh. Without a budget every
+    triangle ships."""
+    from antigravity3d.kernel.fast_ops import contact_faces_removable, hidden_contact_faces
+
+    opaque = frozenset({SHEET_MATERIAL})  # every part of a piece ships with the kit's one trim material, which is opaque
+    if budget is None or not contact_faces_removable(budget, opaque):
+        return [np.ones(len(m.triangles), bool) for m in meshes]
+    hidden = hidden_contact_faces([(m.node_id, m.points, m.triangles, SHEET_MATERIAL) for m in meshes], opaque)
+    return _kept_closed(meshes, [~np.asarray(h, bool) for h in hidden])
+
+
+def _kept_closed(meshes: list[MeshData], keep: list[np.ndarray]) -> list[np.ndarray]:
+    """``keep`` with triangles put back until the piece has no open edge once coincident vertices are merged.
+
+    Two courses of one footprint lose both faces of their contact and their walls then meet edge to edge: the piece is
+    still one closed surface. A shaft standing on a wider plinth is different: the shaft's cap is hidden, the plinth's
+    face under it is not, and dropping the cap would leave the shaft's rim as an open edge in the middle of the piece.
+    Nothing can be seen through it, but a modular piece is expected to be closed (upstream's kit check reports such an
+    edge as a hole, and a light baker treats it as one), so that cap stays. A prop keeps the wider rule."""
+    quantum = 1e-6  # metres; coincident corners of exact contacts differ by float noise far below this
+    ids: dict[tuple[int, int, int], int] = {}
+    tris = []
+    for m in meshes:
+        welded = np.asarray([ids.setdefault(tuple(q), len(ids)) for q in np.round(np.asarray(m.points, np.float64) / quantum).astype(np.int64).tolist()])
+        tris.append(welded[np.asarray(m.triangles)])
+    keep = [k.copy() for k in keep]
+    for _ in range(sum(len(t) for t in tris) + 1):  # each round puts back at least one triangle or stops
+        count: dict[tuple[int, int], int] = {}
+        for t, k in zip(tris, keep):
+            for a, b, c in t[k].tolist():
+                for e in ((a, b), (b, c), (c, a)):
+                    e = (e[0], e[1]) if e[0] < e[1] else (e[1], e[0])
+                    count[e] = count.get(e, 0) + 1
+        open_edges = {e for e, n in count.items() if n == 1}
+        if not open_edges:
+            break
+        changed = False
+        for t, k in zip(tris, keep):
+            for i in np.flatnonzero(~k):
+                a, b, c = t[i].tolist()
+                if any(((x, y) if x < y else (y, x)) in open_edges for x, y in ((a, b), (b, c), (c, a))):
+                    k[i] = changed = True
+        if not changed:
+            break
+    return keep
 
 
 def _one_mesh(name: str, results: list[TrimResult], ship: list[np.ndarray] | None = None) -> UVResult:
@@ -357,16 +404,20 @@ class EnvironmentKitDAG:
 
         async def export_pieces(ctx: NodeCtx) -> dict[str, str]:
             paths: dict[str, str] = {}
+            removed: dict[str, int] = {}  # per piece: contact faces between its own parts that do not ship
             (out / "pieces").mkdir(parents=True, exist_ok=True)
             mat = MaterialIR(id=SHEET_MATERIAL, albedo_uri="../trim_sheet.png", base_color=(0.8, 0.8, 0.8), roughness=0.8)
             for mp in ctx["map_trim"]:
                 p = mp.piece
                 hulls: list[Hull] = await asyncio.to_thread(generate_colliders, _convex_groups(p.meshes), COLLIDER_HULLS, asset_name=p.name,
                                                             limit=hull_limit(self.budget.target_engine))
-                path = write_package_usd(out / "pieces" / f"{p.name}.usda", p.name, [_one_mesh(p.name, mp.results, ship_masks(p.meshes))], {p.name: SHEET_MATERIAL}, [mat], hulls,
+                ship = ship_masks(p.meshes, self.budget)
+                removed[p.name] = int(sum(len(k) - int(k.sum()) for k in ship))
+                path = write_package_usd(out / "pieces" / f"{p.name}.usda", p.name, [_one_mesh(p.name, mp.results, ship)], {p.name: SHEET_MATERIAL}, [mat], hulls,
                                          self.budget.target_engine,
                                          crease_deg=self.art.crease_deg() if self.art is not None and self.art.shading_crease_deg is not None else None)
                 paths[p.name] = str(path)
+            ctx.data(contact_faces_removed=removed)
             return paths
 
         async def assemble(ctx: NodeCtx) -> dict[str, Any]:

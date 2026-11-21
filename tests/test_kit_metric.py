@@ -195,3 +195,79 @@ def test_the_brief_is_only_for_kit_pieces_and_carries_feedback() -> None:
     assert b.startswith("Kit metric, exact, metres: box x 0..2, y 0..0.25, z 0..3; origin at its min corner.")
     assert b.endswith("Previous answer rejected: height z 2.9 m, kit 3 m")
     assert all(len(m.brief(t).encode()) < 330 for t in KIT_TEMPLATES)  # sent with every call: bounded
+
+
+# ------------------------------------------------------------------ what a piece ships
+
+
+async def _offline_kit(tmp: Path, engine: str = "unreal_5", keep: bool = False, n: int = 4):
+    from antigravity3d.dags.environment_kit import EnvironmentKitDAG
+    from antigravity3d.genmedia.nano_banana import FakeImageBackend, ImageForge
+    from antigravity3d.state import EngineBudget
+    from antigravity3d.tactics.authoring import TemplateAuthor
+
+    dag = EnvironmentKitDAG(forge=ImageForge(FakeImageBackend()), author=TemplateAuthor(), workdir=tmp,
+                            budget=EngineBudget(engine, keep_contact_faces=keep), sheet_resolution=1024)  # type: ignore[arg-type]
+    rep = await dag.run("ruined stone temple", n)
+    assert rep.ok and rep.extras["gates_ok"], rep.summary()
+    return rep
+
+
+def _shipped_mesh(path: str):
+    """(points, triangles) of the one render mesh a piece file ships, collision hulls left out."""
+    from pxr import Usd, UsdGeom
+
+    stage = Usd.Stage.Open(path)  # held: prims expire with their stage
+    meshes = [UsdGeom.Mesh(p) for p in stage.Traverse() if p.IsA(UsdGeom.Mesh) and not p.GetName().startswith("UCX_")]
+    assert len(meshes) == 1, [m.GetPrim().GetName() for m in meshes]
+    return np.asarray(meshes[0].GetPointsAttr().Get(), np.float64), np.asarray(meshes[0].GetFaceVertexIndicesAttr().Get()).reshape(-1, 3)
+
+
+def _open_edges(points: np.ndarray, tris: np.ndarray) -> int:
+    """Edges used by exactly one triangle once coincident vertices are merged."""
+    _, welded = np.unique(np.round(points / 1e-6).astype(np.int64), axis=0, return_inverse=True)
+    t = welded.reshape(-1)[tris]
+    edges = np.sort(np.concatenate([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]]), axis=1)
+    _, counts = np.unique(edges, axis=0, return_counts=True)
+    return int((counts == 1).sum())
+
+
+async def test_a_piece_ships_without_the_faces_its_own_parts_press_together_and_stays_closed(tmp_path: Path) -> None:
+    """Courses stacked full-depth have contact faces nothing can see. They do not ship (a quarter to a third of a
+    piece's triangles), and what ships is still one closed surface once coincident vertices are merged: a face is
+    left out only where the two sides of the contact both go, so no part's rim is left open inside the piece.
+    Roblox requires closed render meshes part by part, and a run can ask for the closed parts: both keep every face."""
+    shipped = await _offline_kit(tmp_path / "a")
+    closed = await _offline_kit(tmp_path / "b", keep=True)
+    roblox = await _offline_kit(tmp_path / "c", engine="roblox_r15")
+    removed = shipped.nodes["export_pieces"].data["contact_faces_removed"]
+    assert set(removed) == set(shipped.extras["pieces"]) and all(v > 0 for v in removed.values()), removed
+    assert not any(closed.nodes["export_pieces"].data["contact_faces_removed"].values())
+    assert not any(roblox.nodes["export_pieces"].data["contact_faces_removed"].values())
+    for name, path in shipped.extras["pieces"].items():
+        pts, tris = _shipped_mesh(path)
+        full = len(_shipped_mesh(closed.extras["pieces"][name])[1])
+        assert len(tris) == full - removed[name] and len(tris) <= 0.8 * full, (name, len(tris), full)
+        assert _open_edges(pts, tris) == 0, name
+        assert len(_shipped_mesh(roblox.extras["pieces"][name])[1]) == full
+
+
+def test_a_narrow_part_on_a_wide_one_keeps_its_cap() -> None:
+    """A shaft on a wider plinth: the shaft's bottom is hidden by the plinth, the plinth's top is not hidden by the
+    shaft. Dropping the shaft's bottom alone would leave its rim open in the middle of the piece, so it stays; two
+    boxes of one footprint lose both faces of their contact."""
+    from antigravity3d.dags.environment_kit import ship_masks
+    from antigravity3d.kernel.types import MeshData
+    from antigravity3d.state import EngineBudget
+
+    def cuboid(i: str, lo, hi) -> MeshData:
+        (x0, y0, z0), (x1, y1, z1) = lo, hi
+        p = np.array([[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0], [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], float)
+        t = np.array([[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]])
+        return MeshData(i, f"/{i}", p, t, "kit_trim")
+
+    budget = EngineBudget("unreal_5")
+    same = ship_masks([cuboid("a", (0, 0, 0), (1, 1, 1)), cuboid("b", (0, 0, 1), (1, 1, 2))], budget)
+    assert [int((~k).sum()) for k in same] == [2, 2]  # the top of a and the bottom of b
+    narrow = ship_masks([cuboid("plinth", (0, 0, 0), (2, 2, 1)), cuboid("shaft", (0.5, 0.5, 1), (1.5, 1.5, 3))], budget)
+    assert [int((~k).sum()) for k in narrow] == [0, 0]
