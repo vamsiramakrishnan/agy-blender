@@ -7,6 +7,12 @@ version covers the round that worked through those two lists.
 The rule was the same as before: remove waste and raise quality, and never buy either by cutting capability. No
 threshold, gate, resolution, candidate count, thinking level or sample count was lowered in this round.
 
+**A third round (2026-11-21) is written up in [`UPSTREAM_SKILLS.md`](UPSTREAM_SKILLS.md).** It changes three rows
+of the tables below, which are left as they were written: Blender 5.3 and Godot 4.7 have now run on the development
+machine; a live run is possible on a key without the native judge, as an unverified preview under a token ceiling and
+an image limit; and the pipeline has run live from start to finish for the first time, which found defects no offline
+measurement here could show.
+
 The first round's report follows this one, unchanged, from "First round" down. The data is in `results/`;
 [`README.md`](README.md) says what each file is and how to reproduce every table.
 
