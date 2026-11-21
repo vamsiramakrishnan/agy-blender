@@ -20,8 +20,10 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from antigravity3d.adapters.blender_5_3 import fbx_package
 from antigravity3d.adapters.engines import web_three
 from antigravity3d.art_direction import ArtDirection, author_text, concept_prompt, texture_brief
+from antigravity3d.kernel.package import drop_fbx
 from antigravity3d.kernel.publish import publish_directory
 from antigravity3d.kernel.validator import validate_package
 from antigravity3d.dags.routing import Route, resolve_route
@@ -282,6 +284,10 @@ class PropToEngineDAG:
                 manifest["validation"]["engine_import"] = res.objects["engine_import"]
             if "blender_asset_qa" in res.objects:  # a real worker ran it; a skipped run records nothing here (the step says why)
                 manifest["validation"]["blender_asset_qa"] = res.objects["blender_asset_qa"]
+            if "fbx_failed" in res.objects:  # the FBX could not be made: no FBX ships, the package stands, the manifest says why
+                manifest["fbx"] = res.objects["fbx_failed"]
+            if "fbx" in res.objects:  # pass C wrote <asset>.fbx into the package: the manifest that ships lists it with its real hash
+                fbx_package.record(manifest, pkg, res.objects["fbx"])
             # What was checked and how it ended ships with the package. How long each step took is a fact about the run,
             # not the asset: it stays in the run report, so two runs of one scene still ship identical bytes.
             manifest["evidence"] = {"render_tier": res.render_tier, "lookdev": res.live_lookdev,
@@ -299,6 +305,15 @@ class PropToEngineDAG:
                     manifest["file_hashes"][path.name] = {"sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                                                           "bytes": path.stat().st_size}
             manifest_path.write_text(json.dumps(manifest, indent=1))
+            if "fbx" in res.objects or "fbx_failed" in res.objects:  # the validator re-opens the FBX: binary, its textures relative and resolving, hash as recorded
+                broken = [i for i in validate_package(pkg) if i.severity == "critical" and (i.code.startswith("pkg:fbx") or i.node_id == manifest["fbx"].get("file"))]
+                if broken and manifest["fbx"].get("status") == "written":  # does not pass the validator: it does not ship, the package does
+                    drop_fbx(manifest, pkg, "PackageValidation", f"{broken[0].code}: {broken[0].detail}")
+                    for st in res.steps:
+                        if st.name == "export_fbx":
+                            st.status, st.detail = "output_failed", f"FBX failed package validation (not shipped): {broken[0].code} {broken[0].detail}"[:400]
+                    manifest["evidence"]["steps"] = [{"name": x.name, "status": x.status, "detail": x.detail} for x in res.steps]
+                    manifest_path.write_text(json.dumps(manifest, indent=1))
             out["inspector"] = str(pkg / manifest["inspector"])
             if manifest["verified"]:
                 critical = [i for i in validate_package(pkg) if i.severity == "critical"]

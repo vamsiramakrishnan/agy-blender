@@ -56,6 +56,24 @@ numbers and asks before the preview opens. In a preview session:
    `manifest.json` under `validation.blender_asset_qa`; without a real worker it
    is recorded as skipped with the reason, never as passed. A refusal here names
    what the script found: fix it on the stage and re-run QA.
+   For Unreal Engine 5, Unity URP and Roblox the same export, with a real
+   Blender worker, also writes an FBX into the package (`<asset>.fbx`, listed in
+   `manifest.json` with its hash and described under `fbx`); Godot gets none.
+   Unity: one mesh per LOD level named `<asset>_LOD0`, `_LOD1`, ... and no
+   collision hulls. Unreal Engine: the LOD0 mesh and the `UCX_` hulls, with the
+   DirectX normal map; its LOD levels are in the GLB and USD files, because
+   Epic documents no LOD naming inside one FBX. Roblox: one mesh with its
+   textures embedded. An FBX carries geometry, UVs and the base colour and
+   normal links only: the roughness, metallic, occlusion and emission maps it
+   lacks are listed in `fbx.maps.lost`; the GLB and USD are the full files. The
+   file was re-imported in Blender and compared with the package's GLB files and
+   its header was parsed; it was never opened in Unity, Unreal Engine or Roblox
+   Studio, so say "re-imported in Blender and equal to the GLB", never that it
+   "imports correctly" in an engine. The FBX is an extra output: if it cannot be
+   made the answer says `FBX FAILED (not shipped; the package is intact)`, the
+   manifest says `fbx.status: failed` with the reason, and the package is
+   exported as usual; report that failure to the user plainly. Without a worker
+   it is skipped with the reason.
 4. **Parity check.** `export_engine_package` already compares the engine
    render with the stage render (silhouette IoU and a parity score) and refuses
    the package on a mismatch; the figures are in `validation.engine_parity` of

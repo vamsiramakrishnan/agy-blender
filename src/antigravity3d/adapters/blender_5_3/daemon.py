@@ -391,9 +391,9 @@ def register_fake_ops() -> None:
             "header": {}, "comparison": {"ok": False, "checks": []}, "maps": {"source": {}, "fbx": {}, "lost": []},
             "verified": "Nothing was exported or compared: the fake worker has no Blender.", "not_verified": list(fbx.NOT_VERIFIED)}
         if not verify:
-            result.update(script=_export_script_record(), sources={"levels": [], "collision_hulls": None}, join=[], limits=None,
+            result.update(script=_export_script_record(), reproducibility=fbx.REPRODUCIBILITY, sources={"levels": [], "collision_hulls": None}, join=[], limits=None,
                           contents={"render_meshes": [{"name": n} for n in names["render"]], "collision_hulls": names["hulls"], "omitted": names["omitted"]},
-                          textures={"mode": "embedded" if req["preset"] == "roblox" else "relative_reference", "rebound": [], "embedded_bytes": 0, "references": []})
+                          textures={"mode": "embedded" if req["preset"] == "roblox" else "relative_reference", "rebound": [], "embedded_bytes": 0, "references": [], "substituted": []})
         return result
 
     WRITERS["export_asset"] = lambda **kw: {"ok": False, "fake": True, "files": []}  # never reached: the fake ops below write nothing

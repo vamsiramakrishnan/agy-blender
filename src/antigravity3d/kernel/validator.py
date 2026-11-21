@@ -13,6 +13,7 @@ from urllib.parse import unquote
 import numpy as np
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, UsdValidation
 
+from antigravity3d.kernel import fbx_read
 from antigravity3d.kernel.fast_ops import TEXEL_TARGET_WARN_FRACTION, HullLimit, Issue, hull_plane_count
 from antigravity3d.kernel.types import MeshData, bounds_issue, gltf_world_bounds
 from antigravity3d.state import EngineBudget, TargetEngine
@@ -695,6 +696,81 @@ def _validate_material_inventory(path: Path, inventory: list[dict]) -> list[Issu
     return []
 
 
+#: engines that get an FBX, and the upstream export_asset preset used for each (Godot imports glTF; it gets none)
+FBX_PRESET = {"unity_urp": "unity", "unreal_5": "unreal", "roblox_r15": "roblox"}
+
+
+def glb_primitive_triangles(glb: Path) -> dict[str, int]:
+    """Triangles per mesh primitive of a GLB, by mesh name (``Batch_0`` ...): what an importer makes one mesh of."""
+    doc = _glb_json(glb)
+    out: dict[str, int] = {}
+    for i, mesh in enumerate(doc.get("meshes", [])):
+        for j, prim in enumerate(mesh.get("primitives", [])):
+            acc = doc["accessors"][prim["indices"]]["count"] if "indices" in prim else doc["accessors"][prim["attributes"]["POSITION"]]["count"]
+            out[f"{mesh.get('name', f'mesh{i}')}" + (f"#{j}" if len(mesh["primitives"]) > 1 else "")] = acc // 3
+    return out
+
+
+def _check_fbx(out: Path, out_real: Path, man: dict, digests: dict[str, str], add) -> None:
+    """An FBX listed in the manifest: present (hash checked with the other files), a binary FBX, described by an ``fbx``
+    record that agrees with the engine, and whose texture references do what the record says: relative paths that
+    resolve inside the package (unity, unreal) or embedded bytes (roblox). No FBX listed: nothing to check."""
+    listed = [f for f in man.get("files") or [] if isinstance(f, str) and f.lower().endswith(".fbx")]
+    rec = man.get("fbx")
+    if not listed and rec is None:
+        return
+    if isinstance(rec, dict) and rec.get("status") == "failed":  # the FBX could not be made: nothing may ship under its name
+        if listed:
+            add("fbx_record", "critical", listed[0], "the fbx record says the export failed, but an FBX file is listed")
+        return
+    if len(listed) != 1 or not isinstance(rec, dict) or rec.get("file") != (listed[0] if listed else None):
+        add("fbx_record", "critical", None, f"manifest lists FBX files {listed} but its fbx record is {'missing' if not isinstance(rec, dict) else repr(rec.get('file'))}")
+        return
+    name = listed[0]
+    path = out / name
+    engine = man.get("target_engine")
+    if FBX_PRESET.get(engine) != rec.get("preset"):
+        add("fbx_preset", "critical", name, f"preset {rec.get('preset')!r} is not the one for {engine} ({FBX_PRESET.get(engine)!r})")
+    if not (rec.get("comparison") or {}).get("ok"):
+        add("fbx_comparison", "critical", name, "the fbx record says the round-trip comparison did not pass")
+    if not path.is_file():
+        return  # file_missing is already reported by the hash loop
+    try:
+        refs = fbx_read.texture_references(path)
+    except (fbx_read.FbxFormatError, OSError, struct.error) as e:
+        add("fbx_not_binary", "critical", name, f"not a readable binary FBX: {e}"[:200])
+        return
+    mode = (rec.get("textures") or {}).get("mode")
+    recorded = {r.get("relative"): r.get("sha256") for r in (rec.get("textures") or {}).get("references", [])}
+    if len(refs) != len(recorded):
+        add("fbx_textures", "critical", name, f"the file has {len(refs)} texture references, the record {len(recorded)}")
+    for ref in refs:
+        label = f"{name}:{ref['name']}"
+        if mode == "embedded":
+            if not ref["embedded_bytes"]:
+                add("fbx_texture_not_embedded", "critical", label, "the record says the textures are embedded; this one carries no bytes")
+            continue
+        rel = ref["relative"] or ""
+        if not rel or Path(rel).is_absolute() or "://" in rel or "\\" in rel:
+            add("fbx_texture_not_relative", "critical", label, f"reference {rel!r} is not a relative path: the package is not relocatable")
+            continue
+        target = (out / rel).resolve()
+        if not target.is_relative_to(out_real):
+            add("fbx_texture_outside", "critical", label, f"reference {rel!r} leaves the package")
+        elif not target.is_file():
+            add("fbx_texture_missing", "critical", label, f"reference {rel!r} does not resolve inside the package")
+        elif recorded.get(rel) and _sha256_file(target) != recorded[rel]:
+            add("fbx_texture_hash", "critical", label, f"{rel} is not the file the FBX was compared with")
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def _check_glb_images(out: Path, man: dict, asset: str, digests: dict[str, str], add) -> None:
     """Where the package GLBs keep their images (manifest ``glb_images``).
 
@@ -1091,6 +1167,14 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
     if "materials" in man and glb.is_file():
         issues.extend(_validate_material_inventory(glb, man["materials"]))
     _check_glb_images(out, man, asset, digests, add)
+    _check_fbx(out, out_real, man, digests, add)
+    if rules is not None and rules.max_tris_per_mesh and glb.is_file():  # what ships, not what was authored (see package.batch_tri_cap_issues)
+        try:
+            for batch, tris in glb_primitive_triangles(glb).items():
+                if tris > rules.max_tris_per_mesh:
+                    add("glb_batch_tri_cap", "critical", batch, f"{tris} tris in one shipped GLB mesh > {rules.max_tris_per_mesh} per mesh")
+        except (OSError, KeyError, ValueError, struct.error) as e:
+            add("glb_open", "critical", glb.name, str(e)[:200])
 
     # colliders
     max_hulls = (man.get("budget") or {}).get("max_collision_hulls")

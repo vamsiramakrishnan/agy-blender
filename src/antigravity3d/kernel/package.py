@@ -65,6 +65,7 @@ from antigravity3d.kernel.types import MeshData, gltf_world_bounds
 from antigravity3d.kernel.usdz import create_usdz
 from antigravity3d.kernel.validator import (
     ENGINE_RULES,
+    FBX_PRESET,
     PACKAGE_TEXTURE_DIR,
     check_engine_compliance,
     glb_images,
@@ -145,6 +146,158 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def split_batch(members: Sequence[str], tris: Mapping[str, int], cap: int | None) -> list[list[str]]:
+    """One material's parts as meshes of at most ``cap`` triangles (None: no limit, one mesh), parts kept whole and in order.
+
+    Greedy: a part joins the current mesh while the total stays within the cap, else it starts the next. A part that
+    alone exceeds the cap gets a mesh of its own (no split of a part can be made here: the authored-part rule,
+    ``check_engine_compliance``, rejects it)."""
+    if not cap:
+        return [list(members)]
+    chunks: list[list[str]] = []
+    total = 0
+    for name in members:
+        n = int(tris[name])
+        if chunks and total + n <= cap:
+            chunks[-1].append(name)
+            total += n
+        else:
+            chunks.append([name])
+            total = n
+    return chunks
+
+
+def batch_tri_cap_issues(engine: str, batch_tris: Mapping[str, int]) -> list[Issue]:
+    """The engine's per-mesh triangle cap applied to what ships: one GLB mesh per batch.
+
+    ``check_engine_compliance`` counts authored parts, but once a package has more nodes than draw calls its GLB submits
+    the parts of a material as a world-space batch, and an importer makes one mesh of it (Roblox: "Individual meshes can
+    not exceed 20,000 triangles"). The writer splits a material's batch at that limit (``split_batch``), so this is the
+    check that it did: forty 880-triangle spheres pass the per-part rule and ship as two meshes, not one of 35,200. The
+    per-part rule stays for what no split can fix, a single part over the limit; it names the part and runs before packaging."""
+    cap = ENGINE_RULES[engine].max_tris_per_mesh
+    if not cap:
+        return []
+    return [Issue(f"{engine}:batch_tri_cap", "critical", name,
+                  f"{tris} tris in one shipped GLB mesh > {cap} per mesh (the GLB merges the parts of a material once there are more nodes than "
+                  f"draw calls; the importer makes one mesh of the batch)")
+            for name, tris in batch_tris.items() if tris > cap]
+
+
+# --------------------------------------------------------------------------- FBX (written after the manifest's first version)
+
+def fbx_inputs(data: Mapping[str, Any], out: Path) -> dict[str, Any] | None:
+    """The explicit files the FBX export needs, from a package's manifest (None: this engine gets no FBX).
+
+    The layout of a package is known here and nowhere else: the worker is handed paths, never asked to guess them.
+    ``texture_map`` makes the FBX reference the map the engine reads where the GLB embeds another (Unreal: the package's
+    ``normal_directx.png``, the GLB has the +Y ``normal.png``)."""
+    preset = FBX_PRESET.get(str(data.get("target_engine")))
+    if preset is None:
+        return None
+    asset = str(data["asset"])
+    files = list(data.get("files") or [])
+    lods = sorted((f for f in files if re.fullmatch(re.escape(asset) + r"_LOD\d+\.glb", f)), key=lambda f: int(re.search(r"_LOD(\d+)\.glb$", f).group(1)))  # type: ignore[union-attr]
+    colliders = f"{asset}_colliders.glb"
+    tmap = {Path(t["usd_path"]).name: Path(t["path"]).name for t in data.get("textures") or []
+            if t.get("path") != t.get("usd_path") and Path(t["path"]).parent.as_posix() == TEXTURE_DIR == Path(t["usd_path"]).parent.as_posix()}
+    return {"source": str(out / f"{asset}.glb"), "lods": [str(out / f) for f in lods],
+            "colliders": str(out / colliders) if colliders in files else None,
+            "textures_dir": str(out / TEXTURE_DIR) if (out / TEXTURE_DIR).is_dir() else None,  # a package without maps has none
+            "texture_map": tmap, "asset_name": asset, "preset": preset, "out_dir": str(out)}
+
+
+def fbx_contradictions(data: Mapping[str, Any], out: Path, result: Mapping[str, Any]) -> list[str]:
+    """Where the FBX and the manifest's own records disagree (empty: they do not).
+
+    Roblox: the FBX embeds image bytes; ``roblox_surface_appearance`` names the files a person assigns in Studio. The
+    embedded base colour and normal must be those very files (byte for byte). Metalness and roughness are separate files
+    there and are not carried by an FBX: that is said in the ``fbx`` record, not a disagreement."""
+    out_list: list[str] = []
+    record = data.get("roblox_surface_appearance")
+    if result.get("preset") != "roblox" or not record:
+        return out_list
+    refs = {r["slot"]: r.get("sha256") for r in (result.get("textures") or {}).get("references", [])}
+    wanted = {"DiffuseColor": "ColorMap", "NormalMap": "NormalMap"}
+    for slot, key in wanted.items():
+        files = {m[key] for m in record["materials"].values() if key in m}
+        digests = {_sha256(out / f) for f in files if (out / f).is_file()}
+        if slot in refs and refs[slot] not in digests:
+            out_list.append(f"the FBX embeds a {slot} image that is not one of the package's {key} files {sorted(files)} (roblox_surface_appearance)")
+        if slot not in refs and files:
+            out_list.append(f"the package ships a {key} ({sorted(files)}) but the FBX carries no {slot}")
+    return out_list
+
+
+def fbx_record(result: Mapping[str, Any]) -> dict[str, Any]:
+    """The manifest's ``fbx`` entry from the worker's result: facts about the file and its comparison, no timings or
+    machine paths (two runs of one scene must describe their files the same way)."""
+    header = result["header"]
+    models = {n: {k: m[k] for k in ("type", "rotation_deg", "pre_rotation_deg", "scaling", "extent_min_m", "extent_max_m", "triangles", "normals_written")}
+              for n, m in header["models"].items()}
+    textures = result["textures"]
+    checks = result["comparison"]["checks"]
+    return {
+        "status": "written", "file": Path(result["fbx"]["path"]).name, "preset": result["preset"], "blender": result["blender"],
+        "script": {k: v for k, v in result["script"].items() if k != "source"},  # where it was loaded from is the run's, not the file's
+        "comparison": {"ok": bool(result["comparison"]["ok"]), "checks": len(checks), "failed": [c["name"] for c in checks if not c["ok"]],
+                       "checked": sorted({c["name"].split(".")[0] for c in checks})},
+        "sources": {"levels": [{**lv, "file": Path(lv["file"]).name} for lv in result["sources"]["levels"]],
+                    "collision_hulls": None if result["sources"]["collision_hulls"] is None
+                    else {**result["sources"]["collision_hulls"], "file": Path(result["sources"]["collision_hulls"]["file"]).name}},
+        "header": {**{k: header[k] for k in ("version", "UpAxis", "UpAxisSign", "FrontAxis", "FrontAxisSign", "CoordAxis", "CoordAxisSign",
+                                             "UnitScaleFactor", "OriginalUnitScaleFactor")}, "models": models},
+        "contents": result["contents"], "join": [{k: v for k, v in j.items() if k != "material_slots_after"} | {"material_slots": j["material_slots_after"]}
+                                                  for j in result["join"]],
+        "textures": {"mode": textures["mode"], "embedded_bytes": textures["embedded_bytes"],
+                     "references": [{k: r[k] for k in ("slot", "relative", "sha256")} for r in textures["references"]],
+                     "substituted": textures["substituted"]},
+        "maps": {"carried": sorted({f"{m}.{slot}" for m, per in result["maps"]["fbx"].items() for slot, v in per.items() if v}),
+                 "lost": list(result["maps"]["lost"]),
+                 "note": "an FBX carries the texture links Blender's exporter knows (base colour, normal); the GLB and USD stay the full-fidelity files"},
+        "limits": result.get("limits"), "reproducibility": result["reproducibility"],
+        "verified": result["verified"], "not_verified": result["not_verified"],
+    }
+
+
+def fbx_failed_record(data: Mapping[str, Any], error_class: str, message: str) -> dict[str, Any]:
+    """The manifest's ``fbx`` entry when the FBX could not be made: no file ships, the package's USD and GLB stand, and
+    the entry says why (with the failed comparison checks when the worker sent them)."""
+    failed: list[dict[str, Any]] = []
+    if "failed checks: " in message:
+        try:
+            failed = json.loads(message.split("failed checks: ", 1)[1])
+        except ValueError:
+            failed = []
+    return {"status": "failed", "preset": FBX_PRESET.get(str(data.get("target_engine"))), "error": error_class,
+            "reason": message[:600], "failed_checks": failed[:20],
+            "statement": "No FBX was written. The package's USD and GLB files are not affected by this."}
+
+
+def drop_fbx(data: dict[str, Any], out: Path, error_class: str, message: str) -> None:
+    """Take a written FBX out of the package again (file, ``files``, ``file_hashes``) and record why, as for a failed export."""
+    name = (data.get("fbx") or {}).get("file")
+    if name:
+        (out / name).unlink(missing_ok=True)
+        data["files"] = [f for f in data["files"] if f != name]
+        data["file_hashes"].pop(name, None)
+    data["fbx"] = fbx_failed_record(data, error_class, message)
+
+
+def record_fbx(data: dict[str, Any], out: Path, result: Mapping[str, Any]) -> None:
+    """Put a written FBX into the manifest: ``files``, ``file_hashes`` (read from disk) and the ``fbx`` record.
+
+    The manifest is written by ``write_engine_package`` before the FBX exists, so whoever writes the shipped manifest
+    calls this first (pass C's package node; the native export before it writes ``manifest.json``)."""
+    rec = fbx_record(result)
+    name = rec["file"]
+    if name not in data["files"]:
+        data["files"].append(name)
+    path = out / name
+    data["file_hashes"][name] = {"sha256": _sha256(path), "bytes": path.stat().st_size}
+    data["fbx"] = rec
 
 
 def _local_file(uri: str) -> Path | None:
@@ -827,13 +980,16 @@ def write_engine_package(
 
     materials = gltf_materials(stage, meshes, package_dir=out, sampler=art.sampler() if art is not None else None)
     # Preserve selectable nodes where the draw budget allows it. Static props whose
-    # node count exceeds the budget are submitted in one world-space batch per material.
+    # node count exceeds the budget are submitted in one world-space batch per material, split where the engine
+    # limits the triangles of one mesh (Roblox) so that no shipped mesh is over it (see ``split_batch``).
     batches = {u.node_id: [u.node_id] for u in uvs}
     if len(batches) > budget.max_draw_calls:
         groups: dict[str | None, list[str]] = {}
         for mesh in meshes:
             groups.setdefault(mesh.material_id, []).append(mesh.node_id)
-        batches = {f"Batch_{i}": members for i, members in enumerate(groups.values())}
+        cap = ENGINE_RULES[engine].max_tris_per_mesh
+        chunks = [chunk for members in groups.values() for chunk in split_batch(members, {n: len(ship[n].triangles) for n in members}, cap)]
+        batches = {f"Batch_{i}": members for i, members in enumerate(chunks)}
     # Each texture file is hashed once: the hash is the manifest's, and (as the content digest the GLB writer
     # de-duplicates images by) it tells which file a material image is, so far LODs can reference that file.
     texture_files = list(dict.fromkeys(t[key] for t in textures for key in ("path", "usd_path")))
@@ -888,6 +1044,7 @@ def write_engine_package(
                  for u in uvs]
     usd_issues = validate_usd(usd_path)
     eng_issues = check_engine_compliance(Usd.Stage.Open(str(usd_path)), mesh_data, budget)
+    eng_issues += batch_tri_cap_issues(engine, {b: sum(len(ship[n].triangles) for n in members) for b, members in batches.items()})
     density = texel_density_report(uvs, budget.texel_density_px_per_m)
     cap = ENGINE_RULES[engine].max_texture_px
     for mat_id, rec in density["materials"].items():  # what the shipped maps reach: the atlas density scaled by map side / packing side

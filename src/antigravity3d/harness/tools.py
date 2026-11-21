@@ -799,7 +799,23 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
                 pkg.data.update(preview_label(s))
             elif reason := await _verify_engine(s, pkg, asset):
                 return f"REFUSED {reason}"
+            # Last step before the manifest: the FBX is written into this private directory, after every other step has
+            # finished (they are awaited one after another under the session lock; nothing else writes in `candidate`).
+            # Preview and verified exports alike. The FBX is an extra output: a failure ships the package without it (the
+            # manifest says so, and so does the answer below); it never refuses the package and never sets or clears
+            # `verified` or `preview`. Placed after the verified / preview branches above, beside the Blender asset check.
+            fbx_note = await _export_fbx(s, pkg)
             (candidate / "manifest.json").write_text(json.dumps(pkg.data, indent=1), encoding="utf-8")
+            if "fbx" in pkg.data:
+                from antigravity3d.kernel.validator import validate_package
+
+                broken = [i for i in validate_package(candidate) if i.severity == "critical" and (i.code.startswith("pkg:fbx") or i.node_id == pkg.data["fbx"].get("file"))]
+                if broken and pkg.data["fbx"].get("status") == "written":  # the FBX does not pass the validator: it does not ship, the package does
+                    from antigravity3d.kernel.package import drop_fbx
+
+                    drop_fbx(pkg.data, candidate, "PackageValidation", f"{broken[0].code}: {broken[0].detail}")
+                    fbx_note = f"FBX FAILED package validation (not shipped; the package is intact): {broken[0].code} {broken[0].detail}"[:400]
+                    (candidate / "manifest.json").write_text(json.dumps(pkg.data, indent=1), encoding="utf-8")
             if st.verdict.texture_hash != s.texture_digest():
                 s.revoke_approval()
                 return "REFUSED material files changed during package validation"
@@ -807,7 +823,23 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
         s.set_last_export(out)
     head = f"EXPORTED PREVIEW {name} (UNVERIFIED; judged by {pkg.data['judge']['label']})" if st.preview else f"EXPORTED {name}"
     return (f"{head}: usd+glb, {pkg.n_lod_files} LOD glbs, {len(b.colliders)} UCX hulls, "
-            f"{len(pkg.data['textures'])} maps, manifest.json | pkg ok" + (f" | spend {s.governor.summary()}" if st.preview else ""))
+            f"{len(pkg.data['textures'])} maps, manifest.json | pkg ok | {fbx_note}" + (f" | spend {s.governor.summary()}" if st.preview else ""))
+
+
+async def _export_fbx(s: Session, pkg: Any) -> str:
+    """One line for the tool's answer. The FBX of an unreal_5 / unity_urp / roblox_r15 package, through the helper the prop
+    pipeline uses: skipped with its reason without a real Blender worker (nothing is written or recorded then); written and
+    recorded (files, hash, ``fbx``); or failed: no FBX, ``fbx.status == "failed"`` in the manifest, the package intact."""
+    from antigravity3d.adapters.blender_5_3 import fbx_package
+
+    status, detail, result = await fbx_package.export_package_fbx(s.pool, pkg.out_dir, pkg.data)
+    if status == "failed":
+        pkg.data["fbx"] = result
+        return f"FBX FAILED (not shipped; the package is intact): {detail}"[:500]
+    if status == "skipped":
+        return f"fbx skipped: {detail}"[:400]
+    fbx_package.record(pkg.data, pkg.out_dir, result)
+    return f"fbx: {pkg.data['fbx']['file']} re-imported in Blender, not opened in an engine"
 
 
 def preview_label(s: Session) -> dict[str, Any]:

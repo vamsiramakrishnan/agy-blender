@@ -250,6 +250,8 @@ async def cmd_prop(a: argparse.Namespace) -> int:
         print("warnings:")
         for w in warned:
             print(f"  - {w['name']}: {w['detail']}")
+    for f in res.get("failed_outputs", []):  # an output that could not be made (the FBX): not a blocked package, but plainly a failure
+        print(f"FAILED OUTPUT {f['step']}: {f['reason']}")
     failed = [n.name for n in rep.nodes.values() if n.status == "failed"]
     if strict:
         print("publication: " + ("published and verified" if x["published"] else "qualified preview" if x["verified"] else "unverified"))

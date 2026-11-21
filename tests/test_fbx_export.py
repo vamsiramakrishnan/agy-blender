@@ -480,3 +480,27 @@ def test_importing_the_module_needs_no_blender():
     out = subprocess.run([sys.executable, "-c", "import antigravity3d.adapters.blender_5_3.fbx_export as m, sys; print('bpy' in sys.modules)"],
                          capture_output=True, text=True, env={**os.environ})
     assert out.stdout.strip() == "False", out.stderr
+
+
+@pytest.mark.blender
+@pytest.mark.parametrize("preset", ["unity", "unreal", "roblox"])
+async def test_fbx_two_exports_of_one_package_differ_only_in_the_header_time_stamp(tmp_path, preset):
+    """Measured, not assumed: Blender's FBX exporter writes the clock into the header and has no option to fix it, so the hash
+    of an FBX is not reproducible. Nothing else may differ (the Roblox preset used to embed a random temporary directory)."""
+    import asyncio
+
+    if not find_blender():
+        pytest.skip("requires stock Blender")
+    package = build_package(tmp_path, ENGINE_OF[preset])
+    async with BlenderPool(1, startup_timeout=120, extra_env=BLENDER_ENV) as pool:
+        first = await pool.call("export_fbx", out_dir=str(package), **request(package, preset))
+        a = Path(first["fbx"]["path"]).read_bytes()
+        await asyncio.sleep(1.2)  # a different second
+        second = await pool.call("export_fbx", out_dir=str(package), **request(package, preset))
+        b = Path(second["fbx"]["path"]).read_bytes()
+    assert first["reproducibility"]["byte_identical_across_runs"] is False and "CreationTimeStamp" in first["reproducibility"]["differs"][0]
+    assert len(a) == len(b) and a != b
+    differing = [i for i in range(len(a)) if a[i] != b[i]]
+    stamp = a.index(b"CreationTimeStamp")
+    assert all(stamp < i < stamp + 300 for i in differing), f"bytes outside the header time stamp differ: {differing[:10]}"
+    assert len(differing) <= 6  # the Second and Millisecond fields (more, a minute or more apart)

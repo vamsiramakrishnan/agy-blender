@@ -383,7 +383,17 @@ def _join(bpy: Any, objs: list[Any]) -> Any:
     return active
 
 
-def _bind_images(bpy: Any, preset: str, textures_dir: str | None, out_dir: str | None, scratch_name: str) -> dict[str, Any]:
+def sha_map(req: dict[str, Any]) -> dict[str, str]:
+    """``{sha256 of the GLB's image: sha256 of the file the FBX must reference instead}`` from the request's ``texture_map``
+    (file names in ``textures_dir``: the GLB embeds ``normal.png`` (+Y); Unreal reads the package's ``normal_directx.png``)."""
+    out: dict[str, str] = {}
+    for was, now in (req.get("texture_map") or {}).items():
+        out[sha256_file(os.path.join(req["textures_dir"], was))] = sha256_file(os.path.join(req["textures_dir"], now))
+    return out
+
+
+def _bind_images(bpy: Any, preset: str, textures_dir: str | None, out_dir: str | None, scratch_name: str,
+                 texture_map: dict[str, str] | None = None) -> dict[str, Any]:
     """Give the scene's images the identity the FBX needs, without writing anything.
 
     unity / unreal: every packed image (a GLB's embedded image, or a far LOD's referenced one, which the importer packs
@@ -391,8 +401,13 @@ def _bind_images(bpy: Any, preset: str, textures_dir: str | None, out_dir: str |
     reference to a file that already exists and nothing is copied. The files must lie under ``out_dir`` (the exporter
     writes an absolute path otherwise, which does not survive a move). roblox: the images stay packed (the preset
     embeds them); each gets the file name the package gave the same bytes, so the embedded copy has an extension.
+
+    ``texture_map`` (unity / unreal): an image whose bytes are the file ``was`` is bound to the file ``now`` instead.
     """
     by_sha: dict[str, str] = {}
+    swap: dict[str, tuple[str, str]] = {}  # sha256 of the GLB's bytes -> (their file name, the file to reference)
+    for was, now in (texture_map or {}).items():
+        swap[sha256_file(Path(textures_dir or "") / was)] = (was, str(Path(textures_dir or "") / now))
     if textures_dir:
         for p in sorted(Path(textures_dir).iterdir()):
             if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES:
@@ -410,6 +425,7 @@ def _bind_images(bpy: Any, preset: str, textures_dir: str | None, out_dir: str |
             data = _image_bytes(img)
             digest = sha256_bytes(data) if data is not None else None
             match = by_sha.get(digest) if digest else None
+            replaced = swap.get(digest) if digest else None
             if preset == "roblox":
                 if data is None:
                     unresolved.append(img.name)
@@ -420,7 +436,9 @@ def _bind_images(bpy: Any, preset: str, textures_dir: str | None, out_dir: str |
                         name = (img.name if img.name.lower().endswith(IMAGE_SUFFIXES) else img.name + (".jpg" if data[:2] == b"\xff\xd8" else ".png"))
                     img.filepath = os.path.join(scratch_name, name)  # does not exist: the exporter embeds the packed bytes and copies nothing
                 continue
-            if img.packed_file is None and img.filepath and os.path.isfile(bpy.path.abspath(img.filepath)):
+            if replaced is not None:
+                match = replaced[1]
+            elif img.packed_file is None and img.filepath and os.path.isfile(bpy.path.abspath(img.filepath)):
                 resolved = os.path.realpath(bpy.path.abspath(img.filepath))
                 if out_dir and not _inside(resolved, out_dir):
                     unresolved.append(f"{img.name}: {resolved} is outside the output directory")
@@ -437,7 +455,7 @@ def _bind_images(bpy: Any, preset: str, textures_dir: str | None, out_dir: str |
                 new.colorspace_settings.name = img.colorspace_settings.name
                 new.alpha_mode = img.alpha_mode
                 seen[id(img)] = new
-                rebound.append({"image": img.name, "file": match, "sha256": digest})
+                rebound.append({"image": img.name, "file": match, "sha256": digest, **({"instead_of": replaced[0]} if replaced else {})})
             node.image = new
     if unresolved:
         raise ValueError(f"{preset}: images with no file in textures_dir under the output directory (the FBX would reference paths that do not exist): {sorted(set(unresolved))}")
@@ -470,7 +488,7 @@ def import_sources(bpy: Any, import_gltf: Callable[[dict[str, Any]], dict[str, A
             hulls = {"path": req["colliders"], "names": [o.name for o in objs], **_measure(bpy, objs),
                      "per_hull_tris": [_tris(o.data) for o in objs]}
     # first import's materials are the asset's; later levels' copies are folded into them by name
-    return {"levels": levels, "hulls": hulls}
+    return {"levels": levels, "hulls": hulls, "sha_map": sha_map(req) if req.get("texture_map") else {}}
 
 
 def build_scene(bpy: Any, req: dict[str, Any], src: dict[str, Any], names: dict[str, Any]) -> dict[str, Any]:
@@ -609,7 +627,8 @@ def compare(src: dict[str, Any], facts: dict[str, Any], header: dict[str, Any], 
             else:
                 fbx_shas.add(sha256_file(target))
     add("images.resolvable", [], problems, not problems)
-    foreign = sorted(fbx_shas - src_shas)
+    swapped = src.get("sha_map") or {}
+    foreign = sorted(fbx_shas - src_shas - set(swapped.values()))
     add("images.bytes_from_the_sources", [], foreign, not foreign)
     loaded = sorted(k for k, v in facts["images"].items() if not v["loaded"])
     add("images.loaded_by_the_importer", [], loaded, not loaded)
@@ -624,8 +643,13 @@ def compare(src: dict[str, Any], facts: dict[str, Any], header: dict[str, Any], 
     lost: list[str] = []
     for mat, slots in source_maps.items():
         for slot, shas in slots.items():
-            if shas and fbx_maps.get(mat, {}).get(slot) != shas:
+            if shas and fbx_maps.get(mat, {}).get(slot) != sorted(swapped.get(x, x) for x in shas):
                 lost.append(f"{mat}.{slot}")
+    if swapped:  # the engine-native map is what the FBX's slot holds, not the GLB's bytes
+        for was, now in swapped.items():
+            hit = [f"{mat}.{slot}" for mat, slots in source_maps.items() for slot, shas in slots.items() if was in shas]
+            held = [k for k in hit if now in fbx_maps.get(k.split(".")[0], {}).get(k.split(".")[1], [])]
+            add("textures.engine_native_map_referenced", hit, held, hit == held)
     required_lost = [x for x in lost if x.split(".")[1] in ("base_color", "normal")]
     add("maps.base_color_and_normal_survive", [], required_lost, not required_lost)
     return {"ok": all(c["ok"] for c in checks), "checks": checks, "maps": {"source": source_maps, "fbx": fbx_maps, "lost": lost}}
@@ -637,7 +661,11 @@ def _tmp_names(out_dir: str, asset: str, preset: str) -> tuple[str, str | None]:
     ``<asset>.fbm/...``); the others reference ``textures/`` relative to their own directory, so they stay beside it."""
     token = f"{os.getpid():x}{int(time.time() * 1000) & 0xffffff:x}"
     if preset == "roblox":
-        d = os.path.join(out_dir, f".agy-fbx-{token}")
+        # Roblox embeds the absolute path of its temporary directory in the FBX: a name derived from the asset keeps two
+        # exports of one asset byte-comparable (see REPRODUCIBILITY); a leftover or a concurrent export gets a unique one
+        d = os.path.join(out_dir, f".agy-fbx-{asset}")
+        if os.path.lexists(d):
+            d = os.path.join(out_dir, f".agy-fbx-{asset}-{token}")
         return os.path.join(d, f"{asset}.fbx"), d
     return os.path.join(out_dir, f".{asset}.{token}.part.fbx"), None
 
@@ -663,6 +691,19 @@ def _facts_summary(src: dict[str, Any]) -> dict[str, Any]:
                         "uv_layers": lv["uv_layers"], "bbox_m": {"min": _r(lv["lo"]), "max": _r(lv["hi"])}} for lv in src["levels"]],
             "collision_hulls": None if src["hulls"] is None else {"file": src["hulls"]["path"], "count": len(src["hulls"]["names"]), "tris": src["hulls"]["tris"]}}
 
+
+# Two exports of the same package are NOT byte-identical. Measured (three presets, exports a second or more apart, same
+# directory): the only bytes that differ are the header's CreationTimeStamp (Second and Millisecond, and Minute and up
+# further apart), which Blender's FBX exporter writes from the clock (``datetime.now()``) and offers no operator option or
+# documented environment variable to fix. The file also holds the absolute path of the build directory in each texture's
+# Filename (the relative path is what a reader should use). Neither is patched here: the hash in the manifest is the hash of
+# this file, and the manifest says that it is not reproducible and why.
+REPRODUCIBILITY = {
+    "byte_identical_across_runs": False,
+    "differs": ["FBXHeaderExtension/CreationTimeStamp: the time of the export, written by Blender's exporter from the clock (no option or documented environment variable sets it)"],
+    "machine_specific": ["Video/Filename and Texture/FileName: the absolute path of the build directory (the RelativeFilename beside it is the one to read by)"],
+    "note": "this file's hash identifies this file; re-exporting the same package gives a different hash with the same content",
+}
 
 NOT_VERIFIED = [
     "No Unity, Unreal Engine or Roblox Studio ran: how each engine's importer reads this file is documented, not observed.",
@@ -691,7 +732,7 @@ def export_fbx(bpy: Any, req: dict[str, Any], writer: Callable[..., dict[str, An
     try:
         if tmp_dir:
             os.makedirs(tmp_dir)
-        textures = _bind_images(bpy, preset, req.get("textures_dir"), out_dir, "/agy-fbx-no-such-dir")
+        textures = _bind_images(bpy, preset, req.get("textures_dir"), out_dir, "/agy-fbx-no-such-dir", req.get("texture_map"))
         built = build_scene(bpy, req, src, names)
         join_bad = [r for r in built["join"] if r["tris"] != r["tris_after"] or r["uv_layers"] != r["uv_layers_after"] or (r["custom_normals"] and not r["custom_normals_after"])]
         if join_bad:
@@ -742,10 +783,15 @@ def export_fbx(bpy: Any, req: dict[str, Any], writer: Callable[..., dict[str, An
                      "collision_hulls": names["hulls"], "omitted": names["omitted"]},
         "join": built["join"],
         "textures": {"mode": "embedded" if preset == "roblox" else "relative_reference", "rebound": textures["rebound"],
-                     "embedded_bytes": embedded, "references": [{"slot": t["slot"], "relative": t.get("relative"), "embedded_bytes": t.get("embedded_bytes", 0)} for t in header["textures"]]},
+                     "embedded_bytes": embedded,
+                     "references": [{"slot": t["slot"], "relative": t.get("relative"), "embedded_bytes": t.get("embedded_bytes", 0),
+                                     "sha256": t.get("embedded_sha256") if preset == "roblox" else sha256_file(os.path.join(out_dir, t["relative"]))}
+                                    for t in header["textures"]],
+                     "substituted": [dict(t) for t in dict.fromkeys(tuple(sorted({"file": os.path.basename(r["file"]), "instead_of": r["instead_of"]}.items()))
+                                                    for r in textures["rebound"] if "instead_of" in r)]},
         "header": {"version": header["version"], **header["global"], "models": header["models"]},
         "comparison": {"ok": True, "checks": result["checks"]},
-        "maps": result["maps"], "limits": limits,
+        "maps": result["maps"], "limits": limits, "reproducibility": REPRODUCIBILITY,
         "verified": _statement(preset, True), "not_verified": NOT_VERIFIED,
     }
 

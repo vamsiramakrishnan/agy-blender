@@ -165,27 +165,65 @@ async def test_planted_z_fighting_fails_the_blender_asset_qa_step_with_upstreams
     assert not res.ok and not res.verified
 
 
-@pytest.mark.blender
-@needs_blender
-async def test_a_roblox_batch_over_the_triangle_limit_fails_where_the_per_part_rule_passes(tmp_path, blender_pool):
-    """The GLB submits parts per material in one batch once there are more nodes than the draw-call budget; Roblox
-    imports a batch as one mesh, so upstream's per-mesh limit (20000, also ENGINE_RULES) counts the batch."""
+def roblox_scene(tmp_path: Path, name: str, nodes: list[NodeIR]):
     from antigravity3d.kernel import fast_ops
     from antigravity3d.kernel.package import write_engine_package
-    from antigravity3d.kernel.validator import check_engine_compliance
 
-    nodes = [NodeIR(id=f"ball{i}", kind="sphere", params={"radius": 0.5, "segments": 40}, material_id="m0", transform=Transform(translate=(0.6 * i, 0, 0.5)))
-             for i in range(40)]
-    sm = StageManager.create(tmp_path / "b.usda", "Balls")
-    sm.apply_ir(SceneIR(asset_name="Balls", materials=[MaterialIR(id="m0")], nodes=nodes))
+    sm = StageManager.create(tmp_path / f"{name}.usda", name)
+    sm.apply_ir(SceneIR(asset_name=name, materials=[MaterialIR(id="m0")], nodes=nodes))
     sm.commit_all()
     meshes = sm.extract_meshes()
     budget = EngineBudget("roblox_r15", max_tris=60000)
+    pkg = write_engine_package(sm, fast_ops.run_export_pipeline(meshes, budget, name), budget, tmp_path / "pkg", asset_name=name, qa={"tier1_ok": True})
+    return meshes, budget, pkg
+
+
+def balls(n: int) -> list[NodeIR]:
+    return [NodeIR(id=f"ball{i}", kind="sphere", params={"radius": 0.5, "segments": 40}, material_id="m0", transform=Transform(translate=(0.6 * i, 0, 0.5)))
+            for i in range(n)]
+
+
+@pytest.mark.blender
+@needs_blender
+async def test_a_roblox_material_over_the_triangle_limit_ships_as_meshes_within_it_and_one_oversized_part_still_fails(tmp_path, blender_pool):
+    """The GLB submits the parts of a material in one batch once there are more nodes than the draw-call budget, and Roblox
+    imports a batch as one mesh (limit 20,000). The writer splits a material's batch at the limit, parts kept whole: forty
+    880-triangle spheres ship as two meshes, and the project's rules and Blender's qa_check agree. A single part over the limit
+    cannot be split by the writer: the authored-part rule rejects it, and so does Blender."""
+    from antigravity3d.kernel.validator import check_engine_compliance, validate_package
+
+    meshes, budget, pkg = roblox_scene(tmp_path / "balls", "Balls", balls(40))
     assert not [i for i in check_engine_compliance(None, meshes, budget) if i.code.endswith("mesh_tri_cap")]  # every part has 880 tris
-    pkg = write_engine_package(sm, fast_ops.run_export_pipeline(meshes, budget, "Balls"), budget, tmp_path / "pkg", asset_name="Balls", qa={"tier1_ok": True})
-    assert list(pkg.data["glb_batches"]) == ["Batch_0"]
+    batches = pkg.data["glb_batches"]
+    assert list(batches) == ["Batch_0", "Batch_1"] and [len(m) for m in batches.values()] == [22, 18], batches
+    assert pkg.ok and not [i for i in validate_package(pkg.out_dir) if i.severity == "critical"], [i.code for i in pkg.issues if i.severity == "critical"]
+    assert pkg.data["draw_calls"] == 2 and pkg.data["roblox_surface_appearance"]["meshparts_expected"] == 2
+    assert any("2 GLB meshes" in n for n in pkg.data["notes"])  # the note counts the split meshes
     status, detail, _ = await upstream_checks.asset_qa(blender_pool, str(pkg.out_dir / "Balls.glb"), "roblox_r15")
-    assert status == "failed" and "Batch_0: 35200 tris > roblox limit 20000" in detail
+    assert status == "passed" and "35200 tris" in detail, detail  # all of it ships, as two meshes
+    big = [NodeIR(id="big", kind="sphere", params={"radius": 0.5, "segments": 950}, material_id="m0", transform=Transform(translate=(0, 0, 0.5)))]
+    meshes, budget, pkg = roblox_scene(tmp_path / "big", "Big", big)
+    assert len(meshes[0].triangles) > 20_000
+    assert [i.code for i in check_engine_compliance(None, meshes, budget) if i.code.endswith("mesh_tri_cap")] == ["roblox_r15:mesh_tri_cap"]
+    assert not pkg.ok
+    status, detail, _ = await upstream_checks.asset_qa(blender_pool, str(pkg.out_dir / "Big.glb"), "roblox_r15")
+    assert status == "failed" and "> roblox limit 20000" in detail
+
+
+def test_the_rule_on_what_ships_catches_a_writer_that_does_not_split(tmp_path, monkeypatch):
+    """The per-mesh check on the shipped GLB is the proof that the writer did its job: with the split switched off, the
+    project's own rules (the engine check at write time and validate_package on the files) reject forty 880-triangle spheres,
+    which the authored-part rule alone lets through."""
+    from antigravity3d.kernel import package
+    from antigravity3d.kernel.validator import check_engine_compliance, validate_package
+
+    monkeypatch.setattr(package, "split_batch", lambda members, tris, cap: [list(members)])
+    meshes, budget, pkg = roblox_scene(tmp_path, "Balls", balls(40))
+    assert not [i for i in check_engine_compliance(None, meshes, budget) if i.code.endswith("mesh_tri_cap")]
+    assert list(pkg.data["glb_batches"]) == ["Batch_0"] and not pkg.ok
+    codes = {i.code: i.detail for i in pkg.issues if i.severity == "critical"}
+    assert "35200 tris in one shipped GLB mesh > 20000" in codes["roblox_r15:batch_tri_cap"] and "pkg:glb_batch_tri_cap" in codes
+    assert {i.code for i in validate_package(pkg.out_dir) if i.severity == "critical"} == {"pkg:glb_batch_tri_cap"}  # re-read from the shipped GLB
 
 
 def package_glb(tmp_path: Path, nodes: list[NodeIR], engine: str = "unreal_5") -> str:

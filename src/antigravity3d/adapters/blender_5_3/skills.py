@@ -70,8 +70,8 @@ PRIMITIVE_KWARGS: dict[str, frozenset[str]] = {
 # name) and ``no_anim=True``; ``set``, ``batch``, ``collection``, ``draco`` and ``out`` are never reachable.
 EXPORT_PRESETS = ("unity", "unreal", "roblox")
 EXCLUDED_PRESETS = ("unity_skeletal", "unreal_skeletal", "roblox_gltf", "godot", "web", "gltf", "usd")
-EXPORT_REQUEST_KEYS = frozenset({"source", "lods", "colliders", "textures_dir", "out_dir", "asset_name", "preset"})
-VERIFY_REQUEST_KEYS = frozenset({"source", "lods", "colliders", "textures_dir", "fbx", "asset_name", "preset"})
+EXPORT_REQUEST_KEYS = frozenset({"source", "lods", "colliders", "textures_dir", "texture_map", "out_dir", "asset_name", "preset"})
+VERIFY_REQUEST_KEYS = frozenset({"source", "lods", "colliders", "textures_dir", "texture_map", "fbx", "asset_name", "preset"})
 ASSET_NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]{0,63}")
 MAX_LOD_FILES = 7  # LOD0 plus seven: Unity's LOD Group takes at most eight levels
 
@@ -122,6 +122,20 @@ def check_export_request(request: Any, *, verify: bool = False) -> dict[str, Any
     if textures is not None and (not isinstance(textures, str) or not os.path.isdir(textures)):
         raise ValueError(f"export: textures_dir must be an existing directory, got {textures!r}")
     out["textures_dir"] = textures
+    # texture_map: {file name in textures_dir the GLB's image is a copy of: file name there the FBX must reference instead}
+    # (Unreal reads the package's DirectX normal map, the GLB embeds the +Y one). Plain image file names, both present.
+    tmap = request.get("texture_map") or {}
+    if not isinstance(tmap, dict) or (tmap and textures is None):
+        raise ValueError("export: texture_map must be a mapping of file names in textures_dir (and needs textures_dir)")
+    if tmap and preset == "roblox":
+        raise ValueError("export: texture_map applies to relative references (unity, unreal); roblox embeds the GLB's bytes")
+    for was, now in tmap.items():
+        for image in (was, now):
+            if (not isinstance(image, str) or not image or os.path.basename(image) != image or image.startswith(".")
+                    or Path(image).suffix.lower() not in (".png", ".jpg", ".jpeg", ".tga", ".bmp", ".webp")
+                    or not os.path.isfile(os.path.join(textures, image))):
+                raise ValueError(f"export: texture_map names must be image files in textures_dir, got {image!r}")
+    out["texture_map"] = dict(tmap)
     if verify:
         fbx = request.get("fbx")
         if not isinstance(fbx, str) or not os.path.isfile(fbx) or Path(fbx).suffix.lower() != ".fbx":

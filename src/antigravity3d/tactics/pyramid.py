@@ -21,7 +21,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from pxr import Usd
 
-from antigravity3d.adapters.blender_5_3 import upstream_checks
+from antigravity3d.adapters.blender_5_3 import fbx_package, upstream_checks
 from antigravity3d.adapters.engines.validators import MIN_SILHOUETTE_IOU, blender_frame_png, silhouette_iou, validator_for
 from antigravity3d.adapters.engines import web_three
 from antigravity3d.adapters.engines.web_three import WebThreeValidator
@@ -86,7 +86,10 @@ class RoundTrace:
 @dataclass
 class StepResult:
     name: str
-    status: str  # "passed" | "warned" | "failed" | "skipped"
+    # "passed" | "warned" | "failed" | "skipped" | "output_failed". "failed" is a check OF the package that did not pass: it
+    # blocks. "output_failed" is an extra output that could not be made (the FBX): it reads as a failure, is recorded in the
+    # manifest and printed, and does not block, because the package (USD, GLB) stands on its own checks.
+    status: str
     detail: str = ""  # what was checked or produced: a fact about the asset, shipped in the package manifest
     ms: float = 0.0
     run: str = ""  # a fact about this run only (cache state); with ``ms`` it stays in the run report
@@ -132,6 +135,10 @@ class PyramidResult:
         return [(s.name, s.detail) for s in self.steps if s.status == "failed"]
 
     @property
+    def failed_outputs(self) -> list[tuple[str, str]]:
+        return [(s.name, s.detail) for s in self.steps if s.status == "output_failed"]
+
+    @property
     def warned(self) -> list[tuple[str, str]]:
         return [(s.name, s.detail) for s in self.steps if s.status == "warned"]
 
@@ -156,6 +163,8 @@ class PyramidResult:
         d["steps"] = [vars(s) for s in self.steps]
         d["fix_records"] = [vars(f) for f in self.fix_records]
         d["skipped"] = [{"step": n, "reason": r} for n, r in self.skipped]
+        if self.failed_outputs:  # only when there is one: a run without a failed output writes the keys it always wrote
+            d["failed_outputs"] = [{"step": n, "reason": r} for n, r in self.failed_outputs]
         return d
 
 
@@ -706,7 +715,7 @@ class _Run:
         if self.bundle_cache_hit is not None:  # the same bundle either way: where it came from is not part of the package
             res.steps[-1].run = f"cache={'hit' if self.bundle_cache_hit else 'miss'}"
         if bundle is None:
-            for n in ("usd_package", "usd_validate", "engine_compliance", "lod_pop", "lod_pop_vision", "export_glb", "engine_import", "engine_parity", "web_runtime", "blender_asset_qa"):
+            for n in ("usd_package", "usd_validate", "engine_compliance", "lod_pop", "lod_pop_vision", "export_glb", "engine_import", "engine_parity", "web_runtime", "blender_asset_qa", "export_fbx"):
                 self.step(n, "skipped", "UV/LOD/collider stage failed")
             return
 
@@ -824,6 +833,28 @@ class _Run:
         for name, task in side.items():
             status, detail, t0 = await task
             self.step(name, status, detail, t0)
+
+        async def export_fbx() -> tuple[str, str]:
+            """The package's FBX (fbx_package.export_package_fbx), re-imported in Blender and compared with its GLB files.
+
+            It writes into the package folder, so it runs LAST: ``_engine_steps`` has returned (engine_capture writes
+            engine.png there) and both side tasks above have been awaited (web_runtime and blender_asset_qa read the
+            folder), and this coroutine starts nothing that outlives it. Nothing else writes to the folder while it
+            runs; the package node of the DAG writes manifest.json afterwards and records the FBX in it (res.objects)."""
+            if "glb" not in res.artifacts or "package" not in res.objects:
+                return "skipped", "no package exported"
+            if not any(s.name == "usd_validate" and s.status == "passed" for s in res.steps):
+                return "skipped", "the package did not pass its own validation"
+            status, detail, result = await fbx_package.export_package_fbx(self.pool, pkg, res.objects["package"].data)
+            if status == "failed":
+                res.objects["fbx_failed"] = result  # the manifest says it: no FBX ships, and why
+            elif result:
+                res.objects["fbx"] = result
+            return status, detail
+
+        status, detail, t0 = await self.guarded_result(export_fbx)
+        # An output that could not be made is "output_failed", not "failed": it does not block (see StepResult).
+        self.step("export_fbx", "output_failed" if status == "failed" else status, detail, t0)
 
     async def _engine_steps(self, validator: Any) -> None:
         """engine_import, engine_capture and engine_parity on the exported package (pass C, after the export)."""
