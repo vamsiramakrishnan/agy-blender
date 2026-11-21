@@ -466,3 +466,35 @@ async def test_judge_requests_carry_the_cap_and_the_hold_uses_it():
     with pytest.raises(RuntimeError):
         await b.create(input="x", questions={"q0": Q.noul("is it?")})
     assert seen["max"] == F.JUDGE_MAX_OUTPUT_TOKENS == 8192
+
+
+async def test_the_judges_count_sends_no_per_image_resolution_and_is_never_an_under_count():
+    # The API refuses a per-image resolution on an image given by file reference when it counts (the stand-in above
+    # answers the same 400), so the count is made without resolutions; an image asked for above the default
+    # resolution gets the difference, and the generating call still carries the resolutions.
+    from antigravity3d.decisions import fallback as F, questions as Q
+
+    counted, generated = [], []
+
+    class Models:
+        async def count_tokens(self, *, model, contents):
+            counted.append(contents[0].parts)
+            return type("C", (), {"total_tokens": 5000})()
+
+        async def generate_content(self, *, model, contents, config):
+            generated.append(contents[0].parts)
+            raise RuntimeError("stop here")
+
+    client = type("Client", (), {"aio": type("Aio", (), {"models": Models()})()})()
+    b = F.GenerativeDecisionsBackend(client, model="m", thinking_level="LOW")
+    qs = {"q0": Q.noul("is it?")}
+    low = [{"type": "image", "uri": "https://files/a", "resolution": "low"}, {"type": "image", "uri": "https://files/b", "resolution": "high"}]
+    unseen = len(json.dumps(F.build_response_schema(qs), separators=(",", ":")).encode()) + len(F.SYSTEM_INSTRUCTION.encode())
+    assert await b.worst_case_tokens(low, qs) == (5000 + unseen + F.JUDGE_MAX_OUTPUT_TOKENS) * 2
+    assert all(getattr(p, "media_resolution", None) is None for p in counted[-1]) and counted[-1][0].file_data.file_uri == "https://files/a"
+    ultra = [{"type": "image", "uri": "https://files/a", "resolution": "ultra_high"}, {"type": "image", "uri": "https://files/b", "resolution": "low"}]
+    extra = F.IMAGE_TOKENS_AT["ultra_high"] - F.IMAGE_TOKENS_DEFAULT
+    assert extra == 1120 and await b.worst_case_tokens(ultra, qs) == (5000 + extra + unseen + F.JUDGE_MAX_OUTPUT_TOKENS) * 2
+    with pytest.raises(RuntimeError):
+        await b.create(input=low, questions=qs)
+    assert [p.media_resolution is not None for p in generated[-1][:2]] == [True, True], "the judging call keeps the resolutions"

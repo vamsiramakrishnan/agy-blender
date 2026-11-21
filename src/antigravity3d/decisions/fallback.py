@@ -69,6 +69,11 @@ DEFAULT_MAX_CONCURRENCY = 8
 DEFAULT_TIMEOUT_S = 60.0
 _RESOLUTION_LEVEL = {"low": "MEDIA_RESOLUTION_LOW", "medium": "MEDIA_RESOLUTION_MEDIUM", "high": "MEDIA_RESOLUTION_HIGH",
                      "ultra_high": "MEDIA_RESOLUTION_ULTRA_HIGH"}
+# Input tokens one image bills at each per-image resolution. Measured on gemini-4-neon on 2026-11-21: 1,120 with no
+# resolution given and 280 at "low"; "medium" and "ultra_high" are the documented figures. Only used to bound a count
+# (see worst_case_tokens), never to bill.
+IMAGE_TOKENS_DEFAULT = 1120
+IMAGE_TOKENS_AT = {"low": 280, "medium": 560, "high": 1120, "ultra_high": 2240}
 _THINKING_LADDER = ("MINIMAL", "LOW", "MEDIUM", "HIGH")  # stepped up when a model rejects the requested level
 # max_output_tokens of one judge request (answer + thinking share it). Measured 2026-11-20 on gemini-4-neon, thinking
 # LOW, the fallback answering the pipeline's own question sets (benchmarks/results/round1/live.json, judge group):
@@ -344,19 +349,29 @@ class GenerativeDecisionsBackend:
         """The most tokens one ``create`` can bill: for every chunk and every attempt it may make (one plus
         ``max_parse_retries``), the counted input (contents and rendered questions, by the model's tokenizer), one token
         per byte of the response schema and of the system instruction (billed but not countable, as for authoring),
-        and ``JUDGE_MAX_OUTPUT_TOKENS``. Counting is free; nothing is generated."""
+        and ``JUDGE_MAX_OUTPUT_TOKENS``. Counting is free; nothing is generated.
+
+        The images are counted without their per-image resolutions. The API refuses a resolution on an image given by
+        file reference when it counts (400 INVALID_ARGUMENT), though it takes one on an inline image and takes both
+        when it generates: found on the first live preview run, where every ranking call stopped here. And a request
+        whose resolutions are refused at generation is re-sent without them (``_generate``). An image counted at the
+        default resolution is never billed more than that, whichever happens, except one asked for above the default,
+        which is given the difference."""
         from google.genai import types
 
+        blocks = [] if isinstance(input_blocks, str) else list(input_blocks)
+        above_default = sum(max(0, IMAGE_TOKENS_AT.get(str(b.get("resolution") or ""), 0) - IMAGE_TOKENS_DEFAULT)
+                            for b in blocks if b.get("type") == "image") if self._honor_resolution else 0
         total = 0
         for chunk in self._chunks(questions):
-            parts = blocks_to_parts(input_blocks, honor_resolution=self._honor_resolution)
+            parts = blocks_to_parts(input_blocks, honor_resolution=False)
             parts.append(types.Part(text=render_questions(chunk)))
             counted = await self._client.aio.models.count_tokens(model=self.model, contents=[types.Content(role="user", parts=parts)])
             n = getattr(counted, "total_tokens", None)
             if not isinstance(n, int) or n <= 0:
                 raise GenerativeDecisionError(f"no input token count for {self.model}: cannot bound the judge call")
             unseen = len(json.dumps(build_response_schema(chunk), separators=(",", ":")).encode()) + len(SYSTEM_INSTRUCTION.encode())
-            total += (n + unseen + JUDGE_MAX_OUTPUT_TOKENS) * (self.max_parse_retries + 1)
+            total += (n + above_default + unseen + JUDGE_MAX_OUTPUT_TOKENS) * (self.max_parse_retries + 1)
         return total
 
     async def _answer_chunk(self, input_blocks: Any, questions: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], Usage]:

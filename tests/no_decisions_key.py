@@ -2,7 +2,9 @@
 
 * Any path that is not a ``/models/`` call or a Files upload answers 404: the Decisions API (``/v1/decisions``)
   answers 404, as it does on the owner's key, so ``make_control_plane`` falls back to the generative judge.
-* ``:countTokens``: ``len(json body) // 4``.
+* ``:countTokens``: ``len(json body) // 4``; 400 INVALID_ARGUMENT when an image given by file reference carries a
+  per-image resolution, as the real API answers (seen 2026-11-21 on gemini-4-neon: it counts an inline image with a
+  resolution and a referenced image without one, and generates with either).
 * A structured judge call (a question-keyed response schema): defects ``defect``, policy ``policy``,
   ``needs_ortho_blueprint`` 0.8, choice 0.9 on the preferred option, score 0.9 on level ``score_level`` (default top).
   Usage is the measured blockout fallback call: 2,312 input, 169 answer + 837 thinking tokens.
@@ -102,6 +104,10 @@ class NoDecisionsKey:
             return 200, json.dumps({"file": f}).encode(), {"X-Goog-Upload-Status": "final"}
         body = json.loads(raw or b"{}")
         if ":countTokens" in path:
+            parts = [part for c in body.get("contents") or [] for part in c.get("parts") or []]
+            if any("fileData" in part and "mediaResolution" in part for part in parts):
+                self._log(path, "count:400")
+                return 400, b'{"error": {"code": 400, "message": "Request contains an invalid argument.", "status": "INVALID_ARGUMENT"}}', {}
             self._log(path, "count")
             return 200, json.dumps({"totalTokens": len(json.dumps(body)) // 4}).encode(), {}
         if "/models/" not in path:
