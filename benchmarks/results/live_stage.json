@@ -1,0 +1,489 @@
+{
+  "machine": {
+    "python": "3.13.18",
+    "platform": "Linux-6.18.44-fc-v726-x86_64-with-glibc2.39",
+    "package_git_sha": "5a440fa80dad7ec74e62df3afca7e4df1e68b72a",
+    "package_git_dirty": false,
+    "sdk_versions": {
+      "google-genai": "3.6.1",
+      "google-antigravity": "0.1.24",
+      "antigravity-3d": "0.2.0"
+    },
+    "timestamp": "2026-11-20T19:26:45+00:00"
+  },
+  "limits": {
+    "max_calls": 4,
+    "max_tokens": 100000,
+    "timeouts_s": {
+      "stage": 600.0,
+      "judge": 120.0,
+      "image": 180.0
+    },
+    "retries": "none (genai HttpRetryOptions attempts=1; package fallback/plane retry loops set to 0; stage: Antigravity RetryConfig api_retry max_retries=0; a model-output re-ask, if any, is a counted call)",
+    "prices": "none configured; dollar cost is unknown, token counts only",
+    "stage_accounting": "every model call of a stage run is relayed (ModelRelay) and booked with its own usage"
+  },
+  "totals": {
+    "calls": 3,
+    "input_tokens": 37902,
+    "output_tokens": 1170,
+    "thinking_tokens": 1634,
+    "unknown_usage_reserved_tokens": 0
+  },
+  "groups": {
+    "stage": {
+      "builder:gemini-4-carbon": {
+        "samples": [
+          {
+            "task": "crate",
+            "timeout_s": 600.0,
+            "thinking_level": "medium",
+            "wall_s": 25.98,
+            "wall_ms": 25975.3,
+            "model_calls": 4,
+            "prompt_tokens_per_call": [
+              2170,
+              2719,
+              2915,
+              3069
+            ],
+            "static_chars_first_call": 6613,
+            "prompt_tokens": 10873,
+            "output_tokens": 398,
+            "thinking_tokens": 307,
+            "tokens_known": true,
+            "total_tokens": 11578,
+            "calls": [
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2170,
+                "cached_tokens": 0,
+                "output_tokens": 239,
+                "thinking_tokens": 195,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 7.45,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2719,
+                "cached_tokens": 0,
+                "output_tokens": 21,
+                "thinking_tokens": 62,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 3.49,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2915,
+                "cached_tokens": 670,
+                "output_tokens": 18,
+                "thinking_tokens": 9,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 9.36,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 3069,
+                "cached_tokens": 866,
+                "output_tokens": 120,
+                "thinking_tokens": 41,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 3.56,
+                "error": null
+              }
+            ],
+            "tool_calls": 3,
+            "tool_durations_ms": [
+              {
+                "tool": "apply_scene_ir",
+                "ms": 22.91,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "render_preview",
+                "ms": 363.0,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "run_visual_qa",
+                "ms": 68.36,
+                "error": false,
+                "soft_fail": false
+              }
+            ],
+            "first_edit_valid": true,
+            "edit_calls": 1,
+            "tool_time_s": 0.454,
+            "model_side_s": 25.52,
+            "telemetry_summary": {
+              "calls": 3,
+              "errors": 0,
+              "soft_failures": 0,
+              "by_tool": {
+                "apply_scene_ir": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 22.91,
+                  "p50_ms": 22.91
+                },
+                "render_preview": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 363.0,
+                  "p50_ms": 363.0
+                },
+                "run_visual_qa": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 68.36,
+                  "p50_ms": 68.36
+                }
+              }
+            },
+            "stop_continuations": 0,
+            "final_text": "Built the wooden crate blockout from two box primitives (`crate_body` 0.60x0.60x0.54 m grounded at z=0, and `crate_lid` 0.64x0.64x0.06 m seated on top) sharing `wood_mat` (24 tris, 1 draw call, colliders enabled). Visual QA passed (`approve`, tier15=3.60) with no geometry repairs remaining; ready fo",
+            "final_nodes": 2,
+            "tier1_ok": true,
+            "qa_last": "QA[blockout] approve tier15=3.60\nwhy: all gates pass (tier15 3.60, silhouette 3.60)",
+            "qa_approved": true,
+            "task_ok": true
+          },
+          {
+            "task": "crate",
+            "timeout_s": 600.0,
+            "thinking_level": "medium",
+            "wall_s": 37.61,
+            "wall_ms": 37610.6,
+            "model_calls": 4,
+            "prompt_tokens_per_call": [
+              2170,
+              2752,
+              2967,
+              3121
+            ],
+            "static_chars_first_call": 6613,
+            "prompt_tokens": 11010,
+            "output_tokens": 412,
+            "thinking_tokens": 364,
+            "tokens_known": true,
+            "total_tokens": 11786,
+            "calls": [
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2170,
+                "cached_tokens": 0,
+                "output_tokens": 243,
+                "thinking_tokens": 223,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 5.7,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2752,
+                "cached_tokens": 0,
+                "output_tokens": 16,
+                "thinking_tokens": 85,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 7.09,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2967,
+                "cached_tokens": 703,
+                "output_tokens": 18,
+                "thinking_tokens": 9,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 2.33,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 3121,
+                "cached_tokens": 918,
+                "output_tokens": 135,
+                "thinking_tokens": 47,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 22.06,
+                "error": null
+              }
+            ],
+            "tool_calls": 3,
+            "tool_durations_ms": [
+              {
+                "tool": "apply_scene_ir",
+                "ms": 34.0,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "render_preview",
+                "ms": 115.93,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "run_visual_qa",
+                "ms": 12.87,
+                "error": false,
+                "soft_fail": false
+              }
+            ],
+            "first_edit_valid": true,
+            "edit_calls": 1,
+            "tool_time_s": 0.163,
+            "model_side_s": 37.45,
+            "telemetry_summary": {
+              "calls": 3,
+              "errors": 0,
+              "soft_failures": 0,
+              "by_tool": {
+                "apply_scene_ir": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 34.0,
+                  "p50_ms": 34.0
+                },
+                "render_preview": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 115.93,
+                  "p50_ms": 115.93
+                },
+                "run_visual_qa": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 12.87,
+                  "p50_ms": 12.87
+                }
+              }
+            },
+            "stop_continuations": 0,
+            "final_text": "Built the wooden crate blockout from two box primitives (`crate_body` 0.8x0.8x0.7 m grounded at Z=0, and overhanging `crate_lid` 0.84x0.84x0.08 m anchored on top) with a rough wood PBR material (`wood_mat`, 24 tris, 1 draw call). Rendered the 4-view preview and ran visual QA, passing all Tier-1 and ",
+            "final_nodes": 2,
+            "tier1_ok": true,
+            "qa_last": "QA[blockout] approve tier15=3.60\nwhy: all gates pass (tier15 3.60, silhouette 3.60)",
+            "qa_approved": true,
+            "task_ok": true
+          }
+        ],
+        "n_ok": 2,
+        "n_failed": 0,
+        "median_ms": 31792.9,
+        "min_ms": 25975.3,
+        "max_ms": 37610.6
+      },
+      "flush_repair:builder:gemini-4-carbon": {
+        "samples": [
+          {
+            "task": "flush_repair",
+            "timeout_s": 600.0,
+            "thinking_level": "medium",
+            "wall_s": 32.95,
+            "wall_ms": 32946.8,
+            "model_calls": 5,
+            "prompt_tokens_per_call": [
+              2220,
+              2461,
+              3343,
+              3842,
+              4153
+            ],
+            "static_chars_first_call": 6613,
+            "prompt_tokens": 16019,
+            "output_tokens": 360,
+            "thinking_tokens": 963,
+            "tokens_known": true,
+            "total_tokens": 17342,
+            "calls": [
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2220,
+                "cached_tokens": 0,
+                "output_tokens": 16,
+                "thinking_tokens": 22,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 3.6,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 2461,
+                "cached_tokens": 0,
+                "output_tokens": 154,
+                "thinking_tokens": 612,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 9.29,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 3343,
+                "cached_tokens": 0,
+                "output_tokens": 28,
+                "thinking_tokens": 114,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 3.33,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 3842,
+                "cached_tokens": 1294,
+                "output_tokens": 18,
+                "thinking_tokens": 166,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 4.91,
+                "error": null
+              },
+              {
+                "finish_reason": "STOP",
+                "prompt_tokens": 4153,
+                "cached_tokens": 2028,
+                "output_tokens": 144,
+                "thinking_tokens": 49,
+                "system_chars": 1894,
+                "tool_chars": 4719,
+                "tools": 5,
+                "wall_s": 10.97,
+                "error": null
+              }
+            ],
+            "tool_calls": 5,
+            "tool_durations_ms": [
+              {
+                "tool": "inspect_manifest",
+                "ms": 15.47,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "apply_scene_ir",
+                "ms": 24.09,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "inspect_manifest",
+                "ms": 17.49,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "render_preview",
+                "ms": 109.96,
+                "error": false,
+                "soft_fail": false
+              },
+              {
+                "tool": "run_visual_qa",
+                "ms": 120.54,
+                "error": false,
+                "soft_fail": false
+              }
+            ],
+            "first_edit_valid": true,
+            "edit_calls": 1,
+            "tool_time_s": 0.288,
+            "model_side_s": 32.66,
+            "telemetry_summary": {
+              "calls": 5,
+              "errors": 0,
+              "soft_failures": 0,
+              "by_tool": {
+                "apply_scene_ir": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 24.09,
+                  "p50_ms": 24.09
+                },
+                "inspect_manifest": {
+                  "calls": 2,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 32.96,
+                  "p50_ms": 17.49
+                },
+                "render_preview": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 109.96,
+                  "p50_ms": 109.96
+                },
+                "run_visual_qa": {
+                  "calls": 1,
+                  "errors": 0,
+                  "soft_failures": 0,
+                  "total_ms": 120.54,
+                  "p50_ms": 120.54
+                }
+              }
+            },
+            "stop_continuations": 0,
+            "final_text": "Aligned `lid` flush onto `body` (`z = 0.50..0.56 m`, no gap or overlap) and added cylindrical `handle` (`radius = 0.02 m`, `height = 0.30 m`, rotated `90\u00b0` on Y to lie along X) centred and resting flush on top of `lid` (`z = 0.56..0.60 m`). Rendered preview and passed visual QA (`approve`, `tier15 =",
+            "final_nodes": 3,
+            "tier1_ok": true,
+            "qa_last": "QA[blockout] approve tier15=3.60\nwhy: all gates pass (tier15 3.60, silhouette 3.60)",
+            "qa_approved": true,
+            "task_ok": true,
+            "flush": {
+              "ok": true,
+              "lid_gap_m": 0.0,
+              "handle_gap_m": 0.0,
+              "handle_extent_m": [
+                0.3,
+                0.04,
+                0.04
+              ],
+              "handle_offcentre_m": 0.0
+            }
+          }
+        ],
+        "n_ok": 1,
+        "n_failed": 0,
+        "median_ms": 32946.8,
+        "min_ms": 32946.8,
+        "max_ms": 32946.8
+      }
+    }
+  },
+  "aborted": null
+}

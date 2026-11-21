@@ -50,7 +50,7 @@ dashboard. Following the docs, the plugin never turns itself on.
 | --- | --- |
 | `plugin.json` | Manifest. Uses only fields the docs allow, because the loader silently drops unknown ones. |
 | `rules/AGENTS.md` | Always-on studio rules: USD is the source of truth; edit only through Scene IR, with raw bpy only through the linter-gated escape hatch; metres and Z-up, with axis conversion only at export; PBR ranges, ORM packing and normal-map convention; the QA gate; renders always go through the QA tools. |
-| `rules/blender-5-3-api.md` | Rule scoped by `trigger: glob` to `**/*.py, **/*.blend`: Blender 5.3 API rules (`BLENDER_EEVEE`, solver `FLOAT`, no `bgl`, `AssetRepresentation`). The linter enforces them too. |
+| `rules/blender-5-3-api.md` | Rule scoped by `trigger: glob` to `**/*.py, **/*.blend`: Blender 5.3 API rules: `gpu.init()` before any `gpu` call, Geometry Nodes inputs through `properties.inputs`, `BLENDER_EEVEE`, solver `FLOAT`, and the other names removed in 5.x with their replacements. The linter enforces them too. |
 | `rules/engine-budgets.md` | Rule scoped by `trigger: glob` to USD files and `*_exports/` folders: budgets and conventions for UE5, Unity URP, Godot 4 and Roblox R15. |
 | `skills/concept-to-blueprint` | Best-of-4 orthographic-view tournament that picks one winner. |
 | `skills/parametric-kitbash` | Blockout built from Scene IR patches, plus a loop that locks the silhouette to the orthos. |

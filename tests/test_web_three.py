@@ -10,6 +10,7 @@ import gzip
 import hashlib
 import io
 import json
+import os
 import re
 import struct
 import time
@@ -19,6 +20,7 @@ import pytest
 import trimesh
 from PIL import Image
 
+from antigravity3d.adapters.engines import web_browser as B
 from antigravity3d.adapters.engines import web_three as W
 from antigravity3d.adapters.engines.validators import (
     MIN_SILHOUETTE_IOU,
@@ -141,8 +143,7 @@ def test_page_is_self_contained_and_has_no_external_urls(tmp_path):
     man = _manifest(tm)
     page = W.build_page(tmp_path, _glb_of(tm), man["glb_bounds_m"], {"LOD1": _glb_of(tm)})
     html = page.read_text()
-    without_data = re.sub(r'"(glb_)?b64": ?"[A-Za-z0-9+/=]+"', '"b64":""', html)
-    assert not re.search(r"https?://|//cdn|@import|<link ", without_data)
+    assert not re.search(r"https?://|//cdn|@import|<link ", html)
     # every module reference is a relative path to a file that exists beside the page
     refs = re.findall(r"""(?:from|import\()\s*['"](\./[^'"]+)['"]|"three":"(\./[^"]+)"|\./vendor/[\w./-]+""", html)
     for path in {m for tup in refs for m in tup if m} | set(re.findall(r"\./vendor/[\w./-]+", html)):
@@ -150,8 +151,13 @@ def test_page_is_self_contained_and_has_no_external_urls(tmp_path):
     for rel, gz in W.VENDOR_FILES.items():  # vendored files land byte-for-byte
         assert (tmp_path / rel).read_bytes() == W.vendor_source(gz)
     job = json.loads(re.search(r'id="job">(.*?)</script>', html, re.DOTALL).group(1))
-    assert base64.b64decode(job["glb_b64"]) == _glb_of(tm) and job["camera"]["size_px"] == W.FRAME_PX
-    assert not re.search(r"\bfetch\(|XMLHttpRequest|WebSocket", html)  # nothing in our page code reaches out
+    # the GLBs are files beside the page, which the page loads through the route like the vendored files
+    assert (tmp_path / job["glb_url"]).read_bytes() == _glb_of(tm) and job["camera"]["size_px"] == W.FRAME_PX
+    assert [(lod["name"], (tmp_path / lod["url"]).read_bytes()) for lod in job["lods"]] == [("LOD1", _glb_of(tm))]
+    assert len(html) < 40_000 and job["env"] == {"mode": "page"}  # no inline package data; renders its own environment
+    # nothing in our page code reaches out: its one fetch is the image loader's (three's own fetches the same way), for
+    # URLs GLTFLoader resolved against the page; every request is answered from the page directory or blocked
+    assert re.findall(r"\bfetch\(([^,)]*)", html) == ["url"] and not re.search(r"XMLHttpRequest|WebSocket|https?://", html)
 
 
 def test_camera_is_documented_rig_and_reference_matches_geometry():
@@ -198,6 +204,23 @@ async def test_skipped_with_reason_when_no_browser(monkeypatch, tmp_path):
     assert isinstance(rep, EngineReport) and rep.skipped and not rep.ok and "CHROMIUM_BIN" in rep.skipped_reason
 
 
+async def test_prestart_without_playwright_starts_nothing_and_releases_cleanly(monkeypatch):
+    """A machine without the Python playwright package runs the pipeline with the web check skipped. The pipeline
+    takes its browser lease before any pass runs, so that lease must not need Playwright either."""
+    import sys
+
+    from antigravity3d.adapters.engines import web_browser
+
+    monkeypatch.setitem(sys.modules, "playwright", None)  # makes ``import playwright`` raise ImportError
+    monkeypatch.setitem(sys.modules, "playwright.async_api", None)
+    leases, thread = web_browser.SHARED._leases, web_browser.SHARED._thread
+    lease = W.prestart()
+    assert web_browser.SHARED._leases == leases and web_browser.SHARED._thread is thread
+    assert lease.release(keep=True) is None
+    await lease.aclose(keep=False)
+    assert web_browser.SHARED._leases == leases
+
+
 async def test_skipped_with_reason_when_playwright_missing(monkeypatch, tmp_path):
     import sys
 
@@ -209,9 +232,10 @@ async def test_skipped_with_reason_when_playwright_missing(monkeypatch, tmp_path
 def _canned_raw(**over):
     mat = {"name": "wood", "type": "MeshStandardMaterial", "fallback_default": False, "missing_slots": [],
            "declared": ["map", "normalMap", "aoMap", "roughnessMap", "metalnessMap"],
-           "slots": {s: {"width": 256, "height": 256, "colorSpace": "srgb"} for s in ("map", "normalMap", "aoMap", "roughnessMap", "metalnessMap")}}
+           "slots": {s: {"width": 256, "height": 256, "colorSpace": "srgb", "content": f"{s:0>16}"[-16:]}
+                     for s in ("map", "normalMap", "aoMap", "roughnessMap", "metalnessMap")}}
     raw = {"errors": [], "shader_errors": [], "programs": [{"name": "MeshStandardMaterial", "diagnostics": None}],
-           "lods": [{"name": "LOD1", "triangles": 60, "mesh_count": 1}],
+           "lods": [{"name": "LOD1", "triangles": 60, "mesh_count": 1, "materials": [copy.deepcopy(mat)]}],
            "main": {"mesh_count": 1, "triangles": 120, "meshes": [{"name": "Batch_0", "tris": 120, "hasNormals": True}],
                     "materials": [mat], "texture_count": 5, "bounds_m": [[0, 0, 0], [1, 1, 1]]},
            "render": {"draw_calls": 1, "triangles": 120, "gl_error": 0, "context_lost": False}}
@@ -276,6 +300,56 @@ def test_evaluate_fails_naming_the_cause(kwargs, needle):
 
 def _factor_only(name="iron"):
     return {"name": name, "type": "MeshStandardMaterial", "fallback_default": False, "missing_slots": [], "declared": [], "slots": {}}
+
+
+def _lod1_check(raw) -> W.Check:
+    return _run_eval(raw=raw)[0]["LOD1 materials == LOD0 materials (parameters and texture content)"]
+
+
+def test_evaluate_lod_materials_must_bind_lod0_textures():
+    assert _lod1_check(_canned_raw()).status == "pass"
+    raw = _canned_raw()  # same size, other pixels: a different map bound at the far level
+    raw["lods"][0]["materials"][0]["slots"]["map"]["content"] = "ffffffffffffffff"
+    check = _lod1_check(raw)
+    assert check.status == "fail" and "wood.map" in check.detail
+    raw = _canned_raw()  # the referenced file did not load: the declared slot stays unbound
+    lod_mat = raw["lods"][0]["materials"][0]
+    del lod_mat["slots"]["normalMap"]
+    lod_mat["missing_slots"] = ["normalMap"]
+    check = _lod1_check(raw)
+    assert check.status == "fail" and "normalMap not bound" in check.detail
+    raw = _canned_raw()
+    raw["lods"][0]["materials"][0]["name"] = "stranger"
+    assert "not a LOD0 material" in _lod1_check(raw).detail
+    raw = _canned_raw()
+    raw["main"]["materials"][0]["roughness"], raw["lods"][0]["materials"][0]["roughness"] = 0.5, 0.9
+    assert "roughness" in _lod1_check(raw).detail
+
+
+def test_referenced_textures_stages_only_existing_files_inside_textures(tmp_path):
+    from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, GltfMesh, TextureRef, build_glb
+
+    pkg = tmp_path / "pkg"
+    (pkg / "textures").mkdir(parents=True)
+    a, b = _noise(1, 8), _noise(2, 8)
+    (pkg / "textures" / "a map.png").write_bytes(a)
+    (pkg / "b.png").write_bytes(b)
+    ia, ib, ic = EncodedImage.from_bytes(a), EncodedImage.from_bytes(b), EncodedImage.from_bytes(_noise(3, 8))
+    mat = GltfMaterial(name="m", base_color_texture=TextureRef(ia), normal_texture=TextureRef(ib), emissive_texture=TextureRef(ic))
+    mesh = GltfMesh("t", np.eye(3), np.array([[0, 1, 2]]), np.zeros((3, 2)), mat)
+    glb = build_glb([mesh], image_uris={ia.digest: "textures/a%20map.png", ib.digest: "b.png", ic.digest: "textures/missing.png"})
+    staged = W.referenced_textures(pkg, [glb, b"not a glb"])
+    # keyed by the decoded path, which is where the route looks for the request (the browser asks for a%20map.png);
+    # outside textures/ and missing files are left for the browser to fail on
+    assert staged == {"textures/a map.png": a}
+    page = W.build_page(tmp_path / "page", glb, [[0, 0, 0], [1, 1, 1]], {"LOD1": glb}, staged)
+    assert (page.parent / "textures" / "a map.png").read_bytes() == a
+    root = page.parent
+    assert W.page_file(root, "textures/a%20map.png?x#y") == (root / "textures" / "a map.png").resolve()
+    for outside in ("../pkg/b.png", "textures/%2E%2E/%2E%2E/pkg/b.png", "%2Fetc%2Fpasswd", "textures/missing.png", "textures"):
+        assert W.page_file(root, outside) is None, outside
+    with pytest.raises(ValueError, match="outside"):
+        W.build_page(tmp_path / "page", glb, [[0, 0, 0], [1, 1, 1]], None, {"../x.png": a})
 
 
 def test_evaluate_accepts_a_factor_only_material_beside_a_textured_one():
@@ -622,6 +696,99 @@ def test_browser_asymmetric_block_passes_for_every_target_engine(engine, l_packa
     np.testing.assert_allclose([pts.min(0), pts.max(0)], man["glb_bounds_m"], atol=1e-4)
 
 
+@pytest.fixture(scope="module")
+def lod_package(tmp_path_factory, runtime):
+    """A textured package with far LOD files (a smooth cylinder and sphere simplify; boxes do not), real exporter."""
+    from antigravity3d.ir import MaterialIR, NodeIR, SceneIR, Transform
+    from antigravity3d.kernel.fast_ops import run_export_pipeline
+    from antigravity3d.kernel.package import write_engine_package
+    from antigravity3d.kernel.usd_stage import StageManager
+    from antigravity3d.state import EngineBudget
+
+    tmp = tmp_path_factory.mktemp("lod_pkg")
+    maps = {}
+    for k, seed in (("albedo", 1), ("orm", 2), ("normal", 3)):
+        (tmp / f"{k}.png").write_bytes(_noise(seed, 32))
+        maps[f"{k}_uri"] = str(tmp / f"{k}.png")
+    scene = SceneIR(asset_name="Post", materials=[MaterialIR(id="stone", **maps)], nodes=[
+        NodeIR(id="shaft", kind="cylinder", params={"radius": 0.3, "height": 1.2}, transform=Transform(translate=(0, 0, 0.6)), material_id="stone"),
+        NodeIR(id="cap", kind="sphere", params={"radius": 0.35}, transform=Transform(translate=(0, 0, 1.3)), material_id="stone")])
+    sm = StageManager.create(tmp / "work.usda", "Post")
+    sm.apply_ir(scene)
+    budget = EngineBudget("godot_4")
+    pm = write_engine_package(sm, run_export_pipeline(sm.extract_meshes(), budget, "Post"), budget, tmp / "pkg", asset_name="Post")
+    assert pm.ok and pm.n_lod_files >= 1
+    assert all(r["storage"] == "uri" for f, recs in pm.data["glb_images"].items() if "_LOD" in f for r in recs)
+    return pm.out_dir
+
+
+@pytest.mark.browser
+def test_browser_far_lods_load_their_referenced_textures_and_match_lod0(lod_package, tmp_path):
+    rep = _verify(lod_package)
+    assert rep.ok, rep.summary()
+    man = json.loads((lod_package / "manifest.json").read_text())
+    lods = {lod["name"]: lod for lod in rep.facts["lods"]}
+    assert sorted(lods) == [f"LOD{i}" for i in range(1, man["lod_levels"])]
+    lod0 = {m["name"]: m["slots"] for m in rep.facts["main"]["materials"]}
+    for name, lod in lods.items():
+        check = next(c for c in rep.checks if c.name.startswith(f"{name} materials == LOD0"))
+        assert check.status == "pass", check
+        for m in lod["materials"]:
+            assert {"map", "normalMap", "aoMap", "roughnessMap", "metalnessMap"} <= set(m["slots"])
+            for slot, bound in m["slots"].items():
+                assert bound["uri"].startswith("textures/") and bound["content"] == lod0[m["name"]][slot]["content"]
+    # LOD0 embeds: its slots name no URI
+    assert all(b["uri"] is None for slots in lod0.values() for b in slots.values())
+
+
+@pytest.mark.browser
+def test_browser_far_lod_texture_whose_name_needs_percent_encoding_loads(lod_package, tmp_path):
+    """A far LOD references ``textures/<name with a space>.png`` as glTF requires, percent-encoded; the page's route
+    decodes the request and serves the file as it is named in the package."""
+    import shutil
+    from urllib.parse import quote
+
+    pkg = tmp_path / "pkg"
+    shutil.copytree(lod_package, pkg)
+    man = json.loads((pkg / "manifest.json").read_text())
+    normal = next(t["usd_path"] for t in man["textures"] if t["role"] == "normal")
+    spaced = normal[:-4] + " with space.png"
+    (pkg / normal).rename(pkg / spaced)
+    renamed = 0
+    for far in sorted(pkg.glob("*_LOD*.glb")):
+        def rename(doc, _blob):
+            nonlocal renamed
+            for img in doc.get("images", []):
+                if img.get("uri") == normal:
+                    img["uri"], renamed = quote(spaced), renamed + 1
+        far.write_bytes(_edit_glb(far.read_bytes(), rename))
+    assert renamed and "%20" in quote(spaced)
+    rep = _verify(pkg)
+    assert rep.ok, rep.summary()
+    lod0 = {m["name"]: m["slots"] for m in rep.facts["main"]["materials"]}
+    for lod in rep.facts["lods"]:
+        for m in lod["materials"]:
+            assert m["slots"]["normalMap"]["uri"] == quote(spaced)
+            assert m["slots"]["normalMap"]["content"] == lod0[m["name"]]["normalMap"]["content"]
+
+
+@pytest.mark.browser
+def test_browser_far_lod_with_a_missing_texture_fails(lod_package, tmp_path):
+    import shutil
+
+    pkg = tmp_path / "pkg"
+    shutil.copytree(lod_package, pkg)
+    man = json.loads((pkg / "manifest.json").read_text())
+    normal = next(t["usd_path"] for t in man["textures"] if t["role"] == "normal")
+    (pkg / normal).unlink()  # LOD0 still carries it; every far LOD references it
+    rep = _verify(pkg)
+    failed = _failed(rep)
+    assert not rep.ok, rep.summary()
+    assert normal in failed["no blocked/failed network requests"]
+    assert "normalMap" in failed["LOD1 materials == LOD0 materials (parameters and texture content)"]
+    assert "main GLB loaded" not in failed and "every declared texture slot is bound to a decoded image" not in failed
+
+
 @pytest.mark.browser
 def test_browser_reference_bounds_mismatch_is_reported_as_unusable(l_packages, tmp_path):
     """If the reference's own bounds disagree with glb_bounds_m the report says so instead of scoring a silhouette."""
@@ -838,3 +1005,385 @@ def test_browser_a_manifest_that_misstates_the_material_fails(case, edit, needle
     failed = _failed(_verify(d, _reference(tm, man)))
     key = "loaded materials == manifest material inventory (parameters and bound slots)"
     assert key in failed and needle in failed[key], failed
+
+
+# --------------------------------------------------------------------------- the process's shared browser
+
+
+def _tagged(tag: str) -> list[int]:
+    """Live processes whose environment carries ``tag``: a driver, a Chromium or one of its helpers started under it."""
+    out = []
+    for name in os.listdir("/proc"):
+        if not name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{name}/environ", "rb") as f:
+                env = f.read()
+            with open(f"/proc/{name}/stat", "rb") as f:
+                stat = f.read()
+        except OSError:
+            continue
+        if f"AGY3D_PROC_TAG={tag}".encode() in env.split(b"\0") and stat[stat.rindex(b")") + 2:][:1] != b"Z":
+            out.append(int(name))  # the scenario's own interpreter has exited by the time this is asked
+    return out
+
+
+def _gone(tag: str, within: float = 15.0) -> list[int]:
+    deadline = time.monotonic() + within
+    while (left := _tagged(tag)) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    return left
+
+
+def _bytes_of(data_url: str) -> bytes:
+    return base64.b64decode(data_url.split(",", 1)[1])
+
+
+@pytest.mark.browser
+def test_browser_shared_environment_renders_what_the_page_rendered_itself(good, runtime, tmp_path):
+    """The page's two environment paths light the package alike: PMREMGenerator in the page (a process's first
+    verification), and the map a page handed back, loaded from ENV_FILE (every later one). The silhouette frame is
+    identical and the beauty frame differs at most in the odd edge pixel that SwiftShader's threads already decide
+    differently from run to run on either path. The handed-back map is the same bytes every time."""
+    _, man, d = good
+    exe = W.WebThreeValidator().binary()
+
+    def frames(sub, env=None, export=False):
+        page_dir = tmp_path / sub
+        W.build_page(page_dir, (d / "Crate.glb").read_bytes(), man["glb_bounds_m"], env=env)
+        W._env_cache.clear()
+        run = asyncio.run(W.run_page(page_dir, exe, 60, export_env=export))
+        assert not run["raw"]["errors"] and not run["blocked"], run
+        exported = W._env_cache.get(W._env_key(exe))
+        return _bytes_of(run["raw"]["png"]), _bytes_of(run["raw"]["mask_png"]), exported
+
+    own = [frames(f"own{i}", export=True) for i in range(2)]
+    env = own[0][2]
+    assert env is not None and own[1][2] == env
+    assert not (tmp_path / "own0" / W.ENV_FILE).exists()  # the page that renders its own map writes none
+    shared = [frames(f"shared{i}", env=env) for i in range(2)]
+    assert (tmp_path / "shared0" / W.ENV_FILE).read_bytes() == env  # kept beside the page that loads it
+    assert {m for _, m, _ in shared} == {m for _, m, _ in own} and len({m for _, m, _ in own}) == 1
+    for a in (s for s, _, _ in shared):
+        for b in (o for o, _, _ in own):
+            diff = np.abs(np.asarray(Image.open(io.BytesIO(a)), np.int16) - np.asarray(Image.open(io.BytesIO(b)), np.int16)).max(axis=2)
+            assert (diff > 0).sum() <= 2, (diff > 0).sum()
+
+
+@pytest.mark.browser
+def test_browser_environment_is_rendered_by_the_first_page_and_handed_back_by_the_second(good, runtime, tmp_path, monkeypatch):
+    """One package per process costs nothing extra: no second page, no ENV_FILE. The second verification renders its
+    own map and hands it back; from the third on, pages load it."""
+    tm, man, d = good
+    ref = _reference(tm, man)
+    monkeypatch.setattr(W, "_pages_started", 0)
+    monkeypatch.setattr(W, "_env_cache", {})
+    contexts = []
+    real_run = B.SHARED.run
+
+    async def counting(fn, **kw):
+        contexts.append(kw)
+        return await real_run(fn, **kw)
+    monkeypatch.setattr(B.SHARED, "run", counting)
+    for i in range(3):
+        rep = _verify(d, ref, out_dir=tmp_path / f"v{i}")
+        assert rep.ok, rep.summary()
+        mode = json.loads(re.search(r'id="job">(.*?)</script>', (tmp_path / f"v{i}" / "page.html").read_text(), re.DOTALL).group(1))["env"]["mode"]
+        assert mode == ("page" if i < 2 else "shared"), (i, mode)
+        assert (tmp_path / f"v{i}" / W.ENV_FILE).exists() == (i == 2)
+        assert (W._env_cache != {}) == (i >= 1)
+    assert len(contexts) == 3  # one context per verification and nothing else
+
+
+@pytest.mark.browser
+def test_browser_is_reused_across_event_loops_and_threads(good, runtime, tmp_path):
+    """One ``asyncio.run`` per package, and a worker thread: later verifications reuse the running browser."""
+    import threading
+
+    tm, man, d = good
+    ref = _reference(tm, man)
+    assert _verify(d, ref).ok
+    launches = B.SHARED.launches
+    reps = [_verify(d, ref) for _ in range(2)]
+    box = {}
+    t = threading.Thread(target=lambda: box.update(rep=_verify(d, ref)))
+    t.start()
+    t.join(120)
+    reps.append(box["rep"])
+    assert all(r.ok for r in reps), [r.summary() for r in reps]
+    assert B.SHARED.launches == launches, "a later verification started its own browser"
+    assert len({r.diagnostics["browser"] for r in reps}) == 1
+
+
+@pytest.mark.browser
+def test_browser_concurrent_verifications_do_not_see_each_other(good, runtime, tmp_path):
+    """Two packages at once on one browser: each gets its own context, so the broken one's loader errors, console
+    warnings and requests stay in its own report."""
+    tm, man, d = good
+    ref = _reference(tm, man)
+
+    def dangle(doc, blob):
+        doc["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"]["index"] = 99
+
+    bad = _write_pkg(tmp_path, _edit_glb(_glb_of(tm), dangle), man)
+
+    async def both():
+        return await asyncio.gather(*(W.WebThreeValidator().validate(p, 60, reference=ref) for p in (d, bad, d)))
+
+    good_a, broken, good_b = asyncio.run(both())
+    assert not broken.ok and broken.failures
+    for rep in (good_a, good_b):
+        assert rep.ok, rep.summary()
+        assert not rep.diagnostics["errors"] and not rep.diagnostics["blocked_requests"] and not rep.diagnostics["page_errors"]
+        assert not [c for c in rep.diagnostics["console"] if c["type"] in ("error", "warning") and "GPU stall" not in c["text"]]
+
+
+def _session() -> B.Session:
+    s = B.SHARED._session
+    assert s is not None and s.alive()
+    return s
+
+
+def _browser_pid(s: B.Session) -> int:
+    kids = B._children().get(s.driver.pid, [])
+    assert kids, "the driver has no browser process"
+    return kids[0]
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("how", ["crashed", "closed", "hung"])
+def test_browser_a_dead_or_hung_browser_is_replaced(how, good, runtime, monkeypatch):
+    import signal
+
+    tm, man, d = good
+    ref = _reference(tm, man)
+    assert _verify(d, ref).ok
+    s = _session()
+    if how == "crashed":
+        os.kill(_browser_pid(s), signal.SIGKILL)
+    elif how == "closed":
+        B.SHARED.submit(s.browser.close()).result(30)
+    else:
+        monkeypatch.setattr(B, "CONTEXT_TIMEOUT_S", 3.0)
+        monkeypatch.setattr(B, "CLOSE_TIMEOUT_S", 2.0)
+        os.kill(_browser_pid(s), signal.SIGSTOP)
+    t0 = time.monotonic()
+    rep = _verify(d, ref)
+    assert rep.ok, rep.summary()
+    assert _session().generation > s.generation
+    assert time.monotonic() - t0 < 40
+    if how == "hung":
+        assert not B._children().get(s.driver.pid) and s.driver.returncode is not None, "the hung browser was not killed"
+
+
+@pytest.mark.browser
+def test_browser_verification_timeout_is_honoured_and_the_browser_stays_usable(good, runtime, tmp_path, monkeypatch):
+    tm, man, d = good
+    ref = _reference(tm, man)
+    hung = W._PAGE.replace("const job = JSON.parse", "for (;;) {}\nconst job = JSON.parse")  # the page's script never returns
+    assert hung != W._PAGE
+    monkeypatch.setattr(W, "_PAGE", hung)
+    t0 = time.monotonic()
+    rep = asyncio.run(W.WebThreeValidator().validate(d, 3, reference=ref))
+    assert not rep.ok and "browser run failed" in rep.log_tail and "Timeout" in rep.log_tail
+    assert time.monotonic() - t0 < 3 + 15 + 2 * B.CLOSE_TIMEOUT_S
+    monkeypatch.undo()
+    assert _verify(d, ref).ok
+
+
+_SCENARIO = r'''
+import asyncio, json, os, sys, time
+from pathlib import Path
+
+from antigravity3d.adapters.engines import web_browser as B, web_three as W
+
+
+
+def tagged():
+    """Processes started under this run's tag other than this interpreter (and its multiprocessing workers): the
+    Playwright driver, Chromium and Chromium's helpers."""
+    out = []
+    for name in os.listdir("/proc"):
+        if not name.isdigit() or int(name) == os.getpid():
+            continue
+        try:
+            env = open(f"/proc/{name}/environ", "rb").read().split(b"\0")
+            stat = open(f"/proc/{name}/stat", "rb").read()
+            cmd = open(f"/proc/{name}/cmdline", "rb").read().split(b"\0")[0]
+        except (OSError, ValueError):
+            continue
+        if f"AGY3D_PROC_TAG={tag}".encode() in env and stat[stat.rindex(b")") + 2:][:1] != b"Z" and os.path.basename(cmd) != os.path.basename(sys.executable.encode()):
+            out.append(int(name))
+    return out
+
+
+def gone(within=15.0):
+    deadline = time.monotonic() + within
+    while (left := tagged()) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    return left
+
+
+async def until_running():
+    while not B.SHARED.running:
+        await asyncio.sleep(0.05)
+
+
+def dag():
+    from antigravity3d.dags.prop_to_engine import PropToEngineDAG
+    from antigravity3d.decisions.engine import DecisionControlPlane
+    from antigravity3d.decisions.fakes import FakeDecisionsClient
+    from antigravity3d.genmedia.nano_banana import FakeImageBackend, ImageForge
+    from antigravity3d.state import EngineBudget
+    from antigravity3d.tactics.authoring import TemplateAuthor
+
+    plane = DecisionControlPlane(FakeDecisionsClient(answers={"pipeline_dag": "prop_to_engine", "needs_ortho_blueprint": 0.9, "complexity_tier": 2.0}))
+    return PropToEngineDAG(plane=plane, forge=ImageForge(FakeImageBackend()), author=TemplateAuthor(), workdir=work, budget=EngineBudget("unreal_5"))
+
+
+
+if __name__ == "__main__":  # spawned multiprocessing workers import this file again
+    tag, scenario, pkg = sys.argv[1], sys.argv[2], Path(sys.argv[3])
+    work = Path(sys.argv[4])
+    report = {}
+    if scenario == "exit":  # verified, browser kept for the next package, then the interpreter ends
+        rep = asyncio.run(W.WebThreeValidator().validate(pkg, 60))
+        report = {"ok": rep.ok, "running": len(tagged())}
+    elif scenario == "verification_cancelled":
+        async def main():
+            task = asyncio.ensure_future(W.WebThreeValidator().validate(pkg, 60))
+            await until_running()
+            await asyncio.sleep(0.3)
+            report["running"] = len(tagged())
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                report["cancelled"] = True
+        asyncio.run(main())
+        report["left"] = gone()
+    elif scenario in ("run_cancelled", "run_failed"):
+        from antigravity3d.dags import prop_to_engine
+
+        async def refine(*a, **k):  # the run gets as far as the pyramid, with the browser starting in the background
+            await until_running()
+            report["running"] = len(tagged())
+            if scenario == "run_failed":
+                raise RuntimeError("the pyramid failed")
+            await asyncio.sleep(3600)
+        prop_to_engine.refine = refine
+
+        async def main():
+            task = asyncio.ensure_future(dag().run("oak wine barrel"))
+            if scenario == "run_cancelled":
+                while "running" not in report:
+                    await asyncio.sleep(0.05)
+                task.cancel()
+            try:
+                rep = await task
+                report["dag_ok"] = rep.ok
+            except asyncio.CancelledError:
+                report["cancelled"] = True
+        asyncio.run(main())
+        report["left"] = gone()
+    elif scenario == "run_succeeded":  # a whole offline run: the browser was started early and is kept afterwards
+        rep = asyncio.run(dag().run("oak wine barrel"))
+        steps = {s["name"]: s["status"] for s in rep.extras["pyramid"]["steps"]}
+        report = {"dag_ok": rep.ok, "web_runtime": steps.get("web_runtime"), "running": len(tagged()), "launches": B.SHARED.launches}
+    elif scenario == "spawned_worker":  # multiprocessing workers leave through os._exit, which skips atexit
+        import concurrent.futures as cf
+        import multiprocessing as mp
+
+        import tests_web_worker
+        with cf.ProcessPoolExecutor(1, mp_context=mp.get_context("spawn")) as ex:
+            report["ok"] = ex.submit(tests_web_worker.verify, str(pkg)).result()
+            report["running"] = len(tagged())
+        report["left"] = gone()
+    print(json.dumps(report))
+'''
+
+_WORKER = '''
+import asyncio
+from antigravity3d.adapters.engines.web_three import WebThreeValidator
+
+
+def verify(pkg):
+    return asyncio.run(WebThreeValidator().validate(pkg, 60)).ok
+'''
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("scenario", ["exit", "verification_cancelled", "run_cancelled", "run_failed", "run_succeeded", "spawned_worker"])
+def test_browser_no_driver_or_browser_outlives_the_interpreter_or_a_failed_or_cancelled_run(scenario, good, runtime, tmp_path):
+    import subprocess
+    import sys
+    import uuid
+
+    _, _, d = good
+    tag = uuid.uuid4().hex
+    (tmp_path / "scenario.py").write_text(_SCENARIO)
+    (tmp_path / "tests_web_worker.py").write_text(_WORKER)
+    env = dict(os.environ, AGY3D_PROC_TAG=tag, PYTHONPATH=os.pathsep.join([str(tmp_path), os.environ.get("PYTHONPATH", "")]))
+    p = subprocess.run([sys.executable, str(tmp_path / "scenario.py"), tag, scenario, str(d), str(tmp_path / "work")],
+                       env=env, capture_output=True, text=True, timeout=300, cwd=tmp_path, check=False)
+    assert p.returncode == 0, p.stderr[-3000:]
+    report = json.loads(p.stdout.strip().splitlines()[-1])
+    assert report["running"] > 0, report  # the browser really was up at the checkpoint
+    if scenario in ("verification_cancelled", "run_cancelled"):
+        assert report["cancelled"]
+    if scenario == "run_failed":
+        assert report["dag_ok"] is False
+    if scenario == "run_succeeded":
+        assert report["dag_ok"] and report["web_runtime"] == "passed" and report["launches"] == 1
+    if scenario in ("exit", "spawned_worker"):
+        assert report["ok"]
+    assert report.get("left", []) == [], report  # gone while the interpreter was still running
+    assert _gone(tag) == [], "a driver or browser outlived the interpreter"
+
+
+@pytest.mark.browser
+def test_browser_command_line_in_fresh_interpreters(l_packages, tmp_path):
+    """``python -m ...web_three PACKAGE`` still works, and does not hang: in a fresh interpreter the browser thread imports
+    nothing that could deadlock with the reference thread's first import of pxr (it did about every other run)."""
+    import subprocess
+    import sys
+
+    d = l_packages["godot_4"]  # a real package: its USD reference is rendered on a worker thread beside the browser
+    for i in range(4):
+        p = subprocess.run([sys.executable, "-m", "antigravity3d.adapters.engines.web_three", str(d), "--out", str(tmp_path / f"o{i}")],
+                           capture_output=True, text=True, timeout=120, check=False)
+        assert p.returncode == 0 and p.stdout.startswith("web_three: PASS"), p.stdout[-2000:] + p.stderr[-2000:]
+    # one package per process: the page rendered its own environment, so no ENV_FILE beside it
+    assert {f.name for f in (tmp_path / "o0").iterdir()} == {"page.html", "vendor", "glb", "web_three.png", "silhouette.png", "reference.png"}
+
+
+@pytest.mark.browser
+def test_browser_requests_outside_the_page_directory_are_blocked_and_fail(good, runtime, tmp_path, monkeypatch):
+    """The page is served from a local server, but only its own directory: a request that climbs out of it (encoded or
+    not), one for a file that is not there, and one to any other host are all refused, recorded and fail the check."""
+    tm, man, d = good
+    (tmp_path / "secret.txt").write_text("not part of the page")
+    probes = ["../secret.txt", "%2E%2E/secret.txt", "textures/none.png", "https://example.invalid/three.js"]
+    hostile = W._PAGE.replace("async function main() {", "async function main() {\n  for (const u of " + json.dumps(probes)
+                              + ") { try { await fetch(u); } catch (e) {} }", 1)
+    monkeypatch.setattr(W, "_PAGE", hostile)
+    rep = _verify(d, _reference(tm, man), out_dir=tmp_path / "out")
+    blocked = rep.diagnostics["blocked_requests"]
+    assert not rep.ok and "no blocked/failed network requests" in _failed(rep)
+    for needle in ("secret.txt", "none.png", "example.invalid"):
+        assert any(needle in b for b in blocked), (needle, blocked)
+    assert "not part of the page" not in json.dumps(rep.facts)
+
+
+@pytest.mark.browser
+def test_browser_a_machine_that_cannot_open_a_local_port_skips_with_the_reason(good, runtime, tmp_path, monkeypatch):
+    """The page is served from 127.0.0.1. Where that port cannot be opened the verifier cannot run here: the report is
+    a skip that says so, as for a missing browser, and not a failed package."""
+    tm, man, d = good
+
+    def refuse(*args, **kwargs):
+        raise OSError(99, "Cannot assign requested address")
+
+    monkeypatch.setattr(W, "_PageServer", refuse)
+    rep = _verify(d, _reference(tm, man), out_dir=tmp_path / "out")
+    assert rep.skipped and not rep.ok and "127.0.0.1" in rep.skipped_reason

@@ -1,0 +1,125 @@
+{
+  "machine": {
+    "python": "3.13.18",
+    "platform": "Linux-6.18.44-fc-v726-x86_64-with-glibc2.39",
+    "package_git_sha": "5a440fa80dad7ec74e62df3afca7e4df1e68b72a",
+    "package_git_dirty": true,
+    "sdk_versions": {
+      "google-genai": "3.6.1",
+      "google-antigravity": "0.1.24",
+      "antigravity-3d": "0.2.0"
+    },
+    "timestamp": "2026-11-20T19:37:52+00:00"
+  },
+  "limits": {
+    "max_calls": 3,
+    "max_tokens": 60000,
+    "timeouts_s": {
+      "stage": 600.0,
+      "judge": 120.0,
+      "image": 180.0
+    },
+    "retries": "none (genai HttpRetryOptions attempts=1; package fallback/plane retry loops set to 0; stage: Antigravity RetryConfig api_retry max_retries=0; a model-output re-ask, if any, is a counted call)",
+    "prices": "none configured; dollar cost is unknown, token counts only",
+    "stage_accounting": "every model call of a stage run is relayed (ModelRelay) and booked with its own usage"
+  },
+  "totals": {
+    "calls": 3,
+    "input_tokens": 17784,
+    "output_tokens": 3628,
+    "thinking_tokens": 3304,
+    "unknown_usage_reserved_tokens": 0
+  },
+  "groups": {
+    "text": {
+      "worker:gemini-4-hydrogen": {
+        "samples": [
+          {
+            "thinking_level": "low",
+            "timeout_s": 90.0,
+            "max_output_tokens": 16384,
+            "answer_tokens": 8192,
+            "thinking_tokens_allowed": 8192,
+            "wall_ms": 12698.3,
+            "input_tokens": 5928,
+            "output_tokens": 1767,
+            "thinking_tokens": 1037,
+            "total_tokens_reported": 8732,
+            "tokens_known": true,
+            "finish_reason": "STOP",
+            "error": null,
+            "status": null,
+            "response_chars": 4221,
+            "outcome": "ok",
+            "scene_ir_valid": true,
+            "nodes": 14,
+            "materials": 2,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@slat_front_bottom; interpenetration@crate_core; interpenetration@slat_front_top; interpenetration@slat_back_bottom; interpe...",
+            "tris": 156
+          },
+          {
+            "thinking_level": "low",
+            "timeout_s": 90.0,
+            "max_output_tokens": 16384,
+            "answer_tokens": 8192,
+            "thinking_tokens_allowed": 8192,
+            "wall_ms": 13821.4,
+            "input_tokens": 5928,
+            "output_tokens": 983,
+            "thinking_tokens": 925,
+            "total_tokens_reported": 7836,
+            "tokens_known": true,
+            "finish_reason": "STOP",
+            "error": null,
+            "status": null,
+            "response_chars": 2642,
+            "outcome": "ok",
+            "scene_ir_valid": true,
+            "nodes": 14,
+            "materials": 2,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@crate_body",
+            "tris": 156
+          },
+          {
+            "thinking_level": "low",
+            "timeout_s": 90.0,
+            "max_output_tokens": 16384,
+            "answer_tokens": 8192,
+            "thinking_tokens_allowed": 8192,
+            "wall_ms": 9148.3,
+            "input_tokens": 5928,
+            "output_tokens": 878,
+            "thinking_tokens": 1342,
+            "total_tokens_reported": 8148,
+            "tokens_known": true,
+            "finish_reason": "STOP",
+            "error": null,
+            "status": null,
+            "response_chars": 2231,
+            "outcome": "ok",
+            "scene_ir_valid": true,
+            "nodes": 13,
+            "materials": 2,
+            "asset_name_matches": true,
+            "compiled": true,
+            "tier1_ok": true,
+            "tier1": "TIER1 OK | warn: interpenetration@iron_corner_fl; interpenetration@iron_corner_bl; interpenetration@crate_body; interpenetration@iron_top_front; interpenetra...",
+            "tris": 156
+          }
+        ],
+        "n_ok": 3,
+        "n_failed": 0,
+        "median_ms": 12698.3,
+        "min_ms": 9148.3,
+        "max_ms": 13821.4
+      }
+    }
+  },
+  "aborted": null
+}

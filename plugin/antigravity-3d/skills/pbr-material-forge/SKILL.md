@@ -23,8 +23,15 @@ Tools: `forge_pbr_material` (generation, de-light, derivation, packing),
    Every zone needs non-overlapping UVs (except deliberate mirrored trims) and
    a target texel density from the budget.
 2. **Albedo Best-of-6.** `forge_pbr_material` with `candidates=6` per zone
-   (the server may cap this to the session's plan), from the zone's material
-   description with the style anchor in the prompt. Candidates are scored
+   (the server may cap this to the session's plan). Its `prompt` describes
+   the surface only: the material and its finish in a few words, for example
+   "olive drab painted steel, scuffed and chipped". Name the substance, not
+   what is made of it ("tarnished brass", not "brass hardware", which comes
+   back with hinges drawn in). Never the object, its parts,
+   shapes or layout: the image model draws what it reads, and the texture
+   tiles over every face, so a latch or a panel in the prompt is painted onto
+   all of them. The tool adds the art direction's texture brief itself and
+   keeps the prompt as the material's `surface`. Candidates are scored
    server-side; do not open the images. The tool binds the best candidate that
    passes the policy gate and reports how many passed.
 3. **De-light.** `forge_pbr_material` de-lights the albedo before it derives

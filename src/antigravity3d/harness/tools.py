@@ -31,6 +31,7 @@ from antigravity3d.adapters.engines.validators import (
     blender_frame_png,
     silhouette_iou,
 )
+from antigravity3d.decisions.models import DecisionBudgetError
 from antigravity3d.decisions.compose import (
     Action,
     decide_action,
@@ -41,20 +42,26 @@ from antigravity3d.decisions.compose import (
 from antigravity3d.genmedia.pbr_deriver import delight, roughness_breakup
 from antigravity3d.harness.session import Preview, Session, resolve
 from antigravity3d.harness.traceback_compressor import compress_exception
+from antigravity3d.genmedia.material_prompt import texture_prompt
 from antigravity3d.ir import IRPatch, MaterialIR, SetTransform, UpsertMaterial
+from antigravity3d.kernel.coplanar import opaque_materials
 from antigravity3d.kernel.fast_ops import (
     ExportBundle,
     Tier1Report,
+    describe_collider_sources,
     run_export_pipeline,
+    shipped,
     tier1_qa,
 )
 from antigravity3d.kernel.raster import contact_sheet
-from antigravity3d.kernel.validator import check_engine_compliance, validate_usd
+from antigravity3d.kernel.validator import check_engine_compliance, engine_texture_px, validate_usd
 from antigravity3d.state import (
     EXPORT_MIN_TIER15_SCORE,
     AssetSessionState,
     VisualVerdict,
 )
+from antigravity3d.art_direction import texture_brief
+from antigravity3d.kernel.compile_ir import CREASE_DEG
 from antigravity3d.tactics.cached import cached_derive_pbr
 
 PREVIEW_PX = 256  # per view; the sheet is 2x2
@@ -64,6 +71,9 @@ MANIFEST_CAP = 1500
 TOOLSET_STAGE = {"BLOCKOUT": "BLOCKOUT", "TWEAK": "BLOCKOUT", "VARIANTS": "BLOCKOUT", "LOOKDEV": "LOOKDEV", "EXPORT": "EXPORT"}
 QA_STAGE = {"ROUTE": "blockout", "BLOCKOUT": "blockout", "LOOKDEV": "lookdev", "EXPORT": "final", "DONE": "final"}
 MAP_KEYS = ("albedo_uri", "orm_uri", "normal_uri")
+# The remedy a session without the native Decisions API names (open result, run_visual_qa, export refusal).
+PREVIEW_SWITCH = ("ask the user whether they want an unverified preview and for their two limits (a token ceiling and an "
+                  "image limit), then call start_preview with them; the scene is kept")
 
 ToolFn = Callable[..., Awaitable[str]]
 
@@ -118,8 +128,14 @@ def export_block_reason(state: AssetSessionState) -> str | None:
         missing.append("a passing Tier-1 QA (last edit failed or none yet)")
     if not EXPORT_MIN_TIER15_SCORE <= state.last_tier15_score <= 4.0:
         missing.append(f"tier15>={EXPORT_MIN_TIER15_SCORE} (have {state.last_tier15_score:.2f}; run run_visual_qa after the last edit)")
+    if state.preview:
+        if not state.verdict or not state.verdict.qualifies_preview(state.revision, state.budget.target_engine):
+            missing.append("an approving lookdev/final visual QA verdict on the current revision")
+        return "PREVIEW export blocked: needs " + " and ".join(missing)
     if not state.verdict or not state.verdict.qualifies(state.revision, state.budget.target_engine):
         missing.append("current lookdev/final approval from Decisions on an EEVEE/Cycles render")
+        if state.verdict is not None and state.verdict.backend != "decisions":
+            missing.append(f"(the judge is not the native Decisions API: {PREVIEW_SWITCH})")
     return "export blocked: needs " + " and ".join(missing)
 
 
@@ -351,7 +367,12 @@ async def run_visual_qa(ctx: ToolContext) -> str:
         s.state.verdict = None
         s.persist_qa()
         target = s.state.budget.target_engine
-    prev, res, t15, action = await _visual_qa(s)
+    try:
+        prev, res, t15, action = await _visual_qa(s)
+    except DecisionBudgetError as e:
+        if s.plane is not None and not s.plane.calibrated and not s.state.preview:
+            raise RuntimeError(f"visual QA refused: the native Decisions API is not available on this key; {PREVIEW_SWITCH}") from None
+        raise
     async with s.registry.locked(s.sid):
         if (s.geom_version != prev.geom_version or s._res("visual_qa_attempt") != attempt
                 or target != s.state.budget.target_engine or action.stage != QA_STAGE.get(s.state.active_stage)):
@@ -359,8 +380,11 @@ async def run_visual_qa(ctx: ToolContext) -> str:
         if prev.kind in {"eevee", "cycles"} and prev.texture_hash != s.texture_digest():
             return "STALE: material files changed since the render; render again"
         source = res.result.source if res.result.calibrated else "uncalibrated"
+        # A preview may be judged on a clay render, which carries no texture hash: pin the material files as they are
+        # now, so export still refuses if they change after this verdict.
+        texture_hash = prev.texture_hash or (s.texture_digest() if s.state.preview else "")
         s.set_tier15(t15, VisualVerdict(s.state.revision, target, action.stage, prev.kind,
-                                      source, action.kind, prev.texture_hash), prev)
+                                      source, action.kind, texture_hash), prev)
         delta = action.audit_delta()
         s.state.add_audit_delta(delta)
         fix = await _auto_fix(s, action) if action.kind == "auto_fix" else ""
@@ -460,7 +484,8 @@ async def promote_variant(set_name: str, variant: str, ctx: ToolContext) -> str:
 
 @_guard
 async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, candidates: int = 1) -> str:
-    """Generate a tileable PBR material (albedo + ORM + normal) and bind its maps to material_id."""
+    """Generate a tileable PBR material (albedo + ORM + normal) and bind its maps to material_id. prompt: the
+    material's surface words (kept as its surface)."""
     s = resolve(ctx)
     if s.forge is None:
         raise RuntimeError("no image forge attached to this session")
@@ -469,15 +494,22 @@ async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, ca
     async with s.registry.locked(s.sid):
         version = s.geom_version
         current = _material(s, material_id) or MaterialIR(id=material_id)
+    if prompt.strip():  # cleaned and bounded by MaterialIR; empty keeps the material's own surface (or its id words)
+        current = current.model_copy(update={"surface": MaterialIR(id=material_id, surface=prompt).surface})
     n = max(1, min(MAX_CANDIDATES, s.forge.governor.plan.pbr_candidates, int(candidates)))
-    results = await asyncio.gather(*(s.forge.seamless_albedo(prompt, size=TEXTURE_PX, variant_hint=f"option {i + 1}" if n > 1 else "")
+    art = s.art  # the session's art direction: its texture brief, map size and palette (None: as before)
+    size = art.texture_px(s.state.budget.target_engine, "prop", TEXTURE_PX) if art is not None else engine_texture_px(s.state.budget.target_engine, TEXTURE_PX)
+    brief = texture_brief(art)
+    results = await asyncio.gather(*(s.forge.seamless_albedo(texture_prompt(current, brief), size=size,
+                                                             variant_hint=f"option {i + 1}" if n > 1 else "")
                                      for i in range(n)), return_exceptions=True)
     gens = [g for g in results if not isinstance(g, BaseException)]
     if not gens:
         raise RuntimeError(f"no candidate generated: {results[0]}")
     uris = await asyncio.gather(*(s.forge.upload(g.png_bytes) for g in gens))
     scores = await s.plane.rank_candidates("pbr", uris, governor=s.governor)
-    allowed = [v for v in scores if not v.blocked and not v.error and v.result and v.result.calibrated]
+    # An uncalibrated ranking counts only in a preview session (the plane's preview copy); it never clears policy.
+    allowed = [v for v in scores if not v.blocked and not v.error and v.result and (v.result.calibrated or s.plane.preview)]
     if not allowed:
         reasons = sorted({r for v in scores if v.policy for r in v.policy.reasons})
         return f"BLOCKED: all candidates failed the policy gate ({', '.join(reasons)[:100] or 'review required'})"
@@ -489,6 +521,8 @@ async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, ca
     with tempfile.TemporaryDirectory(dir=mdir) as temp:
         files = {key: Path(temp) / (key[:-4] + ".png") for key in MAP_KEYS}
         for key, img in zip(MAP_KEYS, (maps.albedo, maps.orm, maps.normal), strict=True):
+            if art is not None:  # the map as it ships (ArtDirection.finish_map)
+                img = await asyncio.to_thread(art.finish_map, img, key[:-4], size)
             await asyncio.to_thread(img.save, files[key])
         async with s.registry.locked(s.sid):
             if version != s.geom_version:
@@ -609,10 +643,12 @@ async def _bundle(s: Session) -> ExportBundle:
     if cached and cached[0] == revision:
         bundle = cached[1]
     else:
+        # material edits bump geom_version too (Session.visuals_changed), so the revision covers opacity
         bundle = await asyncio.to_thread(run_export_pipeline, s.stage.extract_meshes(), s.state.budget,
-                                         s.stage.asset_prim.GetName())
+                                         s.stage.asset_prim.GetName(), opaque_materials=opaque_materials(s.stage.scene_ir()))
         s._set("bundle", (revision, bundle))
-    s.stage.ensure_export_uvs(bundle.uvs)
+    art = s.art
+    s.stage.ensure_export_uvs(bundle.uvs, crease_deg=art.crease_deg() if art is not None else CREASE_DEG)
     return bundle
 
 
@@ -635,9 +671,9 @@ async def generate_lods_and_colliders(ctx: ToolContext) -> str:
     async with s.registry.locked(s.sid):
         b = await _bundle(s)
     levels = min((len(v) for v in b.lods.values()), default=0)
-    lod_tris = [sum(v[i].tri_count for v in b.lods.values()) for i in range(levels)]
+    lod_tris = [sum(shipped(v[i]).tri_count for v in b.lods.values()) for i in range(levels)]
     stretch = max((u.stretch_mean for u in b.uvs), default=0.0)
-    srcs = ",".join(sorted({h.source for h in b.colliders}))
+    srcs = describe_collider_sources(b.colliders)
     return (f"LODS {len(b.lods)} nodes x {levels} levels tris={'/'.join(map(str, lod_tris))} | "
             f"colliders {len(b.colliders)} hulls ({srcs}) | uv stretch {stretch:.3f} | {b.timings_ms.get('total', 0):.0f}ms")
 
@@ -678,6 +714,22 @@ async def _validate_snapshot(s: Session, path: Path) -> str:
     return f"{fmt('USD', usd)} | {fmt(s.state.budget.target_engine, eng)}"[:300]
 
 
+async def _blender_asset_qa(s: Session, pkg: Any, glb: Path) -> str | None:
+    """The Blender-side check of the shipped GLB (``upstream_checks.asset_qa``): independent of the target engine and of
+    whoever judged the asset, so a verified export and a preview export both run it. Returns the refusal when it fails;
+    otherwise records the result in the manifest. Without a real worker it is recorded as skipped, never as passed."""
+    from antigravity3d.adapters.blender_5_3 import upstream_checks
+
+    try:
+        status, detail, data = await upstream_checks.asset_qa(s.pool, str(glb), s.state.budget.target_engine)
+    except Exception as e:  # noqa: BLE001 - a worker that errors is a failed check, as for the engine import
+        status, detail, data = "failed", f"{type(e).__name__}: {e}"[:300], {}
+    if status == "failed":
+        return f"blender_asset_qa: {detail}"
+    pkg.data["validation"]["blender_asset_qa"] = {"status": status, "detail": detail, **data}
+    return None
+
+
 async def _verify_engine(s: Session, pkg: Any, asset: str) -> str | None:
     from antigravity3d.adapters.engines.validators import validator_for
 
@@ -694,6 +746,8 @@ async def _verify_engine(s: Session, pkg: Any, asset: str) -> str | None:
         return f"{smoke.engine} import: {' '.join((smoke.skipped_reason or smoke.log_tail).split())[-160:]}"
     if issue := smoke.geometry_issue(pkg.data):
         return issue
+    if refusal := await _blender_asset_qa(s, pkg, glb):
+        return refusal
     image_path = pkg.out_dir / "engine.png"
     capture = await validator.capture(glb, image_path)
     if not capture.ok:
@@ -739,20 +793,92 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
               "renderer": st.verdict.renderer, "backend": st.verdict.backend, "audit": st.audit_deltas[-2:]}
         with tempfile.TemporaryDirectory(dir=s.export_dir, prefix=".package-") as directory:
             candidate = Path(directory) / name
-            pkg = await _stage_worker(write_engine_package, s.stage, b, st.budget, candidate, asset_name=asset, qa=qa)
+            pkg = await _stage_worker(write_engine_package, s.stage, b, st.budget, candidate, asset_name=asset, qa=qa, art=s.art)
             if not pkg.ok:
                 crit = [i.code for i in pkg.issues if i.severity == "critical"]
                 return f"REFUSED package validation failed: {', '.join(dict.fromkeys(crit))[:140]}"
-            if reason := await _verify_engine(s, pkg, asset):
+            if st.preview:
+                if reason := await _preview_engine_import(s, pkg, asset):
+                    return f"REFUSED {reason}"
+                pkg.data.update(preview_label(s))
+            elif reason := await _verify_engine(s, pkg, asset):
                 return f"REFUSED {reason}"
+            # Last step before the manifest: the FBX is written into this private directory, after every other step has
+            # finished (they are awaited one after another under the session lock; nothing else writes in `candidate`).
+            # Preview and verified exports alike. The FBX is an extra output: a failure ships the package without it (the
+            # manifest says so, and so does the answer below); it never refuses the package and never sets or clears
+            # `verified` or `preview`. Placed after the verified / preview branches above, beside the Blender asset check.
+            fbx_note = await _export_fbx(s, pkg)
             (candidate / "manifest.json").write_text(json.dumps(pkg.data, indent=1), encoding="utf-8")
+            if "fbx" in pkg.data:
+                from antigravity3d.kernel.validator import validate_package
+
+                broken = [i for i in validate_package(candidate) if i.severity == "critical" and (i.code.startswith("pkg:fbx") or i.node_id == pkg.data["fbx"].get("file"))]
+                if broken and pkg.data["fbx"].get("status") == "written":  # the FBX does not pass the validator: it does not ship, the package does
+                    from antigravity3d.kernel.package import drop_fbx
+
+                    drop_fbx(pkg.data, candidate, "PackageValidation", f"{broken[0].code}: {broken[0].detail}")
+                    fbx_note = f"FBX FAILED package validation (not shipped; the package is intact): {broken[0].code} {broken[0].detail}"[:400]
+                    (candidate / "manifest.json").write_text(json.dumps(pkg.data, indent=1), encoding="utf-8")
             if st.verdict.texture_hash != s.texture_digest():
                 s.revoke_approval()
                 return "REFUSED material files changed during package validation"
             publish_directory(candidate, out)
         s.set_last_export(out)
-    return (f"EXPORTED {name}: usd+glb, {pkg.n_lod_files} LOD glbs, {len(b.colliders)} UCX hulls, "
-            f"{len(pkg.data['textures'])} maps, manifest.json | pkg ok")
+    head = f"EXPORTED PREVIEW {name} (UNVERIFIED; judged by {pkg.data['judge']['label']})" if st.preview else f"EXPORTED {name}"
+    return (f"{head}: usd+glb, {pkg.n_lod_files} LOD glbs, {len(b.colliders)} UCX hulls, "
+            f"{len(pkg.data['textures'])} maps, manifest.json | pkg ok | {fbx_note}" + (f" | spend {s.governor.summary()}" if st.preview else ""))
+
+
+async def _export_fbx(s: Session, pkg: Any) -> str:
+    """One line for the tool's answer. The FBX of an unreal_5 / unity_urp / roblox_r15 package, through the helper the prop
+    pipeline uses: skipped with its reason without a real Blender worker (nothing is written or recorded then); written and
+    recorded (files, hash, ``fbx``); or failed: no FBX, ``fbx.status == "failed"`` in the manifest, the package intact."""
+    from antigravity3d.adapters.blender_5_3 import fbx_package
+
+    status, detail, result = await fbx_package.export_package_fbx(s.pool, pkg.out_dir, pkg.data)
+    if status == "failed":
+        pkg.data["fbx"] = result
+        return f"FBX FAILED (not shipped; the package is intact): {detail}"[:500]
+    if status == "skipped":
+        return f"fbx skipped: {detail}"[:400]
+    fbx_package.record(pkg.data, pkg.out_dir, result)
+    return f"fbx: {pkg.data['fbx']['file']} re-imported in Blender, not opened in an engine"
+
+
+def preview_label(s: Session) -> dict[str, Any]:
+    """What a preview package's manifest says about itself: never verified, who judged it and what that means."""
+    from antigravity3d.decisions.engine import UNCALIBRATED_MEANING
+
+    plane = s.plane
+    return {"verified": False, "preview": True,
+            "judge": {"label": plane.judge_label if plane is not None else "none",
+                      "calibrated": bool(plane is not None and plane.calibrated),
+                      "meaning": UNCALIBRATED_MEANING if plane is not None and not plane.calibrated
+                      else "a preview is never verified, whoever judged it"},
+            "spend": {"unit": s.governor.unit, "summary": s.governor.summary()}}
+
+
+async def _preview_engine_import(s: Session, pkg: Any, asset: str) -> str | None:
+    """A preview export runs the target engine's headless import when it can: a failed import refuses the package, an
+    unavailable importer is recorded. Engine parity is not checked (it would need the native judge)."""
+    from antigravity3d.adapters.engines.validators import validator_for
+
+    glb = pkg.out_dir / f"{asset}.glb"
+    if refusal := await _blender_asset_qa(s, pkg, glb):  # a geometry check: it does not depend on who judged the asset
+        return refusal
+    smoke = await validator_for(s.state.budget.target_engine).validate(glb)
+    if smoke.skipped:
+        pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": None,
+                                                   "skipped": smoke.skipped_reason or "importer unavailable"}
+        return None
+    if not smoke.ok:
+        return f"{smoke.engine} import: {' '.join(smoke.log_tail.split())[-160:]}"
+    if issue := smoke.geometry_issue(pkg.data):
+        return issue
+    pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": True, "metrics": smoke.metrics, "bounds_m": smoke.bounds_m}
+    pkg.data["validation"]["engine_parity"] = {"ok": None, "skipped": "preview: parity needs the native Decisions API"}
+    return None
 
 
 @_guard

@@ -20,6 +20,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from scipy import ndimage as ndi
 
+from antigravity3d import service_answer
 from antigravity3d.genmedia.usage import ImageRates, ImageReceipt
 from antigravity3d.models import IMAGE, tier
 from antigravity3d.tactics.governor import Governor, plan_for
@@ -58,6 +59,10 @@ class ImageBackend(Protocol):
 IMAGE_OUTPUT_TOKENS = {"1K": 1_120, "2K": 1_680, "4K": 4_096}
 # Thinking plus unitemized candidate tokens per image request: observed 1,038 / 919 / 984 (max 1,038); 2.47x headroom.
 IMAGE_NON_IMAGE_OUTPUT_ALLOWANCE = 2_560
+# Retries of an image attempt whose outcome is unknown (a broken connection, a 500): each keeps its reservation AND one
+# image of the run's hard image limit, so one. An attempt the service said it did not serve books nothing, counts no image
+# and follows the shared schedule (service_answer.DEFAULT_POLICY).
+IMAGE_UNKNOWN_RETRIES = 1
 
 
 class ImageNotReturned(RuntimeError):
@@ -235,6 +240,7 @@ class ImageForge:
         self._backend, self.model, self.auto_upload = backend, model or default_image_model(), auto_upload
         self.governor = governor or (backend.governor if isinstance(backend, GenAIImageBackend) else Governor(plan_for(2)))
         self.max_request_usd = max_request_usd
+        self.retry: service_answer.RetryPolicy | None = None  # None: the shared schedule, read at call time
 
     def with_governor(self, governor: Governor) -> ImageForge:
         bound = copy(self)
@@ -254,23 +260,60 @@ class ImageForge:
         start = time.perf_counter()
         backend = self._backend
         sdk = isinstance(backend, GenAIImageBackend)
-        rates = ImageRates.for_model(self.model) if sdk else None
+        tokens = self.governor.unit == "tokens"  # a token ledger: the worst case is counted input + output cap, unpriced
+        rates = ImageRates.for_model(self.model) if sdk and not tokens else None
         size_tier = _size_tier(size)
+        policy = self.retry or service_answer.DEFAULT_POLICY.with_unknown_retries(IMAGE_UNKNOWN_RETRIES)
+        tracker = service_answer.Tracker(policy)
         if sdk:
-            inputs = await backend.input_bound(self.model, prompt, images)
-            limit = rates.ceiling(inputs, backend.output_limit(size_tier))
+            while True:  # counting is free: a count turned away, or whose connection broke, is asked again
+                sent = time.perf_counter()
+                try:
+                    inputs = await backend.input_bound(self.model, prompt, images)
+                    break
+                except Exception as exc:
+                    outcome = service_answer.classify(exc, time.perf_counter() - sent)
+                    if outcome == "final" or not await tracker.failed(exc, time.perf_counter() - sent, "not_served"):
+                        raise
+            limit = inputs + backend.output_limit(size_tier) if tokens else rates.ceiling(inputs, backend.output_limit(size_tier))
         elif self.offline:
             limit = 0.0
+        elif tokens:
+            raise ValueError("a custom image backend cannot be admitted against a token ceiling: it reports no tokens")
         else:
             if self.max_request_usd is None:
                 raise ValueError("a custom image backend requires a contracted max_request_usd for admission")
             limit = self.max_request_usd
-        receipt = ImageReceipt(self.model, op, "offline" if self.offline else "reservation_estimate", limit, status="dispatched")
-        hold = self.governor.reserve("image." + op, limit, receipt=asdict(receipt))
+        while True:
+            receipt = ImageReceipt(self.model, op, "offline" if self.offline else "reservation_estimate", 0.0 if tokens else limit,
+                                   status="dispatched", booked_tokens=int(limit) if tokens else None)
+            extra: dict[str, Any] = {"attempt": tracker.n, "service_retries": tracker.record()} if tracker.attempts else {}
+            # One image per call against the ledger's image limit (when it has one); kept unless the call is known to
+            # have produced no image.
+            hold = self.governor.reserve("image." + op, limit, receipt={**receipt.to_dict(), **extra}, images=1)
+            if sdk:
+                sent = time.perf_counter()
+                try:
+                    response = await backend._generate_content(self.model, prompt, images, size_tier, aspect)
+                except BaseException as exc:
+                    elapsed = time.perf_counter() - sent
+                    outcome = service_answer.classify(exc, elapsed)
+                    failed = replace(receipt, status=type(exc).__name__).to_dict()
+                    if outcome == "not_served":  # the service said it did not run it: no tokens, no image
+                        hold.settle(0.0, receipt={**failed, **extra, **({"booked_tokens": 0} if tokens else {"booked_usd": 0.0}),
+                                                  "source": "service_answer", **service_answer.not_served_receipt(exc, tracker.n, elapsed)},
+                                    images=0)
+                    else:  # it may have run: the reservation and the image are kept
+                        hold.settle(receipt.booked_tokens if tokens else receipt.booked_usd, images=receipt.generated_image,
+                                    receipt={**failed, **extra, **({"service_answer": service_answer.describe(exc)} if isinstance(exc, Exception) else {})})
+                    if isinstance(exc, Exception) and outcome != "final" and await tracker.failed(exc, elapsed, outcome):
+                        continue
+                    raise
+            break
         try:
             if sdk:
-                response = await backend._generate_content(self.model, prompt, images, size_tier, aspect)
-                receipt = ImageReceipt.from_response(response, model=self.model, op=op, rates=rates, limit=limit)
+                receipt = (ImageReceipt.from_response_tokens(response, model=self.model, op=op, limit_tokens=int(limit)) if tokens
+                           else ImageReceipt.from_response(response, model=self.model, op=op, rates=rates, limit=limit))
                 raw = backend._extract(response)
             else:
                 raw = await backend.generate(model=self.model, prompt=prompt, images=images, size=size, aspect_ratio=aspect)
@@ -283,7 +326,8 @@ class ImageForge:
             receipt = replace(receipt, status=type(exc).__name__)
             raise
         finally:
-            hold.settle(receipt.booked_usd, receipt=asdict(receipt))
+            hold.settle(receipt.booked_tokens if tokens else receipt.booked_usd, receipt={**receipt.to_dict(), **extra},
+                        images=receipt.generated_image)
         uri = await backend.upload(png, display_name="agy3d-generated") if self.auto_upload else None
         return GeneratedImage(png, uri, prompt, self.model, (time.perf_counter() - start) * 1000, receipt)
 

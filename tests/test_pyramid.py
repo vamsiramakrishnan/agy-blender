@@ -342,3 +342,112 @@ async def test_unexpected_exceptions_from_the_author_still_propagate(tmp_path: P
     sm, plane = setup(tmp_path, Script(blockout=lambda n: dict(FLAGGED)))
     with pytest.raises(RuntimeError, match="bug"):
         await run_a(sm, plane, CallableAuthor(lambda *a, **k: [], repair), tmp_path)
+
+
+# --------------------------------------------------------------------------- web-runtime step: its browser's lifetime
+
+
+class _Lease:
+    """Stands in for the shared browser's lease: records when it was taken and how it was given back."""
+
+    def __init__(self, log: list) -> None:
+        self.log = log
+        log.append("prestart")
+
+    async def aclose(self, keep: bool = True) -> None:
+        self.log.append(f"release keep={keep}")
+
+
+def _record_web(monkeypatch, log: list, validate=None) -> None:
+    from antigravity3d.adapters.engines import web_three
+    from antigravity3d.tactics import pyramid
+
+    monkeypatch.setattr(pyramid.web_three, "prestart", lambda: _Lease(log))
+    if validate is not None:
+        class Recording(web_three.WebThreeValidator):
+            pass
+        Recording.validate = validate
+        monkeypatch.setattr(pyramid, "WebThreeValidator", Recording)
+
+
+async def test_web_browser_starts_before_pass_a_and_is_kept_only_after_a_good_run(tmp_path: Path, monkeypatch) -> None:
+    from antigravity3d.tactics import pyramid
+
+    log: list = []
+    _record_web(monkeypatch, log)
+    real_a = pyramid._Run.pass_a
+
+    async def pass_a(self):
+        log.append("pass A")
+        await real_a(self)
+    monkeypatch.setattr(pyramid._Run, "pass_a", pass_a)
+    sm, plane = setup(tmp_path / "ok", Script())
+    res = await refine(sm, plane=plane, author=CallableAuthor(lambda *a, **k: []), governor=Governor(plan_for(2)), budget=BUDGET,
+                       uploader=up, workdir=tmp_path / "ok" / "wd", forge=ImageForge(FakeImageBackend()), settle_first=False)
+    assert res.ok and log == ["prestart", "pass A", f"release keep={True}"], log
+
+    # a run that raises closes the browser it started (nothing is left running), and pass A/B-only runs never start one
+    log.clear()
+
+    def repair(*a: Any, **k: Any) -> IRPatch:
+        raise RuntimeError("bug")
+
+    sm, plane = setup(tmp_path / "bug", Script(blockout=lambda n: dict(FLAGGED)))
+    with pytest.raises(RuntimeError, match="bug"):
+        await refine(sm, plane=plane, author=CallableAuthor(lambda *a, **k: [], repair), governor=Governor(plan_for(2)), budget=BUDGET,
+                     uploader=up, workdir=tmp_path / "bug" / "wd", settle_first=False)
+    assert log == ["prestart", "pass A", "release keep=False"], log
+    log.clear()
+    sm, plane = setup(tmp_path / "a", Script())
+    await run_a(sm, plane, CallableAuthor(lambda *a, **k: []), tmp_path / "a")
+    assert log == ["pass A"], log
+
+
+async def test_cancelling_pass_c_stops_the_running_web_verification(tmp_path: Path, monkeypatch) -> None:
+    log: list = []
+    started = asyncio.Event()
+
+    async def validate(self, package_path, timeout=300, **kw):
+        started.set()
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            log.append("verification cancelled")
+            raise
+
+    _record_web(monkeypatch, log, validate)
+    from antigravity3d.tactics import pyramid
+
+    importing = asyncio.Event()
+
+    class SlowEngine:  # the target engine's import is still running when the run is cancelled
+        async def validate(self, glb):
+            importing.set()
+            await asyncio.sleep(3600)
+    monkeypatch.setattr(pyramid, "validator_for", lambda engine: SlowEngine())
+    sm, plane = setup(tmp_path, Script())
+    task = asyncio.ensure_future(refine(sm, plane=plane, author=CallableAuthor(lambda *a, **k: []), governor=Governor(plan_for(2)),
+                                        budget=BUDGET, uploader=up, workdir=tmp_path / "wd", forge=ImageForge(FakeImageBackend()),
+                                        settle_first=False))
+    await asyncio.wait_for(asyncio.gather(started.wait(), importing.wait()), 60)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert log == ["prestart", "verification cancelled", "release keep=False"], log
+
+
+async def test_settle_leaves_a_part_beside_another_instead_of_dropping_it_to_the_ground(tmp_path: Path) -> None:
+    """The exact floating test flags a sphere beside a box corner (bounding boxes touching, surfaces 41 mm apart). The
+    settle pass must not carry it 0.4 m down to the ground, away from the part it belongs to: it is left to the author."""
+    scene = SceneIR(asset_name="Prop", materials=[MaterialIR(id="wood")], nodes=[
+        NodeIR(id="body", kind="box", params={"size": (1, 1, 1)}, transform=Transform(translate=(0, 0, 0.5)), material_id="wood"),
+        NodeIR(id="ball", kind="sphere", params={"radius": 0.1, "segments": 24, "rings": 12},
+               transform=Transform(translate=(0.6, 0.6, 0.5)), material_id="wood")])
+    assert any(i.code == "floating_part" and i.node_id == "ball" for i in tier1_qa(setup(tmp_path, Script(), scene)[0].extract_meshes(), BUDGET).issues)
+    script = Script(blockout=lambda n: {"defect_floating": 0.9})
+    sm, plane = setup(tmp_path, script, scene)
+    author = CallableAuthor(lambda *a, **k: [], lambda *a, **k: None)
+    res = await run_a(sm, plane, author, tmp_path, max_rounds=2)
+    assert "left to the author" in res.stopped["A"], res.stopped
+    assert sm.base_ir().nodes[1].transform.translate == (0.6, 0.6, 0.5)   # not moved
+    assert author.calls["repair"] == 0

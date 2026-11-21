@@ -120,9 +120,12 @@ def test_prop_dag_outputs_are_real(prop_runs) -> None:
     assert any("binary not found" in s["reason"] for s in x["skipped"])
 
 
-def test_prop_dag_runs_texture_synthesis_while_geometry_compiles(prop_runs) -> None:
+def test_prop_dag_runs_texture_synthesis_while_pass_a_runs(prop_runs) -> None:
+    """Materials start once geometry has a winner (never after a geometry failure) and overlap the pyramid's pass A,
+    which does not use them; the pyramid awaits them before pass B."""
     n = prop_runs[2][0][0].nodes
-    assert n["geometry"].start_ms < n["pbr"].end_ms and n["pbr"].start_ms < n["geometry"].end_ms
+    assert n["pbr"].start_ms >= n["geometry"].end_ms - 1 and n["pyramid"].start_ms < n["pbr"].end_ms
+    assert n["pyramid"].start_ms < n["pbr"].start_ms + 5 and n["pyramid"].late == ("pbr",) and "pbr" not in n["pyramid"].deps
     assert n["style_anchor"].status == "skipped" and n["ortho"].status == "ok" and n["propose"].start_ms >= n["ortho"].end_ms - 1
 
 
@@ -204,6 +207,26 @@ async def test_batch_sanitize_repairs_broken_mesh_and_isolates_a_bad_file(tmp_pa
         assert r["validate_critical"] == [] and r["compliance_critical"] == []
     assert not rep.extras["gates_ok"] and json.loads((tmp_path / "out" / "report.json").read_text())["rows"]
     assert rep.extras["skipped"][0]["reason"]
+
+
+async def test_batch_sanitize_warns_about_a_size_that_reads_as_the_wrong_unit(tmp_path: Path) -> None:
+    """OBJ carries no unit: an 80 cm crate written in centimetres arrives 80 m wide. Reported with the readings that make
+    it plausible, never rescaled, and not a failure (environment pieces are legitimately large)."""
+    from antigravity3d.dags.batch_sanitize import table
+
+    trimesh.creation.box((80, 80, 70)).export(tmp_path / "crate_cm.obj")
+    trimesh.creation.box((0.8, 0.8, 0.7)).export(tmp_path / "crate_m.obj")
+    rep = await BatchSanitizeDAG(workdir=tmp_path / "out", budget=UE, max_parallel=1, isolate=False).run(
+        [tmp_path / "crate_cm.obj", tmp_path / "crate_m.obj"])
+    rows = {Path(r["file"]).name: r for r in rep.extras["rows"]}
+    cm = rows["crate_cm.obj"]
+    assert cm["status"] == "ok" and "centimetres read as metres: 0.8 m" in cm["scale_warning"]
+    assert "scale_warning" not in rows["crate_m.obj"]
+    stage = Usd.Stage.Open(cm["outputs"]["usd"])
+    pts = np.vstack([np.asarray(p.GetAttribute("points").Get()) for p in stage.Traverse()
+                     if p.GetTypeName() == "Mesh" and not p.GetName().startswith("UCX_")])
+    assert np.ptp(pts, axis=0).max() == pytest.approx(80.0)  # not rescaled
+    assert "warning: largest dimension 80 m" in table(rep.extras["rows"])
 
 
 async def test_batch_sanitize_reports_remaining_issues(tmp_path: Path) -> None:

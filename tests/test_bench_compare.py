@@ -83,3 +83,13 @@ def test_command_line_prints_a_table_with_the_noise_band_when_repeats_are_given(
     assert compare.main([str(files["before"]), str(files["after"]), "--changed", "--noise", "2.0"]) == 0
     out = capsys.readouterr().out
     assert "`k`" not in out and "Noise band" not in out
+
+
+def test_a_package_size_recorded_among_the_params_does_not_split_a_case(compare):
+    """Older result files carry a package's byte size in ``params``. It is an outcome, so two trees that write
+    packages of different sizes are still measuring the same case."""
+    def doc(size: int, ms: float) -> dict:
+        return {"machine": {}, "benchmarks": {"kernel.package.validate_cold": {"status": "ok", "cases": [
+            {"params": {"subject": "crate", "tris": 144, "package_bytes": size}, "median_ms": ms}]}}}
+    changes, notes = table(compare, doc(69_679_768, 100.0), doc(49_534_385, 50.0))
+    assert list(changes.values()) == ["2.0x faster"] and not notes

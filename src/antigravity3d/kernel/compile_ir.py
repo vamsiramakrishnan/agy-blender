@@ -215,6 +215,7 @@ def author_mesh_data(
     *,
     weld_map: np.ndarray | None = None,
     normals: bool = True,
+    crease_deg: float = CREASE_DEG,
 ) -> None:
     """Writes triangle geometry, ``primvars:st`` and normals on a Mesh prim in the edit target.
 
@@ -222,8 +223,9 @@ def author_mesh_data(
       * ``primvars:st``  texCoord2f[], *vertex* interpolation: one UV per authored point, i.e. the
         seam-split topology of the unwrap, identical to the GLB. ``uvs`` None blocks any weaker st.
       * ``normals``      normal3f[], *faceVarying* (3 per triangle), crease-smoothed (see
-        :func:`crease_normals`); not relying on USD's default because that smooths hard edges of
-        shared-vertex meshes when subdivisionScheme=none.
+        :func:`crease_normals` at ``crease_deg``, the project's 40 degrees unless an art direction sets
+        another); not relying on USD's default because that smooths hard edges of shared-vertex meshes when
+        subdivisionScheme=none.
       * the mesh is triangulated and ``subdivisionScheme=none``.
     """
     mesh = UsdGeom.Mesh(prim)
@@ -252,7 +254,7 @@ def author_mesh_data(
         _block_authored(prim, [UV_WELD_KEY])
     _block_authored(prim, ["primvars:normals", "primvars:normals:indices"])
     if normals:
-        mesh.CreateNormalsAttr().Set(Vt.Vec3fArray.FromNumpy(crease_normals(pts, tri)))
+        mesh.CreateNormalsAttr().Set(Vt.Vec3fArray.FromNumpy(crease_normals(pts, tri, crease_deg)))
         mesh.SetNormalsInterpolation(UsdGeom.Tokens.faceVarying)
     else:
         _block_authored(prim, ["normals"])

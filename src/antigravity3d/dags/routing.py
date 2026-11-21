@@ -28,10 +28,16 @@ class Route:
 
 
 async def resolve_route(workdir: Path, prompt: str, budget: EngineBudget, style: bytes | None, *,
-                        single_candidate: bool, plane: DecisionControlPlane) -> Route:
+                        single_candidate: bool, plane: DecisionControlPlane, token_ceiling: int | None = None,
+                        max_images: int | None = None) -> Route:
+    """``token_ceiling`` / ``max_images``: the user's limits of a token ledger (see ``Governor``). A preview plane
+    (``plane.preview``) may route on an uncalibrated decision; nothing else may."""
     identity = {"prompt": prompt, "budget": asdict(budget), "single_candidate": single_candidate,
                 "style_sha256": hashlib.sha256(style).hexdigest() if style is not None else None,
                 "backend": plane.backend_kind, "model": plane.model}
+    if token_ceiling is not None or getattr(plane, "preview", False):  # never shares a ledger or route with a money run
+        identity.update(spend_unit="tokens" if token_ceiling is not None else "usd", preview=bool(getattr(plane, "preview", False)))
+    ledger = dict(token_ceiling=token_ceiling, max_images=max_images)
     key = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     folder = workdir / "ledgers" / key
     folder.mkdir(parents=True, exist_ok=True)
@@ -51,10 +57,10 @@ async def resolve_route(workdir: Path, prompt: str, budget: EngineBudget, style:
         if row is not None:
             data = json.loads(row[0])
             plan = SpendPlan(**data.pop("plan"))
-            return Route(**data, plan=plan, governor=Governor(plan, journal=spend), cost_usd=0.0, reused=True)
-        bootstrap = Governor(plan_for(0), journal=spend)
+            return Route(**data, plan=plan, governor=Governor(plan, journal=spend, **ledger), cost_usd=0.0, reused=True)
+        bootstrap = Governor(plan_for(0), journal=spend, **ledger)
         decision = await plane.route_pipeline(prompt, "# empty project: new asset", governor=bootstrap)
-        if not decision.result.calibrated:
+        if not decision.result.calibrated and not getattr(plane, "preview", False):
             raise ValueError("the asset spend plan requires a calibrated routing decision")
         plan = plan_for(decision.complexity)
         if single_candidate:
@@ -62,4 +68,4 @@ async def resolve_route(workdir: Path, prompt: str, budget: EngineBudget, style:
         data = {"pipeline": decision.pipeline, "needs_ortho": decision.needs_ortho,
                 "needs_ortho_p": decision.needs_ortho_p, "complexity": decision.complexity}
         db.execute("INSERT INTO route VALUES(1, ?)", (json.dumps({**data, "plan": asdict(plan)}),))
-        return Route(**data, plan=plan, governor=Governor(plan, journal=spend), cost_usd=decision.result.booked_usd, reused=False)
+        return Route(**data, plan=plan, governor=Governor(plan, journal=spend, **ledger), cost_usd=decision.result.booked_usd, reused=False)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any, Sequence
 
 import numpy as np
@@ -96,7 +97,7 @@ class LodPair:
     crop_b: Image.Image
     crop_diff: Image.Image
     iou: float
-    shading_diff: float                       # mean |dRGB|/255 inside the union mask
+    shading_diff: float                       # mean |dRGB|/255 inside the union mask, each level lit with its shipped normals
     boundary_px: float                        # max symmetric silhouette-boundary displacement, pixels
     object_px: float                          # approx object size in pixels (screen_fraction * size)
 
@@ -184,6 +185,22 @@ def _mesh(lod: Any, nid: str) -> MeshData:
     return MeshData(nid, "", np.asarray(lod.points, np.float64), np.asarray(lod.triangles, np.int32))
 
 
+def shipped_normals(lod: Any) -> np.ndarray:
+    """The shading normals a level ships with: the crease normals the package writes for it (``compile_ir.crease_normals``,
+    which ``fast_ops.gltf_mesh`` and the USD author both use), one per triangle corner. A level may carry them
+    already as ``normals`` (:func:`lod_pop_report` computes each level's once for the two pairs it appears in).
+
+    The pop check lights each level with these and not with one normal per triangle: what an engine shows at a
+    switch is the mesh with its normals, and a curved level that ships smooth must not be judged by facets it
+    will never show, nor a level that turns faceted be judged as if it stayed smooth."""
+    n = getattr(lod, "normals", None)
+    if n is None:
+        from antigravity3d.kernel.compile_ir import crease_normals
+
+        n = crease_normals(np.asarray(lod.points, np.float64), np.asarray(lod.triangles))
+    return np.asarray(n).reshape(-1, 3, 3)
+
+
 def _boundary(mask: np.ndarray) -> np.ndarray:
     return mask & ~ndimage.binary_erosion(mask, border_value=0)
 
@@ -210,8 +227,8 @@ def render_lod_pair(
     ``render_px``: the rendered window (default ``size``); the crops are always resampled to ``size``."""
     size_out, size = size, int(render_px or size)
     cam, dist = lod_camera((lod_a if reference is None else reference).points, view, size, screen_fraction, fov_deg, frame_px)
-    ra = render_buffers([_mesh(lod_a, "a")], view, size, camera=cam)
-    rb = render_buffers([_mesh(lod_b, "b")], view, size, camera=cam)
+    ra = render_buffers([_mesh(lod_a, "a")], view, size, camera=cam, normals={"a": shipped_normals(lod_a)})
+    rb = render_buffers([_mesh(lod_b, "b")], view, size, camera=cam, normals={"b": shipped_normals(lod_b)})
     ma, mb = ra.prim_id >= 0, rb.prim_id >= 0
     union, inter = ma | mb, ma & mb
     iou = float(inter.sum() / union.sum()) if union.any() else 1.0
@@ -265,6 +282,11 @@ def lod_pop_report(
     the earlier protocol (the whole frame rendered at ``size``), which shows a far switch as a few pixels: a lamp
     post at 10% screen is 26 px tall there and its 8 cm pole covers no pixel, so a collapsing pole scores 1.0."""
     fr = tuple(transitions) if transitions is not None else lod_transitions(lods)
+    # each level's shading normals once, for the two pairs it appears in
+    lods = [lod if getattr(lod, "normals", None) is not None else
+            SimpleNamespace(points=lod.points, triangles=lod.triangles, normals=shipped_normals(lod),
+                            **({"screen_fraction": lod.screen_fraction} if hasattr(lod, "screen_fraction") else {}))
+            for lod in lods[:len(fr) + 1]]
     pairs, rows = [], []
     for i, f in enumerate(fr):
         window = None if frame_px is None else int(min(frame_px, max(16, math.ceil(f * frame_px * (1 + 2 * CROP_MARGIN)))))

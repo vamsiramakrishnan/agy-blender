@@ -134,7 +134,7 @@ def ir_subtree_key(scene: SceneIR, node_id: str) -> str:
         nodes.append(d)
     mat_ids = {by_id[i].material_id for i in ids} - {None}
     mats = [
-        m.model_dump(mode="json")
+        m.model_dump(mode="json", exclude={"surface"})  # texture-prompt words: no geometry or export depends on them
         for m in sorted(scene.materials, key=lambda m: m.id)
         if m.id in mat_ids
     ]
@@ -363,7 +363,14 @@ class BuildCache:
                     if data is None:
                         self._miss()
                         data = await compute()
-                        await asyncio.to_thread(self.store.put, key, data)
+                        # A write in a thread cannot be interrupted: on cancellation (a stopped step) wait for it, so
+                        # nothing is still writing into the cache once the step reports stopped.
+                        put = asyncio.ensure_future(asyncio.to_thread(self.store.put, key, data))
+                        try:
+                            await asyncio.shield(put)
+                        except asyncio.CancelledError:
+                            await put
+                            raise
                         fut.set_result(data)
                         return data, False
             self._hit(data, saved_cost_usd, saved_ms)

@@ -1,0 +1,177 @@
+{
+ "material": "art-direction styles (skills/art-direction/styles/*.md), rewritten from an MIT knowledge pack",
+ "repository": "https://github.com/arjun988/blender-skills",
+ "release": "v1.3.0",
+ "commit": "904f095d8f36a6e72adaebb08d07f884a074743d",
+ "tree": ".claude/skills (the .cursor/ tree is a byte-identical mirror and was not used)",
+ "how": "rewritten, not copied: numbers kept where the pipeline applies them (upper end of each upstream range); franchise, game, studio and product names removed; modelling operations replaced by outcomes",
+ "license": {
+  "spdx": "MIT",
+  "file": "UPSTREAM-LICENSE.txt",
+  "upstream_path": "LICENSE",
+  "copyright": "Copyright (c) 2026 blender-skills contributors",
+  "sha256": "693a17a74eacc8ad849d248356fba7fab357b0bef5c94f783029033ab2d950d7"
+ },
+ "styles": {
+  "low-poly": {
+   "upstream_id": "lowpoly-style",
+   "files": {
+    "lowpoly-style/SKILL.md": {
+     "sha256": "614123f0f61c42963be1fc854b87d6f4f57a1ac601c724bb81355dd83230d57f",
+     "used_for": "triangle targets (prop 50-500, environment module 100-800), flat shading, texture sizes (512 default, 256-512 most, 1024 hero only), shape and material guidance"
+    },
+    "lowpoly-style/references/ps1-aesthetic.md": {
+     "sha256": "f893f3290c8cdf8bc4fa8590a21c88abd3146404e7f100bb86c57b7f89335c94",
+     "used_for": "flat shading; optional point filtering and retro limits (listed as not applied or left to retro-horror)"
+    },
+    "references/polycount-budgets.md": {
+     "sha256": "7745680c18fdc83ef06698b590c6af442a604766186a49a14861fa8d487a0a75",
+     "used_for": "style modifier: 50-90% reduction against standard budgets (context for the targets)"
+    }
+   }
+  },
+  "retro-lowres": {
+   "upstream_id": "psx-horror-style",
+   "files": {
+    "psx-horror-style/SKILL.md": {
+     "sha256": "50e981f2544c40cebd765d13ea487568b9ff50ac173e38d167d5373fa303d815",
+     "used_for": "flat or very low smoothing, nearest filtering, limited palette, chunky few-part modelling"
+    },
+    "psx-horror-style/references/psx-horror-budgets.md": {
+     "sha256": "052625a244d6b32ca228de8cb36718251298ea3697bf51e607d47523d46f815e",
+     "used_for": "prop 50-400 tris and 64-128 px; room chunk 500-2000 tris and 256-512 px atlas"
+    },
+    "psx-horror-style/references/psx-horror-palette.md": {
+     "sha256": "3981ce818a6eb5f658da8e5e32a5f8ae02323ae0e0fd1133d22471350a6baa68",
+     "used_for": "palette words for the texture brief"
+    },
+    "lowpoly-style/references/ps1-aesthetic.md": {
+     "sha256": "f893f3290c8cdf8bc4fa8590a21c88abd3146404e7f100bb86c57b7f89335c94",
+     "used_for": "limited palette, 16-64 colours per scene (upper end applied per map)"
+    },
+    "visual-console-eras/references/ps1-ps2.md": {
+     "sha256": "4a3a75bcbf8c806a9330cae49cb8f1a38eb72e79092d908065847e3961d118df",
+     "used_for": "no mip filtering in the era (context for NEAREST filtering)"
+    }
+   }
+  },
+  "voxel": {
+   "upstream_id": "voxel-style",
+   "files": {
+    "voxel-style/SKILL.md": {
+     "sha256": "1c1f73db79a3b1bab0a6ca90805a766328b1200965c6b4d70a34268514e52309",
+     "used_for": "grid occupancy, no smooth shading over block edges, nearest-neighbour textures, small palette"
+    },
+    "voxel-style/references/voxel-grid.md": {
+     "sha256": "70d5feccae4eba8f329c0ea959e50c3535bb2d71d2bdce5fe23bb7488c2ec190",
+     "used_for": "palette 16-32 colours (upper end applied per map)"
+    },
+    "voxel-style/references/voxel-characters.md": {
+     "sha256": "1e83c229b038898335710cbe6d0101eaa29d243114d91df0f72f55564c3f528b",
+     "used_for": "parts at least one cell thick, readable from four side views"
+    }
+   }
+  },
+  "realistic": {
+   "upstream_id": "realistic-style",
+   "files": {
+    "realistic-style/SKILL.md": {
+     "sha256": "1e61757ec4f9fed5502e7a2c145bf1a8b01da3a6e0988b32c042d1eeeab1b491",
+     "used_for": "real-world scale, 2K-4K hero / 2K typical game textures, geometry vs texture detail split"
+    },
+    "realistic-style/references/pbr-values.md": {
+     "sha256": "1da57036ca3897796b40c2c802fb0f8fe3a3300b101c78964a51366ce003954d",
+     "used_for": "metallic 0 or 1, dielectric albedo never pure black or white (already the project's albedo range rule)"
+    },
+    "realistic-style/references/scan-cleanup.md": {
+     "sha256": "afedf1eed50739af7d1868155cd3c56356770638c6a49d477adb459498d6d266",
+     "used_for": "read; workflow only (scan clean-up is not a pipeline step), nothing applied"
+    },
+    "references/polycount-budgets.md": {
+     "sha256": "7745680c18fdc83ef06698b590c6af442a604766186a49a14861fa8d487a0a75",
+     "used_for": "trim sheets 2048-4096 shared; hero prop 15,000-50,000 tris (not applied: above the engine budget)"
+    }
+   }
+  },
+  "stylized": {
+   "upstream_id": "stylized-style",
+   "files": {
+    "stylized-style/SKILL.md": {
+     "sha256": "3e819081e503a6de37ae4f2e9ffc2fa54ba4b08808eeb764c2f2a19519094129",
+     "used_for": "shape language, exaggeration, small colour plan, detail in texture"
+    },
+    "stylized-style/references/palette-examples.md": {
+     "sha256": "31dfc76206c76ad5831636e56020879573eda56a695948860b5b235a6e85fa9a",
+     "used_for": "colour-plan proportions (prose only)"
+    },
+    "stylized-style/references/npr-shaders.md": {
+     "sha256": "acba8c1818ab1099f4ad0ad7cacd8126b3274fd0ba6da55a30001b391e0d519c",
+     "used_for": "toon bands, outlines, rim light (listed as needing a pipeline feature)"
+    },
+    "cartoon-style/references/cartoon-shape-language.md": {
+     "sha256": "79b93e6725c7b3dd0e7a314b7fd94bf0f5cb84d06850766b5d39c524fcc54d54",
+     "used_for": "shape language confirmation"
+    }
+   }
+  },
+  "anime": {
+   "upstream_id": "anime-style",
+   "files": {
+    "anime-style/SKILL.md": {
+     "sha256": "db0cd6332505265cca20828f5a4042db8fb5db5751fb3fc020c49b97f31ea74f",
+     "used_for": "clean silhouettes, simplified forms, flat tonal regions, hard shadow terminators"
+    },
+    "anime-style/references/anime-proportion.md": {
+     "sha256": "da1491ff6ab873a6b3caf0d61be916d667fc50c5a8cb6f45259c1cf13d13aee1",
+     "used_for": "simplified secondary forms"
+    },
+    "anime-style/references/cel-shader-setup.md": {
+     "sha256": "33358afbcd5a35a5768d206ee84d771369ef6d7542443cc6da652a677cd34c49",
+     "used_for": "cel shading and outlines (listed as needing a pipeline feature)"
+    }
+   }
+  },
+  "isometric": {
+   "upstream_id": "isometric-style",
+   "files": {
+    "isometric-style/SKILL.md": {
+     "sha256": "e6d15bb0b630709116109a60176c96e284a6a7760aacd53c6578c1f6c3e04a91",
+     "used_for": "high three-quarter readability, top and side planes, no hidden detail"
+    },
+    "isometric-style/references/tile-footprints.md": {
+     "sha256": "024eefec04a0e56d01e61419bb06307d7c8a2cfe6192947712963b5bdce15669",
+     "used_for": "footprints 1x1, 2x2, 1x2"
+    },
+    "isometric-style/references/iso-camera.md": {
+     "sha256": "c1fc1882705994c7945f66863b6d274c6e5790b113e470abbd719dfcf32f0ba3",
+     "used_for": "locked camera (listed as needing a pipeline feature)"
+    }
+   }
+  },
+  "hand-painted": {
+   "upstream_id": "hand-painted-style",
+   "files": {
+    "hand-painted-style/SKILL.md": {
+     "sha256": "fd8c4418c2f3c51ddb494d51a558b935dc6c3de7aa9bf65f45349e4b1aa0022f",
+     "used_for": "brushwork in albedo, low roughness variation, atlas-friendly"
+    },
+    "hand-painted-style/references/paint-workflow.md": {
+     "sha256": "e1bd3e0cc8c7e64c8702df3f8f582365ffe2d47551a838e3ba166cbbaf1b0cda",
+     "used_for": "subtle or no normal maps, value-then-hue painting"
+    },
+    "painterly-style/SKILL.md": {
+     "sha256": "a5b263460a1a384d56151bedf7163611df1df6bcb9fe298b74066c87ffbadbbe",
+     "used_for": "soft terminators, limited harsh specular (brief wording)"
+    }
+   }
+  }
+ },
+ "read_not_used": {
+  "pixel-art-style/SKILL.md": "456abb3101ed885ec733ecbdeb9b9834b77d48e3fdb0b13a10e0040d54f15a34",
+  "pixel-art-style/references/texel-rules.md": "766896b1e93681d63cfa56e2ff2704c90dfb66b752033baccdac1c7e87ebac24",
+  "visual-console-eras/SKILL.md": "1f8b5bd4909902ae48f3408cc8f5aa15f027fe95a35dc4929318a15ba315be6a",
+  "cartoon-style/SKILL.md": "9825cdd0501fed306ee94f05820d1a84198b9a007c50a16bf3a5aee4ea43b0fe",
+  "references/asset-pipeline.md": "f395dd0ca860c8021743b96fdb5d04af97d578cdfba3e7b2630cd5a56cfa8d05",
+  "references/validation-checklist.md": "f865c62f1ac66881d67734bd72849d26f81fbeced5bc0bfd1e7b9506a8baf148"
+ }
+}

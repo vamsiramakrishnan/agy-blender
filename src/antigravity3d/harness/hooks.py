@@ -116,7 +116,9 @@ def state_header(s: Session) -> str:
             f"budget=tris<={b.max_tris},draws<={b.max_draw_calls},hulls<={b.max_collision_hulls} | "
             f"nodes={len(scene.nodes)} mats={mats} open_tx={len(st.tx_stack)} | "
             f"tier1={'ok' if st.last_tier1_ok else 'no'} tier15={st.last_tier15_score:.2f} "
-            f"export={'allowed' if st.export_allowed else 'blocked'}]")
+            f"export={'allowed' if st.export_allowed else 'blocked'}"
+            + (f" art={st.art_direction}" if st.art_direction else "")
+            + (f" PREVIEW(UNVERIFIED; judge={s.plane.judge_label if s.plane else 'none'}; {s.governor.summary()})" if st.preview else "") + "]")
     if s.toolset == "LOOKDEV":
         head += _bindings_line(scene)
     return head + ("\naudit:\n" + "\n".join(st.audit_deltas) if st.audit_deltas else "")

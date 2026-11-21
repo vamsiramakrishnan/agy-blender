@@ -12,11 +12,13 @@ from typing import Any
 # ---- tables (edit here if a 5.3 symbol differs) --------------------------------------
 ENGINE_ID_MAP: dict[str, str] = {"BLENDER_EEVEE_NEXT": "BLENDER_EEVEE"}
 BOOLEAN_SOLVER_MAP: dict[str, str] = {"FAST": "FLOAT"}
-# old Render Layers socket / pass name -> name in 5.3 (UNVERIFIED mapping; Depth is identity).
+# Render Layers socket names before 5.0 -> names in 5.3. Checked on 5.3.0 (tests/test_blender_api_53.py): the
+# left-hand names are not sockets any more, the right-hand ones are; names already current pass through unchanged.
 RENDER_PASS_MAP: dict[str, str] = {
-    "Depth": "Depth", "Z": "Depth", "Diffuse Color": "DiffCol", "Diffuse Direct": "DiffDir",
-    "Glossy Color": "GlossCol", "Glossy Direct": "GlossDir", "Emission": "Emit",
-    "Ambient Occlusion": "AO", "Normal": "Normal", "Position": "Position", "Mist": "Mist",
+    "Z": "Depth", "DiffCol": "Diffuse Color", "DiffDir": "Diffuse Direct", "DiffInd": "Diffuse Indirect",
+    "GlossCol": "Glossy Color", "GlossDir": "Glossy Direct", "GlossInd": "Glossy Indirect",
+    "TransCol": "Transmission Color", "TransDir": "Transmission Direct", "TransInd": "Transmission Indirect",
+    "Emit": "Emission", "Env": "Environment", "AO": "Ambient Occlusion", "IndexOB": "Object Index", "IndexMA": "Material Index",
 }
 BGL_REPLACEMENT_MODULE = "gpu"
 BINDCODE_ATTR = "bindcode"
@@ -116,13 +118,15 @@ def rewrite_source(source: str) -> tuple[str, list[str]]:
     if not rw.changes:
         return source, []
     if "bindcode" in rw.changes:
-        # Execute GPU texture lookups even when the old script never imported gpu.
+        # Execute GPU texture lookups even when the old script never imported gpu, and start the GPU module
+        # first: in a background Blender gpu.texture.from_image without gpu.init() is a segmentation fault.
         idx = 0
         if tree.body and isinstance(tree.body[0], ast.Expr) and isinstance(tree.body[0].value, ast.Constant):
             idx += 1
         while idx < len(tree.body) and isinstance(tree.body[idx], ast.ImportFrom) and tree.body[idx].module == "__future__":
             idx += 1
-        tree.body.insert(idx, ast.Import(names=[ast.alias(name="gpu.texture")]))
+        init = ast.Expr(ast.Call(ast.Attribute(ast.Name("gpu", ast.Load()), "init", ast.Load()), [], []))
+        tree.body[idx:idx] = [ast.Import(names=[ast.alias(name="gpu")]), init, ast.Import(names=[ast.alias(name="gpu.texture")])]
     return ast.unparse(ast.fix_missing_locations(tree)), rw.changes
 
 
@@ -166,7 +170,10 @@ def install(bpy: Any) -> None:
         return True
 
     def texture_from_image(image: Any) -> Any:
+        import gpu
         import gpu.texture
+
+        gpu.init()  # idempotent; without it from_image crashes a background Blender. Lazy: it needs a display/GL context
         return gpu.texture.from_image(image)
 
     def asset_representation_type() -> Any:

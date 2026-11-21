@@ -28,9 +28,10 @@ from typing import Any, Callable, Literal
 
 from google.genai import types
 
-from antigravity3d import ir_schema
+from antigravity3d import ir_schema, service_answer
 from antigravity3d.decisions.fallback import PRICE_TABLE_USD_PER_M
 from antigravity3d.ir import IRPatch, SceneIR
+from antigravity3d.kernel.kit_metric import context_brief
 from antigravity3d.models import ARGON, CARBON, HYDROGEN, NEON, tier
 from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.governor import BudgetExceeded, Governor, usage_cost_usd
@@ -53,7 +54,7 @@ class OutputBudget:
 # ``max_output_tokens`` per authoring role = answer budget + thinking allowance for the role's thinking level. Both
 # operations use the role's row: a repair may restate up to the whole scene. Measured 2026-11-20 on the propose request
 # (prompt "wooden crate with iron corner brackets", schema-constrained; every sample finished STOP with a valid SceneIR;
-# the last three samples of each tier, one for argon, are the run in benchmarks/results/live.json):
+# the last three samples of each tier, one for argon, are the run in benchmarks/results/round1/live.json):
 #
 #   role      model             level   answer tokens (nodes)               thinking tokens         -> answer + thinking
 #   worker    gemini-4-hydrogen low     630-1,553 (9-13), 7 samples         804-1,263, 11 samples   ->  8,192 +  8,192
@@ -77,7 +78,7 @@ AUTHOR_OUTPUT_BUDGETS: dict[str, OutputBudget] = {
     "director": OutputBudget(answer_tokens=16_384, thinking_tokens=16_384),
 }
 # Raw evidence behind the table (propose request). Older hydrogen/neon thinking samples were taken without a response
-# schema (benchmarks/results/live.json); answer sizes only from schema-constrained responses.
+# schema (benchmarks/results/round1/live.json); answer sizes only from schema-constrained responses.
 MEASURED_THINKING_TOKENS: dict[str, tuple[int, ...]] = {
     "gemini-4-hydrogen/low": (856, 944, 1119, 804, 1072, 940, 1082, 880, 1079, 1263, 1066),
     "gemini-4-neon/low": (1374, 1471, 1707, 1401, 1482, 1704, 1988, 1410, 2418),
@@ -111,9 +112,16 @@ MEASURED_PROPOSE_WALL_S: dict[str, tuple[float, float]] = {
 # a stalled call from a thinking one without include_thoughts, which would change the billed request.
 TIMEOUT_HEADROOM = 2.0
 AUTHOR_TIMEOUT_S: dict[str, float] = {"worker": 90.0, "bulk": 90.0, "builder": 570.0, "director": 540.0}
-# Prompt tokens the API bills for response_json_schema, per byte of compact schema JSON. Measured: the propose schema
-# (6,055 bytes) added 5,085 prompt tokens (0.84/byte), the repair schema (9,939 bytes) 7,066 (0.71/byte). 1.0 bounds both.
+# Prompt tokens the API bills for response_json_schema, per byte of compact schema JSON. Measured on gemini-4-neon,
+# same request with both spellings of the schema: the propose schema written out in full (7,954 bytes, descriptions,
+# tuples repeated) billed 7,305 prompt tokens, the compact one (6,064 bytes) 5,928: the schema itself 5,085 -> 3,708
+# tokens (0.64 and 0.61 per byte). The repair schema was measured only in the older, larger spelling (9,939 bytes ->
+# 7,066 tokens, 0.71/byte; 9,289 bytes now). 1.0 bounds all of them.
 SCHEMA_INPUT_TOKENS_PER_BYTE = 1.0
+# Retries of an authoring attempt whose outcome is unknown (a broken connection, a 500): each keeps its whole
+# reservation (an argon repair reserved 45,486 tokens of a 210,000 ceiling live), so one. A request the service said it
+# did not serve books nothing and follows the shared schedule (service_answer.DEFAULT_POLICY).
+AUTHOR_UNKNOWN_RETRIES = 1
 
 
 def output_budget(role: str) -> OutputBudget:
@@ -153,6 +161,19 @@ class AuthorInvalid(AuthorOutcomeError, ValueError):
     """A complete answer that does not parse or validate. Billed usage is booked."""
 
 
+class AuthorUnavailable(AuthorOutcomeError):
+    """The service gave no answer after the shared retry schedule (``service_answer``): it said it did not serve the
+    request (503 UNAVAILABLE, 429 RESOURCE_EXHAUSTED), or failed on its side (500, 502), or the connection broke.
+    ``attempts``: every failed attempt with its outcome and the wait after it. ``nothing_booked``: every attempt was
+    turned away, so the ledger holds nothing for this call; otherwise the attempts that may have run kept their
+    reservation."""
+
+    def __init__(self, message: str, *, attempts: list[dict[str, Any]], nothing_booked: bool, code: int | None,
+                 status: str | None, **meta: Any) -> None:
+        super().__init__(message, **meta)
+        self.attempts, self.nothing_booked, self.code, self.status = attempts, nothing_booked, code, status
+
+
 @dataclass(frozen=True)
 class AuthorRequest:
     role: str
@@ -176,10 +197,12 @@ def has_references(context: dict[str, Any]) -> bool:
     return any(context.get(key) for key, _ in _REFERENCES)
 
 
-def propose_task(prompt: str, *, index: int, n: int, asset_name: str, references: bool) -> str:
+def propose_task(prompt: str, *, index: int, n: int, asset_name: str, references: bool, brief: str = "") -> str:
+    """``brief``: constraints the answer must meet exactly, appended last (a modular kit piece's metric,
+    ``kernel.kit_metric.context_brief``); empty for everything else, so other requests are unchanged byte for byte."""
     refs = "Use the attached references. " if references else ""
     return (f"Build design {index + 1}/{n} for {prompt}. {refs}Return one JSON SceneIR with asset_name={asset_name!r}, "
-            f"nodes and materials. Ground all parts. Include material assignments.")
+            f"nodes and materials. Ground all parts. Include material assignments." + (f" {brief}" if brief else ""))
 
 
 def repair_task(scene: SceneIR, *, reasons: Any, located: dict[str, list[str]], manifest: str) -> str:
@@ -192,6 +215,8 @@ def build_author_request(role: str, operation: Operation, task: str, *, budget: 
                          timeout_s: float, asset_name: str | None = None,
                          output: OutputBudget | None = None) -> AuthorRequest:
     """Contents + generation config for one authoring call. Needs no rates and dispatches nothing.
+
+    ``context["art_direction"]``, when present, is the art direction's author brief: one line after the task.
 
     ``output`` overrides the table only for measurement (the benchmark's sizing probes); production never passes it.
     """
@@ -206,7 +231,10 @@ def build_author_request(role: str, operation: Operation, task: str, *, budget: 
         schema, parse = ir_schema.patch_response_schema(), ir_schema.parse_patch
     else:
         raise ValueError(f"unknown authoring operation {operation!r}")
-    parts = [types.Part.from_text(text=f"{ir_schema.ir_rules_text()}\nBudget: {json.dumps(asdict(budget))}\n{task}")]
+    text = f"{ir_schema.ir_rules_text()}\nBudget: {json.dumps(asdict(budget))}\n{task}"
+    if art := context.get("art_direction"):  # the art direction's author brief (art_direction.author_text); absent: nothing
+        text += f"\n{art}"
+    parts = [types.Part.from_text(text=text)]
     for key, label in _REFERENCES:
         if uri := context.get(key):
             parts.extend([types.Part.from_text(text=label), types.Part.from_uri(file_uri=uri, mime_type="image/png")])
@@ -261,11 +289,7 @@ def usage_tokens(response: Any) -> dict[str, int] | None:
 
 def is_timeout(exc: BaseException) -> bool:
     """A request timeout from asyncio, httpx / httpcore, or the API's own 504 DEADLINE_EXCEEDED."""
-    if isinstance(exc, TimeoutError):
-        return True
-    if any("Timeout" in cls.__name__ for cls in type(exc).__mro__):
-        return True
-    return getattr(exc, "code", None) == 504 or getattr(exc, "status", None) == "DEADLINE_EXCEEDED"
+    return service_answer.is_timeout(exc)
 
 
 def author_timeout(role: str) -> float:
@@ -288,7 +312,7 @@ def expected_output_tokens(role: str) -> int:
 @dataclass(frozen=True)
 class CandidateOutcome:
     """What happened to one requested candidate. ``status``: produced, not_admitted, truncated, no_answer, invalid,
-    timed_out or error."""
+    timed_out, unavailable (no answer from the service after the shared retry schedule) or error."""
 
     index: int
     status: str
@@ -297,13 +321,28 @@ class CandidateOutcome:
     usage: dict[str, int] | None = None
     admission_wait_s: float = 0.0
     reserved_usd: float | None = None
+    reserved_tokens: float | None = None  # token ledgers only (then reserved_usd stays None)
+    # the failed attempts before the outcome, each with the service's answer and the wait after it (service_answer)
+    service_retries: list[dict[str, Any]] | None = None
 
     @property
     def produced(self) -> bool:
         return self.status == "produced"
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        if self.reserved_tokens is None:  # a money outcome keeps exactly the keys it always had
+            del d["reserved_tokens"]
+        if not self.service_retries:  # only when there was a retry
+            del d["service_retries"]
+        return d
+
+
+def outcome_status(exc: BaseException) -> str:
+    """The candidate-outcome status of an authoring failure."""
+    return ("not_admitted" if isinstance(exc, BudgetExceeded) else "truncated" if isinstance(exc, AuthorTruncated)
+            else "timed_out" if isinstance(exc, AuthorTimedOut) else "unavailable" if isinstance(exc, AuthorUnavailable)
+            else "no_answer" if isinstance(exc, AuthorNoAnswer) else "invalid" if isinstance(exc, AuthorInvalid) else "error")
 
 
 @dataclass(frozen=True)
@@ -354,15 +393,21 @@ class MeteredAuthor:
     """
 
     def __init__(self, client: Any, governor: Governor, budget: EngineBudget, context: dict, *,
-                 timeout_s: float | None = None) -> None:
+                 timeout_s: float | None = None, retry: service_answer.RetryPolicy | None = None) -> None:
         self.client, self.governor, self.budget = client, governor, budget
         self.context, self.timeout_s = dict(context), timeout_s
+        # None: the shared schedule (service_answer.DEFAULT_POLICY, read at call time) with AUTHOR_UNKNOWN_RETRIES
+        self.retry = retry
+        # Retries of an attempt whose outcome is unknown; a caller with a recovery round of its own (a kit) sets 0.
+        self.unknown_retries = AUTHOR_UNKNOWN_RETRIES
+        self.last_service_retries: list[dict[str, Any]] = []  # the failed attempts of the latest repair (waits included)
 
     def timeout_for(self, role: str) -> float:
         return author_timeout(role) if self.timeout_s is None else self.timeout_s
 
     def cost_profile(self, role: str | None = None, *, asset_name: str = "asset") -> tuple[float, float] | None:
         """(expected, worst-case) USD of one propose call for sizing a best-of-N, or None when no rates are known.
+        On a token ledger the same pair in tokens (never None).
 
         Expected = mean measured output tokens (``expected_output_tokens``); worst case = the full cap, which is what
         admission reserves. Input is estimated from the request text (3 bytes per token) plus the schema bound, because
@@ -371,22 +416,42 @@ class MeteredAuthor:
         role = role or self.governor.plan.builder_role
         req = self.request(role, "propose", propose_task("x", index=0, n=1, asset_name=asset_name,
                                                           references=has_references(self.context)), asset_name=asset_name)
+        text = "".join(p.text or "" for c in req.contents for p in c.parts)
+        tokens_in = math.ceil(len(text.encode()) / 3) + schema_input_token_bound(req.schema)
+        if self.governor.unit == "tokens":  # a token ledger: the same figures in tokens, no price applied
+            return float(tokens_in + expected_output_tokens(role)), float(tokens_in + req.max_output_tokens)
         try:
             pin, pout = _rates(req.model)
         except BudgetExceeded:
             return None
-        text = "".join(p.text or "" for c in req.contents for p in c.parts)
-        tokens_in = math.ceil(len(text.encode()) / 3) + schema_input_token_bound(req.schema)
         expected = usage_cost_usd(tokens_in, expected_output_tokens(role), usd_per_m_in=pin, usd_per_m_out=pout)
         worst = usage_cost_usd(tokens_in, req.max_output_tokens, usd_per_m_in=pin, usd_per_m_out=pout)
         return expected, worst
 
     async def _generate(self, req: AuthorRequest, trace: dict[str, Any] | None = None) -> Any:
         trace = {} if trace is None else trace
-        pin, pout = _rates(req.model)
+        tokens = self.governor.unit == "tokens"  # a token ledger: worst case and booking in tokens, no price applied
+        pin, pout = (None, None) if tokens else _rates(req.model)
         api = self.client.aio.models
-        counted = await api.count_tokens(model=req.model, contents=req.contents,
-                                         config=types.CountTokensConfig(http_options=req.config.http_options))
+        policy = self.retry or service_answer.DEFAULT_POLICY.with_unknown_retries(self.unknown_retries)
+        deadline_s = req.config.http_options.timeout / 1000
+        tracker = service_answer.Tracker(policy)
+        while True:  # counting is free: a count the service turned away, or whose connection broke, is asked again
+            sent = time.monotonic()
+            try:
+                counted = await api.count_tokens(model=req.model, contents=req.contents,
+                                                 config=types.CountTokensConfig(http_options=req.config.http_options))
+                break
+            except Exception as exc:
+                elapsed = time.monotonic() - sent
+                outcome = service_answer.classify(exc, elapsed, deadline_s=deadline_s)
+                if outcome == "unknown":
+                    outcome = "not_served"  # nothing is billed for counting, whatever happened to it
+                if outcome == "final" or not await tracker.failed(exc, elapsed, outcome):
+                    if outcome == "final":
+                        raise
+                    raise self._unavailable(req, exc, tracker, "counting its input", booked_any=False) from exc
+        trace["service_retries"] = tracker.record()
         n = counted.total_tokens
         if not isinstance(n, int) or n <= 0:
             raise BudgetExceeded(f"no input token count for {req.model}")
@@ -394,35 +459,71 @@ class MeteredAuthor:
         input_bound = n + schema_bound
 
         def cost(inputs: int, outputs: int) -> float:
+            if tokens:
+                return float(inputs + outputs)
             return usage_cost_usd(inputs, outputs, usd_per_m_in=pin, usd_per_m_out=pout)
 
         limit = cost(input_bound, req.max_output_tokens)
         detail = (f"{req.role} ({req.model}) {req.operation}: up to {input_bound} input tokens ({n} counted + {schema_bound} "
                   f"schema bound) and {req.max_output_tokens} output tokens ({req.budget.answer_tokens} answer + "
-                  f"{req.budget.thinking_tokens} thinking) at ${pin}/${pout} per M = ${limit:.5f}")
+                  f"{req.budget.thinking_tokens} thinking) " + (f"= {limit:,.0f} tokens (no price applied)" if tokens
+                                                                  else f"at ${pin}/${pout} per M = ${limit:.5f}"))
         receipt: dict[str, Any] = {"model": req.model, "role": req.role, "counted_input_tokens": n,
                                    "schema_input_tokens_bound": schema_bound, "max_output_tokens": req.max_output_tokens,
-                                   "answer_tokens": req.budget.answer_tokens, "thinking_tokens_allowed": req.budget.thinking_tokens,
-                                   "input_usd_per_m": pin, "output_usd_per_m": pout}
-        t0 = time.monotonic()
-        try:
-            # Waits for outstanding reservations to settle; fails at once only when this can never fit the ceiling.
-            hold = await self.governor.reserve_wait(f"author.{req.operation}", limit, receipt=receipt)
-        except BudgetExceeded as e:
-            raise BudgetExceeded(f"plan {self.governor.plan.label!r}: {e}; request: {detail}") from e
-        trace.update(admission_wait_s=round(time.monotonic() - t0, 3), reserved_usd=limit)
-        booked = None
-        try:
+                                   "answer_tokens": req.budget.answer_tokens, "thinking_tokens_allowed": req.budget.thinking_tokens}
+        if not tokens:
+            receipt.update(input_usd_per_m=pin, output_usd_per_m=pout)
+        base_receipt = receipt
+        booked_any = False  # whether an attempt of this call kept a reservation (it may have run)
+        waited = 0.0
+        while True:
+            receipt = dict(base_receipt)
+            if tracker.attempts:  # a retried call: which attempt this is, and what came before it
+                receipt.update(attempt=tracker.n, service_retries=tracker.record())
+            t0 = time.monotonic()
+            try:
+                # Waits for outstanding reservations to settle; fails at once only when this can never fit the ceiling.
+                hold = await self.governor.reserve_wait(f"author.{req.operation}", limit, receipt=receipt)
+            except BudgetExceeded as e:
+                raise BudgetExceeded(f"plan {self.governor.plan.label!r}: {e}; request: {detail}") from e
+            waited += time.monotonic() - t0
+            trace.update(admission_wait_s=round(waited, 3), **{"reserved_tokens" if tokens else "reserved_usd": limit})
+            sent = time.monotonic()
             try:
                 result = await api.generate_content(model=req.model, contents=req.contents, config=req.config)
-            except Exception as exc:
+            except BaseException as exc:
+                elapsed = time.monotonic() - sent
+                outcome = service_answer.classify(exc, elapsed, deadline_s=deadline_s)
+                receipt["status"] = type(exc).__name__
+                if outcome == "not_served":  # the service said it did not run it: nothing is booked
+                    receipt.update(service_answer.not_served_receipt(exc, tracker.n, elapsed), usage_known=True)
+                    hold.settle(0.0, receipt=receipt)
+                else:  # it may have run: the whole reservation is retained
+                    if is_timeout(exc):  # raised as AuthorTimedOut below, and the receipt says so (as it always did)
+                        receipt.update(finish_reason="TIMEOUT", status="AuthorTimedOut" if outcome == "final" else receipt["status"])
+                    if isinstance(exc, Exception):
+                        receipt.update(service_answer=service_answer.describe(exc), elapsed_s=round(elapsed, 3))
+                    receipt["usage_known"] = False
+                    hold.settle(None, receipt=receipt)
+                    booked_any = True
+                if not isinstance(exc, Exception):
+                    raise
+                if outcome != "final" and await tracker.failed(exc, elapsed, outcome):
+                    trace["service_retries"] = tracker.record()
+                    continue
+                trace["service_retries"] = tracker.record()
                 if is_timeout(exc):
-                    receipt["finish_reason"] = "TIMEOUT"
                     raise AuthorTimedOut(
-                        f"{req.role} {req.operation} on {req.model}: timed out after {req.config.http_options.timeout / 1000:.0f}s "
-                        f"({type(exc).__name__}); the whole reservation ${limit:.5f} is retained", finish_reason="TIMEOUT",
+                        f"{req.role} {req.operation} on {req.model}: timed out after {elapsed:.0f}s of {deadline_s:.0f}s "
+                        f"({type(exc).__name__}); the whole reservation {self.governor.fmt(limit)} is retained"
+                        + (f"; {tracker.summary()}" if len(tracker.attempts) > 1 else ""), finish_reason="TIMEOUT",
                         **_meta(req, None)) from exc
-                raise
+                if outcome == "final":
+                    raise  # a client error (4xx): a bug in the request, not an outcome
+                raise self._unavailable(req, exc, tracker, "generating", booked_any=booked_any) from exc
+            break
+        booked = None
+        try:
             usage = usage_tokens(result)
             trace["usage"] = usage
             if usage is not None:
@@ -445,6 +546,19 @@ class MeteredAuthor:
             receipt["usage_known"] = booked is not None
             hold.settle(booked, receipt=receipt)
 
+    def _unavailable(self, req: AuthorRequest, exc: BaseException, tracker: service_answer.Tracker, doing: str, *,
+                     booked_any: bool) -> AuthorUnavailable:
+        code, status = service_answer.code_status(exc)
+        rejected = sum(a.outcome == "not_served" for a in tracker.attempts)
+        booking = ("nothing booked: the service turned every attempt away" if not booked_any
+                   else f"nothing booked for the {rejected} attempt(s) turned away; the attempts that may have run kept their reservation"
+                   if rejected else "every attempt that may have run kept its reservation")
+        return AuthorUnavailable(
+            f"{req.role} {req.operation} on {req.model}: no answer while {doing} after {len(tracker.attempts)} attempt(s) over "
+            f"{tracker.waited_s:.0f} s of waiting; the service answered {service_answer.describe(exc)} ({booking})",
+            attempts=tracker.record(), nothing_booked=not booked_any, code=code, status=status,
+            finish_reason=status or type(exc).__name__, **_meta(req, None))
+
     def request(self, role: str, operation: Operation, task: str, *, asset_name: str | None = None) -> AuthorRequest:
         return build_author_request(role, operation, task, budget=self.budget, context=self.context,
                                     timeout_s=self.timeout_for(role), asset_name=asset_name)
@@ -456,10 +570,11 @@ class MeteredAuthor:
         asset = context["asset_name"]
         refs = has_references(self.context)
         role = self.governor.plan.builder_role
+        brief = context_brief(context)  # a kit piece's metric (and, on its second request, what the first got wrong)
 
         async def candidate(i: int) -> tuple[SceneIR | None, CandidateOutcome, BaseException | None]:
             trace: dict[str, Any] = {}
-            task = propose_task(prompt, index=i, n=n, asset_name=asset, references=refs)
+            task = propose_task(prompt, index=i, n=n, asset_name=asset, references=refs, brief=brief)
             try:
                 req = self.request(role, "propose", task, asset_name=asset)
                 scene = await self._generate(req, trace)
@@ -467,15 +582,15 @@ class MeteredAuthor:
                     raise AuthorInvalid(f"{role} propose: candidate must contain nodes for the requested asset {asset!r}",
                                         finish_reason="STOP", **_meta(req, trace.get("usage")))
             except Exception as exc:  # noqa: BLE001 - classified and recorded; nothing is dropped unnamed
-                status = ("not_admitted" if isinstance(exc, BudgetExceeded) else "truncated" if isinstance(exc, AuthorTruncated)
-                          else "timed_out" if isinstance(exc, AuthorTimedOut) else "no_answer" if isinstance(exc, AuthorNoAnswer)
-                          else "invalid" if isinstance(exc, AuthorInvalid) else "error")
+                status = outcome_status(exc)
                 text = _one_line(exc) if status != "error" else f"{type(exc).__name__}: {_one_line(exc)}"
                 return None, CandidateOutcome(i, status, text, getattr(exc, "finish_reason", None),
                                               getattr(exc, "usage", None) or trace.get("usage"),
-                                              trace.get("admission_wait_s", 0.0), trace.get("reserved_usd")), exc
+                                              trace.get("admission_wait_s", 0.0), trace.get("reserved_usd"),
+                                              trace.get("reserved_tokens"), trace.get("service_retries") or None), exc
             return scene, CandidateOutcome(i, "produced", "", "STOP", trace.get("usage"), trace.get("admission_wait_s", 0.0),
-                                           trace.get("reserved_usd")), None
+                                           trace.get("reserved_usd"), trace.get("reserved_tokens"),
+                                           trace.get("service_retries") or None), None
 
         # A cancellation of this task cancels every candidate (gather) and propagates; a candidate that itself raises a
         # non-Exception BaseException (CancelledError, KeyboardInterrupt) propagates too.
@@ -508,5 +623,10 @@ class MeteredAuthor:
         if role == "director" and not self.governor.plan.allow_director:
             raise BudgetExceeded("director escalation is outside this asset's plan")
         task = repair_task(scene, reasons=action.reasons, located=located, manifest=manifest)
-        patch = await self._generate(self.request(role, "repair", task))
+        trace: dict[str, Any] = {}
+        self.last_service_retries = []
+        try:
+            patch = await self._generate(self.request(role, "repair", task), trace)
+        finally:
+            self.last_service_retries = list(trace.get("service_retries") or [])
         return patch if patch.ops else None

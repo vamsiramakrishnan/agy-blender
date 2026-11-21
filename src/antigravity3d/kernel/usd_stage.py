@@ -46,7 +46,8 @@ from pxr import Gf, Kind, Sdf, Tf, Usd, UsdGeom, UsdShade, UsdUtils
 
 from antigravity3d import ir
 from antigravity3d.ir import IRPatch, SceneIR
-from antigravity3d.kernel.compile_ir import IR_KEY, UV_CHART_KEY, UV_WELD_KEY, author_mesh_data, author_scene, node_paths, read_ir, resolve_anchor
+from antigravity3d.kernel import usd_boot
+from antigravity3d.kernel.compile_ir import CREASE_DEG, IR_KEY, UV_CHART_KEY, UV_WELD_KEY, author_mesh_data, author_scene, node_paths, read_ir, resolve_anchor
 from antigravity3d.kernel.fast_ops import UVResult
 from antigravity3d.kernel.spatial import PrimInfo, SpatialIndex
 from antigravity3d.kernel.types import MeshData
@@ -89,12 +90,14 @@ class StageManager:
         self._spatial: SpatialIndex | None = None
         self._spatial_listener = None
         self._export_layout: Sequence[UVResult] | None = None
+        self._export_crease = CREASE_DEG  # shading crease of the authored export normals (see author_uvs)
         self._overlay: Sdf.Layer | None = None  # UV overlay, see module docstring
 
     # --- construction ----------------------------------------------------------
 
     @classmethod
     def create(cls, path: Path, asset_name: str) -> StageManager:
+        usd_boot.ensure_ready()  # stages are created from worker threads (the kit's pieces): never OpenUSD's first use
         stage = Usd.Stage.CreateNew(str(path))
         cls._init_structure(stage, SceneIR(asset_name=asset_name))
         stage.GetRootLayer().Save()
@@ -103,6 +106,7 @@ class StageManager:
     @classmethod
     def open(cls, path: Path) -> StageManager:
         """Opens a managed stage; a plain exported file is adopted from its stored IR."""
+        usd_boot.ensure_ready()  # opened from worker threads too (sanitize's in-process path, the variant factory)
         stage = Usd.Stage.Open(str(path))
         if not stage.GetPrimAtPath(BASE):
             scene = read_ir(stage.GetDefaultPrim())
@@ -434,13 +438,14 @@ class StageManager:
         """
         return [r.mesh for r in self._read_meshes()]
 
-    def author_uvs(self, results: Sequence[UVResult], *, normals: bool = True) -> None:
+    def author_uvs(self, results: Sequence[UVResult], *, normals: bool = True, crease_deg: float = CREASE_DEG) -> None:
         """Authors an unwrap into the working stage (see the module docstring on the overlay).
 
         ``results`` must be what ``unwrap_scene(self.extract_meshes(), ...)`` returned (same order).
         Each mesh gets the seam-split points/triangles of its :class:`UVResult`, ``primvars:st``
-        (vertex interpolation) and crease-smoothed faceVarying normals, so the composed stage, the
-        validator and the exported package all agree with the GLB.
+        (vertex interpolation) and faceVarying normals smoothed within ``crease_deg`` (an art direction's
+        shading crease; the project's 40 degrees otherwise), so the composed stage, the validator and the
+        exported package all agree with the GLB.
         """
         reads = self._read_meshes()
         if len(reads) != len(results):
@@ -454,15 +459,18 @@ class StageManager:
         with Usd.EditContext(self._stage, self._overlay_layer()):
             for r, res in zip(reads, results):
                 author_mesh_data(
-                    r.prim, r.local[res.vmapping], res.triangles, res.uvs, weld_map=res.vmapping, normals=normals
+                    r.prim, r.local[res.vmapping], res.triangles, res.uvs, weld_map=res.vmapping, normals=normals,
+                    crease_deg=crease_deg,
                 )
 
         self._export_layout = results if normals else None
+        self._export_crease = crease_deg
 
-    def ensure_export_uvs(self, results: Sequence[UVResult]) -> None:
-        """Bind this bundle's atlas even when the imported mesh already has source UVs."""
-        if self._export_layout is not results:
-            self.author_uvs(results)
+    def ensure_export_uvs(self, results: Sequence[UVResult], *, crease_deg: float = CREASE_DEG) -> None:
+        """Bind this bundle's atlas even when the imported mesh already has source UVs (re-authored when the
+        shading crease differs from the one the current export normals were written with)."""
+        if self._export_layout is not results or self._export_crease != crease_deg:
+            self.author_uvs(results, crease_deg=crease_deg)
 
     def has_uvs(self) -> bool:
         """True when every active mesh carries a ``primvars:st`` with a value per point."""

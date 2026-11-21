@@ -35,7 +35,7 @@ MUTATING_TOOLS = (
 # Every tool the plugin's MCP server (antigravity3d.runtime.mcp_server) serves. The server applies the same
 # gate decisions itself before dispatch; tests/test_mcp_server.py keeps this list equal to its tools/list.
 STUDIO_TOOLS = (
-    "open_asset_session", "set_stage", "session_status", "list_sessions",
+    "open_asset_session", "start_preview", "set_stage", "session_status", "list_sessions",
     "apply_scene_ir", "inspect_manifest", "query_region", "undo_last_edit", "render_preview", "run_visual_qa", "qa_probe",
     "propose_variants", "select_variant", "promote_variant", "forge_pbr_material", "apply_shader_diff",
     "run_paintover_loop", "render_lookdev", "generate_lods_and_colliders", "run_usd_validator",
@@ -185,15 +185,22 @@ def export_gate(root: Path, conversation: str, session_id: str = "") -> tuple[bo
     if not EXPORT_MIN_TIER15_SCORE <= score <= 4.0:
         return False, f"Tier-1.5 score {score:.2f} < {EXPORT_MIN_TIER15_SCORE}: iterate lookdev/blockout and re-run QA"
     v = qa.get("verdict")
+    preview = qa.get("preview") is True  # an unverified preview session (its package is labelled verified=false)
     if (not isinstance(v, dict) or not qa.get("revision") or not qa.get("target")
             or v.get("revision") != qa["revision"] or v.get("target") != qa["target"]
-            or v.get("stage") not in {"lookdev", "final"} or v.get("renderer") not in {"eevee", "cycles"}
-            or v.get("backend") != "decisions" or v.get("action") != "approve"):
-        return False, "current revision needs a Decisions lookdev/final approval on an EEVEE or Cycles render"
+            or v.get("stage") not in {"lookdev", "final"} or v.get("action") != "approve"
+            or (not preview and (v.get("renderer") not in {"eevee", "cycles"} or v.get("backend") != "decisions"))):
+        if preview:
+            return False, "PREVIEW session: the current revision needs an approving lookdev/final visual QA verdict"
+        return False, ("current revision needs a Decisions lookdev/final approval on an EEVEE or Cycles render "
+                       "(without the native Decisions API only an unverified preview can be exported: ask the user)")
     dirty = read_dirty(root, conversation)
     if dirty and float(dirty.get("last_mutation_ts", 0)) > float(qa.get("ts", 0)):
         return False, (f"scene changed by {dirty.get('tool', 'a mutating tool')} after the last QA run "
                        f"(score {score:.2f}); re-run QA before export")
+    if preview:
+        return True, (f"PREVIEW gate passed (unverified package; Tier-1 ok, Tier-1.5 {score:.2f} >= {EXPORT_MIN_TIER15_SCORE}, "
+                      f"judge {v.get('backend')})")
     return True, f"QA gate passed (Tier-1 ok, Tier-1.5 {score:.2f} >= {EXPORT_MIN_TIER15_SCORE})"
 
 

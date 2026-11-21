@@ -1,0 +1,107 @@
+"""Start-up arithmetic of a token-limited run (``--token-ceiling`` / ``--max-images``): checked before any model call.
+
+Nothing here spends or calls a model. Two kinds of figure, kept apart:
+
+* **Worst cases** (``judge_worst_tokens``, ``author_worst_tokens``, ``image_worst_tokens``) bound one call from above with
+  the same rules admission uses (request bytes as a token bound where the tokenizer is not asked, the output caps), so
+  a ceiling below them can never admit that call: the run is refused at start, naming the smallest ceiling that can.
+* **Plan estimates** (``plan_estimate``) are what a run is expected to use, from the measured figures in
+  ``tactics.common``; they size and explain, they never admit.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+from dataclasses import dataclass, replace
+from typing import Any
+
+from antigravity3d.tactics.common import GRADE_TOKENS_EST, IMAGE_TOKENS_EST, QA_TOKENS_EST
+from antigravity3d.tactics.governor import PLANS, SpendPlan
+
+# A planning figure for one authoring call when the author cannot say (measured worker propose: 7,238 input +
+# 1,140 answer + 1,066 thinking tokens, benchmarks/RESULTS.md and metered_author's tables).
+AUTHOR_TOKENS_EST = 9_444
+
+
+def judge_worst_tokens(plane: Any) -> int:
+    """The largest single judge call a prop run makes (lookdev visual QA with blueprint and style images), bounded
+    without a network call: request bytes and the plane's image allowances, the schema and system instruction bytes,
+    and the output cap, for every chunk and attempt. 0 for a fake plane; the native input cap for native Decisions."""
+    from antigravity3d.decisions import engine as E, questions as Q
+    from antigravity3d.decisions.fallback import JUDGE_MAX_OUTPUT_TOKENS, SYSTEM_INSTRUCTION, build_response_schema
+
+    if plane.backend_kind == "fake":
+        return 0
+    if plane.backend_kind == "decisions":
+        return E.MODEL_INPUT_LIMIT
+    labels = {"sheet": "Image 1", "ortho": "Image 2", "style": "Image 3"}
+    asked, _ = Q.select(Q.VISUAL_QA_QUESTIONS, stage="lookdev", have={"ortho", "style"}, labels=labels)
+    tier = E.STAGE_RESOLUTION["lookdev"]
+    blocks = [E.text_block("Image 1: contact sheet of renders of the asset under review."), E.image_block("https://x/1", tier),
+              E.text_block("Image 2: orthographic blueprint of the intended asset."), E.image_block("https://x/2", tier),
+              E.text_block("Image 3: style reference."), E.image_block("https://x/3", tier)]
+    client = getattr(plane, "_client", None)
+    chunk = getattr(client, "chunk_size", 40)
+    attempts = getattr(client, "max_parse_retries", 1) + 1
+    items = list(asked.items())
+    total = 0
+    for i in range(0, len(items), chunk):
+        part = dict(items[i:i + chunk])
+        unseen = len(json.dumps(build_response_schema(part), separators=(",", ":")).encode()) + len(SYSTEM_INSTRUCTION.encode())
+        total += (E.estimate_input_tokens(blocks, part) + unseen + JUDGE_MAX_OUTPUT_TOKENS) * attempts
+    return total
+
+
+def author_worst_tokens(author: Any, *, role: str | None = None, asset_name: str = "asset") -> int:
+    """Worst case of one authoring call (the author's own token profile), 0 for an author that is not metered."""
+    profile = getattr(author, "cost_profile", None)
+    if profile is None:
+        return 0
+    pair = profile(role, asset_name=asset_name) if role else profile(asset_name=asset_name)
+    return 0 if pair is None else int(math.ceil(pair[1]))
+
+
+def image_worst_tokens(forge: Any, prompt: str, size: int) -> int:
+    """Worst case of one generated image of ``size`` px with a text-only prompt (what admission reserves)."""
+    from antigravity3d.genmedia.nano_banana import GenAIImageBackend, _size_tier
+
+    if getattr(forge, "offline", True):
+        return 0
+    return len(prompt.encode("utf-8")) + 64 + GenAIImageBackend.output_limit(_size_tier(size))
+
+
+@dataclass(frozen=True)
+class PlanEstimate:
+    plan: str
+    images: int  # images planned for a one-material prop
+    images_per_extra_material: int
+    tokens: int  # expected tokens, one material, every pyramid round used
+
+    def line(self) -> str:
+        more = f" (+{self.images_per_extra_material} per extra material)" if self.images_per_extra_material else ""
+        return f"{self.plan}: up to {self.images} image(s){more} and about {self.tokens:,} tokens"
+
+
+def plan_estimate(plan: SpendPlan, *, needs_ortho: bool = True, max_rounds: int = 4, author_tokens: int = AUTHOR_TOKENS_EST,
+                  single_candidate: bool = False) -> PlanEstimate:
+    """What a prop run on ``plan`` is expected to use: route, blueprint best-of-N, geometry best-of-N, albedo best-of-N
+    for one material, pass A rounds (QA + repair), three lookdev rounds, the LOD-pop check and, for a hero, a paint-over."""
+    if single_candidate:
+        plan = replace(plan, ortho_candidates=1, geometry_candidates=1, pbr_candidates=1)
+    ortho = plan.ortho_candidates if needs_ortho else 0
+    images = ortho + plan.pbr_candidates + (1 if plan.paintover_loop else 0)
+    tokens = (GRADE_TOKENS_EST  # route
+              + (ortho * IMAGE_TOKENS_EST + GRADE_TOKENS_EST if ortho else 0)
+              + plan.geometry_candidates * author_tokens + GRADE_TOKENS_EST
+              + plan.pbr_candidates * IMAGE_TOKENS_EST + GRADE_TOKENS_EST
+              + max_rounds * QA_TOKENS_EST + (max_rounds - 1) * author_tokens
+              + 3 * QA_TOKENS_EST + GRADE_TOKENS_EST
+              + (IMAGE_TOKENS_EST if plan.paintover_loop else 0))
+    return PlanEstimate(plan.label, images, plan.pbr_candidates, tokens)
+
+
+def plan_lines(*, single_candidate: bool, max_rounds: int, author_tokens: int = AUTHOR_TOKENS_EST) -> list[str]:
+    """One line per plan the router can choose (it picks one from the prompt's complexity)."""
+    return [plan_estimate(PLANS[t], max_rounds=max_rounds, author_tokens=author_tokens, single_candidate=single_candidate).line()
+            for t in sorted(PLANS)]

@@ -100,6 +100,11 @@ def summarize(samples: list[float]) -> dict[str, Any]:
             "min_ms": _r(min(samples)), "max_ms": _r(max(samples)), "mean_ms": _r(statistics.fmean(samples))}
 
 
+class Skipped(Exception):
+    """Raised by a benchmark that cannot run on this machine (for instance no browser): recorded with the reason,
+    not counted as a failure."""
+
+
 @dataclass
 class Case:
     params: dict[str, Any]
@@ -366,6 +371,54 @@ def u_shape_mesh(target_tris: int, name: str = "ushape"):
     nz = min(range(1, 40), key=lambda z: abs(len(mk(z)[1]) - target_tris))
     pts, tris = mk(nz)
     return as_mesh(name, pts, tris, "m0")
+
+
+def three_bodies_mesh(name: str = "three_bodies"):
+    """One mesh holding three separate closed bodies: two concave U prisms of different size and a cube.
+
+    Kitbashed and imported meshes are often like this: several closed solids exported as a single mesh."""
+    import trimesh
+
+    a, b = u_shape_mesh(700), u_shape_mesh(1300)
+    cube = trimesh.creation.box(extents=[0.3, 0.3, 0.3])
+    pts, tris, base = [], [], 0
+    for p, t, off in ((a.points, a.triangles, (0.0, 0.0, 0.0)), (b.points, b.triangles, (1.0, 0.0, 0.0)), (cube.vertices, cube.faces, (2.2, 0.2, 0.15))):
+        pts.append(np.asarray(p, np.float64) + np.asarray(off))
+        tris.append(np.asarray(t, np.int64) + base)
+        base += len(p)
+    return as_mesh(name, np.vstack(pts), np.vstack(tris), "m0")
+
+
+def imperfect_meshes() -> list[tuple[str, Any]]:
+    """Collider input that is not one closed solid, the way imported meshes often arrive."""
+    import trimesh
+
+    a = trimesh.creation.box(extents=[1.0, 1.0, 1.0])
+    b = a.copy()
+    b.apply_translation([1.0, 1.0, 0.0])                      # shares exactly one edge with the first cube
+    cubes = trimesh.util.concatenate([a, b])
+    cubes.merge_vertices()
+    ball = trimesh.creation.uv_sphere(0.4, count=[12, 9])
+    cup = trimesh.creation.cylinder(0.3, 0.8, sections=24)
+    v, f = np.asarray(cup.vertices), np.asarray(cup.faces)
+    return [("two_cubes_sharing_an_edge", as_mesh("cubes", cubes.vertices, cubes.faces)),
+            ("sphere_six_faces_missing", as_mesh("ball", ball.vertices, np.asarray(ball.faces)[:len(ball.faces) - 6])),
+            ("open_cup", as_mesh("cup", v, f[~(v[f][:, :, 2] > 0.39).all(axis=1)]))]
+
+
+def assembly_meshes() -> list:
+    """A 2 m table top with 30 small parts on it (boxes and icospheres of 3 to 5 cm): many small parts next to a few
+    large triangles, which is what a dressed prop or a kit piece looks like to the LOD generator."""
+    import trimesh
+
+    top = trimesh.creation.box(extents=[2.0, 1.0, 0.05]).subdivide()
+    parts = [as_mesh("top", top.vertices + np.array([0, 0, 0.75]), top.faces, "m0")]
+    rng = np.random.default_rng(7)
+    for i in range(30):
+        s = trimesh.creation.icosphere(subdivisions=2, radius=0.03) if i % 2 else trimesh.creation.box(extents=[0.05, 0.04, 0.03])
+        off = np.array([rng.uniform(-0.9, 0.9), rng.uniform(-0.45, 0.45), 0.775 + 0.03])
+        parts.append(as_mesh(f"small{i:02d}", s.vertices + off, s.faces, f"m{i % 3}"))
+    return parts
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -686,8 +739,8 @@ def _mesh_params(label: str, m) -> dict[str, Any]:
 
 
 @bench("kernel.uv.unwrap",
-       "fast_ops.unwrap_uvs (xatlas unwrap + pack + stretch statistics) at 1024 px/m and the default 2048 atlas resolution.",
-       "Writing UVs to USD, LOD generation. Convex spheres and one concave U prism.")
+       "fast_ops.unwrap_uvs at 1024 px/m and the default 2048 atlas resolution on meshes that need computed charts: xatlas computes the charts, the rectangle packer places them (density search included), plus distortion statistics.",
+       "Writing UVs to USD, LOD generation. Convex spheres and one concave U prism. IR primitives take the exact-chart path, which kernel.export.pipeline exercises (crate, barrel).")
 def d_uv(ctx: Ctx) -> list[Case]:
     budget = EngineBudget("unreal_5")
     return [timeit(lambda m=m: fast_ops.unwrap_uvs(m, budget.texel_density_px_per_m), ctx,
@@ -696,8 +749,8 @@ def d_uv(ctx: Ctx) -> list[Case]:
 
 
 @bench("kernel.lod.generate",
-       "fast_ops.generate_lods with default ratios (1.0, 0.5, 0.25, 0.1): meshoptimizer simplify + cache/overdraw/fetch optimisation per level. with_uvs=true is the pipeline's call (seam-split points + UVs from unwrap, attribute-aware simplify); with_uvs=false is the weld-first path.",
-       "UV unwrap (done once, untimed, for the with_uvs cases), writing LODs anywhere.")
+       "fast_ops.generate_lods: levels bounded by one pixel of a 1080-pixel frame at the size each is shown (meshoptimizer simplify per attempt, a two-sided surface distance measured per attempt, cache/overdraw/fetch optimisation per level). with_uvs=true is the pipeline's call (seam-split points + UVs from unwrap, attribute-aware simplify); with_uvs=false is the weld-first path.",
+       "UV unwrap (done once, untimed, for the with_uvs cases), writing LODs anywhere. Assemblies of several parts: kernel.lod.assembly.")
 def d_lod(ctx: Ctx) -> list[Case]:
     budget = EngineBudget("unreal_5")
     cases = []
@@ -729,13 +782,54 @@ def d_collider_convex(ctx: Ctx) -> list[Case]:
 
 
 @bench("kernel.collider.concave",
-       "fast_ops.generate_colliders (max_hulls=8) on a concave U-shaped prism: topology check, CoACD decomposition (threshold 0.05, the package's settings), per-part hull.",
-       "Hull authoring. CoACD may use threads that OMP_NUM_THREADS does not cap; extra.process_cpu_over_wall shows whether it did.")
+       "fast_ops.generate_colliders (max_hulls=8) on concave input: a U-shaped prism (about 30 planar faces in 2,000 triangles), and one mesh holding three closed bodies (two U prisms and a cube). Topology check, the input CoACD is given, CoACD decomposition (threshold 0.05, the package's settings), per-part hull.",
+       "Hull authoring. CoACD is single-threaded here. extra.tightness is total hull volume over mesh volume (1.0 = the hulls enclose no empty space).")
 def d_collider_concave(ctx: Ctx) -> list[Case]:
-    label, m = [x for x in single_meshes(ctx) if x[0].startswith("u_shape")][0]
-    hulls = fast_ops.generate_colliders([m], 8)
-    return [timeit(lambda: fast_ops.generate_colliders([m], 8), ctx, params=_mesh_params(label, m),
-                   extra={"hulls": len(hulls), "sources": sorted({h.source for h in hulls})})]
+    subjects = [x for x in single_meshes(ctx) if x[0].startswith("u_shape")] + [("three_bodies", three_bodies_mesh())]
+    cases = []
+    for label, m in subjects:
+        hulls = fast_ops.generate_colliders([m], 8)
+        p, t = np.asarray(m.points, np.float64), np.asarray(m.triangles)
+        volume = float(abs(np.einsum("ij,ij->i", p[t[:, 0]], np.cross(p[t[:, 1]], p[t[:, 2]])).sum()) / 6.0)
+        cases.append(timeit(lambda m=m: fast_ops.generate_colliders([m], 8), ctx, params=_mesh_params(label, m),
+                            extra={"hulls": len(hulls), "sources": sorted({h.source for h in hulls}),
+                                   "tightness": round(sum(h.volume for h in hulls) / volume, 4)}))
+    return cases
+
+
+@bench("kernel.lod.assembly",
+       "ONE SAMPLE, NO WARM-UP: fast_ops.generate_asset_lods on a 2 m table top with 30 small parts on it (boxes and icospheres of 3 to 5 cm), with UVs: every part's levels (simplify and measure per attempt) and the search for parts that may be absent at far levels.",
+       "UV unwrap of the parts (once, untimed). One sample because the tree before the second round of fixes needed about a minute for this call; n=1, p95 null, and the first call also pays any first-use costs.")
+def d_lod_assembly(ctx: Ctx) -> list[Case]:
+    parts = assembly_meshes()
+    uvs = fast_ops.unwrap_scene(parts, EngineBudget("unreal_5"))
+    gc.collect()
+    t0 = time.perf_counter_ns()
+    chains = fast_ops.generate_asset_lods(uvs)
+    ms = (time.perf_counter_ns() - t0) / 1e6
+    levels = max(len(c) for c in chains.values())
+    return [Case({"mesh": "assembly_30_on_1", "parts": len(parts), "tris": int(sum(len(m.triangles) for m in parts))}, [ms],
+                 {"single_sample_no_warmup": True,
+                  "lod_tris": [int(sum(c[i].tri_count for c in chains.values() if i < len(c))) for i in range(levels)],
+                  "lod_parts_present": [int(sum(1 for c in chains.values() if i < len(c) and c[i].tri_count)) for i in range(levels)]})]
+
+
+@bench("kernel.collider.imperfect",
+       "ONE SAMPLE EACH, NO WARM-UP: fast_ops.generate_colliders (max_hulls=8) on input that is not one closed solid: two cubes that share an edge, a sphere with six faces missing, an open cup. The whole call: repair of the collider input, decomposition (in a child process with a deadline where its time is not known to be bounded), hulls.",
+       "Hull authoring. One sample because the tree before the second round of fixes took about 9 s, 2 minutes and 45 s for these three; n=1, p95 null. extra.fill is total hull volume over the volume of the input's convex hull (1.0 = one plain hull; lower follows the shape more closely); extra.sources and extra.reasons say how each hull was made.")
+def d_collider_imperfect(ctx: Ctx) -> list[Case]:
+    cases = []
+    for label, m in imperfect_meshes():
+        gc.collect()
+        t0 = time.perf_counter_ns()
+        hulls = fast_ops.generate_colliders([m], 8)
+        ms = (time.perf_counter_ns() - t0) / 1e6
+        convex = fast_ops._hull(np.asarray(m.points, np.float64))[2]
+        cases.append(Case(_mesh_params(label, m), [ms],
+                          {"single_sample_no_warmup": True, "hulls": len(hulls), "sources": sorted({h.source for h in hulls}),
+                           "reasons": sorted({r for r in (getattr(h, "reason", "") for h in hulls) if r}),
+                           "fill": round(sum(h.volume for h in hulls) / convex, 4) if convex > 0 else None}))
+    return cases
 
 
 def prop_kinds(ctx: Ctx) -> tuple[str, ...]:
@@ -782,7 +876,7 @@ def _add_textures(ctx: Ctx, scene, px: int):
 
 
 @bench("kernel.export.pipeline",
-       "fast_ops.run_export_pipeline: unwrap_scene (xatlas, one atlas per material) + generate_lods per mesh + generate_colliders. This is the 'UV + LOD + collider outside Blender' figure.",
+       "fast_ops.run_export_pipeline: unwrap_scene (exact charts for IR primitives, xatlas charts otherwise, one atlas per material) + generate_asset_lods + generate_colliders. This is the 'UV + LOD + collider outside Blender' figure.",
        "Package writing/validation, USD authoring, mesh extraction (meshes are prepared untimed). Per-stage medians from ExportBundle.timings_ms are in extra.parts_median_ms.")
 def d_pipeline(ctx: Ctx) -> list[Case]:
     budget = EngineBudget("unreal_5")
@@ -912,8 +1006,8 @@ def e_validate_cold(ctx: Ctx) -> list[Case]:
         size = sum(f.stat().st_size for f in w.out.rglob("*") if f.is_file())
         issues = validator.validate_package(w.out)
         cases.append(timeit(lambda: validator.validate_package(w.out), ctx,
-                            params={"subject": kind, "tris": w.p.tris, "files": len(w.man.files), "package_bytes": size},
-                            extra={"critical_issues": sum(i.severity == "critical" for i in issues)}))
+                            params={"subject": kind, "tris": w.p.tris, "files": len(w.man.files)},
+                            extra={"critical_issues": sum(i.severity == "critical" for i in issues), "package_bytes": size}))
     return cases
 
 
@@ -1574,11 +1668,49 @@ def k_sanitize(ctx: Ctx) -> list[Case]:
 
 
 # ---------------------------------------------------------------------------------------------------------
+# Web runtime check on written packages (needs Playwright and a Chromium; skipped with the reason otherwise)
+# ---------------------------------------------------------------------------------------------------------
+WEB_VERIFY_RUNS = 4
+
+
+@bench("web.verify",
+       "WebThreeValidator.validate on a written package, four times in a row in this process, for the crate without textures and the crate with six 1,024 px maps (384 px in --quick). The samples are verifications 2 to 4; extra.first_ms is the first one, which also pays whatever a first verification pays (browser start-up where the code keeps a browser running between verifications). Every verification must pass.",
+       "Writing the package (once, untimed). Software GL in headless Chromium, so the render figures are not a GPU's. The shared browser is shut down at the end so the benchmarks after this one start as they would alone.")
+def h_web_verify(ctx: Ctx) -> list[Case]:
+    from antigravity3d.adapters.engines import web_three
+
+    v = web_three.WebThreeValidator()
+    if not v.available():
+        raise Skipped(str(getattr(v, "_unavailable", lambda: None)() or "the web verifier cannot run on this machine"))
+    cases = []
+    try:
+        for px in (0, 384 if ctx.quick else 1024):
+            w = _written_package(ctx, "crate", px)
+            samples, checks = [], 0
+            for _ in range(WEB_VERIFY_RUNS):
+                gc.collect()
+                t0 = time.perf_counter_ns()
+                rep = asyncio.run(v.validate(w.out))
+                samples.append((time.perf_counter_ns() - t0) / 1e6)
+                if not rep.ok:
+                    raise RuntimeError(f"web check did not pass ({px or 'no'} px textures): {(rep.skipped_reason or rep.log_tail or '')[:200]}")
+                checks = len(getattr(rep, "checks", None) or [])
+            size = sum(f.stat().st_size for f in w.out.rglob("*") if f.is_file())
+            cases.append(Case({"subject": "crate", "tris": w.p.tris, "texture_px": px, "texture_files": 3 * len(w.p.scene.materials) if px else 0},
+                              samples[1:], {"first_ms": _r(samples[0]), "checks": checks, "package_bytes": size, "lod_levels": int(w.man.data.get("lod_levels", 0))}))
+    finally:
+        shared = getattr(sys.modules.get("antigravity3d.adapters.engines.web_browser"), "SHARED", None)
+        if shared is not None:
+            shared.shutdown()
+    return cases
+
+
+# ---------------------------------------------------------------------------------------------------------
 # Machine block, runner, CLI
 # ---------------------------------------------------------------------------------------------------------
-def _sh(cmd: list[str]) -> str:
+def _sh(cmd: list[str], cwd: Path = REPO) -> str:
     try:
-        return subprocess.run(cmd, cwd=REPO, capture_output=True, text=True, timeout=20).stdout.strip()
+        return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=20).stdout.strip()
     except Exception:  # noqa: BLE001
         return ""
 
@@ -1594,10 +1726,18 @@ def machine_block(quick: bool) -> dict[str, Any]:
             return md.version(d)
         except md.PackageNotFoundError:
             return None
+    # The measured code is whatever tree antigravity3d is imported from, which is not this file's tree when an older
+    # commit is measured from a worktree with this harness (PYTHONPATH=<worktree>/src). The commit recorded is the
+    # measured code's; the harness's own is added when it differs.
+    import antigravity3d
+
+    code = Path(antigravity3d.__file__).resolve().parent
+    commit, harness = _sh(["git", "rev-parse", "HEAD"], code), _sh(["git", "rev-parse", "HEAD"])
     return {
         "cpu_model": cpu, "logical_cpus": os.cpu_count(), "ram_gb": round(mem_kb / 1048576, 1),
         "os": f"{platform.system()} {platform.release()}", "python": sys.version.split()[0],
-        "git_commit": _sh(["git", "rev-parse", "HEAD"]), "git_dirty_tracked_files": len(_sh(["git", "status", "--porcelain", "--untracked-files=no"]).splitlines()),
+        "git_commit": commit, "git_dirty_tracked_files": len(_sh(["git", "status", "--porcelain", "--untracked-files=no"], code).splitlines()),
+        **({"harness_git_commit": harness} if harness != commit else {}),
         "versions": {d: ver(d) for d in ("antigravity-3d", "usd-core", "trimesh", "xatlas", "meshoptimizer", "coacd", "numpy", "scipy", "pillow")},
         "thread_pinning": "pinned_to_1" if THREAD_ENV else "library_defaults",
         "thread_env": {k: os.environ.get(k) for k in _PIN},
@@ -1655,6 +1795,8 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 cases = b.fn(ctx)
                 entry.update(status="ok", cases=[c.to_json() for c in cases])
+            except Skipped as e:
+                entry.update(status="skipped", reason=str(e)[:300], cases=[])
             except Exception as e:  # noqa: BLE001 - a failing benchmark must not abort the run
                 msg = f"{type(e).__name__}: {e}".replace("\n", " ")[:300]
                 entry.update(status="error", error=msg, cases=[])
@@ -1671,8 +1813,10 @@ def main(argv: list[str] | None = None) -> int:
     doc["machine"]["loadavg_at_end"] = [round(x, 2) for x in os.getloadavg()]
     doc["total_wall_s"] = round(time.perf_counter() - t_start, 1)
     _write(out, doc)
-    bad = [n for n, e in doc["benchmarks"].items() if e["status"] != "ok"]
-    print(f"done in {doc['total_wall_s']} s; {len(names) - len(bad)}/{len(names)} ok" + (f"; failed: {', '.join(bad)}" if bad else ""))
+    bad = [n for n, e in doc["benchmarks"].items() if e["status"] == "error"]
+    skipped = [n for n, e in doc["benchmarks"].items() if e["status"] == "skipped"]
+    print(f"done in {doc['total_wall_s']} s; {len(names) - len(bad) - len(skipped)}/{len(names)} ok"
+          + (f"; skipped: {', '.join(skipped)}" if skipped else "") + (f"; failed: {', '.join(bad)}" if bad else ""))
     return 1 if bad else 0
 
 
