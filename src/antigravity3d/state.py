@@ -28,7 +28,10 @@ class EngineBudget:
     texel_density_px_per_m: float = 1024.0
     max_uv_stretch: float = 0.05
     max_collision_hulls: int = 8
-    require_manifold: bool = True
+    # None: follow the target engine's rule (validator.ENGINE_RULES closed_render_meshes: an open authored mesh is critical
+    # for Roblox, which requires watertight geometry, and a warning for the engines that draw open meshes as a matter
+    # of course). True / False force it for every engine.
+    require_manifold: bool | None = None
     # Ship every authored triangle: no hidden contact faces are left out of the render meshes (see
     # fast_ops.run_export_pipeline). For assets whose parts will be moved apart in the engine (a lid, a door): the
     # faces two parts press together are hidden only while the parts stay where they were authored.

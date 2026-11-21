@@ -75,6 +75,7 @@ class _Topo:
     degenerate: int
     duplicates: int
     volume: float
+    euler: int = 2      # vertices - edges + faces of the welded mesh: 2 per sphere-like body, so more than 2 means several bodies
 
     @property
     def closed(self) -> bool:
@@ -106,7 +107,8 @@ def _topology(points: np.ndarray, tris: np.ndarray) -> _Topo:
     else:
         inconsistent = 0
     vol = float(np.einsum("ij,ij->i", p[:, 0], np.cross(p[:, 1], p[:, 2])).sum() / 6.0)
-    return _Topo(boundary, nonmanifold, inconsistent, degenerate, duplicates, vol)
+    euler = int(np.count_nonzero(np.bincount(t.ravel(), minlength=n))) - len(ukey) + len(t)
+    return _Topo(boundary, nonmanifold, inconsistent, degenerate, duplicates, vol, euler)
 
 
 def _single_component(points: np.ndarray, tris: np.ndarray) -> bool:
@@ -188,9 +190,32 @@ def _candidate_pairs(lo: np.ndarray, hi: np.ndarray, eps: float):
 ZFIGHT_EPS = 0.001
 
 
+# Two parts touch when their surfaces come within this distance (EL4CTEO/blender-skills qa_check.py: 2 mm). Measured on
+# the saved authored stages (88 files, 15 distinct assets): every part that rests on another is within 0.1 micrometre
+# of it, except the 50 micrometre gaps of the prop templates' rounded sizes (fixed in tactics/authoring.py); no part
+# there has a surface gap between 0.1 mm and 5 cm. A gap of a couple of millimetres is visible at close range and
+# is where light leaks between parts, so it is the smallest value that is not noise. Must not exceed ``touch_eps``,
+# the box window the candidate pairs are swept with. Not handled: two curved parts that touch in their ideal shapes
+# and miss only by their facets (two 16-segment spheres of radius 0.1 m can be 3.8 mm apart at a contact off the
+# axes); none of the saved stages has one, so the tolerance does not add the parts' facet sag.
+TOUCH_TOL = 0.002
+
+
+def closed_meshes_required(budget: EngineBudget) -> bool:
+    """Whether an open (not watertight) authored mesh fails the asset on the target engine: the engine rule table's
+    ``closed_render_meshes`` (validator.ENGINE_RULES) unless the budget says otherwise (``require_manifold`` set).
+    An engine the table does not know is held to the stricter reading."""
+    if budget.require_manifold is not None:
+        return budget.require_manifold
+    from antigravity3d.kernel.validator import ENGINE_RULES
+
+    rules = ENGINE_RULES.get(budget.target_engine)
+    return True if rules is None else rules.closed_render_meshes
+
+
 def tier1_qa(
     meshes: list[MeshData], budget: EngineBudget, ground_tol: float = 0.01, touch_eps: float = 0.005,
-    zfight_eps: float = ZFIGHT_EPS,
+    zfight_eps: float = ZFIGHT_EPS, touch_tol: float = TOUCH_TOL,
 ) -> Tier1Report:
     t0 = time.perf_counter()
     issues: list[Issue] = []
@@ -198,8 +223,10 @@ def tier1_qa(
     def add(code: str, sev: Severity, node: str | None, detail: str) -> None:
         issues.append(Issue(code, sev, node, detail))
 
-    manifold_sev: Severity = "critical" if budget.require_manifold else "warning"
+    open_sev: Severity = "critical" if closed_meshes_required(budget) else "warning"  # an open mesh: per engine
+    manifold_sev: Severity = "warning" if budget.require_manifold is False else "critical"  # an edge of 3+ faces
     valid: list[tuple[MeshData, bool, np.ndarray, np.ndarray]] = []  # mesh, closed, lo, hi
+    volumes: list[float] = []
     total_tris = total_verts = 0
     for m in meshes:
         pts = np.asarray(m.points, dtype=np.float64)
@@ -223,12 +250,22 @@ def tier1_qa(
         if topo.nonmanifold:
             add("non_manifold", manifold_sev, m.node_id, f"{topo.nonmanifold} edges shared by >2 faces")
         if topo.boundary:
-            add("not_watertight", manifold_sev, m.node_id, f"{topo.boundary} boundary edges")
+            add("not_watertight", open_sev, m.node_id, f"{topo.boundary} boundary edges: an open mesh shows its hole from behind (faces seen from "
+                f"behind are culled) unless the material is double-sided; Roblox requires watertight meshes")
         if topo.inconsistent:
             add("inconsistent_winding", "critical", m.node_id, f"{topo.inconsistent} edges with flipped winding")
         elif topo.closed and topo.volume < -1e-12:
             add("inverted_normals", "critical", m.node_id, f"signed volume {topo.volume:.4g} < 0")
+        elif not topo.nonmanifold and (topo.euler != 2 or not topo.closed):
+            # one volume for several bodies hides an inside-out one among right-way-round ones; a sphere-like single
+            # body has Euler characteristic 2 (most parts: skipped here, no component search)
+            inside_out = _inverted_bodies(pts, tri, topo.closed)
+            if inside_out:
+                k, n_bodies, vol = inside_out[0]
+                add("inverted_normals", "critical", m.node_id,
+                    f"body {k + 1} of {n_bodies} has signed volume {vol:.4g} < 0 ({len(inside_out)} inside out)")
         valid.append((m, topo.closed and topo.volume > 0, pts.min(axis=0), pts.max(axis=0)))
+        volumes.append(topo.volume)
 
     draw_calls = len({m.material_id for m in meshes})
     if total_tris > budget.max_tris:
@@ -245,18 +282,56 @@ def tier1_qa(
         if abs(lo[2]) > ground_tol:
             kind = "floating" if lo[2] > 0 else "sunk below ground"
             add("ungrounded", "warning", None, f"min z {lo[2]:.4f} m ({kind}, tol {ground_tol})")
-        touched = np.zeros(len(valid), dtype=bool)
         bounds_lo, bounds_hi = np.asarray([v[2] for v in valid]), np.asarray([v[3] for v in valid])
+        # Union-find over the parts and the ground (index n): a part is supported when it is joined to the ground, by
+        # resting on it or through a chain of touching parts. A pair whose parts are already in one group is not tested.
+        n = len(valid)
+        parent = list(range(n + 1))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for i in np.flatnonzero(bounds_lo[:, 2] <= ground_tol):  # resting on the ground (or sunk)
+            parent[find(int(i))] = n
+        gap = _PartGap(valid, volumes, touch_tol)
         near = []
         for i, j in _candidate_pairs(bounds_lo, bounds_hi, touch_eps):
-            touched[i] = touched[j] = True
             n_candidates += 1
             near.append((i, j))
+            ri, rj = find(i), find(j)
+            if ri != rj and gap.touch(i, j):
+                parent[ri if ri != n else rj] = rj if ri != n else ri
             _check_pair(valid[i], valid[j], add)
-        if len(valid) > 1:
-            for i in np.flatnonzero(~touched & (bounds_lo[:, 2] > ground_tol)):
-                add("floating_part", "warning", valid[i][0].node_id, f"AABB touches nothing; min z {bounds_lo[i, 2]:.3f}")
-            _check_zfight([v[0] for v in valid], zfight_eps, add, (bounds_lo, bounds_hi), near if zfight_eps <= touch_eps else None)
+        if n > 1:
+            groups: dict[int, list[int]] = {}
+            for i in range(n):
+                groups.setdefault(find(i), []).append(i)
+            loose = [g for root, g in groups.items() if root != find(n)]
+            if find(n) == n and not any(find(i) == n for i in range(n)) and loose:
+                # nothing rests on the ground (a hanging asset): the group with the most surface is its body
+                loose.remove(max(loose, key=lambda g: sum(_surface_area(valid[i][0]) for i in g)))
+            for g in sorted(loose, key=lambda g: min(valid[i][0].node_id for i in g)):
+                names = sorted(valid[i][0].node_id for i in g)
+                if len(g) == 1:
+                    i = g[0]
+                    inside = gap.enclosed_by(i, bounds_lo, bounds_hi)
+                    if inside is not None:  # inside another part, touching none: a hidden part (eyes, internals), not a hovering one
+                        other = valid[inside][0].node_id
+                        add("enclosed_part", "warning", names[0],
+                            f"inside {other}, surfaces more than {touch_tol * 1e3:g} mm from every part: its triangles are "
+                            f"never seen while {other} is opaque, and it floats if {other} is see-through")
+                        issues[:] = [x for x in issues if not (x.code == "interpenetration"
+                                                               and x.detail.split(":")[0] in (f"{names[0]}/{other}", f"{other}/{names[0]}"))]
+                    else:
+                        add("floating_part", "warning", names[0], gap.describe(g, bounds_lo, bounds_hi))
+                else:
+                    add("floating_group", "warning", names[0], f"{', '.join(names)} touch each other and nothing else; "
+                        + gap.describe(g, bounds_lo, bounds_hi))
+            _check_zfight([v[0] for v in valid], zfight_eps, add, (bounds_lo, bounds_hi), near if zfight_eps <= touch_eps else None,
+                          [v[1] for v in valid])
 
     ms = (time.perf_counter() - t0) * 1e3
     stats = {
@@ -272,14 +347,124 @@ def tier1_qa(
     return Tier1Report(not any(i.severity == "critical" for i in issues), issues, stats)
 
 
-def _check_zfight(meshes: list[MeshData], eps: float, add, bounds=None, pairs=None) -> None:
+def _inverted_bodies(pts: np.ndarray, tri: np.ndarray, closed: bool) -> list[tuple[int, int, float]]:
+    """(index, number of bodies, signed volume) of every closed body of a mesh that holds several and is wound inside
+    out (negative volume); empty for a single body (its own volume is the test) or when none is."""
+    bodies = _closed_bodies(pts, tri)
+    if bodies is None:
+        return []
+    out = []
+    for k, (bp, bt) in enumerate(bodies):
+        if closed:  # a closed mesh has only closed bodies
+            c = bp[bt]
+            vol = float(np.einsum("ij,ij->i", c[:, 0], np.cross(c[:, 1], c[:, 2])).sum() / 6.0)
+        else:
+            topo = _topology(bp, bt)
+            if not topo.closed:
+                continue
+            vol = topo.volume
+        if vol < -1e-12:
+            out.append((k, len(bodies), vol))
+    return out
+
+
+class _PartGap:
+    """Do two parts of one asset touch (their surfaces within ``tol``)? Answered by the cheapest exact means: the
+    distance of the boxes when it is over ``tol``; a closed form when both parts are axis-aligned boxes (most
+    parts); else the triangle tests of kernel/surface_gap on the triangles near the other part. Per-part data is
+    built on first use, so a part that touches nothing near it costs nothing."""
+
+    def __init__(self, valid, volumes: list[float], tol: float) -> None:
+        self.valid, self.volumes, self.tol = valid, volumes, tol
+        self.diag = float(np.linalg.norm(np.max([v[3] for v in valid], axis=0) - np.min([v[2] for v in valid], axis=0)))
+        self._box: dict[int, bool] = {}
+        self._tris: dict[int, object] = {}
+
+    def is_box(self, i: int) -> bool:
+        if i not in self._box:
+            from antigravity3d.kernel import surface_gap
+
+            m, closed, lo, hi = self.valid[i]
+            self._box[i] = bool(closed and surface_gap.is_axis_box(np.asarray(m.points, np.float64), lo, hi, self.volumes[i]))
+        return self._box[i]
+
+    def tris(self, i: int):
+        if i not in self._tris:
+            from antigravity3d.kernel import surface_gap
+
+            m = self.valid[i][0]
+            self._tris[i] = surface_gap.Tris(np.asarray(m.points, np.float64), np.asarray(m.triangles))
+        return self._tris[i]
+
+    def touch(self, i: int, j: int) -> bool:
+        from antigravity3d.kernel import surface_gap
+
+        (mi, _, li, hi_), (mj, _, lj, hj) = self.valid[i], self.valid[j]
+        if (np.maximum(np.maximum(li - hj, lj - hi_), 0.0) ** 2).sum() > self.tol * self.tol:
+            return False  # the boxes are farther apart than that
+        bi, bj = self.is_box(i), self.is_box(j)
+        if bi and bj:
+            return surface_gap.box_distance(li, hi_, lj, hj) <= self.tol
+        # a corner of one part on or at the surface of the other: parts that rest on each other (nearly all of them)
+        for a, b, box in ((i, j, bj), (j, i, bi)):
+            pts = np.asarray(self.valid[a][0].points, np.float64)
+            if box:
+                if (surface_gap.point_box_distance(pts, self.valid[b][2], self.valid[b][3]) <= self.tol).any():
+                    return True
+            elif surface_gap.corner_touches(pts, self.tris(b), self.valid[b][2], self.valid[b][3], self.tol):
+                return True
+        return surface_gap.within(self.tris(i), li, hi_, self.tris(j), lj, hj, self.tol)
+
+    def enclosed_by(self, i: int, lo: np.ndarray, hi: np.ndarray) -> int | None:
+        """A closed part whose volume holds all of part i (given that i touches nothing: it is then inside or outside)."""
+        inner = np.asarray(self.valid[i][0].points, np.float64)
+        pool = np.concatenate([inner, inner[np.asarray(self.valid[i][0].triangles)].mean(axis=1)])
+        if len(pool) > 96:
+            pool = pool[np.linspace(0, len(pool) - 1, 96).astype(int)]
+        for j in np.flatnonzero(np.all(lo <= lo[i], axis=1) & np.all(hi >= hi[i], axis=1)):
+            if j == i or not self.valid[j][1]:
+                continue
+            m = self.valid[j][0]
+            if _winding_inside(pool, np.asarray(m.points, np.float64)[np.asarray(m.triangles)]).all():
+                return int(j)
+        return None
+
+    def describe(self, group: list[int], lo: np.ndarray, hi: np.ndarray) -> str:
+        """Why a part or group floats, for whoever repairs it: the nearest part outside it, the surface distance to it
+        (from the vertices of each to the other's surface: exact for those points), where it lies and the lowest z."""
+        inside = set(group)
+        others = [j for j in range(len(self.valid)) if j not in inside]
+        gaps = np.array([[float(np.linalg.norm(np.maximum(np.maximum(lo[i] - hi[j], lo[j] - hi[i]), 0.0))) for j in others]
+                         for i in group])
+        a, k = np.unravel_index(int(np.argmin(gaps)), gaps.shape)
+        i, j = group[a], others[k]
+        d = np.inf
+        for x, y in ((i, j), (j, i)):
+            mx, my = self.valid[x][0], self.valid[y][0]
+            d = min(d, float(_SurfaceIndex(my.points, my.triangles).distances(np.asarray(mx.points, np.float64), 0.0).min()))
+        sep = np.maximum(lo[i] - hi[j], lo[j] - hi[i])  # per axis: positive when the boxes are apart on it
+        axis = int(np.argmax(sep)) if sep.max() > 0 else int(np.argmax(np.abs((lo[j] + hi[j]) - (lo[i] + hi[i]))))
+        sign = "+" if (lo[j][axis] + hi[j][axis]) >= (lo[i][axis] + hi[i][axis]) else "-"
+        where = {"+z": "above it", "-z": "below it"}.get(sign + "xyz"[axis], f"beside it ({sign}{'xyz'[axis]})")
+        return (f"surface {d * 1e3:.1f} mm from {self.valid[j][0].node_id}, the nearest part, which lies {where} "
+                f"(touch tolerance {self.tol * 1e3:g} mm); min z {min(lo[m][2] for m in group):.3f}")
+
+
+def _surface_area(m: MeshData) -> float:
+    c = np.asarray(m.points, np.float64)[np.asarray(m.triangles)]
+    u, v = c[:, 1] - c[:, 0], c[:, 2] - c[:, 0]
+    n = np.stack([u[:, 1] * v[:, 2] - u[:, 2] * v[:, 1], u[:, 2] * v[:, 0] - u[:, 0] * v[:, 2], u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]], axis=1)
+    return float(np.sqrt(np.einsum("ij,ij->i", n, n)).sum() / 2)
+
+
+def _check_zfight(meshes: list[MeshData], eps: float, add, bounds=None, pairs=None, solid=None) -> None:
     """Same-facing faces of two parts within ``eps`` of one plane whose areas overlap (more than a sliver
     ``eps`` wide; faces that only share an edge do not count): two surfaces at one depth, drawn in whichever
     order the depth buffer's rounding picks, so they flicker in every engine."""
     from antigravity3d.kernel import coplanar
 
     parts = [coplanar.Part(m.node_id, np.asarray(m.points, np.float64), np.asarray(m.triangles)) for m in meshes]
-    for i, j, area in coplanar.same_facing_overlaps(parts, eps, bounds=bounds, pairs=pairs):
+    for i, j, area in coplanar.same_facing_overlaps(parts, eps, bounds=bounds, pairs=pairs, solid=solid):
         add("z_fighting", "warning", meshes[i].node_id,
             f"{meshes[i].node_id}/{meshes[j].node_id}: {area * 1e4:.3g} cm^2 of same-facing faces within {eps * 1e3:g} mm of one plane")
 

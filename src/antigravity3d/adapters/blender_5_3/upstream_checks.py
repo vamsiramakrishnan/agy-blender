@@ -17,11 +17,12 @@ from typing import Any
 
 from antigravity3d.adapters.blender_5_3 import skills
 from antigravity3d.adapters.blender_5_3.pool import BlenderOpError
+from antigravity3d.kernel.fast_ops import TOUCH_TOL
 
-# qa_check's touch / ground tolerance (its ``tol``), in metres. Must equal the kernel's constant for the fast check
-# (kernel/fast_ops tier1_qa): the late check is never stricter than the fast one for the same defect, so nothing that
-# passes the fast check fails in Blender. Upstream's own default is the same 2 mm.
-QA_TOL_M = 0.002
+# qa_check's touch / ground tolerance (its ``tol``), in metres: the kernel's own constant for the fast check
+# (kernel/fast_ops tier1_qa), so the late check is never stricter than the fast one for the same defect and nothing
+# that passes the fast check fails in Blender. Upstream's own default is the same 2 mm.
+QA_TOL_M = TOUCH_TOL
 FLOATING_PREFIX = "floating/detached part in "
 SHOWN_WARNINGS = 4
 MAX_DETAIL = 600

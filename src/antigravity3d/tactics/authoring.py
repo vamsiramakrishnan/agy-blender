@@ -22,6 +22,7 @@ from antigravity3d.ir import (
     IRPatch, IROp, MaterialIR, NodeIR, SceneIR, SetParam, SetTransform, Transform, UpsertMaterial, UpsertNode, apply_patch,
 )
 from antigravity3d.kernel.compile_ir import primitive_mesh
+from antigravity3d.kernel.settle import beside_a_part
 from antigravity3d.state import EngineBudget
 
 GROUND_TOL = 0.01
@@ -117,7 +118,8 @@ def count_tris(scene: SceneIR) -> int:
 
 
 def _reground(scene: SceneIR, flagged: set[str]) -> list[IROp]:
-    """Drop each flagged node onto the nearest support below it (or the ground); lift sunk nodes."""
+    """Drop each flagged node onto the nearest support below it (or the ground); lift sunk nodes. A flagged node with
+    nothing under it but another part within reach is left where it is (kernel.settle.beside_a_part)."""
     ops: list[IROp] = []
     cur = scene
     for _ in range(len(scene.nodes) + 1):
@@ -128,6 +130,8 @@ def _reground(scene: SceneIR, flagged: set[str]) -> list[IROp]:
             lo, hi = bounds[nid]
             below = [h[2] for o, (l, h) in bounds.items() if o != nid and h[2] <= lo[2] + 1e-6
                      and (np.minimum(h[:2], hi[:2]) - np.maximum(l[:2], lo[:2]) > 1e-6).all()]
+            if not below and beside_a_part(bounds, nid):
+                continue  # beside the part it belongs to, not hovering: a drop to the ground would carry it away
             dz = (max(below) if below else 0.0) - lo[2]
             if abs(dz) > 1e-6 and (below or abs(lo[2]) > GROUND_TOL):
                 step = _move(cur, nid, np.array([0.0, 0.0, dz]))
@@ -216,14 +220,29 @@ def _slug(text: str) -> str:
     return name if name[0].isalpha() else f"A{name}"
 
 
+GRID = 4  # template coordinates are metres to 0.1 mm
+
+
+def _snap(centre: float, size: float) -> tuple[float, float]:
+    """(centre, size) of the extent centre +/- size/2 with both ends on the 0.1 mm grid. Rounding the size and the
+    centre each (as the helpers did) puts an end up to 0.1 mm off its grid value, so two parts whose ends are the
+    same number (a leg's top and the table top's underside) missed each other by up to 100 micrometres. Rounded at
+    the ends, equal ends stay equal, and the size and centre are exact for them (a centre between two grid values needs
+    one more decimal)."""
+    lo, hi = round(centre - size / 2, GRID), round(centre + size / 2, GRID)
+    return round((lo + hi) / 2, GRID + 1), round(hi - lo, GRID)
+
+
 def _box(i: str, size: tuple[float, float, float], at: tuple[float, float, float], mat: str, parent: str | None = None, **kw: Any) -> NodeIR:
-    return NodeIR(id=i, kind="box", params={"size": tuple(round(s, 4) for s in size)},
-                  transform=Transform(translate=tuple(round(a, 4) for a in at)), material_id=mat, parent=parent, **kw)
+    snapped = [_snap(a, s) for a, s in zip(at, size)]
+    return NodeIR(id=i, kind="box", params={"size": tuple(s for _, s in snapped)},
+                  transform=Transform(translate=tuple(c for c, _ in snapped)), material_id=mat, parent=parent, **kw)
 
 
 def _cyl(i: str, r: float, h: float, at: tuple[float, float, float], mat: str, seg: int, kind: str = "cylinder") -> NodeIR:
-    return NodeIR(id=i, kind=kind, params={"radius": round(r, 4), "height": round(h, 4), "segments": seg},
-                  transform=Transform(translate=tuple(round(a, 4) for a in at)), material_id=mat)
+    z, height = _snap(at[2], h)
+    return NodeIR(id=i, kind=kind, params={"radius": round(r, GRID), "height": height, "segments": seg},
+                  transform=Transform(translate=(round(at[0], GRID), round(at[1], GRID), z)), material_id=mat)
 
 
 _PRIMARY = (("wood", (0.52, 0.36, 0.2), 0.0, 0.8), ("metal", (0.55, 0.56, 0.6), 1.0, 0.4),
@@ -281,9 +300,11 @@ def _lamp(rng: random.Random, name: str, prompt: str) -> SceneIR:
     h, seg = rng.uniform(2.6, 3.6), rng.choice([12, 16])
     br = rng.uniform(0.12, 0.2)
     lamp = MaterialIR(id="glass", base_color=(1.0, 0.92, 0.7), roughness=0.2)
+    top = round(0.12 + h, GRID)  # the pole's top end, which the head's lowest point rests on
+    radius = round(br, GRID)
     nodes = [_cyl("base", 0.16, 0.12, (0, 0, 0.06), "iron", seg), _cyl("pole", 0.04, h, (0, 0, 0.12 + h / 2), "iron", seg),
-             NodeIR(id="head", kind="sphere", params={"radius": round(br, 3), "segments": seg, "rings": 8},
-                    transform=Transform(translate=(0, 0, round(0.12 + h + br, 4))), material_id="glass")]
+             NodeIR(id="head", kind="sphere", params={"radius": radius, "segments": seg, "rings": 8},
+                    transform=Transform(translate=(0, 0, round(top + radius, GRID))), material_id="glass")]
     return SceneIR(asset_name=name, nodes=nodes, materials=[_IRON, lamp])
 
 

@@ -276,6 +276,24 @@ def _glb_normals(path: Path) -> np.ndarray:
     return np.vstack(out)
 
 
+def test_a_part_that_lost_its_hidden_faces_keeps_the_art_directions_crease(tmp_path: Path) -> None:
+    """The post stands exactly on the body, so its bottom cap is a hidden contact face and is not shipped. The normals
+    rewritten for the part's remaining triangles must be the art direction's (0 degrees here, hard edges), not the
+    default's: the art_crease check of the package compares them with crease_normals at the shipped crease."""
+    from antigravity3d.kernel import coplanar
+
+    retro = STYLES["retro-lowres"]
+    budget = retro.budget(EngineBudget("godot_4"), "prop")
+    sm, _ = _crate(tmp_path / "a")
+    scene = sm.base_ir()
+    bundle = run_export_pipeline(sm.extract_meshes(), budget, "Crate", opaque_materials=coplanar.opaque_materials(scene))
+    pkg = write_engine_package(sm, bundle, budget, tmp_path / "a" / "pkg", asset_name="Crate", art=retro)
+    man = json.loads((pkg.out_dir / "manifest.json").read_text())
+    assert man["contact_faces"]["removed_per_part"] == {"post": 12}  # the post's bottom cap (the body's top is only partly covered)
+    assert pkg.ok, [i for i in pkg.issues if i.severity == "critical"]
+    assert not [i for i in pkg.issues if i.code == "pkg:art_crease"]
+
+
 def test_package_records_and_validates_an_art_direction(tmp_path: Path) -> None:
     retro = STYLES["retro-lowres"]
     budget = retro.budget(EngineBudget("godot_4"), "prop")

@@ -434,3 +434,20 @@ async def test_cancelling_pass_c_stops_the_running_web_verification(tmp_path: Pa
     with pytest.raises(asyncio.CancelledError):
         await task
     assert log == ["prestart", "verification cancelled", "release keep=False"], log
+
+
+async def test_settle_leaves_a_part_beside_another_instead_of_dropping_it_to_the_ground(tmp_path: Path) -> None:
+    """The exact floating test flags a sphere beside a box corner (bounding boxes touching, surfaces 41 mm apart). The
+    settle pass must not carry it 0.4 m down to the ground, away from the part it belongs to: it is left to the author."""
+    scene = SceneIR(asset_name="Prop", materials=[MaterialIR(id="wood")], nodes=[
+        NodeIR(id="body", kind="box", params={"size": (1, 1, 1)}, transform=Transform(translate=(0, 0, 0.5)), material_id="wood"),
+        NodeIR(id="ball", kind="sphere", params={"radius": 0.1, "segments": 24, "rings": 12},
+               transform=Transform(translate=(0.6, 0.6, 0.5)), material_id="wood")])
+    assert any(i.code == "floating_part" and i.node_id == "ball" for i in tier1_qa(setup(tmp_path, Script(), scene)[0].extract_meshes(), BUDGET).issues)
+    script = Script(blockout=lambda n: {"defect_floating": 0.9})
+    sm, plane = setup(tmp_path, script, scene)
+    author = CallableAuthor(lambda *a, **k: [], lambda *a, **k: None)
+    res = await run_a(sm, plane, author, tmp_path, max_rounds=2)
+    assert "left to the author" in res.stopped["A"], res.stopped
+    assert sm.base_ir().nodes[1].transform.translate == (0.6, 0.6, 0.5)   # not moved
+    assert author.calls["repair"] == 0

@@ -606,10 +606,12 @@ def _art_record(art: Any, budget: EngineBudget, textures: list[dict[str, Any]], 
 # --------------------------------------------------------------------------- the writer
 
 
-def _ship_lod0(stage: Usd.Stage, meshes: Sequence[MeshData], uvs: Sequence[UVResult]) -> dict[str, int]:
+def _ship_lod0(stage: Usd.Stage, meshes: Sequence[MeshData], uvs: Sequence[UVResult], crease_deg: float = CREASE_DEG) -> dict[str, int]:
     """Drops each part's hidden triangles (``UVResult.hidden``) from the LOD0 geometry of the package stage (a
     copy of the working stage, whose meshes stay closed). Points, uvs, weld map and chart ids are the working
-    stage's own values, indexed: the kept vertices are bit-identical to the closed mesh's. Returns removed
+    stage's own values, indexed: the kept vertices are bit-identical to the closed mesh's. The normals are rewritten
+    for the kept triangles at the shipped ``crease_deg`` (the art direction's, as for every other normal written: the
+    default rewrote them at 40 degrees on a part that lost faces, which the art_crease check rejects). Returns removed
     triangles per part."""
     removed: dict[str, int] = {}
     for m, u in zip(meshes, uvs):
@@ -623,7 +625,7 @@ def _ship_lod0(stage: Usd.Stage, meshes: Sequence[MeshData], uvs: Sequence[UVRes
         s = shipped(u)
         weld = prim.GetAttribute(compile_ir.UV_WELD_KEY).Get() if prim.HasAttribute(compile_ir.UV_WELD_KEY) else None
         author_mesh_data(prim, pts[s.vertices], s.triangles, s.uvs,
-                         weld_map=None if weld is None else np.asarray(weld, np.int32)[s.vertices])
+                         weld_map=None if weld is None else np.asarray(weld, np.int32)[s.vertices], crease_deg=crease_deg)
         if prim.HasAttribute(compile_ir.UV_CHART_KEY):
             attr = prim.GetAttribute(compile_ir.UV_CHART_KEY)
             chart = attr.Get()
@@ -703,7 +705,7 @@ def write_engine_package(
     layer = stage_manager.export_layer()
     stage = Usd.Stage.Open(layer)
     asset = stage.GetDefaultPrim()
-    removed = _ship_lod0(stage, meshes, uvs)
+    removed = _ship_lod0(stage, meshes, uvs, crease)
 
     textures, unresolved = _package_textures(stage, out, engine, art)
     if unresolved:

@@ -129,16 +129,29 @@ def Mesh "Quad"
     return path
 
 
-async def test_non_manifold_patch_rolled_back_byte_for_byte(env, tmp_path):
+def _open_sheet_patch(tmp_path):
+    quad = _open_quad_usda(tmp_path / "quad.usda")
+    return {"ops": [{"op": "upsert_node", "node": {"id": "sheet", "kind": "mesh_ref", "params": {"path": str(quad)},
+                                                   "transform": {"translate": [0, 0, 0]}}}]}
+
+
+async def test_open_mesh_patch_rolled_back_byte_for_byte_on_roblox(tmp_path):
+    """Roblox requires watertight meshes: an open sheet fails Tier-1 and the patch is rolled back (ENGINE_RULES)."""
+    env = make_session(tmp_path, budget=EngineBudget("roblox_r15"))
     await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
     before, stack = composed(env), list(env.state.tx_stack)
-    quad = _open_quad_usda(tmp_path / "quad.usda")
-    bad = {"ops": [{"op": "upsert_node", "node": {"id": "sheet", "kind": "mesh_ref", "params": {"path": str(quad)},
-                                                  "transform": {"translate": [0, 0, 0]}}}]}
-    r = check_line(await T.apply_scene_ir(json.dumps(bad), env.ctx), 1)
+    r = check_line(await T.apply_scene_ir(json.dumps(_open_sheet_patch(tmp_path)), env.ctx), 1)
     assert r.startswith("ROLLED BACK TIER1 FAIL") and "not_watertight" in r
     assert composed(env) == before
     assert env.state.tx_stack == stack == env.sess().stage.tx_stack
+    assert env.state.last_tier1_ok
+
+
+async def test_open_mesh_patch_is_accepted_with_a_warning_on_the_other_engines(env, tmp_path):
+    """Unreal, Unity and Godot draw open meshes (cards, planes): the same sheet is kept and the warning is in the reply."""
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    r = check_line(await T.apply_scene_ir(json.dumps(_open_sheet_patch(tmp_path)), env.ctx), 1)
+    assert r.startswith("OK tx=") and "warn: not_watertight@sheet" in r
     assert env.state.last_tier1_ok
 
 

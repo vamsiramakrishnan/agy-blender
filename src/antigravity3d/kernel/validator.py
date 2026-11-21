@@ -67,9 +67,11 @@ class EngineRules:
     notes: str = ""
     #: what one convex collision mesh may hold; ``generate_colliders`` caps hulls to it and ``validate_package`` checks it
     hull_limit: HullLimit | None = None
-    # Render meshes must stay closed solids: hidden contact faces between parts are not removed from what ships
-    # (see fast_ops.contact_faces_removable). Unreal, Unity and Godot document no such rule (they import and draw
-    # open meshes with back-face culling as a matter of course); Roblox does (below).
+    # Meshes must be closed solids. Where True (Roblox), tier1_qa fails an open authored mesh (not_watertight is
+    # critical; elsewhere a warning, see fast_ops.closed_meshes_required) and hidden contact faces between parts are
+    # not removed from what ships (fast_ops.contact_faces_removable). Unreal, Unity and Godot document no such rule
+    # (they import and draw open meshes, cards and planes, with back-face culling as a matter of course); Roblox
+    # does (below).
     closed_render_meshes: bool = False
 
 

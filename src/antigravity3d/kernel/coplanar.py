@@ -168,14 +168,16 @@ class Contacts:
 
 def coplanar_contacts(parts: list[Part], tol: float | None = None, *, facing: str = "both",
                       eligible: list[bool] | None = None, bounds: tuple[np.ndarray, np.ndarray] | None = None,
-                      pairs=None) -> Contacts:
+                      pairs=None, solid: list[bool] | None = None) -> Contacts:
     """Coplanar overlapping triangle pairs between different parts. ``facing``: "same", "opposite" or "both";
     ``eligible``: parts that take part (others are skipped). Pairs of triangles are narrowed in this order, each
     step cheap before the next: parts whose boxes touch (fast_ops' sweep), triangles near the other part's box,
     nearly parallel planes (|cos| > 0.99, the right sign), overlapping triangle boxes, every corner of each
     within ``tol`` of the other's plane; only then is the in-plane overlap computed exactly. ``bounds`` (per-part
     box corners) and ``pairs`` (part index pairs whose boxes touch within at least ``tol``) can be handed in by a
-    caller that has them (tier1_qa), so they are not computed twice."""
+    caller that has them (tier1_qa), so they are not computed twice. ``solid`` (per part: closed, positive volume; None =
+    all are): the same-facing box shortcut below holds for two solids only, so a pair with an open part (a decal, a
+    card pressed on a surface) skips it."""
     from antigravity3d.kernel.fast_ops import _candidate_pairs
 
     tol = asset_tolerance(parts) if tol is None else tol
@@ -210,7 +212,7 @@ def coplanar_contacts(parts: list[Part], tol: float | None = None, *, facing: st
         i, j = live[a_], live[b_]
         if ((np.minimum(hi[a_], hi[b_]) - np.maximum(lo[a_], lo[b_])) < -tol).any():
             continue  # a caller's pair from a wider sweep
-        if facing == "same":
+        if facing == "same" and (solid is None or (solid[i] and solid[j])):
             # Same-facing faces of two solids that overlap in their plane put both interiors on the same side of it,
             # so the solids' boxes overlap by their thickness along the normal. Boxes that only touch on some axis
             # (bricks side by side or stacked: the common harmless case) are rejected here, before any triangle.
@@ -295,10 +297,11 @@ def hidden_triangles(parts: list[Part], solid: list[bool], opaque: list[bool] | 
     return out
 
 
-def same_facing_overlaps(parts: list[Part], tol: float | None = None, *, bounds=None, pairs=None) -> list[tuple[int, int, float]]:
-    """(part i, part j, overlapping area in m^2) for every pair of closed parts with same-facing coplanar overlap
+def same_facing_overlaps(parts: list[Part], tol: float | None = None, *, bounds=None, pairs=None,
+                         solid: list[bool] | None = None) -> list[tuple[int, int, float]]:
+    """(part i, part j, overlapping area in m^2) for every pair of parts with same-facing coplanar overlap
     (faces within ``tol`` of one plane whose overlap is wider than ``tol``)."""
-    c = coplanar_contacts(parts, tol, facing="same", bounds=bounds, pairs=pairs)
+    c = coplanar_contacts(parts, tol, facing="same", bounds=bounds, pairs=pairs, solid=solid)
     acc: dict[tuple[int, int], float] = {}
     for i in range(len(parts)):
         ci, ni = (c.frames[i][0], c.frames[i][1]) if c.frames[i] is not None else (None, None)

@@ -43,6 +43,14 @@ blockout; if an op is missing, report it instead of using the escape hatch.
    (they flicker in every engine); move or resize one so the faces either
    meet back to back or differ by more than 1 mm. Parts pressed face to face
    are fine: the faces hidden between them are left out of the export.
+   Parts are judged by the distance between their surfaces (2 mm): a
+   floating_part warning means a part off the ground touches no other part,
+   and a floating_group means two or more parts touch each other and nothing
+   else; the detail names the nearest part, the gap and where it lies, so move
+   the part (or group) until it touches. An enclosed_part warning means a part
+   sits inside another without touching it: unseen while the outer part is
+   opaque, floating if it is see-through. A not_watertight warning is an open
+   mesh (critical for Roblox, which requires closed meshes).
    The blockout is clean when `session_status` shows `tier1=ok`. The
    `usd_verifier` subagent is not offered in BLOCKOUT, so do not delegate here.
    Then hand over to `pbr-material-forge`.

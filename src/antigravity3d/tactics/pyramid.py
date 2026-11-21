@@ -38,7 +38,7 @@ from antigravity3d.kernel.coplanar import opaque_materials
 from antigravity3d.kernel.fast_ops import CAPPED_MARK, ExportBundle, describe_collider_sources, run_export_pipeline, shipped, tier1_qa
 from antigravity3d.kernel.lod_diff import PopThresholds, lod_pop_report
 from antigravity3d.kernel.raster import CLAY, render_buffers
-from antigravity3d.kernel.settle import settle
+from antigravity3d.kernel.settle import beside_a_part, mesh_bounds, settle
 from antigravity3d.kernel.som import marked_contact_sheet
 from antigravity3d.kernel.validator import check_engine_compliance, validate_usd
 from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, EngineBudget
@@ -301,9 +301,12 @@ class _Run:
         meshes = self.sm.extract_meshes()
         ids = {m.node_id for m in meshes}
         floating = {i.node_id for i in t1.issues if i.code == "floating_part" and i.node_id} | (extra or set())
+        bounds = mesh_bounds(meshes)
+        beside = {n for n in floating if n in bounds and beside_a_part(bounds, n)}  # left to the author, see kernel/settle.py
+        floating -= beside
         movable = (floating & ids) or (ids if any(i.code == "ungrounded" for i in t1.issues) or extra == set() else set())
         if not movable:
-            return None, "nothing to settle"
+            return None, "floating part beside another part, not above anything: left to the author" if beside else "nothing to settle"
         try:
             sr = settle(meshes, movable)
             ops = sr.to_ir_ops(self.sm.base_ir())
@@ -698,12 +701,16 @@ class _Run:
         # Coplanar overlap between parts is a Tier-1 warning (z_fighting: same-facing faces in one plane) or, in the
         # package, an engine warning (double_sided_contact: back-to-back faces that a double-sided material draws):
         # neither blocks the export, both are visible defects, so the run report and the manifest carry them.
-        zfight = [f"{i.node_id}: {i.detail}" for i in tier1_qa(meshes, budget).issues if i.code == "z_fighting"]
+        t1_final = tier1_qa(meshes, budget).issues
+        zfight = [f"{i.node_id}: {i.detail}" for i in t1_final if i.code == "z_fighting"]
+        # the other Tier-1 warnings (an open mesh on an engine that draws them, a part that floats or is enclosed, ...)
+        t1_warnings = [f"{i.code}@{i.node_id}: {i.detail}" if i.node_id else f"{i.code}: {i.detail}"
+                       for i in t1_final if i.severity == "warning" and i.code != "z_fighting"]
 
         async def usd() -> tuple[str, str]:
             m = await asyncio.to_thread(write_engine_package, sm, bundle, budget, pkg, asset_name=scene.asset_name,
                                         qa={"tier15": res.tier15, "tier1_ok": res.tier1_ok, "defects": res.defects, "audit": res.audit,
-                                            "z_fighting": zfight},
+                                            "z_fighting": zfight, "tier1_warnings": t1_warnings},
                                         art=self.art)
             res.objects["package"] = m
             sided = [i.detail for i in m.issues if i.code.endswith(":double_sided_contact")]

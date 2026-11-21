@@ -79,14 +79,64 @@ def test_qa_speed_typical_prop():
     assert ms_each < 20
 
 
-def test_broken_open_mesh():
+def _open_box() -> trimesh.Trimesh:
     br = trimesh.creation.box((1, 1, 1))
     br.update_faces(np.arange(len(br.faces)) != 0)
-    rep = tier1_qa([md(br, "lid")], BUDGET)
+    return br
+
+
+def test_open_mesh_is_critical_on_roblox_and_a_warning_elsewhere():
+    """Roblox requires watertight meshes (ENGINE_RULES.closed_render_meshes); Unreal, Unity and Godot draw open meshes
+    as a matter of course: the same open part fails the asset on one and is reported on the other three."""
+    for engine in ("unreal_5", "unity_urp", "godot_4"):
+        rep = tier1_qa([md(_open_box(), "lid")], EngineBudget(engine))
+        assert rep.ok and "not_watertight" in codes(rep, "warning") and "not_watertight" not in codes(rep, "critical"), engine
+        assert "not_watertight" in rep.one_line() and rep.one_line().startswith("TIER1 OK | warn")
+    rep = tier1_qa([md(_open_box(), "lid")], EngineBudget("roblox_r15"))
     assert not rep.ok and "not_watertight" in codes(rep, "critical")
     assert "not_watertight@lid" in rep.one_line() and rep.one_line().startswith("TIER1 FAIL")
-    relaxed = tier1_qa([md(br, "lid")], EngineBudget("unreal_5", require_manifold=False))
+    detail = next(i.detail for i in rep.issues if i.code == "not_watertight")
+    assert "culled" in detail and "double-sided" in detail and "Roblox" in detail  # what it costs, for whoever reads it
+
+
+def test_require_manifold_overrides_the_engine_rule():
+    assert not tier1_qa([md(_open_box(), "lid")], EngineBudget("unreal_5", require_manifold=True)).ok
+    relaxed = tier1_qa([md(_open_box(), "lid")], EngineBudget("roblox_r15", require_manifold=False))
     assert relaxed.ok and "not_watertight" in codes(relaxed, "warning")
+    # the rule table is the one source: an engine whose rule says closed is critical, one that does not is a warning
+    from antigravity3d.kernel.validator import ENGINE_RULES
+    for engine, rule in ENGINE_RULES.items():
+        rep = tier1_qa([md(_open_box(), "lid")], EngineBudget(engine))
+        assert ("not_watertight" in codes(rep, "critical")) == rule.closed_render_meshes, engine
+
+
+def test_non_manifold_stays_critical_on_every_engine():
+    b = trimesh.creation.box((1, 1, 1))
+    f = np.vstack([b.faces, [[0, 1, 4]]])  # a third face on an existing edge
+    t = trimesh.Trimesh(b.vertices, f, process=False)
+    for engine in ("unreal_5", "unity_urp", "godot_4", "roblox_r15"):
+        assert "non_manifold" in codes(tier1_qa([md(t, "nm")], EngineBudget(engine)), "critical"), engine
+
+
+def test_open_part_with_an_inside_out_body_is_still_found():
+    """An open mesh holds an inside-out closed body: the total volume cannot say, the bodies can."""
+    sheet = trimesh.creation.box((1, 1, 1))
+    sheet.update_faces(np.arange(len(sheet.faces)) != 0)
+    small = trimesh.creation.box((0.2, 0.2, 0.2))
+    small.apply_translation([3, 0, 0])
+    small.invert()
+    pts = np.vstack([sheet.vertices, small.vertices])
+    tri = np.vstack([sheet.faces, small.faces + len(sheet.vertices)])
+    rep = tier1_qa([MeshData("Mixed", "/A/Mixed", pts, tri.astype(np.int32), "m")], EngineBudget("unreal_5"))
+    assert "inverted_normals" in codes(rep, "critical") and "not_watertight" in codes(rep, "warning")
+
+
+def test_open_part_inverted_normals_cannot_be_judged():
+    """An open single body has no inside: reversing its winding changes nothing the check can see (documented)."""
+    sheet = _open_box()
+    sheet.invert()
+    rep = tier1_qa([md(sheet, "lid")], EngineBudget("unreal_5"))
+    assert "inverted_normals" not in codes(rep) and "not_watertight" in codes(rep, "warning")
 
 
 def test_inverted_and_inconsistent_winding():
@@ -1056,3 +1106,143 @@ def test_export_pipeline_caps_hulls_for_its_target_engine():
         assert len(h.points) <= vertices and CAPPED_MARK in h.reason
         assert "capped to the engine's hull limit" in describe_collider_sources([h])
     assert len(run_export_pipeline([m], EngineBudget("roblox_r15"), "Ball").colliders[0].points) == 1986
+
+
+# --------------------------------------------------------------------------- floating parts by surface distance
+
+
+def _shape(nid: str, kind: str, at=(0.0, 0.0, 0.0), **params) -> MeshData:
+    from antigravity3d.ir import NodeIR
+    from antigravity3d.kernel.compile_ir import primitive_mesh
+
+    p, t = primitive_mesh(NodeIR(id=nid, kind=kind, params=params))
+    return MeshData(nid, f"/Asset/{nid}", np.asarray(p, np.float64) + np.asarray(at, np.float64), np.asarray(t, np.int32), "m")
+
+
+def _slab(nid: str, lo, hi) -> MeshData:
+    return _shape(nid, "box", tuple((np.asarray(lo) + np.asarray(hi)) / 2), size=tuple(np.asarray(hi) - np.asarray(lo)))
+
+
+def _issues(rep, code):
+    return [i for i in rep.issues if i.code == code]
+
+
+def test_sphere_beside_a_box_corner_floats_though_the_boxes_touch():
+    """Audit gap 5 (probe B1, rows G3/G4): bounding boxes touch, the surfaces are 41 mm apart."""
+    ms = [_slab("A", (-0.5, -0.5, 0), (0.5, 0.5, 1)), _shape("S", "sphere", (0.6, 0.6, 0.5), radius=0.1, segments=24, rings=12)]
+    (issue,) = _issues(tier1_qa(ms, BUDGET), "floating_part")
+    assert issue.node_id == "S" and "41." in issue.detail and "beside" in issue.detail and "2 mm" in issue.detail
+    resting = [ms[0], _shape("S", "sphere", (0.5 + 0.1, 0.0, 0.5), radius=0.1, segments=24, rings=12)]  # tangent to the +x face
+    assert not codes(tier1_qa(resting, BUDGET))
+
+
+def test_touch_tolerance_is_two_millimetres_of_surface():
+    base = _slab("A", (-0.5, -0.5, 0), (0.5, 0.5, 1))
+    for gap, floats in ((0.0, False), (50e-6, False), (0.0019, False), (0.003, True), (0.02, True)):
+        cap = _slab("T", (-0.2, -0.2, 1 + gap), (0.2, 0.2, 1.2 + gap))
+        assert bool(_issues(tier1_qa([base, cap], BUDGET), "floating_part")) is floats, gap
+
+
+def test_barrel_hoops_cross_the_body_and_are_not_floating():
+    body = _shape("body", "cylinder", (0, 0, 0.5), radius=0.4, height=1.0, segments=16)
+    hoop = _shape("hoop", "cylinder", (0, 0, 0.5), radius=0.416, height=0.04, segments=16)
+    ring = _shape("ring", "cylinder", (0, 0, 0.8), radius=0.416, height=0.04, segments=16)
+    rep = tier1_qa([body, hoop, ring], BUDGET)
+    assert not _issues(rep, "floating_part") and not _issues(rep, "floating_group")
+
+
+def test_part_on_the_ground_needs_no_neighbour_and_a_chain_reaches_the_ground():
+    lone = _shape("lone", "sphere", (3, 0, 0.1), radius=0.1, segments=16, rings=8)           # rests on the ground, touches nothing
+    a = _slab("A", (-0.5, -0.5, 0), (0.5, 0.5, 1))
+    b = _slab("B", (-0.2, -0.2, 1), (0.2, 0.2, 1.2))
+    c = _shape("C", "sphere", (0, 0, 1.3), radius=0.1, segments=16, rings=8)                 # on B, B on A, A on the ground
+    assert not codes(tier1_qa([lone, a, b, c], BUDGET))
+
+
+def test_two_parts_that_touch_each_other_and_nothing_else_are_a_floating_group():
+    a = _slab("A", (-0.5, -0.5, 0), (0.5, 0.5, 1))
+    g1, g2 = _slab("g2", (2, 2, 1), (2.4, 2.4, 1.4)), _slab("g1", (2, 2, 1.4), (2.4, 2.4, 1.8))
+    rep = tier1_qa([a, g1, g2], BUDGET)
+    (issue,) = _issues(rep, "floating_group")
+    assert issue.node_id == "g1" and issue.severity == "warning" and "g1, g2" in issue.detail and "from A" in issue.detail
+    assert not _issues(rep, "floating_part") and rep.ok
+
+
+def test_an_asset_with_nothing_on_the_ground_keeps_its_largest_group_as_the_body():
+    top = _slab("top", (-0.5, -0.5, 2), (0.5, 0.5, 3))
+    leg = _slab("leg", (-0.5, -0.5, 1), (-0.4, -0.4, 2))
+    far = _slab("far", (3, 3, 3), (3.2, 3.2, 3.2))
+    rep = tier1_qa([top, leg, far], BUDGET)
+    assert [i.node_id for i in _issues(rep, "floating_part")] == ["far"] and not _issues(rep, "floating_group")
+    assert "ungrounded" in codes(rep, "warning")
+
+
+def test_an_enclosed_part_is_reported_on_its_own_and_not_as_floating_or_interpenetration():
+    outer = _slab("outer", (-0.5, -0.5, 0), (0.5, 0.5, 1))
+    eye = _shape("eye", "sphere", (0, 0, 0.5), radius=0.1, segments=16, rings=8)
+    rep = tier1_qa([outer, eye], BUDGET)
+    (issue,) = _issues(rep, "enclosed_part")
+    assert issue.severity == "warning" and issue.node_id == "eye" and "inside outer" in issue.detail
+    assert "opaque" in issue.detail and "see-through" in issue.detail
+    assert not _issues(rep, "floating_part") and not _issues(rep, "interpenetration") and rep.ok
+    near_wall = _shape("eye", "sphere", (0.3995, 0, 0.5), radius=0.1, segments=16, rings=8)  # 0.5 mm from the wall: it touches
+    assert not _issues(tier1_qa([outer, near_wall], BUDGET), "enclosed_part")
+
+
+def test_floating_checks_skip_pairs_already_joined(monkeypatch):
+    """A pair whose parts are already in one group is never tested (the cost of the check is one test per part)."""
+    from antigravity3d.kernel import fast_ops
+
+    calls = []
+    real = fast_ops._PartGap.touch
+    monkeypatch.setattr(fast_ops._PartGap, "touch", lambda self, i, j: calls.append((i, j)) or real(self, i, j))
+    ms = [_slab(f"b{k}", (0, 0, k * 0.2), (0.4, 0.4, (k + 1) * 0.2)) for k in range(6)]   # a stack: every box touches two others
+    ms += [_slab(f"c{k}", (0.1, 0.1, k * 0.2 + 0.05), (0.3, 0.3, k * 0.2 + 0.15)) for k in range(3)]  # inside: crossing, same group
+    assert not _issues(tier1_qa(ms, BUDGET), "floating_part")
+    assert len(calls) < len(ms)  # one test per part at most (nine parts, one on the ground)
+
+
+# --------------------------------------------------------------------------- inside-out body in a multi-body mesh
+
+
+def _two_bodies(small_inverted: bool, big_inverted: bool = False) -> MeshData:
+    big = trimesh.creation.box((1, 1, 1))
+    small = trimesh.creation.box((0.2, 0.2, 0.2))
+    small.apply_translation([2, 0, 0])
+    if small_inverted:
+        small.invert()
+    if big_inverted:
+        big.invert()
+    pts = np.vstack([big.vertices, small.vertices])
+    tri = np.vstack([big.faces, small.faces + len(big.vertices)])
+    return MeshData("Two", "/Asset/Two", pts + [0, 0, 0.5], tri.astype(np.int32), "m")
+
+
+def test_inside_out_small_body_of_a_two_body_mesh_is_found_per_body():
+    """Audit gap 6 (probe C1): the total volume is positive, the small body is inside out."""
+    mesh = _two_bodies(small_inverted=True)
+    assert _topology(mesh.points, mesh.triangles).volume > 0
+    (issue,) = _issues(tier1_qa([mesh], BUDGET), "inverted_normals")
+    assert issue.severity == "critical" and "body 2 of 2" in issue.detail and issue.node_id == "Two"
+    assert tier1_qa([mesh], BUDGET).ok is False
+
+
+def test_two_good_bodies_and_the_single_body_paths_are_unchanged():
+    assert not codes(tier1_qa([_two_bodies(False)], BUDGET), "critical")
+    assert "inverted_normals" in codes(tier1_qa([_two_bodies(False, big_inverted=True)], BUDGET), "critical")  # the big one: also found
+    assert "inverted_normals" in codes(tier1_qa([_two_bodies(True, big_inverted=True)], BUDGET), "critical")   # total negative: as before
+    inv = trimesh.creation.box((1, 1, 1)); inv.invert()
+    (issue,) = _issues(tier1_qa([md(inv, "inv")], BUDGET), "inverted_normals")
+    assert "signed volume" in issue.detail and "body" not in issue.detail  # a single body: the old message
+
+
+def test_bodies_that_touch_at_a_vertex_are_separate_bodies():
+    a = trimesh.creation.box((1, 1, 1))
+    b = trimesh.creation.box((1, 1, 1))
+    b.apply_translation([1, 1, 1])      # shares only the corner (0.5, 0.5, 0.5)
+    b.invert()
+    big = trimesh.creation.box((1, 1, 1)); big.apply_scale(3); big.apply_translation([-2, -2, -2])
+    pts = np.vstack([big.vertices, b.vertices])
+    tri = np.vstack([big.faces, b.faces + len(big.vertices)])
+    rep = tier1_qa([MeshData("V", "/A/V", pts + [0, 0, 5], tri.astype(np.int32), "m")], BUDGET)
+    assert "inverted_normals" in codes(rep, "critical")
