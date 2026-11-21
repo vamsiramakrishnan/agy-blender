@@ -21,8 +21,8 @@ hard limits.
 | Units at export | m (metersPerUnit 1.0; not scaled to cm) | m | m | m (1 stud is about 0.28 m, hint) |
 | Collision naming | `UCX_<Mesh>_NN` hulls | collider components, no named hulls | `-col` / `-convcol` / `-colonly` suffixes | engine-generated or simplified parts |
 | Per-mesh triangle cap | none enforced; keep to budget | 65,535 vertices per 16-bit index mesh | none enforced; keep to budget | 10,000 tris per MeshPart |
-| Max texture side | 8192 (hint; larger needs VT) | 8192 (importer default, hint) | 16384 (GPU-dependent, hint) | 1024 (larger is downscaled) |
-| Textures per material | ORM + albedo + normal | ORM + albedo + normal (URP Lit) | ORM + albedo + normal | 4 SurfaceAppearance maps: Color, Normal, Metalness, Roughness |
+| Max texture side | 8192 (hint; larger needs VT) | 8192 (importer default, hint) | 16384 (GPU-dependent, hint) | 1024 (Creator Hub: "up to 1024x1024 pixel spaces for texture maps"; maps are generated at 1024) |
+| Textures per material | ORM + albedo + normal | ORM + albedo + normal (URP Lit) | ORM + albedo + normal | 4 SurfaceAppearance maps: Color, Normal, Metalness, Roughness; the package also writes separate metalness and roughness PNGs (manifest key roblox_surface_appearance) beside the packed ORM map |
 | Power-of-two textures | required (mip streaming) | recommended | recommended | recommended |
 | Normal map convention | DirectX (green flipped at export) | OpenGL | OpenGL | OpenGL |
 | Node and prim names | `[A-Za-z0-9_]+` | `[A-Za-z0-9_]+` (studio convention) | no `. : @ / " %` | `[A-Za-z0-9_]+` |

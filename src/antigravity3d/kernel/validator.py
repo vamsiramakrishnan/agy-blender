@@ -13,7 +13,7 @@ from urllib.parse import unquote
 import numpy as np
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, UsdValidation
 
-from antigravity3d.kernel.fast_ops import HullLimit, Issue, hull_plane_count
+from antigravity3d.kernel.fast_ops import TEXEL_TARGET_WARN_FRACTION, HullLimit, Issue, hull_plane_count
 from antigravity3d.kernel.types import MeshData, bounds_issue, gltf_world_bounds
 from antigravity3d.state import EngineBudget, TargetEngine
 
@@ -67,6 +67,11 @@ class EngineRules:
     notes: str = ""
     #: what one convex collision mesh may hold; ``generate_colliders`` caps hulls to it and ``validate_package`` checks it
     hull_limit: HullLimit | None = None
+    #: a mesh object takes one material. Roblox: "Mesh objects can only have one material assigned." (texture specifications,
+    #: https://create.roblox.com/docs/art/modeling/texture-specifications) and a glTF mesh arrives as "one MeshPart for each
+    #: primitive" (https://create.roblox.com/docs/art/modeling/3d-importer): several materials arrive as several MeshParts.
+    #: A warning: how a SurfaceAppearance binds to each part was not observed in Studio.
+    one_material_per_part: bool = False
     # Meshes must be closed solids. Where True (Roblox), tier1_qa fails an open authored mesh (not_watertight is
     # critical; elsewhere a warning, see fast_ops.closed_meshes_required) and hidden contact faces between parts are
     # not removed from what ships (fast_ops.contact_faces_removable). Unreal, Unity and Godot document no such rule
@@ -140,7 +145,7 @@ ENGINE_RULES: dict[TargetEngine, EngineRules] = {
         # GLB is Y-up by the glTF spec. The importer's World Up defaults to "Top". The USD axis is a package convention.
         allowed_up_axes=("Y",),
         # "Length 1 stud 28 cm" (https://create.roblox.com/docs/physics/units). The importer's "Scale Unit [...] By
-        # default, this is set to Studs" (3D importer page): a metre GLB needs Scale Unit = Meters on import.
+        # default, this is set to Studs" (3D importer page); no other option is listed there. The GLB is in metres.
         meters_per_unit=(1.0, 0.28),
         name_regex=r"^[A-Za-z0-9_]+$",
         hull_prim_regex=None,
@@ -163,8 +168,42 @@ ENGINE_RULES: dict[TargetEngine, EngineRules] = {
         # Creator Hub "Mesh specifications": "Watertight - All geometry must be watertight without exposed holes or
         # backfaces." and "Volume - Meshes cannot be 0 thickness and must have some volume."
         closed_render_meshes=True,
+        one_material_per_part=True,
     ),
 }
+
+
+def texel_density_issues(report: dict, engine: str) -> list[Issue]:
+    """Warnings from ``fast_ops.texel_density_report``: a material whose atlas missed the target density, and a spread
+    across materials above ``TEXEL_SPREAD_LIMIT``. Never a failure. A target missed by less than 10 % is recorded
+    (``target_met`` False) but not warned about."""
+    out: list[Issue] = []
+    target = report["target_px_per_m"]
+    mats = report["materials"]
+    for name, m in mats.items():
+        if not m["target_met"] and m["px_per_m"] < target * TEXEL_TARGET_WARN_FRACTION:
+            need = m.get("needed_map_px") or m["needed_atlas_px"]
+            cap = m.get("engine_max_texture_px")
+            reach = (f"; {need} px is above this engine's {cap} px maximum, so a larger map cannot reach it: split the material or "
+                     f"shrink the part") if cap and need > cap else f" ({m['needed_atlas_px_pow2']} px as a power of two)"
+            out.append(Issue(f"{engine}:texel_density_target", "warning", name,
+                             f"material '{name}' reaches {m['px_per_m']:g} px/m in its {m['atlas_px']} px atlas, below the target "
+                             f"{target:g}; its maps would need {need} px to hold the charts at the target{reach}"
+                             + (f". Shipped at {m['map_px']} px it is {m['shipped_px_per_m']:g} px/m" if m.get("map_px") else "")))
+    spread = report.get("spread")
+    if spread is not None and spread > report["spread_limit"] and len(mats) > 1:
+        hi, lo = report["highest"], report["lowest"]
+        out.append(Issue(f"{engine}:texel_density_spread", "warning", None,
+                         f"texel density differs {spread:.2f}x across materials (limit {report['spread_limit']:g}x): "
+                         f"'{hi}' {mats[hi]['px_per_m']:g} px/m against '{lo}' {mats[lo]['px_per_m']:g} px/m"))
+    return out
+
+
+def engine_texture_px(engine: str, default: int) -> int:
+    """``default`` map side, never above the engine's documented ``max_texture_px`` (the image backend generates 1024, 2048
+    or 4096 directly, so a map is generated at the size it ships at instead of being shrunk afterwards)."""
+    cap = ENGINE_RULES[engine].max_texture_px
+    return min(default, cap) if cap else default
 
 
 def _texture_assets(stage: Usd.Stage) -> dict[str, list[str]]:
@@ -273,6 +312,11 @@ def check_engine_compliance(stage: Usd.Stage | None, meshes: list[MeshData], bud
     draws = len({m.material_id for m in meshes})
     if draws > budget.max_draw_calls:
         add("draw_call_budget", "critical", None, f"{draws} draw calls > {budget.max_draw_calls}")
+    if rules.one_material_per_part and draws > 1:
+        add("material_per_part", "warning", None,
+            f"{draws} materials: Roblox documents \"Mesh objects can only have one material assigned\" (texture specifications) and "
+            f"imports a glTF mesh as \"one MeshPart for each primitive\" (3D importer), so this asset arrives as at least {draws} "
+            f"MeshParts, one per material. How a SurfaceAppearance binds to each was not checked in Studio.")
     if why := scale_issue(meshes):
         add("implausible_scale", "warning", None, why)
 

@@ -35,12 +35,15 @@ from antigravity3d.ir import (
 from antigravity3d.art_direction import texture_brief
 from antigravity3d.kernel.compile_ir import CREASE_DEG, crease_normals
 from antigravity3d.kernel.coplanar import opaque_materials
-from antigravity3d.kernel.fast_ops import CAPPED_MARK, ExportBundle, describe_collider_sources, run_export_pipeline, shipped, tier1_qa
+from antigravity3d.kernel.fast_ops import (
+    CAPPED_MARK, ExportBundle, describe_collider_sources, describe_texel_density, run_export_pipeline, shipped, texel_density_report,
+    tier1_qa,
+)
 from antigravity3d.kernel.lod_diff import PopThresholds, lod_pop_report
 from antigravity3d.kernel.raster import CLAY, render_buffers
 from antigravity3d.kernel.settle import beside_a_part, mesh_bounds, settle
 from antigravity3d.kernel.som import marked_contact_sheet
-from antigravity3d.kernel.validator import check_engine_compliance, validate_usd
+from antigravity3d.kernel.validator import check_engine_compliance, engine_texture_px, validate_usd
 from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, EngineBudget
 from antigravity3d.tactics.cached import cached_export_pipeline
 from antigravity3d.tactics.common import IMAGE_USD, Uploader, png_bytes, uploader_for
@@ -257,8 +260,12 @@ class _Run:
 
     def texture_px(self) -> int | None:
         """The art direction's map size for this engine (None: the pipeline's default)."""
-        if self.art is None or self.art.texture_px_prop is None or self.forge is None:
+        if self.forge is None:
             return None
+        if self.art is None or self.art.texture_px_prop is None:  # the default size, capped to the engine's (Roblox: 1024)
+            default = default_texture_px(self.forge)
+            capped = engine_texture_px(self.budget.target_engine, default)
+            return capped if capped < default else None
         return self.art.texture_px(self.budget.target_engine, "prop", default_texture_px(self.forge))
 
     # ---- bookkeeping --------------------------------------------------------------------------------
@@ -677,6 +684,9 @@ class _Run:
             levels = [sum(shipped(v[k]).tri_count for v in bundle.lods.values()) for k in range(min((len(v) for v in bundle.lods.values()), default=0))]
             bad = [u.node_id for u in bundle.uvs if not u.within(budget)]
             desc = f"uv={len(bundle.uvs)} lod_tris={levels} hulls={len(bundle.colliders)}"
+            density = texel_density_report(bundle.uvs, budget.texel_density_px_per_m)
+            if density["materials"]:
+                desc += f" texel_density: {describe_texel_density(density)}"
             if any(h.source == "body_hull" or CAPPED_MARK in h.reason for h in bundle.colliders):  # a fallback or cap is never silent
                 desc += f" ({describe_collider_sources(bundle.colliders)})"
             if any(b >= a for a, b in zip(levels, levels[1:])):

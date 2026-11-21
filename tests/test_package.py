@@ -383,7 +383,9 @@ def test_manifest_contents_and_clean_validation(unreal, godot):
         assert all(len(v["sha256"]) == 64 for v in man["file_hashes"].values())
         assert man["validation"]["package_ok"] and man["validation"]["package"] == []
         assert not [i for i in man["validation"]["usd"] + man["validation"]["engine"] if i["severity"] == "critical"]
-        assert pm.ok and pm.issues == [] and validate_package(pm.out_dir) == []
+        # the fixture's 1.5 m parts do not fit a 2048 px atlas at 1024 px/m: that is the one (new) warning it may carry
+        assert pm.ok and all(i.code.endswith(":texel_density_target") and i.severity == "warning" for i in pm.issues)
+        assert validate_package(pm.out_dir) == []
         # where every GLB keeps its images: LOD0 embeds them all, far LODs reference textures/, colliders have none
         glbs = [f for f in man["files"] if f.endswith(".glb")]
         assert sorted(man["glb_images"]) == sorted(glbs) and man["lod_levels"] >= 2

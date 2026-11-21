@@ -57,7 +57,9 @@ from antigravity3d.kernel import compile_ir
 from antigravity3d.kernel.compile_ir import (
     CREASE_DEG, IR_KEY, MapSource, MaterialParams, author_mesh_data, read_ir, read_material, set_normal_encoding,
 )
-from antigravity3d.kernel.fast_ops import ExportBundle, Hull, Issue, LOD, UVResult, gltf_default_material, shipped, write_gltf
+from antigravity3d.kernel.fast_ops import (
+    ExportBundle, Hull, Issue, LOD, UVResult, gltf_default_material, shipped, texel_density_report, write_gltf,
+)
 from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, Sampler, TextureRef
 from antigravity3d.kernel.types import MeshData, gltf_world_bounds
 from antigravity3d.kernel.usdz import create_usdz
@@ -66,6 +68,7 @@ from antigravity3d.kernel.validator import (
     PACKAGE_TEXTURE_DIR,
     check_engine_compliance,
     glb_images,
+    texel_density_issues,
     validate_package,
     validate_usd,
 )
@@ -286,6 +289,80 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str, art: Any = None)
             mat.SetCustomDataByKey("agy:normalConvention", "opengl")
     _relativise_embedded_ir(stage, records)
     return records, unresolved
+
+
+_ROBLOX_TEXTURES = "https://create.roblox.com/docs/art/modeling/texture-specifications"
+_ROBLOX_IMPORTER = "https://create.roblox.com/docs/art/modeling/3d-importer"
+_ROBLOX_UNITS = "https://create.roblox.com/docs/physics/units"
+_STUD_M = 0.28  # "Length | 1 stud | 28 cm" (Roblox units page)
+
+
+def _roblox_texture_guidance(largest_m: float) -> dict[str, Any]:
+    """Roblox's size guidance for an object of this largest dimension: 5x5 studs 256, 10x10 studs 512, 20x20 studs 1024
+    (texture specifications). The thresholds between those three rows are this function's reading of them."""
+    studs = largest_m / _STUD_M
+    return {"largest_dimension_m": round(largest_m, 3), "largest_dimension_studs": round(studs, 2),
+            "stud_definition": f'"Length | 1 stud | 28 cm" ({_ROBLOX_UNITS})',
+            "guidance_px": 256 if studs <= 5 else 512 if studs <= 10 else 1024,
+            "reading": "up to 5 studs: 256; up to 10: 512; larger: 1024 (this package's reading of the three guidance rows)"}
+
+
+def _roblox_surface_maps(out: Path, textures: list[dict[str, Any]], largest_m: float, meshparts: int) -> tuple[dict[str, Any], list[str]]:
+    """Roblox only: the metalness and roughness maps as separate single-channel files, beside the packed ``*_orm.png``,
+    and the manifest's ``roblox_surface_appearance`` record (what the Creator Hub documents, what was not checked).
+
+    Roughness and Metalness are separate "Single Channel Grayscale (8-bit)" rows in the texture specifications; no
+    occlusion map is listed and no packed map is mentioned. The packed file stays (the GLB uses it: glTF's
+    metallicRoughnessTexture is G = roughness, B = metalness). Returns the record and the new file names."""
+    per_material: dict[str, dict[str, Any]] = {}
+    new_files: list[str] = []
+    for t in textures:
+        if t["role"] != "orm":
+            continue
+        rel = t["path"]
+        stem = Path(rel).stem
+        base = stem[:-4] if stem.endswith("_orm") else stem
+        with Image.open(out / rel) as im:
+            rgb = np.asarray(im.convert("RGB"))
+        entry = per_material.setdefault(t["material"], {})
+        entry["packed_source"] = rel
+        for key, channel, name in (("MetalnessMap", 2, "metalness"), ("RoughnessMap", 1, "roughness")):
+            dest = f"{TEXTURE_DIR}/{base}_{name}.png"
+            Image.fromarray(np.ascontiguousarray(rgb[..., channel]), "L").save(out / dest, format="PNG")
+            entry[key] = dest
+            if dest not in new_files:
+                new_files.append(dest)
+    emissive = sorted({t["material"] for t in textures if t["role"] == "emissive"})
+    for t in textures:
+        entry = per_material.setdefault(t["material"], {}) if t["role"] in ("albedo", "normal") else per_material.get(t["material"])
+        if entry is None or t["role"] not in ("albedo", "normal"):
+            continue
+        entry["ColorMap" if t["role"] == "albedo" else "NormalMap"] = t["path"]
+        if t["role"] == "albedo":
+            with Image.open(out / t["path"]) as im:
+                entry["ColorMap_has_alpha"] = "A" in im.getbands()  # recorded; the file is not changed
+    sizes = [max(t["width"], t["height"]) for t in textures]
+    record = {
+        "materials": dict(sorted(per_material.items())),
+        "occlusion": "Roblox lists no occlusion map: the red (occlusion) channel of the packed map has no Roblox input and is not carried to the separate maps",
+        "texture_px_written": max(sizes) if sizes else None,
+        "size_guidance": _roblox_texture_guidance(largest_m),
+        "meshparts_expected": meshparts,
+        "documented": [
+            {"statement": "Roughness, Metalness and Emissive Mask: \"Single Channel Grayscale (8-bit)\"; Normal: \"Roblox only supports OpenGL format - Tangent Space normal maps\"; Albedo: \"RGB (24-bit)\"", "source": _ROBLOX_TEXTURES},
+            {"statement": "\"Roblox supports up to 4096\u00d74096 pixel texture resolutions (4K).\" and, under UV mapping, \"Roblox supports up to 1024\u00d71024 pixel spaces for texture maps.\" The page does not reconcile the two; 1024 satisfies both", "source": _ROBLOX_TEXTURES},
+            {"statement": "\"For smaller 5\u00d75 stud objects, use 256\u00d7256 texture resolutions.\" \"For medium 10\u00d710 stud objects, use 512\u00d7512 texture resolutions.\" \"For larger 20\u00d720 stud objects, use 1024\u00d71024 texture resolutions.\"", "source": _ROBLOX_TEXTURES},
+            {"statement": "\"Mesh objects can only have one material assigned.\"", "source": _ROBLOX_TEXTURES},
+            {"statement": "glTF: \"A Model inside the top-level Model, containing one MeshPart for each primitive in the glTF mesh.\" This package's GLB has one mesh with one primitive per node or per material batch, so "
+                          f"{meshparts} MeshPart(s) are expected", "source": _ROBLOX_IMPORTER},
+            {"statement": "Scale Unit \"Sets what units the file was modeled in so that it's sized appropriately when imported. By default, this is set to Studs.\" The page lists no other option. This package is in metres", "source": _ROBLOX_IMPORTER},
+        ],
+        "not_done": [
+            *([f"emission on {emissive}: Roblox takes an Emissive Mask (single-channel grayscale); no Creator Hub page found says how a glTF emissive texture and colour map to it, so no mask is written"] if emissive else []),
+            "Not run in Roblox Studio. How SurfaceAppearance binds to each MeshPart, and whether the importer builds one from the GLB's packed metallic-roughness texture, are not documented and were not observed; the separate maps are for assigning MetalnessMap and RoughnessMap",
+        ],
+    }
+    return record, new_files
 
 
 _IR_URI_FIELD = {"albedo": "albedo_uri", "orm": "orm_uri", "normal": "normal_uri", "emissive": "emissive_uri"}
@@ -780,6 +857,17 @@ def write_engine_package(
         files.append(f"{asset_name}_colliders.glb")
     glb_files = list(files[files.index(f"{asset_name}.glb"):])
     files.extend(texture_files)
+    roblox_record = None
+    if engine == "roblox_r15":
+        allp = np.vstack([np.asarray(u.points, float).reshape(-1, 3) for u in uvs if len(u.points)]) if uvs else np.zeros((1, 3))
+        roblox_record, roblox_files = _roblox_surface_maps(out, textures, float(np.ptp(allp, axis=0).max()), len(batches))
+        files.extend(f for f in roblox_files if f not in files)
+        notes.append("Roblox 3D Importer: its Scale Unit setting \"Sets what units the file was modeled in\" and \"By default, this is set to "
+                     "Studs\" (the page lists no other option); this package is in metres (1 stud is 28 cm per the Roblox units page). "
+                     "Not checked in Studio.")
+        if len(batches) > 1:
+            notes.append(f"{len(batches)} GLB meshes: the importer page says a glTF mesh becomes \"one MeshPart for each primitive\", so "
+                         f"expect {len(batches)} MeshParts; \"Mesh objects can only have one material assigned\" (texture specifications).")
 
     # The inspector renders a GLB built by the same writer from the same seam-split vertices and the same
     # GltfMaterial objects as the package GLB, so what is reviewed is what ships.
@@ -800,6 +888,16 @@ def write_engine_package(
                  for u in uvs]
     usd_issues = validate_usd(usd_path)
     eng_issues = check_engine_compliance(Usd.Stage.Open(str(usd_path)), mesh_data, budget)
+    density = texel_density_report(uvs, budget.texel_density_px_per_m)
+    cap = ENGINE_RULES[engine].max_texture_px
+    for mat_id, rec in density["materials"].items():  # what the shipped maps reach: the atlas density scaled by map side / packing side
+        side = max((max(t["width"], t["height"]) for t in textures if t["material"] == mat_id), default=None)
+        rec["map_px"] = side
+        rec["shipped_px_per_m"] = round(rec["px_per_m"] * side / rec["atlas_px"], 2) if side else None
+        rec["shipped_target_met"] = bool(side) and rec["shipped_px_per_m"] >= budget.texel_density_px_per_m * (1 - 1e-9)
+        rec["needed_map_px"] = rec["needed_atlas_px"] if side else None  # side that reaches the target with this layout (the layout scales with it)
+        rec["engine_max_texture_px"] = cap
+    eng_issues += texel_density_issues(density, engine)
 
     dens = [u.texel_density for u in uvs if u.texel_density > 0]
     data: dict[str, Any] = {
@@ -836,7 +934,8 @@ def write_engine_package(
             "min_px_per_m": round(float(np.min(dens)), 2) if dens else None,
             "uv_stretch_max": round(max((u.stretch_mean for u in uvs), default=0.0), 4),
         },
-        "uv": {"primvar": "st", "interpolation": "vertex", "normals": f"faceVarying (crease {crease:g} deg)"},
+        "uv": {"primvar": "st", "interpolation": "vertex", "normals": f"faceVarying (crease {crease:g} deg)",
+               "texel_density": density},
         "colliders": names,
         "collider_sources": [{"name": n, "source": h.source, "reason": h.reason} for n, h in zip(names, hulls)],
         "collider_glb_nodes": [collider_name(engine, asset_name, i, usd=False) for i in range(len(hulls))],
@@ -851,14 +950,19 @@ def write_engine_package(
         "files": files,
         "validation": {},
     }
+    if roblox_record is not None:
+        data["roblox_surface_appearance"] = roblox_record
+    # one truth about texel density: the UV layout's figure is atlas-space (packed for UVResult.resolution); say so, and
+    # give the density the shipped maps really reach beside it (a map smaller than the atlas, as on Roblox, scales it)
+    side = max((max(t["width"], t["height"]) for t in textures), default=0)
+    atlas_px = max((u.resolution for u in uvs), default=0)
+    data["texel_density"].update({
+        "space": f"atlas ({atlas_px} px packing resolution)",
+        "shipped_mean_px_per_m": round(float(np.mean(dens)) * side / atlas_px, 2) if dens and side and atlas_px else None,
+        "shipped_texture_px": side or None})
     if art is not None:
         data["schema_version"] = ART_SCHEMA_VERSION
         data["art_direction"] = _art_record(art, budget, textures, out, dens, uvs)
-        # one truth about texel density: the UV layout's figure is atlas-space (packed for UVResult.resolution); say so,
-        # and give the density the shipped maps really reach beside it
-        data["texel_density"].update({"space": f"atlas ({max((u.resolution for u in uvs), default=0)} px packing resolution)",
-                                      "shipped_mean_px_per_m": data["art_direction"]["measured"]["texel_density_px_per_m"],
-                                      "shipped_texture_px": data["art_direction"]["measured"]["texture_px_max"]})
     data["file_hashes"] = {f: {"sha256": texture_hashes.get(f) or _sha256(out / f), "bytes": (out / f).stat().st_size} for f in files}
     mpath = out / "manifest.json"
     mpath.write_text(json.dumps(data, indent=1))

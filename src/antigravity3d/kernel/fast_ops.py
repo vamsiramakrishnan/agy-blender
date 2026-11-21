@@ -1461,6 +1461,65 @@ def unwrap_scene(meshes: list[MeshData], budget: EngineBudget, resolution: int =
     return res  # type: ignore[return-value]
 
 
+#: EL4CTEO retopology-uv/SKILL.md and texel_density.py: the largest-to-smallest density ratio an asset should stay within
+TEXEL_SPREAD_LIMIT = 1.3
+#: a missed target is warned about from this fraction down (``target_met`` itself is exact): 7 of the benchmark's ten
+#: single-primitive assets miss 1024 px/m in a 2048 px atlas, several by under 3 %, and a warning on each would be noise
+TEXEL_TARGET_WARN_FRACTION = 0.9
+
+
+def texel_density_report(results: Sequence[UVResult], target_px_per_m: float) -> dict:
+    """Achieved texel density per material atlas and across the asset (reporting only: nothing is repacked).
+
+    Each material has one atlas and one density for all its charts (``_pack_analytic``). ``target_met`` is the packer's
+    ``fitted`` flag (False: the atlas could not hold its charts at ``target_px_per_m`` and the density was lowered).
+    ``px_per_m`` is in atlas space, at ``atlas_px`` (the packing resolution); ``needed_atlas_px`` is the side at which
+    the same layout would reach the target (the atlas side scales with the density), ``needed_atlas_px_pow2`` the
+    next power of two. ``spread`` is the highest over the lowest material density, with the two extremes named."""
+    groups: dict[str, list[UVResult]] = {}
+    for r in results:
+        if r.texel_density > 0:
+            groups.setdefault(str(r.atlas_id), []).append(r)
+    mats: dict[str, dict] = {}
+    for name, rs in sorted(groups.items()):
+        d = min(r.texel_density for r in rs)
+        px = max(r.resolution for r in rs)
+        met = all(r.fitted for r in rs)
+        need = px if met else int(np.ceil(px * target_px_per_m / d))
+        # occupancy: the share of the atlas that charts cover (sum of the shipped triangles' UV areas, overlaps counted
+        # twice, so an upper bound) and the share its UV bounding box covers (what a crop to the used region would keep)
+        area, lo, hi = 0.0, np.full(2, np.inf), np.full(2, -np.inf)
+        for r in rs:
+            sh = shipped(r)
+            if sh.uvs is None or not len(sh.triangles):
+                continue
+            q = np.asarray(sh.uvs, np.float64)[np.asarray(sh.triangles)]
+            e1, e2 = q[:, 1] - q[:, 0], q[:, 2] - q[:, 0]
+            area += float(np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]).sum() / 2)
+            lo, hi = np.minimum(lo, q.reshape(-1, 2).min(0)), np.maximum(hi, q.reshape(-1, 2).max(0))
+        box = float(np.prod(np.clip(hi - lo, 0, 1))) if np.isfinite(lo).all() else 0.0
+        mats[name] = {"px_per_m": round(float(d), 2), "target_met": met, "atlas_px": px, "needed_atlas_px": need,
+                      "needed_atlas_px_pow2": 1 << max(0, need - 1).bit_length(),
+                      "chart_area_fraction": round(min(area, 1.0), 4), "uv_bbox_fraction": round(box, 4)}
+    if not mats:
+        return {"target_px_per_m": target_px_per_m, "materials": {}, "spread": None, "spread_limit": TEXEL_SPREAD_LIMIT,
+                "highest": None, "lowest": None}
+    hi = max(mats, key=lambda k: mats[k]["px_per_m"])
+    lo = min(mats, key=lambda k: mats[k]["px_per_m"])
+    return {"target_px_per_m": target_px_per_m, "materials": mats,
+            "spread": round(mats[hi]["px_per_m"] / mats[lo]["px_per_m"], 3), "spread_limit": TEXEL_SPREAD_LIMIT,
+            "highest": hi, "lowest": lo}
+
+
+def describe_texel_density(report: dict) -> str:
+    """One line for a step detail: ``stone 323/1024 px/m (target missed), metal 1024 (met); spread 3.17x``."""
+    t = report["target_px_per_m"]
+    parts = [f"{k} {v['px_per_m']:g}/{t:g} px/m (target missed)" if not v["target_met"] else f"{k} {v['px_per_m']:g} (met)"
+             for k, v in report["materials"].items()]
+    spread = report.get("spread")
+    return ", ".join(parts) + (f"; spread {spread:.2f}x" if spread is not None else "")
+
+
 def uv_overlap_fraction(results: Sequence[UVResult], res: int = 512) -> float:
     """Fraction of covered texels hit by more than one shipped triangle (conservative raster; hidden contact faces,
     whose charts may lie outside the atlas, are not shipped and not counted)."""
