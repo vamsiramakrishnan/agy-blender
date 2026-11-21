@@ -384,9 +384,11 @@ IR_SEMANTICS = (
     "needs clearcoat > 0; sheen_roughness needs sheen_color; double_sided for thin shells (leaves, cloth, decals)."
 )
 # Sent with the authoring request only (``ir_rules_text``), not in IR_SEMANTICS, which every stage agent carries.
+# The pair in it is from a live run (2026-11-21): the author wrote "tarnished military brass hardware" and the image
+# model drew hinges and latches; "olive drab painted steel, scuffed and chipped" in the same run came back as a surface.
 SURFACE_RULE = (
-    f"; surface (<= {ir.SURFACE_MAX_CHARS} chars) is the prompt for a tiling texture: the material and its finish in a few "
-    'words, e.g. "olive drab painted steel, scuffed and chipped"; never object parts, shapes or layout.'
+    f"; surface (<= {ir.SURFACE_MAX_CHARS} chars) prompts a tiling texture: the substance and its finish, not what is "
+    'made of it ("tarnished brass", not "brass hardware"); never object parts, shapes or layout.'
 )
 OP_SEMANTICS = (
     "Anchors use world AABBs and place once, in world space. on_top_of centres X/Y and aligns bottom to target top. "

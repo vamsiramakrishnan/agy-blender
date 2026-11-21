@@ -22,7 +22,8 @@ glob-scoped rule files add detail when matching files are in play:
 - A material's texture is generated from words that name its surface only:
   the material and its finish ("olive drab painted steel, scuffed and chipped"),
   never the object, its parts or layout, because the texture tiles over every
-  face. That is the `prompt` of `forge_pbr_material` and a material's
+  face. Name the substance, not what is made of it ("tarnished brass", not
+  "brass hardware"). That is the `prompt` of `forge_pbr_material` and a material's
   `surface` field.
 - Raw `bpy` is an escape hatch, used only when no Scene IR op can express the
   change. Every raw script must pass the Blender 5.3 linter

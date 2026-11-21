@@ -25,7 +25,9 @@ Tools: `forge_pbr_material` (generation, de-light, derivation, packing),
 2. **Albedo Best-of-6.** `forge_pbr_material` with `candidates=6` per zone
    (the server may cap this to the session's plan). Its `prompt` describes
    the surface only: the material and its finish in a few words, for example
-   "olive drab painted steel, scuffed and chipped". Never the object, its parts,
+   "olive drab painted steel, scuffed and chipped". Name the substance, not
+   what is made of it ("tarnished brass", not "brass hardware", which comes
+   back with hinges drawn in). Never the object, its parts,
    shapes or layout: the image model draws what it reads, and the texture
    tiles over every face, so a latch or a panel in the prompt is painted onto
    all of them. The tool adds the art direction's texture brief itself and

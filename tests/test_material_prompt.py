@@ -163,7 +163,7 @@ def test_the_authoring_request_asks_for_surface_words_and_costs_little():
     text = req.contents[0].parts[0].text
     assert ir_schema.SURFACE_RULE in text and "never object parts, shapes or layout" in text
     assert "surface" in req.schema["$defs"]["MaterialIR"]["properties"]
-    # Measured 2026-11-21: propose text 4,029 -> 4,246 chars; scene schema 6,064 -> 6,092 bytes (pin < 6,500).
+    # Measured 2026-11-21: propose text 4,029 -> 4,234 chars; scene schema 6,064 -> 6,092 bytes (pin < 6,500).
     assert len(ir_schema.SURFACE_RULE.encode()) <= 200
     assert ir_schema.SURFACE_RULE not in ir_schema.IR_SEMANTICS  # not repeated into every stage agent's prompt
 
