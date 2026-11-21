@@ -245,16 +245,20 @@ def _cyl(i: str, r: float, h: float, at: tuple[float, float, float], mat: str, s
                   transform=Transform(translate=(round(at[0], GRID), round(at[1], GRID), z)), material_id=mat)
 
 
-_PRIMARY = (("wood", (0.52, 0.36, 0.2), 0.0, 0.8), ("metal", (0.55, 0.56, 0.6), 1.0, 0.4),
-            ("stone", (0.5, 0.5, 0.48), 0.0, 0.9), ("plastic", (0.2, 0.45, 0.75), 0.0, 0.5))
-_IRON = MaterialIR(id="iron", base_color=(0.24, 0.24, 0.27), metallic=1.0, roughness=0.45)
+# (id, base colour, metallic, roughness, surface words: the material and its finish, never a part; see MaterialIR.surface)
+_PRIMARY = (("wood", (0.52, 0.36, 0.2), 0.0, 0.8, "weathered oak wood with open grain, matte"),
+            ("metal", (0.55, 0.56, 0.6), 1.0, 0.4, "brushed steel with faint scratches"),
+            ("stone", (0.5, 0.5, 0.48), 0.0, 0.9, "rough grey granite, weathered"),
+            ("plastic", (0.2, 0.45, 0.75), 0.0, 0.5, "blue moulded plastic, satin finish"))
+_IRON = MaterialIR(id="iron", base_color=(0.24, 0.24, 0.27), metallic=1.0, roughness=0.45,
+                   surface="dark wrought iron, lightly rusted")
 
 
 def _primary(prompt: str) -> MaterialIR:
     low = prompt.lower()
     key = next((k for k, *_ in _PRIMARY if k in low or (k == "metal" and re.search(r"steel|alumin|brass", low))), "wood")
-    _, c, m, r = next(p for p in _PRIMARY if p[0] == key)
-    return MaterialIR(id=key, base_color=c, metallic=m, roughness=r)
+    _, c, m, r, surface = next(p for p in _PRIMARY if p[0] == key)
+    return MaterialIR(id=key, base_color=c, metallic=m, roughness=r, surface=surface)
 
 
 def _crate(rng: random.Random, name: str, prompt: str) -> SceneIR:
@@ -299,7 +303,7 @@ def _table(rng: random.Random, name: str, prompt: str) -> SceneIR:
 def _lamp(rng: random.Random, name: str, prompt: str) -> SceneIR:
     h, seg = rng.uniform(2.6, 3.6), rng.choice([12, 16])
     br = rng.uniform(0.12, 0.2)
-    lamp = MaterialIR(id="glass", base_color=(1.0, 0.92, 0.7), roughness=0.2)
+    lamp = MaterialIR(id="glass", base_color=(1.0, 0.92, 0.7), roughness=0.2, surface="warm frosted glass, smooth")
     top = round(0.12 + h, GRID)  # the pole's top end, which the head's lowest point rests on
     radius = round(br, GRID)
     nodes = [_cyl("base", 0.16, 0.12, (0, 0, 0.06), "iron", seg), _cyl("pole", 0.04, h, (0, 0, 0.12 + h / 2), "iron", seg),
@@ -329,7 +333,7 @@ def _shelf(rng: random.Random, name: str, prompt: str) -> SceneIR:
 # is detail that no joint depends on: a string course on a wall's +Y face, a floor's inlay, a pillar's drums.
 KIT_BAND_BASE_M = 0.2
 KIT_BAND_TOP_M = 0.15
-_CONCRETE = MaterialIR(id="concrete", base_color=(0.5, 0.5, 0.48), roughness=0.9)
+_CONCRETE = MaterialIR(id="concrete", base_color=(0.5, 0.5, 0.48), roughness=0.9, surface="cast grey concrete with fine pores")
 
 
 def _cuts(a: float, b: float, n: int) -> list[float]:

@@ -21,7 +21,7 @@ dependencies = [
   "coacd>=1.0",
   "numpy>=1.26",
   "pillow>=10",
-  "pydantic>=2.6",
+  "pydantic>=2.12.4",  # MaterialIR.surface uses Field(exclude_if=...), added in 2.12; 2.12.4 keeps such a field out of "required"
   "msgpack>=1.0",
   "pyyaml>=6",
   "mcp>=2.3,<3",

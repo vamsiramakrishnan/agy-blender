@@ -42,6 +42,7 @@ from antigravity3d.decisions.compose import (
 from antigravity3d.genmedia.pbr_deriver import delight, roughness_breakup
 from antigravity3d.harness.session import Preview, Session, resolve
 from antigravity3d.harness.traceback_compressor import compress_exception
+from antigravity3d.genmedia.material_prompt import texture_prompt
 from antigravity3d.ir import IRPatch, MaterialIR, SetTransform, UpsertMaterial
 from antigravity3d.kernel.coplanar import opaque_materials
 from antigravity3d.kernel.fast_ops import (
@@ -483,7 +484,8 @@ async def promote_variant(set_name: str, variant: str, ctx: ToolContext) -> str:
 
 @_guard
 async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, candidates: int = 1) -> str:
-    """Generate a tileable PBR material (albedo + ORM + normal) and bind its maps to material_id."""
+    """Generate a tileable PBR material (albedo + ORM + normal) and bind its maps to material_id. prompt: the
+    material's surface words (kept as its surface)."""
     s = resolve(ctx)
     if s.forge is None:
         raise RuntimeError("no image forge attached to this session")
@@ -492,11 +494,13 @@ async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, ca
     async with s.registry.locked(s.sid):
         version = s.geom_version
         current = _material(s, material_id) or MaterialIR(id=material_id)
+    if prompt.strip():  # cleaned and bounded by MaterialIR; empty keeps the material's own surface (or its id words)
+        current = current.model_copy(update={"surface": MaterialIR(id=material_id, surface=prompt).surface})
     n = max(1, min(MAX_CANDIDATES, s.forge.governor.plan.pbr_candidates, int(candidates)))
     art = s.art  # the session's art direction: its texture brief, map size and palette (None: as before)
     size = art.texture_px(s.state.budget.target_engine, "prop", TEXTURE_PX) if art is not None else engine_texture_px(s.state.budget.target_engine, TEXTURE_PX)
     brief = texture_brief(art)
-    results = await asyncio.gather(*(s.forge.seamless_albedo(prompt + (f". {brief}" if brief else ""), size=size,
+    results = await asyncio.gather(*(s.forge.seamless_albedo(texture_prompt(current, brief), size=size,
                                                              variant_hint=f"option {i + 1}" if n > 1 else "")
                                      for i in range(n)), return_exceptions=True)
     gens = [g for g in results if not isinstance(g, BaseException)]

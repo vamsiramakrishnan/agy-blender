@@ -383,6 +383,11 @@ IR_SEMANTICS = (
     "emissive_strength need a non-black emissive_color; transmission (thin glass) needs metallic < 1; clearcoat_roughness "
     "needs clearcoat > 0; sheen_roughness needs sheen_color; double_sided for thin shells (leaves, cloth, decals)."
 )
+# Sent with the authoring request only (``ir_rules_text``), not in IR_SEMANTICS, which every stage agent carries.
+SURFACE_RULE = (
+    f"; surface (<= {ir.SURFACE_MAX_CHARS} chars) is the prompt for a tiling texture: the material and its finish in a few "
+    'words, e.g. "olive drab painted steel, scuffed and chipped"; never object parts, shapes or layout.'
+)
 OP_SEMANTICS = (
     "Anchors use world AABBs and place once, in world space. on_top_of centres X/Y and aligns bottom to target top. "
     "flush_back aligns +Y faces (back is +Y in this Z-up convention). "
@@ -409,7 +414,7 @@ def ir_rules_text() -> str:
         params = alt["properties"]["params"]
         kinds.append(f"{kind} params {_obj_line(scene, params)}")
     lines.append("kind -> params: " + "; ".join(kinds))
-    lines.append("material: " + _obj_line(scene, defs["MaterialIR"]))
+    lines.append("material: " + _obj_line(scene, defs["MaterialIR"]) + SURFACE_RULE)
     ops = []
     for alt in patch["properties"]["ops"]["items"]["anyOf"]:
         _, obj = _resolve(patch, alt)

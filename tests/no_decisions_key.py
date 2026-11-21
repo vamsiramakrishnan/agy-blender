@@ -11,6 +11,7 @@
 * Authoring (SceneIR schema): the project's TemplateAuthor scene for the requested prompt and asset name; repair
   schema: an empty patch. Usage: counted prompt, 1,140 answer + 1,066 thinking tokens (measured hydrogen medians).
 * Image calls: a PNG of the requested size; usage 62 input, image tokens of the tier + 321, 804 thinking (measured 2K).
+  The request's text is logged as ``prompt`` (``image_prompts()``).
 * Files API resumable upload: a file URI.
 
     with NoDecisionsKey() as api:        # api.url, api.requests (path, kind)
@@ -139,7 +140,8 @@ class NoDecisionsKey:
             content = {"parts": [{"text": "done"}]}
             usage = {"promptTokenCount": prompt, "candidatesTokenCount": 1, "totalTokenCount": prompt + 1}
             kind = "text"
-        self._log(path, kind, max_output_tokens=gc.get("maxOutputTokens"))
+        extra = {"prompt": _text(body)} if kind.startswith("image:") else {}
+        self._log(path, kind, max_output_tokens=gc.get("maxOutputTokens"), **extra)
         ev = {"candidates": [{"content": {"role": "model", **content}, "finishReason": "STOP"}], "usageMetadata": usage,
               "responseId": uuid.uuid4().hex}
         return 200, json.dumps(ev).encode(), {}
@@ -167,7 +169,7 @@ class NoDecisionsKey:
         from antigravity3d.state import EngineBudget
         from antigravity3d.tactics.authoring import TemplateAuthor, pick_template
 
-        text = " ".join(p.get("text", "") for c in body.get("contents", []) for p in c.get("parts", []) if isinstance(p, dict))
+        text = _text(body)
         name = re.search(r"asset_name='([^']+)'", text).group(1)
         prompt = re.search(r"Build design \d+/\d+ for (.*?)\. (?:Use the attached|Return one JSON)", text, re.S).group(1)
         ctx: dict[str, Any] = {"asset_name": name}
@@ -176,6 +178,10 @@ class NoDecisionsKey:
         scene = asyncio.run(TemplateAuthor().propose(prompt, budget=EngineBudget("unreal_5"), n=1, context=ctx))[0]
         return scene.model_dump(mode="json", exclude_defaults=True)
 
+    def image_prompts(self) -> list[str]:
+        """The text of every image request served, in order."""
+        return [r["prompt"] for r in self.requests if r["kind"].startswith("image:")]
+
     def _image(self, size: int) -> bytes:
         if size not in self._png:
             arr = (np.random.default_rng(size).random((size, size, 3)) * 60 + 100).astype(np.uint8)
@@ -183,3 +189,7 @@ class NoDecisionsKey:
             Image.fromarray(arr).save(buf, "PNG", compress_level=1)
             self._png[size] = buf.getvalue()
         return self._png[size]
+
+
+def _text(body: dict[str, Any]) -> str:
+    return " ".join(p.get("text", "") for c in body.get("contents", []) for p in c.get("parts", []) if isinstance(p, dict))

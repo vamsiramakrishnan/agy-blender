@@ -134,7 +134,7 @@ def ir_subtree_key(scene: SceneIR, node_id: str) -> str:
         nodes.append(d)
     mat_ids = {by_id[i].material_id for i in ids} - {None}
     mats = [
-        m.model_dump(mode="json")
+        m.model_dump(mode="json", exclude={"surface"})  # texture-prompt words: no geometry or export depends on them
         for m in sorted(scene.materials, key=lambda m: m.id)
         if m.id in mat_ids
     ]

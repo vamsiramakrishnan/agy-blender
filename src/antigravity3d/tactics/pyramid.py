@@ -28,6 +28,7 @@ from antigravity3d.adapters.engines.web_three import WebThreeValidator
 from antigravity3d.decisions.compose import Action, Thresholds, decide_action, lod_pop_ok, lod_pop_reasons, tier15_score
 from antigravity3d.decisions.models import VisualQAResult
 from antigravity3d.decisions.questions import MARKED_DEFECT_PHRASES
+from antigravity3d.genmedia.material_prompt import texture_prompt
 from antigravity3d.genmedia.pbr_deriver import PBRMaps, delight, edge_wear, roughness_breakup
 from antigravity3d.ir import (
     AssignMaterial, IRPatch, MaterialIR, RemoveNode, SceneIR, SetParam, SetTransform, UpsertMaterial, UpsertNode, apply_patch,
@@ -177,12 +178,14 @@ async def synthesize_materials(
 ) -> dict[str, PBRTournamentResult]:
     """One ``pbr_tournament`` per material, concurrently; N is sized so all materials together fit the budget.
 
-    ``brief``: an art direction's texture brief, appended to every material prompt ('' appends nothing)."""
+    Each material's albedo prompt is ``texture_prompt(m, brief)``: its surface words, never the asset brief.
+    ``brief``: an art direction's texture brief, appended to every material prompt ('' appends nothing). ``prompt`` is
+    not used for the textures (the asset brief drew object parts into them)."""
     size = size or default_texture_px(forge)
     k = max(1, len(scene.materials))
     n = governor.candidates("pbr", unit_cost=k * image_est(governor, "albedo"), images_each=k)
     outs = await asyncio.gather(*(pbr_tournament(
-        f"{prompt}: {m.id} surface" + (f". {brief}" if brief else ""), forge, plane=plane, governor=governor, material_id=m.id, metallic_hint=m.metallic,
+        texture_prompt(m, brief), forge, plane=plane, governor=governor, material_id=m.id, metallic_hint=m.metallic,
         uploader=uploader, n=n, size=size, cache=cache, concurrency=concurrency) for m in scene.materials))
     return {m.id: o for m, o in zip(scene.materials, outs)}
 

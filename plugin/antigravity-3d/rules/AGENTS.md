@@ -19,6 +19,11 @@ glob-scoped rule files add detail when matching files are in play:
   ops}])`, `apply_shader_diff(material_id, diff={...}, assign_to=[...])`.
   A rejected argument comes back as one `ERROR invalid IR: ...` line naming
   the op, the field and what was expected; fix that field and resend.
+- A material's texture is generated from words that name its surface only:
+  the material and its finish ("olive drab painted steel, scuffed and chipped"),
+  never the object, its parts or layout, because the texture tiles over every
+  face. That is the `prompt` of `forge_pbr_material` and a material's
+  `surface` field.
 - Raw `bpy` is an escape hatch, used only when no Scene IR op can express the
   change. Every raw script must pass the Blender 5.3 linter
   (`antigravity3d.adapters.blender_5_3.linter.assert_safe`); the PreToolUse

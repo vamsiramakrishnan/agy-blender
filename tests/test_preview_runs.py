@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import glob
 import json
+import re
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -106,6 +107,19 @@ def test_prop_preview_builds_a_labelled_unverified_package_within_both_limits(ke
     cats = {r["category"] for r in c["receipts"]}
     assert {"route", "visual_qa", "author.propose", "lod_pop"} <= cats
     assert all(r["max_output_tokens"] == 8192 for r in api.requests if r["kind"] == "judge")
+
+
+def test_albedo_prompts_are_built_from_surface_words_never_from_the_brief(key, tmp_path, capsys):
+    """The scene comes back from the authoring call (the stand-in answers with the template scene, surface words
+    included); every albedo prompt the API then receives names that surface, never the crate or its brackets."""
+    api = key()
+    rc = prop(tmp_path, "--preview", "--token-ceiling", "150000", "--max-images", "4", "--single-candidate", *FAST)
+    assert rc == 0, capsys.readouterr().out
+    albedo = [p for p in api.image_prompts() if p.startswith("Seamless tileable albedo")]
+    subjects = sorted(p.split("texture of: ", 1)[1].split(". ", 1)[0] for p in albedo)
+    assert subjects == ["dark wrought iron, lightly rusted", "weathered oak wood with open grain, matte"], albedo
+    assert not [p for p in albedo if re.search(r"crate|bracket", p, re.I)], albedo
+    assert all("low-resolution retro game texture" in p for p in albedo)  # the art direction's texture brief stays
 
 
 def test_prop_without_preview_refuses_at_start_and_generates_nothing(key, tmp_path, capsys):
