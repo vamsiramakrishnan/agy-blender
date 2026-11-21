@@ -297,37 +297,152 @@ def _shelf(rng: random.Random, name: str, prompt: str) -> SceneIR:
     return SceneIR(asset_name=name, nodes=nodes, materials=[pm])
 
 
-def _wall(rng: random.Random, name: str, prompt: str) -> SceneIR:
-    pm = MaterialIR(id="concrete", base_color=(0.5, 0.5, 0.48), roughness=0.9)
-    w, h, t = 2.0, rng.uniform(2.8, 3.2), 0.2
-    return SceneIR(asset_name=name, materials=[pm, _IRON], nodes=[
-        _box("slab", (w, t, h), (0, 0, h / 2), pm.id), _box("base_trim", (w, 0.04, 0.2), (0, -t / 2 - 0.02, 0.1), "iron"),
-        _box("cornice", (w, 0.04, 0.15), (0, -t / 2 - 0.02, h - 0.075), "iron")])
+# Modular kit pieces. Every size comes from the kit's metric (kernel/kit_metric.py), decided once per kit and passed
+# in ``context["kit_metric"]``; a piece never draws its own dimensions, or the pieces would not snap (audit K1-K3).
+# Pieces are built in the corner frame (module volume [0, dims]) and shifted to the metric's pivot convention. Trim
+# bands run the full depth (so the mating faces, both ends and -Y, stay flat and full) and stand proud of the +Y face by
+# the metric's relief, the one face no neighbour ever butts against (kernel/kit_metric.py, "Module volume"). Large
+# surfaces are stacks of parts whose faces fit the shared trim sheet's strip (``max_face_m``), so the trim mapper never
+# shrinks them and every piece keeps the sheet's texel density (audit K6). Trim bands have one height kit-wide so they
+# line up across joints, and so do the course lines (one coursing per kit); what varies between variants of a piece type
+# is detail that no joint depends on: a string course on a wall's +Y face, a floor's inlay, a pillar's drums.
+KIT_BAND_BASE_M = 0.2
+KIT_BAND_TOP_M = 0.15
+_CONCRETE = MaterialIR(id="concrete", base_color=(0.5, 0.5, 0.48), roughness=0.9)
 
 
-def _floor(rng: random.Random, name: str, prompt: str) -> SceneIR:
-    pm = MaterialIR(id="concrete", base_color=(0.5, 0.5, 0.48), roughness=0.9)
-    return SceneIR(asset_name=name, materials=[pm, _IRON], nodes=[
-        _box("tile", (2.0, 2.0, 0.1), (0, 0, 0.05), pm.id), _box("inlay", (1.6, 0.06, 0.01), (0, 0, 0.105), "iron")])
+def _cuts(a: float, b: float, n: int) -> list[float]:
+    return [round(a + (b - a) * k / n, 6) for k in range(n + 1)]
 
 
-def _pillar(rng: random.Random, name: str, prompt: str) -> SceneIR:
-    pm = MaterialIR(id="concrete", base_color=(0.5, 0.5, 0.48), roughness=0.9)
-    h, seg = rng.uniform(2.8, 3.2), 16
-    return SceneIR(asset_name=name, materials=[pm, _IRON], nodes=[
-        _cyl("plinth", 0.35, 0.2, (0, 0, 0.1), pm.id, seg), _cyl("shaft", 0.25, h - 0.4, (0, 0, h / 2), pm.id, seg),
-        _cyl("capital", 0.35, 0.2, (0, 0, h - 0.1), "iron", seg)])
+def _blocks(prefix: str, lo: tuple[float, float, float], hi: tuple[float, float, float], mat: str, max_face: float,
+            keep: int, at: np.ndarray, extra: int = 0, zcuts: list[float] | None = None) -> list[NodeIR]:
+    """Boxes filling [lo, hi]: the two axes other than ``keep`` are cut into parts of at most ``max_face`` (``extra``
+    more cuts on the larger of them), so every face of every part fits the trim strip on its shorter side. ``zcuts``
+    gives the z edges explicitly (kit-wide coursing, so course lines continue across the joints of a run)."""
+    counts = [1, 1, 1]
+    split = [i for i in range(3) if i != keep]
+    for i in split:
+        counts[i] = max(1, math.ceil((hi[i] - lo[i]) / max_face - 1e-9))
+    counts[max(split, key=lambda i: hi[i] - lo[i])] += extra
+    edges = [_cuts(lo[i], hi[i], counts[i]) for i in range(3)]
+    if zcuts is not None:
+        edges[2] = [round(z, 6) for z in zcuts]
+        counts[2] = len(edges[2]) - 1
+    nodes = []
+    for i in range(counts[0]):
+        for j in range(counts[1]):
+            for k in range(counts[2]):
+                a = np.array([edges[0][i], edges[1][j], edges[2][k]])
+                b = np.array([edges[0][i + 1], edges[1][j + 1], edges[2][k + 1]])
+                suffix = "_".join(str(v) for v, c in zip((i, j, k), counts) if c > 1)
+                nodes.append(NodeIR(id=f"{prefix}_{suffix}" if suffix else prefix, kind="box", params={"size": tuple(float(v) for v in b - a)},
+                                    transform=Transform(translate=tuple(float(v) for v in (a + b) / 2 + at)), material_id=mat))
+    return nodes
 
 
-def _doorway(rng: random.Random, name: str, prompt: str) -> SceneIR:
-    pm = MaterialIR(id="concrete", base_color=(0.5, 0.5, 0.48), roughness=0.9)
-    w, h = 2.0, rng.uniform(2.6, 3.0)
-    return SceneIR(asset_name=name, materials=[pm, _IRON], nodes=[
-        _box("jamb_l", (0.4, 0.2, h), (-w / 2 + 0.2, 0, h / 2), pm.id), _box("jamb_r", (0.4, 0.2, h), (w / 2 - 0.2, 0, h / 2), pm.id),
-        _box("lintel", (w, 0.2, 0.4), (0, 0, h + 0.2), pm.id), _box("sill", (w - 0.8, 0.24, 0.03), (0, 0, 0.015), "iron")])
+def _metric(metric: Any) -> Any:
+    from antigravity3d.kernel.kit_metric import KitMetric  # kernel module; imported here to keep this module's import light
+
+    return metric if isinstance(metric, KitMetric) else KitMetric.interior()
 
 
-TEMPLATES: dict[str, Callable[[random.Random, str, str], SceneIR]] = {
+def _bands(metric: Any) -> tuple[float, float]:
+    H = metric.wall_height_m
+    return min(KIT_BAND_BASE_M, metric.max_face_m, H / 4), min(KIT_BAND_TOP_M, metric.max_face_m, H / 4)
+
+
+def _coursing(m: Any) -> list[float]:
+    """The kit's course lines: equal courses between the base band and the cornice, each fitting the trim strip. One
+    set for every wall-type piece, so a course line runs on unbroken from a wall through a doorway's jambs."""
+    bt, ct = _bands(m)
+    top = m.wall_height_m - ct
+    return _cuts(bt, top, max(1, math.ceil((top - bt) / m.max_face_m - 1e-9)))
+
+
+def _between(cuts: list[float], a: float, b: float) -> list[float]:
+    return [a, *[z for z in cuts if a + 1e-6 < z < b - 1e-6], b]
+
+
+def _wall(rng: random.Random, name: str, prompt: str, metric: Any = None) -> SceneIR:
+    m = _metric(metric)
+    L, D, H = m.dims("wall_segment")
+    at, f = m.origin((L, D, H)), m.max_face_m
+    bt, ct = _bands(m)
+    cuts = _coursing(m)
+    nodes = [*_blocks("base", (0, 0, 0), (L, D, bt), "iron", f, 0, at),
+             *_blocks("course", (0, 0, bt), (L, D, H - ct), "concrete", f, 0, at, zcuts=cuts),
+             *_blocks("cornice", (0, 0, H - ct), (L, D, H), "iron", f, 0, at), *_relief(m, [(0, L)], bt, ct, at)]
+    if m.relief_m > 0 and len(cuts) > 2 and rng.random() < 0.5:  # variant: a string course proud of +Y on a course line
+        z = cuts[len(cuts) // 2]
+        h = min(0.1, f)
+        nodes += _blocks("string_course", (0, D, z - h / 2), (L, D + m.relief_m, z + h / 2), "iron", f, 0, at)
+    return SceneIR(asset_name=name, materials=[_CONCRETE, _IRON], nodes=nodes)
+
+
+def _relief(m: Any, spans: list[tuple[float, float]], bt: float, ct: float, at: np.ndarray) -> list[NodeIR]:
+    """The bands' relief, proud of the +Y face by ``m.relief_m``: the base band over each x span, the cornice over the
+    whole length. Same heights and depth on every piece type, so the relief continues across the joints of a run."""
+    r, D, H, L, f = m.relief_m, m.wall_thickness_m, m.wall_height_m, m.module_m, m.max_face_m
+    if r <= 0:
+        return []
+    out = []
+    for k, (x0, x1) in enumerate(spans):
+        out += _blocks(f"base_relief_{k}" if len(spans) > 1 else "base_relief", (x0, D, 0), (x1, D + r, bt), "iron", f, 0, at)
+    return out + _blocks("cornice_relief", (0, D, H - ct), (L, D + r, H), "iron", f, 0, at)
+
+
+def _floor(rng: random.Random, name: str, prompt: str, metric: Any = None) -> SceneIR:
+    m = _metric(metric)
+    L, _, T = m.dims("floor_tile")
+    at, f = m.origin((L, L, T)), m.max_face_m
+    if rng.random() < 0.5:  # plain boards
+        nodes = _blocks("board", (0, 0, 0), (L, L, T), "concrete", f, 0, at, extra=rng.choice([0, 1]))
+    else:  # boards either side of an iron inlay along the tile's centre line (it continues across tile joints)
+        c, w = L / 2, min(0.1, f)
+        nodes = [*_blocks("board_a", (0, 0, 0), (L, c - w / 2, T), "concrete", f, 0, at),
+                 *_blocks("inlay", (0, c - w / 2, 0), (L, c + w / 2, T), "iron", f, 0, at),
+                 *_blocks("board_b", (0, c + w / 2, 0), (L, L, T), "concrete", f, 0, at)]
+    return SceneIR(asset_name=name, materials=[_CONCRETE, _IRON], nodes=nodes)
+
+
+def _pillar(rng: random.Random, name: str, prompt: str, metric: Any = None) -> SceneIR:
+    m = _metric(metric)
+    p, _, H = m.dims("pillar")
+    at, f = m.origin((p, p, H)), m.max_face_m
+    pb, pc = _bands(m)
+    r, seg = round(p * rng.uniform(0.3, 0.4), 4), 16
+    n = max(1, math.ceil((H - pb - pc) / f - 1e-9)) + rng.choice([0, 1])
+    zs = _cuts(pb, H - pc, n)
+    drums = [NodeIR(id=f"drum_{k}", kind="cylinder", params={"radius": r, "height": float(zs[k + 1] - zs[k]), "segments": seg},
+                    transform=Transform(translate=tuple(float(v) for v in np.array([p / 2, p / 2, (zs[k] + zs[k + 1]) / 2]) + at)),
+                    material_id="concrete") for k in range(n)]
+    return SceneIR(asset_name=name, materials=[_CONCRETE, _IRON], nodes=[
+        *_blocks("plinth", (0, 0, 0), (p, p, pb), "concrete", f, 0, at), *drums,
+        *_blocks("capital", (0, 0, H - pc), (p, p, H), "iron", f, 0, at)])
+
+
+def _doorway(rng: random.Random, name: str, prompt: str, metric: Any = None) -> SceneIR:
+    m = _metric(metric)
+    L, D, H = m.dims("doorway")
+    at, f = m.origin((L, D, H)), m.max_face_m
+    bt, ct = _bands(m)
+    j, dh = (L - m.door_width_m) / 2, m.door_height_m
+    ct = min(ct, H - dh)
+    cuts = _coursing(m)
+    nodes = []
+    for side, (x0, x1) in (("l", (0, j)), ("r", (L - j, L))):
+        nodes += _blocks(f"base_{side}", (x0, 0, 0), (x1, D, bt), "iron", f, 0, at)
+        nodes += _blocks(f"jamb_{side}", (x0, 0, bt), (x1, D, dh), "concrete", f, 0, at, zcuts=_between(cuts, bt, dh))
+    if H - ct - dh > 1e-6:
+        nodes += _blocks("lintel", (0, 0, dh), (L, D, H - ct), "concrete", f, 0, at, zcuts=_between(cuts, dh, H - ct))
+    nodes += _blocks("cornice", (0, 0, H - ct), (L, D, H), "iron", f, 0, at)
+    nodes += _relief(m, [(0, j), (L - j, L)], bt, ct, at)
+    return SceneIR(asset_name=name, materials=[_CONCRETE, _IRON], nodes=nodes)
+
+
+KIT_TEMPLATE_FNS = {"wall_segment": _wall, "floor_tile": _floor, "pillar": _pillar, "doorway": _doorway}
+TEMPLATES: dict[str, Callable[..., SceneIR]] = {
     "crate": _crate, "barrel": _barrel, "table": _table, "lamp_post": _lamp, "shelf": _shelf,
     "wall_segment": _wall, "floor_tile": _floor, "pillar": _pillar, "doorway": _doorway}
 KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -356,9 +471,11 @@ class TemplateAuthor:
         self.calls["propose"] += 1
         self.budget = budget
         name = context.get("asset_name") or _slug(prompt)
-        tpl = TEMPLATES[pick_template(prompt, context.get("template"))]
+        key = pick_template(prompt, context.get("template"))
+        tpl = TEMPLATES[key]
+        kw = {"metric": context.get("kit_metric")} if key in KIT_TEMPLATE_FNS else {}  # kit pieces build to the kit's metric
         base = int.from_bytes(hashlib.sha256(f"{prompt}|{name}|{self.seed}|{context.get('seed', 0)}".encode()).digest()[:4], "big")
-        return [tpl(random.Random(base + 7919 * i), name, prompt) for i in range(n)]
+        return [tpl(random.Random(base + 7919 * i), name, prompt, **kw) for i in range(n)]
 
     async def repair(self, scene: SceneIR, *, action: Any, located: dict[str, list[str]], manifest: str) -> IRPatch | None:
         self.calls["repair"] += 1
@@ -470,8 +587,12 @@ class AgentAuthor:
         self._art = context.get("art_direction") or ""  # art direction author brief; repeated in repairs
         asset = context.get("asset_name") or _slug(prompt)
         emph = ("overall proportions", "construction detail", "symmetry", "clean minimal forms")
+        from antigravity3d.kernel.kit_metric import context_brief
+
+        brief = context_brief(context)
         task = (f"Build a blockout of: {prompt}. The asset name is {asset}; budget {budget.max_tris} tris, at most {budget.max_draw_calls} materials. "
-                "Z-up metres, standing on the ground (min z = 0), parts touching, no interpenetration. Use apply_scene_ir (materials included) then stop. "
+                "Z-up metres, standing on the ground (min z = 0), parts touching, no interpenetration. "
+                + (f"{brief} " if brief else "") + "Use apply_scene_ir (materials included) then stop. "
                 + (f"{self._art.rstrip('.')}. " if self._art else "") + "Emphasis: ")
         timeout = STAGE_TIMEOUT_S if self.timeout_s is None else self.timeout_s
 

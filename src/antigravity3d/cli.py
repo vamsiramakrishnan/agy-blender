@@ -3,7 +3,7 @@
     agy3d prop "wooden crate with iron brackets" --engine unreal_5 --out OUT [--offline] [--max-tris N]
                 [--style anchor.png] [--art-direction ID]
     agy3d sanitize FILES... --engine unreal_5 --out OUT
-    agy3d kit "ruined stone temple" --pieces 4 --out OUT [--offline] [--splat bg.ply] [--art-direction ID]
+    agy3d kit "ruined stone temple" --pieces 4 --out OUT [--offline] [--splat bg.ply] [--metric interior|exterior[,key=value...]] [--art-direction ID]
     agy3d variants ASSET.usda... --out OUT [--offline]
     agy3d calibrate LABELS.json --out studio_policy.yaml [--offline]
     agy3d models
@@ -210,12 +210,17 @@ async def cmd_sanitize(a: argparse.Namespace) -> int:
 
 async def cmd_kit(a: argparse.Namespace) -> int:
     from antigravity3d.dags.environment_kit import EnvironmentKitDAG
+    from antigravity3d.kernel.kit_metric import KitMetric
     from antigravity3d.tactics.governor import BudgetExceeded
 
+    try:
+        metric = KitMetric.parse(getattr(a, "metric", None))
+    except ValueError as e:
+        raise CliError(str(e)) from e
     _, forge, author, notes = await make_collaborators(a.offline, need_plane=False)
     try:
         rep = await EnvironmentKitDAG(forge=forge, author=author, workdir=Path(a.out), budget=_budget(a), sheet_resolution=1024 if a.offline else 4096,
-                                      art_direction=a.art_direction).run(a.prompt, a.pieces, a.splat)
+                                      art_direction=a.art_direction, metric=metric).run(a.prompt, a.pieces, a.splat)
     except BudgetExceeded as e:  # live authoring is admitted against a ceiling; a missing price is a refusal, not a crash
         raise CliError(str(e)) from e
     x = rep.extras
@@ -232,6 +237,22 @@ async def cmd_kit(a: argparse.Namespace) -> int:
     if x.get("vram"):
         v = x["vram"]
         print(f"vram: shared trim {v['shared_bytes'] / 2**20:.1f} MiB vs unique textures {v['unique_bytes'] / 2**20:.1f} MiB ({v['ratio']:.1f}x; BC7: {v['compressed']['ratio']:.1f}x)")
+    m = x["metric"]
+    print(f"metric: {m['name']} grid {m['grid_m']:g} m, module {m['module_m']:g} m, walls {m['wall_height_m']:g} x {m['wall_thickness_m']:g} m, "
+          f"door {m['door_width_m']:g} x {m['door_height_m']:g} m, pivot {m['pivot']}, part faces <= {m['max_face_m']:g} m")
+    if x.get("kit_check"):
+        kc = x["kit_check"]
+        print(f"kit check: {'PASS' if kc['pass'] else 'FAIL'} (texel spread from median {kc['texel_spread_from_median']})")
+        for n, p in kc["pieces"].items():
+            for e in p["errors"]:
+                print(f"  {n}: {e}")
+    if x.get("snap"):
+        sn = x["snap"]
+        print(f"snap test: {'PASS' if sn['pass'] else 'FAIL'} " + ", ".join(f"{k} gap {v['max_gap_m'] * 1000:.2f} mm" for k, v in sn["layouts"].items())
+              + f"; see {sn['path']}")
+        for v in sn["layouts"].values():
+            for p in v["problems"]:
+                print(f"  {p}")
     print(f"trim issues: {len(x['trim_issues'])}; piece min z: {x.get('piece_min_z')}")
     print(f"outputs: kit={x['kit_usd']} trim_sheet={x['trim_sheet']} pieces={len(x['pieces'])} report={a.out}/report.json")
     _print_skips(x["skipped"])
@@ -363,6 +384,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("prompt")
     common(p)
     p.add_argument("--pieces", type=_positive_int, default=4)
+    p.add_argument("--metric", default="interior", metavar="SPEC",
+                   help="the kit's shared metric: interior (0.5 m grid, 2 m modules, 3 m walls) or exterior (1 m grid, 4 m modules, "
+                        "4 m walls), optionally with overrides, e.g. interior,module=4,wall_height=3.5,pivot=bottom-center")
     p.add_argument("--offline", action="store_true")
     p.add_argument("--splat", default=None, help="optional .ply/.spz Gaussian-splat backdrop (recorded; import needs Blender)")
     p.add_argument("--art-direction", type=_art_direction, default=None, metavar="ID", help="named art direction (see skills/art-direction)")

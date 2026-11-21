@@ -31,6 +31,7 @@ from google.genai import types
 from antigravity3d import ir_schema
 from antigravity3d.decisions.fallback import PRICE_TABLE_USD_PER_M
 from antigravity3d.ir import IRPatch, SceneIR
+from antigravity3d.kernel.kit_metric import context_brief
 from antigravity3d.models import ARGON, CARBON, HYDROGEN, NEON, tier
 from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.governor import BudgetExceeded, Governor, usage_cost_usd
@@ -179,10 +180,12 @@ def has_references(context: dict[str, Any]) -> bool:
     return any(context.get(key) for key, _ in _REFERENCES)
 
 
-def propose_task(prompt: str, *, index: int, n: int, asset_name: str, references: bool) -> str:
+def propose_task(prompt: str, *, index: int, n: int, asset_name: str, references: bool, brief: str = "") -> str:
+    """``brief``: constraints the answer must meet exactly, appended last (a modular kit piece's metric,
+    ``kernel.kit_metric.context_brief``); empty for everything else, so other requests are unchanged byte for byte."""
     refs = "Use the attached references. " if references else ""
     return (f"Build design {index + 1}/{n} for {prompt}. {refs}Return one JSON SceneIR with asset_name={asset_name!r}, "
-            f"nodes and materials. Ground all parts. Include material assignments.")
+            f"nodes and materials. Ground all parts. Include material assignments." + (f" {brief}" if brief else ""))
 
 
 def repair_task(scene: SceneIR, *, reasons: Any, located: dict[str, list[str]], manifest: str) -> str:
@@ -464,10 +467,11 @@ class MeteredAuthor:
         asset = context["asset_name"]
         refs = has_references(self.context)
         role = self.governor.plan.builder_role
+        brief = context_brief(context)  # a kit piece's metric (and, on its second request, what the first got wrong)
 
         async def candidate(i: int) -> tuple[SceneIR | None, CandidateOutcome, BaseException | None]:
             trace: dict[str, Any] = {}
-            task = propose_task(prompt, index=i, n=n, asset_name=asset, references=refs)
+            task = propose_task(prompt, index=i, n=n, asset_name=asset, references=refs, brief=brief)
             try:
                 req = self.request(role, "propose", task, asset_name=asset)
                 scene = await self._generate(req, trace)

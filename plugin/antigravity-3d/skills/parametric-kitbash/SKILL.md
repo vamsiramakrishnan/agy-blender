@@ -47,6 +47,32 @@ blockout; if an op is missing, report it instead of using the escape hatch.
    `usd_verifier` subagent is not offered in BLOCKOUT, so do not delegate here.
    Then hand over to `pbr-material-forge`.
 
+## Modular kit pieces
+
+When the asset is a piece of a modular environment kit (a wall, doorway, floor
+tile or pillar meant to snap to others), build it to ONE kit metric and use the
+same metric for every piece of that kit. The default interior metric: a 0.5 m
+grid, 2 m modules, walls 3 m high and 0.25 m thick, a door opening 1 m wide and
+2.5 m high (0.5 m jambs), floor tiles 0.1 m thick, pillars 0.5 x 0.5 m. The
+exterior metric: a 1 m grid, 4 m modules, walls 4 m high and 0.5 m thick, a
+2 x 3 m door, 0.2 m floors and 1 x 1 m pillars.
+
+- Origin at the module's minimum corner on the floor: a wall occupies x 0 to
+  the module length, y 0 to the thickness and z 0 to the height.
+- The two ends (x) and the -Y face are mating faces. Keep them flat and full.
+  Relief (trims, mouldings) goes on the +Y face only, at most 0.04 m proud
+  (0.08 m exterior). A doorway's opening stays empty through the whole
+  thickness. A floor tile's top and sides are flat and full.
+- Build large surfaces from stacked parts no larger than 0.75 m on their
+  shorter side. The kit shares one trim sheet whose strips hold less than
+  0.9 m of surface, and a larger face is shrunk onto the strip at lower
+  texel density.
+- Check the result with `inspect_manifest` (each node's bounds) and
+  `query_region` over the opening. In a session nothing runs the kit's metric
+  check or snap test. Those run in the `agy3d kit` command, which fails a
+  kit whose pieces are off the metric, do not snap, or differ in texel
+  density. To check a piece that way, build the kit there.
+
 ## Rules
 
 - Parameters, not vertices: every correction is a parameter change in a patch.

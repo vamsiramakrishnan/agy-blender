@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import re
 from dataclasses import replace
 from pathlib import Path
@@ -21,7 +22,8 @@ from antigravity3d.dags.environment_kit import PIECE_CYCLE, EnvironmentKitDAG, P
 from antigravity3d.genmedia.nano_banana import FakeImageBackend, ImageForge
 from antigravity3d.models import tier
 from antigravity3d.state import EngineBudget
-from antigravity3d.tactics.authoring import AgentAuthor, TemplateAuthor
+from antigravity3d.kernel.kit_metric import KitMetric
+from antigravity3d.tactics.authoring import KIT_TEMPLATE_FNS, AgentAuthor, TemplateAuthor
 from antigravity3d.tactics.governor import BudgetExceeded, Governor, plan_for
 from antigravity3d import ir_schema
 from antigravity3d.tactics.metered_author import AUTHOR_OUTPUT_BUDGETS, schema_input_token_bound
@@ -30,7 +32,13 @@ UE = EngineBudget("unreal_5")
 RATES = (1.0, 2.0)  # USD per million tokens, this module's fixture
 COUNTED = 100
 BOX = ('{"asset_name":"%s","materials":[],"nodes":[{"id":"body","kind":"box","params":{"size":[1,1,1]},'
-       '"transform":{"translate":[0,0,0.5]}}]}')
+       '"transform":{"translate":[0,0,0.5]}}]}')  # a valid scene, off any kit's metric
+TEMPLATE_OF = {t.title().replace("_", ""): t for t in PIECE_CYCLE}
+
+
+def on_metric(asset: str, metric: KitMetric) -> str:
+    """What a model that follows the kit's metric answers: the offline template's piece, as JSON."""
+    return KIT_TEMPLATE_FNS[TEMPLATE_OF[asset.rstrip("0123456789")]](random.Random(0), asset, "", metric).model_dump_json()
 
 
 PATIENCE_S = 30.0  # how long an incomplete round waits for its missing calls before the endpoint reports the caller
@@ -54,6 +62,8 @@ class KitEndpoint:
         self.generated: list[str] = []
         self.counted = 0
         self.rounds: list[list[str]] = []  # the pieces answered together, round by round
+        self.texts: list[str] = []  # every request's text, in arrival order
+        self.metric: KitMetric | None = None  # set by kit(): the kit's metric, which a compliant answer follows
         self.starved = ""  # set when a round was never completed; every later call fails with it at once
         self._parked: list[tuple[str, asyncio.Future]] = []
 
@@ -87,6 +97,7 @@ class KitEndpoint:
         text = kwargs["contents"][0].parts[0].text
         asset = re.search(r"asset_name='([^']+)'", text).group(1)
         self.generated.append(asset)
+        self.texts.append(text)
         self.running += 1
         self.peak = max(self.peak, self.running)
         try:
@@ -97,8 +108,10 @@ class KitEndpoint:
                 what = what[min(self.generated.count(asset) - 1, len(what) - 1)]
             if isinstance(what, BaseException):
                 raise what
-            finish, answer = "STOP", BOX % asset
-            if what == "truncated":
+            finish, answer = "STOP", on_metric(asset, self.metric) if self.metric else BOX % asset
+            if what == "off_metric":
+                answer = BOX % asset
+            elif what == "truncated":
                 finish = "MAX_TOKENS"
             elif what == "garbled":
                 answer = "not json"
@@ -124,7 +137,9 @@ def kit(tmp_path: Path, endpoint: KitEndpoint, *, per_asset_ceiling: float, auth
     governor = Governor(replace(plan_for(2), ceiling_usd=per_asset_ceiling))
     forge = ImageForge(FakeImageBackend(), governor=governor)
     author = author or AgentAuthor(client=SimpleNamespace(aio=SimpleNamespace(models=endpoint)), timeout_s=5)
-    return EnvironmentKitDAG(forge=forge, author=author, workdir=tmp_path / "kit", budget=UE, sheet_resolution=256)
+    dag = EnvironmentKitDAG(forge=forge, author=author, workdir=tmp_path / "kit", budget=UE, sheet_resolution=256)
+    endpoint.metric = dag.metric
+    return dag
 
 
 def test_kit_ceiling_is_one_asset_allowance_per_piece_plus_the_trim_sheet() -> None:
@@ -265,7 +280,7 @@ async def test_output_does_not_depend_on_completion_order(tmp_path: Path) -> Non
     a = await EnvironmentKitDAG(forge=forge(), author=TemplateAuthor(), workdir=tmp_path / "a", budget=UE, sheet_resolution=256).run("stone temple", 4)
     b = await EnvironmentKitDAG(forge=forge(), author=Staggered(), workdir=tmp_path / "b", budget=UE, sheet_resolution=256).run("stone temple", 4)
     assert a.ok and b.ok and list(a.extras["pieces"]) == list(b.extras["pieces"])
-    for rel in ("kit.usda", "trim_sheet.png", "trim_sheet.json", *(f"pieces/{Path(p).name}" for p in a.extras["pieces"].values()),
+    for rel in ("kit.usda", "snap_test.usda", "trim_sheet.png", "trim_sheet.json", *(f"pieces/{Path(p).name}" for p in a.extras["pieces"].values()),
                 *(f"src/{n}.usda" for n in a.extras["pieces"])):
         assert (tmp_path / "a" / rel).read_bytes() == (tmp_path / "b" / rel).read_bytes(), rel
 
@@ -339,3 +354,56 @@ async def test_an_author_without_outcomes_gets_the_same_single_extra_attempt(tmp
     assert rep.ok and [len(o["attempts"]) for o in rep.extras["authoring"]["pieces"]] == [1, 2]
     rep = await kit(tmp_path / "b", KitEndpoint(), per_asset_ceiling=1.0, author=Flaky(10)).run("kit", 2)
     assert not rep.ok and [a["status"] for a in rep.extras["authoring"]["pieces"][1]["attempts"]] == ["error", "error"]
+
+
+# --- the kit's metric reaches the live author, and an off-metric piece gets one request that states its numbers ------
+
+
+async def test_every_live_request_carries_the_metric_of_its_own_piece(tmp_path: Path, rates) -> None:
+    ep = KitEndpoint()
+    dag = kit(tmp_path, ep, per_asset_ceiling=1.0)
+    rep = await dag.run("ruined stone corridor", 4)
+    assert rep.ok and rep.extras["gates_ok"], rep.summary()
+    by_asset = dict(zip(ep.generated, ep.texts))
+    for name, tpl in (("WallSegment00", "wall_segment"), ("FloorTile01", "floor_tile"), ("Pillar02", "pillar"), ("Doorway03", "doorway")):
+        assert by_asset[name].endswith(dag.metric.brief(tpl)), name  # the piece's own numbers, last in the task
+    assert "box x 0..2, y 0..0.25, z 0..3" in by_asset["WallSegment00"] and "Opening x 0.5..1.5, z 0..2.5" in by_asset["Doorway03"]
+    assert rep.extras["metric"] == dag.metric.to_dict() and rep.extras["kit_check"]["pass"] and rep.extras["snap"]["pass"]
+
+
+async def test_an_off_metric_piece_is_asked_once_more_with_its_numbers(tmp_path: Path, rates) -> None:
+    ep = KitEndpoint(script={"WallSegment00": ["off_metric", "ok"]})
+    rep = await kit(tmp_path, ep, per_asset_ceiling=1.0).run("ruined stone corridor", 4)
+    x = rep.extras
+    assert rep.ok and x["gates_ok"], rep.summary()
+    assert ep.generated.count("WallSegment00") == 2 and len(ep.generated) == 5
+    first, second = x["authoring"]["pieces"][0]["attempts"]
+    assert first["status"] == "off_metric" and "length x 1 m, kit 2 m" in first["detail"] and "height z 1 m, kit 3 m" in first["detail"]
+    assert first["usage"] and second["status"] == "produced"  # the rejected answer was billed and is on the record
+    retry_text = [t for a, t in zip(ep.generated, ep.texts) if a == "WallSegment00"][1]
+    assert "Previous answer rejected: " in retry_text and "length x 1 m, kit 2 m" in retry_text
+    # both requests went through the same admission and are in the same receipts
+    assert len(x["authoring"]["receipts"]) == 5 and all(r["category"] == "author.propose" for r in x["authoring"]["receipts"])
+
+
+async def test_a_piece_off_metric_twice_fails_the_kit_and_names_its_numbers(tmp_path: Path, rates) -> None:
+    ep = KitEndpoint(script={"Doorway03": "off_metric"})
+    rep = await kit(tmp_path, ep, per_asset_ceiling=1.0).run("ruined stone corridor", 4)
+    assert not rep.ok and rep.nodes["pieces"].status == "failed" and ep.generated.count("Doorway03") == 2
+    o = rep.extras["authoring"]["pieces"][3]
+    assert o["status"] == "off_metric" and [a["status"] for a in o["attempts"]] == ["off_metric", "off_metric"]
+    err = rep.nodes["pieces"].error
+    assert "#3 Doorway03 off_metric" in err and "length x 1 m, kit 2 m" in err and "pivot is not at the corner" in err
+    assert rep.extras["metric_checks"]["Doorway03"]["ok"] is False and rep.extras["metric_checks"]["WallSegment00"]["ok"] is True
+
+
+async def test_the_offline_author_follows_a_chosen_metric(tmp_path: Path) -> None:
+    metric = KitMetric.parse("exterior")
+    rep = await EnvironmentKitDAG(forge=ImageForge(FakeImageBackend()), author=TemplateAuthor(), workdir=tmp_path / "x", budget=UE,
+                                  sheet_resolution=256, metric=metric).run("stone keep", 8)
+    x = rep.extras
+    assert rep.ok and x["gates_ok"], rep.summary()
+    dims = {p["name"]: p["dims_m"] for p in rep.nodes["pieces"].data["pieces"]}
+    assert dims["WallSegment00"] == [4.0, 0.58, 4.0] and dims["Doorway03"] == [4.0, 0.58, 4.0]  # 0.5 m wall + 0.08 m relief on +Y
+    assert dims["FloorTile01"] == [4.0, 4.0, 0.2] and dims["Pillar02"] == [1.0, 1.0, 4.0]
+    assert x["metric"]["module_m"] == 4.0 and all(v["pass"] for v in x["snap"]["layouts"].values())
