@@ -220,6 +220,23 @@ POLICY_QUESTIONS: dict[str, Question] = {
     "policy_unsafe_content": noul("Does {img} contain unsafe content such as graphic violence, sexual content or hate symbols?"),
 }
 
+# A geometry candidate is a contact sheet of the project's own renders, and the renderer draws a small label in the
+# corner of each tile (kernel.raster.contact_sheet: "front", "right", "top", "persp"). Those labels are legible text, so
+# the question as it is put to a generated image is truthfully answered yes for every sheet. Seen live on 2026-11-21:
+# the fallback judge failed the only candidate of a run on policy_legible_text. On a sheet the labels are named and
+# set aside; the other three questions are the same.
+SHEET_POLICY_QUESTIONS: dict[str, Question] = {
+    **POLICY_QUESTIONS,
+    "policy_legible_text": noul("Each tile of {img} has a small view label in its corner, drawn by the renderer (front, right, top, persp). "
+                                "Apart from those labels, does {img} contain legible text, a signature or a watermark?"),
+}
+SHEET_KINDS = frozenset({"geometry"})  # best-of-N kinds whose candidate image is a labelled contact sheet
+
+
+def policy_questions(kind: str | None = None) -> dict[str, Question]:
+    """The policy questions for a best-of-N candidate of ``kind`` (None: a generated image)."""
+    return SHEET_POLICY_QUESTIONS if kind in SHEET_KINDS else POLICY_QUESTIONS
+
 
 # ---------------------------------------------------------------------------------------------------
 # Engine parity: DCC render vs the same asset rendered in the target game engine.

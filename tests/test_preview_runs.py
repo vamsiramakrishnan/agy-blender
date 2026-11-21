@@ -513,3 +513,52 @@ async def test_the_judges_count_sends_no_per_image_resolution_and_is_never_an_un
         await b.create(input=low, questions=qs)
     assert [p.media_resolution is not None for p in generated[-1][:2]] == [True, True], "the judging call keeps the resolutions"
 
+
+# --------------------------------------------------------------- what the first live preview runs showed (2026-11-21)
+
+
+def test_a_geometry_sheet_fails_the_text_question_unless_its_view_labels_are_set_aside(key, tmp_path, capsys, monkeypatch):
+    """A geometry candidate is a contact sheet with a view label in each tile. Asked the question a generated image is
+    asked, the live judge answered yes to legible text and the only candidate of the run was disqualified. The stand-in
+    answers as the live judge did, so this run delivers a package only because the question names the labels."""
+    from antigravity3d.decisions import questions as Q
+
+    key()
+    assert prop(tmp_path, "--preview", "--token-ceiling", "400000", "--max-images", "12", *FAST) == 0
+    assert "preview gates: PASS" in capsys.readouterr().out
+    # control: the plain question on the same sheet
+    monkeypatch.setattr(Q, "SHEET_KINDS", frozenset())
+    other = tmp_path / "plain"
+    other.mkdir()
+    assert prop(other, "--preview", "--token-ceiling", "400000", "--max-images", "12", *FAST) != 0
+    out = capsys.readouterr().out
+    assert "policy_legible_text" in out and "preview gates: FAIL" in out
+
+
+async def test_a_judge_call_slower_than_its_deadline_is_answered_504_once_and_holds_one_reservation(key):
+    """Live, a texture ranking that takes about three minutes was sent twice at a 60 s deadline: two reservations held,
+    no answer. The service answers 504 when the deadline a request carries runs out; that attempt is not sent again."""
+    from google import genai
+
+    from antigravity3d.decisions import questions as Q
+    from antigravity3d.decisions.engine import DecisionControlPlane
+    from antigravity3d.decisions.fallback import DEFAULT_TIMEOUT_S, GenerativeDecisionsBackend
+    from antigravity3d.decisions.models import TransientDecisionError
+
+    assert DEFAULT_TIMEOUT_S >= 600  # measured: an answer came after 176 s, none within 240 s (see fallback.py)
+    api = key(judge_delay_s=1.6)
+    backend = GenerativeDecisionsBackend(genai.Client(api_key="dummy-not-a-key"), timeout_s=1.0)
+    plane = DecisionControlPlane(backend, backend.model, backend_kind="generative_fallback").preview_copy()
+    gov = Governor(plan_for(2), token_ceiling=200_000, max_images=0)
+    with pytest.raises(TransientDecisionError, match="not sent again"):
+        await plane.evaluate("a question about nothing", {"a": Q.noul("Is it?")}, tag="slow", governor=gov)
+    assert api.kinds().count("judge:504") == 1 and "judge" not in api.kinds()
+    held = [r for r in gov.receipts() if r.get("operation") == "slow"]
+    assert [(r["status"], r["source"]) for r in held] == [("ServerError", "reservation_estimate")]
+    assert gov.spent == held[0]["booked_tokens"] == held[0]["reserved_tokens"]  # one reservation held, the outcome unknown
+    # a call that answers inside its deadline is not affected
+    fast = key(judge_delay_s=0.0)
+    quick = GenerativeDecisionsBackend(genai.Client(api_key="dummy-not-a-key"), timeout_s=5.0)
+    res = await DecisionControlPlane(quick, quick.model, backend_kind="generative_fallback").preview_copy().evaluate(
+        "a question about nothing", {"a": Q.noul("Is it?")}, tag="quick", governor=gov)
+    assert res.attempts == 1 and fast.kinds().count("judge") == 1

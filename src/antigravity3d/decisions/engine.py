@@ -226,8 +226,10 @@ class DecisionControlPlane:
         receipt = {"model": self.model, "operation": tag, "estimated_input_tokens": est, "questions": len(questions)}
         booked, booked_tokens = 0.0, 0  # money and tokens: a ledger books one of them, never both
         attempts, t0 = 0, time.perf_counter()
+        own_deadline = getattr(self._client, "timeout_s", None)  # the fallback judge sends its own deadline with each request
         while True:
             attempts += 1
+            sent = time.perf_counter()
             reservation = None
             if governor is not None:
                 reservation = governor.reserve(category, hold, receipt={**receipt, "source": "reservation_estimate",
@@ -252,6 +254,14 @@ class DecisionControlPlane:
                     raise
                 if not _is_transient(exc):
                     raise
+                if own_deadline and time.perf_counter() - sent >= 0.9 * float(own_deadline):
+                    # The request ran for the whole deadline this client gave it (the service answers 504
+                    # DEADLINE_EXCEEDED then). Sent again with the same deadline it holds a second reservation for the
+                    # same outcome: live on 2026-11-21 a texture ranking that takes about three minutes was sent twice
+                    # at 60 s, which held 48,508 tokens for no answer. A transient failure that comes back early (an
+                    # overloaded service, a gateway) is still retried below.
+                    raise TransientDecisionError(f"{tag}: no answer within the {float(own_deadline):.0f} s request deadline; "
+                                                 f"not sent again: {exc}") from exc
                 if attempts > self.max_retries:
                     raise TransientDecisionError(f"{tag}: gave up after {attempts} attempts: {exc}") from exc
                 delay = self.backoff_s * 2 ** (attempts - 1)
@@ -413,7 +423,7 @@ class DecisionControlPlane:
                 if reference:
                     labels["ctx"] = pictures[reference]
                 rubric, _ = Q.select(bank, have=labels, labels=labels)
-                rubric.update({key: Q.render(q, {"img": label}) for key, q in Q.POLICY_QUESTIONS.items()})
+                rubric.update({key: Q.render(q, {"img": label}) for key, q in Q.policy_questions(kind).items()})
                 proposal = questions | {f"{key}__{stop + 1}": q for key, q in rubric.items()}
                 images = blocks if uri in pictures else [*blocks, image_block(uri, resolution)]
                 if len(proposal) > Q.MAX_QUESTIONS_PER_REQUEST or estimate_input_tokens(images, proposal) >= LATENCY_KNEE_TOKENS:

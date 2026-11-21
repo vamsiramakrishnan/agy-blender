@@ -66,7 +66,13 @@ def cost_usd(model: str, input_tokens: int, output_tokens: int) -> float | None:
 P_MIN, P_MAX = 0.01, 0.99
 DEFAULT_CHUNK_SIZE = 40  # questions per generate_content call; chunks run concurrently
 DEFAULT_MAX_CONCURRENCY = 8
-DEFAULT_TIMEOUT_S = 60.0
+# Deadline of one judge request (sent to the service, which answers 504 DEADLINE_EXCEEDED when it runs out). Measured
+# on gemini-4-neon, thinking LOW, on 2026-11-21: route (3 questions, text) 7.6 s; geometry ranking (6 questions, one
+# 512 px sheet) 16 to 18 s; texture ranking (8 questions, one albedo) 176 s once and no answer within 60 s (twice) and
+# 240 s (once), with the same result on a 512 px copy of the image, so its size is not the cause. A trivial question on
+# the same image took 5 s. The 60 s this used to be was never measured; it discarded answers the service was still
+# working on, and each discarded attempt keeps its whole reservation.
+DEFAULT_TIMEOUT_S = 600.0
 _RESOLUTION_LEVEL = {"low": "MEDIA_RESOLUTION_LOW", "medium": "MEDIA_RESOLUTION_MEDIUM", "high": "MEDIA_RESOLUTION_HIGH",
                      "ultra_high": "MEDIA_RESOLUTION_ULTRA_HIGH"}
 # Input tokens one image bills at each per-image resolution. Measured on gemini-4-neon on 2026-11-21: 1,120 with no

@@ -8,6 +8,9 @@
 * A structured judge call (a question-keyed response schema): defects ``defect``, policy ``policy``,
   ``needs_ortho_blueprint`` 0.8, choice 0.9 on the preferred option, score 0.9 on level ``score_level`` (default top).
   Usage is the measured blockout fallback call: 2,312 input, 169 answer + 837 thinking tokens.
+  A judge call slower (``judge_delay_s``) than the deadline its request carries answers 504 DEADLINE_EXCEEDED when
+  that deadline runs out. A geometry ranking (labelled contact sheets) answers 0.9 to "legible text" unless the
+  question sets the renderer's view labels aside. Both as the live service did on 2026-11-21.
 * Authoring (SceneIR schema): the project's TemplateAuthor scene for the requested prompt and asset name; repair
   schema: an empty patch. Usage: counted prompt, 1,140 answer + 1,066 thinking tokens (measured hydrogen medians).
 * Image calls: a PNG of the requested size; usage 62 input, image tokens of the tier + 321, 804 thinking (measured 2K).
@@ -40,13 +43,20 @@ KIT_TEMPLATES = ("wall_segment", "floor_tile", "pillar", "doorway")
 class NoDecisionsKey:
     def __init__(self, *, defect: float = 0.05, policy: float = 0.02, score_level: str | None = None,
                  overrides: dict[str, float] | None = None, refuse_questions: tuple[str, ...] = (),
-                 image_delay_s: float = 0.0, judge_delay_s: float = 0.0, author_delay_s: float = 0.0) -> None:
+                 image_delay_s: float = 0.0, judge_delay_s: float = 0.0, author_delay_s: float = 0.0,
+                 sheet_labels_are_text: bool = True) -> None:
         self.defect, self.policy, self.score_level = defect, policy, score_level
         # A judge call asking any of these question ids (without the __N suffix) answers 400 INVALID_ARGUMENT, as the
         # live API answered every geometry grading call on 2026-11-21: a step that fails early, on demand.
         self.refuse_questions = tuple(refuse_questions)
         self.image_delay_s = image_delay_s  # how long an image call takes (a live 2K image took about 21 s)
-        self.judge_delay_s = judge_delay_s  # a live fallback judge call took 16-22 s
+        # A live fallback judge call took 7 to 22 s, and a texture ranking 176 s once and more than 240 s once. A call that
+        # takes longer than the deadline the request carries (X-Server-Timeout) is answered 504 DEADLINE_EXCEEDED when the
+        # deadline runs out, as the live service did on 2026-11-21.
+        self.judge_delay_s = judge_delay_s
+        # A geometry candidate is a contact sheet with a view label in each tile. Asked whether it contains legible text
+        # without those labels being set aside, the live judge answered yes (2026-11-21), and so does this one.
+        self.sheet_labels_are_text = sheet_labels_are_text
         self.author_delay_s = author_delay_s  # a live hydrogen propose took 10-38 s
         self.overrides = dict(overrides or {})  # question id (without the __N suffix) -> P(yes)
         self.requests: list[dict[str, Any]] = []
@@ -149,8 +159,20 @@ class NoDecisionsKey:
             self._log(path, "judge:refused")
             return 400, b'{"error": {"code": 400, "message": "Request contains an invalid argument. (stand-in)", "status": "INVALID_ARGUMENT"}}', {}
         elif schema:
+            deadline = next((float(v) for k, v in headers.items() if k.lower() == "x-server-timeout"), None)
+            if deadline is not None and self.judge_delay_s > deadline:
+                time.sleep(deadline)
+                self._log(path, "judge:504", t=arrived)
+                return 504, b'{"error": {"code": 504, "message": "Deadline expired before operation could complete.", "status": "DEADLINE_EXCEEDED"}}', {}
             time.sleep(self.judge_delay_s)
-            content = {"parts": [{"text": json.dumps(self._judge(schema))}]}
+            answers = self._judge(schema)
+            if self.sheet_labels_are_text and any(re.fullmatch(r"defect_(floating|clipping)__\d+", q) for q in answers):
+                # a geometry ranking: its candidates are labelled contact sheets (see __init__)
+                asked = dict(re.findall(r"### (policy_legible_text__\d+)  \[noul\]\n([^\n]*)", _text(body)))
+                for qid, text in asked.items():
+                    if "Apart from those labels" not in text:
+                        answers[qid] = 0.9
+            content = {"parts": [{"text": json.dumps(answers)}]}
             usage = {"promptTokenCount": 2312, "candidatesTokenCount": 169, "thoughtsTokenCount": 837, "totalTokenCount": 3318}
             kind = "judge"
         else:

@@ -131,6 +131,61 @@ async def test_retry_then_success_and_exhaustion():
         await plane(c3).evaluate("x", {"a": Q.noul("q")}, tag="t")
 
 
+class RunsOutItsDeadline:
+    """A judge backend that sends its own deadline with each request (``timeout_s``, like the generative fallback) and a
+    service that answers 504 DEADLINE_EXCEEDED after ``answers_after_s``, as the live service did on 2026-11-21."""
+
+    def __init__(self, timeout_s: float | None, answers_after_s: float) -> None:
+        self.answers_after_s, self.calls = answers_after_s, 0
+        if timeout_s is not None:
+            self.timeout_s = timeout_s
+        self.aio = type("Aio", (), {"decisions": self})()
+
+    async def create(self, **_: object):
+        import asyncio
+
+        self.calls += 1
+        await asyncio.sleep(self.answers_after_s)
+        raise HttpErr(504)
+
+
+async def test_a_request_that_ran_out_its_own_deadline_is_not_sent_again():
+    """Sent again with the same deadline it would hold a second reservation for the same outcome: every attempt of a
+    governed call reserves, and an attempt whose outcome is unknown keeps what it reserved."""
+    slow = RunsOutItsDeadline(timeout_s=0.05, answers_after_s=0.05)
+    with pytest.raises(TransientDecisionError, match="not sent again"):
+        await DecisionControlPlane(slow, sleep=_nosleep, backend_kind="generative_fallback").evaluate("x", {"a": Q.noul("q")}, tag="t")
+    assert slow.calls == 1  # one attempt, so one reservation, not four
+    # controls: a 504 that comes back early (a gateway), and a backend that sends no deadline of its own, are retried as before
+    early = RunsOutItsDeadline(timeout_s=60.0, answers_after_s=0.0)
+    with pytest.raises(TransientDecisionError, match="gave up after 3 attempts"):
+        await DecisionControlPlane(early, sleep=_nosleep, max_retries=2, backend_kind="generative_fallback").evaluate("x", {"a": Q.noul("q")}, tag="t")
+    assert early.calls == 3
+    native = RunsOutItsDeadline(timeout_s=None, answers_after_s=0.05)
+    with pytest.raises(TransientDecisionError, match="gave up after 3 attempts"):
+        await DecisionControlPlane(native, sleep=_nosleep, max_retries=2, backend_kind="decisions").evaluate("x", {"a": Q.noul("q")}, tag="t")
+    assert native.calls == 3
+
+
+@pytest.mark.parametrize("kind", ["geometry", "pbr", "ortho"])
+async def test_a_labelled_render_sheet_is_asked_about_text_apart_from_its_own_labels(kind):
+    """A geometry candidate is a contact sheet with a view label in each tile, drawn by this project: asked the plain
+    question, a truthful judge answers yes to legible text for every candidate (it did, live). Generated images (a
+    texture, a blueprint) keep the plain question."""
+    client = FakeDecisionsClient()
+    await plane(client).rank_candidates(kind, ["u1", "u2"], ["ctx"])
+    asked = {qid: q["instructions"] for call in client.calls for qid, q in call["questions"].items() if qid.startswith("policy_legible_text")}
+    assert set(asked) == {"policy_legible_text__1", "policy_legible_text__2"}
+    for qid, text in asked.items():
+        assert "legible text, a signature or a watermark" in text
+        assert ("Apart from those labels" in text) == (kind == "geometry"), text
+    assert set(Q.SHEET_POLICY_QUESTIONS) == set(Q.POLICY_QUESTIONS)  # same ids: the policy verdict reads them by id
+    from antigravity3d.kernel.raster import contact_sheet  # the labels the question names are the ones the renderer draws
+    import inspect
+
+    assert all(view in Q.SHEET_POLICY_QUESTIONS["policy_legible_text"]["instructions"] for view in inspect.signature(contact_sheet).parameters["views"].default)
+
+
 async def test_prompt_feedback_block_is_typed():
     p = plane(FakeDecisionsClient(block_reason="image_safety"))
     with pytest.raises(PromptBlockedError) as ei:
