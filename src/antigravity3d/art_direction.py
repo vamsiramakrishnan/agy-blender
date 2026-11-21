@@ -163,9 +163,14 @@ def parse_style(path: Path, *, root: Path | None = None) -> ArtDirection:
         v = pipe.get(key)
         if v is not None and v & (v - 1):
             raise ValueError(f"{path.name}: {key} must be a power of two (engines mip and compress pow2 maps), got {v}")
+    from antigravity3d.kernel.compile_ir import CREASE_DEG
+
     crease = pipe.get("shading_crease_deg")
-    if crease is not None and (isinstance(crease, bool) or not isinstance(crease, (int, float)) or not 0 <= crease <= 180):
-        raise ValueError(f"{path.name}: shading_crease_deg must be within [0, 180] or null, got {crease!r}")
+    # At most the project default. The export decides which hidden contact faces can be left out without changing a
+    # shipped corner normal at that default (fast_ops._crease_safe); a narrower crease smooths across fewer faces, so
+    # that decision stays safe for it, while a wider one would smooth across faces the decision never looked at.
+    if crease is not None and (isinstance(crease, bool) or not isinstance(crease, (int, float)) or not 0 <= crease <= CREASE_DEG):
+        raise ValueError(f"{path.name}: shading_crease_deg must be within [0, {CREASE_DEG:g}] or null, got {crease!r}")
     if pipe.get("texture_filter") not in FILTERS:
         raise ValueError(f"{path.name}: texture_filter must be one of {FILTERS}, got {pipe.get('texture_filter')!r}")
     base = root if root is not None else path.parents[3]

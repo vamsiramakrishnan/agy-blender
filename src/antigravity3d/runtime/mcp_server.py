@@ -218,7 +218,8 @@ class StudioHost:
 
     # ---- management tools
     async def open_asset_session(self, asset_name: str, target_engine: str, max_tris: int = 15_000,
-                                 workdir: str = "", workspace: str = "", conversation_id: str = "", art_direction: str = "") -> str:
+                                 workdir: str = "", workspace: str = "", conversation_id: str = "", art_direction: str = "",
+                                 keep_contact_faces: bool = False) -> str:
         if target_engine not in ENGINES:
             raise ValueError(f"target_engine must be one of {', '.join(ENGINES)}")
         if int(max_tris) < 1:
@@ -232,7 +233,8 @@ class StudioHost:
         root = Path(workspace or os.getcwd())
         wd = Path(workdir) if workdir else root / "agy3d_assets" / sid
         open_session(
-            self.registry, sid, wd, asset, EngineBudget(target_engine, max_tris=int(max_tris)),  # type: ignore[arg-type]
+            self.registry, sid, wd, asset,
+            EngineBudget(target_engine, max_tris=int(max_tris), keep_contact_faces=bool(keep_contact_faces)),  # type: ignore[arg-type]
             plane=self.backends.plane, forge=self.backends.forge, pool=self.backends.pool,
             state_workspace=root, art_direction=art_direction or None)
         if conversation_id:
@@ -326,10 +328,11 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         max_tris: int = 15_000,
         workdir: Annotated[str, Field(description="Session folder; default <workspace>/agy3d_assets/<session id>")] = "",
         art_direction: Annotated[str, Field(description=ART_DIRECTION_DOC)] = "",
+        keep_contact_faces: Annotated[bool, Field(description="Ship the faces parts press together too (closed parts; for parts that will be moved apart in the engine)")] = False,
     ) -> str:
         async def go() -> str:
             return await host.open_asset_session(asset_name, target_engine, max_tris, workdir, await _workspace_root(ctx), conversation_id,
-                                                 art_direction)
+                                                 art_direction=art_direction, keep_contact_faces=keep_contact_faces)
 
         return await host.change_catalog(ctx, go)
 

@@ -67,6 +67,10 @@ class EngineRules:
     notes: str = ""
     #: what one convex collision mesh may hold; ``generate_colliders`` caps hulls to it and ``validate_package`` checks it
     hull_limit: HullLimit | None = None
+    # Render meshes must stay closed solids: hidden contact faces between parts are not removed from what ships
+    # (see fast_ops.contact_faces_removable). Unreal, Unity and Godot document no such rule (they import and draw
+    # open meshes with back-face culling as a matter of course); Roblox does (below).
+    closed_render_meshes: bool = False
 
 
 # Studio-auditable. Entries marked UNCERTAIN are conservative hints, not documented hard limits.
@@ -154,6 +158,9 @@ ENGINE_RULES: dict[TargetEngine, EngineRules] = {
         hull_limit=None,
         notes="Roblox does not read the package's collision hulls (CollisionFidelity rebuilds collision from the render "
               "mesh); they are left as computed, deliberately.",
+        # Creator Hub "Mesh specifications": "Watertight - All geometry must be watertight without exposed holes or
+        # backfaces." and "Volume - Meshes cannot be 0 thickness and must have some volume."
+        closed_render_meshes=True,
     ),
 }
 
@@ -324,6 +331,8 @@ def check_engine_compliance(stage: Usd.Stage | None, meshes: list[MeshData], bud
             add("uv_missing", "critical" if textured else "warning", prim.GetName(),
                 "no st primvar" + (" but its material has texture maps" if textured else ""))
 
+    _double_sided_contact(mesh_prims, meshes, add)
+
     for mat, files in textures.items():
         if rules.max_textures_per_material and len(set(files)) > rules.max_textures_per_material:
             add("texture_count", "warning", Sdf.Path(mat).name, f"{len(set(files))} maps > {rules.max_textures_per_material}")
@@ -337,6 +346,30 @@ def check_engine_compliance(stage: Usd.Stage | None, meshes: list[MeshData], bud
                 add("texture_npot", "warning", Path(f).name, f"{size} not power of two")
     _material_checks(stage, add)
     return out
+
+
+def _double_sided_contact(mesh_prims: list[Usd.Prim], meshes: list[MeshData], add) -> None:
+    """Back-to-back faces of two shipped meshes (opposite-facing, within ZFIGHT_EPS of one plane, overlapping in
+    area) where either mesh is drawn double-sided: under back-face culling they are invisible, drawn from both
+    sides they are two surfaces at one depth and flicker. Hidden contact faces that ship nothing (see
+    fast_ops.run_export_pipeline) are already gone from ``meshes``; what is reported here survived."""
+    from antigravity3d.kernel import coplanar
+    from antigravity3d.kernel.fast_ops import ZFIGHT_EPS
+
+    sided = {p.GetName() for p in mesh_prims if UsdGeom.Mesh(p).GetDoubleSidedAttr().Get()}
+    if not sided or len(meshes) < 2:
+        return
+    parts = [coplanar.Part(m.node_id, np.asarray(m.points, np.float64), np.asarray(m.triangles)) for m in meshes]
+    c = coplanar.coplanar_contacts(parts, ZFIGHT_EPS, facing="opposite")
+    seen = set()
+    for i, d in enumerate(c.opposite):
+        for lst in d.values():
+            for j, _ in lst:
+                pair = (min(i, j), max(i, j))
+                if pair not in seen and (meshes[i].node_id in sided or meshes[j].node_id in sided):
+                    seen.add(pair)
+                    add("double_sided_contact", "warning", meshes[pair[0]].node_id,
+                        f"{meshes[pair[0]].node_id}/{meshes[pair[1]].node_id}: back-to-back faces of a double-sided mesh overlap (z-fighting)")
 
 
 def _material_checks(stage: Usd.Stage, add) -> None:

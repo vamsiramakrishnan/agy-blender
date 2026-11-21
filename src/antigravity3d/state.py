@@ -29,6 +29,10 @@ class EngineBudget:
     max_uv_stretch: float = 0.05
     max_collision_hulls: int = 8
     require_manifold: bool = True
+    # Ship every authored triangle: no hidden contact faces are left out of the render meshes (see
+    # fast_ops.run_export_pipeline). For assets whose parts will be moved apart in the engine (a lid, a door): the
+    # faces two parts press together are hidden only while the parts stay where they were authored.
+    keep_contact_faces: bool = False
 
 
 @dataclass(frozen=True)

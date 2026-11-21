@@ -176,6 +176,7 @@ def _build_view(s: Session, key: tuple) -> _View:
 
     from antigravity3d.artifacts.inspector import inspector_payload
     from antigravity3d.artifacts.review_glb import session_materials
+    from antigravity3d.kernel.fast_ops import shipped
     from antigravity3d.kernel.types import MeshData
 
     meshes = s.stage.extract_meshes()
@@ -186,12 +187,13 @@ def _build_view(s: Session, key: tuple) -> _View:
     lods: Any = None
     colliders = None
     if bundle is not None:
-        by_id = {u.node_id: u for u in bundle.uvs}
+        by_id = {u.node_id: shipped(u) for u in bundle.uvs}  # what ships: hidden contact faces left out
         meshes = [MeshData(m.node_id, m.prim_path, by_id[m.node_id].points, by_id[m.node_id].triangles,
                            m.material_id, m.collider) if m.node_id in by_id else m for m in meshes]
-        uvs = {u.node_id: u.uvs for u in bundle.uvs}
+        uvs = {n: s.uvs for n, s in by_id.items()}
         if bundle.lods and set(bundle.lods) == {m.node_id for m in meshes}:
-            lods = bundle.lods  # {node_id: [LOD0, LOD1, ...]}, as the package's *_LODn.glb are written
+            # {node_id: [LOD0, LOD1, ...]}, as the package's *_LODn.glb are written
+            lods = {n: [shipped(lv) for lv in chain] for n, chain in bundle.lods.items()}
         colliders = [(h.name, h.points, h.triangles) for h in bundle.colliders]
     art = s.art  # the session's art direction shades the review like the package it will export
     payload, glb = inspector_payload(meshes, asset_name=s.stage.asset_prim.GetName(), budget=s.state.budget,

@@ -60,9 +60,9 @@ def count_builds(monkeypatch, module):
     calls = []
     build = module.run_export_pipeline
 
-    def counted(*args):
+    def counted(*args, **kwargs):  # pyramid and the harness pass opaque_materials by keyword
         calls.append(1)
-        return build(*args)
+        return build(*args, **kwargs)
 
     monkeypatch.setattr(module, "run_export_pipeline", counted)
     return calls

@@ -26,6 +26,7 @@ from antigravity3d.genmedia.usage import ImageReceipt
 from antigravity3d.genmedia.pbr_deriver import PBRMaps, derive_pbr
 from antigravity3d.ir import SceneIR
 from antigravity3d.kernel.cache import BuildCache, ir_subtree_key, node_key, stable_hash
+from antigravity3d.kernel.coplanar import opaque_materials
 from antigravity3d.kernel.fast_ops import LOD, ExportBundle, Hull, UVResult, run_export_pipeline
 from antigravity3d.kernel.types import MeshData
 from antigravity3d.state import EngineBudget
@@ -37,8 +38,10 @@ from antigravity3d.tactics.common import load_png, png_bytes
 # 6: collider input with coplanar triangles merged, closed bodies of one mesh decomposed separately;
 # 7: computed UV charts re-flattened (as rigid as possible) and all counter-clockwise;
 # 8: collider input repaired before decomposition (welded, holes capped, bodies pulled apart), open surfaces made solid;
-# 9: the copies of a UV-seam vertex share one position in LOD levels (they could differ by rounding noise)
-BACKEND_VERSION = "kernel-fast_ops/9"
+# 9: the copies of a UV-seam vertex share one position in LOD levels (they could differ by rounding noise);
+# 10: the bundle records which triangles are hidden contact faces (per part and per level) and packs the atlas
+#     without the charts that never ship; a collision hull over its engine's limit is replaced by an enclosing one
+BACKEND_VERSION = "kernel-fast_ops/10"
 CACHED_TAG = "(cached)"  # appended to GeneratedImage.model on a cache hit
 
 
@@ -171,6 +174,8 @@ def _bundle_to_bytes(b: ExportBundle) -> bytes:
     meta: dict[str, Any] = {"asset": b.asset_name, "timings": b.timings_ms, "uvs": [], "lods": {}, "hulls": []}
     for i, u in enumerate(b.uvs):
         arrays.update({f"uv{i}_p": u.points, f"uv{i}_t": u.triangles, f"uv{i}_uv": u.uvs, f"uv{i}_vm": u.vmapping})
+        if u.hidden is not None:
+            arrays[f"uv{i}_h"] = u.hidden
         meta["uvs"].append({k: v for k, v in asdict(u).items() if not isinstance(v, np.ndarray)})
     for nid, lods in b.lods.items():
         meta["lods"][nid] = []
@@ -178,6 +183,8 @@ def _bundle_to_bytes(b: ExportBundle) -> bytes:
             arrays.update({f"lod_{nid}_{j}_p": lod.points, f"lod_{nid}_{j}_t": lod.triangles})
             if lod.uvs is not None:
                 arrays[f"lod_{nid}_{j}_uv"] = lod.uvs
+            if lod.hidden is not None:
+                arrays[f"lod_{nid}_{j}_h"] = lod.hidden
             meta["lods"][nid].append({"ratio": lod.ratio, "error": lod.error, "error_m": lod.error_m, "uv": lod.uvs is not None,
                                       "screen_fraction": lod.screen_fraction})
     for i, h in enumerate(b.colliders):
@@ -192,16 +199,21 @@ def _bundle_from_bytes(data: bytes) -> ExportBundle:
     with np.load(io.BytesIO(data), allow_pickle=False) as z:
         meta = json.loads(z["__meta__"].tobytes())
         uvs = [UVResult(points=z[f"uv{i}_p"], triangles=z[f"uv{i}_t"], uvs=z[f"uv{i}_uv"], vmapping=z[f"uv{i}_vm"],
-                        **{k: v for k, v in m.items() if k not in ("points", "triangles", "uvs", "vmapping")}) for i, m in enumerate(meta["uvs"])]
+                        hidden=z[f"uv{i}_h"] if f"uv{i}_h" in z.files else None,
+                        **{k: v for k, v in m.items() if k not in ("points", "triangles", "uvs", "vmapping", "hidden")})
+               for i, m in enumerate(meta["uvs"])]
         lods = {nid: [LOD(m["ratio"], z[f"lod_{nid}_{j}_p"], z[f"lod_{nid}_{j}_t"], z[f"lod_{nid}_{j}_uv"] if m["uv"] else None, m["error"], m["error_m"],
-                          m.get("screen_fraction", 1.0)) for j, m in enumerate(ms)] for nid, ms in meta["lods"].items()}
+                          m.get("screen_fraction", 1.0), z[f"lod_{nid}_{j}_h"] if f"lod_{nid}_{j}_h" in z.files else None)
+                      for j, m in enumerate(ms)] for nid, ms in meta["lods"].items()}
         hulls = [Hull(m["name"], z[f"hull{i}_p"], z[f"hull{i}_t"], m["volume"], m["source"], m.get("reason", "")) for i, m in enumerate(meta["hulls"])]
     return ExportBundle(meta["asset"], uvs, lods, hulls, dict(meta["timings"]))
 
 
 def cached_export_pipeline(cache: BuildCache, scene: SceneIR, meshes: list[MeshData], budget: EngineBudget) -> tuple[ExportBundle, bool]:
     """``run_export_pipeline`` behind the cache. The key covers IR content, so call it with meshes of that IR."""
-    data, hit = cached_bytes(cache, export_key(scene, budget, meshes), lambda: _bundle_to_bytes(run_export_pipeline(meshes, budget, scene.asset_name)))
+    opaque = opaque_materials(scene)  # the materials are in the key (ir_subtree_key hashes the ones a node uses)
+    data, hit = cached_bytes(cache, export_key(scene, budget, meshes),
+                             lambda: _bundle_to_bytes(run_export_pipeline(meshes, budget, scene.asset_name, opaque_materials=opaque)))
     return _bundle_from_bytes(data), hit
 
 

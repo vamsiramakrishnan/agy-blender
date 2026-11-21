@@ -24,7 +24,7 @@ import math
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from collections.abc import Mapping
 from typing import Literal, Sequence
@@ -183,8 +183,14 @@ def _candidate_pairs(lo: np.ndarray, hi: np.ndarray, eps: float):
             yield (i, j) if i < j else (j, i)
 
 
+# Same-facing faces of two parts closer than this to one plane, overlapping in area, fight in the depth buffer
+# (EL4CTEO/blender-skills qa_check.py uses 1 mm too). See kernel/coplanar.py for the exact overlap test.
+ZFIGHT_EPS = 0.001
+
+
 def tier1_qa(
-    meshes: list[MeshData], budget: EngineBudget, ground_tol: float = 0.01, touch_eps: float = 0.005
+    meshes: list[MeshData], budget: EngineBudget, ground_tol: float = 0.01, touch_eps: float = 0.005,
+    zfight_eps: float = ZFIGHT_EPS,
 ) -> Tier1Report:
     t0 = time.perf_counter()
     issues: list[Issue] = []
@@ -241,13 +247,16 @@ def tier1_qa(
             add("ungrounded", "warning", None, f"min z {lo[2]:.4f} m ({kind}, tol {ground_tol})")
         touched = np.zeros(len(valid), dtype=bool)
         bounds_lo, bounds_hi = np.asarray([v[2] for v in valid]), np.asarray([v[3] for v in valid])
+        near = []
         for i, j in _candidate_pairs(bounds_lo, bounds_hi, touch_eps):
             touched[i] = touched[j] = True
             n_candidates += 1
+            near.append((i, j))
             _check_pair(valid[i], valid[j], add)
         if len(valid) > 1:
             for i in np.flatnonzero(~touched & (bounds_lo[:, 2] > ground_tol)):
                 add("floating_part", "warning", valid[i][0].node_id, f"AABB touches nothing; min z {bounds_lo[i, 2]:.3f}")
+            _check_zfight([v[0] for v in valid], zfight_eps, add, (bounds_lo, bounds_hi), near if zfight_eps <= touch_eps else None)
 
     ms = (time.perf_counter() - t0) * 1e3
     stats = {
@@ -261,6 +270,18 @@ def tier1_qa(
         "ms": round(ms, 2),
     }
     return Tier1Report(not any(i.severity == "critical" for i in issues), issues, stats)
+
+
+def _check_zfight(meshes: list[MeshData], eps: float, add, bounds=None, pairs=None) -> None:
+    """Same-facing faces of two parts within ``eps`` of one plane whose areas overlap (more than a sliver
+    ``eps`` wide; faces that only share an edge do not count): two surfaces at one depth, drawn in whichever
+    order the depth buffer's rounding picks, so they flicker in every engine."""
+    from antigravity3d.kernel import coplanar
+
+    parts = [coplanar.Part(m.node_id, np.asarray(m.points, np.float64), np.asarray(m.triangles)) for m in meshes]
+    for i, j, area in coplanar.same_facing_overlaps(parts, eps, bounds=bounds, pairs=pairs):
+        add("z_fighting", "warning", meshes[i].node_id,
+            f"{meshes[i].node_id}/{meshes[j].node_id}: {area * 1e4:.3g} cm^2 of same-facing faces within {eps * 1e3:g} mm of one plane")
 
 
 def _check_pair(a, b, add) -> None:
@@ -322,6 +343,10 @@ class UVResult:
     fitted: bool = True         # False: requested density overflowed, re-fit with lower density
     chart_source: str = "computed"  # "analytic": exact developable charts from the IR; "computed": xatlas charts
     angle_distortion: float = 0.0  # area-weighted mean (sigma_max / sigma_min - 1) of the UV map (0 = conformal)
+    # (M,) bool: triangles that are not shipped (hidden contact faces, see kernel/coplanar.py), None = all shipped.
+    # They stay here so the working stage keeps closed solids; charts made only of them are not packed into the
+    # atlas (their uvs lie right of it, u > 1), and density and stretch above describe the shipped triangles.
+    hidden: np.ndarray | None = None
 
     def within(self, budget: EngineBudget) -> bool:
         return self.stretch_mean <= budget.max_uv_stretch
@@ -667,7 +692,8 @@ def _chart_frames(c: _Charted) -> list[tuple[np.ndarray, np.ndarray, np.ndarray,
     return c.frames
 
 
-def _pack_analytic(charted: list[_Charted], density: float, resolution: int) -> tuple[list[np.ndarray], float]:
+def _pack_analytic(charted: list[_Charted], density: float, resolution: int,
+                   hidden: Sequence[np.ndarray | None] | None = None) -> tuple[list[np.ndarray], float]:
     """Packs charts (exact ones, and computed ones in metres) as their minimum-area rectangles into one
     ``resolution`` square atlas.
 
@@ -681,8 +707,23 @@ def _pack_analytic(charted: list[_Charted], density: float, resolution: int) -> 
     there the packer is run without a height limit and the height it needs steers the next density (see
     ``_strip_search``). Both searches skip packings that cannot succeed: rectangles whose total area exceeds
     the atlas, or one rectangle wider than it.
+
+    ``hidden`` (per mesh, a triangle mask or None): a chart all of whose triangles are hidden takes no atlas space;
+    its vertices are laid out isometrically at the same density right of the atlas (u > 1), so the mesh keeps a
+    complete, undistorted layout for the stages that still see those triangles (the working stage, the LOD
+    simplifier) while nothing that ships samples it.
     """
-    frames = [(mi, *f) for mi, c in enumerate(charted) for f in _chart_frames(c)]
+    frames, phantom = [], []
+    for mi, c in enumerate(charted):
+        h = None if hidden is None else hidden[mi]
+        seen = None
+        if h is not None and h.any():
+            seen = np.zeros(len(c.uv_m), bool)
+            seen[np.asarray(c.tris, np.int64)[~h].reshape(-1)] = True
+        for f in _chart_frames(c):
+            (frames if seen is None or seen[f[0]].any() else phantom).append((mi, *f))
+    if not frames:  # every chart hidden: nothing to pack (the caller ships nothing of these meshes)
+        frames, phantom = phantom, []
     ext = np.array([f[4] for f in frames], np.float64).reshape(-1, 2)
     pad = 2.0 * UV_PADDING_PX
     edge = 1.0  # keep half a texel clear of the atlas border, plus rounding
@@ -714,7 +755,8 @@ def _pack_analytic(charted: list[_Charted], density: float, resolution: int) -> 
                 break
         d = lo
     out = [np.zeros((len(c.uv_m), 2)) for c in charted]
-    for (mi, v, R, lo_, wh), (x, y, turned) in zip(frames, place):
+    place = list(place) + [(resolution + pad, 0.0, False)] * len(phantom)
+    for (mi, v, R, lo_, wh), (x, y, turned) in zip(frames + phantom, place):
         q = (charted[mi].uv_m[v] @ R.T - lo_) * d  # chart in px, min corner at the origin
         if turned:  # 90 degrees counter-clockwise keeps the winding: (u, v) -> (h - v, u)
             q = np.stack([wh[1] * d - q[:, 1], q[:, 0]], axis=1)
@@ -1121,23 +1163,38 @@ def _slabs(c: _Charted, max_extent_m: float) -> _Charted:
 
 
 def _result(m: MeshData, vm: np.ndarray, tris: np.ndarray, uv: np.ndarray, fitted: bool, resolution: int,
-            atlas_id: str | None, kind: str) -> UVResult:
+            atlas_id: str | None, kind: str, hidden: np.ndarray | None = None) -> UVResult:
     pts = np.asarray(m.points, dtype=np.float64)[vm]
-    uv = np.clip(uv.astype(np.float32), 0.0, 1.0)
-    a3, a2 = _tri_areas(pts, tris, 3).sum(), _tri_areas(uv, tris, 2).sum()
+    uv = uv.astype(np.float32)
+    shown = tris if hidden is None else tris[~hidden]
+    inside = np.zeros(len(uv), bool)
+    inside[np.asarray(shown, np.int64).reshape(-1)] = True
+    if hidden is None:
+        inside[:] = True
+    uv[inside] = np.clip(uv[inside], 0.0, 1.0)  # the atlas; charts of hidden triangles only lie right of it
+    if not len(shown):
+        shown = tris
+    a3, a2 = _tri_areas(pts, shown, 3).sum(), _tri_areas(uv, shown, 2).sum()
     dens = float(np.sqrt(a2 / a3) * resolution) if a3 > 0 and a2 > 0 else 0.0
-    sm, sx = _stretch(pts, tris, uv)
+    sm, sx = _stretch(pts, shown, uv)
     return UVResult(m.node_id, pts, tris, uv, vm, dens, sm, sx, resolution, atlas_id, fitted, kind,
-                    _angle_distortion(pts, tris, uv))
+                    _angle_distortion(pts, shown, uv), hidden)
 
 
 def _area(meshes: Sequence[MeshData]) -> float:
     return float(sum(_tri_areas(np.asarray(m.points, np.float64), np.asarray(m.triangles), 3).sum() for m in meshes))
 
 
-def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_id: str | None) -> list[UVResult]:
+def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_id: str | None,
+                  hidden: Sequence[np.ndarray | None] | None = None, closed_out: list | None = None,
+                  cache: dict | None = None) -> list[UVResult]:
     """One atlas: exact charts for meshes that carry them, xatlas charts for the others, all packed together as
-    rectangles by ``_pack_analytic`` (so a group whose meshes all carry exact charts is packed as before)."""
+    rectangles by ``_pack_analytic`` (so a group whose meshes all carry exact charts is packed as before).
+    ``cache`` (a dict, per call site) keeps the charts and their closed packing, so a second call for the same
+    group with another ``hidden`` mask only packs again."""
+    if cache is not None and atlas_id in cache:
+        known, uvs, d, closed = cache[atlas_id]
+        return _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out)
     # a chart longer than the atlas at the requested density is cut where the mesh allows it
     max_extent = (resolution - 1.0 - 2.0 * UV_PADDING_PX) / density
     known = [_charted(m, max_extent) for m in group]
@@ -1165,34 +1222,65 @@ def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_
             break
         known, uvs, d = trial, uvs2, d2
     fitted = bool(d >= density * (1 - 1e-9))
-    return [_result(c.mesh, c.vmap, c.tris, uv, fitted, resolution, atlas_id, c.kind)  # type: ignore[union-attr]
-            for c, uv in zip(known, uvs)]
+    closed = [_result(c.mesh, c.vmap, c.tris, uv, fitted, resolution, atlas_id, c.kind)  # type: ignore[union-attr]
+              for c, uv in zip(known, uvs)]
+    if cache is not None:
+        cache[atlas_id] = (known, uvs, d, closed)
+    return _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out)
+
+
+def _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out) -> list[UVResult]:
+    if closed_out is not None:
+        closed_out.extend(closed)
+    if hidden is None or not any(h is not None and h.any() for h in hidden):
+        return closed
+    # The same charts (same seam-split vertices and triangles), packed again without the charts of hidden
+    # triangles only. Kept only when it does not lower the density (rectangle packing is not monotone).
+    uvs2, d2 = _pack_analytic(known, density, resolution, hidden)  # type: ignore[arg-type]
+    if d2 < d:
+        uvs2, d2 = uvs, d
+    fitted = bool(d2 >= density * (1 - 1e-9))
+    return [_result(c.mesh, c.vmap, c.tris, uv, fitted, resolution, atlas_id, c.kind, hidden[i])  # type: ignore[union-attr]
+            for i, (c, uv) in enumerate(zip(known, uvs2))]
 
 
 def unwrap_uvs(mesh: MeshData, texel_density_px_per_m: float, resolution: int = 2048) -> UVResult:
     return _unwrap_group([mesh], texel_density_px_per_m, resolution, mesh.material_id)[0]
 
 
-def unwrap_scene(meshes: list[MeshData], budget: EngineBudget, resolution: int = 2048) -> list[UVResult]:
+def unwrap_scene(meshes: list[MeshData], budget: EngineBudget, resolution: int = 2048,
+                 hidden: Sequence[np.ndarray | None] | None = None, closed_out: list | None = None,
+                 cache: dict | None = None) -> list[UVResult]:
     """One atlas per material id; results are returned in input order.
 
     Meshes that carry exact charts (``MeshData.uv_charts``, set for IR primitives) are unfolded
-    isometrically and only packed; the others get xatlas charts, computed once.
+    isometrically and only packed; the others get xatlas charts, computed once. ``hidden`` (per mesh, a triangle
+    mask or None) marks triangles that will not ship: see ``_pack_analytic`` and ``UVResult.hidden``. With it,
+    ``closed_out`` (a list) receives the unwrap without that mask, in input order: the same charts, vertices and
+    triangles, packed as if every triangle shipped.
     """
     groups: dict[str | None, list[int]] = {}
     for i, m in enumerate(meshes):
         groups.setdefault(m.material_id, []).append(i)
     res: list[UVResult | None] = [None] * len(meshes)
+    closed: list[UVResult | None] = [None] * len(meshes)
     for mat, ids in groups.items():
-        for i, r in zip(ids, _unwrap_group([meshes[i] for i in ids], budget.texel_density_px_per_m, resolution, mat)):
+        h = None if hidden is None else [None if hidden[i] is None or not hidden[i].any() else hidden[i] for i in ids]
+        got: list[UVResult] = []
+        for i, r in zip(ids, _unwrap_group([meshes[i] for i in ids], budget.texel_density_px_per_m, resolution, mat, h, got, cache)):
             res[i] = r
+        for i, r in zip(ids, got):
+            closed[i] = r
+    if closed_out is not None:
+        closed_out.extend(closed)
     return res  # type: ignore[return-value]
 
 
 def uv_overlap_fraction(results: Sequence[UVResult], res: int = 512) -> float:
-    """Fraction of covered texels hit by more than one triangle (conservative raster)."""
+    """Fraction of covered texels hit by more than one shipped triangle (conservative raster; hidden contact faces,
+    whose charts may lie outside the atlas, are not shipped and not counted)."""
     cov = np.zeros((res, res), np.int32)
-    for r in results:
+    for r in map(shipped, results):
         for tri in r.triangles:
             p = r.uvs[tri].astype(np.float64) * res
             x0, y0 = np.floor(p.min(axis=0)).astype(int)
@@ -1225,6 +1313,7 @@ class LOD:
     # exceed the budget (see _surface_deviation), so the true deviation is often well below this value.
     error_m: float
     screen_fraction: float = 1.0  # largest screen fraction (bounding-sphere diameter / frame height) it is shown at
+    hidden: np.ndarray | None = None  # (M,) bool: triangles not shipped at this level (see UVResult.hidden)
 
     @property
     def tri_count(self) -> int:
@@ -3174,17 +3263,232 @@ class ExportBundle:
     timings_ms: dict[str, float] = field(default_factory=dict)
 
 
-def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name: str) -> ExportBundle:
+@dataclass(frozen=True)
+class Shipped:
+    """What a part ships at one level: its triangles minus the hidden ones, unreferenced vertices dropped.
+    ``vertices`` indexes the part's (seam-split) vertices it keeps, in order."""
+    points: np.ndarray
+    triangles: np.ndarray
+    uvs: np.ndarray | None
+    vertices: np.ndarray
+
+    @property
+    def tri_count(self) -> int:
+        return len(self.triangles)
+
+
+def shipped(part: UVResult | LOD) -> Shipped:
+    """The shipped form of a part (``UVResult`` = LOD0, or one ``LOD`` level): see ``UVResult.hidden``."""
+    h = getattr(part, "hidden", None)
+    pts, tri, uv = np.asarray(part.points), np.asarray(part.triangles), part.uvs
+    if h is None or not h.any():
+        return Shipped(pts, tri, uv, np.arange(len(pts)))
+    t = tri[~h]
+    keep = np.unique(t.reshape(-1))
+    remap = np.full(len(pts), -1, np.int64)
+    remap[keep] = np.arange(len(keep))
+    return Shipped(pts[keep], remap[t].astype(tri.dtype), None if uv is None else np.asarray(uv)[keep], keep)
+
+
+def _solid(points: np.ndarray, tris: np.ndarray) -> bool:
+    if not len(tris):
+        return False
+    t = _topology(np.asarray(points, np.float64), np.asarray(tris))
+    return t.closed and t.volume > 0
+
+
+def _crease_safe(points: np.ndarray, tris: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """``mask`` without the triangles whose removal would change a shipped corner normal: crease normals smooth
+    across faces within 40 degrees, so a hidden face next to a shallow visible one shades it. Box and cylinder
+    contacts meet their neighbours at 90 degrees and lose nothing here."""
+    from antigravity3d.kernel.compile_ir import crease_normals
+
+    if not mask.any():
+        return mask
+    mask = mask.copy()
+    full = crease_normals(points, tris).reshape(-1, 3, 3)
+    wid = _canon(np.asarray(points, np.float64))[np.asarray(tris)]
+    while mask.any():
+        kept = np.flatnonzero(~mask)
+        now = crease_normals(points, tris[kept]).reshape(-1, 3, 3)
+        bad = np.abs(now - full[kept]).max(axis=2) > 1e-6  # (kept, 3) corners whose normal moved
+        if not bad.any():
+            break
+        moved = np.unique(wid[kept][bad])
+        back = mask & np.isin(wid, moved).any(axis=1)
+        if not back.any():
+            break
+        mask &= ~back
+    return mask
+
+
+def contact_faces_removable(budget: EngineBudget, opaque_materials) -> bool:
+    """Whether the shipped meshes may drop hidden contact faces: the caller knows which materials are opaque
+    (``coplanar.opaque_materials``), the target engine accepts open render meshes (``EngineRules``) and the run did
+    not ask to ship the closed solids (``EngineBudget.keep_contact_faces``)."""
+    from antigravity3d.kernel.validator import ENGINE_RULES
+
+    rules = ENGINE_RULES.get(budget.target_engine)
+    return (opaque_materials is not None and rules is not None and not rules.closed_render_meshes
+            and not budget.keep_contact_faces)
+
+
+def hidden_contact_faces(parts: Sequence[tuple[str, np.ndarray, np.ndarray, str | None]], opaque_materials) -> list[np.ndarray]:
+    """Per part (node id, points, triangles, material id) the triangles hidden by coplanar contact with other
+    parts of the same asset (``coplanar.hidden_triangles``), restricted so no shipped corner normal changes."""
+    from antigravity3d.kernel import coplanar
+
+    items = [coplanar.Part(n, np.asarray(p, np.float64), np.asarray(t)) for n, p, t, _ in parts]
+    solid = [_solid(it.points, it.triangles) for it in items]
+    opaque = [mat in opaque_materials for *_, mat in parts]
+    masks = coplanar.hidden_triangles(items, solid, opaque)
+    return [_crease_safe(it.points, it.triangles, m) for it, m in zip(items, masks)]
+
+
+def _ship_levels(closed: list[UVResult], lods: dict[str, list[LOD]], materials: dict[str, str | None],
+                 opaque_materials, hidden0: dict[str, np.ndarray]) -> tuple[dict[str, list[LOD]], dict[str, np.ndarray]]:
+    """LOD chains with each level's hidden triangles marked (decided on that level's own meshes: a part absent
+    at a level covers nothing there, and a simplified part only hides what it still covers exactly). A level
+    whose shipped triangle count no longer pays for itself against the previous kept level (LOD_MIN_REDUCTION)
+    is left out, as generate_asset_lods leaves out a candidate that does not pay.
+
+    Also returns, per part, the unwrap's vertices that a kept level ships although no shipped LOD0 triangle uses
+    them (``hidden0``: LOD0's masks): their charts must be packed into the one atlas all levels share."""
+    from antigravity3d.kernel import lod_diff as ld
+
+    exposed: dict[str, np.ndarray] = {}
+    if not lods:
+        return lods, exposed
+    by_id = {u.node_id: u for u in closed}
+    names = [u.node_id for u in closed if u.node_id in lods and len(lods[u.node_id][0].triangles)]
+    levels = min(len(lods[n]) for n in names)
+    out: dict[str, list[LOD]] = {n: [] for n in names}
+    prev = None
+    for k in range(levels):
+        level = [lods[n][k] for n in names]
+        masks = hidden_contact_faces([(n, lv.points, lv.triangles, materials.get(n)) for n, lv in zip(names, level)],
+                                     opaque_materials)
+        marked = [replace(lv, hidden=m if m.any() else None) for lv, m in zip(level, masks)]
+        tris = sum(shipped(lv).tri_count for lv in marked)
+        if prev is not None and tris > (1.0 - ld.LOD_MIN_REDUCTION) * prev:
+            continue
+        for n, lv in zip(names, marked):
+            out[n].append(lv)
+            h0 = hidden0.get(n)
+            if k == 0 or h0 is None or not h0.any() or lv.uvs is None:
+                continue
+            u = by_id[n]
+            seen = np.zeros(len(u.points), bool)
+            seen[u.triangles[~h0].reshape(-1)] = True
+            at = _vertex_index(u, lv)
+            used = at[np.asarray(shipped(lv).vertices)] if lv.hidden is not None else at
+            extra = used[(used >= 0) & ~seen[np.maximum(used, 0)]]
+            if len(extra):
+                exposed[n] = np.union1d(exposed.get(n, np.zeros(0, np.int64)), extra)
+        prev = tris
+    count = max(len(c) for c in out.values())
+    for n in lods:  # parts without geometry keep a chain as long as the others
+        if n not in out:
+            out[n] = lods[n][:count]
+    return {n: out[n] for n in lods}, exposed
+
+
+def _vertex_index(u: UVResult, lv: LOD) -> np.ndarray:
+    """Per vertex of a LOD level, the unwrap vertex it is (-1 if none): meshoptimizer keeps vertices, and
+    _Simplifier joins seam copies at the position of the first copy, so a level vertex is found by that position
+    and its uv."""
+    p32 = np.ascontiguousarray(u.points, np.float32)
+    cid = _canon(np.asarray(u.points, np.float64))
+    first = np.unique(cid, return_index=True)[1]
+    ref = np.ascontiguousarray(np.hstack([p32[first][cid], np.asarray(u.uvs, np.float32)]))
+    index = {row.tobytes(): i for i, row in enumerate(ref)}
+    key = np.ascontiguousarray(np.hstack([np.asarray(lv.points, np.float32), np.asarray(lv.uvs, np.float32)]))
+    return np.array([index.get(row.tobytes(), -1) for row in key], np.int64)
+
+
+def _chart_of(tris: np.ndarray, seeds: np.ndarray) -> np.ndarray:
+    """Triangles connected (through shared vertex indices: charts are seam-split) to any of ``seeds``."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    t = np.asarray(tris, np.int64)
+    n = int(t.max()) + 1
+    g = coo_matrix((np.ones(2 * len(t)), (np.r_[t[:, 0], t[:, 1]], np.r_[t[:, 1], t[:, 2]])), shape=(n, n))
+    comp = connected_components(g, directed=False)[1]
+    seeds = seeds[(seeds >= 0) & (seeds < n)]
+    return np.isin(comp[t[:, 0]], comp[seeds])
+
+
+def _relayout(lods: dict[str, list[LOD]], closed: list[UVResult], shipped_uvs: list[UVResult]) -> dict[str, list[LOD]] | None:
+    """The LOD chains with every level's uvs moved from the closed atlas to the shipped one, vertex by vertex
+    (``_vertex_index``); None if a level vertex is not found."""
+    out: dict[str, list[LOD]] = {}
+    by_id = {c.node_id: (c, s) for c, s in zip(closed, shipped_uvs)}
+    for n, chain in lods.items():
+        if n not in by_id or chain[0].uvs is None or np.array_equal(by_id[n][0].uvs, by_id[n][1].uvs):
+            out[n] = chain
+            continue
+        c, s = by_id[n]
+        new = []
+        for lv in chain:
+            if not len(lv.points):
+                new.append(lv)
+                continue
+            at = _vertex_index(c, lv)
+            if (at < 0).any():
+                return None
+            new.append(replace(lv, uvs=np.asarray(s.uvs, np.float32)[at]))
+        out[n] = new
+    return out
+
+
+def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name: str, *,
+                        opaque_materials: frozenset[str] | set[str] | None = None) -> ExportBundle:
+    """UVs, LODs and colliders of one asset.
+
+    ``opaque_materials`` (material ids rendered opaque; None = unknown) turns on hidden contact faces where the
+    target engine allows open render meshes: triangles of a part that other parts of this asset cover exactly
+    are marked ``hidden`` in the UVs and in every LOD level, take no atlas space, and are left out of what ships
+    (``shipped``). The meshes themselves, the colliders and everything that reads the working stage keep the
+    closed solids."""
     # Colliders depend only on the source meshes, but they are not run on a second thread beside the unwrap: in about
     # 860 such runs the output never differed from this serial order, yet one died with a segmentation fault inside
     # scipy's ConvexHull while the other thread was in xatlas (none in 400 serial runs). The gain was 0 to 15%.
     t = {}
     t0 = time.perf_counter()
-    uvs = unwrap_scene(meshes, budget)
-    t1 = time.perf_counter()
-    lods = generate_asset_lods(uvs)
+    hidden = None
+    if contact_faces_removable(budget, opaque_materials):
+        hidden = hidden_contact_faces([(m.node_id, m.points, m.triangles, m.material_id) for m in meshes], opaque_materials)
+        if not any(h.any() for h in hidden):
+            hidden = None
+    th = time.perf_counter()
+    if hidden is None:
+        uvs = unwrap_scene(meshes, budget)
+        t1 = time.perf_counter()
+        lods = generate_asset_lods(uvs)
+    else:
+        # One atlas for every level. LODs are made from the closed unwrap: the same chain, triangle for triangle,
+        # as without the rule (the simplifier is sensitive to where charts sit in the atlas). Each level's hidden
+        # triangles are decided on its own meshes; a chart is left out of the packing only if no kept level ships
+        # any of it. The charts are then packed once more (same charts, same vertices) and every level's uvs are
+        # carried over to that packing vertex by vertex.
+        materials = {m.node_id: m.material_id for m in meshes}
+        cache: dict = {}
+        closed = unwrap_scene(meshes, budget, cache=cache)
+        t1 = time.perf_counter()
+        lods_closed = generate_asset_lods(closed)
+        hidden0 = {u.node_id: h for u, h in zip(closed, hidden)}
+        marked, exposed = _ship_levels(closed, lods_closed, materials, opaque_materials, hidden0)
+        pack = [h & ~_chart_of(u.triangles, exposed[u.node_id]) if u.node_id in exposed else h for u, h in zip(closed, hidden)]
+        uvs = unwrap_scene(meshes, budget, hidden=pack, cache=cache)
+        uvs = [replace(u, hidden=h if h.any() else None) for u, h in zip(uvs, hidden)]
+        lods = _relayout(marked, closed, uvs)
+        if lods is None:  # a level vertex not found in the unwrap: ship every triangle, as before the rule
+            log.warning("hidden contact faces not removed for %s: LOD levels could not be carried to the shipped atlas", asset_name)
+            uvs, lods = closed, lods_closed
     t2 = time.perf_counter()
     hulls = generate_colliders(meshes, budget.max_collision_hulls, asset_name=asset_name, limit=hull_limit(budget.target_engine))
     t3 = time.perf_counter()
-    t = {"uv": (t1 - t0) * 1e3, "lod": (t2 - t1) * 1e3, "colliders": (t3 - t2) * 1e3, "total": (t3 - t0) * 1e3}
+    t = {"contact": (th - t0) * 1e3, "uv": (t1 - th) * 1e3, "lod": (t2 - t1) * 1e3, "colliders": (t3 - t2) * 1e3,
+         "total": (t3 - t0) * 1e3}
     return ExportBundle(asset_name, uvs, lods, hulls, {k: round(v, 2) for k, v in t.items()})

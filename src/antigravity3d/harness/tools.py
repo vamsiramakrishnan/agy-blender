@@ -42,11 +42,13 @@ from antigravity3d.genmedia.pbr_deriver import delight, roughness_breakup
 from antigravity3d.harness.session import Preview, Session, resolve
 from antigravity3d.harness.traceback_compressor import compress_exception
 from antigravity3d.ir import IRPatch, MaterialIR, SetTransform, UpsertMaterial
+from antigravity3d.kernel.coplanar import opaque_materials
 from antigravity3d.kernel.fast_ops import (
     ExportBundle,
     Tier1Report,
     describe_collider_sources,
     run_export_pipeline,
+    shipped,
     tier1_qa,
 )
 from antigravity3d.kernel.raster import contact_sheet
@@ -618,8 +620,9 @@ async def _bundle(s: Session) -> ExportBundle:
     if cached and cached[0] == revision:
         bundle = cached[1]
     else:
+        # material edits bump geom_version too (Session.visuals_changed), so the revision covers opacity
         bundle = await asyncio.to_thread(run_export_pipeline, s.stage.extract_meshes(), s.state.budget,
-                                         s.stage.asset_prim.GetName())
+                                         s.stage.asset_prim.GetName(), opaque_materials=opaque_materials(s.stage.scene_ir()))
         s._set("bundle", (revision, bundle))
     art = s.art
     s.stage.ensure_export_uvs(bundle.uvs, crease_deg=art.crease_deg() if art is not None else CREASE_DEG)
@@ -645,7 +648,7 @@ async def generate_lods_and_colliders(ctx: ToolContext) -> str:
     async with s.registry.locked(s.sid):
         b = await _bundle(s)
     levels = min((len(v) for v in b.lods.values()), default=0)
-    lod_tris = [sum(v[i].tri_count for v in b.lods.values()) for i in range(levels)]
+    lod_tris = [sum(shipped(v[i]).tri_count for v in b.lods.values()) for i in range(levels)]
     stretch = max((u.stretch_mean for u in b.uvs), default=0.0)
     srcs = describe_collider_sources(b.colliders)
     return (f"LODS {len(b.lods)} nodes x {levels} levels tris={'/'.join(map(str, lod_tris))} | "

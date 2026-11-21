@@ -50,13 +50,14 @@ from urllib.parse import quote, unquote
 
 import numpy as np
 from PIL import Image
-from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
+from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, Vt
 
 from antigravity3d.artifacts.inspector import InspectorQA, build_inspector, bundled_three_js
+from antigravity3d.kernel import compile_ir
 from antigravity3d.kernel.compile_ir import (
     CREASE_DEG, IR_KEY, MapSource, MaterialParams, author_mesh_data, read_ir, read_material, set_normal_encoding,
 )
-from antigravity3d.kernel.fast_ops import ExportBundle, Hull, Issue, LOD, UVResult, gltf_default_material, write_gltf
+from antigravity3d.kernel.fast_ops import ExportBundle, Hull, Issue, LOD, UVResult, gltf_default_material, shipped, write_gltf
 from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, Sampler, TextureRef
 from antigravity3d.kernel.types import MeshData, gltf_world_bounds
 from antigravity3d.kernel.usdz import create_usdz
@@ -71,13 +72,14 @@ from antigravity3d.kernel.validator import (
 from antigravity3d.state import EngineBudget
 
 # 2: far LOD GLBs reference textures/ by URI instead of embedding them; manifest ``glb_images`` records which is which
-SCHEMA_VERSION = 2
-# 3: adds the OPTIONAL ``art_direction`` record (the named style and the values applied; ``validate_package`` checks
-# them against the files when present; absent means no style) and, with it, the shipped texel density beside the
-# atlas-space one in ``texel_density``. Today only a package built with an art direction is written as version 3, so
-# one built without carries nothing new and stays version 2, byte for byte what it was. The version is decided in one
-# place: the ``schema_version`` assignments in ``write_engine_package`` (SCHEMA_VERSION, raised to ART_SCHEMA_VERSION).
-ART_SCHEMA_VERSION = 3
+# 3: the render meshes that ship may leave out faces two parts press together (manifest ``contact_faces`` says what was
+#    removed, per part and per level, and whether the engine requires closed meshes); a collision hull over its
+#    engine's limit is replaced and says so in ``collider_sources``; and the OPTIONAL ``art_direction`` record names a
+#    style and the values applied (absent means no style; ``validate_package`` checks it against the files when
+#    present), with the shipped texel density beside the atlas-space one in ``texel_density``.
+# Packages written under an older version are validated by the layout they declare.
+SCHEMA_VERSION = 3
+ART_SCHEMA_VERSION = SCHEMA_VERSION  # the version whose contract has the ``art_direction`` record
 TEXTURE_DIR = PACKAGE_TEXTURE_DIR
 COLLIDERS_SCOPE = "Colliders"
 LOD_SET = "LOD"
@@ -232,9 +234,9 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str, art: Any = None)
         if art is not None:
             with Image.open(out / rel) as im:
                 im.load()
-                shipped = art.finish_map(im, role, px)
-            if shipped is not im:
-                shipped.save(out / rel, format="PNG")
+                finished = art.finish_map(im, role, px)
+            if finished is not im:
+                finished.save(out / rel, format="PNG")
         owners[rel] = source
         done[key] = rel
         return rel
@@ -530,14 +532,14 @@ def _author_lod_variants(
         vset.SetVariantSelection(f"LOD{i}")
         with vset.GetVariantEditContext():
             for path, inv33, trans, lods in targets:
-                lod = lods[i]
+                lod = shipped(lods[i])  # without the triangles hidden at this level (fast_ops.UVResult.hidden)
                 if not len(lod.triangles):
                     stage.GetPrimAtPath(path).SetActive(False)
                     continue
                 local = (np.asarray(lod.points, dtype=np.float64) - trans) @ inv33
                 author_mesh_data(stage.GetPrimAtPath(path), local, lod.triangles, lod.uvs, weld_map=None, crease_deg=crease_deg)
     vset.SetVariantSelection("LOD0")
-    return [sum(t[3][i].tri_count for t in targets) for i in range(levels)]
+    return [sum(shipped(t[3][i]).tri_count for t in targets) for i in range(levels)]
 
 
 def _author_colliders(stage: Usd.Stage, asset: Usd.Prim, engine: str, asset_name: str, hulls: list[Hull]) -> list[str]:
@@ -604,6 +606,57 @@ def _art_record(art: Any, budget: EngineBudget, textures: list[dict[str, Any]], 
 # --------------------------------------------------------------------------- the writer
 
 
+def _ship_lod0(stage: Usd.Stage, meshes: Sequence[MeshData], uvs: Sequence[UVResult]) -> dict[str, int]:
+    """Drops each part's hidden triangles (``UVResult.hidden``) from the LOD0 geometry of the package stage (a
+    copy of the working stage, whose meshes stay closed). Points, uvs, weld map and chart ids are the working
+    stage's own values, indexed: the kept vertices are bit-identical to the closed mesh's. Returns removed
+    triangles per part."""
+    removed: dict[str, int] = {}
+    for m, u in zip(meshes, uvs):
+        if u.hidden is None or not u.hidden.any():
+            continue
+        prim = stage.GetPrimAtPath(m.prim_path)
+        mesh = UsdGeom.Mesh(prim)
+        pts = np.asarray(mesh.GetPointsAttr().Get(), np.float64)
+        if len(pts) != len(u.points):
+            raise ValueError(f"{m.prim_path}: package mesh has {len(pts)} points, its unwrap {len(u.points)}")
+        s = shipped(u)
+        weld = prim.GetAttribute(compile_ir.UV_WELD_KEY).Get() if prim.HasAttribute(compile_ir.UV_WELD_KEY) else None
+        author_mesh_data(prim, pts[s.vertices], s.triangles, s.uvs,
+                         weld_map=None if weld is None else np.asarray(weld, np.int32)[s.vertices])
+        if prim.HasAttribute(compile_ir.UV_CHART_KEY):
+            attr = prim.GetAttribute(compile_ir.UV_CHART_KEY)
+            chart = attr.Get()
+            if chart is not None and len(chart) == len(u.triangles):
+                attr.Set(Vt.IntArray.FromNumpy(np.asarray(chart, np.int32)[~u.hidden]))
+        removed[u.node_id] = int(u.hidden.sum())
+    return removed
+
+
+def _contact_record(budget: EngineBudget, uvs: Sequence[UVResult], lods: Mapping[str, list], removed: Mapping[str, int],
+                    lod_tris: Sequence[int]) -> dict[str, Any]:
+    """Manifest entry: which triangles of the authored solids are not shipped, so a reader can tell the render
+    meshes are not the closed parts (colliders are made from the closed parts)."""
+    rule = ENGINE_RULES.get(budget.target_engine)
+    per_level = {n: [int(lv.hidden.sum()) if getattr(lv, "hidden", None) is not None else 0 for lv in chain]
+                 for n, chain in lods.items()}
+    return {
+        "rule": "triangles of a closed opaque part covered completely by opposite-facing coplanar faces of other "
+                "closed opaque parts of this asset are left out of the render meshes (fast_ops.run_export_pipeline)",
+        "engine_requires_closed_meshes": bool(rule and rule.closed_render_meshes),
+        "kept_by_request": bool(budget.keep_contact_faces),  # EngineBudget.keep_contact_faces (--keep-contact-faces)
+        "caveat": "each part keeps its own prim in the USD (and its own GLB node unless parts are batched per material): "
+                  "a part moved away from where it was authored shows an opening where it touched another part. "
+                  "Export with keep_contact_faces to ship the closed parts.",
+        "authored_tris": sum(len(u.triangles) for u in uvs),
+        "removed_tris": sum(removed.values()),
+        "removed_per_part": dict(sorted(removed.items())),
+        "removed_per_level": [sum(c[i] for c in per_level.values() if i < len(c)) for i in range(len(lod_tris))]
+                             if per_level else [sum(removed.values())],
+        "render_meshes_closed": not removed and not any(any(c) for c in per_level.values()),
+    }
+
+
 def write_engine_package(
     stage_manager,
     bundle_or_parts: ExportBundle | Mapping[str, Any],
@@ -650,6 +703,7 @@ def write_engine_package(
     layer = stage_manager.export_layer()
     stage = Usd.Stage.Open(layer)
     asset = stage.GetDefaultPrim()
+    removed = _ship_lod0(stage, meshes, uvs)
 
     textures, unresolved = _package_textures(stage, out, engine, art)
     if unresolved:
@@ -664,11 +718,13 @@ def write_engine_package(
             break
         mat = np.array(xc.GetLocalToWorldTransform(src_stage.GetPrimAtPath(m.prim_path)))
         lod_targets.append((m.prim_path, np.linalg.inv(mat[:3, :3]), mat[3, :3], chain))
+    ship = {u.node_id: shipped(u) for u in uvs}  # what each part ships at LOD0 (all of it unless hidden faces)
+    ship_lods = {n: [shipped(lv) for lv in chain] for n, chain in lods.items()}
     levels = min((len(t[3]) for t in lod_targets), default=0)
     if levels > 1:
         lod_tris = _author_lod_variants(stage, asset, lod_targets, crease)
     else:
-        lod_tris = [sum(len(u.triangles) for u in uvs)]
+        lod_tris = [sum(len(s.triangles) for s in ship.values())]
         if lods and not lod_targets:
             notes.append("LOD chains do not match the unwrapped meshes; LODs omitted from the USD")
     names = _author_colliders(stage, asset, engine, asset_name, hulls)
@@ -706,7 +762,7 @@ def write_engine_package(
     texture_of: dict[str, str] = {}
     for rel, digest in texture_hashes.items():
         texture_of.setdefault(digest, rel)  # identical files: the first one, in manifest order
-    _write_glb_level(out / f"{asset_name}.glb", {u.node_id: u for u in uvs}, batches, materials, "", crease_deg=crease)
+    _write_glb_level(out / f"{asset_name}.glb", ship, batches, materials, "", crease_deg=crease)
     files.append(f"{asset_name}.glb")
     glb_levels = levels
     # A material image whose bytes no package file holds (a map transcoded to PNG because glTF allows only PNG and
@@ -714,7 +770,7 @@ def write_engine_package(
     lod_uris = {digest: quote(rel) for digest, rel in texture_of.items()}
     for i in range(1, glb_levels):
         suffix = f"_LOD{i}"
-        _write_glb_level(out / f"{asset_name}{suffix}.glb", {n: chain[i] for n, chain in lods.items()},
+        _write_glb_level(out / f"{asset_name}{suffix}.glb", {n: chain[i] for n, chain in ship_lods.items()},
                          batches, materials, suffix, image_uris=lod_uris, crease_deg=crease)
         files.append(f"{asset_name}{suffix}.glb")
     if hulls:
@@ -725,11 +781,11 @@ def write_engine_package(
 
     # The inspector renders a GLB built by the same writer from the same seam-split vertices and the same
     # GltfMaterial objects as the package GLB, so what is reviewed is what ships.
-    inspector_meshes = [MeshData(m.node_id, m.prim_path, u.points, u.triangles, m.material_id)
+    inspector_meshes = [MeshData(m.node_id, m.prim_path, ship[u.node_id].points, ship[u.node_id].triangles, m.material_id)
                         for m, u in zip(meshes, uvs, strict=True)]
     viewer = build_inspector(inspector_meshes, asset_name=asset_name, budget=budget, materials=materials,
-                             uvs={u.node_id: u.uvs for u in uvs},
-                             lods=dict(lods) if glb_levels > 1 else None,
+                             uvs={n: s.uvs for n, s in ship.items()},
+                             lods=dict(ship_lods) if glb_levels > 1 else None,
                              colliders=[(name, h.points, h.triangles) for name, h in zip(names, hulls)],
                              qa=InspectorQA(bool(qa.get("tier1_ok")), tier15_score=qa.get("tier15"),
                                             defects=qa.get("defects", {}), audit_deltas=qa.get("audit", [])) if qa else None,
@@ -738,7 +794,8 @@ def write_engine_package(
     files.append(viewer.name)
 
     # package-level validators (UsdValidation + engine rules) on the file we actually wrote
-    mesh_data = [MeshData(u.node_id, f"/{asset.GetName()}/{u.node_id}", u.points, u.triangles, u.atlas_id) for u in uvs]
+    mesh_data = [MeshData(u.node_id, f"/{asset.GetName()}/{u.node_id}", ship[u.node_id].points, ship[u.node_id].triangles, u.atlas_id)
+                 for u in uvs]
     usd_issues = validate_usd(usd_path)
     eng_issues = check_engine_compliance(Usd.Stage.Open(str(usd_path)), mesh_data, budget)
 
@@ -754,7 +811,7 @@ def write_engine_package(
         "units": units,
         "normal_convention": NORMAL_CONVENTION.get(engine, "opengl"),
         "budget": {k: getattr(budget, k) for k in ("max_tris", "max_draw_calls", "max_collision_hulls", "texel_density_px_per_m")},
-        "tris": sum(len(u.triangles) for u in uvs),
+        "tris": sum(len(s.triangles) for s in ship.values()),
         "lod_levels": max(glb_levels, len(lod_tris)),
         "lod_tris": lod_tris,
         # largest screen fraction (bounding-sphere diameter / frame height) each level is shown at (LOD0: 1.0);
@@ -762,13 +819,14 @@ def write_engine_package(
         "lod_screen_fractions": [1.0] + [float(min(getattr(c[i], "screen_fraction", 1.0) for c in lods.values()))
                                          for i in range(1, len(lod_tris))],
         # GLB nodes (draw calls) per level: a level drops a node when every part in it is absent there
-        "lod_glb_nodes": [list(batches)] + [[b for b, nodes in batches.items() if any(len(lods[n][i].triangles) for n in nodes)]
+        "lod_glb_nodes": [list(batches)] + [[b for b, nodes in batches.items() if any(len(ship_lods[n][i].triangles) for n in nodes)]
                                             for i in range(1, glb_levels)],
-        "lod_draw_calls": [len(batches)] + [sum(1 for nodes in batches.values() if any(len(lods[n][i].triangles) for n in nodes))
+        "lod_draw_calls": [len(batches)] + [sum(1 for nodes in batches.values() if any(len(ship_lods[n][i].triangles) for n in nodes))
                                             for i in range(1, glb_levels)],
         "lod_structure": f"variantSet '{LOD_SET}' on /{asset.GetName()}: LOD0 (base) .. LOD{len(lod_tris) - 1}" if len(lod_tris) > 1 else None,
         "draw_calls": len(batches),
         "glb_batches": batches,
+        "contact_faces": _contact_record(budget, uvs, lods, removed, lod_tris),
         "glb_bounds_m": gltf_world_bounds((mesh.points for mesh in meshes), z_up=True),
         "texel_density": {
             "target_px_per_m": budget.texel_density_px_per_m,
@@ -796,9 +854,8 @@ def write_engine_package(
         data["art_direction"] = _art_record(art, budget, textures, out, dens, uvs)
         # one truth about texel density: the UV layout's figure is atlas-space (packed for UVResult.resolution); say so,
         # and give the density the shipped maps really reach beside it
-        shipped = data["art_direction"]["measured"]["texel_density_px_per_m"]
         data["texel_density"].update({"space": f"atlas ({max((u.resolution for u in uvs), default=0)} px packing resolution)",
-                                      "shipped_mean_px_per_m": shipped,
+                                      "shipped_mean_px_per_m": data["art_direction"]["measured"]["texel_density_px_per_m"],
                                       "shipped_texture_px": data["art_direction"]["measured"]["texture_px_max"]})
     data["file_hashes"] = {f: {"sha256": texture_hashes.get(f) or _sha256(out / f), "bytes": (out / f).stat().st_size} for f in files}
     mpath = out / "manifest.json"

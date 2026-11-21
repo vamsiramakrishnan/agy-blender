@@ -16,7 +16,7 @@ from pxr import Kind, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, Vt
 
 from antigravity3d.ir import MaterialIR
 from antigravity3d.kernel.compile_ir import _author_material, crease_normals, sync_double_sided
-from antigravity3d.kernel.fast_ops import ExportBundle, Hull, UVResult, write_gltf
+from antigravity3d.kernel.fast_ops import ExportBundle, Hull, UVResult, shipped, write_gltf
 from antigravity3d.kernel.validator import ENGINE_RULES
 
 
@@ -66,11 +66,12 @@ def write_package_usd(
         if m.id in used:
             _author_material(stage, Sdf.Path(f"/{asset_name}/Looks/{m.id}"), m)
     for u in uvs:
-        pts = _to_native(u.points, engine)
-        prim = _define_mesh(stage, f"/{asset_name}/{u.node_id}", pts, u.triangles, u.uvs)
+        s = shipped(u)  # without hidden contact faces (fast_ops.UVResult.hidden); all of it otherwise
+        pts = _to_native(s.points, engine)
+        prim = _define_mesh(stage, f"/{asset_name}/{u.node_id}", pts, s.triangles, s.uvs)
         if crease_deg is not None:
             mesh = UsdGeom.Mesh(prim)
-            mesh.CreateNormalsAttr().Set(Vt.Vec3fArray.FromNumpy(crease_normals(np.asarray(pts, np.float32), u.triangles, crease_deg)))
+            mesh.CreateNormalsAttr().Set(Vt.Vec3fArray.FromNumpy(crease_normals(np.asarray(pts, np.float32), s.triangles, crease_deg)))
             mesh.SetNormalsInterpolation(UsdGeom.Tokens.faceVarying)
         if mat_of.get(u.node_id):
             UsdShade.MaterialBindingAPI.Apply(prim).Bind(UsdShade.Material(stage.GetPrimAtPath(f"/{asset_name}/Looks/{mat_of[u.node_id]}")))
@@ -94,25 +95,26 @@ def write_glb_package(path: Path, bundle: ExportBundle) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     for i in range(1, min((len(chain) for chain in bundle.lods.values()), default=0)):
-        write_gltf(path.with_name(f"{path.stem}_LOD{i}.glb"), [chain[i] for chain in bundle.lods.values()],
+        write_gltf(path.with_name(f"{path.stem}_LOD{i}.glb"), [shipped(chain[i]) for chain in bundle.lods.values()],
                    [f"{node}_LOD{i}" for node in bundle.lods])
     if bundle.colliders:
         write_gltf(path.with_name(f"{path.stem}_colliders.glb"), bundle.colliders, [h.name for h in bundle.colliders])
-    return write_gltf(path, bundle.uvs)
+    return write_gltf(path, [shipped(u) for u in bundle.uvs], [u.node_id for u in bundle.uvs])
 
 
 def merged_lods(bundle: ExportBundle) -> list[SimpleNamespace]:
     """One merged mesh per LOD level across all nodes (levels shared by every node), carrying the level's
     ``screen_fraction`` (the largest screen size it is shown at; LOD0 1.0) so the pop check renders each switch
-    where the generator placed it."""
+    where the generator placed it. Each level is what ships (hidden contact faces left out, ``fast_ops.shipped``)."""
     levels = min((len(v) for v in bundle.lods.values()), default=0)
     out = []
     for k in range(levels):
         pts, tris, base = [], [], 0
         for lods in bundle.lods.values():
-            pts.append(lods[k].points)
-            tris.append(lods[k].triangles + base)
-            base += len(lods[k].points)
+            s = shipped(lods[k])  # what ships at this level, as the package's LOD files hold it
+            pts.append(s.points)
+            tris.append(s.triangles + base)
+            base += len(s.points)
         fr = min(float(getattr(lods[k], "screen_fraction", 1.0)) for lods in bundle.lods.values())
         out.append(SimpleNamespace(points=np.vstack(pts), triangles=np.vstack(tris), screen_fraction=fr if k else 1.0))
     return out

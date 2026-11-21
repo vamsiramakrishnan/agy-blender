@@ -323,7 +323,7 @@ def test_package_without_art_direction_is_unchanged(tmp_path: Path) -> None:
     sm, bundle = _crate(tmp_path / "a")
     pkg = write_engine_package(sm, bundle, budget, tmp_path / "a" / "pkg", asset_name="Crate")
     man = json.loads((pkg.out_dir / "manifest.json").read_text())
-    assert man["schema_version"] == 2 and "art_direction" not in man and man["uv"]["normals"] == "faceVarying (crease 40 deg)"
+    assert man["schema_version"] == 3 and "art_direction" not in man and man["uv"]["normals"] == "faceVarying (crease 40 deg)"
     assert "samplers" not in _glb_json(pkg.out_dir / "Crate.glb")
     sm2, bundle2 = _crate(tmp_path / "b")
     pkg2 = write_engine_package(sm2, bundle2, budget, tmp_path / "b" / "pkg", asset_name="Crate", art=None)
@@ -453,7 +453,7 @@ def test_offline_prop_with_art_direction_and_style_anchor(tmp_path: Path) -> Non
 def test_offline_prop_without_art_direction_runs_no_style_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """With no art direction, no style code runs and every kernel default is the one used before styles existed:
     the crease angle of every normal written is the project's 40 degrees, no sampler is written, maps keep the
-    offline size and the manifest stays schema_version 2 with no new key."""
+    offline size and the manifest carries no art_direction record."""
     import antigravity3d.kernel.compile_ir as ci
     from antigravity3d.cli import main
 
@@ -471,7 +471,7 @@ def test_offline_prop_without_art_direction_runs_no_style_code(tmp_path: Path, m
     assert "art_direction" not in report and "art_direction" not in report["comparison"]
     pkg = Path(report["outputs"]["inspector"]).parent
     man = json.loads((pkg / "manifest.json").read_text())
-    assert man["schema_version"] == 2 and "art_direction" not in man and man["uv"]["normals"] == "faceVarying (crease 40 deg)"
+    assert man["schema_version"] == 3 and "art_direction" not in man and man["uv"]["normals"] == "faceVarying (crease 40 deg)"
     assert {t["width"] for t in man["textures"]} == {256}
     assert all("samplers" not in _glb_json(pkg / f) for f in man["files"] if f.endswith(".glb"))
     assert creases == {CREASE_DEG}

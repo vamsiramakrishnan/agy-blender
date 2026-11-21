@@ -33,7 +33,8 @@ from antigravity3d.ir import (
 )
 from antigravity3d.art_direction import texture_brief
 from antigravity3d.kernel.compile_ir import CREASE_DEG, crease_normals
-from antigravity3d.kernel.fast_ops import CAPPED_MARK, ExportBundle, describe_collider_sources, run_export_pipeline, tier1_qa
+from antigravity3d.kernel.coplanar import opaque_materials
+from antigravity3d.kernel.fast_ops import CAPPED_MARK, ExportBundle, describe_collider_sources, run_export_pipeline, shipped, tier1_qa
 from antigravity3d.kernel.lod_diff import PopThresholds, lod_pop_report
 from antigravity3d.kernel.raster import CLAY, render_buffers
 from antigravity3d.kernel.settle import settle
@@ -515,7 +516,8 @@ class _Run:
         if self.export_bundle is None or self.bundle_revision != revision:
             meshes, scene = self.sm.extract_meshes(), self.sm.scene_ir()
             if self.cache is None:
-                self.export_bundle = await asyncio.to_thread(run_export_pipeline, meshes, self.budget, scene.asset_name)
+                self.export_bundle = await asyncio.to_thread(run_export_pipeline, meshes, self.budget, scene.asset_name,
+                                                             opaque_materials=opaque_materials(scene))
             else:
                 self.export_bundle, self.bundle_cache_hit = await asyncio.to_thread(
                     cached_export_pipeline, self.cache, scene, meshes, self.budget)
@@ -668,7 +670,7 @@ class _Run:
             nonlocal bundle
             bundle = await self.prepare_export_bundle()
             res.objects["bundle"] = bundle
-            levels = [sum(len(v[k].triangles) for v in bundle.lods.values()) for k in range(min((len(v) for v in bundle.lods.values()), default=0))]
+            levels = [sum(shipped(v[k]).tri_count for v in bundle.lods.values()) for k in range(min((len(v) for v in bundle.lods.values()), default=0))]
             bad = [u.node_id for u in bundle.uvs if not u.within(budget)]
             desc = f"uv={len(bundle.uvs)} lod_tris={levels} hulls={len(bundle.colliders)}"
             if any(h.source == "body_hull" or CAPPED_MARK in h.reason for h in bundle.colliders):  # a fallback or cap is never silent
@@ -692,11 +694,20 @@ class _Run:
             self.write_textures()
         usd_path = pkg / f"{scene.asset_name}.usd"
 
+        # Coplanar overlap between parts is a Tier-1 warning (z_fighting: same-facing faces in one plane) or, in the
+        # package, an engine warning (double_sided_contact: back-to-back faces that a double-sided material draws):
+        # neither blocks the export, both are visible defects, so the run report and the manifest carry them.
+        zfight = [f"{i.node_id}: {i.detail}" for i in tier1_qa(meshes, budget).issues if i.code == "z_fighting"]
+
         async def usd() -> tuple[str, str]:
             m = await asyncio.to_thread(write_engine_package, sm, bundle, budget, pkg, asset_name=scene.asset_name,
-                                        qa={"tier15": res.tier15, "tier1_ok": res.tier1_ok, "defects": res.defects, "audit": res.audit},
+                                        qa={"tier15": res.tier15, "tier1_ok": res.tier1_ok, "defects": res.defects, "audit": res.audit,
+                                            "z_fighting": zfight},
                                         art=self.art)
             res.objects["package"] = m
+            sided = [i.detail for i in m.issues if i.code.endswith(":double_sided_contact")]
+            if zfight or sided:
+                self.step("z_fighting", "warned", "; ".join((zfight + sided)[:3])[:400])
             res.artifacts.update(usd=str(usd_path), manifest=str(pkg / "manifest.json"))
             stage = Usd.Stage.Open(str(usd_path))
             self.step("engine_compliance", *self.compliance(stage, meshes))

@@ -56,7 +56,10 @@ def _print_art(art: Any) -> None:
 
 
 def _budget(a: argparse.Namespace) -> EngineBudget:
-    return EngineBudget(a.engine, max_tris=a.max_tris) if a.max_tris is not None else EngineBudget(a.engine)
+    keep = bool(getattr(a, "keep_contact_faces", False))
+    if a.max_tris is not None:
+        return EngineBudget(a.engine, max_tris=a.max_tris, keep_contact_faces=keep)
+    return EngineBudget(a.engine, keep_contact_faces=keep)
 
 
 def offline_plane() -> Any:
@@ -321,6 +324,8 @@ def build_parser() -> argparse.ArgumentParser:
     def common(p: argparse.ArgumentParser, out: bool = True) -> None:
         p.add_argument("--engine", choices=ENGINES, default="unreal_5")
         p.add_argument("--max-tris", type=int, default=None, help="triangle budget (default: engine budget default)")
+        p.add_argument("--keep-contact-faces", action="store_true",
+                       help="ship every authored triangle, also the faces parts press together (for parts that will be moved apart)")
         if out:
             p.add_argument("--out", required=True, help="output directory")
 

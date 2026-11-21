@@ -38,7 +38,12 @@ blockout; if an op is missing, report it instead of using the escape hatch.
    before lookdev. If over, reduce segment counts in the IR parameters rather
    than decimating.
 6. **Gate.** Every `apply_scene_ir` runs Tier-1 and is rolled back when it
-   fails. The blockout is clean when `session_status` shows `tier1=ok`. The
+   fails. Its warnings do not roll back but name real defects: a z_fighting
+   warning means two parts have same-facing faces in one plane that overlap
+   (they flicker in every engine); move or resize one so the faces either
+   meet back to back or differ by more than 1 mm. Parts pressed face to face
+   are fine: the faces hidden between them are left out of the export.
+   The blockout is clean when `session_status` shows `tier1=ok`. The
    `usd_verifier` subagent is not offered in BLOCKOUT, so do not delegate here.
    Then hand over to `pbr-material-forge`.
 

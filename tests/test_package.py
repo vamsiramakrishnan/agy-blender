@@ -373,7 +373,7 @@ def test_units_and_axis_are_converted_consistently(unreal, godot):
 def test_manifest_contents_and_clean_validation(unreal, godot):
     for _, bundle, pm in (unreal, godot):
         man = json.loads((pm.out_dir / "manifest.json").read_text())
-        assert man["schema_version"] == 2 and man["asset"] == ASSET and man["usd"] == f"{ASSET}.usd"
+        assert man["schema_version"] == 3 and man["asset"] == ASSET and man["usd"] == f"{ASSET}.usd"
         assert man["tris"] == man["lod_tris"][0] and man["draw_calls"] == 3
         assert man["qa"] == {"tier1_ok": True, "tier15": 3.9}
         assert {"target_px_per_m", "mean_px_per_m"} <= set(man["texel_density"])
@@ -1010,3 +1010,47 @@ def test_capped_hull_imports_in_stock_godot_as_its_collision_shape(tmp_path):
     assert np.abs(capped_hits - _ray_radius(to_y_up(capped.points), dirs)).max() < 1e-3
     assert (capped_hits - part).min() > -1e-3
     assert (np.asarray(out["raw.glb"]["hits"]) - part).min() < -2e-3
+
+
+async def test_godot_draws_a_package_without_hidden_contact_faces_like_the_closed_one(tmp_path):
+    """Faces two parts press together are left out of the render meshes (fast_ops.run_export_pipeline): stock Godot
+    imports the open meshes with the manifest's triangle counts, and its frame is the closed package's, pixel for
+    pixel."""
+    import os
+    from PIL import Image
+    from antigravity3d.adapters.engines.validators import GodotValidator
+    from antigravity3d.kernel.coplanar import opaque_materials
+
+    validator = GodotValidator()
+    if not validator.available():
+        pytest.skip("Godot binary required")
+    if not os.getenv("DISPLAY") and not os.getenv("WAYLAND_DISPLAY") and not shutil.which("xvfb-run"):
+        pytest.skip("graphics renderer required for stock Godot capture")
+
+    def node(i, lo, hi, kind="box", **params):
+        lo, hi = np.asarray(lo, float), np.asarray(hi, float)
+        params = params or {"size": tuple((hi - lo).tolist())}
+        return NodeIR(id=i, kind=kind, params=params, transform=Transform(translate=tuple(((lo + hi) / 2).tolist())),
+                      material_id="wood" if i != "post" else "iron")
+
+    scene = SceneIR(asset_name=ASSET, materials=[MaterialIR(id="wood", base_color=(.5, .35, .2)), MaterialIR(id="iron", base_color=(.3, .3, .3))],
+                    nodes=[node("base", (-.5, -.5, 0), (.5, .5, .4)), node("lid", (-.5, -.5, .4), (.5, .5, .5)),
+                           node("post", (-.1, -.1, .5), (.1, .1, 1.1), "cylinder", radius=.1, height=.6, segments=16)])
+    frames, tris = {}, {}
+    for closed in (True, False):
+        sm = StageManager.create(tmp_path / f"w{closed}.usda", ASSET)
+        sm.apply_ir(scene)
+        budget = EngineBudget("godot_4", keep_contact_faces=closed)
+        bundle = run_export_pipeline(sm.extract_meshes(), budget, ASSET, opaque_materials=opaque_materials(scene))
+        pm = write_engine_package(sm, bundle, budget, tmp_path / f"p{closed}", asset_name=ASSET)
+        assert pm.ok, pm.issues
+        assert pm.data["contact_faces"]["kept_by_request"] is closed
+        report = await validator.validate(pm.out_dir / f"{ASSET}.glb", timeout=45)
+        assert report.ok and report.metrics["triangles"] == pm.data["tris"], report.log_tail
+        assert report.geometry_issue(pm.data) is None
+        png = tmp_path / f"{closed}.png"
+        capture = await validator.capture(pm.out_dir / f"{ASSET}.glb", png, timeout=45)
+        assert capture.ok, capture.log_tail or capture.skipped_reason
+        frames[closed], tris[closed] = np.asarray(Image.open(png).convert("RGBA")), pm.data["tris"]
+    assert tris[False] == tris[True] - 20  # base top and lid bottom, the post's bottom cap
+    assert np.array_equal(frames[True], frames[False])
