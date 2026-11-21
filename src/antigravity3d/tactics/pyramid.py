@@ -41,10 +41,11 @@ from antigravity3d.kernel.compile_ir import CREASE_DEG, crease_normals
 from antigravity3d.kernel.coplanar import opaque_materials
 from antigravity3d.kernel.fast_ops import (
     CAPPED_MARK, ExportBundle, describe_collider_sources, describe_texel_density, run_export_pipeline, shipped, texel_density_report,
-    tier1_qa,
+    shipped_masks, tier1_qa,
 )
 from antigravity3d.kernel.lod_diff import PopThresholds, lod_pop_report
 from antigravity3d.kernel.raster import CLAY, render_buffers
+from antigravity3d.kernel.separate import separate_coplanar
 from antigravity3d.kernel.settle import beside_a_part, mesh_bounds, settle
 from antigravity3d.kernel.som import marked_contact_sheet
 from antigravity3d.kernel.validator import check_engine_compliance, engine_texture_px, validate_usd
@@ -423,6 +424,37 @@ class _Run:
             return None, f"settle unsupported: {e}"
         return (IRPatch(ops=ops), f"settled {len(ops)} node(s)") if ops else (None, "already settled")
 
+    # ---- deterministic separation of coplanar faces (kernel/separate.py) --------------------------------
+
+    def separate_step(self, name: str) -> None:
+        """Move single faces so no two parts have same-facing faces in one plane (no model call), recorded as step
+        ``name``: what moved and by how much, the contact faces that do not ship, what was left to the author. Rolled
+        back (and said so) if it would raise the Tier-1 critical count or make a part float."""
+        t0 = time.perf_counter()
+        sm = self.sm
+        scene = sm.base_ir()
+        meshes = sm.extract_meshes()
+        try:  # faces the exporter leaves out (its own rule, fast_ops.shipped_masks) are not drawn: reported, not moved
+            r = separate_coplanar(scene, meshes, hidden=shipped_masks(meshes, self.budget))
+        except (ValueError, KeyError) as e:
+            self.step(name, "skipped", f"separation unsupported: {e}", t0)
+            return
+        why = r.describe()
+        if not r.ops:
+            self.step(name, "warned" if r.left else "skipped", why, t0)
+            return
+        t1 = tier1_qa(meshes, self.budget)
+        tx = sm.apply_patch(IRPatch(ops=r.ops))
+        t2 = tier1_qa(sm.extract_meshes(), self.budget)
+        floats = lambda t: {(i.code, i.node_id) for i in t.issues if i.code in ("floating_part", "floating_group")}  # noqa: E731
+        if _crit(t2) > _crit(t1) or floats(t2) - floats(t1):
+            sm.rollback(tx)
+            cause = (f"Tier-1 critical count {_crit(t1)}->{_crit(t2)}" if _crit(t2) > _crit(t1)
+                     else "floating " + ", ".join(sorted(n or "?" for _, n in floats(t2) - floats(t1))))
+            self.step(name, "warned", f"rolled back ({cause}): {why}", t0)
+            return
+        self.step(name, "warned" if r.left else "passed", why, t0)
+
     # ---- Pass A ---------------------------------------------------------------------------------------
 
     async def locate(self, t1: Any, q: _QA) -> dict[str, list[str]]:
@@ -554,6 +586,7 @@ class _Run:
                     self.step("settle_pre", "failed", "settle raised Tier-1 critical count; rolled back", t0)
                 else:
                     self.step("settle_pre", "passed", why, t0)
+            self.separate_step("separate_coplanar")
         for rnd in range(1, self.max_rounds + 1):
             meshes = sm.extract_meshes()
             t1 = tier1_qa(meshes, self.budget)
@@ -646,6 +679,8 @@ class _Run:
             pending = _Pending(tx, ops=[o.op for o in patch.ops], params=_patch_params(patch), note=why[:160],
                                rule=reviewed_rules.RULE if exact else "", scene_hash=reviewed_rules.scene_hash(before_ir),
                                origin=origin, **before)
+            if self.settle_first:  # a repair can bring back flush faces: separate again (rolled back with the repair)
+                self.separate_step(f"separate_coplanar_A{rnd}")
 
     # ---- Pass B ---------------------------------------------------------------------------------------
 

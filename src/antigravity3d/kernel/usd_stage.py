@@ -390,6 +390,11 @@ class StageManager:
     def _read_meshes(self) -> list[_MeshRead]:
         xc = UsdGeom.XformCache()
         out: list[_MeshRead] = []
+        # which materials are opaque, read as the exporter reads them (run_export_pipeline's opaque_materials)
+        from antigravity3d.kernel.coplanar import opaque_materials
+
+        scene = read_ir(self.asset_prim)
+        opaque = opaque_materials(scene) if scene is not None else None
         for prim in Usd.PrimRange(self.asset_prim):  # default predicate: active, defined, concrete
             if not prim.IsA(UsdGeom.Mesh):
                 continue
@@ -425,6 +430,7 @@ class StageManager:
                 material_id=mat.GetPrim().GetName() if mat else None,
                 collider=collider,
                 uv_charts=charts,
+                opaque=None if opaque is None else (mat.GetPrim().GetName() if mat else None) in opaque,
             )
             out.append(_MeshRead(prim, md, local))
         return out

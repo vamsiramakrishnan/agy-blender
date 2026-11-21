@@ -165,6 +165,45 @@ async def test_planted_z_fighting_fails_the_blender_asset_qa_step_with_upstreams
     assert not res.ok and not res.verified
 
 
+def flush_scene() -> SceneIR:
+    """Kit-bashed details as a model writes them: a rib crossing a panel of the same thickness on a base (their tops
+    share a plane), and a handle grip whose caps are flush with its brackets' outer faces."""
+    grip = NodeIR(id="grip", kind="cylinder", params={"radius": 0.012, "height": 0.16, "segments": 12}, material_id="m0",
+                  transform=Transform(translate=(-0.525, 0.0, 0.1), rotate_euler_deg=(90.0, 0.0, 0.0)))
+    return SceneIR(asset_name="Flush", materials=[MaterialIR(id="m0")], nodes=[
+        box("base", (1.0, 1.0, 0.2), (0.0, 0.0, 0.1)), box("panel", (0.4, 0.4, 0.01), (0.0, 0.0, 0.205)),
+        box("rib", (0.04, 0.6, 0.01), (0.0, 0.0, 0.205)), grip,
+        box("br_f", (0.04, 0.02, 0.03), (-0.52, -0.07, 0.1)), box("br_b", (0.04, 0.02, 0.03), (-0.52, 0.07, 0.1))])
+
+
+@pytest.mark.blender
+@needs_blender
+@pytest.mark.parametrize("engine", ["unreal_5", "roblox_r15"])
+async def test_flush_details_are_separated_before_qa_and_pass_the_blender_asset_qa_step(tmp_path, blender_pool, engine, monkeypatch):
+    """The deterministic separation (kernel/separate.py, step ``separate_coplanar`` of pass A) moves the flush faces 2 mm
+    apart; Blender's qa_check on the exported GLB then finds no z-fighting. Negative control: with the step switched off
+    (a separation that finds nothing) the same scene fails that check, as it did before the step existed."""
+    from antigravity3d.kernel.separate import SeparationResult
+    from antigravity3d.tactics import pyramid
+
+    sm = StageManager.create(tmp_path / "on.usda", "Flush")
+    sm.apply_ir(flush_scene())
+    plane = DecisionControlPlane(FakeDecisionsClient(responder=lambda req: {}))
+    kw = dict(plane=plane, author=CallableAuthor(lambda *a, **k: []), governor=Governor(plan_for(2)), budget=EngineBudget(engine),
+              uploader=up, forge=ImageForge(FakeImageBackend()), settle_first=True, pool=blender_pool)
+    res = await refine(sm, workdir=tmp_path / "on", **kw)
+    steps = {s.name: s for s in res.steps}
+    assert steps["separate_coplanar"].status == "passed", steps["separate_coplanar"]
+    assert steps["blender_asset_qa"].status == "passed", steps["blender_asset_qa"]
+    assert "z_fighting" not in steps or steps["z_fighting"].status != "warned" or engine != "roblox_r15"
+    monkeypatch.setattr(pyramid, "separate_coplanar", lambda *a, **k: SeparationResult())
+    sm = StageManager.create(tmp_path / "off.usda", "Flush")
+    sm.apply_ir(flush_scene())
+    res = await refine(sm, workdir=tmp_path / "off", **kw)
+    failed = dict(res.failed)
+    assert "z-fighting" in failed.get("blender_asset_qa", ""), failed
+
+
 def roblox_scene(tmp_path: Path, name: str, nodes: list[NodeIR]):
     from antigravity3d.kernel import fast_ops
     from antigravity3d.kernel.package import write_engine_package

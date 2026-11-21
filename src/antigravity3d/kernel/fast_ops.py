@@ -331,7 +331,7 @@ def tier1_qa(
                     add("floating_group", "warning", names[0], f"{', '.join(names)} touch each other and nothing else; "
                         + gap.describe(g, bounds_lo, bounds_hi))
             _check_zfight([v[0] for v in valid], zfight_eps, add, (bounds_lo, bounds_hi), near if zfight_eps <= touch_eps else None,
-                          [v[1] for v in valid])
+                          [v[1] for v in valid], budget)
 
     ms = (time.perf_counter() - t0) * 1e3
     stats = {
@@ -457,14 +457,53 @@ def _surface_area(m: MeshData) -> float:
     return float(np.sqrt(np.einsum("ij,ij->i", n, n)).sum() / 2)
 
 
-def _check_zfight(meshes: list[MeshData], eps: float, add, bounds=None, pairs=None, solid=None) -> None:
+def shipped_masks(meshes: list[MeshData], budget: EngineBudget, only: set[int] | None = None) -> list[np.ndarray] | None:
+    """Per mesh, the triangles the exporter leaves out of the render meshes for this budget (hidden contact faces,
+    ``hidden_contact_faces`` under ``contact_faces_removable``: the export's own rule), or None when it leaves out
+    none or when opacity is not known (meshes not read from a managed stage: ``MeshData.opaque`` is None).
+
+    ``only``: the masks are needed for these meshes only. A part's hidden triangles depend on the parts whose boxes
+    touch it (nothing farther can cover it), so it is decided on those parts alone, with the same result; the
+    other meshes get empty masks."""
+    if not meshes or any(m.opaque is None for m in meshes):
+        return None
+    opaque = frozenset(m.material_id for m in meshes if m.opaque)
+    if not contact_faces_removable(budget, opaque):
+        return None
+    keep = list(range(len(meshes)))
+    if only is not None:
+        lo = np.array([np.asarray(m.points).min(axis=0) if len(m.points) else np.full(3, np.inf) for m in meshes])
+        hi = np.array([np.asarray(m.points).max(axis=0) if len(m.points) else np.full(3, -np.inf) for m in meshes])
+        pad = 1e-4 * max(1.0, float(np.linalg.norm(np.nanmax(np.where(np.isfinite(hi), hi, np.nan), axis=0)
+                                                   - np.nanmin(np.where(np.isfinite(lo), lo, np.nan), axis=0))))
+        sel = sorted(only)
+        near = np.zeros(len(meshes), bool)
+        near[sel] = True
+        for k in sel:
+            near |= np.all((lo <= hi[k] + pad) & (hi >= lo[k] - pad), axis=1)
+        keep = np.flatnonzero(near).tolist()
+    sub = hidden_contact_faces([(meshes[k].node_id, meshes[k].points, meshes[k].triangles,
+                                 meshes[k].material_id if meshes[k].opaque else None) for k in keep], opaque)
+    out = [np.zeros(len(m.triangles), bool) for m in meshes]
+    for k, mask in zip(keep, sub):
+        out[k] = mask
+    return out
+
+
+def _check_zfight(meshes: list[MeshData], eps: float, add, bounds=None, pairs=None, solid=None, budget=None) -> None:
     """Same-facing faces of two parts within ``eps`` of one plane whose areas overlap (more than a sliver
     ``eps`` wide; faces that only share an edge do not count): two surfaces at one depth, drawn in whichever
-    order the depth buffer's rounding picks, so they flicker in every engine."""
+    order the depth buffer's rounding picks, so they flicker in every engine. A pair of faces that both do not ship
+    (contact faces the exporter leaves out for this budget, ``shipped_masks``) is not drawn, so it is not counted;
+    where they ship (closed-mesh engines, contact faces kept by request) it is."""
     from antigravity3d.kernel import coplanar
 
     parts = [coplanar.Part(m.node_id, np.asarray(m.points, np.float64), np.asarray(m.triangles)) for m in meshes]
-    for i, j, area in coplanar.same_facing_overlaps(parts, eps, bounds=bounds, pairs=pairs, solid=solid):
+    found = coplanar.same_facing_overlaps(parts, eps, bounds=bounds, pairs=pairs, solid=solid)
+    hidden = shipped_masks(meshes, budget, only={x for i, j, _ in found for x in (i, j)}) if found and budget is not None else None
+    if hidden is not None:  # the same pairs, counting only triangle pairs of which at least one ships
+        found = coplanar.same_facing_overlaps(parts, eps, bounds=bounds, pairs=[(i, j) for i, j, _ in found], solid=solid, hidden=hidden)
+    for i, j, area in found:
         add("z_fighting", "warning", meshes[i].node_id,
             f"{meshes[i].node_id}/{meshes[j].node_id}: {area * 1e4:.3g} cm^2 of same-facing faces within {eps * 1e3:g} mm of one plane")
 

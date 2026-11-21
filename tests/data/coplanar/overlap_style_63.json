@@ -1,0 +1,539 @@
+{
+  "asset_name": "RuggedMilitarySupply",
+  "nodes": [
+    {
+      "id": "skid_front",
+      "kind": "box",
+      "params": { "size": [0.86, 0.07, 0.042] },
+      "transform": { "translate": [0.0, -0.19, 0.021] },
+      "material_id": "mat_steel_dark",
+      "collider": true
+    },
+    {
+      "id": "skid_back",
+      "kind": "box",
+      "params": { "size": [0.86, 0.07, 0.042] },
+      "transform": { "translate": [0.0, 0.19, 0.021] },
+      "material_id": "mat_steel_dark",
+      "collider": true
+    },
+    {
+      "id": "crate_body",
+      "kind": "box",
+      "params": { "size": [0.88, 0.52, 0.34] },
+      "transform": { "translate": [0.0, 0.0, 0.21] },
+      "material_id": "mat_crate_olive",
+      "collider": true
+    },
+    {
+      "id": "crate_lid",
+      "kind": "box",
+      "params": { "size": [0.9, 0.54, 0.08] },
+      "transform": { "translate": [0.0, 0.0, 0.418] },
+      "material_id": "mat_crate_olive",
+      "collider": true
+    },
+    {
+      "id": "lid_top_panel",
+      "kind": "box",
+      "params": { "size": [0.76, 0.4, 0.014] },
+      "transform": { "translate": [0.0, 0.0, 0.463] },
+      "material_id": "mat_crate_olive",
+      "collider": false
+    },
+    {
+      "id": "lid_rib_left",
+      "kind": "box",
+      "params": { "size": [0.04, 0.38, 0.012] },
+      "transform": { "translate": [-0.22, 0.0, 0.474] },
+      "material_id": "mat_crate_olive",
+      "collider": false
+    },
+    {
+      "id": "lid_rib_center",
+      "kind": "box",
+      "params": { "size": [0.04, 0.38, 0.012] },
+      "transform": { "translate": [0.0, 0.0, 0.474] },
+      "material_id": "mat_crate_olive",
+      "collider": false
+    },
+    {
+      "id": "lid_rib_right",
+      "kind": "box",
+      "params": { "size": [0.04, 0.38, 0.012] },
+      "transform": { "translate": [0.22, 0.0, 0.474] },
+      "material_id": "mat_crate_olive",
+      "collider": false
+    },
+    {
+      "id": "panel_front",
+      "kind": "box",
+      "params": { "size": [0.66, 0.014, 0.22] },
+      "transform": { "translate": [0.0, -0.265, 0.21] },
+      "material_id": "mat_crate_olive",
+      "collider": false
+    },
+    {
+      "id": "panel_back",
+      "kind": "box",
+      "params": { "size": [0.66, 0.014, 0.22] },
+      "transform": { "translate": [0.0, 0.265, 0.21] },
+      "material_id": "mat_crate_olive",
+      "collider": false
+    },
+    {
+      "id": "panel_left",
+      "kind": "box",
+      "params": { "size": [0.014, 0.34, 0.22] },
+      "transform": { "translate": [-0.445, 0.0, 0.21] },
+      "material_id": "mat_crate_olive",
+      "collider": false
+    },
+    {
+      "id": "panel_right",
+      "kind": "box",
+      "params": { "size": [0.014, 0.34, 0.22] },
+      "transform": { "translate": [0.445, 0.0, 0.21] },
+      "material_id": "mat_crate_olive",
+      "collider": false
+    },
+    {
+      "id": "rib_front_left",
+      "kind": "box",
+      "params": { "size": [0.035, 0.018, 0.26] },
+      "transform": { "translate": [-0.24, -0.267, 0.21] },
+      "material_id": "mat_crate_olive",
+      "collider": false
+    },
+    {
+      "id": "rib_front_right",
+      "kind": "box",
+      "params": { "size": [0.035, 0.018, 0.26] },
+      "transform": { "translate": [0.24, -0.267, 0.21] },
+      "material_id": "mat_crate_olive",
+      "collider": false
+    },
+    {
+      "id": "rib_back_left",
+      "kind": "box",
+      "params": { "size": [0.035, 0.018, 0.26] },
+      "transform": { "translate": [-0.24, 0.267, 0.21] },
+      "material_id": "mat_crate_olive",
+      "collider": false
+    },
+    {
+      "id": "rib_back_right",
+      "kind": "box",
+      "params": { "size": [0.035, 0.018, 0.26] },
+      "transform": { "translate": [0.24, 0.267, 0.21] },
+      "material_id": "mat_crate_olive",
+      "collider": false
+    },
+    {
+      "id": "cg_bl_x",
+      "kind": "box",
+      "params": { "size": [0.008, 0.07, 0.07] },
+      "transform": { "translate": [-0.442, -0.228, 0.073] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_bl_y",
+      "kind": "box",
+      "params": { "size": [0.07, 0.008, 0.07] },
+      "transform": { "translate": [-0.408, -0.262, 0.073] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_bl_z",
+      "kind": "box",
+      "params": { "size": [0.07, 0.07, 0.008] },
+      "transform": { "translate": [-0.408, -0.228, 0.038] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_br_x",
+      "kind": "box",
+      "params": { "size": [0.008, 0.07, 0.07] },
+      "transform": { "translate": [0.442, -0.228, 0.073] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_br_y",
+      "kind": "box",
+      "params": { "size": [0.07, 0.008, 0.07] },
+      "transform": { "translate": [0.408, -0.262, 0.073] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_br_z",
+      "kind": "box",
+      "params": { "size": [0.07, 0.07, 0.008] },
+      "transform": { "translate": [0.408, -0.228, 0.038] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_fl_x",
+      "kind": "box",
+      "params": { "size": [0.008, 0.07, 0.07] },
+      "transform": { "translate": [-0.442, 0.228, 0.073] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_fl_y",
+      "kind": "box",
+      "params": { "size": [0.07, 0.008, 0.07] },
+      "transform": { "translate": [-0.408, 0.262, 0.073] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_fl_z",
+      "kind": "box",
+      "params": { "size": [0.07, 0.07, 0.008] },
+      "transform": { "translate": [-0.408, 0.228, 0.038] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_fr_x",
+      "kind": "box",
+      "params": { "size": [0.008, 0.07, 0.07] },
+      "transform": { "translate": [0.442, 0.228, 0.073] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_fr_y",
+      "kind": "box",
+      "params": { "size": [0.07, 0.008, 0.07] },
+      "transform": { "translate": [0.408, 0.262, 0.073] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_fr_z",
+      "kind": "box",
+      "params": { "size": [0.07, 0.07, 0.008] },
+      "transform": { "translate": [0.408, 0.228, 0.038] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_tbl_x",
+      "kind": "box",
+      "params": { "size": [0.008, 0.07, 0.07] },
+      "transform": { "translate": [-0.452, -0.238, 0.425] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_tbl_y",
+      "kind": "box",
+      "params": { "size": [0.07, 0.008, 0.07] },
+      "transform": { "translate": [-0.418, -0.272, 0.425] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_tbl_z",
+      "kind": "box",
+      "params": { "size": [0.07, 0.07, 0.008] },
+      "transform": { "translate": [-0.418, -0.238, 0.46] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_tbr_x",
+      "kind": "box",
+      "params": { "size": [0.008, 0.07, 0.07] },
+      "transform": { "translate": [0.452, -0.238, 0.425] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_tbr_y",
+      "kind": "box",
+      "params": { "size": [0.07, 0.008, 0.07] },
+      "transform": { "translate": [0.418, -0.272, 0.425] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_tbr_z",
+      "kind": "box",
+      "params": { "size": [0.07, 0.07, 0.008] },
+      "transform": { "translate": [0.418, -0.238, 0.46] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_tfl_x",
+      "kind": "box",
+      "params": { "size": [0.008, 0.07, 0.07] },
+      "transform": { "translate": [-0.452, 0.238, 0.425] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_tfl_y",
+      "kind": "box",
+      "params": { "size": [0.07, 0.008, 0.07] },
+      "transform": { "translate": [-0.418, 0.272, 0.425] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_tfl_z",
+      "kind": "box",
+      "params": { "size": [0.07, 0.07, 0.008] },
+      "transform": { "translate": [-0.418, 0.238, 0.46] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_tfr_x",
+      "kind": "box",
+      "params": { "size": [0.008, 0.07, 0.07] },
+      "transform": { "translate": [0.452, 0.238, 0.425] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_tfr_y",
+      "kind": "box",
+      "params": { "size": [0.07, 0.008, 0.07] },
+      "transform": { "translate": [0.418, 0.272, 0.425] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "cg_tfr_z",
+      "kind": "box",
+      "params": { "size": [0.07, 0.07, 0.008] },
+      "transform": { "translate": [0.418, 0.238, 0.46] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "latch_l_base",
+      "kind": "box",
+      "params": { "size": [0.06, 0.01, 0.07] },
+      "transform": { "translate": [-0.22, -0.263, 0.335] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "latch_l_catch",
+      "kind": "box",
+      "params": { "size": [0.06, 0.012, 0.035] },
+      "transform": { "translate": [-0.22, -0.273, 0.4] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "latch_l_clasp",
+      "kind": "box",
+      "params": { "size": [0.036, 0.014, 0.065] },
+      "transform": { "translate": [-0.22, -0.278, 0.37] },
+      "material_id": "mat_brass_stencil",
+      "collider": false
+    },
+    {
+      "id": "latch_l_hinge",
+      "kind": "cylinder",
+      "params": { "radius": 0.008, "height": 0.05, "segments": 10 },
+      "transform": { "translate": [-0.22, -0.275, 0.34], "rotate_euler_deg": [0.0, 90.0, 0.0] },
+      "material_id": "mat_brass_stencil",
+      "collider": false
+    },
+    {
+      "id": "latch_r_base",
+      "kind": "box",
+      "params": { "size": [0.06, 0.01, 0.07] },
+      "transform": { "translate": [0.22, -0.263, 0.335] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "latch_r_catch",
+      "kind": "box",
+      "params": { "size": [0.06, 0.012, 0.035] },
+      "transform": { "translate": [0.22, -0.273, 0.4] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "latch_r_clasp",
+      "kind": "box",
+      "params": { "size": [0.036, 0.014, 0.065] },
+      "transform": { "translate": [0.22, -0.278, 0.37] },
+      "material_id": "mat_brass_stencil",
+      "collider": false
+    },
+    {
+      "id": "latch_r_hinge",
+      "kind": "cylinder",
+      "params": { "radius": 0.008, "height": 0.05, "segments": 10 },
+      "transform": { "translate": [0.22, -0.275, 0.34], "rotate_euler_deg": [0.0, 90.0, 0.0] },
+      "material_id": "mat_brass_stencil",
+      "collider": false
+    },
+    {
+      "id": "hinge_l_low",
+      "kind": "box",
+      "params": { "size": [0.07, 0.01, 0.05] },
+      "transform": { "translate": [-0.22, 0.263, 0.35] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "hinge_l_up",
+      "kind": "box",
+      "params": { "size": [0.07, 0.01, 0.04] },
+      "transform": { "translate": [-0.22, 0.273, 0.4] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "hinge_l_pin",
+      "kind": "cylinder",
+      "params": { "radius": 0.009, "height": 0.075, "segments": 10 },
+      "transform": { "translate": [-0.22, 0.275, 0.378], "rotate_euler_deg": [0.0, 90.0, 0.0] },
+      "material_id": "mat_brass_stencil",
+      "collider": false
+    },
+    {
+      "id": "hinge_r_low",
+      "kind": "box",
+      "params": { "size": [0.07, 0.01, 0.05] },
+      "transform": { "translate": [0.22, 0.263, 0.35] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "hinge_r_up",
+      "kind": "box",
+      "params": { "size": [0.07, 0.01, 0.04] },
+      "transform": { "translate": [0.22, 0.273, 0.4] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "hinge_r_pin",
+      "kind": "cylinder",
+      "params": { "radius": 0.009, "height": 0.075, "segments": 10 },
+      "transform": { "translate": [0.22, 0.275, 0.378], "rotate_euler_deg": [0.0, 90.0, 0.0] },
+      "material_id": "mat_brass_stencil",
+      "collider": false
+    },
+    {
+      "id": "handle_l_plate",
+      "kind": "box",
+      "params": { "size": [0.01, 0.18, 0.08] },
+      "transform": { "translate": [-0.453, 0.0, 0.24] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "handle_l_brk_f",
+      "kind": "box",
+      "params": { "size": [0.035, 0.024, 0.024] },
+      "transform": { "translate": [-0.468, -0.065, 0.24] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "handle_l_brk_b",
+      "kind": "box",
+      "params": { "size": [0.035, 0.024, 0.024] },
+      "transform": { "translate": [-0.468, 0.065, 0.24] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "handle_l_grip",
+      "kind": "cylinder",
+      "params": { "radius": 0.012, "height": 0.15, "segments": 12 },
+      "transform": { "translate": [-0.483, 0.0, 0.24], "rotate_euler_deg": [90.0, 0.0, 0.0] },
+      "material_id": "mat_rubber_black",
+      "collider": false
+    },
+    {
+      "id": "handle_r_plate",
+      "kind": "box",
+      "params": { "size": [0.01, 0.18, 0.08] },
+      "transform": { "translate": [0.453, 0.0, 0.24] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "handle_r_brk_f",
+      "kind": "box",
+      "params": { "size": [0.035, 0.024, 0.024] },
+      "transform": { "translate": [0.468, -0.065, 0.24] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "handle_r_brk_b",
+      "kind": "box",
+      "params": { "size": [0.035, 0.024, 0.024] },
+      "transform": { "translate": [0.468, 0.065, 0.24] },
+      "material_id": "mat_steel_dark",
+      "collider": false
+    },
+    {
+      "id": "handle_r_grip",
+      "kind": "cylinder",
+      "params": { "radius": 0.012, "height": 0.15, "segments": 12 },
+      "transform": { "translate": [0.483, 0.0, 0.24], "rotate_euler_deg": [90.0, 0.0, 0.0] },
+      "material_id": "mat_rubber_black",
+      "collider": false
+    },
+    {
+      "id": "valve_front",
+      "kind": "cylinder",
+      "params": { "radius": 0.018, "height": 0.016, "segments": 12 },
+      "transform": { "translate": [0.36, -0.264, 0.32], "rotate_euler_deg": [90.0, 0.0, 0.0] },
+      "material_id": "mat_brass_stencil",
+      "collider": false
+    }
+  ],
+  "materials": [
+    {
+      "id": "mat_crate_olive",
+      "surface": "matte olive drab painted metal with subtle wear",
+      "base_color": [0.18, 0.22, 0.14],
+      "metallic": 0.15,
+      "roughness": 0.72
+    },
+    {
+      "id": "mat_steel_dark",
+      "surface": "dark anodized gunmetal steel with worn edges",
+      "base_color": [0.12, 0.13, 0.14],
+      "metallic": 0.85,
+      "roughness": 0.42
+    },
+    {
+      "id": "mat_rubber_black",
+      "surface": "matte textured black vulcanized rubber",
+      "base_color": [0.06, 0.06, 0.06],
+      "metallic": 0.0,
+      "roughness": 0.88
+    },
+    {
+      "id": "mat_brass_stencil",
+      "surface": "tarnished brushed brass",
+      "base_color": [0.65, 0.48, 0.18],
+      "metallic": 0.9,
+      "roughness": 0.35
+    }
+  ]
+}

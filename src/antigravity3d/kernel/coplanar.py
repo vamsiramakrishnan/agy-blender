@@ -168,7 +168,7 @@ class Contacts:
 
 def coplanar_contacts(parts: list[Part], tol: float | None = None, *, facing: str = "both",
                       eligible: list[bool] | None = None, bounds: tuple[np.ndarray, np.ndarray] | None = None,
-                      pairs=None, solid: list[bool] | None = None) -> Contacts:
+                      pairs=None, solid: list[bool] | None = None, width: float | None = None) -> Contacts:
     """Coplanar overlapping triangle pairs between different parts. ``facing``: "same", "opposite" or "both";
     ``eligible``: parts that take part (others are skipped). Pairs of triangles are narrowed in this order, each
     step cheap before the next: parts whose boxes touch (fast_ops' sweep), triangles near the other part's box,
@@ -177,7 +177,8 @@ def coplanar_contacts(parts: list[Part], tol: float | None = None, *, facing: st
     box corners) and ``pairs`` (part index pairs whose boxes touch within at least ``tol``) can be handed in by a
     caller that has them (tier1_qa), so they are not computed twice. ``solid`` (per part: closed, positive volume; None =
     all are): the same-facing box shortcut below holds for two solids only, so a pair with an open part (a decal, a
-    card pressed on a surface) skips it."""
+    card pressed on a surface) skips it. ``width``: the overlap a pair must exceed (default ``tol``): a caller looking
+    for parallel faces up to ``tol`` apart whose overlap is wider than a smaller sliver (kernel/separate.py)."""
     from antigravity3d.kernel.fast_ops import _candidate_pairs
 
     tol = asset_tolerance(parts) if tol is None else tol
@@ -248,12 +249,13 @@ def coplanar_contacts(parts: list[Part], tol: float | None = None, *, facing: st
     # separating axes (in-plane edge normals of both): a pair within a slab of tol/6 cannot overlap by more than
     # tol in width (see _sat_overlap)
     sel = np.flatnonzero(keep)
-    sel = sel[_sat_overlap(ca[sel], cb[sel], na[sel]) > tol / 6]
+    width = tol if width is None else width
+    sel = sel[_sat_overlap(ca[sel], cb[sel], na[sel]) > width / 6]
     for k in sel.tolist():
         i, a1, j, b1 = int(I[k]), int(A[k]), int(J[k]), int(B[k])
         u, v = _plane_basis(na[k])
         poly = _overlap(_in_plane(ca[k], u, v), _in_plane(cb[k], u, v))
-        if len(poly) < 3 or _width(poly) <= tol:
+        if len(poly) < 3 or _width(poly) <= width:
             continue  # touching along an edge or a corner, or apart
         book = same if float(na[k] @ nb[k]) > 0 else opposite
         book[i].setdefault(a1, []).append((j, b1))
@@ -298,9 +300,10 @@ def hidden_triangles(parts: list[Part], solid: list[bool], opaque: list[bool] | 
 
 
 def same_facing_overlaps(parts: list[Part], tol: float | None = None, *, bounds=None, pairs=None,
-                         solid: list[bool] | None = None) -> list[tuple[int, int, float]]:
+                         solid: list[bool] | None = None, hidden: list[np.ndarray] | None = None) -> list[tuple[int, int, float]]:
     """(part i, part j, overlapping area in m^2) for every pair of parts with same-facing coplanar overlap
-    (faces within ``tol`` of one plane whose overlap is wider than ``tol``)."""
+    (faces within ``tol`` of one plane whose overlap is wider than ``tol``). ``hidden`` (per part, a boolean mask of
+    triangles that do not ship, or None): a triangle pair both of whose triangles do not ship is not counted."""
     c = coplanar_contacts(parts, tol, facing="same", bounds=bounds, pairs=pairs, solid=solid)
     acc: dict[tuple[int, int], float] = {}
     for i in range(len(parts)):
@@ -308,6 +311,8 @@ def same_facing_overlaps(parts: list[Part], tol: float | None = None, *, bounds=
         for a, lst in c.same[i].items():
             for j, b in lst:
                 if j <= i:
+                    continue
+                if hidden is not None and hidden[i] is not None and hidden[j] is not None and hidden[i][a] and hidden[j][b]:
                     continue
                 u, v = _plane_basis(ni[a])
                 poly = _overlap(_in_plane(ci[a], u, v), _in_plane(c.frames[j][0][b], u, v))

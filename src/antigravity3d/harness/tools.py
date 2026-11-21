@@ -51,9 +51,11 @@ from antigravity3d.kernel.fast_ops import (
     describe_collider_sources,
     run_export_pipeline,
     shipped,
+    shipped_masks,
     tier1_qa,
 )
 from antigravity3d.kernel.raster import contact_sheet
+from antigravity3d.kernel.separate import separate_coplanar
 from antigravity3d.kernel.validator import check_engine_compliance, engine_texture_px, validate_usd
 from antigravity3d.state import (
     EXPORT_MIN_TIER15_SCORE,
@@ -175,6 +177,36 @@ async def _commit(s: Session, apply: Callable[[], str]) -> tuple[str | None, Tie
     return None, report
 
 
+def _separated(s: Session, apply: Callable[[], str], extend: Callable[[list], Callable[[], str]], note: list[str]) -> Callable[[], str]:
+    """``apply`` followed, in the same transaction, by the deterministic separation of coplanar faces pass A runs
+    (kernel/separate.py): when the edit leaves z_fighting findings, the edit is re-applied together with the face moves
+    as one patch, so one edit stays one transaction (``undo_last_edit`` undoes both). The moves are kept only if they
+    raise no critical issue and make no part float; what happened is appended to ``note``. Caller holds the lock."""
+    def run() -> str:
+        tid = apply()
+        budget = s.state.budget
+        meshes = s.stage.extract_meshes()
+        before = tier1_qa(meshes, budget)
+        if not any(i.code == "z_fighting" for i in before.issues):
+            return tid
+        r = separate_coplanar(s.stage.base_ir(), meshes, hidden=shipped_masks(meshes, budget))
+        if not r.ops:
+            note.append(f"separate: {r.summary()}")
+            return tid
+        s.stage.rollback(tid, discard=True)
+        tid = extend(r.ops)()
+        after = tier1_qa(s.stage.extract_meshes(), budget)
+        floats = lambda t: {(i.code, i.node_id) for i in t.issues if i.code in ("floating_part", "floating_group")}  # noqa: E731
+        if sum(i.severity == "critical" for i in after.issues) > sum(i.severity == "critical" for i in before.issues) \
+                or floats(after) - floats(before):
+            s.stage.rollback(tid, discard=True)
+            note.append("separate: not applied (a critical issue or a floating part)")
+            return apply()
+        note.append(f"separate: {r.summary()}")
+        return tid
+    return run
+
+
 def _stats(r: Tier1Report) -> str:
     return f"tris={r.stats['tris']} draws={r.stats['draw_calls']}"
 
@@ -261,17 +293,20 @@ async def _auto_fix(s: Session, action: Action) -> str:
     return f"{action.fixer} applied to {len(ops)} material(s) tx={tid}; re-run QA"
 
 
-def _edit(s: Session, ops: Any) -> tuple[Callable[[], str], int]:
-    """``ops`` (a list of op objects) -> (apply callable, op count). The legacy string form may also carry a patch
+def _edit(s: Session, ops: Any) -> tuple[Callable[[], str], int, Callable[[list], Callable[[], str]]]:
+    """``ops`` (a list of op objects) -> (apply callable, op count, extend), ``extend(more_ops)`` being the callable
+    that applies the edit and ``more_ops`` after it as one transaction. The legacy string form may also carry a patch
     object ``{"ops": [...]}`` or a full scene ``{"nodes": [...], "materials": [...]}`` (replaces the scene)."""
     payload = _decoded(ops, "ops")
     if isinstance(payload, dict) and "nodes" in payload:
         scene = ir_schema.parse_tool_scene(s.stage.asset_prim.GetName(), payload["nodes"], payload.get("materials"))
-        return (lambda: s.stage.apply_ir(scene)), len(scene.nodes) + len(scene.materials)
+        return ((lambda: s.stage.apply_ir(scene)), len(scene.nodes) + len(scene.materials),
+                lambda more: (lambda: s.stage.apply_ir(ir.apply_patch(scene, IRPatch(ops=more)))))
     if isinstance(payload, dict) and set(payload) == {"ops"}:
         payload = payload["ops"]
     patch = ir_schema.parse_ops(payload)
-    return (lambda: s.stage.apply_patch(patch)), len(patch.ops)
+    return ((lambda: s.stage.apply_patch(patch)), len(patch.ops),
+            lambda more: (lambda: s.stage.apply_patch(IRPatch(ops=[*patch.ops, *more]))))
 
 
 def _material_refs(materials: list[Any]) -> list[str]:
@@ -308,13 +343,14 @@ def image_refs(name: str, args: dict[str, Any]) -> list[str]:
 async def apply_scene_ir(ops: list[dict[str, Any]] | dict[str, Any] | str, ctx: ToolContext) -> str:
     """Atomically apply a Scene IR patch; rolled back if Tier-1 QA fails."""
     s = resolve(ctx)
-    apply, n = _edit(s, ops)
+    apply, n, extend = _edit(s, ops)
+    note: list[str] = []
     async with s.registry.locked(s.sid):
-        tid, rep = await _commit(s, apply)
+        tid, rep = await _commit(s, _separated(s, apply, extend, note))
         nodes = len(s.stage.base_ir().nodes)
     if tid is None:
         return f"ROLLED BACK {rep.one_line(200)}"
-    return f"OK tx={tid} ops={n} nodes={nodes} {_stats(rep)}{_warn(rep)}"
+    return f"OK tx={tid} ops={n} nodes={nodes} {_stats(rep)}{_warn(rep)}" + "".join(f" | {x}" for x in note)
 
 
 @_guard

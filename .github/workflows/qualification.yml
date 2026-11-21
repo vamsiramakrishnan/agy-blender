@@ -127,6 +127,7 @@ jobs:
                       "test_a_clean_crate_passes_the_blender_asset_qa_step",
                       "test_the_blender_asset_qa_result_reaches_the_package_manifest",
                       "test_planted_z_fighting_fails_the_blender_asset_qa_step_with_upstreams_message",
+                      *(f"test_flush_details_are_separated_before_qa_and_pass_the_blender_asset_qa_step[{engine}]" for engine in ("unreal_5", "roblox_r15")),
                       "test_separate_boxes_resting_on_the_ground_pass_and_a_part_hovering_5_cm_fails",
                       "test_a_roblox_material_over_the_triangle_limit_ships_as_meshes_within_it_and_one_oversized_part_still_fails",
                       "test_a_kit_piece_moved_off_its_pivot_fails_the_blender_kit_check_node_and_the_gates",
