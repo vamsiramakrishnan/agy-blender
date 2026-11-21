@@ -15,7 +15,7 @@ import numpy as np
 from pxr import Kind, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, Vt
 
 from antigravity3d.ir import MaterialIR
-from antigravity3d.kernel.compile_ir import _author_material, sync_double_sided
+from antigravity3d.kernel.compile_ir import _author_material, crease_normals, sync_double_sided
 from antigravity3d.kernel.fast_ops import ExportBundle, Hull, UVResult, write_gltf
 from antigravity3d.kernel.validator import ENGINE_RULES
 
@@ -45,9 +45,12 @@ def _define_mesh(stage: Usd.Stage, path: str, pts: np.ndarray, tris: np.ndarray,
 
 def write_package_usd(
     path: Path, asset_name: str, uvs: Sequence[UVResult], mat_of: dict[str, str | None], materials: Sequence[MaterialIR],
-    hulls: Sequence[Hull], engine: str, *, textures_from: Path | None = None,
+    hulls: Sequence[Hull], engine: str, *, textures_from: Path | None = None, crease_deg: float | None = None,
 ) -> Path:
-    """Writes the baked package. ``textures_from``: directory whose ``textures/`` folder is copied next to the file."""
+    """Writes the baked package. ``textures_from``: directory whose ``textures/`` folder is copied next to the file.
+
+    ``crease_deg``: an art direction's shading crease. The render meshes then get faceVarying normals smoothed within
+    that angle (``compile_ir.crease_normals``); None authors no normals, as before art directions existed."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     stage = Usd.Stage.CreateNew(str(path))
@@ -63,7 +66,12 @@ def write_package_usd(
         if m.id in used:
             _author_material(stage, Sdf.Path(f"/{asset_name}/Looks/{m.id}"), m)
     for u in uvs:
-        prim = _define_mesh(stage, f"/{asset_name}/{u.node_id}", _to_native(u.points, engine), u.triangles, u.uvs)
+        pts = _to_native(u.points, engine)
+        prim = _define_mesh(stage, f"/{asset_name}/{u.node_id}", pts, u.triangles, u.uvs)
+        if crease_deg is not None:
+            mesh = UsdGeom.Mesh(prim)
+            mesh.CreateNormalsAttr().Set(Vt.Vec3fArray.FromNumpy(crease_normals(np.asarray(pts, np.float32), u.triangles, crease_deg)))
+            mesh.SetNormalsInterpolation(UsdGeom.Tokens.faceVarying)
         if mat_of.get(u.node_id):
             UsdShade.MaterialBindingAPI.Apply(prim).Bind(UsdShade.Material(stage.GetPrimAtPath(f"/{asset_name}/Looks/{mat_of[u.node_id]}")))
     if sided := {m.id for m in materials if m.id in used and m.double_sided}:  # a fresh stage: nothing to clear

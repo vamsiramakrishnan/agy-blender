@@ -23,6 +23,7 @@ from google.antigravity.models import (
 )
 from google.antigravity.triggers import TriggerContext
 
+from antigravity3d.art_direction import author_text, texture_brief
 from antigravity3d.harness.hooks import (
     QAStopHook,
     TelemetryHook,
@@ -103,9 +104,10 @@ _SUBAGENT_TEXT = {
 }
 
 
-def _system(toolset: str, subagents: tuple[str, ...] | None = None) -> str:
+def _system(toolset: str, subagents: tuple[str, ...] | None = None, art: Any = None) -> str:
     """The whole system prompt of a stage agent (it replaces the SDK default; see STAGE_BEHAVIOR). ``subagents``
-    defaults to the stage's own (``tools.STAGE_SUBAGENTS``)."""
+    defaults to the stage's own (``tools.STAGE_SUBAGENTS``). ``art``: the session's art direction; its author brief is
+    added to the geometry stages and its texture brief to LOOKDEV (nothing is added without one)."""
     parts = [(f"You are the {toolset} stage agent of a game-asset pipeline. Nobody answers questions: work autonomously "
               "until the stage's stop condition holds, then reply with a short plain-text report of what changed and what "
               "remains. You edit the asset only through the tools; tool replies are one-line deltas; a refused or failed "
@@ -115,6 +117,10 @@ def _system(toolset: str, subagents: tuple[str, ...] | None = None) -> str:
     elif toolset in _MATERIAL_STAGES:
         parts.append(IR_SEMANTICS)
     parts.append(_STAGE_TEXT[toolset])
+    if art is not None and toolset in _IR_STAGES and (line := author_text(art)):
+        parts.append(line)
+    elif art is not None and toolset in _MATERIAL_STAGES and (brief := texture_brief(art)):
+        parts.append(f"Art direction {art.id}: write material prompts for forge_pbr_material in this look: {brief}")
     if subs := (STAGE_SUBAGENTS.get(toolset, ()) if subagents is None else subagents):
         listed = "; ".join(f"{n}: {_SUBAGENT_TEXT[n][0].rstrip('.')}" for n in subs)
         parts.append(f"Subagents (invoke_subagent TypeName) run in their own context; a reply arrives as a message, do not "
@@ -123,8 +129,8 @@ def _system(toolset: str, subagents: tuple[str, ...] | None = None) -> str:
     return "\n".join(parts)
 
 
-def _instructions(toolset: str, subagents: tuple[str, ...]) -> types.CustomSystemInstructions:
-    return types.CustomSystemInstructions(text=_system(toolset, subagents), title="stage_agent")
+def _instructions(toolset: str, subagents: tuple[str, ...], art: Any = None) -> types.CustomSystemInstructions:
+    return types.CustomSystemInstructions(text=_system(toolset, subagents, art), title="stage_agent")
 
 
 def model_target(role: Role) -> ModelTarget:
@@ -181,7 +187,7 @@ def build_stage_agent(
         **({"allowed_subagents": list(subs), "max_subagent_depth": 1} if subs else {}),
     )
     return LocalAgentConfig(
-        system_instructions=_instructions(stage, subs),
+        system_instructions=_instructions(stage, subs, s.art),
         capabilities=caps,
         tools=list(STAGE_TOOLS[stage]),
         policies=policy.confirm_run_command(),  # backstop; the gate hook is the primary safety policy

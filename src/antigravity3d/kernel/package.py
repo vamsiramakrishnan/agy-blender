@@ -10,7 +10,7 @@ Layout of ``out_dir`` (everything referenced relative to the USD layer, so the d
     textures/              copies of the material maps (normal maps converted to the engine convention)
     inspector.html         offline Three.js PBR, channels, selectable nodes, LODs and budget gauges
     manifest.json          schema_version, units, tri counts, textures, materials, glb_images, collider_sources, hashes,
-                           validation, versions
+                           validation, versions; ``art_direction`` when one was applied (schema_version 3)
 
 Images: ``<asset>.glb`` is the single-file deliverable and embeds every image; each image is byte-for-byte the
 ``textures/`` file the USD references. A far LOD file is never shipped without its package, so it references those
@@ -54,10 +54,10 @@ from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 from antigravity3d.artifacts.inspector import InspectorQA, build_inspector, bundled_three_js
 from antigravity3d.kernel.compile_ir import (
-    IR_KEY, MapSource, MaterialParams, author_mesh_data, read_ir, read_material, set_normal_encoding,
+    CREASE_DEG, IR_KEY, MapSource, MaterialParams, author_mesh_data, read_ir, read_material, set_normal_encoding,
 )
 from antigravity3d.kernel.fast_ops import ExportBundle, Hull, Issue, LOD, UVResult, gltf_default_material, write_gltf
-from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, TextureRef
+from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, Sampler, TextureRef
 from antigravity3d.kernel.types import MeshData, gltf_world_bounds
 from antigravity3d.kernel.usdz import create_usdz
 from antigravity3d.kernel.validator import (
@@ -72,6 +72,12 @@ from antigravity3d.state import EngineBudget
 
 # 2: far LOD GLBs reference textures/ by URI instead of embedding them; manifest ``glb_images`` records which is which
 SCHEMA_VERSION = 2
+# 3: adds the OPTIONAL ``art_direction`` record (the named style and the values applied; ``validate_package`` checks
+# them against the files when present; absent means no style) and, with it, the shipped texel density beside the
+# atlas-space one in ``texel_density``. Today only a package built with an art direction is written as version 3, so
+# one built without carries nothing new and stays version 2, byte for byte what it was. The version is decided in one
+# place: the ``schema_version`` assignments in ``write_engine_package`` (SCHEMA_VERSION, raised to ART_SCHEMA_VERSION).
+ART_SCHEMA_VERSION = 3
 TEXTURE_DIR = PACKAGE_TEXTURE_DIR
 COLLIDERS_SCOPE = "Colliders"
 LOD_SET = "LOD"
@@ -196,14 +202,19 @@ def _clean_previous(out: Path) -> None:
 # --------------------------------------------------------------------------- USD authoring
 
 
-def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[dict[str, Any]], list[str]]:
-    """Copies map files into ``textures/``, converts normal maps, rewrites asset paths relative."""
+def _package_textures(stage: Usd.Stage, out: Path, engine: str, art: Any = None) -> tuple[list[dict[str, Any]], list[str]]:
+    """Copies map files into ``textures/``, converts normal maps, rewrites asset paths relative.
+
+    With an art direction every map is written as it ships under that style (``ArtDirection.finish_map``: its map size,
+    and its palette for albedo maps), whoever produced the source file; a map already within both limits is copied
+    byte for byte, as without a style."""
+    px = art.texture_px(engine, "prop", 1 << 30) if art is not None and art.texture_px_prop is not None else None
     target = NORMAL_CONVENTION.get(engine, "opengl")
     records: list[dict[str, Any]] = []
     unresolved: list[str] = []
     done: dict[tuple[str, bool], str] = {}  # (source, flipped) -> relative path
     owners: dict[str, str] = {}  # relative path -> source it was written for (collision guard)
-    def copy_map(src: Path, flip: bool, convention: str) -> str:
+    def copy_map(src: Path, flip: bool, convention: str, role: str) -> str:
         source = str(src.resolve())
         key = (source, flip)
         if key in done:
@@ -218,6 +229,12 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[di
             flip_normal_green(src, out / rel)
         else:
             shutil.copy2(src, out / rel)
+        if art is not None:
+            with Image.open(out / rel) as im:
+                im.load()
+                shipped = art.finish_map(im, role, px)
+            if shipped is not im:
+                shipped.save(out / rel, format="PNG")
         owners[rel] = source
         done[key] = rel
         return rel
@@ -241,10 +258,10 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str) -> tuple[list[di
             continue
         src_conv = str(mat.GetCustomDataByKey("agy:normalConvention") or "opengl")
         flip = is_normal and src_conv != target
-        rel = copy_map(src, flip, target)
+        rel = copy_map(src, flip, target, role)
         # USD Preview Surface and glTF both use +Y. Preserve a separate DirectX map
         # for native engine import when needed; use canonical USD scale/bias in the archive.
-        usd_rel = copy_map(src, src_conv != "opengl", "opengl") if is_normal else rel
+        usd_rel = copy_map(src, src_conv != "opengl", "opengl", role) if is_normal else rel
         with Image.open(out / rel) as im:
             width, height = im.size
         cs = shader.GetInput("sourceColorSpace")
@@ -298,7 +315,8 @@ def _relativise_embedded_ir(stage: Usd.Stage, records: list[dict[str, Any]]) -> 
 
 
 def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict[str, list[str]],
-                     materials: dict[str, GltfMaterial], suffix: str, image_uris: Mapping[str, str] | None = None) -> None:
+                     materials: dict[str, GltfMaterial], suffix: str, image_uris: Mapping[str, str] | None = None,
+                     crease_deg: float | None = None) -> None:
     items = []
     bound = []
     names = []
@@ -316,7 +334,7 @@ def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict
             items.append(LOD(1., np.vstack([p.points for p in group]), indices,
                              np.vstack([p.uvs for p in group]), 0., 0.))
         bound.append(materials.get(nodes[0]))
-    write_gltf(path, items, [name + suffix for name in names], materials=bound, image_uris=image_uris)
+    write_gltf(path, items, [name + suffix for name in names], materials=bound, image_uris=image_uris, crease_deg=crease_deg)
 
 
 def _glb_image_records(path: Path, texture_of: Mapping[str, str], hashes: Mapping[str, str]) -> list[dict[str, Any]]:
@@ -346,7 +364,7 @@ def _flip_green_png(image: EncodedImage) -> EncodedImage:
     return EncodedImage(buf.getvalue(), "image/png", hashlib.sha256(buf.getvalue()).hexdigest(), image.name, True)
 
 
-def gltf_material(params: MaterialParams, image_of, *, double_sided: bool = False) -> GltfMaterial:
+def gltf_material(params: MaterialParams, image_of, *, double_sided: bool = False, sampler: Sampler | None = None) -> GltfMaterial:
     """The glTF 2.0 material for one :class:`MaterialParams`. Pure mapping, no I/O.
 
     ``image_of(role)`` returns the ``EncodedImage`` for a map role (``albedo``, ``orm``, ``normal``, ``emissive``) or
@@ -354,8 +372,9 @@ def gltf_material(params: MaterialParams, image_of, *, double_sided: bool = Fals
     differs from the glTF default, so a material that uses none of them serialises exactly as before they existed.
     A map replaces the factor of its channel (white base colour under ``albedo``, 1.0 metallic/roughness under
     ``orm``); the emissive map is multiplied by ``emissive_color``, and ``emissive_strength`` is the extension.
+    ``sampler`` (an art direction's texture filtering) goes on every texture slot; None writes no sampler.
     """
-    tex = {role: TextureRef(img) for role in ("albedo", "orm", "normal", "emissive") if (img := image_of(role)) is not None}
+    tex = {role: TextureRef(img, sampler) for role in ("albedo", "orm", "normal", "emissive") if (img := image_of(role)) is not None}
     color = [1.0] * 3 if "albedo" in tex else list(params.base_color)
     ext: dict[str, dict[str, Any]] = {}
     if params.emissive_strength != 1.0:
@@ -386,7 +405,8 @@ def gltf_material(params: MaterialParams, image_of, *, double_sided: bool = Fals
     )
 
 
-def gltf_materials(stage: Usd.Stage, meshes: Sequence[MeshData], *, package_dir: str | Path | None = None) -> dict[str, GltfMaterial]:
+def gltf_materials(stage: Usd.Stage, meshes: Sequence[MeshData], *, package_dir: str | Path | None = None,
+                   sampler: Sampler | None = None) -> dict[str, GltfMaterial]:
     """``{node_id: GltfMaterial}`` for the meshes of a composed stage: the one derivation of glTF materials.
 
     The package export, the inspector's GLB and any checker call this; values come from
@@ -399,7 +419,7 @@ def gltf_materials(stage: Usd.Stage, meshes: Sequence[MeshData], *, package_dir:
     ``UsdUVTexture.file`` resolves (the source files) and a DirectX normal map (``agy:normalConvention``) is
     converted to glTF's OpenGL convention. Each distinct file is read once and embedded as the bytes it holds, so a
     package GLB image is bit-identical to the texture file the USD references. A map whose file is missing is left
-    out and its factor is used.
+    out and its factor is used. ``sampler``: see :func:`gltf_material`.
     """
     base = Path(package_dir) if package_dir is not None else None
     files: dict[tuple[str, bool], EncodedImage] = {}
@@ -431,7 +451,7 @@ def gltf_materials(stage: Usd.Stage, meshes: Sequence[MeshData], *, package_dir:
             flip = base is None and params.normal_convention == "directx"
             by_key[key] = gltf_material(
                 params, lambda role, params=params, flip=flip: (ref := params.maps.get(role)) and load(ref, flip and role == "normal"),
-                double_sided=sided)
+                double_sided=sided, sampler=sampler)
         by_node[mesh.node_id] = by_key[key]
     return by_node
 
@@ -474,7 +494,7 @@ _GEOMETRY_PROPS = frozenset({
 
 
 def _author_lod_variants(
-    stage: Usd.Stage, asset: Usd.Prim, targets: list[tuple[str, np.ndarray, np.ndarray, list]]
+    stage: Usd.Stage, asset: Usd.Prim, targets: list[tuple[str, np.ndarray, np.ndarray, list]], crease_deg: float = CREASE_DEG,
 ) -> list[int]:
     """LOD structure: variant set ``LOD`` on the asset prim, variants ``LOD0..LODn``.
 
@@ -515,7 +535,7 @@ def _author_lod_variants(
                     stage.GetPrimAtPath(path).SetActive(False)
                     continue
                 local = (np.asarray(lod.points, dtype=np.float64) - trans) @ inv33
-                author_mesh_data(stage.GetPrimAtPath(path), local, lod.triangles, lod.uvs, weld_map=None)
+                author_mesh_data(stage.GetPrimAtPath(path), local, lod.triangles, lod.uvs, weld_map=None, crease_deg=crease_deg)
     vset.SetVariantSelection("LOD0")
     return [sum(t[3][i].tri_count for t in targets) for i in range(levels)]
 
@@ -555,6 +575,32 @@ def _apply_units(stage: Usd.Stage, asset: Usd.Prim, engine: str) -> dict[str, An
     return units
 
 
+def _art_record(art: Any, budget: EngineBudget, textures: list[dict[str, Any]], out: Path, dens: list[float],
+                uvs: Sequence[UVResult]) -> dict[str, Any]:
+    """The manifest's ``art_direction`` record: the style, the values applied and what the written maps measure.
+    ``validate_package`` checks the files against it (``validator._check_art_direction``).
+
+    ``measured.texel_density_px_per_m`` is what the shipped maps really give: the UV layout's density (laid out for a
+    ``UVResult.resolution`` atlas) scaled by the size of the largest map that is actually bound."""
+    from antigravity3d.art_direction import count_colors
+
+    target = art.texture_px(budget.target_engine, "prop", 0) if art.texture_px_prop is not None else None
+    record = art.manifest_record(budget=budget, asset_class="prop", texture_px=target)
+    sizes = [max(t["width"], t["height"]) for t in textures]
+    colors = {}
+    for t in textures:
+        if t["role"] == "albedo" and t["path"] not in colors:
+            with Image.open(out / t["path"]) as im:
+                colors[t["path"]] = count_colors(im)
+    atlas = max((u.resolution for u in uvs), default=0)
+    record["measured"] = {
+        "texture_px_max": max(sizes) if sizes else None,
+        "albedo_colors": colors,
+        "texel_density_px_per_m": round(float(np.mean(dens)) * max(sizes) / atlas, 2) if dens and sizes and atlas else None,
+    }
+    return record
+
+
 # --------------------------------------------------------------------------- the writer
 
 
@@ -566,6 +612,7 @@ def write_engine_package(
     *,
     asset_name: str,
     qa: dict | None = None,
+    art: Any = None,
 ) -> PackageManifest:
     """Writes the package (see module docstring) and validates it cold. Idempotent per directory.
 
@@ -577,8 +624,15 @@ def write_engine_package(
     The package is a function of the scene and the budget: two exports of the same scene are byte-identical,
     manifest included. How long the kernels took is run telemetry (``ExportBundle.timings_ms``, the pipeline's
     step durations), not package content, so it is not written here.
+
+    ``art``: the :class:`antigravity3d.art_direction.ArtDirection` the asset was built with, or None. It sets the
+    shading crease of every normal written (USD LOD0 and LOD variants, GLB levels, inspector) and the texture sampler
+    of every GLB texture, and adds the ``art_direction`` record (schema_version 3) with the values applied and what
+    was measured on the written maps. ``budget`` is then already the effective budget (``ArtDirection.budget``).
+    With None nothing differs from a package written before art directions existed.
     """
     uvs, lods, hulls = _parts(bundle_or_parts)
+    crease = art.crease_deg() if art is not None else CREASE_DEG
     if not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", asset_name):
         raise ValueError("package asset_name must be a USD identifier")
     qa = dict(qa or {})
@@ -588,7 +642,7 @@ def write_engine_package(
     _clean_previous(out)
     notes: list[str] = []
 
-    stage_manager.ensure_export_uvs(uvs)
+    stage_manager.ensure_export_uvs(uvs, crease_deg=crease)
     meshes = stage_manager.extract_meshes()
     xc = UsdGeom.XformCache()
     src_stage = stage_manager.stage
@@ -597,7 +651,7 @@ def write_engine_package(
     stage = Usd.Stage.Open(layer)
     asset = stage.GetDefaultPrim()
 
-    textures, unresolved = _package_textures(stage, out, engine)
+    textures, unresolved = _package_textures(stage, out, engine, art)
     if unresolved:
         notes.append(f"{len(unresolved)} texture path(s) not found on disk, left unchanged: {unresolved[:3]}")
 
@@ -612,7 +666,7 @@ def write_engine_package(
         lod_targets.append((m.prim_path, np.linalg.inv(mat[:3, :3]), mat[3, :3], chain))
     levels = min((len(t[3]) for t in lod_targets), default=0)
     if levels > 1:
-        lod_tris = _author_lod_variants(stage, asset, lod_targets)
+        lod_tris = _author_lod_variants(stage, asset, lod_targets, crease)
     else:
         lod_tris = [sum(len(u.triangles) for u in uvs)]
         if lods and not lod_targets:
@@ -636,7 +690,7 @@ def write_engine_package(
     except Exception as e:  # noqa: BLE001 - pxr raises Tf.ErrorException
         usdz_skipped = f"{type(e).__name__}: {e}"[:200]
 
-    materials = gltf_materials(stage, meshes, package_dir=out)
+    materials = gltf_materials(stage, meshes, package_dir=out, sampler=art.sampler() if art is not None else None)
     # Preserve selectable nodes where the draw budget allows it. Static props whose
     # node count exceeds the budget are submitted in one world-space batch per material.
     batches = {u.node_id: [u.node_id] for u in uvs}
@@ -652,7 +706,7 @@ def write_engine_package(
     texture_of: dict[str, str] = {}
     for rel, digest in texture_hashes.items():
         texture_of.setdefault(digest, rel)  # identical files: the first one, in manifest order
-    _write_glb_level(out / f"{asset_name}.glb", {u.node_id: u for u in uvs}, batches, materials, "")
+    _write_glb_level(out / f"{asset_name}.glb", {u.node_id: u for u in uvs}, batches, materials, "", crease_deg=crease)
     files.append(f"{asset_name}.glb")
     glb_levels = levels
     # A material image whose bytes no package file holds (a map transcoded to PNG because glTF allows only PNG and
@@ -661,7 +715,7 @@ def write_engine_package(
     for i in range(1, glb_levels):
         suffix = f"_LOD{i}"
         _write_glb_level(out / f"{asset_name}{suffix}.glb", {n: chain[i] for n, chain in lods.items()},
-                         batches, materials, suffix, image_uris=lod_uris)
+                         batches, materials, suffix, image_uris=lod_uris, crease_deg=crease)
         files.append(f"{asset_name}{suffix}.glb")
     if hulls:
         write_gltf(out / f"{asset_name}_colliders.glb", hulls, [collider_name(engine, asset_name, i, usd=False) for i in range(len(hulls))])
@@ -679,7 +733,8 @@ def write_engine_package(
                              colliders=[(name, h.points, h.triangles) for name, h in zip(names, hulls)],
                              qa=InspectorQA(bool(qa.get("tier1_ok")), tier15_score=qa.get("tier15"),
                                             defects=qa.get("defects", {}), audit_deltas=qa.get("audit", [])) if qa else None,
-                             draw_calls=len(batches), three_js_source=bundled_three_js(), out_path=out / "inspector.html")
+                             draw_calls=len(batches), three_js_source=bundled_three_js(), out_path=out / "inspector.html",
+                             crease_deg=crease)
     files.append(viewer.name)
 
     # package-level validators (UsdValidation + engine rules) on the file we actually wrote
@@ -721,7 +776,7 @@ def write_engine_package(
             "min_px_per_m": round(float(np.min(dens)), 2) if dens else None,
             "uv_stretch_max": round(max((u.stretch_mean for u in uvs), default=0.0), 4),
         },
-        "uv": {"primvar": "st", "interpolation": "vertex", "normals": "faceVarying (crease 40 deg)"},
+        "uv": {"primvar": "st", "interpolation": "vertex", "normals": f"faceVarying (crease {crease:g} deg)"},
         "colliders": names,
         "collider_sources": [{"name": n, "source": h.source, "reason": h.reason} for n, h in zip(names, hulls)],
         "collider_glb_nodes": [collider_name(engine, asset_name, i, usd=False) for i in range(len(hulls))],
@@ -736,6 +791,15 @@ def write_engine_package(
         "files": files,
         "validation": {},
     }
+    if art is not None:
+        data["schema_version"] = ART_SCHEMA_VERSION
+        data["art_direction"] = _art_record(art, budget, textures, out, dens, uvs)
+        # one truth about texel density: the UV layout's figure is atlas-space (packed for UVResult.resolution); say so,
+        # and give the density the shipped maps really reach beside it
+        shipped = data["art_direction"]["measured"]["texel_density_px_per_m"]
+        data["texel_density"].update({"space": f"atlas ({max((u.resolution for u in uvs), default=0)} px packing resolution)",
+                                      "shipped_mean_px_per_m": shipped,
+                                      "shipped_texture_px": data["art_direction"]["measured"]["texture_px_max"]})
     data["file_hashes"] = {f: {"sha256": texture_hashes.get(f) or _sha256(out / f), "bytes": (out / f).stat().st_size} for f in files}
     mpath = out / "manifest.json"
     mpath.write_text(json.dumps(data, indent=1))

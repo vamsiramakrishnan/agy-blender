@@ -31,6 +31,7 @@ from typing import Any
 import numpy as np
 from pxr import Gf, Sdf, Usd, UsdGeom
 
+from antigravity3d.art_direction import ArtDirection, author_text, png_bytes, texture_brief
 from antigravity3d.dags.runner import Dag, DagReport, NodeCtx
 from antigravity3d.ir import MaterialIR, SceneIR
 from antigravity3d.kernel.fast_ops import Hull, generate_colliders, tier1_qa
@@ -114,9 +115,17 @@ def _merge(name: str, meshes: list[MeshData]) -> MeshData:
 class EnvironmentKitDAG:
     def __init__(self, *, forge: Any, author: Any, workdir: Path | str, budget: EngineBudget, plane: Any = None, pool: Any = None,
                  cache: Any = None, sheet: TrimSheet | None = None, sheet_resolution: int = 2048,
-                 max_parallel: int | None = None, author_parallel: int = AUTHOR_PARALLEL) -> None:
+                 max_parallel: int | None = None, author_parallel: int = AUTHOR_PARALLEL, art_direction: ArtDirection | None = None) -> None:
+        """``art_direction``: a named style. It lowers each piece's triangle budget where its look calls for it (never
+        raises it), sets the trim sheet's size and palette, the pieces' shading crease, and adds its briefs to the trim
+        sheet prompt and the piece author's request. None changes nothing."""
         if author_parallel < 1:
             raise ValueError("author_parallel must be at least 1")
+        self.art = art_direction
+        if art_direction is not None:
+            budget = art_direction.budget(budget, "kit")
+            if art_direction.texture_px_kit is not None:
+                sheet_resolution = art_direction.texture_px(budget.target_engine, "kit", sheet_resolution)
         self._forge_in, self._cache = forge, cache
         self.forge = forge  # replaced by the kit's own ledger-bound forge in _govern, once the piece count is known
         self.author, self.out, self.budget, self.plane, self.pool = author, Path(workdir), budget, plane, pool
@@ -134,7 +143,8 @@ class EnvironmentKitDAG:
         self.forge = CachedForge(forge, self._cache, budget=self.budget) if self._cache is not None else forge
         # Same rule as the prop pipeline: a live AgentAuthor authors through the metered, admitted path. Other authors
         # (the offline template author, injected test doubles) spend nothing and are used as given.
-        return self.author.bind(self.governor, self.budget, {}) if isinstance(self.author, AgentAuthor) else self.author
+        context = {"art_direction": author_text(self.art)} if self.art is not None else {}
+        return self.author.bind(self.governor, self.budget, context) if isinstance(self.author, AgentAuthor) else self.author
 
     def build(self, prompt: str, n_pieces: int, splat: Path | str | None = None) -> Dag:
         out, sheet = self.out, self.sheet
@@ -142,11 +152,21 @@ class EnvironmentKitDAG:
         dag = Dag("environment_kit")
 
         async def trim_sheet(ctx: NodeCtx) -> dict[str, Any]:
-            g = await self.forge.trim_sheet(f"{prompt}. {sheet.layout_prompt()}", size=sheet.resolution)
+            brief = texture_brief(self.art)
+            g = await self.forge.trim_sheet(f"{prompt}. {sheet.layout_prompt()}" + (f" {brief}" if brief else ""), size=sheet.resolution)
             out.mkdir(parents=True, exist_ok=True)
-            (out / "trim_sheet.png").write_bytes(g.png_bytes)
+            data = g.png_bytes
+            if self.art is not None:  # the sheet as it ships: the art direction's size and palette
+                from PIL import Image
+                import io
+
+                with Image.open(io.BytesIO(data)) as im:
+                    im.load()
+                    done = self.art.finish_map(im, "albedo", sheet.resolution)
+                    data = data if done is im else png_bytes(done)
+            (out / "trim_sheet.png").write_bytes(data)
             (out / "trim_sheet.json").write_text(sheet.to_json())
-            return {"path": str(out / "trim_sheet.png"), "bytes": len(g.png_bytes)}
+            return {"path": str(out / "trim_sheet.png"), "bytes": len(data)}
 
         async def pieces(ctx: NodeCtx) -> list[Piece]:
             author = self._author
@@ -236,7 +256,8 @@ class EnvironmentKitDAG:
                 p = mp.piece
                 hulls: list[Hull] = await asyncio.to_thread(generate_colliders, p.meshes, 4, asset_name=p.name)
                 path = write_package_usd(out / "pieces" / f"{p.name}.usda", p.name, mp.results, {m.node_id: SHEET_MATERIAL for m in p.meshes}, [mat], hulls,
-                                         self.budget.target_engine)
+                                         self.budget.target_engine,
+                                         crease_deg=self.art.crease_deg() if self.art is not None and self.art.shading_crease_deg is not None else None)
                 paths[p.name] = str(path)
             return paths
 
@@ -349,5 +370,11 @@ class EnvironmentKitDAG:
             "trim_reports": {mp.piece.name: [{"node": rr.node_id, "mapped_area_fraction": rr.report.mapped_area_fraction, "max_density_dev": rr.report.max_density_dev}
                                               for rr in mp.results if rr.report] for mp in mapped},
             "gates_ok": bool(rep.ok and asm and "error" not in (rep.results.get("backdrop") or {}) and not r.get("kit_validate_critical") and all(r.get("tier1_ok", {}).values()) and not any(mp.issues for mp in mapped))}
+        if self.art is not None:
+            record = self.art.manifest_record(budget=self.budget, asset_class="kit", texture_px=self.sheet.resolution)
+            if self.art.texture_filter is not None:  # a kit ships USD only, and UsdUVTexture has no filter input
+                record["effective"]["texture_filter"] = None
+                record["not_applied"] = [f"texture_filter {self.art.texture_filter}: kit pieces are USD, which cannot carry a sampler"]
+            rep.extras["art_direction"] = record
         (self.out / "report.json").write_text(rep.to_json())
         return rep

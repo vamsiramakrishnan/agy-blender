@@ -2831,25 +2831,26 @@ def _untextured(material):
 
 
 def gltf_mesh(name: str, points: np.ndarray, triangles: np.ndarray, uvs: np.ndarray | None, material=None, *,
-              shade: bool, y_up: bool = True):
+              shade: bool, y_up: bool = True, crease_deg: float | None = None):
     """One kernel mesh (world space, Z-up, UVs with a bottom-left origin) as a ``gltf_writer.GltfMesh``.
 
     The single conversion behind every GLB this package writes: the package GLBs (:func:`write_gltf`) and the
     inspector's review GLB (``artifacts/review_glb.py``), so what is reviewed is converted exactly as what ships.
 
     ``shade``: write shading normals, the crease normals the package USD authors
-    (``compile_ir.crease_normals``, 40 degrees) turned into one normal per vertex by splitting vertices at
-    creases. ``y_up``: glTF is Y-up, so (x, y, z) -> (x, z, -y). A mesh with UVs and no material gets
+    (``compile_ir.crease_normals`` at ``crease_deg``; None is the project's 40 degrees, an art direction may set
+    another) turned into one normal per vertex by splitting vertices at creases. ``y_up``: glTF is Y-up, so (x, y, z) -> (x, z, -y). A mesh with UVs and no material gets
     :func:`gltf_default_material`; a mesh without UVs keeps only the factors of its material.
     """
     from antigravity3d.kernel import gltf_writer as gw
-    from antigravity3d.kernel.compile_ir import crease_normals
+    from antigravity3d.kernel.compile_ir import CREASE_DEG, crease_normals
 
     p = np.asarray(points, dtype=np.float64)
     tris = np.asarray(triangles)
     normals = None
     if shade:
-        p, tris, uvs, normals = gw.split_by_corner_normals(p, tris, uvs, crease_normals(p, tris))
+        crease = CREASE_DEG if crease_deg is None else crease_deg
+        p, tris, uvs, normals = gw.split_by_corner_normals(p, tris, uvs, crease_normals(p, tris, crease))
         if y_up:
             normals = gw.z_up_to_y_up(normals)
     if y_up:
@@ -2870,6 +2871,7 @@ def write_gltf(
     *,
     materials: Sequence | None = None,
     image_uris: Mapping[str, str] | None = None,
+    crease_deg: float | None = None,
 ) -> Path:
     """Writes a GLB. Our world is Z-up; glTF is Y-up, so (x,y,z) -> (x,z,-y) unless y_up=False.
 
@@ -2878,7 +2880,7 @@ def write_gltf(
     a relative URI: those are referenced, not embedded (``gltf_writer.build_glb``). Items with UVs and no material
     get a grey default. Items with UVs (the rendered ones; collider hulls have none) also get shading normals, so
     the GLB shades like the USD; items without UVs get neither normals nor a material. Each item goes through
-    :func:`gltf_mesh`.
+    :func:`gltf_mesh` (``crease_deg``: the shading crease, see there).
     """
     from antigravity3d.kernel import gltf_writer as gw
 
@@ -2887,7 +2889,7 @@ def write_gltf(
         uv = getattr(it, "uvs", None)
         name = names[i] if names else getattr(it, "name", None) or getattr(it, "node_id", None) or f"mesh_{i}"
         material = materials[i] if uv is not None and materials else None
-        meshes.append(gltf_mesh(name, it.points, it.triangles, uv, material, shade=uv is not None, y_up=y_up))
+        meshes.append(gltf_mesh(name, it.points, it.triangles, uv, material, shade=uv is not None, y_up=y_up, crease_deg=crease_deg))
     return gw.write_glb(path, meshes, image_uris=image_uris)
 
 

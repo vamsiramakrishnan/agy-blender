@@ -84,6 +84,13 @@ class Session:
         self.registry.attach(self.sid, name, value)
 
     @property
+    def art(self) -> Any:
+        """The session's art direction (``antigravity3d.art_direction.ArtDirection``) or None."""
+        from antigravity3d.art_direction import load
+
+        return load(self.state.art_direction)
+
+    @property
     def governor(self) -> Governor:
         return self.registry.resource(self.sid, "governor")
 
@@ -214,6 +221,7 @@ def open_session(
     pool: Any = None,
     thresholds: Thresholds | None = None,
     state_workspace: str | Path | None = None,
+    art_direction: str | None = None,
 ) -> AssetSessionState:
     """Creates the on-disk stage under ``workdir``, registers the state and attaches resources.
 
@@ -221,7 +229,16 @@ def open_session(
     (``$AGY3D_STATE_DIR`` overrides it, exactly as in the hook scripts). It defaults to ``workdir``,
     which is the workspace the SDK stage agents run in (``workspaces=[workdir]``), so ``workspacePaths[0]``
     in a hook payload resolves to the same directory.
+
+    ``art_direction``: a named style id. It is checked first (an unknown id raises before anything is created); the
+    session's budget is then the style's effective budget (it only ever lowers ``max_tris``) and the id is kept on
+    the state, where the tools and stage agents read it.
     """
+    from antigravity3d.art_direction import load
+
+    art = load(art_direction)
+    if art is not None:
+        budget = art.budget(budget, "prop")
     registry = registry if registry is not None else DEFAULT_REGISTRY
     workdir = Path(workdir).resolve()
     workdir.mkdir(parents=True, exist_ok=True)
@@ -235,7 +252,8 @@ def open_session(
             forge = CachedForge(forge, BuildCache(LocalBlobStore(workdir / ".agy3d-cache")), budget=budget)
     usd_path = workdir / f"{asset_name}.usda"
     stage = StageManager.create(usd_path, asset_name)
-    state = registry.create(AssetSessionState(session_id=session_id, usd_stage_path=usd_path, budget=budget))
+    state = registry.create(AssetSessionState(session_id=session_id, usd_stage_path=usd_path, budget=budget,
+                                              art_direction=art.id if art is not None else None))
     for name, res in (
         (R_STAGE, stage), (R_PLANE, plane), (R_FORGE, forge), (R_POOL, pool), ("governor", ledger),
         (R_THRESHOLDS, thresholds or Thresholds()), (R_WORKDIR, workdir), (R_ARTIFACTS, artifacts),

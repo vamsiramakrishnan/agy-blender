@@ -31,6 +31,8 @@ from antigravity3d.genmedia.pbr_deriver import PBRMaps, delight, edge_wear, roug
 from antigravity3d.ir import (
     AssignMaterial, IRPatch, MaterialIR, RemoveNode, SceneIR, SetParam, SetTransform, UpsertMaterial, UpsertNode, apply_patch,
 )
+from antigravity3d.art_direction import texture_brief
+from antigravity3d.kernel.compile_ir import CREASE_DEG, crease_normals
 from antigravity3d.kernel.fast_ops import ExportBundle, describe_collider_sources, run_export_pipeline, tier1_qa
 from antigravity3d.kernel.lod_diff import PopThresholds, lod_pop_report
 from antigravity3d.kernel.raster import CLAY, render_buffers
@@ -152,16 +154,23 @@ class PyramidResult:
 
 async def synthesize_materials(
     scene: SceneIR, forge: Any, *, plane: Any, governor: Governor, prompt: str, uploader: Uploader | None = None,
-    cache: Any = None, size: int | None = None, concurrency: int | None = None,
+    cache: Any = None, size: int | None = None, concurrency: int | None = None, brief: str = "",
 ) -> dict[str, PBRTournamentResult]:
-    """One ``pbr_tournament`` per material, concurrently; N is sized so all materials together fit the budget."""
-    size = size or (256 if forge.offline else 2048)
+    """One ``pbr_tournament`` per material, concurrently; N is sized so all materials together fit the budget.
+
+    ``brief``: an art direction's texture brief, appended to every material prompt ('' appends nothing)."""
+    size = size or default_texture_px(forge)
     k = max(1, len(scene.materials))
     n = governor.candidates("pbr", unit_cost=k * (IMAGE_USD["albedo"] + GRADE_USD_EST))
     outs = await asyncio.gather(*(pbr_tournament(
-        f"{prompt}: {m.id} surface", forge, plane=plane, governor=governor, material_id=m.id, metallic_hint=m.metallic,
+        f"{prompt}: {m.id} surface" + (f". {brief}" if brief else ""), forge, plane=plane, governor=governor, material_id=m.id, metallic_hint=m.metallic,
         uploader=uploader, n=n, size=size, cache=cache, concurrency=concurrency) for m in scene.materials))
     return {m.id: o for m, o in zip(scene.materials, outs)}
+
+
+def default_texture_px(forge: Any) -> int:
+    """Side of generated PBR maps when no art direction sets one: small on the offline fakes, 2K live."""
+    return 256 if forge.offline else 2048
 
 
 # --------------------------------------------------------------------------- helpers
@@ -242,6 +251,13 @@ class _Run:
         self.bundle_revision: tuple[str, ...] | None = None
         self.export_bundle: ExportBundle | None = None
         self.bundle_cache_hit: bool | None = None
+        self.crease = self.art.crease_deg() if self.art is not None else CREASE_DEG
+
+    def texture_px(self) -> int | None:
+        """The art direction's map size for this engine (None: the pipeline's default)."""
+        if self.art is None or self.art.texture_px_prop is None or self.forge is None:
+            return None
+        return self.art.texture_px(self.budget.target_engine, "prop", default_texture_px(self.forge))
 
     # ---- bookkeeping --------------------------------------------------------------------------------
 
@@ -469,7 +485,7 @@ class _Run:
         t = self.textures
         if t is None and self.forge is not None:
             t = await synthesize_materials(self.sm.base_ir(), self.forge, plane=self.plane, governor=self.governor, prompt=self.prompt or self.res.asset,
-                                           uploader=self.upload, cache=self.cache)
+                                           uploader=self.upload, cache=self.cache, size=self.texture_px(), brief=texture_brief(self.art))
         elif inspect.isawaitable(t):
             t = await t
         return {k: (v.maps if isinstance(v, PBRTournamentResult) else v) for k, v in (t or {}).items() if (v.maps if isinstance(v, PBRTournamentResult) else v) is not None}
@@ -478,9 +494,12 @@ class _Run:
         d = self.workdir / "textures"
         d.mkdir(parents=True, exist_ok=True)
         out: dict[str, dict[str, str]] = {}
+        size = self.texture_px()
         for mid, m in self.maps.items():
             out[mid] = {}
             for kind, img in (("albedo", m.albedo), ("orm", m.orm), ("normal", m.normal)):
+                if self.art is not None:  # the map as it ships: art direction's size and palette (see ArtDirection.finish_map)
+                    img = self.art.finish_map(img, kind, size)
                 (d / f"{mid}_{kind}.png").write_bytes(png_bytes(img))
                 out[mid][kind] = f"textures/{mid}_{kind}.png"
         return out
@@ -501,7 +520,7 @@ class _Run:
                 self.export_bundle, self.bundle_cache_hit = await asyncio.to_thread(
                     cached_export_pipeline, self.cache, scene, meshes, self.budget)
             self.bundle_revision = revision
-        self.sm.ensure_export_uvs(self.export_bundle.uvs)
+        self.sm.ensure_export_uvs(self.export_bundle.uvs, crease_deg=self.crease)
         return self.export_bundle
 
     async def render_lookdev(self) -> tuple[bytes, str]:
@@ -616,7 +635,9 @@ class _Run:
             self.step("paintover", "skipped", "needs an image forge and a lookdev render")
         else:
             t0 = time.perf_counter()
-            g = await self.forge.with_governor(self.governor).paint_over(self.render_png, "push realism: weathering, edge wear and colour variation")
+            direction = (f"push toward this art direction: {texture_brief(self.art)}" if texture_brief(self.art)
+                         else "push realism: weathering, edge wear and colour variation")
+            g = await self.forge.with_governor(self.governor).paint_over(self.render_png, direction)
             self.res.cost_usd += g.receipt.booked_usd
             self.res.artifacts["paintover_uri"] = await self.upload(g.png_bytes)
             self.step("paintover", "passed", "reference paint-over generated (a target for review; not baked into textures)", t0)
@@ -673,7 +694,8 @@ class _Run:
 
         async def usd() -> tuple[str, str]:
             m = await asyncio.to_thread(write_engine_package, sm, bundle, budget, pkg, asset_name=scene.asset_name,
-                                        qa={"tier15": res.tier15, "tier1_ok": res.tier1_ok, "defects": res.defects, "audit": res.audit})
+                                        qa={"tier15": res.tier15, "tier1_ok": res.tier1_ok, "defects": res.defects, "audit": res.audit},
+                                        art=self.art)
             res.objects["package"] = m
             res.artifacts.update(usd=str(usd_path), manifest=str(pkg / "manifest.json"))
             stage = Usd.Stage.Open(str(usd_path))
@@ -687,6 +709,9 @@ class _Run:
 
         async def pop() -> tuple[str, str]:
             lods = merged_lods(bundle)
+            if self.crease != CREASE_DEG:  # judge the levels with the normals they ship with (lod_diff.shipped_normals)
+                for lod in lods:
+                    lod.normals = crease_normals(np.asarray(lod.points, np.float64), np.asarray(lod.triangles), self.crease)
             if len(lods) < 2:
                 return "skipped", "LOD0 only: no coarser level within the screen-space error budget saves enough triangles"
             rep = await asyncio.to_thread(lod_pop_report, lods)
@@ -830,18 +855,22 @@ async def refine(
     ortho_uri: str | None = None, style_uri: str | None = None, max_rounds: int = 4, forge: Any = None, uploader: Uploader | None = None,
     pool: Any = None, cache: Any = None, workdir: Path | str | None = None, fixlog: FixLog | None = None, asset_id: str | None = None,
     prompt: str = "", textures: Any = None, settle_first: bool = True, engine_render_uri: str | None = None,
-    run_pass_c: bool = True, run_pass_b: bool = True, require_verified: bool = False,
+    run_pass_c: bool = True, run_pass_b: bool = True, require_verified: bool = False, art: Any = None,
 ) -> PyramidResult:
     """Run passes A (silhouette lock), B (lookdev) and C (final verification) on the stage's current scene.
 
     ``textures``: ``{material_id: PBRMaps | PBRTournamentResult}`` or an awaitable/task of it (speculative synthesis
     started earlier); with None and a ``forge`` the textures are synthesised here.
+    ``art``: the art direction (``antigravity3d.art_direction.ArtDirection``) or None. It sets the size and palette of the
+    written maps, the shading crease (export normals, the package and the LOD pop check), the texture sampler of the
+    package GLBs and the texture/paint-over brief. ``budget`` is expected to be its effective budget already.
     """
     run = _Run(
         stage_manager, plane=plane, author=author, governor=governor, budget=budget, th=thresholds or Thresholds(), ortho_uri=ortho_uri,
         style_uri=style_uri, max_rounds=max_rounds, forge=forge, upload=uploader or uploader_for(forge), pool=pool, cache=cache,
         workdir=Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="agy3d-pyramid-")), fixlog=fixlog, asset_id=asset_id,
-        prompt=prompt, textures=textures, settle_first=settle_first, engine_render_uri=engine_render_uri, require_verified=require_verified)
+        prompt=prompt, textures=textures, settle_first=settle_first, engine_render_uri=engine_render_uri, require_verified=require_verified,
+        art=art)
     run.workdir.mkdir(parents=True, exist_ok=True)
     # Pass C ends with the web-runtime check: its browser starts now, while passes A and B run, and is closed again
     # if this run fails or is cancelled before it is used.

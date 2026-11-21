@@ -202,6 +202,7 @@ def inspector_payload(
     qa: InspectorQA | dict | None = None,
     uvs: dict[str, np.ndarray] | None = None,
     draw_calls: int | None = None,
+    crease_deg: float | None = None,
 ) -> tuple[dict, bytes]:
     """The inspector's review metadata (JSON) and its review GLB (see :mod:`.review_glb`).
 
@@ -258,7 +259,7 @@ def inspector_payload(
     col_list = [InspectorCollider(*x) if isinstance(x, tuple) else x for x in (colliders or [])]
     hulls = [(c.name, *_check_mesh(c.points, c.triangles, f"collider {c.name}")) for c in col_list]
 
-    layout, glb = build_review(lod0, levels=levels, hulls=hulls)
+    layout, glb = build_review(lod0, levels=levels, hulls=hulls, crease_deg=crease_deg)
     for node, part in zip(nodes, layout["levels"][0]["parts"], strict=True):
         node.update(uv=part["uv"], maps=part["maps"])
 
@@ -321,6 +322,7 @@ def build_inspector(
     three_js_source: str | None = None,
     draw_calls: int | None = None,
     out_path: Path,
+    crease_deg: float | None = None,
 ) -> Path:
     """Write the standalone inspector for one asset to ``out_path`` and return it.
 
@@ -331,7 +333,7 @@ def build_inspector(
     """
     payload, glb = inspector_payload(meshes, asset_name=asset_name, budget=budget, materials=materials,
                                      lods=lods, colliders=colliders, qa=qa, uvs=uvs,
-                                     draw_calls=draw_calls)
+                                     draw_calls=draw_calls, crease_deg=crease_deg)
     payload["three_url"] = None if three_js_source is not None else THREE_JS_URL
     payload["glb_b64"] = base64.b64encode(glb).decode("ascii")
 

@@ -55,6 +55,7 @@ class AssetSessionState:
     active_stage: PipelineStage = "ROUTE"
     tx_stack: list[str] = field(default_factory=list)  # anonymous USD layer ids
     style_anchor_uri: str | None = None  # Files API URI for the studio art bible
+    art_direction: str | None = None  # named art direction id (antigravity3d.art_direction); ``budget`` is already its effective budget
     ortho_uris: list[str] = field(default_factory=list)
     paintover_uri: str | None = None
     last_tier1_ok: bool = False

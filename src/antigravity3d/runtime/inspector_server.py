@@ -193,8 +193,10 @@ def _build_view(s: Session, key: tuple) -> _View:
         if bundle.lods and set(bundle.lods) == {m.node_id for m in meshes}:
             lods = bundle.lods  # {node_id: [LOD0, LOD1, ...]}, as the package's *_LODn.glb are written
         colliders = [(h.name, h.points, h.triangles) for h in bundle.colliders]
+    art = s.art  # the session's art direction shades the review like the package it will export
     payload, glb = inspector_payload(meshes, asset_name=s.stage.asset_prim.GetName(), budget=s.state.budget,
-                                     materials=materials, lods=lods, colliders=colliders, uvs=uvs)
+                                     materials=materials, lods=lods, colliders=colliders, uvs=uvs,
+                                     crease_deg=art.crease_deg() if art is not None else None)
     payload["session_id"] = s.sid
     scene = json.dumps(payload, separators=(",", ":"))
     return _View(key, payload, scene, {"glb": base64.b64encode(glb).decode("ascii")})

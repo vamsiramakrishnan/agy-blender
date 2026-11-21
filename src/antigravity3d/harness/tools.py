@@ -56,6 +56,8 @@ from antigravity3d.state import (
     AssetSessionState,
     VisualVerdict,
 )
+from antigravity3d.art_direction import texture_brief
+from antigravity3d.kernel.compile_ir import CREASE_DEG
 from antigravity3d.tactics.cached import cached_derive_pbr
 
 PREVIEW_PX = 256  # per view; the sheet is 2x2
@@ -471,7 +473,11 @@ async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, ca
         version = s.geom_version
         current = _material(s, material_id) or MaterialIR(id=material_id)
     n = max(1, min(MAX_CANDIDATES, s.forge.governor.plan.pbr_candidates, int(candidates)))
-    results = await asyncio.gather(*(s.forge.seamless_albedo(prompt, size=TEXTURE_PX, variant_hint=f"option {i + 1}" if n > 1 else "")
+    art = s.art  # the session's art direction: its texture brief, map size and palette (None: as before)
+    size = art.texture_px(s.state.budget.target_engine, "prop", TEXTURE_PX) if art is not None else TEXTURE_PX
+    brief = texture_brief(art)
+    results = await asyncio.gather(*(s.forge.seamless_albedo(prompt + (f". {brief}" if brief else ""), size=size,
+                                                             variant_hint=f"option {i + 1}" if n > 1 else "")
                                      for i in range(n)), return_exceptions=True)
     gens = [g for g in results if not isinstance(g, BaseException)]
     if not gens:
@@ -490,6 +496,8 @@ async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, ca
     with tempfile.TemporaryDirectory(dir=mdir) as temp:
         files = {key: Path(temp) / (key[:-4] + ".png") for key in MAP_KEYS}
         for key, img in zip(MAP_KEYS, (maps.albedo, maps.orm, maps.normal), strict=True):
+            if art is not None:  # the map as it ships (ArtDirection.finish_map)
+                img = await asyncio.to_thread(art.finish_map, img, key[:-4], size)
             await asyncio.to_thread(img.save, files[key])
         async with s.registry.locked(s.sid):
             if version != s.geom_version:
@@ -613,7 +621,8 @@ async def _bundle(s: Session) -> ExportBundle:
         bundle = await asyncio.to_thread(run_export_pipeline, s.stage.extract_meshes(), s.state.budget,
                                          s.stage.asset_prim.GetName())
         s._set("bundle", (revision, bundle))
-    s.stage.ensure_export_uvs(bundle.uvs)
+    art = s.art
+    s.stage.ensure_export_uvs(bundle.uvs, crease_deg=art.crease_deg() if art is not None else CREASE_DEG)
     return bundle
 
 
@@ -740,7 +749,7 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
               "renderer": st.verdict.renderer, "backend": st.verdict.backend, "audit": st.audit_deltas[-2:]}
         with tempfile.TemporaryDirectory(dir=s.export_dir, prefix=".package-") as directory:
             candidate = Path(directory) / name
-            pkg = await _stage_worker(write_engine_package, s.stage, b, st.budget, candidate, asset_name=asset, qa=qa)
+            pkg = await _stage_worker(write_engine_package, s.stage, b, st.budget, candidate, asset_name=asset, qa=qa, art=s.art)
             if not pkg.ok:
                 crit = [i.code for i in pkg.issues if i.severity == "critical"]
                 return f"REFUSED package validation failed: {', '.join(dict.fromkeys(crit))[:140]}"

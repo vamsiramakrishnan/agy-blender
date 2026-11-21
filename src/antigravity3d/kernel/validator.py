@@ -612,6 +612,78 @@ def _check_glb_images(out: Path, man: dict, asset: str, digests: dict[str, str],
                     f"material {mat!r} binds other image content than LOD0 in {diff[:4]}")
 
 
+def _check_art_direction(out: Path, man: dict, root: Usd.Prim, hull_re: re.Pattern | None, add) -> None:
+    """The manifest's ``art_direction`` record (schema_version 3) against the files it describes.
+
+    Checks the triangle budget it states against the manifest's budget and triangle count, the texture filtering of
+    every texture in every package GLB, the shading crease of every LOD0 USD mesh's normals (recomputed with
+    ``compile_ir.crease_normals``), the size of every packaged map and the colour count of every albedo map. The record
+    is optional from version 3 on (absent: no art direction was applied); a record in an older version is rejected
+    (its contract did not have it).
+    """
+    version = int(man.get("schema_version") or 1)
+    art = man.get("art_direction")
+    if art is None:
+        return
+    if version < 3:
+        add("art_direction_manifest", "critical", None, f"art_direction record needs schema_version 3, manifest has {version}")
+        return
+    try:
+        eff = art["effective"]
+        tag = f"art direction {art['id']}"
+        budget = man.get("budget") or {}
+        if eff["max_tris"] != budget.get("max_tris"):
+            add("art_budget", "critical", None, f"{tag}: max_tris {eff['max_tris']} != manifest budget {budget.get('max_tris')}")
+        if int(man.get("tris") or 0) > eff["max_tris"]:
+            add("art_budget", "critical", None, f"{tag}: {man.get('tris')} tris > {eff['max_tris']}")
+        want = (9728, 9984) if eff["texture_filter"] == "nearest" else (None, None)
+        for name in [f for f in man.get("files") or [] if isinstance(f, str) and f.endswith(".glb")]:
+            path = out / name
+            if not path.is_file():
+                continue
+            doc = _glb_json(path)
+            samplers = doc.get("samplers") or []
+            for i, tex in enumerate(doc.get("textures") or []):
+                smp = samplers[tex["sampler"]] if "sampler" in tex else {}
+                got = (smp.get("magFilter"), smp.get("minFilter"))
+                if got != want:
+                    add("art_texture_filter", "critical", name, f"{tag}: texture {i} filters {got}, expected {want}")
+        from antigravity3d.kernel.compile_ir import crease_normals
+
+        crease = float(eff["shading_crease_deg"])
+        for prim in Usd.PrimRange(root):
+            if not prim.IsA(UsdGeom.Mesh) or is_collider_prim(prim, hull_re):
+                continue
+            mesh = UsdGeom.Mesh(prim)
+            pts = np.asarray(mesh.GetPointsAttr().Get() or [], dtype=np.float64).reshape(-1, 3)
+            tri = np.asarray(mesh.GetFaceVertexIndicesAttr().Get() or [], dtype=np.int64).reshape(-1, 3)
+            normals = mesh.GetNormalsAttr().Get()
+            if not len(tri) or normals is None:
+                continue
+            have = np.asarray(normals, dtype=np.float64).reshape(-1, 3)
+            expect = crease_normals(pts, tri, crease)
+            if have.shape != expect.shape or np.abs(have - expect).max() > 1e-4:
+                add("art_crease", "critical", prim.GetName(), f"{tag}: normals are not the {crease:g} deg crease normals")
+        limit_px = eff["texture_px"]
+        limit_colors = eff["palette_max_colors"]
+        counted: set[str] = set()
+        for t in man.get("textures") or []:
+            rel = t["path"]
+            if limit_px is not None and max(t["width"], t["height"]) > limit_px:
+                add("art_texture_px", "critical", rel, f"{tag}: {t['width']}x{t['height']} > {limit_px} px")
+            if limit_colors is not None and t["role"] == "albedo" and rel not in counted and (out / rel).is_file():
+                counted.add(rel)
+                from PIL import Image
+
+                with Image.open(out / rel) as im:
+                    a = np.asarray(im.convert("RGB"), dtype=np.uint32).reshape(-1, 3)
+                n = len(np.unique((a[:, 0] << 16) | (a[:, 1] << 8) | a[:, 2]))
+                if n > limit_colors:
+                    add("art_palette", "critical", rel, f"{tag}: albedo has {n} colours > {limit_colors}")
+    except (KeyError, IndexError, TypeError, ValueError, OSError, struct.error) as e:
+        add("art_direction_manifest", "critical", None, f"unreadable art_direction record or file: {e}"[:300])
+
+
 def validate_package(out_dir: str | Path) -> list[Issue]:
     """Cold re-open of a written engine package (see kernel/package.py) and consistency checks.
 
@@ -621,7 +693,8 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
     triangle counts never increase, the GLB LOD0 matches the USD LOD0, collider prims are named per the
     engine rules, tagged ``UsdPhysics`` convexHull + purpose guide, and are really convex. GLB images: LOD0 embeds
     every image; far LOD files reference ``textures/`` files that exist, lie inside ``textures/`` and hash as the
-    manifest records, embed none, and bind the same image content as LOD0 (see ``_check_glb_images``).
+    manifest records, embed none, and bind the same image content as LOD0 (see ``_check_glb_images``). An
+    ``art_direction`` record (schema_version 3) is checked against the files (see ``_check_art_direction``).
     """
     out = Path(out_dir)
     issues: list[Issue] = []
@@ -849,6 +922,7 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
         idx = np.asarray(mesh.GetFaceVertexIndicesAttr().Get() or [], dtype=np.int64).reshape(-1, 3)
         if not _is_convex(pts, idx):
             add("collider_convex", "critical", n, "collider mesh is not convex")
+    _check_art_direction(out, man, root, hull_re, add)
     want_names = man.get("colliders")
     if want_names is not None and sorted(want_names) != sorted(p.GetName() for p in colliders):
         add("collider_manifest", "warning", None, "manifest collider names differ from the USD collider prims")

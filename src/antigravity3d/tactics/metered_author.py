@@ -196,6 +196,8 @@ def build_author_request(role: str, operation: Operation, task: str, *, budget: 
                          output: OutputBudget | None = None) -> AuthorRequest:
     """Contents + generation config for one authoring call. Needs no rates and dispatches nothing.
 
+    ``context["art_direction"]``, when present, is the art direction's author brief: one line after the task.
+
     ``output`` overrides the table only for measurement (the benchmark's sizing probes); production never passes it.
     """
     mt = tier(role)  # type: ignore[arg-type]
@@ -209,7 +211,10 @@ def build_author_request(role: str, operation: Operation, task: str, *, budget: 
         schema, parse = ir_schema.patch_response_schema(), ir_schema.parse_patch
     else:
         raise ValueError(f"unknown authoring operation {operation!r}")
-    parts = [types.Part.from_text(text=f"{ir_schema.ir_rules_text()}\nBudget: {json.dumps(asdict(budget))}\n{task}")]
+    text = f"{ir_schema.ir_rules_text()}\nBudget: {json.dumps(asdict(budget))}\n{task}"
+    if art := context.get("art_direction"):  # the art direction's author brief (art_direction.author_text); absent: nothing
+        text += f"\n{art}"
+    parts = [types.Part.from_text(text=text)]
     for key, label in _REFERENCES:
         if uri := context.get(key):
             parts.extend([types.Part.from_text(text=label), types.Part.from_uri(file_uri=uri, mime_type="image/png")])

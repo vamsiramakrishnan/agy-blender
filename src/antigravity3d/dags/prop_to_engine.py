@@ -2,6 +2,11 @@
 
 route -> [ortho tournament || style-anchor upload] -> propose -> [geometry tournament || speculative PBR synthesis]
       -> pyramid (A silhouette, B lookdev, C verification) -> package -> inspector -> report
+
+Two independent style inputs compose: ``style_anchor`` is an image (uploaded and attached to the concept sheet, the
+author and visual QA as a reference), ``art_direction`` a named style (``antigravity3d.art_direction``): it lowers the
+budget where its look calls for it, sets the shipped maps, shading and sampling, and adds its briefs to the concept,
+author and texture prompts. Either, both or neither may be given.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from antigravity3d.adapters.engines import web_three
+from antigravity3d.art_direction import ArtDirection, author_text, concept_prompt, texture_brief
 from antigravity3d.kernel.publish import publish_directory
 from antigravity3d.kernel.validator import validate_package
 from antigravity3d.dags.routing import Route, resolve_route
@@ -28,7 +34,7 @@ from antigravity3d.tactics.authoring import AgentAuthor, IRAuthor, _slug
 from antigravity3d.tactics.cached import CachedForge
 from antigravity3d.tactics.common import uploader_for
 from antigravity3d.tactics.distill import FixLog
-from antigravity3d.tactics.pyramid import PyramidResult, refine, synthesize_materials
+from antigravity3d.tactics.pyramid import PyramidResult, default_texture_px, refine, synthesize_materials
 from antigravity3d.tactics.tournament import GRADE_USD_EST, geometry_tournament, ortho_tournament
 
 
@@ -44,7 +50,9 @@ class PropToEngineDAG:
     def __init__(self, *, plane: Any, forge: Any, author: IRAuthor, workdir: Path | str, budget: EngineBudget, pool: Any = None, cache: Any = None,
                  thresholds: Thresholds | None = None, style_anchor: Path | str | bytes | None = None, fixlog: FixLog | None = None,
                  max_rounds: int = 4, max_parallel: int | None = None, single_candidate: bool = False,
-                 require_verified: bool = False) -> None:
+                 require_verified: bool = False, art_direction: ArtDirection | None = None) -> None:
+        self.art = art_direction
+        budget = art_direction.budget(budget, "prop") if art_direction is not None else budget  # only ever lowers it
         self.plane, self.author, self.budget, self.pool, self.cache = plane, author, budget, pool, cache
         self.forge = CachedForge(forge, cache, budget=budget) if cache is not None and forge is not None else forge
         self.workdir, self.th, self.style_anchor, self.fixlog = Path(workdir), thresholds or Thresholds(), style_anchor, fixlog
@@ -52,6 +60,12 @@ class PropToEngineDAG:
         self.require_verified = require_verified
         self.single_candidate = single_candidate
         self.up = uploader_for(self.forge)
+
+    def _texture_px(self) -> int | None:
+        """The art direction's map size for this engine; None leaves the pipeline's default (same rule as the pyramid)."""
+        if self.art is None or self.art.texture_px_prop is None or self.forge is None:
+            return None
+        return self.art.texture_px(self.budget.target_engine, "prop", default_texture_px(self.forge))
 
     def _run_dir(self) -> Path:
         runs = self.workdir / "runs"
@@ -79,6 +93,7 @@ class PropToEngineDAG:
                 "judge": self.plane.model, "image_model": getattr(self.forge, "model", None),
                 "author": type(self.author).__name__, "max_rounds": self.max_rounds, "thresholds": asdict(self.th),
                 "cache_enabled": self.cache is not None, "strict": self.require_verified,
+                **({"art_direction": self.art.id} if self.art is not None else {}),
             })
             rd = await resolve_route(self.workdir, prompt, self.budget, reference,
                                      single_candidate=self.single_candidate, plane=self.plane)
@@ -100,7 +115,7 @@ class PropToEngineDAG:
                 ctx.skip(f"router: no orthographic blueprint needed (P={r.needs_ortho_p:.2f})")
             st = ctx["style_anchor"]
             try:
-                t = await ortho_tournament(prompt, self.forge, plane=self.plane, governor=r.governor, uploader=self.up,
+                t = await ortho_tournament(concept_prompt(prompt, self.art), self.forge, plane=self.plane, governor=r.governor, uploader=self.up,
                                            style_anchor=st["bytes"] if st else None, context_uris=[st["uri"]] if st else ())
                 if t.winner is None:
                     raise RuntimeError(f"no ortho candidate survived ({t.failures or t.disqualified or 'all blocked'})")
@@ -118,6 +133,8 @@ class PropToEngineDAG:
             ort = ctx["ortho"]
             context = {"asset_name": asset, "ortho_uri": ort.winner.uri if ort else None,
                        "style_uri": ctx["style_anchor"]["uri"] if ctx["style_anchor"] else None}
+            if self.art is not None:  # the author brief (metered_author.build_author_request appends it to the request)
+                context["art_direction"] = author_text(self.art)
             author = self.author.bind(r.governor, self.budget, context) if isinstance(self.author, AgentAuthor) else self.author
             # Size the best-of-N by what a candidate is expected to cost (authoring from the measurements, plus grading);
             # admission then sequences the candidates under the ceiling by their worst case, waiting for settlements.
@@ -165,7 +182,8 @@ class PropToEngineDAG:
                 ctx.skip("proposed scenes have no materials")
             try:
                 out = await synthesize_materials(SceneIR(asset_name=asset, materials=mats), self.forge, plane=self.plane, governor=r.governor,
-                                                 prompt=prompt, uploader=self.up, cache=self.cache)
+                                                 prompt=prompt, uploader=self.up, cache=self.cache, size=self._texture_px(),
+                                                 brief=texture_brief(self.art))
             except Exception as e:  # noqa: BLE001 - the pyramid will retry synthesis itself
                 ctx.skip(f"speculative PBR synthesis failed ({type(e).__name__}: {e}); pyramid will retry")
             ctx.data(materials={k: v.tournament.to_dict() for k, v in out.items()})
@@ -178,7 +196,7 @@ class PropToEngineDAG:
             res = await refine(p.stage, plane=self.plane, author=p.author, governor=r.governor, budget=self.budget, thresholds=self.th,
                                ortho_uri=ort.winner.uri if ort else None, style_uri=st["uri"] if st else None, max_rounds=self.max_rounds,
                                forge=self.forge, uploader=self.up, pool=self.pool, cache=self.cache, workdir=wd, fixlog=self.fixlog,
-                               asset_id=asset, prompt=prompt, textures=ctx["pbr"], require_verified=self.require_verified)
+                               asset_id=asset, prompt=prompt, textures=ctx["pbr"], require_verified=self.require_verified, art=self.art)
             ctx.data(ok=res.ok, tier15=res.tier15, render_tier=res.render_tier, stopped=res.stopped)
             return res
 
@@ -283,6 +301,8 @@ class PropToEngineDAG:
             "cost": {"governor_usd": route.governor.spent if route else 0.0, "by_category": route.governor.by_category if route else {},
                      "receipts": route.governor.receipts() if route else [], "plane": self.plane.stats.summary(), "cache": cache, "plan": route.governor.summary() if route else None},
             "pyramid": res.to_dict() if res else None, "workdir": str(self.workdir)}
+        if self.art is not None:
+            rep.extras["art_direction"] = self.art.manifest_record(budget=self.budget, asset_class="prop", texture_px=self._texture_px())
         report_path = wd / "report.json"
         rep.extras["report_path"] = str(report_path)
         data = rep.to_json()

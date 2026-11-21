@@ -1,14 +1,18 @@
 """``agy3d``: command line for the Layer-4 pipelines.
 
     agy3d prop "wooden crate with iron brackets" --engine unreal_5 --out OUT [--offline] [--max-tris N]
+                [--style anchor.png] [--art-direction ID]
     agy3d sanitize FILES... --engine unreal_5 --out OUT
-    agy3d kit "ruined stone temple" --pieces 4 --out OUT [--offline] [--splat bg.ply]
+    agy3d kit "ruined stone temple" --pieces 4 --out OUT [--offline] [--splat bg.ply] [--art-direction ID]
     agy3d variants ASSET.usda... --out OUT [--offline]
     agy3d calibrate LABELS.json --out studio_policy.yaml [--offline]
     agy3d models
     agy3d plugin install [--target DIR] | plugin validate [PATH]
 
 ``--offline`` runs everything on the fakes (FakeDecisionsClient, FakeImageBackend) and the TemplateAuthor.
+``--style`` is a style-anchor IMAGE; ``--art-direction`` a named style (``antigravity3d.art_direction``; ids are the
+files in the plugin's ``skills/art-direction/styles``). They compose. An unknown id is a usage error (exit 2) raised
+while the arguments are parsed, before anything is requested.
 Exit status: 0 = every gate passed, 1 = a gate failed, 2 = usage / environment error.
 """
 
@@ -31,6 +35,24 @@ OFFLINE_ANSWERS = {"pipeline_dag": "prop_to_engine", "needs_ortho_blueprint": 0.
 
 class CliError(Exception):
     """A usage or environment problem (exit 2)."""
+
+
+def _art_direction(text: str) -> Any:
+    """argparse type: the named art direction, or a usage error that lists the valid ids."""
+    from antigravity3d.art_direction import UnknownArtDirection, load
+
+    try:
+        return load(text)
+    except UnknownArtDirection as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
+
+
+def _print_art(art: Any) -> None:
+    if art is not None:
+        x = art
+        print(f"  art direction: {x.id} (tris<={x.tri_budget_prop or 'engine'} prop / {x.tri_budget_kit_piece or 'engine'} kit piece, "
+              f"crease {x.crease_deg():g} deg, maps {x.texture_px_prop or 'default'}/{x.texture_px_kit or 'default'} px, "
+              f"filter {x.texture_filter or 'engine'}, palette {x.palette_max_colors or 'free'})")
 
 
 def _budget(a: argparse.Namespace) -> EngineBudget:
@@ -117,13 +139,14 @@ async def cmd_prop(a: argparse.Namespace) -> int:
         dag = PropToEngineDAG(
             plane=plane, forge=forge, author=author, workdir=out, budget=_budget(a), pool=pool,
             cache=cache, style_anchor=a.style, fixlog=FixLog.for_prop(out), max_rounds=a.max_rounds,
-            require_verified=strict, single_candidate=a.single_candidate,
+            require_verified=strict, single_candidate=a.single_candidate, art_direction=a.art_direction,
         )
         rep = await dag.run(a.prompt)
     x = rep.extras
     print(f"agy3d prop: {a.prompt!r} -> {a.engine}")
     for n in notes:
         print(f"  {n}")
+    _print_art(a.art_direction)
     print(rep.summary())
     res = x.get("pyramid") or {}
     if res:
@@ -188,14 +211,15 @@ async def cmd_kit(a: argparse.Namespace) -> int:
 
     _, forge, author, notes = await make_collaborators(a.offline, need_plane=False)
     try:
-        rep = await EnvironmentKitDAG(forge=forge, author=author, workdir=Path(a.out), budget=_budget(a), sheet_resolution=1024 if a.offline else 4096).run(
-            a.prompt, a.pieces, a.splat)
+        rep = await EnvironmentKitDAG(forge=forge, author=author, workdir=Path(a.out), budget=_budget(a), sheet_resolution=1024 if a.offline else 4096,
+                                      art_direction=a.art_direction).run(a.prompt, a.pieces, a.splat)
     except BudgetExceeded as e:  # live authoring is admitted against a ceiling; a missing price is a refusal, not a crash
         raise CliError(str(e)) from e
     x = rep.extras
     print(f"agy3d kit: {a.prompt!r} x{a.pieces} -> {a.engine}")
     for n in notes:
         print(f"  {n}")
+    _print_art(a.art_direction)
     print(rep.summary())
     sp = x["spend"]
     print(f"spend: {sp['summary']} (kit ceiling = ${sp['per_asset_ceiling_usd']:.2f} x ({a.pieces} pieces + 1 trim sheet))")
@@ -305,6 +329,8 @@ def build_parser() -> argparse.ArgumentParser:
     common(p)
     p.add_argument("--offline", action="store_true", help="fakes + TemplateAuthor; no network, no API key")
     p.add_argument("--style", default=None, help="style-anchor image path")
+    p.add_argument("--art-direction", type=_art_direction, default=None, metavar="ID",
+                   help="named art direction (see skills/art-direction); composes with --style")
     p.add_argument("--max-rounds", type=int, default=4)
     p.add_argument("--no-cache", action="store_true")
     worker = p.add_mutually_exclusive_group()
@@ -334,6 +360,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--pieces", type=_positive_int, default=4)
     p.add_argument("--offline", action="store_true")
     p.add_argument("--splat", default=None, help="optional .ply/.spz Gaussian-splat backdrop (recorded; import needs Blender)")
+    p.add_argument("--art-direction", type=_art_direction, default=None, metavar="ID", help="named art direction (see skills/art-direction)")
     p.set_defaults(fn=cmd_kit)
 
     p = sub.add_parser("variants", help="look variants (pristine/muddy/snow_dusted/battle_scarred) as a USD variant set")

@@ -75,7 +75,7 @@ jobs:
       - name: Test native workers, engine imports, rendered frames and inspector channels
         id: tests
         run: |
-          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_blender_shim.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py
+          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_blender_shim.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py
           python - <<'PYTHON'
           import xml.etree.ElementTree as ET
           required = {"test_three_worker_mixed_asset_soak", "test_reviewed_upstream_primitives",
@@ -92,6 +92,7 @@ jobs:
                       "test_godot_imports_far_lods_of_a_relocated_package_with_their_textures",
                       "test_browser_far_lods_load_their_referenced_textures_and_match_lod0",
                       "test_browser_far_lod_with_a_missing_texture_fails",
+                      "test_styled_package_imports_in_stock_godot_and_passes_the_web_check",
                       *(f"test_browser_asymmetric_block_passes_for_every_target_engine[{engine}]"
                         for engine in ("unreal_5", "unity_urp", "godot_4", "roblox_r15"))}
           passed = {c.get("name") for c in ET.parse("/tmp/engine-qualification.xml").iter("testcase")

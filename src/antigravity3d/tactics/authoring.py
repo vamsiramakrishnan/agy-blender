@@ -467,10 +467,12 @@ class AgentAuthor:
 
         self.calls["propose"] += 1
         self._budget = budget
+        self._art = context.get("art_direction") or ""  # art direction author brief; repeated in repairs
         asset = context.get("asset_name") or _slug(prompt)
         emph = ("overall proportions", "construction detail", "symmetry", "clean minimal forms")
         task = (f"Build a blockout of: {prompt}. The asset name is {asset}; budget {budget.max_tris} tris, at most {budget.max_draw_calls} materials. "
-                "Z-up metres, standing on the ground (min z = 0), parts touching, no interpenetration. Use apply_scene_ir (materials included) then stop. Emphasis: ")
+                "Z-up metres, standing on the ground (min z = 0), parts touching, no interpenetration. Use apply_scene_ir (materials included) then stop. "
+                + (f"{self._art.rstrip('.')}. " if self._art else "") + "Emphasis: ")
         timeout = STAGE_TIMEOUT_S if self.timeout_s is None else self.timeout_s
 
         async def candidate(i: int) -> tuple[SceneIR | None, Any, Exception | None]:
@@ -509,7 +511,8 @@ class AgentAuthor:
     async def repair(self, scene: SceneIR, *, action: Any, located: dict[str, list[str]], manifest: str) -> IRPatch | None:
         self.calls["repair"] += 1
         task = (f"Repair this blockout. QA verdict: {getattr(action, 'kind', action)}; reasons: {getattr(action, 'reasons', [])}. "
-                f"Located problems (defect -> node ids): {located}. Current manifest:\n{manifest}\nFix only what is flagged with apply_scene_ir.")
+                f"Located problems (defect -> node ids): {located}. Current manifest:\n{manifest}\nFix only what is flagged with apply_scene_ir."
+                + (f"\n{self._art}" if getattr(self, "_art", "") else ""))
         if self._budget is None:
             raise ValueError("repair requires the target budget of a prior proposal")
         new = await self._session("repair", scene.asset_name, self._budget, task, seed_scene=scene)

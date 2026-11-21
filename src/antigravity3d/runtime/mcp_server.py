@@ -57,6 +57,7 @@ from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from google.antigravity.tools.tool_runner import ToolWithSchema
 from pydantic import Field
 
+from antigravity3d.art_direction import load as art_direction_load, style_ids
 from antigravity3d.harness import tools as T
 from antigravity3d.harness.hooks import InvariantAndSafetyGate, state_header
 from antigravity3d.harness.session import (
@@ -212,15 +213,17 @@ class StudioHost:
     def _line(self, sid: str) -> str:
         s = session(self.registry, sid)
         return (f"SESSION {sid} asset={s.stage.asset_prim.GetName()} engine={s.state.budget.target_engine} "
-                f"stage={s.toolset} tris<={s.state.budget.max_tris} workdir={s.workdir}")
+                f"stage={s.toolset} tris<={s.state.budget.max_tris}"
+                + (f" art={s.state.art_direction}" if s.state.art_direction else "") + f" workdir={s.workdir}")
 
     # ---- management tools
     async def open_asset_session(self, asset_name: str, target_engine: str, max_tris: int = 15_000,
-                                 workdir: str = "", workspace: str = "", conversation_id: str = "") -> str:
+                                 workdir: str = "", workspace: str = "", conversation_id: str = "", art_direction: str = "") -> str:
         if target_engine not in ENGINES:
             raise ValueError(f"target_engine must be one of {', '.join(ENGINES)}")
         if int(max_tris) < 1:
             raise ValueError("max_tris must be >= 1")
+        art_direction_load(art_direction)  # an unknown id fails here, listing the valid ones, before anything is created
         asset = _slug(asset_name, "Asset")
         if delay := float(os.environ.get("AGY3D_TEST_OPEN_DELAY_S", "0") or 0):  # test hook: widens the race window
             await asyncio.sleep(delay)
@@ -231,7 +234,7 @@ class StudioHost:
         open_session(
             self.registry, sid, wd, asset, EngineBudget(target_engine, max_tris=int(max_tris)),  # type: ignore[arg-type]
             plane=self.backends.plane, forge=self.backends.forge, pool=self.backends.pool,
-            state_workspace=root)
+            state_workspace=root, art_direction=art_direction or None)
         if conversation_id:
             bind_conversation(conversation_id, sid, self.registry)
         self._set_stage(sid, "BLOCKOUT")
@@ -310,6 +313,10 @@ def _declared_schema(input_schema: dict[str, Any]) -> dict[str, Any]:
     return {**input_schema, "properties": props}
 
 
+ART_DIRECTION_DOC = ("Named art direction (skills/art-direction): " + " | ".join(style_ids())
+                     + "; empty for none. Lowers the budget where the look needs it and styles maps, shading and prompts.")
+
+
 def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
     async def open_asset_session(
         asset_name: str,
@@ -318,9 +325,11 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         conversation_id: Annotated[str, Field(description="Native conversation ID from the SessionStart header")] = "",
         max_tris: int = 15_000,
         workdir: Annotated[str, Field(description="Session folder; default <workspace>/agy3d_assets/<session id>")] = "",
+        art_direction: Annotated[str, Field(description=ART_DIRECTION_DOC)] = "",
     ) -> str:
         async def go() -> str:
-            return await host.open_asset_session(asset_name, target_engine, max_tris, workdir, await _workspace_root(ctx), conversation_id)
+            return await host.open_asset_session(asset_name, target_engine, max_tris, workdir, await _workspace_root(ctx), conversation_id,
+                                                 art_direction)
 
         return await host.change_catalog(ctx, go)
 
