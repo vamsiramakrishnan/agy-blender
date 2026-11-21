@@ -393,7 +393,9 @@ async def test_real_blender_legacy_migrations():
                 'from bpy.types import AssetHandle as OldHandle\n'
                 'scene = bpy.context.scene\n'
                 'scene.render.engine = "BLENDER_EEVEE_NEXT"\n'
-                'modifier = bpy.data.objects["Cube"].modifiers.new("Test", "BOOLEAN")\n'
+                'obj = bpy.data.objects.new("Block", bpy.data.meshes.new("Block"))\n'
+                'scene.collection.objects.link(obj)\n'
+                'modifier = obj.modifiers.new("Test", "BOOLEAN")\n'
                 'modifier.solver = "FAST"\n'
                 'result = [scene.render.engine, modifier.solver, OldHandle == bpy.types.AssetRepresentation]'))
         assert result["result"] == ["BLENDER_EEVEE", "FLOAT", True]

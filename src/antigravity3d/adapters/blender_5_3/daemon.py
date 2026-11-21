@@ -120,12 +120,21 @@ def pick_denoiser(requested: str, available: list[str]) -> str | None:
     return None
 
 
+def _same_value(got: Any, want: Any) -> bool:
+    """Socket values are stored as float32: compare numbers with a tolerance, everything else exactly."""
+    if isinstance(got, str) or isinstance(want, str) or isinstance(want, bool):
+        return bool(got == want)
+    if hasattr(got, "__len__"):
+        return len(got) == len(want) and all(_same_value(g, w) for g, w in zip(got, want))
+    return abs(float(got) - float(want)) <= 1e-6 * max(1.0, abs(float(want)))
+
+
 def prepare_tree_spec(tree_json: str | dict[str, Any]) -> dict[str, Any]:
     """Validates a node-tree spec and guarantees the boolean ``is_preview`` input.
 
     Spec: ``{name, inputs:[{name, type, default}], nodes:[{name, type, props, inputs}],
     links:[[node, out_socket, node, in_socket]]}``; ``Group Input``/``Group Output``
-    node names are implicit. The first input is always the geometry.
+    node names are implicit. The first input is always the geometry (a spec that lists another input first is refused).
     """
     spec = json.loads(tree_json) if isinstance(tree_json, str) else dict(tree_json)
     spec.setdefault("name", "AGY_GeoNodes")
@@ -134,6 +143,10 @@ def prepare_tree_spec(tree_json: str | dict[str, Any]) -> dict[str, Any]:
     inputs = [dict(i) for i in spec.get("inputs", [])]
     if not any(i.get("type") == "NodeSocketGeometry" for i in inputs):
         inputs.insert(0, {"name": "Geometry", "type": "NodeSocketGeometry"})
+    elif inputs[0].get("type") != "NodeSocketGeometry":
+        # A Geometry Nodes modifier feeds the object's geometry into the FIRST input; with another socket first the
+        # evaluated mesh is empty and nothing says why.
+        raise ValueError(f"the geometry input must be first in 'inputs' (got {inputs[0].get('name')!r} first)")
     inputs = [i for i in inputs if i["name"] != "is_preview"]
     inputs.append({"name": "is_preview", "type": "NodeSocketBool", "default": True})
     spec["inputs"] = inputs
@@ -380,6 +393,9 @@ def register_bpy_ops(bpy: Any) -> None:
 
     if bpy.app.version[:2] < (5, 3):
         raise RuntimeError(f"Blender 5.3+ required, got {bpy.app.version_string}")
+    # --factory-startup loads Blender's default scene (Cube, Light, Camera). Start from an empty one, once, so no
+    # operation or model-written script works next to objects nobody put there.
+    bpy.ops.wm.read_factory_settings(use_empty=True)
     shim.install(bpy)
     register_reviewed_primitives()
 
@@ -515,6 +531,7 @@ def register_bpy_ops(bpy: Any) -> None:
         with tempfile.TemporaryDirectory(prefix="agy3d-render-") as td:
             out = os.path.join(td, "r.exr")
             s = scene.render.image_settings
+            s.media_type = "IMAGE"  # 5.0: a scene left in MULTI_LAYER_IMAGE or VIDEO does not accept OPEN_EXR until this is set
             s.file_format, s.color_depth, s.color_mode = "OPEN_EXR", "32", "RGBA"
             scene.render.filepath = out
             bpy.ops.render.render(write_still=True)
@@ -558,14 +575,25 @@ def register_bpy_ops(bpy: Any) -> None:
         mod.node_group = nt
         values = {**{i["name"]: i.get("default") for i in spec["inputs"] if "default" in i}, **a.get("inputs", {})}
         values["is_preview"] = bool(a.get("is_preview", True))
+        unknown = sorted(k for k in values if k not in idents)
+        if unknown:
+            raise KeyError(f"no such input(s) {unknown}; the tree has {sorted(idents)}")
+        iface = mod.properties.inputs  # 5.2+: RNA entries named by socket identifier; mod[...] raises TypeError
         for k, v in values.items():
-            if k in idents and k != "Geometry":
-                mod[idents[k]] = v
+            if k != "Geometry":
+                entry = getattr(iface, idents[k])
+                entry.value = v
+                if not _same_value(entry.value, v):
+                    raise RuntimeError(f"input {k!r} did not take the value {v!r} (reads back {entry.value!r})")
         obj.update_tag()
-        return {"object": obj.name, "node_group": nt.name, "is_preview": values["is_preview"], "inputs": sorted(idents)}
+        bpy.context.view_layer.update()
+        evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        return {"object": obj.name, "node_group": nt.name, "is_preview": values["is_preview"], "inputs": sorted(idents),
+                "identifiers": dict(idents), "evaluated_vertices": len(evaluated.data.vertices)}
 
     BAKE_TYPES = {"normal": "NORMAL", "ao": "AO", "roughness": "ROUGHNESS", "diffuse": "DIFFUSE",
                   "emit": "EMIT", "combined": "COMBINED", "position": "POSITION", "uv": "UV"}
+    DATA_MAPS = {"normal", "ao", "roughness", "position", "uv"}  # numbers, not colours: stored as they are, never colour-managed
 
     @op("bake_maps")
     def bake_maps(a: dict[str, Any]) -> dict[str, Any]:
@@ -573,44 +601,78 @@ def register_bpy_ops(bpy: Any) -> None:
         unknown = [m for m in a["maps"] if m not in BAKE_TYPES]
         if unknown:
             raise ValueError(f"unknown bake maps {unknown}")
+        scene = bpy.context.scene
+        was = scene.cycles.samples
+        samples = was if a.get("samples") is None else int(a["samples"])
+        if samples < 1:
+            raise ValueError(f"samples must be at least 1, got {samples}")
         out = Path(a["out_dir"])
         out.mkdir(parents=True, exist_ok=True)
-        bpy.context.scene.render.engine = "CYCLES"
+        scene.render.engine = "CYCLES"
+        scene.cycles.samples = samples
         bpy.ops.object.select_all(action="DESELECT")
         obj.select_set(True)
         bpy.context.view_layer.objects.active = obj
-        if not obj.data.materials:
+        if not any(slot.material for slot in obj.material_slots):
             m = bpy.data.materials.new(f"{obj.name}_bake")
-            obj.data.materials.append(m)
+            if obj.material_slots:
+                obj.material_slots[0].material = m
+            else:
+                obj.data.materials.append(m)
         nt = obj.active_material.node_tree
         paths = []
-        for m in a["maps"]:
-            image = bpy.data.images.new(f"{obj.name}_{m}", res, res, float_buffer=(m in ("position", "normal")))
-            node = nt.nodes.new("ShaderNodeTexImage")
-            node.image = image
-            nt.nodes.active = node
-            kw = {"pass_filter": {"COLOR"}} if m == "diffuse" else {}
-            try:
-                bpy.ops.object.bake(type=BAKE_TYPES[m], **kw)
-                image.filepath_raw = str(out / f"{obj.name}_{m}.png")
-                image.file_format = "PNG"
-                image.save()
-                paths.append(image.filepath_raw)
-            finally:
-                nt.nodes.remove(node)
-                bpy.data.images.remove(image)
-        return {"paths": paths}
+        try:
+            for m in a["maps"]:
+                image = bpy.data.images.new(f"{obj.name}_{m}", res, res, float_buffer=(m in ("position", "normal")))
+                # New images are sRGB (byte) or Linear Rec.709 (float) and are saved through the sRGB transfer function:
+                # a roughness of 0.5 would be stored as 0.735. Data maps must be saved as they are.
+                image.colorspace_settings.name = "Non-Color" if m in DATA_MAPS else "sRGB"
+                node = nt.nodes.new("ShaderNodeTexImage")
+                node.image = image
+                nt.nodes.active = node
+                kw = {"pass_filter": {"COLOR"}} if m == "diffuse" else {}
+                try:
+                    done = bpy.ops.object.bake(type=BAKE_TYPES[m], **kw)
+                    if "FINISHED" not in done:
+                        raise RuntimeError(f"bake of {m!r} on {obj.name!r} returned {sorted(done)}")
+                    image.filepath_raw = str(out / f"{obj.name}_{m}.png")
+                    image.file_format = "PNG"
+                    image.save()
+                    paths.append(image.filepath_raw)
+                finally:
+                    nt.nodes.remove(node)
+                    bpy.data.images.remove(image)
+        finally:
+            scene.cycles.samples = was
+        return {"paths": paths, "samples": samples}
 
     @op("import_splat")
     def import_splat(a: dict[str, Any]) -> dict[str, Any]:
+        """Import a .ply or .spz splat file with Blender's own importers and say what it became.
+
+        5.3 imports Gaussian-splat data as a POINTCLOUD object whose data.type is GAUSSIAN_SPLAT (``mode``
+        "gaussian_splat"); a PLY without splat attributes is an ordinary mesh of vertices (``mode`` "mesh_points").
+        """
         path = a["path"]
         ext = Path(path).suffix.lower()
-        if ext == ".ply":  # imported as a vertex proxy; Blender has no native splat renderer
-            before = set(bpy.data.objects.keys())
-            bpy.ops.wm.ply_import(filepath=path)
-            new = sorted(set(bpy.data.objects.keys()) - before)
-            return {"objects": new, "mode": "point_proxy"}
-        raise NotImplementedError(f"{ext or 'file'} splats need external decoding to .ply first")
+        importer = {".ply": bpy.ops.wm.ply_import, ".spz": bpy.ops.wm.spz_import}.get(ext)
+        if importer is None:
+            raise ValueError(f"unsupported splat format {ext or 'file'!r}: expected .ply or .spz")
+        before = set(bpy.data.objects.keys())
+        if "FINISHED" not in importer(filepath=path):
+            raise RuntimeError(f"splat import failed for {path}")
+        objs = [bpy.data.objects[n] for n in sorted(set(bpy.data.objects.keys()) - before)]
+        if not objs:
+            raise RuntimeError(f"{path} imported no objects")
+
+        def kind(o: Any) -> str:
+            if o.type == "POINTCLOUD":
+                return "gaussian_splat" if o.data.type == "GAUSSIAN_SPLAT" else "point_cloud"
+            return "mesh_points" if o.type == "MESH" else o.type.lower()
+
+        kinds = [kind(o) for o in objs]
+        count = sum(len(o.data.points) if o.type == "POINTCLOUD" else len(o.data.vertices) for o in objs if o.type in ("POINTCLOUD", "MESH"))
+        return {"objects": [o.name for o in objs], "kinds": kinds, "mode": "gaussian_splat" if "gaussian_splat" in kinds else kinds[0], "points": count}
 
 
 # ---- server core

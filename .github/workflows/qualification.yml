@@ -75,11 +75,25 @@ jobs:
       - name: Test native workers, engine imports, rendered frames and inspector channels
         id: tests
         run: |
-          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_blender_shim.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py
+          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py
           python - <<'PYTHON'
           import xml.etree.ElementTree as ET
           required = {"test_three_worker_mixed_asset_soak", "test_reviewed_upstream_primitives",
-                      "test_vendored_blender_skills_match_the_pinned_checkout",
+                      "test_vendored_blender_skills_match_the_pinned_checkout", "test_real_blender_legacy_migrations",
+                      # Blender 5.3 behaviour of the worker operations, the shim and the linter (tests/test_blender_api_53.py)
+                      "test_worker_starts_from_an_empty_scene", "test_render_of_a_created_object_needs_no_factory_camera_or_light",
+                      "test_real_geonodes_input_changes_the_evaluated_mesh", "test_real_geonodes_geometry_input_must_be_first",
+                      "test_real_geonodes_values_by_type_and_the_linter_allowed_getattr_form",
+                      "test_real_bake_maps_store_data_maps_as_numbers_and_colour_as_colour",
+                      "test_real_bake_maps_samples_default_is_the_scene_value_and_is_restored",
+                      "test_real_bake_maps_failure_is_an_error_naming_the_cause", "test_real_import_splat_reports_what_the_file_became",
+                      "test_real_render_survives_a_scene_left_in_multilayer_output", "test_real_export_usd_writes_the_scene_and_only_the_scene",
+                      "test_real_legacy_bindcode_rewrite_runs_and_the_worker_lives", "test_real_gpu_init_first_script_and_unguarded_script",
+                      "test_real_compat_helpers", "test_real_pass_name_map_names_sockets_that_exist",
+                      "test_linter_tables_match_blender", "test_the_cross_check_catches_a_name_that_still_works",
+                      "test_gpu_calls_without_init_do_not_work_in_background", "test_the_specular_bsdf_node_still_has_a_specular_input",
+                      "test_kit_pipeline_imports_the_splat_with_a_real_worker",
+                      *(f"test_structural_rules_match_what_blender_does[{k}]" for k in ("AG016", "AG022", "AG022b")),
                       "test_upstream_primitives_on_a_package_match_the_fake_shape_and_weld_closes_seams",
                       "test_ten_relocated_golden_packages_load_in_stock_godot",
                       "test_ten_relocated_golden_dcc_engine_silhouettes",
