@@ -116,10 +116,10 @@ class GenerativeTruncated(GenerativeDecisionError):
 
     Judge requests are capped at ``JUDGE_MAX_OUTPUT_TOKENS`` (4.7x the largest measured output), so reaching it is a
     runaway generation that an identical re-ask would most likely repeat at the same cost.
-    ``usage`` is what the provider billed for the truncated attempt.
+    ``usage`` is what the provider billed for the truncated attempt (None when its answer reported none).
     """
 
-    def __init__(self, message: str, *, finish_reason: str, usage: "Usage") -> None:
+    def __init__(self, message: str, *, finish_reason: str, usage: "Usage | None") -> None:
         super().__init__(message)
         self.finish_reason, self.usage = finish_reason, usage
 
@@ -132,10 +132,33 @@ class Usage:
     thoughts_tokens: int = 0
 
 
+def _reported(resp: Any) -> Usage | None:
+    """The usage one answer reports. None when it reports none: a missing count is not a count of zero."""
+    um = getattr(resp, "usage_metadata", None)
+    prompt = getattr(um, "prompt_token_count", None)
+    if prompt is None:
+        return None
+    thoughts = int(getattr(um, "thoughts_token_count", 0) or 0)
+    return Usage(int(prompt), int(getattr(um, "candidates_token_count", 0) or 0) + thoughts, thoughts)
+
+
+def _total(usages: Sequence[Usage | None]) -> Usage | None:
+    """The sum of what several dispatches used. None when any of them is not known, so that a call is never booked at
+    less than it used: the engine books a known usage as reported and keeps the whole reservation for an unknown one."""
+    total = Usage()
+    for u in usages:
+        if u is None:
+            return None
+        total.total_input_tokens += u.total_input_tokens
+        total.total_output_tokens += u.total_output_tokens
+        total.thoughts_tokens += u.thoughts_tokens
+    return total
+
+
 @dataclass
 class GenerativeDecisionResponse:
     answers: dict[str, dict[str, Any]]
-    usage: Usage
+    usage: Usage | None  # None: what the call used is not known (see ``_total``)
     cost_usd: float | None
     model: str
     prompt_feedback: Any = None
@@ -294,9 +317,13 @@ def parse_response_text(text: str | None, questions: Mapping[str, Mapping[str, A
 
 # --- the backend ---------------------------------------------------------------------------------------------
 class _Blocked(Exception):
-    def __init__(self, reason: str, detail: str | None) -> None:
+    """A dispatch the service answered with a block instead of an answer. ``usage`` is what that answer and the chunk's
+    earlier attempts reported (a block is an answer: its prompt, and whatever was generated before a stop, are used
+    tokens); None when it reported none."""
+
+    def __init__(self, reason: str, detail: str | None, usage: Usage | None = None) -> None:
         super().__init__(reason)
-        self.reason, self.detail = reason, detail
+        self.reason, self.detail, self.usage = reason, detail, usage
 
 
 @dataclass
@@ -340,7 +367,7 @@ class GenerativeDecisionsBackend:
         sem = asyncio.Semaphore(self.max_concurrency)
         seen = _Dispatches()
 
-        async def run(c: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], Usage]:
+        async def run(c: dict[str, Any]) -> tuple[dict[str, dict[str, Any]], Usage | None]:
             async with sem:
                 return await self._answer_chunk(input, c, seen)
 
@@ -353,18 +380,18 @@ class GenerativeDecisionsBackend:
                 raise e
         if blocked := next((e for e in errors if isinstance(e, _Blocked)), None):
             fb = type("PromptFeedback", (), {"block_reason": blocked.reason, "block_reason_message": blocked.detail})()
-            return GenerativeDecisionResponse({}, Usage(), None, self.model, prompt_feedback=fb, n_chunks=len(chunks))
+            # A blocked call has no answers, and it still used tokens: the chunks that were answered, and the blocked one's
+            # own prompt and output. The engine books the usage this response carries, so it carries all of it, or None
+            # when a chunk's usage is not known (a block that reported none, a chunk that failed another way).
+            used = _total([r.usage if isinstance(r, _Blocked) else None if isinstance(r, BaseException) else r[1] for r in results])
+            return GenerativeDecisionResponse({}, used, None, self.model, prompt_feedback=fb, n_chunks=len(chunks))
         if errors:
             raise self._failure(errors, seen)
-        done = results
         answers: dict[str, dict[str, Any]] = {}
-        usage = Usage()
-        for a, u in done:
+        for a, _ in results:
             answers.update(a)
-            usage.total_input_tokens += u.total_input_tokens
-            usage.total_output_tokens += u.total_output_tokens
-            usage.thoughts_tokens += u.thoughts_tokens
-        cost = cost_usd(self.model, usage.total_input_tokens, usage.total_output_tokens)
+        usage = _total([u for _, u in results])
+        cost = cost_usd(self.model, usage.total_input_tokens, usage.total_output_tokens) if usage is not None else None
         return GenerativeDecisionResponse(answers, usage, cost, self.model, n_chunks=len(chunks), thinking_level=self.thinking_level)
 
     @staticmethod
@@ -422,23 +449,25 @@ class GenerativeDecisionsBackend:
         return total
 
     async def _answer_chunk(self, input_blocks: Any, questions: dict[str, Any],
-                            seen: _Dispatches | None = None) -> tuple[dict[str, dict[str, Any]], Usage]:
-        total = Usage()
+                            seen: _Dispatches | None = None) -> tuple[dict[str, dict[str, Any]], Usage | None]:
+        used: list[Usage | None] = []  # one per attempt of this chunk
         last: Exception | None = None
         for attempt in range(self.max_parse_retries + 1):
-            text, u = await self._generate(input_blocks, questions, seen)
-            total.total_input_tokens += u.total_input_tokens
-            total.total_output_tokens += u.total_output_tokens
-            total.thoughts_tokens += u.thoughts_tokens
             try:
-                return parse_response_text(text, questions), total
+                text, u = await self._generate(input_blocks, questions, seen)
+            except _Blocked as b:
+                b.usage = _total([*used, b.usage])
+                raise
+            used.append(u)
+            try:
+                return parse_response_text(text, questions), _total(used)
             except MalformedGenerativeAnswer as e:
                 last = e
                 log.warning("generative fallback: unusable answer (%s); %s", e, "retrying" if attempt < self.max_parse_retries else "giving up")
         raise MalformedGenerativeAnswer(f"{last} (after {self.max_parse_retries + 1} attempts)") from last
 
     async def _generate(self, input_blocks: Any, questions: dict[str, Any],
-                        seen: _Dispatches | None = None) -> tuple[str | None, Usage]:
+                        seen: _Dispatches | None = None) -> tuple[str | None, Usage | None]:
         from google.genai import errors, types
 
         seen = seen if seen is not None else _Dispatches()
@@ -475,22 +504,20 @@ class GenerativeDecisionsBackend:
                     continue
                 raise
             break
+        usage = _reported(resp)
         fb = getattr(resp, "prompt_feedback", None)
         if fb is not None and getattr(fb, "block_reason", None):
-            raise _Blocked(str(getattr(fb.block_reason, "name", fb.block_reason)), getattr(fb, "block_reason_message", None))
-        um = getattr(resp, "usage_metadata", None)
-        thoughts = int(getattr(um, "thoughts_token_count", 0) or 0)
-        usage = Usage(int(getattr(um, "prompt_token_count", 0) or 0),
-                      int(getattr(um, "candidates_token_count", 0) or 0) + thoughts, thoughts)
+            raise _Blocked(str(getattr(fb.block_reason, "name", fb.block_reason)), getattr(fb, "block_reason_message", None), usage)
         cands = getattr(resp, "candidates", None) or []
         fr = getattr(cands[0], "finish_reason", None) if cands else None
         name = str(getattr(fr, "name", fr) or "")
         if name == "MAX_TOKENS":  # an incomplete answer is an outcome of its own, never parsed as if it were complete
-            raise GenerativeTruncated(f"judge answer cut off (finish_reason MAX_TOKENS) after {usage.total_output_tokens} "
-                                      f"output tokens ({usage.thoughts_tokens} thinking)", finish_reason=name, usage=usage)
+            spent = (f"after {usage.total_output_tokens} output tokens ({usage.thoughts_tokens} thinking)" if usage is not None
+                     else "its usage was not reported")
+            raise GenerativeTruncated(f"judge answer cut off (finish_reason MAX_TOKENS) {spent}", finish_reason=name, usage=usage)
         text = getattr(resp, "text", None)
         if not text and name and name not in ("STOP", "FINISH_REASON_UNSPECIFIED"):
-            raise _Blocked(name.lower(), "generation stopped without an answer")
+            raise _Blocked(name.lower(), "generation stopped without an answer", usage)
         return text, usage
 
 
