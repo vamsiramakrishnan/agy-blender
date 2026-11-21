@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from dataclasses import replace
+from dataclasses import asdict, replace
 from types import SimpleNamespace
 
 import pytest
@@ -13,7 +13,8 @@ from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.governor import BudgetExceeded, Governor, plan_for
 from antigravity3d import ir_schema
 from antigravity3d.tactics.metered_author import (
-    AUTHOR_OUTPUT_BUDGETS, MEASURED_ANSWER_TOKENS, MEASURED_THINKING_TOKENS, MODEL_OUTPUT_TOKEN_LIMIT, AuthorNoAnswer, AuthorTruncated,
+    AUTHOR_OUTPUT_BUDGETS, KIT_OUTPUT_BUDGETS, MEASURED_CRAFT_ANSWER_TOKENS, MEASURED_CRAFT_INPUT_TOKENS, MEASURED_CRAFT_THINKING_TOKENS,
+    MEASURED_CRAFT_PROPOSE_WALL_S, MEASURED_ANSWER_TOKENS, MEASURED_THINKING_TOKENS, MODEL_OUTPUT_TOKEN_LIMIT, AuthorNoAnswer, AuthorTruncated,
     MeteredAuthor, build_author_request, propose_task, schema_input_token_bound,
 )
 
@@ -116,6 +117,63 @@ async def test_dispatched_request_is_the_shared_builders_request(monkeypatch):
     assert sent["contents"][0].parts[0].text.startswith(ir_schema.ir_rules_text())
 
 
+def _task_text(req):
+    return "".join(p.text or "" for c in req.contents for p in c.parts)
+
+
+async def test_prop_proposals_carry_the_craft_guidance_after_the_task_and_kit_pieces_and_repairs_do_not(monkeypatch):
+    a, ep, budget, context, gov = make_author(monkeypatch)
+    await a.propose("green crate", budget=budget, n=2, context=context)
+    for sent in ep.generated:
+        text = sent["contents"][0].parts[0].text
+        assert PROP_CRAFT_GUIDANCE in text and text.index("Include material assignments.") < text.index(PROP_CRAFT_GUIDANCE)
+        assert text.endswith(PROP_CRAFT_GUIDANCE)
+    # a kit piece (its context carries the metric): the request is the one sent before the guidance existed, byte for byte
+    from antigravity3d.kernel.kit_metric import KIT_TEMPLATES, KitMetric, context_brief
+
+    kit_ctx = {"asset_name": "Piece00", "template": sorted(KIT_TEMPLATES)[0], "seed": 0, "kit_metric": KitMetric.interior(),
+               "ortho_uri": context["ortho_uri"], "style_uri": context["style_uri"]}
+    brief = context_brief(kit_ctx)
+    assert brief
+    gov = Governor(replace(plan_for(2), ceiling_usd=1))  # the worker (hydrogen) plan: the tier whose row grew
+    assert gov.plan.builder_role == "worker"
+    monkeypatch.setenv("AGY3D_TEXT_RATES_JSON", json.dumps({tier(r).model: [1, 2] for r in ("worker", "director")}))
+    prop_author = MeteredAuthor(a.client, gov, budget, context, timeout_s=5)
+    await prop_author.propose("green crate", budget=budget, n=1, context=context)
+    ep.answer = ep.answer.replace('"Crate"', '"Piece00"')
+    kit_author = MeteredAuthor(a.client, gov, budget, kit_ctx, timeout_s=5)
+    await kit_author.propose("an interior wall piece", budget=budget, n=1, context=kit_ctx)
+    kit_text = ep.generated[-1]["contents"][0].parts[0].text
+    legacy_task = ("Build design 1/1 for an interior wall piece. Use the attached references. Return one JSON SceneIR with "
+                   "asset_name='Piece00', nodes and materials. Ground all parts. Include material assignments. " + brief)
+    assert kit_text == f"{ir_schema.ir_rules_text()}\nBudget: {json.dumps(asdict(budget))}\n{legacy_task}"
+    assert PROP_CRAFT_GUIDANCE not in kit_text
+    # the kit keeps the row it had (a larger reservation would admit fewer pieces at once); a prop gets the larger one
+    assert ep.generated[-1]["config"].max_output_tokens == 16_384 == KIT_OUTPUT_BUDGETS["worker"].max_output_tokens
+    assert ep.generated[-2]["config"].max_output_tokens == AUTHOR_OUTPUT_BUDGETS["worker"].max_output_tokens == 24_576
+    # a repair is untouched
+    a, ep, budget, context, gov = make_author(monkeypatch)
+    scene = (await a.propose("crate", budget=budget, n=1, context=context))[0]
+    ep.answer = '{"ops":[{"op":"remove_node","node_id":"body"}]}'
+    await a.repair(scene, action=SimpleNamespace(kind="agent_repair", reasons=["floating"]), located={}, manifest="body")
+    assert PROP_CRAFT_GUIDANCE not in ep.generated[-1]["contents"][0].parts[0].text
+
+
+async def test_craft_guidance_negative_control(monkeypatch):
+    """The guidance test above must fail when the text is missing: the same request without it does not contain it."""
+    a, ep, budget, context, gov = make_author(monkeypatch)
+    plain = _task_text(a.request("worker", "propose", propose_task("x", index=0, n=1, asset_name="A", references=False,
+                                                                   brief="a kit metric"), asset_name="A"))
+    assert PROP_CRAFT_GUIDANCE not in plain and "production game prop" not in plain
+    assert "production game prop" in _task_text(a.request("worker", "propose", propose_task("x", index=0, n=1, asset_name="A",
+                                                                                            references=False), asset_name="A"))
+
+
+def test_craft_guidance_says_contact_not_overlap():
+    assert "exactly on the surface" in PROP_CRAFT_GUIDANCE and "no gap and no overlap" in PROP_CRAFT_GUIDANCE
+    assert "sink" not in PROP_CRAFT_GUIDANCE and "millimetre" not in PROP_CRAFT_GUIDANCE
+
+
 async def test_repair_sends_the_patch_schema_and_the_directors_budget(monkeypatch):
     a, ep, budget, context, gov = make_author(monkeypatch)
     scene = (await a.propose("crate", budget=budget, n=1, context=context))[0]
@@ -153,7 +211,9 @@ def test_output_budget_table_fits_each_model_and_measured_usage():
         key = f"{mt.model}/{mt.thinking.value}"
         limit = MODEL_OUTPUT_TOKEN_LIMIT[mt.model]
         assert out.max_output_tokens <= limit, role
-        thinking, answer = MEASURED_THINKING_TOKENS[key], MEASURED_ANSWER_TOKENS[key]
+        # the crafted-prop samples (a 63-64 part answer) count where the tier has them: they are the larger answers
+        thinking = MEASURED_THINKING_TOKENS[key] + MEASURED_CRAFT_THINKING_TOKENS.get(key, ())
+        answer = MEASURED_ANSWER_TOKENS[key] + MEASURED_CRAFT_ANSWER_TOKENS.get(key, ())
         worst = max(answer) + max(thinking)
         assert out.max_output_tokens > worst, role
         assert out.max_output_tokens >= min(limit, 1.7 * worst), role
@@ -161,6 +221,21 @@ def test_output_budget_table_fits_each_model_and_measured_usage():
             assert out.thinking_tokens >= 2 * max(thinking) and out.answer_tokens >= 2 * max(answer), role
     by = {r: AUTHOR_OUTPUT_BUDGETS[r].max_output_tokens for r in ("worker", "builder", "director")}
     assert by["worker"] < by["builder"] <= by["director"]  # a hero call is never sized by a worker-tier assumption
+
+
+def test_worker_cap_leaves_room_for_the_largest_prop_the_guidance_asks_for():
+    """The guidance asks for 50-90 parts. Three live answers of 63, 64 and 55 parts used 9,544, 10,396 and 9,393 tokens (answer +
+    thinking); per part that is 113-124 answer tokens, and thinking varied 2.2x across the older samples. A truncated
+    answer is a lost candidate billed at the whole cap, so the cap holds 90 parts at the largest answer rate and the
+    largest thinking seen scaled by that variation."""
+    key = "gemini-4-hydrogen/low"
+    answers, thoughts = MEASURED_CRAFT_ANSWER_TOKENS[key], MEASURED_CRAFT_THINKING_TOKENS[key]
+    per_part = max(a / n for a, n in zip(answers, (63, 64, 55)))
+    old = MEASURED_THINKING_TOKENS["gemini-4-hydrogen/low"]
+    out = AUTHOR_OUTPUT_BUDGETS["worker"]
+    assert 90 * per_part + max(thoughts) * 2.2 < out.max_output_tokens  # ~11,200 + ~6,000 against 24,576
+    assert out.answer_tokens >= 2 * max(answers) and out.thinking_tokens >= 2 * max(thoughts)
+    assert min(old) < max(old) and max(old) / min(old) < 2.5  # where the 2.2 variation comes from
 
 
 async def test_plan_that_cannot_admit_its_tier_fails_loudly_with_the_numbers(monkeypatch):
@@ -244,7 +319,7 @@ async def test_live_benchmark_sends_the_production_request(monkeypatch):
 
 
 from antigravity3d.tactics.metered_author import (  # noqa: E402
-    AUTHOR_TIMEOUT_S, MEASURED_PROPOSE_WALL_S, TIMEOUT_HEADROOM, AuthorInvalid, AuthorTimedOut, author_timeout,
+    AUTHOR_TIMEOUT_S, MEASURED_PROPOSE_WALL_S, PROP_CRAFT_GUIDANCE, TIMEOUT_HEADROOM, AuthorInvalid, AuthorTimedOut, author_timeout,
     expected_output_tokens,
 )
 
@@ -434,6 +509,31 @@ def test_expected_output_tokens_come_from_the_measurements_and_stay_under_the_ca
     for role in ("worker", "bulk", "builder", "director"):
         assert 0 < expected_output_tokens(role) < AUTHOR_OUTPUT_BUDGETS[role].max_output_tokens
     assert 18_000 < expected_output_tokens("director") < 20_000  # argon: mean 11,726 answer + 7,409 thinking
+    # a prop on hydrogen/low: the mean of the two crafted samples; an unmeasured tier and a kit piece keep the older tables
+    assert expected_output_tokens("worker", craft=True) == round((7_145 + 7_682 + 6_831) / 3 + (2_399 + 2_714 + 2_562) / 3) == 9_778
+    assert expected_output_tokens("worker") < 2_100 and expected_output_tokens("director", craft=True) == expected_output_tokens("director")
+
+
+def test_planning_figures_agree_with_the_measurement_and_each_other(monkeypatch):
+    from antigravity3d.tactics.token_plan import AUTHOR_TOKENS_EST, author_worst_tokens, plan_estimate
+    from antigravity3d.tactics.governor import PLANS
+
+    key = "gemini-4-hydrogen/low"
+    measured = MEASURED_CRAFT_INPUT_TOKENS[key] + expected_output_tokens("worker", craft=True)
+    assert AUTHOR_TOKENS_EST == measured == 16_072  # 6,294 input + 7,219 answer + 2,558 thinking
+    assert 32 <= min(MEASURED_CRAFT_PROPOSE_WALL_S[key]) and max(MEASURED_CRAFT_PROPOSE_WALL_S[key]) <= MEASURED_PROPOSE_WALL_S[key][1]
+    a, *_ = make_author(monkeypatch)
+    a.governor.unit = "tokens"
+    expected, worst = a.cost_profile("worker")  # input here is the deliberately high bound (bytes / 3 + schema bytes)
+    # the plan's figure is the measured (billed) input plus the expected output: not above the profile's, below the cap
+    assert AUTHOR_TOKENS_EST <= expected < worst
+    assert worst - AUTHOR_OUTPUT_BUDGETS["worker"].max_output_tokens == pytest.approx(expected - expected_output_tokens("worker", craft=True))
+    assert author_worst_tokens(a, role="worker") == int(worst) + (1 if worst != int(worst) else 0)
+    # a kit piece is estimated without the guidance (fewer input tokens) and by the older measurements
+    kit_expected, kit_worst = a.cost_profile("worker", kit=True)
+    assert kit_expected < expected and kit_worst < worst
+    # every plan is larger than before and counts author calls by the new figure
+    assert plan_estimate(PLANS[sorted(PLANS)[0]]).tokens > plan_estimate(PLANS[sorted(PLANS)[0]], author_tokens=9_444).tokens
 
 
 def test_cost_profile_is_expected_below_worst_case_and_absent_without_rates(monkeypatch):

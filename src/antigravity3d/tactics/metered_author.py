@@ -57,13 +57,22 @@ class OutputBudget:
 # the last three samples of each tier, one for argon, are the run in benchmarks/results/round1/live.json):
 #
 #   role      model             level   answer tokens (nodes)               thinking tokens         -> answer + thinking
-#   worker    gemini-4-hydrogen low     630-1,553 (9-13), 7 samples         804-1,263, 11 samples   ->  8,192 +  8,192
+#   worker    gemini-4-hydrogen low     630-1,553 (9-13), 7 samples         804-1,263, 11 samples   ->  16,384 + 8,192
 #   bulk      gemini-4-neon     low     1,747-1,919 (25-26), 6 samples      1,374-2,418, 9 samples  ->  8,192 +  8,192
 #   builder   gemini-4-carbon   medium  9,965-12,189 (123-146), 6 samples   7,642-13,244, 6 samples -> 16,384 + 16,384
 #   director  gemini-4-argon    high    6,337-17,634 (78-168), 3 samples    7,155-7,893, 3 samples  -> 16,384 + 16,384
 #
-# Headroom: the LOW tiers get >= 4.2x the largest answer and >= 3.3x the largest thinking seen (cap 16,384 of the
-# model's 65,536). carbon and argon are bounded by their output_token_limit (32,768), so their cap IS the model
+# The worker row was 8,192 + 8,192 for 9-13 node answers. With PROP_CRAFT_GUIDANCE a prop is 55-64 nodes (three live
+# samples, 2026-11-21: answers 7,145, 7,682 and 6,831 tokens, thinking 2,399, 2,714 and 2,562, so 9,544, 10,396 and 9,393 of
+# 16,384) and the guidance asks for up to 90: at about 113-124 answer tokens per part that is ~10,800 answer tokens, and thinking varied 2.2x
+# across the old samples (992-2,152), so ~6,000 is possible: ~16,800 > 16,384. A truncated answer is a lost candidate billed
+# at the whole cap, so the worker row is 16,384 answer + 8,192 thinking = 24,576 (hydrogen's limit is 65,536): twice the
+# largest crafted answer (15,364 <= 16,384), twice the largest thinking (5,428 <= 8,192) and 2.4x the largest total
+# (tests/test_metered_author.py). Only the reservation and a runaway's bill grow; a normal call is billed its usage.
+# Both operations use the row, a repair of a 90-part scene included. A kit piece's request is unchanged, so it keeps the
+# old row (KIT_OUTPUT_BUDGETS): a larger reservation would admit fewer pieces at once under a ceiling for no gain.
+# Headroom: the other LOW tier (neon) gets >= 4.2x the largest answer and >= 3.3x the largest thinking seen (cap 16,384
+# of the model's 65,536). carbon and argon are bounded by their output_token_limit (32,768), so their cap IS the model
 # maximum; the answer/thinking split there is nominal (both share one cap: argon's largest answer alone was 17,634).
 # The worst observed samples used 25,433 (carbon) and 25,527 (argon) tokens, 78% of the cap: a residual truncation
 # risk that no larger request can remove, surfaced as AuthorTruncated.
@@ -72,11 +81,14 @@ class OutputBudget:
 # 504 DEADLINE_EXCEEDED at the 300 s request timeout), so callers' timeout_s must allow for it.
 # Repairs (hydrogen, 2 flagged nodes): 92 answer + 515 thinking tokens.
 AUTHOR_OUTPUT_BUDGETS: dict[str, OutputBudget] = {
-    "worker": OutputBudget(answer_tokens=8_192, thinking_tokens=8_192),
+    "worker": OutputBudget(answer_tokens=16_384, thinking_tokens=8_192),
     "bulk": OutputBudget(answer_tokens=8_192, thinking_tokens=8_192),
     "builder": OutputBudget(answer_tokens=16_384, thinking_tokens=16_384),
     "director": OutputBudget(answer_tokens=16_384, thinking_tokens=16_384),
 }
+# The rows a modular-kit piece reserves: the table above as it was before the prop guidance, because a kit piece's request
+# and answers did not change. Every role but worker is the same row as for a prop.
+KIT_OUTPUT_BUDGETS: dict[str, OutputBudget] = {**AUTHOR_OUTPUT_BUDGETS, "worker": OutputBudget(answer_tokens=8_192, thinking_tokens=8_192)}
 # Raw evidence behind the table (propose request). Older hydrogen/neon thinking samples were taken without a response
 # schema (benchmarks/results/round1/live.json); answer sizes only from schema-constrained responses.
 MEASURED_THINKING_TOKENS: dict[str, tuple[int, ...]] = {
@@ -91,10 +103,22 @@ MEASURED_ANSWER_TOKENS: dict[str, tuple[int, ...]] = {
     "gemini-4-carbon/medium": (11178, 12189, 10110, 10004, 10286, 9965),
     "gemini-4-argon/high": (11208, 6337, 17634),
 }
+# The same request with PROP_CRAFT_GUIDANCE (a prop, 2026-11-21, "military supply crate", hydrogen/low, finish STOP). Three
+# samples, so the expected case and not a range. Samples 1 and 2 were made with the first wording of the guidance (parts
+# sunk 1-2 mm into what they sit on): 63 and 64 parts, input 6,285, answers 7,145 and 7,682, thinking 2,399 and 2,714, 33
+# and 35 s. Sample 3 is the only one made with the wording that ships (exact contact): 55 parts, 1,004 triangles, input
+# 6,294, answer 6,831, thinking 2,562, 32 s. The input figure is the shipped wording's. Only
+# hydrogen/low was measured with the guidance: the other tiers expect what they were measured at without it (argon and
+# carbon already wrote 78-168 nodes unguided), the worst case of every tier stays its cap.
+MEASURED_CRAFT_INPUT_TOKENS: dict[str, int] = {"gemini-4-hydrogen/low": 6_294}
+MEASURED_CRAFT_ANSWER_TOKENS: dict[str, tuple[int, ...]] = {"gemini-4-hydrogen/low": (7_145, 7_682, 6_831)}
+MEASURED_CRAFT_THINKING_TOKENS: dict[str, tuple[int, ...]] = {"gemini-4-hydrogen/low": (2_399, 2_714, 2_562)}
+MEASURED_CRAFT_PROPOSE_WALL_S: dict[str, tuple[float, float]] = {"gemini-4-hydrogen/low": (32.0, 35.0)}
 # models.get(...).output_token_limit on this key, 2026-11-20.
 MODEL_OUTPUT_TOKEN_LIMIT = {HYDROGEN: 65_536, NEON: 65_536, CARBON: 32_768, ARGON: 32_768}
 # Measured wall time of one propose call (min, max) in seconds, 2026-11-20, same samples as the token tables above,
-# the maximum rounded up to a whole second. argon also had one call end in 504 DEADLINE_EXCEEDED at the 300 s request
+# the maximum rounded up to a whole second. (The crafted worker calls, 32 to 35 s for 9,393 to 10,396 output tokens, are
+# inside the hydrogen range, so its timeout stays; at that rate, about 300 tokens/s, a 90-part answer takes about 50 s.) argon also had one call end in 504 DEADLINE_EXCEEDED at the 300 s request
 # timeout. The slowest carbon call (285 s for 19,850 tokens, about 70 tokens/s against 94-97 on its other samples)
 # came while the provider was slow; it completed and was valid, so it counts.
 MEASURED_PROPOSE_WALL_S: dict[str, tuple[float, float]] = {
@@ -124,9 +148,9 @@ SCHEMA_INPUT_TOKENS_PER_BYTE = 1.0
 AUTHOR_UNKNOWN_RETRIES = 1
 
 
-def output_budget(role: str) -> OutputBudget:
+def output_budget(role: str, *, kit: bool = False) -> OutputBudget:
     try:
-        return AUTHOR_OUTPUT_BUDGETS[role]
+        return (KIT_OUTPUT_BUDGETS if kit else AUTHOR_OUTPUT_BUDGETS)[role]
     except KeyError:
         raise ValueError(f"no authoring output budget for role {role!r}") from None
 
@@ -197,12 +221,41 @@ def has_references(context: dict[str, Any]) -> bool:
     return any(context.get(key) for key, _ in _REFERENCES)
 
 
+# What a good prop is. The author's whole instruction used to be the format rules and one sentence, and nothing said what
+# a good prop looks like. Measured live on 2026-11-21 (gemini-4-hydrogen, same schema, thinking level and cap) on "a rugged
+# military supply crate kit-bashed from panels, corner guards, latches and two side handles", budget 3,000 triangles:
+# without this text five designs had 15-21 parts and 272-356 triangles (9-12% of the budget; answers 2,037-2,662 tokens,
+# thinking 992-2,152, about 14 s); with it two designs had 63 and 64 parts and 976 and 936 triangles (33% and 31%; input
+# 6,285 tokens against 6,024, answers 7,145 and 7,682, thinking 2,399 and 2,714, 33 and 35 s, finish STOP). Contact is
+# exact, not overlapped: a first version told the author to sink parts 1-2 mm into what they sit on, and Tier-1 reported
+# 103-116 interpenetration and 28-38 z-fighting warnings (their hidden back faces end up coplanar); hidden contact faces
+# are removed at export (kernel/package.py), so the text says to mount on the surface. A modular-kit piece does not get it:
+# its geometry obeys the kit metric (its ``brief``), tuned separately.
+PROP_CRAFT_GUIDANCE = (
+    "Model a production game prop, not a blockout.\n"
+    "- Every part the brief names gets its own nodes, built from the pieces a real one has: a latch is a base plate, a clasp "
+    "and a hinge barrel; a handle is two brackets and a grip; a corner guard wraps its corner.\n"
+    "- Add the secondary forms an object of this kind has wherever they change the silhouette or catch the light: rims, ribs, "
+    "frames, skids or feet, straps, hinges, bolt heads. Break large flat faces with raised or recessed panels made from thin "
+    "boxes.\n"
+    "- Aim for 50 to 90 parts, within max_tris: a box is 12 triangles, a cylinder 4 x segments (8 to 12 segments is enough "
+    "for a small part), a sphere or capsule costs hundreds. Do not pad with hidden or repeated filler.\n"
+    "- Keep parts in proportion: thin plates and slim bars, not chunky blocks.\n"
+    "- Attach by contact: a part's face lies exactly on the surface it is mounted on, with no gap and no overlap (hidden "
+    "contact faces are removed at export). Two parts mounted on the same surface must not share area: where one crosses "
+    "another, mount it on the other's face.\n"
+    "- Set collider false on small detail parts; keep it for the main solids."
+)
+
+
 def propose_task(prompt: str, *, index: int, n: int, asset_name: str, references: bool, brief: str = "") -> str:
     """``brief``: constraints the answer must meet exactly, appended last (a modular kit piece's metric,
-    ``kernel.kit_metric.context_brief``); empty for everything else, so other requests are unchanged byte for byte."""
+    ``kernel.kit_metric.context_brief``); with one the request is unchanged byte for byte. Without one (a prop) the task
+    is followed by ``PROP_CRAFT_GUIDANCE``."""
     refs = "Use the attached references. " if references else ""
-    return (f"Build design {index + 1}/{n} for {prompt}. {refs}Return one JSON SceneIR with asset_name={asset_name!r}, "
-            f"nodes and materials. Ground all parts. Include material assignments." + (f" {brief}" if brief else ""))
+    task = (f"Build design {index + 1}/{n} for {prompt}. {refs}Return one JSON SceneIR with asset_name={asset_name!r}, "
+            f"nodes and materials. Ground all parts. Include material assignments.")
+    return f"{task} {brief}" if brief else f"{task}\n{PROP_CRAFT_GUIDANCE}"
 
 
 def repair_task(scene: SceneIR, *, reasons: Any, located: dict[str, list[str]], manifest: str) -> str:
@@ -213,15 +266,16 @@ def repair_task(scene: SceneIR, *, reasons: Any, located: dict[str, list[str]], 
 
 def build_author_request(role: str, operation: Operation, task: str, *, budget: EngineBudget, context: dict[str, Any],
                          timeout_s: float, asset_name: str | None = None,
-                         output: OutputBudget | None = None) -> AuthorRequest:
+                         output: OutputBudget | None = None, kit: bool = False) -> AuthorRequest:
     """Contents + generation config for one authoring call. Needs no rates and dispatches nothing.
 
     ``context["art_direction"]``, when present, is the art direction's author brief: one line after the task.
 
     ``output`` overrides the table only for measurement (the benchmark's sizing probes); production never passes it.
+    ``kit``: a modular kit piece's request, which reserves the kit row (``KIT_OUTPUT_BUDGETS``).
     """
     mt = tier(role)  # type: ignore[arg-type]
-    out = output or output_budget(role)
+    out = output or output_budget(role, kit=kit)
     limit = MODEL_OUTPUT_TOKEN_LIMIT.get(mt.model)
     if limit is not None and out.max_output_tokens > limit:
         raise ValueError(f"{role} {operation}: {out.max_output_tokens} output tokens exceed {mt.model}'s limit {limit}")
@@ -299,14 +353,18 @@ def author_timeout(role: str) -> float:
         raise ValueError(f"no authoring timeout for role {role!r}") from None
 
 
-def expected_output_tokens(role: str) -> int:
-    """Mean measured answer + thinking tokens of the role's model and level; the full cap when it was not measured."""
+def expected_output_tokens(role: str, *, craft: bool = False) -> int:
+    """Mean measured answer + thinking tokens of the role's model and level; the full cap when it was not measured.
+    ``craft``: a prop request (it carries ``PROP_CRAFT_GUIDANCE``) uses the crafted samples where the tier has them (three,
+    hydrogen/low only) and the older tables otherwise; a kit piece (``craft=False``) is the request measured without it."""
     mt = tier(role)  # type: ignore[arg-type]
     key = f"{mt.model}/{mt.thinking.value if mt.thinking else 'none'}"
     answers, thoughts = MEASURED_ANSWER_TOKENS.get(key), MEASURED_THINKING_TOKENS.get(key)
+    if craft and key in MEASURED_CRAFT_ANSWER_TOKENS:
+        answers, thoughts = MEASURED_CRAFT_ANSWER_TOKENS[key], MEASURED_CRAFT_THINKING_TOKENS[key]
     if not answers or not thoughts:
-        return output_budget(role).max_output_tokens
-    return min(output_budget(role).max_output_tokens, round(sum(answers) / len(answers) + sum(thoughts) / len(thoughts)))
+        return output_budget(role, kit=not craft).max_output_tokens
+    return min(output_budget(role, kit=not craft).max_output_tokens, round(sum(answers) / len(answers) + sum(thoughts) / len(thoughts)))
 
 
 @dataclass(frozen=True)
@@ -405,26 +463,27 @@ class MeteredAuthor:
     def timeout_for(self, role: str) -> float:
         return author_timeout(role) if self.timeout_s is None else self.timeout_s
 
-    def cost_profile(self, role: str | None = None, *, asset_name: str = "asset") -> tuple[float, float] | None:
+    def cost_profile(self, role: str | None = None, *, asset_name: str = "asset", kit: bool = False) -> tuple[float, float] | None:
         """(expected, worst-case) USD of one propose call for sizing a best-of-N, or None when no rates are known.
         On a token ledger the same pair in tokens (never None).
 
+        ``kit``: the request of a modular kit piece (no craft guidance, the older measurements).
         Expected = mean measured output tokens (``expected_output_tokens``); worst case = the full cap, which is what
         admission reserves. Input is estimated from the request text (3 bytes per token) plus the schema bound, because
         counting needs a network call; sizing only, admission uses the counted figure.
         """
         role = role or self.governor.plan.builder_role
-        req = self.request(role, "propose", propose_task("x", index=0, n=1, asset_name=asset_name,
-                                                          references=has_references(self.context)), asset_name=asset_name)
+        req = self.request(role, "propose", propose_task("x", index=0, n=1, asset_name=asset_name, brief="kit" if kit else "",
+                                                          references=has_references(self.context)), asset_name=asset_name, kit=kit)
         text = "".join(p.text or "" for c in req.contents for p in c.parts)
         tokens_in = math.ceil(len(text.encode()) / 3) + schema_input_token_bound(req.schema)
         if self.governor.unit == "tokens":  # a token ledger: the same figures in tokens, no price applied
-            return float(tokens_in + expected_output_tokens(role)), float(tokens_in + req.max_output_tokens)
+            return float(tokens_in + expected_output_tokens(role, craft=not kit)), float(tokens_in + req.max_output_tokens)
         try:
             pin, pout = _rates(req.model)
         except BudgetExceeded:
             return None
-        expected = usage_cost_usd(tokens_in, expected_output_tokens(role), usd_per_m_in=pin, usd_per_m_out=pout)
+        expected = usage_cost_usd(tokens_in, expected_output_tokens(role, craft=not kit), usd_per_m_in=pin, usd_per_m_out=pout)
         worst = usage_cost_usd(tokens_in, req.max_output_tokens, usd_per_m_in=pin, usd_per_m_out=pout)
         return expected, worst
 
@@ -559,9 +618,12 @@ class MeteredAuthor:
             attempts=tracker.record(), nothing_booked=not booked_any, code=code, status=status,
             finish_reason=status or type(exc).__name__, **_meta(req, None))
 
-    def request(self, role: str, operation: Operation, task: str, *, asset_name: str | None = None) -> AuthorRequest:
+    def request(self, role: str, operation: Operation, task: str, *, asset_name: str | None = None,
+                kit: bool | None = None) -> AuthorRequest:
+        """``kit`` None: this author is bound to a kit piece when its context carries the kit metric."""
+        kit = bool(context_brief(self.context)) if kit is None else kit
         return build_author_request(role, operation, task, budget=self.budget, context=self.context,
-                                    timeout_s=self.timeout_for(role), asset_name=asset_name)
+                                    timeout_s=self.timeout_for(role), asset_name=asset_name, kit=kit)
 
     async def propose_with_outcomes(self, prompt: str, *, budget: EngineBudget, n: int, context: dict[str, Any]) -> ProposeResult:
         """All ``n`` requested candidates, each with its recorded outcome. Raises only when none is usable."""
@@ -576,7 +638,7 @@ class MeteredAuthor:
             trace: dict[str, Any] = {}
             task = propose_task(prompt, index=i, n=n, asset_name=asset, references=refs, brief=brief)
             try:
-                req = self.request(role, "propose", task, asset_name=asset)
+                req = self.request(role, "propose", task, asset_name=asset, kit=bool(brief))
                 scene = await self._generate(req, trace)
                 if scene.asset_name != asset or not scene.nodes:
                     raise AuthorInvalid(f"{role} propose: candidate must contain nodes for the requested asset {asset!r}",

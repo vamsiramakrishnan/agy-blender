@@ -154,7 +154,7 @@ Main modules, from the module docstrings:
 - `genmedia/pbr_deriver.py`: deterministic PBR map synthesis and auto-fixers (no model calls).
 
 **Layer 4: tactics and pipelines**
-- `tactics/authoring.py`: the Scene IR authoring interfaces, the non-deterministic seam.
+- `tactics/authoring.py`: the Scene IR authoring interfaces, the non-deterministic seam. A prop's authoring request (and the native BLOCKOUT stage prompt) carries craft guidance: build the parts a real object has, add the secondary forms that change the silhouette, aim for 50 to 90 parts within the triangle budget, and attach parts by exact contact, not overlap. A modular-kit piece is authored to its metric and does not get it (`PROP_CRAFT_GUIDANCE` in `tactics/metered_author.py`, `CRAFT_RULES` in `harness/agents.py`).
 - `tactics/pyramid.py`: multi-resolution refinement: silhouette lock, lookdev, final verification.
 - `tactics/tournament.py`: speculative Best-of-N.
 - `tactics/governor.py`: cost and quality budget governor.

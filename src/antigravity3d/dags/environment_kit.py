@@ -592,7 +592,7 @@ class EnvironmentKitDAG:
         brief = texture_brief(self.art)
         text = _TRIM.format(prompt=f"{prompt}. {self.sheet.layout_prompt()}" + (f" {brief}" if brief else ""))
         sheet = image_worst_tokens(self._forge_in, text, self.sheet.resolution)
-        piece = author_worst_tokens(self._author, asset_name="Piece00")
+        piece = author_worst_tokens(self._author, asset_name="Piece00", kit=True)
         need = sheet + piece
         if g.max_images is None and sheet:
             raise BudgetExceeded("a token-limited kit generates one trim sheet image: pass --max-images (at least 1); nothing was requested")

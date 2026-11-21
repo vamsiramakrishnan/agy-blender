@@ -26,7 +26,7 @@ from antigravity3d.kernel.kit_metric import KitMetric
 from antigravity3d.tactics.authoring import KIT_TEMPLATE_FNS, AgentAuthor, TemplateAuthor
 from antigravity3d.tactics.governor import BudgetExceeded, Governor, plan_for
 from antigravity3d import ir_schema
-from antigravity3d.tactics.metered_author import AUTHOR_OUTPUT_BUDGETS, schema_input_token_bound
+from antigravity3d.tactics.metered_author import KIT_OUTPUT_BUDGETS, schema_input_token_bound
 
 UE = EngineBudget("unreal_5")
 RATES = (1.0, 2.0)  # USD per million tokens, this module's fixture
@@ -164,7 +164,7 @@ def rates(monkeypatch):
 
 def worst_case(role: str = "worker") -> float:
     tokens_in = COUNTED + schema_input_token_bound(ir_schema.scene_response_schema("X"))
-    return (tokens_in * RATES[0] + AUTHOR_OUTPUT_BUDGETS[role].max_output_tokens * RATES[1]) / 1_000_000
+    return (tokens_in * RATES[0] + KIT_OUTPUT_BUDGETS[role].max_output_tokens * RATES[1]) / 1_000_000
 
 
 def kit(tmp_path: Path, endpoint: KitEndpoint, *, per_asset_ceiling: float, author: object | None = None,
@@ -241,7 +241,7 @@ async def test_ceiling_that_admits_two_at_a_time_waits_and_loses_no_piece(tmp_pa
 async def test_a_kit_is_not_refused_for_being_budgeted_as_one_asset(tmp_path: Path, rates) -> None:
     """Each call books nearly its whole reservation. Under one asset's ceiling the second piece could never fit."""
     limit = worst_case()
-    ep = KitEndpoint(usage=(100, AUTHOR_OUTPUT_BUDGETS["worker"].max_output_tokens))
+    ep = KitEndpoint(usage=(100, KIT_OUTPUT_BUDGETS["worker"].max_output_tokens))
     per_asset = 1.4 * limit
     rep = await kit(tmp_path, ep, per_asset_ceiling=per_asset).run("ruined stone corridor", 4)
     x = rep.extras

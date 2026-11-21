@@ -82,11 +82,33 @@ _IR_RULES = f"{IR_SEMANTICS}\n{OP_SEMANTICS}"
 _IR_STAGES = frozenset({"BLOCKOUT", "TWEAK", "VARIANTS"})  # edit geometry: IR semantics and the anchor ops
 _MATERIAL_STAGES = frozenset({"LOOKDEV"})  # edit materials only: IR semantics (ids, material cross-field rules)
 
+# What a good prop is, for the stage agent that models it (the same rules as metered_author.PROP_CRAFT_GUIDANCE, which the
+# one-shot author gets: the two paths are written separately because this agent edits in patches and sees Tier-1 and QA
+# lines after each). Measured with the one-shot request on 2026-11-21: the five answers written without it for "a rugged
+# military supply crate kit-bashed from panels, corner guards, latches and two side handles" (budget 3,000 triangles) had 15
+# to 21 parts and 272 to 356 triangles; with it, two answers had 63 and 64 parts and 976 and 936 triangles. Contact is exact,
+# not overlapped: hidden contact faces are removed at export, and a part sunk into another makes Tier-1 report
+# interpenetration and z-fighting. The rules cost about 1,200 characters of every BLOCKOUT prompt; they are guidance the
+# stage needs, not waste (tests/test_stage_request.py states what the character budget protects).
+CRAFT_RULES = (
+    "Craft rules: every part the brief names gets its own nodes, built from the pieces a real one has (a latch is a base plate, "
+    "a clasp and a hinge barrel; a handle is two brackets and a grip; a corner guard wraps its corner). Add the secondary forms "
+    "an object of this kind has wherever they change the silhouette or catch the light: rims, ribs, frames, skids or feet, "
+    "straps, hinges, bolt heads; break large flat faces with raised or recessed panels made from thin boxes. Aim for 50 to 90 "
+    "parts within max_tris (a box is 12 triangles, a cylinder 4 x segments, 8 to 12 segments is enough for a small part, a "
+    "sphere or capsule costs hundreds); no hidden or repeated filler. Keep parts in proportion: thin plates and slim bars, not "
+    "chunky blocks. Attach by contact: a part's face lies exactly on the surface it is mounted on, no gap and no overlap "
+    "(hidden contact faces are removed at export); two parts on the same surface must not share area, so where one crosses "
+    "another, mount it on the other's face. Set collider false on small detail parts. A modular-kit piece's metric in the "
+    "task overrides these rules."
+)
+
 _STAGE_TEXT: dict[str, str] = {
-    "BLOCKOUT": "Build the asset's blockout from primitives with apply_scene_ir (one patch can hold many ops). Each edit is "
-                "atomic: a failing Tier-1 check (non-manifold, over budget) is rolled back and reported in one line; fix and resend. "
-                "Then run_visual_qa; follow its action (auto_fix is applied for you; agent_repair names a target). Stop once Tier-1 "
-                "is OK and QA shows no geometry repair.",
+    "BLOCKOUT": "Build the asset as a production game prop, not a blockout, from primitives with apply_scene_ir (one patch "
+                "can hold many ops; send the main solids first, then the detail). Each edit is atomic: a failing Tier-1 check "
+                "(non-manifold, over budget) is rolled back and reported in one line; fix and resend. " + CRAFT_RULES +
+                " Then run_visual_qa; follow its action (auto_fix is applied for you; agent_repair names a target). Stop once "
+                "Tier-1 is OK and QA shows no geometry repair.",
     "TWEAK": "Use query_region for a bounded spatial working set. Apply the requested parameter edits with apply_scene_ir.",
     "VARIANTS": "Explore alternatives as variants (propose_variants), select each and run_visual_qa, promote the best.",
     "LOOKDEV": "The header's 'bound:' line lists the node ids by current material. Create materials with forge_pbr_material, "

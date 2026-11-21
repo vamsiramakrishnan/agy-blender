@@ -19,9 +19,15 @@ from typing import Any
 from antigravity3d.tactics.common import GRADE_TOKENS_EST, IMAGE_TOKENS_EST, QA_TOKENS_EST
 from antigravity3d.tactics.governor import PLANS, SpendPlan
 
-# A planning figure for one authoring call when the author cannot say (measured worker propose: 7,238 input +
-# 1,140 answer + 1,066 thinking tokens, benchmarks/RESULTS.md and metered_author's tables).
-AUTHOR_TOKENS_EST = 9_444
+# A planning figure for one authoring call when the author cannot say: the measured worker propose with the prop craft
+# guidance (2026-11-21, three live samples; the first two with the first wording of the guidance, the third with the one
+# that ships): 6,294 input (the shipped wording's) + 7,219 answer + 2,558 thinking (means) = 16,072 tokens. It was 9,444
+# (7,238 + 1,140 + 1,066) for the older, shorter answers. Derived from metered_author's tables so the plan, the author's
+# expected profile and the cap cannot drift apart; with only two samples it is the expected case, not a bound (the worst
+# case is the output cap, ``author_worst_tokens``).
+from antigravity3d.tactics.metered_author import MEASURED_CRAFT_INPUT_TOKENS, expected_output_tokens  # noqa: E402
+
+AUTHOR_TOKENS_EST = MEASURED_CRAFT_INPUT_TOKENS["gemini-4-hydrogen/low"] + expected_output_tokens("worker", craft=True)
 
 
 def judge_worst_tokens(plane: Any) -> int:
@@ -53,12 +59,14 @@ def judge_worst_tokens(plane: Any) -> int:
     return total
 
 
-def author_worst_tokens(author: Any, *, role: str | None = None, asset_name: str = "asset") -> int:
-    """Worst case of one authoring call (the author's own token profile), 0 for an author that is not metered."""
+def author_worst_tokens(author: Any, *, role: str | None = None, asset_name: str = "asset", kit: bool = False) -> int:
+    """Worst case of one authoring call (the author's own token profile), 0 for an author that is not metered.
+    ``kit``: a modular kit piece's request (no craft guidance)."""
     profile = getattr(author, "cost_profile", None)
     if profile is None:
         return 0
-    pair = profile(role, asset_name=asset_name) if role else profile(asset_name=asset_name)
+    extra = {"kit": True} if kit else {}
+    pair = profile(role, asset_name=asset_name, **extra) if role else profile(asset_name=asset_name, **extra)
     return 0 if pair is None else int(math.ceil(pair[1]))
 
 
