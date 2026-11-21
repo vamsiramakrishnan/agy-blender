@@ -42,6 +42,10 @@ def on_metric(asset: str, metric: KitMetric) -> str:
 
 
 PATIENCE_S = 30.0  # how long an incomplete round waits for its missing calls before the endpoint reports the caller
+# The author's own limit for one call in the tests whose endpoint answers in rounds. A call waits for its round, so this
+# must outlast the endpoint's patience: the endpoint is what reports a caller that never completes a round, and a
+# shorter limit here would turn one slow round on a busy machine into timed-out calls and their retries.
+ROUND_CALL_TIMEOUT_S = 3 * PATIENCE_S
 
 
 class KitEndpoint:
@@ -53,11 +57,17 @@ class KitEndpoint:
     in ``peak``. Tests assert that schedule and not how long the step took: the step around these calls also commits
     every reservation and settlement to the ledger on disk and builds a stage per piece, and how long those take is a
     property of the machine (0.1 s on a developer machine, over a second on a busy CI runner).
+
+    ``after_asks=n`` also holds every round until ``asks`` has reached ``n``; a test raises ``asks`` each time an author
+    asks the governor for admission (see ``count_asks``). The pieces prepare their requests one after another, a few
+    milliseconds apart on a quiet machine and far more on a busy one, so "they all asked at the start" is true only if
+    something waits for it.
     """
 
     def __init__(self, script: dict[str, object] | None = None, usage: tuple[int, int] = (100, 50), together: int = 1,
-                 hold: float = 0.0, reverse: bool = False) -> None:
+                 hold: float = 0.0, reverse: bool = False, after_asks: int = 0) -> None:
         self.script, self.usage, self.together, self.hold, self.reverse = script or {}, usage, together, hold, reverse
+        self.after_asks, self.asks = after_asks, 0
         self.running = self.peak = 0
         self.generated: list[str] = []
         self.counted = 0
@@ -88,6 +98,17 @@ class KitEndpoint:
             return
         round_, self._parked = self._parked, []
         self.rounds.append([name for name, _ in round_])
+        waited = 0.0
+        while self.asks < self.after_asks:  # a condition, not a duration: every piece has asked before anything is answered
+            if waited >= 0.8 * PATIENCE_S:  # before the parked calls of this round give up, so this is the message reported
+                self.starved = (f"{self.asks} of {self.after_asks} pieces had asked for admission after {0.8 * PATIENCE_S:.0f} s: "
+                                "the caller does not start them together")
+                for _, parked in round_:
+                    if not parked.done():
+                        parked.set_exception(RuntimeError(self.starved))
+                raise RuntimeError(self.starved)
+            await asyncio.sleep(0.005)
+            waited += 0.005
         await asyncio.sleep(self.hold)
         for _, parked in reversed(round_) if self.reverse else round_:
             if not parked.done():
@@ -123,6 +144,19 @@ class KitEndpoint:
             self.running -= 1
 
 
+def count_asks(monkeypatch, endpoint: KitEndpoint) -> None:
+    """Raise ``endpoint.asks`` whenever an author asks the governor for admission. The author reads its clock for
+    ``admission_wait_s`` immediately before that call, so an ask counted here is an ask whose wait has begun."""
+    real = Governor.reserve_wait
+
+    async def reserve_wait(self, category, *args, **kwargs):
+        if str(category).startswith("author."):
+            endpoint.asks += 1
+        return await real(self, category, *args, **kwargs)
+
+    monkeypatch.setattr(Governor, "reserve_wait", reserve_wait)
+
+
 @pytest.fixture
 def rates(monkeypatch):
     monkeypatch.setenv("AGY3D_TEXT_RATES_JSON", json.dumps({tier("worker").model: list(RATES)}))
@@ -133,10 +167,11 @@ def worst_case(role: str = "worker") -> float:
     return (tokens_in * RATES[0] + AUTHOR_OUTPUT_BUDGETS[role].max_output_tokens * RATES[1]) / 1_000_000
 
 
-def kit(tmp_path: Path, endpoint: KitEndpoint, *, per_asset_ceiling: float, author: object | None = None) -> EnvironmentKitDAG:
+def kit(tmp_path: Path, endpoint: KitEndpoint, *, per_asset_ceiling: float, author: object | None = None,
+        timeout_s: float = 5) -> EnvironmentKitDAG:
     governor = Governor(replace(plan_for(2), ceiling_usd=per_asset_ceiling))
     forge = ImageForge(FakeImageBackend(), governor=governor)
-    author = author or AgentAuthor(client=SimpleNamespace(aio=SimpleNamespace(models=endpoint)), timeout_s=5)
+    author = author or AgentAuthor(client=SimpleNamespace(aio=SimpleNamespace(models=endpoint)), timeout_s=timeout_s)
     dag = EnvironmentKitDAG(forge=forge, author=author, workdir=tmp_path / "kit", budget=UE, sheet_resolution=256)
     endpoint.metric = dag.metric
     return dag
@@ -153,7 +188,7 @@ def test_kit_ceiling_is_one_asset_allowance_per_piece_plus_the_trim_sheet() -> N
 
 async def test_live_pieces_are_authored_concurrently_through_the_metered_path(tmp_path: Path, rates) -> None:
     ep = KitEndpoint(together=8, reverse=True)  # answers nothing until all eight calls are in flight, then the last piece first
-    dag = kit(tmp_path, ep, per_asset_ceiling=1.0)
+    dag = kit(tmp_path, ep, per_asset_ceiling=1.0, timeout_s=ROUND_CALL_TIMEOUT_S)
     rep = await dag.run("ruined stone corridor", 8)
     x = rep.extras
     assert rep.ok and x["gates_ok"], f"{ep.starved}\n{rep.summary()}"
@@ -173,12 +208,14 @@ async def test_live_pieces_are_authored_concurrently_through_the_metered_path(tm
     assert (tmp_path / "kit" / "report.json").exists() and "authoring" in json.loads((tmp_path / "kit" / "report.json").read_text())
 
 
-async def test_ceiling_that_admits_two_at_a_time_waits_and_loses_no_piece(tmp_path: Path, rates) -> None:
+async def test_ceiling_that_admits_two_at_a_time_waits_and_loses_no_piece(tmp_path: Path, rates, monkeypatch) -> None:
     hold, n = 0.2, 6
     limit = worst_case()
-    ep = KitEndpoint(together=2, hold=hold)  # answers two calls at a time, `hold` seconds after the second arrived
+    # answers two calls at a time, `hold` seconds after the second arrived and after all six pieces have asked for admission
+    ep = KitEndpoint(together=2, hold=hold, after_asks=n)
+    count_asks(monkeypatch, ep)
     # kit ceiling = per-asset x (n + 1) = 2.5 worst cases: two reservations fit at once, not three
-    dag = kit(tmp_path, ep, per_asset_ceiling=2.5 * limit / (n + 1))
+    dag = kit(tmp_path, ep, per_asset_ceiling=2.5 * limit / (n + 1), timeout_s=ROUND_CALL_TIMEOUT_S)
     rep = await dag.run("ruined stone corridor", n)
     x = rep.extras
     assert rep.ok, f"{ep.starved}\n{rep.summary()}"
@@ -189,12 +226,15 @@ async def test_ceiling_that_admits_two_at_a_time_waits_and_loses_no_piece(tmp_pa
     # three rounds of two, every piece in one of them: not one round of six, and never one call alone in flight while
     # others wait (the endpoint answers nothing until it holds two, so a kit that sent one at a time would not finish)
     assert [len(r) for r in ep.rounds] == [2, 2, 2] and sorted(name for r in ep.rounds for name in r) == sorted(x["pieces"])
-    # The four outside the first round were admitted when an earlier round settled, and their outcomes say so. All six
-    # ask at the start and a round is answered `hold` seconds after it is complete, so a piece in the second round waited
-    # one hold and a piece in the third waited two. The first two were sent before anything was answered: the wait they
+    # The four outside the first round were admitted when an earlier round settled, and their outcomes say so. Nothing
+    # is answered until all six have asked, and a round is answered `hold` seconds after that, so a piece in the second
+    # round waited at least one hold and a piece in the third at least two: lower bounds that hold on any machine (the
+    # 1 ms is the rounding of the reported value). The first two were sent before anything was answered: the wait they
     # report is their own write to the ledger, which is as slow as the disk and is not bounded here.
+    assert ep.asks == n
     wait = {o["piece"]: o["admission_wait_s"] for o in outcomes}
-    assert all(wait[name] > (r - 0.5) * hold for r, round_ in enumerate(ep.rounds) for name in round_ if r), (wait, ep.rounds)
+    late = [(name, r, wait[name]) for r, round_ in enumerate(ep.rounds) for name in round_ if r and wait[name] < r * hold - 0.001]
+    assert not late, f"reported a shorter wait than the rounds it waited for: {late}; all waits {json.dumps(wait)}"
     assert all(o["reserved_usd"] == pytest.approx(limit, rel=0.01) for o in outcomes)
 
 

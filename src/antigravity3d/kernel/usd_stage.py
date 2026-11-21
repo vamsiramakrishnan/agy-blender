@@ -46,6 +46,7 @@ from pxr import Gf, Kind, Sdf, Tf, Usd, UsdGeom, UsdShade, UsdUtils
 
 from antigravity3d import ir
 from antigravity3d.ir import IRPatch, SceneIR
+from antigravity3d.kernel import usd_boot
 from antigravity3d.kernel.compile_ir import CREASE_DEG, IR_KEY, UV_CHART_KEY, UV_WELD_KEY, author_mesh_data, author_scene, node_paths, read_ir, resolve_anchor
 from antigravity3d.kernel.fast_ops import UVResult
 from antigravity3d.kernel.spatial import PrimInfo, SpatialIndex
@@ -96,6 +97,7 @@ class StageManager:
 
     @classmethod
     def create(cls, path: Path, asset_name: str) -> StageManager:
+        usd_boot.ensure_ready()  # stages are created from worker threads (the kit's pieces): never OpenUSD's first use
         stage = Usd.Stage.CreateNew(str(path))
         cls._init_structure(stage, SceneIR(asset_name=asset_name))
         stage.GetRootLayer().Save()
@@ -104,6 +106,7 @@ class StageManager:
     @classmethod
     def open(cls, path: Path) -> StageManager:
         """Opens a managed stage; a plain exported file is adopted from its stored IR."""
+        usd_boot.ensure_ready()  # opened from worker threads too (sanitize's in-process path, the variant factory)
         stage = Usd.Stage.Open(str(path))
         if not stage.GetPrimAtPath(BASE):
             scene = read_ir(stage.GetDefaultPrim())
