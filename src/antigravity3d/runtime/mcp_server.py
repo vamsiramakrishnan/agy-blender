@@ -229,7 +229,7 @@ class StudioHost:
     async def open_asset_session(self, asset_name: str, target_engine: str, max_tris: int = 15_000,
                                  workdir: str = "", workspace: str = "", conversation_id: str = "", art_direction: str = "",
                                  keep_contact_faces: bool = False, preview: bool = False, token_ceiling: int | None = None,
-                                 max_images: int | None = None) -> str:
+                                 max_images: int | None = None, brief: str = "") -> str:
         if target_engine not in ENGINES:
             raise ValueError(f"target_engine must be one of {', '.join(ENGINES)}")
         if int(max_tris) < 1:
@@ -247,7 +247,7 @@ class StudioHost:
             EngineBudget(target_engine, max_tris=int(max_tris), keep_contact_faces=bool(keep_contact_faces)),  # type: ignore[arg-type]
             plane=self.backends.plane, forge=self.backends.forge, pool=self.backends.pool,
             state_workspace=root, art_direction=art_direction or None, preview=bool(preview),
-            token_ceiling=token_ceiling, max_images=max_images)
+            token_ceiling=token_ceiling, max_images=max_images, brief=brief or None)
         if conversation_id:
             bind_conversation(conversation_id, sid, self.registry)
         self._set_stage(sid, "BLOCKOUT")
@@ -336,6 +336,9 @@ PREVIEW_DOC = ("Open an UNVERIFIED preview: judged by whatever judge the key has
                "native Decisions API is unavailable), exported labelled verified=false. Needs token_ceiling and max_images.")
 TOKEN_CEILING_DOC = "The USER's token ceiling for this preview (input + output tokens, no price applied). Ask the user; never choose it."
 MAX_IMAGES_DOC = "The USER's limit on generated images for this preview. Ask the user; never choose it."
+BRIEF_DOC = ("The user's request for this asset, in their words (for example 'a rugged supply crate with corner guards, "
+             "latches and two side handles'). Visual QA shows it to the judge and asks whether every part it names is there "
+             "and how fully the asset depicts it. Empty: QA does not ask.")
 ART_DIRECTION_DOC = ("Named art direction (skills/art-direction): " + " | ".join(style_ids())
                      + "; empty for none. Lowers the budget where the look needs it and styles maps, shading and prompts.")
 
@@ -353,11 +356,12 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         preview: Annotated[bool, Field(description=PREVIEW_DOC)] = False,
         token_ceiling: Annotated[int | None, Field(description=TOKEN_CEILING_DOC)] = None,
         max_images: Annotated[int | None, Field(description=MAX_IMAGES_DOC)] = None,
+        brief: Annotated[str, Field(description=BRIEF_DOC)] = "",
     ) -> str:
         async def go() -> str:
             return await host.open_asset_session(asset_name, target_engine, max_tris, workdir, await _workspace_root(ctx), conversation_id,
                                                  art_direction=art_direction, keep_contact_faces=keep_contact_faces,
-                                                 preview=preview, token_ceiling=token_ceiling, max_images=max_images)
+                                                 preview=preview, token_ceiling=token_ceiling, max_images=max_images, brief=brief)
 
         return await host.change_catalog(ctx, go)
 

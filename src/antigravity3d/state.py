@@ -80,6 +80,9 @@ class AssetSessionState:
     # An unverified preview session (opened or switched with the user's token ceiling and image limit): its export is
     # a package labelled verified=false / preview=true, gated by VisualVerdict.qualifies_preview. Never set otherwise.
     preview: bool = False
+    # The user's request for this asset, when the session was opened with one: the visual QA judge is given it (quoted as
+    # data) and asked whether the asset has the parts it names and depicts it. None: QA asks what it always asked.
+    brief: str | None = None
 
     def add_audit_delta(self, line: str) -> None:
         """Appends one audit line, keeping only the newest MAX_AUDIT_DELTAS."""

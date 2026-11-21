@@ -595,7 +595,7 @@ class AgentAuthor:
         if self.workdir is not None:
             Path(self.workdir).mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=self.workdir, prefix=f"{sid}-") as directory:
-            S.open_session(None, sid, Path(directory), asset, budget, plane=self.plane, forge=self.forge)
+            S.open_session(None, sid, Path(directory), asset, budget, plane=self.plane, forge=self.forge, brief=getattr(self, "_brief", None))
             try:
                 stage = S.DEFAULT_REGISTRY.resource(sid, S.R_STAGE)
                 if seed_scene is not None:
@@ -617,6 +617,7 @@ class AgentAuthor:
         self.calls["propose"] += 1
         self._budget = budget
         self._art = context.get("art_direction") or ""  # art direction author brief; repeated in repairs
+        self._brief = prompt  # the user's request: the stage sessions' visual QA judge is given it (open_session(brief=))
         asset = context.get("asset_name") or _slug(prompt)
         emph = ("overall proportions", "construction detail", "symmetry", "clean minimal forms")
         from antigravity3d.kernel.kit_metric import context_brief

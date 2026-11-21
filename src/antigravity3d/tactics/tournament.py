@@ -124,8 +124,12 @@ async def run_tournament(
     charge_as: str | None = None,
     generation_precharged: bool = False,
     images_each: int = 0,
+    brief: str | None = None,
 ) -> TournamentResult:
     """Generate concurrently, then score every eligible candidate against one rubric.
+
+    ``brief``: the user's request, given to the judge with the candidates (``rank_candidates(brief=)``); None or empty:
+    the ranking request is exactly what it was without one.
 
     With an explicit early-stop threshold we generate and judge in waves of the chosen
     concurrency. Once a wave qualifies, remaining generators are never dispatched.
@@ -170,7 +174,8 @@ async def run_tournament(
             continue
         r0 = time.perf_counter()
         try:
-            graded = await plane.rank_candidates(kind, [res.candidates[i].uri for i in eligible], context_uris, governor=governor)
+            graded = await plane.rank_candidates(kind, [res.candidates[i].uri for i in eligible], context_uris, governor=governor,
+                                                 **({"brief": brief} if brief else {}))
         except Exception as exc:
             res.failures.update({i: f"{type(exc).__name__}: {exc}" for i in eligible})
             continue
@@ -322,7 +327,7 @@ async def geometry_tournament(
         return Candidate(i, await uploader(png_bytes(sheet)), scenes[i], 0.0, 0.0, None, meta)
 
     res = await run_tournament("geometry", generate, len(scenes), plane=plane, governor=governor, context_uris=context_uris,
-                               early_stop=early_stop, concurrency=concurrency, thresholds=thresholds)
+                               early_stop=early_stop, concurrency=concurrency, thresholds=thresholds, brief=prompt)
     if res.winner is None and crit_counts and len(crit_counts) == len(scenes):
         best = min(crit_counts, key=lambda i: crit_counts[i])
         res.winner = res.candidates[best]

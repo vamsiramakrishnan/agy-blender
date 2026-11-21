@@ -37,7 +37,10 @@ glob-scoped rule files add detail when matching files are in play:
   `agentapi`, a workflow agent) the studio tools are served by the plugin's MCP
   server (`studio`, which the harness namespaces `antigravity-3d_studio`; the tool
   list may show the names with that prefix). Call `open_asset_session` first: it
-  opens the USD stage and makes it the active session.
+  opens the USD stage and makes it the active session. Pass the user's request
+  for the asset, in their words, as its `brief`: visual QA shows it to the judge,
+  which then checks that every part it names is there and how fully the asset
+  depicts it. Without a `brief` nothing is checked against the request.
 - Only the active stage's tools are callable; anything else is refused with a
   line naming the stage. Move with `set_stage` (BLOCKOUT, TWEAK, VARIANTS,
   LOOKDEV, EXPORT) and read `session_status` when unsure where you are.

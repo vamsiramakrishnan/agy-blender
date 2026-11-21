@@ -25,7 +25,10 @@ from antigravity3d.adapters.blender_5_3 import fbx_package, upstream_checks
 from antigravity3d.adapters.engines.validators import MIN_SILHOUETTE_IOU, blender_frame_png, silhouette_iou, validator_for
 from antigravity3d.adapters.engines import web_three
 from antigravity3d.adapters.engines.web_three import WebThreeValidator
-from antigravity3d.decisions.compose import Action, Thresholds, decide_action, lod_pop_ok, lod_pop_reasons, tier15_score
+from antigravity3d.decisions.compose import (
+    BRIEF_REASON, Action, Thresholds, brief_reasons, decide_action, has_brief_answers, lod_pop_ok, lod_pop_reasons, progress_score,
+    tier15_score,
+)
 from antigravity3d.decisions.models import VisualQAResult
 from antigravity3d.decisions.questions import MARKED_DEFECT_PHRASES
 from antigravity3d.genmedia.material_prompt import texture_prompt
@@ -82,6 +85,9 @@ class RoundTrace:
     render_tier: str
     note: str = ""
     rolled_back: bool = False
+    # Pass A's progress figure (compose.progress_score: tier15 with the brief's answers); None when no brief was asked
+    # about (it then equals tier15 and is not written).
+    progress: float | None = None
 
 
 @dataclass
@@ -117,6 +123,7 @@ class PyramidResult:
     author_calls: int = 0
     judge_unavailable: str = ""  # why a visual QA verdict is missing (the pass's stop reason and a failed step say it too)
     unit: str = "usd"  # the ledger's unit; on a token ledger no dollar figure exists and cost_usd is written as null
+    brief_unmet: list[str] = field(default_factory=list)  # why the shipped state does not meet the brief (compose.brief_reasons)
 
     engine_truth_required: bool = False
     live_lookdev: bool = False
@@ -147,7 +154,7 @@ class PyramidResult:
     @property
     def ok(self) -> bool:
         return (not self.failed and self.tier1_ok and self.tier15 is not None and self.tier15 >= EXPORT_MIN_TIER15_SCORE
-                and not self.needs_review
+                and not self.needs_review and not self.brief_unmet
                 and (not self.engine_truth_required or self.live_lookdev and self.live_parity))
 
     def summary(self) -> str:
@@ -161,7 +168,9 @@ class PyramidResult:
                                            "defects", "needs_review", "artifacts", "author_calls", "audit", "ok", "verified", "live_lookdev", "live_parity", "engine_truth_required")}
         if self.judge_unavailable:  # only when it happened: a run the judge answered writes the keys it always wrote
             d["judge_unavailable"] = self.judge_unavailable
-        d["rounds"] = [vars(r) for r in self.rounds]
+        if self.brief_unmet:  # only when it happened: a run without a brief (or meeting it) writes the keys it always wrote
+            d["brief_unmet"] = list(self.brief_unmet)
+        d["rounds"] = [{k: v for k, v in vars(r).items() if k != "progress" or v is not None} for r in self.rounds]
         if self.unit != "usd":  # no price applied: no dollar figure (a token number never goes into a *_usd key)
             d.update(cost_usd=None, spend_unit=self.unit)
             d["rounds"] = [{**r, "cost_usd": None} for r in d["rounds"]]
@@ -307,6 +316,7 @@ class _QA:
     uri: str
     cost: float
     legend: dict[int, str] | None = None
+    progress: float = 0.0  # compose.progress_score (equals t15 when the brief was not asked about)
 
 
 @dataclass
@@ -323,6 +333,7 @@ class _Pending:
     rule: str = ""
     scene_hash: str = ""
     origin: str = "unknown"
+    progress: float = 0.0
 
 
 class _Run:
@@ -362,7 +373,9 @@ class _Run:
     async def qa(self, stage: str, png: bytes, legend: dict[int, str] | None = None) -> _QA:
         try:
             uri = await self.upload(png)
-            r = await self.plane.evaluate_visual_qa(uri, self.ortho_uri, self.style_uri, stage, marked_legend=legend, governor=self.governor)
+            brief = {"brief": self.prompt} if self.prompt else {}  # the user's request; none: the request is as it was
+            r = await self.plane.evaluate_visual_qa(uri, self.ortho_uri, self.style_uri, stage, marked_legend=legend, governor=self.governor,
+                                                    **brief)
         except Exception as e:
             if not _judge_failure(e):
                 raise
@@ -372,11 +385,12 @@ class _Run:
         action = decide_action(r, self.th, stage)
         cost = r.result.booked_usd
         self.res.cost_usd += cost
-        return _QA(r, action, tier15_score(r, self.th), uri, cost, legend)
+        return _QA(r, action, tier15_score(r, self.th), uri, cost, legend, progress_score(r, self.th))
 
     def trace(self, stage: str, n: int, t1: Any, q: _QA, tier: str) -> RoundTrace:
         t = RoundTrace(stage, n, t1.one_line() if t1 else "n/a", bool(t1.ok) if t1 else True, q.t15, q.result.scores.get("score_silhouette"),
-                       q.result.defects.get("defect_floating", 0.0), q.action.kind, q.action.fixer, q.action.reasons[:4], q.cost, tier)
+                       q.result.defects.get("defect_floating", 0.0), q.action.kind, q.action.fixer, q.action.reasons[:4], q.cost, tier,
+                       progress=q.progress if has_brief_answers(q.result.defects) or has_brief_answers(q.result.scores) else None)
         self.res.rounds.append(t)
         self.res.audit.append(f"{stage}{n} " + q.action.audit_delta().replace("\n", " | "))
         return t
@@ -472,9 +486,10 @@ class _Run:
             res.steps[-1].run = waits()
             return None, True
 
+        action = self.author_action(q)
         res.author_calls += 1
         try:
-            patch = await self.author.repair(sm.base_ir(), action=q.action, located=located, manifest=sm.manifest())
+            patch = await self.author.repair(sm.base_ir(), action=action, located=located, manifest=sm.manifest())
             if run := waits():  # served after the service turned attempts away: the waits are recorded
                 self.step("author_repair", "passed", "answered after the service turned attempt(s) away")
                 res.steps[-1].run = run
@@ -492,13 +507,26 @@ class _Run:
                 return fail(f"{kind} on {first.role} tier ({first.finish_reason}); director retry not permitted by spend plan")
             res.author_calls += 1
             try:
-                patch = await self.author.repair(sm.base_ir(), action=q.action, located=located, manifest=sm.manifest(), role="director")
+                patch = await self.author.repair(sm.base_ir(), action=action, located=located, manifest=sm.manifest(), role="director")
                 self.step("author_repair", "passed", f"{kind} on {first.role} tier; succeeded on the director tier")
                 return patch, False
             except BudgetExceeded as e:
                 return fail(f"{kind} on {first.role} tier; director retry not admitted: {e}")
             except AuthorOutcomeError as second:
                 return fail(f"{kind} on {first.role} tier; director retry also {type(second).__name__} ({second.finish_reason}): {second}")
+
+    def author_action(self, q: _QA) -> Action:
+        """The action the author is given. When the design falls short of the brief, its reasons end with what the judge
+        found and the brief itself (``BRIEF_REASON``): the judge returns probabilities, so without the request the author
+        cannot know what to add. The recorded action (trace, audit) is ``q.action``, unchanged; so is every other repair."""
+        found = brief_reasons(q.result.defects, q.result.scores, self.th)
+        if not found or not self.prompt:
+            return q.action
+        from dataclasses import replace
+
+        from antigravity3d.decisions.engine import clean_brief
+
+        return replace(q.action, reasons=[*q.action.reasons, *found, BRIEF_REASON + clean_brief(self.prompt, 2000)])
 
     async def pass_a(self) -> None:
         sm, th, res = self.sm, self.th, self.res
@@ -545,9 +573,13 @@ class _Run:
                 return
             tr = self.trace("A", rnd, t1, q, "preview")
             if pending is not None:
-                if _crit(t1) > pending.n_crit or q.t15 < pending.t15 - EPS:
+                # Progress, not tier15: with a brief, a repair that adds the named parts and loses a little silhouette is
+                # progress (compose.progress_score); without one the two are equal and this is the test it always was.
+                if _crit(t1) > pending.n_crit or q.progress < pending.progress - EPS:
                     sm.rollback(pending.tx)
-                    tr.rolled_back, tr.note = True, f"regressed (tier1 crit {pending.n_crit}->{_crit(t1)}, tier15 {pending.t15:.2f}->{q.t15:.2f}); rolled back"
+                    moved = (f"tier15 {pending.t15:.2f}->{q.t15:.2f}" if tr.progress is None else
+                             f"tier15 {pending.t15:.2f}->{q.t15:.2f}, progress {pending.progress:.2f}->{q.progress:.2f}")
+                    tr.rolled_back, tr.note = True, f"regressed (tier1 crit {pending.n_crit}->{_crit(t1)}, {moved}); rolled back"
                     res.tier1_ok, res.tier15, res.scores, res.defects = pending.tier1_ok, pending.t15, pending.scores, pending.defects
                     res.stopped["A"] = "repair regressed; rolled back"
                     res.converged["A"] = False
@@ -557,7 +589,8 @@ class _Run:
                 pending = None
             self.snapshot(t1.ok, q)
             sil, fp = q.result.scores.get("score_silhouette"), q.result.defects.get("defect_floating", 0.0)
-            if t1.ok and (sil is None or sil >= th.silhouette_lock) and fp <= th.floating_max and q.action.kind != "escalate_human":
+            if (t1.ok and (sil is None or sil >= th.silhouette_lock) and fp <= th.floating_max and q.action.kind != "escalate_human"
+                    and not brief_reasons(q.result.defects, q.result.scores, th)):  # the brief's requirements, when asked
                 res.converged["A"], res.stopped["A"] = True, f"converged in {rnd} round(s)"
                 return
             if q.action.kind == "escalate_human":
@@ -569,7 +602,8 @@ class _Run:
             if not self.governor.can_afford(self.governor.est(usd=QA_EST_USD, tokens=QA_TOKENS_EST)):
                 res.stopped["A"] = "budget exhausted"
                 return
-            before = dict(n_crit=_crit(t1), t15=q.t15, tier1_ok=t1.ok, scores=dict(q.result.scores), defects=dict(q.result.defects))
+            before = dict(n_crit=_crit(t1), t15=q.t15, tier1_ok=t1.ok, scores=dict(q.result.scores), defects=dict(q.result.defects),
+                          progress=q.progress)
             located = await self.locate(t1, q)
             before_ir = sm.base_ir()
             candidate = reviewed_rules.seat_patch(before_ir, located.get("tier1:floating_part", []))
@@ -1090,6 +1124,9 @@ async def refine(
         await run.pass_a()
         if run_pass_b and run.res.stopped.get("A") != "empty scene":
             await run.pass_b()
+        # The export decision (PyramidResult.ok) adds the brief's requirements on the state that ships: its last verdict
+        # (passes A and B leave res.defects / res.scores as judged, rolled-back changes included; pass C adds no answer).
+        run.res.brief_unmet = brief_reasons(run.res.defects, run.res.scores, run.th)
         if run_pass_c and run.res.stopped.get("A") != "empty scene":
             await run.pass_c()
         ok = run.res.ok

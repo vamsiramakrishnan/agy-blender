@@ -31,9 +31,11 @@ AUTHOR_TOKENS_EST = MEASURED_CRAFT_INPUT_TOKENS["gemini-4-hydrogen/low"] + expec
 
 
 def judge_worst_tokens(plane: Any) -> int:
-    """The largest single judge call a prop run makes (lookdev visual QA with blueprint and style images), bounded
-    without a network call: request bytes and the plane's image allowances, the schema and system instruction bytes,
-    and the output cap, for every chunk and attempt. 0 for a fake plane; the native input cap for native Decisions."""
+    """The largest single judge call a prop run makes, bounded without a network call: request bytes and the plane's
+    image allowances, the schema and system instruction bytes, and the output cap, for every chunk and attempt. The
+    larger of lookdev visual QA with blueprint and style images, and the largest geometry ranking request of any plan;
+    both with a brief of the longest length the judge is given (``engine.MAX_BRIEF_CHARS``), since a prop run always has
+    one. 0 for a fake plane; the native input cap for native Decisions."""
     from antigravity3d.decisions import engine as E, questions as Q
     from antigravity3d.decisions.fallback import JUDGE_MAX_OUTPUT_TOKENS, SYSTEM_INSTRUCTION, build_response_schema
 
@@ -41,22 +43,30 @@ def judge_worst_tokens(plane: Any) -> int:
         return 0
     if plane.backend_kind == "decisions":
         return E.MODEL_INPUT_LIMIT
+    brief = E.brief_block("x" * E.MAX_BRIEF_CHARS)
     labels = {"sheet": "Image 1", "ortho": "Image 2", "style": "Image 3"}
-    asked, _ = Q.select(Q.VISUAL_QA_QUESTIONS, stage="lookdev", have={"ortho", "style"}, labels=labels)
+    asked, _ = Q.select(Q.VISUAL_QA_QUESTIONS, stage="lookdev", have={"ortho", "style", "brief"}, labels=labels)
     tier = E.STAGE_RESOLUTION["lookdev"]
-    blocks = [E.text_block("Image 1: contact sheet of renders of the asset under review."), E.image_block("https://x/1", tier),
+    blocks = [E.text_block("Image 1: contact sheet of renders of the asset under review."), E.image_block("https://x/1", tier), brief,
               E.text_block("Image 2: orthographic blueprint of the intended asset."), E.image_block("https://x/2", tier),
               E.text_block("Image 3: style reference."), E.image_block("https://x/3", tier)]
+    requests = [(blocks, asked)]
+    n_geometry = max(p.geometry_candidates for p in PLANS.values())
+    requests += [(b, q) for _, _, b, q in E.bon_packets("geometry", [f"https://x/c{i}" for i in range(n_geometry)], ["https://x/o"],
+                                                         brief="x" * E.MAX_BRIEF_CHARS)]
     client = getattr(plane, "_client", None)
     chunk = getattr(client, "chunk_size", 40)
     attempts = getattr(client, "max_parse_retries", 1) + 1
-    items = list(asked.items())
-    total = 0
-    for i in range(0, len(items), chunk):
-        part = dict(items[i:i + chunk])
-        unseen = len(json.dumps(build_response_schema(part), separators=(",", ":")).encode()) + len(SYSTEM_INSTRUCTION.encode())
-        total += (E.estimate_input_tokens(blocks, part) + unseen + JUDGE_MAX_OUTPUT_TOKENS) * attempts
-    return total
+
+    def bound(blocks: list[Any], questions: dict[str, Any]) -> int:
+        items, total = list(questions.items()), 0
+        for i in range(0, len(items), chunk):
+            part = dict(items[i:i + chunk])
+            unseen = len(json.dumps(build_response_schema(part), separators=(",", ":")).encode()) + len(SYSTEM_INSTRUCTION.encode())
+            total += (E.estimate_input_tokens(blocks, part) + unseen + JUDGE_MAX_OUTPUT_TOKENS) * attempts
+        return total
+
+    return max(bound(b, q) for b, q in requests)
 
 
 def author_worst_tokens(author: Any, *, role: str | None = None, asset_name: str = "asset", kit: bool = False) -> int:

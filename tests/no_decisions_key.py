@@ -6,7 +6,10 @@
   per-image resolution, as the real API answers (seen 2026-11-21 on gemini-4-neon: it counts an inline image with a
   resolution and a referenced image without one, and generates with either).
 * A structured judge call (a question-keyed response schema): defects ``defect``, policy ``policy``,
-  ``needs_ortho_blueprint`` 0.8, choice 0.9 on the preferred option, score 0.9 on level ``score_level`` (default top).
+  ``needs_ortho_blueprint`` 0.8, choice 0.9 on the preferred option, score 0.9 on level ``score_level`` (default top),
+  or on the level ``score_overrides`` gives that question (question id without the __N suffix -> level, e.g.
+  ``{"score_brief_depiction": "1"}`` for a design the judge reads as a blockout of the brief). The brief's questions
+  (``defect_brief_part_missing``, ``score_brief_depiction``) are answered like any other: clean and top by default.
   Usage is the measured blockout fallback call: 2,312 input, 169 answer + 837 thinking tokens.
   A judge call slower (``judge_delay_s``) than the deadline its request carries answers 504 DEADLINE_EXCEEDED when
   that deadline runs out. A geometry ranking (labelled contact sheets) answers 0.9 to "legible text" unless the
@@ -57,7 +60,8 @@ class NoDecisionsKey:
     def __init__(self, *, defect: float = 0.05, policy: float = 0.02, score_level: str | None = None,
                  overrides: dict[str, float] | None = None, refuse_questions: tuple[str, ...] = (),
                  image_delay_s: float = 0.0, judge_delay_s: float = 0.0, author_delay_s: float = 0.0,
-                 sheet_labels_are_text: bool = True, fail: list[dict[str, Any]] | None = None) -> None:
+                 sheet_labels_are_text: bool = True, fail: list[dict[str, Any]] | None = None,
+                 score_overrides: dict[str, str] | None = None) -> None:
         self.defect, self.policy, self.score_level = defect, policy, score_level
         # A judge call asking any of these question ids (without the __N suffix) answers 400 INVALID_ARGUMENT, as the
         # live API answered every geometry grading call on 2026-11-21: a step that fails early, on demand.
@@ -72,6 +76,7 @@ class NoDecisionsKey:
         self.sheet_labels_are_text = sheet_labels_are_text
         self.author_delay_s = author_delay_s  # a live hydrogen propose took 10-38 s
         self.overrides = dict(overrides or {})  # question id (without the __N suffix) -> P(yes)
+        self.score_overrides = dict(score_overrides or {})  # score question id (without the __N suffix) -> level answered
         self.fail = [dict(rule, hits=0) for rule in (fail or [])]
         self.requests: list[dict[str, Any]] = []
         self._png: dict[int, bytes] = {}
@@ -246,7 +251,8 @@ class NoDecisionsKey:
             keys = list((sch.get("properties") or {}).keys())
             pref = {"pipeline_dag": "prop_to_engine", "next_action": "approve_export", "complexity_tier": "1"}.get(base)
             if all(k.isdigit() for k in keys) and base != "complexity_tier":
-                pref = self.score_level if self.score_level in keys else keys[-1]
+                level = self.score_overrides.get(base, self.score_level)
+                pref = level if level in keys else keys[-1]
             if pref not in keys:
                 pref = keys[0]
             rest = 0.1 / max(1, len(keys) - 1)

@@ -225,6 +225,7 @@ def open_session(
     preview: bool = False,
     token_ceiling: int | None = None,
     max_images: int | None = None,
+    brief: str | None = None,
 ) -> AssetSessionState:
     """Creates the on-disk stage under ``workdir``, registers the state and attaches resources.
 
@@ -239,6 +240,9 @@ def open_session(
 
     ``preview``: an unverified preview session (see :func:`preview_resources`); it needs the user's ``token_ceiling``
     and ``max_images``, and its whole life is labelled. A session that is not a preview keeps today's ledger and gates.
+
+    ``brief``: the user's request for the asset; visual QA quotes it to the judge and asks about it. None or blank: the
+    session behaves exactly as one opened without it.
     """
     from antigravity3d.art_direction import load
 
@@ -264,7 +268,8 @@ def open_session(
     usd_path = workdir / f"{asset_name}.usda"
     stage = StageManager.create(usd_path, asset_name)
     state = registry.create(AssetSessionState(session_id=session_id, usd_stage_path=usd_path, budget=budget,
-                                              art_direction=art.id if art is not None else None, preview=bool(preview)))
+                                              art_direction=art.id if art is not None else None, preview=bool(preview),
+                                              brief=brief if brief and brief.strip() else None))
     for name, res in (
         (R_STAGE, stage), (R_PLANE, plane), (R_FORGE, forge), (R_POOL, pool), ("governor", ledger),
         (R_THRESHOLDS, thresholds or Thresholds()), (R_WORKDIR, workdir), (R_ARTIFACTS, artifacts),

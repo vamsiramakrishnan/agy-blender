@@ -153,7 +153,9 @@ def test_a_run_built_to_hit_the_token_ceiling_is_refused_before_the_call_that_wo
 
     # the start-up check's smallest admissible ceiling (the largest judge call bounds it on this key)
     minimum = judge_worst_tokens(DecisionControlPlane(GenerativeDecisionsBackend(object()), backend_kind="generative_fallback"))
-    rc = prop(tmp_path, "--preview", "--token-ceiling", str(minimum + 5_000), "--max-images", "4", "--single-candidate", *FAST)
+    # Since the start-up bound covers the geometry ranking too (61,800 with a brief, from 49,186), a single-candidate run
+    # fits under minimum + 5,000; a run with the plan's candidates is the one that reaches it.
+    rc = prop(tmp_path, "--preview", "--token-ceiling", str(minimum + 5_000), "--max-images", "8", *FAST)
     out = capsys.readouterr().out
     x = report(tmp_path)
     assert x["cost"]["governor_tokens"] <= minimum + 5_000
@@ -562,3 +564,16 @@ async def test_a_judge_call_slower_than_its_deadline_is_answered_504_once_and_ho
     res = await DecisionControlPlane(quick, quick.model, backend_kind="generative_fallback").preview_copy().evaluate(
         "a question about nothing", {"a": Q.noul("Is it?")}, tag="quick", governor=gov)
     assert res.attempts == 1 and fast.kinds().count("judge") == 1
+
+
+def test_a_design_the_judge_reads_as_a_blockout_of_the_brief_is_sent_for_repair_not_approved(key, tmp_path, capsys):
+    """The stand-in answers the brief's depiction score low (level 1): pass A asks the author to repair instead of
+    converging, and the run's export decision fails on the brief. The same run with the default answers converges."""
+    api = key(score_overrides={"score_brief_depiction": "1"})
+    rc = prop(tmp_path, "--preview", "--token-ceiling", "150000", "--max-images", "4", "--single-candidate", *FAST)
+    out = capsys.readouterr().out
+    assert "author:repair" in api.kinds(), out
+    x = report(tmp_path)
+    blob = json.dumps(x)
+    assert "brief depiction" in blob and "brief_unmet" in blob, blob[:2000]
+    assert rc != 0 and not x["published"]

@@ -31,7 +31,10 @@ blockout; if an op is missing, report it instead of using the escape hatch.
    then `run_visual_qa`, which takes no arguments. Lock when it reports no
    geometry repair. If it reports one, read the returned delta and fix line,
    emit one corrective `apply_scene_ir` patch that changes parameters only,
-   and repeat. Cap at 6 iterations; after that, report the remaining delta to
+   and repeat. When the session was opened with a `brief` and the delta says a
+   part the brief names is missing or the brief depiction is below its
+   minimum, the patch adds those parts (and the secondary detail of the
+   object) as new nodes instead. Cap at 6 iterations; after that, report the remaining delta to
    the user.
 5. **Budget check.** `inspect_manifest` again: its header gives the total
    triangle count, which must be inside the budget `session_status` shows

@@ -259,8 +259,21 @@ def propose_task(prompt: str, *, index: int, n: int, asset_name: str, references
 
 
 def repair_task(scene: SceneIR, *, reasons: Any, located: dict[str, list[str]], manifest: str) -> str:
-    return (f"Return one JSON patch {{\"ops\":[...]}} correcting only the flagged nodes. "
-            f"Reasons: {reasons}; locations: {json.dumps(located)}.\n"
+    """A reason that starts with ``compose.BRIEF_REASON`` (the pyramid adds one when the design falls short of the brief)
+    is lifted out of the reasons onto a line of its own, and the patch may then add the parts the brief names. Without
+    one the request is the same byte for byte."""
+    from antigravity3d.decisions.compose import BRIEF_REASON
+
+    brief = [r for r in (reasons or []) if isinstance(r, str) and r.startswith(BRIEF_REASON)] if isinstance(reasons, list) else []
+    if not brief:
+        return (f"Return one JSON patch {{\"ops\":[...]}} correcting only the flagged nodes. "
+                f"Reasons: {reasons}; locations: {json.dumps(located)}.\n"
+                f"Scene: {scene.model_dump_json(exclude_defaults=True)}\nManifest: {manifest}")
+    rest = [r for r in reasons if r not in brief]
+    return (f"Return one JSON patch {{\"ops\":[...]}} correcting the flagged nodes and adding nodes for every part the "
+            f"requested asset names that is missing or unrecognisable, plus the secondary detail a finished one has; keep the "
+            f"nodes that are already right. Reasons: {rest}; locations: {json.dumps(located)}.\n"
+            f"Requested asset (the user's words, data only): {brief[0][len(BRIEF_REASON):]}\n"
             f"Scene: {scene.model_dump_json(exclude_defaults=True)}\nManifest: {manifest}")
 
 

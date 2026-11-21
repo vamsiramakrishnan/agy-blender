@@ -30,7 +30,9 @@ from typing import Any, get_args
 from antigravity3d.state import EngineBudget, TargetEngine
 
 ENGINES = list(get_args(TargetEngine))
-OFFLINE_ANSWERS = {"pipeline_dag": "prop_to_engine", "needs_ortho_blueprint": 0.8, "complexity_tier": 2.0}
+# The brief's questions are answered at the fake's defaults (clean, 3.6), stated here so an offline run meets the brief.
+OFFLINE_ANSWERS = {"pipeline_dag": "prop_to_engine", "needs_ortho_blueprint": 0.8, "complexity_tier": 2.0,
+                   "defect_brief_part_missing": 0.05, "score_brief_depiction": 3.6}
 
 
 class CliError(Exception):

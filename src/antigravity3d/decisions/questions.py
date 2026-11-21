@@ -134,6 +134,37 @@ ROUTING_QUESTIONS: dict[str, Question] = {
 
 _LV = lambda a, b, c, d, e: [a, b, c, d, e]  # noqa: E731  (five-level rubric helper)
 
+# ---------------------------------------------------------------------------------------------------
+# The brief. When a run has one (the user's request), the engine puts it in the request's INPUT as one quoted text
+# block (``engine.brief_block``), never into a question: the question texts below are fixed and carry no user text.
+# These questions need "brief" and are asked only when it is there; without a brief every request is unchanged.
+# Neither needs a blueprint: until 2026-11-21 nothing asked whether the asset has the parts the brief names.
+# ---------------------------------------------------------------------------------------------------
+BRIEF_PART_MISSING = ("Is any part or feature that the quoted request names explicitly missing from the asset, or present only as "
+                      "a shape that cannot be recognised as that part?")
+BRIEF_PART_MISSING_TRUE = "At least one part the request names is absent or unrecognisable."
+BRIEF_PART_MISSING_FALSE = "Every part the request names is present and recognisable, or the request names no parts."
+BRIEF_DEPICTION = ("Judge shape only and ignore colour, materials and textures. Rate how completely and convincingly the asset "
+                   "depicts the object the quoted request describes, as a finished game prop: every part the request names "
+                   "present and recognisable, believable proportions for that object, and the secondary detail a real one has "
+                   "(for example panels, trims, ribs, fasteners, handles), as opposed to a rough blockout of simple primitives.")
+BRIEF_DEPICTION_LEVELS = _LV(
+    "Does not depict the requested object: a different object, or unrecognisable.",
+    "A crude blockout: the overall mass is roughly right, but parts the request names are missing and there is almost no "
+    "secondary detail.",
+    "Recognisable but plain: most named parts are present, yet the forms are simple primitives with little secondary detail; "
+    "it reads as a blockout.",
+    "Convincing: every named part is present and recognisable, the proportions are believable and there is some secondary "
+    "detail; a few details a real one has are missing.",
+    "Complete and convincing: every named part present and well formed, believable proportions and the secondary detail of a "
+    "real one; it stands as a finished game prop.")
+
+
+def _brief_specs(prefix: str) -> tuple[QSpec, QSpec]:
+    return (QSpec("defect_brief_part_missing", noul(prefix + BRIEF_PART_MISSING, BRIEF_PART_MISSING_TRUE, BRIEF_PART_MISSING_FALSE),
+                  GEO, ("brief",)),
+            QSpec("score_brief_depiction", score(prefix + BRIEF_DEPICTION, BRIEF_DEPICTION_LEVELS), GEO, ("brief",)))
+
 VISUAL_QA_QUESTIONS: dict[str, QSpec] = _bank(
     # --- geometry defects (asked at every stage) ---
     _d("floating", "Does any part of the asset visibly float above the ground or hover detached from the part it should touch?", GEO),
@@ -147,6 +178,7 @@ VISUAL_QA_QUESTIONS: dict[str, QSpec] = _bank(
        prefix=_SHEET + "{ortho} is a four-view orthographic blueprint of the intended asset. "),
     _d("asymmetry", "The blueprint in {ortho} is left-right symmetric. Is the asset noticeably asymmetric where the blueprint is symmetric?", GEO, ("ortho",),
        prefix=_SHEET + "{ortho} is a four-view orthographic blueprint of the intended asset. "),
+    _brief_specs(_SHEET)[0],
     # --- surface / lookdev defects (never asked on a clay blockout render) ---
     _d("cg_plastic", "Do the materials look like uniform, overly clean CG plastic, with no roughness variation, wear or micro-detail?"),
     _d("uv_seam", "Are texture seams visible, such as hard lines or pattern discontinuities along UV island borders?"),
@@ -167,6 +199,7 @@ VISUAL_QA_QUESTIONS: dict[str, QSpec] = _bank(
        _LV("Proportions are wrong throughout.", "Several parts clearly off.", "Mostly right with noticeable errors.",
            "Close, small deviations only.", "Matches the blueprint proportions precisely."),
        needs=("ortho",), prefix=_SHEET + "{ortho} is a four-view orthographic blueprint of the intended asset. "),
+    _brief_specs(_SHEET)[1],
     _s("pbr_realism", "Rate the physical plausibility of the asset's PBR materials (albedo, roughness, metalness response).",
        _LV("Flat, wrong or unusable materials.", "Poor: obviously synthetic.", "Acceptable but plain.",
            "Good: convincing response and variation.", "Excellent: photoreal material behaviour."), SURF),
@@ -202,6 +235,7 @@ BON_QUESTIONS: dict[str, dict[str, QSpec]] = {
             _LV("No match.", "Poor match.", "Partial match.", "Close match.", "Near-exact match.")), needs=("ctx",)),
         QSpec("defect_floating", noul(_CAND + "Does any part of the object visibly float or hover detached from where it should connect?")),
         QSpec("defect_clipping", noul(_CAND + "Do any parts of the object visibly intersect or interpenetrate where they should not?")),
+        *_brief_specs(_CAND + "It is a contact sheet of renders of one 3D asset from several angles. "),
     ),
     "pbr": _bank(
         QSpec("defect_baked_light", noul(_CAND + "Does this texture contain baked-in directional lighting, gradients or cast shadows?")),

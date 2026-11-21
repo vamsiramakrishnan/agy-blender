@@ -38,6 +38,10 @@ class Thresholds:
     # Rig range of motion (per pose)
     rig_defect_max: float = 0.30
     deformation_min: float = 3.0
+    # The brief (asked only when a run has one; see questions.BRIEF_*). UNCALIBRATED: 2.5 is the midpoint between level 2
+    # of score_brief_depiction ("recognisable but plain ... reads as a blockout") and level 3 ("convincing"), chosen from the
+    # level texts, not from measured answers. A part the brief names counts as missing at P >= ambiguity_lo.
+    brief_depiction_min: float = 2.5
 
     def to_dict(self) -> dict[str, float | bool]:
         return {k: v if isinstance(v, bool) else float(v) for k, v in asdict(self).items()}
@@ -69,7 +73,19 @@ MINOR_SEVERITY = {"defect_exposure_bad": 0.25, "defect_tiling_repetition": 0.25,
 FIXERS = {"defect_cg_plastic": "roughness_breakup", "defect_floating": "reground", "defect_baked_light": "delight"}
 REWORK_TARGET = {"rework_pbr": "pbr", "rework_geometry": "geometry", "rework_lighting": "lighting"}
 GEOMETRY_DEFECTS = {"defect_floating", "defect_clipping", "defect_inverted_faces", "defect_zfighting", "defect_missing_parts",
-                    "defect_asymmetry", "defect_visible_holes", "defect_faceted", "defect_scale_implausible"}
+                    "defect_asymmetry", "defect_visible_holes", "defect_faceted", "defect_scale_implausible",
+                    "defect_brief_part_missing"}
+# The brief's answers (present only when a brief was given). They never enter tier15 (a composite can rise as well as
+# fall, and no gate may get easier): they are separate requirements (``brief_reasons``), weigh like the critical
+# criteria in a ranking, and enter pass A's progress figure (``progress_score``).
+BRIEF_DEFECT, BRIEF_SCORE = "defect_brief_part_missing", "score_brief_depiction"
+BRIEF_IDS = frozenset({BRIEF_DEFECT, BRIEF_SCORE})
+PROGRESS_WEIGHTS = {**RUBRIC_WEIGHTS, BRIEF_SCORE: 0.20}  # depiction weighs as much as the silhouette
+PROGRESS_SEVERITY = {BRIEF_DEFECT: 1.0}  # as defect_missing_parts
+RANK_CRITICAL = frozenset(DEFECT_SEVERITY) | BRIEF_IDS  # weigh 2 in a best-of-N utility
+# A repair reason that quotes the brief for the author (the judge returns probabilities, not text: the author needs
+# the request to know what to add). ``metered_author.repair_task`` lifts it onto its own line.
+BRIEF_REASON = "the asset was requested as: "
 
 
 def _severity(qid: str) -> float:
@@ -86,10 +102,41 @@ def tier15_score(result: VisualQAResult, th: Thresholds | None = None) -> float:
     Defects below the ambiguity floor cost nothing, so noise does not erode good assets.
     """
     th = th or Thresholds()
-    present = {k: w for k, w in RUBRIC_WEIGHTS.items() if k in result.scores}
-    base = sum(result.scores[k] * w for k, w in present.items()) / sum(present.values()) if present else 0.0
-    penalty = sum(_severity(k) * min(1.0, max(0.0, (p - th.ambiguity_lo) / (1 - th.ambiguity_lo))) for k, p in result.defects.items())
+    defects = {k: p for k, p in result.defects.items() if k not in BRIEF_IDS}  # the brief's answers: see BRIEF_IDS
+    return _composite(result.scores, defects, RUBRIC_WEIGHTS, _severity, th)
+
+
+def _composite(scores: Mapping[str, float], defects: Mapping[str, float], weights: Mapping[str, float],
+               severity: Any, th: Thresholds) -> float:
+    present = {k: w for k, w in weights.items() if k in scores}
+    base = sum(scores[k] * w for k, w in present.items()) / sum(present.values()) if present else 0.0
+    penalty = sum(severity(k) * min(1.0, max(0.0, (p - th.ambiguity_lo) / (1 - th.ambiguity_lo))) for k, p in defects.items())
     return float(min(4.0, max(0.0, base - min(th.defect_penalty_cap, penalty))))
+
+
+def progress_score(result: VisualQAResult, th: Thresholds | None = None) -> float:
+    """Pass A's progress figure (0-4): ``tier15_score`` with the brief's answers added, depiction weighted as
+    ``PROGRESS_WEIGHTS`` and a missing named part penalised as ``PROGRESS_SEVERITY``. It only judges whether a repair
+    regressed (a repair that adds the named parts and loses a little silhouette is progress); it gates nothing. Without
+    the brief's answers it equals ``tier15_score`` exactly."""
+    th = th or Thresholds()
+    return _composite(result.scores, result.defects, PROGRESS_WEIGHTS, lambda k: PROGRESS_SEVERITY.get(k, _severity(k)), th)
+
+
+def has_brief_answers(answers: Mapping[str, Any]) -> bool:
+    return any(k in BRIEF_IDS for k in answers)
+
+
+def brief_reasons(defects: Mapping[str, float], scores: Mapping[str, float], th: Thresholds | None = None) -> list[str]:
+    """Why the asset does not meet the brief, [] when it does or when no brief was asked about. A requirement added to
+    approval (pass A's convergence, decide_action, the export decision); never a substitute for another gate."""
+    th = th or Thresholds()
+    out = []
+    if (p := defects.get(BRIEF_DEFECT)) is not None and p >= th.ambiguity_lo:
+        out.append(f"a part the brief names is missing or unrecognisable ({BRIEF_DEFECT}={p:.2f})")
+    if (v := scores.get(BRIEF_SCORE)) is not None and v < th.brief_depiction_min:
+        out.append(f"brief depiction {v:.2f} < {th.brief_depiction_min} (reads as a blockout of what was asked)")
+    return out
 
 
 @dataclass(frozen=True)
@@ -191,6 +238,9 @@ def _decide_action(result: VisualQAResult, th: Thresholds, stage: Stage | None =
     if sil is not None and sil < th.silhouette_lock:
         reasons.append(f"silhouette {sil:.2f} < lock {th.silhouette_lock}")
         target = target or "geometry"
+    if (dep := result.scores.get(BRIEF_SCORE)) is not None and dep < th.brief_depiction_min:
+        reasons.append(f"brief depiction {dep:.2f} < {th.brief_depiction_min}")
+        target = target or "geometry"
     if stage != "blockout":
         shp = result.scores.get("score_shippability")
         if shp is not None and shp < th.export_shippability_min:
@@ -221,7 +271,7 @@ def rank(candidates: list[CandidateScore], kind: str, th: Thresholds | None = No
     """Best first.
 
     utility = weighted mean of per-criterion goodness in [0,1] (score/4, or 1 - P(defect));
-    critical defects (DEFECT_SEVERITY) weigh 2, everything else 1. Sort key:
+    critical defects (DEFECT_SEVERITY) and the brief's two answers weigh 2, everything else 1. Sort key:
     (blocked, number of high-confidence defects, -utility rounded to 6dp, original index),
     so any candidate with a confirmed defect loses to a clean one regardless of average, and ties
     resolve to the earlier candidate deterministically.
@@ -232,7 +282,7 @@ def rank(candidates: list[CandidateScore], kind: str, th: Thresholds | None = No
         items = {**{k: v for k, v in c.defects.items()}, **c.scores}
         if not items:
             return 0.0
-        w = {k: 2.0 if k in DEFECT_SEVERITY else 1.0 for k in items}
+        w = {k: 2.0 if k in RANK_CRITICAL else 1.0 for k in items}
         return sum(w[k] * _goodness(k, v) for k, v in items.items()) / sum(w.values())
 
     scored = [replace(c, utility=utility(c)) for c in candidates]

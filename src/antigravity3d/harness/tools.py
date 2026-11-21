@@ -217,7 +217,8 @@ async def _visual_qa(s: Session, *, read_only: bool = False):
         prev = await _render(s)
     res = await s.plane.evaluate_visual_qa(
         prev.uri, ortho_uri=s.state.ortho_uris[0] if s.state.ortho_uris else None,
-        style_anchor_uri=s.state.style_anchor_uri, stage=qa_stage, governor=s.governor)  # type: ignore[arg-type]
+        style_anchor_uri=s.state.style_anchor_uri, stage=qa_stage, governor=s.governor,  # type: ignore[arg-type]
+        **({"brief": s.state.brief} if s.state.brief else {}))
     return prev, res, tier15_score(res, s.thresholds), decide_action(res, s.thresholds, qa_stage)  # type: ignore[arg-type]
 
 
