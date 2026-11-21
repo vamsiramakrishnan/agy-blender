@@ -11,6 +11,11 @@ Five tools and the report written from them:
 - `perf_engines.py` times a real Blender and a real Godot, and Blender against the kernels on the same meshes. It runs
   in CI, where those binaries are. See "Engine benchmark (CI)".
 - [`RESULTS.md`](RESULTS.md) is the written report; `results/` holds the data it was written from. See "Result files".
+- `compare_agents.py` (with `compare_sandbox.py` and `compare_eval.py`) runs one brief through a stock Antigravity agent and
+  through this project's command line, under one token and image ledger, and evaluates what each leaves the same way.
+  It spends real quota, needs root and Linux namespaces, and never runs in CI. See "Agent comparison".
+- [`UPSTREAM_SKILLS.md`](UPSTREAM_SKILLS.md) is the third round's report: two upstream Blender skill packs adapted, the
+  first live runs of the pipeline, and the comparison with a stock agent.
 
 ## Offline benchmarks
 
@@ -355,3 +360,23 @@ The second round's files are at the top of `results/`; the first round's are kep
 
 Do not compare timings across the two rounds' files, or with the first report's: the machine was not the same from
 one session to the next.
+
+## Agent comparison
+
+`compare_agents.py` is not a benchmark of speed. It answers one question on one brief: what does a stock agent with a
+Blender leave behind, and what does this project leave behind, when both are held to the same limits and judged from
+their files.
+
+- **Arms.** A: the stock Antigravity agent (the SDK's own system prompt and tools) with a scriptable Blender. B: the
+  same with the EL4CTEO skills installed. C: `agy3d prop ... --preview` from this tree. A and B run inside Linux
+  namespaces as an unprivileged user with no network.
+- **One ledger.** Every model call of every arm, and of the judge, goes through a relay on the host that holds the
+  key, reserves each call's worst case against the run's share, and refuses what does not fit. `ledger.json` is the
+  record; a share is closed at what it used before another run may plan with the rest.
+- **One evaluation.** Facts read from the GLB, an import in Godot, the three.js check, the upstream `qa_check`,
+  `mesh_stats` and `texel_density` in Blender, Cycles renders, and a blind pairwise judge asked in both orders.
+- **Commands.** `dry-run` rehearses everything against local stand-ins and spends nothing. `live --go` spends quota:
+  run one cell at a time (`--only`, `--continue`) and read its record before the next. `close` closes accounts.
+
+Its tests (`tests/test_compare_agents.py`) cover the ledger, the relay's refusals and the sandbox; the sandbox tests
+need root, `unshare` and `setpriv` and are skipped without them. What it found is in `UPSTREAM_SKILLS.md`.
