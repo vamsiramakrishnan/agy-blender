@@ -1,0 +1,233 @@
+{
+  "schema_version": 1,
+  "review_date": "2026-11-22",
+  "review_timezone": "Australia/Melbourne",
+  "pr_final_head": "49c498bbd679cba9d125f09bde714f22379db794",
+  "base": "bbc39452dc4f831b77e31b780cf2604d8646e451",
+  "local_branch": "fix/prop-authoring-contracts",
+  "remote_writes": false,
+  "billable_model_calls": 0,
+  "source_sha256": "77af6442994e2c777c4e19702888025ff0d90c0b1c6c2ccbc07181d14fc751a4",
+  "baseline_reproduction": {
+    "before": {
+      "production_proposal_requests_production": false,
+      "production_system_carries_craft": true,
+      "proposal_waits_for_geometry_qa": false,
+      "default_blockout_has_no_prop_target": false,
+      "kit_has_no_prop_target": false,
+      "repair_has_no_prop_target": false,
+      "repair_subject_is_production": false
+    },
+    "after": {
+      "production_proposal_requests_production": true,
+      "production_system_carries_craft": true,
+      "proposal_waits_for_geometry_qa": true,
+      "default_blockout_has_no_prop_target": true,
+      "kit_has_no_prop_target": true,
+      "repair_has_no_prop_target": true,
+      "repair_subject_is_production": true
+    },
+    "before_passed": 1,
+    "after_passed": 7,
+    "total": 7
+  },
+  "guidance": {
+    "baseline": "bbc39452dc4f831b77e31b780cf2604d8646e451",
+    "guidance_byte_identical": true,
+    "chars": 1136,
+    "sha256": "fc5b2cda1c677bb218876ab7a13baade1fc9a0c8470d8d0ae10f7673f8902327"
+  },
+  "one_shot_task_compatibility": {
+    "baseline": "bbc39452dc4f831b77e31b780cf2604d8646e451",
+    "request_tasks_identical": {
+      "prop": true,
+      "kit": true,
+      "localized_repair": true,
+      "brief_repair": true,
+      "no_reasons_repair": true,
+      "string_reasons_repair": true
+    },
+    "model_calls": 0
+  },
+  "focused_suite": {
+    "tests": 252,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 6,
+    "passed": 246,
+    "wall_s": 63.659,
+    "skip_reasons": [
+      {
+        "test": "tests.test_harness_agents.test_live_blockout_crate",
+        "reason": "needs GEMINI_API_KEY"
+      },
+      {
+        "test": "tests.test_compare_agents.test_upstream_skills_install_like_the_installer_copy_mode",
+        "reason": "upstream checkout not present"
+      },
+      {
+        "test": "tests.test_compare_agents.test_sandboxed_scripted_stock_agent_writes_a_glb_and_cannot_get_out",
+        "reason": "needs root for the namespaces"
+      },
+      {
+        "test": "tests.test_compare_agents.test_a_sandboxed_run_that_reaches_its_share_is_stopped_and_recorded_as_such",
+        "reason": "needs root for the namespaces"
+      },
+      {
+        "test": "tests.test_compare_agents.test_plugin_arm_runs_the_plugin_inside_the_sandbox_and_its_server_cannot_get_out",
+        "reason": "needs root for the namespaces"
+      },
+      {
+        "test": "tests.test_compare_agents.test_a_continuation_runs_in_the_same_workspace_under_its_own_account_and_the_cell_reports_both_sessions",
+        "reason": "needs root for the namespaces"
+      }
+    ],
+    "environment": "project dev dependencies; optional Playwright not installed; real API keys removed; AGY3D_RUN_LIVE=0",
+    "packages": {
+      "google-antigravity": "0.1.24",
+      "google-genai": "3.6.1",
+      "usd-core": "26.11",
+      "numpy": "2.5.5",
+      "pytest": "9.2.0"
+    },
+    "files": [
+      "tests/test_agent_author.py",
+      "tests/test_stage_request.py",
+      "tests/test_harness_agents.py",
+      "tests/test_harness_hooks.py",
+      "tests/test_metered_author.py",
+      "tests/test_design_record.py",
+      "tests/test_environment_kit.py",
+      "tests/test_kit_metric.py",
+      "tests/test_judge_brief.py",
+      "tests/test_compare_agents.py",
+      "tests/test_compare_agents_paired.py"
+    ]
+  },
+  "recorded_geometry_replay": {
+    "kind": "deterministic replay of recorded SceneIR; no author, judge or image calls",
+    "model_calls": 0,
+    "cases": [
+      {
+        "fixture": "tests/data/coplanar/exact_contact_55.json",
+        "fixture_sha256": "0f50f77251b15d2ad44888f64c258d3df5acb72e6f6a1bc7da8e6b5793339c5c",
+        "engine": "godot_4",
+        "parts": 55,
+        "materials": 4,
+        "raw_triangles": 1004,
+        "raw_triangles_after": 1004,
+        "shipped_triangles": 928,
+        "tier1_after_ok": true,
+        "package_issues": []
+      },
+      {
+        "fixture": "tests/data/coplanar/exact_contact_55.json",
+        "fixture_sha256": "0f50f77251b15d2ad44888f64c258d3df5acb72e6f6a1bc7da8e6b5793339c5c",
+        "engine": "roblox_r15",
+        "parts": 55,
+        "materials": 4,
+        "raw_triangles": 1004,
+        "raw_triangles_after": 1004,
+        "shipped_triangles": 1004,
+        "tier1_after_ok": true,
+        "package_issues": []
+      },
+      {
+        "fixture": "tests/data/coplanar/hinge_barrels_55.json",
+        "fixture_sha256": "a4ecb1bca73cb5379154802e56d5dad1e9ee99b69e691aa8f29eb20d5dd15339",
+        "engine": "godot_4",
+        "parts": 55,
+        "materials": 4,
+        "raw_triangles": 868,
+        "raw_triangles_after": 868,
+        "shipped_triangles": 752,
+        "tier1_after_ok": true,
+        "package_issues": []
+      },
+      {
+        "fixture": "tests/data/coplanar/hinge_barrels_55.json",
+        "fixture_sha256": "a4ecb1bca73cb5379154802e56d5dad1e9ee99b69e691aa8f29eb20d5dd15339",
+        "engine": "roblox_r15",
+        "parts": 55,
+        "materials": 4,
+        "raw_triangles": 868,
+        "raw_triangles_after": 868,
+        "shipped_triangles": 868,
+        "tier1_after_ok": true,
+        "package_issues": []
+      },
+      {
+        "fixture": "tests/data/coplanar/overlap_style_63.json",
+        "fixture_sha256": "b79ca96130c67d843d71fb2c98c1fc84c0e5595a1ca3140e8adbbe6065dab487",
+        "engine": "godot_4",
+        "parts": 63,
+        "materials": 4,
+        "raw_triangles": 976,
+        "raw_triangles_after": 976,
+        "shipped_triangles": 976,
+        "tier1_after_ok": true,
+        "package_issues": []
+      },
+      {
+        "fixture": "tests/data/coplanar/overlap_style_63.json",
+        "fixture_sha256": "b79ca96130c67d843d71fb2c98c1fc84c0e5595a1ca3140e8adbbe6065dab487",
+        "engine": "roblox_r15",
+        "parts": 63,
+        "materials": 4,
+        "raw_triangles": 976,
+        "raw_triangles_after": 976,
+        "shipped_triangles": 976,
+        "tier1_after_ok": true,
+        "package_issues": []
+      },
+      {
+        "fixture": "tests/data/coplanar/overlap_style_64.json",
+        "fixture_sha256": "f91ff617849681b97925e1be91bbc59d36447dfd79ddcab8c4f2baae131aa578",
+        "engine": "godot_4",
+        "parts": 64,
+        "materials": 3,
+        "raw_triangles": 936,
+        "raw_triangles_after": 936,
+        "shipped_triangles": 934,
+        "tier1_after_ok": true,
+        "package_issues": []
+      },
+      {
+        "fixture": "tests/data/coplanar/overlap_style_64.json",
+        "fixture_sha256": "f91ff617849681b97925e1be91bbc59d36447dfd79ddcab8c4f2baae131aa578",
+        "engine": "roblox_r15",
+        "parts": 64,
+        "materials": 3,
+        "raw_triangles": 936,
+        "raw_triangles_after": 936,
+        "shipped_triangles": 936,
+        "tier1_after_ok": true,
+        "package_issues": []
+      }
+    ],
+    "limits": "Recorded geometry only. Textures are not generated. Original stock GLB is absent, so stock checks are historical evidence."
+  },
+  "fake_endpoint_smoke": {
+    "kind": "C-only CLI execution using local FakeUpstream; not a live or paired result",
+    "billable_model_calls": 0,
+    "http_requests_to_local_fake": 36,
+    "scripted_model_receipts": 13,
+    "synthetic_images": 3,
+    "fake_accounting_tokens": 41193,
+    "cli_exit_code": 1,
+    "diagnostic_glb_produced": true,
+    "engine_import": "passed",
+    "blender_asset_qa": "passed",
+    "web_runtime": "failed: Chromium launch",
+    "stock_arm": "not run: existing containment requires unavailable root namespace privileges",
+    "original_harness_status": "finished",
+    "interpretation": "Failed preview gates. Smoke exposed the old status bug; new paired code has a tested failed-gates classification.",
+    "source_sha256": "d891d82c8a25f8e9bb3aa882d59371c6cf7851aad28dddeb94868c975ab3b96e"
+  },
+  "proposed_live_ceiling": {
+    "tokens": 1425000,
+    "generated_images": 24,
+    "approved": false,
+    "readiness": "blocked until stock sandbox and Chromium prerequisites pass on a suitable host"
+  }
+}

@@ -119,7 +119,7 @@ def _image_bytes(g: Any, bufs: list[bytes], path: Path, img_index: int) -> bytes
             return base64.b64decode(im.uri.split(",", 1)[1])
         if im.uri:
             return (path.parent / im.uri).read_bytes()
-    except (OSError, ValueError):
+    except (OSError, ValueError, IndexError, TypeError):
         return None
     return None
 
@@ -277,7 +277,7 @@ def glb_facts(path: Path, *, size_m: tuple[float, float] | None = None, upright:
         slots = {"baseColor": pbr.baseColorTexture if pbr else None, "metallicRoughness": pbr.metallicRoughnessTexture if pbr else None,
                  "normal": mat.normalTexture, "occlusion": mat.occlusionTexture, "emissive": mat.emissiveTexture}
         for role, ti in slots.items():
-            if ti is None or ti.index is None or ti.index >= len(g.textures):
+            if ti is None or ti.index is None or not 0 <= ti.index < len(g.textures):
                 continue
             src = g.textures[ti.index].source
             rec["textures"][role] = src
@@ -1122,8 +1122,8 @@ SCORE_ROWS: tuple[tuple[str, str, str, str, str], ...] = (
      "texels are covered twice (a 256 px raster of the triangles).", "check"),
     ("texel_even", "Game-ready", "Texel density even",
      "For every visible object, the upstream texel_density script's spread (largest island density / smallest) is at most 2.", "check"),
-    ("maps", "Game-ready", "Base colour, normal and metal-roughness maps present and not blank",
-     "Every material binds the three maps (pbr_complete); no base-colour or normal map is flat (all channels' standard "
+    ("maps", "Game-ready", "Base colour, normal and metal-roughness maps readable and not blank",
+     "Every material binds the three maps (pbr_complete), and each bound image decodes; no base-colour or normal map is flat (all channels' standard "
      "deviation under 1 %); no base colour is black (95 % of texels under 30 of 255).", "check"),
     ("lods", "Game-ready", "LOD files present and valid",
      "At least one <name>_LOD<n>.glb beside the main GLB; each readable and with fewer triangles than the level before.", "check"),
@@ -1149,7 +1149,7 @@ SCORE_ROWS: tuple[tuple[str, str, str, str, str], ...] = (
      "check_change"),
     ("hand_steps", "Using it", "Hand steps left before it is in a level (Godot 4)",
      "1 step to bring it in (copy the files, or run an install command), plus one per item that fails: import errors; "
-     "scale or orientation; pivot; materials (maps missing or blank); collision not created on import (needs a node in "
+     "scale or orientation; pivot; materials (maps missing, unreadable or blank); collision not created on import (needs a node in "
      "the main GLB with a -colonly or -convcolonly suffix; -col and -convcol also keep the collision mesh visible, which "
      "is one step to hide it); a collision file beside the GLB is one step to attach. LOD files are not a step: Godot "
      "generates levels on import, and delivered ones are used only when wired (shown, not counted). An install whose "
@@ -1165,6 +1165,24 @@ SCORE_ROWS: tuple[tuple[str, str, str, str, str], ...] = (
 )
 GAME_READY = ("godot_import", "three_js", "upstream_qa", "scale", "pivot", "tri_budget", "uv", "texel_even", "maps",
               "lods", "collision")
+
+
+def _required_maps_readable(facts: dict[str, Any]) -> bool:
+    """Every required material slot resolves to a decoded image; unused images do not affect the maps score."""
+    materials = facts.get("material_list") or []
+    images = {i.get("index"): i for i in facts.get("images") or []}
+    if not materials:
+        return False
+    for material in materials:
+        slots = material.get("textures") or {}
+        for role in ("baseColor", "normal", "metallicRoughness"):
+            source = slots.get(role)
+            if type(source) is not int or source < 0:
+                return False
+            image = images.get(source)
+            if not image or "error" in image or not (image.get("width", 0) > 0 and image.get("height", 0) > 0):
+                return False
+    return True
 
 
 def _cell_checks(e: dict[str, Any], b: Any) -> dict[str, bool | None]:
@@ -1190,7 +1208,7 @@ def _cell_checks(e: dict[str, Any], b: Any) -> dict[str, bool | None]:
         "uv": (uv.get("primitives_with_uv") == uv.get("primitives") and (uv.get("verts_outside_0_1_frac") or 0) == 0
                and (worst is None or worst <= 0.01)) if f else None,
         "texel_even": (bool(spreads) and max(spreads) <= 2.0) if up.get("available") else None,
-        "maps": (bool(f.get("pbr_complete")) and not blank) if f else None,
+        "maps": (bool(f.get("pbr_complete")) and _required_maps_readable(f) and not blank) if f else None,
         "lods": bool(lods) and all(x.get("valid") for x in lods) if f else None,
         "collision": bool(cols) and all(c.get("simple") for c in cols) if f else None,
     }

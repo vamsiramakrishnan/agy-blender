@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import skill_check  # noqa: E402
 
 from antigravity3d import art_direction, cli, state  # noqa: E402
+from antigravity3d.authoring_contract import AuthoringIntent, PROP_CRAFT_GUIDANCE  # noqa: E402
 from antigravity3d.dags import batch_sanitize  # noqa: E402
 from antigravity3d.decisions.compose import Thresholds  # noqa: E402  (brief_depiction_min)
 from antigravity3d.harness import agents  # noqa: E402
@@ -126,9 +127,13 @@ def test_cited_numbers_match_the_code() -> None:
     assert f"below {Thresholds().brief_depiction_min:g} of 4" in re.sub(r"\s+", " ", t)
     assert f"no larger than {KitMetric().max_face_m:g} m on their shorter side" in re.sub(r"\s+", " ", t)
     flat = re.sub(r"\s+", " ", t)
-    assert "50 to 90 parts" in agents.CRAFT_RULES and "50 to 90 parts when max_tris allows" in flat
-    assert "if max_tris allows (else as many as fit" in agents.CRAFT_RULES  # the guidance follows the budget (retro-lowres: 400)
-    assert "when max_tris allows it (50 plain boxes are 600 triangles)" in metered_author.PROP_CRAFT_GUIDANCE
+    production = agents._system("BLOCKOUT", authoring_intent=AuthoringIntent.PRODUCTION_PROP)
+    assert metered_author.PROP_CRAFT_GUIDANCE == PROP_CRAFT_GUIDANCE and PROP_CRAFT_GUIDANCE in production
+    assert "50 to 90 parts" in production and "50 to 90 parts when max_tris allows" in flat
+    # A production target follows the budget and art direction (retro-lowres: 400 tris); intermediate stages omit it.
+    assert "when max_tris allows it (50 plain boxes are 600 triangles)" in PROP_CRAFT_GUIDANCE
+    assert "with a smaller max_tris use as many as fit, and fewer where an art direction asks for few" in PROP_CRAFT_GUIDANCE
+    assert "50 to 90 parts" not in agents._system("BLOCKOUT")
     assert 50 * triangle_count(NodeIR(id="b", kind="box", params={"size": (1, 1, 1)})) == 600
     assert deliver_godot.HYSTERESIS == 0.025 and "2.5 % margin" in flat
 

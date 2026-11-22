@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "profile": "paired",
+  "budget": {
+    "ceiling_tokens": 1425000,
+    "ceiling_images": 24,
+    "round": "prop-contracts",
+    "briefs": [
+      "crate"
+    ],
+    "arms_now": [
+      "A",
+      "C"
+    ],
+    "arms_planned": [
+      "A",
+      "C"
+    ],
+    "run_tokens": {
+      "A": 700000,
+      "C": 700000
+    },
+    "run_images": {
+      "A": 12,
+      "C": 12
+    },
+    "judge_tokens_per_call": 12500,
+    "smoke_tokens": 0,
+    "continuations": {},
+    "paired": true,
+    "c_candidates": "single"
+  },
+  "planned_totals": {
+    "tokens": 1425000,
+    "images": 24
+  },
+  "order": [
+    [
+      "crate",
+      "A"
+    ],
+    [
+      "crate",
+      "C"
+    ]
+  ],
+  "prompts": {
+    "crate": {
+      "content": "Make a finished production game prop: a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles.\nTarget engine: Godot 4; final delivery is glTF 2.0 binary.\n- Model each named component and its recognisable construction; add visible secondary forms where they serve the brief.\n- Keep believable proportions and real-world scale: largest dimension 0.5 to 1.6 metres.\n- At most 3000 triangles. This is a ceiling, not a quality score or a target to fill with repeated detail.\n- Ground the prop and centre it horizontally; exported glTF uses +Y up (use the authoring system's own axis convention).\n- UVs inside 0-1 without overlap; at most 3 PBR metallic-roughness materials, with base colour, normal and metallic-roughness textures.\n- Texture sizes are powers of two, at most 2048 px. The complete delivered prop, including geometry and materials, is evaluated.",
+      "A": "Make a finished production game prop: a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles.\nTarget engine: Godot 4; final delivery is glTF 2.0 binary.\n- Model each named component and its recognisable construction; add visible secondary forms where they serve the brief.\n- Keep believable proportions and real-world scale: largest dimension 0.5 to 1.6 metres.\n- At most 3000 triangles. This is a ceiling, not a quality score or a target to fill with repeated detail.\n- Ground the prop and centre it horizontally; exported glTF uses +Y up (use the authoring system's own axis convention).\n- UVs inside 0-1 without overlap; at most 3 PBR metallic-roughness materials, with base colour, normal and metallic-roughness textures.\n- Texture sizes are powers of two, at most 2048 px. The complete delivered prop, including geometry and materials, is evaluated.\n\nBlender 5.3 is installed on PATH as `blender`; run it headless. There is no display and no network. Deliver exactly one main output/<name>.glb and PNG textures in output/textures/. Optional LODs and collisions may be separate files. Reply with what you made and anything you could not do.\n\nThis run is limited to about 14 model calls in total, counting every reply you make; plan so that a complete `output/<name>.glb` exists before then, and prefer delivering a simpler complete asset to an unfinished ambitious one.",
+      "C": "Make a finished production game prop: a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles.\nTarget engine: Godot 4; final delivery is glTF 2.0 binary.\n- Model each named component and its recognisable construction; add visible secondary forms where they serve the brief.\n- Keep believable proportions and real-world scale: largest dimension 0.5 to 1.6 metres.\n- At most 3000 triangles. This is a ceiling, not a quality score or a target to fill with repeated detail.\n- Ground the prop and centre it horizontally; exported glTF uses +Y up (use the authoring system's own axis convention).\n- UVs inside 0-1 without overlap; at most 3 PBR metallic-roughness materials, with base colour, normal and metallic-roughness textures.\n- Texture sizes are powers of two, at most 2048 px. The complete delivered prop, including geometry and materials, is evaluated."
+    }
+  },
+  "wall_limit_s_per_arm": 4500,
+  "source": {
+    "revision": "bbc39452dc4f831b77e31b780cf2604d8646e451",
+    "project_src": "/workspace/scratch/0ed87cec2d34/agy-blender/src",
+    "source_sha256": "77af6442994e2c777c4e19702888025ff0d90c0b1c6c2ccbc07181d14fc751a4",
+    "harness_sha256": {
+      "compare_agents.py": "bb104a7a746d9bca33cf74137e7725e31e1f095ecff5a1af7bffe52df237428c",
+      "compare_eval.py": "5845b22845d130d93c70c2ec275a295448c729464611f5f308bb171b5dba11fe",
+      "compare_sandbox.py": "7b41bc105886988678bdc3701d3da3a15d7f0154eeb28303a7da2af4b5c61768"
+    },
+    "sdk_versions": {
+      "google-antigravity": "0.1.24",
+      "google-genai": "3.6.1"
+    }
+  },
+  "author_contracts": {
+    "A": "stock SDK defaults + scriptable Blender",
+    "C": "MeteredAuthor via CLI bind; production_prop",
+    "native_AgentAuthor_tested": false
+  },
+  "judge": {
+    "model": "gemini-4-carbon",
+    "thinking": "low",
+    "max_output_tokens": 8192,
+    "both_orders": true,
+    "order_seed": 20261121,
+    "calls": 2
+  },
+  "limitations": [
+    "A is a stock agent scripting Blender; C is agy3d prop in preview mode. Their workflows differ. C.bind() uses MeteredAuthor: this comparison does not exercise AgentAuthor.propose_with_outcomes().",
+    "Both arms receive the same content requirements and token/image ceilings. C keeps its 15,000-token internal admission margin; account caps, actual spend and refusals are reported separately. The shared 3-material requirement is checked on delivered files; the pipeline's internal engine budget still permits 4.",
+    "C's candidate mode is fixed before execution. Its internal alternatives and repair loop differ from the stock agent's iterative workflow; this is an end-to-end system comparison, not an isolated prompt ablation.",
+    "No manual continuations or hand-completed packages are admitted. One session per arm per brief; a failed delivery remains a failure. Rerunning reuses its record rather than spending on a replacement.",
+    "Both outputs receive identical file checks and renders, then the same blind rubric in both orders. The fallback judge is uncalibrated and related to the author models; human acceptance is not established.",
+    "One run per arm per brief is a pilot. Dry-run model answers are scripted and establish harness behaviour, not geometry quality, model capability, production yield or a win rate."
+  ],
+  "approval_required_for_live": true
+}
