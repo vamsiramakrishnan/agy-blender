@@ -2410,7 +2410,13 @@ C_TOKEN_MARGIN = 15_000  # the command's own ceiling sits this far below the rel
 
 def c_mode(project_src: Path, max_images: int) -> tuple[bool, list[str], list[str]]:
     """(single_candidate, default-mode plan lines, single-candidate plan lines) from the tested tree's own planner.
-    The plugin's default mode is used when every plan's base image need (one material) fits ``max_images``."""
+    The plugin's default mode is used when every plan's base image need (one material) fits ``max_images``, and when
+    ``max_images`` is 0: the command then runs its zero-image mode (no blueprint, no image texture, surfaces generated
+    from the geometry), in which no plan needs an image, so nothing forces one first design. Until round five a run
+    with no images had no such mode and the rule below sent it down the single-candidate path; left in place it gave the
+    command one first design where a developer typing the same command gets the best of several (live 2026-11-22:
+    crate, hydrant and chair each started from a single design, 17-22 thousand proposal tokens against 66 thousand in
+    the default mode)."""
     code = ("import json, sys; from antigravity3d.tactics.token_plan import plan_lines as p; "
             "print(json.dumps([p(single_candidate=False, max_rounds=4), p(single_candidate=True, max_rounds=4)]))")
     env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "LANG")} | {"PYTHONPATH": str(project_src)}
@@ -2420,7 +2426,7 @@ def c_mode(project_src: Path, max_images: int) -> tuple[bool, list[str], list[st
     except (subprocess.SubprocessError, ValueError, IndexError):
         return False, [], []  # an older tree has no planner: default mode, as before
     needs = [int(re.search(r"up to (\d+) image", ln).group(1)) for ln in default if re.search(r"up to (\d+) image", ln)]
-    return (bool(needs) and max(needs) > max_images), default, single
+    return (max_images > 0 and bool(needs) and max(needs) > max_images), default, single
 
 
 def scripted_c_patch(out: Path, brief_id: str, ratio: float) -> dict[str, Any] | None:

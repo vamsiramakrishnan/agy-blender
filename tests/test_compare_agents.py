@@ -1079,3 +1079,15 @@ def test_a_call_the_service_turns_away_costs_the_arm_nothing_and_a_broken_one_is
     busy, err = ca.run_conditions(tmp_path / "busy"), ca.run_conditions(tmp_path / "err")
     assert busy["service_failures"]["turned away"] == 1 and busy["last_call_service_failure"] == "turned away"
     assert err["service_failures"]["server error"] == 1
+
+
+def test_the_command_runs_in_its_default_candidate_mode_when_no_image_is_allowed(ca):
+    """With no images at all the command has a mode of its own that needs none (--max-images 0), so the harness must
+    not force one first design; with a few images, fewer than a plan's base need, it still does."""
+    src = Path(__file__).resolve().parents[1] / "src"
+    single0, default_lines, single_lines = ca.c_mode(src, 0)
+    assert default_lines and single_lines, "this tree's planner is read"
+    assert single0 is False
+    needs = [int(x.split("up to ")[1].split(" image")[0]) for x in default_lines if "up to " in x]
+    assert ca.c_mode(src, max(needs) - 1)[0] is True
+    assert ca.c_mode(src, max(needs))[0] is False
