@@ -171,12 +171,31 @@ def read_dirty(root: Path, conversation: str) -> dict[str, Any] | None:
     return d if isinstance(d, dict) else None
 
 
+def waits_for_user(qa: dict[str, Any] | None) -> str:
+    """What only the user can decide before the session of this QA record can be reviewed or delivered, as one line
+    for the agent to pass on ("" when nothing): the session says so itself (a session that is not a preview on a key
+    without the calibrated judge), or its preview review escalated the current revision to a person. The agent cannot
+    iterate past either, so the Stop hook lets it stop and ask."""
+    if not isinstance(qa, dict):
+        return ""
+    if qa.get("waits_for_user"):
+        return (f"{qa['waits_for_user']}: only the user can change that. Ask the user whether they want an unverified "
+                "preview and for their token ceiling and image limit (then start_preview and deliver_package); do not iterate")
+    v = qa.get("verdict")
+    if (qa.get("preview") is True and isinstance(v, dict) and v.get("backend") == "uncalibrated"
+            and v.get("action") == "escalate_human" and v.get("revision") == qa.get("revision")):
+        return "PREVIEW session: the review escalated this design to a person; ask the user before exporting"
+    return ""
+
+
 def export_gate(root: Path, conversation: str, session_id: str = "") -> tuple[bool, str]:
     """(ok, one-line reason). Raises on unreadable-but-present state; callers decide fail mode."""
     qa = read_qa(root, conversation, session_id)
     if qa is None:
         return False, ("no QA verdict recorded: run run_usd_validator and run_visual_qa "
                        "(usd_verifier subagent) before export_engine_package")
+    if qa.get("waits_for_user"):  # the session's own statement comes first: no other finding can be acted on before it
+        return False, waits_for_user(qa)
     if qa.get("validator_ok") is False:
         return False, "USD or target-engine validation failed for this revision"
     score = float(qa.get("tier15_score", 0.0))

@@ -499,8 +499,9 @@ class QAStopHook(_Shared, StopHook):
         if data.continuation_count >= self.max_continuations or data.error_message or (
                 data.stop_reason != types.StopReason.UNSPECIFIED):
             return types.StopHookResult()
-        reason = unmet_gate(session(self.registry, self.session_id))
-        if reason is None:
+        s = session(self.registry, self.session_id)
+        reason = unmet_gate(s)
+        if reason is None or s.waits_for_user():  # only the user can clear it: the agent has to stop to ask
             return types.StopHookResult()
         self.continued += 1
         return types.StopHookResult(

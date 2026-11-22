@@ -194,6 +194,17 @@ class Session:
         self.state.last_tier15_score = score
         self.persist_qa()
 
+    def waits_for_user(self) -> str:
+        """What only the user can decide before this session can be reviewed or delivered ("" when nothing): today, a
+        session that is not a preview on a key without the calibrated judge. Nothing the agent builds or changes gets
+        past it, so the tools say so at once and the hooks let the agent stop and ask. Live 2026-11-22
+        (r5/live_rerun_N, a change request on a reopened asset): deliver_package spent 58 s on checks and a render before
+        "export blocked ... Fix what it names with apply_scene_ir", and the Stop hook then answered the agent's correct
+        report to the user with "iterate lookdev/blockout and re-run QA"."""
+        if self.plane is not None and not self.plane.calibrated and not self.state.preview:
+            return NO_JUDGE
+        return ""
+
     def persist_qa(self, *, strict: bool = False) -> None:
         """Single writer of the on-disk QA record the plugin's hook processes read.
 
@@ -209,7 +220,8 @@ class Session:
                     tier1_ok=self.state.last_tier1_ok, tier15_score=self.state.last_tier15_score, session_id=self.sid,
                     conversation_id=conv, asset=self.stage.asset_prim.GetName(), revision=self.state.revision,
                     target=self.state.budget.target_engine, verdict=self.state.verdict, validator_ok=self.state.validator_ok,
-                    workspace=self._res(R_QA_WORKSPACE, self.workdir), preview=self.state.preview)
+                    workspace=self._res(R_QA_WORKSPACE, self.workdir), preview=self.state.preview,
+                    waits_for_user=self.waits_for_user())
         except Exception as e:  # noqa: BLE001 - persistence is best-effort
             if strict:
                 raise RuntimeError("could not revoke the prior export approval") from e
@@ -292,6 +304,7 @@ def open_session(
 
 
 PREVIEW_JOURNAL = "spend_preview.sqlite3"  # a preview's token ledger; never the session's money journal
+NO_JUDGE = "this key has no calibrated judge and this session is not a preview, so it can neither be reviewed nor delivered"
 
 
 def check_preview_limits(token_ceiling: Any, max_images: Any) -> None:

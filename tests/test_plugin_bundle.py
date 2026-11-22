@@ -448,6 +448,36 @@ def test_stop_hook_refuses_until_gate_passes(state):
     assert run_hook("Stop", stop, state)["decision"] == "stop"
 
 
+def test_stop_gate_lets_the_agent_stop_when_only_the_user_can_clear_the_gate(state):
+    """A session that is not a preview on a key without the calibrated judge can neither be reviewed nor delivered until
+    the user allows a preview and gives the limits. Live 2026-11-22 (r5/live_rerun_N) the agent reported exactly that and
+    stopped; the Stop hook answered "Tier-1.5 score 0.00 < 3.4: iterate lookdev/blockout and re-run QA" and the agent
+    went back to work on what it could not change. The session now says so in its QA record, and the hook lets the
+    agent stop to ask; the export gate's reason names the user instead of a score."""
+    from antigravity3d.harness.session import NO_JUDGE
+    from antigravity3d.state import VisualVerdict
+
+    stop = {"conversationId": "conv-1", "terminationReason": "NO_TOOL_CALL", "continuationActive": False}
+    post(state, "apply_scene_ir", tid="m1")
+    record = dict(tier1_ok=True, tier15_score=0.0, session_id="crate-session", conversation_id="conv-1", revision="r1", target="godot_4")
+    qa_state.write_qa_state(**record, waits_for_user=NO_JUDGE)
+    assert run_hook("Stop", stop, state) == {"decision": "stop"}
+    out = pre(state, "export_engine_package", tid="e1")
+    assert out["decision"] == "deny" and NO_JUDGE in out["reason"] and "only the user can change that" in out["reason"]
+    assert "start_preview" in out["reason"] and "iterate lookdev" not in out["reason"] and "\n" not in out["reason"]
+    qa_state.write_qa_state(**record)  # the same record from a session that waits for nobody: told to go on, as before
+    out = run_hook("Stop", stop, state)
+    assert out["decision"] == "continue" and "iterate lookdev/blockout and re-run QA" in out["reason"]
+    # a preview whose review escalated the current revision to a person: the agent has to stop to ask
+    escalated = VisualVerdict("r1", "godot_4", "lookdev", "eevee", "uncalibrated", "escalate_human")
+    qa_state.write_qa_state(**{**record, "tier15_score": 2.0}, preview=True, verdict=escalated)
+    assert run_hook("Stop", stop, state) == {"decision": "stop"}
+    assert "ask the user before exporting" in pre(state, "export_engine_package", tid="e2")["reason"]
+    stale = VisualVerdict("r0", "godot_4", "lookdev", "eevee", "uncalibrated", "escalate_human")  # the design changed since
+    qa_state.write_qa_state(**{**record, "tier15_score": 2.0}, preview=True, verdict=stale)
+    assert run_hook("Stop", stop, state)["decision"] == "continue"
+
+
 def test_hooks_fail_open_on_garbage_input(state):
     env = {**os.environ, "AGY3D_STATE_DIR": str(state)}
     for script, expect in (("post_tool_telemetry.py", {}), ("stop_gate.py", {"decision": "stop"})):

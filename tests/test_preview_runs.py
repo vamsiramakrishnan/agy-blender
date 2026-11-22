@@ -350,6 +350,48 @@ def test_native_session_not_opened_for_preview_cannot_export(key, tmp_path):
     assert not glob.glob(str(tmp_path / "s" / "export" / "x"))
 
 
+def test_a_session_only_the_user_can_unblock_refuses_delivery_at_once_and_says_what_to_ask(key, tmp_path):
+    """Live 2026-11-22 (r5/live_rerun_N, a change request on a reopened asset, not a preview): deliver_package ran its
+    checks and a lookdev render for 58 s before "export blocked: needs tier15>=3.4 ... Fix what it names with
+    apply_scene_ir". Nothing it checks and nothing the agent changes can end in a delivery there: without the
+    calibrated judge only a preview delivers, and a preview is the user's decision. It now says so before any work, the
+    QA record carries it for the hooks, and the switch to a preview clears it."""
+    import time
+
+    from antigravity3d.harness import tools as T
+    from antigravity3d.harness.session import NO_JUDGE, session
+    from antigravity3d.runtime import qa_state
+    from antigravity3d.runtime.mcp_server import StudioHost
+    from antigravity3d.state import EngineBudget
+    from antigravity3d.tactics.authoring import TemplateAuthor
+
+    api = key()
+
+    async def go():
+        h = StudioHost()
+        await h.open_asset_session("crate", "godot_4", workdir=str(tmp_path / "s"), workspace=str(tmp_path), conversation_id="conv-1")
+        sid = h.active
+        scene = (await TemplateAuthor().propose("wooden crate", budget=EngineBudget("godot_4"), n=1, context={"asset_name": "crate"}))[0]
+        ops = [{"op": "upsert_material", "material": m.model_dump(mode="json", exclude_defaults=True)} for m in scene.materials]
+        ops += [{"op": "upsert_node", "node": n.model_dump(mode="json", exclude_defaults=True)} for n in scene.nodes]
+        await h.call_tool("apply_scene_ir", T.ALL_TOOLS["apply_scene_ir"], sid, {"ops": ops})
+        asked = api.generated()
+        t0 = time.monotonic()
+        reply = await h.call_tool("deliver_package", T.ALL_TOOLS["deliver_package"], sid, {"dest": "output"})
+        took = time.monotonic() - t0
+        waits = qa_state.read_qa_state(sid, tmp_path).waits_for_user
+        await h.start_preview(150_000, 0)
+        return str(reply), took, api.generated() - asked, waits, qa_state.read_qa_state(sid, tmp_path).waits_for_user, \
+            session(h.registry, sid).waits_for_user()
+
+    reply, took, calls, waits, after, live_after = asyncio.run(go())
+    assert reply.startswith(f"NOT DELIVERED: a person must decide ({NO_JUDGE}). Reply to the user with this and stop: ask the user "
+                            "whether they want an unverified preview and for their two limits")
+    assert "start_preview" in reply and "\n" not in reply  # one sentence: no check ran, nothing was rendered
+    assert took < 2.0 and calls == 0 and not glob.glob(str(tmp_path / "output" / "*"))
+    assert waits == NO_JUDGE and after == "" and live_after == ""
+
+
 def test_preview_needs_both_user_limits():
     from antigravity3d.harness.session import check_preview_limits
 

@@ -1350,6 +1350,10 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
             _dest_folder(s, dest)  # refused before any work, in one sentence
         except ValueError as e:
             return f"NOT DELIVERED: {e}."
+    if why := s.waits_for_user():
+        # refused before any work: no check, render or change of the design can end in a delivery here
+        return (f"{NEEDS_A_PERSON} ({why}). Reply to the user with this and stop: {PREVIEW_SWITCH}; then call "
+                "deliver_package again. Changing the design does not get past it.")
     async with s.registry.locked(s.sid):
         nodes = len(s.stage.base_ir().nodes)
         tier1_ok = s.state.last_tier1_ok

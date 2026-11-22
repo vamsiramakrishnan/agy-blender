@@ -8,7 +8,10 @@ the QA gate is unmet, returning ``{"decision": "continue", "reason": <one line>}
 
 Loop guard: if a Stop hook already kept the agent going this turn
 (``continuationActive``), it lets the agent stop. Conversations that never
-touched an asset, errors, cancellations and budget limits are never blocked.
+touched an asset, errors, cancellations and budget limits are never blocked,
+and neither is a gate only the user can clear (``_common.waits_for_user``:
+the agent has to stop to ask; told to go on, it iterates on what it cannot
+change).
 Set ``AGY3D_STOP_GATE=off`` to disable. Fails open (lets the agent stop).
 """
 
@@ -33,8 +36,8 @@ def decide(payload: dict[str, Any]) -> dict[str, Any]:
     if not conv or c.read_dirty(root, conv) is None:
         return allow  # no asset work in this conversation
     ok, reason = c.export_gate(root, conv)
-    if ok:
-        return allow
+    if ok or c.waits_for_user(c.read_qa(root, conv)):
+        return allow  # met, or only the user can clear it: the agent has to stop to ask
     return {"decision": "continue", "reason": f"antigravity-3d QA gate unmet: {reason}."}
 
 

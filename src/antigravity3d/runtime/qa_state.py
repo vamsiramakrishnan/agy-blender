@@ -61,6 +61,10 @@ class QAState:
     ts: float = 0.0
     schema: str = SCHEMA
     preview: bool = False  # an unverified preview session; absent in older records, which are therefore never previews
+    # What only the user can decide before this session can be reviewed or delivered ("" when nothing): a session that
+    # is not a preview on a key without the calibrated judge. The hooks then let the agent stop and ask, instead of
+    # telling it to iterate (Session.waits_for_user). Absent in older records: nothing.
+    waits_for_user: str = ""
 
     @property
     def export_allowed(self) -> bool:
@@ -101,10 +105,11 @@ def write_qa_state(
     validator_ok: bool | None = None,
     workspace: Path | str | None = None,
     preview: bool = False,
+    waits_for_user: str = "",
 ) -> QAState:
     """Records a QA verdict. Call from the QA tools after every Tier-1 / Tier-1.5 run."""
     st = QAState(bool(tier1_ok), float(tier15_score), session_id, conversation_id, asset, revision, target, verdict, validator_ok,
-                 time.time(), preview=bool(preview))
+                 time.time(), preview=bool(preview), waits_for_user=str(waits_for_user or ""))
     qa_dir = state_root(workspace) / "qa"
     payload = asdict(st)
     for key in dict.fromkeys(k for k in (session_id, conversation_id) if k):
