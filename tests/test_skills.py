@@ -26,6 +26,10 @@ from antigravity3d import art_direction, cli, state  # noqa: E402
 from antigravity3d.dags import batch_sanitize  # noqa: E402
 from antigravity3d.decisions.compose import Thresholds  # noqa: E402  (brief_depiction_min)
 from antigravity3d.harness import agents  # noqa: E402
+from antigravity3d.tactics import metered_author  # noqa: E402
+from antigravity3d.deliver import godot as deliver_godot  # noqa: E402
+from antigravity3d.ir import NodeIR  # noqa: E402
+from antigravity3d.kernel.compile_ir import check_node, triangle_count  # noqa: E402
 from antigravity3d.kernel import separate, validator  # noqa: E402
 from antigravity3d.kernel import provenance  # noqa: E402
 from antigravity3d.kernel.kit_metric import KitMetric  # noqa: E402
@@ -56,9 +60,9 @@ judge = _load("gemini_judge")
 # --------------------------------------------------------------------------- format
 
 
-def test_the_six_skills_are_found() -> None:
+def test_the_seven_skills_are_found() -> None:
     assert NAMES == {"art-direction", "concept-to-blueprint", "engine-truth-verify", "game-ready-sanitizer",
-                     "parametric-kitbash", "pbr-material-forge"}
+                     "install-into-project", "parametric-kitbash", "pbr-material-forge"}
 
 
 @pytest.mark.parametrize("skill", SKILL_DIRS, ids=lambda p: p.name)
@@ -121,7 +125,12 @@ def test_cited_numbers_match_the_code() -> None:
     assert f"{', '.join(f'{d:g}' for d in service_answer.DEFAULT_DELAYS_S[:-1])} and {service_answer.DEFAULT_DELAYS_S[-1]:g} seconds" in re.sub(r"\s+", " ", t)
     assert f"below {Thresholds().brief_depiction_min:g} of 4" in re.sub(r"\s+", " ", t)
     assert f"no larger than {KitMetric().max_face_m:g} m on their shorter side" in re.sub(r"\s+", " ", t)
-    assert "50 to 90 parts" in agents.CRAFT_RULES and "50 to 90 within" in re.sub(r"\s+", " ", t)
+    flat = re.sub(r"\s+", " ", t)
+    assert "50 to 90 parts" in agents.CRAFT_RULES and "50 to 90 parts when max_tris allows" in flat
+    assert "if max_tris allows (else as many as fit" in agents.CRAFT_RULES  # the guidance follows the budget (retro-lowres: 400)
+    assert "when max_tris allows it (50 plain boxes are 600 triangles)" in metered_author.PROP_CRAFT_GUIDANCE
+    assert 50 * triangle_count(NodeIR(id="b", kind="box", params={"size": (1, 1, 1)})) == 600
+    assert deliver_godot.HYSTERESIS == 0.025 and "2.5 % margin" in flat
 
 
 def test_style_figures_are_the_styles_files() -> None:
@@ -145,7 +154,7 @@ def test_cli_flags_named_in_skills_exist() -> None:
 def test_files_and_manifest_keys_named_in_skills_exist() -> None:
     manifest_sources = "\n".join((SRC / p).read_text() for p in ("kernel/package.py", "dags/prop_to_engine.py",
                                                                   "adapters/blender_5_3/fbx_package.py", "art_direction.py",
-                                                                  "kernel/provenance.py"))
+                                                                  "kernel/provenance.py", "tactics/pyramid.py", "harness/tools.py"))
     for key in set(re.findall(r"`((?:validation|fbx|art_direction|provenance)\.[a-z_.]+)`", _all_text())):
         for part in key.split("."):
             assert f'"{part}"' in manifest_sources or f"'{part}'" in manifest_sources or part in manifest_sources, key
@@ -156,11 +165,59 @@ def test_node_kinds_and_stage_ids_named_in_skills_exist() -> None:
     import typing
 
     kinds = set(typing.get_args(ir.NodeIR.model_fields["kind"].annotation))
-    sentence = re.search(r"use only box, cylinder, cone, sphere, capsule, group and\s+mesh_ref", TEXT["parametric-kitbash"])
-    assert sentence and {"box", "cylinder", "cone", "sphere", "capsule", "group", "mesh_ref"} <= kinds
+    # the kitbash skill lists every kind the schema has, and no other: a kind added to the format must reach the skill
+    listed = set(re.findall(r"\b(box|cylinder|cone|sphere|capsule|lathe|extrude|group|mesh_ref)\b",
+                            re.search(r"## Version notes.*?Node kinds: ([^.]*)\.", TEXT["parametric-kitbash"], re.S).group(1)))
+    assert listed == kinds, (sorted(kinds ^ listed))
     from antigravity3d.harness import tools as T
     for stage in set(re.findall(r"\b(BLOCKOUT|VARIANTS|LOOKDEV|EXPORT)\b", _all_text())):
         assert stage in T.STAGE_TOOLS, stage
+
+
+def test_shape_costs_and_refusals_quoted_by_the_kitbash_skill_are_the_kernels() -> None:
+    flat = re.sub(r"\s+", " ", TEXT["parametric-kitbash"])
+    box = lambda **p: NodeIR(id="a", kind="box", params={"size": (1, 1, 1), **p})  # noqa: E731
+    assert (triangle_count(box()), triangle_count(box(bevel=0.02, bevel_segments=1)), triangle_count(box(bevel=0.02, bevel_segments=2))) == (12, 44, 108)
+    assert "a box is 12 triangles, bevelled 44 (1 segment) or 108 (2), plus 16 per inset face" in flat
+    assert triangle_count(box(inset_faces=["+x"], inset_margin=0.1, inset_depth=0.01)) == 12 + 16
+    assert triangle_count(NodeIR(id="e", kind="extrude", params={"outline": [(0, 0), (1, 0), (1, 1), (0, 1)], "depth": 0.1})) == 4 * 4 - 4
+    for params, quoted in [({"size": (0.2, 0.2, 0.2), "bevel": 0.5}, "bevel 0.5 must be below half the smallest extent (0.1)"),
+                           ({"size": (1, 1, 1), "inset_faces": ["+x"], "inset_margin": 0.0, "inset_depth": 0.01},
+                            "inset_margin must be > 0 when inset_faces is set (without a frame the recess cuts the edge away)"),
+                           ({"size": (1, 1, 1), "inset_faces": ["+x"], "inset_margin": 0.6, "inset_depth": 0.01}, "inset_margin 0.6 leaves no panel on face +x")]:
+        with pytest.raises(ValueError) as e:
+            check_node(NodeIR(id="a", kind="box", params=params))
+        assert quoted in str(e.value) and quoted.replace("bevel 0.5 must", "bevel 0.5 must") in flat.replace("\"", "")
+    from antigravity3d import ir_shortcuts
+    assert f"2 to {ir_shortcuts.MAX_REPEAT} with the original" in flat
+
+
+def test_install_skill_names_the_checks_and_files_of_the_install() -> None:
+    src = (SRC / "deliver" / "install.py").read_text()
+    checks = set(re.findall(r'Check\("([a-z_]+)"', src)) - {"in_project"}
+    text = re.sub(r"\s+", " ", TEXT["install-into-project"])
+    assert {"import", "scene", "scale", "levels", "materials", "collision", "level_switching"} == checks
+    for name in checks - {"scene"}:  # the loaded scene is part of the import check in the skill's wording
+        assert name in text, name
+    assert "Seven checks" in text and "agy3d/<asset>" in text and ".agy3d/install.json" in text
+    from antigravity3d.deliver import install
+    assert install.RECORD == ".agy3d/install.json"
+
+
+def test_design_loop_numbers_follow_the_code() -> None:
+    """Round five's loop settings are PROVISIONAL (plan settings chosen from the level texts until the live curve of
+    score per round exists); the skills state them in words, and this test reads the settings from the code so that the
+    text cannot drift from them. Skipped until the design-loop change is in the tree."""
+    from antigravity3d.tactics import governor, pyramid
+
+    if not hasattr(governor, "IMPROVE_TARGET") or not hasattr(pyramid, "AUTHOR_VIEW_PX"):
+        pytest.skip("the design loop (improvement rounds, marked author views) is not merged in this tree")
+    flat = re.sub(r"\s+", " ", TEXT["parametric-kitbash"])
+    assert f"{pyramid.AUTHOR_VIEW_PX} px on a side" in flat
+    assert f"stops after {'two' if pyramid.REPAIR_PATIENCE == 2 else pyramid.REPAIR_PATIENCE} undone repairs in a row" in flat
+    rounds = [governor.PLANS[i].improve_rounds for i in sorted(governor.PLANS)]
+    assert "improvement rounds per spend plan" in flat and rounds == sorted(rounds)  # clutter, simple, standard, hero: more for more
+    assert all(governor.PLANS[i].improve_target == governor.IMPROVE_TARGET for i in governor.PLANS)
 
 
 # --------------------------------------------------------------------------- triggers
@@ -184,7 +241,7 @@ def test_the_runner_scores_with_a_judge_command(tmp_path: Path, capsys: pytest.C
                         "print(json.dumps(['pbr-material-forge'] if 'texture' in t else []))\n")
     assert runner.main(["--judge-cmd", f"{sys.executable} {judge_py}", "--json", "--kind", "none"]) == 0
     report = json.loads(capsys.readouterr().out)
-    assert report["summary"]["kinds"]["none"] == {"passed": 4, "total": 4, "rate": 1.0}
+    assert report["summary"]["kinds"]["none"] == {"passed": 6, "total": 6, "rate": 1.0}
     assert "pbr-material-forge: Creates the surface" in runner.selector_prompt(runner.load_skills(REPO), "x")
 
 

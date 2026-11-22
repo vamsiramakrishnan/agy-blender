@@ -6,8 +6,9 @@ description: >-
   the engine takes one, inspector, manifest.json) and proves it: a headless engine
   import, a parity check against the stage and an independent Blender check; on a
   key without the native judge it writes an unverified preview instead. Use when
-  the user asks to export, ship, package or hand off an asset, to verify an
-  existing export, or why an export was refused. Not for fixing the shape (use
+  the user asks to export or package an asset, to verify an existing export, or
+  why an export was refused. Not for putting a package into the user's game
+  project (use install-into-project), for fixing the shape (use
   parametric-kitbash), for textures (use pbr-material-forge) or for cleaning a
   mesh file the user already has (use game-ready-sanitizer).
 ---
@@ -49,7 +50,8 @@ numbers and asks before the preview opens. In a preview session:
 3. **Headless import.** `export_engine_package` runs the engine's headless
    import itself and refuses the package (`REFUSED ...`, nothing written) on
    a failure. The import metrics are recorded in the package's `manifest.json`
-   under `validation.engine_import`. (Roblox has no headless importer, so only
+   under `validation.engine_import`, with the engine version that was checked
+   (`validation.engine_import.engine_version`). (Roblox has no headless importer, so only
    the validator runs.) Treat import warnings about scale, missing textures,
    collision or LOD groups as failures.
    When a real Blender worker is attached (the plugin's pool sidecar), the
@@ -89,7 +91,12 @@ numbers and asks before the preview opens. In a preview session:
 5. **Report.** One line: `<asset> -> <engine>: PASS|FAIL <first mismatch>`,
    plus the package path. On FAIL, name the stage-side fix (never patch the
    exported files by hand) and loop back through QA.
-6. **Disclosure.** Packages of schema version 4 or later carry a `provenance`
+6. **Hand-off.** A package is a folder. When the user wants it in their game,
+   hand over to `install-into-project`, which writes it into the project and
+   checks it there (Godot 4 only; for other engines it names the file to import
+   by hand). Say what this skill proved (the package imports in a clean engine
+   project) and what only the install proves (that it works in theirs).
+7. **Disclosure.** Packages of schema version 4 or later carry a `provenance`
    record in `manifest.json`: per shipped file, the sources it derives from and
    the deterministic steps between, and per source who made it (a model that
    authored the design, an image model, the user, an offline stand-in).
@@ -138,7 +145,9 @@ recorded (not skipped) and `validation.engine_parity` within the figures of step
   LOD GLBs and the USD reference the files in `textures/`. **Remedy:** ask the
   user to check the build report, and to use the `textures/` files as project
   textures so that their compression settings apply; report what was and was
-  not checked.
+  not checked. For Godot the same problem (every embedded image extracted to a
+  second, lossless copy) is what `install-into-project` removes and measures;
+  for Unity it stays a manual step.
 - **Symptom:** Roblox shows more MeshParts than expected. **Cause:** a glTF mesh
   becomes one MeshPart per primitive, and parts are submitted in batches split
   at the engine's triangle limit; the manifest's notes say how many to expect.
@@ -154,7 +163,7 @@ recorded (not skipped) and `validation.engine_parity` within the figures of step
 
 ## Version notes
 
-Last verified 2026-11-22 against commit 29660b8.
+Last verified 2026-11-22 against commit af568e0 (with the shapes, authoring and install commits).
 
 - Engines run for the import check in this project's CI: Blender 5.3.0 and
   Godot 4.7.2. Unity, Unreal Engine and Roblox Studio were never run.

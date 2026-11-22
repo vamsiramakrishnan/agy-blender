@@ -52,11 +52,11 @@ dashboard. Following the docs, the plugin never turns itself on.
 | `rules/AGENTS.md` | Always-on studio rules: USD is the source of truth; edit only through Scene IR, with raw bpy only through the linter-gated escape hatch; metres and Z-up, with axis conversion only at export; PBR ranges, ORM packing and normal-map convention; the QA gate; renders always go through the QA tools. |
 | `rules/blender-5-3-api.md` | Rule scoped by `trigger: glob` to `**/*.py, **/*.blend`: Blender 5.3 API rules: `gpu.init()` before any `gpu` call, Geometry Nodes inputs through `properties.inputs`, `BLENDER_EEVEE`, solver `FLOAT`, and the other names removed in 5.x with their replacements. The linter enforces them too. |
 | `rules/engine-budgets.md` | Rule scoped by `trigger: glob` to USD files and `*_exports/` folders: budgets and conventions for UE5, Unity URP, Godot 4 and Roblox R15. |
-| `skills/concept-to-blueprint` | Best-of-4 orthographic-view tournament that picks one winner. |
-| `skills/parametric-kitbash` | The prop's model built from Scene IR patches (a finished prop, not a blockout), plus a loop that locks the silhouette to the orthos. |
+| `skills/concept-to-blueprint` | Optional concept art: a Best-of-4 orthographic-view tournament that picks one blueprint (a prop from a text brief needs none). |
+| `skills/parametric-kitbash` | The prop's model built from Scene IR patches (a finished prop, not a blockout: bevels, inset panels, lathe and extrude parts, mirror and repeat), plus a loop that locks the silhouette. |
 | `skills/pbr-material-forge` | Albedo Best-of-6, de-lighting, ORM and normal derivation, then a policy gate. |
 | `skills/game-ready-sanitizer` | Makes existing files game-ready: UVs, LODs, colliders, validator. |
-| `skills/engine-truth-verify` | Export, headless engine import, then a parity check against the stage. |
+| `skills/engine-truth-verify` | Export, headless engine import, a parity check against the stage, and the manifest's provenance record of what made each file. |
 | `skills/install-into-project` | Installs a package into the user's game project (`install_into_project`; Godot 4 automatically: one scene with levels, collision and materials wired) and checks it there with the project's engine. |
 | `agents/usd_verifier.md` | Isolated, read-only subagent that runs the Tier-1 structural check (`run_usd_validator`) and returns a two-line verdict. |
 | `agents/lookdev_critic.md` | Isolated visual critic that returns a two-line audit delta. |

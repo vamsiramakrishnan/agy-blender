@@ -1,13 +1,14 @@
 ---
 name: parametric-kitbash
 description: >-
-  Builds the 3D model of a prop in the USD stage as Scene IR patches (box,
-  cylinder, cone, sphere, capsule): a finished game prop with its secondary forms
-  (rims, ribs, hinges, bolt heads, raised or recessed panels), not a blockout,
-  then loops on a render and visual QA until the silhouette matches, and fixes
-  floating parts, flicker (z-fighting) and triangle budget. Also builds modular
-  kit pieces (wall, doorway, floor tile, pillar) to one metric. Use when the user
-  asks to model, build, make or kitbash an asset, or to fix its shape, parts or
+  Builds the 3D model of a prop in the USD stage as Scene IR patches: a finished
+  game prop, not a blockout, from boxes, cylinders, cones, spheres, capsules,
+  turned (lathe) and extruded parts, with rounded edges, recessed panels and
+  mirrored or repeated parts; then loops on a render and visual QA until the
+  silhouette matches, and fixes floating parts, flicker (z-fighting) and
+  triangle budget. Also builds modular kit pieces (wall, doorway, floor tile,
+  pillar) to one metric. Use when the user asks to model, build, make or kitbash
+  an asset, to round the edges or add panels, or to fix its shape, parts or
   gaps. Not for textures or materials (use pbr-material-forge), for a mesh file
   the user already has (use game-ready-sanitizer) or for export (use
   engine-truth-verify).
@@ -29,27 +30,36 @@ not a handful of blocks.
 
 1. **Read the stage.** `inspect_manifest` for the current node tree, bounds
    and triangle total; `session_status` for the budget. The stage is always
-   metres, Z-up. The orthos and parts list come from `concept-to-blueprint`.
+   metres, Z-up. If a blueprint was made, its orthos and parts list come from
+   `concept-to-blueprint`; a text brief alone is enough to start.
 2. **Primary forms first.** Emit one Scene IR patch that creates the major
-   parts as parametric primitives (box, cylinder, cone, sphere, capsule;
-   group for a transform-only parent; mesh_ref for an existing mesh file)
-   named from the parts list, sized from the ortho
-   measurements in metres, parented in a clean hierarchy. Apply with
-   `apply_scene_ir`. Keep each patch small (one part group per patch) so a
-   failed patch is cheap to roll back.
-3. **Secondary forms.** Add detail as further primitive patches of the same
-   kinds: thin boxes for raised or recessed panels, plates and bars rather than
-   chunky blocks. Scene IR has no boolean, array, mirror, bevel or instancing ops, so
-   write each repeat as its own node and keep draw calls in budget.
+   parts, named from the parts list, sized from the ortho measurements in
+   metres, parented in a clean hierarchy. Apply with `apply_scene_ir`. Keep
+   each patch small (one part group per patch) so a failed patch is cheap to
+   roll back. Use the shape that matches how the part is made: box, cylinder,
+   cone, sphere, capsule; lathe for anything turned (a barrel, post, knob,
+   lamp: one profile of 6 to 16 points, not a stack of cylinders); extrude for
+   a constant section (a bracket, arch, ramp, L or U section); group for a
+   transform-only parent; mesh_ref for an existing mesh file.
+3. **Secondary forms.** Add detail as further patches. Nothing manufactured has
+   a razor edge: round box and cylinder edges with a bevel of 3 to 5 % of the
+   part's smallest size, on parts thicker than about 1 cm (1 segment for metal
+   and small parts, 2 where a large rounded edge is seen). A panel set into a
+   face is an inset face of that box, not a thin box stacked on it. Write a
+   symmetric or repeated part once: mirror for a left and right pair, repeat
+   with an offset for a row, repeat around an axis for a ring of bolts; model
+   the original on the positive side. What each parameter means is in the tool's
+   schema and the stage's instructions; the rules of mirror and repeat are in
+   `ir_shortcuts.py`. The kernel never clamps a value: it builds it as given
+   or refuses the node, naming it and the numbers.
 4. **Silhouette lock loop.** `render_preview` (a 4-view clay contact sheet),
    then `run_visual_qa`, which takes no arguments. Lock when it reports no
    geometry repair. If it reports one, read the returned delta and fix line,
-   emit one corrective `apply_scene_ir` patch that changes parameters only,
-   and repeat. When the session was opened with a `brief` and the delta says a
-   part the brief names is missing or the brief depiction is below its
-   minimum, the patch adds those parts (and the secondary detail of the
-   object) as new nodes instead. Cap at 6 iterations; after that, report the remaining delta to
-   the user.
+   emit one corrective `apply_scene_ir` patch, and repeat. When the session
+   was opened with a `brief` and the delta says a part the brief names is
+   missing or the brief depiction is below its minimum, the patch adds those
+   parts (and the secondary detail of the object) as new nodes instead. Cap at
+   6 iterations; after that, report the remaining delta to the user.
 5. **Budget check.** `inspect_manifest` again: its header gives the total
    triangle count, which must be inside the budget `session_status` shows
    before lookdev. If over, reduce segment counts in the IR parameters rather
@@ -71,6 +81,27 @@ not a handful of blocks.
    The model is clean when `session_status` shows `tier1=ok`. The
    `usd_verifier` subagent is not offered in BLOCKOUT, so do not delegate here.
    Then hand over to `pbr-material-forge`.
+
+## The same loop in `agy3d prop`
+
+The command runs this loop with the model that writes the design, and it
+differs from a native session in what that model sees and when it stops:
+
+- The author is sent four marked views of its design (each its own image, 512
+  px on a side) beside the judge's findings, so it improves what it can see.
+- A design that passes its checks but scores below the target on how fully it
+  depicts the request gets improvement rounds, up to a number set by the spend
+  plan; a repair is for a flagged defect, an improvement for a score. One rule
+  keeps or undoes a round: its progress figure must rise by more than the
+  judge's own noise on an unchanged design. An undone round no longer ends the
+  pass: the author is asked again, told what its patch did and why it was
+  undone, and the pass stops after two undone repairs in a row.
+- The judge sees each design in its own request, as separate 512 px views.
+- An answer that does not read (it parses as JSON but fails validation, or a
+  node fails the kernel's check) is sent back once with the failing nodes as
+  written and the exact messages, and the author returns only the nodes to
+  replace; a truncated, blocked, empty or timed-out answer is not retried this
+  way.
 
 ## Modular kit pieces
 
@@ -105,6 +136,10 @@ exterior metric: a 1 m grid, 4 m modules, walls 4 m high and 0.5 m thick, a
    `session_status` shows, and no warning of the kinds above is open.
 3. `run_visual_qa` reports no geometry repair, with the session opened with the
    user's request as `brief`.
+4. The triangle budget holds with the new shapes counted at what they cost: a
+   box is 12 triangles, bevelled 44 (1 segment) or 108 (2), plus 16 per inset
+   face; a cylinder 4 per segment, more when bevelled; a lathe 2 per segment
+   per profile step; an extrude 4 x corners - 4; a sphere or capsule hundreds.
 
 A pass is all three at once. If the session has no `brief`, step 3 only checks
 shape and contact, never that the object is what was asked for.
@@ -138,12 +173,32 @@ shape and contact, never that the object is what was asked for.
   or, on Roblox, for open meshes. **Cause:** flush faces (above) or a part
   that is not closed. **Remedy:** fix it on the stage and re-run QA; never
   edit the exported file.
-- **Symptom:** corners and edges read blocky even with many parts. **Cause:**
-  the scene format has no rounded edge, recess or profile, and a judge's
-  remaining preference in the comparison was exactly that. **Remedy:** use thin
-  plates and slim bars, wrap corners with corner guards, and say plainly in the
-  hand-off that edges are not rounded. This sentence is stale once new shapes
-  land.
+- **Symptom:** corners and edges read blocky even with many parts, and a
+  judge preferred the stock agent's crate for exactly that. **Cause:** until
+  round five the scene format had no rounded edge, recess or profile.
+  **Remedy:** bevel boxes and cylinders, use inset faces for panels, one lathe
+  per turned part, one extrude per constant section, as steps 2 and 3 say.
+- **Symptom:** `apply_scene_ir` or the author's answer is refused naming a
+  node. **Cause:** the kernel builds a value as given or refuses it, with the
+  node, the parameter and the numbers: "bevel 0.5 must be below half the
+  smallest extent (0.1)"; "inset_margin must be > 0 when inset_faces is set
+  (without a frame the recess cuts the edge away)"; "inset_margin 0.6 leaves
+  no panel on face +x ..."; a lathe profile that touches the axis between its
+  ends, or an extrude outline that is not a simple polygon. **Remedy:** change
+  that parameter as the message says; a bevel is below half the smallest
+  extent, an inset face keeps a frame and a depth above zero.
+- **Symptom:** a mirror or repeat is refused. **Cause:** the part must lie on
+  one side of the mirror plane (one that straddles it would be copied onto
+  itself), a mesh_ref cannot be mirrored, and a repeat counts 2 to 32 with
+  the original, as a row (offset) or a ring (around), never both. **Remedy:**
+  move the part to one side, or write the two halves by hand. After the
+  shortcut is expanded the copies are plain nodes (ids such as id__r1 and
+  id__mx): a later patch edits one copy only.
+- **Symptom:** a candidate design was lost or rescued in the run report.
+  **Cause:** its answer failed to read; it is corrected once (the report says
+  "rescued" or "failed" with the messages), never for a truncated or empty
+  answer. **Remedy:** none for a rescued one; for a failed one read both
+  messages, they name the node and the parameter.
 - **Symptom:** visual QA passes a plain box. **Cause:** the session was opened
   without a `brief`, and none of the judge's questions mentions what was
   asked. **Remedy:** `open_asset_session` with the user's words as `brief`;
@@ -164,14 +219,19 @@ shape and contact, never that the object is what was asked for.
 
 ## Version notes
 
-Last verified 2026-11-22 against commit 29660b8.
+Last verified 2026-11-22 against commit af568e0 (shapes, authoring and
+install merged; the design loop and the judge views of round five not yet).
 
-- The scene format's schema already lists lathe and extrude, and has
-  parameters for rounded edges and recesses, but at this commit the compiler
-  does not build them: use only box, cylinder, cone, sphere, capsule, group and
-  mesh_ref. Until the new shapes are built, the Gotcha on blocky corners
-  stands.
-- The 50 to 90 parts, the 2 mm separation and the 2 mm contact distance are
-  figures of the code at this commit (`CRAFT_RULES`, `kernel/separate.py`).
-- Kit metrics (0.5 m or 1 m grid, wall heights) are the defaults of `agy3d kit`
-  at this commit.
+- Node kinds: box, cylinder, cone, sphere, capsule, lathe, extrude, group and
+  mesh_ref. Box bevel and inset faces, cylinder bevel, lathe and extrude are
+  built by `kernel/shapes.py`; `compile_ir.triangle_count` is the one source
+  of a part's triangle cost.
+- The part count follows the triangle budget: 50 to 90 parts when max_tris
+  allows (50 plain boxes are 600 triangles), as many as fit when it is smaller
+  (an art direction such as retro-lowres caps a prop at 400).
+- Provisional until measured live (they are plan settings, read by the tests
+  from the code): the improvement rounds per spend plan, their target score
+  and the noise band that decides keep or undo.
+- The 2 mm separation and the 2 mm contact distance are figures of
+  `kernel/separate.py`.
+- Kit metrics (0.5 m or 1 m grid, wall heights) are the defaults of `agy3d kit`.

@@ -282,5 +282,210 @@
     "expected": [],
     "kind": "none",
     "notes": "game development, none of the plugin's skills"
+  },
+  {
+    "id": "install-into-project.s1",
+    "prompt": "put the exported barrel into my godot project so i can just drag one scene into a level",
+    "expected": [
+      "install-into-project"
+    ],
+    "kind": "should",
+    "notes": "direct"
+  },
+  {
+    "id": "install-into-project.s2",
+    "prompt": "install this asset in the workspace project and check that it loads in godot",
+    "expected": [
+      "install-into-project"
+    ],
+    "kind": "should",
+    "notes": "workspace project"
+  },
+  {
+    "id": "install-into-project.s3",
+    "prompt": "i installed the crate into the game last week, take it out of the project again",
+    "expected": [
+      "install-into-project"
+    ],
+    "kind": "should",
+    "notes": "removal"
+  },
+  {
+    "id": "install-into-project.nm",
+    "prompt": "export the barrel for godot and verify it imports, i have no project yet",
+    "expected": [
+      "engine-truth-verify"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'godot' and 'project'; no project to install into"
+  },
+  {
+    "id": "engine-truth-verify.nm2",
+    "prompt": "the barrel package is verified, now get it into my game project",
+    "expected": [
+      "install-into-project"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'package'; the work is the install"
+  },
+  {
+    "id": "parametric-kitbash.h1",
+    "prompt": "a cast-iron fire hydrant with bolted caps and a chained nozzle cap, for godot, keep it under 3000 tris",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "should",
+    "notes": "brief of compare_agents.py"
+  },
+  {
+    "id": "parametric-kitbash.h2",
+    "prompt": "a wooden Windsor chair with a spindle back",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "should",
+    "notes": "brief of compare_agents.py; a bare object name"
+  },
+  {
+    "id": "parametric-kitbash.h3",
+    "prompt": "make the two side handles 30 % larger",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "should",
+    "notes": "change request of compare_agents.py on an existing asset"
+  },
+  {
+    "id": "parametric-kitbash.nm.h1",
+    "prompt": "my low poly crate model has the right shape but looks like grey plastic, how do i get worn painted metal on it",
+    "expected": [
+      "pbr-material-forge"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'model' and 'crate'; the work is the surface"
+  },
+  {
+    "id": "pbr-material-forge.h1",
+    "prompt": "the hydrant looks like plastic, can it have chipped red paint over bare cast iron",
+    "expected": [
+      "pbr-material-forge"
+    ],
+    "kind": "should",
+    "notes": "surface wording"
+  },
+  {
+    "id": "game-ready-sanitizer.h1",
+    "prompt": "got a 28k tri chair.obj off turbosquid, normals are flipped and it has no collision, make it usable in godot",
+    "expected": [
+      "game-ready-sanitizer"
+    ],
+    "kind": "should",
+    "notes": "third-party file"
+  },
+  {
+    "id": "engine-truth-verify.h1",
+    "prompt": "export the chair for roblox and tell me whether it really imports",
+    "expected": [
+      "engine-truth-verify"
+    ],
+    "kind": "should",
+    "notes": "direct, from the benchmark's brief"
+  },
+  {
+    "id": "engine-truth-verify.nm.h1",
+    "prompt": "clean up the chair.obj i downloaded before i export it anywhere",
+    "expected": [
+      "game-ready-sanitizer"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'export'; the file is the user's"
+  },
+  {
+    "id": "install-into-project.h1",
+    "prompt": "drop the crate into my godot project under res://props and check it loads",
+    "expected": [
+      "install-into-project"
+    ],
+    "kind": "should",
+    "notes": "direct"
+  },
+  {
+    "id": "install-into-project.h2",
+    "prompt": "i exported the hydrant package, how do i get it into my game so i can drag it into a level",
+    "expected": [
+      "install-into-project"
+    ],
+    "kind": "should",
+    "notes": "question form"
+  },
+  {
+    "id": "install-into-project.h3",
+    "prompt": "godot imported a glb i got and now there are duplicate texture files and eight collision bodies, i want this asset set up properly in my project",
+    "expected": [
+      "install-into-project"
+    ],
+    "kind": "should",
+    "notes": "symptoms of an unprepared package in a project; AMBIGUOUS with game-ready-sanitizer for a third-party file"
+  },
+  {
+    "id": "install-into-project.nm.h1",
+    "prompt": "how do i install godot 4.7 on my laptop",
+    "expected": [],
+    "kind": "near-miss",
+    "notes": "shares 'install' and 'godot'; nothing to do with an asset"
+  },
+  {
+    "id": "art-direction.h1",
+    "prompt": "make the whole set look hand painted, like a cozy fantasy game",
+    "expected": [
+      "art-direction"
+    ],
+    "kind": "should",
+    "notes": "style wording"
+  },
+  {
+    "id": "concept-to-blueprint.h1",
+    "prompt": "i want to design a ship's lantern, show me front and side views before anyone builds it",
+    "expected": [
+      "concept-to-blueprint"
+    ],
+    "kind": "should",
+    "notes": "design sheet first"
+  },
+  {
+    "id": "combo.h1",
+    "prompt": "model the fire hydrant, give it chipped red paint and put it in my godot project",
+    "expected": [
+      "parametric-kitbash",
+      "pbr-material-forge",
+      "install-into-project"
+    ],
+    "kind": "combo",
+    "notes": "three skills"
+  },
+  {
+    "id": "combo.h2",
+    "prompt": "low poly look for the chair, build it and export it for unity with a check",
+    "expected": [
+      "art-direction",
+      "parametric-kitbash",
+      "engine-truth-verify"
+    ],
+    "kind": "combo",
+    "notes": "style, model, export"
+  },
+  {
+    "id": "none.h1",
+    "prompt": "my godot character slides down slopes when standing still, how do i stop it",
+    "expected": [],
+    "kind": "none",
+    "notes": "game development, none of the plugin's skills"
+  },
+  {
+    "id": "none.h2",
+    "prompt": "write a python script that renames 300 png files by their creation date",
+    "expected": [],
+    "kind": "none",
+    "notes": ""
   }
 ]

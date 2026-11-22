@@ -6,7 +6,8 @@ UPSTREAM-LICENSE.txt in this folder). Changed from the original: the skills are 
 (plugin/antigravity-3d/skills/*/SKILL.md under --root, so an older commit exported into a folder can be scored against
 the same file); the eval file defaults to the one next to this script, not to one inside --root; the router option
 (--without-router) is removed because this plugin has no router (the code that ignores a skill named "router" is left
-as it was); the module is importable so the test suite runs `--check` (tests/test_skills.py). Scoring, the selector prompt and the file format are unchanged.
+as it was); requests with ids ending .h<N> are held out (written without rereading the descriptions) and are
+scored apart in the summary (`heldout`); the module is importable so the test suite runs `--check` (tests/test_skills.py). Scoring, the selector prompt and the file format are unchanged.
 
 --check validates the eval file offline. --judge-cmd sends one selector prompt per
 eval (every skill name and description, then the user request) to a command such as
@@ -321,6 +322,12 @@ def summarize(results: list[dict], errors: list[dict], worst: int) -> dict:
     }
 
 
+def is_heldout(item_id: str) -> bool:
+    """Held-out requests (ids ending ``.h<N>``) were written without rereading the skill descriptions, so their score is
+    reported apart from the rest: the descriptions and the rest of the set have one author."""
+    return re.search(r"\.h\d+$", item_id) is not None
+
+
 def _pct(value: float | None) -> str:
     return "n/a" if value is None else f"{value * 100:.1f}%"
 
@@ -342,6 +349,10 @@ def print_report(summary: dict, results: list[dict], errors: list[dict], judge: 
                 + (f"  missed: {', '.join(stats['missed_ids'])}" if stats["missed_ids"] else "")
                 + (f"  false: {', '.join(stats['false_ids'])}" if stats["false_ids"] else "")
             )
+    if "heldout" in summary:
+        h = summary["heldout"]
+        print(f"\nHeld-out requests (ids .h<N>): {h['kinds']['all']['passed']}/{h['kinds']['all']['total']} pass, "
+              f"precision {_pct(h['precision'])}, recall {_pct(h['recall'])}")
     failed = [r for r in results if not r["passed"]]
     if failed:
         print("\nFailed prompts:")
@@ -457,6 +468,12 @@ def main(argv: list[str] | None = None) -> int:
         else:
             results.append(score_item(item, selection))
     summary = summarize(results, errors, args.worst)
+    held = [r for r in results if is_heldout(r["id"])]
+    if held:
+        summary["heldout"] = summarize(held, [e for e in errors if is_heldout(e["id"])], args.worst)
+        summary["heldout"].pop("skills")
+        summary["not_heldout"] = {k: v for k, v in summarize([r for r in results if not is_heldout(r["id"])], [], 0).items()
+                                  if k in ("precision", "recall", "kinds")}
 
     if args.json:
         report = {

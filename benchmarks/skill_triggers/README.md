@@ -1,7 +1,7 @@
 # Skill trigger set
 
-Does an agent pick the right one of the plugin's six skills from its name and description alone?
-`triggers.json` holds 32 requests (18 should, 6 near-miss, 4 combo, 4 none) in the format of
+Does an agent pick the right one of the plugin's seven skills from its name and description alone?
+`triggers.json` holds 55 requests (32 should, 11 near-miss, 6 combo, 6 none); the 18 whose ids end `.h<N>` are HELD OUT: written without rereading the skill descriptions (phrasings of the reference pack's trigger files and the briefs of `benchmarks/compare_agents.py`), and scored apart under `summary.heldout` in the format of
 awesome-gamedev-agent-skills' `evals/README.md`. `run_trigger_evals.py` is adapted from that repository's
 `scripts/run-trigger-evals.py` (commit c6ca6c4, Apache-2.0, licence in `UPSTREAM-LICENSE.txt`; what changed is
 listed at the top of the script). The suite runs `--check` (offline) through `tests/test_skills.py`.
@@ -23,4 +23,4 @@ python $REPO/benchmarks/skill_triggers/run_trigger_evals.py --root "$PWD/before"
 ```
 
 Compare the `summary` blocks (`kinds`, `precision`, `recall`, `worst_skills`). The same model must judge both
-sides, and differences of a few points are noise. 32 judge calls per side, each about 1,500 input tokens.
+sides, and differences of a few points are noise. 55 judge calls per side, each about 1,500 input tokens.

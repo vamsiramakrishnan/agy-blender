@@ -1,13 +1,15 @@
 ---
 name: concept-to-blueprint
 description: >-
-  Turns a text brief, mood board or concept image into one approved orthographic
-  blueprint (front, side, top, three-quarter): four candidate sheets are generated,
-  scored and one wins, with a parts list and dimensions in metres for the build.
-  Use when the user starts a new 3D asset from an idea, sketch or reference and no
-  approved orthos exist, or asks for concept art, a turnaround or a design sheet of
-  a prop. Not for building the geometry (use parametric-kitbash), choosing a style
-  such as low-poly or hand-painted (use art-direction) or making textures (use
+  Makes concept art for a 3D asset: four orthographic sheets (front, side, top,
+  three-quarter) are generated from the user's sketch, mood board or idea,
+  scored, and one winner becomes the approved blueprint, with a parts list and
+  dimensions in metres. Use when the user asks for concept art, a turnaround
+  or a design sheet first, wants to approve a design before any modelling, or
+  hands over a sketch or reference to build from. The blueprint is optional: a
+  prop that a text brief already describes needs none. Not for building such a
+  prop or any geometry (use parametric-kitbash), choosing a style such as
+  low-poly or hand-painted (use art-direction) or making textures (use
   pbr-material-forge).
 ---
 
@@ -45,6 +47,14 @@ No geometry is created in this skill.
    stores them) and write the design note: dimensions in metres, key
    proportions, parts list (these become Scene IR node names), material zones.
 
+## What happens to the blueprint
+
+In `agy3d prop` the winning sheet goes to the author and to the judge as a
+reference image with every design and improvement request, and the router
+decides per brief whether it is worth an image at all (it skips it for most
+briefs). A rerun in the same `--out` finds the sheets in the image cache and
+uses them with no image allowance, so the recorded design is found again.
+
 ## Checks before handing off
 
 Run these, in this order, before handing over:
@@ -80,7 +90,7 @@ the pattern, and a design note with dimensions in metres. Then hand off to
 
 ## Version notes
 
-Last verified 2026-11-22 against the tool set at commit 29660b8.
+Last verified 2026-11-22 against commit af568e0.
 
 - The antigravity-3d tool set has no ortho generator and no tool that scores
   a candidate sheet; the steps above name the platform tools that fill that
