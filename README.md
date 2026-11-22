@@ -99,7 +99,14 @@ package folder) and applies the instruction as one patch to the parts it names. 
 views of the design and the instruction; the edit is kept only when the judge sees it carried out and nothing else
 changed, no part ends up floating and no new defect appears, and is otherwise asked for once more and then left
 undone with the reason. Every other part keeps its geometry exactly and every material its source maps; no image is
-generated. The replaced package is kept in `OUT/history/NNN/` (beside a bare package, `<name>.history/`) and
+generated. A part the edit does not change also keeps its place in the texture atlas: the same UVs and the same texels
+under them while the atlas keeps its size; when the atlas has to grow, its UVs are rescaled and its texels stay where
+they were. That holds for image maps and flat colours. When the change cannot fit in the space the other parts leave
+free, the atlas is laid out again: the manifest's edit record says `repacked` and why, and each untouched part's base
+colour is checked against the shipped one (mean within 4/255, spread within 8/255; a part outside it is named in the
+result). A surface generated from the geometry is held to that bound too, since a changed neighbour may change it. A
+package keeps the maps its atlas was baked from in `sources/` (no engine file uses them and an install does not copy
+them), so a bare package can be edited months later without its run folder. The replaced package is kept in `OUT/history/NNN/` (beside a bare package, `<name>.history/`) and
 `--undo` puts it back. The new manifest lists the edit under `edits` and its provenance names it. An edited package is
 never verified: no lookdev pass runs on it.
 

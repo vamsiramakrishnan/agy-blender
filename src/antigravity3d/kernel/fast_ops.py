@@ -592,6 +592,9 @@ class UVResult:
     repeat_px: int | None = None
     # Shared atlas sized from need: the sizes tried, smallest first, as (width, height, px/m the packing reached).
     size_trials: tuple = ()
+    # Shared atlas of an export given the shipped layout (unwrap_scene ``keep``): "kept: N of M charts where they shipped"
+    # or "repacked: <why>". None: no shipped layout was given.
+    layout: str | None = None
 
     @property
     def size(self) -> tuple[int, int]:
@@ -1461,7 +1464,8 @@ def _scaled(c: _Charted, f: float) -> _Charted:
 
 def _unwrap_group(group: list[MeshData], density: float, resolution: int | tuple[int, int], atlas_id: str | None,
                   hidden: Sequence[np.ndarray | None] | None = None, closed_out: list | None = None,
-                  cache: dict | None = None, raw: dict | None = None, scales: Sequence[float] | None = None) -> list[UVResult]:
+                  cache: dict | None = None, raw: dict | None = None, scales: Sequence[float] | None = None,
+                  keep: KeepLayout | None = None) -> list[UVResult]:
     """One atlas: exact charts for meshes that carry them, xatlas charts for the others, all packed together as
     rectangles by ``_pack_analytic`` (so a group whose meshes all carry exact charts is packed as before).
     ``cache`` (a dict, per call site) keeps the charts and their closed packing, so a second call for the same
@@ -1471,7 +1475,7 @@ def _unwrap_group(group: list[MeshData], density: float, resolution: int | tuple
     density x scale; see ``unwrap_scene``'s ``detail_px_per_m``)."""
     if cache is not None and atlas_id in cache:
         known, uvs, d, closed = cache[atlas_id]
-        return _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out)
+        return _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out, keep)
     # a chart longer than the atlas at the requested density is cut where the mesh allows it
     max_extent = (max(_wh(resolution)) - 1.0 - 2.0 * UV_PADDING_PX) / density
     known = [_charted(m, max_extent) for m in group]
@@ -1510,12 +1514,198 @@ def _unwrap_group(group: list[MeshData], density: float, resolution: int | tuple
               for c, uv in zip(known, uvs)]
     if cache is not None:
         cache[atlas_id] = (known, uvs, d, closed)
-    return _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out)
+    return _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out, keep)
 
 
-def _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out) -> list[UVResult]:
+@dataclass(frozen=True)
+class KeepLayout:
+    """The layout a package shipped, to be kept by the next export of the same asset (an edit): the atlas size and, per
+    part, the shipped LOD0 points (Z-up asset space, metres), triangles and uvs. Read from the package alone
+    (``package.layout_from_package``). Immutable: every export attempt of one edit reads the same one."""
+    size: tuple[int, int]
+    parts: Mapping[str, tuple[np.ndarray, np.ndarray, np.ndarray]]
+    digest: str = ""
+
+
+#: Positions of shipped vertices are compared at this resolution (m): float32 USD points read back and float64 stage
+#: points of the same geometry agree to about 1e-7 m; a part that moved by a millimetre does not match.
+KEEP_POS_DECIMALS = 5
+#: Block size (atlas px) of the free-space search for the charts an edit adds or changes (``_pack_kept``).
+KEEP_BLOCK_PX = 4
+#: How far from 1 the scale of a shipped chart's placement may be and still be the same unfolding (``_pack_kept``).
+KEEP_SCALE_TOL = 2e-3
+
+
+def _pos_keys(p: np.ndarray) -> np.ndarray:
+    return np.round(np.asarray(p, np.float64), KEEP_POS_DECIMALS)
+
+
+def _pack_kept(known: list[_Charted], density: float, resolution: int | tuple[int, int], hidden, keep: KeepLayout
+               ) -> tuple[list[np.ndarray] | None, int, int, str]:
+    """The shipped packing with every chart of ``keep`` that is still there kept where it was.
+
+    A chart is kept when every triangle of it that ships matches a triangle the package shipped (the same three
+    corner positions, ``KEEP_POS_DECIMALS``), and the old placement is the same isometric unfolding at this chart's
+    density (a similarity of its metre layout with scale = the density it is packed at: a material whose detail
+    changed is not kept). A kept chart's vertices take the shipped uvs verbatim (bit for bit); vertices only hidden
+    triangles use follow the same placement. Every other chart (a changed or new part, a face a neighbour no longer
+    covers) is placed first-fit, bottom-left, into texels no kept chart or its gutter occupies, at the same density and
+    padding as ``_pack_analytic``. Returns (per-mesh uvs, charts kept, charts packed, reason); uvs None when a chart
+    does not fit (the caller repacks everything and says why)."""
+    W, H = _wh(resolution)
+    Wo, Ho = keep.size  # the shipped atlas: kept charts keep their texel positions in it, from the bottom-left corner
+    same_size = (W, H) == (Wo, Ho)
+    pad = 2.0 * UV_PADDING_PX
+    edge = 1.0
+    frames, phantom = [], []
+    for mi, c in enumerate(known):
+        h = None if hidden is None else hidden[mi]
+        seen = None
+        if h is not None and h.any():
+            seen = np.zeros(len(c.uv_m), bool)
+            seen[np.asarray(c.tris, np.int64)[~h].reshape(-1)] = True
+        for f in _chart_frames(c):
+            (frames if seen is None or seen[f[0]].any() else phantom).append((mi, *f))
+    out = [np.zeros((len(c.uv_m), 2)) for c in known]
+    occ = np.zeros((H, W), bool)  # rows are v (bottom up), columns u, in atlas px
+    old_tri: dict[str, dict[tuple, np.ndarray]] = {}
+
+    def old_index(node: str) -> dict[tuple, np.ndarray]:
+        if node not in old_tri:
+            pts, tri, uv = keep.parts[node]
+            k = _pos_keys(pts)
+            idx = {}
+            for t in np.asarray(tri, np.int64):
+                # corners in their order (the exporter writes a triangle's corners in the same order every time): a chart
+                # that wraps round (a cylinder's side) has two vertices at one position with different uvs, so a corner
+                # is found by its place in the triangle, never by its position alone
+                idx[tuple(tuple(k[v]) for v in t)] = np.array([uv[v] for v in t])
+            old_tri[node] = idx
+        return old_tri[node]
+
+    kept, todo = 0, []
+    for fr in frames:
+        mi, v, R, lo, wh = fr
+        c = known[mi]
+        node = c.mesh.node_id
+        placed = None
+        if node in keep.parts:
+            tris = np.asarray(c.tris, np.int64)
+            in_chart = np.zeros(len(c.uv_m), bool)
+            in_chart[v] = True
+            sel = in_chart[tris[:, 0]]
+            h = None if hidden is None else hidden[mi]
+            ship = sel & (~h if h is not None else True)
+            idx = old_index(node)
+            pts = _pos_keys(np.asarray(c.mesh.points, np.float64)[c.vmap])
+            uv_of: dict[int, np.ndarray] = {}
+            ok = bool(ship.any())
+            for t in tris[ship]:
+                ouv = idx.get(tuple(tuple(pts[x]) for x in t))
+                if ouv is None:
+                    ok = False
+                    break
+                for x, u in zip(t, ouv):
+                    if x in uv_of and not np.array_equal(uv_of[x], u):
+                        ok = False
+                        break
+                    uv_of[x] = u
+                if not ok:
+                    break
+            if ok:
+                vs = np.array(sorted(uv_of))
+                src = c.uv_m[vs] * density  # the chart at this density, in px
+                dst = np.asarray([uv_of[x] for x in vs], np.float64) * [Wo, Ho]
+                A = np.c_[src, np.ones(len(src))]
+                sol, *_ = np.linalg.lstsq(A, dst, rcond=None)
+                M = sol[:2].T
+                sv = np.linalg.svd(M, compute_uv=False)
+                resid = float(np.abs(A @ sol - dst).max()) if len(src) else np.inf
+                # the same unfolding at the same density: a similarity of scale 1 in texels. The tolerance is float32 uv
+                # rounding over a chart a few texels wide (measured up to 1.6e-4 on one-triangle charts); a material whose
+                # detail changed is drawn at another scale (a map half the size: 0.5)
+                if len(vs) >= 3 and resid < 1e-2 and abs(sv[0] - 1) < KEEP_SCALE_TOL and abs(sv[1] - 1) < KEEP_SCALE_TOL and np.linalg.det(M) > 0:
+                    full = (np.c_[c.uv_m[v] * density, np.ones(len(v))] @ sol) / [W, H]
+                    for j, x in enumerate(v):
+                        if x in uv_of:  # the shipped uv itself (bit for bit) in the same atlas; its texel position in a grown one
+                            full[j] = uv_of[x] if same_size else np.asarray(uv_of[x], np.float64) * [Wo, Ho] / [W, H]
+                    placed = full
+        if placed is None:
+            todo.append(fr)
+            continue
+        out[mi][v] = placed
+        px = placed * [W, H]
+        x0, y0 = np.floor(px.min(0) - pad / 2).astype(int)
+        x1, y1 = np.ceil(px.max(0) + pad / 2).astype(int)
+        occ[max(y0, 0):min(y1, H), max(x0, 0):min(x1, W)] = True
+        kept += 1
+    if kept == 0:
+        return None, 0, len(frames), "no chart of the shipped layout is still there unchanged"
+    # the rest, largest first, into the free texels (summed-area table of the occupied ones)
+    todo.sort(key=lambda f: -float(np.prod(f[4] * density + pad)))
+    # the search runs on blocks of KEEP_BLOCK_PX texels (a block is taken when any texel of it is): 16 times fewer cells
+    # on a 4096 x 2048 atlas, at the cost of up to KEEP_BLOCK_PX - 1 texels of placement freedom
+    bs = KEEP_BLOCK_PX
+    for mi, v, R, lo, wh in todo:
+        best = None
+        hb, wb = -(-H // bs), -(-W // bs)
+        blk = np.zeros((hb * bs, wb * bs), bool)
+        blk[:H, :W] = occ
+        blk[H:, :] = True
+        blk[:, W:] = True
+        blk = blk.reshape(hb, bs, wb, bs).any(axis=(1, 3))
+        S = np.zeros((hb + 1, wb + 1), np.int32)
+        S[1:, 1:] = blk.cumsum(0, dtype=np.int32).cumsum(1, dtype=np.int32)
+        for turned in (False, True):
+            w, h = (wh[::-1] if turned else wh) * density + pad
+            w, h = int(np.ceil(w + edge)), int(np.ceil(h + edge))
+            if w > W or h > H:
+                continue
+            cw, ch = -(-w // bs), -(-h // bs)
+            if cw > wb or ch > hb:
+                continue
+            area = S[ch:, cw:] - S[:-ch, cw:] - S[ch:, :-cw] + S[:-ch, :-cw]
+            free = np.argwhere(area == 0)
+            if len(free):
+                y, x = free[0] * bs  # lowest row, then leftmost: bottom-left, as the skyline packer
+                if best is None or (y, x) < best[:2]:
+                    best = (int(y), int(x), turned, w, h)
+        if best is None:
+            return None, kept, len(frames), "the changed or new charts do not fit in the texels the kept charts leave free"
+        y, x, turned, w, h = best
+        q = (known[mi].uv_m[v] @ R.T - lo) * density
+        if turned:
+            q = np.stack([wh[1] * density - q[:, 1], q[:, 0]], axis=1)
+        out[mi][v] = (q + [x + pad / 2 + edge / 2, y + pad / 2 + edge / 2]) / [W, H]
+        occ[y:y + h, x:x + w] = True
+    for mi, v, R, lo, wh in phantom:  # charts of hidden triangles only: right of the atlas, as _pack_analytic
+        q = (known[mi].uv_m[v] @ R.T - lo) * density
+        out[mi][v] = (q + [W + pad, 0.0]) / [W, H]
+    return out, kept, len(frames), ""
+
+
+def _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out, keep=None) -> list[UVResult]:
     if closed_out is not None:
         closed_out.extend(closed)
+    if keep is not None:
+        note = None
+        (W, H), (Wo, Ho) = _wh(resolution), tuple(keep.size)
+        if W < Wo or H < Ho:
+            note = f"repacked: the atlas is now {W} x {H} px, smaller than the shipped {Wo} x {Ho} on a side"
+        elif d < density * (1 - 1e-9):
+            note = f"repacked: the {W} x {H} px atlas holds the charts only below the density ({d:.1f} of {density:.1f} px/m)"
+        else:
+            got, n_kept, n_all, why = _pack_kept(known, density, resolution, hidden, keep)
+            if got is not None:
+                hs = hidden if hidden is not None else [None] * len(known)
+                grown = "" if (W, H) == (Wo, Ho) else (f"; the atlas grew from {Wo} x {Ho} to {W} x {H} px: their uvs are rescaled, "
+                                                       "their texels are where they were")
+                return [replace(_result(c.mesh, c.vmap, c.tris, uv, True, resolution, atlas_id, c.kind, hs[i]),
+                                layout=f"kept: {n_kept} of {n_all} charts where they shipped{grown}")
+                        for i, (c, uv) in enumerate(zip(known, got))]
+            note = f"repacked: {why}"
+        normal = _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, None)
+        return [replace(r, layout=note) for r in normal]
     if hidden is None or not any(h is not None and h.any() for h in hidden):
         return closed
     # The same charts (same seam-split vertices and triangles), packed again without the charts of hidden
@@ -1576,29 +1766,39 @@ def shared_atlas_id(materials: Iterable[str | None]) -> str | None:
 
 
 def _unwrap_sized(group: list[MeshData], density: float, sides: Sequence[int | tuple[int, int]], atlas_id: str | None,
-                  hidden, closed_out: list | None, cache: dict | None, scales: Sequence[float] | None = None) -> list[UVResult]:
+                  hidden, closed_out: list | None, cache: dict | None, scales: Sequence[float] | None = None,
+                  keep: KeepLayout | None = None, pin: bool = True) -> list[UVResult]:
     """``_unwrap_group`` at the smallest of ``sides`` whose atlas holds every chart at ``density`` (the largest side
     when none does: the density is then lowered, ``UVResult.fitted`` False). The closed packing (every triangle
     shipped) decides, so the layout with hidden faces removed, packed into the same side, never needs more. xatlas runs
     once; each side tried costs one packing. With ``cache`` the chosen side's packing is kept (``_unwrap_group``)."""
     if cache is not None and atlas_id in cache:
         side = cache[atlas_id][3][0].size
-        out = _unwrap_group(group, density, side, atlas_id, hidden, closed_out, cache)
+        out = _unwrap_group(group, density, side, atlas_id, hidden, closed_out, cache, keep=keep if pin else None)
         tried = cache.get((atlas_id, "sizes tried"), ())
         return [replace(r, size_trials=tried) for r in out] if tried else out
     raw: dict = {}
     tried = []
+    if keep is not None and tuple(keep.size) in {tuple(_wh(x)) for x in sides}:  # the shipped size first: it may keep the layout
+        sides = [tuple(keep.size), *[x for x in sides if tuple(_wh(x)) != tuple(keep.size)]]
+    fits = False
     for side in sides:
         local: dict = {}
         trial = _unwrap_group(group, density, side, atlas_id, None, None, local, raw, scales)
         tried.append((*_wh(side), round(max((r.texel_density for r in trial if r.texel_density > 0), default=0.0), 2)))
         if all(r.fitted for r in trial):
+            fits = True
             break
-    keep = cache if cache is not None else {}
-    keep[atlas_id] = local[atlas_id]
+    if not fits and len(sides) > 1:  # none holds the charts at the density: the largest, at the density that fits
+        side = max(sides, key=lambda x: int(np.prod(_wh(x))))
+        if tuple(_wh(side)) != tuple(_wh(sides[-1])):
+            local = {}
+            _unwrap_group(group, density, side, atlas_id, None, None, local, raw, scales)
+    keep_cache = cache if cache is not None else {}
+    keep_cache[atlas_id] = local[atlas_id]
     if len(sides) > 1:
-        keep[(atlas_id, "sizes tried")] = tuple(tried)
-    out = _unwrap_group(group, density, side, atlas_id, hidden, closed_out, keep)
+        keep_cache[(atlas_id, "sizes tried")] = tuple(tried)
+    out = _unwrap_group(group, density, side, atlas_id, hidden, closed_out, keep_cache, keep=keep if pin else None)
     if len(sides) > 1:
         out = [replace(r, size_trials=tuple(tried)) for r in out]
         if closed_out is not None:
@@ -1610,7 +1810,8 @@ def unwrap_scene(meshes: list[MeshData], budget: EngineBudget, resolution: int =
                  hidden: Sequence[np.ndarray | None] | None = None, closed_out: list | None = None,
                  cache: dict | None = None, shared: Collection[str] | None = None,
                  shared_resolution: int | tuple[int, int] | None = None, max_px: int | None = None,
-                 detail_px_per_m: float | Mapping[str | None, float | None] | None = None) -> list[UVResult]:
+                 detail_px_per_m: float | Mapping[str | None, float | None] | None = None,
+                 keep: KeepLayout | None = None, pin: bool = True) -> list[UVResult]:
     """One atlas per material id, except that the materials in ``shared`` are laid out together in one atlas (at one
     texel density, so the package can bake their maps into one texture set: ``package._compose_atlas``); results are
     returned in input order.
@@ -1623,7 +1824,9 @@ def unwrap_scene(meshes: list[MeshData], budget: EngineBudget, resolution: int =
     atlas is laid out at that density when it is below the target (a 256 px map spanning SWATCH_SPAN_PX at the target
     holds an eighth of it: its texels are then copied 1:1), rather than at a density only enlarged pixels would fill.
     Given per material (a mapping; None or absent: a flat colour, ``FLAT_DETAIL_PX``), the atlas takes the largest and
-    each material's charts are scaled down to its own: a flat patch beside a textured surface costs few texels. Only the shared atlas is sized from need because only its maps are baked at
+    each material's charts are scaled down to its own: a flat patch beside a textured surface costs few texels.
+    ``keep``: the layout a package shipped (an edit's): the shared atlas keeps its size when it still holds the charts,
+    and every chart that ships unchanged keeps its place (``_pack_kept``); the results' ``layout`` says what happened. Only the shared atlas is sized from need because only its maps are baked at
     the atlas side (package._compose_atlas); a material's own atlas ships the material's map as it is, spread over
     the whole atlas, so its side is that map's span (2048, package.SWATCH_SPAN_PX).
 
@@ -1655,7 +1858,7 @@ def unwrap_scene(meshes: list[MeshData], budget: EngineBudget, resolution: int =
             scales = [d / density for d in own]
         elif is_shared and detail_px_per_m:
             density = min(density, float(detail_px_per_m))
-        out = _unwrap_sized([meshes[i] for i in ids], density, sides, mat, h, got, cache, scales)
+        out = _unwrap_sized([meshes[i] for i in ids], density, sides, mat, h, got, cache, scales, keep if is_shared else None, pin)
         if is_shared:
             d = max((r.texel_density for r in out if r.texel_density > 0), default=budget.texel_density_px_per_m)  # what ships
             repeat = max(1, int(round(SWATCH_SPAN_PX * d / budget.texel_density_px_per_m)))
@@ -3951,6 +4154,8 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
 
     with smart_source.using(budget.generated_surfaces):
         detail = {mid: surface_detail.detail_px_per_m(p, target) for mid, p in first.items()}  # None: a flat colour
+    # the layout the asset shipped with, when this export is an edit of it (StageManager.keep_layout): kept where it can be
+    keep = next((m.keep_layout for m in meshes if getattr(m, "keep_layout", None) is not None), None) if shared is not None else None
     hidden = None
     if contact_faces_removable(budget, opaque_materials):
         hidden = hidden_contact_faces([(m.node_id, m.points, m.triangles, m.material_id) for m in meshes], opaque_materials)
@@ -3958,7 +4163,7 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
             hidden = None
     th = time.perf_counter()
     if hidden is None:
-        uvs = unwrap_scene(meshes, budget, 2048, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail)
+        uvs = unwrap_scene(meshes, budget, 2048, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail, keep=keep)
         t1 = time.perf_counter()
         lods = generate_asset_lods(uvs)
     else:
@@ -3969,13 +4174,17 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
         # carried over to that packing vertex by vertex.
         materials = {m.node_id: m.material_id for m in meshes}
         cache: dict = {}
-        closed = unwrap_scene(meshes, budget, 2048, cache=cache, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail)
+        # the closed packing (LODs are simplified from it) takes the shipped size when it can, but pins nothing: what ships
+        # is the packing below, and every level's uvs are carried over to it (_relayout)
+        closed = unwrap_scene(meshes, budget, 2048, cache=cache, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail,
+                              keep=keep, pin=False)
         t1 = time.perf_counter()
         lods_closed = generate_asset_lods(closed)
         hidden0 = {u.node_id: h for u, h in zip(closed, hidden)}
         marked, exposed = _ship_levels(closed, lods_closed, materials, opaque_materials, hidden0)
         pack = [h & ~_chart_of(u.triangles, exposed[u.node_id]) if u.node_id in exposed else h for u, h in zip(closed, hidden)]
-        uvs = unwrap_scene(meshes, budget, 2048, hidden=pack, cache=cache, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail)
+        uvs = unwrap_scene(meshes, budget, 2048, hidden=pack, cache=cache, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail,
+                           keep=keep)
         uvs = [replace(u, hidden=h if h.any() else None) for u, h in zip(uvs, hidden)]
         lods = _relayout(marked, closed, uvs)
         if lods is None:  # a level vertex not found in the unwrap: ship every triangle, as before the rule

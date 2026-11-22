@@ -249,14 +249,7 @@ def source_materials(shipped: Shipped, dest: Path) -> tuple[SceneIR, str]:
         return scene.model_copy(update={"materials": mats}), "the run folder's working design (source maps of each material)"
     atlas = shipped.manifest.get("texture_atlas") or {}
     if atlas.get("status") == "baked":
-        mapped = sorted(n for n, rec in (atlas.get("members") or {}).items() if rec.get("maps") and not rec.get("generated"))
-        if mapped:
-            raise EditError(f"this package bakes its materials into one texture atlas, and the source maps of {', '.join(mapped)} "
-                            "are not in it: an edit would have to re-bake them for the new layout from their sources. Edit "
-                            "the prop's --out folder (its run folder has the sources) instead of the bare package")
-        for m in scene.materials:  # flat (or generated) members: their factors are the material
-            mats.append(m.model_copy(update={name: None for name in _URI_FIELDS if hasattr(m, name)}))
-        return scene.model_copy(update={"materials": mats}), "the package's material factors (no image maps)"
+        return _from_sources(shipped, scene, atlas, dest)
     for m in scene.materials:
         update = {}
         for name in _URI_FIELDS:
@@ -269,6 +262,49 @@ def source_materials(shipped: Shipped, dest: Path) -> tuple[SceneIR, str]:
             update[name] = _copy_map(src, dest / uri[2:])
         mats.append(m.model_copy(update=update) if update else m)
     return scene.model_copy(update={"materials": mats}), "the package's per-material maps"
+
+
+_ROLE_FIELD = {"albedo": "albedo_uri", "orm": "orm_uri", "normal": "normal_uri", "emissive": "emissive_uri"}
+
+
+def _from_sources(shipped: Shipped, scene: SceneIR, atlas: Mapping[str, Any], dest: Path) -> tuple[SceneIR, str]:
+    """A bare package whose materials were baked into one atlas: each member reads the maps it was baked from, kept in the
+    package's ``sources/`` (``package.SOURCES_DIR``, checked against the sha256 the manifest records), with the emissive
+    colour and normal convention it had before the bake; a flat or generated member is its factors. A material outside
+    the atlas reads its own packaged maps. Raises EditError, saying which files, when a source is missing or changed."""
+    members = atlas.get("members") or {}
+    missing: list[str] = []
+    mats = []
+    for m in scene.materials:
+        rec = members.get(m.id)
+        if rec is None:  # not baked (a blended material keeps its own maps)
+            update = {}
+            for name in _URI_FIELDS:
+                uri = getattr(m, name, None)
+                if uri and uri.startswith("./") and (shipped.package / uri[2:]).is_file():
+                    update[name] = _copy_map(shipped.package / uri[2:], dest / uri[2:])
+            mats.append(m.model_copy(update=update) if update else m)
+            continue
+        update: dict[str, Any] = {name: None for name in _URI_FIELDS}
+        for role in rec.get("maps") or {}:
+            src = (rec.get("sources") or {}).get(role) or {}
+            f = shipped.package / src["file"] if src.get("file") else None
+            if f is None or not f.is_file() or (src.get("sha256") and _sha256(f) != src["sha256"]):
+                missing.append(f"{m.id}.{role}" + (f" ({src['file']})" if src.get("file") else ""))
+                continue
+            update[_ROLE_FIELD[role]] = _copy_map(f, dest / "sources" / m.id / f.name)
+        if rec.get("emissive_color") is not None:
+            update["emissive_color"] = tuple(rec["emissive_color"])
+        if rec.get("normal_convention"):
+            update["normal_convention"] = rec["normal_convention"]
+        mats.append(m.model_copy(update=update))
+    if missing:
+        names = sorted({x.split(".")[0] for x in missing})
+        raise EditError(f"this package bakes its materials into one texture atlas, and the maps {', '.join(names)} were baked from "
+                        f"are not in its sources/ folder ({', '.join(missing[:6])}: deleted or changed): an edit re-bakes the atlas "
+                        "for the new layout and needs them. Restore the package's sources/ as it shipped, or edit the prop's "
+                        "--out folder (its run folder has the sources) instead of the bare package")
+    return scene.model_copy(update={"materials": mats}), "the package's sources/ (the maps its atlas was baked from)"
 
 
 def source_hashes(scene: SceneIR) -> dict[str, dict[str, str]]:
@@ -530,12 +566,70 @@ class EditResult:
     untextured: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     materials_from: str = ""
+    layout: dict[str, Any] = field(default_factory=dict)  # the shared atlas: kept where it shipped, or repacked and why
+    look: dict[str, Any] = field(default_factory=dict)  # untouched parts' base colour before and after, when not promised identical
     source_maps: dict[str, dict[str, str]] = field(default_factory=dict)  # material -> field -> sha256 (unchanged by an edit)
     note: str = "edited, not re-reviewed for look: an edit runs no lookdev pass, so its package is never verified"
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         return d
+
+
+#: The look of a part an edit did not touch, when its texels are not promised identical (a repacked layout moves a chart
+#: to another phase of its tileable map; a surface generated from the geometry may change beside a changed neighbour):
+#: the base colour sampled at its triangles before and after, mean and spread (standard deviation) per channel, 8-bit.
+LOOK_MEAN_MAX = 4.0
+LOOK_SPREAD_MAX = 8.0
+
+
+def _generated_members(manifest: Mapping[str, Any]) -> list[str]:
+    members = (manifest.get("texture_atlas") or {}).get("members") or {}
+    return sorted(n for n, r in members.items() if any("generator" in v for v in (r.get("sources") or {}).values()))
+
+
+def _untouched(att: Attempt, shipped: Shipped) -> list[str]:
+    sc = att.scope or {}
+    gone = set(sc.get("changed") or {}) | set(sc.get("added") or []) | set(sc.get("removed") or [])
+    return [n.id for n in shipped.scene.nodes if n.id not in gone]
+
+
+def look_check(before: Path, after: Path, parts: list[str]) -> dict[str, Any]:
+    """Per part: the base colour of the texels under its shipped triangles in each package's atlas (mean and spread per
+    channel), and whether the change stays within LOOK_MEAN_MAX and LOOK_SPREAD_MAX."""
+    from PIL import Image
+
+    from antigravity3d.kernel.package import layout_from_package
+    from antigravity3d.kernel.surface_detail import rasterise
+
+    def stats(pkg: Path) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+        man = json.loads((pkg / "manifest.json").read_text())
+        lay = layout_from_package(pkg)
+        f = ((man.get("texture_atlas") or {}).get("files") or {}).get("albedo")
+        if lay is None or not f:
+            return {}
+        img = np.asarray(Image.open(pkg / f).convert("RGB"), np.float64)
+        out = {}
+        for nid in parts:
+            if nid not in lay.parts:
+                continue
+            _, tri, uv = lay.parts[nid]
+            _, drawn, _, _ = rasterise(lay.size, [(1, uv, tri)])
+            px = img[drawn > 0]
+            if len(px):
+                out[nid] = (px.mean(0), px.std(0))
+        return out
+
+    a, b = stats(before), stats(after)
+    rows = []
+    for nid in parts:
+        if nid in a and nid in b:
+            dm = float(np.abs(a[nid][0] - b[nid][0]).max())
+            ds = float(np.abs(a[nid][1] - b[nid][1]).max())
+            rows.append({"part": nid, "mean_delta": round(dm, 2), "spread_delta": round(ds, 2),
+                         "within": dm <= LOOK_MEAN_MAX and ds <= LOOK_SPREAD_MAX})
+    return {"bound": {"mean": LOOK_MEAN_MAX, "spread": LOOK_SPREAD_MAX}, "parts": rows,
+            "outside": sum(1 for r in rows if not r["within"])}
 
 
 def _ops_summary(patch: IRPatch) -> list[str]:
@@ -608,6 +702,11 @@ async def edit_asset(target: Path | str, instruction: str, *, plane: Any, author
     res.source_maps = source_hashes(scene)
     sm = StageManager.create(wd / f"{shipped.asset}_stage.usda", shipped.asset)
     sm.apply_ir(scene)
+    # the layout the asset shipped with, read from the package alone: every export attempt below keeps what it can of it
+    # (the same immutable record for each attempt, so a refused attempt leaves nothing behind)
+    from antigravity3d.kernel.package import layout_from_package
+
+    sm.keep_layout = layout_from_package(shipped.package)
     meshes0 = sm.extract_meshes()
     t1_0 = tier1_qa(meshes0, shipped.budget)
     bounds0 = part_bounds(meshes0)
@@ -862,6 +961,21 @@ async def _deliver(res: EditResult, shipped: Shipped, sm: Any, wd: Path, att: At
              "added": att.scope["added"] if att.scope else [], "removed": att.scope["removed"] if att.scope else [],
              "previous": {"manifest_sha256": _sha256(shipped.package / "manifest.json"),
                           "glb_sha256": (shipped.manifest.get("file_hashes") or {}).get(f"{shipped.asset}.glb", {}).get("sha256")}}
+    lay = (manifest.get("texture_atlas") or {}).get("layout")
+    if lay:
+        entry["layout"] = lay
+        res.layout = dict(lay)
+    if lay and (lay.get("result") != "kept" or _generated_members(manifest)):
+        # the texels under an untouched part are only promised identical when the layout was kept and every material is an
+        # image map or a flat factor: otherwise its look is bounded instead (LOOK_MEAN_MAX, LOOK_SPREAD_MAX)
+        look = look_check(shipped.package, pkg, _untouched(att, shipped))
+        entry["look"] = look
+        res.look = look
+        out = [r for r in look["parts"] if not r["within"]]
+        if out:
+            res.warnings.append(f"{len(out)} part(s) the edit did not touch now look different beyond the bound (base colour mean "
+                                f"{LOOK_MEAN_MAX}/255, spread {LOOK_SPREAD_MAX}/255): "
+                                + ", ".join(f"{r['part']} (mean {r['mean_delta']}, spread {r['spread_delta']})" for r in out[:6]))
     manifest["edits"] = [*(shipped.manifest.get("edits") or []), entry]
     _edit_provenance(manifest, shipped, number, author, patch)
     manifest_path.write_text(json.dumps(manifest, indent=1))

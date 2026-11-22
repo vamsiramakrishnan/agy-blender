@@ -429,7 +429,7 @@ def test_a_surface_source_sets_the_layout_detail_and_paints_its_material(tmp_pat
     assert by["band"] == pytest.approx(512.0)  # the grain asked for 512 (not the flat 128)
     assert by["body"] == pytest.approx(128.0)  # the flat wood beside it is drawn at FLAT_DETAIL_PX, not at the grain's density
     ta = pm.data["texture_atlas"]
-    assert ta["members"]["iron"]["sources"] == {"albedo": "grain"} and src.calls == ["albedo"]
+    assert ta["members"]["iron"]["sources"] == {"albedo": {"generator": "grain"}} and src.calls == ["albedo"]
     assert "normal" in ta["roles_omitted"]  # the grain paints base colour only
     w, h = bundle.uvs[0].size
     band = next(u for u in bundle.uvs if u.node_id == "band")

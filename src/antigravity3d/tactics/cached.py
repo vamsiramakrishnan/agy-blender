@@ -45,7 +45,9 @@ from antigravity3d.tactics.common import load_png, png_bytes
 # 10: the bundle records which triangles are hidden contact faces (per part and per level) and packs the atlas
 #     without the charts that never ship; a collision hull over its engine's limit is replaced by an enclosing one
 # 11: opaque materials share one UV atlas whose side is chosen from need (fast_ops.ATLAS_SIDES), not 2048 per material
-BACKEND_VERSION = "kernel-fast_ops/11"
+# 12: an edit's export keeps the layout the asset shipped with (fast_ops._pack_kept; the key has the layout's digest);
+#     a material's charts are drawn at its own detail in a shared atlas
+BACKEND_VERSION = "kernel-fast_ops/12"
 CACHED_TAG = "(cached)"  # appended to GeneratedImage.model on a cache hit
 
 
@@ -335,6 +337,9 @@ def export_key(scene: SceneIR, budget: EngineBudget, meshes: list[MeshData] | No
                     d = surface_detail.detail_px_per_m(m.material, budget.texel_density_px_per_m)
                     seen[m.material_id] = round(d, 3) if d else None
         inputs["layout_detail_px_per_m"] = sorted(seen.items(), key=lambda kv: str(kv[0]))
+        keep = next((m.keep_layout for m in meshes if getattr(m, "keep_layout", None) is not None), None)
+        if keep is not None:  # an edit keeps the layout it shipped with: a different starting layout is a different bundle
+            inputs["keep_layout"] = keep.digest
     return node_key("export.uv_lod_collider", inputs=inputs,
                     upstream=[ir_subtree_key(scene, r) for r in roots], backend_version=BACKEND_VERSION)
 

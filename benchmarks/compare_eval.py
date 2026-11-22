@@ -479,6 +479,40 @@ def parts(glb: Path) -> list[dict[str, Any]]:
     return out
 
 
+def part_ranges(glb: Path) -> dict[str, list[list[Any]]] | None:
+    """The package's own record of where each part is in this GLB (manifest ``glb_part_ranges``: per mesh, [part id,
+    first triangle, triangle count]), or None for a file without one (another arm's, or an older package)."""
+    man = glb.parent / "manifest.json"
+    if not man.is_file():
+        return None
+    try:
+        return (json.loads(man.read_text()).get("glb_part_ranges") or {}).get(glb.name)
+    except ValueError:
+        return None
+
+
+def parts_by_range(glb: Path, ranges: dict[str, list[list[Any]]]) -> list[dict[str, Any]]:
+    """The visible model as the parts the package says it holds (``part_ranges``), each with its id, bounds and
+    triangle count, read from the triangles of its range in its mesh."""
+    g, bufs = _load(glb)
+    out = []
+    for mesh_i, m, name in _instances(g):
+        rows = ranges.get(name)
+        if rows is None:
+            continue
+        p = g.meshes[mesh_i].primitives[0]
+        pos = accessor(g, bufs, p.attributes.POSITION).astype(np.float64)
+        w = (m @ np.c_[pos, np.ones(len(pos))].T).T[:, :3]
+        idx = accessor(g, bufs, p.indices).reshape(-1, 3).astype(np.int64)
+        uv = accessor(g, bufs, p.attributes.TEXCOORD_0) if p.attributes.TEXCOORD_0 is not None else None
+        for part, first, count in rows:
+            t = idx[first:first + count]
+            v = w[np.unique(t)]
+            out.append({"part": part, "lo": v.min(0).round(5).tolist(), "hi": v.max(0).round(5).tolist(), "triangles": int(count),
+                        "uv_sha256": None if uv is None else hashlib.sha256(np.ascontiguousarray(uv[t]).tobytes()).hexdigest()})
+    return out
+
+
 def package_diff(before: Path, after: Path, *, target_ratio: float | None = None, tol_m: float = 0.001,
                  match_frac: float = 0.25) -> dict[str, Any]:
     """What changed between two deliveries of one asset, part by part (``parts``).
@@ -488,14 +522,21 @@ def package_diff(before: Path, after: Path, *, target_ratio: float | None = None
     A pair is unchanged when both corners moved at most ``tol_m``. For a changed pair: its size ratio per axis
     (after / before) and how far its centre moved. With ``target_ratio`` (what the request asked for, e.g. 1.3), a
     changed part is "on target" when its largest per-axis ratio is within 0.1 of it; every other change, and every
-    part added or removed, is collateral: something the request did not ask for."""
+    part added or removed, is collateral: something the request did not ask for.
+
+    How parts are read: when both packages record where each part is (``part_ranges``, this project's packages), by
+    those ranges, and paired by their ids; otherwise as connected pieces (``parts``), paired by their bounds. A file
+    that batches touching parts into one primitive reads as fewer, larger pieces the second way."""
     from scipy.optimize import linear_sum_assignment
 
-    A, B = parts(before), parts(after)
+    ra, rb = part_ranges(before), part_ranges(after)
+    by_id = ra is not None and rb is not None
+    A, B = (parts_by_range(before, ra), parts_by_range(after, rb)) if by_id else (parts(before), parts(after))
     fa, fb = glb_facts(before), glb_facts(after)
     out: dict[str, Any] = {"parts": [len(A), len(B)], "triangles": [fa["triangles"], fb["triangles"]],
                            "bounds_m": [fa.get("bounds_m"), fb.get("bounds_m")], "size_m_xyz": [fa.get("size_m_xyz"), fb.get("size_m_xyz")],
-                           "tolerance_m": tol_m, "target_ratio": target_ratio}
+                           "tolerance_m": tol_m, "target_ratio": target_ratio,
+                           "read_by": "part ranges (manifest glb_part_ranges)" if by_id else "connected pieces"}
     if not A or not B:
         out.update(unchanged=0, changed=[], added=len(B), removed=len(A))
         return out
@@ -503,8 +544,12 @@ def package_diff(before: Path, after: Path, *, target_ratio: float | None = None
     ca = np.array([a["lo"] + a["hi"] for a in A])
     cb = np.array([b["lo"] + b["hi"] for b in B])
     cost = np.abs(ca[:, None, :] - cb[None, :, :]).max(axis=2)
-    ia, ib = linear_sum_assignment(cost)
-    paired = [(i, j) for i, j in zip(ia, ib) if cost[i, j] <= match_frac * scale]
+    if by_id:  # the same part in both files
+        jb = {b["part"]: j for j, b in enumerate(B)}
+        paired = [(i, jb[a["part"]]) for i, a in enumerate(A) if a["part"] in jb]
+    else:
+        ia, ib = linear_sum_assignment(cost)
+        paired = [(i, j) for i, j in zip(ia, ib) if cost[i, j] <= match_frac * scale]
     unchanged, changed = 0, []
     for i, j in paired:
         if cost[i, j] <= tol_m:
@@ -520,6 +565,9 @@ def package_diff(before: Path, after: Path, *, target_ratio: float | None = None
             rec["on_target"] = bool(abs(float(ratio.max()) - target_ratio) <= 0.1)
         changed.append(rec)
     out.update(unchanged=unchanged, changed=changed, added=len(B) - len(paired), removed=len(A) - len(paired))
+    if by_id:  # information, not a scorecard row: unchanged parts whose uvs (per triangle corner) are the same bytes
+        out["unchanged_uvs_identical"] = sum(1 for i, j in paired if cost[i, j] <= tol_m and A[i]["uv_sha256"] is not None
+                                             and A[i]["uv_sha256"] == B[j]["uv_sha256"])
     if target_ratio is not None:
         on = sum(1 for c in changed if c.get("on_target"))
         out["on_target"] = on
@@ -1160,7 +1208,9 @@ SCORE_ROWS: tuple[tuple[str, str, str, str, str], ...] = (
      "model calls, tokens.", "value"),
     ("change_scope", "Changing it", "The change left everything else alone",
      "package_diff of the two GLBs: parts resized by the asked ratio (within 0.1) against everything else that changed, "
-     "was added or removed; triangles and bounds before and after. Pass: at least one part on target and no collateral.",
+     "was added or removed; triangles and bounds before and after. This project's packages are read part by part from the "
+     "ranges their manifests record (glb_part_ranges), the other arms' files as connected pieces of each primitive. Pass: "
+     "at least one part on target and no collateral.",
      "check_change"),
     ("hand_steps", "Using it", "Hand steps left before it is in a level (Godot 4)",
      "1 step to bring it in (copy the files, or run an install command), plus one per item that fails: import errors; "

@@ -463,6 +463,11 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str, art: Any = None)
 # --------------------------------------------------------------------------- one texture set per shared atlas
 
 ATLAS_ROLES = ("albedo", "orm", "normal", "emissive")
+#: Where a package keeps what a re-bake of its atlas needs (an edit of the bare package, months later): each image-mapped
+#: material's maps as they were baked from. ORM and normal are kept too: they are not derived from the base colour in
+#: every run (the lookdev fixers rewrite all three after derivation, tactics/pyramid.py; supplied maps were never
+#: derived). No engine file references them and no install copies them (deliver copies levels and textures/).
+SOURCES_DIR = "sources"
 _FLAT_NORMAL = (128, 128, 255)
 
 
@@ -612,7 +617,9 @@ def _compose_atlas(stage: Usd.Stage, meshes: Sequence[MeshData], uvs: Sequence[U
     for path in order:
         p = params[path]
         members[p.name] = {"chart_texels_fraction": round(float((drawn == label_of[path]).sum()) / (W * H), 4),
-                           "maps": {}, "sources": {}, "flat": {}}
+                           "maps": {}, "sources": {}, "flat": {},
+                           # what the baked material's IR no longer says and a re-bake from sources/ needs
+                           "emissive_color": [float(c) for c in p.emissive_color], "normal_convention": p.normal_convention}
     written: dict[str, str] = {}
     encoding: dict[str, dict[str, Any]] = {}
     omitted: dict[str, str] = {}
@@ -641,8 +648,11 @@ def _compose_atlas(stage: Usd.Stage, meshes: Sequence[MeshData], uvs: Sequence[U
             if source == "map":
                 own = sd.MAPS.last_source_px.get((p.name, role), period)
                 rec["maps"][role] = {"source_px": own, "resample_ratio": round(own / period, 4)}
+                # what a re-bake needs: the map as it was baked from, shipped in sources/ (write_engine_package)
+                f = map_file(p, role)
+                rec["sources"][role] = {"file": f"{SOURCES_DIR}/{p.name}/{f.name}", "from": str(f)}
             else:
-                rec["sources"][role] = source
+                rec["sources"][role] = {"generator": source}  # made again from the geometry: nothing to keep
                 if "generated" not in rec and (gen := sd.generated_record(p.name)) is not None:
                     rec["generated"] = gen  # class, words read, wear, masks, markings placed (kernel/smart_source.py)
             on = drawn == label_of[path]
@@ -768,6 +778,71 @@ def merge_materials(materials: Mapping[str, GltfMaterial], name: str) -> tuple[d
     return {n: renamed.get(id(m), m) for n, m in out.items()}, merged
 
 
+def layout_from_package(pkg: str | Path) -> Any:
+    """The layout a package shipped (``fast_ops.KeepLayout``), read from the package alone, or None when it has no shared
+    atlas to keep (``texture_atlas`` not baked). Per part (its ``agy:nodeId``): the LOD0 points of the package USD in the
+    working stage's Z-up asset space (the root's zUpToYUp rotation, ``units.root_transform``, undone), its triangles and
+    its ``st``; the atlas size from ``texture_atlas.atlas_wh``."""
+    from antigravity3d.kernel.fast_ops import KeepLayout
+
+    pkg = Path(pkg)
+    man = json.loads((pkg / "manifest.json").read_text())
+    atlas = man.get("texture_atlas") or {}
+    if atlas.get("status") != "baked" or not atlas.get("atlas_wh"):
+        return None
+    stage = Usd.Stage.Open(str(pkg / str(man.get("usd") or f"{man['asset']}.usd")))
+    xc = UsdGeom.XformCache()
+    y_up = bool((man.get("units") or {}).get("root_transform"))
+    parts: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+    h = hashlib.sha256(json.dumps(atlas["atlas_wh"]).encode())
+    for prim in stage.Traverse():
+        if not prim.IsA(UsdGeom.Mesh) or UsdGeom.Imageable(prim).GetPurposeAttr().Get() == UsdGeom.Tokens.guide:
+            continue
+        node = prim
+        while node and not node.HasAttribute("agy:nodeId"):
+            node = node.GetParent()
+        st = UsdGeom.PrimvarsAPI(prim).GetPrimvar("st")
+        mesh = UsdGeom.Mesh(prim)
+        pts, idx = mesh.GetPointsAttr().Get(), mesh.GetFaceVertexIndicesAttr().Get()
+        if not node or not st or st.Get() is None or not pts or not idx:
+            continue
+        m = np.array(xc.GetLocalToWorldTransform(prim))
+        w = np.asarray(pts, np.float64) @ m[:3, :3] + m[3, :3]
+        if y_up:  # (x, y, z)_Y = (x, z, -y)_Z, so the working stage's point is (x, -z, y)
+            w = np.stack([w[:, 0], -w[:, 2], w[:, 1]], axis=1)
+        tri = np.asarray(idx, np.int64).reshape(-1, 3)
+        uv = np.asarray(st.Get(), np.float32)
+        nid = str(node.GetAttribute("agy:nodeId").Get())
+        parts[nid] = (w, tri, uv)
+        for a in (nid.encode(), np.round(w, 6).tobytes(), tri.tobytes(), uv.tobytes()):
+            h.update(a)
+    return KeepLayout(tuple(atlas["atlas_wh"]), parts, h.hexdigest()) if parts else None
+
+
+def _ship_sources(out: Path, record: dict[str, Any] | None) -> None:
+    """Copies each baked member's source maps into ``sources/<material>/`` and records their sha256 and bytes in the
+    member's ``sources`` (and the total in ``sources_bytes``). Not in the manifest's ``files``: they are not part of what
+    an engine loads, an install neither copies nor requires them, and a package without them is still a complete
+    package (only an edit of it needs them, and says so)."""
+    shutil.rmtree(out / SOURCES_DIR, ignore_errors=True)
+    if not record or record.get("status") != "baked":
+        return
+    total = 0
+    for rec in (record.get("members") or {}).values():
+        for src in (rec.get("sources") or {}).values():
+            origin = src.pop("from", None)
+            if origin is None:
+                continue
+            dest = out / src["file"]
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if not dest.exists():
+                shutil.copyfile(origin, dest)
+                total += dest.stat().st_size
+            src["sha256"], src["bytes"] = _sha256(dest), dest.stat().st_size
+    record["sources_dir"] = SOURCES_DIR
+    record["sources_bytes"] = total
+
+
 def _split_reasons(materials: Mapping[str, GltfMaterial]) -> list[dict[str, Any]]:
     """Shipped glTF materials that bind the same images but stay apart, and the per-material fields that keep them apart."""
     from dataclasses import fields as _fields
@@ -889,16 +964,22 @@ def _relativise_embedded_ir(stage: Usd.Stage, records: list[dict[str, Any]]) -> 
 
 def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict[str, list[str]],
                      materials: dict[str, GltfMaterial], suffix: str, image_uris: Mapping[str, str] | None = None,
-                     crease_deg: float | None = None) -> None:
+                     crease_deg: float | None = None) -> dict[str, list[list[Any]]]:
+    """Writes one level's GLB, one mesh per batch. Returns, per mesh, where each part's triangles are in its index
+    buffer: [[node id, first triangle, triangle count], ...] in order (the writer keeps the triangle order of the parts
+    it concatenates: ``gltf_writer.split_by_corner_normals`` renumbers vertices, never triangles)."""
     items = []
     bound = []
     names = []
+    ranges: dict[str, list[list[Any]]] = {}
     for name, nodes in batches.items():
         group = [parts[node] for node in nodes if len(parts[node].triangles)]  # a part absent at this LOD is omitted
         if not group:  # every member absent: no node, one draw call fewer
             continue
         names.append(name)
         nodes = [node for node in nodes if len(parts[node].triangles)]
+        firsts = np.cumsum([0] + [len(p.triangles) for p in group[:-1]])
+        ranges[name + suffix] = [[node, int(f), int(len(p.triangles))] for node, f, p in zip(nodes, firsts, group)]
         if len(group) == 1:
             items.append(group[0])
         else:
@@ -908,6 +989,7 @@ def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict
                              np.vstack([p.uvs for p in group]), 0., 0.))
         bound.append(materials.get(nodes[0]))
     write_gltf(path, items, [name + suffix for name in names], materials=bound, image_uris=image_uris, crease_deg=crease_deg)
+    return ranges
 
 
 def _glb_image_records(path: Path, texture_of: Mapping[str, str], hashes: Mapping[str, str]) -> list[dict[str, Any]]:
@@ -1291,6 +1373,10 @@ def write_engine_package(
             atlas_record = (_compose_atlas(stage, meshes, uvs, Path(atlas_tmp.name), asset_name, budget.texel_density_px_per_m, jpeg_q)
                             if atlas_tmp is not None else None)
         textures, unresolved = _package_textures(stage, out, engine, art)  # copies the baked files into textures/
+        _ship_sources(out, atlas_record)
+        laid = next((u.layout for u in uvs if u.shared_atlas and u.layout), None)
+        if atlas_record is not None and laid:  # an edit's export: whether the shipped layout was kept (fast_ops._pack_kept)
+            atlas_record["layout"] = {"result": laid.split(":", 1)[0], "detail": laid}
     finally:
         if atlas_tmp is not None:
             atlas_tmp.cleanup()
@@ -1361,7 +1447,7 @@ def write_engine_package(
     texture_of: dict[str, str] = {}
     for rel, digest in texture_hashes.items():
         texture_of.setdefault(digest, rel)  # identical files: the first one, in manifest order
-    _write_glb_level(out / f"{asset_name}.glb", ship, batches, materials, "", crease_deg=crease)
+    part_ranges = _write_glb_level(out / f"{asset_name}.glb", ship, batches, materials, "", crease_deg=crease)
     files.append(f"{asset_name}.glb")
     glb_levels = levels
     # A material image whose bytes no package file holds (a map transcoded to PNG because glTF allows only PNG and
@@ -1454,6 +1540,9 @@ def write_engine_package(
         "lod_structure": f"variantSet '{LOD_SET}' on /{asset.GetName()}: LOD0 (base) .. LOD{len(lod_tris) - 1}" if len(lod_tris) > 1 else None,
         "draw_calls": len(batches),
         "glb_batches": batches,
+        # where each part is in the main GLB: per mesh, [part id, first triangle, triangle count] in its index buffer, so a
+        # reader of a one-primitive file can still tell the parts apart (benchmarks/compare_eval.package_diff)
+        "glb_part_ranges": {f"{asset_name}.glb": part_ranges},
         "contact_faces": _contact_record(budget, uvs, lods, removed, lod_tris),
         "glb_bounds_m": gltf_world_bounds((mesh.points for mesh in meshes), z_up=True),
         "texel_density": {

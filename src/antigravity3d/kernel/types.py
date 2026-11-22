@@ -28,6 +28,9 @@ class MeshData:
     # detail_px_per_m): a shared atlas is laid out no denser than its most detailed material needs. Not part of any
     # cache key: it follows from the materials, which the keys hash.
     material: Any = None
+    # The layout the asset shipped with (fast_ops.KeepLayout), when this design is an edit of a shipped package
+    # (StageManager.keep_layout): the export keeps every chart that is still there unchanged where it was.
+    keep_layout: Any = None
 
 def gltf_world_bounds(points: Iterable[np.ndarray], *, z_up: bool) -> list[list[float]]:
     """Tight world-space bounds of visual vertices in glTF's right-handed Y-up metres."""

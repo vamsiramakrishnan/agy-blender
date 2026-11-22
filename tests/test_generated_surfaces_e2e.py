@@ -54,7 +54,7 @@ def test_every_image_less_material_ships_a_generated_surface(manifest) -> None:
     ta = manifest["texture_atlas"]
     assert ta["status"] == "baked" and {"albedo", "orm", "normal"} <= set(ta["files"])
     for name, m in ta["members"].items():
-        assert m["sources"] == {"albedo": "smart", "orm": "smart", "normal": "smart"}, (name, m)
+        assert m["sources"] == {r: {"generator": "smart"} for r in ("albedo", "orm", "normal")}, (name, m)
         g = m["generated"]
         assert g["class"] in ("painted_metal", "painted_wood", "bare_metal", "cast_metal", "brass", "rubber", "polymer",
                               "wood", "fabric", "glass", "plain"), g
@@ -98,7 +98,7 @@ def test_an_edit_re_bakes_the_generated_atlas(run, tmp_path) -> None:
     after = _package(out)
     assert after != before
     m = json.loads((after / "manifest.json").read_text())
-    assert all(v["sources"].get("albedo") == "smart" for v in m["texture_atlas"]["members"].values())
+    assert all(v["sources"].get("albedo") == {"generator": "smart"} for v in m["texture_atlas"]["members"].values())
     assert not [i for i in validate_package(after) if i.severity == "critical"]
 
 

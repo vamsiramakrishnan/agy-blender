@@ -137,6 +137,9 @@ class StageManager:
         self._export_layout: Sequence[UVResult] | None = None
         self._export_crease = CREASE_DEG  # shading crease of the authored export normals (see author_uvs)
         self._overlay: Sdf.Layer | None = None  # UV overlay, see module docstring
+        # the layout of the package this design was opened from to be edited (fast_ops.KeepLayout), handed to every mesh
+        # the export reads so its unwrap keeps what did not change; None for a new design
+        self.keep_layout = None
 
     # --- construction ----------------------------------------------------------
 
@@ -484,6 +487,7 @@ class StageManager:
                 collider_points=proxy,
                 opaque=None if opaque is None else (mat.GetPrim().GetName() if mat else None) in opaque,
                 material=params.get(mat.GetPath()) if mat else None,
+                keep_layout=self.keep_layout,
             )
             out.append(_MeshRead(prim, md, local, m[:3, :3]))
         return out

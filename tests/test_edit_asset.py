@@ -80,7 +80,34 @@ def _write(tmp_path: Path, patch: dict) -> str:
 # --------------------------------------------------------------------------- a patch, no model
 
 
+def untouched_texels(before: Path, after: Path) -> tuple[int, int, int, int]:
+    """(parts whose shipped geometry is the same, of them at the same texel position, texels under them, of them
+    identical) in the two packages' baked atlases. A position is the uv in texels from the atlas's bottom-left corner (the
+    corner the bake's map repeat is anchored to): the same uvs in the same atlas, rescaled uvs in an atlas that grew."""
+    import numpy as np
+    from PIL import Image
+
+    from antigravity3d.kernel.package import layout_from_package
+    from antigravity3d.kernel.surface_detail import rasterise
+
+    la, lb = layout_from_package(before), layout_from_package(after)
+    (wa, ha), (wb, hb) = la.size, lb.size
+    same = [n for n in la.parts if n in lb.parts and np.array_equal(la.parts[n][1], lb.parts[n][1])
+            and np.allclose(la.parts[n][0], lb.parts[n][0], atol=1e-6)]
+    placed = [n for n in same if np.allclose(la.parts[n][2].astype(np.float64) * [wa, ha], lb.parts[n][2].astype(np.float64) * [wb, hb],
+                                             atol=1e-3) and (la.size != lb.size or np.array_equal(la.parts[n][2], lb.parts[n][2]))]
+    files = [json.loads((p / "manifest.json").read_text())["texture_atlas"]["files"]["albedo"] for p in (before, after)]
+    ia, ib = (np.asarray(Image.open(p / f).convert("RGB")) for p, f in zip((before, after), files))
+    _, drawn, _, _ = rasterise(la.size, [(1, la.parts[n][2], la.parts[n][1]) for n in placed])
+    rows, cols = np.nonzero(drawn)
+    eq = (ia[rows, cols] == ib[hb - ha + rows, cols]).all(axis=1)  # the same texel, counted from the bottom row
+    return len(same), len(placed), int(len(eq)), int(eq.sum())
+
+
 def test_a_patch_changes_the_two_parts_and_nothing_else(run_copy, tmp_path, capsys) -> None:
+    """The textures/ files themselves cannot stay the same bytes: one baked atlas holds every material, and the two parts
+    the patch enlarges take more of it. What stays is what a developer sees: every part whose shipped geometry is
+    unchanged keeps its uvs bit for bit and the atlas texels under it, and each material's sources/ maps are the same."""
     import compare_eval as ev
     from antigravity3d.kernel.validator import validate_package
 
@@ -98,8 +125,12 @@ def test_a_patch_changes_the_two_parts_and_nothing_else(run_copy, tmp_path, caps
     # the same materials, the same source maps (by sha256), and with per-material maps the same shipped files
     assert _sources(run_copy) == sources_before and sources_before
     mb, ma = (json.loads((p / "manifest.json").read_text()) for p in (before, after))
-    assert {f: v["sha256"] for f, v in mb["file_hashes"].items() if f.startswith("textures/")} == \
-           {f: v["sha256"] for f, v in ma["file_hashes"].items() if f.startswith("textures/")}
+    srcs = [{(m, r): v["sha256"] for m, rec in man["texture_atlas"]["members"].items() for r, v in rec["sources"].items() if "sha256" in v}
+            for man in (mb, ma)]
+    assert srcs[0] == srcs[1] and srcs[0]
+    n_same, n_uv, n_tex, n_tex_same = untouched_texels(before, after)
+    assert n_same >= d["parts"][0] - 2 - 2 and n_uv == n_same and n_tex_same == n_tex > 0, (n_same, n_uv, n_tex, n_tex_same)
+    assert ma["texture_atlas"]["layout"]["result"] == "kept" and ma["edits"][0]["layout"]["result"] == "kept"
     assert not [i for i in validate_package(after) if i.severity == "critical"]
     (edit,) = ma["edits"]
     assert edit["number"] == 1 and edit["touched"] == ["bracket_0", "bracket_1"] and edit["by"] == "patch file"
@@ -128,7 +159,8 @@ def test_a_bare_package_is_edited_in_place_and_undone(first_run, tmp_path, capsy
     d = ev.package_diff(_glb(keep), _glb(pkg), target_ratio=1.3)
     assert d["on_target"] == 2 and d["collateral"] == 0
     assert (tmp_path / "Crate.history" / "001" / "package" / "manifest.json").is_file()
-    assert "the package's per-material maps" in capsys.readouterr().out
+    # the package alone carries what its atlas was baked from (sources/), so the run folder is not needed
+    assert "the package's sources/ (the maps its atlas was baked from)" in capsys.readouterr().out
     assert cli.main(["edit", str(pkg), "--undo"]) == 0
     assert {p.relative_to(pkg): p.read_bytes() for p in pkg.rglob("*") if p.is_file()} == before
 
