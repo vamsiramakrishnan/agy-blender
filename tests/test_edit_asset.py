@@ -226,6 +226,11 @@ def test_an_instruction_is_carried_out_by_one_patch_and_checked(key, run_copy) -
     d = ev.package_diff(_glb(before), _glb(_package(run_copy)), target_ratio=1.3)
     assert d["on_target"] == 2 and d["collateral"] == 0
     assert r.calls == {"author": 1, "judge": 3}  # the before and after reviews and the edit check
+    # the uncalibrated preview judge steers and clears nothing, as in agy3d prop: its LOD answer does not fail the gates
+    # (live 2026-11-22 every kept edit exited 1 on "decision source was uncalibrated" from lod_pop_vision)
+    assert r.preview_gates_ok, [s for s in r.pyramid["steps"] if s["status"] == "failed"]
+    names = [s["name"] for s in r.pyramid["steps"]]
+    assert names.index("usd_validate") < names.index("lod_pop") < names.index("lod_pop_vision") < names.index("export_glb")
     prov = json.loads((_package(run_copy) / "manifest.json").read_text())["provenance"]
     assert prov["sources"]["edit:1"]["kind"] == "model_authored" and prov["sources"]["edit:1"]["operation"] == "edit"
 
@@ -311,3 +316,45 @@ async def test_in_an_edit_session_separation_moves_only_what_the_edit_changed(tm
         assert after == plate and "parts this edit does not change: plate" in r
     else:
         assert after != plate  # the old behaviour, for a new asset
+
+
+# --------------------------------------------------------------------------- a global edit (live 2026-11-22: refused)
+
+
+def test_the_check_request_does_not_grow_with_the_parts_an_edit_touches() -> None:
+    """'make the whole crate 20 % taller' touched all 40 parts of the live crate; the per-part table made the check
+    request 16,601 estimated tokens against the judge's bound of 16,000 and the command ended in a traceback."""
+    import numpy as np
+
+    from antigravity3d.decisions.engine import LATENCY_KNEE_TOKENS, estimate_input_tokens
+
+    ids = [f"part_{i:03d}_with_a_long_expanded_id__mx__my" for i in range(400)]
+    b = {i: (np.zeros(3), np.ones(3) * (1 + k % 7)) for k, i in enumerate(ids)}
+    a = {i: (lo, hi * np.array([1, 1, 1.2])) for i, (lo, hi) in b.items()}
+    s = E.measure_scope(b, a, set(ids))
+    table = s.table()
+    assert len(table.encode()) <= E.EDIT_TABLE_MAX_BYTES and "400 part(s): size ratio 1.000x1.000x1.200" in table
+    views = tuple((v, f"https://x/{v}") for v in ("front", "right", "top", "persp", "rear"))
+    blocks = E.edit_check_blocks(views, views, "make the whole crate 20 % taller " * 20, s)
+    assert estimate_input_tokens(blocks, E.edit_questions()) < LATENCY_KNEE_TOKENS
+    few = E.measure_scope(b, {**b, ids[0]: a[ids[0]]}, {ids[0]})
+    assert few.table().startswith(f"{ids[0]}: size 1.000x1.000x1.000 -> 1.000x1.000x1.200")  # few parts: one row each
+
+
+def test_a_check_the_judge_refuses_ends_the_edit_unchanged_with_the_reason(key, run_copy, monkeypatch) -> None:
+    from antigravity3d.decisions.engine import DecisionControlPlane
+    from antigravity3d.decisions.models import DecisionBudgetError
+
+    real = DecisionControlPlane.evaluate
+
+    async def evaluate(self, blocks, questions, **kw):
+        if kw.get("tag") == "edit_check":
+            raise DecisionBudgetError("edit_check: estimated 16601 input tokens, must be below 16000")
+        return await real(self, blocks, questions, **kw)
+
+    monkeypatch.setattr(DecisionControlPlane, "evaluate", evaluate)
+    before = _package(run_copy)
+    key(overrides=DONE, patches={"author:improve": [BIG_BRACKETS]})
+    r = _edit(run_copy, "make the whole crate 20 % taller")
+    assert not r.kept and r.why.startswith("the judge could not be asked about the edit, so it is not made") and "16601" in r.why
+    assert _package(run_copy) == before and not (run_copy / "history" / "001").exists()

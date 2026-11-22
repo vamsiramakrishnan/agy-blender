@@ -34,6 +34,7 @@ authoring call as a source of the files made from the design.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import shutil
@@ -61,6 +62,12 @@ EDIT_ATTEMPTS = 2
 # A part whose bounding box corners moved by more than this changed (the comparison harness's own tolerance is 1 mm;
 # a part the edit did not touch must not move at all, so this only absorbs float noise of the same computation).
 UNCHANGED_TOL_M = 1e-6
+# The measured-change table of the edit check, bounded so the request never grows with the parts an edit touches: the
+# check is ten views at the high image setting (10 x 1,120 estimated tokens), the questions (~1,300 bytes) and the
+# quoted instruction; with this table it stays under the judge's admission bound (decisions.engine.LATENCY_KNEE_TOKENS,
+# 16,000 estimated). Up to EDIT_TABLE_PART_ROWS changed parts are listed one per row, more are grouped by their ratio.
+EDIT_TABLE_MAX_BYTES = 1_500
+EDIT_TABLE_PART_ROWS = 12
 HISTORY = "history"
 EDIT_RECORD = "edit.json"
 
@@ -349,15 +356,39 @@ class Scope:
     removed: list[str]
     outside: list[str]  # parts the patch did not touch that changed anyway: must be empty
 
-    def table(self, limit: int = 40) -> str:
-        """The measured change, for the judge and the record."""
-        rows = [f"{nid}: size {_fmt(c['size_before'])} -> {_fmt(c['size_after'])} (ratio {_fmt(c['ratio'])}), centre moved "
-                f"{c['centre_moved_m']:.3f} m" for nid, c in sorted(self.changed.items())[:limit]]
-        if len(self.changed) > limit:
-            rows.append(f"and {len(self.changed) - limit} more changed part(s)")
+    def table(self, max_bytes: int = None) -> str:  # type: ignore[assignment]
+        """The measured change, for the judge, in at most ``max_bytes`` (default ``EDIT_TABLE_MAX_BYTES``): one row per
+        part when few changed, else one row per group of parts changed alike ("40 parts: size ratio 1.00x1.00x1.20,
+        centres moved 0.000-0.112 m: body, lid, ..."), part ids cut to fit. It never grows with the number of parts: a
+        global edit that touched all 40 parts of a crate made a 4.6 kB table and the check request was refused
+        (live 2026-11-22, "make the whole crate 20 % taller")."""
+        cap = EDIT_TABLE_MAX_BYTES if max_bytes is None else max_bytes
+        if len(self.changed) <= EDIT_TABLE_PART_ROWS:
+            rows = [f"{nid}: size {_fmt(c['size_before'])} -> {_fmt(c['size_after'])} (ratio {_fmt(c['ratio'])}), centre moved "
+                    f"{c['centre_moved_m']:.3f} m" for nid, c in sorted(self.changed.items())]
+        else:
+            groups: dict[tuple[str, bool], list[str]] = {}
+            for nid, c in sorted(self.changed.items()):
+                groups.setdefault((_fmt([round(r, 2) for r in c["ratio"]]), c["centre_moved_m"] > 0.001), []).append(nid)
+            rows = []
+            for (ratio, _), ids in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+                moved = [self.changed[i]["centre_moved_m"] for i in ids]
+                rows.append(f"{len(ids)} part(s): size ratio {ratio}, centres moved {min(moved):.3f}-{max(moved):.3f} m: "
+                            + ", ".join(ids))
         rows += [f"added: {', '.join(self.added)}"] if self.added else []
         rows += [f"removed: {', '.join(self.removed)}"] if self.removed else []
-        return "\n".join(rows) or "no part changed"
+        out: list[str] = []
+        used = 0
+        for row in rows or ["no part changed"]:
+            room = cap - used - 1
+            if room < 40:
+                out.append(f"(and {len(rows) - len(out)} more row(s))")
+                break
+            if len(row.encode()) > room:
+                row = row.encode()[:room - 3].decode(errors="ignore").rsplit(",", 1)[0] + ", ..."
+            out.append(row)
+            used += len(row.encode()) + 1
+        return "\n".join(out)
 
     def to_dict(self) -> dict[str, Any]:
         return {"unchanged": self.unchanged, "changed": self.changed, "added": self.added, "removed": self.removed,
@@ -412,7 +443,7 @@ def edit_questions() -> dict[str, Any]:
 
 
 def edit_check_blocks(before: tuple[tuple[str, str], ...], after: tuple[tuple[str, str], ...], instruction: str,
-                      scope: Scope) -> list[dict[str, Any]]:
+                      scope: Scope, table_bytes: int | None = None) -> list[dict[str, Any]]:
     """The edit check's input: the before views, the after views (the same cameras), the instruction quoted as data and
     the measured change (``Scope.table``), so the judge weighs what was measured as well as what it sees."""
     from antigravity3d.decisions.engine import BRIEF_CLOSE, BRIEF_OPEN, VIEW_RESOLUTION, clean_brief, image_block, text_block
@@ -423,7 +454,8 @@ def edit_check_blocks(before: tuple[tuple[str, str], ...], after: tuple[tuple[st
     blocks.append(text_block(f"Images {nb + 1}-{nb + len(after)}: the same views of the asset AFTER the change."))
     blocks += [image_block(uri, VIEW_RESOLUTION) for _, uri in after]
     blocks.append(text_block(f"{INSTRUCTION_INTRO}{BRIEF_OPEN}{clean_brief(instruction, 2000)}{BRIEF_CLOSE}"))
-    blocks.append(text_block("Measured on the geometry, the parts that changed (size x by y by z in metres):\n" + scope.table()))
+    blocks.append(text_block("Measured on the geometry, the parts that changed (size x by y by z in metres):\n"
+                             + scope.table(table_bytes)))
     return blocks
 
 
@@ -535,6 +567,7 @@ async def edit_asset(target: Path | str, instruction: str, *, plane: Any, author
     then carries no verdict). ``governor``: the edit's ledger. ``uploader``: how renders reach the judge and the author
     (default the forge's)."""
     from antigravity3d.decisions.compose import Thresholds
+    from antigravity3d.decisions.engine import LATENCY_KNEE_TOKENS, estimate_input_tokens
     from antigravity3d.kernel.fast_ops import tier1_qa
     from antigravity3d.kernel.usd_stage import StageManager
     from antigravity3d.tactics.common import uploader_for
@@ -547,6 +580,10 @@ async def edit_asset(target: Path | str, instruction: str, *, plane: Any, author
         raise EditError("an edit needs an author that reads an instruction (a live run) or a patch file (--patch)")
     shipped = load_shipped(target)
     th = thresholds or Thresholds()
+    if getattr(plane, "preview", False):
+        # A preview plane's verdicts steer and never clear anything, as in agy3d prop (PropToEngineDAG): without this the
+        # uncalibrated LOD-pop answer failed every live edit's preview gates (exit 1 with the edit kept, 2026-11-22).
+        th = th.for_uncalibrated_judge()
     up = uploader or uploader_for(forge)
     calls = {"author": 0, "judge": 0}
     res = EditResult(False, "", str(Path(target)), instruction, previous_package=str(shipped.package))
@@ -647,23 +684,55 @@ async def edit_asset(target: Path | str, instruction: str, *, plane: Any, author
             t1_1 = tier1_qa(meshes1, shipped.budget)
             scope = measure_scope(bounds0, part_bounds(meshes1), touched)
             att.scope = scope.to_dict()
+            # What the geometry alone shows decides first: a patch that changed nothing, moved a part it does not name,
+            # or made a part float or a new critical issue is undone without asking the judge anything.
+            keep, why = judge_edit(scope, t1_0, t1_1, None, None, None, th)
+            if not keep:
+                att.why, att.seconds = why, round(time.perf_counter() - t0, 1)
+                sm.rollback(tx)
+                previous = f"your patch had {len(candidate.ops)} op(s): {', '.join(att.ops[:12])}; it was undone because {why}"[:900]
+                say(f"edit attempt {n} undone: {why}")
+                if patch is not None:
+                    break
+                continue
             after_task = asyncio.ensure_future(review(meshes1))
+            # The package of this design is made while the judge is asked about it (pass C needs only the geometry until
+            # it writes the verdict into the package, which it then waits for: refine(judged=<awaitable>)); an edit the
+            # judge refuses discards it (its own folder, never reused).
+            pkg_task = asyncio.ensure_future(_package(shipped, sm, wd / f"attempt-{n}", after_task, instruction, att, author, plane,
+                                                      forge, governor, pool, cache, th, up))
             check = None
-            if patch is None and plane is not None:
-                after_views = await _plain_views(meshes1, up)
-                calls["judge"] += 1
-                r = await plane.evaluate(edit_check_blocks(before_views, after_views, instruction, scope), edit_questions(),
-                                         tag="edit_check", governor=governor)
-                check = {q: r.noul(q) for q in ("edit_done", "edit_collateral")}
-                att.done_p, att.collateral_p = check["edit_done"], check["edit_collateral"]
-            after_judged = await after_task
-            before_judged = await before_task
+            try:
+                if patch is None and plane is not None:
+                    after_views = await _plain_views(meshes1, up)
+                    calls["judge"] += 1
+                    blocks = edit_check_blocks(before_views, after_views, instruction, scope)
+                    if estimate_input_tokens(blocks, edit_questions()) >= LATENCY_KNEE_TOKENS:  # a long instruction: the table shrinks
+                        blocks = edit_check_blocks(before_views, after_views, instruction, scope, table_bytes=300)
+                    r = await plane.evaluate(blocks, edit_questions(), tag="edit_check", governor=governor)
+                    check = {q: r.noul(q) for q in ("edit_done", "edit_collateral")}
+                    att.done_p, att.collateral_p = check["edit_done"], check["edit_collateral"]
+                after_judged = await after_task
+                before_judged = await before_task
+            except Exception as e:
+                if not _judge_failed(e):
+                    raise
+                await _discard(pkg_task)
+                after_task.cancel()
+                sm.rollback(tx)
+                from antigravity3d import service_answer
+
+                att.why = f"the judge could not be asked about the edit, so it is not made: {service_answer.describe(e, 300)}"
+                att.seconds = round(time.perf_counter() - t0, 1)
+                res.why = att.why
+                return await _finish_unchanged(res, shipped, wd, t_start, calls, governor, before_task)
             keep, why = judge_edit(scope, t1_0, t1_1, getattr(before_judged, "result", None), getattr(after_judged, "result", None),
                                    check, th)
             att.seconds = round(time.perf_counter() - t0, 1)
             if keep:
                 att.kept, kept_tx, kept_attempt = True, tx, att
                 break
+            await _discard(pkg_task)
             att.why = why
             sm.rollback(tx)
             previous = f"your patch had {len(candidate.ops)} op(s): {', '.join(att.ops[:12])}; it was undone because {why}"[:900]
@@ -673,11 +742,31 @@ async def edit_asset(target: Path | str, instruction: str, *, plane: Any, author
         if kept_tx is None:
             res.why = res.attempts[-1].why if res.attempts else "no attempt was made"
             return await _finish_unchanged(res, shipped, wd, t_start, calls, governor, before_task)
-        return await _deliver(res, shipped, sm, wd, kept_attempt, after_judged, instruction, patch, author, plane, forge, governor,
-                              pool, cache, th, up, t_start, calls)
+        try:
+            pres, pkg = await pkg_task
+        except Exception as e:
+            if not _judge_failed(e):
+                raise
+            from antigravity3d import service_answer
+
+            sm.rollback(kept_tx)
+            res.why = f"the judge could not be asked while the edited asset was checked, so it is not made: {service_answer.describe(e, 300)}"
+            return await _finish_unchanged(res, shipped, wd, t_start, calls, governor, before_task)
+        return await _deliver(res, shipped, sm, wd, kept_attempt, pres, pkg, instruction, patch, author, plane, governor, t_start, calls)
     finally:
         if not before_task.done():
             before_task.cancel()
+
+
+def _judge_failed(exc: BaseException) -> bool:
+    """A judge call that could not be had (refused at admission, not served, unanswerable): an edit then ends as an
+    edit ends, the asset unchanged with the reason, never as a traceback."""
+    from antigravity3d.decisions.models import DecisionBudgetError, DecisionError
+    from antigravity3d.tactics.pyramid import _judge_failure
+
+    # DecisionBudgetError (a request over the judge's admission bound) is a ValueError, not a DecisionError: the live
+    # "20 % taller" edit ended with it as exit 2 and no output
+    return isinstance(exc, (DecisionError, DecisionBudgetError)) or _judge_failure(exc)
 
 
 async def _plain_views(meshes: list[Any], up: Any) -> tuple[tuple[str, str], ...]:
@@ -726,21 +815,35 @@ def _spend(governor: Any) -> dict[str, Any]:
             "images": getattr(governor, "images_used", 0)}
 
 
-async def _deliver(res: EditResult, shipped: Shipped, sm: Any, wd: Path, att: Attempt, judged: Any, instruction: str,
-                   patch: IRPatch | None, author: Any, plane: Any, forge: Any, governor: Any, pool: Any, cache: Any, th: Any,
-                   up: Any, t_start: float, calls: dict[str, int]) -> EditResult:
-    """Package the kept design (pass C as in any run), record the edit in the manifest, keep the replaced package in the
-    history, and make the new one current."""
+async def _package(shipped: Shipped, sm: Any, wd: Path, verdict: Any, instruction: str, att: Attempt, author: Any, plane: Any,
+                   forge: Any, governor: Any, pool: Any, cache: Any, th: Any, up: Any) -> tuple[Any, Path]:
+    """Pass C on the edited design, as in any run (UVs, levels of detail, collision, validation, the engine checks), in
+    its own folder; ``verdict``: the review of this design, an awaitable pass C waits for before it writes the package.
+    Returns (the pyramid result, the package folder)."""
     from antigravity3d.art_direction import load as load_art
-    from antigravity3d.kernel import provenance
     from antigravity3d.tactics.pyramid import refine
 
+    wd.mkdir(parents=True, exist_ok=True)
     art = load_art(shipped.art_direction) if shipped.art_direction else None
-    note = f"edit {_next_number(shipped.history_base)}: {instruction[:120]} ({len(att.ops)} op(s) on {len(att.scope['changed']) if att.scope else 0} part(s))"
+    note = (f"edit {_next_number(shipped.history_base)}: {instruction[:120]} ({len(att.ops)} op(s) on "
+            f"{len(att.scope['changed']) if att.scope else 0} part(s))")
     pres = await refine(sm, plane=plane, author=author, governor=governor, budget=shipped.budget, thresholds=th, forge=forge,
                         uploader=up, pool=pool, cache=cache, workdir=wd, asset_id=shipped.asset, prompt=shipped.brief or "",
-                        run_pass_a=False, run_pass_b=False, judged=judged, pass_a_note=note, art=art)
-    pkg = wd / "package"
+                        run_pass_a=False, run_pass_b=False, judged=verdict, pass_a_note=note, art=art)
+    return pres, wd / "package"
+
+
+async def _discard(task: Any) -> None:
+    """Stop the package of an edit that is not kept: its folder is its own and never read again."""
+    task.cancel()
+    with contextlib.suppress(BaseException):
+        await task
+
+
+async def _deliver(res: EditResult, shipped: Shipped, sm: Any, wd: Path, att: Attempt, pres: Any, pkg: Path, instruction: str,
+                   patch: IRPatch | None, author: Any, plane: Any, governor: Any, t_start: float, calls: dict[str, int]) -> EditResult:
+    """Record the edit in the kept design's package manifest, keep the replaced package in the history, and make the new
+    one current."""
     if "usd" not in pres.artifacts or "package" not in pres.objects:
         res.why = "the edited design could not be packaged: " + "; ".join(f"{n}: {d}" for n, d in pres.failed[:3])
         return await _finish_unchanged(res, shipped, wd, t_start, calls, governor, _done())

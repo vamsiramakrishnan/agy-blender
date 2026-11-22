@@ -1361,6 +1361,21 @@ class _Run:
             status, detail = "failed", f"{type(e).__name__}: {e}"
         return status, detail, t0
 
+    async def _timed(self, fn: Callable[[], Awaitable[tuple[str, str]]]) -> tuple[str, str, float]:
+        """A sub-step run as a task: (status, detail, its own milliseconds), recorded by the caller where it belongs."""
+        status, detail, t0 = await self.guarded_result(fn)
+        return status, detail, (time.perf_counter() - t0) * 1e3
+
+    async def await_verdict(self) -> None:
+        """A verdict that was still being asked when pass C started (an edit: ``refine(judged=<awaitable>)``) is adopted
+        before anything that carries it (the package's QA record) is written."""
+        pending, self.pending_verdict = getattr(self, "pending_verdict", None), None
+        if pending is None:
+            return
+        judged = await pending
+        self.adopt(judged, self.res.stopped.get("A", ""))
+        self.res.brief_unmet = brief_reasons(self.res.defects, self.res.scores, self.th)
+
     async def guarded(self, name: str, fn: Callable[[], Awaitable[tuple[str, str]]]) -> None:
         self.step(name, *await self.guarded_result(fn))
 
@@ -1427,10 +1442,6 @@ class _Run:
             crit = [i for i in m.issues if i.severity == "critical"]
             return ("failed", f"{len(crit)} critical: {crit[0].code} {crit[0].detail[:80]}") if crit else ("passed", f"write_engine_package ok; {len(m.issues)} non-critical message(s); files={len(m.files)}")
 
-        await self.guarded("usd_validate", usd)
-        if not any(x.name == "engine_compliance" for x in res.steps):
-            self.step("engine_compliance", "skipped", "package USD was not written")
-
         async def pop() -> tuple[str, str]:
             lods = merged_lods(bundle)
             if self.crease != CREASE_DEG:  # judge the levels with the normals they ship with (lod_diff.shipped_normals)
@@ -1441,8 +1452,6 @@ class _Run:
             rep = await asyncio.to_thread(lod_pop_report, lods)
             res.objects["lod_pop"] = rep
             return ("passed" if rep.ok(LOD_POP_THRESHOLDS) else "failed"), rep.one_line(LOD_POP_THRESHOLDS)
-
-        await self.guarded("lod_pop", pop)
 
         async def pop_vision() -> tuple[str, str]:
             fn = getattr(self.plane, "evaluate_lod_pop", None)
@@ -1457,7 +1466,22 @@ class _Run:
             judged = "" if r.result.calibrated else " (judged by the generative fallback, uncalibrated: not verification)"
             return ("passed", "all LOD pairs imperceptible" + judged) if lod_pop_ok(r, self.th) else ("failed", "; ".join(reasons[:3]))
 
-        await self.guarded("lod_pop_vision", pop_vision)
+        # The LOD pop check needs only the levels (the bundle), not the package files or a verdict: it is measured first
+        # and its vision question (a judge call, tens of seconds) runs while the package is written, the verdict an edit
+        # is waiting for arrives (``refine(judged=<awaitable>)``) and the engine checks run. Its steps are recorded where
+        # they always were, after the package's.
+        pop_res = await self.guarded_result(pop)
+        vision = asyncio.ensure_future(self._timed(pop_vision))
+        try:
+            await self.await_verdict()
+            await self.guarded("usd_validate", usd)
+        except BaseException:
+            vision.cancel()
+            raise
+        if not any(x.name == "engine_compliance" for x in res.steps):
+            self.step("engine_compliance", "skipped", "package USD was not written")
+        self.step("lod_pop", *pop_res)
+        vision_at = len(res.steps)
 
         async def glb() -> tuple[str, str]:
             p = pkg / f"{scene.asset_name}.glb"
@@ -1506,13 +1530,15 @@ class _Run:
         try:
             await self._engine_steps(validator_for(budget.target_engine))
         except BaseException:
-            for task in side.values():
+            for task in (*side.values(), vision):
                 task.cancel()  # pass C was cancelled or crashed: stop the verification with it, and let it clean up
-            await asyncio.wait(set(side.values()))
+            await asyncio.wait({*side.values(), vision})
             raise
         for name, task in side.items():
             status, detail, t0 = await task
             self.step(name, status, detail, t0)
+        status, detail, ms = await vision
+        res.steps.insert(vision_at, StepResult("lod_pop_vision", status, detail, ms))
 
         async def export_fbx() -> tuple[str, str]:
             """The package's FBX (fbx_package.export_package_fbx), re-imported in Blender and compared with its GLB files.
@@ -1645,6 +1671,9 @@ async def refine(
     try:
         if run_pass_a:
             await run.pass_a()
+        elif inspect.isawaitable(judged):  # still being asked: adopted in pass C before the package is written
+            run.pending_verdict = judged
+            run.res.stopped["A"] = pass_a_note or "pass A not run: the design was taken as given"
         else:
             run.adopt(judged, pass_a_note or "pass A not run: the design was taken as given")
         if run_pass_b and run.res.stopped.get("A") != "empty scene":
