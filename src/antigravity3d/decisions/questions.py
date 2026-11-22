@@ -68,18 +68,33 @@ def render(question: Question, labels: Mapping[str, str]) -> Question:
     return sub(question)
 
 
+def resubject(question: Question, subjects: Iterable[tuple[str, str]]) -> Question:
+    """``question`` with the sentence that says what its image is replaced: the first of ``subjects`` (old, new) whose
+    old text starts the instructions. Raises when none does, so a question cannot keep a sentence that would be false
+    of the images it is sent with (a "contact sheet" when the request carries separate views)."""
+    text = question["instructions"]
+    for old, new in subjects:
+        if text.startswith(old):
+            return {**question, "instructions": new + text[len(old):]}
+    raise ValueError(f"no known subject sentence starts {text[:80]!r}")
+
+
 def select(
-    bank: Mapping[str, QSpec], *, stage: str | None = None, have: Iterable[str] = (), labels: Mapping[str, str] | None = None
+    bank: Mapping[str, QSpec], *, stage: str | None = None, have: Iterable[str] = (), labels: Mapping[str, str] | None = None,
+    subjects: Iterable[tuple[str, str]] | None = None,
 ) -> tuple[dict[str, Question], tuple[str, ...]]:
-    """Wire-ready questions valid for this stage and available images, plus the skipped ids."""
+    """Wire-ready questions valid for this stage and available images, plus the skipped ids. ``subjects``: replace each
+    question's subject sentence before rendering (``resubject``); None leaves every question as written."""
     have = set(have)
+    subjects = None if subjects is None else tuple(subjects)
     asked: dict[str, Question] = {}
     skipped: list[str] = []
     for qid, spec in bank.items():
         if (stage is not None and stage not in spec.stages) or not set(spec.needs) <= have:
             skipped.append(qid)
             continue
-        asked[qid] = render(spec.question, labels or {})
+        q = spec.question if subjects is None else resubject(spec.question, subjects)
+        asked[qid] = render(q, labels or {})
     return asked, tuple(skipped)
 
 
@@ -94,6 +109,41 @@ GEO = ("blockout", "lookdev", "final")
 SURF = ("lookdev", "final")
 _SHEET = "{sheet} is a contact sheet of renders of one 3D asset from several angles. "
 _CAND = "{cand} shows one candidate image. "
+_CAND_SHEET = _CAND + "It is a contact sheet of renders of one 3D asset from several angles. "
+
+# ---------------------------------------------------------------------------------------------------
+# A design shown as separate views (tactics.judging: one image per view, decided 2026-11-22 from the live measurement in
+# r5/live/judge_truth.py) instead of one contact sheet. The same questions, with the sentence that says what the images
+# are replaced (``resubject``), so the sheet requests stay byte for byte what they were. Placeholders: {sheet} / {cand}
+# -> "Images 1 to 5", {n_views} -> "five".
+# ---------------------------------------------------------------------------------------------------
+VIEW_WORDS = {
+    "front": "front (orthographic)", "back": "back (orthographic)", "left": "left side (orthographic)",
+    "right": "right side (orthographic)", "top": "top (orthographic)",
+    "persp": "perspective from above the front left corner", "persp_rear": "perspective from above the back right corner",
+}
+_NUMBER_WORDS = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine"}
+# The subject sentence does not list the views: every image is captioned with its view in the input, and the sentence
+# is repeated in every question (a list there would add ~200 bytes to each of 14 blockout questions, which the admission
+# estimate counts as tokens).
+VIEWS_SUBJECT = "{sheet} are {n_views} separate renders of one 3D asset from different angles, one view each. "
+VIEWS_CAND = "{cand} show one candidate: {n_views} separate renders of one 3D asset from different angles, one view each. "
+SHEET_SUBJECTS = ((_SHEET, VIEWS_SUBJECT),)
+CAND_SUBJECTS = ((_CAND_SHEET, VIEWS_CAND), (_CAND, VIEWS_CAND))  # longest first
+
+
+def view_list(names: Iterable[str]) -> str:
+    return ", ".join(VIEW_WORDS.get(n, n) for n in names)
+
+
+def views_labels(first: int, names: Iterable[str]) -> dict[str, str]:
+    """The placeholder values for views that are Images ``first``.. of a request, in the order of ``names``."""
+    names = list(names)
+    if len(names) < 2:
+        raise ValueError("separate views need at least two images")
+    span = f"Images {first} to {first + len(names) - 1}"
+    return {"span": span, "n_views": _NUMBER_WORDS.get(len(names), str(len(names))), "view_list": view_list(names),
+            "view_names": ", ".join(names)}
 
 
 def _d(qid: str, text: str, stages: tuple[str, ...] = SURF, needs: tuple[str, ...] = (), prefix: str = _SHEET,
@@ -235,7 +285,7 @@ BON_QUESTIONS: dict[str, dict[str, QSpec]] = {
             _LV("No match.", "Poor match.", "Partial match.", "Close match.", "Near-exact match.")), needs=("ctx",)),
         QSpec("defect_floating", noul(_CAND + "Does any part of the object visibly float or hover detached from where it should connect?")),
         QSpec("defect_clipping", noul(_CAND + "Do any parts of the object visibly intersect or interpenetrate where they should not?")),
-        *_brief_specs(_CAND + "It is a contact sheet of renders of one 3D asset from several angles. "),
+        *_brief_specs(_CAND_SHEET),
     ),
     "pbr": _bank(
         QSpec("defect_baked_light", noul(_CAND + "Does this texture contain baked-in directional lighting, gradients or cast shadows?")),
@@ -265,6 +315,18 @@ SHEET_POLICY_QUESTIONS: dict[str, Question] = {
                                 "Apart from those labels, does {img} contain legible text, a signature or a watermark?"),
 }
 SHEET_KINDS = frozenset({"geometry"})  # best-of-N kinds whose candidate image is a labelled contact sheet
+# A candidate shown as separate views: {img} -> "Images 1 to 5", {view_names} -> the labels as drawn ("front, right, top,
+# persp, persp_rear"); the renderer draws its view's name in the top-left corner of each image, and (when the views are
+# marked) numbered badges on the parts. Both are named and set aside, as on a sheet.
+VIEWS_POLICY_QUESTIONS: dict[str, Question] = {
+    "policy_trademark_logo": noul("Do any of {img} show a recognisable trademarked logo or brand mark?"),
+    "policy_legible_text": noul("Each of {img} has a small label in its top-left corner naming its view ({view_names}), drawn by the "
+                                "renderer{badges}. Apart from those labels and any badges, do any of {img} contain legible text, a "
+                                "signature or a watermark?"),
+    "policy_real_person": noul("Do any of {img} depict the likeness of a real, identifiable person?"),
+    "policy_unsafe_content": noul("Do any of {img} contain unsafe content such as graphic violence, sexual content or hate symbols?"),
+}
+VIEWS_BADGES_NOTE = ", and numbered badges of the form [NN] that identify the parts"
 
 
 def policy_questions(kind: str | None = None) -> dict[str, Question]:
@@ -364,9 +426,14 @@ MARKED_DEFECT_PHRASES: dict[str, str] = {
 }
 
 
-def part_defect_question(defect: str, badge: int, part_name: str | None = None) -> Question:
+# The same, for separate marked views (tactics.judging author views): {sheet} -> "Images 1 to 5".
+MARKED_VIEWS_NOTE = (VIEWS_SUBJECT + "Each part of the asset carries a numbered badge of the form [NN] that identifies it, with the "
+                     "same number in every view. ")
+
+
+def part_defect_question(defect: str, badge: int, part_name: str | None = None, note: str = MARKED_SHEET_NOTE) -> Question:
     """Atomic, self-contained noul: 'Does the part labelled [07] (named 'wheel_l') visibly float ...?'."""
     if defect not in MARKED_DEFECT_PHRASES:
         raise ValueError(f"no per-part phrasing for {defect!r}; known: {sorted(MARKED_DEFECT_PHRASES)}")
     who = f"the part labelled [{badge:02d}]" + (f" (named '{part_name}')" if part_name else "")
-    return noul(f"{MARKED_SHEET_NOTE}Does {who} {MARKED_DEFECT_PHRASES[defect]}?")
+    return noul(f"{note}Does {who} {MARKED_DEFECT_PHRASES[defect]}?")

@@ -20,6 +20,7 @@ from google.genai._gaos.types.interactions import usage as _usage
 
 RESOLUTIONS = {"low", "medium", "high", "ultra_high"}
 _IMG_REF = re.compile(r"\bImage (\d+)\b")
+_IMG_SPAN = re.compile(r"\bImages (\d+) to (\d+)\b")  # a design given as separate views (engine.view_blocks)
 _BLOCK_KEYS = {"text": {"type", "text"}, "image": {"type", "uri", "data", "mime_type", "resolution"}}
 
 
@@ -85,6 +86,11 @@ def validate_request(model: str, input: Any, questions: dict[str, Any]) -> int:
             for m in _IMG_REF.finditer(s):
                 if int(m.group(1)) > n_images:
                     raise FakeWireError(f"{qid}: references Image {m.group(1)} but input has {n_images} image(s)")
+            for m in _IMG_SPAN.finditer(s):
+                if not 1 <= int(m.group(1)) < int(m.group(2)) <= n_images:
+                    raise FakeWireError(f"{qid}: references Images {m.group(1)} to {m.group(2)} but input has {n_images} image(s)")
+            if "contact sheet" in s and _IMG_SPAN.search(s):
+                raise FakeWireError(f"{qid}: calls separate views a contact sheet")
     CreateDecisionRequest.model_validate({"model": model, "input": input, "questions": questions})
     return n_images
 

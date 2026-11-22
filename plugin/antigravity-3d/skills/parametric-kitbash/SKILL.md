@@ -87,8 +87,9 @@ not a handful of blocks.
 The command runs this loop with the model that writes the design, and it
 differs from a native session in what that model sees and when it stops:
 
-- The author is sent four marked views of its design (each its own image, 512
-  px on a side) beside the judge's findings, so it improves what it can see.
+- The author is sent five marked views of its design (front, right, top and
+  two opposite perspectives, each its own image, 512 px on a side) beside the
+  judge's findings, so it improves what it can see.
 - A design that passes its checks but scores below the target on how fully it
   depicts the request gets improvement rounds, up to a number set by the spend
   plan; a repair is for a flagged defect, an improvement for a score. One rule

@@ -74,13 +74,16 @@ DEFAULT_MAX_CONCURRENCY = 8
 # 512 px sheet) 16 to 18 s; texture ranking (8 questions, one albedo) 176 s once and no answer within 60 s (twice) and
 # 240 s (once), with the same result on a 512 px copy of the image, so its size is not the cause. A trivial question on
 # the same image took 5 s. The 60 s this used to be was never measured; it discarded answers the service was still
-# working on, and each discarded attempt keeps its whole reservation.
+# working on, and each discarded attempt keeps its whole reservation. A design judged on five separate 512 px views at
+# "high" (tactics.judging; 7,445 input tokens, ~10 questions), 36 live calls on 2026-11-22: 14 to 46 s, mean 23 s; four
+# views, 36 calls: 13 to 61 s once a 194 s outlier is set aside (503 retries included). Well inside this deadline.
 DEFAULT_TIMEOUT_S = 600.0
 _RESOLUTION_LEVEL = {"low": "MEDIA_RESOLUTION_LOW", "medium": "MEDIA_RESOLUTION_MEDIUM", "high": "MEDIA_RESOLUTION_HIGH",
                      "ultra_high": "MEDIA_RESOLUTION_ULTRA_HIGH"}
 # Input tokens one image bills at each per-image resolution. Measured on gemini-4-neon on 2026-11-21: 1,120 with no
 # resolution given and 280 at "low"; "medium" and "ultra_high" are the documented figures. Only used to bound a count
-# (see worst_case_tokens), never to bill.
+# (see worst_case_tokens), never to bill. "high" bills the default, so a request of five high views (tactics.judging) is
+# counted exactly by count_tokens without resolutions: measured 7,445 input tokens live against 5 x 1,120 + its text.
 IMAGE_TOKENS_DEFAULT = 1120
 IMAGE_TOKENS_AT = {"low": 280, "medium": 560, "high": 1120, "ultra_high": 2240}
 _THINKING_LADDER = ("MINIMAL", "LOW", "MEDIUM", "HIGH")  # stepped up when a model rejects the requested level

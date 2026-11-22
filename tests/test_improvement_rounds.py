@@ -122,10 +122,11 @@ def test_a_round_that_raises_the_score_is_kept_and_rounds_stop_at_the_target(key
     assert second.improve == 1 and not second.rolled_back and second.progress > first.progress
     assert res.scores["score_brief_depiction"] == pytest.approx(3.75)  # what ships is the kept round's verdict
     assert "target met (depiction 3.75 >= 3.5)" in res.stopped["A"] and res.stopped["A"].startswith("converged in 1 round(s)")
-    assert _step(res, "improve_A1").status == "passed" and "kept (rose by the judge's noise band (0.25) or more: score_brief_depiction 2.88->3.75)" in _step(res, "improve_A1").detail
+    assert _step(res, "improve_A1").status == "passed" and f"kept (rose by the judge's noise band ({P.IMPROVE_NOISE_BAND}) or more: score_brief_depiction 2.88->3.75)" in _step(res, "improve_A1").detail
     (call,) = api.authoring("author:improve")
-    # the request shows the design: four marked views, each its own image, the legend, every score and the brief
-    assert call["images"] == 4 and IMPROVE_HEAD in call["text"]
+    # the request shows the design: the judge's five views with badges (tactics.judging), each its own image, the
+    # legend, every score and the brief
+    assert call["images"] == 5 and IMPROVE_HEAD in call["text"]
     assert "Legend:\n[01] body" in call["text"] and "score_brief_depiction 2.88" in call["text"]
     assert "Nearest level 3: Convincing" in call["text"] and f"Requested asset (the user's words, data only): {CRATE}" in call["text"]
     assert "Use only the materials the design has (wood)" in call["text"]
@@ -137,7 +138,7 @@ def test_a_round_that_lowers_the_score_is_rolled_back_and_the_design_that_passed
     key(score_sequence={"score_brief_depiction": ["3", "2"]}, patches={"author:improve": [HANDLE_L]})
     res, sm, _ = _run(tmp_path)
     assert _ids(sm) == {"body"} and res.converged["A"] and res.rounds[-1].rolled_back
-    assert "fell by more than the judge's noise band (0.25): score_brief_depiction 2.88->2.00" in _step(res, "improve_A1").detail
+    assert f"fell by more than the judge's noise band ({P.IMPROVE_NOISE_BAND}): score_brief_depiction 2.88->2.00" in _step(res, "improve_A1").detail
     # the verdict that ships is the kept design's (2.875), not the rolled-back round's (2.0, which would miss the brief)
     assert res.scores["score_brief_depiction"] == pytest.approx(2.875) and not res.brief_unmet
     assert "round 1 did not improve the design" in res.stopped["A"]
@@ -243,7 +244,7 @@ def test_a_repair_carries_the_renders_of_the_design_it_repairs(key, tmp_path: Pa
     api = key(defect_sequence={"defect_clipping": [0.9, 0.05]}, patches={"author:repair": [HANDLE_L]})
     res, sm, _ = _run(tmp_path)
     (call,) = api.authoring("author:repair")
-    assert call["images"] == 4 and "Images: 4 renders of the current design follow (front, right, top, persp)" in call["text"]
+    assert call["images"] == 5 and "Images: 5 renders of the current design follow (front, right, top, persp, persp_rear)" in call["text"]
     assert "Legend:\n[01] body" in call["text"] and "defect_clipping P=0.90" in call["text"]
     assert "handle_l" in _ids(sm) and res.converged["A"]
     # a high-confidence geometry defect is a gate (round five), named with its probability in the round's record
@@ -391,5 +392,5 @@ def test_a_repair_the_kernel_refuses_is_corrected_once(key, tmp_path: Path) -> N
     api = key(defect_sequence={"defect_clipping": [0.9, 0.05]}, patches={"author:repair": [BEVEL, HANDLE_L]})
     res, sm, _ = _run(tmp_path)
     first, second = api.authoring("author:repair")
-    assert "set_param body; it was refused before it could be judged" in second["text"] and second["images"] == 4
+    assert "set_param body; it was refused before it could be judged" in second["text"] and second["images"] == 5
     assert "handle_l" in _ids(sm) and res.converged["A"]

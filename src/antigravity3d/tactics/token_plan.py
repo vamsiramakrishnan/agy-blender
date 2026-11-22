@@ -59,6 +59,21 @@ def judge_worst_tokens(plane: Any) -> int:
     n_geometry = max(p.geometry_candidates for p in PLANS.values())
     requests += [(b, q) for _, _, b, q in E.bon_packets("geometry", [f"https://x/c{i}" for i in range(n_geometry)], ["https://x/o"],
                                                          brief="x" * E.MAX_BRIEF_CHARS)]
+    # A design's shape is judged on separate views (tactics.judging), one design per request: the blockout review with the
+    # blueprint and style images after its views, and one candidate of the geometry ranking with the blueprint.
+    from antigravity3d.kernel.raster import JUDGE_VIEWS
+    views = [(v, f"https://x/v{k}") for k, v in enumerate(JUDGE_VIEWS)]
+    vl = Q.views_labels(1, JUDGE_VIEWS)
+    shown = E._at_least(E.STAGE_RESOLUTION["blockout"], E.VIEW_RESOLUTION)
+    n = len(JUDGE_VIEWS)
+    vqa, _ = Q.select(Q.VISUAL_QA_QUESTIONS, stage="blockout", have={"ortho", "style", "brief"},
+                      labels={"sheet": vl["span"], **vl, "ortho": f"Image {n + 1}", "style": f"Image {n + 2}"}, subjects=Q.SHEET_SUBJECTS)
+    btier = E.STAGE_RESOLUTION["blockout"]
+    requests.append(([E.text_block(f"{vl['span']}: {vl['n_views']} separate renders of the asset under review, one view each."),
+                      *E.view_blocks(views, 1, shown), brief,
+                      E.text_block(f"Image {n + 1}: orthographic blueprint of the intended asset."), E.image_block("https://x/o", btier),
+                      E.text_block(f"Image {n + 2}: style reference."), E.image_block("https://x/s", btier)], vqa))
+    requests += [(b, q) for _, _, b, q in E.bon_view_packets("geometry", [views], ["https://x/o"], brief="x" * E.MAX_BRIEF_CHARS)]
     client = getattr(plane, "_client", None)
     chunk = getattr(client, "chunk_size", 40)
     attempts = getattr(client, "max_parse_retries", 1) + 1

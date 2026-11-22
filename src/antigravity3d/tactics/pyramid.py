@@ -47,7 +47,7 @@ from antigravity3d.kernel.lod_diff import PopThresholds, lod_pop_report
 from antigravity3d.kernel.raster import CLAY, render_buffers
 from antigravity3d.kernel.separate import separate_coplanar
 from antigravity3d.kernel.settle import beside_a_part, mesh_bounds, settle
-from antigravity3d.kernel.som import marked_contact_sheet
+from antigravity3d.tactics.judging import JUDGE_VIEW_PX, JudgedDesign, judge_design
 from antigravity3d.kernel.validator import check_engine_compliance, engine_texture_px, validate_usd
 from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, EngineBudget
 from antigravity3d.tactics.cached import cached_export_pipeline
@@ -62,18 +62,19 @@ from antigravity3d.tactics.tournament import PBRTournamentResult, TournamentResu
 EPS = 1e-9
 LOOKDEV_ROUNDS = 3
 QA_EST_USD = 0.002  # conservative cost of one visual-QA (+ locate) round when checking the ceiling
-# Side of each marked view an author request carries (repairs and improvement rounds). The judge's sheet is 2 x 2 tiles of
-# 256 px; the author gets each view as its own image at twice that, so that a view is not shrunk to a quarter of one
-# image's resolution as it is on a sheet. One image at the default resolution billed 1,120 input tokens on gemini-4-neon
-# (decisions.fallback.IMAGE_TOKENS_DEFAULT), so four are about 4,500 tokens a request; admission counts them exactly
-# (count_tokens, no per-image resolution set). The badges keep their pixel size, so at 512 px they cover less of a part.
-AUTHOR_VIEW_PX = 512
-# How much score_brief_depiction must rise for an improvement round to be kept: the judge's own spread on one unchanged
-# design. Measured live 2026-11-22 (fallback judge, the shipped viewing condition: one sheet of four 256 px views, each
-# design judged alone three times, two crate designs): pooled sd 0.115, so the same design scores within about +-0.12 and
-# a rise below about twice that cannot be told from noise. Four separate 512 px views halved the spread (sd 0.064) in the
-# same measurement; this number follows the judge's viewing condition and is to be halved with it.
-IMPROVE_NOISE_BAND = 0.25
+# Side of each badged view an author request carries (repairs and improvement rounds): the judge's own views
+# (tactics.judging: five separate renders, front, right, top and two opposite perspectives), with the badges drawn on
+# the same renders, so the author looks at exactly what was judged. One image at the default resolution billed 1,120
+# input tokens on gemini-4-neon (decisions.fallback.IMAGE_TOKENS_DEFAULT), so five are about 5,600 tokens a request;
+# admission counts them exactly (count_tokens, no per-image resolution set).
+AUTHOR_VIEW_PX = JUDGE_VIEW_PX
+# How much a score must rise for an improvement round to be kept: twice the judge's own spread on one unchanged
+# design, since a smaller rise cannot be told from noise. Measured live 2026-11-22 on the fallback judge under the
+# viewing condition that ships (tactics.judging: five separate 512 px views, each design in its own request), through
+# judge_design itself: 16 designs and variants (crate, hydrant, chair), three judgements each, pooled standard
+# deviation 0.096 for score_brief_depiction, 0.097 for score_silhouette, 0.099 for score_shippability (largest single
+# cell 0.23). Under the previous condition (one sheet of four 256 px views) the same figure was 0.12 and the band 0.25.
+IMPROVE_NOISE_BAND = 0.20
 # Pass A gates that are scores, not locatable faults (``_Run.gates``): a design that fails only these goes to improvement
 # rounds instead of a repair. The silhouette lock is not lowered by this: it stays a gate, and the rounds aim at it.
 SCORE_GATES = frozenset({"silhouette", "brief_depiction", "brief_part_missing"})
@@ -419,36 +420,6 @@ def _judge_failure(exc: BaseException) -> bool:
             or service_answer.is_timeout(exc) and isinstance(exc, Exception))
 
 
-@dataclass(frozen=True)
-class JudgedDesign:
-    """One design as the judge saw and scored it (the shape of ``tactics.judging.judge_design``, which replaces
-    ``_judge_design`` at integration). ``views``: (label, uri) exactly what the judge was shown; ``author_views``: the
-    same camera views with numbered badges, for an authoring request; ``legend``: badge -> node id of ``author_views``."""
-
-    result: VisualQAResult
-    views: tuple[tuple[str, str], ...]
-    author_views: tuple[tuple[str, str], ...]
-    legend: dict[int, str]
-    legend_text: str
-
-
-async def _judge_design(plane: Any, meshes: list[Any], *, brief: str | None, governor: Governor, uploader: Uploader,
-                        stage: str = "blockout", ortho_uri: str | None = None, style_uri: str | None = None) -> JudgedDesign:
-    """Today's judging of a design, behind the signature of ``tactics.judging.judge_design`` (whose body replaces this one
-    at integration): the marked 2 x 2 sheet of 256 px views and ``plane.evaluate_visual_qa`` with the brief, as pass A
-    always asked; plus the four marked views at ``AUTHOR_VIEW_PX`` for the author. Raises what evaluate_visual_qa and
-    the uploader raise. ``style_uri``: today's visual QA also takes the run's style reference."""
-    sheet = await asyncio.to_thread(marked_contact_sheet, meshes, size=256)
-    uri = await uploader(png_bytes(sheet.image))
-    r = await plane.evaluate_visual_qa(uri, ortho_uri, style_uri, stage, marked_legend=sheet.legend, governor=governor,
-                                       **({"brief": brief} if brief else {}))  # no brief: the request is as it was
-    big = await asyncio.to_thread(marked_contact_sheet, meshes, size=AUTHOR_VIEW_PX)  # badges number by node id: same legend
-    author = []
-    for name, view in big.views.items():
-        author.append((f"{name} view of the current design (Image {len(author) + 1})", await uploader(png_bytes(view.image))))
-    return JudgedDesign(r, (("contact sheet", uri),), tuple(author), big.legend, big.legend_text())
-
-
 @dataclass
 class _QA:
     result: VisualQAResult
@@ -537,12 +508,12 @@ class _Run:
         return _QA(r, action, tier15_score(r, self.th), uri, cost, legend, progress_score(r, self.th), judged)
 
     async def qa_design(self, meshes: list[Any], judged: JudgedDesign | None = None) -> _QA:
-        """Pass A's blockout visual QA of the current design (``_judge_design``). ``judged``: a verdict already made for
+        """Pass A's blockout visual QA of the current design (``tactics.judging.judge_design``). ``judged``: a verdict already made for
         exactly this design (the ranking's of its winner), used instead of asking again."""
         reused = judged is not None
         if judged is None:
             try:
-                judged = await _judge_design(self.plane, meshes, brief=self.prompt or None, governor=self.governor, uploader=self.upload,
+                judged = await judge_design(self.plane, meshes, brief=self.prompt or None, governor=self.governor, uploader=self.upload,
                                              ortho_uri=self.ortho_uri, style_uri=self.style_uri)
             except Exception as e:
                 if not _judge_failure(e):
@@ -651,7 +622,13 @@ class _Run:
             return located
         charges: list[float] = []
         try:
-            for d, lst in (await fn(q.uri, q.legend, flagged, governor=self.governor, on_settle=charges.append)).items():
+            # Parts are located on the badged views (the judge scored the plain ones: a legend of part names raised its
+            # depiction scores by up to 0.8 when measured, so it never sees them); a design judged as one marked sheet
+            # (lookdev) is located on that sheet.
+            j = q.judged
+            marked = (tuple((name, uri) for (name, _), (_, uri) in zip(j.views, j.author_views))
+                      if j is not None and len(j.author_views) >= 2 and len(j.author_views) == len(j.views) else q.uri)
+            for d, lst in (await fn(marked, q.legend, flagged, governor=self.governor, on_settle=charges.append)).items():
                 located[d] = [n for n, _ in lst]
         except Exception as e:  # noqa: BLE001 - localisation is best-effort
             self.step("locate_defects", "failed", f"{type(e).__name__}: {e}")

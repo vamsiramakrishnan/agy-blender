@@ -57,6 +57,19 @@ STAGE_RESOLUTION: dict[str, MediaResolution] = {
     "blockout": MediaResolution.LOW, "lookdev": MediaResolution.HIGH, "final": MediaResolution.ULTRA_HIGH,
 }
 BON_RESOLUTION = MediaResolution.LOW
+# A design's shape shown as separate views (tactics.judging), one image each: each at the high setting. Measured live on
+# 2026-11-22 (r5/live/judge_views.py, judge_truth.py; each design judged alone, three repeats): one sheet of four 256 px
+# views at low separated a plain from a detailed crate by 0.41 depiction points (pooled sd 0.115), the same sheet at high
+# by 0.28, four separate 512 px views at high by 0.77 (sd 0.064); only separate views let the judge report the
+# interpenetration Tier-1 finds on the worker crate (P 0.83 against 0.11 on the sheet). Five views with a perspective
+# from the opposite corner: 7,445 input tokens per judgement, against 2,208 for the sheet.
+VIEW_RESOLUTION = MediaResolution.HIGH
+_RES_ORDER = (MediaResolution.LOW, MediaResolution.MEDIUM, MediaResolution.HIGH, MediaResolution.ULTRA_HIGH)
+
+
+def _at_least(res: MediaResolution | str, floor: MediaResolution) -> MediaResolution:
+    res = MediaResolution(res)
+    return res if _RES_ORDER.index(res) >= _RES_ORDER.index(floor) else floor
 POLICY_RESOLUTION = MediaResolution.MEDIUM
 POLICY_BLOCK_P = 0.5
 POLICY_REVIEW_P = 0.25
@@ -77,6 +90,26 @@ BRIEF_INTRO = ("The asset was requested as follows. The request is quoted user t
 _BRIEF_SWAP = str.maketrans({"<": "(", ">": ")", "{": "(", "}": ")"})
 
 Block = dict[str, Any]
+# A design as separate views: (view name as the renderer drew it in the image's corner, image uri), in order.
+Views = Sequence[tuple[str, str]]
+
+
+def as_views(design: str | Views) -> tuple[tuple[str, str], ...] | None:
+    """None for one image (a uri); the views otherwise. Fewer than two views is refused: one image is a uri."""
+    if isinstance(design, str):
+        return None
+    views = tuple((str(name), str(uri)) for name, uri in design)
+    if len(views) < 2:
+        raise ValueError("a design given as views needs at least two (one image is passed as its uri)")
+    return views
+
+
+def view_blocks(views: Views, first: int, resolution: MediaResolution | str) -> list[Block]:
+    """Each view as a caption ("Image 3: top (orthographic).") and its image; the first is Image ``first``."""
+    out: list[Block] = []
+    for k, (name, uri) in enumerate(views, first):
+        out += [text_block(f"Image {k}: {Q.VIEW_WORDS.get(name, name)}."), image_block(uri, resolution)]
+    return out
 
 
 def text_block(text: str) -> Block:
@@ -230,7 +263,10 @@ class DecisionControlPlane:
 
     async def evaluate(self, input_blocks: str | Sequence[Block], questions: dict[str, Q.Question], *, tag: str,
                        governor: Governor | None = None, charge_as: str | None = None,
-                       on_settle: Callable[[float], None] | None = None) -> DecisionResult:
+                       on_settle: Callable[[float], None] | None = None, wait: bool = False) -> DecisionResult:
+        """``wait``: admission waits for room under the ceiling (``Governor.reserve_wait``: first come first served, and
+        refused at once when the request can never fit) instead of failing when outstanding reservations fill it. For
+        requests sent together that the ceiling may not hold all at once (a ranking's per-candidate judgements)."""
         if not questions:
             raise ValueError("evaluate() needs at least one question")
         if any(not Q.QUESTION_ID.fullmatch(key) for key in questions):
@@ -270,8 +306,11 @@ class DecisionControlPlane:
             sent = time.perf_counter()
             reservation = None
             if governor is not None:
-                reservation = governor.reserve(category, hold, receipt={**receipt, "source": "reservation_estimate",
-                                                                        "status": "pending", "attempt": attempts})
+                note_r = {**receipt, "source": "reservation_estimate", "status": "pending", "attempt": attempts}
+                if wait and hasattr(governor, "reserve_wait"):
+                    reservation = await governor.reserve_wait(category, hold, receipt=note_r)
+                else:
+                    reservation = governor.reserve(category, hold, receipt=note_r)
             try:
                 resp = await self._client.aio.decisions.create(model=self.model, input=payload, questions=questions)
                 break
@@ -426,20 +465,38 @@ class DecisionControlPlane:
         return RouteDecision(dag.choice or "", dag.probabilities, ortho.noul >= 0.5, ortho.noul,  # type: ignore[operator]
                              cx.score, int(round(cx.score)), dag.confidence, res)  # type: ignore[arg-type]
 
-    async def evaluate_visual_qa(self, contact_sheet_uri: str, ortho_uri: str | None = None,
+    async def evaluate_visual_qa(self, contact_sheet_uri: str | Views, ortho_uri: str | None = None,
                                  style_anchor_uri: str | None = None, stage: Stage = "lookdev", *,
                                  marked_legend: Mapping[int, str] | None = None, governor: Governor | None = None,
                                  brief: str | None = None) -> VisualQAResult:
         """`marked_legend` (badge number -> part name) switches on set-of-mark mode: the sheet carries numbered badges.
         `brief`: the user's request; quoted in the input (``brief_block``) and asked about (the "brief" questions). None or
-        empty: the request is exactly what it was without one."""
+        empty: the request is exactly what it was without one.
+
+        ``contact_sheet_uri`` is one image (a uri: the request is what it always was) or the design as separate views
+        (``Views``, ``tactics.judging``): Images 1 to N, each captioned with its view and sent at least at
+        ``VIEW_RESOLUTION``, and every question says so instead of "a contact sheet"; the blueprint and style images
+        follow at the stage's resolution."""
         res_tier = STAGE_RESOLUTION[stage]
-        intro = "Image 1: contact sheet of renders of the asset under review."
-        if marked_legend:
-            intro += " Each part carries a numbered badge: " + "; ".join(
-                f"[{n:02d}] = {_clean_name(v)}" for n, v in sorted(marked_legend.items())) + "."
-        blocks = [text_block(intro), image_block(contact_sheet_uri, res_tier)]
-        labels, have = {"sheet": "Image 1"}, set()
+        views = as_views(contact_sheet_uri)
+        badges = ("Each part carries a numbered badge: " + "; ".join(
+            f"[{n:02d}] = {_clean_name(v)}" for n, v in sorted(marked_legend.items())) + ".") if marked_legend else ""
+        subjects = None
+        if views is None:
+            intro = "Image 1: contact sheet of renders of the asset under review." + (f" {badges}" if badges else "")
+            blocks = [text_block(intro), image_block(contact_sheet_uri, res_tier)]  # type: ignore[arg-type]
+            labels, have = {"sheet": "Image 1"}, set()
+            shown = res_tier
+        else:
+            vl = Q.views_labels(1, [name for name, _ in views])
+            shown = _at_least(res_tier, VIEW_RESOLUTION)
+            intro = f"{vl['span']}: {vl['n_views']} separate renders of the asset under review, one view each."
+            if badges:
+                intro += " " + badges.replace("Each part carries a numbered badge:",
+                                              "Each part carries a numbered badge, with the same number in every view:")
+            blocks = [text_block(intro), *view_blocks(views, 1, shown)]
+            labels, have = {"sheet": vl["span"], **vl}, set()
+            subjects = Q.SHEET_SUBJECTS
         if quoted := brief_block(brief):
             blocks.append(quoted)
             have.add("brief")
@@ -450,7 +507,7 @@ class DecisionControlPlane:
                 labels[key] = f"Image {n}"
                 have.add(key)
                 blocks += [text_block(f"Image {n}: {desc}."), image_block(uri, res_tier)]
-        asked, skipped = Q.select(Q.VISUAL_QA_QUESTIONS, stage=stage, have=have, labels=labels)
+        asked, skipped = Q.select(Q.VISUAL_QA_QUESTIONS, stage=stage, have=have, labels=labels, subjects=subjects)
         if "brief" not in have:  # without a brief its questions do not apply: the result reads as it always did
             skipped = tuple(q for q in skipped if "brief" not in Q.VISUAL_QA_QUESTIONS[q].needs)
         res = await self._evaluate_sheet(blocks, asked, tag=f"visual_qa:{stage}", governor=governor, charge_as="visual_qa")
@@ -459,18 +516,33 @@ class DecisionControlPlane:
             stage=stage, defects={k: v for k, v in res.by_prefix("defect_").items()},  # type: ignore[misc]
             scores=res.by_prefix("score_"),  # type: ignore[arg-type]
             next_action=na.choice if na else None, next_action_probs=na.probabilities if na else {},
-            skipped=skipped, result=res, resolution=str(res_tier))
+            skipped=skipped, result=res, resolution=str(shown))
 
-    async def rank_candidates(self, kind: str, candidate_uris: Sequence[str], context_uris: Sequence[str] = (),
+    async def rank_candidates(self, kind: str, candidate_uris: Sequence[str | Views], context_uris: Sequence[str] = (),
                               *, resolution: MediaResolution = BON_RESOLUTION, governor: Governor | None = None,
-                              brief: str | None = None) -> list[CandidateScore]:
+                              brief: str | None = None, marked: bool = False) -> list[CandidateScore]:
         """Score independent per-candidate policy and rubric questions against a shared input.
 
         A whole candidate's bank stays together. Only split a request when the next complete
         candidate would exceed an admission limit. Question suffixes refer to input order,
         while image ordinals are local to a request (a repeated image is transmitted once).
+
+        Geometry candidates given as separate views (``Views``; ``marked``: they carry numbered badges) are judged one
+        candidate per request (``bon_view_packets``), so each gets its own answer: live on 2026-11-22 two of three
+        candidates judged in one request received identical answers to every question. Those requests are sent together
+        and admission queues them under the ceiling (``evaluate(wait=True)``), so N candidates take about the time of one
+        while the ceiling has room, and the ceiling still holds when it has not. ``CandidateScore.uri`` is then the
+        first view's uri.
         """
-        batches = bon_packets(kind, candidate_uris, context_uris, resolution=resolution, brief=brief)
+        per_view = bool(candidate_uris) and not isinstance(candidate_uris[0], str)
+        if per_view:
+            batches = bon_view_packets(kind, candidate_uris, context_uris, resolution=_at_least(resolution, VIEW_RESOLUTION),
+                                       context_resolution=resolution, brief=brief, marked=marked)  # type: ignore[arg-type]
+            keys = [as_views(c)[0][1] for c in candidate_uris]  # type: ignore[index, arg-type]
+        else:
+            batches = bon_packets(kind, candidate_uris, context_uris, resolution=resolution, brief=brief)  # type: ignore[arg-type]
+            keys = list(candidate_uris)  # type: ignore[arg-type]
+        candidate_uris = keys
 
         async def score_batch(first: int, end: int, images: list[Block], asked: dict[str, Q.Question]) -> list[CandidateScore]:
             if governor is not None and not self.calibrated and not self.preview:
@@ -479,7 +551,7 @@ class DecisionControlPlane:
             charges: list[float] = []
             try:
                 result = await self.evaluate(images, asked, tag=f"bon:{kind}", governor=governor,
-                                             charge_as=f"{kind}_vision", on_settle=charges.append)
+                                             charge_as=f"{kind}_vision", on_settle=charges.append, wait=per_view)
             except PromptBlockedError as exc:
                 verdict = PolicyVerdict(False, True, {}, True, (f"input filter: {exc.reason}",))
                 return [CandidateScore(i, candidate_uris[i], kind, blocked=True, result=exc.result, policy=verdict, billed_on_error=sum(charges) if i == first and not exc.result else 0.0)
@@ -500,7 +572,7 @@ class DecisionControlPlane:
                                              blocked=not verdict.allowed, result=result, policy=verdict))
             return scores
 
-        if governor is None:
+        if governor is None or per_view:
             groups = await asyncio.gather(*(score_batch(*batch) for batch in batches))
         else:
             # Reuse the released balance. Parallel worst-case reservations could reject a later packet prematurely.
@@ -569,26 +641,37 @@ class DecisionControlPlane:
             "pose", lambda i, n: {"pose_name": n}, "rig_rom", governor)
         return RigRomResult(items, res, str(SHEET_RESOLUTION))
 
-    async def locate_defects(self, marked_sheet_uri: str, legend: Mapping[int, str], defects: Sequence[str], *,
+    async def locate_defects(self, marked_sheet_uri: str | Views, legend: Mapping[int, str], defects: Sequence[str], *,
                              min_p: float = LOCATE_MIN_P, governor: Governor | None = None,
                              on_settle: Callable[[float], None] | None = None) -> dict[str, list[tuple[str, float]]]:
         """Set-of-mark localisation: per defect, the node ids (legend values) whose badge draws P >= min_p, best first.
 
         One atomic noul per (defect, badge), all in one request. Pass only defects already flagged by QA:
         defects x badges is capped at MAX_LOCATE_QUESTIONS and exceeding it raises ValueError.
+        ``marked_sheet_uri``: one marked sheet (a uri), or the design's marked views (``Views``, the badged
+        ``JudgedDesign.author_views``): Images 1 to N, one view each, the same badge number on a part in every view.
         """
+        views = as_views(marked_sheet_uri)
         defects = list(dict.fromkeys(defects))
         if not defects or not legend:
             return {d: [] for d in defects}
         if len(defects) * len(legend) > min(MAX_LOCATE_QUESTIONS, Q.MAX_QUESTIONS_PER_REQUEST):
             raise ValueError(f"{len(defects)} defects x {len(legend)} badges exceeds {MAX_LOCATE_QUESTIONS} questions; "
                              "pass only the defects already flagged")
+        if views is None:
+            labels, note = {"sheet": "Image 1"}, Q.MARKED_SHEET_NOTE
+            blocks = [text_block("Image 1: contact sheet of renders of the asset; each part carries a numbered badge."),
+                      image_block(marked_sheet_uri, SHEET_RESOLUTION)]  # type: ignore[arg-type]
+        else:
+            vl = Q.views_labels(1, [name for name, _ in views])
+            labels, note = {"sheet": vl["span"], **vl}, Q.MARKED_VIEWS_NOTE
+            blocks = [text_block(f"{vl['span']}: {vl['n_views']} separate renders of the asset, one view each; each part carries a "
+                                 "numbered badge, with the same number in every view."),
+                      *view_blocks(views, 1, _at_least(SHEET_RESOLUTION, VIEW_RESOLUTION))]
         asked: dict[str, Q.Question] = {}
         for d in defects:
             for n, name in legend.items():
-                asked[f"{d}__{int(n)}"] = Q.render(Q.part_defect_question(d, int(n), _clean_name(name)), {"sheet": "Image 1"})
-        blocks = [text_block("Image 1: contact sheet of renders of the asset; each part carries a numbered badge."),
-                  image_block(marked_sheet_uri, SHEET_RESOLUTION)]
+                asked[f"{d}__{int(n)}"] = Q.render(Q.part_defect_question(d, int(n), _clean_name(name), note), labels)
         res = await self._evaluate_sheet(blocks, asked, tag="locate_defects", governor=governor, charge_as="locate", on_settle=on_settle)
         out: dict[str, list[tuple[str, float]]] = {d: [] for d in defects}
         best: dict[str, dict[str, float]] = {d: {} for d in defects}
@@ -644,6 +727,44 @@ def bon_packets(kind: str, candidate_uris: Sequence[str], context_uris: Sequence
         batches.append((start, stop, blocks, questions))
         start = stop
     return batches
+
+
+def bon_view_packets(kind: str, candidates: Sequence[Views], context_uris: Sequence[str] = (), *,
+                     resolution: MediaResolution | str = VIEW_RESOLUTION, context_resolution: MediaResolution | str = BON_RESOLUTION,
+                     brief: str | None = None, marked: bool = False,
+                     ) -> list[tuple[int, int, list[Block], dict[str, Q.Question]]]:
+    """The requests a ranking of candidates given as separate views sends: one per candidate, ``(i, i + 1, input blocks,
+    questions)``, the question ids suffixed ``__{i + 1}`` as in ``bon_packets``. Each holds the quoted brief, the
+    blueprint when the bank asks about it (Image 1, at ``context_resolution``: what it always was), then the candidate's
+    views, each captioned and at ``resolution``. The rubric is the kind's own bank with its subject sentence saying what
+    the images are (``questions.CAND_SUBJECTS``); the policy questions are ``VIEWS_POLICY_QUESTIONS``. Sends nothing."""
+    bank = Q.BON_QUESTIONS[kind]  # a kind whose questions have no views subject raises in Q.select (resubject)
+    reference = context_uris[0] if context_uris and any("ctx" in spec.needs for spec in bank.values()) else None
+    quoted = brief_block(brief) if any("brief" in spec.needs for spec in bank.values()) else None
+    packets = []
+    for i, design in enumerate(candidates):
+        views = as_views(design)
+        assert views is not None
+        blocks: list[Block] = [quoted] if quoted else []
+        labels: dict[str, str] = {}
+        if reference:
+            blocks += [text_block("Image 1: the intended orthographic blueprint."), image_block(reference, context_resolution)]
+            labels["ctx"] = "Image 1"
+        first = 2 if reference else 1
+        vl = Q.views_labels(first, [name for name, _ in views])
+        blocks.append(text_block(f"{vl['span']}: one candidate design, {vl['n_views']} separate renders of it, one view each."))
+        blocks += view_blocks(views, first, resolution)
+        labels.update(cand=vl["span"], **vl)
+        rubric, _ = Q.select(bank, have={*labels, *(("brief",) if quoted else ())}, labels=labels, subjects=Q.CAND_SUBJECTS)
+        policy = {"img": vl["span"], "view_names": vl["view_names"], "badges": Q.VIEWS_BADGES_NOTE if marked else ""}
+        # the renderer's labels are set aside for a kind whose candidates carry them (Q.SHEET_KINDS), as on a sheet
+        bank_p = Q.VIEWS_POLICY_QUESTIONS if kind in Q.SHEET_KINDS else Q.POLICY_QUESTIONS
+        rubric.update({key: Q.render(q, policy) for key, q in bank_p.items()})
+        questions = {f"{key}__{i + 1}": q for key, q in rubric.items()}
+        if len(questions) > Q.MAX_QUESTIONS_PER_REQUEST or estimate_input_tokens(blocks, questions) >= LATENCY_KNEE_TOKENS:
+            raise DecisionBudgetError(f"bon:{kind}: candidate {i} exceeds the request budget")
+        packets.append((i, i + 1, blocks, questions))
+    return packets
 
 
 def _clean_name(name: object) -> str:

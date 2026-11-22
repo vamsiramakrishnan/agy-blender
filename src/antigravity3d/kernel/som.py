@@ -128,6 +128,13 @@ def mark_view(
     unmarked = sorted(buffers.node_ids[i] for i in np.nonzero((counts > 0) & (counts < min_pixels))[0] if buffers.node_ids[i] in num_of)
     todo = [i for i in np.nonzero(counts >= min_pixels)[0] if buffers.node_ids[i] in num_of]
     todo.sort(key=lambda i: (counts[i], num_of[buffers.node_ids[i]]))  # tight spots first
+    # Each part's distance transform is taken over its bounding box padded by one background pixel, not the frame:
+    # the same distances (every pixel outside the box is outside the region, and the padding is nearer than any of
+    # them), at a fraction of the cost. Over the whole frame it was 3.7 of the 6.2 s that marking four 512 px views of
+    # an 86-part crate took (r5 profile, 2026-11-22). The distances are then placed in a frame-sized array, so that the
+    # candidate search (whose partial sort settles ties by array position) sees exactly what it always saw.
+    boxes = ndimage.find_objects(buffers.prim_id + 1, max_label=len(buffers.node_ids))
+    dt = np.zeros(buffers.prim_id.shape)
     placed: list[Box] = list(reserved)
     badges: list[Badge] = []
 
@@ -137,11 +144,12 @@ def mark_view(
         text = f"{n:02d}"
         l, t, r, b = draw.textbbox((0, 0), text, font=_FONT)
         w, h = r - l + 8, b - t + 6
-        region = np.pad(buffers.prim_id == i, 1)
-        dt = ndimage.distance_transform_edt(region)[1:-1, 1:-1]
+        ys, xs = boxes[i]
+        dt[ys, xs] = ndimage.distance_transform_edt(np.pad(buffers.prim_id[ys, xs] == i, 1))[1:-1, 1:-1]
         cands = _candidates(dt)
         ax, ay = cands[0]
         small = dt[ay, ax] < 0.5 * min(w, h)   # badge would swallow the part -> prefer a leader
+        dt[ys, xs] = 0.0  # (read above only) the next part's search sees zeros outside its own region
         chosen: Box | None = None
         leader = False
         if not small:
@@ -184,8 +192,14 @@ def _free_box(integral: np.ndarray, placed: Sequence[Box], anchor: tuple[int, in
     occ = (integral[Y + h, X + w] - integral[Y, X + w] - integral[Y + h, X] + integral[Y, X]) / (w * h)
     d = np.hypot(X + w / 2 - anchor[0], Y + h / 2 - anchor[1])
     cost = occ * 3 * size + d
+    # A box at (x, y) overlaps placed box p iff p0 - w + 1 - MARGIN <= x <= p2 + MARGIN and the same in y: one
+    # rectangle of grid positions per placed box, painted by slicing (positions run in steps of 2 from 0). The same
+    # mask as testing every position against every box, which was 1.8 s of marking four 512 px views of 86 parts.
     for p in placed:
-        cost = np.where(~((X + w - 1 + MARGIN < p[0]) | (p[2] + MARGIN < X) | (Y + h - 1 + MARGIN < p[1]) | (p[3] + MARGIN < Y)), np.inf, cost)
+        jx0, jx1 = max(0, -((w - 1 + MARGIN - p[0]) // 2)), min(len(xs) - 1, (p[2] + MARGIN) // 2)
+        jy0, jy1 = max(0, -((h - 1 + MARGIN - p[1]) // 2)), min(len(ys) - 1, (p[3] + MARGIN) // 2)
+        if jx0 <= jx1 and jy0 <= jy1:
+            cost[jy0:jy1 + 1, jx0:jx1 + 1] = np.inf
     j = int(np.argmin(cost))
     if not np.isfinite(cost.flat[j]):
         return None
