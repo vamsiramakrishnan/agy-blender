@@ -45,7 +45,9 @@ is what a session costs. For a new asset:
 3. `render_preview` and look at the views; improve with one or two more
    `apply_scene_ir` patches and look again.
 4. `deliver_package`: it reviews the design as it will ship, builds LODs and
-   colliders, validates and exports, and says what the review found. Its
+   colliders, validates and exports, and says what the review found. When the
+   request names a folder for the result, pass it as `dest`; the tool places the
+   engine files there, so do not copy files by hand afterwards. Its
    answer starts with one of three:
    - `DELIVERED`: the run is finished; the package was validated, imported and
      checked by the tool. Reply to the user with its path and the findings,

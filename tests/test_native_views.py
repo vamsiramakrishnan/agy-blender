@@ -393,3 +393,53 @@ async def test_a_design_whose_only_text_is_the_placed_stencils_is_delivered(tmp_
     finally:
         monkeypatch.setattr(T, "render_lookdev", real)
     assert r.startswith("DELIVERED: EXPORTED PREVIEW crate"), r
+
+
+# ---- the package goes where the user asked -----------------------------------------------------------------------
+
+def _preview_session(tmp_path):
+    env = make_session(tmp_path, client=FakeDecisionsClient(uncalibrated=True, default_score=2.6), stage="BLOCKOUT")
+    S.switch_to_preview(env.reg, env.sid, 400_000, 0)
+    env.reg.attach(env.sid, S.R_QA_WORKSPACE, tmp_path)  # the workspace the session was opened in
+    return env
+
+
+async def test_deliver_package_places_the_engine_files_in_the_folder_named(tmp_path):
+    """r5/live_native7: told only where its package was, the agent copied it into output/ by hand in three calls and
+    left the colliders out."""
+    pytest.importorskip("antigravity3d.delivery")
+    env = _preview_session(tmp_path)
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    out = tmp_path / "output"
+    out.mkdir()
+    (out / "notes.txt").write_text("mine")
+    (out / "Crate.glb").write_bytes(b"old")
+    r = await T.deliver_package(env.ctx, "crate_pkg", dest="output")  # the folder's name is not the asset's
+    lines = r.split("\n")
+    assert lines[0].startswith("DELIVERED: EXPORTED PREVIEW crate_pkg") and lines[0].endswith("placed in output/"), r
+    assert lines[1].startswith("placed: Crate.glb (the main file)") and "Crate_colliders.glb" in lines[1]
+    assert "replaced files of the same name: Crate.glb" in lines[1]
+    assert "nothing is left to copy" in lines[-1]
+    assert (out / "notes.txt").read_text() == "mine" and (out / "Crate.glb").read_bytes() != b"old"
+    assert (out / "Crate_colliders.glb").is_file() and (out / "manifest.json").is_file()
+    assert not list(out.glob("*.usd*")) and not (out / "inspector.html").exists()
+
+
+@pytest.mark.parametrize("dest", ["../outside", "/tmp/elsewhere", "a/../../x", ".hidden"])
+async def test_a_destination_outside_the_workspace_is_refused_in_one_sentence(tmp_path, dest):
+    env = _preview_session(tmp_path)
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    r = await T.deliver_package(env.ctx, "Crate", dest=dest)
+    assert r.startswith("NOT DELIVERED: destination") and "\n" not in r and "not accepted" in r, r
+    assert not (env.sess().export_dir / "Crate").exists()  # nothing was done
+
+
+async def test_a_destination_through_a_symbolic_link_is_refused(tmp_path):
+    env = _preview_session(tmp_path)
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    outside = tmp_path.parent / f"{tmp_path.name}_outside"
+    outside.mkdir()
+    (tmp_path / "link").symlink_to(outside, target_is_directory=True)
+    r = await T.deliver_package(env.ctx, "Crate", dest="link/output")
+    assert r.startswith("NOT DELIVERED: destination") and "symbolic link" in r, r
+    assert not list(outside.iterdir())

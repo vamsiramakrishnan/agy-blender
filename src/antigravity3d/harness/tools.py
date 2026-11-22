@@ -110,7 +110,7 @@ NO_IMAGES = ("NO IMAGES: this preview's image limit is {limit} and {used} used, 
 # call: nothing reaches a tool of ours), and it went on to script Blender in files instead. Measured on the two earlier
 # live runs: 46-133 output tokens per operation (mean about 100) and up to 5,700 thinking tokens per call, so 25
 # operations (about 2,500 tokens) leave room for any thinking seen.
-SHORT_PATH = "THE SHORT PATH (each model call costs the whole conversation so far, so put calls that can go together in one turn and do not explore folders): build the design with apply_scene_ir, not by scripting Blender, because only a design in the session's stage can be edited, checked and packaged here (Blender on the command line is for inspecting files). First call: the materials and the main body; then two or three calls of at most 25 operations each, writing anything that occurs more than once once, with mirror or repeat. A reply is cut off at 16,384 output tokens, thinking included, and an operation costs about 100: a call that was cut off is split and sent again. Then render_preview and look at the views; improve once or twice; deliver_package, which reviews, builds LODs and colliders, validates and exports. Its answer starts with one of three: \"DELIVERED\" (the run is finished: reply to the user with the package path and the findings, and do not inspect it again); \"NOT DELIVERED: a person must decide\" (reply to the user with the reason and stop); \"NOT DELIVERED\" otherwise (fix what it names with apply_scene_ir and call deliver_package again). Nothing else is required."
+SHORT_PATH = "THE SHORT PATH (each model call costs the whole conversation so far, so put calls that can go together in one turn and do not explore folders): build the design with apply_scene_ir, not by scripting Blender, because only a design in the session's stage can be edited, checked and packaged here (Blender on the command line is for inspecting files). First call: the materials and the main body; then two or three calls of at most 25 operations each, writing anything that occurs more than once once, with mirror or repeat. A reply is cut off at 16,384 output tokens, thinking included, and an operation costs about 100: a call that was cut off is split and sent again. Then render_preview and look at the views; improve once or twice; deliver_package, which reviews, builds LODs and colliders, validates and exports (when the request names a folder for the result, pass it as dest; do not copy files by hand afterwards). Its answer starts with one of three: \"DELIVERED\" (the run is finished: reply to the user with the package path and the findings, and do not inspect it again); \"NOT DELIVERED: a person must decide\" (reply to the user with the reason and stop); \"NOT DELIVERED\" otherwise (fix what it names with apply_scene_ir and call deliver_package again). Nothing else is required."
 
 
 # What happens to surfaces, said by the tools at the moment it matters (opening a session without images, entering
@@ -1313,10 +1313,16 @@ def _enter(s: Session, stage: str) -> None:
 
 
 @_guard
-async def deliver_package(ctx: ToolContext, out_name: str = "") -> str:
+async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") -> str:
     """From a finished design to a delivered package in one call: the lookdev review of the current scene (rendered
-    with the surfaces it ships with) unless one exists, LODs, colliders, validation, export, and what the review found."""
+    with the surfaces it ships with) unless one exists, LODs, colliders, validation, export, and what the review found.
+    dest: the folder the user named for the result, relative to the workspace; the engine files are placed there."""
     s = resolve(ctx)
+    if dest:
+        try:
+            _dest_folder(s, dest)  # refused before any work, in one sentence
+        except ValueError as e:
+            return f"NOT DELIVERED: {e}."
     async with s.registry.locked(s.sid):
         nodes = len(s.stage.base_ir().nodes)
         tier1_ok = s.state.last_tier1_ok
@@ -1355,9 +1361,11 @@ async def deliver_package(ctx: ToolContext, out_name: str = "") -> str:
         head = re.sub(r"review: [a-z_]+ by ", "review by ", head)
     if head.startswith("EXPORTED"):
         where = s.last_export
-        out = [f"DELIVERED: {head}", *(found or shown), *steps,
-               f"FINISHED: the package{f' at {where}' if where else ''} was validated, imported and checked by this tool. "
-               "Reply to the user with its path and the findings above; do not inspect or re-check it."]
+        placed = _place(s, where, dest) if dest and where else []
+        out = [f"DELIVERED: {head}" + (f" | placed in {dest}/" if dest else ""), *placed, *(found or shown), *steps,
+               f"FINISHED: the package{f' at {where}' if where else ''} was validated, imported and checked by this tool"
+               + (f", and its engine files are in {dest}/: nothing is left to copy" if dest else "")
+               + ". Reply to the user with its path and the findings above; do not inspect, re-check or copy it."]
     elif _needs_a_person(s):
         # Live on 2026-11-22 (r5/live_native6): refused for a person's decision, the agent went back to LOOKDEV and
         # painted its own maps by script until its token share ran out. This refusal ends the agent's work.
@@ -1371,6 +1379,68 @@ async def deliver_package(ctx: ToolContext, out_name: str = "") -> str:
 
 
 NEEDS_A_PERSON = "NOT DELIVERED: a person must decide"
+# What deliver_package(dest=...) places in the folder the user named: the files a game engine imports (every GLB of the
+# package: the asset, its levels of detail and its colliders; an FBX where the engine takes one; the textures) and the
+# manifest (what each file is, the review's findings, provenance; small, and what install_into_project and a later edit
+# read). Left in the session's export folder: the USD and USDZ (the editable source and an AR preview, which a game
+# project does not import) and inspector.html (a review page). Live on 2026-11-22 (r5/live_native7) an agent told only
+# where the package was spent three calls copying it by hand and left the colliders out.
+PLACED_SUFFIXES = (".glb", ".fbx")
+
+
+def _workspace(s: Session) -> Path:
+    from antigravity3d.harness.session import R_QA_WORKSPACE
+
+    return Path(s._res(R_QA_WORKSPACE, s.workdir))
+
+
+def _dest_folder(s: Session, dest: str) -> Path:
+    """The folder ``dest`` names inside the workspace, checked (``safe_paths``): relative, no '..' or hidden segment, no
+    symbolic link on the way, under the workspace. Raises ValueError with one sentence."""
+    from antigravity3d import safe_paths
+
+    rel = dest.strip().rstrip("/")
+    try:
+        safe_paths.safe_name(rel, "destination")
+        path = safe_paths.inside(_workspace(s), rel, "destination", write=True)
+    except safe_paths.UnsafePath as e:
+        raise ValueError(f"{e} (a folder inside the workspace, relative to it)") from None
+    if path.exists() and not path.is_dir():
+        raise ValueError(f"destination '{rel}' is not accepted: it is a file, not a folder")
+    return path
+
+
+def _place(s: Session, package: Path, dest: str) -> list[str]:
+    """Copy the package's engine files and manifest into ``dest`` (other files there are left as they are; a file of the
+    same name is replaced and listed); the lines that say which files the request named and which are the rest."""
+    import shutil
+
+    from antigravity3d import safe_paths
+
+    root = _workspace(s)
+    rel_dest = dest.strip().rstrip("/")
+    _dest_folder(s, rel_dest)
+    files = sorted(p.relative_to(package).as_posix() for p in package.rglob("*")
+                   if p.is_file() and not p.is_symlink()
+                   and (p.suffix.lower() in PLACED_SUFFIXES or p.name == "manifest.json" or p.parent.name == "textures"))
+    replaced = []
+    for rel in files:
+        target = safe_paths.inside(root, f"{rel_dest}/{safe_paths.safe_name(rel, 'package file')}", "destination", write=True)
+        if target.exists():
+            replaced.append(rel)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(package / rel, target, follow_symlinks=False)
+    try:  # the package's files are named after its asset, its folder after the export name
+        asset = json.loads((package / "manifest.json").read_text())["asset"]
+    except (OSError, ValueError, KeyError, TypeError):
+        asset = package.name
+    main = [f for f in files if f == f"{asset}.glb"]
+    tex = [f for f in files if f.startswith("textures/")]
+    rest = [f for f in files if f not in main and f not in tex]
+    return [f"placed: {', '.join(main) or '(no main GLB)'} (the main file) and {len(tex)} texture file(s) in textures/; "
+            f"the rest of the package with them: {', '.join(rest)}"
+            + (f"; replaced files of the same name: {', '.join(replaced)}" if replaced else "")
+            + "; the USD, USDZ and inspector stay in the session's package"]
 
 
 def _needs_a_person(s: Session) -> bool:

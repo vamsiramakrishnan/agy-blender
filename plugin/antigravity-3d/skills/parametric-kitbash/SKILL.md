@@ -60,7 +60,8 @@ not a handful of blocks.
    repeat; a reply is cut off at 16,384 output tokens, so split a call that was
    cut off and send it again) and put calls that can go together in one turn; when the
    design reads right, `deliver_package` reviews, packages and exports it in one
-   call; its answer `DELIVERED` ends the run (reply with the path and the
+   call (pass the folder the request names for the result as `dest`; do not copy
+   files by hand afterwards); its answer `DELIVERED` ends the run (reply with the path and the
    findings), `NOT DELIVERED: a person must decide` means reply with the reason
    and stop, and any other `NOT DELIVERED` names what to fix before calling it
    again. `render_preview` shows you the design: five 512 px
