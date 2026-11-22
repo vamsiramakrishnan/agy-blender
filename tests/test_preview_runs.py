@@ -87,8 +87,11 @@ def test_prop_preview_builds_a_labelled_unverified_package_within_both_limits(ke
     out = capsys.readouterr().out
     assert rc == 0, out
     lines = out.strip().splitlines()
-    assert lines[-4].startswith("publication: UNVERIFIED PREVIEW (verified=false; judged by generative fallback, uncalibrated)")
-    assert lines[-2].startswith("review: required") and lines[-1] == "preview gates: PASS"
+    # the line above the last says what the exit code means under an uncalibrated judge (antigravity3d.delivery): one more
+    # line than before round five's exit rule, so the others moved up by one
+    assert lines[-5].startswith("publication: UNVERIFIED PREVIEW (verified=false; judged by generative fallback, uncalibrated)")
+    assert lines[-3].startswith("review: required") and lines[-1] == "preview gates: PASS"
+    assert lines[-2].startswith("delivered: yes, every deterministic check passed (exit 0")
     assert "spend (tokens, no price applied):" in out and "$" not in out.split("spend (tokens")[1].splitlines()[0]
     m = manifest(tmp_path)
     assert m["verified"] is False and m["preview"] is True and m["needs_review"] is True
@@ -173,6 +176,22 @@ def test_a_run_built_to_hit_the_image_limit_refuses_before_any_image(key, tmp_pa
     assert not [k for k in api.kinds() if k == "image:sent"]
 
 
+def test_a_run_allowed_no_image_delivers_a_package_and_generates_none(key, tmp_path, capsys):
+    """--max-images 0 is a request, not a shortfall. Until 2026-11-22 it was refused like any other shortfall, so no
+    run could be made at all once an image allowance was spent, while a stock agent with Blender delivered the same
+    brief without one. The blueprint is skipped, no material is textured from an image, everything else runs."""
+    api = key()
+    rc = prop(tmp_path, "--preview", "--token-ceiling", "150000", "--max-images", "0", *FAST)
+    io = capsys.readouterr()
+    assert rc == 0, io.out + io.err
+    assert not [k for k in api.kinds() if k.startswith("image")], api.kinds()
+    x = report(tmp_path)
+    assert x["cost"]["images"] == 0 and not any(r.get("images") for r in x["cost"]["receipts"])
+    m = manifest(tmp_path)
+    assert m["validation"]["package_ok"] and m["preview"] is True
+    assert "none allowed (--max-images 0)" in io.out + io.err  # the developer is told why the asset has no image textures
+
+
 def test_the_image_limit_caps_candidates_and_is_never_passed(key, tmp_path, capsys):
     api = key()
     prop(tmp_path, "--preview", "--token-ceiling", "150000", "--max-images", "2", "--single-candidate", *FAST)
@@ -185,14 +204,41 @@ def test_the_image_limit_caps_candidates_and_is_never_passed(key, tmp_path, caps
 @pytest.mark.parametrize("kw, why", [
     ({"policy": 0.9}, "hard policy flag"),
     ({"overrides": {"defect_ip_or_text": 0.95}}, "escalation to a person"),
-    ({"score_level": "1"}, "failed gate"),
 ])
-def test_preview_exit_status_ignores_only_the_uncalibrated_review(key, tmp_path, capsys, kw, why):
+def test_a_hard_policy_flag_or_an_escalation_to_a_person_fails_a_preview_even_from_an_uncalibrated_judge(key, tmp_path, capsys, kw, why):
+    """Content risk, not a quality score: these keep exit 1 under the delivery rule (antigravity3d.delivery). Loosening
+    them is the owner's decision."""
     key(**kw)
     rc = prop(tmp_path, "--preview", "--token-ceiling", "150000", "--max-images", "4", "--single-candidate", *FAST)
     out = capsys.readouterr().out
-    assert rc != 0, why
-    assert "preview gates: FAIL" in out
+    assert rc == 1, why
+    assert "preview gates: FAIL" in out and "blocked:" in out
+
+
+def test_a_score_gate_an_uncalibrated_judge_fails_is_a_finding_and_exits_0_or_3_with_strict(key, tmp_path, capsys):
+    """Until round five a score below target from the uncalibrated judge failed the run (exit 1): live on 2026-11-22 a
+    crate that validated clean and imported into Godot exited 1 on silhouette 2.74 < 3.3, and no first design of 27
+    reached 3.3. Now the delivered package exits 0, the last lines name each target missed and by how much, the gates
+    stay as computed (preview gates: FAIL, never read as approval), and --strict exits 3."""
+    key(score_level="1")
+    args = ("--preview", "--token-ceiling", "150000", "--max-images", "4", "--single-candidate", *FAST)
+    assert prop(tmp_path, *args) == 0
+    cap = capsys.readouterr()
+    lines = cap.out.strip().splitlines()
+    # progress goes to stderr only: the author's streamed call and the judge's calls; stdout stays the report
+    assert "[author worker propose #1]" in cap.err and "[judge visual_qa:blockout]" in cap.err
+    assert "[author " not in cap.out and "[judge " not in cap.out
+    assert lines[-1] == "preview gates: FAIL" and lines[-2].startswith("delivered: yes")
+    assert any(ln.startswith("finding: ") and "below the target" in ln and "look at it before you ship" in ln for ln in lines)
+    x = report(tmp_path)
+    assert x["preview_gates_ok"] is False and x["gates_ok"] is False  # unchanged: nothing may read the exit code as approval
+    assert x["delivered"]["ok"] is True and x["exit"] == {"code": 0, "rule": x["exit"]["rule"], "strict": False}
+    assert x["review"]["status"] == "below_target" and x["review"]["calibrated"] is False
+    assert any(not t["met"] and t["short_by"] > 0 for t in x["review"]["targets"])
+    other = tmp_path / "strict"
+    other.mkdir()
+    assert prop(other, *args, "--strict") == 3
+    assert "--strict makes that exit 3" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------------------------- kit
@@ -272,6 +318,9 @@ def test_native_preview_session_exports_a_labelled_package(key, tmp_path, mode):
     export = lines[-1]
     assert export.startswith("export_engine_package: EXPORTED PREVIEW crate (UNVERIFIED; judged by generative fallback, uncalibrated)")
     assert "of 150,000 tokens (no price applied)" in export and "of 4 images" in export
+    # delivered and review said apart: the package's checks, then what the uncalibrated judge said
+    assert "| delivered: yes, package validation passed" in export
+    assert "| review: approve by generative fallback, uncalibrated at tier15 " in export and "a person must look at it" in export
     m = json.loads(Path(glob.glob(wd + "/export/crate/manifest.json")[0]).read_text())
     assert m["verified"] is False and m["preview"] is True and m["judge"]["calibrated"] is False
     assert m["validation"]["engine_import"]["ok"] in (None, True)  # skipped without Godot, passed with it; never parity
@@ -299,6 +348,48 @@ def test_native_session_not_opened_for_preview_cannot_export(key, tmp_path):
     line, refused = asyncio.run(go())
     assert "WARNING" in line and refused.startswith("REFUSED export blocked")
     assert not glob.glob(str(tmp_path / "s" / "export" / "x"))
+
+
+def test_a_session_only_the_user_can_unblock_refuses_delivery_at_once_and_says_what_to_ask(key, tmp_path):
+    """Live 2026-11-22 (r5/live_rerun_N, a change request on a reopened asset, not a preview): deliver_package ran its
+    checks and a lookdev render for 58 s before "export blocked: needs tier15>=3.4 ... Fix what it names with
+    apply_scene_ir". Nothing it checks and nothing the agent changes can end in a delivery there: without the
+    calibrated judge only a preview delivers, and a preview is the user's decision. It now says so before any work, the
+    QA record carries it for the hooks, and the switch to a preview clears it."""
+    import time
+
+    from antigravity3d.harness import tools as T
+    from antigravity3d.harness.session import NO_JUDGE, session
+    from antigravity3d.runtime import qa_state
+    from antigravity3d.runtime.mcp_server import StudioHost
+    from antigravity3d.state import EngineBudget
+    from antigravity3d.tactics.authoring import TemplateAuthor
+
+    api = key()
+
+    async def go():
+        h = StudioHost()
+        await h.open_asset_session("crate", "godot_4", workdir=str(tmp_path / "s"), workspace=str(tmp_path), conversation_id="conv-1")
+        sid = h.active
+        scene = (await TemplateAuthor().propose("wooden crate", budget=EngineBudget("godot_4"), n=1, context={"asset_name": "crate"}))[0]
+        ops = [{"op": "upsert_material", "material": m.model_dump(mode="json", exclude_defaults=True)} for m in scene.materials]
+        ops += [{"op": "upsert_node", "node": n.model_dump(mode="json", exclude_defaults=True)} for n in scene.nodes]
+        await h.call_tool("apply_scene_ir", T.ALL_TOOLS["apply_scene_ir"], sid, {"ops": ops})
+        asked = api.generated()
+        t0 = time.monotonic()
+        reply = await h.call_tool("deliver_package", T.ALL_TOOLS["deliver_package"], sid, {"dest": "output"})
+        took = time.monotonic() - t0
+        waits = qa_state.read_qa_state(sid, tmp_path).waits_for_user
+        await h.start_preview(150_000, 0)
+        return str(reply), took, api.generated() - asked, waits, qa_state.read_qa_state(sid, tmp_path).waits_for_user, \
+            session(h.registry, sid).waits_for_user()
+
+    reply, took, calls, waits, after, live_after = asyncio.run(go())
+    assert reply.startswith(f"NOT DELIVERED: a person must decide ({NO_JUDGE}). Reply to the user with this and stop: ask the user "
+                            "whether they want an unverified preview and for their two limits")
+    assert "start_preview" in reply and "\n" not in reply  # one sentence: no check ran, nothing was rendered
+    assert took < 2.0 and calls == 0 and not glob.glob(str(tmp_path / "output" / "*"))
+    assert waits == NO_JUDGE and after == "" and live_after == ""
 
 
 def test_preview_needs_both_user_limits():
@@ -411,7 +502,15 @@ async def test_the_money_path_writes_exactly_the_keys_it_wrote_before(tmp_path, 
     keep = {k: v for k, v in x.items() if k not in ("outputs", "report_path", "workdir")}
     before = json.loads((Path(__file__).parent / "money_path_keys.json").read_text())
     machine = ("/pyramid/artifacts/", "/skipped[]", "/pyramid/skipped[]", "/scores/web_", "/pyramid/scores/web_")  # installed engines/browsers
-    assert sorted(k for k in keypaths(keep) if not k.startswith(machine)) == before["extras"]
+    # /budget/max_texture_px, /budget/shared_atlas and /budget/base_color_jpeg_quality were added on purpose (EngineBudget: one shared atlas per prop, capped
+    # by an art direction's texture size); the report writes every budget field
+    # /budget/generated_surfaces likewise (surfaces generated from the geometry for a material without an image)
+    # Added on purpose in round five (antigravity3d.delivery): what the exit code said, beside the unchanged gates. On the
+    # money path (a calibrated judge) the gates decide, as before.
+    delivery = ("/delivered", "/review", "/exit")
+    assert sorted(k for k in keypaths(keep) if not k.startswith(machine + delivery)) == before["extras"]
+    assert x["exit"] == {"code": 0 if x["preview_gates_ok"] else 1, "rule": "gates of a calibrated judge"}
+    assert x["review"]["calibrated"] is True and x["delivered"]["ok"] in (True, False)
     assert {n: sorted(d.data) for n, d in rep.nodes.items()} == before["node_data"]
     assert x["cost"]["plan"].startswith("standard: $") and "tokens" not in x["cost"]["plan"]
     assert all("reserved_usd" in r and "unit" not in r for r in x["cost"]["receipts"])
@@ -566,14 +665,20 @@ async def test_a_judge_call_slower_than_its_deadline_is_answered_504_once_and_ho
     assert res.attempts == 1 and fast.kinds().count("judge") == 1
 
 
-def test_a_design_the_judge_reads_as_a_blockout_of_the_brief_is_sent_for_repair_not_approved(key, tmp_path, capsys):
-    """The stand-in answers the brief's depiction score low (level 1): pass A asks the author to repair instead of
-    converging, and the run's export decision fails on the brief. The same run with the default answers converges."""
+def test_a_design_the_judge_reads_as_a_blockout_of_the_brief_is_sent_back_not_approved(key, tmp_path, capsys):
+    """The stand-in answers the brief's depiction score low (level 1): pass A asks the author for a better design instead
+    of converging, and the run's export decision fails on the brief. The same run with the default answers converges.
+    Since round five a design short only of a score gate gets an improvement round (author:improve, with its renders),
+    not a repair: the score names no fault a repair could fix."""
     api = key(score_overrides={"score_brief_depiction": "1"})
     rc = prop(tmp_path, "--preview", "--token-ceiling", "150000", "--max-images", "4", "--single-candidate", *FAST)
     out = capsys.readouterr().out
-    assert "author:repair" in api.kinds(), out
+    assert "author:improve" in api.kinds() and "author:repair" not in api.kinds(), out
     x = report(tmp_path)
     blob = json.dumps(x)
     assert "brief depiction" in blob and "brief_unmet" in blob, blob[:2000]
-    assert rc != 0 and not x["published"]
+    # The export decision still fails on the brief (preview gates: FAIL, never approval). The exit code is 0 since round
+    # five's delivery rule (antigravity3d.delivery): an uncalibrated judge's score below target is a finding the last
+    # lines state, not a failure; --strict makes it exit 3.
+    assert not x["published"] and x["preview_gates_ok"] is False and x["review"]["status"] == "below_target"
+    assert rc == 0 and "finding: depiction of the brief" in out

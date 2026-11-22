@@ -136,7 +136,10 @@ async def test_geometry_tier1_failures_never_reach_vision_and_winner_is_promoted
                                   uploader=up, scenes=scenes)
     assert sorted(r.disqualified) == [0, 3]
     assert all("tri" in v.lower() for v in r.disqualified.values())
-    assert tag_calls(plane, "bon:geometry") == 1 and len(uploads) == 2  # only the survivors cost a vision call / sheet
+    # only the survivors cost vision calls and renders. Was 1 call and 2 uploads (one sheet each, all candidates in one
+    # request); each survivor is now judged alone on five separate views (tactics.judging, decided 2026-11-22):
+    # 2 calls, 2 x 5 uploads.
+    assert tag_calls(plane, "bon:geometry") == 2 and len(uploads) == 2 * 5
     assert r.winner is not None and r.winner.index in (1, 2)
     # promoted: the variant set is gone, base scene is the winner, and the stage is editable again
     assert sm.list_variants("blockout") == []

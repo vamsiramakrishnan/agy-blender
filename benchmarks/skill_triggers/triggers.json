@@ -1,0 +1,500 @@
+[
+  {
+    "id": "concept-to-blueprint.s1",
+    "prompt": "i have an idea for a sci-fi lantern prop, can you do concept art from the front, side and top before we model anything",
+    "expected": [
+      "concept-to-blueprint"
+    ],
+    "kind": "should",
+    "notes": "direct, idea only"
+  },
+  {
+    "id": "concept-to-blueprint.s2",
+    "prompt": "need a turnaround sheet for a rusty fuel barrel, orthographic views please",
+    "expected": [
+      "concept-to-blueprint"
+    ],
+    "kind": "should",
+    "notes": "casual wording for orthos"
+  },
+  {
+    "id": "concept-to-blueprint.s3",
+    "prompt": "got a rough sketch of a treasure chest and no reference drawings yet, where do we even start with the 3d asset",
+    "expected": [
+      "concept-to-blueprint"
+    ],
+    "kind": "should",
+    "notes": "implicit: new asset, nothing approved"
+  },
+  {
+    "id": "concept-to-blueprint.nm",
+    "prompt": "the front and side drawings of the crate are approved already, now build the model in the stage",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'drawings' and 'crate'; the design exists, the work is modelling"
+  },
+  {
+    "id": "parametric-kitbash.s1",
+    "prompt": "build me a military supply crate with latches and corner guards for godot, around 3000 tris",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "should",
+    "notes": "direct"
+  },
+  {
+    "id": "parametric-kitbash.s2",
+    "prompt": "my barrel model has a lid floating above the body and the surface flickers when the camera moves",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "should",
+    "notes": "symptoms: floating part, z-fighting"
+  },
+  {
+    "id": "parametric-kitbash.s3",
+    "prompt": "make a wall piece and a doorway for a modular dungeon kit, 2m modules, they have to snap",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "should",
+    "notes": "modular kit pieces"
+  },
+  {
+    "id": "parametric-kitbash.s4",
+    "prompt": "the crate you made yesterday: remove the corner guards and make it 20 % taller, leave the rest alone",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "should",
+    "notes": "a change to an asset that already exists: an edit, not a new model"
+  },
+  {
+    "id": "parametric-kitbash.nm",
+    "prompt": "the crate model is fine but it is flat grey, make it look like worn olive drab paint",
+    "expected": [
+      "pbr-material-forge"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'crate model'; the work is the surface"
+  },
+  {
+    "id": "pbr-material-forge.s1",
+    "prompt": "give the barrel a rusty steel material with proper roughness and normal maps",
+    "expected": [
+      "pbr-material-forge"
+    ],
+    "kind": "should",
+    "notes": "direct"
+  },
+  {
+    "id": "pbr-material-forge.s2",
+    "prompt": "the texture on my crate has latches painted on every face and shadows baked in, redo it",
+    "expected": [
+      "pbr-material-forge"
+    ],
+    "kind": "should",
+    "notes": "symptoms of a texture drawn as the object"
+  },
+  {
+    "id": "pbr-material-forge.s3",
+    "prompt": "lookdev pass on the lantern: brass frame, frosted glass, worn leather strap",
+    "expected": [
+      "pbr-material-forge"
+    ],
+    "kind": "should",
+    "notes": "lookdev wording"
+  },
+  {
+    "id": "pbr-material-forge.nm",
+    "prompt": "the lid of the crate has a gap and two plates overlap, fix the geometry",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'crate'; geometry, not surface"
+  },
+  {
+    "id": "game-ready-sanitizer.s1",
+    "prompt": "i downloaded tree.glb from a marketplace and it is a mess, make it ready for unreal",
+    "expected": [
+      "game-ready-sanitizer"
+    ],
+    "kind": "should",
+    "notes": "third-party file"
+  },
+  {
+    "id": "game-ready-sanitizer.s2",
+    "prompt": "run every obj in the depot folder through cleanup and give me lods and colliders",
+    "expected": [
+      "game-ready-sanitizer"
+    ],
+    "kind": "should",
+    "notes": "batch"
+  },
+  {
+    "id": "game-ready-sanitizer.s3",
+    "prompt": "my scanned statue.ply has duplicate faces, flipped normals and is about 1000x too big",
+    "expected": [
+      "game-ready-sanitizer"
+    ],
+    "kind": "should",
+    "notes": "symptoms on a supplied scan"
+  },
+  {
+    "id": "game-ready-sanitizer.nm",
+    "prompt": "the crate model is finished, make it a game ready package for godot and check it imports",
+    "expected": [
+      "engine-truth-verify"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'game ready'; the file was made here and needs export"
+  },
+  {
+    "id": "engine-truth-verify.s1",
+    "prompt": "export the barrel for unreal 5 and verify it imports",
+    "expected": [
+      "engine-truth-verify"
+    ],
+    "kind": "should",
+    "notes": "direct"
+  },
+  {
+    "id": "engine-truth-verify.s2",
+    "prompt": "ship this prop to unity urp, export keeps saying REFUSED, what is blocking it",
+    "expected": [
+      "engine-truth-verify"
+    ],
+    "kind": "should",
+    "notes": "symptom: refusal"
+  },
+  {
+    "id": "engine-truth-verify.s3",
+    "prompt": "i have no native judge on this key, can i still get an unverified preview package for godot",
+    "expected": [
+      "engine-truth-verify"
+    ],
+    "kind": "should",
+    "notes": "preview mode"
+  },
+  {
+    "id": "engine-truth-verify.nm",
+    "prompt": "before exporting, clean up this glb of mine, it has duplicate faces and wrong units",
+    "expected": [
+      "game-ready-sanitizer"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'export'; the file is the user's and needs repair first"
+  },
+  {
+    "id": "art-direction.s1",
+    "prompt": "i want a ps1 look, tiny textures and flat shading",
+    "expected": [
+      "art-direction"
+    ],
+    "kind": "should",
+    "notes": "era wording"
+  },
+  {
+    "id": "art-direction.s2",
+    "prompt": "chunky low poly voxel style for the whole set",
+    "expected": [
+      "art-direction"
+    ],
+    "kind": "should",
+    "notes": "style wording"
+  },
+  {
+    "id": "art-direction.s3",
+    "prompt": "cel shaded anime look for the sword",
+    "expected": [
+      "art-direction"
+    ],
+    "kind": "should",
+    "notes": "style names a shader look"
+  },
+  {
+    "id": "art-direction.nm",
+    "prompt": "my low poly tree has a branch floating in mid air, fix it",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'low poly'; a geometry fault"
+  },
+  {
+    "id": "combo.01",
+    "prompt": "build a voxel style campfire prop for godot",
+    "expected": [
+      "art-direction",
+      "parametric-kitbash"
+    ],
+    "kind": "combo",
+    "notes": "style plus modelling"
+  },
+  {
+    "id": "combo.02",
+    "prompt": "model me a supply crate and then give it painted steel textures",
+    "expected": [
+      "parametric-kitbash",
+      "pbr-material-forge"
+    ],
+    "kind": "combo",
+    "notes": "modelling then surface"
+  },
+  {
+    "id": "combo.03",
+    "prompt": "take this obj from the store, clean it up and export it to unity with verification",
+    "expected": [
+      "game-ready-sanitizer",
+      "engine-truth-verify"
+    ],
+    "kind": "combo",
+    "notes": "repair then export"
+  },
+  {
+    "id": "combo.04",
+    "prompt": "start from this sketch of a lantern: concept art first, then build it",
+    "expected": [
+      "concept-to-blueprint",
+      "parametric-kitbash"
+    ],
+    "kind": "combo",
+    "notes": "blueprint then modelling"
+  },
+  {
+    "id": "none.01",
+    "prompt": "write a python function that parses a csv of enemy stats",
+    "expected": [],
+    "kind": "none",
+    "notes": ""
+  },
+  {
+    "id": "none.02",
+    "prompt": "how do i implement a double jump in godot gdscript",
+    "expected": [],
+    "kind": "none",
+    "notes": "game development, none of the plugin's skills"
+  },
+  {
+    "id": "none.03",
+    "prompt": "what is the capital of france",
+    "expected": [],
+    "kind": "none",
+    "notes": ""
+  },
+  {
+    "id": "none.04",
+    "prompt": "balance my game's xp curve so level 10 takes about two hours",
+    "expected": [],
+    "kind": "none",
+    "notes": "game development, none of the plugin's skills"
+  },
+  {
+    "id": "install-into-project.s1",
+    "prompt": "put the exported barrel into my godot project so i can just drag one scene into a level",
+    "expected": [
+      "install-into-project"
+    ],
+    "kind": "should",
+    "notes": "direct"
+  },
+  {
+    "id": "install-into-project.s2",
+    "prompt": "install this asset in the workspace project and check that it loads in godot",
+    "expected": [
+      "install-into-project"
+    ],
+    "kind": "should",
+    "notes": "workspace project"
+  },
+  {
+    "id": "install-into-project.s3",
+    "prompt": "i installed the crate into the game last week, take it out of the project again",
+    "expected": [
+      "install-into-project"
+    ],
+    "kind": "should",
+    "notes": "removal"
+  },
+  {
+    "id": "install-into-project.nm",
+    "prompt": "export the barrel for godot and verify it imports, i have no project yet",
+    "expected": [
+      "engine-truth-verify"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'godot' and 'project'; no project to install into"
+  },
+  {
+    "id": "engine-truth-verify.nm2",
+    "prompt": "the barrel package is verified, now get it into my game project",
+    "expected": [
+      "install-into-project"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'package'; the work is the install"
+  },
+  {
+    "id": "parametric-kitbash.h1",
+    "prompt": "a cast-iron fire hydrant with bolted caps and a chained nozzle cap, for godot, keep it under 3000 tris",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "should",
+    "notes": "brief of compare_agents.py"
+  },
+  {
+    "id": "parametric-kitbash.h2",
+    "prompt": "a wooden Windsor chair with a spindle back",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "should",
+    "notes": "brief of compare_agents.py; a bare object name"
+  },
+  {
+    "id": "parametric-kitbash.h3",
+    "prompt": "make the two side handles 30 % larger",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "should",
+    "notes": "change request of compare_agents.py on an existing asset"
+  },
+  {
+    "id": "parametric-kitbash.nm.h1",
+    "prompt": "my low poly crate model has the right shape but looks like grey plastic, how do i get worn painted metal on it",
+    "expected": [
+      "pbr-material-forge"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'model' and 'crate'; the work is the surface"
+  },
+  {
+    "id": "pbr-material-forge.h1",
+    "prompt": "the hydrant looks like plastic, can it have chipped red paint over bare cast iron",
+    "expected": [
+      "pbr-material-forge"
+    ],
+    "kind": "should",
+    "notes": "surface wording"
+  },
+  {
+    "id": "game-ready-sanitizer.h1",
+    "prompt": "got a 28k tri chair.obj off turbosquid, normals are flipped and it has no collision, make it usable in godot",
+    "expected": [
+      "game-ready-sanitizer"
+    ],
+    "kind": "should",
+    "notes": "third-party file"
+  },
+  {
+    "id": "engine-truth-verify.h1",
+    "prompt": "export the chair for roblox and tell me whether it really imports",
+    "expected": [
+      "engine-truth-verify"
+    ],
+    "kind": "should",
+    "notes": "direct, from the benchmark's brief"
+  },
+  {
+    "id": "engine-truth-verify.nm.h1",
+    "prompt": "clean up the chair.obj i downloaded before i export it anywhere",
+    "expected": [
+      "game-ready-sanitizer"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'export'; the file is the user's"
+  },
+  {
+    "id": "install-into-project.h1",
+    "prompt": "drop the crate into my godot project under res://props and check it loads",
+    "expected": [
+      "install-into-project"
+    ],
+    "kind": "should",
+    "notes": "direct"
+  },
+  {
+    "id": "install-into-project.h2",
+    "prompt": "i exported the hydrant package, how do i get it into my game so i can drag it into a level",
+    "expected": [
+      "install-into-project"
+    ],
+    "kind": "should",
+    "notes": "question form"
+  },
+  {
+    "id": "install-into-project.h3",
+    "prompt": "godot imported a glb i got and now there are duplicate texture files and eight collision bodies, i want this asset set up properly in my project",
+    "expected": [
+      "install-into-project"
+    ],
+    "kind": "should",
+    "notes": "symptoms of an unprepared package in a project; AMBIGUOUS with game-ready-sanitizer for a third-party file"
+  },
+  {
+    "id": "install-into-project.nm.h1",
+    "prompt": "how do i install godot 4.7 on my laptop",
+    "expected": [],
+    "kind": "near-miss",
+    "notes": "shares 'install' and 'godot'; nothing to do with an asset"
+  },
+  {
+    "id": "art-direction.h1",
+    "prompt": "make the whole set look hand painted, like a cozy fantasy game",
+    "expected": [
+      "art-direction"
+    ],
+    "kind": "should",
+    "notes": "style wording"
+  },
+  {
+    "id": "concept-to-blueprint.h1",
+    "prompt": "i want to design a ship's lantern, show me front and side views before anyone builds it",
+    "expected": [
+      "concept-to-blueprint"
+    ],
+    "kind": "should",
+    "notes": "design sheet first"
+  },
+  {
+    "id": "combo.h1",
+    "prompt": "model the fire hydrant, give it chipped red paint and put it in my godot project",
+    "expected": [
+      "parametric-kitbash",
+      "pbr-material-forge",
+      "install-into-project"
+    ],
+    "kind": "combo",
+    "notes": "three skills"
+  },
+  {
+    "id": "combo.h2",
+    "prompt": "low poly look for the chair, build it and export it for unity with a check",
+    "expected": [
+      "art-direction",
+      "parametric-kitbash",
+      "engine-truth-verify"
+    ],
+    "kind": "combo",
+    "notes": "style, model, export"
+  },
+  {
+    "id": "none.h1",
+    "prompt": "my godot character slides down slopes when standing still, how do i stop it",
+    "expected": [],
+    "kind": "none",
+    "notes": "game development, none of the plugin's skills"
+  },
+  {
+    "id": "none.h2",
+    "prompt": "write a python script that renames 300 png files by their creation date",
+    "expected": [],
+    "kind": "none",
+    "notes": ""
+  }
+]

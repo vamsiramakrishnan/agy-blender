@@ -53,6 +53,7 @@ from antigravity3d.harness.tools import (
 from antigravity3d.ir_schema import (  # prose the tool schemas cannot carry
     IR_SEMANTICS,
     OP_SEMANTICS,
+    SHAPE_SEMANTICS,
 )
 from antigravity3d.models import Role, tier
 from antigravity3d.state import SceneSessionRegistry
@@ -79,7 +80,7 @@ STAGE_BEHAVIOR = types.AgentBehavior.MINIMAL
 
 # Only what a schema cannot say: units, axes, anchors, ground contact, id rules. Field names and types are in the
 # tool declarations (generated from the same IR schema), so they are not repeated here.
-_IR_RULES = f"{IR_SEMANTICS}\n{OP_SEMANTICS}"
+_IR_RULES = f"{IR_SEMANTICS}\n{SHAPE_SEMANTICS}\n{OP_SEMANTICS}"
 _IR_STAGES = frozenset({"BLOCKOUT", "TWEAK", "VARIANTS"})  # edit geometry: IR semantics and the anchor ops
 _MATERIAL_STAGES = frozenset({"LOOKDEV"})  # edit materials only: IR semantics (ids, material cross-field rules)
 
@@ -87,12 +88,15 @@ _STAGE_TEXT: dict[str, str] = {
     "BLOCKOUT": "Use apply_scene_ir (batch ops; main solids before required detail). "
                 "Each edit is atomic: a failing Tier-1 check (non-manifold, over budget) is rolled back and reported in one "
                 "line; fix and resend.",
-    "TWEAK": "Use query_region for a bounded spatial working set. Apply the requested parameter edits with apply_scene_ir.",
+    "TWEAK": "Existing asset: change only what was asked. Use query_region for a bounded spatial working set. Apply the "
+             "requested parameter edits with apply_scene_ir.",
     "VARIANTS": "Explore alternatives as variants (propose_variants), select each and run_visual_qa, promote the best.",
     "LOOKDEV": "The header's 'bound:' line lists the node ids by current material. Create materials with forge_pbr_material, "
                "whose prompt names only the material and its finish in a few words, never the object or its parts (the "
                "texture tiles over every face); tune and assign them with apply_shader_diff (assign_to takes those node ids), then "
-               "render_lookdev with EEVEE/Cycles and run_visual_qa until Decisions approves (tier15 >= 3.4). Images are never shown to you; reason from QA lines.",
+               "render_lookdev with EEVEE/Cycles and run_visual_qa until Decisions approves (tier15 >= 3.4). With an image "
+               "limit of 0, forge_pbr_material answers NO IMAGES: skip it; surfaces are made from the geometry at export. In an "
+               "uncalibrated preview any lookdev review of the current scene lets it export; its findings ship with it.",
     "EXPORT": "Run generate_lods_and_colliders and run_usd_validator, then export_engine_package. Export is refused until QA "
               "approved the current scene; report what blocks it instead of retrying.",
 }
@@ -228,7 +232,7 @@ def build_stage_agent(
 
 class PartPlan(pydantic.BaseModel):
     name: str
-    primitive: Literal["box", "cylinder", "cone", "sphere", "capsule", "group", "mesh_ref"]
+    primitive: Literal["box", "cylinder", "cone", "sphere", "capsule", "lathe", "extrude", "group", "mesh_ref"]
     approx_size_m: tuple[float, float, float]
     notes: str = ""
 

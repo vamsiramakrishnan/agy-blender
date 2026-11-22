@@ -20,16 +20,18 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 
 from antigravity3d.ir import (
-    IRPatch, IROp, MaterialIR, NodeIR, SceneIR, SetParam, SetTransform, Transform, UpsertMaterial, UpsertNode, apply_patch,
+    NODE_PARAMS, IRPatch, IROp, MaterialIR, NodeIR, SceneIR, SetParam, SetTransform, Transform, UpsertMaterial, UpsertNode, apply_patch,
 )
 from antigravity3d import service_answer
 from antigravity3d.authoring_contract import AuthoringIntent, repair_scope
-from antigravity3d.kernel.compile_ir import primitive_mesh
+from antigravity3d.ir_shortcuts import local_bounds
+from antigravity3d.kernel.attach import INTO
+from antigravity3d.kernel.compile_ir import triangle_count
 from antigravity3d.kernel.settle import beside_a_part
 from antigravity3d.state import EngineBudget
 
 GROUND_TOL = 0.01
-CURVED = ("cylinder", "cone", "sphere", "capsule")
+CURVED = ("cylinder", "cone", "sphere", "capsule", "lathe")  # kinds with a segments count (_shrink lowers it)
 STAGE_TIMEOUT_S = 300.0  # harness stage-agent session (a different path from the governed one-shot calls)
 
 
@@ -59,17 +61,9 @@ def _local(t: Transform) -> np.ndarray:
     return m
 
 
-def _half(n: NodeIR) -> np.ndarray | None:
-    p = n.params
-    if n.kind == "box":
-        return np.asarray(p["size"], float) / 2
-    if n.kind in ("cylinder", "cone"):
-        return np.array([p["radius"], p["radius"], float(p["height"]) / 2])
-    if n.kind == "sphere":
-        return np.full(3, float(p["radius"]))
-    if n.kind == "capsule":
-        return np.array([p["radius"], p["radius"], float(p["height"]) / 2 + float(p["radius"])])
-    return None
+def _local_box(n: NodeIR) -> tuple[np.ndarray, np.ndarray] | None:
+    """(lo, hi) of a geometric node in its own frame; None for a group or a mesh_ref."""
+    return local_bounds(n.kind, n.params)
 
 
 def world_bounds(scene: SceneIR) -> dict[str, tuple[np.ndarray, np.ndarray]]:
@@ -85,10 +79,10 @@ def world_bounds(scene: SceneIR) -> dict[str, tuple[np.ndarray, np.ndarray]]:
 
     out: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for n in scene.nodes:
-        h = _half(n)
-        if h is None:
+        box = _local_box(n)
+        if box is None:
             continue
-        corners = np.array([[sx, sy, sz] for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]) * h
+        corners = np.array([[x, y, z] for x in (box[0][0], box[1][0]) for y in (box[0][1], box[1][1]) for z in (box[0][2], box[1][2])])
         w = (mat(n.id) @ np.c_[corners, np.ones(8)].T).T[:, :3]
         out[n.id] = (w.min(0), w.max(0))
     return out
@@ -114,7 +108,7 @@ def _move(scene: SceneIR, node_id: str, delta: np.ndarray) -> SetTransform:
 
 
 def count_tris(scene: SceneIR) -> int:
-    return sum(len(primitive_mesh(n)[1]) for n in scene.nodes if n.kind in ("box", *CURVED))
+    return sum(triangle_count(n) for n in scene.nodes)  # the kernel's cost function, the one source
 
 
 # --------------------------------------------------------------------------- mechanical repairs
@@ -156,8 +150,9 @@ def _lift_all(scene: SceneIR) -> list[IROp]:
     return [_move(scene, n.id, np.array([0.0, 0.0, dz])) for n in scene.nodes if n.parent is None] if abs(dz) > 1e-6 else []
 
 
-def _shrink(scene: SceneIR, max_tris: int) -> list[IROp]:
-    """Reduce segments/rings of curved nodes until the analytic tri count fits 90% of the budget."""
+def _shrink(scene: SceneIR, max_tris: int, only: set[str] | None = None) -> list[IROp]:
+    """Reduce segments/rings of curved nodes until the analytic tri count fits 90% of the budget. ``only``: change no
+    node outside this set (a patch's clean-up touches only what the patch changed; tactics.pyramid.tidy)."""
     target, cur = int(max_tris * 0.9), scene
     ops: list[IROp] = []
     for _ in range(6):
@@ -165,13 +160,17 @@ def _shrink(scene: SceneIR, max_tris: int) -> list[IROp]:
         if tris <= target:
             break
         k = max(0.25, math.sqrt(target / tris))
-        step: list[IROp] = []
-        for n in cur.nodes:
-            if n.kind not in CURVED:
+        # rounded bevels go to a chamfer first: they cost the most per part and change no silhouette
+        step: list[IROp] = [SetParam(node_id=n.id, name="bevel_segments", value=1) for n in cur.nodes
+                            if n.params.get("bevel") and int(n.params.get("bevel_segments", 1)) > 1 and (only is None or n.id in only)]
+        for n in cur.nodes if not step else ():
+            if n.kind not in CURVED or (only is not None and n.id not in only):
                 continue
-            for name, floor, default in (("segments", 8, 24 if n.kind != "capsule" else 16), ("rings", 6, 12)):
-                if name == "rings" and n.kind != "sphere":
+            fields = NODE_PARAMS[n.kind].model_fields
+            for name, floor in (("segments", 8), ("rings", 6)):
+                if name not in fields:
                     continue
+                default = fields[name].default
                 v = int(n.params.get(name, default))
                 nv = max(floor, int(v * k))
                 if nv < v:
@@ -309,7 +308,14 @@ def _lamp(rng: random.Random, name: str, prompt: str) -> SceneIR:
     lamp = MaterialIR(id="glass", base_color=(1.0, 0.92, 0.7), roughness=0.2, surface="warm frosted glass, smooth")
     top = round(0.12 + h, GRID)  # the pole's top end, which the head's lowest point rests on
     radius = round(br, GRID)
-    nodes = [_cyl("base", 0.16, 0.12, (0, 0, 0.06), "iron", seg), _cyl("pole", 0.04, h, (0, 0, 0.12 + h / 2), "iron", seg),
+    # The pole stands a millimetre into the base (kernel/attach.py INTO: what a contact is). Standing flush on it, the
+    # pole's bottom face is left out of the shipped file as a hidden contact face and no vertex of the base is within
+    # 40 mm of what is left of the pole, so whether the base touches anything is decided by float rounding: Tier-1
+    # reported the base as floating on 15 seeds of 24, and Blender's qa_check called it "not touching" on those
+    # (measured 2026-11-22 with Blender 5.3; it passed only because a ray from the base's centre leaves through the pole).
+    foot = 0.12 - INTO
+    nodes = [_cyl("base", 0.16, 0.12, (0, 0, 0.06), "iron", seg),
+             _cyl("pole", 0.04, 0.12 + h - foot, (0, 0, (foot + 0.12 + h) / 2), "iron", seg),
              NodeIR(id="head", kind="sphere", params={"radius": radius, "segments": seg, "rings": 8},
                     transform=Transform(translate=(0, 0, round(top + radius, GRID))), material_id="glass")]
     return SceneIR(asset_name=name, nodes=nodes, materials=[_IRON, lamp])
@@ -577,11 +583,14 @@ class AgentAuthor:
     for repairs; reusing that name with a different contract is refused before opening a session.
     """
 
-    def __init__(self, *, plane: Any = None, forge: Any = None, workdir: Any = None, client: Any = None, role: str = "worker", timeout_s: float | None = None) -> None:
+    def __init__(self, *, plane: Any = None, forge: Any = None, workdir: Any = None, client: Any = None, role: str = "worker", timeout_s: float | None = None,
+                 progress: Callable[[Any], None] | None = None) -> None:
         """``timeout_s=None``: governed model calls use the per-tier timeouts beside the output-budget table
         (``metered_author.AUTHOR_TIMEOUT_S``) and harness stage sessions ``STAGE_TIMEOUT_S``; a number overrides both."""
         self.plane, self.forge, self.role, self.timeout_s = plane, forge, role, timeout_s
         self.client = client
+        # MeteredAuthor's progress sink (tactics.stream_call.ModelCallProgress per event); None: no events
+        self.progress = progress
         self._contexts: dict[str, _AuthorContext] = {}
         self.workdir = workdir
         self.calls = {"propose": 0, "repair": 0}
@@ -596,7 +605,8 @@ class AgentAuthor:
         from google import genai
         from antigravity3d.tactics.metered_author import MeteredAuthor
 
-        return MeteredAuthor(self.client or genai.Client(), governor, budget, context, timeout_s=self.timeout_s, record=record)
+        return MeteredAuthor(self.client or genai.Client(), governor, budget, context, timeout_s=self.timeout_s, record=record,
+                             progress=self.progress)
 
     def _run_stage(self) -> Callable[..., Any]:
         from antigravity3d.harness.agents import run_stage  # lazy

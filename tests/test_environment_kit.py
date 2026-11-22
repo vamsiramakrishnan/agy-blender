@@ -18,6 +18,7 @@ import pytest
 from google.genai import types
 
 from antigravity3d import cli
+from stream_fakes import StreamFromBlocking  # noqa: E402 - tests/ is on sys.path (rootdir conftest layout)
 from antigravity3d.dags.environment_kit import PIECE_CYCLE, EnvironmentKitDAG, PiecesFailed, kit_plan
 from antigravity3d.genmedia.nano_banana import FakeImageBackend, ImageForge
 from antigravity3d.models import tier
@@ -48,7 +49,7 @@ PATIENCE_S = 30.0  # how long an incomplete round waits for its missing calls be
 ROUND_CALL_TIMEOUT_S = 3 * PATIENCE_S
 
 
-class KitEndpoint:
+class KitEndpoint(StreamFromBlocking):  # MeteredAuthor streams: the scripted answer is delivered as a stream
     """Scripted provider: answers per asset name and records how many calls were in flight.
 
     ``together=k`` makes it answer in rounds. No call is answered until ``k`` calls are waiting; the call that completes

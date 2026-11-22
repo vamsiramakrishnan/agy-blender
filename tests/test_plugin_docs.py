@@ -39,12 +39,16 @@ ALLOWED = frozenset({"generate_image", "run_workflow", "bpy_extras", "gpu_extras
 PRIMITIVE_WORDS = frozenset({"box", "cube", "cuboid", "cylinder", "cone", "sphere", "capsule", "torus", "plane",
                              "circle", "grid", "sweep", "lathe", "prism", "pyramid", "tube"})
 
-# Modelling operations that Scene IR patches do not have (the IR ops are upsert_node ... flush_back).
-UNSUPPORTED_OPS = frozenset({"boolean", "booleans", "array", "arrays", "mirror", "bevel", "subdivide", "extrude",
-                             "decimate", "instancing", "instanced"})
+# Modelling operations that Scene IR patches do not have (the IR ops are upsert_node ... flush_back). Round five made
+# three of the earlier entries real parameters of a node: bevel (box and cylinder, kernel/shapes.py), extrude (a node
+# kind) and mirror (a node shortcut, ir_shortcuts.py, as is repeat, which covers what "array" and "instancing" asked
+# for as plain copies); they are no longer listed. A boolean, a subdivision, a decimation and instancing still do not
+# exist: a hole is an inset face or a ring, a repeat is copies.
+UNSUPPORTED_OPS = frozenset({"boolean", "booleans", "array", "arrays", "subdivide", "decimate", "instancing", "instanced"})
 # Reference files (adapted style and technique material) describe outcomes, never DCC operations, in any sentence: the
-# agent has only Scene IR. Words of the modelling operations above plus the DCC workflow vocabulary they come with.
-OPERATION_WORDS = UNSUPPORTED_OPS | frozenset({"bevels", "beveled", "bevelled", "subdivision", "subdivided", "modifier",
+# agent has only Scene IR. Words of the modelling operations above plus the DCC workflow vocabulary they come with
+# (bevels and extrusions are outcomes Scene IR can now state, so a style may name them).
+OPERATION_WORDS = UNSUPPORTED_OPS | frozenset({"subdivision", "subdivided", "modifier",
                                                "modifiers", "sculpt", "sculpted", "sculpting", "remesh", "retopology",
                                                "solidify", "shrinkwrap"})
 
@@ -238,3 +242,5 @@ def test_checker_flags_names_that_do_not_exist() -> None:
     assert not name_problems("Call `apply_scene_ir` with `ops`, then `inspect_manifest`.")
     assert not unsupported_op_problems("Scene IR has no boolean or mirror ops.")
     assert operation_word_problems("No bevel modifier: hard edges.") and not operation_word_problems("Hard edges, no rounded corners.")
+    assert not operation_word_problems("Bevelled edges and a mirrored pair.") and operation_word_problems("Add a boolean cut.")
+    assert not unsupported_op_problems("Patches can bevel a box and mirror a part.") and unsupported_op_problems("Patches add booleans.")

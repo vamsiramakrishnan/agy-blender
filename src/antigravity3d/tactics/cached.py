@@ -44,8 +44,23 @@ from antigravity3d.tactics.common import load_png, png_bytes
 # 9: the copies of a UV-seam vertex share one position in LOD levels (they could differ by rounding noise);
 # 10: the bundle records which triangles are hidden contact faces (per part and per level) and packs the atlas
 #     without the charts that never ship; a collision hull over its engine's limit is replaced by an enclosing one
-BACKEND_VERSION = "kernel-fast_ops/10"
+# 11: opaque materials share one UV atlas whose side is chosen from need (fast_ops.ATLAS_SIDES), not 2048 per material
+# 12: an edit's export keeps the layout the asset shipped with (fast_ops._pack_kept; the key has the layout's digest);
+#     a material's charts are drawn at its own detail in a shared atlas
+BACKEND_VERSION = "kernel-fast_ops/12"
 CACHED_TAG = "(cached)"  # appended to GeneratedImage.model on a cache hit
+
+
+def image_identity(g: GeneratedImage, *, prompt: str, size: int | None = None, variant: str = "", offline: bool = False) -> dict[str, Any]:
+    """Who made an image, for the package manifest's ``provenance`` (kernel/provenance.py): identities and a hash, no
+    time and no cost. The same for the run that paid for the image and a rerun that took it from this cache: the model
+    is the one the service was asked for (the cache's mark is dropped), ``response_id`` is the paying call's (the cache
+    keeps it beside the blob), and ``prompt`` is the one the caller asked with (the forge's own wording of it may
+    differ between the two). An image of the offline stand-in says so and names no model."""
+    return {"kind": "offline_fake_image" if offline else "model_generated_image",
+            "model": "offline fake image backend" if offline else g.model.replace(f" {CACHED_TAG}", ""),
+            "prompt": prompt, "size": size, "variant": variant, "image_sha256": _digest(g.png_bytes),
+            "response_id": getattr(g.receipt, "response_id", None)}
 
 
 def _meta_key(key: str) -> str:
@@ -107,6 +122,16 @@ class CachedForge:
         """Whether :meth:`trim_sheet` with these arguments would be served from the cache (no call, no image)."""
         return self.cache.store.get(self._key("trim", {"prompt": prompt, "size": size})) is not None
 
+    def has_ortho(self, prompt: str, *, emphasis: str, style_anchor: bytes | None = None) -> bool:
+        """Whether :meth:`ortho_sheet` with these arguments would be served from the cache (see :meth:`has_albedo`)."""
+        return self.cache.store.get(self._key("ortho", {"prompt": prompt, "emphasis": emphasis, "anchor": _digest(style_anchor)})) is not None
+
+    def has_albedo(self, prompt: str, *, size: int = 2048, variant_hint: str = "") -> bool:
+        """Whether :meth:`seamless_albedo` with these arguments would be served from the cache (no call, no image, no
+        budget): a rerun's allocation uses it, so that images the earlier run paid for are not charged to the rerun's
+        image limit."""
+        return self.cache.store.get(self._key("albedo", {"prompt": prompt, "size": size, "variant": variant_hint})) is not None
+
     async def _gen(self, op: str, key_args: dict[str, Any], call: Callable[[], Awaitable[GeneratedImage]]) -> GeneratedImage:
         key = self._key(op, key_args)
         fresh: list[GeneratedImage] = []
@@ -157,9 +182,25 @@ DESIGN_RECORD_VERSION = "design-record/1"
 
 @dataclass(frozen=True)
 class RecordedAnswer:
-    answer: SceneIR | IRPatch
+    answer: SceneIR | IRPatch | None  # None: the answer was "no change" (a look round's), paid for like any other
     key: str
     original: dict[str, Any]  # what the original call cost: unit, booked, usage, model, role, operation
+
+
+def request_digest(req: Any, index: int | None, upload_digest: Callable[[str], str | None] | None = None) -> str:
+    """Hash of a whole authoring request: the content of :meth:`DesignRecord.key` (which is ``"design-" +`` this), for
+    the manifest's provenance, where a run with no design record needs it too. ``upload_digest``: ``BuildCache.upload_digest``
+    (a file reference counts by the bytes uploaded under it); without it a reference stays as it is."""
+    def content(part: dict[str, Any]) -> dict[str, Any]:
+        uri = (part.get("file_data") or {}).get("file_uri")
+        digest = upload_digest(uri) if uri and upload_digest else None
+        return part if digest is None else {**part, "file_data": {**part["file_data"], "file_uri": None, "uploaded_sha256": digest}}
+
+    contents = [{**c, "parts": [content(p) for p in c.get("parts") or []]}
+                for c in (x.model_dump(mode="json", exclude_none=True) for x in req.contents)]
+    config = req.config.model_dump(mode="json", exclude_none=True, exclude={"http_options"})
+    return stable_hash({"v": DESIGN_RECORD_VERSION, "model": req.model, "role": req.role, "operation": req.operation,
+                        "contents": contents, "config": config, "index": index})
 
 
 class DesignRecord:
@@ -207,16 +248,23 @@ class DesignRecord:
             return None
         try:
             data = json.loads(raw)
+            if data["type"] == "none":
+                return RecordedAnswer(None, key, dict(data["original"]))
             model = {"SceneIR": SceneIR, "IRPatch": IRPatch}[data["type"]]
             return RecordedAnswer(model.model_validate(data["answer"]), key, dict(data["original"]))
         except Exception:  # noqa: BLE001 - a record this version cannot read is a miss, never a failure
             return None
 
-    def put(self, key: str, answer: SceneIR | IRPatch, original: dict[str, Any]) -> None:
-        kind = "SceneIR" if isinstance(answer, SceneIR) else "IRPatch"  # IRPatch is ir.SceneIRDiff
-        data = {"v": DESIGN_RECORD_VERSION, "type": kind, "answer": answer.model_dump(mode="json"),
+    def put(self, key: str, answer: SceneIR | IRPatch | None, original: dict[str, Any]) -> None:
+        """``answer`` None: the model answered that nothing should change (a look round can); a rerun that asks the same
+        request gets that answer too instead of paying for it again."""
+        kind = "none" if answer is None else "SceneIR" if isinstance(answer, SceneIR) else "IRPatch"  # IRPatch is ir.SceneIRDiff
+        data = {"v": DESIGN_RECORD_VERSION, "type": kind, "answer": None if answer is None else answer.model_dump(mode="json"),
                 "original": original}
-        self.cache.store.put(key, json.dumps(data, sort_keys=True).encode())
+        # Not sorted: a node's params are a free-form dict whose order is part of the design as written (it is in the
+        # scene embedded in the shipped USD); sorted here, a design taken from the record wrote other USD bytes than the
+        # same design paid for (found 2026-11-23: same request, same answer, a different .usd and .usdz).
+        self.cache.store.put(key, json.dumps(data).encode())
         with self._lock:
             self.recorded += 1
 
@@ -233,7 +281,9 @@ class DesignRecord:
             if o.get("booked") is not None:
                 by_unit[o.get("unit") or "?"] = by_unit.get(o.get("unit") or "?", 0.0) + float(o["booked"])
         ops = [r["operation"] for r in self.reused]
-        return {"reused": len(self.reused), "reused_designs": ops.count("propose"), "reused_repairs": ops.count("repair"),
+        # an improvement (pass A's improvement rounds) is a patch like a repair and is counted with them
+        return {"reused": len(self.reused), "reused_designs": ops.count("propose"),
+                "reused_repairs": ops.count("repair") + ops.count("improve"),
                 "recorded": self.recorded, "new_design": self.fresh, "original_booked": by_unit}
 
     def line(self) -> str:
@@ -283,6 +333,20 @@ def export_key(scene: SceneIR, budget: EngineBudget, meshes: list[MeshData] | No
         inputs["composed_meshes"] = [
             (m.node_id, m.material_id, m.collider, hashlib.sha256(np.ascontiguousarray(m.points, dtype="<f8")).hexdigest(),
              hashlib.sha256(np.ascontiguousarray(m.triangles, dtype="<i4")).hexdigest()) for m in meshes]
+    if meshes is not None:
+        # the shared atlas is laid out for the detail its materials carry (surface_detail): a map's size, not its path
+        from antigravity3d.kernel import smart_source, surface_detail
+
+        seen = {}
+        with smart_source.using(budget.generated_surfaces):  # (also in the key through asdict(budget) above)
+            for m in meshes:
+                if m.material_id not in seen:
+                    d = surface_detail.detail_px_per_m(m.material, budget.texel_density_px_per_m)
+                    seen[m.material_id] = round(d, 3) if d else None
+        inputs["layout_detail_px_per_m"] = sorted(seen.items(), key=lambda kv: str(kv[0]))
+        keep = next((m.keep_layout for m in meshes if getattr(m, "keep_layout", None) is not None), None)
+        if keep is not None:  # an edit keeps the layout it shipped with: a different starting layout is a different bundle
+            inputs["keep_layout"] = keep.digest
     return node_key("export.uv_lod_collider", inputs=inputs,
                     upstream=[ir_subtree_key(scene, r) for r in roots], backend_version=BACKEND_VERSION)
 
@@ -335,4 +399,5 @@ def cached_export_pipeline(cache: BuildCache, scene: SceneIR, meshes: list[MeshD
     return _bundle_from_bytes(data), hit
 
 
-__all__ = ["CachedForge", "DesignRecord", "RecordedAnswer", "cached_derive_pbr", "cached_export_pipeline", "export_key", "stable_hash"]
+__all__ = ["CachedForge", "DesignRecord", "RecordedAnswer", "cached_derive_pbr", "cached_export_pipeline", "export_key", "image_identity",
+           "stable_hash"]

@@ -1,0 +1,16 @@
+Shipped colour (hex as an engine displays the stored linear value) under each candidate rule.
+metallic: as the author wrote it; under (b) a metal is floored to reflectance 0.5, a non-metal kept in sRGB 50-240.
+asset          material           written               met  today    (a)srgb  (b)albedo  (b')albedo,met->0  (c)g1.5  (c)g1.8
+crate direct   olive_drab_metal   (0.18, 0.22, 0.14)    0.2  #768169  #2e3824  #2e3824    #2e3824            #4e5a41  #3c4830
+crate direct   dark_gunmetal      (0.12, 0.13, 0.14)   0.85  #616569  #1f2124  #b2bdc8    #2f3236            #393d41  #292c30
+crate direct   rubber_grip        (0.08, 0.08, 0.08)      0  #505050  #141414  #323232    #323232            #292929  #1a1a1a
+crate direct   brass_hardware     (0.65, 0.5, 0.22)     0.9  #d3bc81  #a68038  #e7b352    #a68038            #bfa05a  #b59248
+crate harness  mat_olive_body     (0.18, 0.22, 0.13)    0.2  #768165  #2e3821  #2e3821    #2e3821            #4e5a3d  #3c482c
+crate harness  mat_rubber         (0.05, 0.05, 0.05)      0  #3f3f3f  #0d0d0d  #323232    #323232            #1b1b1b  #0e0e0e
+crate harness  mat_brass_accent   (0.55, 0.42, 0.18)    0.9  #c4ad76  #8c6b2e  #e8b351    #8c6b2e            #ab8e4e  #9e7e3c
+crate native   mat_crate_olive    (0.24, 0.28, 0.17)    0.2  #869073  #3d472b  #3d472b    #3d472b            #606b4b  #4e5a39
+hydrant        cast_iron_red      (0.65, 0.08, 0.06)    0.2  #d35045  #a6140f  #a6140f    #a6140f            #bf2920  #b51a13
+hydrant        bare_iron          (0.18, 0.19, 0.2)    0.85  #76797c  #2e3033  #b4bdc5    #303235            #4e5154  #3c3f42
+chair          wood_oak           (0.42, 0.24, 0.11)      0  #ad865d  #6b3d1c  #6b3d1c    #6b3d1c            #8e6036  #7e4e25
+chair          wood_dark_accent   (0.25, 0.14, 0.07)      0  #89694b  #402412  #4a2a16    #4a2a16            #634125  #513017
+chair          brass_pin          (0.78, 0.58, 0.22)    0.9  #e5c881  #c79438  #edb145    #c79438            #d8b15a  #d1a548

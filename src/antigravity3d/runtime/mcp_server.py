@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import itertools
 import logging
 import os
 import re
@@ -45,7 +46,7 @@ import sys
 import typing
 import uuid
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Callable
 from urllib.parse import unquote, urlparse
 
 import anyio
@@ -57,6 +58,7 @@ from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from google.antigravity.tools.tool_runner import ToolWithSchema
 from pydantic import Field
 
+from antigravity3d import ir_schema
 from antigravity3d.art_direction import load as art_direction_load, style_ids
 from antigravity3d.harness import tools as T
 from antigravity3d.harness.hooks import InvariantAndSafetyGate, state_header
@@ -66,19 +68,27 @@ from antigravity3d.harness.session import (
 from antigravity3d.harness.traceback_compressor import compress_exception
 from antigravity3d.runtime import inspector_server as inspector_app
 from antigravity3d.state import EngineBudget, SceneSessionRegistry
+from antigravity3d.tactics.stream_call import CURRENT_SINK
 
 log = logging.getLogger("antigravity3d.mcp")
 
 SERVER_NAME = "antigravity-3d"
 ENGINES = ("unreal_5", "unity_urp", "godot_4", "roblox_r15")
-MANAGEMENT_TOOLS = ("open_asset_session", "start_preview", "set_stage", "session_status", "list_sessions")
+MANAGEMENT_TOOLS = ("open_asset_session", "open_existing_asset", "start_preview", "set_stage", "session_status", "list_sessions",
+                    "install_into_project")
 SESSION_ID_DOC = "Asset session to act on; omit to use the active (most recently opened or selected) one."
 INSTRUCTIONS = (
-    "antigravity-3d asset studio. Call open_asset_session first, then work stage by stage: tools outside the "
-    "active stage are refused (set_stage switches). Edit only through apply_scene_ir; export_engine_package is "
+    "antigravity-3d asset studio. To change an asset that already exists (a package or a prop folder in the workspace), "
+    "call open_existing_asset and edit it; never author it again. For a new asset call open_asset_session first. "
+    + T.SHORT_PATH + " The stage tools (set_stage switches; tools outside the active stage are refused) are there for finer "
+    "control. Edit only through apply_scene_ir; outside a preview export is "
     "refused until Tier-1 passes and Decisions approves current EEVEE/Cycles lookdev at >= 3.4. Without the native Decisions "
-    "API only an UNVERIFIED preview can be exported: ask the user for a token ceiling and an image limit, then start_preview. "
-    "Use the returned session_id for native export. Replies are one line.")
+    "API only an UNVERIFIED preview can be exported: open_asset_session's reply says whether this session already is one "
+    "(limits given at open); only if the reply asks for it, ask the user for a token ceiling and an image limit and call "
+    "start_preview. "
+    "Use the returned session_id for native export. Replies are one line." + ir_schema.colour_note())
+# The tools whose input carries a colour: their descriptions say what a colour means (ir_schema.colour_note).
+COLOUR_TOOLS = ("apply_scene_ir", "apply_shader_diff")
 
 
 class McpToolContext:
@@ -185,10 +195,10 @@ class StudioHost:
                 return f"ERROR {compress_exception(e)}"
 
     def visible_tools(self) -> set[str]:
-        names = set(MANAGEMENT_TOOLS) | set(inspector_app.TOOL_NAMES)
+        names = set(MANAGEMENT_TOOLS) | set(inspector_app.TOOL_NAMES) | {fn.__name__ for fn in T.SHORT_PATH_TOOLS}
         if self.active is not None:
             stage = session(self.registry, self.active).toolset
-            names.update(fn.__name__ for fn in T.STAGE_TOOLS[stage])
+            names.update(fn.__name__ for fn in (*T.STAGE_TOOLS[stage], *T.SESSION_TOOLS[stage]))
         return names
 
     async def change_catalog(self, ctx: Context, fn: Any, *args: Any) -> str:
@@ -218,8 +228,9 @@ class StudioHost:
                 f"stage={s.toolset} tris<={s.state.budget.max_tris}"
                 + (f" art={s.state.art_direction}" if s.state.art_direction else "") + f" workdir={s.workdir}")
         if s.state.preview:
+            note = T.surfaces_note(s, opening=True)
             return line + (f" | PREVIEW (UNVERIFIED: judged by {s.plane.judge_label if s.plane else 'none'}; never verified)"
-                           f" limits: {s.governor.summary()}")
+                           f" limits: {s.governor.summary()}") + (f" | {note}" if note else "")
         if s.plane is not None and not s.plane.calibrated:  # fail early: say now what will be refused, not at export
             return line + (" | WARNING: the native Decisions API is not available on this key, so run_visual_qa and "
                            f"export_engine_package will be refused. Remedy: {T.PREVIEW_SWITCH}")
@@ -253,7 +264,42 @@ class StudioHost:
         self._set_stage(sid, "BLOCKOUT")
         self.gates[sid] = InvariantAndSafetyGate(self.registry, sid)
         self.active = sid
-        return self._line(sid)
+        return self._line(sid) + " | " + T.SHORT_PATH
+
+    async def open_existing_asset(self, path: str, workspace: str = "", conversation_id: str = "", preview: bool = False,
+                                  token_ceiling: int | None = None, max_images: int | None = None) -> str:
+        """A session whose stage is an asset this project already shipped (``dags.edit_asset.load_shipped``: the design
+        embedded in its package, each material on its source maps), stage TWEAK: an edit changes what it names and the
+        rest stays as it shipped."""
+        from antigravity3d.dags.edit_asset import EditError, load_shipped, source_materials
+
+        root = Path(workspace or os.getcwd())
+        target = Path(path) if Path(path).is_absolute() else root / path
+        try:
+            shipped = load_shipped(target)
+        except EditError as e:
+            raise ValueError(str(e)) from e
+        await self.backends.ensure()
+        sid = f"{shipped.asset}-{uuid.uuid4().hex[:6]}"
+        wd = root / "agy3d_assets" / sid
+        scene, origin = source_materials(shipped, wd / "inputs")
+        open_session(self.registry, sid, wd, shipped.asset, shipped.budget, plane=self.backends.plane, forge=self.backends.forge,
+                     pool=self.backends.pool, state_workspace=root, art_direction=shipped.art_direction, preview=bool(preview),
+                     token_ceiling=token_ceiling, max_images=max_images, brief=shipped.brief)
+        s = session(self.registry, sid)
+        self.registry.attach(sid, T.EDIT_OF, str(shipped.package))  # an edit: separation moves only what the edit changes
+        async with self.registry.locked(sid):
+            s.stage.apply_ir(scene)
+            s.state.tx_stack = list(s.stage.tx_stack)
+            s.visuals_changed(tier1_ok=None)
+        if conversation_id:
+            bind_conversation(conversation_id, sid, self.registry)
+        self._set_stage(sid, "TWEAK")
+        self.gates[sid] = InvariantAndSafetyGate(self.registry, sid)
+        self.active = sid
+        return (self._line(sid) + f" | opened {shipped.package} as it shipped ({len(scene.nodes)} parts; materials from {origin}). "
+                "Stage TWEAK: change only what the user asks with apply_scene_ir (inspect_manifest lists the part ids); every "
+                "other part stays as it is. Then render_preview to check the change, and deliver_package.")
 
     async def start_preview(self, token_ceiling: int, max_images: int, session_id: str = "") -> str:
         sid = self.pick(session_id)
@@ -274,7 +320,8 @@ class StudioHost:
         self._set_stage(sid, stage)
         self.active = sid
         names = ", ".join(f.__name__ for f in T.STAGE_TOOLS[stage])
-        return f"STAGE {stage} callable: {names}"
+        note = T.surfaces_note(session(self.registry, sid)) if stage == "LOOKDEV" else ""
+        return f"STAGE {stage} callable: {names}" + (f" | {note}" if note else "")
 
     async def session_status(self, session_id: str = "") -> str:
         return state_header(session(self.registry, self.pick(session_id)))
@@ -316,14 +363,57 @@ def _wrapper(name: str, fn: T.ToolFn, host: StudioHost) -> Any:
     params.append(inspect.Parameter("session_id", inspect.Parameter.KEYWORD_ONLY, default="",
                                     annotation=Annotated[str, Field(description=SESSION_ID_DOC)]))
 
-    async def tool(**kwargs: Any) -> str:
+    # The MCP request's context, injected by the SDK (found by its annotation, left out of the input schema): the tool's
+    # model calls report to its client as notifications/progress while it runs (_progress_sink).
+    params.append(inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, default=None, annotation=Context))
+
+    async def tool(**kwargs: Any) -> Any:
+        ctx = kwargs.pop("ctx", None)
         sid = kwargs.pop("session_id", "") or ""
-        return await host.call_tool(name, fn, sid, kwargs)
+        token = CURRENT_SINK.set(_progress_sink(ctx)) if ctx is not None else None
+        try:
+            return _with_images(await host.call_tool(name, fn, sid, kwargs))
+        finally:
+            if token is not None:
+                CURRENT_SINK.reset(token)
 
     tool.__name__ = tool.__qualname__ = name
-    tool.__doc__ = inspect.getdoc(raw)
+    tool.__doc__ = inspect.getdoc(raw) + (ir_schema.colour_note() if name in COLOUR_TOOLS else "")
     tool.__signature__ = inspect.Signature(params, return_annotation=str)  # type: ignore[attr-defined]
+    tool.__annotations__ = {**{p.name: p.annotation for p in params}, "return": str}
     return tool
+
+
+def _progress_sink(ctx: Any) -> Callable[[Any], None]:
+    """A progress sink (``tactics.stream_call.ModelCallProgress``) that sends each event to the MCP client as
+    ``notifications/progress``: ``progress`` counts events (it only grows, as the protocol asks), ``message`` is the event's
+    line. Sending is scheduled, never awaited, so a slow or gone client never slows the call; a failed send is dropped.
+    A client that sent no progress token receives nothing (the SDK sends nothing then)."""
+    loop = asyncio.get_running_loop()
+    count = itertools.count(1)
+    pending: set[asyncio.Task[Any]] = set()
+
+    def sink(e: Any) -> None:
+        task = loop.create_task(ctx.report_progress(next(count), None, e.line()))
+        pending.add(task)
+        task.add_done_callback(lambda t: (pending.discard(t), t.cancelled() or t.exception()))
+
+    return sink
+
+
+def _with_images(reply: Any) -> Any:
+    """A reply that shows images (``tools.ToolReply``: the renders of the design) as the text and one image content per
+    file (PNG or WebP), so the client can put them in front of the model; any other reply as it is."""
+    images = getattr(reply, "images", ())
+    if not images:
+        return reply
+    import base64
+
+    from mcp_types import ImageContent, TextContent
+
+    return [TextContent(type="text", text=str(reply)),
+            *(ImageContent(type="image", data=base64.b64encode(Path(path).read_bytes()).decode(),
+                           mime_type="image/webp" if Path(path).suffix == ".webp" else "image/png") for _, path in images)]
 
 
 def _declared_schema(input_schema: dict[str, Any]) -> dict[str, Any]:
@@ -365,6 +455,21 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
 
         return await host.change_catalog(ctx, go)
 
+    async def open_existing_asset(
+        path: Annotated[str, Field(description="The asset to change: a prop output folder (holds report.json) or a package "
+                                               "folder (holds manifest.json), absolute or relative to the workspace")],
+        ctx: Context,
+        conversation_id: Annotated[str, Field(description="Native conversation ID from the SessionStart header")] = "",
+        preview: Annotated[bool, Field(description=PREVIEW_DOC)] = False,
+        token_ceiling: Annotated[int | None, Field(description=TOKEN_CEILING_DOC)] = None,
+        max_images: Annotated[int | None, Field(description=MAX_IMAGES_DOC)] = None,
+    ) -> str:
+        async def go() -> str:
+            return await host.open_existing_asset(path, await _workspace_root(ctx), conversation_id, preview=preview,
+                                                  token_ceiling=token_ceiling, max_images=max_images)
+
+        return await host.change_catalog(ctx, go)
+
     async def start_preview(
         token_ceiling: Annotated[int, Field(description=TOKEN_CEILING_DOC)],
         max_images: Annotated[int, Field(description=MAX_IMAGES_DOC)],
@@ -381,15 +486,55 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
     async def list_sessions() -> str:
         return await host.run_ordered(host.list_sessions)
 
+    async def install_into_project(
+        package_dir: Annotated[str, Field(description="Package directory holding manifest.json (the folder export_engine_package wrote)")],
+        ctx: Context,
+        project_dir: Annotated[str, Field(description="Game project root; default: this workspace")] = "",
+        dest: Annotated[str, Field(description="Directory inside the project; default agy3d/<asset>")] = "",
+        dry_run: Annotated[bool, Field(description="True (default): only report what would be written. Show that plan to the user "
+                                                   "and call again with false once they agree")] = True,
+        force: Annotated[bool, Field(description="Replace this tool's own files the developer edited since the last install")] = False,
+    ) -> str:
+        from antigravity3d.deliver import install_package
+
+        project = project_dir or await _workspace_root(ctx)
+
+        async def go() -> str:
+            r = await asyncio.to_thread(install_package, package_dir, project, dest or None, dry_run, force, not dry_run)
+            return _install_text(r)
+
+        return await host.run_ordered(go)
+
     open_asset_session.__doc__ = (
-        "Open an asset session (new USD stage) and make it active, stage BLOCKOUT. Call this first; returns the session line.")
+        "Open an asset session (new USD stage) and make it active, stage BLOCKOUT. Call this first for a NEW asset; returns the "
+        "session line.")
+    open_existing_asset.__doc__ = (
+        "Reopen an asset this studio already made (its prop output folder or its package folder) to CHANGE it: the stage is "
+        "the design as it shipped, each material on its source maps, stage TWEAK. Use this, never open_asset_session, when "
+        "the user asks to change an existing asset ('make the handles 30 % larger'): edit only the parts named and export.")
     set_stage.__doc__ = ("Switch the active stage tool-set: BLOCKOUT, TWEAK, VARIANTS, LOOKDEV or EXPORT. "
                          "Only that stage's tools are callable.")
     session_status.__doc__ = "Current stage, budget, QA verdict (tier1/tier15/export allowed) and newest audit lines."
     list_sessions.__doc__ = "Open asset sessions; the active one is marked with *."
+    install_into_project.__doc__ = (
+        "Install a finished package into the game project this workspace is (Godot 4: a scene with levels, collision and "
+        "materials wired, then imported and checked in the project's engine; Unity/Unreal/Roblox: says what to import). "
+        "Run with dry_run first and show the user the plan; writing into their project needs their approval.")
     start_preview.__doc__ = ("Switch the session to an UNVERIFIED preview in place (scene kept, earlier verdicts discarded), "
                              "limited to the user's token ceiling and image limit. Ask the user for both; never choose them.")
-    return {f.__name__: (f, f.__doc__ or "") for f in (open_asset_session, start_preview, set_stage, session_status, list_sessions)}
+    return {f.__name__: (f, f.__doc__ or "") for f in (open_asset_session, open_existing_asset, start_preview, set_stage, session_status,
+                                                       list_sessions, install_into_project)}
+
+
+def _install_text(r: Any) -> str:
+    """One status line, the checks, then the machine-readable result."""
+    import json
+
+    head = f"{r.status.upper()} {r.message}"
+    lines = [head, *(f"check {c.name}: {c.status} {c.detail}" for c in r.checks), *(f"warning: {w}" for w in r.warnings)]
+    body = r.to_dict()
+    body["files"] = [f for f in body["files"] if f["action"] != "keep"][:60]
+    return "\n".join(lines) + "\n" + json.dumps(body)
 
 
 async def _workspace_root(ctx: Any) -> str:

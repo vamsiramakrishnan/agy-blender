@@ -26,7 +26,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from collections.abc import Mapping
+from collections.abc import Collection, Iterable, Mapping
 from typing import Literal, Sequence
 
 import numpy as np
@@ -199,6 +199,23 @@ ZFIGHT_EPS = 0.001
 # and miss only by their facets (two 16-segment spheres of radius 0.1 m can be 3.8 mm apart at a contact off the
 # axes); none of the saved stages has one, so the tolerance does not add the parts' facet sag.
 TOUCH_TOL = 0.002
+CROSS_MARGIN = 5e-5  # an edge crosses a face when its ends lie at least this far on either side of the face's plane
+# The per-part rule's vertex distance: a tenth of a millimetre inside the script's 2 mm, so a pair the kernel passes is
+# not decided by rounding there. Measured with a real Blender: a cap 2.00 mm above a body passes the script, 2.01 mm
+# fails; the coplanar separation moves faces by 2 mm (kernel/separate.py MARGIN).
+WITNESS_TOL = TOUCH_TOL - 1e-4
+# Two questions, both at TOUCH_TOL. Is a part held to the body (or the ground) through a chain of touching parts?
+# Surfaces within TOUCH_TOL, any two points of them (``_PartGap.touch``): a group touching only itself is reported as
+# floating, which the Blender check does not ask. And does each part touch another part by the Blender check's own rule
+# (qa_check.py lines 368-404), which is the gate, read robustly and on the geometry the package ships (hidden contact
+# faces removed): one of ITS vertices within TOUCH_TOL of another part's surface, or an edge through another part's face
+# (``_PartGap.witness``). Only the biggest part is exempt, as in the script; a part on the ground is not (the gate reads
+# the script as it is: upstream_checks.qa_verdict). A part that fails the second is reported as floating whatever the
+# first says, so nothing the kernel passes reaches the Blender check to be refused there. Measured live 2026-11-22: a
+# chain link whose edge came within 2 mm of its anchor's edge, with no vertex near, passed here and was "floating/
+# detached" there (r5_hydrant_C); a skid lying flush under the body, its top face removed as a hidden contact face,
+# passed the gate as "resting on the ground" and failed the same script run on the delivered GLB (r5_crate_C). Not
+# modelled: the script samples at most about 400 vertices of a larger piece.
 
 
 def closed_meshes_required(budget: EngineBudget) -> bool:
@@ -294,7 +311,11 @@ def tier1_qa(
                 x = parent[x]
             return x
 
-        for i in np.flatnonzero(bounds_lo[:, 2] <= ground_tol):  # resting on the ground (or sunk)
+        # resting on the ground (or sunk): within the touch tolerance, as the gate reads it (upstream_checks.read_floating:
+        # 2 mm), not ``ground_tol``, which is the whole asset's grounding warning. Measured with a real Blender
+        # (r5/scratch_native4/rule_probe.py): a foot 5 mm above the ground and touching nothing passed here at 10 mm and
+        # was refused there; it is now a floating part, which the settle pass puts down.
+        for i in np.flatnonzero(bounds_lo[:, 2] <= min(ground_tol, touch_tol)):
             parent[find(int(i))] = n
         gap = _PartGap(valid, volumes, touch_tol)
         near = []
@@ -313,6 +334,28 @@ def tier1_qa(
             if find(n) == n and not any(find(i) == n for i in range(n)) and loose:
                 # nothing rests on the ground (a hanging asset): the group with the most surface is its body
                 loose.remove(max(loose, key=lambda g: sum(_surface_area(valid[i][0]) for i in g)))
+            # The Blender check asks each part for a contact of its own (a vertex near another part, or a crossing): a part
+            # touched only by another's corner is detached there, unless it is the biggest (largest box diagonal), so it
+            # is here: reported as floating, with what touches it.
+            loose_ids = {i for g in loose for i in g}
+            nbrs: dict[int, list[int]] = {}
+            for i, j in near:
+                nbrs.setdefault(i, []).append(j)
+                nbrs.setdefault(j, []).append(i)
+            diag = np.linalg.norm(bounds_hi - bounds_lo, axis=1)
+            biggest = int(np.argmax(diag))
+            gap.masks = shipped_masks([v[0] for v in valid], budget)  # the geometry the package ships
+            for i in range(n):
+                # exempt as the script exempts: the biggest piece only. A piece on the ground is no exception (the gate
+                # reads the script as it is since 2026-11-22: upstream_checks.qa_verdict); the ground holds a group up,
+                # it does not make a part touch another.
+                if i in loose_ids or i == biggest or gap.witness(i, nbrs.get(i, [])):
+                    continue
+                if gap.enclosed_by(i, bounds_lo, bounds_hi) is not None:
+                    continue
+                add("floating_part", "warning", valid[i][0].node_id,
+                    gap.describe([i], bounds_lo, bounds_hi) + "; another part's corner touches it, but none of its own "
+                    "vertices is within the tolerance of another part and it crosses none (the Blender check counts it detached)")
             for g in sorted(loose, key=lambda g: min(valid[i][0].node_id for i in g)):
                 names = sorted(valid[i][0].node_id for i in g)
                 if len(g) == 1:
@@ -368,6 +411,46 @@ def _inverted_bodies(pts: np.ndarray, tri: np.ndarray, closed: bool) -> list[tup
     return out
 
 
+def _edges_cross(a: np.ndarray, b: np.ndarray, margin: float) -> bool:
+    """Does an edge of a triangle of ``a`` (M, 3, 3) pass through the face of a triangle of ``b`` (N, 3, 3), its ends at
+    least ``margin`` on either side of that face's plane and the point inside the face? Only triangle pairs whose boxes
+    overlap are tested."""
+    if not len(a) or not len(b):
+        return False
+    alo, ahi, blo, bhi = a.min(1), a.max(1), b.min(1), b.max(1)
+    ia = np.flatnonzero(np.all((alo <= bhi.max(0)) & (ahi >= blo.min(0)), axis=1))
+    for s0 in range(0, len(ia), 512):
+        rows = ia[s0:s0 + 512]
+        ok = np.all((alo[rows][:, None] <= bhi[None]) & (ahi[rows][:, None] >= blo[None]), axis=2)
+        x, y = np.nonzero(ok)
+        if not len(x):
+            continue
+        A, B = a[rows[x]], b[y]
+        n = np.cross(B[:, 1] - B[:, 0], B[:, 2] - B[:, 0])
+        ln = np.linalg.norm(n, axis=1)
+        good = ln > 1e-18
+        n = n / np.where(good, ln, 1.0)[:, None]
+        for k in range(3):
+            p, q = A[:, k], A[:, (k + 1) % 3]
+            dp, dq = np.einsum("ij,ij->i", p - B[:, 0], n), np.einsum("ij,ij->i", q - B[:, 0], n)
+            hit = good & (((dp < -margin) & (dq > margin)) | ((dp > margin) & (dq < -margin)))
+            if not hit.any():
+                continue
+            t = dp[hit] / (dp[hit] - dq[hit])
+            pt = p[hit] + (q[hit] - p[hit]) * t[:, None]
+            b0, b1, b2 = B[hit, 0], B[hit, 1], B[hit, 2]
+            v0, v1, v2 = b1 - b0, b2 - b0, pt - b0
+            d00, d01, d11 = np.einsum("ij,ij->i", v0, v0), np.einsum("ij,ij->i", v0, v1), np.einsum("ij,ij->i", v1, v1)
+            d20, d21 = np.einsum("ij,ij->i", v2, v0), np.einsum("ij,ij->i", v2, v1)
+            den = d00 * d11 - d01 * d01
+            den = np.where(np.abs(den) > 1e-30, den, 1e-30)
+            v = (d11 * d20 - d01 * d21) / den
+            w = (d00 * d21 - d01 * d20) / den
+            if ((v >= 0) & (w >= 0) & (v + w <= 1)).any():
+                return True
+    return False
+
+
 class _PartGap:
     """Do two parts of one asset touch (their surfaces within ``tol``)? Answered by the cheapest exact means: the
     distance of the boxes when it is over ``tol``; a closed form when both parts are axis-aligned boxes (most
@@ -379,6 +462,8 @@ class _PartGap:
         self.diag = float(np.linalg.norm(np.max([v[3] for v in valid], axis=0) - np.min([v[2] for v in valid], axis=0)))
         self._box: dict[int, bool] = {}
         self._tris: dict[int, object] = {}
+        self.witnessed: set[int] = set()
+        self.masks: list[np.ndarray] | None = None  # shipped_masks of ``valid``'s meshes, set by tier1_qa for ``witness``
 
     def is_box(self, i: int) -> bool:
         if i not in self._box:
@@ -397,23 +482,72 @@ class _PartGap:
         return self._tris[i]
 
     def touch(self, i: int, j: int) -> bool:
+        """Do the two surfaces come within ``tol`` (any two points of them: what a group of parts is held together by)?
+        The Blender check's stricter, per-part question is ``witness``."""
         from antigravity3d.kernel import surface_gap
 
         (mi, _, li, hi_), (mj, _, lj, hj) = self.valid[i], self.valid[j]
-        if (np.maximum(np.maximum(li - hj, lj - hi_), 0.0) ** 2).sum() > self.tol * self.tol:
+        if self.apart(i, j):
             return False  # the boxes are farther apart than that
         bi, bj = self.is_box(i), self.is_box(j)
         if bi and bj:
             return surface_gap.box_distance(li, hi_, lj, hj) <= self.tol
         # a corner of one part on or at the surface of the other: parts that rest on each other (nearly all of them)
-        for a, b, box in ((i, j, bj), (j, i, bi)):
-            pts = np.asarray(self.valid[a][0].points, np.float64)
-            if box:
-                if (surface_gap.point_box_distance(pts, self.valid[b][2], self.valid[b][3]) <= self.tol).any():
-                    return True
-            elif surface_gap.corner_touches(pts, self.tris(b), self.valid[b][2], self.valid[b][3], self.tol):
+        for a, b in ((i, j), (j, i)):
+            if self.vertex_near(a, b):
+                self.witnessed.add(a)
                 return True
         return surface_gap.within(self.tris(i), li, hi_, self.tris(j), lj, hj, self.tol)
+
+    def apart(self, i: int, j: int) -> bool:
+        (_, _, li, hi_), (_, _, lj, hj) = self.valid[i], self.valid[j]
+        return bool((np.maximum(np.maximum(li - hj, lj - hi_), 0.0) ** 2).sum() > self.tol * self.tol)
+
+    def vertex_near(self, a: int, b: int) -> bool:
+        """Is some vertex of part a within ``tol`` of part b's surface?"""
+        from antigravity3d.kernel import surface_gap
+
+        pts = np.asarray(self.valid[a][0].points, np.float64)
+        if self.is_box(b):
+            return bool((surface_gap.point_box_distance(pts, self.valid[b][2], self.valid[b][3]) <= self.tol).any())
+        return surface_gap.corner_touches(pts, self.tris(b), self.valid[b][2], self.valid[b][3], self.tol)
+
+    def shipped(self, i: int) -> tuple[np.ndarray, np.ndarray]:
+        """Part i as the package ships it: its triangles without the hidden contact faces the exporter leaves out
+        (``shipped_masks``), and the vertices those triangles use."""
+        m = self.valid[i][0]
+        pts, tri = np.asarray(m.points, np.float64), np.asarray(m.triangles)
+        if self.masks is not None and len(self.masks[i]) == len(tri) and self.masks[i].any():
+            tri = tri[~self.masks[i]]
+        used = np.unique(tri.reshape(-1)) if len(tri) else np.zeros(0, int)
+        return pts[used], pts[tri] if len(tri) else np.zeros((0, 3, 3))
+
+    def witness(self, i: int, near: list[int]) -> bool:
+        """Does part i touch one of ``near`` by the Blender check's own rule, robustly, on the geometry the package ships:
+        a vertex of i within ``tol`` of the other's surface, or an edge of one through a face of the other by more than
+        CROSS_MARGIN on both sides? Faces that only lie on each other, or meet along a line, are not counted: in the
+        exported file the face that lay on the other is usually gone (a hidden contact face) and what is left meets the
+        other part exactly at its boundary, which the script reads either way by rounding. Live 2026-11-22 (r5_crate_C):
+        two mirrored skids lying flush under the body, one passed and one was "floating/detached" in the same file."""
+        from antigravity3d.kernel import surface_gap
+
+        pi, ci = self.shipped(i)
+        if not len(pi):
+            return False
+        for j in near:
+            if self.apart(i, j):
+                continue
+            pj, cj = self.shipped(j)
+            if not len(cj):
+                continue
+            lj, hj = pj.min(0), pj.max(0)
+            tj = surface_gap.Tris.__new__(surface_gap.Tris)
+            tj.c, tj.lo, tj.hi = cj, cj.min(axis=1), cj.max(axis=1)
+            if surface_gap.corner_touches(pi, tj, lj, hj, min(self.tol, WITNESS_TOL)):
+                return True
+            if _edges_cross(ci, cj, CROSS_MARGIN) or _edges_cross(cj, ci, CROSS_MARGIN):
+                return True
+        return False
 
     def enclosed_by(self, i: int, lo: np.ndarray, hi: np.ndarray) -> int | None:
         """A closed part whose volume holds all of part i (given that i touches nothing: it is then inside or outside)."""
@@ -446,8 +580,26 @@ class _PartGap:
         axis = int(np.argmax(sep)) if sep.max() > 0 else int(np.argmax(np.abs((lo[j] + hi[j]) - (lo[i] + hi[i]))))
         sign = "+" if (lo[j][axis] + hi[j][axis]) >= (lo[i][axis] + hi[i][axis]) else "-"
         where = {"+z": "above it", "-z": "below it"}.get(sign + "xyz"[axis], f"beside it ({sign}{'xyz'[axis]})")
+        # The move that would make it touch, in numbers an author can apply: a vertex of it onto the nearest part's
+        # surface (kernel/attach.py; the Blender check counts a part as touching by its own vertices). Live 2026-11-22
+        # (r5_hydrant_C): five repair rounds were told "14.7 mm from hydrant_body ... beside it (+y)" and no more.
+        from antigravity3d.kernel.attach import FLUSH, INTO, facing_step, nearest
+
+        g = nearest([self.valid[m][0] for m in group], [self.valid[j][0]], float(np.linalg.norm(np.maximum(sep, 0.0))) + 0.05)
+        other = self.valid[j][0].node_id
+        if g is None:
+            move = ""
+        elif g.length < FLUSH:
+            # flush on it: a move "onto" it is no move. What makes a contact is setting it into the other part.
+            step = facing_step(np.min([lo[m] for m in group], axis=0), np.max([hi[m] for m in group], axis=0), self.valid[j][0].points)
+            move = (f"; it lies flush on {other}, where the faces pressed together are left out of the file: to make a contact, "
+                    f"move {g.vertex_of} by ({', '.join(f'{x * 1e3:+.1f}' for x in step)}) mm, which sets it {INTO * 1e3:g} mm into "
+                    f"{other}")
+        else:
+            move = (f"; to touch it, move {g.vertex_of} by ({', '.join(f'{x * 1e3:+.1f}' for x in g.vector)}) mm, which puts its "
+                    f"nearest vertex on {other}")
         return (f"surface {d * 1e3:.1f} mm from {self.valid[j][0].node_id}, the nearest part, which lies {where} "
-                f"(touch tolerance {self.tol * 1e3:g} mm); min z {min(lo[m][2] for m in group):.3f}")
+                f"(touch tolerance {self.tol * 1e3:g} mm); min z {min(lo[m][2] for m in group):.3f}{move}")
 
 
 def _surface_area(m: MeshData) -> float:
@@ -504,8 +656,41 @@ def _check_zfight(meshes: list[MeshData], eps: float, add, bounds=None, pairs=No
     if hidden is not None:  # the same pairs, counting only triangle pairs of which at least one ships
         found = coplanar.same_facing_overlaps(parts, eps, bounds=bounds, pairs=[(i, j) for i, j, _ in found], solid=solid, hidden=hidden)
     for i, j, area in found:
+        # what fixes it, in terms a repair can apply (live 2026-11-22, r5/live_final_C: four bolts buried in the pads
+        # they sit beside, their undersides in the pads' plane, refused by the Blender check at the end of the run)
+        inner = next(((a, b) for a, b in ((i, j), (j, i)) if wholly_inside(meshes[a], meshes[b])), None)
+        if inner is not None:
+            fix = (f"; {meshes[inner[0]].node_id} is wholly inside {meshes[inner[1]].node_id} (never visible): remove it, or "
+                   f"move it out of {meshes[inner[1]].node_id}")
+        else:
+            fix = (f"; to fix it, move the shared face of {meshes[i].node_id} or of {meshes[j].node_id} at least "
+                   f"{2 * eps * 1e3:g} mm off that plane along its normal, or make the faces not overlap")
         add("z_fighting", "warning", meshes[i].node_id,
-            f"{meshes[i].node_id}/{meshes[j].node_id}: {area * 1e4:.3g} cm^2 of same-facing faces within {eps * 1e3:g} mm of one plane")
+            f"{meshes[i].node_id}/{meshes[j].node_id}: {area * 1e4:.3g} cm^2 of same-facing faces within {eps * 1e3:g} mm of one plane"
+            + fix)
+
+
+def wholly_inside(a: MeshData, b: MeshData, tol: float = 1e-4) -> bool:
+    """Is every vertex of part a inside closed part b or on its surface (within ``tol``)? Such a part is never seen
+    while b is opaque."""
+    pa = np.asarray(a.points, np.float64)
+    pb = np.asarray(b.points, np.float64)
+    if not len(pa) or (pa.min(0) < pb.min(0) - tol).any() or (pa.max(0) > pb.max(0) + tol).any():
+        return False
+    tb = pb[np.asarray(b.triangles)]
+    vol = float(np.einsum("ij,ij->i", tb[:, 0], np.cross(tb[:, 1], tb[:, 2])).sum()) / 6.0
+    if vol <= 0:
+        return False  # not a closed, outward solid
+    inside = _winding_inside(pa, tb)
+    if inside.all():
+        return True
+    from antigravity3d.kernel.attach import closest_on_triangles
+
+    for p in pa[~inside]:
+        q = closest_on_triangles(np.repeat(p[None], len(tb), 0), tb[:, 0], tb[:, 1], tb[:, 2])
+        if float(np.linalg.norm(q - p, axis=1).min()) > tol:
+            return False
+    return True
 
 
 def _check_pair(a, b, add) -> None:
@@ -518,7 +703,17 @@ def _check_pair(a, b, add) -> None:
             continue
         p = np.asarray(src.points, dtype=np.float64)
         t = np.asarray(src.triangles)
-        pool = np.concatenate([p, p[t].mean(axis=1)])
+        # Probes step a micrometre-scale distance into their own part, so a probe lying exactly on the other part's
+        # surface (two parts in flush contact) reads as outside it: on a surface the winding number is 0.5 on a face but
+        # undefined on an edge or vertex, where it can exceed the 0.9 threshold. Measured: an L-section corner guard
+        # whose inner faces sit flush on a box read "~19% of probe points inside" for two of four identical mirrored
+        # guards, and 0% with the step. A real overlap deeper than the step is still found.
+        fn = np.cross(p[t[:, 1]] - p[t[:, 0]], p[t[:, 2]] - p[t[:, 0]])
+        vn = np.zeros_like(p)
+        np.add.at(vn, t.reshape(-1), np.repeat(fn, 3, axis=0))
+        unit = lambda v: v / np.maximum(np.linalg.norm(v, axis=1, keepdims=True), 1e-30)  # noqa: E731
+        step = 1e-6 * max(float(np.linalg.norm(np.ptp(p, axis=0))), 1e-9)
+        pool = np.concatenate([p - step * unit(vn), p[t].mean(axis=1) - step * unit(fn)])
         if len(pool) > 96:
             pool = pool[np.linspace(0, len(pool) - 1, 96).astype(int)]
         inside = _winding_inside(pool, np.asarray(dst.points, dtype=np.float64)[np.asarray(dst.triangles)])
@@ -571,6 +766,25 @@ class UVResult:
     # They stay here so the working stage keeps closed solids; charts made only of them are not packed into the
     # atlas (their uvs lie right of it, u > 1), and density and stretch above describe the shipped triangles.
     hidden: np.ndarray | None = None
+    # True: this atlas is the one several (or all) opaque materials share, sized from need; the package bakes the maps of
+    # its materials into one texture set at its side (package._compose_atlas). False: one material's own 2048 px atlas.
+    shared_atlas: bool = False
+    # Atlas height in px when it differs from ``resolution`` (the width): a two-to-one atlas (ATLAS_SIZES). None: square.
+    height: int | None = None
+    # Shared atlas only: atlas px one repeat of a tileable material map spans (SWATCH_SPAN_PX at the target density).
+    # The stage samples each material's own map with this repeat (StageManager.author_uvs) and the package bakes the
+    # maps with it (package._compose_atlas), so the stage looks as the package ships. None: the map spans the atlas.
+    repeat_px: int | None = None
+    # Shared atlas sized from need: the sizes tried, smallest first, as (width, height, px/m the packing reached).
+    size_trials: tuple = ()
+    # Shared atlas of an export given the shipped layout (unwrap_scene ``keep``): "kept: N of M charts where they shipped"
+    # or "repacked: <why>". None: no shipped layout was given.
+    layout: str | None = None
+
+    @property
+    def size(self) -> tuple[int, int]:
+        """(width, height) of the atlas in px."""
+        return int(self.resolution), int(self.height or self.resolution)
 
     def within(self, budget: EngineBudget) -> bool:
         return self.stretch_mean <= budget.max_uv_stretch
@@ -865,8 +1079,10 @@ def _skyline_pack(sizes: np.ndarray, width: float, height: float) -> np.ndarray 
     return out
 
 
-def _strip_search(ext: np.ndarray, pad: float, side: float, hi: float, tol: float = 1e-4) -> tuple[float, np.ndarray]:
-    """Largest density (to ``tol``, below ``hi``) at which the rectangles ``ext * d + pad`` fit a ``side`` square.
+def _strip_search(ext: np.ndarray, pad: float, side: float, hi: float, tol: float = 1e-4,
+                  height: float | None = None) -> tuple[float, np.ndarray]:
+    """Largest density (to ``tol``, below ``hi``) at which the rectangles ``ext * d + pad`` fit a ``side`` square, or
+    a ``side`` wide, ``height`` high rectangle.
 
     The skyline packer never places a rectangle higher than it must, so packing into an unbounded strip of the
     same width gives the same placements as packing into the square, up to the first one that does not fit: the
@@ -878,18 +1094,19 @@ def _strip_search(ext: np.ndarray, pad: float, side: float, hi: float, tol: floa
     best_d, best_p = 0.0, None
     fail = hi
     d = hi
+    limit = side if height is None else height
     for it in range(64):
         s = ext * d + pad
         p = _skyline_pack(s, side, np.inf)
-        height = float((p[:, 1] + np.where(p[:, 2] > 0, s[:, 0], s[:, 1])).max()) if p is not None and len(p) else np.inf
-        if height <= side + 1e-9:
+        need = float((p[:, 1] + np.where(p[:, 2] > 0, s[:, 0], s[:, 1])).max()) if p is not None and len(p) else np.inf
+        if need <= limit + 1e-9:
             if d > best_d:
                 best_d, best_p = d, p
         else:
             fail = min(fail, d)
         if best_p is not None and fail - best_d <= tol * fail:
             break
-        guess = d * np.sqrt(side / height) if np.isfinite(height) and height > 0 else 0.5 * d
+        guess = d * np.sqrt(limit / need) if np.isfinite(need) and need > 0 else 0.5 * d
         if best_p is None:  # nothing fitted yet: step down, at least a little
             d = min(guess, d * (1 - 1e-3))
         elif it < 4 and best_d < guess < fail:  # stay inside the bracket, away from its ends
@@ -916,10 +1133,16 @@ def _chart_frames(c: _Charted) -> list[tuple[np.ndarray, np.ndarray, np.ndarray,
     return c.frames
 
 
-def _pack_analytic(charted: list[_Charted], density: float, resolution: int,
+def _wh(resolution: int | tuple[int, int]) -> tuple[int, int]:
+    """(width, height) of an atlas given as one side (square) or as (width, height)."""
+    return (int(resolution), int(resolution)) if np.isscalar(resolution) else (int(resolution[0]), int(resolution[1]))
+
+
+def _pack_analytic(charted: list[_Charted], density: float, resolution: int | tuple[int, int],
                    hidden: Sequence[np.ndarray | None] | None = None) -> tuple[list[np.ndarray], float]:
-    """Packs charts (exact ones, and computed ones in metres) as their minimum-area rectangles into one
-    ``resolution`` square atlas.
+    """Packs charts (exact ones, and computed ones in metres) as their minimum-area rectangles into one atlas,
+    ``resolution`` px square or (width, height) px. Texels are square either way: u is divided by the width and v by
+    the height, so a chart keeps one density along both axes.
 
     Each chart keeps UV_PADDING_PX texels of private gutter on every side, so charts are at least
     2 * UV_PADDING_PX texels apart. The requested density is used when everything fits; otherwise the largest
@@ -951,17 +1174,21 @@ def _pack_analytic(charted: list[_Charted], density: float, resolution: int,
     ext = np.array([f[4] for f in frames], np.float64).reshape(-1, 2)
     pad = 2.0 * UV_PADDING_PX
     edge = 1.0  # keep half a texel clear of the atlas border, plus rounding
-    side = resolution - edge
+    W, H = _wh(resolution)
+    sw, sh = W - edge, H - edge
     area = float(ext.prod(axis=1).sum())
-    hi = min(float(density), side / max(float(ext.max()), 1e-12), side / np.sqrt(max(area, 1e-12)))
+    # above hi the rectangles cannot fit (each may be turned: its longer side within the longer atlas side, its shorter
+    # within the shorter), so no packing is needed to know it
+    hi = min(float(density), max(sw, sh) / max(float(ext.max()), 1e-12), min(sw, sh) / max(float(ext.min(axis=1).max()), 1e-12),
+             np.sqrt(sw * sh / max(area, 1e-12)))
 
     def fits(d: float) -> np.ndarray | None:
-        return _skyline_pack(ext * d + pad, side, side)
+        return _skyline_pack(ext * d + pad, sw, sh)
 
     d = float(density)
-    place = fits(d) if d <= hi else None  # above hi the rectangles cannot fit: no packing needed to know it
+    place = fits(d) if d <= hi else None
     if place is None and any(c.kind == "computed" for c in charted):
-        d, place = _strip_search(ext, pad, side, hi)
+        d, place = _strip_search(ext, pad, sw, hi, height=sh)
     elif place is None:
         lo = hi / 8
         place = fits(lo)
@@ -979,12 +1206,12 @@ def _pack_analytic(charted: list[_Charted], density: float, resolution: int,
                 break
         d = lo
     out = [np.zeros((len(c.uv_m), 2)) for c in charted]
-    place = list(place) + [(resolution + pad, 0.0, False)] * len(phantom)
+    place = list(place) + [(W + pad, 0.0, False)] * len(phantom)
     for (mi, v, R, lo_, wh), (x, y, turned) in zip(frames + phantom, place):
         q = (charted[mi].uv_m[v] @ R.T - lo_) * d  # chart in px, min corner at the origin
         if turned:  # 90 degrees counter-clockwise keeps the winding: (u, v) -> (h - v, u)
             q = np.stack([wh[1] * d - q[:, 1], q[:, 0]], axis=1)
-        out[mi][v] = (q + [x + pad / 2 + edge / 2, y + pad / 2 + edge / 2]) / resolution
+        out[mi][v] = (q + [x + pad / 2 + edge / 2, y + pad / 2 + edge / 2]) / [W, H]
     return out, d
 
 
@@ -1386,7 +1613,7 @@ def _slabs(c: _Charted, max_extent_m: float) -> _Charted:
     return out
 
 
-def _result(m: MeshData, vm: np.ndarray, tris: np.ndarray, uv: np.ndarray, fitted: bool, resolution: int,
+def _result(m: MeshData, vm: np.ndarray, tris: np.ndarray, uv: np.ndarray, fitted: bool, resolution: int | tuple[int, int],
             atlas_id: str | None, kind: str, hidden: np.ndarray | None = None) -> UVResult:
     pts = np.asarray(m.points, dtype=np.float64)[vm]
     uv = uv.astype(np.float32)
@@ -1399,33 +1626,55 @@ def _result(m: MeshData, vm: np.ndarray, tris: np.ndarray, uv: np.ndarray, fitte
     if not len(shown):
         shown = tris
     a3, a2 = _tri_areas(pts, shown, 3).sum(), _tri_areas(uv, shown, 2).sum()
-    dens = float(np.sqrt(a2 / a3) * resolution) if a3 > 0 and a2 > 0 else 0.0
-    sm, sx = _stretch(pts, shown, uv)
-    return UVResult(m.node_id, pts, tris, uv, vm, dens, sm, sx, resolution, atlas_id, fitted, kind,
-                    _angle_distortion(pts, shown, uv), hidden)
+    W, H = _wh(resolution)
+    dens = float(np.sqrt(a2 * W * H / a3)) if a3 > 0 and a2 > 0 else 0.0  # a uv area of 1 is W x H texels
+    # Distortion is measured on texels (u x width, v x height): on a two-to-one atlas normalised uv scales u and v
+    # differently, so an isometric chart would read as sheared (angle distortion 1.0 on a 512 x 256 atlas).
+    px = uv.astype(np.float64) * [W, H]
+    sm, sx = _stretch(pts, shown, px)
+    return UVResult(m.node_id, pts, tris, uv, vm, dens, sm, sx, W, atlas_id, fitted, kind,
+                    _angle_distortion(pts, shown, px), hidden, height=None if H == W else H)
 
 
 def _area(meshes: Sequence[MeshData]) -> float:
     return float(sum(_tri_areas(np.asarray(m.points, np.float64), np.asarray(m.triangles), 3).sum() for m in meshes))
 
 
-def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_id: str | None,
+def _scaled(c: _Charted, f: float) -> _Charted:
+    """The same charts drawn ``f`` times as large (f < 1: a material that carries less detail than the atlas density
+    gets fewer texels; each chart stays an isometric unfolding, only its scale in the atlas changes)."""
+    frames = None if c.frames is None else [(v, R, lo * f, wh * f) for v, R, lo, wh in c.frames]
+    return _Charted(c.mesh, c.vmap, c.tris, c.uv_m * f, c.kind, c.chart, frames)
+
+
+def _unwrap_group(group: list[MeshData], density: float, resolution: int | tuple[int, int], atlas_id: str | None,
                   hidden: Sequence[np.ndarray | None] | None = None, closed_out: list | None = None,
-                  cache: dict | None = None) -> list[UVResult]:
+                  cache: dict | None = None, raw: dict | None = None, scales: Sequence[float] | None = None,
+                  keep: KeepLayout | None = None) -> list[UVResult]:
     """One atlas: exact charts for meshes that carry them, xatlas charts for the others, all packed together as
     rectangles by ``_pack_analytic`` (so a group whose meshes all carry exact charts is packed as before).
     ``cache`` (a dict, per call site) keeps the charts and their closed packing, so a second call for the same
-    group with another ``hidden`` mask only packs again."""
+    group with another ``hidden`` mask only packs again. ``raw`` (a dict) keeps xatlas' charts before they are cut
+    to the atlas side, so trying another side (``_unwrap_sized``) does not run xatlas again. ``scales`` (per mesh, at
+    most 1): each mesh's charts are packed that many times as large as ``density`` asks (its own density is then
+    density x scale; see ``unwrap_scene``'s ``detail_px_per_m``)."""
     if cache is not None and atlas_id in cache:
         known, uvs, d, closed = cache[atlas_id]
-        return _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out)
+        return _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out, keep)
     # a chart longer than the atlas at the requested density is cut where the mesh allows it
-    max_extent = (resolution - 1.0 - 2.0 * UV_PADDING_PX) / density
+    max_extent = (max(_wh(resolution)) - 1.0 - 2.0 * UV_PADDING_PX) / density
     known = [_charted(m, max_extent) for m in group]
     todo = [i for i, c in enumerate(known) if c is None]
     if todo:
-        for i, c in zip(todo, _computed_charts([group[i] for i in todo])):
+        computed = raw.get(atlas_id) if raw is not None else None
+        if computed is None:
+            computed = _computed_charts([group[i] for i in todo])
+            if raw is not None:
+                raw[atlas_id] = computed
+        for i, c in zip(todo, computed):
             known[i] = _slabs(c, max_extent)
+    if scales is not None:
+        known = [_scaled(c, f) if c is not None and f < 1.0 else c for c, f in zip(known, scales)]  # type: ignore[arg-type]
     uvs, d = _pack_analytic(known, density, resolution)  # type: ignore[arg-type]
     # A few large computed charts can miss the requested density although their rectangles (with gutters) take
     # less area than the atlas: then it is their size, not the area, that does not fit (measured: a 2 m^2
@@ -1435,7 +1684,7 @@ def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_
         if d >= density * (1 - 1e-9) or not todo:
             break
         ext = np.array([f[3] for c in known for f in _chart_frames(c)], np.float64).reshape(-1, 2)  # type: ignore[arg-type]
-        if float((ext * density + 2.0 * UV_PADDING_PX).prod(axis=1).sum()) > (resolution - 1.0) ** 2:
+        if float((ext * density + 2.0 * UV_PADDING_PX).prod(axis=1).sum()) > float(np.prod(np.subtract(_wh(resolution), 1.0))):
             break
         longest = max(float(f[3].max()) for i in todo for f in _chart_frames(known[i]))  # type: ignore[arg-type]
         trial = list(known)
@@ -1450,12 +1699,198 @@ def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_
               for c, uv in zip(known, uvs)]
     if cache is not None:
         cache[atlas_id] = (known, uvs, d, closed)
-    return _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out)
+    return _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out, keep)
 
 
-def _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out) -> list[UVResult]:
+@dataclass(frozen=True)
+class KeepLayout:
+    """The layout a package shipped, to be kept by the next export of the same asset (an edit): the atlas size and, per
+    part, the shipped LOD0 points (Z-up asset space, metres), triangles and uvs. Read from the package alone
+    (``package.layout_from_package``). Immutable: every export attempt of one edit reads the same one."""
+    size: tuple[int, int]
+    parts: Mapping[str, tuple[np.ndarray, np.ndarray, np.ndarray]]
+    digest: str = ""
+
+
+#: Positions of shipped vertices are compared at this resolution (m): float32 USD points read back and float64 stage
+#: points of the same geometry agree to about 1e-7 m; a part that moved by a millimetre does not match.
+KEEP_POS_DECIMALS = 5
+#: Block size (atlas px) of the free-space search for the charts an edit adds or changes (``_pack_kept``).
+KEEP_BLOCK_PX = 4
+#: How far from 1 the scale of a shipped chart's placement may be and still be the same unfolding (``_pack_kept``).
+KEEP_SCALE_TOL = 2e-3
+
+
+def _pos_keys(p: np.ndarray) -> np.ndarray:
+    return np.round(np.asarray(p, np.float64), KEEP_POS_DECIMALS)
+
+
+def _pack_kept(known: list[_Charted], density: float, resolution: int | tuple[int, int], hidden, keep: KeepLayout
+               ) -> tuple[list[np.ndarray] | None, int, int, str]:
+    """The shipped packing with every chart of ``keep`` that is still there kept where it was.
+
+    A chart is kept when every triangle of it that ships matches a triangle the package shipped (the same three
+    corner positions, ``KEEP_POS_DECIMALS``), and the old placement is the same isometric unfolding at this chart's
+    density (a similarity of its metre layout with scale = the density it is packed at: a material whose detail
+    changed is not kept). A kept chart's vertices take the shipped uvs verbatim (bit for bit); vertices only hidden
+    triangles use follow the same placement. Every other chart (a changed or new part, a face a neighbour no longer
+    covers) is placed first-fit, bottom-left, into texels no kept chart or its gutter occupies, at the same density and
+    padding as ``_pack_analytic``. Returns (per-mesh uvs, charts kept, charts packed, reason); uvs None when a chart
+    does not fit (the caller repacks everything and says why)."""
+    W, H = _wh(resolution)
+    Wo, Ho = keep.size  # the shipped atlas: kept charts keep their texel positions in it, from the bottom-left corner
+    same_size = (W, H) == (Wo, Ho)
+    pad = 2.0 * UV_PADDING_PX
+    edge = 1.0
+    frames, phantom = [], []
+    for mi, c in enumerate(known):
+        h = None if hidden is None else hidden[mi]
+        seen = None
+        if h is not None and h.any():
+            seen = np.zeros(len(c.uv_m), bool)
+            seen[np.asarray(c.tris, np.int64)[~h].reshape(-1)] = True
+        for f in _chart_frames(c):
+            (frames if seen is None or seen[f[0]].any() else phantom).append((mi, *f))
+    out = [np.zeros((len(c.uv_m), 2)) for c in known]
+    occ = np.zeros((H, W), bool)  # rows are v (bottom up), columns u, in atlas px
+    old_tri: dict[str, dict[tuple, np.ndarray]] = {}
+
+    def old_index(node: str) -> dict[tuple, np.ndarray]:
+        if node not in old_tri:
+            pts, tri, uv = keep.parts[node]
+            k = _pos_keys(pts)
+            idx = {}
+            for t in np.asarray(tri, np.int64):
+                # corners in their order (the exporter writes a triangle's corners in the same order every time): a chart
+                # that wraps round (a cylinder's side) has two vertices at one position with different uvs, so a corner
+                # is found by its place in the triangle, never by its position alone
+                idx[tuple(tuple(k[v]) for v in t)] = np.array([uv[v] for v in t])
+            old_tri[node] = idx
+        return old_tri[node]
+
+    kept, todo = 0, []
+    for fr in frames:
+        mi, v, R, lo, wh = fr
+        c = known[mi]
+        node = c.mesh.node_id
+        placed = None
+        if node in keep.parts:
+            tris = np.asarray(c.tris, np.int64)
+            in_chart = np.zeros(len(c.uv_m), bool)
+            in_chart[v] = True
+            sel = in_chart[tris[:, 0]]
+            h = None if hidden is None else hidden[mi]
+            ship = sel & (~h if h is not None else True)
+            idx = old_index(node)
+            pts = _pos_keys(np.asarray(c.mesh.points, np.float64)[c.vmap])
+            uv_of: dict[int, np.ndarray] = {}
+            ok = bool(ship.any())
+            for t in tris[ship]:
+                ouv = idx.get(tuple(tuple(pts[x]) for x in t))
+                if ouv is None:
+                    ok = False
+                    break
+                for x, u in zip(t, ouv):
+                    if x in uv_of and not np.array_equal(uv_of[x], u):
+                        ok = False
+                        break
+                    uv_of[x] = u
+                if not ok:
+                    break
+            if ok:
+                vs = np.array(sorted(uv_of))
+                src = c.uv_m[vs] * density  # the chart at this density, in px
+                dst = np.asarray([uv_of[x] for x in vs], np.float64) * [Wo, Ho]
+                A = np.c_[src, np.ones(len(src))]
+                sol, *_ = np.linalg.lstsq(A, dst, rcond=None)
+                M = sol[:2].T
+                sv = np.linalg.svd(M, compute_uv=False)
+                resid = float(np.abs(A @ sol - dst).max()) if len(src) else np.inf
+                # the same unfolding at the same density: a similarity of scale 1 in texels. The tolerance is float32 uv
+                # rounding over a chart a few texels wide (measured up to 1.6e-4 on one-triangle charts); a material whose
+                # detail changed is drawn at another scale (a map half the size: 0.5)
+                if len(vs) >= 3 and resid < 1e-2 and abs(sv[0] - 1) < KEEP_SCALE_TOL and abs(sv[1] - 1) < KEEP_SCALE_TOL and np.linalg.det(M) > 0:
+                    full = (np.c_[c.uv_m[v] * density, np.ones(len(v))] @ sol) / [W, H]
+                    for j, x in enumerate(v):
+                        if x in uv_of:  # the shipped uv itself (bit for bit) in the same atlas; its texel position in a grown one
+                            full[j] = uv_of[x] if same_size else np.asarray(uv_of[x], np.float64) * [Wo, Ho] / [W, H]
+                    placed = full
+        if placed is None:
+            todo.append(fr)
+            continue
+        out[mi][v] = placed
+        px = placed * [W, H]
+        x0, y0 = np.floor(px.min(0) - pad / 2).astype(int)
+        x1, y1 = np.ceil(px.max(0) + pad / 2).astype(int)
+        occ[max(y0, 0):min(y1, H), max(x0, 0):min(x1, W)] = True
+        kept += 1
+    if kept == 0:
+        return None, 0, len(frames), "no chart of the shipped layout is still there unchanged"
+    # the rest, largest first, into the free texels (summed-area table of the occupied ones)
+    todo.sort(key=lambda f: -float(np.prod(f[4] * density + pad)))
+    # the search runs on blocks of KEEP_BLOCK_PX texels (a block is taken when any texel of it is): 16 times fewer cells
+    # on a 4096 x 2048 atlas, at the cost of up to KEEP_BLOCK_PX - 1 texels of placement freedom
+    bs = KEEP_BLOCK_PX
+    for mi, v, R, lo, wh in todo:
+        best = None
+        hb, wb = -(-H // bs), -(-W // bs)
+        blk = np.zeros((hb * bs, wb * bs), bool)
+        blk[:H, :W] = occ
+        blk[H:, :] = True
+        blk[:, W:] = True
+        blk = blk.reshape(hb, bs, wb, bs).any(axis=(1, 3))
+        S = np.zeros((hb + 1, wb + 1), np.int32)
+        S[1:, 1:] = blk.cumsum(0, dtype=np.int32).cumsum(1, dtype=np.int32)
+        for turned in (False, True):
+            w, h = (wh[::-1] if turned else wh) * density + pad
+            w, h = int(np.ceil(w + edge)), int(np.ceil(h + edge))
+            if w > W or h > H:
+                continue
+            cw, ch = -(-w // bs), -(-h // bs)
+            if cw > wb or ch > hb:
+                continue
+            area = S[ch:, cw:] - S[:-ch, cw:] - S[ch:, :-cw] + S[:-ch, :-cw]
+            free = np.argwhere(area == 0)
+            if len(free):
+                y, x = free[0] * bs  # lowest row, then leftmost: bottom-left, as the skyline packer
+                if best is None or (y, x) < best[:2]:
+                    best = (int(y), int(x), turned, w, h)
+        if best is None:
+            return None, kept, len(frames), "the changed or new charts do not fit in the texels the kept charts leave free"
+        y, x, turned, w, h = best
+        q = (known[mi].uv_m[v] @ R.T - lo) * density
+        if turned:
+            q = np.stack([wh[1] * density - q[:, 1], q[:, 0]], axis=1)
+        out[mi][v] = (q + [x + pad / 2 + edge / 2, y + pad / 2 + edge / 2]) / [W, H]
+        occ[y:y + h, x:x + w] = True
+    for mi, v, R, lo, wh in phantom:  # charts of hidden triangles only: right of the atlas, as _pack_analytic
+        q = (known[mi].uv_m[v] @ R.T - lo) * density
+        out[mi][v] = (q + [W + pad, 0.0]) / [W, H]
+    return out, kept, len(frames), ""
+
+
+def _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out, keep=None) -> list[UVResult]:
     if closed_out is not None:
         closed_out.extend(closed)
+    if keep is not None:
+        note = None
+        (W, H), (Wo, Ho) = _wh(resolution), tuple(keep.size)
+        if W < Wo or H < Ho:
+            note = f"repacked: the atlas is now {W} x {H} px, smaller than the shipped {Wo} x {Ho} on a side"
+        elif d < density * (1 - 1e-9):
+            note = f"repacked: the {W} x {H} px atlas holds the charts only below the density ({d:.1f} of {density:.1f} px/m)"
+        else:
+            got, n_kept, n_all, why = _pack_kept(known, density, resolution, hidden, keep)
+            if got is not None:
+                hs = hidden if hidden is not None else [None] * len(known)
+                grown = "" if (W, H) == (Wo, Ho) else (f"; the atlas grew from {Wo} x {Ho} to {W} x {H} px: their uvs are rescaled, "
+                                                       "their texels are where they were")
+                return [replace(_result(c.mesh, c.vmap, c.tris, uv, True, resolution, atlas_id, c.kind, hs[i]),
+                                layout=f"kept: {n_kept} of {n_all} charts where they shipped{grown}")
+                        for i, (c, uv) in enumerate(zip(known, got))]
+            note = f"repacked: {why}"
+        normal = _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, None)
+        return [replace(r, layout=note) for r in normal]
     if hidden is None or not any(h is not None and h.any() for h in hidden):
         return closed
     # The same charts (same seam-split vertices and triangles), packed again without the charts of hidden
@@ -1472,10 +1907,113 @@ def unwrap_uvs(mesh: MeshData, texel_density_px_per_m: float, resolution: int = 
     return _unwrap_group([mesh], texel_density_px_per_m, resolution, mesh.material_id)[0]
 
 
+#: Atlas sizes (width, height) an atlas sized from need (``unwrap_scene(shared_resolution=None)``) may take, by area. Squares
+#: and two-to-one rectangles: with squares only, a layout just over one square needs the next, four times the texels
+#: (up to three quarters empty); with two-to-one steps the next size is twice the texels (at most half empty). Only
+#: landscape is listed: the packer may turn every chart, so a portrait atlas is the same layout transposed. Every
+#: engine and block-compressed format takes non-square power-of-two maps. 4096 x 4096 is the largest: the texels of
+#: four 2048 maps, what an asset of the default four materials (``EngineBudget.max_draw_calls``) shipped before
+#: materials shared one atlas (a 4096 RGBA8 map with mips is already 85 MiB uncompressed). The engine's own
+#: ``max_texture_px`` caps both sides further (Roblox: 1024).
+ATLAS_SIZES = ((256, 256), (512, 256), (512, 512), (1024, 512), (1024, 1024), (2048, 1024), (2048, 2048), (4096, 2048),
+               (4096, 4096))
+ATLAS_SIDES = tuple(sorted({w for w, _ in ATLAS_SIZES}))
+#: Atlas px one repeat of a tileable material map spans at the target texel density: 2048, so a map covers 2 m at the
+#: default 1024 px/m. Until materials shared an atlas every material had its own 2048 px atlas and its map spanned all
+#: of it; keeping that span keeps the surface detail whatever the shared atlas measures (a 2048 px map spread over a
+#: 4096 atlas would show half its texels per metre; on a small atlas the map repeats instead of shrinking).
+SWATCH_SPAN_PX = 2048
+#: The detail (map px per SWATCH_SPAN_PX) a shared atlas of flat-coloured materials only is laid out for: the smallest
+#: atlas side. A flat patch needs no texel density, only charts wide enough that their gutters (UV_PADDING_PX) keep
+#: two colours apart; at the default target this is 128 px/m. Measured on a three-part, two-colour prop: at the full
+#: 1024 px/m its albedo map was 4096 x 4096, and stock Godot, sampling it at a high mip level, bled the two colours
+#: into each other on 22 pixels of the frame.
+FLAT_DETAIL_PX = 256
+
+
+def atlas_sizes(engine: str | None, max_px: int | None = None) -> tuple[tuple[int, int], ...]:
+    """The (width, height) sizes ``unwrap_scene`` tries for an atlas sized from need for ``engine``: ``ATLAS_SIZES`` with
+    both sides within its ``max_texture_px`` and within ``max_px`` (an art direction's texture size)."""
+    from antigravity3d.kernel.validator import ENGINE_RULES
+
+    rule = ENGINE_RULES.get(engine) if engine else None
+    cap = rule.max_texture_px if rule is not None and rule.max_texture_px else ATLAS_SIZES[-1][0]
+    if max_px:
+        cap = min(cap, int(max_px))
+    return tuple(wh for wh in ATLAS_SIZES if max(wh) <= cap) or (ATLAS_SIZES[0],)
+
+
+def shared_atlas_id(materials: Iterable[str | None]) -> str | None:
+    """The ``UVResult.atlas_id`` of an atlas several materials share: the material id itself for one material (so a
+    one-material asset reads as before), else the ids joined with '+', which no IR id contains."""
+    ids = sorted({str(m) for m in materials})
+    return ids[0] if len(ids) == 1 else "+".join(ids)
+
+
+def _unwrap_sized(group: list[MeshData], density: float, sides: Sequence[int | tuple[int, int]], atlas_id: str | None,
+                  hidden, closed_out: list | None, cache: dict | None, scales: Sequence[float] | None = None,
+                  keep: KeepLayout | None = None, pin: bool = True) -> list[UVResult]:
+    """``_unwrap_group`` at the smallest of ``sides`` whose atlas holds every chart at ``density`` (the largest side
+    when none does: the density is then lowered, ``UVResult.fitted`` False). The closed packing (every triangle
+    shipped) decides, so the layout with hidden faces removed, packed into the same side, never needs more. xatlas runs
+    once; each side tried costs one packing. With ``cache`` the chosen side's packing is kept (``_unwrap_group``)."""
+    if cache is not None and atlas_id in cache:
+        side = cache[atlas_id][3][0].size
+        out = _unwrap_group(group, density, side, atlas_id, hidden, closed_out, cache, keep=keep if pin else None)
+        tried = cache.get((atlas_id, "sizes tried"), ())
+        return [replace(r, size_trials=tried) for r in out] if tried else out
+    raw: dict = {}
+    tried = []
+    if keep is not None and tuple(keep.size) in {tuple(_wh(x)) for x in sides}:  # the shipped size first: it may keep the layout
+        sides = [tuple(keep.size), *[x for x in sides if tuple(_wh(x)) != tuple(keep.size)]]
+    fits = False
+    for side in sides:
+        local: dict = {}
+        trial = _unwrap_group(group, density, side, atlas_id, None, None, local, raw, scales)
+        tried.append((*_wh(side), round(max((r.texel_density for r in trial if r.texel_density > 0), default=0.0), 2)))
+        if all(r.fitted for r in trial):
+            fits = True
+            break
+    if not fits and len(sides) > 1:  # none holds the charts at the density: the largest, at the density that fits
+        side = max(sides, key=lambda x: int(np.prod(_wh(x))))
+        if tuple(_wh(side)) != tuple(_wh(sides[-1])):
+            local = {}
+            _unwrap_group(group, density, side, atlas_id, None, None, local, raw, scales)
+    keep_cache = cache if cache is not None else {}
+    keep_cache[atlas_id] = local[atlas_id]
+    if len(sides) > 1:
+        keep_cache[(atlas_id, "sizes tried")] = tuple(tried)
+    out = _unwrap_group(group, density, side, atlas_id, hidden, closed_out, keep_cache, keep=keep if pin else None)
+    if len(sides) > 1:
+        out = [replace(r, size_trials=tuple(tried)) for r in out]
+        if closed_out is not None:
+            closed_out[-len(out):] = [replace(r, size_trials=tuple(tried)) for r in closed_out[-len(out):]]
+    return out
+
+
 def unwrap_scene(meshes: list[MeshData], budget: EngineBudget, resolution: int = 2048,
                  hidden: Sequence[np.ndarray | None] | None = None, closed_out: list | None = None,
-                 cache: dict | None = None) -> list[UVResult]:
-    """One atlas per material id; results are returned in input order.
+                 cache: dict | None = None, shared: Collection[str] | None = None,
+                 shared_resolution: int | tuple[int, int] | None = None, max_px: int | None = None,
+                 detail_px_per_m: float | Mapping[str | None, float | None] | None = None,
+                 keep: KeepLayout | None = None, pin: bool = True) -> list[UVResult]:
+    """One atlas per material id, except that the materials in ``shared`` are laid out together in one atlas (at one
+    texel density, so the package can bake their maps into one texture set: ``package._compose_atlas``); results are
+    returned in input order.
+
+    ``resolution``: the side of each material's own atlas. The shared atlas is ``shared_resolution`` px (a side or
+    (width, height)), or with None sized from need: the smallest of ``atlas_sizes(budget.target_engine, max_px)`` that
+    holds its charts at ``budget.texel_density_px_per_m``; so the budget's density target and an art direction's
+    texture size (``max_px``) are what choose it. Its results carry ``repeat_px`` (``SWATCH_SPAN_PX`` at the target).
+    ``detail_px_per_m``: the most detail any shared material carries (``surface_detail.detail_px_per_m``). The shared
+    atlas is laid out at that density when it is below the target (a 256 px map spanning SWATCH_SPAN_PX at the target
+    holds an eighth of it: its texels are then copied 1:1), rather than at a density only enlarged pixels would fill.
+    Given per material (a mapping; None or absent: a flat colour, ``FLAT_DETAIL_PX``), the atlas takes the largest and
+    each material's charts are scaled down to its own: a flat patch beside a textured surface costs few texels.
+    ``keep``: the layout a package shipped (an edit's): the shared atlas keeps its size when it still holds the charts,
+    and every chart that ships unchanged keeps its place (``_pack_kept``); the results' ``layout`` says what happened. Only the shared atlas is sized from need because only its maps are baked at
+    the atlas side (package._compose_atlas); a material's own atlas ships the material's map as it is, spread over
+    the whole atlas, so its side is that map's span (2048, package.SWATCH_SPAN_PX).
 
     Meshes that carry exact charts (``MeshData.uv_charts``, set for IR primitives) are unfolded
     isometrically and only packed; the others get xatlas charts, computed once. ``hidden`` (per mesh, a triangle
@@ -1483,15 +2021,35 @@ def unwrap_scene(meshes: list[MeshData], budget: EngineBudget, resolution: int =
     ``closed_out`` (a list) receives the unwrap without that mask, in input order: the same charts, vertices and
     triangles, packed as if every triangle shipped.
     """
+    together = {m.material_id for m in meshes if shared is not None and m.material_id in shared}
+    joint = shared_atlas_id(together) if together else None
     groups: dict[str | None, list[int]] = {}
     for i, m in enumerate(meshes):
-        groups.setdefault(m.material_id, []).append(i)
+        groups.setdefault(joint if m.material_id in together else m.material_id, []).append(i)
+    need = atlas_sizes(budget.target_engine, max_px) if shared_resolution is None else (shared_resolution,)
     res: list[UVResult | None] = [None] * len(meshes)
     closed: list[UVResult | None] = [None] * len(meshes)
     for mat, ids in groups.items():
         h = None if hidden is None else [None if hidden[i] is None or not hidden[i].any() else hidden[i] for i in ids]
         got: list[UVResult] = []
-        for i, r in zip(ids, _unwrap_group([meshes[i] for i in ids], budget.texel_density_px_per_m, resolution, mat, h, got, cache)):
+        is_shared = bool(together) and mat == joint
+        sides = need if is_shared else (resolution,)
+        density = budget.texel_density_px_per_m
+        scales = None
+        if is_shared and isinstance(detail_px_per_m, Mapping):
+            flat = budget.texel_density_px_per_m * FLAT_DETAIL_PX / SWATCH_SPAN_PX
+            own = [min(float(detail_px_per_m.get(meshes[i].material_id) or flat), density) for i in ids]
+            density = max(own)
+            scales = [d / density for d in own]
+        elif is_shared and detail_px_per_m:
+            density = min(density, float(detail_px_per_m))
+        out = _unwrap_sized([meshes[i] for i in ids], density, sides, mat, h, got, cache, scales, keep if is_shared else None, pin)
+        if is_shared:
+            d = max((r.texel_density for r in out if r.texel_density > 0), default=budget.texel_density_px_per_m)  # what ships
+            repeat = max(1, int(round(SWATCH_SPAN_PX * d / budget.texel_density_px_per_m)))
+            out = [replace(r, shared_atlas=True, repeat_px=repeat) for r in out]
+            got = [replace(r, shared_atlas=True, repeat_px=repeat) for r in got]
+        for i, r in zip(ids, out):
             res[i] = r
         for i, r in zip(ids, got):
             closed[i] = r
@@ -1512,19 +2070,24 @@ def texel_density_report(results: Sequence[UVResult], target_px_per_m: float) ->
 
     Each material has one atlas and one density for all its charts (``_pack_analytic``). ``target_met`` is the packer's
     ``fitted`` flag (False: the atlas could not hold its charts at ``target_px_per_m`` and the density was lowered).
-    ``px_per_m`` is in atlas space, at ``atlas_px`` (the packing resolution); ``needed_atlas_px`` is the side at which
-    the same layout would reach the target (the atlas side scales with the density), ``needed_atlas_px_pow2`` the
-    next power of two. ``spread`` is the highest over the lowest material density, with the two extremes named."""
+    ``px_per_m`` is in atlas space, at ``atlas_px`` (the packing resolution: the width, its longer side;
+    ``atlas_wh`` is (width, height), which differ for a two-to-one atlas); ``needed_atlas_px`` is the width at which
+    the same layout would reach the target (the atlas scales with the density), ``needed_atlas_wh`` both sides,
+    ``needed_atlas_px_pow2`` the next power of two of the width. ``spread`` is the highest over the lowest material density, with the two extremes named."""
     groups: dict[str, list[UVResult]] = {}
     for r in results:
         if r.texel_density > 0:
             groups.setdefault(str(r.atlas_id), []).append(r)
     mats: dict[str, dict] = {}
     for name, rs in sorted(groups.items()):
-        d = min(r.texel_density for r in rs)
-        px = max(r.resolution for r in rs)
+        # one density per atlas; in a shared atlas a material that carries less detail (a flat colour) is drawn smaller
+        # (unwrap_scene's detail_px_per_m), so the atlas's density is its largest
+        shared_atlas = any(r.shared_atlas for r in rs)
+        d = max(r.texel_density for r in rs) if shared_atlas else min(r.texel_density for r in rs)
+        px, py = max(r.size for r in rs)
         met = all(r.fitted for r in rs)
         need = px if met else int(np.ceil(px * target_px_per_m / d))
+        need_y = py if met else int(np.ceil(py * target_px_per_m / d))
         # occupancy: the share of the atlas that charts cover (sum of the shipped triangles' UV areas, overlaps counted
         # twice, so an upper bound) and the share its UV bounding box covers (what a crop to the used region would keep)
         area, lo, hi = 0.0, np.full(2, np.inf), np.full(2, -np.inf)
@@ -1537,8 +2100,10 @@ def texel_density_report(results: Sequence[UVResult], target_px_per_m: float) ->
             area += float(np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]).sum() / 2)
             lo, hi = np.minimum(lo, q.reshape(-1, 2).min(0)), np.maximum(hi, q.reshape(-1, 2).max(0))
         box = float(np.prod(np.clip(hi - lo, 0, 1))) if np.isfinite(lo).all() else 0.0
-        mats[name] = {"px_per_m": round(float(d), 2), "target_met": met, "atlas_px": px, "needed_atlas_px": need,
+        mats[name] = {"px_per_m": round(float(d), 2), "target_met": met, "atlas_px": px, "atlas_wh": [px, py],
+                      "needed_atlas_px": need, "needed_atlas_wh": [need, need_y],
                       "needed_atlas_px_pow2": 1 << max(0, need - 1).bit_length(),
+                      "shared": any(r.shared_atlas for r in rs),
                       "chart_area_fraction": round(min(area, 1.0), 4), "uv_bbox_fraction": round(box, 4)}
     if not mats:
         return {"target_px_per_m": target_px_per_m, "materials": {}, "spread": None, "spread_limit": TEXEL_SPREAD_LIMIT,
@@ -2634,8 +3199,18 @@ class Hull:
 def _hull(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
     from scipy.spatial import ConvexHull
 
-    h = ConvexHull(points)
-    used = np.unique(h.simplices)
+    # Hulls ship as float32 points, and the package check (validator._is_convex) runs Qhull again on those: a point
+    # Qhull kept as a vertex of a flat facet in float64 can fall a rounding error inside it in float32 and be dropped,
+    # and the hull is then reported "not convex". Measured: the merged hull of a turned knob and a ring (88 points,
+    # flat caps of 16 and 20 coplanar points) lost 9 vertices that way. So the hull is taken of the float32 values
+    # and again of its own vertices until Qhull keeps all of them (once or twice in practice).
+    points = np.asarray(points, np.float64).astype(np.float32).astype(np.float64)
+    for _ in range(4):
+        h = ConvexHull(points)
+        used = np.unique(h.simplices)
+        if len(used) == len(points):
+            break
+        points = points[used]
     remap = np.zeros(len(points), np.int64)
     remap[used] = np.arange(len(used))
     tris = remap[h.simplices]
@@ -3267,6 +3842,11 @@ def _coacd_params(threshold: float, share: int, off: bool) -> dict:
                 mcts_iterations=40, mcts_nodes=10, max_ch_vertex=64, decimate=True, seed=0)
 
 
+# The reason carried by a hull made from MeshData.collider_points, so the manifest's collider_sources says that the
+# collision of a bevelled or inset part is its plain shape.
+PROXY_REASON = "plain shape of a bevelled or inset part: rounded edges and recessed panels are not in the collision"
+
+
 @dataclass
 class _Piece:
     """One body to decompose: what CoACD is given, and what stands in for it if it cannot be."""
@@ -3307,6 +3887,10 @@ def generate_colliders(
 
     for m in meshes:
         if not m.collider or len(m.triangles) == 0:
+            continue
+        if m.collider_points is not None:  # the part's plain shape (compile_ir.collider_proxy): convex by construction
+            pp, tt, hv = _hull(np.asarray(m.collider_points, np.float64))
+            raw.append((pp, tt, hv, "fast_path", PROXY_REASON))
             continue
         pts = np.asarray(m.points, dtype=np.float64)
         tri = np.asarray(m.triangles)
@@ -3397,7 +3981,7 @@ def describe_collider_sources(hulls: list[Hull]) -> str:
     """"coacd, body_hull (decomposition stopped: timeout after 30 s)": the sources of a set of hulls, with every reason a hull
     is not a plain decomposition or hull, so that a fallback is never silent."""
     sources = sorted({h.source for h in hulls})
-    reasons = sorted({h.reason for h in hulls if h.source == "body_hull" and h.reason})
+    reasons = sorted({h.reason for h in hulls if (h.source == "body_hull" or PROXY_REASON in h.reason) and h.reason})
     capped = [h for h in hulls if CAPPED_MARK in h.reason]
     if capped:
         reasons.append(f"{len(capped)} capped to the engine's hull limit, volume "
@@ -3739,6 +4323,24 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
     # scipy's ConvexHull while the other thread was in xatlas (none in 400 serial runs). The gain was 0 to 15%.
     t = {}
     t0 = time.perf_counter()
+    # Every opaque material is laid out in one atlas, sized from need (ATLAS_SIDES), so the package can ship one texture
+    # set and one draw call (package._compose_atlas). Materials not known to be opaque keep 2048 px atlases of their own.
+    shared = opaque_materials if opaque_materials is not None and budget.shared_atlas else None
+    # how much detail the shared materials carry (their maps, or any other surface source): the layout needs no more;
+    # flat colours only need FLAT_DETAIL_PX (surface_detail)
+    from antigravity3d.kernel import surface_detail
+
+    target = budget.texel_density_px_per_m
+    first = {}
+    for m in meshes:
+        if shared is not None and m.material_id in shared:
+            first.setdefault(m.material_id, m.material)
+    from antigravity3d.kernel import smart_source  # the budget says whether image-less materials get a painted surface
+
+    with smart_source.using(budget.generated_surfaces):
+        detail = {mid: surface_detail.detail_px_per_m(p, target) for mid, p in first.items()}  # None: a flat colour
+    # the layout the asset shipped with, when this export is an edit of it (StageManager.keep_layout): kept where it can be
+    keep = next((m.keep_layout for m in meshes if getattr(m, "keep_layout", None) is not None), None) if shared is not None else None
     hidden = None
     if contact_faces_removable(budget, opaque_materials):
         hidden = hidden_contact_faces([(m.node_id, m.points, m.triangles, m.material_id) for m in meshes], opaque_materials)
@@ -3746,7 +4348,7 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
             hidden = None
     th = time.perf_counter()
     if hidden is None:
-        uvs = unwrap_scene(meshes, budget)
+        uvs = unwrap_scene(meshes, budget, 2048, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail, keep=keep)
         t1 = time.perf_counter()
         lods = generate_asset_lods(uvs)
     else:
@@ -3757,13 +4359,17 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
         # carried over to that packing vertex by vertex.
         materials = {m.node_id: m.material_id for m in meshes}
         cache: dict = {}
-        closed = unwrap_scene(meshes, budget, cache=cache)
+        # the closed packing (LODs are simplified from it) takes the shipped size when it can, but pins nothing: what ships
+        # is the packing below, and every level's uvs are carried over to it (_relayout)
+        closed = unwrap_scene(meshes, budget, 2048, cache=cache, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail,
+                              keep=keep, pin=False)
         t1 = time.perf_counter()
         lods_closed = generate_asset_lods(closed)
         hidden0 = {u.node_id: h for u, h in zip(closed, hidden)}
         marked, exposed = _ship_levels(closed, lods_closed, materials, opaque_materials, hidden0)
         pack = [h & ~_chart_of(u.triangles, exposed[u.node_id]) if u.node_id in exposed else h for u, h in zip(closed, hidden)]
-        uvs = unwrap_scene(meshes, budget, hidden=pack, cache=cache)
+        uvs = unwrap_scene(meshes, budget, 2048, hidden=pack, cache=cache, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail,
+                           keep=keep)
         uvs = [replace(u, hidden=h if h.any() else None) for u, h in zip(uvs, hidden)]
         lods = _relayout(marked, closed, uvs)
         if lods is None:  # a level vertex not found in the unwrap: ship every triangle, as before the rule

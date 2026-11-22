@@ -35,11 +35,11 @@ MUTATING_TOOLS = (
 # Every tool the plugin's MCP server (antigravity3d.runtime.mcp_server) serves. The server applies the same
 # gate decisions itself before dispatch; tests/test_mcp_server.py keeps this list equal to its tools/list.
 STUDIO_TOOLS = (
-    "open_asset_session", "start_preview", "set_stage", "session_status", "list_sessions",
-    "apply_scene_ir", "inspect_manifest", "query_region", "undo_last_edit", "render_preview", "run_visual_qa", "qa_probe",
+    "open_asset_session", "open_existing_asset", "start_preview", "set_stage", "session_status", "list_sessions",
+    "install_into_project", "apply_scene_ir", "inspect_manifest", "query_region", "undo_last_edit", "render_preview", "run_visual_qa", "qa_probe",
     "propose_variants", "select_variant", "promote_variant", "forge_pbr_material", "apply_shader_diff",
     "run_paintover_loop", "render_lookdev", "generate_lods_and_colliders", "run_usd_validator",
-    "export_engine_package", "run_bpy_script",
+    "export_engine_package", "run_bpy_script", "deliver_package",
     # the 3D review inspector MCP App (runtime/inspector_server.py): two model tools, four app-only tools
     "open_inspector", "review_notes",
     "inspector_payload", "inspector_qa_state", "inspector_list_notes", "inspector_save_note",
@@ -171,25 +171,52 @@ def read_dirty(root: Path, conversation: str) -> dict[str, Any] | None:
     return d if isinstance(d, dict) else None
 
 
+def waits_for_user(qa: dict[str, Any] | None) -> str:
+    """What only the user can decide before the session of this QA record can be reviewed or delivered, as one line
+    for the agent to pass on ("" when nothing): the session says so itself (a session that is not a preview on a key
+    without the calibrated judge), or its preview review escalated the current revision to a person. The agent cannot
+    iterate past either, so the Stop hook lets it stop and ask."""
+    if not isinstance(qa, dict):
+        return ""
+    if qa.get("waits_for_user"):
+        return (f"{qa['waits_for_user']}: only the user can change that. Ask the user whether they want an unverified "
+                "preview and for their token ceiling and image limit (then start_preview and deliver_package); do not iterate")
+    v = qa.get("verdict")
+    if (qa.get("preview") is True and isinstance(v, dict) and v.get("backend") == "uncalibrated"
+            and v.get("action") == "escalate_human" and v.get("revision") == qa.get("revision")):
+        return "PREVIEW session: the review escalated this design to a person; ask the user before exporting"
+    return ""
+
+
 def export_gate(root: Path, conversation: str, session_id: str = "") -> tuple[bool, str]:
     """(ok, one-line reason). Raises on unreadable-but-present state; callers decide fail mode."""
     qa = read_qa(root, conversation, session_id)
     if qa is None:
         return False, ("no QA verdict recorded: run run_usd_validator and run_visual_qa "
                        "(usd_verifier subagent) before export_engine_package")
+    if qa.get("waits_for_user"):  # the session's own statement comes first: no other finding can be acted on before it
+        return False, waits_for_user(qa)
     if qa.get("validator_ok") is False:
         return False, "USD or target-engine validation failed for this revision"
     score = float(qa.get("tier15_score", 0.0))
     if qa.get("tier1_ok") is not True:
         return False, "Tier-1 QA has not passed: fix the run_usd_validator / Tier-1 findings, then re-run QA"
-    if not EXPORT_MIN_TIER15_SCORE <= score <= 4.0:
-        return False, f"Tier-1.5 score {score:.2f} < {EXPORT_MIN_TIER15_SCORE}: iterate lookdev/blockout and re-run QA"
     v = qa.get("verdict")
     preview = qa.get("preview") is True  # an unverified preview session (its package is labelled verified=false)
+    # An uncalibrated judge's review in a preview is a finding, not a gate (state.VisualVerdict.delivers_on_review): the
+    # review must have run on this revision and must not have escalated to a person; its score is not a floor.
+    findings = preview and isinstance(v, dict) and v.get("backend") == "uncalibrated"
+    if not findings and not EXPORT_MIN_TIER15_SCORE <= score <= 4.0:
+        return False, f"Tier-1.5 score {score:.2f} < {EXPORT_MIN_TIER15_SCORE}: iterate lookdev/blockout and re-run QA"
+    approved = v.get("action") != "escalate_human" if findings else isinstance(v, dict) and v.get("action") == "approve"
     if (not isinstance(v, dict) or not qa.get("revision") or not qa.get("target")
             or v.get("revision") != qa["revision"] or v.get("target") != qa["target"]
-            or v.get("stage") not in {"lookdev", "final"} or v.get("action") != "approve"
+            or v.get("stage") not in {"lookdev", "final"} or not approved
             or (not preview and (v.get("renderer") not in {"eevee", "cycles"} or v.get("backend") != "decisions"))):
+        if findings and v.get("action") == "escalate_human":
+            return False, "PREVIEW session: the review escalated this design to a person; ask the user before exporting"
+        if findings:
+            return False, "PREVIEW session: the current revision needs a lookdev/final visual QA review (run_visual_qa)"
         if preview:
             return False, "PREVIEW session: the current revision needs an approving lookdev/final visual QA verdict"
         return False, ("current revision needs a Decisions lookdev/final approval on an EEVEE or Cycles render "

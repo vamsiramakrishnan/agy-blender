@@ -1,7 +1,9 @@
 """Model-facing harness tools.
 
 Docstrings are prompt text (sent every turn): keep them terse. Every tool returns a short string
-(one to three lines); images are written to the session artifacts dir and referenced by URI only.
+(one to three lines); images are written to the session artifacts dir and referenced by URI. One exception: the renders of
+the design (``render_preview``) are a ``ToolReply``, a string that also names its PNGs, so that a runtime that can put
+an image in front of the agent (the MCP server: image content in the tool result) does.
 Expected failures (bad IR, unknown ids, refused stage edits) come back as one ``ERROR ...`` line;
 anything unexpected propagates to ``TracebackCompressorHook``.
 """
@@ -15,6 +17,7 @@ import json
 import re
 import shutil
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -24,7 +27,7 @@ from google.antigravity.tools.tool_context import ToolContext
 from google.antigravity.tools.tool_runner import ToolWithSchema
 from PIL import Image
 
-from antigravity3d import ir, ir_schema
+from antigravity3d import ir, ir_schema, ir_shortcuts
 from antigravity3d.adapters.blender_5_3.linter import UnsafeScriptError, assert_safe
 from antigravity3d.adapters.engines.validators import (
     MIN_SILHOUETTE_IOU,
@@ -32,18 +35,21 @@ from antigravity3d.adapters.engines.validators import (
     silhouette_iou,
 )
 from antigravity3d.decisions.models import DecisionBudgetError
+from antigravity3d.decisions.questions import MARKED_DEFECT_PHRASES, VIEW_WORDS
 from antigravity3d.decisions.compose import (
     Action,
+    brief_reasons,
     decide_action,
     engine_parity_reasons,
     rank,
     tier15_score,
 )
 from antigravity3d.genmedia.pbr_deriver import delight, roughness_breakup
-from antigravity3d.harness.session import Preview, Session, resolve
+from antigravity3d.harness.session import Preview, Session, resolve, set_toolset
 from antigravity3d.harness.traceback_compressor import compress_exception
 from antigravity3d.genmedia.material_prompt import texture_prompt
 from antigravity3d.ir import IRPatch, MaterialIR, SetTransform, UpsertMaterial
+from antigravity3d.kernel import provenance
 from antigravity3d.kernel.coplanar import opaque_materials
 from antigravity3d.kernel.fast_ops import (
     ExportBundle,
@@ -64,20 +70,102 @@ from antigravity3d.state import (
 )
 from antigravity3d.art_direction import texture_brief
 from antigravity3d.kernel.compile_ir import CREASE_DEG
-from antigravity3d.tactics.cached import cached_derive_pbr
+from antigravity3d.tactics import judging
+from antigravity3d.tactics.cached import cached_derive_pbr, image_identity
 
-PREVIEW_PX = 256  # per view; the sheet is 2x2
+PREVIEW_PX = 256  # per view; the sheet is 2x2 (render_lookdev's preview tier)
+# The local Antigravity harness (google-antigravity 0.1.24) puts an image of an MCP tool result in front of the model
+# only up to a size: measured offline on 2026-11-22 against the stand-in model (r5/scratch_native/native_trace.py), a
+# 10,218-byte PNG and a 10,220-byte WebP were sent inline (WebP and JPEG keep their own type), a 10,928-byte PNG and an
+# 11,652-byte WebP were offloaded to a file, the model told only its path; view_file on an image sends it whole. Each
+# view the agent is shown is the smallest of these that fits, all at 512 px (``_agent_image``): a 32-colour palette PNG,
+# then lossless WebP of the 32-colour image, then of a 16-colour one (by eye the same as full colour for clay with
+# outlines and badges; 8 colours bands the shading of round parts). Measured on crates, hydrants and chairs of 60-90
+# parts: the three orthographic views fit (2.5-10 KB), the two perspectives of the most detailed designs do not
+# (10.9-13 KB even at 8 colours); lossy WebP and JPEG are larger than these (badge text and outlines). The reply names
+# every view's file, so the agent opens with view_file a view that did not fit (written in full colour: view_file sends
+# any size).
+INLINE_IMAGE_BYTES = 10_000
 TEXTURE_PX = 2048
 MAX_CANDIDATES = 6
 MANIFEST_CAP = 1500
 TOOLSET_STAGE = {"BLOCKOUT": "BLOCKOUT", "TWEAK": "BLOCKOUT", "VARIANTS": "BLOCKOUT", "LOOKDEV": "LOOKDEV", "EXPORT": "EXPORT"}
 QA_STAGE = {"ROUTE": "blockout", "BLOCKOUT": "blockout", "LOOKDEV": "lookdev", "EXPORT": "final", "DONE": "final"}
 MAP_KEYS = ("albedo_uri", "orm_uri", "normal_uri")
+# A preview with no image allowance (start_preview(max_images=0)): the tools that generate an image say so in one line and
+# what to do instead, rather than failing on the image limit. The package writer makes the surfaces from the geometry
+# when it writes the package (materials keep their ids and base colours).
+NO_IMAGES = ("NO IMAGES: this preview's image limit is {limit} and {used} used, so no image can be generated. Surfaces are "
+             "generated from the geometry when the package is written: keep each material's id and base colour, skip "
+             "forge_pbr_material and run_paintover_loop, and continue (render_lookdev, run_visual_qa, set_stage EXPORT).")
+
+
+# How a session gets from a request to a package in the fewest model calls (said by open_asset_session and the
+# server's instructions). Live on 2026-11-22 (r5/live_native2, arm N, crate): a model call costs what the whole
+# conversation costs (about 55,000 tokens on average, over 100,000 by the end), and walking BLOCKOUT -> LOOKDEV -> EXPORT
+# with a schema read, a render and a review at each step took 25 calls and ran out of a 1.5 M share before EXPORT; the
+# stock plain-MCP agent delivered its crate in 19 calls and 1.10 M.
+# The size of a call (r5/live_native3): an agent told to build "in as few calls as it takes" sent the whole crate in
+# one reply, which was cut off at the 16,384-token output limit (13,103 output + 3,281 thinking, MAX_TOKENS, no tool
+# call: nothing reaches a tool of ours), and it went on to script Blender in files instead. Measured on the two earlier
+# live runs: 46-133 output tokens per operation (mean about 100) and up to 5,700 thinking tokens per call, so 25
+# operations (about 2,500 tokens) leave room for any thinking seen.
+SHORT_PATH = "THE SHORT PATH (each model call costs the whole conversation so far, so put calls that can go together in one turn and do not explore folders): build the design with apply_scene_ir, not by scripting Blender, because only a design in the session's stage can be edited, checked and packaged here (Blender on the command line is for inspecting files). First call: the materials and the main body; then two or three calls of at most 25 operations each, writing anything that occurs more than once once, with mirror or repeat. A reply is cut off at 16,384 output tokens, thinking included, and an operation costs about 100: a call that was cut off is split and sent again. Then render_preview and look at the views; improve once or twice; deliver_package, which reviews, builds LODs and colliders, validates and exports (when the request names a folder for the result, pass it as dest; do not copy files by hand afterwards). Its answer starts with one of three: \"DELIVERED\" (the run is finished: reply to the user with the package path and the findings, and do not inspect it again); \"NOT DELIVERED: a person must decide\" (reply to the user with the reason and stop); \"NOT DELIVERED\" otherwise (fix what it names with apply_scene_ir and call deliver_package again). Nothing else is required."
+
+
+# What happens to surfaces, said by the tools at the moment it matters (opening a session without images, entering
+# LOOKDEV). Live on 2026-11-22 (r5/live_native, arm N, crate): told only in the stage text, the agent wrote a PIL script
+# that painted albedo, normal and ORM maps for its three materials and bound them, 330 s of a 694 s session, and never
+# called the image tool whose answer said surfaces are generated.
+SURFACES = ("SURFACES: every material without map files gets a surface generated from the geometry when the package is "
+            "written (kernel.smart_source): its class from the material's surface words, wear, dirt and markings from those "
+            "words and the asset's name, all recorded in the manifest. Painting texture maps by script is neither needed nor "
+            "wanted. In LOOKDEV check each material's base colour and surface words (inspect_manifest lists them; "
+            "apply_shader_diff changes surface, base_color, metallic, roughness) if you want to; deliver_package renders "
+            "the generated surfaces, reviews them and exports.")
+
+
+def surfaces_note(s: Session, *, opening: bool = False) -> str:
+    """The SURFACES line for this session ('' when generated surfaces are off). ``opening``: only when the session can
+    generate no image (said at open; LOOKDEV says it always)."""
+    if not s.state.budget.generated_surfaces:
+        return ""
+    if opening:
+        limit = getattr(s.governor, "max_images", None)
+        if limit is None or s.governor.images_used < limit:
+            return ""
+        return f"NO IMAGES in this session (image limit {limit}). " + SURFACES
+    return SURFACES
+
+
+def _no_images(s: Session) -> str | None:
+    """The NO_IMAGES line when the session's ledger has no image left, else None."""
+    gov = s.governor
+    limit = getattr(gov, "max_images", None)
+    if limit is None:
+        return None
+    used = gov.images_used
+    return NO_IMAGES.format(limit=limit, used=used) if used >= limit else None
+
+
 # The remedy a session without the native Decisions API names (open result, run_visual_qa, export refusal).
 PREVIEW_SWITCH = ("ask the user whether they want an unverified preview and for their two limits (a token ceiling and an "
                   "image limit), then call start_preview with them; the scene is kept")
 
 ToolFn = Callable[..., Awaitable[str]]
+
+
+class ToolReply(str):
+    """A tool's text reply, with the images it shows: ``images`` is ((label, png path), ...). It is a ``str``, so every
+    caller that reads text reads what it always read; a runtime that can show images attaches the PNGs after the text
+    (``runtime/mcp_server.py``)."""
+
+    images: tuple[tuple[str, Path], ...]
+
+    def __new__(cls, text: str, images: tuple[tuple[str, Path], ...] = ()) -> "ToolReply":
+        reply = super().__new__(cls, text)
+        reply.images = tuple(images)
+        return reply
 
 
 def _guard(fn: ToolFn) -> ToolFn:
@@ -119,20 +207,29 @@ def _decoded(value: Any, what: str) -> Any:
         raise ir_schema.IRArgumentError(f"invalid IR: {what} is a string that is not JSON ({e.msg} at char {e.pos})") from None
 
 
-def export_block_reason(state: AssetSessionState) -> str | None:
-    """None when export is allowed, else one line naming what is missing."""
-    if state.export_allowed:
+def export_block_reason(state: AssetSessionState, plane: Any = None) -> str | None:
+    """None when export is allowed, else one line naming what is missing. ``plane``: the session's judge; in a preview a
+    hard policy flag it raised blocks export (content risk is never a finding)."""
+    flags = list(getattr(plane, "hard_policy_flags", None) or []) if state.preview and getattr(plane, "preview", False) else []
+    if state.export_allowed and not flags:
         return None
+    if flags:
+        return f"PREVIEW export blocked: the judge raised hard policy flag(s) {', '.join(dict.fromkeys(flags))}; a person must clear them"
     missing = []
     if state.validator_ok is False:
         missing.append("passing USD/target checks (run run_usd_validator)")
     if not state.last_tier1_ok:
         missing.append("a passing Tier-1 QA (last edit failed or none yet)")
-    if not EXPORT_MIN_TIER15_SCORE <= state.last_tier15_score <= 4.0:
+    findings = state.preview and state.verdict is not None and state.verdict.delivers_on_review
+    if not findings and not EXPORT_MIN_TIER15_SCORE <= state.last_tier15_score <= 4.0:
         missing.append(f"tier15>={EXPORT_MIN_TIER15_SCORE} (have {state.last_tier15_score:.2f}; run run_visual_qa after the last edit)")
     if state.preview:
-        if not state.verdict or not state.verdict.qualifies_preview(state.revision, state.budget.target_engine):
-            missing.append("an approving lookdev/final visual QA verdict on the current revision")
+        if findings and state.verdict.action == "escalate_human":  # type: ignore[union-attr]
+            missing.append("a person's decision (the review escalated this design to a person: ask the user)")
+        elif not state.verdict or not state.verdict.qualifies_preview(state.revision, state.budget.target_engine):
+            missing.append("a lookdev/final visual QA review of the current revision (run_visual_qa in LOOKDEV)" if
+                           state.verdict is None or state.verdict.delivers_on_review else
+                           "an approving lookdev/final visual QA verdict on the current revision")
         return "PREVIEW export blocked: needs " + " and ".join(missing)
     if not state.verdict or not state.verdict.qualifies(state.revision, state.budget.target_engine):
         missing.append("current lookdev/final approval from Decisions on an EEVEE/Cycles render")
@@ -177,12 +274,21 @@ async def _commit(s: Session, apply: Callable[[], str]) -> tuple[str | None, Tie
     return None, report
 
 
+# Session resource naming the package an edit session was opened from (runtime/mcp_server.open_existing_asset).
+EDIT_OF = "edit_of"
+
+
 def _separated(s: Session, apply: Callable[[], str], extend: Callable[[list], Callable[[], str]], note: list[str]) -> Callable[[], str]:
     """``apply`` followed, in the same transaction, by the deterministic separation of coplanar faces pass A runs
     (kernel/separate.py): when the edit leaves z_fighting findings, the edit is re-applied together with the face moves
     as one patch, so one edit stays one transaction (``undo_last_edit`` undoes both). The moves are kept only if they
-    raise no critical issue and make no part float; what happened is appended to ``note``. Caller holds the lock."""
+    raise no critical issue and make no part float; what happened is appended to ``note``. Caller holds the lock.
+
+    In a session that edits an asset that already shipped (``open_existing_asset``: resource ``EDIT_OF``), only moves of
+    parts this edit changed are made: a flush pair that only moving another part would fix is left and named in
+    ``note``, because a part the developer did not ask about must not change (as ``agy3d edit`` does)."""
     def run() -> str:
+        prior = s.stage.base_ir() if s._res(EDIT_OF) is not None else None
         tid = apply()
         budget = s.state.budget
         meshes = s.stage.extract_meshes()
@@ -190,6 +296,15 @@ def _separated(s: Session, apply: Callable[[], str], extend: Callable[[list], Ca
         if not any(i.code == "z_fighting" for i in before.issues):
             return tid
         r = separate_coplanar(s.stage.base_ir(), meshes, hidden=shipped_masks(meshes, budget))
+        if prior is not None and r.ops:
+            from antigravity3d.dags.edit_asset import changed_nodes
+
+            changed = changed_nodes(prior, s.stage.base_ir())
+            left = sorted({op.node_id for op in r.ops if op.node_id not in changed})
+            r.ops = [op for op in r.ops if op.node_id in changed]
+            if left:
+                note.append("separate: flush faces left as they are, because fixing them would move parts this edit does not "
+                            "change: " + ", ".join(left[:8]))
         if not r.ops:
             note.append(f"separate: {r.summary()}")
             return tid
@@ -212,8 +327,25 @@ def _stats(r: Tier1Report) -> str:
 
 
 def _warn(r: Tier1Report) -> str:
-    line = r.one_line(160)
-    return f" |{line.split('|', 1)[1]}" if "|" in line else ""
+    """The detached parts, each on its own segment with its gap, then the other warnings (cut at 160 characters).
+    Live on 2026-11-22 (r5/live_native7) the kernel found the crate's hasp staple 4 mm from everything from the fourth
+    edit on, but its token came after the interpenetration ones and was cut from the reply: the agent first heard of it
+    from the Blender check, at the end of a 77 s delivery."""
+    detached = "".join(f" | {line}" for line in _detached(r))
+    line = Tier1Report(r.ok, [i for i in r.issues if i.code not in DETACHED], r.stats).one_line(160)
+    return detached + (f" |{line.split('|', 1)[1]}" if "|" in line else "")
+
+
+# The kernel's rule for a part that is not joined to the rest of the asset (kernel/fast_ops tier1_qa, the rule pass A's
+# repair uses): a part, or a group of parts touching only each other, more than TOUCH_TOL (2 mm) from every other part
+# and not resting on the ground. The Blender check of the package (upstream qa_check, same 2 mm tolerance) refuses it.
+DETACHED = ("floating_part", "floating_group")
+
+
+def _detached(r: Tier1Report) -> list[str]:
+    """One sentence per detached part or group, with its id and gap, worded as what it will do to the delivery."""
+    return [f"detached: {i.node_id} ({i.detail}): deliver_package will refuse delivery until it touches the asset"
+            for i in r.issues if i.code in DETACHED]
 
 
 def _material(s: Session, mid: str) -> MaterialIR | None:
@@ -238,20 +370,156 @@ async def _render(s: Session, wireframe: bool = True) -> Preview:
         raise
 
 
+async def _render_views(s: Session) -> Preview:
+    """The design's separate views (``tactics.judging``: five 512 px renders shaded as shipped with their feature edges),
+    plain for the judge and badged for the agent, uploaded and recorded as a preview of kind "views"."""
+    async with s.registry.locked(s.sid):
+        meshes = s.stage.extract_meshes()
+        version = s.geom_version
+    if not meshes:
+        raise ValueError("nothing to render: the scene has no meshes")
+    art = s.art
+    stem = f"views_{uuid.uuid4().hex[:12]}"
+    written: list[Path] = []
+
+    async def upload(data: bytes) -> str:
+        if s.forge is not None:
+            return await s.forge.upload(data)
+        path = s.artifacts_dir / f"{stem}_{len(written):02d}.png"
+        path.write_bytes(data)
+        written.append(path)
+        return path.as_uri()
+
+    try:
+        design = await judging.upload_design(meshes, upload, crease_deg=art.crease_deg() if art is not None else CREASE_DEG)
+        paths = []
+        for name, png in design.renders.marked:  # the badged views on disk, as the agent is shown them (see INLINE_IMAGE_BYTES)
+            data, ext = await asyncio.to_thread(_agent_image, png)
+            path = s.artifacts_dir / f"{stem}_{name}.{ext}"
+            path.write_bytes(data)
+            paths.append(path)
+            written.append(path)
+        async with s.registry.locked(s.sid):
+            return s.add_preview(paths[0], design.badged[0][1], version, kind="views", design=design, view_paths=tuple(paths))
+    except BaseException:
+        for path in written:
+            path.unlink(missing_ok=True)
+        raise
+
+
+def _quantized(rgb: Image.Image, colours: int) -> Image.Image:
+    """``rgb`` mapped, without dithering, to a palette of ``colours``: the colours the badges, their leader lines and the
+    view label are drawn in, kept exactly, and the rest chosen for the clay. Found live on 2026-11-22: a palette chosen
+    from the image alone merged the few yellow leader-line pixels into grey, and the model described the leaders as white."""
+    from antigravity3d.kernel import som
+    from antigravity3d.kernel.raster import BG
+
+    reserved = [tuple(int(x) for x in BG), som.BADGE_FILL, som.BADGE_TEXT, som.BADGE_OUTLINE, som.LEADER, (0, 0, 0),
+                (255, 255, 255), (70, 74, 84)]
+    reserved = list(dict.fromkeys(reserved))
+    rest = rgb.quantize(colors=colours - len(reserved), method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+    flat = [c for rgb_ in reserved for c in rgb_] + (rest.getpalette() or [])[:3 * (colours - len(reserved))]
+    pal = Image.new("P", (1, 1))
+    pal.putpalette(flat + [0] * (768 - len(flat)))
+    return rgb.quantize(palette=pal, dither=Image.Dither.NONE)
+
+
+def _agent_image(png: bytes) -> tuple[bytes, str]:
+    """(bytes, extension) of one view as the agent is shown it: the first of 32-colour palette PNG, lossless WebP of 32
+    colours, lossless WebP of 16 colours that fits ``INLINE_IMAGE_BYTES``, else the full-colour PNG (see there). 512 px
+    always."""
+    import io
+
+    rgb = Image.open(io.BytesIO(png)).convert("RGB")
+    out: list[tuple[bytes, str]] = []
+    for colours, fmt in ((32, "PNG"), (32, "WEBP"), (16, "WEBP")):
+        im = _quantized(rgb, colours)
+        buf = io.BytesIO()
+        if fmt == "PNG":
+            im.save(buf, "PNG", optimize=True)
+        else:
+            im.convert("RGB").save(buf, "WEBP", lossless=True, method=6)
+        out.append((buf.getvalue(), fmt.lower()))
+        if len(out[-1][0]) <= INLINE_IMAGE_BYTES:
+            return out[-1]
+    return png, "png"  # none fits: the agent opens it with view_file, which sends any size, so it gets every colour
+
+
+def _views_reply(p: Preview, head: str) -> ToolReply:
+    """The reply that shows the agent its design: one line per image (its file; whether the client shows it inline),
+    the badge legend, the images attached."""
+    names = [name for name, _ in p.design.badged]
+    lines = [f"{head} #{p.index}: {len(names)} renders of the current design, one per view, {judging.JUDGE_VIEW_PX} px, "
+             "shaded as the package ships with part outlines drawn; each part carries a numbered badge [NN], the same "
+             "number in every view. LOOK at every view before your next edit: compare it with the request, find what is "
+             "missing, plain or wrong, and name parts by their badge."]
+    for name, path in zip(names, p.view_paths):
+        big = path.stat().st_size > INLINE_IMAGE_BYTES
+        lines.append(f"  {name} ({VIEW_WORDS.get(name, name)}): {path}" + (
+            "  <- too large to show inline: open it with view_file" if big else "  (attached)"))
+    lines += ["Legend (badge, node id, views it is seen in):", p.design.renders.legend_text]
+    return ToolReply("\n".join(lines), tuple(zip(names, p.view_paths)))
+
+
 async def _visual_qa(s: Session, *, read_only: bool = False):
+    """The stage's visual QA. At BLOCKOUT (the design's shape) it is the command's own review: the design judged alone on
+    its five views as shipped (``tactics.judging``), with the brief's questions; later stages judge the textured render."""
     if s.plane is None:
         raise RuntimeError("no decision plane attached to this session")
     qa_stage = QA_STAGE.get(s.state.active_stage, "blockout")
     prev = s.latest_preview()
-    if prev is None:
-        if read_only:
-            raise ValueError("no current preview; the parent agent must render the scene before review")
-        prev = await _render(s)
-    res = await s.plane.evaluate_visual_qa(
-        prev.uri, ortho_uri=s.state.ortho_uris[0] if s.state.ortho_uris else None,
-        style_anchor_uri=s.state.style_anchor_uri, stage=qa_stage, governor=s.governor,  # type: ignore[arg-type]
-        **({"brief": s.state.brief} if s.state.brief else {}))
+    ortho = s.state.ortho_uris[0] if s.state.ortho_uris else None
+    if qa_stage == "blockout":
+        if prev is None or prev.kind != "views":
+            if read_only:
+                raise ValueError("no current renders; the parent agent must call render_preview before review")
+            prev = await _render_views(s)
+        judged = await judging.judge_uploaded(s.plane, prev.design, brief=s.state.brief or None, governor=s.governor,
+                                              stage="blockout", ortho_uri=ortho, style_uri=s.state.style_anchor_uri)
+        res = judged.result
+    else:
+        if prev is None or prev.kind == "views":  # the textured render is judged here, not the clay views
+            if read_only:
+                raise ValueError("no current preview; the parent agent must render the scene before review")
+            prev = await _render(s)
+        res = await s.plane.evaluate_visual_qa(
+            prev.uri, ortho_uri=ortho, style_anchor_uri=s.state.style_anchor_uri, stage=qa_stage, governor=s.governor,  # type: ignore[arg-type]
+            **({"brief": s.state.brief} if s.state.brief else {}),
+            **({"placed_markings": list(prev.placed)} if getattr(prev, "placed", ()) else {}))
     return prev, res, tier15_score(res, s.thresholds), decide_action(res, s.thresholds, qa_stage)  # type: ignore[arg-type]
+
+
+async def _findings(s: Session, prev: Preview, res: Any) -> list[str]:
+    """What the review found, as the agent can act on it: each question answered at or above the ambiguity floor, with
+    the parts it is on (``locate_defects`` on the badged views, when the plane has it: badge, node id, the views it is
+    seen in); then the brief's requirements and the scores. [] when nothing was found and there are no scores."""
+    th = s.thresholds
+    flagged = {k: p for k, p in sorted(res.defects.items(), key=lambda kv: -kv[1]) if p >= th.ambiguity_lo}
+    where: dict[str, list[str]] = {}
+    design = prev.design if prev.kind == "views" else None
+    locatable = [d for d in flagged if d in MARKED_DEFECT_PHRASES]
+    if design is not None and locatable and hasattr(s.plane, "locate_defects"):
+        num = {nid: n for n, nid in design.legend.items()}
+        seen: dict[int, list[str]] = {}
+        for view, nums in (design.renders.visible or {}).items():
+            for n in nums:
+                seen.setdefault(n, []).append(view)
+        try:
+            found = await s.plane.locate_defects(design.badged, design.legend, locatable, governor=s.governor)
+        except Exception as e:  # noqa: BLE001 - locating is best effort; the finding stands without it
+            log_line = f"(parts not located: {type(e).__name__})"
+            found = {d: [] for d in locatable}
+            where = {d: [log_line] for d in locatable}
+        for d, parts in found.items():
+            if parts:
+                where[d] = [f"[{num[nid]:02d}] {nid} ({', '.join(seen.get(num[nid], [])) or 'not seen'}) p={p:.2f}"
+                            for nid, p in parts[:6]]
+    lines = [f"finding {d.removeprefix('defect_')} p={p:.2f}" + (": " + "; ".join(where[d]) if where.get(d) else "")
+             for d, p in flagged.items()]
+    lines += [f"brief: {r}" for r in brief_reasons(res.defects, res.scores, th)]
+    if res.scores:
+        lines.append("scores (0-4): " + ", ".join(f"{k.removeprefix('score_')} {v:.2f}" for k, v in sorted(res.scores.items())))
+    return lines
 
 
 def _local(uri: str | None) -> Path | None:
@@ -309,6 +577,21 @@ def _edit(s: Session, ops: Any) -> tuple[Callable[[], str], int, Callable[[list]
             lambda more: (lambda: s.stage.apply_patch(IRPatch(ops=[*patch.ops, *more]))))
 
 
+def _copies(ops: Any) -> str:
+    """The ids a mirror / repeat in ``ops`` made, for the reply: the agent edits a copy by its id afterwards."""
+    payload = _decoded(ops, "ops")
+    payload = payload.get("ops", payload.get("nodes", [])) if isinstance(payload, dict) else payload
+    nodes = [o.get("node", o) for o in payload if isinstance(o, dict)] if isinstance(payload, list) else []
+    if not any(isinstance(n, dict) and ir_shortcuts.has_shortcuts(n) for n in nodes):
+        return ""
+    try:
+        made = [c["id"] for _, c in ir_shortcuts.expand([n for n in nodes if isinstance(n, dict) and "id" in n])[1]]
+    except (ValueError, KeyError, TypeError):
+        return ""  # the edit itself reports what is wrong
+    shown = ",".join(made[:12]) + (f",+{len(made) - 12}" if len(made) > 12 else "")
+    return f" copies={shown}"
+
+
 def _material_refs(materials: list[Any]) -> list[str]:
     return [m[k] for m in materials if isinstance(m, dict) for k in MAP_KEYS if isinstance(m.get(k), str)]
 
@@ -350,7 +633,7 @@ async def apply_scene_ir(ops: list[dict[str, Any]] | dict[str, Any] | str, ctx: 
         nodes = len(s.stage.base_ir().nodes)
     if tid is None:
         return f"ROLLED BACK {rep.one_line(200)}"
-    return f"OK tx={tid} ops={n} nodes={nodes} {_stats(rep)}{_warn(rep)}" + "".join(f" | {x}" for x in note)
+    return f"OK tx={tid} ops={n} nodes={nodes}{_copies(ops)} {_stats(rep)}{_warn(rep)}" + "".join(f" | {x}" for x in note)
 
 
 @_guard
@@ -387,10 +670,9 @@ async def undo_last_edit(ctx: ToolContext) -> str:
 
 
 @_guard
-async def render_preview(ctx: ToolContext, wireframe: bool = True) -> str:
-    """Render a 4-view clay contact sheet; returns its handle only."""
-    p = await _render(resolve(ctx), wireframe)
-    return f"PREVIEW #{p.index} views=front,right,top,persp uri={p.uri}"
+async def render_preview(ctx: ToolContext) -> str:
+    """Show you the design: five views with numbered part badges and a legend. Look after every few edits."""
+    return _views_reply(await _render_views(resolve(ctx)), "PREVIEW")
 
 
 @_guard
@@ -422,20 +704,23 @@ async def run_visual_qa(ctx: ToolContext) -> str:
         texture_hash = prev.texture_hash or (s.texture_digest() if s.state.preview else "")
         s.set_tier15(t15, VisualVerdict(s.state.revision, target, action.stage, prev.kind,
                                       source, action.kind, texture_hash), prev)
+        s._set("last_review", {"revision": s.state.revision, "tier15": t15, "scores": dict(res.scores),
+                               "defects": dict(res.defects), "views": [str(p) for p in prev.view_paths] or [str(prev.path)]})
         delta = action.audit_delta()
         s.state.add_audit_delta(delta)
         fix = await _auto_fix(s, action) if action.kind == "auto_fix" else ""
-    return delta + (f"\nfix: {fix}" if fix else "")
+    found = await _findings(s, prev, res)
+    return delta + (f"\nfix: {fix}" if fix else "") + "".join(f"\n{x}" for x in found)
 
 
 @_guard
 async def qa_probe(ctx: ToolContext) -> str:
     """Read-only visual QA: verdict line, stores nothing."""
     s = resolve(ctx)
-    prev, _res, _t15, action = await _visual_qa(s, read_only=True)
+    prev, res, _t15, action = await _visual_qa(s, read_only=True)
     if s.geom_version != prev.geom_version:
         return "STALE: scene changed during visual review"
-    return "PROBE " + action.audit_delta()
+    return "PROBE " + action.audit_delta() + "".join(f"\n{x}" for x in await _findings(s, prev, res))
 
 
 # --------------------------------------------------------------------------- variants
@@ -524,6 +809,8 @@ async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, ca
     """Generate a tileable PBR material (albedo + ORM + normal) and bind its maps to material_id. prompt: the
     material's surface words (kept as its surface)."""
     s = resolve(ctx)
+    if (none_left := _no_images(s)) is not None:
+        return none_left
     if s.forge is None:
         raise RuntimeError("no image forge attached to this session")
     if s.plane is None:
@@ -537,7 +824,8 @@ async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, ca
     art = s.art  # the session's art direction: its texture brief, map size and palette (None: as before)
     size = art.texture_px(s.state.budget.target_engine, "prop", TEXTURE_PX) if art is not None else engine_texture_px(s.state.budget.target_engine, TEXTURE_PX)
     brief = texture_brief(art)
-    results = await asyncio.gather(*(s.forge.seamless_albedo(texture_prompt(current, brief), size=size,
+    material_prompt = texture_prompt(current, brief)
+    results = await asyncio.gather(*(s.forge.seamless_albedo(material_prompt, size=size,
                                                              variant_hint=f"option {i + 1}" if n > 1 else "")
                                      for i in range(n)), return_exceptions=True)
     gens = [g for g in results if not isinstance(g, BaseException)]
@@ -568,6 +856,15 @@ async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, ca
             while (destination := mdir / f"{material_id}_v{k}").exists():
                 k += 1
             Path(temp).rename(destination)
+            # who made this albedo, for the package manifest's provenance; kept with the folder the maps went to, so that
+            # a package whose material no longer uses these maps does not claim them
+            media = s._res("generated_media")
+            if media is None:
+                media = {}
+                s._set("generated_media", media)
+            media[material_id] = {"dir": str(destination), **image_identity(
+                gens[best], prompt=material_prompt, size=size, variant=f"option {best + 1}" if n > 1 else "",
+                offline=bool(getattr(s.forge, "offline", False)))}
             try:
                 paths = {key: str(destination / file.name) for key, file in files.items()}
                 new = MaterialIR.model_validate({**current.model_dump(), **paths})
@@ -611,11 +908,15 @@ async def apply_shader_diff(material_id: str, diff: dict[str, Any] | str | None 
 async def run_paintover_loop(direction: str, ctx: ToolContext) -> str:
     """Paint-over of the latest render following an art direction; stored as the reference image."""
     s = resolve(ctx)
+    if (none_left := _no_images(s)) is not None:
+        return none_left
     if s.forge is None:
         raise RuntimeError("no image forge attached to this session")
     if s.plane is None:
         return "BLOCKED: no visual policy judge attached"
-    prev = s.latest_preview() or await _render(s, wireframe=False)
+    prev = s.latest_preview()
+    if prev is None or prev.kind == "views":  # the paint-over starts from one clay render, not the badged views
+        prev = await _render(s, wireframe=False)
     gen = await s.forge.paint_over(await asyncio.to_thread(prev.path.read_bytes), direction)
     uri = gen.uri or await s.forge.upload(gen.png_bytes)
     verdict = await s.plane.policy_gate(uri, governor=s.governor)
@@ -641,15 +942,42 @@ async def render_lookdev(ctx: ToolContext, engine: str = "eevee") -> str:
         raise ValueError(f"unknown lookdev engine {engine!r}")
     stem = f"lookdev_{engine}_{uuid.uuid4().hex}"
     src = s.artifacts_dir / f"{stem}.usdc"
-    try:
-        async with s.registry.locked(s.sid):
-            version = s.geom_version
-            texture_hash = s.texture_digest()
-            await _bundle(s)
-            s.stage.export(src)
-        res = await s.pool.call("render_usd", path=str(src), engine=engine, width=512, height=512, transparent=True)
-    finally:
-        src.unlink(missing_ok=True)
+    shown = ""
+    placed: tuple[str, ...] = ()
+    with tempfile.TemporaryDirectory(dir=s.artifacts_dir, prefix=".lookdev-") as td:
+        try:
+            async with s.registry.locked(s.sid):
+                version = s.geom_version
+                texture_hash = s.texture_digest()
+                b = await _bundle(s)
+                checked = _preflight_package(s)
+                if checked is not None and _generates_surfaces(s):
+                    # deliver_package's checks wrote and passed this scene's package a moment ago: render that one
+                    src, placed = checked["usd"], checked["placed"]
+                    shown = " | generated surfaces shown (the package the checks passed)"
+                elif _generates_surfaces(s):
+                    # What ships: the package writer paints every image-less opaque material (kernel.smart_source) into
+                    # the shared atlas; render that package's USD, so the agent and the lookdev review see the surfaces
+                    # the package will carry, not the flat colours they replace.
+                    from antigravity3d.kernel.package import write_engine_package
+
+                    t0 = time.perf_counter()
+                    pkg = await _stage_worker(write_engine_package, s.stage, b, s.state.budget, Path(td) / "pkg",
+                                              asset_name=s.stage.asset_prim.GetName(), qa=None, art=s.art)
+                    src = Path(td) / "pkg" / str(pkg.data.get("usd") or f"{s.stage.asset_prim.GetName()}.usd")
+                    shown = f" | generated surfaces shown (package written for the render in {time.perf_counter() - t0:.0f} s)"
+                    from antigravity3d.kernel import smart_source
+
+                    # Live on 2026-11-22 (r5/live_native6): the review of this render, not told that the surfaces carry
+                    # stencils painted on purpose, escalated the crate to a person for "IP/text risk 0.95" and the export
+                    # was refused. The strings go with the preview and every review of it states them (as tactics/look_round).
+                    placed = tuple(smart_source.placed_strings(pkg.data))
+                else:
+                    s.stage.export(src)
+            res = await s.pool.call("render_usd", path=str(src), engine=engine, width=512, height=512, transparent=True)
+        finally:
+            if src.parent == s.artifacts_dir:
+                src.unlink(missing_ok=True)
     img = np.asarray(res["image"], dtype=np.float32)
     path = s.artifacts_dir / f"{stem}.png"
     if s.geom_version != version:
@@ -663,11 +991,22 @@ async def render_lookdev(ctx: ToolContext, engine: str = "eevee") -> str:
             kind = "clay" if res["fake"] else engine
             if texture_hash != s.texture_digest():
                 raise RuntimeError("material files changed during render; render again")
-            p = s.add_preview(path, uri, version, kind=kind, texture_hash=texture_hash)
+            p = s.add_preview(path, uri, version, kind=kind, texture_hash=texture_hash, placed=placed)
     except BaseException:
         path.unlink(missing_ok=True)
         raise
-    return f"LOOKDEV {res.get('engine', engine)} render #{p.index} uri={uri}"
+    return f"LOOKDEV {res.get('engine', engine)} render #{p.index} uri={uri}{shown}"
+
+
+def _generates_surfaces(s: Session) -> bool:
+    """Whether the package will paint a surface for some material of this scene (``kernel.smart_source``): generated
+    surfaces on, and an opaque material without map files."""
+    from antigravity3d.kernel import smart_source
+
+    if not s.state.budget.generated_surfaces:
+        return False
+    with smart_source.using(True):
+        return any(smart_source._paintable(m.material) for m in s.stage.extract_meshes())
 
 
 # --------------------------------------------------------------------------- EXPORT
@@ -681,8 +1020,9 @@ async def _bundle(s: Session) -> ExportBundle:
         bundle = cached[1]
     else:
         # material edits bump geom_version too (Session.visuals_changed), so the revision covers opacity
-        bundle = await asyncio.to_thread(run_export_pipeline, s.stage.extract_meshes(), s.state.budget,
-                                         s.stage.asset_prim.GetName(), opaque_materials=opaque_materials(s.stage.scene_ir()))
+        # drained like every native step here: a cancelled tool call must not leave xatlas running after the lock is free
+        bundle = await _stage_worker(run_export_pipeline, s.stage.extract_meshes(), s.state.budget,
+                                     s.stage.asset_prim.GetName(), opaque_materials=opaque_materials(s.stage.scene_ir()))
         s._set("bundle", (revision, bundle))
     art = s.art
     s.stage.ensure_export_uvs(bundle.uvs, crease_deg=art.crease_deg() if art is not None else CREASE_DEG)
@@ -801,7 +1141,8 @@ async def _verify_engine(s: Session, pkg: Any, asset: str) -> str | None:
     for name, data in (("dcc.png", dcc), ("engine.png", engine_image)):
         pkg.data["files"].append(name)
         pkg.data["file_hashes"][name] = {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
-    pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": True, "metrics": smoke.metrics, "bounds_m": smoke.bounds_m}
+    pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": True, "metrics": smoke.metrics, "bounds_m": smoke.bounds_m,
+                                               "engine_version": smoke.engine_version}
     pkg.data["validation"]["engine_parity"] = {"ok": True, "silhouette_iou": overlap, "scores": parity.scores}
     return None
 
@@ -817,7 +1158,7 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
     out = s.export_dir / name
     async with s.registry.locked(s.sid):
         st = s.state
-        if why := export_block_reason(st):
+        if why := export_block_reason(st, s.plane):
             return f"REFUSED {why}"
         asset = s.stage.asset_prim.GetName()
         assert st.verdict is not None
@@ -835,9 +1176,14 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
                 crit = [i.code for i in pkg.issues if i.severity == "critical"]
                 return f"REFUSED package validation failed: {', '.join(dict.fromkeys(crit))[:140]}"
             if st.preview:
-                if reason := await _preview_engine_import(s, pkg, asset):
+                checked, glb_sha = _preflight_package(s), _sha256(candidate / f"{asset}.glb")
+                if checked is not None and glb_sha and checked["glb_sha256"] == glb_sha:
+                    pkg.data["validation"].update(checked["validation"])  # the same GLB bytes passed them in deliver_package
+                elif reason := await _preview_engine_import(s, pkg, asset):
                     return f"REFUSED {reason}"
                 pkg.data.update(preview_label(s))
+                if findings := _review_findings(s):  # the review of an uncalibrated judge: what it found ships with it
+                    pkg.data["review"] = findings[0]
             elif reason := await _verify_engine(s, pkg, asset):
                 return f"REFUSED {reason}"
             # Last step before the manifest: the FBX is written into this private directory, after every other step has
@@ -846,6 +1192,7 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
             # manifest says so, and so does the answer below); it never refuses the package and never sets or clears
             # `verified` or `preview`. Placed after the verified / preview branches above, beside the Blender asset check.
             fbx_note = await _export_fbx(s, pkg)
+            _session_provenance(s, pkg.data)
             (candidate / "manifest.json").write_text(json.dumps(pkg.data, indent=1), encoding="utf-8")
             if "fbx" in pkg.data:
                 from antigravity3d.kernel.validator import validate_package
@@ -855,6 +1202,7 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
                     from antigravity3d.kernel.package import drop_fbx
 
                     drop_fbx(pkg.data, candidate, "PackageValidation", f"{broken[0].code}: {broken[0].detail}")
+                    provenance.finalize(pkg.data["provenance"], pkg.data)  # the dropped FBX leaves the record too
                     fbx_note = f"FBX FAILED package validation (not shipped; the package is intact): {broken[0].code} {broken[0].detail}"[:400]
                     (candidate / "manifest.json").write_text(json.dumps(pkg.data, indent=1), encoding="utf-8")
             if st.verdict.texture_hash != s.texture_digest():
@@ -863,8 +1211,37 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
             publish_directory(candidate, out)
         s.set_last_export(out)
     head = f"EXPORTED PREVIEW {name} (UNVERIFIED; judged by {pkg.data['judge']['label']})" if st.preview else f"EXPORTED {name}"
+    # Delivered and review, said apart (as agy3d prop and edit do): the package passed its deterministic checks; what the
+    # judge said is a separate fact, and an uncalibrated judge's approval is not a person's.
+    judge = pkg.data["judge"]["label"] if st.preview else "Decisions"
+    review = (f"review: {st.verdict.action} by {judge} at tier15 {st.last_tier15_score:.2f} on revision {st.revision}"
+              + ("; the judge is uncalibrated: a person must look at it before it ships" if st.preview else ""))
+    lines = pkg.data.get("review", {}).get("findings") or []  # one sentence per finding, for the agent and the person
     return (f"{head}: usd+glb, {pkg.n_lod_files} LOD glbs, {len(b.colliders)} UCX hulls, "
-            f"{len(pkg.data['textures'])} maps, manifest.json | pkg ok | {fbx_note}" + (f" | spend {s.governor.summary()}" if st.preview else ""))
+            f"{len(pkg.data['textures'])} maps, manifest.json | pkg ok | delivered: yes, package validation passed and no "
+            f"engine check refused it (manifest lists what ran) | {review} | {fbx_note}" + (f" | spend {s.governor.summary()}" if st.preview else "")
+            + "".join(f"\n{x}" for x in lines))
+
+
+def _session_provenance(s: Session, data: dict[str, Any]) -> None:
+    """The manifest's ``provenance`` facts of a native session (``kernel/provenance.py``): the scene was edited by the
+    conversation's agent, whose model the studio does not see (a scene that only places the user's files is theirs);
+    an albedo is credited to the image model only while the material still uses the maps ``forge_pbr_material`` wrote."""
+    prov = data.get("provenance")
+    if prov is None:
+        return
+    scene = s.stage.base_ir()
+    if {n.kind for n in scene.nodes} <= {"mesh_ref", "group"}:
+        provenance.set_design(prov, {"kind": "user_supplied", "note": "the scene only places the supplied file(s)"})
+    else:
+        provenance.set_design(prov, {"kind": "model_authored_in_session", "model": None,
+                                     "note": "scene edited through apply_scene_ir by the conversation's agent; the studio does not see which model that is"})
+    media = s._res("generated_media") or {}
+    for m in scene.materials:
+        made = media.get(m.id)
+        if made and m.albedo_uri and Path(m.albedo_uri).parent == Path(made["dir"]):
+            provenance.set_image(prov, f"albedo:{m.id}", {k: v for k, v in made.items() if k != "dir"})
+    provenance.finalize(prov, data)
 
 
 async def _export_fbx(s: Session, pkg: Any) -> str:
@@ -881,6 +1258,24 @@ async def _export_fbx(s: Session, pkg: Any) -> str:
         return f"fbx skipped: {detail}"[:400]
     fbx_package.record(pkg.data, pkg.out_dir, result)
     return f"fbx: {pkg.data['fbx']['file']} re-imported in Blender, not opened in an engine"
+
+
+def _review_findings(s: Session) -> tuple[dict[str, Any], list[str]] | None:
+    """The review of an uncalibrated judge on what ships, as the command reports it (``antigravity3d.delivery``):
+    ``(record, finding lines)`` with the record's "findings" filled; None when the verdict is not such a review."""
+    from types import SimpleNamespace
+
+    from antigravity3d import delivery
+
+    st = s.state
+    last = s._res("last_review")
+    if st.verdict is None or not st.verdict.delivers_on_review or not last or last.get("revision") != st.revision:
+        return None
+    res = SimpleNamespace(tier15=last["tier15"], scores=last["scores"], defects=last["defects"], failed=[], stopped={},
+                          judge_unavailable="", rounds=[SimpleNamespace(action=st.verdict.action)])
+    review = delivery.review_record(res, s.thresholds, s.plane, where=[str(p) for p in last.get("views", [])])
+    review["findings"] = delivery.finding_lines(review)
+    return review, review["findings"]
 
 
 def preview_label(s: Session) -> dict[str, Any]:
@@ -913,7 +1308,8 @@ async def _preview_engine_import(s: Session, pkg: Any, asset: str) -> str | None
         return f"{smoke.engine} import: {' '.join(smoke.log_tail.split())[-160:]}"
     if issue := smoke.geometry_issue(pkg.data):
         return issue
-    pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": True, "metrics": smoke.metrics, "bounds_m": smoke.bounds_m}
+    pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": True, "metrics": smoke.metrics, "bounds_m": smoke.bounds_m,
+                                               "engine_version": smoke.engine_version}
     pkg.data["validation"]["engine_parity"] = {"ok": None, "skipped": "preview: parity needs the native Decisions API"}
     return None
 
@@ -934,6 +1330,286 @@ async def run_bpy_script(source: str, ctx: ToolContext) -> str:
 
 # --------------------------------------------------------------------------- tool sets
 
+# --------------------------------------------------------------------------- the short path
+
+
+def _enter(s: Session, stage: str) -> None:
+    s.state.active_stage = TOOLSET_STAGE[stage]  # type: ignore[assignment]
+    set_toolset(s.registry, s.sid, stage)
+
+
+@_guard
+async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") -> str:
+    """From a finished design to a delivered package in one call: first the checks that can refuse it (detached parts,
+    LODs, colliders, validation, the package's Blender check and engine import), then the lookdev review of what ships
+    unless one exists, the export, and what the review found.
+    dest: the folder the user named for the result, relative to the workspace; the engine files are placed there."""
+    s = resolve(ctx)
+    if dest:
+        try:
+            _dest_folder(s, dest)  # refused before any work, in one sentence
+        except ValueError as e:
+            return f"NOT DELIVERED: {e}."
+    if why := s.waits_for_user():
+        # refused before any work: no check, render or change of the design can end in a delivery here
+        return (f"{NEEDS_A_PERSON} ({why}). Reply to the user with this and stop: {PREVIEW_SWITCH}; then call "
+                "deliver_package again. Changing the design does not get past it.")
+    async with s.registry.locked(s.sid):
+        nodes = len(s.stage.base_ir().nodes)
+        tier1_ok = s.state.last_tier1_ok
+        asset = s.stage.asset_prim.GetName()
+    if not nodes:
+        raise ValueError("nothing to deliver: the scene is empty (build it with apply_scene_ir)")
+    if not tier1_ok:
+        return "REFUSED Tier-1 has not passed on the current scene: fix what apply_scene_ir reported, then deliver_package"
+    # The reply leads with the outcome (r5/live_native5: a first reply that led with the review as the gates word it,
+    # "agent_repair ... gates win", and ended with the refusal sent the agent back to repair; after a delivered package
+    # it went on checking the package itself until its token share ran out).
+    review: list[str] = []
+    steps: list[str] = []
+    started = time.monotonic()
+    kept = False  # the checked package and the review stay for the next call when this one stops waiting
+    try:
+        for _ in range(2):  # a second pass only when the review's own deterministic fix changed the scene
+            # Fail fast (r5/live_native7: the detached staple was refused by the Blender check after a 77 s lookdev
+            # render and review): everything deterministic that can refuse runs first, and a refusal is returned
+            # before anything is rendered or the judge is asked.
+            refusal, steps = await _preflight(ctx, s, asset)
+            if refusal:
+                return "\n".join([f"NOT DELIVERED: {refusal}. Fix what it names with apply_scene_ir and call "
+                                  "deliver_package again.", *steps])
+            task = _review_task(s)  # one an earlier call left running (or finished) for this scene
+            v = s.state.verdict
+            if task is None and v is not None and v.revision == s.state.revision and v.stage in {"lookdev", "final"}:
+                break
+            # Not run beside the checks: the render and the review would then be made for designs the checks refuse.
+            _enter(s, "LOOKDEV")
+            if task is None:  # none asked yet for this scene: render it and ask (a task that outlives this call)
+                if s.pool is not None:
+                    steps.append(await render_lookdev(ctx, "eevee"))
+                task = _start_review(ctx, s)
+            left = DELIVER_ANSWER_S - (time.monotonic() - started)
+            try:
+                answer = await asyncio.wait_for(asyncio.shield(task), timeout=max(left, 1.0))
+            except asyncio.TimeoutError:
+                kept = True
+                return "\n".join([f"NOT DELIVERED: the review has not answered in {time.monotonic() - started:.0f} s (the "
+                                  "judge is still working on it); nothing needs fixing: call deliver_package again, it "
+                                  "continues where this call stopped and does not render or ask again.", *steps])
+            except asyncio.CancelledError:
+                kept = True  # the client gave up on this call: the next one continues from here
+                raise
+            s._set(R_REVIEW, None)
+            if answer.startswith("STALE"):  # the scene changed while it was judged: render and ask again
+                continue
+            review = answer.split("\n")
+            if "\nfix: " not in answer:
+                break
+        _enter(s, "EXPORT")
+        exported = await export_engine_package(ctx, out_name or asset)
+    finally:
+        if not kept:
+            _drop_preflight(s)
+    head, *found = exported.split("\n")
+    findings_rule = s.state.verdict is not None and s.state.verdict.delivers_on_review
+    # Under the delivery rule (an uncalibrated preview) the review is a set of findings for the person: its verdict
+    # lines (the action the gates would take) are left out, the findings, brief and scores kept. Otherwise the review is
+    # the gate and is shown as it is.
+    shown = [x for x in review if x.startswith(("finding", "brief:", "scores", "fix:"))] if findings_rule else review
+    if findings_rule:  # the export line names the review's action ("review: agent_repair by ..."): a finding, not an order
+        head = re.sub(r"review: [a-z_]+ by ", "review by ", head)
+    if head.startswith("EXPORTED"):
+        where = s.last_export
+        placed = _place(s, where, dest) if dest and where else []
+        out = [f"DELIVERED: {head}" + (f" | placed in {dest}/" if dest else ""), *placed, *(found or shown), *steps,
+               f"FINISHED: the package{f' at {where}' if where else ''} was validated, imported and checked by this tool"
+               + (f", and its engine files are in {dest}/: nothing is left to copy" if dest else "")
+               + ". Reply to the user with its path and the findings above; do not inspect, re-check or copy it."]
+    elif _needs_a_person(s):
+        # Live on 2026-11-22 (r5/live_native6): refused for a person's decision, the agent went back to LOOKDEV and
+        # painted its own maps by script until its token share ran out. This refusal ends the agent's work.
+        why = next((x.removeprefix("why: ") for x in review if x.startswith("why: ")), head.removeprefix("REFUSED "))
+        out = [f"{NEEDS_A_PERSON} ({why}). Reply to the user with this reason and stop: changing the surfaces or the "
+               "design to get past it is not wanted.", *shown, *steps, head]
+    else:
+        out = [f"NOT DELIVERED: {head.removeprefix('REFUSED ')}. Fix what it names with apply_scene_ir and call "
+               "deliver_package again.", *shown, *steps]
+    return "\n".join(out)
+
+
+NEEDS_A_PERSON = "NOT DELIVERED: a person must decide"
+R_PREFLIGHT = "preflight_package"
+R_REVIEW = "delivery_review"
+# deliver_package answers within this many seconds of being called. Arm N's client (the stock localharness, the plugin's
+# mcp_config.json sets no timeout) abandons a tool call after 3 minutes ("timed out after 3m0s"). Live on 2026-11-22
+# (r5/live_final_N) the second delivery spent 54 s on the checks and the render and the lookdev review's one judge call
+# took 131 s (26 and 51 s for the same question later): the call was abandoned at 180 s and cancelled, and with it the
+# checked package, the render and the review. Now a review that has not answered by then is left running and kept with
+# the checked package; the reply says to call again, and the next call waits on that same review.
+DELIVER_ANSWER_S = 150.0
+
+
+def _review_task(s: Session) -> asyncio.Task | None:
+    """The delivery review still running or finished for the scene as it is now (same geometry, budget, material files
+    and revision); None otherwise (a stale one is cancelled)."""
+    held = s._res(R_REVIEW)
+    if not held:
+        return None
+    key, task = held
+    if key == (s.geom_version, s.state.budget, s.texture_digest(), s.state.revision):
+        return task
+    task.cancel()
+    s._set(R_REVIEW, None)
+    return None
+
+
+def _start_review(ctx: ToolContext, s: Session) -> asyncio.Task:
+    """run_visual_qa as a task of its own: when deliver_package stops waiting for it (its time is up, or the client gave
+    up on the call) it goes on, stores its verdict as run_visual_qa always does (or reports STALE if the scene changed),
+    and the next deliver_package takes its answer. Nothing is exported by it."""
+    task = asyncio.ensure_future(run_visual_qa(ctx))
+    s._set(R_REVIEW, ((s.geom_version, s.state.budget, s.texture_digest(), s.state.revision), task))
+    return task
+
+
+async def _preflight(ctx: ToolContext, s: Session, asset: str) -> tuple[str | None, list[str]]:
+    """deliver_package's deterministic checks, in order, stopping at the first that refuses: the kernel's detached-part
+    rule (Tier-1 itself passed before this), LODs and colliders, USD and engine-compliance validation, then the package
+    written as the export writes it (package validation), the Blender check of its GLB and the target engine's import.
+    Returns (the refusal in one sentence or None, the step lines). The package that passed is kept for the lookdev
+    render and the export of this scene (``_preflight_package``): the render shows those surfaces, and the export, whose
+    GLB has the same bytes (the package is a function of scene and budget), records these results instead of running
+    the same checks on the same file again."""
+    from antigravity3d.kernel.package import write_engine_package
+
+    if (kept := _preflight_package(s)) is not None:  # passed for this very scene by a call that stopped waiting
+        return None, list(kept["steps"])
+    _drop_preflight(s)
+    async with s.registry.locked(s.sid):
+        rep = await _tier1(s)
+    if detached := [i for i in rep.issues if i.code in DETACHED]:
+        return "; ".join(f"{i.node_id} is detached from the rest of the asset ({i.detail})" for i in detached), []
+    steps = [await generate_lods_and_colliders(ctx), await run_usd_validator(ctx)]
+    if s.state.validator_ok is False:
+        return f"USD validation failed: {steps[-1]}", steps
+    t0 = time.perf_counter()
+    directory = Path(tempfile.mkdtemp(dir=s.artifacts_dir, prefix=".preflight-"))
+    async with s.registry.locked(s.sid):
+        key = (s.geom_version, s.state.budget, s.texture_digest())
+        b = await _bundle(s)
+        pkg = await _stage_worker(write_engine_package, s.stage, b, s.state.budget, directory / "pkg", asset_name=asset,
+                                  qa=None, art=s.art)
+    if not pkg.ok:
+        shutil.rmtree(directory, ignore_errors=True)
+        crit = [i.code for i in pkg.issues if i.severity == "critical"]
+        return f"package validation failed: {', '.join(dict.fromkeys(crit))[:140]}", steps
+    if reason := await _preview_engine_import(s, pkg, asset):
+        shutil.rmtree(directory, ignore_errors=True)
+        return reason, steps
+    from antigravity3d.kernel import smart_source
+
+    s._set(R_PREFLIGHT, {"key": key, "dir": directory, "glb_sha256": _sha256(pkg.out_dir / f"{asset}.glb"),
+                         "usd": pkg.out_dir / str(pkg.data.get("usd") or f"{asset}.usd"),
+                         "placed": tuple(smart_source.placed_strings(pkg.data)),
+                         "validation": {k: v for k, v in pkg.data["validation"].items()
+                                        if k in {"blender_asset_qa", "engine_import", "engine_parity"}}})
+    checks = pkg.data["validation"]
+    ran = ", ".join(f"{k} {(v.get('status') or ('ok' if v.get('ok') else 'skipped'))}" for k, v in checks.items()
+                    if k in {"blender_asset_qa", "engine_import"})
+    steps.append(f"CHECKED before the review: package written and validated, {ran} ({time.perf_counter() - t0:.0f} s)")
+    s._res(R_PREFLIGHT)["steps"] = tuple(steps)
+    return None, steps
+
+
+def _preflight_package(s: Session) -> dict[str, Any] | None:
+    """The package ``_preflight`` passed, while the scene, budget and material files are still the ones it was written
+    from; None otherwise."""
+    checked = s._res(R_PREFLIGHT)
+    if not checked or checked["key"] != (s.geom_version, s.state.budget, s.texture_digest()):
+        return None
+    return checked
+
+
+def _drop_preflight(s: Session) -> None:
+    if checked := s._res(R_PREFLIGHT):
+        shutil.rmtree(checked["dir"], ignore_errors=True)
+        s._set(R_PREFLIGHT, None)
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
+# What deliver_package(dest=...) places in the folder the user named: the files a game engine imports (every GLB of the
+# package: the asset, its levels of detail and its colliders; an FBX where the engine takes one; the textures) and the
+# manifest (what each file is, the review's findings, provenance; small, and what install_into_project and a later edit
+# read). Left in the session's export folder: the USD and USDZ (the editable source and an AR preview, which a game
+# project does not import) and inspector.html (a review page). Live on 2026-11-22 (r5/live_native7) an agent told only
+# where the package was spent three calls copying it by hand and left the colliders out.
+PLACED_SUFFIXES = (".glb", ".fbx")
+
+
+def _workspace(s: Session) -> Path:
+    from antigravity3d.harness.session import R_QA_WORKSPACE
+
+    return Path(s._res(R_QA_WORKSPACE, s.workdir))
+
+
+def _dest_folder(s: Session, dest: str) -> Path:
+    """The folder ``dest`` names inside the workspace, checked (``safe_paths``): relative, no '..' or hidden segment, no
+    symbolic link on the way, under the workspace. Raises ValueError with one sentence."""
+    from antigravity3d import safe_paths
+
+    rel = dest.strip().rstrip("/")
+    try:
+        safe_paths.safe_name(rel, "destination")
+        path = safe_paths.inside(_workspace(s), rel, "destination", write=True)
+    except safe_paths.UnsafePath as e:
+        raise ValueError(f"{e} (a folder inside the workspace, relative to it)") from None
+    if path.exists() and not path.is_dir():
+        raise ValueError(f"destination '{rel}' is not accepted: it is a file, not a folder")
+    return path
+
+
+def _place(s: Session, package: Path, dest: str) -> list[str]:
+    """Copy the package's engine files and manifest into ``dest`` (other files there are left as they are; a file of the
+    same name is replaced and listed); the lines that say which files the request named and which are the rest."""
+    import shutil
+
+    from antigravity3d import safe_paths
+
+    root = _workspace(s)
+    rel_dest = dest.strip().rstrip("/")
+    _dest_folder(s, rel_dest)
+    files = sorted(p.relative_to(package).as_posix() for p in package.rglob("*")
+                   if p.is_file() and not p.is_symlink()
+                   and (p.suffix.lower() in PLACED_SUFFIXES or p.name == "manifest.json" or p.parent.name == "textures"))
+    replaced = []
+    for rel in files:
+        target = safe_paths.inside(root, f"{rel_dest}/{safe_paths.safe_name(rel, 'package file')}", "destination", write=True)
+        if target.exists():
+            replaced.append(rel)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(package / rel, target, follow_symlinks=False)
+    try:  # the package's files are named after its asset, its folder after the export name
+        asset = json.loads((package / "manifest.json").read_text())["asset"]
+    except (OSError, ValueError, KeyError, TypeError):
+        asset = package.name
+    main = [f for f in files if f == f"{asset}.glb"]
+    tex = [f for f in files if f.startswith("textures/")]
+    rest = [f for f in files if f not in main and f not in tex]
+    return [f"placed: {', '.join(main) or '(no main GLB)'} (the main file) and {len(tex)} texture file(s) in textures/; "
+            f"the rest of the package with them: {', '.join(rest)}"
+            + (f"; replaced files of the same name: {', '.join(replaced)}" if replaced else "")
+            + "; the USD, USDZ and inspector stay in the session's package"]
+
+
+def _needs_a_person(s: Session) -> bool:
+    """Whether export was refused for something only a person may clear: the review escalated to a person, or the judge
+    raised a hard policy flag."""
+    v = s.state.verdict
+    flags = getattr(s.plane, "hard_policy_flags", None) if getattr(s.plane, "preview", False) else None
+    return bool(flags) or (v is not None and v.revision == s.state.revision and v.action == "escalate_human")
+
+
 STAGE_TOOLS: dict[str, list[ToolFn]] = {
     "BLOCKOUT": [apply_scene_ir, inspect_manifest, undo_last_edit, render_preview, run_visual_qa],
     "TWEAK": [apply_scene_ir, inspect_manifest, query_region, undo_last_edit],
@@ -941,6 +1617,15 @@ STAGE_TOOLS: dict[str, list[ToolFn]] = {
     "LOOKDEV": [forge_pbr_material, apply_shader_diff, run_paintover_loop, render_lookdev, run_visual_qa],
     "EXPORT": [inspect_manifest, generate_lods_and_colliders, run_usd_validator, export_engine_package, run_bpy_script],
 }
+# The tools the short path (SHORT_PATH) calls. A session served over MCP (a native conversation: one agent, no stage
+# agents) lists them from the start, before any session exists, and may call them in every stage but VARIANTS; the
+# stage-scoped catalogue keeps hiding the finer-control tools. Live on 2026-11-22 (r5/live_native4, arm N): the agent
+# listed the server's tools before opening a session, found none of the tools the instructions named (the catalogue
+# was stage-scoped and showed them only after open_asset_session), and built the crate by scripting Blender instead.
+# Called before a session exists, each answers "no asset session: call open_asset_session first".
+SHORT_PATH_TOOLS: list[ToolFn] = [apply_scene_ir, render_preview, run_visual_qa, deliver_package, inspect_manifest,
+                                   undo_last_edit]
+SESSION_TOOLS: dict[str, list[ToolFn]] = {stage: ([] if stage == "VARIANTS" else list(SHORT_PATH_TOOLS)) for stage in STAGE_TOOLS}
 SUBAGENT_TOOLS: dict[str, list[ToolFn]] = {
     "usd_verifier": [inspect_manifest, run_usd_validator],
     "lookdev_critic": [inspect_manifest, qa_probe],
@@ -954,5 +1639,6 @@ SUBAGENT_TOOLS: dict[str, list[ToolFn]] = {
 STAGE_SUBAGENTS: dict[str, tuple[str, ...]] = {
     "BLOCKOUT": (), "TWEAK": (), "VARIANTS": ("usd_verifier",), "LOOKDEV": ("lookdev_critic", "usd_verifier"), "EXPORT": (),
 }
-ALL_TOOLS: dict[str, ToolFn] = {f.__name__: f for fs in (*STAGE_TOOLS.values(), *SUBAGENT_TOOLS.values()) for f in fs}
+ALL_TOOLS: dict[str, ToolFn] = {f.__name__: f for fs in (*STAGE_TOOLS.values(), *SESSION_TOOLS.values(), *SUBAGENT_TOOLS.values())
+                                for f in fs}
 READ_ONLY_TOOL_NAMES = frozenset(f.__name__ for fs in SUBAGENT_TOOLS.values() for f in fs)

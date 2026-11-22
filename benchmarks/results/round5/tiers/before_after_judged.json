@@ -1,0 +1,2857 @@
+{
+ "tree": "<scratch>/r5/wt_judge2/src/antigravity3d/__init__.py",
+ "rows": [
+  {
+   "set": "before",
+   "design": "chair_builder_1",
+   "brief": "chair",
+   "role": "builder",
+   "idx": 1,
+   "nodes": 89,
+   "kinds": {
+    "group": 5,
+    "cylinder": 67,
+    "box": 17
+   },
+   "tris": 3196,
+   "tier1": {
+    "warning:interpenetration": 14
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.65,
+    "defect_inverted_faces": 0.15,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.2,
+    "defect_brief_part_missing": 0.2,
+    "score_silhouette": 2.15,
+    "score_brief_depiction": 2.05,
+    "score_shippability": 1.95
+   },
+   "wall_s": 35.2,
+   "booked": 9544
+  },
+  {
+   "set": "before",
+   "design": "chair_builder_2",
+   "brief": "chair",
+   "role": "builder",
+   "idx": 2,
+   "nodes": 88,
+   "kinds": {
+    "cylinder": 65,
+    "group": 6,
+    "box": 17
+   },
+   "tris": 2828,
+   "tier1": {
+    "warning:interpenetration": 58,
+    "warning:z_fighting": 4
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.65,
+    "defect_faceted": 0.55,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 2.34,
+    "score_brief_depiction": 2.12,
+    "score_shippability": 1.94
+   },
+   "wall_s": 37.5,
+   "booked": 9520
+  },
+  {
+   "set": "before",
+   "design": "chair_director_0",
+   "brief": "chair",
+   "role": "director",
+   "idx": 0,
+   "nodes": 89,
+   "kinds": {
+    "box": 34,
+    "cylinder": 55
+   },
+   "tris": 2872,
+   "tier1": {
+    "warning:floating_part": 14,
+    "warning:floating_group": 6
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.65,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.55,
+    "defect_brief_part_missing": 0.55,
+    "score_silhouette": 1.4,
+    "score_brief_depiction": 1.4,
+    "score_shippability": 1.2
+   },
+   "wall_s": 34.9,
+   "booked": 9517
+  },
+  {
+   "set": "before",
+   "design": "chair_director_1",
+   "brief": "chair",
+   "role": "director",
+   "idx": 1,
+   "nodes": 88,
+   "kinds": {
+    "box": 23,
+    "group": 4,
+    "cylinder": 61
+   },
+   "tris": 3012,
+   "tier1": {
+    "warning:interpenetration": 72,
+    "warning:z_fighting": 8
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.85,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.3,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 2.06,
+    "score_shippability": 1.72
+   },
+   "wall_s": 34.0,
+   "booked": 9826
+  },
+  {
+   "set": "before",
+   "design": "chair_worker_0",
+   "brief": "chair",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 53,
+   "kinds": {
+    "group": 1,
+    "cylinder": 41,
+    "box": 9,
+    "sphere": 2
+   },
+   "tris": 1860,
+   "tier1": {
+    "warning:interpenetration": 38,
+    "warning:floating_group": 3,
+    "warning:floating_part": 9,
+    "warning:z_fighting": 4
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.7,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.25,
+    "score_silhouette": 1.47,
+    "score_brief_depiction": 1.51,
+    "score_shippability": 1.29
+   },
+   "wall_s": 46.8,
+   "booked": 9707
+  },
+  {
+   "set": "before",
+   "design": "chair_worker_1",
+   "brief": "chair",
+   "role": "worker",
+   "idx": 1,
+   "nodes": 60,
+   "kinds": {
+    "group": 1,
+    "box": 9,
+    "cylinder": 50
+   },
+   "tris": 2020,
+   "tier1": {
+    "warning:interpenetration": 71,
+    "warning:floating_group": 2,
+    "warning:z_fighting": 7
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.88,
+    "defect_clipping": 0.72,
+    "defect_faceted": 0.62,
+    "defect_inverted_faces": 0.15,
+    "defect_zfighting": 0.45,
+    "defect_visible_holes": 0.2,
+    "defect_scale_implausible": 0.18,
+    "defect_brief_part_missing": 0.18,
+    "score_silhouette": 1.62,
+    "score_brief_depiction": 1.69,
+    "score_shippability": 1.37
+   },
+   "wall_s": 43.8,
+   "booked": 9647
+  },
+  {
+   "set": "before",
+   "design": "chair_worker_2",
+   "brief": "chair",
+   "role": "worker",
+   "idx": 2,
+   "nodes": 56,
+   "kinds": {
+    "box": 8,
+    "cylinder": 46,
+    "sphere": 2
+   },
+   "tris": 2312,
+   "tier1": {
+    "warning:interpenetration": 78,
+    "warning:floating_group": 1,
+    "warning:z_fighting": 6
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.96,
+    "defect_clipping": 0.45,
+    "defect_faceted": 0.55,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.25,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.12,
+    "score_silhouette": 1.52,
+    "score_brief_depiction": 1.64,
+    "score_shippability": 1.45
+   },
+   "wall_s": 30.5,
+   "booked": 9810
+  },
+  {
+   "set": "before",
+   "design": "crate_builder_0",
+   "brief": "crate",
+   "role": "builder",
+   "idx": 0,
+   "nodes": 89,
+   "kinds": {
+    "box": 79,
+    "cylinder": 10
+   },
+   "tris": 1380,
+   "tier1": {},
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.12,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.04,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.64,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.43
+   },
+   "wall_s": 30.1,
+   "booked": 9567
+  },
+  {
+   "set": "before",
+   "design": "crate_builder_1",
+   "brief": "crate",
+   "role": "builder",
+   "idx": 1,
+   "nodes": 88,
+   "kinds": {
+    "box": 80,
+    "cylinder": 8
+   },
+   "tris": 1312,
+   "tier1": {},
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.04,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.69
+   },
+   "wall_s": 34.0,
+   "booked": 9705
+  },
+  {
+   "set": "before",
+   "design": "crate_builder_2",
+   "brief": "crate",
+   "role": "builder",
+   "idx": 2,
+   "nodes": 86,
+   "kinds": {
+    "box": 67,
+    "cylinder": 19
+   },
+   "tris": 1428,
+   "tier1": {},
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.85,
+    "score_shippability": 2.79
+   },
+   "wall_s": 34.3,
+   "booked": 9620
+  },
+  {
+   "set": "before",
+   "design": "crate_director_0",
+   "brief": "crate",
+   "role": "director",
+   "idx": 0,
+   "nodes": 85,
+   "kinds": {
+    "box": 74,
+    "cylinder": 11
+   },
+   "tris": 1288,
+   "tier1": {},
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.12,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.53
+   },
+   "wall_s": 34.3,
+   "booked": 9940
+  },
+  {
+   "set": "before",
+   "design": "crate_director_1",
+   "brief": "crate",
+   "role": "director",
+   "idx": 1,
+   "nodes": 79,
+   "kinds": {
+    "box": 68,
+    "cylinder": 11
+   },
+   "tris": 1200,
+   "tier1": {
+    "warning:floating_part": 33,
+    "warning:floating_group": 8
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.2,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.65,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.2,
+    "score_silhouette": 1.2,
+    "score_brief_depiction": 1.55,
+    "score_shippability": 1.15
+   },
+   "wall_s": 26.9,
+   "booked": 9762
+  },
+  {
+   "set": "before",
+   "design": "crate_director_2",
+   "brief": "crate",
+   "role": "director",
+   "idx": 2,
+   "nodes": 89,
+   "kinds": {
+    "box": 82,
+    "cylinder": 7
+   },
+   "tris": 1288,
+   "tier1": {},
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.02,
+    "defect_zfighting": 0.02,
+    "defect_visible_holes": 0.02,
+    "defect_scale_implausible": 0.03,
+    "defect_brief_part_missing": 0.03,
+    "score_silhouette": 2.59,
+    "score_brief_depiction": 2.66,
+    "score_shippability": 2.54
+   },
+   "wall_s": 38.9,
+   "booked": 9654
+  },
+  {
+   "set": "before",
+   "design": "crate_worker_0",
+   "brief": "crate",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 68,
+   "kinds": {
+    "box": 56,
+    "cylinder": 12
+   },
+   "tris": 1040,
+   "tier1": {
+    "warning:interpenetration": 16,
+    "warning:z_fighting": 6
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.04,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.63
+   },
+   "wall_s": 52.0,
+   "booked": 9539
+  },
+  {
+   "set": "before",
+   "design": "crate_worker_1",
+   "brief": "crate",
+   "role": "worker",
+   "idx": 1,
+   "nodes": 58,
+   "kinds": {
+    "box": 52,
+    "cylinder": 6
+   },
+   "tris": 832,
+   "tier1": {
+    "warning:interpenetration": 26,
+    "warning:z_fighting": 2
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.85,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.58,
+    "score_brief_depiction": 2.52,
+    "score_shippability": 2.15
+   },
+   "wall_s": 22.8,
+   "booked": 9523
+  },
+  {
+   "set": "before",
+   "design": "crate_worker_2",
+   "brief": "crate",
+   "role": "worker",
+   "idx": 2,
+   "nodes": 57,
+   "kinds": {
+    "box": 47,
+    "cylinder": 10
+   },
+   "tris": 900,
+   "tier1": {
+    "warning:interpenetration": 20,
+    "warning:z_fighting": 10
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.92,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.9,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.74,
+    "score_brief_depiction": 2.74,
+    "score_shippability": 1.92
+   },
+   "wall_s": 23.9,
+   "booked": 9634
+  },
+  {
+   "set": "before",
+   "design": "hydrant_builder_0",
+   "brief": "hydrant",
+   "role": "builder",
+   "idx": 0,
+   "nodes": 86,
+   "kinds": {
+    "group": 4,
+    "cylinder": 62,
+    "box": 19,
+    "cone": 1
+   },
+   "tris": 2824,
+   "tier1": {
+    "warning:interpenetration": 77,
+    "warning:floating_part": 1,
+    "warning:z_fighting": 1
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.25,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.75,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.71,
+    "score_brief_depiction": 2.71,
+    "score_shippability": 2.52
+   },
+   "wall_s": 28.0,
+   "booked": 9676
+  },
+  {
+   "set": "before",
+   "design": "hydrant_builder_1",
+   "brief": "hydrant",
+   "role": "builder",
+   "idx": 1,
+   "nodes": 88,
+   "kinds": {
+    "group": 1,
+    "cylinder": 65,
+    "box": 21,
+    "cone": 1
+   },
+   "tris": 3056,
+   "tier1": {
+    "warning:interpenetration": 30,
+    "warning:floating_part": 1,
+    "warning:z_fighting": 1
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.2,
+    "defect_faceted": 0.65,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.54
+   },
+   "wall_s": 28.5,
+   "booked": 9560
+  },
+  {
+   "set": "before",
+   "design": "hydrant_builder_2",
+   "brief": "hydrant",
+   "role": "builder",
+   "idx": 2,
+   "nodes": 86,
+   "kinds": {
+    "cylinder": 66,
+    "box": 20
+   },
+   "tris": 2800,
+   "tier1": {
+    "warning:interpenetration": 4
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.58,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.31
+   },
+   "wall_s": 21.6,
+   "booked": 9695
+  },
+  {
+   "set": "before",
+   "design": "hydrant_director_0",
+   "brief": "hydrant",
+   "role": "director",
+   "idx": 0,
+   "nodes": 89,
+   "kinds": {
+    "group": 1,
+    "cylinder": 70,
+    "box": 18
+   },
+   "tris": 3664,
+   "tier1": {
+    "warning:interpenetration": 4
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.04,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.66,
+    "score_shippability": 2.5
+   },
+   "wall_s": 22.2,
+   "booked": 9635
+  },
+  {
+   "set": "before",
+   "design": "hydrant_director_1",
+   "brief": "hydrant",
+   "role": "director",
+   "idx": 1,
+   "nodes": 87,
+   "kinds": {
+    "cylinder": 63,
+    "box": 24
+   },
+   "tris": 2760,
+   "tier1": {
+    "warning:interpenetration": 22,
+    "warning:floating_part": 3
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.59,
+    "score_brief_depiction": 2.64,
+    "score_shippability": 2.36
+   },
+   "wall_s": 24.2,
+   "booked": 9507
+  },
+  {
+   "set": "before",
+   "design": "hydrant_director_2",
+   "brief": "hydrant",
+   "role": "director",
+   "idx": 2,
+   "nodes": 87,
+   "kinds": {
+    "cylinder": 66,
+    "box": 13,
+    "sphere": 1,
+    "capsule": 7
+   },
+   "tris": 3660,
+   "tier1": {
+    "warning:interpenetration": 40,
+    "warning:floating_group": 9,
+    "warning:floating_part": 43,
+    "warning:enclosed_part": 1,
+    "warning:z_fighting": 4
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.3,
+    "defect_faceted": 0.45,
+    "defect_inverted_faces": 0.15,
+    "defect_zfighting": 0.12,
+    "defect_visible_holes": 0.2,
+    "defect_scale_implausible": 0.55,
+    "defect_brief_part_missing": 0.72,
+    "score_silhouette": 1.17,
+    "score_brief_depiction": 1.27,
+    "score_shippability": 1.17
+   },
+   "wall_s": 24.6,
+   "booked": 9565
+  },
+  {
+   "set": "before",
+   "design": "hydrant_worker_0",
+   "brief": "hydrant",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 64,
+   "kinds": {
+    "cylinder": 45,
+    "box": 18,
+    "sphere": 1
+   },
+   "tris": 2456,
+   "tier1": {
+    "warning:interpenetration": 34,
+    "warning:enclosed_part": 1
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.35,
+    "defect_faceted": 0.55,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.25,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.54,
+    "score_shippability": 2.34
+   },
+   "wall_s": 25.4,
+   "booked": 9730
+  },
+  {
+   "set": "before",
+   "design": "hydrant_worker_1",
+   "brief": "hydrant",
+   "role": "worker",
+   "idx": 1,
+   "nodes": 59,
+   "kinds": {
+    "cylinder": 41,
+    "box": 17,
+    "cone": 1
+   },
+   "tris": 1684,
+   "tier1": {
+    "warning:interpenetration": 50,
+    "warning:floating_part": 1,
+    "warning:z_fighting": 1
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.25,
+    "defect_clipping": 0.3,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.12,
+    "score_silhouette": 2.43,
+    "score_brief_depiction": 2.41,
+    "score_shippability": 2.15
+   },
+   "wall_s": 36.4,
+   "booked": 9974
+  },
+  {
+   "set": "before",
+   "design": "hydrant_worker_2",
+   "brief": "hydrant",
+   "role": "worker",
+   "idx": 2,
+   "nodes": 71,
+   "kinds": {
+    "cylinder": 59,
+    "box": 12
+   },
+   "tris": 2504,
+   "tier1": {
+    "warning:interpenetration": 22,
+    "warning:enclosed_part": 1,
+    "warning:floating_part": 5,
+    "warning:z_fighting": 1
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.65,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 2.38,
+    "score_brief_depiction": 2.38,
+    "score_shippability": 1.95
+   },
+   "wall_s": 27.2,
+   "booked": 9411
+  },
+  {
+   "set": "after",
+   "design": "chair_builder_1",
+   "brief": "chair",
+   "role": "builder",
+   "idx": 1,
+   "nodes": 62,
+   "kinds": {
+    "group": 1,
+    "extrude": 6,
+    "box": 15,
+    "cylinder": 12,
+    "lathe": 28
+   },
+   "tris": 4112,
+   "tier1": {
+    "warning:interpenetration": 62
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.12,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.04,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.74,
+    "score_shippability": 2.43
+   },
+   "wall_s": 25.5,
+   "booked": 9583
+  },
+  {
+   "set": "after",
+   "design": "chair_builder_2",
+   "brief": "chair",
+   "role": "builder",
+   "idx": 2,
+   "nodes": 61,
+   "kinds": {
+    "extrude": 5,
+    "cylinder": 18,
+    "lathe": 28,
+    "box": 10
+   },
+   "tris": 6300,
+   "tier1": {
+    "critical:tri_budget": 1,
+    "warning:interpenetration": 73
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.35,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.72,
+    "score_brief_depiction": 2.72,
+    "score_shippability": 2.53
+   },
+   "wall_s": 59.7,
+   "booked": 9748
+  },
+  {
+   "set": "after",
+   "design": "chair_director_1",
+   "brief": "chair",
+   "role": "director",
+   "idx": 1,
+   "nodes": 74,
+   "kinds": {
+    "extrude": 8,
+    "box": 19,
+    "cylinder": 20,
+    "lathe": 27
+   },
+   "tris": 4352,
+   "tier1": {
+    "warning:interpenetration": 115,
+    "warning:floating_part": 2,
+    "warning:z_fighting": 11
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.65,
+    "defect_faceted": 0.45,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 1.68,
+    "score_brief_depiction": 2.07,
+    "score_shippability": 1.47
+   },
+   "wall_s": 26.3,
+   "booked": 9735
+  },
+  {
+   "set": "after",
+   "design": "chair_worker_0",
+   "brief": "chair",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 18,
+   "kinds": {
+    "extrude": 2,
+    "lathe": 16
+   },
+   "tris": 2092,
+   "tier1": {
+    "warning:interpenetration": 14,
+    "warning:floating_part": 6
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.65,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 1.91,
+    "score_brief_depiction": 2.05,
+    "score_shippability": 1.57
+   },
+   "wall_s": 24.7,
+   "booked": 9768
+  },
+  {
+   "set": "after",
+   "design": "chair_worker_1",
+   "brief": "chair",
+   "role": "worker",
+   "idx": 1,
+   "nodes": 21,
+   "kinds": {
+    "box": 1,
+    "lathe": 16,
+    "group": 1,
+    "extrude": 3
+   },
+   "tris": 2052,
+   "tier1": {
+    "warning:interpenetration": 27
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.85,
+    "defect_faceted": 0.8,
+    "defect_inverted_faces": 0.15,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 2.15,
+    "score_brief_depiction": 2.15,
+    "score_shippability": 1.85
+   },
+   "wall_s": 25.0,
+   "booked": 9624
+  },
+  {
+   "set": "after",
+   "design": "chair_worker_2",
+   "brief": "chair",
+   "role": "worker",
+   "idx": 2,
+   "nodes": 17,
+   "kinds": {
+    "group": 1,
+    "extrude": 2,
+    "lathe": 7,
+    "cylinder": 7
+   },
+   "tris": 1216,
+   "tier1": {
+    "warning:ungrounded": 1,
+    "warning:interpenetration": 18
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.45,
+    "defect_clipping": 0.65,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.12,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.2,
+    "defect_brief_part_missing": 0.4,
+    "score_silhouette": 1.47,
+    "score_brief_depiction": 1.52,
+    "score_shippability": 1.37
+   },
+   "wall_s": 53.9,
+   "booked": 9661
+  },
+  {
+   "set": "after",
+   "design": "crate_builder_0",
+   "brief": "crate",
+   "role": "builder",
+   "idx": 0,
+   "nodes": 88,
+   "kinds": {
+    "box": 49,
+    "extrude": 8,
+    "cylinder": 22,
+    "group": 6,
+    "lathe": 3
+   },
+   "tris": 2576,
+   "tier1": {
+    "warning:interpenetration": 8
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.71
+   },
+   "wall_s": 24.7,
+   "booked": 9716
+  },
+  {
+   "set": "after",
+   "design": "crate_builder_1",
+   "brief": "crate",
+   "role": "builder",
+   "idx": 1,
+   "nodes": 104,
+   "kinds": {
+    "extrude": 30,
+    "box": 26,
+    "cylinder": 29,
+    "lathe": 3,
+    "group": 16
+   },
+   "tris": 2560,
+   "tier1": {
+    "warning:interpenetration": 12,
+    "warning:z_fighting": 4
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.03,
+    "defect_clipping": 0.05,
+    "defect_faceted": 0.08,
+    "defect_inverted_faces": 0.02,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.02,
+    "defect_scale_implausible": 0.03,
+    "defect_brief_part_missing": 0.02,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.74,
+    "score_shippability": 2.69
+   },
+   "wall_s": 28.0,
+   "booked": 9501
+  },
+  {
+   "set": "after",
+   "design": "crate_builder_2",
+   "brief": "crate",
+   "role": "builder",
+   "idx": 2,
+   "nodes": 92,
+   "kinds": {
+    "box": 59,
+    "lathe": 3,
+    "group": 6,
+    "cylinder": 16,
+    "extrude": 8
+   },
+   "tris": 2788,
+   "tier1": {
+    "warning:interpenetration": 8,
+    "warning:z_fighting": 8
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.04,
+    "defect_brief_part_missing": 0.03,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.84,
+    "score_shippability": 2.78
+   },
+   "wall_s": 26.0,
+   "booked": 9677
+  },
+  {
+   "set": "after",
+   "design": "crate_director_0",
+   "brief": "crate",
+   "role": "director",
+   "idx": 0,
+   "nodes": 110,
+   "kinds": {
+    "box": 53,
+    "group": 6,
+    "extrude": 20,
+    "cylinder": 28,
+    "lathe": 3
+   },
+   "tris": 3076,
+   "tier1": {
+    "critical:tri_budget": 1,
+    "warning:interpenetration": 14,
+    "warning:z_fighting": 2
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.74,
+    "score_brief_depiction": 2.74,
+    "score_shippability": 2.74
+   },
+   "wall_s": 23.6,
+   "booked": 9307
+  },
+  {
+   "set": "after",
+   "design": "crate_director_1",
+   "brief": "crate",
+   "role": "director",
+   "idx": 1,
+   "nodes": 84,
+   "kinds": {
+    "box": 61,
+    "extrude": 8,
+    "cylinder": 12,
+    "lathe": 3
+   },
+   "tris": 2648,
+   "tier1": {},
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.76,
+    "score_shippability": 2.65
+   },
+   "wall_s": 26.9,
+   "booked": 9606
+  },
+  {
+   "set": "after",
+   "design": "crate_worker_0",
+   "brief": "crate",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 44,
+   "kinds": {
+    "box": 22,
+    "extrude": 8,
+    "cylinder": 14
+   },
+   "tris": 1720,
+   "tier1": {
+    "warning:interpenetration": 32,
+    "warning:floating_group": 2,
+    "warning:z_fighting": 10
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.92,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.12
+   },
+   "wall_s": 28.9,
+   "booked": 9781
+  },
+  {
+   "set": "after",
+   "design": "crate_worker_1",
+   "brief": "crate",
+   "role": "worker",
+   "idx": 1,
+   "nodes": 56,
+   "kinds": {
+    "box": 28,
+    "extrude": 8,
+    "group": 8,
+    "cylinder": 12
+   },
+   "tris": 2032,
+   "tier1": {
+    "warning:interpenetration": 104,
+    "warning:floating_group": 2,
+    "warning:z_fighting": 22
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.75,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.9,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 1.9,
+    "score_brief_depiction": 2.3,
+    "score_shippability": 1.75
+   },
+   "wall_s": 44.2,
+   "booked": 9342
+  },
+  {
+   "set": "after",
+   "design": "crate_worker_2",
+   "brief": "crate",
+   "role": "worker",
+   "idx": 2,
+   "nodes": 39,
+   "kinds": {
+    "box": 19,
+    "extrude": 8,
+    "cylinder": 10,
+    "group": 2
+   },
+   "tris": 1588,
+   "tier1": {
+    "warning:interpenetration": 22,
+    "warning:floating_group": 2,
+    "warning:z_fighting": 4
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.64,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.64
+   },
+   "wall_s": 35.2,
+   "booked": 9662
+  },
+  {
+   "set": "after",
+   "design": "hydrant_builder_1",
+   "brief": "hydrant",
+   "role": "builder",
+   "idx": 1,
+   "nodes": 90,
+   "kinds": {
+    "lathe": 19,
+    "cylinder": 50,
+    "group": 6,
+    "box": 14,
+    "extrude": 1
+   },
+   "tris": 3716,
+   "tier1": {
+    "warning:interpenetration": 23
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.53,
+    "score_brief_depiction": 2.58,
+    "score_shippability": 2.46
+   },
+   "wall_s": 22.3,
+   "booked": 9588
+  },
+  {
+   "set": "after",
+   "design": "hydrant_builder_2",
+   "brief": "hydrant",
+   "role": "builder",
+   "idx": 2,
+   "nodes": 110,
+   "kinds": {
+    "lathe": 17,
+    "cylinder": 54,
+    "group": 23,
+    "extrude": 14,
+    "box": 2
+   },
+   "tris": 3836,
+   "tier1": {
+    "warning:interpenetration": 22
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_faceted": 0.78,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.5,
+    "score_brief_depiction": 2.58,
+    "score_shippability": 2.36
+   },
+   "wall_s": 27.6,
+   "booked": 9605
+  },
+  {
+   "set": "after",
+   "design": "hydrant_director_1",
+   "brief": "hydrant",
+   "role": "director",
+   "idx": 1,
+   "nodes": 81,
+   "kinds": {
+    "lathe": 16,
+    "cylinder": 50,
+    "extrude": 1,
+    "box": 11,
+    "group": 3
+   },
+   "tris": 3808,
+   "tier1": {
+    "warning:interpenetration": 14
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_faceted": 0.82,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.74,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.55
+   },
+   "wall_s": 24.9,
+   "booked": 9649
+  },
+  {
+   "set": "after",
+   "design": "hydrant_worker_0",
+   "brief": "hydrant",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 34,
+   "kinds": {
+    "lathe": 1,
+    "cylinder": 27,
+    "box": 6
+   },
+   "tris": 2460,
+   "tier1": {
+    "warning:interpenetration": 31
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.45,
+    "defect_faceted": 0.55,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 2.38,
+    "score_brief_depiction": 2.43,
+    "score_shippability": 2.1
+   },
+   "wall_s": 22.1,
+   "booked": 9527
+  },
+  {
+   "set": "after",
+   "design": "hydrant_worker_1",
+   "brief": "hydrant",
+   "role": "worker",
+   "idx": 1,
+   "nodes": 58,
+   "kinds": {
+    "lathe": 22,
+    "cylinder": 26,
+    "box": 10
+   },
+   "tris": 3976,
+   "tier1": {
+    "warning:interpenetration": 45,
+    "warning:floating_group": 3,
+    "warning:floating_part": 7,
+    "warning:z_fighting": 6
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.8,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.12,
+    "score_silhouette": 2.36,
+    "score_brief_depiction": 2.43,
+    "score_shippability": 1.79
+   },
+   "wall_s": 25.5,
+   "booked": 9797
+  },
+  {
+   "set": "after",
+   "design": "hydrant_worker_2",
+   "brief": "hydrant",
+   "role": "worker",
+   "idx": 2,
+   "nodes": 45,
+   "kinds": {
+    "lathe": 1,
+    "cylinder": 30,
+    "box": 11,
+    "group": 3
+   },
+   "tris": 2940,
+   "tier1": {
+    "warning:interpenetration": 34,
+    "warning:enclosed_part": 3
+   },
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.35,
+    "defect_clipping": 0.75,
+    "defect_faceted": 0.72,
+    "defect_inverted_faces": 0.15,
+    "defect_zfighting": 0.12,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.8,
+    "score_silhouette": 2.53,
+    "score_brief_depiction": 2.25,
+    "score_shippability": 1.87
+   },
+   "wall_s": 25.0,
+   "booked": 9700
+  },
+  {
+   "set": "before",
+   "design": "chair_director_0",
+   "brief": "chair",
+   "role": "director",
+   "idx": 0,
+   "nodes": 89,
+   "kinds": {
+    "box": 34,
+    "cylinder": 55
+   },
+   "tris": 2872,
+   "tier1": {
+    "warning:floating_part": 14,
+    "warning:floating_group": 6
+   },
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.55,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.7,
+    "defect_brief_part_missing": 0.45,
+    "score_silhouette": 1.32,
+    "score_brief_depiction": 1.37,
+    "score_shippability": 1.32
+   },
+   "wall_s": 27.3,
+   "booked": 9639
+  },
+  {
+   "set": "before",
+   "design": "chair_director_0",
+   "brief": "chair",
+   "role": "director",
+   "idx": 0,
+   "nodes": 89,
+   "kinds": {
+    "box": 34,
+    "cylinder": 55
+   },
+   "tris": 2872,
+   "tier1": {
+    "warning:floating_part": 14,
+    "warning:floating_group": 6
+   },
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.55,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.65,
+    "defect_brief_part_missing": 0.45,
+    "score_silhouette": 1.25,
+    "score_brief_depiction": 1.25,
+    "score_shippability": 1.2
+   },
+   "wall_s": 32.7,
+   "booked": 9529
+  },
+  {
+   "set": "before",
+   "design": "chair_director_0",
+   "brief": "chair",
+   "role": "director",
+   "idx": 0,
+   "nodes": 89,
+   "kinds": {
+    "box": 34,
+    "cylinder": 55
+   },
+   "tris": 2872,
+   "tier1": {
+    "warning:floating_part": 14,
+    "warning:floating_group": 6
+   },
+   "rep": 3,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.45,
+    "defect_inverted_faces": 0.15,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.25,
+    "defect_scale_implausible": 0.75,
+    "defect_brief_part_missing": 0.65,
+    "score_silhouette": 1.21,
+    "score_brief_depiction": 1.21,
+    "score_shippability": 1.11
+   },
+   "wall_s": 50.2,
+   "booked": 9541
+  },
+  {
+   "set": "before",
+   "design": "chair_worker_0",
+   "brief": "chair",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 53,
+   "kinds": {
+    "group": 1,
+    "cylinder": 41,
+    "box": 9,
+    "sphere": 2
+   },
+   "tris": 1860,
+   "tier1": {
+    "warning:interpenetration": 38,
+    "warning:floating_group": 3,
+    "warning:floating_part": 9,
+    "warning:z_fighting": 4
+   },
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.65,
+    "defect_faceted": 0.9,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.2,
+    "score_silhouette": 1.57,
+    "score_brief_depiction": 1.52,
+    "score_shippability": 1.34
+   },
+   "wall_s": 27.3,
+   "booked": 9487
+  },
+  {
+   "set": "before",
+   "design": "chair_worker_0",
+   "brief": "chair",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 53,
+   "kinds": {
+    "group": 1,
+    "cylinder": 41,
+    "box": 9,
+    "sphere": 2
+   },
+   "tris": 1860,
+   "tier1": {
+    "warning:interpenetration": 38,
+    "warning:floating_group": 3,
+    "warning:floating_part": 9,
+    "warning:z_fighting": 4
+   },
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.75,
+    "defect_faceted": 0.9,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 1.57,
+    "score_brief_depiction": 1.62,
+    "score_shippability": 1.43
+   },
+   "wall_s": 37.5,
+   "booked": 9872
+  },
+  {
+   "set": "before",
+   "design": "chair_worker_0",
+   "brief": "chair",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 53,
+   "kinds": {
+    "group": 1,
+    "cylinder": 41,
+    "box": 9,
+    "sphere": 2
+   },
+   "tris": 1860,
+   "tier1": {
+    "warning:interpenetration": 38,
+    "warning:floating_group": 3,
+    "warning:floating_part": 9,
+    "warning:z_fighting": 4
+   },
+   "rep": 3,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.65,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.25,
+    "score_silhouette": 1.57,
+    "score_brief_depiction": 1.57,
+    "score_shippability": 1.4
+   },
+   "wall_s": 35.1,
+   "booked": 9534
+  },
+  {
+   "set": "before",
+   "design": "crate_builder_0",
+   "brief": "crate",
+   "role": "builder",
+   "idx": 0,
+   "nodes": 89,
+   "kinds": {
+    "box": 79,
+    "cylinder": 10
+   },
+   "tris": 1380,
+   "tier1": {},
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.6
+   },
+   "wall_s": 25.4,
+   "booked": 9683
+  },
+  {
+   "set": "before",
+   "design": "crate_builder_0",
+   "brief": "crate",
+   "role": "builder",
+   "idx": 0,
+   "nodes": 89,
+   "kinds": {
+    "box": 79,
+    "cylinder": 10
+   },
+   "tris": 1380,
+   "tier1": {},
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.04,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.71,
+    "score_shippability": 2.61
+   },
+   "wall_s": 27.8,
+   "booked": 9572
+  },
+  {
+   "set": "before",
+   "design": "crate_builder_0",
+   "brief": "crate",
+   "role": "builder",
+   "idx": 0,
+   "nodes": 89,
+   "kinds": {
+    "box": 79,
+    "cylinder": 10
+   },
+   "tris": 1380,
+   "tier1": {},
+   "rep": 3,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.04,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.6,
+    "score_brief_depiction": 2.65,
+    "score_shippability": 2.55
+   },
+   "wall_s": 27.5,
+   "booked": 9715
+  },
+  {
+   "set": "before",
+   "design": "crate_director_0",
+   "brief": "crate",
+   "role": "director",
+   "idx": 0,
+   "nodes": 85,
+   "kinds": {
+    "box": 74,
+    "cylinder": 11
+   },
+   "tris": 1288,
+   "tier1": {},
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.74,
+    "score_brief_depiction": 2.74,
+    "score_shippability": 2.65
+   },
+   "wall_s": 48.0,
+   "booked": 9737
+  },
+  {
+   "set": "before",
+   "design": "crate_director_0",
+   "brief": "crate",
+   "role": "director",
+   "idx": 0,
+   "nodes": 85,
+   "kinds": {
+    "box": 74,
+    "cylinder": 11
+   },
+   "tris": 1288,
+   "tier1": {},
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.2,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.74,
+    "score_shippability": 2.69
+   },
+   "wall_s": 46.2,
+   "booked": 9309
+  },
+  {
+   "set": "before",
+   "design": "crate_director_0",
+   "brief": "crate",
+   "role": "director",
+   "idx": 0,
+   "nodes": 85,
+   "kinds": {
+    "box": 74,
+    "cylinder": 11
+   },
+   "tris": 1288,
+   "tier1": {},
+   "rep": 3,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.58,
+    "score_brief_depiction": 2.58,
+    "score_shippability": 2.53
+   },
+   "wall_s": 40.7,
+   "booked": 9621
+  },
+  {
+   "set": "before",
+   "design": "crate_worker_0",
+   "brief": "crate",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 68,
+   "kinds": {
+    "box": 56,
+    "cylinder": 12
+   },
+   "tris": 1040,
+   "tier1": {
+    "warning:interpenetration": 16,
+    "warning:z_fighting": 6
+   },
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.64,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.47
+   },
+   "wall_s": 42.5,
+   "booked": 9462
+  },
+  {
+   "set": "before",
+   "design": "crate_worker_0",
+   "brief": "crate",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 68,
+   "kinds": {
+    "box": 56,
+    "cylinder": 12
+   },
+   "tris": 1040,
+   "tier1": {
+    "warning:interpenetration": 16,
+    "warning:z_fighting": 6
+   },
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.53
+   },
+   "wall_s": 37.3,
+   "booked": 9517
+  },
+  {
+   "set": "before",
+   "design": "crate_worker_0",
+   "brief": "crate",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 68,
+   "kinds": {
+    "box": 56,
+    "cylinder": 12
+   },
+   "tris": 1040,
+   "tier1": {
+    "warning:interpenetration": 16,
+    "warning:z_fighting": 6
+   },
+   "rep": 3,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.74,
+    "score_shippability": 2.61
+   },
+   "wall_s": 35.1,
+   "booked": 9355
+  },
+  {
+   "set": "before",
+   "design": "hydrant_builder_0",
+   "brief": "hydrant",
+   "role": "builder",
+   "idx": 0,
+   "nodes": 86,
+   "kinds": {
+    "group": 4,
+    "cylinder": 62,
+    "box": 19,
+    "cone": 1
+   },
+   "tris": 2824,
+   "tier1": {
+    "warning:interpenetration": 77,
+    "warning:floating_part": 1,
+    "warning:z_fighting": 1
+   },
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.25,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.65,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.76,
+    "score_shippability": 2.43
+   },
+   "wall_s": 52.7,
+   "booked": 9748
+  },
+  {
+   "set": "before",
+   "design": "hydrant_builder_0",
+   "brief": "hydrant",
+   "role": "builder",
+   "idx": 0,
+   "nodes": 86,
+   "kinds": {
+    "group": 4,
+    "cylinder": 62,
+    "box": 19,
+    "cone": 1
+   },
+   "tris": 2824,
+   "tier1": {
+    "warning:interpenetration": 77,
+    "warning:floating_part": 1,
+    "warning:z_fighting": 1
+   },
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.75,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.59,
+    "score_brief_depiction": 2.64,
+    "score_shippability": 2.38
+   },
+   "wall_s": 61.2,
+   "booked": 45731
+  },
+  {
+   "set": "before",
+   "design": "hydrant_builder_0",
+   "brief": "hydrant",
+   "role": "builder",
+   "idx": 0,
+   "nodes": 86,
+   "kinds": {
+    "group": 4,
+    "cylinder": 62,
+    "box": 19,
+    "cone": 1
+   },
+   "tris": 2824,
+   "tier1": {
+    "warning:interpenetration": 77,
+    "warning:floating_part": 1,
+    "warning:z_fighting": 1
+   },
+   "rep": 3,
+   "answers": {
+    "defect_floating": 0.25,
+    "defect_clipping": 0.18,
+    "defect_faceted": 0.75,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.53,
+    "score_brief_depiction": 2.53,
+    "score_shippability": 2.27
+   },
+   "wall_s": 49.0,
+   "booked": 9650
+  },
+  {
+   "set": "before",
+   "design": "hydrant_director_0",
+   "brief": "hydrant",
+   "role": "director",
+   "idx": 0,
+   "nodes": 89,
+   "kinds": {
+    "group": 1,
+    "cylinder": 70,
+    "box": 18
+   },
+   "tris": 3664,
+   "tier1": {
+    "warning:interpenetration": 4
+   },
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.53
+   },
+   "wall_s": 32.1,
+   "booked": 9536
+  },
+  {
+   "set": "before",
+   "design": "hydrant_director_0",
+   "brief": "hydrant",
+   "role": "director",
+   "idx": 0,
+   "nodes": 89,
+   "kinds": {
+    "group": 1,
+    "cylinder": 70,
+    "box": 18
+   },
+   "tris": 3664,
+   "tier1": {
+    "warning:interpenetration": 4
+   },
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.45,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.06,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.53
+   },
+   "wall_s": 38.6,
+   "booked": 45435
+  },
+  {
+   "set": "before",
+   "design": "hydrant_director_0",
+   "brief": "hydrant",
+   "role": "director",
+   "idx": 0,
+   "nodes": 89,
+   "kinds": {
+    "group": 1,
+    "cylinder": 70,
+    "box": 18
+   },
+   "tris": 3664,
+   "tier1": {
+    "warning:interpenetration": 4
+   },
+   "rep": 3,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.74,
+    "score_shippability": 2.61
+   },
+   "wall_s": 41.5,
+   "booked": 9694
+  },
+  {
+   "set": "before",
+   "design": "hydrant_worker_0",
+   "brief": "hydrant",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 64,
+   "kinds": {
+    "cylinder": 45,
+    "box": 18,
+    "sphere": 1
+   },
+   "tris": 2456,
+   "tier1": {
+    "warning:interpenetration": 34,
+    "warning:enclosed_part": 1
+   },
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.35,
+    "defect_faceted": 0.75,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.25,
+    "score_silhouette": 2.64,
+    "score_brief_depiction": 2.58,
+    "score_shippability": 2.28
+   },
+   "wall_s": 42.9,
+   "booked": 9527
+  },
+  {
+   "set": "before",
+   "design": "hydrant_worker_0",
+   "brief": "hydrant",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 64,
+   "kinds": {
+    "cylinder": 45,
+    "box": 18,
+    "sphere": 1
+   },
+   "tris": 2456,
+   "tier1": {
+    "warning:interpenetration": 34,
+    "warning:enclosed_part": 1
+   },
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.1,
+    "defect_clipping": 0.18,
+    "defect_faceted": 0.72,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.2,
+    "score_silhouette": 2.5,
+    "score_brief_depiction": 2.47,
+    "score_shippability": 2.3
+   },
+   "wall_s": 37.6,
+   "booked": 9791
+  },
+  {
+   "set": "before",
+   "design": "hydrant_worker_0",
+   "brief": "hydrant",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 64,
+   "kinds": {
+    "cylinder": 45,
+    "box": 18,
+    "sphere": 1
+   },
+   "tris": 2456,
+   "tier1": {
+    "warning:interpenetration": 34,
+    "warning:enclosed_part": 1
+   },
+   "rep": 3,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.75,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.3,
+    "score_silhouette": 2.53,
+    "score_brief_depiction": 2.42,
+    "score_shippability": 2.28
+   },
+   "wall_s": 34.4,
+   "booked": 9755
+  },
+  {
+   "set": "after",
+   "design": "chair_worker_0",
+   "brief": "chair",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 18,
+   "kinds": {
+    "extrude": 2,
+    "lathe": 16
+   },
+   "tris": 2092,
+   "tier1": {
+    "warning:interpenetration": 14,
+    "warning:floating_part": 6
+   },
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.7,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.12,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 1.82,
+    "score_brief_depiction": 1.89,
+    "score_shippability": 1.47
+   },
+   "wall_s": 39.1,
+   "booked": 9724
+  },
+  {
+   "set": "after",
+   "design": "chair_worker_0",
+   "brief": "chair",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 18,
+   "kinds": {
+    "extrude": 2,
+    "lathe": 16
+   },
+   "tris": 2092,
+   "tier1": {
+    "warning:interpenetration": 14,
+    "warning:floating_part": 6
+   },
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.7,
+    "defect_faceted": 0.8,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 1.95,
+    "score_brief_depiction": 2.01,
+    "score_shippability": 1.68
+   },
+   "wall_s": 35.4,
+   "booked": 9481
+  },
+  {
+   "set": "after",
+   "design": "chair_worker_0",
+   "brief": "chair",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 18,
+   "kinds": {
+    "extrude": 2,
+    "lathe": 16
+   },
+   "tris": 2092,
+   "tier1": {
+    "warning:interpenetration": 14,
+    "warning:floating_part": 6
+   },
+   "rep": 3,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.35,
+    "defect_faceted": 0.75,
+    "defect_inverted_faces": 0.15,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 1.88,
+    "score_brief_depiction": 2.12,
+    "score_shippability": 1.47
+   },
+   "wall_s": 27.1,
+   "booked": 9493
+  },
+  {
+   "set": "after",
+   "design": "crate_builder_0",
+   "brief": "crate",
+   "role": "builder",
+   "idx": 0,
+   "nodes": 88,
+   "kinds": {
+    "box": 49,
+    "extrude": 8,
+    "cylinder": 22,
+    "group": 6,
+    "lathe": 3
+   },
+   "tris": 2576,
+   "tier1": {
+    "warning:interpenetration": 8
+   },
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.7,
+    "score_brief_depiction": 2.7,
+    "score_shippability": 2.65
+   },
+   "wall_s": 28.6,
+   "booked": 9601
+  },
+  {
+   "set": "after",
+   "design": "crate_builder_0",
+   "brief": "crate",
+   "role": "builder",
+   "idx": 0,
+   "nodes": 88,
+   "kinds": {
+    "box": 49,
+    "extrude": 8,
+    "cylinder": 22,
+    "group": 6,
+    "lathe": 3
+   },
+   "tris": 2576,
+   "tier1": {
+    "warning:interpenetration": 8
+   },
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.04,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.74,
+    "score_shippability": 2.69
+   },
+   "wall_s": 30.3,
+   "booked": 9427
+  },
+  {
+   "set": "after",
+   "design": "crate_builder_0",
+   "brief": "crate",
+   "role": "builder",
+   "idx": 0,
+   "nodes": 88,
+   "kinds": {
+    "box": 49,
+    "extrude": 8,
+    "cylinder": 22,
+    "group": 6,
+    "lathe": 3
+   },
+   "tris": 2576,
+   "tier1": {
+    "warning:interpenetration": 8
+   },
+   "rep": 3,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.76,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.68
+   },
+   "wall_s": 32.4,
+   "booked": 9686
+  },
+  {
+   "set": "after",
+   "design": "crate_director_0",
+   "brief": "crate",
+   "role": "director",
+   "idx": 0,
+   "nodes": 110,
+   "kinds": {
+    "box": 53,
+    "group": 6,
+    "extrude": 20,
+    "cylinder": 28,
+    "lathe": 3
+   },
+   "tris": 3076,
+   "tier1": {
+    "critical:tri_budget": 1,
+    "warning:interpenetration": 14,
+    "warning:z_fighting": 2
+   },
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.03,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.74,
+    "score_shippability": 2.69
+   },
+   "wall_s": 42.9,
+   "booked": 9480
+  },
+  {
+   "set": "after",
+   "design": "crate_director_0",
+   "brief": "crate",
+   "role": "director",
+   "idx": 0,
+   "nodes": 110,
+   "kinds": {
+    "box": 53,
+    "group": 6,
+    "extrude": 20,
+    "cylinder": 28,
+    "lathe": 3
+   },
+   "tris": 3076,
+   "tier1": {
+    "critical:tri_budget": 1,
+    "warning:interpenetration": 14,
+    "warning:z_fighting": 2
+   },
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.02,
+    "defect_clipping": 0.04,
+    "defect_faceted": 0.05,
+    "defect_inverted_faces": 0.02,
+    "defect_zfighting": 0.02,
+    "defect_visible_holes": 0.02,
+    "defect_scale_implausible": 0.02,
+    "defect_brief_part_missing": 0.02,
+    "score_silhouette": 2.75,
+    "score_brief_depiction": 2.75,
+    "score_shippability": 2.67
+   },
+   "wall_s": 61.0,
+   "booked": 9490
+  },
+  {
+   "set": "after",
+   "design": "crate_director_0",
+   "brief": "crate",
+   "role": "director",
+   "idx": 0,
+   "nodes": 110,
+   "kinds": {
+    "box": 53,
+    "group": 6,
+    "extrude": 20,
+    "cylinder": 28,
+    "lathe": 3
+   },
+   "tris": 3076,
+   "tier1": {
+    "critical:tri_budget": 1,
+    "warning:interpenetration": 14,
+    "warning:z_fighting": 2
+   },
+   "rep": 3,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.04,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.84,
+    "score_shippability": 2.79
+   },
+   "wall_s": 48.1,
+   "booked": 45635
+  },
+  {
+   "set": "after",
+   "design": "crate_worker_0",
+   "brief": "crate",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 44,
+   "kinds": {
+    "box": 22,
+    "extrude": 8,
+    "cylinder": 14
+   },
+   "tris": 1720,
+   "tier1": {
+    "warning:interpenetration": 32,
+    "warning:floating_group": 2,
+    "warning:z_fighting": 10
+   },
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.9,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.28
+   },
+   "wall_s": 42.2,
+   "booked": 9571
+  },
+  {
+   "set": "after",
+   "design": "crate_worker_0",
+   "brief": "crate",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 44,
+   "kinds": {
+    "box": 22,
+    "extrude": 8,
+    "cylinder": 14
+   },
+   "tris": 1720,
+   "tier1": {
+    "warning:interpenetration": 32,
+    "warning:floating_group": 2,
+    "warning:z_fighting": 10
+   },
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.12,
+    "defect_clipping": 0.35,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.12,
+    "defect_zfighting": 0.82,
+    "defect_visible_holes": 0.12,
+    "defect_scale_implausible": 0.12,
+    "defect_brief_part_missing": 0.12,
+    "score_silhouette": 2.63,
+    "score_brief_depiction": 2.63,
+    "score_shippability": 2.1
+   },
+   "wall_s": 38.4,
+   "booked": 9552
+  },
+  {
+   "set": "after",
+   "design": "crate_worker_0",
+   "brief": "crate",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 44,
+   "kinds": {
+    "box": 22,
+    "extrude": 8,
+    "cylinder": 14
+   },
+   "tris": 1720,
+   "tier1": {
+    "warning:interpenetration": 32,
+    "warning:floating_group": 2,
+    "warning:z_fighting": 10
+   },
+   "rep": 3,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.9,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.15
+   },
+   "wall_s": 34.0,
+   "booked": 9336
+  },
+  {
+   "set": "after",
+   "design": "hydrant_worker_0",
+   "brief": "hydrant",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 34,
+   "kinds": {
+    "lathe": 1,
+    "cylinder": 27,
+    "box": 6
+   },
+   "tris": 2460,
+   "tier1": {
+    "warning:interpenetration": 31
+   },
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.35,
+    "defect_faceted": 0.65,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 2.59,
+    "score_brief_depiction": 2.54,
+    "score_shippability": 2.38
+   },
+   "wall_s": 39.0,
+   "booked": 9594
+  },
+  {
+   "set": "after",
+   "design": "hydrant_worker_0",
+   "brief": "hydrant",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 34,
+   "kinds": {
+    "lathe": 1,
+    "cylinder": 27,
+    "box": 6
+   },
+   "tris": 2460,
+   "tier1": {
+    "warning:interpenetration": 31
+   },
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.35,
+    "defect_clipping": 0.55,
+    "defect_faceted": 0.75,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 2.43,
+    "score_brief_depiction": 2.36,
+    "score_shippability": 2.17
+   },
+   "wall_s": 68.6,
+   "booked": 118283
+  },
+  {
+   "set": "after",
+   "design": "hydrant_worker_0",
+   "brief": "hydrant",
+   "role": "worker",
+   "idx": 0,
+   "nodes": 34,
+   "kinds": {
+    "lathe": 1,
+    "cylinder": 27,
+    "box": 6
+   },
+   "tris": 2460,
+   "tier1": {
+    "warning:interpenetration": 31
+   },
+   "rep": 3,
+   "answers": {
+    "defect_floating": 0.25,
+    "defect_clipping": 0.65,
+    "defect_faceted": 0.7,
+    "defect_inverted_faces": 0.15,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.2,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 2.53,
+    "score_brief_depiction": 2.53,
+    "score_shippability": 2.27
+   },
+   "wall_s": 26.0,
+   "booked": 9587
+  }
+ ]
+}

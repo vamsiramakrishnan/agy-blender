@@ -41,6 +41,7 @@ from antigravity3d.tactics.metered_author import MeteredAuthor, build_author_req
 
 sys.path.insert(0, str(Path(__file__).parent))
 from no_decisions_key import NoDecisionsKey  # noqa: E402
+from stream_fakes import StreamFromBlocking  # noqa: E402 - tests/ is on sys.path (rootdir conftest layout)
 
 PREVIEW = ["--preview", "--token-ceiling", "150000", "--max-images", "4", "--single-candidate", "--art-direction", "retro-lowres"]
 
@@ -130,7 +131,10 @@ def test_a_rerun_after_a_late_failure_continues_from_the_design_it_paid_for(key,
 
 def test_new_design_asks_again_and_still_reuses_the_images(key, tmp_path, capsys):
     out = tmp_path / "out"
-    roomy = [a if a != "4" else "8" for a in PREVIEW]  # --max-images 8: room for a new design's images
+    # --max-images 8: room for a new design's images. --token-ceiling 220000: three runs share this folder's ceiling,
+    # and each run that makes or changes a design now also pays for a look round (an author call and up to five judge
+    # calls, about 20,000 tokens with the stand-in); at 150,000 the third run was refused for what the first two used.
+    roomy = [{"4": "8", "150000": "220000"}.get(a, a) for a in PREVIEW]
     key()
     assert prop(out, *roomy) == 0
     again = key()
@@ -140,7 +144,13 @@ def test_new_design_asks_again_and_still_reuses_the_images(key, tmp_path, capsys
     # the stand-in answers the same template scene, so the material words match and the images still come from the cache
     assert count(again, "image:sent") == 0
     d = report(out)["cost"]["design_record"]
-    assert d["reused"] == 0 and d["recorded"] == 1 and d["new_design"] is True
+    # recorded: the new design and its look round's answer ("no change" from the stand-in, recorded too since a rerun
+    # should not pay for it again: tests/test_rerun_record.py). The look round needs the three.js renderer: without
+    # one (CI's unit job has no browser) it is skipped with that reason and only the design is recorded.
+    from antigravity3d.tactics import look_round
+
+    looked = look_round.renderer_unavailable() is None
+    assert d["reused"] == 0 and d["recorded"] == 1 + looked and d["new_design"] is True
     third = key()  # and the next rerun continues from the new design
     assert prop(out, *roomy) == 0
     capsys.readouterr()
@@ -242,7 +252,7 @@ def test_a_referenced_file_counts_by_its_bytes_not_its_uri(tmp_path):
 # ---------------------------------------------------------------------------------------------- the author
 
 
-class Endpoint:
+class Endpoint(StreamFromBlocking):  # MeteredAuthor streams: the scripted answer is delivered as a stream
     """Answers design i of n with i+1 boxes, so the reused designs can be told apart."""
 
     def __init__(self):

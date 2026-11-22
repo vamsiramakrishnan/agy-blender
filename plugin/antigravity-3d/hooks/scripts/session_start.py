@@ -56,8 +56,9 @@ def build_message(payload: dict[str, Any]) -> str:
                      f"{'ok' if qa.get('tier1_ok') else 'FAILED'}, Tier-1.5 {float(qa.get('tier15_score', 0)):.2f}.")
     else:
         lines.append("No QA verdict recorded yet.")
-    lines.append("Edit via Scene IR tools; renders go through run_visual_qa/render_preview; "
-                 "export needs Tier-1 ok and Tier-1.5 >= 3.4 (hook-enforced).")
+    lines.append("Edit via Scene IR tools; render_preview shows you the design (look and improve), run_visual_qa judges it; "
+                 "export needs Tier-1 ok and Tier-1.5 >= 3.4 (hook-enforced); in an uncalibrated preview a "
+                 "lookdev review of the current scene, whatever it scored (its findings ship with the package).")
     return " ".join(lines)
 
 

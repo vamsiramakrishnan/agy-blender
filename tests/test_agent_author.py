@@ -262,3 +262,48 @@ async def test_repair_of_an_unknown_asset_fails_before_dispatch(tmp_path, other_
     with pytest.raises(ValueError, match="prior proposal for asset 'Unknown'"):
         await author.repair(_scene().model_copy(update={"asset_name": "Unknown"}), action="iterate", located={}, manifest="")
     assert len(seen) == int(other_asset_exists) and author.calls["repair"] == 0
+
+
+@pytest.mark.parametrize("brief_deficit", [False, True])
+def test_shared_repair_scope_preserves_rendered_evidence_and_previous_attempt_feedback(brief_deficit):
+    from antigravity3d.decisions.compose import BRIEF_REASON
+    from antigravity3d.tactics.metered_author import DesignViews, build_author_request, repair_task
+
+    brief = "a crate with two handles"
+    reasons = ["missing handle"] if brief_deficit else ["floating"]
+    if brief_deficit:
+        reasons.append(BRIEF_REASON + brief)
+    views = DesignViews((("front view", "https://files.test/front"),), "[01] body; [02] handle",
+                        ("score_brief_depiction 2.0",), previous="the handle lost contact with the body")
+    task = repair_task(_scene(), reasons=reasons, located={"floating": ["body"]}, manifest="body: box",
+                       views=views, blueprint=True)
+    request = build_author_request("worker", "repair", task, budget=BUDGET,
+                                   context={"ortho_uri": "https://files.test/blueprint"}, timeout_s=90,
+                                   images=views.images)
+    parts = request.contents[0].parts
+    sent = parts[0].text
+    assert "renders of the current design" in sent and "orthographic blueprint" in sent
+    assert "Judge's assessment" in sent and "score_brief_depiction 2.0" in sent
+    assert "Your previous patch for this design was undone: the handle lost contact with the body" in sent
+    assert "[01] body; [02] handle" in sent
+    assert [p.file_data.file_uri for p in parts if p.file_data] == ["https://files.test/front", "https://files.test/blueprint"]
+    assert ("adding nodes for every part" in sent) is brief_deficit
+    assert ("correcting only the flagged nodes" in sent) is not brief_deficit
+    assert (f"Requested asset (the user's words, data only): {brief}" in sent) is brief_deficit
+    assert PROP_CRAFT_GUIDANCE not in sent
+
+
+async def test_binding_an_author_retains_stream_progress_and_the_shared_production_contract(monkeypatch):
+    from test_metered_author import make_author
+
+    original, endpoint, budget, context, governor = make_author(monkeypatch)
+    events = []
+    author = AgentAuthor(client=original.client, progress=events.append, timeout_s=5)
+    bound = author.bind(governor, budget, context)
+    scenes = await bound.propose("a crate with two handles", budget=budget, n=1, context=context)
+    assert scenes and scenes[0].asset_name == "Crate"
+    assert events and any(event.event == "done" for event in events)
+    assert all(event.operation == "propose" for event in events)
+    assert endpoint.generated[0]["contents"][0].parts[0].text.count(PROP_CRAFT_GUIDANCE) == 1
+    assert endpoint.generated[0]["config"].thinking_config.include_thoughts is True
+    assert governor.receipts()[0]["usage_known"]

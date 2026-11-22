@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-"""Pilot: the same prop brief three ways, judged the same way.
+"""Pilot: the same prop brief several ways, judged the same way.
 
-    python benchmarks/compare_agents.py plan
-    python benchmarks/compare_agents.py dry-run [--root DIR] [--only BRIEF:ARM ...] [--skip-eval]
-    python benchmarks/compare_agents.py live --go [--root DIR] [--only BRIEF:ARM ...]
+    python benchmarks/compare_agents.py plan [--arms ...] [--run-images ARM=N ...]
+    python benchmarks/compare_agents.py dry-run [--root DIR] [--only BRIEF:ARM ...] [--change BRIEF:ARM ...] [--skip-eval]
+    python benchmarks/compare_agents.py live --go [--root DIR] [--only BRIEF:ARM ...] [--change BRIEF:ARM ...]
+    python benchmarks/compare_agents.py score --root DIR      (the scorecard from what is on disk; spends nothing)
 
 For a fresh stock/pipeline comparison, use ``--paired --round NAME --c-candidates single|default`` plus explicit
 equal ``--run-tokens A=N C=N``, ``--run-images A=M C=M`` and total ceilings. ``plan --json`` prints the complete
@@ -14,13 +15,24 @@ A run whose ``runs/<brief>_<arm>/record.json`` exists is not run again: repeatin
 (within the judge's remaining share) and rewrites the gallery without spending on runs twice.
 
 Arms
+  V  the stock Antigravity agent with a plain Blender MCP server (``compare_vanilla_mcp.py``): Python in one
+     long-lived Blender session, the scene described, an image of it from a chosen view. The "vanilla MCP system".
+     Blender is not on its PATH; the MCP server is its way to Blender. Inside the sandbox, like A.
   A  the stock Antigravity agent (SDK defaults: model, system prompt, tools), given the brief and a Blender it can
      script, inside the sandbox of ``compare_sandbox.py``. No plugin, no skills.
   B  the same agent and task text, with EL4CTEO/blender-skills (9e7e04a) copied into the workspace's
      ``.agents/skills`` the way that repository's installer does for a project (``--agent agents --project
      --copy``) and attached with the SDK's ``skills_paths`` (the headless harness does not discover
      ``.agents/skills`` by itself: measured, see ``tests/test_compare_agents.py``).
+  N  the same stock agent with this project's plugin attached (``compare_sandbox.plugin_attachment``), driving it tool
+     by tool: what a developer gets who installs the plugin in Antigravity.
   C  this project: ``agy3d prop "<brief>" --engine godot_4 --max-tris N --preview --blender $BLENDER_BIN``.
+
+Change requests (``--change BRIEF:ARM``): after a cell has delivered, one follow-up in a new session over a copy of
+the files it left (CHANGES), under its own account at half the arm's share; the two packages are then compared
+(``compare_eval.package_diff``). Arm C's change is a setting (C_CHANGE_MODE): by default ``agy3d edit OUT "<change>"`` on a
+copy of its first output folder (one patch to the shipped design, no image); "append" (the same command with the change
+sentence appended, a new design) is kept for comparison.
 
 Spend control, enforced in code (``Ledger`` and ``Relay``)
   Every model call of every arm and of the judge goes through one relay in this process: the sandboxed agents reach
@@ -63,6 +75,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from antigravity3d.safe_paths import copy_without_links, real_file_in
+
 HERE = Path(__file__).resolve().parent
 DEFAULT_TEXT_MODEL = "gemini-4-hydrogen"  # google.antigravity.models.DEFAULT_MODEL
 REPO = HERE.parent
@@ -80,6 +94,33 @@ ENGINE = "godot_4"
 # ``--ceiling-images``, ``--briefs``, ``--arms``, ``--run-tokens``, ``--run-images``); the plan is checked against the
 # ceilings before anything starts, including the shares of arms that are planned but not run yet.
 BUDGET: dict[str, Any] = {
+    # Round 5 (advisor, 2026-11-22): the owner lifted the token ceiling ("I have no challenge with token count"), but
+    # every cell still has a finite share so a runaway is stopped. 29 of the owner's 30 images are used, so the
+    # ceiling is 0 images: V and A run now (a stock agent made no image in round 3), and the relay refuses any image
+    # call. N and C need images for their textures and wait for the owner's allowance: add them with
+    # ``--arms N C --run-images N=.. C=.. --ceiling-images ..`` (and a token ceiling that fits).
+    "ceiling_tokens": 12_000_000,
+    "ceiling_images": 0,
+    "round": "r5",
+    "briefs": ["crate", "hydrant", "chair"],
+    "arms_now": ["V", "A"],  # the advisor's order: crate across V and A first; read; then hydrant and chair
+    "arms_planned": ["V", "A"],
+    "run_tokens": {"V": 1_200_000, "A": 1_200_000, "B": 195_000, "N": 1_500_000, "C": 500_000},
+    "run_images": {"V": 0, "A": 0, "B": 0, "N": 0, "C": 0},
+    "judge_tokens_per_call": 12_500,  # <= ~4k input (two 1024 px sheets + rubric) + 8,192 output
+    "small_judge_tokens_per_call": 10_000,  # the game-size judge: two 512x256 sheets + rubric + 8,192 output
+    "smoke_tokens": 0,
+    "continuations": {},
+    # One change request per planned cell (CHANGES), in a new session at this fraction of the arm's share.
+    "changes": True,
+    "change_share": 0.5,
+    # None: the arm's run_images. N's change is a new plugin session (a new stage and cache: it re-textures) and C's a
+    # new design (cached images are reused only where their request is unchanged), so both may need their run's images.
+    "change_images": {"V": 0, "A": 0, "B": 0, "N": None, "C": None},
+}
+# Round 2's design, kept as the record of what produced the results in UPSTREAM_SKILLS.md and AFTER_THE_COMPARISON.md
+# (cells named r2:<brief>:<arm>; arm C then was the command line, its native form was sized, not run).
+ROUND2_BUDGET: dict[str, Any] = {
     # 2,000,000 tokens and 30 images approved; about 300,000 tokens and 18 images were spent by unintended test runs
     # and are counted against the pilot (advisor, 2026-11-21). Round 1 (A and B, crate and hydrant, 195,000 tokens
     # each) spent 540,857 and produced no model; its accounts are closed at what they used (``close``).
@@ -104,17 +145,21 @@ BUDGET: dict[str, Any] = {
                                   "why": "forced: the failed first attempt used 9 of the 12 images, and the default mode's "
                                          "plans need 8 or more"}},
 }
-# How a run's model calls grow, for the budget sentence (measured: round 1's 21 live calls; arm C: the happy-path plugin
-# run against fakes with the preview tree, 24 agent turns). input = first + growth * k; reservation per call = input /
-# ratio + the 16,384 output cap; ratio = measured actual/estimated input, lowest seen (0.70) for the conservative side.
-# Arm A's growth was 2,500 per call for round 2's first session (told "about 14", it got 13). Measured there: 12,359 ->
-# 59,032 over 12 calls, 4,200 per call on average, 11,000 after each script it wrote; 4,500 from then on.
+# How a run's model calls grow, for the budget sentence (measured: round 1's 21 live calls; the native plugin arm: the
+# happy-path plugin run against fakes with the preview tree, 24 agent turns). input = first + growth * k; reservation
+# per call = input / ratio + the 16,384 output cap; ratio = measured actual/estimated input, lowest seen (0.70) for the
+# conservative side. Arm A's growth was 2,500 per call for round 2's first session (told "about 14", it got 13).
+# Measured there: 12,359 -> 59,032 over 12 calls, 4,200 per call on average, 11,000 after each script it wrote; 4,500
+# from then on. Arm V has no live run yet: A's figures, its first call larger by the four MCP tool declarations (the
+# dry run measures the first request; see test_vanilla_arm_*). Arm N is the native sizing (round 2's "C native").
 CALL_MODEL = {"A": {"first": 12_400, "growth": 4_500, "out": 3_000}, "B": {"first": 14_700, "growth": 8_000, "out": 3_000},
+              "V": {"first": 13_400, "growth": 4_500, "out": 3_000},
+              "N": {"first": 16_400, "growth": 1_500, "out": 3_500, "plugin_calls_tokens": 26_000},
               "C": {"first": 16_400, "growth": 1_500, "out": 3_500, "plugin_calls_tokens": 26_000}}
 
 
 def calls_allowed(arm: str, share: int | None = None) -> int:
-    """How many model calls the share is sure to allow under CALL_MODEL (the relay refuses the call after that)."""
+    """Conservative call allowance under CALL_MODEL; advice to the agent, not an enforced call limit."""
     m, share = CALL_MODEL[arm], BUDGET["run_tokens"][arm] if share is None else share
     used, k = m.get("plugin_calls_tokens", 0), 0
     while True:
@@ -125,18 +170,28 @@ def calls_allowed(arm: str, share: int | None = None) -> int:
         k += 1
 
 
-NOT_RUN = {"chair": "not run: the image and token ceilings left after round 1 cover one brief",
-           "hydrant": "not run in round 2: one brief, the crate, with the pair the owner asked about first (stock against plugin)",
-           "arm B": "not run again: its two round-1 runs are reported as a finding (what it read, what it cost)",
-           "native plugin arm": "not run live: sized against a stand-in API (see the native sizing finding)"}
-PENDING = {"C": "arm C (this project's pipeline, command line, preview mode) waits for the preview path to be merged: on a "
-                "key without the Decisions API nothing in the project can export live today"}
+def harness_budget(arm: str, share: int) -> dict[str, int]:
+    """SDK backstops above the modeled call allowance. Cheap or tool-heavy calls can still reach them before the
+    token ceiling; the recorded stop reason determines which limit actually bound a run."""
+    n = calls_allowed(arm, share)
+    return {"max_model_calls": max(STOCK_BUDGET["max_model_calls"], n + 10),
+            "max_tool_calls": max(STOCK_BUDGET["max_tool_calls"], 3 * (n + 10))}
+
+
+NOT_RUN = {"arm B": "not run in round 5: its two round-1 runs are reported as a finding (what it read, what it cost)"}
+PENDING = {"N": "arm N (the stock agent driving this project's plugin) needs images for its textures; it waits for the "
+                "owner's image allowance (29 of 30 used)",
+           "C": "arm C (this project's command line, preview mode) needs images for its textures; it waits for the owner's "
+                "image allowance (29 of 30 used)"}
 JUDGE_MODEL = "gemini-4-carbon"
 JUDGE_THINKING = "low"
 JUDGE_MAX_OUTPUT = 8_192
 STOCK_MAX_OUTPUT = 16_384  # the stock request asks for 65,535; see PLAN_NOTES
-STOCK_BUDGET = {"max_model_calls": 40, "max_tool_calls": 120}  # harness backstops; the token share binds first
+STOCK_BUDGET = {"max_model_calls": 40, "max_tool_calls": 120}  # floor of harness_budget; either backstop or quota may bind
 STOCK_TIMEOUT_S = 40 * 60
+# A share of 1.2M tokens is about 18 calls at round 2's growth, and a native plugin run makes 24+ calls with Blender
+# renders between them: 40 minutes stopped nothing in round 2 (A's sessions took 6 and 10 minutes) and stays the floor.
+ARM_TIMEOUT_S = {"V": 60 * 60, "A": 60 * 60, "B": 40 * 60, "N": 90 * 60}
 C_TIMEOUT_S = 75 * 60
 DEFAULT_OUT_TOKENS = 65_536  # reservation when a request names no maxOutputTokens
 IMAGE_INPUT_TOKENS = 1_800  # reservation per inline image in a request
@@ -162,10 +217,29 @@ BRIEFS = (
           5_000, (0.7, 1.3), True, "thin and many parts: legs, stretchers, a dozen spindles; proportions and budget"),
 )
 BRIEF_BY_ID = {b.id: b for b in BRIEFS}
-ARMS = ("A", "B", "C")
-ARM_LABEL = {"A": "stock agent", "B": "stock agent + upstream skills", "C": "this project's pipeline (command line, preview mode)"}
-# Arm C: the same stock agent, task text, model and sandbox as A and B, with this project's plugin attached
-# (compare_sandbox.plugin_attachment) and the project's src bound read-only.
+ARMS = ("V", "A", "B", "N", "C")
+ARM_LABEL = {"V": "stock agent + plain Blender MCP server", "A": "stock agent + scriptable Blender",
+             "B": "stock agent + upstream skills", "N": "stock agent + this project's plugin",
+             "C": "this project's pipeline (command line, preview mode)"}
+STOCK_ARMS = ("V", "A", "B", "N")  # arms run as the stock agent in the sandbox
+PLUGIN_ARMS = ("N",)  # arms with this project's plugin attached (compare_sandbox.plugin_attachment, src bound read-only)
+
+# The change request each cell gets after its first delivery (brief.md item 4): one named part group made larger, the
+# rest left alone. "ratio" is the size factor the request asks for, which package_diff looks for in the changed parts.
+CHANGES = {"crate": {"text": "make the two side handles 30 % larger", "ratio": 1.3},
+           "hydrant": {"text": "make the chained nozzle cap 30 % larger", "ratio": 1.3},
+           "chair": {"text": "make the spindles of the back 30 % thicker", "ratio": 1.3}}
+# Arm C's change path. "edit" (default): ``agy3d edit OUT "<change>"`` on a copy of the first run's whole output folder
+# (dags.edit_asset: the shipped design, one patch, everything else kept, no image); live with the change account's
+# --token-ceiling and --max-images 0; offline (a dry run) with a scripted patch (scripted_c_patch), since the offline
+# author cannot read an instruction. "append": the same command with the change sentence appended to the prompt, into
+# a copy of the first run's cache (the design record misses, so this is a new design; cached images whose request did
+# not change are reused), kept to compare the two.
+C_CHANGE_MODE = os.environ.get("AGY3D_PILOT_C_CHANGE", "edit")
+if C_CHANGE_MODE not in ("edit", "append"):
+    raise ValueError(f"AGY3D_PILOT_C_CHANGE must be 'edit' or 'append', not {C_CHANGE_MODE!r}")
+# Words that name each brief's changed part group in a scene's node ids, for the dry run's scripted patch only.
+C_CHANGE_PARTS = {"crate": ("handle",), "hydrant": ("nozzle", "cap"), "chair": ("spindle",)}
 
 
 def order(briefs: list[str] | None = None, arms: list[str] | None = None) -> list[tuple[str, str]]:
@@ -183,21 +257,31 @@ def judge_calls_planned(briefs: list[str], arms: list[str]) -> int:
     return len(briefs) * n * (n - 1)  # every pair, both orders
 
 
+def change_share(arm: str) -> tuple[int, int]:
+    """Tokens and images of one change-request session of ``arm``."""
+    img = (BUDGET.get("change_images") or {}).get(arm, 0)
+    return int(BUDGET["run_tokens"][arm] * BUDGET.get("change_share", 0.5)), int(BUDGET["run_images"][arm] if img is None else img)
+
+
 def plan_totals() -> dict[str, int]:
-    """Tokens and images the whole plan may use: runs and judge for every planned arm, continuations, the smoke run."""
-    runs = order(BUDGET["briefs"], BUDGET["arms_planned"])
-    cont = BUDGET.get("continuations") or {}
-    tokens = sum(BUDGET["run_tokens"][a] for _, a in runs) + BUDGET["smoke_tokens"] \
-        + judge_calls_planned(BUDGET["briefs"], BUDGET["arms_planned"]) * BUDGET["judge_tokens_per_call"] \
-        + sum(c["tokens"] for c in cont.values())
-    images = sum(BUDGET["run_images"][a] for _, a in runs)  # a continuation reuses its first session's image
-    return {"tokens": tokens, "images": images}
+    """Tokens and images the whole plan may use: runs, change requests and both judges for every planned arm,
+    continuations, the smoke run. A continuation reuses its first session's image, so it adds none here."""
+    acc = planned_accounts()
+    cont = {continuation_name(*k.split(":"), c["session"]) for k, c in (BUDGET.get("continuations") or {}).items()}
+    return {"tokens": sum(t for t, _ in acc.values()) + BUDGET["smoke_tokens"],
+            "images": sum(i for n, (_, i) in acc.items() if n not in cont)}
 
 
 def planned_accounts() -> dict[str, tuple[int, int]]:
-    """Every ledger account the plan may open, with its share: cells, continuations, judge pairs."""
+    """Every ledger account the plan may open, with its share: cells, change requests, continuations, judge pairs
+    (the full-size judge and the game-size judge)."""
     out = {cell_name(b, a): (BUDGET["run_tokens"][a], BUDGET["run_images"][a])
            for b, a in order(BUDGET["briefs"], BUDGET["arms_planned"])}
+    if BUDGET.get("changes"):
+        out |= {change_name(b, a): change_share(a) for b, a in order(BUDGET["briefs"], BUDGET["arms_planned"])}
+    # the repeat asks for no new image: it should read every image from the first run's cache
+    if not BUDGET.get("paired"):
+        out |= {repeat_name(b, "C"): (change_share("C")[0], 0) for b in BUDGET["briefs"] if "C" in BUDGET["arms_planned"]}
     for key, c in (BUDGET.get("continuations") or {}).items():
         b, a = key.split(":")
         out[continuation_name(b, a, c["session"])] = (c["tokens"], c["images"])
@@ -207,7 +291,13 @@ def planned_accounts() -> dict[str, tuple[int, int]]:
         for i, x in enumerate(arms):
             for y in arms[i + 1:]:
                 out[f"{rnd}judge:{b}:{x}-{y}"] = (2 * BUDGET["judge_tokens_per_call"], 0)
+                if BUDGET.get("small_judge_tokens_per_call"):
+                    out[f"{rnd}judge_small:{b}:{x}-{y}"] = (2 * BUDGET["small_judge_tokens_per_call"], 0)
     return out
+
+
+def change_name(brief: str, arm: str) -> str:
+    return f"{cell_name(brief, arm)}.change"
 
 
 def continuation_name(brief: str, arm: str, session: int) -> str:
@@ -220,8 +310,19 @@ def budget_sentence(calls: int) -> str:
             "unfinished ambitious one.")
 
 
-def task_text(b: Brief, calls: int | None = None) -> str:
-    """The task, identical for every arm; from round 2 it ends with the budget sentence (the arm's own call count)."""
+# How Blender is reached: the one sentence of the task that differs by arm (brief.md item 1).
+BLENDER_SENTENCE = {
+    "shell": "Blender 5.3 is installed and on PATH as `blender`; run it headless (for example `blender -b --factory-startup "
+             "--python script.py`). There is no display and no network.",
+    "mcp": "Blender 5.3 is running, and you reach it through the MCP server `blender`: it runs Python in that one "
+           "long-lived Blender session, describes the scene and returns an image of it. There is no network.",
+}
+
+
+def task_text(b: Brief, calls: int | None = None, arm: str = "A") -> str:
+    """The task, identical for every arm except the sentence that says how Blender is reached (arm V's MCP server);
+    from round 2 it ends with the budget sentence (the arm's own call count)."""
+    blender = BLENDER_SENTENCE["mcp" if arm == "V" else "shell"]
     if BUDGET.get("paired"):
         return (paired_brief(b) + "\n\nBlender 5.3 is installed on PATH as `blender`; run it headless. "
                 "There is no display and no network. Deliver exactly one main output/<name>.glb and PNG textures "
@@ -231,7 +332,7 @@ def task_text(b: Brief, calls: int | None = None) -> str:
     return f"""Make a game-ready 3D prop: {b.prompt}.
 
 Target engine: Godot 4 (import as glTF 2.0 binary).
-Blender 5.3 is installed and on PATH as `blender`; run it headless (for example `blender -b --factory-startup --python script.py`). There is no display and no network.
+{blender}
 
 "Game-ready" here means all of the following, checked automatically afterwards:
 - Real-world scale in metres (1 unit = 1 m). Up axis: glTF's +Y (Blender's glTF exporter converts Blender's +Z up for you). The prop stands on the ground: its lowest point at height 0, centred on the origin horizontally.
@@ -246,11 +347,56 @@ Deliver into the folder `output/` of your working directory: exactly one main fi
 
 PLAN_NOTES = {
     "stock model": "SDK default text model gemini-4-hydrogen (google.antigravity.models.DEFAULT_MODEL), thinking left at "
-                   "the model default; image tool on the SDK default gemini-3.1-flash-lite-image.",
+                   "the model default; image tool on the SDK default gemini-3.1-flash-lite-image (0 images this round: "
+                   "the relay refuses image calls).",
     "stock deviations": "web search and URL reading disabled (no network allowed); maxOutputTokens 16,384 instead of "
                         "the stock 65,535 so a call's worst case does not consume a third of the run's share; "
-                        "file tools limited to the workspace; harness budget backstop 40 model calls / 120 tool calls.",
+                        "file tools limited to the workspace; harness backstops exceed the modeled call allowance "
+                        "but may bind before the token share (harness_budget).",
+    "arm V": "the stock agent plus one MCP server, compare_vanilla_mcp.py (execute_blender_code, get_scene_info, "
+             "get_object_info, get_viewport_screenshot), attached through LocalAgentConfig.mcp_servers; Blender runs "
+             "inside the sandbox under Xvfb; nothing of this project is mounted.",
+    "change requests": "one per cell after it delivers, a new session over a copy of its files, half the arm's share; "
+                       "the two packages are diffed part by part (compare_eval.package_diff).",
 }
+
+
+def stock_execution_settings() -> dict[str, Any]:
+    """The stock sandbox's configured SDK defaults and benchmark overrides, without starting an agent."""
+    from google.antigravity import types
+    from google.antigravity.models import DEFAULT_IMAGE_GENERATION_MODEL, DEFAULT_MODEL, GeminiModelOptions
+
+    options = GeminiModelOptions(max_output_tokens=STOCK_MAX_OUTPUT).model_dump(mode="json")
+    return {"text_model": DEFAULT_MODEL, "image_model": DEFAULT_IMAGE_GENERATION_MODEL,
+            "thinking_level": options["thinking_level"], "thinking_policy": "SDK/model default when unset",
+            "max_output_tokens": options["max_output_tokens"], "service_tier": options["service_tier"],
+            "disabled_tools": [types.BuiltinTools.SEARCH_WEB.value, types.BuiltinTools.READ_URL_CONTENT.value],
+            "workspace_only": True, "network": "isolated; model traffic through the relay",
+            "project_plugin": False, "project_skills": False,
+            "advisory_model_calls": calls_allowed("A"), "advisory_is_enforced": False,
+            "hard_limits": harness_budget("A", BUDGET["run_tokens"]["A"]),
+            "sdk_timeout_s": C_TIMEOUT_S, "outer_timeout_s": C_TIMEOUT_S}
+
+
+def plan_notes() -> dict[str, str]:
+    """Project only the selected experiment's notes; r5's images and changes do not describe a paired pilot."""
+    if not BUDGET.get("paired"):
+        return dict(PLAN_NOTES)
+    stock = stock_execution_settings()
+    limits = stock["hard_limits"]
+    return {
+        "stock model": f"SDK default text model {stock['text_model']}; thinking left at the SDK/model default. "
+                       f"Image model {stock['image_model']}; {BUDGET['run_images']['A']} images allowed for A.",
+        "stock deviations": f"maxOutputTokens {stock['max_output_tokens']:,}; web search and URL reading disabled; "
+                            "workspace-only file tools; isolated network. "
+                            f"The task advises about {stock['advisory_model_calls']} model calls; this is not a hard limit. "
+                            f"SDK backstops: {limits['max_model_calls']} model calls / {limits['max_tool_calls']} tool calls. "
+                            "Either a backstop or the token ceiling may bind first.",
+        "pipeline": f"CLI MeteredAuthor, fixed {BUDGET['c_candidates']} candidate policy; "
+                    "its per-call output/thinking settings differ from stock. This is a system comparison.",
+        "additional sessions": "No continuations, change requests or repeats in this paired profile.",
+        "judging": "Two full-size judge calls per brief; no separate game-size judge allocation.",
+    }
 
 
 def paired_brief(b: Brief) -> str:
@@ -273,13 +419,59 @@ PAIRED_LIMITATIONS = (
     "requirement is checked on delivered files; the pipeline's internal engine budget still permits 4.",
     "C's candidate mode is fixed before execution. Its internal alternatives and repair loop differ from the stock "
     "agent's iterative workflow; this is an end-to-end system comparison, not an isolated prompt ablation.",
+    "Stock uses a 16,384-token output cap with thinking unset; C's worker author uses a 24,576-token output cap "
+    "with low thinking. These per-call settings differ. Stock's advisory call count is not enforced; its separate "
+    "SDK model/tool backstops can bind before its aggregate token ceiling.",
     "No manual continuations or hand-completed packages are admitted. One session per arm per brief; a failed "
     "delivery remains a failure. Rerunning reuses its record rather than spending on a replacement.",
     "Both outputs receive identical file checks and renders, then the same blind rubric in both orders. "
     "The fallback judge is uncalibrated and related to the author models; human acceptance is not established.",
     "One run per arm per brief is a pilot. Dry-run model answers are scripted and establish harness behaviour, "
     "not geometry quality, model capability, production yield or a win rate.",
+    "The paired pilot reserves two full-size judge calls only. Round 5's separate game-size judge, change "
+    "requests and repeat runs remain available outside this one-session profile.",
 )
+
+
+def comparison_toolchain() -> dict[str, Any]:
+    """Bind the configured execution/evaluation tools across separately executed cells and resumes."""
+    from antigravity3d.adapters.engines.validators import GodotValidator
+    from antigravity3d.adapters.engines.web_three import WebThreeValidator
+
+    configured = {name: os.environ.get(name) for name in
+                  ("BLENDER_BIN", "GODOT_BIN", "CHROMIUM_BIN", "AGY3D_THREE_JS", "AGY3D_BLENDER_SKILLS",
+                   "PLAYWRIGHT_BROWSERS_PATH")}
+    configured.update(resolved_godot=GodotValidator().binary(), resolved_chromium=WebThreeValidator().binary())
+    selected: dict[str, Any] = {}
+    for name, value in configured.items():
+        if not value:
+            selected[name] = None
+            continue
+        path = Path(value).expanduser().resolve()
+        try:
+            stat = path.stat()
+            selected[name] = {"path": str(path), "size": stat.st_size, "mtime_ns": stat.st_mtime_ns,
+                              "mode": stat.st_mode}
+        except OSError:
+            selected[name] = {"path": str(path), "missing": True}
+    return selected
+
+
+def require_paired_blender() -> None:
+    """Both arms must use the same Blender; C alone must not silently omit its worker."""
+    value = os.environ.get("BLENDER_BIN")
+    path = Path(value).expanduser().resolve() if value else None
+    # The stock sandbox mounts the executable's parent and invokes its `blender`; C invokes BLENDER_BIN directly.
+    if (path is None or not path.is_file() or not os.access(path, os.X_OK)
+            or (path.parent / "blender").resolve() != path):
+        raise ValueError("paired execution needs BLENDER_BIN pointing to the executable 'blender' shared by A and C")
+    try:
+        result = subprocess.run([str(path), "--version"], capture_output=True, text=True, timeout=15, check=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ValueError(f"paired Blender version preflight failed: {type(exc).__name__}") from exc
+    version = re.search(r"^Blender (\d+)\.(\d+)", result.stdout, re.MULTILINE)
+    if version is None or tuple(map(int, version.groups())) < (5, 3):
+        raise ValueError("paired execution requires Blender 5.3 or newer for both A and C")
 
 
 def comparison_contract() -> dict[str, Any]:
@@ -299,16 +491,19 @@ def comparison_contract() -> dict[str, Any]:
     prompts = {b: {"content": paired_brief(BRIEF_BY_ID[b]),
                    "A": task_text(BRIEF_BY_ID[b], calls_allowed("A")), "C": paired_brief(BRIEF_BY_ID[b])}
                for b in BUDGET["briefs"]}
-    return {"schema_version": 1, "profile": "paired", "budget": json.loads(json.dumps(BUDGET)),
+    return {"schema_version": 2, "profile": "paired", "budget": json.loads(json.dumps(BUDGET)),
             "planned_totals": plan_totals(), "order": order(), "prompts": prompts, "wall_limit_s_per_arm": C_TIMEOUT_S,
             "source": {"revision": revision.stdout.strip() if revision.returncode == 0 else None,
                        "project_src": str(PROJECT_SRC),
                        "source_sha256": hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest(),
                        "harness_sha256": harness, "sdk_versions": versions},
-            "author_contracts": {"A": "stock SDK defaults + scriptable Blender", "C": "MeteredAuthor via CLI bind; production_prop",
+            "toolchain": comparison_toolchain(),
+            "author_contracts": {"A": "stock SDK agent with recorded benchmark overrides", "C": "MeteredAuthor via CLI bind; production_prop",
                                  "native_AgentAuthor_tested": False},
+            "stock_execution": stock_execution_settings(), "notes": plan_notes(),
             "judge": {"model": JUDGE_MODEL, "thinking": JUDGE_THINKING, "max_output_tokens": JUDGE_MAX_OUTPUT,
                       "both_orders": True, "order_seed": 20261121,
+                      "view_size": "full", "game_size_calls": 0,
                       "calls": judge_calls_planned(BUDGET["briefs"], BUDGET["arms_planned"])},
             "limitations": list(PAIRED_LIMITATIONS), "approval_required_for_live": True}
 
@@ -325,6 +520,8 @@ def bind_comparison_contract(root: Path, *, live: bool, c_against_fake: bool = F
     else:
         if (root / "ledger.json").exists() or any((root / "runs").glob("*/record.json")):
             raise ValueError("paired comparison needs a fresh --root; existing records have no matching contract")
+        if live or use_blender:
+            require_paired_blender()
         root.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(contract, indent=2) + "\n")
     return contract
@@ -361,8 +558,8 @@ PLUGIN_DISCOVERY = {
     "so": "arm C attaches each part by hand through its SDK equivalent, from the plugin's own files",
 }
 
-# Written before any result exists; the gallery and the report repeat them.
-UNFAIR = (
+# Round 2's list (the record behind UPSTREAM_SKILLS.md); round 5's is UNFAIR below.
+ROUND2_UNFAIR = (
     "Arm C is not an agent: it is this project's pipeline run from its command line in preview mode (the same kernel, "
     "gates, textures and exporter as a native plugin session; the plugin's own author writes the scene). Its judge is the "
     "generative fallback (uncalibrated: the native Decisions API answers 404 on this key), so nothing it makes is verified.",
@@ -395,6 +592,41 @@ UNFAIR = (
     "that could no longer be built (71,097 tokens, 9 images, no package). Fixed in 7f33db1 before the second attempt.",
     "The machine was shared: other test suites ran on its 4 cores during the live runs (1-minute load about 7 to 11); "
     "each run's record carries the load at its start and end. Wall times are not comparable with an idle machine.",
+)
+
+# Written before any result exists; the gallery and the report repeat them.
+UNFAIR = (
+    "Arm V's screenshots reach the model in two steps: the stock harness puts an MCP tool's image into the conversation "
+    "only while it is tiny (base64 under about 10 to 16 KB, measured); a larger one, which is every useful render (a "
+    "256 px solid view of a cube is 53 KB), is saved to a file and the path returned ('[Resource offloaded to "
+    "file:///...media_0.png]'), and the agent sees the picture only if it opens that file with view_file "
+    "(tests/test_compare_agents.py). That is the stock agent's behaviour with any MCP server and is left as it is; each "
+    "V record counts screenshots taken and opened.",
+    "Arm V's Blender has a virtual display (Xvfb) inside the sandbox, because its screenshot is Blender's solid-viewport "
+    "renderer (Workbench), which needs OpenGL: without a display Blender 5.3 exits at the first render (measured). "
+    "Arm A's Blender has none, as in round 3; Cycles works without one.",
+    "Arm V's Blender binary is mounted in the sandbox (the MCP server starts it) but is not on PATH and not named in "
+    "its task; an agent that finds it can still run it from the shell. Each record counts shell commands that start "
+    "Blender (blender_invocations), so a V run that bypassed its MCP server is visible.",
+    "Arms V and A run with 0 images: the owner's image allowance is used up (29 of 30), and the relay refuses an image "
+    "call. A stock agent made no image in round 3 (its textures were procedural); the task text is unchanged.",
+    "Arms N and C make their textures as images and are not run until the owner allows more images.",
+    "Arm C is told less than the agents: its command line carries the brief, engine and triangle budget, but not the "
+    "rest of the game-ready list (C_UNEXPRESSED); the pipeline applies its own conventions there.",
+    "Arm C's change request is `agy3d edit OUT \"<change>\"` on a copy of its first output folder: one patch to the shipped "
+    "design, no image (C_CHANGE_MODE; 'append', a new design from the sentence appended to the prompt, is kept for "
+    "comparison). The agents' change sessions are new conversations over the files their first session left.",
+    "Every arm's task ends with a budget sentence ('about N model calls'), N computed from its share (CALL_MODEL); "
+    "maxOutputTokens is 16,384 instead of the stock 65,535; web search and URL reading are disabled (no network).",
+    "The upstream qa_check / mesh_stats / texel_density scripts are by the author of the skills arm B used (round 1). "
+    "The Godot import script and the three.js check are this project's own (C's authors); they are applied to the bare "
+    "GLB of every arm with a manifest holding only the bounds read from that GLB.",
+    "The judge is Gemini (gemini-4-carbon, thinking low) judging Gemini-made assets; renders are Blender's (Cycles), not "
+    "the target engine's.",
+    "Rows that only this project can pass are marked so in the scorecard (installed into a project, provenance, the "
+    "same bytes from the same request): they are reported, not mixed into the shared game-ready rate.",
+    "The machine is shared: other test suites may run on its 4 cores during live runs; each record carries the load at "
+    "its start and end. Wall times are not comparable with an idle machine.",
 )
 
 # ----------------------------------------------------------------------------------------------- ledger
@@ -494,12 +726,17 @@ class Ledger:
 
     def totals(self) -> dict[str, int]:
         with self.lock:
-            accs = self.data["accounts"].values()
-            return {"tokens": sum(self.used_tokens(a) for a in accs), "images": sum(a["images"] for a in accs),
-                    "input_tokens": sum(a["input_tokens"] for a in accs), "output_tokens": sum(a["output_tokens"] for a in accs),
-                    "thinking_tokens": sum(a["thinking_tokens"] for a in accs),
-                    "unknown_reserved_tokens": sum(a["unknown_reserved_tokens"] for a in accs),
-                    "calls": sum(a["calls"] for a in accs), "inflight_tokens": sum(a["inflight_tokens"] for a in accs)}
+            return self.snapshot_totals(self.data)
+
+    @staticmethod
+    def snapshot_totals(data: dict[str, Any]) -> dict[str, int]:
+        """Read a saved tally without reopening accounts, settling reservations or rewriting ceilings."""
+        accs = data["accounts"].values()
+        return {"tokens": sum(Ledger.used_tokens(a) for a in accs), "images": sum(a["images"] for a in accs),
+                "input_tokens": sum(a["input_tokens"] for a in accs), "output_tokens": sum(a["output_tokens"] for a in accs),
+                "thinking_tokens": sum(a["thinking_tokens"] for a in accs),
+                "unknown_reserved_tokens": sum(a["unknown_reserved_tokens"] for a in accs),
+                "calls": sum(a["calls"] for a in accs), "inflight_tokens": sum(a["inflight_tokens"] for a in accs)}
 
     def reserve(self, name: str, tokens: int, images: int, label: str = "") -> Reservation:
         with self.lock:
@@ -680,6 +917,8 @@ RELAY_UPLOAD = re.compile(r"^/pilot-upload/([0-9a-f]{32})$")
 PASS_REQ_HEADERS = ("content-type", "x-goog-upload-protocol", "x-goog-upload-command", "x-goog-upload-offset",
                     "x-goog-upload-header-content-length", "x-goog-upload-header-content-type")
 DECISIONS_RESERVE = 4_096
+# Statuses with which the service turns a call away before generating anything (measured tonight: 503 "overloaded").
+TURNED_AWAY = (429, 503)
 
 
 @dataclass
@@ -730,13 +969,20 @@ class Relay:
             def _handle(self, method: str) -> None:
                 raw = self.rfile.read(int(self.headers.get("content-length") or 0))
                 hdrs = {k.lower(): v for k, v in self.headers.items()}
-                status, out, payload = relay.forward(acc, method, self.path, raw, hdrs)
-                self.send_response(status)
-                for k, v in out.items():
-                    self.send_header(k, v)
-                self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
+                stream = _StreamOut(self)
+                status, out, payload = relay.forward(acc, method, self.path, raw, hdrs, stream_out=stream)
+                if stream.started:  # already sent as it arrived
+                    stream.end()
+                    return
+                try:
+                    self.send_response(status)
+                    for k, v in out.items():
+                        self.send_header(k, v)
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                except (BrokenPipeError, ConnectionResetError):  # the client hung up: nothing left to tell it
+                    self.close_connection = True
 
             def do_POST(self) -> None:  # http.server API
                 self._handle("POST")
@@ -783,6 +1029,31 @@ class Relay:
 
     def _auth(self, acc: Account) -> dict[str, str]:
         return {"X-Pilot-Account": acc.name} if self.fake else {"x-goog-api-key": self._key or ""}
+
+    def _send_streamed(self, url: str, method: str, raw: bytes | None, headers: dict[str, str],
+                       out: "_StreamOut") -> tuple[int, Any, bytes]:
+        """A streamed generateContent (``alt=sse``): a 200 is passed to the client chunk by chunk as it arrives (a relay
+        that buffered it made every streamed call look silent to its client: live 2026-11-22, the command's arm stalled
+        at its first-chunk limit with 0 chunks). The whole body is still collected, so it is metered as before. A client
+        that hangs up stops being written to; the upstream body is still read to its end, because the service bills the
+        call whether or not anyone reads it, and its usage is in the last event."""
+        req = urllib.request.Request(url, data=raw, method=method, headers=headers)
+        try:
+            r = urllib.request.urlopen(req, timeout=600)
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers, e.read()
+        with r:
+            if r.status != 200:
+                return r.status, r.headers, r.read()
+            out.start(r.status, {"Content-Type": r.headers.get("Content-Type", "text/event-stream")})
+            parts = []
+            while True:
+                b = r.read1(65536)  # what has arrived, without waiting for the rest
+                if not b:
+                    break
+                parts.append(b)
+                out.write(b)
+            return r.status, r.headers, b"".join(parts)
 
     def _send(self, url: str, method: str, raw: bytes | None, headers: dict[str, str]) -> tuple[int, Any, bytes]:
         req = urllib.request.Request(url, data=raw, method=method, headers=headers)
@@ -843,7 +1114,9 @@ class Relay:
         return status, out, payload
 
     def forward(self, acc: Account, method: str, path: str, raw: bytes,
-                hdrs: dict[str, str] | None = None) -> tuple[int, dict[str, str], bytes]:
+                hdrs: dict[str, str] | None = None, stream_out: "_StreamOut | None" = None) -> tuple[int, dict[str, str], bytes]:
+        """``stream_out``: where a streamed reply (``alt=sse``) is written as it arrives; when it has started, the reply
+        is already with the client and the return value is only what was metered."""
         hdrs = hdrs or {}
         clean = path.split("?")[0]
         model = clean.rsplit("/", 1)[-1].split(":")[0] if "/models/" in clean else ""
@@ -886,11 +1159,19 @@ class Relay:
         query = "?alt=sse" if "alt=sse" in path else ""
         t0 = time.monotonic()
         try:
-            status, rh, payload = self._send(self.upstream + clean + query, method, raw, js | self._auth(acc))
+            if stream_out is not None and query:
+                status, rh, payload = self._send_streamed(self.upstream + clean + query, method, raw, js | self._auth(acc), stream_out)
+                rec.update(streamed=stream_out.started, client_gone=stream_out.gone)
+            else:
+                status, rh, payload = self._send(self.upstream + clean + query, method, raw, js | self._auth(acc))
             ctype = rh.get("Content-Type", "application/json") if rh else "application/json"
         except Exception as e:  # noqa: BLE001 - unknown usage: the reservation stays booked
+            if stream_out is not None and stream_out.started:  # broken mid-stream: the client sees it break, not end
+                stream_out.gone = True
+                stream_out.h.close_connection = True
             self.ledger.settle(res, None, 0)
-            rec.update(status=502, error=f"{type(e).__name__}: {e}"[:300], tokens_known=False, wall_s=round(time.monotonic() - t0, 2))
+            rec.update(status=502, error=f"{type(e).__name__}: {e}"[:300], tokens_known=False, wall_s=round(time.monotonic() - t0, 2),
+                       service="broken")  # the connection broke: the service's failure, not the arm's
             self._write(acc.log, rec)
             return 502, js, json.dumps({"error": {"code": 502, "message": "pilot relay: upstream unreachable"}}).encode()
         rec["wall_s"] = round(time.monotonic() - t0, 2)
@@ -900,12 +1181,19 @@ class Relay:
             self.ledger.release(res, free=True)
         elif status == 200 and parsed["usage"] is not None:
             self.ledger.settle(res, parsed["usage"], parsed["images"])
+        elif status in TURNED_AWAY:
+            # The service turned the call away before generating (overloaded, rate-limited): nothing was billed, so
+            # nothing is booked against the arm's share; logged as the service's doing.
+            self.ledger.release(res, free=True)
+            rec.update(error=payload.decode("utf-8", "replace")[:300], service="turned away")
         elif 400 <= status < 500:
             self.ledger.release(res, free=False)
             rec["error"] = payload.decode("utf-8", "replace")[:300]
-        else:
+        else:  # another server error, or a 200 without usage: what was billed is unknown, so the reservation stays booked
             self.ledger.settle(res, None, parsed.get("images", 0))
             rec["tokens_known"] = False
+            if status >= 500:
+                rec.update(error=payload.decode("utf-8", "replace")[:300], service="server error")
         if status == 200 and not free:
             u = parsed["usage"] or {}
             rec.update(usage=u, images=parsed["images"], finish=parsed["finish"],
@@ -922,6 +1210,43 @@ class Relay:
                                          "usage": u, "finish": parsed["finish"]})
         self._write(acc.log, rec)
         return status, {"Content-Type": ctype}, payload
+
+
+class _StreamOut:
+    """A reply written to the relay's client as it arrives (chunked transfer encoding). A client that hangs up is noted
+    (``gone``) and written to no more; nothing raises into the relay."""
+
+    def __init__(self, handler: Any) -> None:
+        self.h, self.started, self.gone = handler, False, False
+
+    def _put(self, data: bytes) -> None:
+        if self.gone:
+            return
+        try:
+            self.h.wfile.write(data)
+            self.h.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            self.gone = True
+            self.h.close_connection = True
+
+    def start(self, status: int, headers: dict[str, str]) -> None:
+        self.started = True
+        try:
+            self.h.send_response(status)
+            for k, v in headers.items():
+                self.h.send_header(k, v)
+            self.h.send_header("Transfer-Encoding", "chunked")
+            self.h.end_headers()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            self.gone = True
+            self.h.close_connection = True
+
+    def write(self, data: bytes) -> None:
+        if data:
+            self._put(b"%x\r\n%s\r\n" % (len(data), data))
+
+    def end(self) -> None:
+        self._put(b"0\r\n\r\n")
 
 
 def _clip(v: Any, n: int = 3000) -> Any:
@@ -1161,8 +1486,9 @@ def scripted_plugin_agent() -> list[dict[str, Any]]:
             mcp("set_stage", stage="LOOKDEV"), mcp("render_lookdev", engine="eevee"), mcp("run_visual_qa"),
             mcp("set_stage", stage="EXPORT"), mcp("generate_lods_and_colliders"), mcp("run_usd_validator"),
             mcp("export_engine_package", out_name="crate", session_id="{session_id}"),
-            _fc("run_command", CommandLine="mkdir -p output && f=$(find agy3d_assets -name '*.glb' ! -name '*_LOD*' "
-                                           "! -name '*_colliders*' | head -1); [ -n \"$f\" ] && cp \"$f\" output/crate.glb; ls output",
+            # the newest package's GLB: a change session's workspace also holds the first session's package
+            _fc("run_command", CommandLine="mkdir -p output && f=$(ls -t $(find agy3d_assets -name '*.glb' ! -name '*_LOD*' "
+                                           "! -name '*_colliders*') | head -1); [ -n \"$f\" ] && cp \"$f\" output/crate.glb; ls output",
                 Cwd="/home/agent/project"),
             {"parts": [{"text": "Scripted plugin-arm dry run finished."}]}]
 
@@ -1228,6 +1554,73 @@ def scripted_plugin_happy_path() -> list[dict[str, Any]]:
     return turns
 
 
+# Arm V's probe: Blender is not on PATH, the MCP server and its Blender run inside the sandbox's network namespace, and
+# neither has a key in its environment.
+VANILLA_PROBE_COMMAND = r"""python3 - <<'EOF'
+import os, json, shutil
+r = {"blender_on_path": shutil.which("blender")}
+me = os.readlink("/proc/self/ns/net")
+def procs(needle):
+    out = []
+    for p in os.listdir("/proc"):
+        if p.isdigit():
+            try:
+                if needle in open(f"/proc/{p}/cmdline", "rb").read():
+                    out.append(p)
+            except OSError:
+                pass
+    return out
+for name, needle in (("mcp_server", b"compare_vanilla_mcp.py\0serve"), ("blender", b"\0bridge\0")):
+    ps = procs(needle)
+    r[name + "_found"] = bool(ps)
+    if ps:
+        p = ps[0]
+        r[name + "_same_netns"] = os.readlink(f"/proc/{p}/ns/net") == me
+        env = open(f"/proc/{p}/environ", "rb").read().split(b"\0")
+        r[name + "_secret_env"] = sorted(x.split(b"=")[0].decode() for x in env if any(s in x.split(b"=")[0] for s in (b"KEY", b"TOKEN", b"SECRET", b"PROXY")))
+        r[name + "_uid"] = os.stat(f"/proc/{p}").st_uid
+print("VANILLA_PROBES " + json.dumps(r))
+EOF"""
+
+
+def _vanilla_asset_code(size: float = 0.8) -> str:
+    """The dry run's Blender code for arm V: the scripted asset, built in the live session and exported from it."""
+    return ("import os\nos.chdir('/home/agent/project')\n" + BLENDER_ASSET_SCRIPT
+            .replace("size=0.8, location=(0, 0, 0.4)", f"size={size}, location=(0, 0, {size / 2})"))
+
+
+def scripted_vanilla_agent(size: float = 0.8, probe: bool = True) -> list[dict[str, Any]]:
+    """The scripted model for arm V in a dry run: probe, read the scene, build and export through the MCP server, take
+    a screenshot and open the file the harness saved it to (the stock harness's two steps), then reply."""
+    def mcp(tool: str, **args: Any) -> dict[str, Any]:
+        return _fc("call_mcp_tool", ServerName="blender", ToolName=tool, Arguments=args, toolSummary="Blender",
+                   toolAction="Calling Blender")
+
+    # the probe runs after the first MCP call: the server starts its Blender on first use
+    turns = [_fc("run_command", CommandLine=PROBE_COMMAND + "\n" + VANILLA_PROBE_COMMAND, Cwd="/home/agent/project")] if probe else []
+    return [mcp("get_scene_info"), *turns, mcp("execute_blender_code", code=_vanilla_asset_code(size)),
+                    mcp("get_viewport_screenshot", view="three_quarter", max_size=512),
+                    _fc("view_file", AbsolutePath="{media}", toolSummary="Looking", toolAction="Viewing the screenshot"),
+                    {"parts": [{"text": "Made output/crate.glb: a textured box crate (scripted dry-run agent, arm V)."}]}]
+
+
+def scripted_change(arm: str, use_blender: bool = True) -> list[dict[str, Any]]:
+    """The scripted model of a change-request session in a dry run: look at the files, rebuild the asset 1.3 times
+    larger (a stand-in for "make the handles 30 % larger": the dry run checks the plumbing and the diff, not the edit)."""
+    look = _fc("run_command", CommandLine="ls -R . | grep -v '^\\.' | head -40", Cwd="/home/agent/project")
+    if arm == "V":
+        return [look, *scripted_vanilla_agent(size=1.04, probe=False)]
+    if arm in PLUGIN_ARMS:
+        return [look, *scripted_plugin_agent()[1:]]
+    if use_blender:
+        make = (f"cat > make_asset.py <<'EOF'\n{BLENDER_ASSET_SCRIPT.replace('size=0.8, location=(0, 0, 0.4)', 'size=1.04, location=(0, 0, 0.52)')}"
+                "\nEOF\nblender -b --factory-startup --python make_asset.py 2>&1 | tail -3")
+    else:
+        make = f"cat > make_glb.py <<'EOF'\n{_make_glb_script().replace('s = 0.4', 's = 0.52')}\nEOF\npython3 make_glb.py"
+    return [look, _fc("run_command", CommandLine=make, Cwd="/home/agent/project"),
+            {"parts": [{"text": "Changed output/crate.glb (scripted dry-run change)."}]}]
+
+
 # The plugin's MCP server runs inside the sandbox: find it, and show it shares the sandbox's network namespace (loopback
 # only), that its environment has no key but the placeholder, and that the client it would use cannot reach the API
 # except through the relay.
@@ -1260,7 +1653,10 @@ def _fc(name: str, **args: Any) -> dict[str, Any]:
 class FakeUpstream:
     """Gemini REST stand-in for dry runs: scripted agent turns per account, a deterministic judge, 404 decisions."""
 
-    def __init__(self, scripts: dict[str, list[dict[str, Any]]] | None = None, seed: int = 0) -> None:
+    def __init__(self, scripts: dict[str, list[dict[str, Any]]] | None = None, seed: int = 0, slow_stream_s: float = 0.0) -> None:
+        """``slow_stream_s``: a streamed answer is sent as a thought event, then this pause, then the answer (chunked),
+        as the service streams; ``last_sent_at`` is when the answer's chunk left (time.monotonic)."""
+        self.slow_stream_s, self.last_sent_at = slow_stream_s, 0.0
         self.scripts = {k: list(v) for k, v in (scripts or {}).items()}
         self.requests: list[dict[str, Any]] = []
         self.rng = random.Random(seed)
@@ -1301,7 +1697,23 @@ class FakeUpstream:
                 body = json.loads(raw or b"{}")
                 fake.requests.append({"account": acct, "path": self.path, "body": body})
                 status, ctype, payload = fake.answer(acct, self.path, body)
+                if status == 200 and "event-stream" in ctype and fake.slow_stream_s:
+                    return self._slow_stream(payload, ctype)
                 self._reply(status, payload, ctype)
+
+            def _slow_stream(self, payload: bytes, ctype: str) -> None:
+                thought = {"candidates": [{"content": {"role": "model", "parts": [{"text": "**Planning**", "thought": True}]}}]}
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                for i, part in enumerate((f"data: {json.dumps(thought)}\n\n".encode(), payload)):
+                    if i:
+                        time.sleep(fake.slow_stream_s)
+                        fake.last_sent_at = time.monotonic()
+                    self.wfile.write(b"%x\r\n%s\r\n" % (len(part), part))
+                    self.wfile.flush()
+                self.wfile.write(b"0\r\n\r\n")
 
             def do_GET(self) -> None:  # http.server API
                 name = self.path.split("?")[0].rsplit("/", 1)[-1]
@@ -1373,6 +1785,10 @@ class FakeUpstream:
             if "{session_id}" in text:  # and the session id open_asset_session returned
                 m = re.search(r"SESSION (\S+?) asset=", json.dumps(body))
                 content = json.loads(text.replace("{session_id}", m.group(1) if m else ""))
+                text = json.dumps(content)
+            if "{media}" in text:  # a scripted model opening the file an MCP image was offloaded to (arm V)
+                hits = re.findall(r"Resource offloaded to file://(/[^\]\"\\]+)\]", json.dumps(body))
+                content = json.loads(text.replace("{media}", hits[-1] if hits else "/nonexistent.png"))
         ev = {"candidates": [{"content": {"role": "model", **content}, "finishReason": "STOP"}],
               "usageMetadata": usage or self._usage(body)}
         if ":streamGenerateContent" in path:
@@ -1403,6 +1819,7 @@ class RunRecord:
     pipeline: dict[str, Any] = field(default_factory=dict)
     session: int = 1  # a continuation of the same cell is session 2 (its own account and run directory)
     account: str | None = None
+    phase: str = "first"  # "first" (the cell's delivery, its sessions merged) or "change" (the change request)
 
 
 def _account_tokens(ledger: Ledger, name: str) -> dict[str, int]:
@@ -1426,7 +1843,7 @@ def install_upstream_skills(dest_project: Path) -> list[str]:
     dst.mkdir(parents=True, exist_ok=True)
     names = []
     for s in sorted(p for p in src.iterdir() if p.is_dir()):
-        shutil.copytree(s, dst / s.name, symlinks=False)
+        copy_without_links(s, dst / s.name)  # a link in the reference checkout is not followed into the sandbox
         names.append(s.name)
     return names
 
@@ -1470,7 +1887,7 @@ def install_project_plugin(dest_root: Path, workspace: str) -> Path:
 
 def stock_spec(run_dir: Path, arm: str, brief: Brief, *, plugin: bool = False, share_tokens: int = 0,
                share_images: int = 0, calls: int | None = None, workspace: Path | None = None,
-               task: str | None = None) -> dict[str, Any]:
+               task: str | None = None, timeout_s: int | None = None) -> dict[str, Any]:
     """Prepare a sandboxed run directory; returns the host-side spec (``compare_sandbox.command`` reads it)."""
     import compare_sandbox as sb
 
@@ -1479,21 +1896,23 @@ def stock_spec(run_dir: Path, arm: str, brief: Brief, *, plugin: bool = False, s
     work = workspace if workspace is not None else run_dir / "work"
     sock_dir = socket_dir(run_dir)
     sock_dir.mkdir(parents=True, exist_ok=True)
-    skills = install_upstream_skills(run_dir / "work") if arm == "B" else []
+    work = workspace if workspace is not None else run_dir / "work"
+    skills = install_upstream_skills(work) if arm == "B" and not (work / ".agents" / "skills").is_dir() else []
     (run_dir / "home" / "project").mkdir(exist_ok=True)  # mount point for the workspace inside HOME
     import google.antigravity as ga
 
     pydeps = Path(ga.__file__).resolve().parents[2]
-    cfg = {"task": task_text(brief, calls), "timeout_s": C_TIMEOUT_S if BUDGET.get("paired") else STOCK_TIMEOUT_S,
+    cfg = {"task": task_text(brief, calls, arm), "timeout_s": C_TIMEOUT_S if BUDGET.get("paired") else (timeout_s or ARM_TIMEOUT_S.get(arm, STOCK_TIMEOUT_S)),
            "max_output_tokens": STOCK_MAX_OUTPUT,
-           "budget": STOCK_BUDGET, "skills_path": f"{sb.WORKSPACE}/.agents/skills" if arm == "B" else None,
+           "budget": harness_budget(arm, share_tokens) if arm in CALL_MODEL and share_tokens else STOCK_BUDGET,
+           "skills_path": f"{sb.WORKSPACE}/.agents/skills" if arm == "B" else None,
            "host": {"pydeps": str(pydeps), "blender_dir": str(host_blender_dir()), "ctl": str(run_dir / "ctl"),
                     "home": str(run_dir / "home"), "work": str(work), "sock_dir": str(sock_dir)}}
     if task is not None:
         cfg["task"] = task
     if plugin:
         installed = install_project_plugin(run_dir / "plugin_root", sb.WORKSPACE)
-        (run_dir / "work" / ".agents" / "plugins").mkdir(parents=True, exist_ok=True)  # the mount point
+        (work / ".agents" / "plugins").mkdir(parents=True, exist_ok=True)  # the mount point (inside the workspace)
         host = cfg["host"]
         host.update(project_src=str(PROJECT_SRC), project_plugin=str(PROJECT_SRC.parent / "plugin"), plugins=str(installed.parent),
                     venv=str(Path(sys.prefix)))
@@ -1510,6 +1929,9 @@ def stock_spec(run_dir: Path, arm: str, brief: Brief, *, plugin: bool = False, s
         cfg["extra_env"] = extra
         cfg["plugin"] = {"dir": f"{sb.PLUGINS_DIR}/{installed.name}", "limits": {"tokens": share_tokens, "images": share_images},
                          "project_src_host": str(PROJECT_SRC)}
+    if arm == "V":  # the plain Blender MCP server: this file only, nothing of the project
+        shutil.copyfile(HERE / "compare_vanilla_mcp.py", run_dir / "ctl" / "compare_vanilla_mcp.py")
+        cfg["vanilla"] = {"server": f"{sb.CTL}/compare_vanilla_mcp.py", "blender": f"{sb.BLENDER_DIR}/blender"}
     shutil.copyfile(HERE / "compare_sandbox.py", run_dir / "ctl" / "compare_sandbox.py")
     (run_dir / "ctl" / "config.json").write_text(json.dumps(cfg, indent=1))
     _chown_tree(run_dir / "home", sb.NOBODY)
@@ -1520,9 +1942,11 @@ def stock_spec(run_dir: Path, arm: str, brief: Brief, *, plugin: bool = False, s
 
 
 def find_main_glb(folder: Path) -> Path | None:
-    if not folder.is_dir():
+    """The delivered GLB: never a symbolic link the agent left (the harness reads it on the host, outside the sandbox)."""
+    if not folder.is_dir() or folder.is_symlink():
         return None
-    glbs = sorted(p for p in folder.rglob("*.glb") if "_LOD" not in p.stem and not p.stem.lower().endswith(("-col", "_col", "_collision", "_colliders")))
+    glbs = sorted(p for p in folder.rglob("*.glb") if "_LOD" not in p.stem and not p.stem.lower().endswith(("-col", "_col", "_collision", "_colliders"))
+                  and real_file_in(folder, p))
     return max(glbs, key=lambda p: p.stat().st_size) if glbs else None
 
 
@@ -1536,7 +1960,11 @@ def run_conditions(run_dir: Path, load_log: Path | None = None) -> dict[str, Any
         finishes[str(c.get("finish"))] = finishes.get(str(c.get("finish")), 0) + 1
     out: dict[str, Any] = {"model_calls": len(gen), "finish_reasons": finishes,
                            "calls_at_output_cap": sum(1 for c in gen if str(c.get("finish")) == "MAX_TOKENS"),
-                           "max_output_tokens_requested": sorted({c.get("max_output_tokens") for c in gen if c.get("max_output_tokens")})}
+                           "max_output_tokens_requested": sorted({c.get("max_output_tokens") for c in gen if c.get("max_output_tokens")}),
+                           "service_failures": {k: sum(1 for c in calls if c.get("service") == k)
+                                                for k in ("turned away", "broken", "server error")},
+                           "last_call_service_failure": next((c.get("service") for c in reversed(calls) if c.get("kind") == "generate"
+                                                              or c.get("service")), None)}
     ev = [json.loads(x) for x in (run_dir / "events.jsonl").read_text().splitlines()] if (run_dir / "events.jsonl").exists() else []
     t0 = min((e["t"] for e in ev), default=None)
     t1 = max((e["t"] for e in ev), default=None)
@@ -1561,18 +1989,39 @@ def mcp_tool_counts(calls: list[dict[str, Any]]) -> dict[str, int]:
     return out
 
 
+def vanilla_report(run_dir: Path) -> dict[str, Any]:
+    """Arm V's MCP server log (written in the run's HOME): tool calls, errors, wall time in Blender, and whether the
+    agent opened each screenshot the harness offloaded to a file (the only way a stock agent sees one)."""
+    log = run_dir / "home" / "vanilla_mcp_calls.jsonl"
+    rows = [json.loads(x) for x in log.read_text().splitlines() if x.strip()] if log.exists() else []
+    shots = [r for r in rows if r.get("tool") == "get_viewport_screenshot" and not r.get("error")]
+    viewed = 0
+    tr = run_dir / "transcript.jsonl"
+    if tr.exists():
+        for line in tr.read_text().splitlines():
+            for f in json.loads(line).get("function_calls") or []:
+                if f.get("name") == "view_file" and "media_" in str((f.get("args") or {}).get("AbsolutePath", "")):
+                    viewed += 1
+    by_tool: dict[str, int] = {}
+    for r in rows:
+        by_tool[str(r.get("tool"))] = by_tool.get(str(r.get("tool")), 0) + 1
+    return {"calls": len(rows), "by_tool": by_tool, "errors": sum(1 for r in rows if r.get("error")),
+            "blender_wall_s": round(sum(float(r.get("wall_s") or 0) for r in rows), 1), "screenshots": len(shots),
+            "screenshots_opened": viewed}
+
+
 def plugin_self_report(work: Path) -> dict[str, Any]:
     """What the plugin says about its own output (shown in the gallery as that arm's self-report, never used to score)."""
     manifests = []
     for m in sorted(work.rglob("manifest.json")):
-        if ".agents" in m.parts:
+        if ".agents" in m.parts or not real_file_in(work, m):  # never through a link the agent left
             continue
         with contextlib.suppress(ValueError, OSError):
             d = json.loads(m.read_text())
             manifests.append({"path": str(m), "asset": d.get("asset"), "verified": d.get("verified"), "preview": d.get("preview"),
                               "tris": d.get("tris"), "evidence": d.get("evidence"), "validation": d.get("validation")})
     qa = []
-    for q in sorted((work / ".agy3d" / "qa").glob("*.json")) if (work / ".agy3d" / "qa").is_dir() else []:
+    for q in [q for q in sorted((work / ".agy3d" / "qa").glob("*.json")) if real_file_in(work, q)] if (work / ".agy3d" / "qa").is_dir() else []:
         with contextlib.suppress(ValueError, OSError):
             qa.append(json.loads(q.read_text()))
     return {"manifests": manifests, "qa_records": qa}
@@ -1661,6 +2110,137 @@ def merge_sessions(records: list[RunRecord]) -> RunRecord:
     return m
 
 
+def change_task(brief: Brief, files: list[str], calls: int, arm: str) -> str:
+    """The original task, then what exists and the change request, then the budget sentence with this session's own N.
+    The same words for every agent arm; arm C gets the change sentence on its command line (run_change)."""
+    return (task_text(brief, arm=arm) + "\n\nAn earlier session made this asset and delivered it. Your working directory "
+            "holds what it left: " + ", ".join(files) + f".\n\nChange request: {CHANGES[brief.id]['text']}. Leave "
+            "everything else as it is, and deliver the changed asset the same way (replace the files in `output/`).\n\n"
+            + budget_sentence(calls))
+
+
+def first_record(root: Path, brief: str, arm: str) -> RunRecord | None:
+    """The cell's delivery: its first-phase sessions merged (a continuation included)."""
+    recs = [r for r in collect_records(root) if (r.brief, r.arm) == (brief, arm)]
+    return recs[0] if recs else None
+
+
+def _sha(p: Path) -> str | None:
+    import hashlib
+
+    return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() and not p.is_symlink() else None
+
+
+def run_change(relay: Relay, root: Path, brief: Brief, arm: str, *, offline: bool = True,
+               wall_s: float | None = None) -> RunRecord:
+    """One change request (CHANGES) after the cell delivered: a new session over a copy of what the first left, under its
+    own account at ``change_share`` of the arm's share; then the two packages are compared (package_diff). The first
+    session's files stay as they were, so the comparison reads both."""
+    import compare_eval as ev
+
+    name = change_name(brief.id, arm)
+    run_dir = root / "runs" / name.replace(":", "_")
+    if (run_dir / "record.json").exists():
+        return RunRecord(**json.loads((run_dir / "record.json").read_text()))
+    first = first_record(root, brief.id, arm)
+    if first is None or not first.glb or not Path(first.glb).is_file():
+        raise RuntimeError(f"{brief.id}:{arm} has no delivered GLB: nothing to change")
+    tokens, images = change_share(arm)
+    change = CHANGES[brief.id]["text"]
+    before = Path(first.glb)
+    if arm == "C":
+        seed = before.parent
+        while seed.name != "out" and seed != seed.parent:  # the command's --out folder (the package sits below it)
+            seed = seed.parent
+        rec = run_c(relay, root, brief, offline=offline, account=name, share_tokens=tokens, share_images=images,
+                    prompt=f"{brief.prompt}. Change: {change}", out_seed=seed, change=change, phase="change")
+        after = Path(rec.glb) if rec.glb else None
+    else:
+        src = Path(first.pipeline.get("workspace") or "")
+        work = root / "change_work" / name.replace(":", "_")
+        if work.exists():
+            shutil.rmtree(work)
+        # real files and folders only: a link the first session left is not carried into the copy, where the harness
+        # would later read through it on the host (find_main_glb, _sha, the evaluation)
+        left_out = copy_without_links(src, work, ignore=lambda d, names: [
+            n for n in names if Path(d) == src and n == ".agents" and arm in PLUGIN_ARMS])
+        files = workspace_listing(work)
+        task = change_task(brief, files, calls_allowed(arm, tokens), arm)
+        seeded = _sha(work / before.relative_to(src)) if before.is_relative_to(src) else None
+        rec = run_stock(relay, root, brief, arm, share_tokens=tokens, share_images=images, account=name, workspace=work,
+                        task=task, phase="change", wall_s=wall_s)
+        if left_out:
+            rec.notes.append(f"links the first session left were not copied into the change workspace: {left_out[:6]}")
+        after = Path(rec.glb) if rec.glb else None
+        if after is not None and _sha(after) == seeded:  # the copy of the first delivery, untouched
+            rec.notes.append("the main GLB is the first session's, unchanged: no new package was delivered")
+            rec.status = "gave up" if rec.status == "finished" else rec.status
+            after = None
+    rec.pipeline["change"] = change
+    rec.pipeline["before_glb"] = str(before)
+    rec.pipeline["first"] = {"wall_s": first.wall_s, "model_calls": first.model_calls, "tokens": (first.tokens or {}).get("total")}
+    if after is not None and after.is_file():
+        try:
+            rec.pipeline["diff"] = ev.package_diff(before, after, target_ratio=CHANGES[brief.id]["ratio"])
+        except Exception as e:  # noqa: BLE001 - a GLB the diff cannot read is a recorded outcome
+            rec.pipeline["diff"] = {"error": f"{type(e).__name__}: {e}"[:400]}
+    (run_dir / "record.json").write_text(json.dumps(asdict(rec), indent=1))
+    return rec
+
+
+def repeat_name(brief: str, arm: str) -> str:
+    return f"{cell_name(brief, arm)}.repeat"
+
+
+def _shipped_hashes(glb: Path) -> dict[str, str] | None:
+    """sha256 of every file the package's manifest lists as shipped (None without a manifest)."""
+    m = glb.parent / "manifest.json"
+    if not m.is_file():
+        return None
+    return {f: v.get("sha256") for f, v in (json.loads(m.read_text()).get("file_hashes") or {}).items()}
+
+
+def run_repeat(relay: Relay, root: Path, brief: Brief, *, offline: bool = True) -> RunRecord:
+    """Same request, same bytes (arm C only: a stock agent has no replay): the cell's command again, unchanged, into a
+    copy of its first output folder, so it reads the design record and image cache the first run left. Every shipped
+    file's sha256 is compared with the first package's."""
+    name = repeat_name(brief.id, "C")
+    run_dir = root / "runs" / name.replace(":", "_")
+    if (run_dir / "record.json").exists():
+        return RunRecord(**json.loads((run_dir / "record.json").read_text()))
+    first = first_record(root, brief.id, "C")
+    if first is None or not first.glb or not Path(first.glb).is_file():
+        raise RuntimeError(f"{brief.id}:C has no delivered GLB: nothing to repeat")
+    seed = Path(first.glb).parent
+    while seed.name != "out" and seed != seed.parent:
+        seed = seed.parent
+    tokens = change_share("C")[0]
+    rec = run_c(relay, root, brief, offline=offline, account=name, share_tokens=tokens, share_images=0,
+                out_seed=seed, phase="repeat")
+    a = _shipped_hashes(Path(first.glb))
+    b = _shipped_hashes(Path(rec.glb)) if rec.glb else None
+    if a is None or b is None:
+        rec.pipeline["same_bytes"], rec.pipeline["bytes_compare"] = None, "no manifest on one side"
+    else:
+        diff = sorted(f for f in set(a) | set(b) if a.get(f) != b.get(f))
+        rec.pipeline["same_bytes"] = not diff
+        rec.pipeline["bytes_compare"] = {"files": len(set(a) | set(b)), "different": diff[:50]}
+    (run_dir / "record.json").write_text(json.dumps(asdict(rec), indent=1))
+    return rec
+
+
+def collect_changes(root: Path, phase: str = "change") -> list[RunRecord]:
+    prefix = f"{BUDGET['round']}_" if BUDGET.get("round") else ""
+    out = []
+    for p in sorted((root / "runs").glob("*/record.json")):
+        if prefix and not p.parent.name.startswith(prefix):
+            continue
+        r = RunRecord(**json.loads(p.read_text()))
+        if r.phase == phase:
+            out.append(r)
+    return out
+
+
 def blender_call(args: dict[str, Any]) -> bool:
     """A shell command that starts Blender (directly or through the upstream skills' runner)."""
     import re
@@ -1669,10 +2249,10 @@ def blender_call(args: dict[str, Any]) -> bool:
     return bool(re.search(r"(^|[\s;&|(/])blender(\s|$)", line) or "run_in_blender" in line)
 
 
-def run_stock(relay: Relay, root: Path, brief: Brief, arm: str, *, wall_s: float = STOCK_TIMEOUT_S + 300,
+def run_stock(relay: Relay, root: Path, brief: Brief, arm: str, *, wall_s: float | None = None,
               share_tokens: int | None = None, share_images: int | None = None, tag: str = "",
               plugin: bool | None = None, account: str | None = None, workspace: Path | None = None,
-              task: str | None = None, session: int = 1) -> RunRecord:
+              task: str | None = None, session: int = 1, phase: str = "first") -> RunRecord:
     """One sandboxed stock-agent run. ``tag`` names a run outside the pilot's cells (the smoke run)."""
     import compare_sandbox as sb
 
@@ -1682,8 +2262,9 @@ def run_stock(relay: Relay, root: Path, brief: Brief, arm: str, *, wall_s: float
                                f"{tag.rstrip(':').replace(':', '_') + '_' if tag else ''}{brief.id}_{arm}")
     share_tokens = BUDGET["run_tokens"][arm] if share_tokens is None else share_tokens
     share_images = BUDGET["run_images"][arm] if share_images is None else share_images
-    plugin = (arm == "C") if plugin is None else plugin
-    rec = RunRecord(brief.id, arm, session=session, account=name)
+    plugin = (arm in PLUGIN_ARMS) if plugin is None else plugin
+    wall_s = (ARM_TIMEOUT_S.get(arm, STOCK_TIMEOUT_S) + 300) if wall_s is None else wall_s
+    rec = RunRecord(brief.id, arm, session=session, account=name, phase=phase)
     if (run_dir / "record.json").exists():
         return RunRecord(**json.loads((run_dir / "record.json").read_text()))
     acct = relay.ledger.data["accounts"].get(name)
@@ -1698,7 +2279,7 @@ def run_stock(relay: Relay, root: Path, brief: Brief, arm: str, *, wall_s: float
         load_start = float(Path("/proc/loadavg").read_text().split()[0])
     spec = stock_spec(run_dir, arm, brief, plugin=plugin, share_tokens=share_tokens, share_images=share_images,
                       calls=calls_allowed(arm, share_tokens) if BUDGET.get("round") and not tag.startswith("smoke") else None,
-                      workspace=workspace, task=task)
+                      workspace=workspace, task=task, timeout_s=int(wall_s - 300) if wall_s > 600 else None)
     work = workspace if workspace is not None else run_dir / "work"
     rec.pipeline["workspace"] = str(work)
     rec.pipeline["task"] = json.loads(Path(spec["host_config"]).read_text())["task"]
@@ -1765,13 +2346,23 @@ def run_stock(relay: Relay, root: Path, brief: Brief, arm: str, *, wall_s: float
         rec.pipeline["load_1min_end"] = float(Path("/proc/loadavg").read_text().split()[0])
     rec.pipeline["load_1min_start"] = load_start
     rec.pipeline["conditions"] = run_conditions(run_dir)
+    if arm == "V":
+        rec.pipeline["mcp_tools"] = mcp_tool_counts(calls)
+        rec.pipeline["vanilla"] = vanilla_report(run_dir)
     if plugin:
         rec.pipeline["self_report"] = plugin_self_report(work)
         rec.pipeline["mcp_tools"] = mcp_tool_counts(calls)
         rec.pipeline["attached"] = next((e for e in events if e.get("kind") == "plugin_attached"), None)
     limit = any("spend limit" in x for x in acc.refused) or "MAX_" in str((end or {}).get("stop_reason"))
+    svc = rec.pipeline["conditions"].get("last_call_service_failure")
     if limit:
         rec.status = "stopped at limit"
+    elif svc and not (end and end.get("status") == "finished" and glb):
+        # The run ended without a delivery right after the service failed a call: the service's failure, not the arm's.
+        # Its account shows spending, so it is not re-run silently; the record says what happened.
+        rec.status = "stopped by the service"
+        rec.notes.append(f"the last model call was {svc} by the service; failures this run: "
+                         f"{rec.pipeline['conditions']['service_failures']}")
     elif end is None:
         rec.status = "crashed"
         rec.notes.append("no end event from the sandbox (see sandbox_stderr.log)")
@@ -1819,7 +2410,13 @@ C_TOKEN_MARGIN = 15_000  # the command's own ceiling sits this far below the rel
 
 def c_mode(project_src: Path, max_images: int) -> tuple[bool, list[str], list[str]]:
     """(single_candidate, default-mode plan lines, single-candidate plan lines) from the tested tree's own planner.
-    The plugin's default mode is used when every plan's base image need (one material) fits ``max_images``."""
+    The plugin's default mode is used when every plan's base image need (one material) fits ``max_images``, and when
+    ``max_images`` is 0: the command then runs its zero-image mode (no blueprint, no image texture, surfaces generated
+    from the geometry), in which no plan needs an image, so nothing forces one first design. Until round five a run
+    with no images had no such mode and the rule below sent it down the single-candidate path; left in place it gave the
+    command one first design where a developer typing the same command gets the best of several (live 2026-11-22:
+    crate, hydrant and chair each started from a single design, 17-22 thousand proposal tokens against 66 thousand in
+    the default mode)."""
     code = ("import json, sys; from antigravity3d.tactics.token_plan import plan_lines as p; "
             "print(json.dumps([p(single_candidate=False, max_rounds=4), p(single_candidate=True, max_rounds=4)]))")
     env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "LANG")} | {"PYTHONPATH": str(project_src)}
@@ -1829,15 +2426,92 @@ def c_mode(project_src: Path, max_images: int) -> tuple[bool, list[str], list[st
     except (subprocess.SubprocessError, ValueError, IndexError):
         return False, [], []  # an older tree has no planner: default mode, as before
     needs = [int(re.search(r"up to (\d+) image", ln).group(1)) for ln in default if re.search(r"up to (\d+) image", ln)]
-    return (bool(needs) and max(needs) > max_images), default, single
+    return (max_images > 0 and bool(needs) and max(needs) > max_images), default, single
+
+
+def scripted_c_patch(out: Path, brief_id: str, ratio: float) -> dict[str, Any] | None:
+    """The dry run's stand-in for the author of an edit: the nodes whose ids name the brief's changed part group
+    (C_CHANGE_PARTS) scaled by ``ratio`` about their own centre. None when the design has no such node."""
+    from antigravity3d.dags.edit_asset import load_shipped
+
+    scene = load_shipped(out).scene
+    words = C_CHANGE_PARTS.get(brief_id, ())
+    ops = []
+    for n in scene.nodes:
+        if any(w in n.id for w in words):
+            t = n.transform
+            ops.append({"op": "set_transform", "node_id": n.id, "transform": {**t.model_dump(mode="json"),
+                                                                             "scale": [v * ratio for v in t.scale]}})
+    return {"ops": ops} if ops else None
+
+
+def _run_c_edit(relay: Relay | None, acc: Any, rec: RunRecord, run_dir: Path, out: Path, brief: Brief, change: str, *,
+                offline: bool, wall_s: float, share_t: int) -> RunRecord:
+    """Arm C's change in edit mode: ``agy3d edit OUT "<change>"`` on the copy of the first run's output folder."""
+    cmd = [sys.executable, "-m", "antigravity3d.cli", "edit", str(out), change]
+    rec.pipeline["change_mode"] = "edit"
+    if offline:
+        patch = scripted_c_patch(out, brief.id, CHANGES[brief.id]["ratio"])
+        if patch is not None:
+            (run_dir / "scripted_patch.json").write_text(json.dumps(patch))
+            cmd += ["--patch", str(run_dir / "scripted_patch.json")]
+        cmd.append("--offline")
+        rec.notes.append("dry run: --offline with a scripted patch (scripted_c_patch): no model call")
+    else:
+        cmd += ["--token-ceiling", str(share_t - C_TOKEN_MARGIN), "--max-images", "0"]
+    if os.environ.get("BLENDER_BIN"):
+        cmd += ["--blender", os.environ["BLENDER_BIN"]]
+    rec.pipeline["command"] = cmd[1:]
+    env = c_env(acc.endpoint if acc else None, run_dir)
+    env["PYTHONPATH"] = str(PROJECT_SRC)
+    t0, t0_unix = time.monotonic(), time.time()
+    with (run_dir / "stdout.log").open("wb") as so, (run_dir / "stderr.log").open("wb") as se:
+        proc = subprocess.Popen(cmd, env=env, cwd=run_dir, stdin=subprocess.DEVNULL, stdout=so, stderr=se, start_new_session=True)
+        try:
+            code = proc.wait(timeout=wall_s)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            code = None
+            rec.notes.append(f"killed at the wall limit of {wall_s:.0f} s")
+    rec.wall_s = round(time.monotonic() - t0, 1)
+    (run_dir / "events.jsonl").write_text(json.dumps({"t": t0_unix, "kind": "start"}) + "\n" +
+                                          json.dumps({"t": time.time(), "kind": "end", "exit": code}) + "\n")
+    stdout = (run_dir / "stdout.log").read_text(errors="replace")
+    report = {}
+    if (out / "report.json").exists():
+        with contextlib.suppress(ValueError):
+            report = json.loads((out / "report.json").read_text())
+    extras = report.get("extras") or report
+    edit = extras.get("edit") or {}
+    glb = Path(edit_glb) if (edit_glb := (extras.get("outputs") or {}).get("glb")) and Path(edit_glb).exists() and edit.get("kept") else None
+    rec.glb = str(glb) if glb else None
+    made = next((ln for ln in stdout.splitlines() if ln.startswith(("edit ", "edit:"))), None)
+    rec.status = "finished" if glb else ("gave up" if code is not None else "timeout")
+    if not glb:
+        rec.notes.append("no edited package: " + (made or "the command did not finish"))
+    rec.pipeline.update({"exit_code": code, "edit": edit, "edit_line": made,
+                         "preview_gates": next((ln.split(":", 1)[1].strip() for ln in stdout.splitlines() if ln.startswith("preview gates:")), None),
+                         "stdout_tail": stdout[-4000:], "stderr_tail": (run_dir / "stderr.log").read_text(errors="replace")[-3000:]})
+    if acc:
+        relay.close(rec.account)
+        rec.model_calls, rec.models, rec.refused = acc.calls, acc.models, list(acc.refused)
+        rec.tokens = _account_tokens(relay.ledger, rec.account)
+        rec.images = rec.tokens["images"]
+        rec.pipeline["conditions"] = run_conditions(run_dir)
+    (run_dir / "record.json").write_text(json.dumps(asdict(rec), indent=1))
+    return rec
 
 
 def run_c(relay: Relay | None, root: Path, brief: Brief, *, offline: bool, wall_s: float = C_TIMEOUT_S,
           account: str | None = None, session: int = 1, share_tokens: int | None = None, share_images: int | None = None,
-          force_single: str | None = None) -> RunRecord:
+          force_single: str | None = None, prompt: str | None = None, out_seed: Path | None = None,
+          change: str | None = None, phase: str = "first") -> RunRecord:
     """Arm C: ``agy3d prop "<brief>" --preview --token-ceiling N --max-images M --engine godot_4 --max-tris T`` from the
     project tree under test, through the relay with a placeholder key (the relay's count is the independent record).
     ``force_single`` (a reason) runs ``--single-candidate`` whatever the planner says."""
+    if BUDGET.get("paired") and (prompt is not None or out_seed is not None or change is not None or force_single
+                                  or session != 1):
+        raise ValueError("paired arm C must use its declared brief and candidate policy in one fresh session")
     name = account or cell_name(brief.id, "C")
     run_dir = root / "runs" / name.replace(":", "_")
     if (run_dir / "record.json").exists():
@@ -1850,14 +2524,35 @@ def run_c(relay: Relay | None, root: Path, brief: Brief, *, offline: bool, wall_
     if run_dir.exists():
         shutil.rmtree(run_dir)
     run_dir.mkdir(parents=True)
-    rec = RunRecord(brief.id, "C", session=session, account=name)
+    rec = RunRecord(brief.id, "C", session=session, account=name, phase=phase)
     share_t = BUDGET["run_tokens"]["C"] if share_tokens is None else share_tokens
     share_i = BUDGET["run_images"]["C"] if share_images is None else share_images
     acc = relay.open(name, share_t, share_i, run_dir, sandboxed=False) if relay else None
     out = run_dir / "out"
-    content = paired_brief(brief) if BUDGET.get("paired") else brief.prompt
-    cmd = [sys.executable, "-m", "antigravity3d.cli", "prop", content, "--engine", ENGINE, "--max-tris",
-           str(brief.max_tris), "--out", str(out), "--preview"]
+    edit_mode = change is not None and C_CHANGE_MODE == "edit"
+    if out_seed is not None and edit_mode:
+        # An edit starts from the first run's whole output folder (its report names the package that shipped, its run
+        # folder the source maps), except its asset ledger (ledgers/: the relay counts this session on its own account).
+        shutil.copytree(out_seed, out, symlinks=True, ignore=lambda d, names: [n for n in names if Path(d) == out_seed and n == "ledgers"])
+        rec.pipeline["seeded_from"] = str(out_seed)
+    elif out_seed is not None:
+        # A change or a repeat starts from the first run's cache (OUT/.agy3d-cache: its design record and images), which
+        # is what a rerun into the same --out reads. Not copied: the first run's package and report (so any package
+        # found afterwards is this run's) and its asset ledger (ledgers/: it would count the first run's spend against
+        # this run's --token-ceiling; the relay counts this run on its own account either way).
+        out.mkdir(parents=True)
+        if (out_seed / ".agy3d-cache").is_dir():
+            shutil.copytree(out_seed / ".agy3d-cache", out / ".agy3d-cache", symlinks=True)
+        rec.pipeline["seeded_from"] = f"{out_seed}/.agy3d-cache"
+    prompt = (paired_brief(brief) if BUDGET.get("paired") else brief.prompt) if prompt is None else prompt
+    content = prompt
+    if edit_mode:
+        return _run_c_edit(relay, acc, rec, run_dir, out, brief, change, offline=offline, wall_s=wall_s, share_t=share_t)
+    else:
+        cmd = [sys.executable, "-m", "antigravity3d.cli", "prop", prompt, "--engine", ENGINE, "--max-tris",
+               str(brief.max_tris), "--out", str(out), "--preview"]
+    if change is not None:
+        rec.pipeline["change_mode"] = C_CHANGE_MODE
     if os.environ.get("BLENDER_BIN"):
         cmd += ["--blender", os.environ["BLENDER_BIN"]]
         rec.notes.append("arm C had a Blender worker (--blender): lookdev renders and the Blender-side checks are those a user "
@@ -1888,6 +2583,7 @@ def run_c(relay: Relay | None, root: Path, brief: Brief, *, offline: bool, wall_
                      + ("shared content requirements are included in the brief; package conventions remain pipeline-specific"
                         if BUDGET.get("paired") else "not expressible on its command line: " + "; ".join(C_UNEXPRESSED)))
     rec.pipeline["command"] = [c if c != content else f"<brief {brief.id}>" for c in cmd[1:]]
+    rec.pipeline["prompt"] = prompt
     env = c_env(acc.endpoint if acc else None, run_dir)
     env["PYTHONPATH"] = str(PROJECT_SRC)
     load_start = None
@@ -1949,11 +2645,16 @@ def run_c(relay: Relay | None, root: Path, brief: Brief, *, offline: bool, wall_
         rec.status = "stopped at limit"
     elif code is None:
         rec.status = "timeout"
+    elif glb is None and acc and (svc := rec.pipeline["conditions"].get("last_call_service_failure")):
+        rec.status = "stopped by the service"
+        rec.notes.append(f"the last model call was {svc} by the service; failures this run: "
+                         f"{rec.pipeline['conditions']['service_failures']}")
     elif BUDGET.get("paired") and code != 0:
         # A diagnostic GLB can exist after a failed preview gate. Preserve it, but do not count a completed run.
         rec.status = "failed gates" if code == 1 and glb is not None else "crashed"
     elif glb is None:
-        rec.status = "crashed" if code not in (0, 1) else "gave up"
+        # 0 and 1 are the command's own outcomes, and 3 (--strict: delivered, review below target; never without a package)
+        rec.status = "crashed" if code not in (0, 1, 3) else "gave up"
     else:
         rec.status = "finished"
     (run_dir / "record.json").write_text(json.dumps(asdict(rec), indent=1))
@@ -1970,18 +2671,40 @@ def plan_table() -> str:
     if b["smoke_tokens"]:
         lines.append(f"| smoke run (crate:A, real API) | {b['smoke_tokens']:,} | 0 | first: proves relay, ledger and refusal |")
     for br, arm in order(b["briefs"], b["arms_planned"]):
-        status = "now" if arm in b["arms_now"] else f"reserved, pending: {PENDING.get(arm, '')[:60]}..."
-        task_mode = (f"fixed {b['c_candidates']} candidates" if b.get("paired") and arm == "C"
-                     else f"task says about {calls_allowed(arm)} model calls")
-        lines.append(f"| run {br}:{arm} | {b['run_tokens'][arm]:,} | {b['run_images'][arm]} | {status}; {task_mode} |")
+        if b.get("paired"):
+            task_mode = (f"fixed {b['c_candidates']} candidates" if arm == "C"
+                         else f"task says about {calls_allowed(arm)} model calls")
+            lines.append(f"| run {br}:{arm} | {b['run_tokens'][arm]:,} | {b['run_images'][arm]} | "
+                         f"now; {task_mode}; {C_TIMEOUT_S // 60} min |")
+            continue
+        status = "now" if arm in b["arms_now"] else (f"reserved, pending: {PENDING[arm][:70]}..." if arm in PENDING
+                                                     else "planned, not in --arms")
+        if arm == "C":
+            lines.append(f"| run {br}:C | {b['run_tokens']['C']:,} | {b['run_images']['C']} | {status}; the command's own "
+                         f"--token-ceiling {b['run_tokens']['C'] - C_TOKEN_MARGIN:,} --max-images {b['run_images']['C']} |")
+        else:
+            hb = harness_budget(arm, b["run_tokens"][arm])
+            lines.append(f"| run {br}:{arm} | {b['run_tokens'][arm]:,} | {b['run_images'][arm]} | {status}; task says about "
+                         f"{calls_allowed(arm)} model calls; harness stops at {hb['max_model_calls']} calls, "
+                         f"{ARM_TIMEOUT_S.get(arm, STOCK_TIMEOUT_S) // 60} min |")
+        if arm == "C":
+            lines.append(f"| repeat {br}:C (same request, same bytes?) | {change_share('C')[0]:,} | 0 | "
+                         "after the run delivers; the same command into a copy of its folder |")
+        if b.get("changes"):
+            ct, ci = change_share(arm)
+            how = (f"C_CHANGE_MODE={C_CHANGE_MODE}" if arm == "C" else f"new session, about {calls_allowed(arm, ct)} model calls")
+            lines.append(f"| change {br}:{arm} ({CHANGES[br]['text']!r}) | {ct:,} | {ci} | after the run delivers; {how} |")
     n_now = judge_calls_planned(b["briefs"], b["arms_now"])
     n_all = judge_calls_planned(b["briefs"], b["arms_planned"])
     lines.append(f"| judge, {n_now} calls now + {n_all - n_now} when the pending arms exist ({JUDGE_MODEL}, thinking "
                  f"{JUDGE_THINKING}, max output {JUDGE_MAX_OUTPUT:,}) | {n_all * b['judge_tokens_per_call']:,} | 0 | "
                  f"{b['judge_tokens_per_call']:,} per call |")
+    if b.get("small_judge_tokens_per_call"):
+        lines.append(f"| game-size judge, {n_all} calls (same judge, 128 px views) | {n_all * b['small_judge_tokens_per_call']:,} "
+                     f"| 0 | {b['small_judge_tokens_per_call']:,} per call |")
     for br, why in ({} if b.get("paired") else NOT_RUN).items():
         if br not in b["briefs"]:
-            lines.append(f"| brief {br} | 0 | 0 | {why} |")
+            lines.append(f"| {br if br.startswith('arm ') else 'brief ' + br} | 0 | 0 | {why} |")
     t = plan_totals()
     lines.append(f"| **total** | **{t['tokens']:,}** of {b['ceiling_tokens']:,} | **{t['images']}** of {b['ceiling_images']} | "
                  f"unallocated: {b['ceiling_tokens'] - t['tokens']:,} tokens, {b['ceiling_images'] - t['images']} images |")
@@ -2016,6 +2739,8 @@ def collect_records(root: Path) -> list[RunRecord]:
         if p.parent.name.startswith("smoke") or (prefix and not p.parent.name.startswith(prefix)):
             continue
         r = RunRecord(**json.loads(p.read_text()))
+        if r.phase != "first":
+            continue
         sessions.setdefault((r.brief, r.arm), []).append(r)
     for key, rs in sessions.items():
         recs[key] = merge_sessions(rs)
@@ -2030,7 +2755,9 @@ def make_relay(root: Path, *, live: bool, allow_new_ceilings: bool = False, use_
         return Relay(ledger, UPSTREAM, os.environ.get("GEMINI_API_KEY"), fake=False), None
     if scripts is None:
         scripts = {cell_name(br, a): scripted_agent(use_blender) for br in BRIEF_BY_ID for a in ("A", "B")}
-        scripts |= {cell_name(br, "C"): scripted_plugin_agent() for br in BRIEF_BY_ID}
+        scripts |= {cell_name(br, "V"): scripted_vanilla_agent() for br in BRIEF_BY_ID}
+        scripts |= {cell_name(br, a): scripted_plugin_agent() for br in BRIEF_BY_ID for a in PLUGIN_ARMS}
+        scripts |= {change_name(br, a): scripted_change(a, use_blender) for br in BRIEF_BY_ID for a in STOCK_ARMS}
         scripts |= {continuation_name(br, "A", 2): scripted_continuation() for br in BRIEF_BY_ID}
         scripts |= {f"smoke:{br}:{a}": scripted_agent(use_blender) for br in BRIEF_BY_ID for a in ("A", "B")}
     fake = FakeUpstream(scripts)
@@ -2087,77 +2814,82 @@ def run_smoke(root: Path, *, live: bool, brief: str = "crate", arm: str = "A") -
 
 def run_all(root: Path, *, live: bool, only: list[str] | None, use_blender: bool, skip_eval: bool,
             c_against_fake: bool = False, allow_new_ceilings: bool = False, c_native: bool = False,
-            allow_c: bool = False, continue_cells: list[str] | None = None) -> dict[str, Any]:
+            allow_c: bool = False,
+            continue_cells: list[str] | None = None, change_cells: list[str] | None = None,
+            repeat_cells: list[str] | None = None) -> dict[str, Any]:
+    """Run the cells asked for (``only``, else the arms run now), their continuations and change requests, then
+    evaluate, judge (full size and game size), score and write the gallery. Nothing already recorded is run again."""
     contract = None
     if BUDGET.get("paired"):
-        if continue_cells or c_native:
-            raise ValueError("paired comparison uses one CLI/stock session per cell; no continuations or native-arm substitution")
+        if continue_cells or change_cells or repeat_cells or c_native:
+            raise ValueError("paired comparison uses one CLI/stock session per cell; no continuations, changes, repeats or native-arm substitution")
+        if live and not allow_c:
+            raise ValueError("paired live execution includes C and needs --allow-c")
         contract = bind_comparison_contract(root, live=live, c_against_fake=c_against_fake, use_blender=use_blender)
     root.mkdir(parents=True, exist_ok=True)
     relay, fake = make_relay(root, live=live, allow_new_ceilings=allow_new_ceilings, use_blender=use_blender)
     ledger = relay.ledger
-    todo = [] if continue_cells else order()
+    todo = [] if (continue_cells or change_cells or repeat_cells) and not only else order()
     if only:
         want = {tuple(x.split(":")) for x in only}
         todo = [o for o in order(BUDGET["briefs"], BUDGET["arms_planned"]) if o in want]
+    offline_c = not (live or c_against_fake)
     try:
         for b, arm in todo:
             brief = BRIEF_BY_ID[b]
-            if arm == "C" and live and not allow_c:
-                print(f"[pilot] {b}:C not run: {PENDING['C']}", flush=True)
-                continue
             print(f"[pilot] run {b}:{arm} ...", flush=True)
             if arm == "C" and not c_native:  # round 2: the project's pipeline from its command line, preview mode
-                rec = run_c(relay, root, brief, offline=not (live or c_against_fake))
+                rec = run_c(relay, root, brief, offline=offline_c)
             else:
                 rec = run_stock(relay, root, brief, arm,
-                                wall_s=C_TIMEOUT_S if BUDGET.get("paired") else STOCK_TIMEOUT_S + 300)
+                                wall_s=C_TIMEOUT_S if BUDGET.get("paired") else None,
+                                plugin=True if c_native and arm == "C" else None)
             print(f"[pilot]   {rec.status}; glb={rec.glb}; {rec.tokens.get('total', 0):,} tokens; {rec.wall_s:.0f} s", flush=True)
         for cell in continue_cells or []:
             b, arm = cell.split(":")
             print(f"[pilot] continue {cell} (session {BUDGET['continuations'][cell]['session']}) ...", flush=True)
-            if arm == "C" and live and not allow_c:
-                print(f"[pilot] {cell} not run: needs --allow-c", flush=True)
-                continue
-            rec = run_continuation(relay, root, BRIEF_BY_ID[b], arm, offline=not (live or c_against_fake))
+            rec = run_continuation(relay, root, BRIEF_BY_ID[b], arm, offline=offline_c)
             print(f"[pilot]   {rec.status}; glb={rec.glb}; {rec.tokens.get('total', 0):,} tokens; {rec.wall_s:.0f} s", flush=True)
-        records = collect_records(root)
-        results: dict[str, Any] = {"mode": "live" if live else "dry-run", "records": [asdict(r) for r in records],
-                                   "unfair": list(PAIRED_LIMITATIONS if contract else UNFAIR), "plugin_discovery": PLUGIN_DISCOVERY, "not_run": {**NOT_RUN, **{f"arm {k}": v for k, v in PENDING.items()
-                                                                                    if k not in {r.arm for r in records}}}}
+        for cell in repeat_cells or []:
+            b, arm = cell.split(":")
+            if arm != "C":
+                raise SystemExit(f"--repeat {cell}: only arm C can be asked the same request again")
+            print(f"[pilot] repeat {cell} (same request, same bytes?) ...", flush=True)
+            rec = run_repeat(relay, root, BRIEF_BY_ID[b], offline=offline_c)
+            print(f"[pilot]   {rec.status}; same bytes: {rec.pipeline.get('same_bytes')}; {rec.tokens.get('total', 0):,} tokens", flush=True)
+        for cell in change_cells or []:
+            b, arm = cell.split(":")
+            print(f"[pilot] change {cell}: {CHANGES[b]['text']!r} ...", flush=True)
+            rec = run_change(relay, root, BRIEF_BY_ID[b], arm, offline=offline_c)
+            d = (rec.pipeline or {}).get("diff") or {}
+            print(f"[pilot]   {rec.status}; glb={rec.glb}; {rec.tokens.get('total', 0):,} tokens; {rec.wall_s:.0f} s; "
+                  f"parts changed {len(d.get('changed') or [])}, unchanged {d.get('unchanged')}", flush=True)
+        results = assemble(root, ledger, live=live, fake=fake)
         if contract:
             results["comparison_contract"] = contract
-            results["not_run"] = {f"{b}:{a}": "planned cell has no run record"
-                                  for b, a in order(BUDGET["briefs"], BUDGET["arms_planned"])
-                                  if (b, a) not in {(r.brief, r.arm) for r in records}}
         rnd = BUDGET.get("round")
-        results["round"] = rnd
-        if rnd and not contract:
-            results["round1"] = round1_findings(root)
-            results["native_sizing"] = native_sizing()
-            results["c_unexpressed"] = list(C_UNEXPRESSED)
-        (root / (f"runs_{rnd}.json" if rnd else "runs.json")).write_text(json.dumps(results, indent=1))
+        (root / (f"runs_{rnd}.json" if rnd else "runs.json")).write_text(json.dumps(results, indent=1, default=str))
+        records = [RunRecord(**r) for r in results["records"]]
         if not skip_eval:
             import compare_eval as ev
 
             results["evaluation"] = asyncio.run(ev.evaluate_all(root, records, BRIEF_BY_ID, BUDGET.get("round", "")))
             results["judge"] = ev.judge_all(root, records, BRIEF_BY_ID, relay, BUDGET["judge_tokens_per_call"], JUDGE_MODEL,
                                             JUDGE_THINKING, JUDGE_MAX_OUTPUT, BUDGET.get("round", ""))
-        if skip_eval:  # keep the last evaluation and judgement in the results instead of dropping them
-            rnd_ = BUDGET.get("round")
-            for key, path in (("evaluation", root / (f"evaluation_{rnd_}.json" if rnd_ else "evaluation.json")),
-                              ("judge", root / "judge" / (rnd_ or "") / "judge.json")):
-                if path.exists():
-                    with contextlib.suppress(ValueError):
-                        results[key] = json.loads(path.read_text())
+            if BUDGET.get("small_judge_tokens_per_call"):
+                results["judge_small"] = ev.judge_all(root, records, BRIEF_BY_ID, relay, BUDGET["small_judge_tokens_per_call"],
+                                                      JUDGE_MODEL, JUDGE_THINKING, JUDGE_MAX_OUTPUT, BUDGET.get("round", ""),
+                                                      small=True)
+        else:  # keep the last evaluation and judgements in the results instead of dropping them
+            load_saved_eval(root, results)
         if contract:
             results["shared_constraints"] = paired_constraints(records, results.get("evaluation", {}))
         results["tally"] = ledger.totals() | {"ceiling_tokens": ledger.data["ceiling_tokens"], "ceiling_images": ledger.data["ceiling_images"]}
         results["ledger"] = ledger.data
-        results["plan"] = {"briefs": [asdict(BRIEF_BY_ID[b]) for b in BUDGET["briefs"]], "order": order(), "engine": ENGINE,
-                           "notes": PLAN_NOTES, "budget": BUDGET, "plan_totals": plan_totals()}
-        if fake is not None:
-            results["fake_upstream_requests"] = len(fake.requests)
+        if not skip_eval:
+            import compare_eval as ev
+
+            results["scorecard"] = ev.scorecard(root, results, BRIEF_BY_ID, BUDGET.get("round", ""))
         (root / (f"results_{rnd}.json" if rnd else "results.json")).write_text(json.dumps(results, indent=1, default=str))
         if not skip_eval:
             import compare_eval as ev
@@ -2167,6 +2899,77 @@ def run_all(root: Path, *, live: bool, only: list[str] | None, use_blender: bool
     finally:
         if fake is not None:
             fake.close()
+
+
+def assemble(root: Path, ledger: Ledger | None, *, live: bool, fake: Any = None) -> dict[str, Any]:
+    """The results document from what is on disk: records, change requests, the design notes."""
+    records = collect_records(root)
+    results: dict[str, Any] = {"mode": "live" if live else "dry-run", "records": [asdict(r) for r in records],
+                               "changes": [asdict(r) for r in collect_changes(root)], "change_requests": CHANGES,
+                               "repeats": [asdict(r) for r in collect_changes(root, "repeat")],
+                               "c_change_mode": C_CHANGE_MODE,
+                               "unfair": list(PAIRED_LIMITATIONS if BUDGET.get("paired") else UNFAIR), "plugin_discovery": PLUGIN_DISCOVERY,
+                               "not_run": {**NOT_RUN, **{f"arm {k}": v for k, v in PENDING.items()
+                                                         if k not in {r.arm for r in records}}}}
+    rnd = BUDGET.get("round")
+    results["round"] = rnd
+    if BUDGET.get("paired"):
+        results["not_run"] = {f"{b}:{a}": "planned cell has no run record"
+                              for b, a in order(BUDGET["briefs"], BUDGET["arms_planned"])
+                              if (b, a) not in {(r.brief, r.arm) for r in records}}
+    elif rnd:
+        results["native_sizing"] = native_sizing()
+        results["c_unexpressed"] = list(C_UNEXPRESSED)
+    results["plan"] = {"briefs": [asdict(BRIEF_BY_ID[b]) for b in BUDGET["briefs"]], "order": order(), "engine": ENGINE,
+                       "notes": plan_notes(), "budget": BUDGET, "plan_totals": plan_totals()}
+    if ledger is not None:
+        results["tally"] = ledger.totals() | {"ceiling_tokens": ledger.data["ceiling_tokens"],
+                                              "ceiling_images": ledger.data["ceiling_images"]}
+    if fake is not None:
+        results["fake_upstream_requests"] = len(fake.requests)
+    return results
+
+
+def load_saved_eval(root: Path, results: dict[str, Any]) -> None:
+    rnd = BUDGET.get("round")
+    for key, path in (("evaluation", root / (f"evaluation_{rnd}.json" if rnd else "evaluation.json")),
+                      ("judge", root / "judge" / (rnd or "") / "judge.json"),
+                      ("judge_small", root / "judge_small" / (rnd or "") / "judge.json")):
+        if path.exists():
+            with contextlib.suppress(ValueError):
+                results[key] = json.loads(path.read_text())
+
+
+def score_only(root: Path) -> dict[str, Any]:
+    """The scorecard and gallery from what is on disk (``score``): no run, no evaluation, no judge call."""
+    import compare_eval as ev
+
+    global BUDGET
+    original = BUDGET
+    path = root / "comparison-contract.json"
+    contract = json.loads(path.read_text()) if path.exists() else None
+    try:
+        if contract:
+            BUDGET = contract["budget"]
+        results = assemble(root, None, live=False)
+        results["mode"] = "scored from disk"
+        ledger_path = root / "ledger.json"
+        if ledger_path.exists():
+            data = json.loads(ledger_path.read_text())
+            results["ledger"] = data
+            results["tally"] = Ledger.snapshot_totals(data) | {"ceiling_tokens": data["ceiling_tokens"],
+                                                             "ceiling_images": data["ceiling_images"]}
+        load_saved_eval(root, results)
+        rnd = BUDGET.get("round", "")
+        if contract:
+            results["comparison_contract"] = contract
+            records = [RunRecord(**r) for r in results["records"]]
+            results["shared_constraints"] = paired_constraints(records, results.get("evaluation", {}))
+        results["scorecard"] = ev.scorecard(root, results, BRIEF_BY_ID, rnd)
+        ev.write_gallery(root, results, BRIEF_BY_ID, ARM_LABEL, name=f"gallery_{rnd}.html" if rnd else "gallery.html")
+        return results
+    finally:
+        BUDGET = original
 
 
 def apply_budget_flags(a: argparse.Namespace) -> None:
@@ -2189,11 +2992,12 @@ def apply_budget_flags(a: argparse.Namespace) -> None:
             raise ValueError("paired token shares must exceed C's internal admission margin")
         if a.arms is not None and (len(a.arms) != 2 or set(a.arms) != {"A", "C"}):
             raise ValueError("--paired compares A and C; use --only to execute a planned cell separately")
-        if getattr(a, "continue_cells", None) or getattr(a, "c_native", False):
-            raise ValueError("--paired uses one CLI/stock session per cell; no continuations or native-arm substitution")
+        if (getattr(a, "continue_cells", None) or getattr(a, "change_cells", None) or getattr(a, "repeat_cells", None)
+                or getattr(a, "c_native", False) or getattr(a, "change_images", None)):
+            raise ValueError("--paired uses one CLI/stock session per cell; no continuations, changes, repeats or native-arm substitution")
         BUDGET.update(paired=True, round=a.round, c_candidates=a.c_candidates, briefs=["crate"],
                       arms_now=["A", "C"], arms_planned=["A", "C"], continuations={}, smoke_tokens=0,
-                      run_tokens={}, run_images={})
+                      run_tokens={}, run_images={}, changes=False, change_images={}, small_judge_tokens_per_call=0)
     elif a.round is not None or a.c_candidates is not None:
         raise ValueError("--round and --c-candidates require --paired")
     if a.ceiling_tokens is not None:
@@ -2208,7 +3012,7 @@ def apply_budget_flags(a: argparse.Namespace) -> None:
     if a.arms:
         BUDGET["arms_now"] = list(a.arms)
         BUDGET["arms_planned"] = sorted(set(BUDGET["arms_planned"]) | set(a.arms))
-    for flag, key in ((a.run_tokens, "run_tokens"), (a.run_images, "run_images")):
+    for flag, key in ((a.run_tokens, "run_tokens"), (a.run_images, "run_images"), (getattr(a, "change_images", []), "change_images")):
         for item in flag:
             arm, n = item.split("=")
             if arm not in ARMS or int(n) < 0:
@@ -2271,14 +3075,20 @@ def main(argv: list[str] | None = None) -> int:
         if name == "dry-run":
             p.add_argument("--no-blender", action="store_true", help="scripted agent writes the GLB without Blender")
             p.add_argument("--c-native", action="store_true",
-                           help="arm C as the stock agent driving the plugin (the sizing run) instead of the command line")
+                           help="legacy native C sizing run; prefer --arms N (not available with --paired)")
             p.add_argument("--c-against-fake", action="store_true",
                            help="arm C's command line without --offline, its model calls answered by the local stand-in")
         if name == "live":
-            p.add_argument("--allow-c", action="store_true", help="run arm C live (only once the preview path exists)")
+            p.add_argument("--allow-c", action="store_true", help="explicitly enable C in a paired live comparison")
         if name != "smoke":
             p.add_argument("--continue", dest="continue_cells", nargs="*", default=None, metavar="BRIEF:ARM",
                            help="run the planned continuation of a stopped cell (BUDGET['continuations']), then evaluate")
+            p.add_argument("--change", dest="change_cells", nargs="*", default=None, metavar="BRIEF:ARM",
+                           help="run the change request (CHANGES) of a cell that delivered, then evaluate")
+            p.add_argument("--repeat", dest="repeat_cells", nargs="*", default=None, metavar="BRIEF:C",
+                           help="arm C's command again into a copy of its folder: same request, same bytes?")
+    ps = sub.add_parser("score", help="the scorecard and gallery from what is on disk (no run, no model call)")
+    ps.add_argument("--root", type=Path, required=True)
     for p in sub.choices.values():
         p.add_argument("--paired", action="store_true", help="fresh A/C comparison with equal explicit shares and fixed candidate mode")
         p.add_argument("--round", default=None, help="fresh paired experiment name")
@@ -2291,7 +3101,15 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--arms", nargs="*", default=None, help="arms to run now")
         p.add_argument("--run-tokens", nargs="*", default=[], metavar="ARM=N", help="per-run token share of an arm")
         p.add_argument("--run-images", nargs="*", default=[], metavar="ARM=N", help="per-run image share of an arm")
+        p.add_argument("--change-images", nargs="*", default=[], metavar="ARM=N",
+                       help="image share of an arm's change session (default: N and C as their run, others 0)")
     a = ap.parse_args(argv)
+    if a.cmd == "score":
+        apply_budget_flags(a)
+        sys.path.insert(0, str(HERE))
+        res = score_only(a.root)
+        print(json.dumps(res["scorecard"].get("summary"), indent=1))
+        return 0
     if a.cmd == "close":
         led = Ledger(a.root / "ledger.json", allow_new_ceilings=False)
         for name in a.accounts:
@@ -2317,7 +3135,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     print(plan_table(), flush=True)
     if a.cmd == "plan":
-        for k, v in PLAN_NOTES.items():
+        for k, v in plan_notes().items():
             print(f"- {k}: {v}")
         for bid in BUDGET["briefs"]:
             b = BRIEF_BY_ID[bid]
@@ -2372,7 +3190,8 @@ def main(argv: list[str] | None = None) -> int:
     res = run_all(root, live=live, only=a.only, use_blender=not getattr(a, "no_blender", False), skip_eval=a.skip_eval,
                   c_against_fake=getattr(a, "c_against_fake", False), allow_new_ceilings=a.resume,
                   c_native=getattr(a, "c_native", False), allow_c=getattr(a, "allow_c", False),
-                  continue_cells=getattr(a, "continue_cells", None))
+                  continue_cells=getattr(a, "continue_cells", None), change_cells=getattr(a, "change_cells", None),
+                  repeat_cells=getattr(a, "repeat_cells", None))
     print(json.dumps(res.get("tally"), indent=1))
     return 0
 

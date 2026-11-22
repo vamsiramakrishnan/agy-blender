@@ -56,28 +56,48 @@ def ce():
 # ----------------------------------------------------------------------------------------------- design
 
 
-def test_the_round_2_plan_fits_the_ceilings_and_tells_each_arm_its_budget(ca):
+def test_the_round_5_plan_fits_the_ceilings_and_tells_each_arm_its_budget(ca):
+    # Round 5 (advisor, 2026-11-22) replaced round 2's single crate:A cell (1.7M tokens, 12 images; kept as
+    # ROUND2_BUDGET): V and A on three briefs with a change request each, both judges, 0 images (29 of 30 used).
     b = ca.BUDGET
-    assert (b["ceiling_tokens"], b["ceiling_images"], b["round"]) == (1_700_000, 12, "r2")
+    assert (b["ceiling_tokens"], b["ceiling_images"], b["round"]) == (12_000_000, 0, "r5")
     t = ca.plan_totals()
-    assert t == {"tokens": 500_000 + 300_000 + 2 * 12_500 + 200_000 + 225_000, "images": 12}  # continuations reuse images
-    assert ca.order() == [("crate", "A")] and ca.check_plan() is None
+    runs, changes = 6 * 1_200_000, 6 * 600_000
+    judges = 3 * 2 * 12_500 + 3 * 2 * 10_000  # one pair (A-V) per brief, both orders, full size and game size
+    assert t == {"tokens": runs + changes + judges, "images": 0}
+    assert ca.order() == [("crate", "V"), ("crate", "A"), ("hydrant", "A"), ("hydrant", "V"), ("chair", "V"), ("chair", "A")]
+    assert ca.check_plan() is None
     n = ca.calls_allowed("A")
-    assert n == 11 and f"about {n} model calls" in ca.task_text(ca.BRIEF_BY_ID["crate"], n)  # measured growth since round 2
-    assert ca.ARM_LABEL["C"] == "this project's pipeline (command line, preview mode)"
+    assert n == 19 and f"about {n} model calls" in ca.task_text(ca.BRIEF_BY_ID["crate"], n)
+    assert ca.harness_budget("N", 1_500_000)["max_model_calls"] > ca.calls_allowed("N", 1_500_000)  # the share binds first
     assert "model calls" not in ca.task_text(ca.BRIEF_BY_ID["crate"])  # round 1's text, unchanged
-    assert ca.cell_name("crate", "A") == "r2:crate:A"
+    assert ca.cell_name("crate", "A") == "r5:crate:A" and ca.change_name("crate", "V") == "r5:crate:V.change"
+    assert ca.change_share("N") == (750_000, 0) and ca.change_share("A") == (600_000, 0)
 
 
-def test_round_1_accounts_must_be_closed_before_round_2_fits_and_closing_never_lowers_what_was_booked(ca, tmp_path, capsys,
-                                                                                                    monkeypatch):
+def test_arms_that_need_images_are_refused_until_the_owner_allows_them(ca, capsys):
+    assert ca.main(["plan", "--arms", "N", "C", "--run-images", "N=4", "C=11", "--ceiling-tokens", "25000000"]) == 2
+    assert "images, more than the ceiling of 0" in capsys.readouterr().err
+    assert ca.main(["plan", "--arms", "N", "C", "--run-images", "N=4", "C=11", "--ceiling-images", "90",  # runs and changes: 3 x (4 + 4) + 3 x (11 + 11)
+                    "--ceiling-tokens", "25000000"]) == 0
+    out = capsys.readouterr().out
+    assert "run crate:N | 1,500,000 | 4" in out and "change crate:N" in out and "| 750,000 | 4 |" in out  # re-textures
+    assert "repeat crate:C (same request, same bytes?) | 250,000 | 0" in out
+    assert "--token-ceiling 485,000 --max-images 11" in out
+
+
+def test_accounts_must_be_closed_before_the_rest_of_a_plan_fits_and_closing_never_lowers_what_was_booked(ca, tmp_path,
+                                                                                                         capsys, monkeypatch):
+    # Round 1's case (five stopped accounts) under round 5's plan: a ceiling of 11.5M holds the plan (10.935M) only once
+    # the stopped accounts are closed at what they used instead of their shares.
     monkeypatch.setenv("GEMINI_API_KEY", "not-a-key")  # never used: the plan check refuses before any relay exists
-    led = ca.Ledger(tmp_path / "ledger.json")
+    led = ca.Ledger(tmp_path / "ledger.json", ceiling_tokens=11_500_000, ceiling_images=0)
     for name in ("crate:A", "crate:B", "hydrant:B", "hydrant:A", "smoke:crate:A"):
-        led.open_account(name, 195_000 if name != "smoke:crate:A" else 40_000, 1 if "smoke" not in name else 0)
+        led.open_account(name, 195_000 if name != "smoke:crate:A" else 40_000, 0)
         led.settle(led.reserve(name, 30_000, 0), {"input": 25_000, "output": 500, "thinking": 400}, 0)
     led.reserve("hydrant:A", 35_982, 0)  # a call in flight when round 1 was stopped
-    assert ca.main(["live", "--go", "--root", str(tmp_path), "--resume", "--only", "crate:A"]) == 2  # does not fit
+    assert ca.main(["live", "--go", "--root", str(tmp_path), "--resume", "--only", "crate:A",
+                    "--ceiling-tokens", "11500000"]) == 2  # does not fit
     assert "counting what" in capsys.readouterr().err
     again = ca.Ledger(tmp_path / "ledger.json")  # reloading books the in-flight reservation as unknown usage
     assert ca.main(["close", "--root", str(tmp_path), "--accounts", "crate:A", "crate:B", "hydrant:B", "hydrant:A",
@@ -91,9 +111,9 @@ def test_round_1_accounts_must_be_closed_before_round_2_fits_and_closing_never_l
 
 
 def test_a_plan_over_a_ceiling_is_refused_before_anything_starts(ca, capsys):
-    assert ca.main(["plan", "--briefs", "crate", "hydrant", "chair"]) == 2
+    assert ca.main(["plan", "--ceiling-tokens", "3000000"]) == 2
     assert "refusing: the plan needs" in capsys.readouterr().err
-    assert ca.main(["plan", "--briefs", "crate", "hydrant", "chair", "--ceiling-tokens", "3000000", "--ceiling-images", "36"]) == 0
+    assert ca.main(["plan", "--briefs", "crate", "--ceiling-tokens", "3700000"]) == 0  # 2 runs, 2 changes, 4 judge calls
 
 
 def test_a_live_start_refuses_a_ledger_that_already_shows_spending_and_prints_the_ceilings(ca, tmp_path, monkeypatch, capsys):
@@ -103,7 +123,7 @@ def test_a_live_start_refuses_a_ledger_that_already_shows_spending_and_prints_th
     monkeypatch.setenv("GEMINI_API_KEY", "not-a-key")  # never used: the guard refuses first
     assert ca.main(["live", "--go", "--root", str(tmp_path), "--skip-eval"]) == 2
     out = capsys.readouterr()
-    assert "already shows spending" in out.err and "1,700,000 tokens, 12 images" in out.out
+    assert "already shows spending" in out.err and "12,000,000 tokens, 0 images" in out.out
     assert ca.main(["live", "--root", str(tmp_path)]) == 2  # no --go
     monkeypatch.delenv("GEMINI_API_KEY")
     assert ca.main(["smoke", "--go", "--root", str(tmp_path / "s")]) == 2  # no key: refused
@@ -114,6 +134,15 @@ def test_arms_a_and_b_get_the_same_task_text(ca):
         t = ca.task_text(b)
         assert b.prompt in t and f"{b.max_tris} triangles" in t and "output/" in t and "Godot 4" in t
         assert "skill" not in t.lower()  # nothing in the text points at B's extra material
+
+
+def test_arm_v_gets_the_same_task_but_for_how_blender_is_reached(ca):
+    for b in ca.BRIEFS:
+        a, v = ca.task_text(b, 19, "A"), ca.task_text(b, 19, "V")
+        diff = [(x, y) for x, y in zip(a.splitlines(), v.splitlines()) if x != y]
+        assert len(a.splitlines()) == len(v.splitlines()) and len(diff) == 1
+        assert "on PATH" in diff[0][0] and "MCP server `blender`" in diff[0][1] and "on PATH" not in v
+        assert ca.task_text(b, 19, "N") == a  # the plugin arm's text is A's: the plugin attaches itself
 
 
 # ----------------------------------------------------------------------------------------------- ledger
@@ -166,7 +195,7 @@ def _post(url: str, path: str, body: dict) -> tuple[int, dict | str]:
 def test_relay_counts_usage_logs_function_calls_and_refuses_before_forwarding(ca, tmp_path):
     fake = ca.FakeUpstream({"r": [ca._fc("run_command", CommandLine="ls")]})
     try:
-        led = ca.Ledger(tmp_path / "l.json")
+        led = ca.Ledger(tmp_path / "l.json", ceiling_images=1)  # round 5's default ceiling is 0 images
         relay = ca.Relay(led, fake.url, None, fake=True)
         acc = relay.open("r", 20_000, 0, tmp_path, sandboxed=False)
         body = {"contents": [{"role": "user", "parts": [{"text": "x" * 300}]}], "generationConfig": {"maxOutputTokens": 1000}}
@@ -188,6 +217,59 @@ def test_relay_counts_usage_logs_function_calls_and_refuses_before_forwarding(ca
         assert _post(img.endpoint, "/v1beta/models/gemini-3.1-flash-lite-image:generateContent", ibody)[0] == 400  # image share
         lines = [json.loads(x) for x in (tmp_path / "relay_calls.jsonl").read_text().splitlines()]
         assert [x["status"] for x in lines] == [200, 400, 200]
+    finally:
+        fake.close()
+
+
+def test_relay_passes_a_streamed_answer_through_as_it_arrives_and_meters_it_as_before(ca, tmp_path, capfd):
+    """Live 2026-11-22 the relay read the whole upstream answer before writing any of it, so the command's streamed
+    authoring call saw nothing for 20 s and gave up. Now the client gets the first chunk before the upstream has sent the
+    last; the usage is still metered from the stream's last event and the reservation settled the same way. A client
+    that hangs up mid-stream is handled without a traceback, and the call it left is still metered (it was billed)."""
+    import http.client
+    import time
+
+    fake = ca.FakeUpstream({"r": [ca._fc("run_command", CommandLine="ls")] * 2}, slow_stream_s=1.0)
+    try:
+        led = ca.Ledger(tmp_path / "l.json")
+        relay = ca.Relay(led, fake.url, None, fake=True)
+        acc = relay.open("r", 20_000, 0, tmp_path, sandboxed=False)
+        body = json.dumps({"contents": [{"role": "user", "parts": [{"text": "x" * 300}]}],
+                           "generationConfig": {"maxOutputTokens": 1000}}).encode()
+        path = "/v1beta/models/gemini-4-hydrogen:streamGenerateContent?alt=sse"
+        host, port = acc.endpoint.removeprefix("http://").split(":")
+
+        def open_stream():
+            conn = http.client.HTTPConnection(host, int(port), timeout=10)
+            conn.request("POST", path, body, {"Content-Type": "application/json"})
+            return conn, conn.getresponse()
+
+        conn, r = open_stream()
+        assert r.status == 200 and r.getheader("Transfer-Encoding") == "chunked"
+        first = r.read1(65536)
+        first_at = time.monotonic()
+        rest = r.read()
+        assert b'"thought": true' in first and b"run_command" not in first  # the thought event, on its own
+        assert first_at < fake.last_sent_at  # seen before the upstream sent the answer
+        assert b"run_command" in rest and b"usageMetadata" in rest
+        conn.close()
+        a = led.data["accounts"]["r"]
+        assert a["calls"] == 1 and a["input_tokens"] > 0 and a["inflight_tokens"] == 0
+        assert acc.function_calls == [{"name": "run_command", "args": {"CommandLine": "ls"}}]
+
+        conn, r = open_stream()  # a client that hangs up after the first chunk
+        r.read1(65536)
+        conn.sock.close()
+        conn.close()
+        deadline = time.monotonic() + 10
+        while led.data["accounts"]["r"]["calls"] < 2 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        a = led.data["accounts"]["r"]
+        assert a["calls"] == 2 and a["inflight_tokens"] == 0  # metered from the last event the client never read
+        lines = [json.loads(x) for x in (tmp_path / "relay_calls.jsonl").read_text().splitlines()]
+        assert [x.get("streamed") for x in lines] == [True, True] and lines[0]["client_gone"] is False
+        time.sleep(0.2)
+        assert "Traceback" not in capfd.readouterr().err
     finally:
         fake.close()
 
@@ -494,7 +576,7 @@ def test_the_headless_harness_discovers_the_plugin_nowhere(ca, tmp_path):
 
 
 def test_plugin_arm_runs_the_plugin_inside_the_sandbox_and_its_server_cannot_get_out(ca, tmp_path, monkeypatch):
-    """Arm C against fakes: every plugin part attached from the installed files, limits injected by the harness, the
+    """Arm N against fakes: every plugin part attached from the installed files, limits injected by the harness, the
     plugin's own hooks deciding, and the MCP server confined to the sandbox's network like the agent."""
     if (why := _can_sandbox()) is not None:
         pytest.skip(why)
@@ -505,13 +587,13 @@ def test_plugin_arm_runs_the_plugin_inside_the_sandbox_and_its_server_cannot_get
         monkeypatch.setenv("BLENDER_BIN", str(stand_in / "blender"))
     os.chmod(tmp_path, 0o755)
     root = tmp_path / "pilot"
-    fake = ca.FakeUpstream({ca.cell_name("crate", "C"): ca.scripted_plugin_agent()})
+    fake = ca.FakeUpstream({ca.cell_name("crate", "N"): ca.scripted_plugin_agent()})
     try:
-        relay = ca.Relay(ca.Ledger(root / "ledger.json", ceiling_tokens=2_000_000), fake.url, None, fake=True)
-        rec = ca.run_stock(relay, root, ca.BRIEF_BY_ID["crate"], "C", wall_s=600, share_tokens=600_000, share_images=4)
+        relay = ca.Relay(ca.Ledger(root / "ledger.json", ceiling_tokens=2_000_000, ceiling_images=4), fake.url, None, fake=True)
+        rec = ca.run_stock(relay, root, ca.BRIEF_BY_ID["crate"], "N", wall_s=600, share_tokens=600_000, share_images=4)
     finally:
         fake.close()
-    run = root / "runs" / ca.cell_name("crate", "C").replace(":", "_")
+    run = root / "runs" / ca.cell_name("crate", "N").replace(":", "_")
     events = [json.loads(x) for x in (run / "events.jsonl").read_text().splitlines()]
     att = next(e for e in events if e["kind"] == "plugin_attached")
     assert att["servers"] == ["antigravity-3d_studio"] and set(att["subagents"]) == {"lookdev_critic", "usd_verifier"}
@@ -556,12 +638,13 @@ def test_a_continuation_runs_in_the_same_workspace_under_its_own_account_and_the
     second_script = [ca._fc("run_command", CommandLine="python3 make_glb.py", Cwd="/home/agent/project"),
                      {"parts": [{"text": "delivered"}]}]
     cont = ca.continuation_name("crate", "A", 2)
+    ca.BUDGET["continuations"] = {"crate:A": {"tokens": 200_000, "images": 1, "session": 2}}  # round 2's, restored after
     fake = ca.FakeUpstream({ca.cell_name("crate", "A"): first_script, cont: second_script})
     try:
-        relay = ca.Relay(ca.Ledger(root / "ledger.json"), fake.url, None, fake=True)
+        relay = ca.Relay(ca.Ledger(root / "ledger.json", ceiling_images=1), fake.url, None, fake=True)
         first = ca.run_stock(relay, root, brief, "A", share_tokens=60_000, share_images=1, wall_s=300)  # stops at its share
         assert first.status == "stopped at limit" and first.glb is None
-        with pytest.raises(RuntimeError, match="close r2:crate:A first"):
+        with pytest.raises(RuntimeError, match="close r5:crate:A first"):
             ca.run_continuation(relay, root, brief, "A", wall_s=300)  # its image is still with the first session
         relay.ledger.close_account(ca.cell_name("crate", "A"), "first session stopped at its share")
         rec = ca.run_continuation(relay, root, brief, "A", wall_s=300)
@@ -596,21 +679,469 @@ def test_arm_c_second_attempt_is_forced_single_candidate_with_the_images_left_an
 
     monkeypatch.setattr(ca.subprocess, "Popen", FakeProc)
     monkeypatch.setattr(ca, "c_mode", lambda src, n: (False, ["hero: up to 11 image(s)"], ["hero: up to 3 image(s)"]))
+    ca.BUDGET["continuations"] = {"crate:C": {"tokens": 225_000, "images": 3, "session": 2, "single_candidate": True,
+                                              "why": "forced: round 2's images left"}}  # round 2's, restored after
     root = tmp_path / "pilot"
-    relay = ca.Relay(ca.Ledger(root / "ledger.json"), "http://127.0.0.1:9", None, fake=True)
+    relay = ca.Relay(ca.Ledger(root / "ledger.json", ceiling_images=14), "http://127.0.0.1:9", None, fake=True)
     relay.ledger.open_account(ca.cell_name("crate", "C"), 300_000, 11)
-    (root / "runs" / "r2_crate_C").mkdir(parents=True)
-    (root / "runs" / "r2_crate_C" / "record.json").write_text(json.dumps({"brief": "crate", "arm": "C", "status": "gave up"}))
-    with pytest.raises(RuntimeError, match="close r2:crate:C first"):
+    (root / "runs" / "r5_crate_C").mkdir(parents=True)
+    (root / "runs" / "r5_crate_C" / "record.json").write_text(json.dumps({"brief": "crate", "arm": "C", "status": "gave up"}))
+    with pytest.raises(RuntimeError, match="close r5:crate:C first"):
         ca.run_continuation(relay, root, ca.BRIEF_BY_ID["crate"], "C")
     relay.ledger.close_account(ca.cell_name("crate", "C"), "first attempt failed")
     rec = ca.run_continuation(relay, root, ca.BRIEF_BY_ID["crate"], "C")
     cmd = seen["cmd"]
     assert "--single-candidate" in cmd and cmd[cmd.index("--max-images") + 1] == "3"
     assert cmd[cmd.index("--token-ceiling") + 1] == str(225_000 - ca.C_TOKEN_MARGIN)
-    assert cmd[cmd.index("--out") + 1].endswith("runs/r2_crate_C.s2/out")  # a fresh output folder
+    assert cmd[cmd.index("--out") + 1].endswith("runs/r5_crate_C.s2/out")  # a fresh output folder
     assert seen["env"]["GEMINI_API_KEY"] == "via-relay" and seen["env"]["GOOGLE_GEMINI_BASE_URL"].startswith("http://127.0.0.1:")
-    assert rec.account == "r2:crate:C.s2" and rec.session == 2 and "forced" in rec.pipeline["mode"]
-    assert relay.ledger.data["accounts"]["r2:crate:C.s2"]["share_images"] == 3
+    assert rec.account == "r5:crate:C.s2" and rec.session == 2 and "forced" in rec.pipeline["mode"]
+    assert relay.ledger.data["accounts"]["r5:crate:C.s2"]["share_images"] == 3
     merged = {r.arm: r for r in ca.collect_records(root)}["C"]
     assert [s_["session"] for s_ in merged.pipeline["sessions"]] == [1, 2]
+
+
+# ----------------------------------------------------------------------------------------------- round 5: arm V
+
+
+def _mcp_rpc(proc, i: int, method: str, params: dict | None = None) -> dict:
+    proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": params or {}}) + "\n")
+    proc.stdin.flush()
+    return json.loads(proc.stdout.readline())
+
+
+def test_the_vanilla_mcp_server_speaks_mcp_on_stdio_and_reports_a_missing_blender_as_a_tool_error(tmp_path):
+    """No Blender needed: the protocol, the four tools, a notification left unanswered, and a Blender that cannot
+    start reported to the agent as a tool error (never a crash of the server)."""
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "VANILLA_BLENDER": str(tmp_path / "no-blender"),
+           "VANILLA_SOCKET": f"/tmp/vmcp_test_{os.getpid()}.sock"}
+    proc = subprocess.Popen([sys.executable, "-I", str(BENCH / "compare_vanilla_mcp.py"), "serve"], stdin=subprocess.PIPE,
+                            stdout=subprocess.PIPE, text=True, env=env)
+    try:
+        init = _mcp_rpc(proc, 1, "initialize", {"protocolVersion": "2025-06-18"})["result"]
+        assert init["serverInfo"]["name"] == "blender" and init["protocolVersion"] == "2025-06-18"
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
+        tools = _mcp_rpc(proc, 2, "tools/list")["result"]["tools"]
+        assert [t["name"] for t in tools] == ["get_scene_info", "get_object_info", "execute_blender_code",
+                                              "get_viewport_screenshot"]
+        res = _mcp_rpc(proc, 3, "tools/call", {"name": "execute_blender_code", "arguments": {"code": "print(1)"}})["result"]
+        assert res["isError"] and res["content"][0]["text"].startswith("Error:")
+        assert _mcp_rpc(proc, 4, "nope")["error"]["code"] == -32601
+    finally:
+        proc.stdin.close()
+        proc.wait(30)
+    log = [json.loads(x) for x in (tmp_path / "vanilla_mcp_calls.jsonl").read_text().splitlines()]
+    assert log[0]["tool"] == "execute_blender_code" and log[0]["error"]
+    text = (BENCH / "compare_vanilla_mcp.py").read_text()
+    assert "antigravity3d" not in text.split('"""', 2)[2]  # nothing of this project is imported or named in its code
+
+
+def test_the_stock_harness_offloads_an_mcp_image_to_a_file_the_agent_must_open(ca, tmp_path):
+    """Why arm V's screenshot reaches the model in two steps (UNFAIR): measured with a two-tool stdio MCP server."""
+    from google.antigravity import Agent, types
+    from google.antigravity.connections.local.local_connection_config import LocalAgentConfig
+    from google.antigravity.hooks import policy
+    from google.antigravity.models import GeminiAPIEndpoint, ModelTarget, ModelType
+
+    import base64
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    # 128 px of noise, 65 KB: a real screenshot is larger still (a 256 px Workbench render of a cube: 53 KB). Measured with
+    # this SDK, an MCP image is put inline only while its base64 is under somewhere between 9.4 KB (inline) and 16.6 KB
+    # (offloaded): a 4 px or a 512 px flat-grey PNG reaches the model directly; any useful render does not.
+    buf = io.BytesIO()
+    Image.fromarray((np.random.default_rng(0).random((128, 128, 3)) * 255).astype("uint8")).save(buf, "PNG")
+    server = tmp_path / "img_server.py"
+    png = base64.b64encode(buf.getvalue()).decode()
+    server.write_text(f'''import json, sys
+for line in sys.stdin:
+    m = json.loads(line)
+    if "id" not in m: continue
+    r = {{"protocolVersion": m.get("params", {{}}).get("protocolVersion"), "capabilities": {{"tools": {{}}}}, "serverInfo": {{"name": "img", "version": "1"}}}} if m["method"] == "initialize" else \\
+        {{"tools": [{{"name": "shot", "description": "an image", "inputSchema": {{"type": "object", "properties": {{}}}}}}]}} if m["method"] == "tools/list" else \\
+        {{"content": [{{"type": "image", "data": "{png}", "mimeType": "image/png"}}], "isError": False}}
+    print(json.dumps({{"jsonrpc": "2.0", "id": m["id"], "result": r}}), flush=True)
+''')
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    script = [ca._fc("call_mcp_tool", ServerName="img", ToolName="shot", Arguments={}, toolSummary="s", toolAction="a"),
+              ca._fc("view_file", AbsolutePath="{media}", toolSummary="s", toolAction="a"), {"parts": [{"text": "done"}]}]
+    fake = ca.FakeUpstream({"m": script})
+    try:
+        acc = ca.Relay(ca.Ledger(tmp_path / "l.json"), fake.url, None, fake=True).open("m", 500_000, 0, tmp_path / "m", sandboxed=False)
+        ep = GeminiAPIEndpoint(base_url=acc.endpoint, api_key="x")
+        cfg = LocalAgentConfig(models=[ModelTarget(name="gemini-4-hydrogen", types=[ModelType.TEXT], endpoint=ep),
+                                       ModelTarget(name="img", types=[ModelType.IMAGE], endpoint=ep)],
+                               policies=[policy.workspace_only([str(ws)]), policy.allow_all()], workspaces=[str(ws)],
+                               app_data_dir=str(tmp_path / "app"), save_dir=str(tmp_path / "s"),
+                               mcp_servers=[types.McpStdioServer(name="img", command=sys.executable, args=["-I", str(server)])])
+
+        async def go() -> None:
+            async with Agent(cfg) as agent:
+                await (await agent.chat("hi")).text()
+
+        asyncio.run(asyncio.wait_for(go(), 120))
+        bodies = [json.dumps((r["body"].get("contents") or [{}])[-1]) for r in fake.requests]
+    finally:
+        fake.close()
+    after_tool, after_view = bodies[1], bodies[2]
+    assert "inlineData" not in after_tool and "Resource offloaded to file://" in after_tool  # a path, not the picture
+    assert "inlineData" in after_view  # the picture arrives once the agent opens the file
+
+
+def _blender_display() -> str | None:
+    if not os.environ.get("BLENDER_BIN"):
+        return "needs BLENDER_BIN (a real Blender: arm V's server drives it)"
+    if not Path("/usr/bin/Xvfb").exists():
+        return "needs Xvfb (the screenshot is Blender's Workbench renderer)"
+    return None
+
+
+def test_vanilla_arm_runs_in_the_sandbox_and_reaches_blender_only_through_its_mcp_server(ca, ce, tmp_path):
+    """Arm V against a scripted model: the MCP server and its Blender run inside the sandbox (same network namespace,
+    no key, as nobody), Blender is not on PATH, the asset is built and exported in the live session, and the screenshot
+    reaches the model after it opens the offloaded file."""
+    if (why := _can_sandbox() or _blender_display()) is not None:
+        pytest.skip(why)
+    os.chmod(tmp_path, 0o755)
+    root = tmp_path / "pilot"
+    fake = ca.FakeUpstream({ca.cell_name("crate", "V"): ca.scripted_vanilla_agent()})
+    try:
+        relay = ca.Relay(ca.Ledger(root / "ledger.json"), fake.url, None, fake=True)
+        rec = ca.run_stock(relay, root, ca.BRIEF_BY_ID["crate"], "V", wall_s=600)
+        last = json.dumps(fake.requests[-1]["body"]["contents"][-1])
+    finally:
+        fake.close()
+    assert rec.status == "finished", rec
+    assert rec.blender_invocations == 0 and rec.pipeline["mcp_tools"] == {"get_scene_info": 1, "execute_blender_code": 1,
+                                                                          "get_viewport_screenshot": 1}
+    v = rec.pipeline["vanilla"]
+    assert v["errors"] == 0 and v["screenshots"] == 1 and v["screenshots_opened"] == 1
+    assert "inlineData" in last  # the screenshot reached the model
+    run = root / "runs" / ca.cell_name("crate", "V").replace(":", "_")
+    probes = None
+    for line in (run / "transcript.jsonl").read_text().splitlines():
+        for part in json.loads(line)["sent_last"].get("parts", []):
+            out = ((part.get("functionResponse") or {}).get("response") or {}).get("output", "")
+            if "VANILLA_PROBES {" in out:
+                probes = json.loads(out.split("VANILLA_PROBES ", 1)[1].splitlines()[0])
+    assert probes == {"blender_on_path": None, "mcp_server_found": True, "mcp_server_same_netns": True,
+                      "mcp_server_secret_env": [], "mcp_server_uid": 65534, "blender_found": True,
+                      "blender_same_netns": True, "blender_secret_env": [], "blender_uid": 65534}
+    first = json.loads((run / "relay_calls.jsonl").read_text().splitlines()[0])
+    assert "call_mcp_tool" in first["tool_names"] and "search_web" not in first["tool_names"]
+    assert "MCP server `blender`" in json.dumps(fake.requests[0]["body"])
+    assert ce.glb_facts(Path(rec.glb))["triangles"] == 12  # exported from the live session
+
+
+# ----------------------------------------------------------------------------------------------- round 5: the scorecard
+
+
+def _boxes_glb(path: Path, boxes: list[tuple[tuple[float, float, float], tuple[float, float, float]]],
+               names: list[str] | None = None) -> Path:
+    """A GLB with one node per box ((centre), (size)): positions only, enough for parts, diffs and collision facts."""
+    import struct
+
+    import numpy as np
+
+    blob, accessors, views, meshes, nodes = b"", [], [], [], []
+    corners = np.array([[x, y, z] for x in (-.5, .5) for y in (-.5, .5) for z in (-.5, .5)], np.float32)
+    faces = np.array([[0, 1, 3], [0, 3, 2], [4, 6, 7], [4, 7, 5], [0, 4, 5], [0, 5, 1], [2, 3, 7], [2, 7, 6],
+                      [0, 2, 6], [0, 6, 4], [1, 5, 7], [1, 7, 3]], np.uint16)
+    for i, (c, sz) in enumerate(boxes):
+        pos = (corners * np.array(sz, np.float32) + np.array(c, np.float32)).astype(np.float32)
+        for arr, target in ((pos, 34962), (faces, 34963)):
+            views.append({"buffer": 0, "byteOffset": len(blob), "byteLength": arr.nbytes, "target": target})
+            blob += arr.tobytes()
+            while len(blob) % 4:
+                blob += b"\0"
+        accessors.append({"bufferView": len(views) - 2, "componentType": 5126, "count": 8, "type": "VEC3",
+                          "min": pos.min(0).tolist(), "max": pos.max(0).tolist()})
+        accessors.append({"bufferView": len(views) - 1, "componentType": 5123, "count": 36, "type": "SCALAR"})
+        meshes.append({"primitives": [{"attributes": {"POSITION": len(accessors) - 2}, "indices": len(accessors) - 1}]})
+        nodes.append({"name": (names or [])[i] if names else f"part{i}", "mesh": i})
+    doc = {"asset": {"version": "2.0"}, "scene": 0, "scenes": [{"nodes": list(range(len(nodes)))}], "nodes": nodes,
+           "meshes": meshes, "accessors": accessors, "bufferViews": views, "buffers": [{"byteLength": len(blob)}]}
+    js = json.dumps(doc).encode()
+    while len(js) % 4:
+        js += b" "
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(struct.pack("<III", 0x46546C67, 2, 28 + len(js) + len(blob)) + struct.pack("<II", len(js), 0x4E4F534A)
+                     + js + struct.pack("<II", len(blob), 0x004E4942) + blob)
+    return path
+
+
+def test_package_diff_finds_the_parts_resized_as_asked_and_everything_else_that_changed(ce, tmp_path):
+    body, h1, h2, lid = ((0, .3, 0), (.8, .6, .5)), ((-.45, .3, 0), (.1, .1, .2)), ((.45, .3, 0), (.1, .1, .2)), ((0, .62, 0), (.8, .04, .5))
+    before = _boxes_glb(tmp_path / "a.glb", [body, h1, h2, lid])
+    asked = _boxes_glb(tmp_path / "b.glb", [body, (h1[0], (.13, .13, .26)), (h2[0], (.13, .13, .26)), lid])
+    d = ce.package_diff(before, asked, target_ratio=1.3)
+    assert d["parts"] == [4, 4] and d["unchanged"] == 2 and d["on_target"] == 2 and d["collateral"] == 0
+    assert all(c["size_ratio_xyz"] == [1.3, 1.3, 1.3] for c in d["changed"])
+    sloppy = _boxes_glb(tmp_path / "c.glb", [body, (h1[0], (.13, .13, .26)), (h2[0], (.13, .13, .26)),
+                                             ((0, .64, 0), (.8, .04, .5)), ((0, .7, 0), (.1, .1, .1))])
+    d = ce.package_diff(before, sloppy, target_ratio=1.3)
+    assert d["on_target"] == 2 and d["added"] == 1 and d["collateral"] == 2  # the lid moved, a part appeared
+    assert ce.package_diff(before, before, target_ratio=1.3)["changed"] == []
+
+
+def test_collision_facts_tell_a_simple_hull_from_a_concave_or_visible_one(ce, tmp_path):
+    glb = _boxes_glb(tmp_path / "x.glb", [((0, .3, 0), (.8, .6, .5)), ((0, .3, 0), (.8, .6, .5)), ((0, .3, 0), (.8, .6, .5))],
+                     names=["crate", "crate-colonly", "crate-col"])
+    f = ce.glb_facts(glb)
+    assert f["triangles"] == 12 and f["collision_nodes_in_main"] == ["crate-colonly", "crate-col"]
+    cols = {c["node"]: c for c in f["collision_meshes"]}
+    assert cols["crate-colonly"]["simple"] and cols["crate-colonly"]["godot_suffix"] == "-colonly"
+    assert cols["crate-col"]["godot_suffix"] == "-col"
+    assert ce.texture_memory([{"width": 1024, "height": 1024, "mode": "RGB", "roles": ["baseColor"]},
+                              {"width": 1024, "height": 1024, "mode": "RGB", "roles": ["normal"]}]) == \
+        {"rgba8_mips_bytes": 2 * 1024 * 1024 * 4 * 4 // 3, "vram_bytes_godot_default": int(1024 * 1024 * 1.5 * 4 / 3), "images": 2}
+
+
+def _evaluation(ce, suffix: str | None, *, maps: bool = True, collision_file: bool = False) -> dict:
+    col = [{"node": f"x{suffix}", "vertices": 8, "convex": True, "simple": True, "godot_suffix": suffix}] if suffix else []
+    return {"usable": True, "glb_exists": True,
+            "facts": {"triangles": 900, "within_tri_budget": True, "scale_plausible": True, "upright": None, "grounded": True,
+                      "centred_xz": True, "draw_calls": 2, "materials": 1, "pbr_complete": maps,
+                      "uv": {"primitives_with_uv": 2, "primitives": 2, "verts_outside_0_1_frac": 0.0,
+                             "by_material": {"0": {"overlap_frac": 0.0, "coverage_frac": 0.5}}},
+                      "material_list": [{"textures": {"baseColor": 0, "normal": 1, "metallicRoughness": 2}}] if maps else [],
+                      "images": [{"index": i, "roles": [role], "width": 2, "height": 2, "mode": "RGB"}
+                                 for i, role in enumerate(("baseColor", "normal", "metallicRoughness"))] if maps else [],
+                      "collision_meshes": col, "texture_memory": {"rgba8_mips_bytes": 1}},
+            "godot": {"ok": True}, "three": {"ok": True},
+            "upstream": {"available": True, "qa_check": {"pass": True},
+                         "texel_density": {"objects": {"x": {"spread": 1.2}, "x-col": {"spread": 9.0}}}},
+            "lods": [{"file": "x_LOD1.glb", "triangles": 400, "valid": True}],
+            "collision_files": [{"file": "x_colliders.glb", "simple": True}] if collision_file else [],
+            "package": {"bytes": 1000}, "install": {"available": False, "reason": "not available in this tree"},
+            "provenance": {"present": False, "reason": "no package manifest"}}
+
+
+def test_the_scorecard_applies_each_rule_and_counts_the_hand_steps_godot_would_leave(ca, ce, tmp_path):
+    recs = [{"brief": "crate", "arm": a, "status": "finished", "glb": "/x.glb", "wall_s": 10, "model_calls": 5,
+             "tokens": {"total": 100}, "images": 0, "pipeline": {}} for a in ("V", "A", "C")]
+    results = {"records": recs, "evaluation": {"crate:V": _evaluation(ce, "-colonly"), "crate:A": _evaluation(ce, "-col", maps=False),
+                                               "crate:C": _evaluation(ce, None, collision_file=True)},
+               "changes": [{"brief": "crate", "arm": "V", "status": "finished", "wall_s": 5, "model_calls": 3, "tokens": {"total": 50},
+                            "pipeline": {"diff": {"changed": [{}, {}], "on_target": 2, "collateral": 0, "unchanged": 30}}}],
+               "judge": {"aggregate": {"crate:A-V": {"result": {"overall": "V"}}}}}
+    sc = ce.scorecard(tmp_path, results, ca.BRIEF_BY_ID, "r5")
+    v, a, c = sc["cells"]["crate:V"], sc["cells"]["crate:A"], sc["cells"]["crate:C"]
+    assert v["game_ready_rate"] == {"value": "11/11", "pass": True} and v["texel_even"]["pass"]  # the collider's spread is not counted
+    assert v["hand_steps"]["value"]["count"] == 1  # bring it in; -colonly is collision on import
+    assert a["maps"]["pass"] is False and a["hand_steps"]["value"]["steps"][1:] == [
+        "wire or fix the materials", "hide the collision mesh Godot keeps visible (-col / -convcol)"]
+    assert c["hand_steps"]["value"]["steps"][1:] == ["attach the delivered collision file to the scene"]
+    assert v["change_scope"]["pass"] and a["change"]["value"] == "not run" and v["judge"]["value"] == {"A": "V"}
+    assert v["same_bytes"] == {"pass": None, "value": "not offered"} and c["same_bytes"]["value"] == "not run"
+    assert all(cell["installed"]["pass"] is None for cell in sc["cells"].values())  # not in this tree: no pass, no fail
+    kinds = {r["id"]: r["kind"] for r in sc["rows"]}
+    assert {k for k, x in kinds.items() if x == "project"} == {"installed", "same_bytes", "provenance"}
+    assert all(r["rule"] for r in sc["rows"]) and (tmp_path / "scorecard_r5.json").exists()
+
+
+# ----------------------------------------------------------------------------------------------- round 5: change requests
+
+
+def test_a_change_request_runs_over_a_copy_of_the_first_delivery_and_the_two_packages_are_compared(ca, tmp_path, monkeypatch):
+    if (why := _can_sandbox()) is not None:
+        pytest.skip(why)
+    if not os.environ.get("BLENDER_BIN"):
+        stand_in = tmp_path / "no-blender"
+        stand_in.mkdir()
+        (stand_in / "blender").write_text("#!/bin/sh\nexit 1\n")
+        monkeypatch.setenv("BLENDER_BIN", str(stand_in / "blender"))
+    os.chmod(tmp_path, 0o755)
+    root = tmp_path / "pilot"
+    brief = ca.BRIEF_BY_ID["crate"]
+    idle = [ca._fc("run_command", CommandLine="ls output", Cwd="/home/agent/project"), {"parts": [{"text": "nothing to do"}]}]
+    fake = ca.FakeUpstream({ca.cell_name("crate", "A"): ca.scripted_agent(use_blender=False),
+                            ca.change_name("crate", "A"): ca.scripted_change("A", use_blender=False),
+                            ca.cell_name("hydrant", "A"): ca.scripted_agent(use_blender=False),
+                            ca.change_name("hydrant", "A"): idle})
+    try:
+        relay = ca.Relay(ca.Ledger(root / "ledger.json"), fake.url, None, fake=True)
+        first = ca.run_stock(relay, root, brief, "A", wall_s=300)
+        before = Path(first.glb).read_bytes()
+        rec = ca.run_change(relay, root, brief, "A", wall_s=300)
+        ca.run_stock(relay, root, ca.BRIEF_BY_ID["hydrant"], "A", wall_s=300)
+        nothing = ca.run_change(relay, root, ca.BRIEF_BY_ID["hydrant"], "A", wall_s=300)
+    finally:
+        fake.close()
+    assert rec.status == "finished" and rec.phase == "change" and rec.account == "r5:crate:A.change"
+    assert Path(first.glb).read_bytes() == before and rec.glb != first.glb  # the first delivery is untouched
+    d = rec.pipeline["diff"]
+    assert d["on_target"] == 1 and d["collateral"] == 0 and d["changed"][0]["size_ratio_xyz"] == [1.3, 1.3, 1.3]
+    task = json.loads((root / "runs" / "r5_crate_A.change" / "ctl" / "config.json").read_text())["task"]
+    assert "Change request: make the two side handles 30 % larger." in task and "output/crate.glb" in task
+    assert relay.ledger.data["accounts"]["r5:crate:A.change"]["share_tokens"] == 600_000
+    assert nothing.status == "gave up" and "diff" not in nothing.pipeline  # the copied first GLB is not a delivery
+    assert [r.phase for r in ca.collect_records(root)] == ["first", "first"]  # changes are not merged into the cells
+    assert {r.brief for r in ca.collect_changes(root)} == {"crate", "hydrant"}
+
+
+def test_arm_c_change_appends_the_request_to_its_command_and_starts_from_the_first_runs_cache(ca, tmp_path, monkeypatch):
+    """The path kept for comparison (C_CHANGE_MODE=append, a new design); the command is captured, not run."""
+    monkeypatch.setattr(ca, "C_CHANGE_MODE", "append")
+    seen = {}
+
+    class FakeProc:
+        def __init__(self, cmd, **kw):
+            seen["cmd"] = cmd
+            self.pid = os.getpid()
+
+        def wait(self, timeout=None):
+            return 2
+
+    monkeypatch.setattr(ca.subprocess, "Popen", FakeProc)
+    monkeypatch.setattr(ca, "c_mode", lambda src, n: (False, [], []))
+    root = tmp_path / "pilot"
+    first_dir = root / "runs" / "r5_crate_C"
+    out = first_dir / "out"
+    glb = _boxes_glb(out / "runs" / "tmpx" / "Crate" / "Crate.glb", [((0, .3, 0), (.8, .6, .5))])
+    (out / ".agy3d-cache" / "ab").mkdir(parents=True)
+    (out / ".agy3d-cache" / "ab" / "design").write_text("recorded")
+    (out / "report.json").write_text("{}")
+    (first_dir / "record.json").write_text(json.dumps({"brief": "crate", "arm": "C", "status": "finished", "glb": str(glb)}))
+    relay = ca.Relay(ca.Ledger(root / "ledger.json"), "http://127.0.0.1:9", None, fake=True)
+    rec = ca.run_change(relay, root, ca.BRIEF_BY_ID["crate"], "C", offline=False)
+    cmd = seen["cmd"]
+    assert cmd[cmd.index("prop") + 1] == ca.BRIEF_BY_ID["crate"].prompt + ". Change: make the two side handles 30 % larger"
+    new_out = Path(cmd[cmd.index("--out") + 1])
+    assert new_out == root / "runs" / "r5_crate_C.change" / "out"
+    assert (new_out / ".agy3d-cache" / "ab" / "design").read_text() == "recorded"  # the design record and images
+    assert not (new_out / "report.json").exists() and not (new_out / "runs").exists()  # not the first package
+    assert rec.status != "finished" and rec.glb is None and rec.pipeline["change_mode"] == "append"
+    assert cmd[cmd.index("--token-ceiling") + 1] == str(250_000 - ca.C_TOKEN_MARGIN)
+
+
+def test_arm_c_repeat_runs_the_same_command_on_a_copy_of_the_first_runs_cache(ca, tmp_path, monkeypatch):
+    """The repeat (same request, same bytes?): the first run's command again, with only --out and --token-ceiling
+    different, on a new folder seeded with the first run's design record and image cache (OUT/.agy3d-cache), nothing
+    else of it. What the command then reuses is tests/test_rerun_record.py (the same seeding, the command run)."""
+    seen = {}
+
+    class FakeProc:
+        def __init__(self, cmd, **kw):
+            seen["cmd"] = cmd
+            self.pid = os.getpid()
+
+        def wait(self, timeout=None):
+            return 2
+
+    monkeypatch.setattr(ca.subprocess, "Popen", FakeProc)
+    monkeypatch.setattr(ca, "c_mode", lambda src, n: (False, [], []))
+    root = tmp_path / "pilot"
+    first_dir = root / "runs" / "r5_crate_C"
+    out = first_dir / "out"
+    glb = _boxes_glb(out / "runs" / "tmpx" / "Crate" / "Crate.glb", [((0, .3, 0), (.8, .6, .5))])
+    (out / ".agy3d-cache" / "de" / "si").mkdir(parents=True)
+    (out / ".agy3d-cache" / "de" / "si" / "design-x").write_text("recorded")
+    (out / "report.json").write_text("{}")
+    (first_dir / "record.json").write_text(json.dumps({"brief": "crate", "arm": "C", "status": "finished", "glb": str(glb)}))
+    relay = ca.Relay(ca.Ledger(root / "ledger.json"), "http://127.0.0.1:9", None, fake=True)
+    ca.run_repeat(relay, root, ca.BRIEF_BY_ID["crate"])
+    cmd = seen["cmd"]
+    new_out = Path(cmd[cmd.index("--out") + 1])
+    assert new_out == root / "runs" / "r5_crate_C.repeat" / "out"
+    assert cmd[cmd.index("prop") + 1] == ca.BRIEF_BY_ID["crate"].prompt  # the same request, unchanged
+    assert (new_out / ".agy3d-cache" / "de" / "si" / "design-x").read_text() == "recorded"
+    assert not (new_out / "report.json").exists() and not (new_out / "runs").exists()  # only the cache is carried over
+
+
+def test_arm_c_change_edits_a_copy_of_the_first_runs_output_folder(ca, tmp_path, monkeypatch):
+    """The default path for C (C_CHANGE_MODE=edit): ``agy3d edit`` on a copy of the whole first output folder (its report
+    names the package that shipped), without its asset ledger, with the change account's tokens and no image."""
+    assert ca.C_CHANGE_MODE == "edit"
+    seen = {}
+
+    class FakeProc:
+        def __init__(self, cmd, **kw):
+            seen["cmd"] = cmd
+            self.pid = os.getpid()
+
+        def wait(self, timeout=None):
+            return 1
+
+    monkeypatch.setattr(ca.subprocess, "Popen", FakeProc)
+    root = tmp_path / "pilot"
+    first_dir = root / "runs" / "r5_crate_C"
+    out = first_dir / "out"
+    glb = _boxes_glb(out / "runs" / "tmpx" / "Crate" / "Crate.glb", [((0, .3, 0), (.8, .6, .5))])
+    (out / "ledgers" / "k").mkdir(parents=True)
+    (out / "report.json").write_text(json.dumps({"outputs": {"glb": str(glb)}}))
+    (first_dir / "record.json").write_text(json.dumps({"brief": "crate", "arm": "C", "status": "finished", "glb": str(glb)}))
+    relay = ca.Relay(ca.Ledger(root / "ledger.json"), "http://127.0.0.1:9", None, fake=True)
+    rec = ca.run_change(relay, root, ca.BRIEF_BY_ID["crate"], "C", offline=False)
+    cmd = seen["cmd"]
+    new_out = root / "runs" / "r5_crate_C.change" / "out"
+    assert cmd[cmd.index("edit"):cmd.index("edit") + 3] == ["edit", str(new_out), "make the two side handles 30 % larger"]
+    assert (new_out / "report.json").is_file() and (new_out / "runs" / "tmpx" / "Crate" / "Crate.glb").is_file()
+    assert not (new_out / "ledgers").exists()
+    assert cmd[cmd.index("--max-images") + 1] == "0" and cmd[cmd.index("--token-ceiling") + 1] == str(250_000 - ca.C_TOKEN_MARGIN)
+    # the command made no edit (exit 1, the report still names the first package): no delivery, nothing compared
+    assert rec.status == "gave up" and rec.glb is None and "diff" not in rec.pipeline and rec.pipeline["change_mode"] == "edit"
+
+
+def test_a_call_the_service_turns_away_costs_the_arm_nothing_and_a_broken_one_is_recorded_as_the_services(ca, tmp_path):
+    """Tonight's service: 503s and mid-call breaks. A 503 is released (nothing generated, nothing booked); a server error
+    keeps its reservation (what was billed is unknown); both are logged as the service's, and run_conditions says so."""
+    class Busy(ca.FakeUpstream):
+        def answer(self, acct, path, body):
+            if acct == "busy":
+                return 503, "application/json", b'{"error": {"code": 503, "message": "overloaded"}}'
+            if acct == "err":
+                return 500, "application/json", b'{"error": {"code": 500, "message": "internal"}}'
+            return super().answer(acct, path, body)
+
+    fake = Busy()
+    try:
+        led = ca.Ledger(tmp_path / "l.json")
+        relay = ca.Relay(led, fake.url, None, fake=True)
+        body = {"contents": [{"parts": [{"text": "x"}]}], "generationConfig": {"maxOutputTokens": 1000}}
+        for name in ("busy", "err"):
+            acc = relay.open(name, 50_000, 0, tmp_path / name, sandboxed=False)
+            assert _post(acc.endpoint, "/v1beta/models/gemini-4-hydrogen:generateContent", body)[0] in (503, 500)
+    finally:
+        fake.close()
+    assert ca.Ledger.used_tokens(led.data["accounts"]["busy"]) == 0 and led.data["accounts"]["busy"]["inflight_tokens"] == 0
+    assert ca.Ledger.used_tokens(led.data["accounts"]["err"]) > 0  # unknown: kept booked
+    busy, err = ca.run_conditions(tmp_path / "busy"), ca.run_conditions(tmp_path / "err")
+    assert busy["service_failures"]["turned away"] == 1 and busy["last_call_service_failure"] == "turned away"
+    assert err["service_failures"]["server error"] == 1
+
+
+def test_the_command_runs_in_its_default_candidate_mode_when_no_image_is_allowed(ca):
+    """With no images at all the command has a mode of its own that needs none (--max-images 0), so the harness must
+    not force one first design; with a few images, fewer than a plan's base need, it still does."""
+    src = Path(__file__).resolve().parents[1] / "src"
+    single0, default_lines, single_lines = ca.c_mode(src, 0)
+    assert default_lines and single_lines, "this tree's planner is read"
+    assert single0 is False
+    needs = [int(x.split("up to ")[1].split(" image")[0]) for x in default_lines if "up to " in x]
+    assert ca.c_mode(src, max(needs) - 1)[0] is True
+    assert ca.c_mode(src, max(needs))[0] is False
+
+
+def test_the_harness_answers_the_limits_question_for_a_reopened_asset_as_for_a_new_one(ca):
+    """Spending is not the agent's choice, and nobody can be asked in a headless run: the harness answers with the
+    run's share. It did so for open_asset_session and start_preview only. A change request starts with
+    open_existing_asset: that session was not a preview, its delivery was refused for lack of the calibrated judge, the
+    agent rightly would not choose limits itself, and arm N's change request ran to its token share with nothing
+    delivered (live 2026-11-22, r5/live_rerun_N: 260 s, 1,171,112 tokens)."""
+    sb = _load("compare_sandbox")
+    limits = {"tokens": 1_250_000, "images": 0}
+    want = {"preview": True, "token_ceiling": 1_250_000, "max_images": 0}
+    for tool in ("open_asset_session", "open_existing_asset"):
+        args, refusal = sb.answer_limits(tool, {"path": "pkg", "conversation_id": "c"}, limits)
+        assert refusal is None and args == {"path": "pkg", "conversation_id": "c", **want}, tool
+        args, refusal = sb.answer_limits(tool, {"preview": True, "token_ceiling": 9_000_000, "max_images": 4}, limits)
+        assert args is None and refusal == "The user's limits for this preview are 1250000 tokens and 0 images; use exactly those.", tool
+    args, refusal = sb.answer_limits("start_preview", {"token_ceiling": 1_250_000, "max_images": 0}, limits)
+    assert refusal is None and args == {"token_ceiling": 1_250_000, "max_images": 0}  # a switch, not an open: no preview flag
+    assert sb.answer_limits("apply_scene_ir", {"ops": []}, limits) == (None, None)
+    assert sb.answer_limits("", {}, limits) == (None, None)  # not an MCP call

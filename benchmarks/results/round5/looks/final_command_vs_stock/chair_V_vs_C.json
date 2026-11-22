@@ -1,0 +1,217 @@
+{
+ "model": "gemini-4-carbon",
+ "thinking": "low",
+ "brief_id": "chair",
+ "brief": "a wooden Windsor chair with a spindle back",
+ "sheets": {
+  "A": "<scratch>/r5/live_scorecard/eval/r5/chair/V/sheet.png",
+  "C": "<scratch>/r5/live_final_C/eval/r5/chair/C/sheet.png"
+ },
+ "calls": [
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3241,
+    "output": 196,
+    "thinking": null,
+    "total": 3437
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Model 1 features the classic sack-back hoop and sculpted saddle seat iconic to Windsor chairs, whereas Model 2 reads more generically."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Model 1 has realistic component thicknesses and seat shaping, while Model 2 has an overly thick, blocky seat slab."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Model 1 displays natural wood grain variation and believable specular sheen, whereas Model 2 has uniform, repetitive striping across the seat."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Model 1 has clean textures and geometry, while Model 2 shows unnatural procedural texture banding across the seat top and edges."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Model 1 better captures the iconic Windsor chair silhouette, proportions, and wood material quality without texture artifacts."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3241,
+    "output": 197,
+    "thinking": null,
+    "total": 3438
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Image 2 exemplifies the classic bow-back and saddle-seat Windsor chair silhouette more authentically than the generic kitchen chair design in Image 1."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both have realistic overall scale next to the reference block, though Image 2 displays more accurate slender spindle and sculpted seat proportions."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 features more natural wood grain variation and believable specular highlights compared to the flat, overly uniform striping in Image 1."
+     },
+     "defects": {
+      "winner": "tie",
+      "reason": "Both models exhibit clean geometry, solid connections, and well-mapped textures without noticeable rendering or mesh artifacts."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Image 2 wins overall due to its iconic Windsor chair design, refined proportions, and superior wood material presentation."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3241,
+    "output": 187,
+    "thinking": null,
+    "total": 3428
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Model 1 features the iconic hoop-and-arm Windsor silhouette and saddle seat, reading more distinctly than Model 2."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Model 1 has realistic thin spindles and carved seat thickness, whereas Model 2 has overly thick, blocky components."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Model 1 shows richer wood grain variation and realistic sheen, while Model 2 has flat, repetitive striping."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Model 1 has clean UV mapping, whereas Model 2 displays stretched wood grain along the seat edges."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Model 1 is superior across all categories, offering an iconic Windsor design with realistic proportions and cleaner wood texturing."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3241,
+    "output": 204,
+    "thinking": null,
+    "total": 3445
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Image 2 captures the iconic bow-back, saddle seat, and splayed legs of a classic Windsor chair more accurately than Image 1."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both chairs have appropriate real-world height next to the 1.8m block, though Image 2 features better component thickness and seat-to-back proportions."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 shows richer wood grain variation and a more convincing glossy finish compared to the flatter, repetitive striping on Image 1."
+     },
+     "defects": {
+      "winner": "tie",
+      "reason": "Both assets exhibit clean geometry, solid intersections, and consistent UV mapping without visible mesh or shading errors."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Image 2 is the stronger asset due to its authentic Windsor silhouette, superior proportions, and more realistic wood material."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3241,
+    "output": 198,
+    "thinking": null,
+    "total": 3439
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 features a classic bow-back and saddle-seat Windsor silhouette, whereas Image 2 looks more like a generic kitchen spindle chair."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Image 1 has delicate, authentic spindle and leg proportions, while Image 2 has overly thick, blocky seat and leg elements."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 has more natural wood grain variation and sheen, whereas Image 2 displays uniform, repetitive striping across the seat."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 2 has cleaner geometry intersections, whereas Image 1 has spindles awkwardly poking through the armrest bow."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 captures the iconic Windsor chair design, proportions, and wood material much more convincingly despite minor spindle intersection issues."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3241,
+    "output": 199,
+    "thinking": null,
+    "total": 3440
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Model 2 captures the iconic bow-back, continuous arm, and saddled seat characteristic of a traditional Windsor chair, whereas Model 1 reads more like a standard comb-back dining chair."
+     },
+     "proportion_scale": {
+      "winner": "tie",
+      "reason": "Both chairs sit at a realistic ~0.95 m total height against the 1.8 m reference block with believable structural proportions."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Model 2 displays richer wood grain variation and more convincing glossiness, while Model 1 has uniform, repetitive striping."
+     },
+     "defects": {
+      "winner": "tie",
+      "reason": "Both models exhibit clean geometry, solid intersections, and artifact-free shading across all views."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Model 2 is a more recognizable Windsor chair design and features superior wood material definition."
+    }
+   }
+  }
+ ],
+ "total_tokens": 20627
+}

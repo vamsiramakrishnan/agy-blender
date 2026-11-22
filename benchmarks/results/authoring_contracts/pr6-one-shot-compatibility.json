@@ -1,0 +1,238 @@
+{
+  "base_head": "a75ed4a1b27f25cdf29b167c8cfd2b131e0e122e",
+  "method": "AST-extract original pure task builders and canonical guidance; compare UTF-8 bytes with merged implementation",
+  "live_model_calls": 0,
+  "source": "src/antigravity3d/tactics/metered_author.py",
+  "guidance": {
+    "name": "canonical production guidance",
+    "byte_identical": true,
+    "utf8_bytes": 2362,
+    "before_sha256": "c11d8345c6626bc1034bcde95c8cab44a7b0f05aeb7c403275d806869ab11e6c",
+    "after_sha256": "c11d8345c6626bc1034bcde95c8cab44a7b0f05aeb7c403275d806869ab11e6c",
+    "characters": 2362
+  },
+  "proposal_cases": [
+    {
+      "name": "production prop",
+      "references": true,
+      "kit": false,
+      "byte_identical": true,
+      "utf8_bytes": 2539,
+      "before_sha256": "aa49f2f8662f591368bfe8e456148a24103dc9b3539011935727016ef672dbaa",
+      "after_sha256": "aa49f2f8662f591368bfe8e456148a24103dc9b3539011935727016ef672dbaa"
+    },
+    {
+      "name": "metric-led kit piece",
+      "references": true,
+      "kit": true,
+      "byte_identical": true,
+      "utf8_bytes": 205,
+      "before_sha256": "a2a31bb8da7dac5efc002686bcce17a8767df4fbd98152010ed86cfcaa34e633",
+      "after_sha256": "a2a31bb8da7dac5efc002686bcce17a8767df4fbd98152010ed86cfcaa34e633"
+    }
+  ],
+  "proposal_count": 2,
+  "repair_cases": [
+    {
+      "name": "None",
+      "views": false,
+      "previous_attempt": false,
+      "blueprint": false,
+      "byte_identical": true,
+      "utf8_bytes": 239,
+      "before_sha256": "8f3e9dba6c2f736ef3b6cd44455c59a158f0a0d5238359ee624343a7a3037815",
+      "after_sha256": "8f3e9dba6c2f736ef3b6cd44455c59a158f0a0d5238359ee624343a7a3037815"
+    },
+    {
+      "name": "None",
+      "views": false,
+      "previous_attempt": false,
+      "blueprint": true,
+      "byte_identical": true,
+      "utf8_bytes": 239,
+      "before_sha256": "8f3e9dba6c2f736ef3b6cd44455c59a158f0a0d5238359ee624343a7a3037815",
+      "after_sha256": "8f3e9dba6c2f736ef3b6cd44455c59a158f0a0d5238359ee624343a7a3037815"
+    },
+    {
+      "name": "None",
+      "views": true,
+      "previous_attempt": true,
+      "blueprint": false,
+      "byte_identical": true,
+      "utf8_bytes": 624,
+      "before_sha256": "889dafbd083e3adda554cc9910eebc04f61544d20373d3aee30debef67a59acf",
+      "after_sha256": "889dafbd083e3adda554cc9910eebc04f61544d20373d3aee30debef67a59acf"
+    },
+    {
+      "name": "None",
+      "views": true,
+      "previous_attempt": true,
+      "blueprint": true,
+      "byte_identical": true,
+      "utf8_bytes": 697,
+      "before_sha256": "a1425c062b03a4c54b09a1402893ae74590e1c24d6a4fe1eb2f2af4622f584e1",
+      "after_sha256": "a1425c062b03a4c54b09a1402893ae74590e1c24d6a4fe1eb2f2af4622f584e1"
+    },
+    {
+      "name": "empty",
+      "views": false,
+      "previous_attempt": false,
+      "blueprint": false,
+      "byte_identical": true,
+      "utf8_bytes": 237,
+      "before_sha256": "8b18d943b1c7883153c140f8efda6755627992716a7a16e4fe0b85a61b62ce90",
+      "after_sha256": "8b18d943b1c7883153c140f8efda6755627992716a7a16e4fe0b85a61b62ce90"
+    },
+    {
+      "name": "empty",
+      "views": false,
+      "previous_attempt": false,
+      "blueprint": true,
+      "byte_identical": true,
+      "utf8_bytes": 237,
+      "before_sha256": "8b18d943b1c7883153c140f8efda6755627992716a7a16e4fe0b85a61b62ce90",
+      "after_sha256": "8b18d943b1c7883153c140f8efda6755627992716a7a16e4fe0b85a61b62ce90"
+    },
+    {
+      "name": "empty",
+      "views": true,
+      "previous_attempt": true,
+      "blueprint": false,
+      "byte_identical": true,
+      "utf8_bytes": 622,
+      "before_sha256": "f4b8887a2e24c30686d0977dc6ee80f559281a5a3f246a5cdeab63660e6146ea",
+      "after_sha256": "f4b8887a2e24c30686d0977dc6ee80f559281a5a3f246a5cdeab63660e6146ea"
+    },
+    {
+      "name": "empty",
+      "views": true,
+      "previous_attempt": true,
+      "blueprint": true,
+      "byte_identical": true,
+      "utf8_bytes": 695,
+      "before_sha256": "c75590c020143993eb3f58a320e1cf24a17d86e5985c2ac6a56b469d62d64854",
+      "after_sha256": "c75590c020143993eb3f58a320e1cf24a17d86e5985c2ac6a56b469d62d64854"
+    },
+    {
+      "name": "localized",
+      "views": false,
+      "previous_attempt": false,
+      "blueprint": false,
+      "byte_identical": true,
+      "utf8_bytes": 247,
+      "before_sha256": "79f15a2dc1112e9f57f50a5a5059f278ad48aa79c42f6ccc6ae75a315e01ddba",
+      "after_sha256": "79f15a2dc1112e9f57f50a5a5059f278ad48aa79c42f6ccc6ae75a315e01ddba"
+    },
+    {
+      "name": "localized",
+      "views": false,
+      "previous_attempt": false,
+      "blueprint": true,
+      "byte_identical": true,
+      "utf8_bytes": 247,
+      "before_sha256": "79f15a2dc1112e9f57f50a5a5059f278ad48aa79c42f6ccc6ae75a315e01ddba",
+      "after_sha256": "79f15a2dc1112e9f57f50a5a5059f278ad48aa79c42f6ccc6ae75a315e01ddba"
+    },
+    {
+      "name": "localized",
+      "views": true,
+      "previous_attempt": true,
+      "blueprint": false,
+      "byte_identical": true,
+      "utf8_bytes": 632,
+      "before_sha256": "9b1767e1f9cabf047ee52654f8809a78f74298846b05c28d10357c6066081a13",
+      "after_sha256": "9b1767e1f9cabf047ee52654f8809a78f74298846b05c28d10357c6066081a13"
+    },
+    {
+      "name": "localized",
+      "views": true,
+      "previous_attempt": true,
+      "blueprint": true,
+      "byte_identical": true,
+      "utf8_bytes": 705,
+      "before_sha256": "7a08351f268d57f76c136335f809e53ba45ef3d789b39d0f464a99fc5665c733",
+      "after_sha256": "7a08351f268d57f76c136335f809e53ba45ef3d789b39d0f464a99fc5665c733"
+    },
+    {
+      "name": "brief deficit",
+      "views": false,
+      "previous_attempt": false,
+      "blueprint": false,
+      "byte_identical": true,
+      "utf8_bytes": 493,
+      "before_sha256": "bc57c043835a9d3f26390b406a64e01bc47ff60d489a88596814f01b2d38141d",
+      "after_sha256": "bc57c043835a9d3f26390b406a64e01bc47ff60d489a88596814f01b2d38141d"
+    },
+    {
+      "name": "brief deficit",
+      "views": false,
+      "previous_attempt": false,
+      "blueprint": true,
+      "byte_identical": true,
+      "utf8_bytes": 493,
+      "before_sha256": "bc57c043835a9d3f26390b406a64e01bc47ff60d489a88596814f01b2d38141d",
+      "after_sha256": "bc57c043835a9d3f26390b406a64e01bc47ff60d489a88596814f01b2d38141d"
+    },
+    {
+      "name": "brief deficit",
+      "views": true,
+      "previous_attempt": true,
+      "blueprint": false,
+      "byte_identical": true,
+      "utf8_bytes": 878,
+      "before_sha256": "4b838671b933973de33a69f596d431e942525a6fe1355417036a954ef5d1a019",
+      "after_sha256": "4b838671b933973de33a69f596d431e942525a6fe1355417036a954ef5d1a019"
+    },
+    {
+      "name": "brief deficit",
+      "views": true,
+      "previous_attempt": true,
+      "blueprint": true,
+      "byte_identical": true,
+      "utf8_bytes": 951,
+      "before_sha256": "50d93c69c64c906d88a2ad6fe7f2f8205ced4162516907559ceaeebacd52d15b",
+      "after_sha256": "50d93c69c64c906d88a2ad6fe7f2f8205ced4162516907559ceaeebacd52d15b"
+    },
+    {
+      "name": "string",
+      "views": false,
+      "previous_attempt": false,
+      "blueprint": false,
+      "byte_identical": true,
+      "utf8_bytes": 243,
+      "before_sha256": "6abda354fa41a1b1984608cc507785fedf84227a6161a9f23a89ef4c159a0ff0",
+      "after_sha256": "6abda354fa41a1b1984608cc507785fedf84227a6161a9f23a89ef4c159a0ff0"
+    },
+    {
+      "name": "string",
+      "views": false,
+      "previous_attempt": false,
+      "blueprint": true,
+      "byte_identical": true,
+      "utf8_bytes": 243,
+      "before_sha256": "6abda354fa41a1b1984608cc507785fedf84227a6161a9f23a89ef4c159a0ff0",
+      "after_sha256": "6abda354fa41a1b1984608cc507785fedf84227a6161a9f23a89ef4c159a0ff0"
+    },
+    {
+      "name": "string",
+      "views": true,
+      "previous_attempt": true,
+      "blueprint": false,
+      "byte_identical": true,
+      "utf8_bytes": 628,
+      "before_sha256": "7d79a1a87b5efad33dfcdc836bf8cc339f6135a097f4c328ceab7d1235a84771",
+      "after_sha256": "7d79a1a87b5efad33dfcdc836bf8cc339f6135a097f4c328ceab7d1235a84771"
+    },
+    {
+      "name": "string",
+      "views": true,
+      "previous_attempt": true,
+      "blueprint": true,
+      "byte_identical": true,
+      "utf8_bytes": 701,
+      "before_sha256": "5fd985f9d0969ecf65ad2714b3ed45f2ec3ccc8a596a5b1ba2d902e4315c3100",
+      "after_sha256": "5fd985f9d0969ecf65ad2714b3ed45f2ec3ccc8a596a5b1ba2d902e4315c3100"
+    }
+  ],
+  "repair_count": 20
+}

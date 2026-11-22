@@ -87,6 +87,18 @@ def preview_decision(args: dict[str, Any]) -> dict[str, Any]:
                                           "are your limits.")}
 
 
+def install_decision(args: dict[str, Any]) -> dict[str, Any]:
+    """``allow`` for a dry run (it writes nothing); ``ask`` for an install, naming the project and the directory."""
+    if args.get("dry_run", True) in (True, "true", "True", 1, None):
+        return {"decision": "allow", "reason": "dry run: reports what would be written, writes nothing"}
+    project = args.get("project_dir") or "this workspace"
+    dest = args.get("dest") or "agy3d/<asset>"
+    force = " It REPLACES files of an earlier install that were edited since (force)." if args.get("force") in (True, "true", "True", 1) else ""
+    return {"decision": "ask", "reason": (f"Install the antigravity-3d package {args.get('package_dir', '?')} into {project}, "
+                                          f"under {dest}? Nothing outside that directory is written, a file this tool did not "
+                                          f"write is never replaced, and agy3d uninstall removes exactly what it wrote.{force}")}
+
+
 def decide(payload: dict[str, Any]) -> dict[str, Any]:
     tool_call = payload.get("toolCall") if isinstance(payload.get("toolCall"), dict) else {}
     names = c.tool_names(tool_call)
@@ -101,6 +113,10 @@ def decide(payload: dict[str, Any]) -> dict[str, Any]:
         c.is_tool(names, ("open_asset_session",)) and c.tool_args(tool_call).get("preview") in (True, "true", "True", 1))
     if preview_call and c.is_studio_mcp_call(tool_call, names):
         return preview_decision(c.tool_args(tool_call))
+
+    # Writing into the developer's game project is theirs to approve; a dry run writes nothing and is allowed.
+    if c.is_tool(names, ("install_into_project",)) and c.is_studio_mcp_call(tool_call, names):
+        return install_decision(c.tool_args(tool_call))
 
     if c.is_tool(names, c.EXPORT_TOOLS):
         try:

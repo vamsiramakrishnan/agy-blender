@@ -287,3 +287,14 @@ def test_a_barrel_resting_on_a_plate_by_a_facet_keeps_its_radius(tmp_path: Path)
     assert np.allclose(_bounds(meshes, "barrel"), _bounds(before, "barrel"))
     assert r.moves or any("barrel" in (u.a, u.b) for u in r.unresolved), r.describe()
     assert not {"floating_part", "floating_group"} & set(_codes(meshes))
+
+
+def test_unresolved_pairs_of_two_parts_sort_when_one_is_axis_aligned_and_one_is_not():
+    """The same two parts with an axis-aligned pair and a slanted one: the keys hold an int axis and a None axis, and
+    the report of what was left must not raise on ordering them (it did, in a live native session)."""
+    from antigravity3d.kernel import separate as sep
+
+    keys = [("a", "b", (None, (0.0, 0.6, 0.8))), ("a", "b", (2, 1)), ("a", "b", (0, -1)), ("a", "b", (0, 1)), ("a", "c", (1, 1))]
+    ordered = sorted(keys, key=sep._key_order)
+    assert ordered[:3] == [("a", "b", (0, -1)), ("a", "b", (0, 1)), ("a", "b", (2, 1))]  # the order axis-aligned keys always had
+    assert ordered[3] == ("a", "b", (None, (0.0, 0.6, 0.8))) and ordered[4] == ("a", "c", (1, 1))

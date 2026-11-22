@@ -35,9 +35,20 @@ from antigravity3d.harness import tools as T
 # What the budget protects: repeated rules, unused tools and other static prompt waste. BLOCKOUT's default is an
 # intermediate stage. Production props carry the shared craft text explicitly; their separate budget is checked on
 # the actual posted request below. Kit pieces and localized repairs do not pay for the prop detail instructions.
+# Round five's shape parameters, mirror/repeat declarations and SHAPE_SEMANTICS are retained in every geometry
+# stage. Measured after combining contracts: intermediate 9,942, kit 9,930, production 12,010, repairs <= 9,910.
+# Production's extra text is the same 2,362-character guidance the one-shot author receives, including its shape costs.
 #            stage: (before, budget) static chars per call
-STATIC_BUDGET = {"BLOCKOUT": (26_224, 7_200), "TWEAK": (25_351, 6_600), "VARIANTS": (25_946, 15_500),
-                 "LOOKDEV": (26_256, 12_500), "EXPORT": (25_914, 2_000)}
+# 2026-11-22 (native sessions): LOOKDEV 12,500 -> 12,650: its text says that an image limit of 0 makes no texture and
+# that in an uncalibrated preview any lookdev review lets the session export, the command's delivery rule (measured
+# 12,549). BLOCKOUT is the toolset's text only (authoring_contract: the intent says what "finished" means).
+# 2026-11-22 (colour): BLOCKOUT 10,000 -> 10,350 (measured 10,255), TWEAK 9,400 -> 9,800 (9,711), VARIANTS 17,300 ->
+# 17,700 (17,596), LOOKDEV 12,650 -> 12,950 (12,882). Every stage that edits geometry or materials carries IR_SEMANTICS,
+# which now says once that a colour is written and read as sRGB (with two anchors) and that metallic is 1 or 0
+# (+213 characters: the model wrote sRGB and the format read linear, so every paint shipped washed out); and the
+# material schema in the tool declarations takes "#rrggbb" beside three numbers (+120 per declared material schema).
+STATIC_BUDGET = {"BLOCKOUT": (26_224, 10_350), "TWEAK": (25_351, 9_800), "VARIANTS": (25_946, 17_700),
+                 "LOOKDEV": (26_256, 12_950), "EXPORT": (25_914, 2_000)}
 SUBAGENT_TOOLS = {"invoke_subagent", "define_subagent", "manage_subagents", "send_message"}
 DEFAULT_SECTIONS = {"identity", "communication_style", "conversation_transcript", "subagents", "messaging",
                     "user_information", "non_interactive_mode"}
@@ -179,7 +190,25 @@ async def test_geometry_intent_reaches_the_posted_request_without_changing_tools
         assert "mating surfaces, openings and pivots" in instructions
     elif intent is AuthoringIntent.BLOCKOUT:
         assert "intermediate blockout" in instructions
-    assert prompt_breakdown(body)["static_chars"] <= (8_500 if production else 7_400)
+    assert ir_schema.SHAPE_SEMANTICS in instructions
+    # +350 each for the colour and metal clauses and the hex colour form (see STATIC_BUDGET): measured 12,323 / 10,255
+    assert prompt_breakdown(body)["static_chars"] <= (12_400 if production else 10_350)
+
+
+@pytest.mark.parametrize("intent", list(AuthoringIntent))
+async def test_geometry_intents_keep_new_shapes_and_shortcuts_on_the_actual_tool_path(tmp_path, intent):
+    # These are current wire features, not extra detail imposed on an intermediate or a metric-led piece. A merge
+    # that keeps the old tool declarations or removes shape semantics must fail even if the intent prose survives.
+    node = {"id": "turned", "kind": "lathe", "params": {"profile": [[0, 0.3], [0.08, 0.3], [0.12, 0.2],
+              [0.1, 0.05], [0.14, 0], [0, 0]], "segments": 8},
+            "transform": {"translate": [0.3, 0, 0]}, "mirror": "x"}
+    env, stub = await run(tmp_path, "BLOCKOUT", [call("apply_scene_ir", ops=[{"op": "upsert_node", "node": node}]),
+                                                text("done")], authoring_intent=intent)
+    scene = env.sess().stage.base_ir()
+    assert {n.id for n in scene.nodes} == {"turned", "turned__mx"}
+    assert all(n.kind == "lathe" and n.params["segments"] == 8 for n in scene.nodes)
+    assert env.state.last_tier1_ok
+    assert any("OK tx=" in result for result in tool_outputs(stub.requests[-1]))
 
 
 def test_unknown_authoring_intent_is_rejected_before_session_state_changes(tmp_path):

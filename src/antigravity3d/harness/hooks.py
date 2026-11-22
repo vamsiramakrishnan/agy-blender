@@ -42,7 +42,7 @@ from google.antigravity.types import BuiltinTools, HookResult
 from antigravity3d.adapters.blender_5_3.linter import lint_script
 from antigravity3d.harness.session import Session, session
 from antigravity3d.harness.tools import (
-    ALL_TOOLS, READ_ONLY_TOOL_NAMES, STAGE_SUBAGENTS, STAGE_TOOLS, _local, export_block_reason, image_refs,
+    ALL_TOOLS, READ_ONLY_TOOL_NAMES, SESSION_TOOLS, STAGE_SUBAGENTS, STAGE_TOOLS, _local, export_block_reason, image_refs,
 )
 from antigravity3d.harness.traceback_compressor import compress_exception
 from antigravity3d.state import SceneSessionRegistry
@@ -216,17 +216,21 @@ class InvariantAndSafetyGate(_Shared, PreToolCallDecideHook):
             return HookResult(allow=True)
         if name not in ALL_TOOLS:
             return HookResult(allow=True)  # other builtins: scoped by enabled_tools / VisionEvictionHook
-        allowed = {f.__name__ for f in STAGE_TOOLS.get(s.toolset, [])} | READ_ONLY_TOOL_NAMES
+        allowed = {f.__name__ for f in (*STAGE_TOOLS.get(s.toolset, []), *SESSION_TOOLS.get(s.toolset, []))} | READ_ONLY_TOOL_NAMES
         if name not in allowed:
             return _deny(f"{name} is not available in the {s.toolset} stage")
-        if name == "export_engine_package" and (why := export_block_reason(s.state)):
+        if name == "export_engine_package" and (why := export_block_reason(s.state, s.plane)):
             return _deny(why)
         if name == "run_bpy_script":
             errs = [i for i in lint_script(str(args.get("source", ""))) if i.severity == "error"]
             if errs:
                 return _deny("script rejected by linter: " + "; ".join(str(i) for i in errs[:2]))
-        for ref in _image_refs(name, args):
-            if (why := await self._policy(s, ref)) is not None:
+        # A call's maps are screened together, not one after another: live on 2026-11-22 (r5/live_native, arm N) three
+        # apply_shader_diff calls of three maps each took 252, 292 and 23 s, nine policy requests in a row of 5-37 s each
+        # and one that hung for 300 s (engine.policy_gate now asks a hung one again, see HEDGE_AFTER_S).
+        refs = list(dict.fromkeys(_image_refs(name, args)))
+        for why in await asyncio.gather(*(self._policy(s, ref) for ref in refs)):
+            if why is not None:
                 return _deny(why)
         return HookResult(allow=True)
 
@@ -495,8 +499,9 @@ class QAStopHook(_Shared, StopHook):
         if data.continuation_count >= self.max_continuations or data.error_message or (
                 data.stop_reason != types.StopReason.UNSPECIFIED):
             return types.StopHookResult()
-        reason = unmet_gate(session(self.registry, self.session_id))
-        if reason is None:
+        s = session(self.registry, self.session_id)
+        reason = unmet_gate(s)
+        if reason is None or s.waits_for_user():  # only the user can clear it: the agent has to stop to ask
             return types.StopHookResult()
         self.continued += 1
         return types.StopHookResult(

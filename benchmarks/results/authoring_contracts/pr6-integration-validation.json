@@ -1,0 +1,521 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-22",
+  "timezone": "Australia/Melbourne",
+  "target_pr": 6,
+  "target_branch": "vamsi-/gifted-euler-vg6ygz",
+  "pr6_inspected_head": "a75ed4a1b27f25cdf29b167c8cfd2b131e0e122e",
+  "merged_main": "814f436fcc692f09c47140d5f37c72b69ed50d28",
+  "validated_source_commit": "dea0916bdb267a13816c22c588d8783901402041",
+  "merge_parents": [
+    "a75ed4a1b27f25cdf29b167c8cfd2b131e0e122e",
+    "814f436fcc692f09c47140d5f37c72b69ed50d28"
+  ],
+  "source": {
+    "revision": "dea0916bdb267a13816c22c588d8783901402041",
+    "project_src": "/workspace/scratch/42c604ea9947/agy-blender/src",
+    "source_sha256": "cbb021c2fd3b359c2b54602eea9c97d1f4b88ffc38af86d15c06d7df5d0919f9",
+    "harness_sha256": {
+      "compare_agents.py": "d1947e54511cf8c4ad84955a624e14081e8e94ef49a348f432c6a9a8917ab5e6",
+      "compare_eval.py": "27c3f0a568a27c45eb6b825d34d3bb81c1481f70168e9ac67bffe56de6191def",
+      "compare_sandbox.py": "17ec415b0686ec63d4b807743ddf7464e24e4480927d15148a7d19cc1add8227"
+    },
+    "sdk_versions": {
+      "google-antigravity": "0.1.24",
+      "google-genai": "3.6.1"
+    }
+  },
+  "billable_model_calls": 0,
+  "publication": "pending explicit user approval",
+  "final_focused_suite": {
+    "tests": 357,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 8,
+    "passed": 349,
+    "time_s": 74.206,
+    "junit_sha256": "203c2e9f60bcfc54a0769dd6fd5cc6ee309b46c13c2c58df373f83da630bd643",
+    "skip_reasons": [
+      {
+        "test": "tests.test_compare_agents.test_upstream_skills_install_like_the_installer_copy_mode",
+        "reason": "upstream checkout not present"
+      },
+      {
+        "test": "tests.test_compare_agents.test_sandboxed_scripted_stock_agent_writes_a_glb_and_cannot_get_out",
+        "reason": "needs root for the namespaces"
+      },
+      {
+        "test": "tests.test_compare_agents.test_a_sandboxed_run_that_reaches_its_share_is_stopped_and_recorded_as_such",
+        "reason": "needs root for the namespaces"
+      },
+      {
+        "test": "tests.test_compare_agents.test_plugin_arm_runs_the_plugin_inside_the_sandbox_and_its_server_cannot_get_out",
+        "reason": "needs root for the namespaces"
+      },
+      {
+        "test": "tests.test_compare_agents.test_a_continuation_runs_in_the_same_workspace_under_its_own_account_and_the_cell_reports_both_sessions",
+        "reason": "needs root for the namespaces"
+      },
+      {
+        "test": "tests.test_compare_agents.test_vanilla_arm_runs_in_the_sandbox_and_reaches_blender_only_through_its_mcp_server",
+        "reason": "needs root for the namespaces"
+      },
+      {
+        "test": "tests.test_compare_agents.test_a_change_request_runs_over_a_copy_of_the_first_delivery_and_the_two_packages_are_compared",
+        "reason": "needs root for the namespaces"
+      },
+      {
+        "test": "tests.test_harness_agents.test_live_blockout_crate",
+        "reason": "needs GEMINI_API_KEY"
+      }
+    ],
+    "test_files": [
+      "tests/test_agent_author.py",
+      "tests/test_stage_request.py",
+      "tests/test_metered_author.py",
+      "tests/test_stream_call.py",
+      "tests/test_improvement_rounds.py",
+      "tests/test_author_correction.py",
+      "tests/test_skills.py",
+      "tests/test_compare_agents.py",
+      "tests/test_compare_agents_paired.py",
+      "tests/test_compare_eval_images.py",
+      "tests/test_environment_kit.py",
+      "tests/test_kit_metric.py",
+      "tests/test_harness_hooks.py",
+      "tests/test_harness_agents.py"
+    ],
+    "environment_note": "Absolute PYTHONPATH points at validated_source_commit checkout. No live tests enabled. Provider keys removed."
+  },
+  "mcp_and_material_subprocess_suite": {
+    "tests": 37,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 37,
+    "time_s": 30.368,
+    "junit_sha256": "cc28de333a8f568a26ba15ef81a894a3a5f0ebc9c34d721046985c052996e801",
+    "skip_reasons": [],
+    "test_files": [
+      "tests/test_material_prompt.py",
+      "tests/test_mcp_server.py"
+    ]
+  },
+  "core_suite": null,
+  "core_suite_status": "incomplete: process killed with exit137 before pytest emitted a summary or JUnit report",
+  "core_marker_filter": "not blender and not browser and not live",
+  "environment": {
+    "python": "3.12.14",
+    "AGY3D_RUN_LIVE": "0",
+    "provider_keys": "removed",
+    "PYTHONPATH": "absolute path to this checkout src",
+    "blender_available": "4.3.2; required worker is5.3+; not used as qualification",
+    "BLENDER_BIN": "/tmp/agy3d-requires-blender-5.3-not-installed",
+    "godot_available": "4.7.2",
+    "playwright": "not installed in core test environment",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1"
+  },
+  "one_shot_compatibility": {
+    "base_head": "a75ed4a1b27f25cdf29b167c8cfd2b131e0e122e",
+    "method": "AST-extract original pure task builders and canonical guidance; compare UTF-8 bytes with merged implementation",
+    "live_model_calls": 0,
+    "source": "src/antigravity3d/tactics/metered_author.py",
+    "guidance": {
+      "name": "canonical production guidance",
+      "byte_identical": true,
+      "utf8_bytes": 2362,
+      "before_sha256": "c11d8345c6626bc1034bcde95c8cab44a7b0f05aeb7c403275d806869ab11e6c",
+      "after_sha256": "c11d8345c6626bc1034bcde95c8cab44a7b0f05aeb7c403275d806869ab11e6c",
+      "characters": 2362
+    },
+    "proposal_cases": [
+      {
+        "name": "production prop",
+        "references": true,
+        "kit": false,
+        "byte_identical": true,
+        "utf8_bytes": 2539,
+        "before_sha256": "aa49f2f8662f591368bfe8e456148a24103dc9b3539011935727016ef672dbaa",
+        "after_sha256": "aa49f2f8662f591368bfe8e456148a24103dc9b3539011935727016ef672dbaa"
+      },
+      {
+        "name": "metric-led kit piece",
+        "references": true,
+        "kit": true,
+        "byte_identical": true,
+        "utf8_bytes": 205,
+        "before_sha256": "a2a31bb8da7dac5efc002686bcce17a8767df4fbd98152010ed86cfcaa34e633",
+        "after_sha256": "a2a31bb8da7dac5efc002686bcce17a8767df4fbd98152010ed86cfcaa34e633"
+      }
+    ],
+    "proposal_count": 2,
+    "repair_cases": [
+      {
+        "name": "None",
+        "views": false,
+        "previous_attempt": false,
+        "blueprint": false,
+        "byte_identical": true,
+        "utf8_bytes": 239,
+        "before_sha256": "8f3e9dba6c2f736ef3b6cd44455c59a158f0a0d5238359ee624343a7a3037815",
+        "after_sha256": "8f3e9dba6c2f736ef3b6cd44455c59a158f0a0d5238359ee624343a7a3037815"
+      },
+      {
+        "name": "None",
+        "views": false,
+        "previous_attempt": false,
+        "blueprint": true,
+        "byte_identical": true,
+        "utf8_bytes": 239,
+        "before_sha256": "8f3e9dba6c2f736ef3b6cd44455c59a158f0a0d5238359ee624343a7a3037815",
+        "after_sha256": "8f3e9dba6c2f736ef3b6cd44455c59a158f0a0d5238359ee624343a7a3037815"
+      },
+      {
+        "name": "None",
+        "views": true,
+        "previous_attempt": true,
+        "blueprint": false,
+        "byte_identical": true,
+        "utf8_bytes": 624,
+        "before_sha256": "889dafbd083e3adda554cc9910eebc04f61544d20373d3aee30debef67a59acf",
+        "after_sha256": "889dafbd083e3adda554cc9910eebc04f61544d20373d3aee30debef67a59acf"
+      },
+      {
+        "name": "None",
+        "views": true,
+        "previous_attempt": true,
+        "blueprint": true,
+        "byte_identical": true,
+        "utf8_bytes": 697,
+        "before_sha256": "a1425c062b03a4c54b09a1402893ae74590e1c24d6a4fe1eb2f2af4622f584e1",
+        "after_sha256": "a1425c062b03a4c54b09a1402893ae74590e1c24d6a4fe1eb2f2af4622f584e1"
+      },
+      {
+        "name": "empty",
+        "views": false,
+        "previous_attempt": false,
+        "blueprint": false,
+        "byte_identical": true,
+        "utf8_bytes": 237,
+        "before_sha256": "8b18d943b1c7883153c140f8efda6755627992716a7a16e4fe0b85a61b62ce90",
+        "after_sha256": "8b18d943b1c7883153c140f8efda6755627992716a7a16e4fe0b85a61b62ce90"
+      },
+      {
+        "name": "empty",
+        "views": false,
+        "previous_attempt": false,
+        "blueprint": true,
+        "byte_identical": true,
+        "utf8_bytes": 237,
+        "before_sha256": "8b18d943b1c7883153c140f8efda6755627992716a7a16e4fe0b85a61b62ce90",
+        "after_sha256": "8b18d943b1c7883153c140f8efda6755627992716a7a16e4fe0b85a61b62ce90"
+      },
+      {
+        "name": "empty",
+        "views": true,
+        "previous_attempt": true,
+        "blueprint": false,
+        "byte_identical": true,
+        "utf8_bytes": 622,
+        "before_sha256": "f4b8887a2e24c30686d0977dc6ee80f559281a5a3f246a5cdeab63660e6146ea",
+        "after_sha256": "f4b8887a2e24c30686d0977dc6ee80f559281a5a3f246a5cdeab63660e6146ea"
+      },
+      {
+        "name": "empty",
+        "views": true,
+        "previous_attempt": true,
+        "blueprint": true,
+        "byte_identical": true,
+        "utf8_bytes": 695,
+        "before_sha256": "c75590c020143993eb3f58a320e1cf24a17d86e5985c2ac6a56b469d62d64854",
+        "after_sha256": "c75590c020143993eb3f58a320e1cf24a17d86e5985c2ac6a56b469d62d64854"
+      },
+      {
+        "name": "localized",
+        "views": false,
+        "previous_attempt": false,
+        "blueprint": false,
+        "byte_identical": true,
+        "utf8_bytes": 247,
+        "before_sha256": "79f15a2dc1112e9f57f50a5a5059f278ad48aa79c42f6ccc6ae75a315e01ddba",
+        "after_sha256": "79f15a2dc1112e9f57f50a5a5059f278ad48aa79c42f6ccc6ae75a315e01ddba"
+      },
+      {
+        "name": "localized",
+        "views": false,
+        "previous_attempt": false,
+        "blueprint": true,
+        "byte_identical": true,
+        "utf8_bytes": 247,
+        "before_sha256": "79f15a2dc1112e9f57f50a5a5059f278ad48aa79c42f6ccc6ae75a315e01ddba",
+        "after_sha256": "79f15a2dc1112e9f57f50a5a5059f278ad48aa79c42f6ccc6ae75a315e01ddba"
+      },
+      {
+        "name": "localized",
+        "views": true,
+        "previous_attempt": true,
+        "blueprint": false,
+        "byte_identical": true,
+        "utf8_bytes": 632,
+        "before_sha256": "9b1767e1f9cabf047ee52654f8809a78f74298846b05c28d10357c6066081a13",
+        "after_sha256": "9b1767e1f9cabf047ee52654f8809a78f74298846b05c28d10357c6066081a13"
+      },
+      {
+        "name": "localized",
+        "views": true,
+        "previous_attempt": true,
+        "blueprint": true,
+        "byte_identical": true,
+        "utf8_bytes": 705,
+        "before_sha256": "7a08351f268d57f76c136335f809e53ba45ef3d789b39d0f464a99fc5665c733",
+        "after_sha256": "7a08351f268d57f76c136335f809e53ba45ef3d789b39d0f464a99fc5665c733"
+      },
+      {
+        "name": "brief deficit",
+        "views": false,
+        "previous_attempt": false,
+        "blueprint": false,
+        "byte_identical": true,
+        "utf8_bytes": 493,
+        "before_sha256": "bc57c043835a9d3f26390b406a64e01bc47ff60d489a88596814f01b2d38141d",
+        "after_sha256": "bc57c043835a9d3f26390b406a64e01bc47ff60d489a88596814f01b2d38141d"
+      },
+      {
+        "name": "brief deficit",
+        "views": false,
+        "previous_attempt": false,
+        "blueprint": true,
+        "byte_identical": true,
+        "utf8_bytes": 493,
+        "before_sha256": "bc57c043835a9d3f26390b406a64e01bc47ff60d489a88596814f01b2d38141d",
+        "after_sha256": "bc57c043835a9d3f26390b406a64e01bc47ff60d489a88596814f01b2d38141d"
+      },
+      {
+        "name": "brief deficit",
+        "views": true,
+        "previous_attempt": true,
+        "blueprint": false,
+        "byte_identical": true,
+        "utf8_bytes": 878,
+        "before_sha256": "4b838671b933973de33a69f596d431e942525a6fe1355417036a954ef5d1a019",
+        "after_sha256": "4b838671b933973de33a69f596d431e942525a6fe1355417036a954ef5d1a019"
+      },
+      {
+        "name": "brief deficit",
+        "views": true,
+        "previous_attempt": true,
+        "blueprint": true,
+        "byte_identical": true,
+        "utf8_bytes": 951,
+        "before_sha256": "50d93c69c64c906d88a2ad6fe7f2f8205ced4162516907559ceaeebacd52d15b",
+        "after_sha256": "50d93c69c64c906d88a2ad6fe7f2f8205ced4162516907559ceaeebacd52d15b"
+      },
+      {
+        "name": "string",
+        "views": false,
+        "previous_attempt": false,
+        "blueprint": false,
+        "byte_identical": true,
+        "utf8_bytes": 243,
+        "before_sha256": "6abda354fa41a1b1984608cc507785fedf84227a6161a9f23a89ef4c159a0ff0",
+        "after_sha256": "6abda354fa41a1b1984608cc507785fedf84227a6161a9f23a89ef4c159a0ff0"
+      },
+      {
+        "name": "string",
+        "views": false,
+        "previous_attempt": false,
+        "blueprint": true,
+        "byte_identical": true,
+        "utf8_bytes": 243,
+        "before_sha256": "6abda354fa41a1b1984608cc507785fedf84227a6161a9f23a89ef4c159a0ff0",
+        "after_sha256": "6abda354fa41a1b1984608cc507785fedf84227a6161a9f23a89ef4c159a0ff0"
+      },
+      {
+        "name": "string",
+        "views": true,
+        "previous_attempt": true,
+        "blueprint": false,
+        "byte_identical": true,
+        "utf8_bytes": 628,
+        "before_sha256": "7d79a1a87b5efad33dfcdc836bf8cc339f6135a097f4c328ceab7d1235a84771",
+        "after_sha256": "7d79a1a87b5efad33dfcdc836bf8cc339f6135a097f4c328ceab7d1235a84771"
+      },
+      {
+        "name": "string",
+        "views": true,
+        "previous_attempt": true,
+        "blueprint": true,
+        "byte_identical": true,
+        "utf8_bytes": 701,
+        "before_sha256": "5fd985f9d0969ecf65ad2714b3ed45f2ec3ccc8a596a5b1ba2d902e4315c3100",
+        "after_sha256": "5fd985f9d0969ecf65ad2714b3ed45f2ec3ccc8a596a5b1ba2d902e4315c3100"
+      }
+    ],
+    "repair_count": 20
+  },
+  "scorecard_regression": {
+    "purpose": "Required PBR image readability in the agent comparison scorecard",
+    "base_commit": "a75ed4a1b27f25cdf29b167c8cfd2b131e0e122e",
+    "base_source_blob": "5414ca00840550f57cb06a53cd64f89d3772251d",
+    "test_file": "tests/test_compare_eval_images.py",
+    "selected_tests": "all 12 parametrized cases in tests/test_compare_eval_images.py",
+    "method": "Created a temporary benchmarks/compare_eval.py from git show a75ed4a:benchmarks/compare_eval.py; copied the unchanged new test module into temporary tests/. The test fixture imports the sibling benchmark module directly. Executed pytest through .venv-core with provider keys removed. Ran the same test module in the integrated checkout.",
+    "baseline": {
+      "pytest_exit": 1,
+      "failed": 11,
+      "passed": 1,
+      "duration_s": 0.29
+    },
+    "fixed": {
+      "pytest_exit": 0,
+      "failed": 0,
+      "passed": 12,
+      "duration_s": 0.38
+    },
+    "regressions": [
+      {
+        "case": "missing required image",
+        "roles": [
+          "baseColor",
+          "normal",
+          "metallicRoughness"
+        ],
+        "cases": 3
+      },
+      {
+        "case": "corrupt required image",
+        "roles": [
+          "baseColor",
+          "normal",
+          "metallicRoughness"
+        ],
+        "cases": 3
+      },
+      {
+        "case": "required texture source references absent image",
+        "sources": [
+          -1,
+          3,
+          null
+        ],
+        "cases": 3
+      },
+      {
+        "case": "negative texture index must not wrap to a valid texture",
+        "cases": 1
+      },
+      {
+        "case": "invalid embedded image buffer view is recorded as unreadable",
+        "cases": 1
+      }
+    ],
+    "positive_control": "Readable required images still pass with an unused missing image; this was the one baseline pass.",
+    "assertions": [
+      "maps pass is false for every required unreadable image",
+      "material-repair hand step is present",
+      "unused images do not influence the required-map score"
+    ],
+    "fixed_source_sha256": {
+      "benchmarks/compare_eval.py": "27c3f0a568a27c45eb6b825d34d3bb81c1481f70168e9ac67bffe56de6191def",
+      "tests/test_compare_eval_images.py": "2f58b91caf7c7e28bb8ff88aa92048aebba0966212f11289ba5b78f1d73f6de6"
+    },
+    "model_calls": 0,
+    "evidence_origin": "Captured terminal outputs of both pytest commands in scorecard_review agent; this JSON persists those observed results without rerunning them."
+  },
+  "paired_plan_file": "pr6-paired-comparison-plan.json",
+  "paired_totals": {
+    "tokens": 1425000,
+    "images": 24
+  },
+  "toolchain_preflight": {
+    "model_calls": 0,
+    "relay_created": false,
+    "configured_blender": "/usr/bin/blender",
+    "ready": false,
+    "reason": "paired execution requires Blender 5.3 or newer for both A and C"
+  },
+  "discarded_validation": {
+    "relative_pythonpath_full_sweep": {
+      "status": "terminated incomplete; excluded from validation totals",
+      "reason": "child processes with temporary cwd imported older editable checkout",
+      "source_selection_proof": {
+        "python": "/workspace/scratch/0ed87cec2d34/agy-blender/.venv-core/bin/python",
+        "git_head": "dea0916bdb267a13816c22c588d8783901402041",
+        "model_calls": 0,
+        "purpose": "Verify source selection for reused editable virtualenv and subprocesses changing working directory",
+        "observations": [
+          {
+            "pythonpath": "src",
+            "subprocess_cwd": "temporary directory outside both checkouts",
+            "module_path": "/workspace/scratch/0ed87cec2d34/agy-blender/src/antigravity3d/__init__.py"
+          },
+          {
+            "pythonpath": "/workspace/scratch/42c604ea9947/agy-blender/src",
+            "subprocess_cwd": "temporary directory outside both checkouts",
+            "module_path": "/workspace/scratch/42c604ea9947/agy-blender/src/antigravity3d/__init__.py"
+          }
+        ],
+        "conclusion": "Relative PYTHONPATH selects the prior editable checkout in temporary subprocess working directories; absolute PYTHONPATH selects the current PR6 integration source."
+      }
+    },
+    "concurrent_preview_sweep": {
+      "status": "incomplete",
+      "command_scope": "tests/test_preview_runs.py with absolute PYTHONPATH and provider keys removed",
+      "git_head": "dea0916bdb267a13816c22c588d8783901402041",
+      "exit_code": 137,
+      "termination": "Process was killed before pytest emitted its summary or JUnit file; this agent did not terminate it.",
+      "log": "out/pr6-validation/preview-absolute.log",
+      "junit_written": false,
+      "raw_last_progress_line": "................................F",
+      "no_aggregate_result": true,
+      "model_calls": 0,
+      "isolated_followup": {
+        "test": "tests/test_preview_runs.py::test_a_judge_call_slower_than_its_deadline_is_answered_504_once_and_holds_one_reservation",
+        "integrated": {
+          "passed": 1,
+          "failed": 0,
+          "duration_s": 2.23,
+          "junit": "out/pr6-validation/preview-deadline-isolated.xml"
+        },
+        "pr6_base_a75ed4a": {
+          "passed": 1,
+          "failed": 0,
+          "duration_s": 2.16,
+          "junit": "out/pr6-validation/preview-deadline-a75.xml"
+        },
+        "note": "These isolated checks do not establish the cause of the interrupted module progress failure."
+      }
+    }
+  },
+  "unaddressed_review": {
+    "pr6_installer_path_containment": "https://github.com/vamsiramakrishnan/agy-blender/pull/6#discussion_r4656681979"
+  },
+  "limitations": [
+    "No paid stock-versus-project comparison executed",
+    "No live native AgentAuthor quality measured",
+    "Triangle counts do not establish quality or acceptance",
+    "Blender5.3/browser qualification unavailable here; requires configured CI environment",
+    "No completed broad core-suite result: final absolute-path sweep ended with SIGKILL137; targeted suites completed"
+  ],
+  "core_suite_exit_code": 137,
+  "core_suite_observation": {
+    "last_complete_progress_percent": 55,
+    "failure_marker_observed": false,
+    "partial_progress_is_not_a_completed_test_count": true,
+    "log_sha256": "e6fff748ed0f644cb885fc822cfed85c7d8cb50b74c889967539d8b92944465a",
+    "termination_cause": "not established beyond exit137 (SIGKILL)"
+  },
+  "isolated_deadline_check": {
+    "integrated_source": {
+      "passed": 1,
+      "time_s": 2.23
+    },
+    "original_pr6_source": {
+      "passed": 1,
+      "time_s": 2.16
+    },
+    "path": "tests/test_preview_runs.py::test_a_judge_call_slower_than_its_deadline_is_answered_504_once_and_holds_one_reservation",
+    "limitation": "isolated passing checks do not establish the interrupted concurrent run failure cause"
+  }
+}

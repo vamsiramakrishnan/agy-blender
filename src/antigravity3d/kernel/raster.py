@@ -16,11 +16,27 @@ from PIL import Image, ImageDraw
 
 from antigravity3d.kernel.types import MeshData
 
-View = Literal["front", "back", "left", "right", "top", "persp"]
+View = Literal["front", "back", "left", "right", "top", "persp", "persp_rear"]
+PERSP_VIEWS = frozenset({"persp", "persp_rear"})
+# What the vision judge is shown of one design's shape, one 512 px image each (tactics.judging): the three orthographic
+# views and two perspectives from opposite corners, so the back and left sides are seen at all.
+JUDGE_VIEWS: tuple[View, ...] = ("front", "right", "top", "persp", "persp_rear")
 
 BG = np.array([34, 36, 42], np.uint8)
 CLAY = np.array([205, 198, 186], np.float32)
 KEY_LIGHT = np.array([-0.45, -0.55, 0.70]) / np.linalg.norm([-0.45, -0.55, 0.70])
+# A half turn about the vertical axis: "persp_rear" is "persp" seen from the opposite corner, camera in the
+# (+x, +y, +z) quadrant. Its key light is turned with it. The world key above lights the faces that "persp" sees and
+# leaves those facing +x and +y with fill light only (0.22 + 0.28 cos, every side about equally dark), so a fixed key
+# would show the back as a flat silhouette. With camera and key both turned, a rear render is exactly the "persp"
+# render of the design turned half a turn, which is the condition measured live on 2026-11-22 (r5/live/judge_truth.py,
+# condition E).
+_HALF_TURN = np.array([-1.0, -1.0, 1.0])
+
+
+def key_light(view: str) -> np.ndarray:
+    """Direction toward the key light for a render from ``view`` (world space)."""
+    return KEY_LIGHT * _HALF_TURN if view == "persp_rear" else KEY_LIGHT
 
 # camera (right, up, toward-scene) basis vectors in world space; Z-up, right-handed
 _AXIS_VIEWS: dict[str, tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]]] = {
@@ -33,8 +49,10 @@ _AXIS_VIEWS: dict[str, tuple[tuple[float, ...], tuple[float, ...], tuple[float, 
 
 
 def _basis(view: str) -> np.ndarray:
-    if view == "persp":
+    if view in PERSP_VIEWS:
         f = np.array([0.55, 0.70, -0.45])  # looking from (-x,-y,+z) quadrant toward scene
+        if view == "persp_rear":
+            f = f * _HALF_TURN  # from the (+x,+y,+z) quadrant (exact: a sign change)
         f /= np.linalg.norm(f)
         r = np.cross(f, [0, 0, 1.0])
         r /= np.linalg.norm(r)
@@ -93,7 +111,7 @@ def frame_camera(pts: np.ndarray, view: str, size: int, fill: float = 0.88) -> C
     c = (lo + hi) / 2
     rad = max(np.linalg.norm(hi - lo) / 2, 1e-6)
     cam = (pts - c) @ B.T
-    persp = view == "persp"
+    persp = view in PERSP_VIEWS
     if persp:
         dist = rad / np.sin(np.radians(30) / 2) * 1.05
         xy = cam[:, :2] / np.maximum(cam[:, 2] + dist, 1e-6)[:, None]
@@ -432,7 +450,7 @@ def _corner_weights(tri_img, tris, sxy, ys, xs) -> tuple[np.ndarray, np.ndarray,
     return 1 - w1 - w2, w1, w2
 
 
-def _shade_with_normals(img, hit, tri_img, tris, sxy, tri_mesh, tri_start, meshes, normals, toward_cam, facing) -> None:
+def _shade_with_normals(img, hit, tri_img, tris, sxy, tri_mesh, tri_start, meshes, normals, toward_cam, facing, key) -> None:
     """Overwrite the flat shade of the meshes that come with shading normals by a per-pixel one: the corner
     normals interpolated across the triangle, lit by the same two lights. A triangle seen from behind is lit from
     the side that is seen, as in the flat shade."""
@@ -451,7 +469,7 @@ def _shade_with_normals(img, hit, tri_img, tris, sxy, tri_mesh, tri_start, meshe
         n[k] = w0[k, None] * c[:, 0] + w1[k, None] * c[:, 1] + w2[k, None] * c[:, 2]
     n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
     n *= facing[t][:, None]
-    shade = 0.22 + 0.60 * np.maximum(n @ KEY_LIGHT, 0) + 0.28 * np.maximum(n @ toward_cam, 0)
+    shade = 0.22 + 0.60 * np.maximum(n @ key, 0) + 0.28 * np.maximum(n @ toward_cam, 0)
     img[ys, xs] = np.clip(CLAY[None] * shade[:, None], 0, 255).astype(np.uint8)
 
 
@@ -473,8 +491,15 @@ def render_buffers(
     uvs: dict[str, np.ndarray] | None = None,
     camera: Camera | None = None,
     normals: dict[str, np.ndarray] | None = None,
+    feature_edges: bool = False,
+    crease_deg: float = 40.0,
 ) -> RenderBuffers:
     """Single rasterisation path: clay colour plus ID/depth buffers.
+
+    feature_edges: darken the lines a shaded render shows as edges instead of every triangle edge (``wireframe``):
+    each part's outline and its boundary with another part (from the ID buffer), and the edges whose faces meet at
+    more than ``crease_deg`` (the hard edges of the shipped normals, ``compile_ir.crease_normals``), open edges and
+    edges of more than two faces. Not with ``wireframe``.
 
     uvs: node_id -> (V,2) per-vertex UVs; when given, the colour is replaced by a UV
     checker pattern (tiling past [0,1] is visible) for those meshes.
@@ -510,39 +535,107 @@ def render_buffers(
     toward_cam = -B[2]
     facing = np.where(n @ toward_cam < 0, -1.0, 1.0)  # double-sided
     n *= facing[:, None]
-    shade = 0.22 + 0.60 * np.maximum(n @ KEY_LIGHT, 0) + 0.28 * np.maximum(n @ toward_cam, 0)
+    key_dir = key_light(cam.view)
+    shade = 0.22 + 0.60 * np.maximum(n @ key_dir, 0) + 0.28 * np.maximum(n @ toward_cam, 0)
     col = np.clip(CLAY[None] * shade[:, None], 0, 255).astype(np.uint8)
     hit = tri_img >= 0
     img[hit] = col[tri_img[hit]]
     if normals:
-        _shade_with_normals(img, hit, tri_img, tris, sxy, tri_mesh, tri_start, meshes, normals, toward_cam, facing)
+        _shade_with_normals(img, hit, tri_img, tris, sxy, tri_mesh, tri_start, meshes, normals, toward_cam, facing, key_dir)
     if uvs:
         _uv_checker(img, hit, tri_img, tris, sxy, tri_mesh, meshes, uvs, size)
     prim[hit] = tri_mesh[tri_img[hit]]
     tri_loc[hit] = tri_start[tri_img[hit]]
     depth[hit] = (-1.0 / zbuf[hit] if persp else zbuf[hit]).astype(np.float32)
 
+    if wireframe and feature_edges:
+        raise ValueError("draw either every triangle edge (wireframe) or the feature edges, not both")
     if wireframe:
         e = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]])
         e = np.unique(np.sort(e, axis=1), axis=0)
-        a, b = sxy[e[:, 0]], sxy[e[:, 1]]
-        ns = np.clip(np.ceil(np.abs(b - a).max(axis=1)).astype(np.int64), 1, size * 2)
-        eid = np.repeat(np.arange(len(e)), ns)
-        t = (np.arange(len(eid)) - np.repeat(np.cumsum(ns) - ns, ns)) / np.repeat(ns, ns)
-        xy = a[eid] + (b[eid] - a[eid]) * t[:, None]
-        ix, iy = np.floor(xy[:, 0]).astype(int), np.floor(xy[:, 1]).astype(int)
-        v = (ix >= 0) & (ix < size) & (iy >= 0) & (iy < size)
-        ka, kb = key[e[:, 0]][eid], key[e[:, 1]][eid]
-        if persp:  # interpolate in 1/z space
-            za, zb = z[e[:, 0]][eid], z[e[:, 1]][eid]
-            kk = -((1 - t) / za + t / zb)
-        else:
-            kk = ka + (kb - ka) * t
-        rng = float(np.ptp(key)) or 1.0
-        v &= hit[np.clip(iy, 0, size - 1), np.clip(ix, 0, size - 1)]
-        v &= kk <= zbuf[np.clip(iy, 0, size - 1), np.clip(ix, 0, size - 1)] + 0.01 * rng
-        img[iy[v], ix[v]] = (img[iy[v], ix[v]] * 0.6).astype(np.uint8)
+        iy, ix = _visible_edge_pixels(e, sxy, key, z, persp, hit, zbuf, size)
+        img[iy, ix] = (img[iy, ix] * 0.6).astype(np.uint8)
+    elif feature_edges:
+        mask = _part_outlines(prim, depth)
+        e = _feature_edge_list(meshes, pts, tris, crease_deg)
+        if len(e):
+            iy, ix = _visible_edge_pixels(e, sxy, key, z, persp, hit, zbuf, size)
+            mask[iy, ix] = True
+        img[mask] = (img[mask] * 0.6).astype(np.uint8)
     return RenderBuffers(img, prim, tri_loc, depth, cam, view, size, nid)
+
+
+def _visible_edge_pixels(e, sxy, key, z, persp, hit, zbuf, size) -> tuple[np.ndarray, np.ndarray]:
+    """Pixels of the mesh edges ``e`` (vertex index pairs) that lie on a covered pixel and are not behind the surface
+    there (within 1% of the depth range): the lines a wireframe overlay draws."""
+    a, b = sxy[e[:, 0]], sxy[e[:, 1]]
+    ns = np.clip(np.ceil(np.abs(b - a).max(axis=1)).astype(np.int64), 1, size * 2)
+    eid = np.repeat(np.arange(len(e)), ns)
+    t = (np.arange(len(eid)) - np.repeat(np.cumsum(ns) - ns, ns)) / np.repeat(ns, ns)
+    xy = a[eid] + (b[eid] - a[eid]) * t[:, None]
+    ix, iy = np.floor(xy[:, 0]).astype(int), np.floor(xy[:, 1]).astype(int)
+    v = (ix >= 0) & (ix < size) & (iy >= 0) & (iy < size)
+    ka, kb = key[e[:, 0]][eid], key[e[:, 1]][eid]
+    if persp:  # interpolate in 1/z space
+        za, zb = z[e[:, 0]][eid], z[e[:, 1]][eid]
+        kk = -((1 - t) / za + t / zb)
+    else:
+        kk = ka + (kb - ka) * t
+    rng = float(np.ptp(key)) or 1.0
+    v &= hit[np.clip(iy, 0, size - 1), np.clip(ix, 0, size - 1)]
+    v &= kk <= zbuf[np.clip(iy, 0, size - 1), np.clip(ix, 0, size - 1)] + 0.01 * rng
+    return iy[v], ix[v]
+
+
+def _feature_edge_list(meshes, pts, tris, crease_deg: float) -> np.ndarray:
+    """Vertex index pairs of the edges a shaded render with the shipped normals shows as lines: within each part (vertices
+    welded by position, as ``compile_ir.crease_normals`` welds them), an edge whose two faces meet at more than
+    ``crease_deg`` (a hard edge in the shipped normals), an open edge, and an edge of more than two faces. The edges
+    inside a smooth surface (the triangulation) are not drawn."""
+    from antigravity3d.kernel.fast_ops import _canon
+
+    wid = np.zeros(len(pts), np.int64)
+    off = base = 0
+    for m in meshes:
+        if not len(m.triangles):
+            continue
+        k = _canon(np.asarray(m.points, np.float64))
+        wid[off:off + len(m.points)] = k + base
+        base += int(k.max()) + 1 if len(k) else 0
+        off += len(m.points)
+    E = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]])
+    face = np.tile(np.arange(len(tris)), 3)
+    W = np.sort(wid[E], axis=1)
+    keep = W[:, 0] != W[:, 1]  # an edge welded to a point draws nothing
+    E, face, W = E[keep], face[keep], W[keep]
+    if not len(W):
+        return np.zeros((0, 2), np.int64)
+    _, first, inv, count = np.unique(W, axis=0, return_index=True, return_inverse=True, return_counts=True)
+    inv = inv.ravel()
+    p = pts[tris]
+    fn = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0])
+    ln = np.linalg.norm(fn, axis=1, keepdims=True)
+    unit = np.divide(fn, ln, out=np.zeros_like(fn), where=ln > 1e-20)
+    order = np.argsort(inv, kind="stable")
+    starts = np.concatenate([[0], np.cumsum(count)[:-1]])
+    two = count == 2
+    fa, fb = face[order[starts[two]]], face[order[starts[two] + 1]]
+    hard = np.ones(len(count), bool)
+    hard[two] = (unit[fa] * unit[fb]).sum(axis=1) < np.cos(np.radians(crease_deg)) - 1e-9
+    return E[first[hard]]
+
+
+def _part_outlines(prim: np.ndarray, depth: np.ndarray) -> np.ndarray:
+    """Pixels where one part (or the background) meets another, marked on the nearer side: every part's outline, and
+    the boundary of a flush plate on a face of its own colour, which shading alone does not show."""
+    mask = np.zeros(prim.shape, bool)
+    for a, b, da, db, ma, mb in ((prim[:, :-1], prim[:, 1:], depth[:, :-1], depth[:, 1:], mask[:, :-1], mask[:, 1:]),
+                                 (prim[:-1], prim[1:], depth[:-1], depth[1:], mask[:-1], mask[1:])):
+        diff = a != b
+        near_a = diff & (da <= db)
+        ma |= near_a
+        mb |= diff & ~near_a
+    return mask & (prim >= 0)
 
 
 def render_clay(

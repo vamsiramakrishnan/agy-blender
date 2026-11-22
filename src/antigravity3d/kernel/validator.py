@@ -13,7 +13,7 @@ from urllib.parse import unquote
 import numpy as np
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, UsdValidation
 
-from antigravity3d.kernel import fbx_read
+from antigravity3d.kernel import fbx_read, provenance
 from antigravity3d.kernel.fast_ops import TEXEL_TARGET_WARN_FRACTION, HullLimit, Issue, hull_plane_count
 from antigravity3d.kernel.types import MeshData, bounds_issue, gltf_world_bounds
 from antigravity3d.state import EngineBudget, TargetEngine
@@ -966,7 +966,9 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
     limit (``EngineRules.hull_limit``; in the USD and in ``<asset>_colliders.glb``). GLB images: LOD0 embeds
     every image; far LOD files reference ``textures/`` files that exist, lie inside ``textures/`` and hash as the
     manifest records, embed none, and bind the same image content as LOD0 (see ``_check_glb_images``). An
-    ``art_direction`` record (schema_version 3) is checked against the files (see ``_check_art_direction``).
+    ``art_direction`` record (schema_version 3) is checked against the files (see ``_check_art_direction``). From
+    schema_version 4 the ``provenance`` record must account for every listed file and be what its own graph resolves to
+    (``kernel.provenance.problems``).
     """
     out = Path(out_dir)
     issues: list[Issue] = []
@@ -1136,6 +1138,11 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
         except Exception as e:  # noqa: BLE001 - unreadable GLB
             add("glb_open", "critical", glb.name, str(e))
 
+    # Materials baked into one texture set ship as one glTF material (manifest ``texture_atlas.gltf_materials``: the
+    # shipped name and the USD materials it holds); the USD keeps one material per surface, all reading the baked maps.
+    alias = {src: rec["material"] for rec in (man.get("texture_atlas") or {}).get("gltf_materials") or [] for src in rec.get("from") or []}
+    if alias:
+        bindings = {n: (alias.get(mat, mat), roles) for n, (mat, roles) in bindings.items()}
     batches = man.get("glb_batches")
     if batches:
         actual_bindings = {}
@@ -1221,6 +1228,9 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
         except Exception as e:  # noqa: BLE001 - unreadable GLB
             add("glb_open", "critical", glb_hulls.name, str(e)[:200])
     _check_art_direction(out, man, root, hull_re, add)
+    if int(man.get("schema_version") or 1) >= provenance.SCHEMA_VERSION:  # the record's contract: every listed file is accounted for
+        for detail in provenance.problems(man):
+            add("provenance", "critical", None, detail)
     want_names = man.get("colliders")
     if want_names is not None and sorted(want_names) != sorted(p.GetName() for p in colliders):
         add("collider_manifest", "warning", None, "manifest collider names differ from the USD collider prims")

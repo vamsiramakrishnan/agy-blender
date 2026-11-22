@@ -15,7 +15,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from scipy import ndimage
 
-from antigravity3d.kernel.raster import BG, Camera, View, _basis, render_buffers
+from antigravity3d.kernel.raster import BG, PERSP_VIEWS, Camera, View, _basis, render_buffers
 from antigravity3d.kernel.types import MeshData
 
 # screen-size thresholds at which LOD k stops being used: LOD0 down to 50%, LOD1 down to 25%, ...
@@ -175,7 +175,7 @@ def lod_camera(ref_points: np.ndarray, view: View, size: int, screen_fraction: f
     lo, hi = pts.min(axis=0), pts.max(axis=0)
     rad = max(float(np.linalg.norm(hi - lo)) / 2, 1e-6)
     dist = transition_distance(rad, screen_fraction, fov_deg)
-    persp = view == "persp"
+    persp = view in PERSP_VIEWS
     frame = float(size if frame_px is None else frame_px)
     scale = (frame / 2) / math.tan(math.radians(fov_deg) / 2) if persp else frame * screen_fraction / (2 * rad)
     return Camera(view, _basis(view), (lo + hi) / 2, persp, dist if persp else 0.0, scale, np.zeros(2), size), dist

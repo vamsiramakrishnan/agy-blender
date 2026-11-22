@@ -1,0 +1,1768 @@
+{
+ "asset_name": "RuggedMilitarySupply",
+ "nodes": [
+  {
+   "id": "crate_body",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.84,
+     0.5,
+     0.36
+    ],
+    "bevel": 0.01,
+    "bevel_segments": 1,
+    "inset_faces": [
+     "+x",
+     "-x",
+     "+y",
+     "-y"
+    ],
+    "inset_margin": 0.045,
+    "inset_depth": 0.012
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "olive_drab_metal",
+   "collider": true
+  },
+  {
+   "id": "crate_lid",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.88,
+     0.54,
+     0.06
+    ],
+    "bevel": 0.01,
+    "bevel_segments": 1,
+    "inset_faces": [
+     "+z"
+    ],
+    "inset_margin": 0.05,
+    "inset_depth": 0.008
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.42
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "olive_drab_metal",
+   "collider": true
+  },
+  {
+   "id": "skid_bottom",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.08,
+     0.48,
+     0.03
+    ],
+    "bevel": 0.004,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.34,
+     0.0,
+     0.015
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "rubber_grip",
+   "collider": true
+  },
+  {
+   "id": "corner_guard_front",
+   "kind": "extrude",
+   "params": {
+    "outline": [
+     [
+      0.425,
+      -0.255
+     ],
+     [
+      0.365,
+      -0.255
+     ],
+     [
+      0.365,
+      -0.247
+     ],
+     [
+      0.417,
+      -0.247
+     ],
+     [
+      0.417,
+      -0.195
+     ],
+     [
+      0.425,
+      -0.195
+     ]
+    ],
+    "depth": 0.34
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "corner_guard_back",
+   "kind": "extrude",
+   "params": {
+    "outline": [
+     [
+      0.425,
+      0.255
+     ],
+     [
+      0.425,
+      0.195
+     ],
+     [
+      0.417,
+      0.195
+     ],
+     [
+      0.417,
+      0.247
+     ],
+     [
+      0.365,
+      0.247
+     ],
+     [
+      0.365,
+      0.255
+     ]
+    ],
+    "depth": 0.34
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "lid_corner_front",
+   "kind": "extrude",
+   "params": {
+    "outline": [
+     [
+      0.445,
+      -0.275
+     ],
+     [
+      0.385,
+      -0.275
+     ],
+     [
+      0.385,
+      -0.267
+     ],
+     [
+      0.437,
+      -0.267
+     ],
+     [
+      0.437,
+      -0.215
+     ],
+     [
+      0.445,
+      -0.215
+     ]
+    ],
+    "depth": 0.056
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.42
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "lid_corner_back",
+   "kind": "extrude",
+   "params": {
+    "outline": [
+     [
+      0.445,
+      0.275
+     ],
+     [
+      0.445,
+      0.215
+     ],
+     [
+      0.437,
+      0.215
+     ],
+     [
+      0.437,
+      0.267
+     ],
+     [
+      0.385,
+      0.267
+     ],
+     [
+      0.385,
+      0.275
+     ]
+    ],
+    "depth": 0.056
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.42
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "rib_front",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.025,
+     0.010000005293637503,
+     0.24
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.16,
+     -0.23500000264681875,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "olive_drab_metal",
+   "collider": false
+  },
+  {
+   "id": "rib_back",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.025,
+     0.010000005293637503,
+     0.24
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.16,
+     0.23500000264681875,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "olive_drab_metal",
+   "collider": false
+  },
+  {
+   "id": "latch_plate",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.06,
+     0.006,
+     0.09
+    ],
+    "bevel": 0.001,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.26,
+     -0.253,
+     0.34
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "latch_clasp",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.044,
+     0.012,
+     0.075
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.26,
+     -0.262,
+     0.375
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "latch_hinge",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.006,
+    "height": 0.05,
+    "segments": 10
+   },
+   "transform": {
+    "translate": [
+     0.26,
+     -0.262,
+     0.335
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     90.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "latch_catch",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.05,
+     0.012,
+     0.02
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.26,
+     -0.276,
+     0.415
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "hinge_plate_body",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.06,
+     0.006,
+     0.05
+    ],
+    "bevel": 0.001,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.26,
+     0.253,
+     0.365
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "hinge_barrel",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.008,
+    "height": 0.055999999999999994,
+    "segments": 10
+   },
+   "transform": {
+    "translate": [
+     0.26,
+     0.262,
+     0.39
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     90.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "handle_plate",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.006,
+     0.16,
+     0.08
+    ],
+    "bevel": 0.001,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.411,
+     0.0,
+     0.24
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "handle_bracket",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.025,
+     0.018,
+     0.022
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.426,
+     0.055,
+     0.24
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "handle_grip",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.012,
+    "height": 0.11,
+    "segments": 12
+   },
+   "transform": {
+    "translate": [
+     0.436,
+     0.0,
+     0.24
+    ],
+    "rotate_euler_deg": [
+     90.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "rubber_grip",
+   "collider": false
+  },
+  {
+   "id": "handle_bolt",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.005,
+    "height": 0.006,
+    "segments": 8
+   },
+   "transform": {
+    "translate": [
+     0.416,
+     0.065,
+     0.265
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     90.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "lid_bolt",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.006,
+    "height": 0.006,
+    "segments": 8
+   },
+   "transform": {
+    "translate": [
+     0.38,
+     -0.22,
+     0.453
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "skid_bottom__mx",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.08,
+     0.48,
+     0.03
+    ],
+    "bevel": 0.004,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     -0.34,
+     0.0,
+     0.015
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "rubber_grip",
+   "collider": true
+  },
+  {
+   "id": "corner_guard_front__mx",
+   "kind": "extrude",
+   "params": {
+    "outline": [
+     [
+      -0.425,
+      -0.195
+     ],
+     [
+      -0.417,
+      -0.195
+     ],
+     [
+      -0.417,
+      -0.247
+     ],
+     [
+      -0.365,
+      -0.247
+     ],
+     [
+      -0.365,
+      -0.255
+     ],
+     [
+      -0.425,
+      -0.255
+     ]
+    ],
+    "depth": 0.34
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "corner_guard_back__mx",
+   "kind": "extrude",
+   "params": {
+    "outline": [
+     [
+      -0.365,
+      0.255
+     ],
+     [
+      -0.365,
+      0.247
+     ],
+     [
+      -0.417,
+      0.247
+     ],
+     [
+      -0.417,
+      0.195
+     ],
+     [
+      -0.425,
+      0.195
+     ],
+     [
+      -0.425,
+      0.255
+     ]
+    ],
+    "depth": 0.34
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "lid_corner_front__mx",
+   "kind": "extrude",
+   "params": {
+    "outline": [
+     [
+      -0.445,
+      -0.215
+     ],
+     [
+      -0.437,
+      -0.215
+     ],
+     [
+      -0.437,
+      -0.267
+     ],
+     [
+      -0.385,
+      -0.267
+     ],
+     [
+      -0.385,
+      -0.275
+     ],
+     [
+      -0.445,
+      -0.275
+     ]
+    ],
+    "depth": 0.056
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.42
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "lid_corner_back__mx",
+   "kind": "extrude",
+   "params": {
+    "outline": [
+     [
+      -0.385,
+      0.275
+     ],
+     [
+      -0.385,
+      0.267
+     ],
+     [
+      -0.437,
+      0.267
+     ],
+     [
+      -0.437,
+      0.215
+     ],
+     [
+      -0.445,
+      0.215
+     ],
+     [
+      -0.445,
+      0.275
+     ]
+    ],
+    "depth": 0.056
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.42
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "rib_front__mx",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.025,
+     0.010000005293637503,
+     0.24
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     -0.16,
+     -0.23500000264681875,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "olive_drab_metal",
+   "collider": false
+  },
+  {
+   "id": "rib_back__mx",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.025,
+     0.010000005293637503,
+     0.24
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     -0.16,
+     0.23500000264681875,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "olive_drab_metal",
+   "collider": false
+  },
+  {
+   "id": "latch_plate__mx",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.06,
+     0.006,
+     0.09
+    ],
+    "bevel": 0.001,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     -0.26,
+     -0.253,
+     0.34
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "latch_clasp__mx",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.044,
+     0.012,
+     0.075
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     -0.26,
+     -0.262,
+     0.375
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "latch_hinge__mx",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.006,
+    "height": 0.05,
+    "segments": 10
+   },
+   "transform": {
+    "translate": [
+     -0.26,
+     -0.262,
+     0.335
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     90.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "latch_catch__mx",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.05,
+     0.012,
+     0.02
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     -0.26,
+     -0.276,
+     0.415
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "hinge_plate_body__mx",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.06,
+     0.006,
+     0.05
+    ],
+    "bevel": 0.001,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     -0.26,
+     0.253,
+     0.365
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "hinge_barrel__mx",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.008,
+    "height": 0.055999999999999994,
+    "segments": 10
+   },
+   "transform": {
+    "translate": [
+     -0.26,
+     0.262,
+     0.39
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     90.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "handle_plate__mx",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.006,
+     0.16,
+     0.08
+    ],
+    "bevel": 0.001,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     -0.411,
+     0.0,
+     0.24
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "handle_bracket__r1",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.025,
+     0.018,
+     0.022
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.426,
+     -0.055,
+     0.24
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "handle_bracket__mx",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.025,
+     0.018,
+     0.022
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     -0.426,
+     0.055,
+     0.24
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "handle_bracket__r1__mx",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.025,
+     0.018,
+     0.022
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     -0.426,
+     -0.055,
+     0.24
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "handle_grip__mx",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.012,
+    "height": 0.11,
+    "segments": 12
+   },
+   "transform": {
+    "translate": [
+     -0.436,
+     0.0,
+     0.24
+    ],
+    "rotate_euler_deg": [
+     -90.0,
+     0.0,
+     180.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "rubber_grip",
+   "collider": false
+  },
+  {
+   "id": "handle_bolt__r1",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.005,
+    "height": 0.006,
+    "segments": 8
+   },
+   "transform": {
+    "translate": [
+     0.416,
+     -0.065,
+     0.265
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     90.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "handle_bolt__mx",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.005,
+    "height": 0.006,
+    "segments": 8
+   },
+   "transform": {
+    "translate": [
+     -0.416,
+     0.065,
+     0.265
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     90.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "handle_bolt__r1__mx",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.005,
+    "height": 0.006,
+    "segments": 8
+   },
+   "transform": {
+    "translate": [
+     -0.416,
+     -0.065,
+     0.265
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     90.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "lid_bolt__r1",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.006,
+    "height": 0.006,
+    "segments": 8
+   },
+   "transform": {
+    "translate": [
+     0.38,
+     0.22,
+     0.453
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "lid_bolt__mx",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.006,
+    "height": 0.006,
+    "segments": 8
+   },
+   "transform": {
+    "translate": [
+     -0.38,
+     -0.22,
+     0.453
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     180.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "lid_bolt__r1__mx",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.006,
+    "height": 0.006,
+    "segments": 8
+   },
+   "transform": {
+    "translate": [
+     -0.38,
+     0.22,
+     0.453
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     180.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "dark_gunmetal",
+   "collider": false
+  },
+  {
+   "id": "lid_rib",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.03,
+     0.42,
+     0.012
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.16,
+     0.0,
+     0.448
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "olive_drab_metal",
+   "collider": false
+  },
+  {
+   "id": "lid_rib__mx",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.03,
+     0.42,
+     0.012
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     -0.16,
+     0.0,
+     0.448
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "olive_drab_metal",
+   "collider": false
+  }
+ ],
+ "materials": [
+  {
+   "id": "olive_drab_metal",
+   "surface": "olive drab painted stamped steel",
+   "base_color": [
+    0.16,
+    0.2,
+    0.12
+   ],
+   "metallic": 0.2,
+   "roughness": 0.58,
+   "albedo_uri": null,
+   "orm_uri": null,
+   "normal_uri": null,
+   "normal_convention": "opengl",
+   "alpha_mode": "OPAQUE",
+   "alpha_cutoff": null,
+   "opacity": 1.0,
+   "double_sided": false,
+   "emissive_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "emissive_strength": 1.0,
+   "emissive_uri": null,
+   "clearcoat": 0.0,
+   "clearcoat_roughness": 0.0,
+   "transmission": 0.0,
+   "ior": 1.5,
+   "sheen_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "sheen_roughness": 0.0,
+   "specular": 1.0,
+   "specular_color": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "id": "dark_gunmetal",
+   "surface": "worn dark gunmetal steel",
+   "base_color": [
+    0.1,
+    0.105,
+    0.11
+   ],
+   "metallic": 0.85,
+   "roughness": 0.42,
+   "albedo_uri": null,
+   "orm_uri": null,
+   "normal_uri": null,
+   "normal_convention": "opengl",
+   "alpha_mode": "OPAQUE",
+   "alpha_cutoff": null,
+   "opacity": 1.0,
+   "double_sided": false,
+   "emissive_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "emissive_strength": 1.0,
+   "emissive_uri": null,
+   "clearcoat": 0.0,
+   "clearcoat_roughness": 0.0,
+   "transmission": 0.0,
+   "ior": 1.5,
+   "sheen_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "sheen_roughness": 0.0,
+   "specular": 1.0,
+   "specular_color": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "id": "rubber_grip",
+   "surface": "matte black vulcanized rubber",
+   "base_color": [
+    0.06,
+    0.06,
+    0.06
+   ],
+   "metallic": 0.0,
+   "roughness": 0.82,
+   "albedo_uri": null,
+   "orm_uri": null,
+   "normal_uri": null,
+   "normal_convention": "opengl",
+   "alpha_mode": "OPAQUE",
+   "alpha_cutoff": null,
+   "opacity": 1.0,
+   "double_sided": false,
+   "emissive_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "emissive_strength": 1.0,
+   "emissive_uri": null,
+   "clearcoat": 0.0,
+   "clearcoat_roughness": 0.0,
+   "transmission": 0.0,
+   "ior": 1.5,
+   "sheen_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "sheen_roughness": 0.0,
+   "specular": 1.0,
+   "specular_color": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  }
+ ]
+}

@@ -1,11 +1,16 @@
 ---
 name: engine-truth-verify
 description: >-
-  Exports a QA-passed asset to a target engine package and proves it imports
-  correctly by running a headless engine import and a parity check against
-  the USD stage. Use when the user asks to export, ship or deliver an asset to
-  Unreal Engine 5, Unity URP, Godot 4 or Roblox, or to verify an existing
-  export.
+  Exports a QA-passed asset as an engine package for Unreal Engine 5, Unity URP,
+  Godot 4 or Roblox (USD, USDZ, GLB with LODs, collision hulls, textures, FBX where
+  the engine takes one, inspector, manifest.json) and proves it: a headless engine
+  import, a parity check against the stage and an independent Blender check; on a
+  key without the native judge it writes an unverified preview instead. Use when
+  the user asks to export or package an asset, to verify an existing export, or
+  why an export was refused. Not for putting a package into the user's game
+  project (use install-into-project), for fixing the shape (use
+  parametric-kitbash), for textures (use pbr-material-forge) or for cleaning a
+  mesh file the user already has (use game-ready-sanitizer).
 ---
 
 # Engine truth verify
@@ -45,7 +50,8 @@ numbers and asks before the preview opens. In a preview session:
 3. **Headless import.** `export_engine_package` runs the engine's headless
    import itself and refuses the package (`REFUSED ...`, nothing written) on
    a failure. The import metrics are recorded in the package's `manifest.json`
-   under `validation.engine_import`. (Roblox has no headless importer, so only
+   under `validation.engine_import`, with the engine version that was checked
+   (`validation.engine_import.engine_version`). (Roblox has no headless importer, so only
    the validator runs.) Treat import warnings about scale, missing textures,
    collision or LOD groups as failures.
    When a real Blender worker is attached (the plugin's pool sidecar), the
@@ -85,3 +91,84 @@ numbers and asks before the preview opens. In a preview session:
 5. **Report.** One line: `<asset> -> <engine>: PASS|FAIL <first mismatch>`,
    plus the package path. On FAIL, name the stage-side fix (never patch the
    exported files by hand) and loop back through QA.
+6. **Hand-off.** A package is a folder. When the user wants it in their game,
+   hand over to `install-into-project`, which writes it into the project and
+   checks it there (Godot 4 only; for other engines it names the file to import
+   by hand). Say what this skill proved (the package imports in a clean engine
+   project) and what only the install proves (that it works in theirs).
+7. **Disclosure.** Packages of schema version 4 or later carry a `provenance`
+   record in `manifest.json`: per shipped file, the sources it derives from and
+   the deterministic steps between, and per source who made it (a model that
+   authored the design, an image model, the user, an offline stand-in).
+   `provenance.generated_content` is true when a model made part of what ships,
+   false when none did and null when a source was not recorded;
+   `provenance.models` names the models and `provenance.unrecorded` the sources
+   nobody recorded. Quote it when the user asks what a store's AI-content
+   disclosure should say, never answer "no generated content" from a null, and
+   say that it is a record of identities and hashes, not a legal opinion.
+   The exact shape is in `docs/package_provenance.md` of the repository.
+
+## Check
+
+The report line of step 5 is the check. A pass is `PASS` with the package path,
+`validation.package_ok` true, `validation.engine_import`
+recorded (not skipped) and `validation.engine_parity` within the figures of step
+4. For a preview the only honest line is `PREVIEW (unverified)`.
+
+## Gotchas
+
+- **Symptom:** export is denied or says `REFUSED`. **Cause:** the gate is
+  working (Tier-1 ok, Tier-1.5 at least 3.4, nothing changed since), or the
+  import, parity or Blender check found something. **Remedy:** read the named
+  reason, fix it on the stage and re-run QA; never patch the exported files and
+  never look for a way round the hook.
+- **Symptom:** the Blender check refuses a package for faces in one plane or
+  for inconsistent face winding. **Cause:** flush faces of parts that press
+  together (every detailed design recorded in round four failed on them), or a
+  part that is truly wound the wrong way (parts merely touching at a corner no
+  longer fail: the worker reads each part on its own). **Remedy:** the prop pipeline now moves
+  flush faces 2 mm apart by itself; for anything it names, fix the part on the
+  stage.
+- **Symptom:** `validation.blender_asset_qa` says skipped. **Cause:** no real
+  Blender worker was attached. **Remedy:** report it as skipped with its reason,
+  never as passed.
+- **Symptom:** the user opens the FBX in Unity or Unreal and a map is missing.
+  **Cause:** an FBX carries geometry, UVs and the base colour and normal links
+  only; the lost maps are listed in `fbx.maps.lost`. **Remedy:** point the user
+  to the GLB or USD for the full material, and say "re-imported in Blender and
+  equal to the GLB", never that it imports correctly in the engine.
+- **Symptom:** a Unity build is much larger than the textures suggest.
+  **Cause:** per the reference skill pack (glTFast 6.20.0 on Unity 6000.5.10f1,
+  not tried by this project), textures embedded in a `.glb` ship uncompressed
+  with mipmaps, while image files the importer finds in the project follow the
+  Texture Importer. This package's `<asset>.glb` embeds every image, and the far
+  LOD GLBs and the USD reference the files in `textures/`. **Remedy:** ask the
+  user to check the build report, and to use the `textures/` files as project
+  textures so that their compression settings apply; report what was and was
+  not checked. For Godot the same problem (every embedded image extracted to a
+  second, lossless copy) is what `install-into-project` removes and measures;
+  for Unity it stays a manual step.
+- **Symptom:** Roblox shows more MeshParts than expected. **Cause:** a glTF mesh
+  becomes one MeshPart per primitive, and parts are submitted in batches split
+  at the engine's triangle limit; the manifest's notes say how many to expect.
+  **Remedy:** quote the note; the importer was not run in Studio.
+- **Symptom:** the user has no verified package and the key answers 404 for the
+  Decisions API. **Cause:** only the native judge verifies. **Remedy:** the
+  preview path above, with the user's own token ceiling and image limit, and
+  the report line `PREVIEW (unverified)` with who judged.
+- **Symptom:** an `agy3d prop` run ended without a package after a busy
+  service. **Cause:** a failure at one model or image call ended the run.
+  **Remedy:** rerun with the same `--out`; the design and images
+  already paid for are reused (see `parametric-kitbash`).
+
+## Version notes
+
+Last verified 2026-11-22 against commit af568e0 (with the shapes, authoring and install commits).
+
+- Engines run for the import check in this project's CI: Blender 5.3.0 and
+  Godot 4.7.2. Unity, Unreal Engine and Roblox Studio were never run.
+- The Tier-1.5 threshold of 3.4 is `EXPORT_MIN_TIER15_SCORE` in `state.py`.
+- The Unity texture fact is from the reference pack's own check, dated
+  2026-10-24; re-read its glTF-textures reference before relying on it.
+- Roblox has no headless importer here; only the validator runs.
+- Schema version 4 added the `provenance` record; a package written before it has none.

@@ -37,6 +37,13 @@ def test_standard_row():
         reuse_trim_sheet=False,
         final_render="eevee",
         ceiling_usd=0.85,
+        # pass A's improvement rounds: four on the worker tier, validated every two (measured live 2026-11-22,
+        # r5/live/m3_loop2: a round validated alone was never preferred)
+        improve_rounds=4,
+        improve_target=3.5,
+        improve_role="worker",
+        # the look round (round five, tactics.look_round): the colours are looked at once before the package is written
+        look_rounds=1,
     )
 
 
@@ -55,6 +62,12 @@ def test_hero_row():
         reuse_trim_sheet=False,
         final_render="cycles",
         ceiling_usd=2.20,
+        # pass A's improvement rounds: four on the worker tier, validated every two (measured live 2026-11-22,
+        # r5/live/m3_loop2: a round validated alone was never preferred)
+        improve_rounds=4,
+        improve_target=3.5,
+        improve_role="worker",
+        look_rounds=1,
     )
 
 

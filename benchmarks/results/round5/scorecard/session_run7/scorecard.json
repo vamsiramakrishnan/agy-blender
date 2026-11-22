@@ -1,0 +1,321 @@
+{
+ "rows": [
+  {
+   "id": "delivered",
+   "group": "Finishing",
+   "label": "Delivered a package unassisted",
+   "rule": "The cell's first session ended 'finished' with a main GLB, without a continuation session.",
+   "kind": "check"
+  },
+  {
+   "id": "wall_s",
+   "group": "Finishing",
+   "label": "Time to a delivered package (s)",
+   "rule": "Wall seconds of every session of the cell, summed.",
+   "kind": "value"
+  },
+  {
+   "id": "spend",
+   "group": "Finishing",
+   "label": "Model calls / tokens / images",
+   "rule": "The relay's ledger for the cell's accounts: model calls, tokens (input + output + thinking), generated images.",
+   "kind": "value"
+  },
+  {
+   "id": "godot_import",
+   "group": "Game-ready",
+   "label": "Loads in Godot 4",
+   "rule": "Stock Godot 4.7 imports the bare GLB (GLB and its referenced files only) without error (GodotValidator).",
+   "kind": "check"
+  },
+  {
+   "id": "three_js",
+   "group": "Game-ready",
+   "label": "Loads in three.js",
+   "rule": "The three.js check on the bare GLB reports no failed check.",
+   "kind": "check"
+  },
+  {
+   "id": "upstream_qa",
+   "group": "Game-ready",
+   "label": "Independent Blender check passes",
+   "rule": "The upstream qa_check script reports pass.",
+   "kind": "check"
+  },
+  {
+   "id": "scale",
+   "group": "Game-ready",
+   "label": "Scale and orientation right",
+   "rule": "Largest dimension inside the brief's plausible range, and for an upright brief, tallest along +Y.",
+   "kind": "check"
+  },
+  {
+   "id": "pivot",
+   "group": "Game-ready",
+   "label": "Grounded and centred",
+   "rule": "Lowest point within 2 cm of y = 0; bounding-box centre within 10 % of the largest dimension of the origin in x and z.",
+   "kind": "check"
+  },
+  {
+   "id": "tri_budget",
+   "group": "Game-ready",
+   "label": "Triangle budget met",
+   "rule": "Visible triangles of the main GLB at most the brief's budget.",
+   "kind": "check"
+  },
+  {
+   "id": "uv",
+   "group": "Game-ready",
+   "label": "UVs present, inside 0-1, not overlapping",
+   "rule": "Every primitive has TEXCOORD_0; no UV vertex outside [0, 1] (1e-4 slack); per material, at most 1 % of the covered texels are covered twice (a 256 px raster of the triangles).",
+   "kind": "check"
+  },
+  {
+   "id": "texel_even",
+   "group": "Game-ready",
+   "label": "Texel density even",
+   "rule": "For every visible object, the upstream texel_density script's spread (largest island density / smallest) is at most 2.",
+   "kind": "check"
+  },
+  {
+   "id": "maps",
+   "group": "Game-ready",
+   "label": "Base colour, normal and metal-roughness maps readable and not blank",
+   "rule": "Every material binds the three maps (pbr_complete), and each bound image decodes; no base-colour or normal map is flat (all channels' standard deviation under 1 %); no base colour is black (95 % of texels under 30 of 255).",
+   "kind": "check"
+  },
+  {
+   "id": "lods",
+   "group": "Game-ready",
+   "label": "LOD files present and valid",
+   "rule": "At least one <name>_LOD<n>.glb beside the main GLB; each readable and with fewer triangles than the level before.",
+   "kind": "check"
+  },
+  {
+   "id": "collision",
+   "group": "Game-ready",
+   "label": "Collision present and simple",
+   "rule": "A collision mesh (a node named as one in the main GLB, or a collision file beside it); every one convex (its volume within 2 % of its hull's) with at most 255 vertices (PhysX's hull limit; Godot simplifies larger ones itself).",
+   "kind": "check"
+  },
+  {
+   "id": "game_ready_rate",
+   "group": "Game-ready",
+   "label": "Game-ready rate",
+   "rule": "Share of the game-ready checks above that pass; 'all' when every one does.",
+   "kind": "value"
+  },
+  {
+   "id": "draw_calls",
+   "group": "Runtime cost",
+   "label": "Draw calls / materials",
+   "rule": "Primitives drawn (one draw call each) and materials, main GLB.",
+   "kind": "value"
+  },
+  {
+   "id": "tris_per_level",
+   "group": "Runtime cost",
+   "label": "Triangles per level",
+   "rule": "Visible triangles of the main GLB, then of each LOD file.",
+   "kind": "value"
+  },
+  {
+   "id": "texture_memory",
+   "group": "Runtime cost",
+   "label": "Texture memory",
+   "rule": "From each image's size and channels with a full mip chain: uncompressed RGBA8, and Godot 4's default VRAM compression on desktop (0.5 byte per texel, 1 with alpha or for a normal map). An estimate from the files.",
+   "kind": "value"
+  },
+  {
+   "id": "package_bytes",
+   "group": "Runtime cost",
+   "label": "Package bytes",
+   "rule": "Every file under the main GLB's folder (hidden caches excluded).",
+   "kind": "value"
+  },
+  {
+   "id": "judge",
+   "group": "Looks",
+   "label": "Blind pairwise judge",
+   "rule": "Per other arm: the winner both orders agree on, 'tie', or 'split'.",
+   "kind": "value"
+  },
+  {
+   "id": "judge_small",
+   "group": "Looks",
+   "label": "Reads at game size",
+   "rule": "The same judge on 128 px views (and the lowest LOD's, where delivered), both orders.",
+   "kind": "value"
+  },
+  {
+   "id": "change",
+   "group": "Changing it",
+   "label": "One change request to a new delivered package",
+   "rule": "A new session over a copy of the cell's files asked the brief's change (CHANGES): delivered or not, wall seconds, model calls, tokens.",
+   "kind": "value"
+  },
+  {
+   "id": "change_scope",
+   "group": "Changing it",
+   "label": "The change left everything else alone",
+   "rule": "package_diff of the two GLBs: parts resized by the asked ratio (within 0.1) against everything else that changed, was added or removed; triangles and bounds before and after. This project's packages are read part by part from the ranges their manifests record (glb_part_ranges), the other arms' files as connected pieces of each primitive. Pass: at least one part on target and no collateral.",
+   "kind": "check_change"
+  },
+  {
+   "id": "hand_steps",
+   "group": "Using it",
+   "label": "Hand steps left before it is in a level (Godot 4)",
+   "rule": "1 step to bring it in (copy the files, or run an install command), plus one per item that fails: import errors; scale or orientation; pivot; materials (maps missing, unreadable or blank); collision not created on import (needs a node in the main GLB with a -colonly or -convcolonly suffix; -col and -convcol also keep the collision mesh visible, which is one step to hide it); a collision file beside the GLB is one step to attach. LOD files are not a step: Godot generates levels on import, and delivered ones are used only when wired (shown, not counted). An install whose in-engine checks all pass covers collision and levels.",
+   "kind": "value"
+  },
+  {
+   "id": "installed",
+   "group": "Using it",
+   "label": "Installed and checked inside a Godot project",
+   "rule": "antigravity3d.deliver.install_package on the package into a fresh project: every in-engine check passes. Only this project's packages can be installed by it.",
+   "kind": "project"
+  },
+  {
+   "id": "same_bytes",
+   "group": "Trust",
+   "label": "Same request, same bytes",
+   "rule": "The same command again into a copy of the first run's folder (its design record and image cache): every shipped file's sha256 equal. Only this project's command can be asked; a stock agent has no replay.",
+   "kind": "project"
+  },
+  {
+   "id": "provenance",
+   "group": "Trust",
+   "label": "Says where each file came from",
+   "rule": "manifest.json provenance names an origin for every shipped file. Only this project writes a manifest.",
+   "kind": "project"
+  }
+ ],
+ "cells": {
+  "crate:N": {
+   "delivered": {
+    "pass": true,
+    "value": "finished"
+   },
+   "wall_s": {
+    "value": 559.7
+   },
+   "spend": {
+    "value": {
+     "model_calls": 24,
+     "tokens": 1506200,
+     "images": 0
+    }
+   },
+   "godot_import": {
+    "pass": true
+   },
+   "three_js": {
+    "pass": true
+   },
+   "upstream_qa": {
+    "pass": true
+   },
+   "scale": {
+    "pass": true
+   },
+   "pivot": {
+    "pass": true
+   },
+   "tri_budget": {
+    "pass": true
+   },
+   "uv": {
+    "pass": true
+   },
+   "texel_even": {
+    "pass": true
+   },
+   "maps": {
+    "pass": false
+   },
+   "lods": {
+    "pass": true
+   },
+   "collision": {
+    "pass": false
+   },
+   "game_ready_rate": {
+    "value": "9/11",
+    "pass": false
+   },
+   "draw_calls": {
+    "value": {
+     "draw_calls": 1,
+     "materials": 1
+    }
+   },
+   "tris_per_level": {
+    "value": [
+     2766,
+     1647,
+     940,
+     220
+    ]
+   },
+   "texture_memory": {
+    "value": {
+     "rgba8_mips_bytes": 33554432,
+     "vram_bytes_godot_default": 5592405,
+     "images": 3
+    }
+   },
+   "package_bytes": {
+    "value": 7407765
+   },
+   "judge": {
+    "value": null
+   },
+   "judge_small": {
+    "value": null
+   },
+   "change": {
+    "value": "not run"
+   },
+   "change_scope": {
+    "value": "not run"
+   },
+   "hand_steps": {
+    "value": {
+     "count": 2,
+     "steps": [
+      "bring it into the project (the install command)",
+      "wire or fix the materials"
+     ],
+     "authored_lods_in_use": true,
+     "note": "Godot generates levels of detail on import; delivered LOD files are used only when wired"
+    }
+   },
+   "installed": {
+    "pass": true,
+    "value": "checks: checks_failed 0, checks_skipped 0"
+   },
+   "same_bytes": {
+    "pass": null,
+    "value": "not offered"
+   },
+   "provenance": {
+    "pass": true,
+    "value": {
+     "present": true,
+     "generated_content": true,
+     "files": 11,
+     "files_with_origin": 11,
+     "complete": true
+    }
+   }
+  }
+ },
+ "summary": {
+  "crate:N": {
+   "game_ready_rate": "9/11",
+   "hand_steps": 2,
+   "delivered": true,
+   "change_scope": null
+  }
+ }
+}

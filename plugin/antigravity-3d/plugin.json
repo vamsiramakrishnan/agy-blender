@@ -5,7 +5,7 @@
   "description": "Agentic 3D and game-asset studio: USD-first Scene IR editing, PBR lookdev, game-ready sanitizing and engine-truth export for UE5, Unity URP, Godot 4 and Roblox, with QA-gated export enforced by hooks.",
   "author": "antigravity-3d",
   "suggestedPrompts": [
-    "Turn this concept sheet into a blockout and lock the silhouette",
+    "Turn this concept sheet into a finished prop and lock the silhouette",
     "Forge a PBR material for weathered bronze and gate it against policy",
     "Make every file in the depot game-ready for Unreal 5"
   ]

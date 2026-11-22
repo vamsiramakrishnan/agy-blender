@@ -14,8 +14,8 @@ question whose image is absent is dropped (see `select`).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from typing import Any, Iterable, Mapping
+from dataclasses import dataclass, replace
+from typing import Any, Iterable, Mapping, Sequence
 
 Question = dict[str, Any]
 MAX_QUESTIONS_PER_REQUEST = 1000
@@ -68,18 +68,33 @@ def render(question: Question, labels: Mapping[str, str]) -> Question:
     return sub(question)
 
 
+def resubject(question: Question, subjects: Iterable[tuple[str, str]]) -> Question:
+    """``question`` with the sentence that says what its image is replaced: the first of ``subjects`` (old, new) whose
+    old text starts the instructions. Raises when none does, so a question cannot keep a sentence that would be false
+    of the images it is sent with (a "contact sheet" when the request carries separate views)."""
+    text = question["instructions"]
+    for old, new in subjects:
+        if text.startswith(old):
+            return {**question, "instructions": new + text[len(old):]}
+    raise ValueError(f"no known subject sentence starts {text[:80]!r}")
+
+
 def select(
-    bank: Mapping[str, QSpec], *, stage: str | None = None, have: Iterable[str] = (), labels: Mapping[str, str] | None = None
+    bank: Mapping[str, QSpec], *, stage: str | None = None, have: Iterable[str] = (), labels: Mapping[str, str] | None = None,
+    subjects: Iterable[tuple[str, str]] | None = None,
 ) -> tuple[dict[str, Question], tuple[str, ...]]:
-    """Wire-ready questions valid for this stage and available images, plus the skipped ids."""
+    """Wire-ready questions valid for this stage and available images, plus the skipped ids. ``subjects``: replace each
+    question's subject sentence before rendering (``resubject``); None leaves every question as written."""
     have = set(have)
+    subjects = None if subjects is None else tuple(subjects)
     asked: dict[str, Question] = {}
     skipped: list[str] = []
     for qid, spec in bank.items():
         if (stage is not None and stage not in spec.stages) or not set(spec.needs) <= have:
             skipped.append(qid)
             continue
-        asked[qid] = render(spec.question, labels or {})
+        q = spec.question if subjects is None else resubject(spec.question, subjects)
+        asked[qid] = render(q, labels or {})
     return asked, tuple(skipped)
 
 
@@ -94,6 +109,41 @@ GEO = ("blockout", "lookdev", "final")
 SURF = ("lookdev", "final")
 _SHEET = "{sheet} is a contact sheet of renders of one 3D asset from several angles. "
 _CAND = "{cand} shows one candidate image. "
+_CAND_SHEET = _CAND + "It is a contact sheet of renders of one 3D asset from several angles. "
+
+# ---------------------------------------------------------------------------------------------------
+# A design shown as separate views (tactics.judging: one image per view, decided 2026-11-22 from the live measurement in
+# r5/live/judge_truth.py) instead of one contact sheet. The same questions, with the sentence that says what the images
+# are replaced (``resubject``), so the sheet requests stay byte for byte what they were. Placeholders: {sheet} / {cand}
+# -> "Images 1 to 5", {n_views} -> "five".
+# ---------------------------------------------------------------------------------------------------
+VIEW_WORDS = {
+    "front": "front (orthographic)", "back": "back (orthographic)", "left": "left side (orthographic)",
+    "right": "right side (orthographic)", "top": "top (orthographic)",
+    "persp": "perspective from above the front left corner", "persp_rear": "perspective from above the back right corner",
+}
+_NUMBER_WORDS = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine"}
+# The subject sentence does not list the views: every image is captioned with its view in the input, and the sentence
+# is repeated in every question (a list there would add ~200 bytes to each of 14 blockout questions, which the admission
+# estimate counts as tokens).
+VIEWS_SUBJECT = "{sheet} are {n_views} separate renders of one 3D asset from different angles, one view each. "
+VIEWS_CAND = "{cand} show one candidate: {n_views} separate renders of one 3D asset from different angles, one view each. "
+SHEET_SUBJECTS = ((_SHEET, VIEWS_SUBJECT),)
+CAND_SUBJECTS = ((_CAND_SHEET, VIEWS_CAND), (_CAND, VIEWS_CAND))  # longest first
+
+
+def view_list(names: Iterable[str]) -> str:
+    return ", ".join(VIEW_WORDS.get(n, n) for n in names)
+
+
+def views_labels(first: int, names: Iterable[str]) -> dict[str, str]:
+    """The placeholder values for views that are Images ``first``.. of a request, in the order of ``names``."""
+    names = list(names)
+    if len(names) < 2:
+        raise ValueError("separate views need at least two images")
+    span = f"Images {first} to {first + len(names) - 1}"
+    return {"span": span, "n_views": _NUMBER_WORDS.get(len(names), str(len(names))), "view_list": view_list(names),
+            "view_names": ", ".join(names)}
 
 
 def _d(qid: str, text: str, stages: tuple[str, ...] = SURF, needs: tuple[str, ...] = (), prefix: str = _SHEET,
@@ -218,6 +268,55 @@ VISUAL_QA_QUESTIONS: dict[str, QSpec] = _bank(
          "escalate_human": "The situation is ambiguous or risky and a human should decide."}), SURF),
 )
 
+# The look round (tactics.look_round): the finished asset rendered in colour as it ships, asked about its surfaces only.
+# Its stage "look" asks every surface question of the bank (those of "lookdev" and "final", never a geometry question: a
+# change of colour cannot move one, and its noise would decide whether a colour change is kept) and one question no
+# other stage asks: whether the colours and materials are what the request names. The two brief questions above judge
+# shape only and say so, so until this question nothing asked about the request's colour and material words.
+LOOK = "look"
+BRIEF_LOOK = ("Ignore shape and judge colour and material only. Rate how well the asset's colours and materials match what the "
+              "quoted request names or implies (a named colour or finish; painted against bare metal, wood, rubber or glass), and "
+              "whether parts made of different materials read as different materials.")
+BRIEF_LOOK_LEVELS = _LV(
+    "Contradicts the request: the wrong colour, or everything one undifferentiated material.",
+    "Mostly wrong: the colour or the materials the request names are not recognisable.",
+    "Recognisable but off: a named colour too pale, too saturated or the wrong hue, or materials that should differ look alike.",
+    "Matches the request, with small errors in one material.",
+    "Every material reads as what the request names, or what a real one is made of, and each stands apart from its neighbours.")
+VISUAL_QA_QUESTIONS = {qid: (replace(s, stages=(*s.stages, LOOK)) if s.stages == SURF else s) for qid, s in VISUAL_QA_QUESTIONS.items()}
+VISUAL_QA_QUESTIONS["score_brief_look"] = QSpec("score_brief_look", score(_SHEET + BRIEF_LOOK, BRIEF_LOOK_LEVELS), (LOOK,), ("brief",))
+
+# A pairwise comparison of two states of one asset against the request (engine.compare_states): which state is closer,
+# or neither, and one sentence of the judge's own. Measured live on 2026-11-22 (r5/live/look_worker, judge_look): a look
+# change a person calls plainly better (pale sage paint to olive drab) moved the look stage's separate 0-4 ratings by
+# 0.02 (score_brief_look 2.06 -> 2.08, three repeats each), while the same judge shown both states side by side and asked
+# which is closer preferred the change 4 of 4, in both orders. Asked only of the generative fallback (its "text" answer
+# type is its own); the fixed texts carry no user text, the request is quoted in the input as everywhere else.
+COMPARE_ASPECTS = {
+    "look": ("Ignore shape and judge colour and material only: the colours and finishes the quoted request names or implies, "
+             "and whether parts made of different materials read as different materials."),
+    "shape": ("Ignore colour and material and judge shape only: the parts the quoted request names or implies, their "
+              "proportions, and how they are put together."),
+}
+COMPARE_CLOSER = "compare_closer"
+COMPARE_REASON = "compare_reason"
+
+
+def compare_questions(aspect: str, first: str, second: str) -> dict[str, Question]:
+    """The two questions of a pairwise comparison: ``first`` and ``second`` say which images show state A and state B
+    ("Images 1 to 2"); ``aspect`` is a key of ``COMPARE_ASPECTS``."""
+    head = (f"{first} show one state of a 3D asset (state A) and {second} show another state of the same asset (state B), "
+            f"from the same views. {COMPARE_ASPECTS[aspect]} ")
+    return {
+        COMPARE_CLOSER: choice(head + "Which state is closer to the quoted request?", {
+            "A": f"State A ({first}) is closer to the request.",
+            "B": f"State B ({second}) is closer to the request.",
+            "neither": "Neither: they are equally close to the request, or they do not differ in this."}),
+        COMPARE_REASON: {"type": "text", "instructions": head + (
+            "In one sentence, say which state is closer to the quoted request and the main visible difference that makes "
+            "it so, or say that they do not differ in this.")},
+    }
+
 BON_QUESTIONS: dict[str, dict[str, QSpec]] = {
     "ortho": _bank(
         QSpec("score_symmetry", score(_CAND + "Rate how left-right symmetric the depicted object is across its views, where the object should be symmetric.",
@@ -235,7 +334,7 @@ BON_QUESTIONS: dict[str, dict[str, QSpec]] = {
             _LV("No match.", "Poor match.", "Partial match.", "Close match.", "Near-exact match.")), needs=("ctx",)),
         QSpec("defect_floating", noul(_CAND + "Does any part of the object visibly float or hover detached from where it should connect?")),
         QSpec("defect_clipping", noul(_CAND + "Do any parts of the object visibly intersect or interpenetrate where they should not?")),
-        *_brief_specs(_CAND + "It is a contact sheet of renders of one 3D asset from several angles. "),
+        *_brief_specs(_CAND_SHEET),
     ),
     "pbr": _bank(
         QSpec("defect_baked_light", noul(_CAND + "Does this texture contain baked-in directional lighting, gradients or cast shadows?")),
@@ -246,6 +345,23 @@ BON_QUESTIONS: dict[str, dict[str, QSpec]] = {
               _LV("Fake or flat.", "Poor.", "Acceptable.", "Good.", "Photoreal."))),
     ),
 }
+
+def placed_markings_fact(strings: Sequence[str]) -> str:
+    """The input sentence that states, as a fact about the asset, the text this pipeline painted on it on purpose
+    (kernel/smart_materials.py markings, from the package manifest's texture_atlas members): generic stencils from a
+    closed vocabulary, no brand. Empty when nothing was placed."""
+    if not strings:
+        return ""
+    return ("This pipeline painted these stencil markings on the asset on purpose; they are part of its design: "
+            + ", ".join(f'"{s}"' for s in dict.fromkeys(strings)) + ".")
+
+
+def ip_or_text_beyond(strings: Sequence[str]) -> Question:
+    """``defect_ip_or_text`` when markings were placed: the same id, kind and thresholds, asking about any OTHER legible
+    text, logo or watermark (the placed ones are listed in the input by ``placed_markings_fact``)."""
+    return noul(_SHEET + "Apart from the stencil markings listed in the input as painted on purpose, does the asset show a "
+                "recognisable trademarked logo, other legible text or a watermark?")
+
 
 POLICY_QUESTIONS: dict[str, Question] = {
     "policy_trademark_logo": noul("Does {img} show a recognisable trademarked logo or brand mark?"),
@@ -265,6 +381,18 @@ SHEET_POLICY_QUESTIONS: dict[str, Question] = {
                                 "Apart from those labels, does {img} contain legible text, a signature or a watermark?"),
 }
 SHEET_KINDS = frozenset({"geometry"})  # best-of-N kinds whose candidate image is a labelled contact sheet
+# A candidate shown as separate views: {img} -> "Images 1 to 5", {view_names} -> the labels as drawn ("front, right, top,
+# persp, persp_rear"); the renderer draws its view's name in the top-left corner of each image, and (when the views are
+# marked) numbered badges on the parts. Both are named and set aside, as on a sheet.
+VIEWS_POLICY_QUESTIONS: dict[str, Question] = {
+    "policy_trademark_logo": noul("Do any of {img} show a recognisable trademarked logo or brand mark?"),
+    "policy_legible_text": noul("Each of {img} has a small label in its top-left corner naming its view ({view_names}), drawn by the "
+                                "renderer{badges}. Apart from those labels and any badges, do any of {img} contain legible text, a "
+                                "signature or a watermark?"),
+    "policy_real_person": noul("Do any of {img} depict the likeness of a real, identifiable person?"),
+    "policy_unsafe_content": noul("Do any of {img} contain unsafe content such as graphic violence, sexual content or hate symbols?"),
+}
+VIEWS_BADGES_NOTE = ", and numbered badges of the form [NN] that identify the parts"
 
 
 def policy_questions(kind: str | None = None) -> dict[str, Question]:
@@ -364,9 +492,14 @@ MARKED_DEFECT_PHRASES: dict[str, str] = {
 }
 
 
-def part_defect_question(defect: str, badge: int, part_name: str | None = None) -> Question:
+# The same, for separate marked views (tactics.judging author views): {sheet} -> "Images 1 to 5".
+MARKED_VIEWS_NOTE = (VIEWS_SUBJECT + "Each part of the asset carries a numbered badge of the form [NN] that identifies it, with the "
+                     "same number in every view. ")
+
+
+def part_defect_question(defect: str, badge: int, part_name: str | None = None, note: str = MARKED_SHEET_NOTE) -> Question:
     """Atomic, self-contained noul: 'Does the part labelled [07] (named 'wheel_l') visibly float ...?'."""
     if defect not in MARKED_DEFECT_PHRASES:
         raise ValueError(f"no per-part phrasing for {defect!r}; known: {sorted(MARKED_DEFECT_PHRASES)}")
     who = f"the part labelled [{badge:02d}]" + (f" (named '{part_name}')" if part_name else "")
-    return noul(f"{MARKED_SHEET_NOTE}Does {who} {MARKED_DEFECT_PHRASES[defect]}?")
+    return noul(f"{note}Does {who} {MARKED_DEFECT_PHRASES[defect]}?")

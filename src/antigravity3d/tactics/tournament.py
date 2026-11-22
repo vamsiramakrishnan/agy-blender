@@ -13,13 +13,14 @@ from antigravity3d.decisions.models import CandidateScore
 from antigravity3d.genmedia.pbr_deriver import PBRMaps, derive_pbr, prepare_albedo
 from antigravity3d.ir import SceneIR
 from antigravity3d.kernel.fast_ops import tier1_qa
-from antigravity3d.kernel.raster import contact_sheet
 from antigravity3d.state import EngineBudget
-from antigravity3d.tactics.cached import CACHED_TAG, cached_derive_pbr
+from antigravity3d.tactics.cached import CACHED_TAG, cached_derive_pbr, image_identity
 from antigravity3d.tactics.common import (
-    GRADE_TOKENS_EST, IMAGE_TOKENS_EST, IMAGE_USD, Uploader, load_png, png_bytes, to_thread_drained, uploader_for,
+    GEOMETRY_JUDGE_TOKENS_EST, GEOMETRY_JUDGE_USD_EST, GRADE_TOKENS_EST, IMAGE_TOKENS_EST, IMAGE_USD, Uploader, load_png, png_bytes,
+    to_thread_drained, uploader_for,
 )
 from antigravity3d.tactics.governor import Governor
+from antigravity3d.tactics.judging import JUDGE_VIEW_PX, design_views
 
 GRADE_USD_EST = 0.0002  # one low-resolution Decisions request; used only to size N under a ceiling
 
@@ -45,6 +46,9 @@ class Candidate:
     gen_ms: float = 0.0
     disqualified: str | None = None  # set => never sent to the vision plane
     meta: dict[str, Any] = field(default_factory=dict)
+    # The candidate as separate views, (view name, uri) (tactics.judging); the judge is shown these instead of ``uri``
+    # (then the first view's uri). None: one image.
+    views: tuple[tuple[str, str], ...] | None = None
 
 
 @dataclass
@@ -174,7 +178,7 @@ async def run_tournament(
             continue
         r0 = time.perf_counter()
         try:
-            graded = await plane.rank_candidates(kind, [res.candidates[i].uri for i in eligible], context_uris, governor=governor,
+            graded = await plane.rank_candidates(kind, [res.candidates[i].views or res.candidates[i].uri for i in eligible], context_uris, governor=governor,
                                                  **({"brief": brief} if brief else {}))
         except Exception as exc:
             res.failures.update({i: f"{type(exc).__name__}: {exc}" for i in eligible})
@@ -210,6 +214,31 @@ async def run_tournament(
     return res
 
 
+def geometry_grade_est(governor: Any) -> float:
+    """One geometry candidate's judgement (five high views, a request of its own), in the ledger's unit (sizing only)."""
+    if hasattr(governor, "est"):
+        return governor.est(usd=GEOMETRY_JUDGE_USD_EST, tokens=GEOMETRY_JUDGE_TOKENS_EST)
+    return GEOMETRY_JUDGE_USD_EST
+
+
+def _note_judgements(res: TournamentResult) -> None:
+    """Per candidate judged alone: what its request booked and how long it took from sending to answer (admission wait
+    and retries included), and one line on how the judgements ran, for the step detail."""
+    judged = {s.index: s.result for s in res.ranking if s.result is not None}
+    if not judged:
+        return
+    spans = {i: (r.latency_ms, r.booked_tokens, r.booked_usd, r.input_tokens, r.output_tokens, r.attempts) for i, r in judged.items()}
+    res.notes["judged"] = {i: {"ms": round(ms), "booked_tokens": bt, **money({"booked_usd": bu}, res.unit), "input_tokens": it,
+                               "output_tokens": ot, "attempts": at} for i, (ms, bt, bu, it, ot, at) in sorted(spans.items())}
+    longest = max(ms for ms, *_ in spans.values())
+    total = sum(ms for ms, *_ in spans.values())
+    wall = max(res.grade_ms.values()) if res.grade_ms else longest
+    # judgements in flight on average: the summed request time over the ranking's wall time
+    together = max(1, min(len(spans), round(total / wall))) if wall > 0 else len(spans)
+    res.notes["judging"] = (f"{len(spans)} candidate(s) judged separately, about {together} at a time: "
+                            f"{wall / 1e3:.1f} s for the ranking, {longest / 1e3:.1f} s for the longest judgement")
+
+
 # --------------------------------------------------------------------------- concrete tournaments
 
 
@@ -235,9 +264,16 @@ async def ortho_tournament(
         g = await forge.ortho_sheet(prompt, emphasis=emphasis, style_anchor=style_anchor)
         return Candidate(i, g.uri or await up(g.png_bytes), g, _gen_cost(g, "ortho"), g.latency_ms, meta={"emphasis": emphasis})
 
+    # Every planned sheet already in the image cache (a rerun in the same --out): generating them needs no image and no
+    # budget, so the plan's sizing must not drop them for the first run's images that the asset's ledger still counts.
+    # Without the blueprint the authoring request differs and the recorded design is not found (round five).
+    has = getattr(forge, "has_ortho", None)
+    planned = governor.plan.ortho_candidates if n is None else n
+    all_cached = bool(has) and planned > 0 and all(
+        has(prompt, emphasis=EMPHASES[i % len(EMPHASES)], style_anchor=style_anchor) for i in range(planned))
     return await run_tournament("ortho", generate, n, plane=plane, governor=governor, context_uris=context_uris, early_stop=early_stop,
-                                generation_precharged=precharged, unit_cost=image_est(governor, "ortho"), concurrency=concurrency, thresholds=thresholds,
-                                images_each=1)
+                                generation_precharged=precharged, unit_cost=0.0 if all_cached else image_est(governor, "ortho"),
+                                concurrency=concurrency, thresholds=thresholds, images_each=0 if all_cached else 1)
 
 
 @dataclass
@@ -249,30 +285,46 @@ class PBRTournamentResult:
     prep: str = ""  # one-line description of the deterministic albedo preparation (or why it was skipped)
     derive_ms: float = 0.0
     derive_cache_hit: bool | None = None
+    image: dict[str, Any] | None = None  # who made the winning albedo (``cached.image_identity``): the manifest's provenance
+
+
+def albedo_variant(i: int, seed_offset: int = 0) -> str:
+    """The variant hint of candidate ``i`` of a material's tournament (also the cache key's, see ``CachedForge.has_albedo``)."""
+    return ALBEDO_VARIANTS[(i + seed_offset) % len(ALBEDO_VARIANTS)]
 
 
 async def pbr_tournament(
     prompt: str, forge: Any, *, plane: Any, governor: Governor, material_id: str = "material", metallic_hint: float = 0.0,
     uploader: Uploader | None = None, n: int | None = None, size: int = 2048, cache: Any = None, seed_offset: int = 0,
     early_stop: float | None = None, concurrency: int | None = None, thresholds: Thresholds | None = None,
+    all_cached: bool = False,
 ) -> PBRTournamentResult:
-    """Screen and rank raw albedos once. Prepare and derive maps only for the winner."""
+    """Screen and rank raw albedos once. Prepare and derive maps only for the winner.
+
+    ``all_cached``: every one of the ``n`` candidate images is in the image cache (the caller checked with
+    ``CachedForge.has_albedo``), so generating them costs no budget and no image: the plan's own sizing must not trim
+    candidates for lack of either (a rerun's ledger holds the first run's images). Judging them is still a call."""
     precharged = hasattr(forge, "with_governor")
     if precharged:
         forge = forge.with_governor(governor)
     up = uploader or uploader_for(forge)
 
+    identities: dict[int, dict[str, Any]] = {}  # candidate index -> who made it (read for the winner below)
+
     async def generate(i: int) -> Candidate:
-        hint = ALBEDO_VARIANTS[(i + seed_offset) % len(ALBEDO_VARIANTS)]
+        hint = albedo_variant(i, seed_offset)
         g = await forge.seamless_albedo(prompt, size=size, variant_hint=hint)
+        identities[i] = image_identity(g, prompt=prompt, size=size, variant=hint, offline=bool(getattr(forge, "offline", False)))
         uri = g.uri or await up(g.png_bytes)
         return Candidate(i, uri, g.png_bytes, _gen_cost(g, "albedo"), g.latency_ms, meta={"hint": hint})
 
     t = await run_tournament("pbr", generate, n, plane=plane, governor=governor, early_stop=early_stop, concurrency=concurrency,
-                             unit_cost=image_est(governor, "albedo"), thresholds=thresholds, generation_precharged=precharged, images_each=1)
+                             unit_cost=0.0 if all_cached else image_est(governor, "albedo"), thresholds=thresholds,
+                             generation_precharged=precharged, images_each=0 if all_cached else 1)
     out = PBRTournamentResult(material_id, t)
     if t.winner is None:
         return out
+    out.image = identities.get(t.winner.index)
     d0 = time.perf_counter()
     def prepare_winner() -> tuple[bytes, str]:
         img, report = prepare_albedo(load_png(t.winner.payload), metallic=metallic_hint >= 0.5)
@@ -290,7 +342,7 @@ async def pbr_tournament(
 async def geometry_tournament(
     author: Any, stage_manager: Any, prompt: str, *, plane: Any, governor: Governor, budget: EngineBudget,
     uploader: Uploader, context_uris: Sequence[str] = (), scenes: list[SceneIR] | None = None, set_name: str = "blockout",
-    context: dict[str, Any] | None = None, size: int = 256, n: int | None = None, author_cost_usd: float = 0.0,
+    context: dict[str, Any] | None = None, size: int = JUDGE_VIEW_PX, n: int | None = None, author_cost_usd: float = 0.0,
     early_stop: float | None = None, concurrency: int | None = None, thresholds: Thresholds | None = None,
 ) -> TournamentResult:
     """Author N candidate IRs as variants of one USD variant set, Tier-1 each, vision-grade the survivors, promote the winner.
@@ -298,8 +350,12 @@ async def geometry_tournament(
     Candidates failing a critical Tier-1 check are disqualified without a vision call. If every candidate is
     disqualified the one with the fewest critical issues is promoted anyway (``notes['fallback_promoted']``) so
     the pyramid has something to repair.
+
+    Each survivor is shown to the judge as the separate views of ``tactics.judging`` (``size`` px each) and judged in a
+    request of its own; the requests go out together and admission queues them under the ceiling. What each judgement
+    booked and took is in ``notes['judged']``, and ``notes['judging']`` says how many ran at once.
     """
-    n_plan = plan_n("geometry", governor, n, grade_est(governor))
+    n_plan = plan_n("geometry", governor, n, geometry_grade_est(governor))
     if scenes is None:
         ctx = {"asset_name": stage_manager.asset_prim.GetName(), "ortho_uri": context_uris[0] if context_uris else None, **(context or {})}
         scenes = await author.propose(prompt, budget=budget, n=n_plan, context=ctx)
@@ -323,11 +379,12 @@ async def geometry_tournament(
         if crit:
             crit_counts[i] = (len(crit), t1.stats["tris"])
             return Candidate(i, None, scenes[i], 0.0, 0.0, t1.one_line(), meta)
-        sheet = await asyncio.to_thread(contact_sheet, meshes, size=size)
-        return Candidate(i, await uploader(png_bytes(sheet)), scenes[i], 0.0, 0.0, None, meta)
+        views = await design_views(meshes, uploader, size=size)
+        return Candidate(i, views[0][1], scenes[i], 0.0, 0.0, None, meta, views=views)
 
     res = await run_tournament("geometry", generate, len(scenes), plane=plane, governor=governor, context_uris=context_uris,
                                early_stop=early_stop, concurrency=concurrency, thresholds=thresholds, brief=prompt)
+    _note_judgements(res)
     if res.winner is None and crit_counts and len(crit_counts) == len(scenes):
         best = min(crit_counts, key=lambda i: crit_counts[i])
         res.winner = res.candidates[best]

@@ -215,9 +215,13 @@ def test_a_style_never_raises_a_budget_or_a_texture_limit(sid: str, engine: str)
         base = EngineBudget(engine, max_tris=max_tris)  # type: ignore[arg-type]
         for cls, field in (("prop", "tri_budget_prop"), ("kit", "tri_budget_kit_piece")):
             eff = style.budget(base, cls)  # type: ignore[arg-type]
-            assert eff.max_tris <= max_tris and replace(eff, max_tris=max_tris) == base
+            # a style lowers two limits and nothing else: max_tris, and (since one atlas holds every opaque material)
+            # max_texture_px, the largest side of that atlas, from its texture size
+            assert eff.max_tris <= max_tris and replace(eff, max_tris=max_tris, max_texture_px=None) == base
             cap = getattr(style, field)
             assert eff.max_tris == (min(cap, max_tris) if cap else max_tris)
+            px = style.texture_px_prop if cls == "prop" else style.texture_px_kit
+            assert eff.max_texture_px == px
     for cls in ("prop", "kit"):
         assert style.texture_px(engine, cls, 2048) <= ENGINE_RULES[engine].max_texture_px  # type: ignore[arg-type]
 
@@ -301,7 +305,7 @@ def test_package_records_and_validates_an_art_direction(tmp_path: Path) -> None:
     pkg = write_engine_package(sm, bundle, budget, tmp_path / "a" / "pkg", asset_name="Crate", art=retro)
     man = json.loads((pkg.out_dir / "manifest.json").read_text())
     assert pkg.ok, [i for i in pkg.issues if i.severity == "critical"]
-    assert man["schema_version"] == 3 and man["art_direction"]["id"] == "retro-lowres"
+    assert man["schema_version"] == 4 and man["art_direction"]["id"] == "retro-lowres"  # schema 4: the provenance record (kernel/provenance.py)
     assert man["art_direction"]["sha256"] == retro.sha256
     assert man["art_direction"]["effective"] == {"max_tris": 400, "shading_crease_deg": 0.0, "texture_px": 128,
                                                  "texture_filter": "nearest", "palette_max_colors": 64}
@@ -341,7 +345,7 @@ def test_package_without_art_direction_is_unchanged(tmp_path: Path) -> None:
     sm, bundle = _crate(tmp_path / "a")
     pkg = write_engine_package(sm, bundle, budget, tmp_path / "a" / "pkg", asset_name="Crate")
     man = json.loads((pkg.out_dir / "manifest.json").read_text())
-    assert man["schema_version"] == 3 and "art_direction" not in man and man["uv"]["normals"] == "faceVarying (crease 40 deg)"
+    assert man["schema_version"] == 4 and "art_direction" not in man and man["uv"]["normals"] == "faceVarying (crease 40 deg)"  # schema 4: the provenance record (kernel/provenance.py)
     assert "samplers" not in _glb_json(pkg.out_dir / "Crate.glb")
     sm2, bundle2 = _crate(tmp_path / "b")
     pkg2 = write_engine_package(sm2, bundle2, budget, tmp_path / "b" / "pkg", asset_name="Crate", art=None)
@@ -462,7 +466,7 @@ def test_offline_prop_with_art_direction_and_style_anchor(tmp_path: Path) -> Non
     assert report["comparison"]["art_direction"] == "retro-lowres" and report["art_direction"]["effective"]["max_tris"] == 400
     pkg = Path(report["outputs"]["inspector"]).parent
     man = json.loads((pkg / "manifest.json").read_text())
-    assert man["schema_version"] == 3 and man["tris"] <= 400 and man["validation"]["package_ok"]
+    assert man["schema_version"] == 4 and man["tris"] <= 400 and man["validation"]["package_ok"]  # schema 4: the provenance record (kernel/provenance.py)
     assert {t["width"] for t in man["textures"]} == {128}
     assert all(n <= 64 for n in man["art_direction"]["measured"]["albedo_colors"].values())
     assert validate_package(pkg) == []
@@ -489,8 +493,13 @@ def test_offline_prop_without_art_direction_runs_no_style_code(tmp_path: Path, m
     assert "art_direction" not in report and "art_direction" not in report["comparison"]
     pkg = Path(report["outputs"]["inspector"]).parent
     man = json.loads((pkg / "manifest.json").read_text())
-    assert man["schema_version"] == 3 and "art_direction" not in man and man["uv"]["normals"] == "faceVarying (crease 40 deg)"
-    assert {t["width"] for t in man["textures"]} == {256}
+    # schema 4: the provenance record (kernel/provenance.py)
+    assert man["schema_version"] == 4 and "art_direction" not in man and man["uv"]["normals"] == "faceVarying (crease 40 deg)"
+    # the offline maps are 256 px; the opaque materials ship as one atlas baked from them at the density they hold
+    # (package._compose_atlas), every texel copied 1:1: no style resized anything
+    atlas = man["texture_atlas"]
+    assert {r["resample_ratio"] for m in atlas["members"].values() for r in m["maps"].values()} == {1.0}
+    assert {t["width"] for t in man["textures"]} == {atlas["atlas_wh"][0]}
     assert all("samplers" not in _glb_json(pkg / f) for f in man["files"] if f.endswith(".glb"))
     assert creases == {CREASE_DEG}
 

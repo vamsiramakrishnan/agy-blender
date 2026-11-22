@@ -118,9 +118,13 @@ def read_duplicates(result: dict[str, Any]) -> dict[str, int]:
 def qa_verdict(result: dict[str, Any], profile: str) -> tuple[str, str]:
     """("failed" | "passed", detail) for a ``qa_check`` result. The detail is a fact about the file (no timings).
 
-    Upstream's errors are quoted as it wrote them. A "floating" piece that rests on the ground is read as a separate
-    piece, not a defect, and the detail says both."""
-    errors, resting, standing = read_floating(result)
+    Upstream's errors are quoted as it wrote them, and any error fails the check: the gate reads the script as the
+    scorecard's independent check does (benchmarks/compare_eval.py: pass means no error). A "floating" piece whose lowest
+    point is on the ground used to be read as a separate piece resting there and passed (commit 23c800d: "two crates side
+    by side on the floor"); live 2026-11-22 (r5_crate_C) that let through a skid nothing touched, which the same script
+    run on the delivered GLB failed. The detail still says which of the errors are pieces on the ground."""
+    errors, resting, _ = read_floating(result)
+    standing = errors
     contact = read_duplicates(result)
     warnings = [w + (f" (all {contact[w]} are vertices of separate parts in contact, not unmerged duplicates)" if w in contact else "")
                 for w in result.get("warnings") or []]
@@ -128,7 +132,9 @@ def qa_verdict(result: dict[str, Any], profile: str) -> tuple[str, str]:
     tris = sum(int(o.get("tris", 0)) for o in objects.values())
     head = f"{source('qa_check')}, {profile} profile, vertices merged part by part: {len(objects)} object(s), {tris} tris"
     if standing:
-        return "failed", (head + f"; {len(standing)} error(s): " + "; ".join(standing))[:MAX_DETAIL]
+        on_ground = (f" ({len(resting)} of them a piece whose lowest point is on the ground, touching no other part)"
+                     if resting else "")
+        return "failed", (head + f"; {len(standing)} error(s){on_ground}: " + "; ".join(standing))[:MAX_DETAIL]
     shown = "; ".join(warnings[:SHOWN_WARNINGS]) + (f"; +{len(warnings) - SHOWN_WARNINGS} more" if len(warnings) > SHOWN_WARNINGS else "")
     note = ""
     if resting:

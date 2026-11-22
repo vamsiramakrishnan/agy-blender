@@ -53,6 +53,13 @@ class Preview:
     kind: str = "clay"
     texture_hash: str = ""
     image_hash: str = ""
+    # kind "views": the design's separate views (tactics.judging.UploadedDesign: the judge's views, the badged ones the
+    # agent is shown, the legend) and the badged PNGs on disk, in view order
+    design: Any = None
+    view_paths: tuple[Path, ...] = ()
+    # the strings the generated surfaces painted on purpose in this render (kernel.smart_source.placed_strings of the
+    # package it shows); a review of this preview states them as a fact (engine.evaluate_visual_qa placed_markings)
+    placed: tuple[str, ...] = ()
 
 
 @dataclass
@@ -114,13 +121,15 @@ class Session:
         self._set(R_LAST_EXPORT, path)
 
     def add_preview(self, path: Path, uri: str, geom_version: int | None = None, *, kind: str = "clay",
-                    texture_hash: str = "") -> Preview:
+                    texture_hash: str = "", design: Any = None, view_paths: tuple[Path, ...] = (),
+                    placed: tuple[str, ...] = ()) -> Preview:
         version = self.geom_version if geom_version is None else geom_version
         if version != self.geom_version:
             raise RuntimeError("geometry changed during render; re-run")
         prev = self.previews
         image_hash = hashlib.sha256(path.read_bytes()).hexdigest()
-        p = Preview(path, uri, version, prev[-1].index + 1 if prev else 1, kind, texture_hash, image_hash)
+        p = Preview(path, uri, version, prev[-1].index + 1 if prev else 1, kind, texture_hash, image_hash, design, view_paths,
+                    tuple(placed))
         self._set(R_PREVIEWS, [*prev[-7:], p])
         return p
 
@@ -185,6 +194,17 @@ class Session:
         self.state.last_tier15_score = score
         self.persist_qa()
 
+    def waits_for_user(self) -> str:
+        """What only the user can decide before this session can be reviewed or delivered ("" when nothing): today, a
+        session that is not a preview on a key without the calibrated judge. Nothing the agent builds or changes gets
+        past it, so the tools say so at once and the hooks let the agent stop and ask. Live 2026-11-22
+        (r5/live_rerun_N, a change request on a reopened asset): deliver_package spent 58 s on checks and a render before
+        "export blocked ... Fix what it names with apply_scene_ir", and the Stop hook then answered the agent's correct
+        report to the user with "iterate lookdev/blockout and re-run QA"."""
+        if self.plane is not None and not self.plane.calibrated and not self.state.preview:
+            return NO_JUDGE
+        return ""
+
     def persist_qa(self, *, strict: bool = False) -> None:
         """Single writer of the on-disk QA record the plugin's hook processes read.
 
@@ -200,7 +220,8 @@ class Session:
                     tier1_ok=self.state.last_tier1_ok, tier15_score=self.state.last_tier15_score, session_id=self.sid,
                     conversation_id=conv, asset=self.stage.asset_prim.GetName(), revision=self.state.revision,
                     target=self.state.budget.target_engine, verdict=self.state.verdict, validator_ok=self.state.validator_ok,
-                    workspace=self._res(R_QA_WORKSPACE, self.workdir), preview=self.state.preview)
+                    workspace=self._res(R_QA_WORKSPACE, self.workdir), preview=self.state.preview,
+                    waits_for_user=self.waits_for_user())
         except Exception as e:  # noqa: BLE001 - persistence is best-effort
             if strict:
                 raise RuntimeError("could not revoke the prior export approval") from e
@@ -283,6 +304,7 @@ def open_session(
 
 
 PREVIEW_JOURNAL = "spend_preview.sqlite3"  # a preview's token ledger; never the session's money journal
+NO_JUDGE = "this key has no calibrated judge and this session is not a preview, so it can neither be reviewed nor delivered"
 
 
 def check_preview_limits(token_ceiling: Any, max_images: Any) -> None:
@@ -298,13 +320,12 @@ def check_preview_limits(token_ceiling: Any, max_images: Any) -> None:
 def preview_resources(workdir: Path, plane: Any, forge: Any, ledger: Governor, thresholds: Thresholds | None,
                       token_ceiling: int | None, max_images: int | None) -> tuple[Any, Any, Governor, Thresholds]:
     """Plane, forge, ledger and thresholds of a preview: a token ledger with the image limit, the plane's preview copy
-    (an uncalibrated judge may steer it) and the thresholds with ``trust_uncalibrated`` set for this session only."""
-    from dataclasses import replace
-
+    (an uncalibrated judge may steer it) and the thresholds as an uncalibrated judge is read
+    (``Thresholds.for_uncalibrated_judge``), for this session only."""
     check_preview_limits(token_ceiling, max_images)
     tokens = Governor(ledger.plan, journal=Path(workdir) / PREVIEW_JOURNAL, token_ceiling=token_ceiling, max_images=max_images)
     return (plane.preview_copy() if plane is not None else None, forge.with_governor(tokens) if forge is not None else None,
-            tokens, replace(thresholds or Thresholds(), trust_uncalibrated=True))
+            tokens, (thresholds or Thresholds()).for_uncalibrated_judge())
 
 
 def switch_to_preview(registry: SceneSessionRegistry, session_id: str, token_ceiling: int, max_images: int) -> Session:

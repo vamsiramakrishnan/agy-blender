@@ -10,7 +10,8 @@ Three outcomes (:func:`classify`):
   dying mid-request), so it is ``unknown``.
 * ``unknown``: the request may have run: a 500 / 502, a not-served status that came back slowly, a broken connection
   (httpx's ``TransportError`` family, recognised by class name so nothing here depends on the SDK's transport) or a
-  timeout that came back well before its own deadline. The attempt keeps its whole reservation and may be retried,
+  timeout that came back well before its own deadline, or a stream that went silent past its idle limit
+  (:class:`StreamStalled`: the far end stopped sending; no deadline ran out). The attempt keeps its whole reservation and may be retried,
   within a smaller count, because every retry holds another full reservation.
 * ``final``: anything else: a client error (4xx other than 429) is a bug in the request; a client-side timeout, or a
   504 DEADLINE_EXCEEDED that came back at the request's own deadline, ran the whole deadline (sent again it would hold
@@ -55,6 +56,17 @@ class OutcomeUnknown(Exception):
         self.cause, self.served, self.failed, self.turned_away = cause, served, failed, turned_away
 
 
+class StreamStalled(TimeoutError):
+    """A streamed call went silent: no chunk for longer than its idle limit (``tactics.stream_call``). A timeout
+    (``is_timeout``), but not a spent deadline: the far end stopped sending, as a broken connection does, so the outcome
+    is ``unknown`` (the attempt keeps its reservation and may be retried) and never ``final``. ``seen``: what arrived
+    before the silence (seconds to the first chunk, seconds of silence, characters received, last usage seen)."""
+
+    def __init__(self, message: str, *, seen: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.seen = dict(seen or {})
+
+
 def _get(obj: Any, name: str) -> Any:
     return obj.get(name) if isinstance(obj, dict) else getattr(obj, name, None)
 
@@ -85,7 +97,7 @@ def is_timeout(exc: BaseException) -> bool:
 def classify(exc: BaseException, elapsed_s: float, *, deadline_s: float | None = None) -> Outcome:
     """See the module docstring. ``elapsed_s``: how long this one attempt took; ``deadline_s``: the deadline the request
     carried, if any (a timeout that ran it out is final)."""
-    if isinstance(exc, OutcomeUnknown):
+    if isinstance(exc, (OutcomeUnknown, StreamStalled)):
         return "unknown"
     if not isinstance(exc, Exception):
         return "final"  # cancellation, KeyboardInterrupt

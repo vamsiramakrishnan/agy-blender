@@ -1,13 +1,17 @@
 {
-"_about": "Key structure of an offline money-ledger prop run (report extras without outputs, per-node data keys), recorded at 9858f69 before token ledgers existed; tests/test_preview_runs.py asserts the money path still writes exactly these keys. Paths that depend on the machine (which engines and browsers are installed: pyramid artifacts and the skipped-step lists) are left out on both sides. Five keys were added on purpose when the judge was given the brief (the run's prompt): the brief's two answers (pyramid scores and defects, report scores), pass A's progress figure per round and the brief_depiction_min threshold; nothing was removed.",
+"_about": "Key structure of an offline money-ledger prop run (report extras without outputs, per-node data keys), recorded at 9858f69 before token ledgers existed; tests/test_preview_runs.py asserts the money path still writes exactly these keys. Paths that depend on the machine (which engines and browsers are installed: pyramid artifacts and the skipped-step lists) are left out on both sides. Five keys were added on purpose when the judge was given the brief (the run's prompt): the brief's two answers (pyramid scores and defects, report scores), pass A's progress figure per round and the brief_depiction_min threshold; nothing was removed. Two budget keys were added on purpose with one shared texture atlas per prop: /budget/shared_atlas and /budget/max_texture_px (an art direction's texture size). One more with the encoding choice of the baked base colour map: /budget/base_color_jpeg_quality.",
 "extras": [
 "/budget",
+"/budget/base_color_jpeg_quality",
+"/budget/generated_surfaces",
 "/budget/keep_contact_faces",
 "/budget/max_collision_hulls",
 "/budget/max_draw_calls",
+"/budget/max_texture_px",
 "/budget/max_tris",
 "/budget/max_uv_stretch",
 "/budget/require_manifold",
+"/budget/shared_atlas",
 "/budget/target_engine",
 "/budget/texel_density_px_per_m",
 "/candidate_mode",

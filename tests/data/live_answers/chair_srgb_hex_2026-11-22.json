@@ -1,0 +1,281 @@
+{
+  "asset_name": "WoodenWindsorChair",
+  "nodes": [
+    {
+      "id": "chair_root",
+      "kind": "group",
+      "params": {},
+      "transform": {
+        "translate": [0.0, 0.0, 0.0]
+      },
+      "parent": null,
+      "material_id": null,
+      "collider": false
+    },
+    {
+      "id": "seat",
+      "kind": "extrude",
+      "params": {
+        "outline": [
+          [-0.18, -0.19],
+          [0.0, -0.21],
+          [0.18, -0.19],
+          [0.22, -0.08],
+          [0.21, 0.06],
+          [0.17, 0.16],
+          [0.09, 0.2],
+          [0.0, 0.21],
+          [-0.09, 0.2],
+          [-0.17, 0.16],
+          [-0.21, 0.06],
+          [-0.22, -0.08]
+        ],
+        "depth": 0.036
+      },
+      "transform": {
+        "translate": [0.0, 0.0, 0.44]
+      },
+      "parent": "chair_root",
+      "material_id": "oak_seat_wood",
+      "collider": true
+    },
+    {
+      "id": "leg_front_r",
+      "kind": "lathe",
+      "params": {
+        "profile": [
+          [0.018, 0.22],
+          [0.02, 0.16],
+          [0.015, 0.12],
+          [0.022, 0.05],
+          [0.016, -0.02],
+          [0.019, -0.08],
+          [0.014, -0.16],
+          [0.012, -0.22]
+        ],
+        "segments": 12,
+        "closed": false
+      },
+      "transform": {
+        "translate": [0.175, -0.155, 0.212],
+        "rotate_euler_deg": [-7.0, -6.0, 0.0]
+      },
+      "parent": "chair_root",
+      "material_id": "walnut_frame_wood",
+      "collider": true,
+      "mirror": "x"
+    },
+    {
+      "id": "leg_back_r",
+      "kind": "lathe",
+      "params": {
+        "profile": [
+          [0.018, 0.22],
+          [0.02, 0.16],
+          [0.015, 0.12],
+          [0.022, 0.05],
+          [0.016, -0.02],
+          [0.019, -0.08],
+          [0.014, -0.16],
+          [0.012, -0.22]
+        ],
+        "segments": 12,
+        "closed": false
+      },
+      "transform": {
+        "translate": [0.165, 0.145, 0.212],
+        "rotate_euler_deg": [7.0, -6.0, 0.0]
+      },
+      "parent": "chair_root",
+      "material_id": "walnut_frame_wood",
+      "collider": true,
+      "mirror": "x"
+    },
+    {
+      "id": "stretcher_side_r",
+      "kind": "lathe",
+      "params": {
+        "profile": [
+          [0.011, 0.155],
+          [0.012, 0.08],
+          [0.015, 0.0],
+          [0.012, -0.08],
+          [0.011, -0.155]
+        ],
+        "segments": 10,
+        "closed": false
+      },
+      "transform": {
+        "translate": [0.18, -0.005, 0.16],
+        "rotate_euler_deg": [90.0, 0.0, 0.0]
+      },
+      "parent": "chair_root",
+      "material_id": "walnut_frame_wood",
+      "collider": false,
+      "mirror": "x"
+    },
+    {
+      "id": "stretcher_cross",
+      "kind": "lathe",
+      "params": {
+        "profile": [
+          [0.011, 0.18],
+          [0.012, 0.09],
+          [0.016, 0.0],
+          [0.012, -0.09],
+          [0.011, -0.18]
+        ],
+        "segments": 10,
+        "closed": false
+      },
+      "transform": {
+        "translate": [0.0, -0.005, 0.16],
+        "rotate_euler_deg": [0.0, 90.0, 0.0]
+      },
+      "parent": "chair_root",
+      "material_id": "walnut_frame_wood",
+      "collider": false
+    },
+    {
+      "id": "hoop_back",
+      "kind": "extrude",
+      "params": {
+        "outline": [
+          [-0.2, -0.24],
+          [-0.174, -0.24],
+          [-0.174, 0.05],
+          [-0.145, 0.14],
+          [-0.08, 0.195],
+          [0.0, 0.215],
+          [0.08, 0.195],
+          [0.145, 0.14],
+          [0.174, 0.05],
+          [0.174, -0.24],
+          [0.2, -0.24],
+          [0.2, 0.06],
+          [0.165, 0.16],
+          [0.09, 0.22],
+          [0.0, 0.242],
+          [-0.09, 0.22],
+          [-0.165, 0.16],
+          [-0.2, 0.06]
+        ],
+        "depth": 0.026
+      },
+      "transform": {
+        "translate": [0.0, 0.185, 0.7],
+        "rotate_euler_deg": [-78.0, 0.0, 0.0]
+      },
+      "parent": "chair_root",
+      "material_id": "walnut_frame_wood",
+      "collider": true
+    },
+    {
+      "id": "spindle_center",
+      "kind": "lathe",
+      "params": {
+        "profile": [
+          [0.007, 0.23],
+          [0.008, 0.12],
+          [0.01, 0.0],
+          [0.009, -0.12],
+          [0.008, -0.23]
+        ],
+        "segments": 8,
+        "closed": false
+      },
+      "transform": {
+        "translate": [0.0, 0.205, 0.68],
+        "rotate_euler_deg": [-12.0, 0.0, 0.0]
+      },
+      "parent": "chair_root",
+      "material_id": "walnut_frame_wood",
+      "collider": false
+    },
+    {
+      "id": "spindle_1_r",
+      "kind": "lathe",
+      "params": {
+        "profile": [
+          [0.007, 0.23],
+          [0.008, 0.12],
+          [0.01, 0.0],
+          [0.009, -0.12],
+          [0.008, -0.23]
+        ],
+        "segments": 8,
+        "closed": false
+      },
+      "transform": {
+        "translate": [0.055, 0.198, 0.675],
+        "rotate_euler_deg": [-12.0, 3.0, 0.0]
+      },
+      "parent": "chair_root",
+      "material_id": "walnut_frame_wood",
+      "collider": false,
+      "mirror": "x"
+    },
+    {
+      "id": "spindle_2_r",
+      "kind": "lathe",
+      "params": {
+        "profile": [
+          [0.007, 0.22],
+          [0.008, 0.11],
+          [0.01, 0.0],
+          [0.009, -0.11],
+          [0.008, -0.22]
+        ],
+        "segments": 8,
+        "closed": false
+      },
+      "transform": {
+        "translate": [0.108, 0.182, 0.665],
+        "rotate_euler_deg": [-12.0, 6.0, 0.0]
+      },
+      "parent": "chair_root",
+      "material_id": "walnut_frame_wood",
+      "collider": false,
+      "mirror": "x"
+    },
+    {
+      "id": "spindle_3_r",
+      "kind": "lathe",
+      "params": {
+        "profile": [
+          [0.007, 0.2],
+          [0.008, 0.1],
+          [0.01, 0.0],
+          [0.009, -0.1],
+          [0.008, -0.2]
+        ],
+        "segments": 8,
+        "closed": false
+      },
+      "transform": {
+        "translate": [0.155, 0.155, 0.645],
+        "rotate_euler_deg": [-12.0, 9.0, 0.0]
+      },
+      "parent": "chair_root",
+      "material_id": "walnut_frame_wood",
+      "collider": false,
+      "mirror": "x"
+    }
+  ],
+  "materials": [
+    {
+      "id": "oak_seat_wood",
+      "surface": "warm aged oak wood, satin oil finish",
+      "base_color": "#8b5a2b",
+      "metallic": 0.0,
+      "roughness": 0.45
+    },
+    {
+      "id": "walnut_frame_wood",
+      "surface": "dark walnut hardwood, smooth satin lacquer",
+      "base_color": "#5c3a21",
+      "metallic": 0.0,
+      "roughness": 0.4
+    }
+  ]
+}

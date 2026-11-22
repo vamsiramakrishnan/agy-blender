@@ -21,6 +21,7 @@ from antigravity3d.tactics.authoring import CallableAuthor
 from antigravity3d.tactics.distill import FixLog
 from antigravity3d.tactics.governor import Governor, plan_for
 from antigravity3d.tactics.pyramid import refine
+from stream_fakes import StreamFromBlocking  # noqa: E402 - tests/ is on sys.path (rootdir conftest layout)
 
 BUDGET = EngineBudget("unreal_5")
 
@@ -32,6 +33,14 @@ def floating_scene() -> SceneIR:
 
 
 LID_DOWN = IRPatch(ops=[SetTransform(node_id="lid", transform=Transform(translate=(0, 0, 1.025)))])
+
+
+def sound_scene() -> SceneIR:
+    """The same prop with its lid down: nothing floats. A run that is to reach pass C needs one since 2026-11-22: a part
+    that touches nothing after pass A stops the run there (pyramid._Run.detached_refusal)."""
+    s = floating_scene()
+    s.nodes[1].transform = Transform(translate=(0, 0, 1.025))
+    return s
 
 
 class Script:
@@ -108,12 +117,24 @@ async def test_regressing_repair_is_rolled_back_and_iteration_stops(tmp_path: Pa
     sm, plane = setup(tmp_path, script)
     before, txs = sm.base_ir(), list(sm.tx_ids)
     bad = IRPatch(ops=[SetTransform(node_id="lid", transform=Transform(translate=(5, 0, 5)))])
-    author = CallableAuthor(lambda *a, **k: [], lambda *a, **k: bad)
+    asked: list[Any] = []
+
+    def repair(scene: SceneIR, *, action: Any, located: dict, manifest: str) -> IRPatch:
+        asked.append(action)
+        return bad
+
+    author = CallableAuthor(lambda *a, **k: [], repair)
     res = await run_a(sm, plane, author, tmp_path, max_rounds=4)
 
     assert res.rounds[-1].rolled_back and "rolled back" in res.stopped["A"] and res.converged["A"] is False
     assert sm.base_ir() == before and sm.tx_ids == txs  # the transaction is gone, not just undone by a second patch
-    assert author.calls["repair"] == 1 and len(res.rounds) == 2  # stopped iterating on this path
+    # Round five: a rolled-back repair is asked for once more (REPAIR_PATIENCE = 2), told what its patch did and why it
+    # was undone, from the kept design's own verdict (not judged again); a second rollback in a row stops the pass.
+    assert author.calls["repair"] == 2 and len(res.rounds) == 3 and res.stopped["A"].startswith("repair rolled back 2 time(s)")
+    assert "your previous patch for this design was undone: your patch had 1 op(s): set_transform lid" in asked[1].reasons[-1]
+    # loop2: inverted faces are a defect the kernel checks itself (pyramid.KERNEL_CHECKED); the judge's 0.95 on a design
+    # Tier-1 finds no inverted face on is not evidence. The silhouette collapsing (3.6 -> 1.0) is.
+    assert "fell by more than the judge's noise band" in asked[1].reasons[-1] and "inverted" not in asked[1].reasons[-1]
     assert res.fix_records == []
     assert res.tier15 == res.rounds[0].tier15  # reported state is the pre-repair state
 
@@ -191,7 +212,7 @@ async def test_web_runtime_step_is_skipped_with_the_reason_or_fails_the_run(tmp_
     from antigravity3d.tactics import pyramid
 
     async def run(sub: str):
-        sm, plane = setup(tmp_path / sub, Script())
+        sm, plane = setup(tmp_path / sub, Script(), sound_scene())
         return await refine(sm, plane=plane, author=CallableAuthor(lambda *a, **k: []), governor=Governor(plan_for(2)), budget=BUDGET,
                             uploader=up, workdir=tmp_path / sub / "wd", forge=ImageForge(FakeImageBackend()), settle_first=False)
 
@@ -216,7 +237,7 @@ async def test_web_runtime_step_is_skipped_with_the_reason_or_fails_the_run(tmp_
 
 
 async def test_hero_plan_with_a_fake_pool_and_no_engine_render(tmp_path: Path) -> None:
-    sm, plane = setup(tmp_path, Script())
+    sm, plane = setup(tmp_path, Script(), sound_scene())
     pool = BlenderPool(1, fake=True)  # never started: a fake pool must not be used as a renderer
     forge = ImageForge(FakeImageBackend())
     res = await refine(sm, plane=plane, author=CallableAuthor(lambda *a, **k: []), governor=Governor(plan_for(3)), budget=BUDGET, uploader=up,
@@ -245,7 +266,7 @@ from antigravity3d.tactics.metered_author import AuthorNoAnswer, MeteredAuthor  
 LID_DOWN_JSON = json.dumps({"ops": [{"op": "set_transform", "node_id": "lid", "transform": {"translate": [0, 0, 1.025]}}]})
 
 
-class TierEndpoint:
+class TierEndpoint(StreamFromBlocking):  # MeteredAuthor streams: the scripted answer is delivered as a stream
     """Fake models endpoint: one scripted finish per model, so the worker and the director tier can differ."""
 
     def __init__(self, finishes: dict[str, str]) -> None:
@@ -317,7 +338,17 @@ async def test_blocked_repair_is_not_escalated(tmp_path: Path, monkeypatch) -> N
 
 async def test_director_retry_that_cannot_be_admitted_is_recorded(tmp_path: Path, monkeypatch) -> None:
     ep = TierEndpoint({tier("worker").model: "MAX_TOKENS", tier("director").model: "STOP"})
-    gov = Governor(replace(plan_for(2), ceiling_usd=0.06))  # the worker's worst case fits, the director's does not
+    # The ceiling sits halfway between the two repair worst cases at the test's rates ($1/M in, $2/M out; 100 counted
+    # input tokens plus the patch schema's bound), so the worker's fits and the director's does not. It was a fixed
+    # 0.06, sized when the patch schema was 9,317 bytes (worker 0.0586); round five's schema (new shapes, shortcuts)
+    # puts the worker at 0.0605 and the director at 0.0770, so it is derived from the schema now.
+    from antigravity3d.ir_schema import patch_response_schema
+    from antigravity3d.tactics.metered_author import output_budget, schema_input_token_bound
+
+    worst = {r: ((100 + schema_input_token_bound(patch_response_schema())) * 1 + output_budget(r).max_output_tokens * 2) / 1e6
+             for r in ("worker", "director")}
+    assert worst["worker"] < worst["director"]
+    gov = Governor(replace(plan_for(2), ceiling_usd=(worst["worker"] + worst["director"]) / 2))
     sm, plane = setup(tmp_path, broken_script(ep))
     res = await run_a(sm, plane, metered(monkeypatch, ep, gov), tmp_path, governor=gov)
     assert ep.models == [tier("worker").model] and "director retry not admitted" in res.stopped["A"]
@@ -381,7 +412,7 @@ async def test_web_browser_starts_before_pass_a_and_is_kept_only_after_a_good_ru
         log.append("pass A")
         await real_a(self)
     monkeypatch.setattr(pyramid._Run, "pass_a", pass_a)
-    sm, plane = setup(tmp_path / "ok", Script())
+    sm, plane = setup(tmp_path / "ok", Script(), sound_scene())
     res = await refine(sm, plane=plane, author=CallableAuthor(lambda *a, **k: []), governor=Governor(plan_for(2)), budget=BUDGET,
                        uploader=up, workdir=tmp_path / "ok" / "wd", forge=ImageForge(FakeImageBackend()), settle_first=False)
     assert res.ok and log == ["prestart", "pass A", f"release keep={True}"], log
@@ -425,7 +456,7 @@ async def test_cancelling_pass_c_stops_the_running_web_verification(tmp_path: Pa
             importing.set()
             await asyncio.sleep(3600)
     monkeypatch.setattr(pyramid, "validator_for", lambda engine: SlowEngine())
-    sm, plane = setup(tmp_path, Script())
+    sm, plane = setup(tmp_path, Script(), sound_scene())
     task = asyncio.ensure_future(refine(sm, plane=plane, author=CallableAuthor(lambda *a, **k: []), governor=Governor(plan_for(2)),
                                         budget=BUDGET, uploader=up, workdir=tmp_path / "wd", forge=ImageForge(FakeImageBackend()),
                                         settle_first=False))

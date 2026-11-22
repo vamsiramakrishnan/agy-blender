@@ -1,5 +1,10 @@
 # Production-prop authoring contracts: PR #4 follow-up
 
+> Historical review of the change merged in PR #5 (`1021242`, merge `814f436`). Its prompt hashes, byte-compatibility
+> claims, test counts and runtime observations describe that revision. PR #6 adds new shape capabilities and updates
+> the shared guidance. See [the PR #6 integration review](PR6_AUTHORING_INTEGRATION.md) for the current contracts,
+> conflict resolution and validation; the historical evidence below is retained unchanged.
+
 Reviewed 22 November 2026 (Melbourne). PR #4 is merged. Its final head is
 `49c498bbd679cba9d125f09bde714f22379db794`; the follow-up starts from merged main
 `bbc39452dc4f831b77e31b780cf2604d8646e451`. Their source trees are identical.

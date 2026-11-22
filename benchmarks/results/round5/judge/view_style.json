@@ -1,0 +1,5629 @@
+{
+ "tree": "<scratch>/r5/wt_judge2/src/antigravity3d/__init__.py",
+ "backend": "generative_fallback",
+ "repeats": 3,
+ "conds": {
+  "W": "wire",
+  "N": "shipped",
+  "NF": "shipped_edges"
+ },
+ "rows": [
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.85,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.74,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.38
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1385,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 55.1,
+   "booked": 9773
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.85,
+    "defect_faceted": 0.2,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.31
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1256,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 48.3,
+   "booked": 9644
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.85,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.64,
+    "score_shippability": 2.28
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1240,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 47.4,
+   "booked": 9628
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.76,
+    "score_shippability": 2.43
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1174,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 53.8,
+   "booked": 9562
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.71
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1056,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 57.1,
+   "booked": 9444
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.04,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.46,
+    "score_brief_depiction": 2.53,
+    "score_shippability": 2.36
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1330,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 53.1,
+   "booked": 9718
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.85,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.43,
+    "score_brief_depiction": 2.43,
+    "score_shippability": 1.98
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1039,
+   "attempts": 2,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 145.1,
+   "booked": 45577
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.9,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.38,
+    "score_brief_depiction": 2.38,
+    "score_shippability": 2.06
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1285,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 87.4,
+   "booked": 9673
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.85,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.58,
+    "score_brief_depiction": 2.58,
+    "score_shippability": 2.1
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1220,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 25.2,
+   "booked": 9608
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.65,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.12,
+    "score_brief_depiction": 2.4,
+    "score_shippability": 1.78
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1189,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 37.2,
+   "booked": 9577
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.75,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 2.39,
+    "score_shippability": 1.87
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1363,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 36.6,
+   "booked": 9751
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.75,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 2.23,
+    "score_brief_depiction": 2.28,
+    "score_shippability": 1.72
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1180,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 35.6,
+   "booked": 9568
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.94,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.12,
+    "score_silhouette": 2.22,
+    "score_brief_depiction": 2.39,
+    "score_shippability": 1.77
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1121,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 26.3,
+   "booked": 9509
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.97,
+    "defect_clipping": 0.12,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 1.74,
+    "score_brief_depiction": 2.31,
+    "score_shippability": 1.67
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1128,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 31.2,
+   "booked": 9516
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.88,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 2.0,
+    "score_brief_depiction": 2.35,
+    "score_shippability": 1.9
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1117,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 30.4,
+   "booked": 9505
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.88,
+    "defect_clipping": 0.8,
+    "defect_faceted": 0.2,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 1.9,
+    "score_brief_depiction": 2.15,
+    "score_shippability": 1.65
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1365,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 29.9,
+   "booked": 9753
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.85,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.0,
+    "score_brief_depiction": 2.45,
+    "score_shippability": 1.75
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1216,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 20.0,
+   "booked": 9604
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.9,
+    "defect_clipping": 0.8,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 1.9,
+    "score_brief_depiction": 2.15,
+    "score_shippability": 1.65
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1070,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 60.3,
+   "booked": 9458
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.85,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.9,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 2.01,
+    "score_shippability": 1.84
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1451,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 43.4,
+   "booked": 9839
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.88,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.92,
+    "score_silhouette": 2.23,
+    "score_brief_depiction": 1.93,
+    "score_shippability": 1.79
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1477,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 43.1,
+   "booked": 9865
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.85,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.2,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.9,
+    "score_silhouette": 2.34,
+    "score_brief_depiction": 1.81,
+    "score_shippability": 1.76
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1362,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 38.4,
+   "booked": 9750
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.85,
+    "score_silhouette": 2.53,
+    "score_brief_depiction": 2.06,
+    "score_shippability": 2.0
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1122,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 30.6,
+   "booked": 9510
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.1,
+    "defect_clipping": 0.2,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.85,
+    "score_silhouette": 2.53,
+    "score_brief_depiction": 2.19,
+    "score_shippability": 2.12
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1205,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 33.9,
+   "booked": 9593
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.85,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 2.06,
+    "score_shippability": 2.0
+   },
+   "input_tokens": 8388,
+   "output_tokens": 930,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 35.1,
+   "booked": 9318
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.85,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.9,
+    "score_silhouette": 2.34,
+    "score_brief_depiction": 1.93,
+    "score_shippability": 1.91
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1285,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 34.4,
+   "booked": 9673
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.9,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.92,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 1.93,
+    "score_shippability": 1.89
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1281,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 33.0,
+   "booked": 9669
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.88,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.92,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 1.89,
+    "score_shippability": 1.83
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1255,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 28.8,
+   "booked": 9643
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.03,
+    "defect_brief_part_missing": 0.03,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.76,
+    "score_shippability": 2.65
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1301,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 34.5,
+   "booked": 9689
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.06,
+    "score_silhouette": 2.66,
+    "score_brief_depiction": 2.66,
+    "score_shippability": 2.58
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1315,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 30.0,
+   "booked": 9703
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.12,
+    "defect_clipping": 0.12,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.84,
+    "score_shippability": 2.78
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1086,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 25.9,
+   "booked": 9474
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.03,
+    "score_silhouette": 2.64,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.58
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1144,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 33.2,
+   "booked": 9532
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.06,
+    "score_silhouette": 2.71,
+    "score_brief_depiction": 2.74,
+    "score_shippability": 2.52
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1247,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 37.6,
+   "booked": 9635
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.76,
+    "score_shippability": 2.65
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1090,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 27.5,
+   "booked": 9478
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.04,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.71
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1288,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 27.6,
+   "booked": 9676
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.04,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.84,
+    "score_shippability": 2.68
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1324,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 25.6,
+   "booked": 9712
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.06,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.63,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.47
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1357,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 25.9,
+   "booked": 9745
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.98,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 2.58,
+    "score_shippability": 1.62
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1080,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 30.7,
+   "booked": 9468
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.12,
+    "score_silhouette": 2.15,
+    "score_brief_depiction": 2.58,
+    "score_shippability": 1.72
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1306,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 25.7,
+   "booked": 9694
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.2,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.12,
+    "score_silhouette": 2.18,
+    "score_brief_depiction": 2.53,
+    "score_shippability": 1.72
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1371,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 27.4,
+   "booked": 9759
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 1.97,
+    "score_brief_depiction": 2.44,
+    "score_shippability": 1.72
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1105,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 39.4,
+   "booked": 9493
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 1.91,
+    "score_brief_depiction": 2.54,
+    "score_shippability": 1.72
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1291,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 47.9,
+   "booked": 9679
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.2,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.12,
+    "score_silhouette": 2.15,
+    "score_brief_depiction": 2.44,
+    "score_shippability": 1.66
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1327,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 42.1,
+   "booked": 9715
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 2.58,
+    "score_shippability": 1.87
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1153,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 34.7,
+   "booked": 9541
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.18,
+    "score_brief_depiction": 2.58,
+    "score_shippability": 1.93
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1566,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 39.1,
+   "booked": 9954
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.06,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.22,
+    "score_brief_depiction": 2.51,
+    "score_shippability": 1.87
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1432,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 35.1,
+   "booked": 9820
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.2,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.18,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.5
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1641,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 35.7,
+   "booked": 10029
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.35,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.38
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1612,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 33.1,
+   "booked": 10000
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.2,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 2.59,
+    "score_brief_depiction": 2.59,
+    "score_shippability": 2.54
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1338,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 29.4,
+   "booked": 9726
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.06,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.45,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.63,
+    "score_shippability": 2.5
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1388,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 35.9,
+   "booked": 9776
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.65,
+    "score_silhouette": 2.53,
+    "score_brief_depiction": 2.28,
+    "score_shippability": 2.28
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1329,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 32.0,
+   "booked": 9717
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.55,
+    "score_silhouette": 2.38,
+    "score_brief_depiction": 2.21,
+    "score_shippability": 2.21
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1457,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 30.9,
+   "booked": 9845
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.25,
+    "score_silhouette": 2.64,
+    "score_brief_depiction": 2.47,
+    "score_shippability": 2.41
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1450,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 32.3,
+   "booked": 9838
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.06,
+    "defect_brief_part_missing": 0.25,
+    "score_silhouette": 2.74,
+    "score_brief_depiction": 2.63,
+    "score_shippability": 2.55
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1318,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 31.3,
+   "booked": 9706
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.05,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.02,
+    "defect_zfighting": 0.02,
+    "defect_visible_holes": 0.02,
+    "defect_scale_implausible": 0.03,
+    "defect_brief_part_missing": 0.2,
+    "score_silhouette": 2.58,
+    "score_brief_depiction": 2.44,
+    "score_shippability": 2.44
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1073,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 27.3,
+   "booked": 9461
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.74
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1103,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 39.1,
+   "booked": 9491
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.84,
+    "score_shippability": 2.79
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1070,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 39.9,
+   "booked": 9458
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.04,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.74,
+    "score_brief_depiction": 2.74,
+    "score_shippability": 2.66
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1129,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 36.3,
+   "booked": 9517
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.25,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.64,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.38
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1769,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 38.9,
+   "booked": 10157
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.08,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.04,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.68,
+    "score_brief_depiction": 2.76,
+    "score_shippability": 2.5
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1028,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 28.7,
+   "booked": 9416
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.06,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.64,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.53
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1551,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 30.2,
+   "booked": 9939
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.74,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.63
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1394,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 30.8,
+   "booked": 9782
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.53,
+    "score_brief_depiction": 2.53,
+    "score_shippability": 2.42
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1257,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 27.7,
+   "booked": 9645
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.04,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.63
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1173,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 28.5,
+   "booked": 9561
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 1.82
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1268,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 36.3,
+   "booked": 9656
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.98,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 1.91,
+    "score_brief_depiction": 2.49,
+    "score_shippability": 1.85
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1361,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 35.0,
+   "booked": 9749
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 2.63,
+    "score_shippability": 1.87
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1569,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 34.2,
+   "booked": 9957
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 2.18,
+    "score_brief_depiction": 2.54,
+    "score_shippability": 1.67
+   },
+   "input_tokens": 8388,
+   "output_tokens": 956,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 34.1,
+   "booked": 9344
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 2.23,
+    "score_brief_depiction": 2.36,
+    "score_shippability": 1.72
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1239,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 32.0,
+   "booked": 9627
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.2,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.01,
+    "score_brief_depiction": 2.37,
+    "score_shippability": 1.71
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1461,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 34.9,
+   "booked": 9849
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.98,
+    "defect_clipping": 0.05,
+    "defect_faceted": 0.08,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.29,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 1.71
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1205,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 29.7,
+   "booked": 9593
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 1.87
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1055,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 26.7,
+   "booked": 9443
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.98,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.21,
+    "score_brief_depiction": 2.67,
+    "score_shippability": 1.82
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1378,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 28.3,
+   "booked": 9766
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.9,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.31,
+    "score_shippability": 2.34
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1073,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 39.2,
+   "booked": 9461
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.92,
+    "score_silhouette": 2.74,
+    "score_brief_depiction": 2.1,
+    "score_shippability": 2.15
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1207,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 41.0,
+   "booked": 9595
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.85,
+    "score_silhouette": 2.74,
+    "score_brief_depiction": 2.21,
+    "score_shippability": 2.31
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1401,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 39.6,
+   "booked": 9789
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.12,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.18,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.35,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.85,
+    "score_silhouette": 2.34,
+    "score_brief_depiction": 2.06,
+    "score_shippability": 1.98
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1557,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 36.5,
+   "booked": 9945
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.12,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.14,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.06,
+    "defect_visible_holes": 0.12,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.82,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 2.07,
+    "score_shippability": 2.0
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1273,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 31.4,
+   "booked": 9661
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.25,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.75,
+    "score_silhouette": 2.46,
+    "score_brief_depiction": 2.12,
+    "score_shippability": 2.02
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1418,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 30.4,
+   "booked": 9806
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.92,
+    "score_silhouette": 2.74,
+    "score_brief_depiction": 2.09,
+    "score_shippability": 2.36
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1178,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 30.5,
+   "booked": 9566
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.08,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.92,
+    "score_silhouette": 2.54,
+    "score_brief_depiction": 2.23,
+    "score_shippability": 2.28
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1416,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 28.9,
+   "booked": 9804
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.04,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.88,
+    "score_silhouette": 2.35,
+    "score_brief_depiction": 2.13,
+    "score_shippability": 2.21
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1227,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 44.3,
+   "booked": 9615
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.62,
+    "score_brief_depiction": 2.62,
+    "score_shippability": 2.47
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1038,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 30.1,
+   "booked": 9426
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.65,
+    "score_brief_depiction": 2.7,
+    "score_shippability": 2.6
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1262,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 31.5,
+   "booked": 9650
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.59,
+    "score_brief_depiction": 2.64,
+    "score_shippability": 2.54
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1179,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 29.3,
+   "booked": 9567
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.04,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 2.28,
+    "score_shippability": 2.1
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1081,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 27.4,
+   "booked": 9469
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.2,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.39,
+    "score_brief_depiction": 2.39,
+    "score_shippability": 2.24
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1261,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 31.3,
+   "booked": 9649
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 2.53,
+    "score_brief_depiction": 2.6,
+    "score_shippability": 2.34
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1262,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 22.0,
+   "booked": 9650
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.1,
+    "defect_clipping": 0.12,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.67,
+    "score_brief_depiction": 2.76,
+    "score_shippability": 2.58
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1185,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 27.0,
+   "booked": 9573
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.79,
+    "score_brief_depiction": 2.79,
+    "score_shippability": 2.58
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1150,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 26.9,
+   "booked": 9538
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.6,
+    "score_brief_depiction": 2.6,
+    "score_shippability": 2.55
+   },
+   "input_tokens": 8388,
+   "output_tokens": 833,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 20.5,
+   "booked": 9221
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.02,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 1.83
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1344,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 29.5,
+   "booked": 9732
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.98,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.15,
+    "score_brief_depiction": 2.59,
+    "score_shippability": 1.84
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1082,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 26.5,
+   "booked": 9470
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.9,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 2.1,
+    "score_brief_depiction": 2.49,
+    "score_shippability": 1.87
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1632,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 29.0,
+   "booked": 10020
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.88,
+    "defect_clipping": 0.18,
+    "defect_faceted": 0.2,
+    "defect_inverted_faces": 0.12,
+    "defect_zfighting": 0.12,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 1.69,
+    "score_brief_depiction": 2.28,
+    "score_shippability": 1.57
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1075,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 26.2,
+   "booked": 9463
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.98,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 1.82,
+    "score_brief_depiction": 2.43,
+    "score_shippability": 1.72
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1451,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 28.7,
+   "booked": 9839
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.12,
+    "score_silhouette": 1.98,
+    "score_brief_depiction": 2.46,
+    "score_shippability": 1.69
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1166,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 24.0,
+   "booked": 9554
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 1.95,
+    "score_brief_depiction": 2.39,
+    "score_shippability": 1.61
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1372,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 29.6,
+   "booked": 9760
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.12,
+    "score_silhouette": 2.13,
+    "score_brief_depiction": 2.54,
+    "score_shippability": 1.82
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1203,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 25.4,
+   "booked": 9591
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 2.44,
+    "score_shippability": 1.82
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1435,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 29.0,
+   "booked": 9823
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.92,
+    "score_silhouette": 2.53,
+    "score_brief_depiction": 2.06,
+    "score_shippability": 2.19
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1335,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 32.4,
+   "booked": 9723
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.1,
+    "defect_inverted_faces": 0.04,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.92,
+    "score_silhouette": 2.48,
+    "score_brief_depiction": 2.05,
+    "score_shippability": 2.15
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1264,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 32.7,
+   "booked": 9652
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.9,
+    "score_silhouette": 2.43,
+    "score_brief_depiction": 2.06,
+    "score_shippability": 2.14
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1325,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 26.8,
+   "booked": 9713
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.2,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.95,
+    "score_silhouette": 2.21,
+    "score_brief_depiction": 1.93,
+    "score_shippability": 1.93
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1210,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 27.8,
+   "booked": 9598
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.2,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.85,
+    "score_silhouette": 2.23,
+    "score_brief_depiction": 1.95,
+    "score_shippability": 1.91
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1369,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 25.0,
+   "booked": 9757
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.9,
+    "score_silhouette": 2.23,
+    "score_brief_depiction": 1.95,
+    "score_shippability": 1.89
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1459,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 28.6,
+   "booked": 9847
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.95,
+    "score_silhouette": 2.48,
+    "score_brief_depiction": 2.05,
+    "score_shippability": 2.17
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1299,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 27.3,
+   "booked": 9687
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.12,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.92,
+    "score_silhouette": 2.46,
+    "score_brief_depiction": 1.95,
+    "score_shippability": 1.95
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1323,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 25.6,
+   "booked": 9711
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.15,
+    "defect_inverted_faces": 0.04,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.95,
+    "score_silhouette": 2.53,
+    "score_brief_depiction": 2.0,
+    "score_shippability": 2.02
+   },
+   "input_tokens": 8388,
+   "output_tokens": 1121,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 25.7,
+   "booked": 9509
+  },
+  {
+   "design": "hydrant_worker_1",
+   "variant": "intact",
+   "nodes": 59,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.12,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 2.53,
+    "score_brief_depiction": 2.53,
+    "score_shippability": 2.0
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1297,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 34.1,
+   "booked": 9679
+  },
+  {
+   "design": "hydrant_worker_1",
+   "variant": "intact",
+   "nodes": 59,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.35,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.12,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 2.53,
+    "score_brief_depiction": 2.58,
+    "score_shippability": 2.15
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1333,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 34.0,
+   "booked": 9715
+  },
+  {
+   "design": "hydrant_worker_1",
+   "variant": "intact",
+   "nodes": 59,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.9,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.56,
+    "score_brief_depiction": 2.59,
+    "score_shippability": 2.12
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1313,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 25.7,
+   "booked": 9695
+  },
+  {
+   "design": "hydrant_worker_1",
+   "variant": "intact",
+   "nodes": 59,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.35,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.15,
+    "defect_zfighting": 0.8,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.85,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 1.72,
+    "score_shippability": 1.57
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1374,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 34.0,
+   "booked": 9756
+  },
+  {
+   "design": "hydrant_worker_1",
+   "variant": "intact",
+   "nodes": 59,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.65,
+    "defect_faceted": 0.9,
+    "defect_inverted_faces": 0.15,
+    "defect_zfighting": 0.85,
+    "defect_visible_holes": 0.12,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.88,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 1.95,
+    "score_shippability": 1.81
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1409,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 34.2,
+   "booked": 9791
+  },
+  {
+   "design": "hydrant_worker_1",
+   "variant": "intact",
+   "nodes": 59,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.65,
+    "defect_faceted": 0.92,
+    "defect_inverted_faces": 0.12,
+    "defect_zfighting": 0.75,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.88,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 1.9,
+    "score_shippability": 1.72
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1356,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 33.2,
+   "booked": 9738
+  },
+  {
+   "design": "hydrant_worker_1",
+   "variant": "intact",
+   "nodes": 59,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.12,
+    "defect_clipping": 0.45,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.06,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 2.5,
+    "score_brief_depiction": 2.5,
+    "score_shippability": 2.15
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1256,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 34.6,
+   "booked": 9638
+  },
+  {
+   "design": "hydrant_worker_1",
+   "variant": "intact",
+   "nodes": 59,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.25,
+    "defect_clipping": 0.45,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.23
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1240,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 33.4,
+   "booked": 9622
+  },
+  {
+   "design": "hydrant_worker_1",
+   "variant": "intact",
+   "nodes": 59,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.35,
+    "defect_faceted": 0.8,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 2.28,
+    "score_shippability": 1.93
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1340,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 35.2,
+   "booked": 9722
+  },
+  {
+   "design": "hydrant_director_0",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_faceted": 0.65,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.49,
+    "score_brief_depiction": 2.54,
+    "score_shippability": 2.41
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1214,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 56.6,
+   "booked": 9596
+  },
+  {
+   "design": "hydrant_director_0",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.75,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.03,
+    "defect_scale_implausible": 0.04,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.64,
+    "score_brief_depiction": 2.69,
+    "score_shippability": 2.43
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1282,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 56.1,
+   "booked": 9664
+  },
+  {
+   "design": "hydrant_director_0",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.75,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.74,
+    "score_brief_depiction": 2.74,
+    "score_shippability": 2.49
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1231,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 55.1,
+   "booked": 9613
+  },
+  {
+   "design": "hydrant_director_0",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_faceted": 0.72,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.06,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.58,
+    "score_brief_depiction": 2.58,
+    "score_shippability": 2.3
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1180,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 31.0,
+   "booked": 9562
+  },
+  {
+   "design": "hydrant_director_0",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.65,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.64,
+    "score_brief_depiction": 2.53,
+    "score_shippability": 2.27
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1068,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 28.9,
+   "booked": 9450
+  },
+  {
+   "design": "hydrant_director_0",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_faceted": 0.75,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.08,
+    "score_silhouette": 2.69,
+    "score_brief_depiction": 2.64,
+    "score_shippability": 2.23
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1166,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 31.8,
+   "booked": 9548
+  },
+  {
+   "design": "hydrant_director_0",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.35,
+    "defect_inverted_faces": 0.03,
+    "defect_zfighting": 0.03,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.04,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.64,
+    "score_brief_depiction": 2.64,
+    "score_shippability": 2.38
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1105,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 39.3,
+   "booked": 9487
+  },
+  {
+   "design": "hydrant_director_0",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.2,
+    "defect_faceted": 0.3,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.12,
+    "score_silhouette": 2.6,
+    "score_brief_depiction": 2.6,
+    "score_shippability": 2.55
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1069,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 29.1,
+   "booked": 9451
+  },
+  {
+   "design": "hydrant_director_0",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.04,
+    "defect_zfighting": 0.04,
+    "defect_visible_holes": 0.04,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.05,
+    "score_silhouette": 2.84,
+    "score_brief_depiction": 2.84,
+    "score_shippability": 2.58
+   },
+   "input_tokens": 8382,
+   "output_tokens": 1020,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 31.1,
+   "booked": 9402
+  },
+  {
+   "design": "chair_worker_1",
+   "variant": "intact",
+   "nodes": 60,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.45,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.12,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 1.85,
+    "score_brief_depiction": 1.92,
+    "score_shippability": 1.48
+   },
+   "input_tokens": 8376,
+   "output_tokens": 935,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 41.0,
+   "booked": 9311
+  },
+  {
+   "design": "chair_worker_1",
+   "variant": "intact",
+   "nodes": 60,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.35,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.12,
+    "defect_scale_implausible": 0.08,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 1.95,
+    "score_brief_depiction": 1.93,
+    "score_shippability": 1.76
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1470,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 45.4,
+   "booked": 9846
+  },
+  {
+   "design": "chair_worker_1",
+   "variant": "intact",
+   "nodes": 60,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.35,
+    "defect_faceted": 0.85,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.05,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 1.71,
+    "score_brief_depiction": 1.71,
+    "score_shippability": 1.46
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1201,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 42.4,
+   "booked": 9577
+  },
+  {
+   "design": "chair_worker_1",
+   "variant": "intact",
+   "nodes": 60,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.7,
+    "defect_faceted": 0.75,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 1.56,
+    "score_brief_depiction": 1.64,
+    "score_shippability": 1.36
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1261,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 89.3,
+   "booked": 9637
+  },
+  {
+   "design": "chair_worker_1",
+   "variant": "intact",
+   "nodes": 60,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.45,
+    "defect_faceted": 0.8,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.12,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 1.71,
+    "score_brief_depiction": 1.79,
+    "score_shippability": 1.56
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1457,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 82.9,
+   "booked": 9833
+  },
+  {
+   "design": "chair_worker_1",
+   "variant": "intact",
+   "nodes": 60,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.9,
+    "defect_clipping": 0.45,
+    "defect_faceted": 0.8,
+    "defect_inverted_faces": 0.15,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.25,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.2,
+    "score_silhouette": 1.73,
+    "score_brief_depiction": 1.78,
+    "score_shippability": 1.47
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1383,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 76.8,
+   "booked": 9759
+  },
+  {
+   "design": "chair_worker_1",
+   "variant": "intact",
+   "nodes": 60,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.65,
+    "defect_faceted": 0.75,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.25,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 1.76,
+    "score_brief_depiction": 1.64,
+    "score_shippability": 1.48
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1070,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 27.6,
+   "booked": 9446
+  },
+  {
+   "design": "chair_worker_1",
+   "variant": "intact",
+   "nodes": 60,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.8,
+    "defect_faceted": 0.75,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.3,
+    "defect_visible_holes": 0.12,
+    "defect_scale_implausible": 0.12,
+    "defect_brief_part_missing": 0.1,
+    "score_silhouette": 1.72,
+    "score_brief_depiction": 1.72,
+    "score_shippability": 1.51
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1337,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 30.0,
+   "booked": 9713
+  },
+  {
+   "design": "chair_worker_1",
+   "variant": "intact",
+   "nodes": 60,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.7,
+    "defect_faceted": 0.65,
+    "defect_inverted_faces": 0.08,
+    "defect_zfighting": 0.45,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 1.73,
+    "score_brief_depiction": 1.73,
+    "score_shippability": 1.49
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1589,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 39.5,
+   "booked": 9965
+  },
+  {
+   "design": "chair_builder_1",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "W",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.55,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 2.23,
+    "score_shippability": 2.0
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1041,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 30.3,
+   "booked": 9417
+  },
+  {
+   "design": "chair_builder_1",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "W",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.3,
+    "defect_faceted": 0.65,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.1,
+    "defect_visible_holes": 0.15,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.2,
+    "score_silhouette": 2.17,
+    "score_brief_depiction": 2.17,
+    "score_shippability": 1.93
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1210,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 27.7,
+   "booked": 9586
+  },
+  {
+   "design": "chair_builder_1",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "W",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.65,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 2.28,
+    "score_brief_depiction": 2.28,
+    "score_shippability": 1.87
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1306,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 36.3,
+   "booked": 9682
+  },
+  {
+   "design": "chair_builder_1",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "N",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.35,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.2,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.12,
+    "score_silhouette": 2.23,
+    "score_brief_depiction": 2.06,
+    "score_shippability": 1.72
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1325,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 41.4,
+   "booked": 9701
+  },
+  {
+   "design": "chair_builder_1",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "N",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.45,
+    "defect_faceted": 0.35,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.25,
+    "defect_visible_holes": 0.12,
+    "defect_scale_implausible": 0.18,
+    "defect_brief_part_missing": 0.2,
+    "score_silhouette": 2.0,
+    "score_brief_depiction": 1.9,
+    "score_shippability": 1.81
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1458,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 41.9,
+   "booked": 9834
+  },
+  {
+   "design": "chair_builder_1",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "N",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.45,
+    "defect_faceted": 0.25,
+    "defect_inverted_faces": 0.1,
+    "defect_zfighting": 0.15,
+    "defect_visible_holes": 0.1,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.2,
+    "score_silhouette": 2.06,
+    "score_brief_depiction": 1.91,
+    "score_shippability": 1.77
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1239,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 29.0,
+   "booked": 9615
+  },
+  {
+   "design": "chair_builder_1",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "NF",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.15,
+    "defect_faceted": 0.45,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.1,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 2.12,
+    "score_brief_depiction": 2.02,
+    "score_shippability": 1.93
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1428,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 30.8,
+   "booked": 9804
+  },
+  {
+   "design": "chair_builder_1",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "NF",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.1,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.45,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.05,
+    "defect_visible_holes": 0.05,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.15,
+    "score_silhouette": 2.13,
+    "score_brief_depiction": 2.02,
+    "score_shippability": 1.97
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1076,
+   "attempts": 2,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 33.9,
+   "booked": 45578
+  },
+  {
+   "design": "chair_builder_1",
+   "variant": "intact",
+   "nodes": 89,
+   "cond": "NF",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.25,
+    "defect_faceted": 0.45,
+    "defect_inverted_faces": 0.05,
+    "defect_zfighting": 0.08,
+    "defect_visible_holes": 0.08,
+    "defect_scale_implausible": 0.15,
+    "defect_brief_part_missing": 0.2,
+    "score_silhouette": 2.0,
+    "score_brief_depiction": 1.94,
+    "score_shippability": 1.83
+   },
+   "input_tokens": 8376,
+   "output_tokens": 1364,
+   "attempts": 1,
+   "shown": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "author": [
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>",
+    "<uploaded file>"
+   ],
+   "wall_s": 23.0,
+   "booked": 9740
+  }
+ ],
+ "hedges": 1
+}

@@ -23,14 +23,19 @@ from mcp.client.subscriptions import listen
 
 from antigravity3d import ir_schema
 from antigravity3d.harness import tools as T
+from antigravity3d.runtime import mcp_server as M
 from antigravity3d.plugin_install import bundle_dir
 from test_harness_tools import CRATE, box
 
-# Session-level tools, listed whatever the stage: session management plus the inspector MCP App's model tools.
-MANAGEMENT = {"open_asset_session", "start_preview", "set_stage", "session_status", "list_sessions", "open_inspector", "review_notes"}
+# Session-level tools, listed whatever the stage: session management, install_into_project (delivery into the
+# workspace's game project needs no asset session) and the inspector MCP App's model tools.
+MANAGEMENT = {"open_asset_session", "open_existing_asset", "start_preview", "set_stage", "session_status", "list_sessions",
+              "install_into_project", "open_inspector", "review_notes"}
 # The inspector MCP App's app-only tools: listed (the host needs their _meta) but hidden from the model.
 APP_ONLY = {"inspector_payload", "inspector_qa_state", "inspector_list_notes", "inspector_save_note"}
-ALWAYS = MANAGEMENT | APP_ONLY
+# 2026-11-22 (native sessions): the short path's tools (tools.SHORT_PATH_TOOLS) are listed from the start, before any
+# session: an agent that listed the catalogue first found none of the tools the instructions named (r5/live_native4)
+ALWAYS = MANAGEMENT | APP_ONLY | {fn.__name__ for fn in T.SHORT_PATH_TOOLS}
 
 
 def server_env(state: Path) -> dict[str, str]:
@@ -59,6 +64,28 @@ async def call(s: ClientSession, name: str, **args) -> str:
     return text
 
 
+async def test_a_session_is_told_what_a_colour_means_where_it_writes_one(tmp_path, monkeypatch):
+    """A session in a stock host reads the server's instructions, its tool descriptions and the skills; none of them said
+    what a colour means, while the tools read every colour as sRGB. Live 2026-11-22 (r5/live_rerun_N) the agent wrote
+    olive drab as (0.22, 0.27, 0.16), then "corrected" its materials to linear values, (0.065, 0.09, 0.038): the crate
+    shipped nearly black and lost 0 of 6 blind verdicts to each stock crate. The instructions and the two tools that take
+    a colour now carry the clause the authoring request carries. Under the old rule ("as_written") nothing is added."""
+    clause = 'sRGB, as a colour picker or hex code means them: three numbers 0-1 or "#rrggbb" (military olive drab is about #3d4a2b'
+    assert clause in M.INSTRUCTIONS and "never convert a colour to linear yourself" in M.INSTRUCTIONS
+    async with client(tmp_path) as s:
+        await call(s, "open_asset_session", asset_name="Catalog", target_engine="godot_4")
+        seen = {}
+        for stage in ("BLOCKOUT", "LOOKDEV"):
+            await call(s, "set_stage", stage=stage)
+            seen.update({t.name: t.description for t in (await s.list_tools()).tools})
+    assert M.COLOUR_TOOLS == ("apply_scene_ir", "apply_shader_diff")
+    for name in M.COLOUR_TOOLS:
+        assert clause in seen[name] and seen[name].endswith("never convert a colour to linear yourself."), name
+    assert not [n for n, d in seen.items() if n not in M.COLOUR_TOOLS and "sRGB" in (d or "")]
+    monkeypatch.setattr(ir_schema, "COLOUR_RULE", "as_written")
+    assert ir_schema.colour_note() == ""
+
+
 async def test_tools_list_has_harness_tools_with_clean_schemas(tmp_path):
     async with client(tmp_path) as s:
         tools = {t.name: t for t in (await s.list_tools()).tools}
@@ -67,7 +94,8 @@ async def test_tools_list_has_harness_tools_with_clean_schemas(tmp_path):
         for stage, entries in T.STAGE_TOOLS.items():
             await call(s, "set_stage", stage=stage)
             catalog = {t.name: t for t in (await s.list_tools()).tools}
-            assert set(catalog) == {fn.__name__ for fn in entries} | ALWAYS
+            # 2026-11-22 (native sessions): each stage but VARIANTS also lists deliver_package (tools.SESSION_TOOLS)
+            assert set(catalog) == {fn.__name__ for fn in (*entries, *T.SESSION_TOOLS[stage])} | ALWAYS
             tools.update(catalog)
     for name, fn in T.ALL_TOOLS.items():
         if name not in tools:
@@ -76,7 +104,8 @@ async def test_tools_list_has_harness_tools_with_clean_schemas(tmp_path):
         t = tools[name]
         props = t.input_schema["properties"]
         assert "ctx" not in props and "session_id" in props, name
-        assert t.description == inspect.getdoc(inspect.unwrap(fn)), name
+        # the two tools that take a colour also say what a colour means (the next test)
+        assert t.description == inspect.getdoc(inspect.unwrap(fn)) + (ir_schema.colour_note() if name in M.COLOUR_TOOLS else ""), name
         wanted = [p.name for p in inspect.signature(fn).parameters.values() if p.name != "ctx"]
         assert [p for p in props if p != "session_id"] == wanted, name
         required = [p.name for p in inspect.signature(fn).parameters.values() if p.name != "ctx" and p.default is p.empty]
@@ -91,7 +120,9 @@ async def test_tools_list_has_harness_tools_with_clean_schemas(tmp_path):
         assert {**schema, "properties": declared["properties"]} == declared == T.ALL_TOOLS[name].input_schema, name
     op = tools["apply_scene_ir"].input_schema["properties"]["ops"]["items"]
     assert "upsert_node" in op["properties"]["op"]["enum"] and op["properties"]["node"]["properties"]["collider"]["type"] == "boolean"
-    assert tools["render_preview"].input_schema["properties"]["wireframe"]["default"] is True
+    # render_preview took a wireframe flag for its 4-view sheet; it now shows the design's five views as shipped
+    # (tactics.judging, 2026-11-22) and takes no argument but the session
+    assert set(tools["render_preview"].input_schema["properties"]) == {"session_id"}
     assert tools["forge_pbr_material"].input_schema["properties"]["candidates"]["type"] == "integer"
     assert set(tools["open_asset_session"].input_schema["required"]) == {"asset_name", "target_engine"}
     assert "max_tris" in tools["open_asset_session"].input_schema["properties"]
@@ -131,7 +162,9 @@ async def test_session_stage_scoping_export_gate_and_linter(tmp_path):
         await call(s, "set_stage", stage="EXPORT")
         r = await call(s, "export_engine_package", out_name="crate_pkg")
         assert r.startswith("REFUSED export blocked") and "tier15" in r
-        assert (await call(s, "apply_scene_ir", ops="{}")).startswith("REFUSED")
+        # 2026-11-22 (native sessions): apply_scene_ir is a short-path tool, callable in every stage but VARIANTS (an
+        # edit after export is a new revision); a finer-control tool of another stage is still refused here
+        assert (await call(s, "propose_variants", set_name="v", variants=[])).startswith("REFUSED")
 
         # unsafe raw scripts never reach the pool: the linter gate refuses them
         r = await call(s, "run_bpy_script", source="import os\nos.remove('x')\n")
@@ -195,7 +228,10 @@ def test_pipelined_calls_are_ordered_drained_and_stdout_is_protocol_only(tmp_pat
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
             call_msg(3, "open_asset_session", asset_name="Crate", target_engine="unreal_5"),
             call_msg(4, "apply_scene_ir", ops=json.dumps(CRATE)),
-            call_msg(5, "session_status")]
+            call_msg(5, "session_status"),
+            # 2026-11-22: opening a session no longer changes the catalogue (the short path's tools are listed from the
+            # start); a stage switch does
+            call_msg(6, "set_stage", stage="LOOKDEV")]
     try:
         out, err = proc.communicate(b"".join(map(_frame, msgs)), timeout=180)
     finally:
@@ -205,7 +241,7 @@ def test_pipelined_calls_are_ordered_drained_and_stdout_is_protocol_only(tmp_pat
     frames = [json.loads(ln) for ln in out.decode().splitlines()]  # every stdout line must be a JSON-RPC frame
     assert all(f.get("jsonrpc") == "2.0" for f in frames)
     by_id = {f["id"]: f for f in frames if "id" in f}
-    assert set(by_id) == {1, 2, 3, 4, 5}, (sorted(by_id), err.decode()[-800:])
+    assert set(by_id) == {1, 2, 3, 4, 5, 6}, (sorted(by_id), err.decode()[-800:])
     text = {i: by_id[i]["result"]["content"][0]["text"] for i in (3, 4, 5)}
     assert text[3].startswith("SESSION Crate-")
     assert text[4].startswith("OK tx="), text[4]
@@ -235,8 +271,8 @@ async def test_two_stdio_clients_keep_independent_stage_catalogs(tmp_path):
         await call(first, "set_stage", stage="LOOKDEV")
         await call(second, "set_stage", stage="EXPORT")
         left, right = await asyncio.gather(first.list_tools(), second.list_tools())
-        assert {t.name for t in left.tools} == ALWAYS | {f.__name__ for f in T.STAGE_TOOLS["LOOKDEV"]}
-        assert {t.name for t in right.tools} == ALWAYS | {f.__name__ for f in T.STAGE_TOOLS["EXPORT"]}
+        assert {t.name for t in left.tools} == ALWAYS | {f.__name__ for f in (*T.STAGE_TOOLS["LOOKDEV"], *T.SESSION_TOOLS["LOOKDEV"])}
+        assert {t.name for t in right.tools} == ALWAYS | {f.__name__ for f in (*T.STAGE_TOOLS["EXPORT"], *T.SESSION_TOOLS["EXPORT"])}
         assert (await call(first, "export_engine_package", out_name="wrong_stage")).startswith("REFUSED")
         # A subagent with an explicit read-only grant can still call its named probe.
         assert "nodes=0" in await call(first, "inspect_manifest")
@@ -244,12 +280,16 @@ async def test_two_stdio_clients_keep_independent_stage_catalogs(tmp_path):
 async def test_modern_client_receives_catalog_invalidation(tmp_path):
     async with client(tmp_path, modern=True) as session:
         async with listen(session, tools_list_changed=True) as changes:
+            # 2026-11-22: the short path's tools are listed before a session opens, so opening one in BLOCKOUT changes
+            # nothing; a stage switch shows or hides that stage's finer-control tools
             await call(session, "open_asset_session", asset_name="Notify", target_engine="godot_4")
-            await asyncio.wait_for(anext(changes), timeout=5)
             assert "apply_scene_ir" in {t.name for t in (await session.list_tools()).tools}
             await call(session, "set_stage", stage="LOOKDEV")
             await asyncio.wait_for(anext(changes), timeout=5)
-            assert "apply_scene_ir" not in {t.name for t in (await session.list_tools()).tools}
+            assert "forge_pbr_material" in {t.name for t in (await session.list_tools()).tools}
+            await call(session, "set_stage", stage="BLOCKOUT")
+            await asyncio.wait_for(anext(changes), timeout=5)
+            assert "forge_pbr_material" not in {t.name for t in (await session.list_tools()).tools}
 
 
 # --------------------------------------------------------------------------- inspector MCP App

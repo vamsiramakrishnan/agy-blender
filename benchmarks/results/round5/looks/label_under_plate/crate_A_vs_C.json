@@ -1,0 +1,217 @@
+{
+ "model": "gemini-4-carbon",
+ "thinking": "low",
+ "brief_id": "crate",
+ "brief": "a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles",
+ "sheets": {
+  "A": "<scratch>/r5/live_compare/eval/r5/crate/A/sheet.png",
+  "C": "<scratch>/r5/live_relaycheck/eval/r5/crate/C/sheet.png"
+ },
+ "calls": [
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 212,
+    "thinking": null,
+    "total": 3465
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 has distinct corner guards, panels, latches, and handles, whereas Image 2 uses full vertical edge strips and has obscured front text."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both crates have believable overall scale, but Image 2 features better component proportions compared to the overly chunky corner guards in Image 1."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 displays more realistic material response and subtle edge wear, while Image 1 has overly dark, noisy corner guards."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 2 has a major intersection defect on the front where a nameplate covers the stenciled text, while Image 1 is free of obvious placement errors."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 wins overall because it fulfills all specific kit-bash elements cleanly without glaring geometry-over-decal placement defects."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 198,
+    "thinking": null,
+    "total": 3451
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Image 2 features distinct, chunky corner guards and latches that read more clearly as separate kit-bashed components."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Image 1 has more believable component proportions, whereas Image 2 has overly thick, blocky corner guards and oversized latches."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 displays more cohesive material response and realistic edge wear compared to the blotchy, high-contrast wear on Image 2's corners."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 1 has a prominent label frame intersecting directly over the painted text on the front panel, while Image 2 avoids obvious placement overlaps."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Despite the intersecting front label plate, Image 1 offers more believable proportions and higher surface material quality."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 175,
+    "thinking": null,
+    "total": 3428
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "tie",
+      "reason": "Both assets clearly include panels, corner guards, latches, and side handles fitting a military crate."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both have believable overall scale, though the hardware proportions on the second crate are more natural than the chunky corner blocks on the first."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "The second crate exhibits cohesive edge wear and roughness variation, whereas the first has repetitive noise on the corners."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "The second crate has a front placard overlapping its painted stencil text, while the first avoids text intersections."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Despite minor decal clipping, the second crate delivers superior material response and hardware proportions."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 212,
+    "thinking": null,
+    "total": 3465
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Image 2 features distinct, chunky corner guards, latches, and handles that read more clearly as separate kit-bashed components."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Image 1 has more realistic hardware proportions, whereas Image 2 uses overly bulky corner blocks and latches relative to its overall scale."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 shows more cohesive painted metal roughness and edge wear, while Image 2 has blotchy, high-contrast procedural chipping on the corners."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 1 has a front nameplate that blatantly intersects over the yellow stencil text, whereas Image 2 avoids obvious decal overlaps."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Despite chunky hardware and basic wear textures, Image 2 fulfills all brief components cleanly without the glaring geometry-over-text intersection defect seen in Image 1."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 206,
+    "thinking": null,
+    "total": 3459
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 has much clearer, chunkier corner guards and latches that fit the kit-bashed brief better."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both crates share a good overall scale, but Image 2 has more realistic component proportions whereas Image 1's corner blocks are overly bulky."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 features better material response, subtle surface roughness, and cohesive edge wear compared to Image 1's flat,blotchy textures."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 2 has a small plaque intersecting directly over its front text decal, whereas Image 1 has clean assembly without obvious clipping."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Image 2 wins overall due to superior material quality, lighting response, and more believable hardware proportions, despite a minor decal overlap."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 206,
+    "thinking": null,
+    "total": 3459
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Image 2 features distinct modular corner guards, hinges, latches, and swinging side handles that clearly communicate the kit-bashed brief."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Both share a believable overall size, but Image 1 avoids the overly bulky corner blocks seen on Image 2."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 has cohesive material response and edge wear, whereas Image 2 displays blocky, high-contrast procedural noise on its corners."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 1 suffers from a dark metal nameplate intersecting directly over the painted text on the front panel, while Image 2 avoids glaring placement overlaps."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Despite a minor decal intersection, Image 1 delivers superior material cohesion, cleaner proportions, and more polished texturing for a game asset."
+    }
+   }
+  }
+ ],
+ "total_tokens": 20727
+}

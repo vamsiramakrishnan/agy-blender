@@ -1,0 +1,402 @@
+{
+ "mode": "live",
+ "records": [
+  {
+   "brief": "crate",
+   "arm": "N",
+   "status": "finished",
+   "wall_s": 559.7,
+   "glb": "<scratch>/r5/live_native7/runs/r5_crate_N/work/output/military_supply_crate.glb",
+   "extra_files": [
+    "<scratch>/r5/live_native7/runs/r5_crate_N/work/output/military_supply_crate_LOD1.glb",
+    "<scratch>/r5/live_native7/runs/r5_crate_N/work/output/military_supply_crate_LOD2.glb",
+    "<scratch>/r5/live_native7/runs/r5_crate_N/work/output/military_supply_crate_LOD3.glb",
+    "<scratch>/r5/live_native7/runs/r5_crate_N/work/output/textures/military_supply_crate_atlas_albedo.png",
+    "<scratch>/r5/live_native7/runs/r5_crate_N/work/output/textures/military_supply_crate_atlas_normal.png",
+    "<scratch>/r5/live_native7/runs/r5_crate_N/work/output/textures/military_supply_crate_atlas_orm.png"
+   ],
+   "model_calls": 24,
+   "tool_calls": 32,
+   "blender_invocations": 1,
+   "images": 0,
+   "tokens": {
+    "input_tokens": 1469254,
+    "output_tokens": 10306,
+    "thinking_tokens": 26640,
+    "cached_tokens": 1171171,
+    "unknown_reserved_tokens": 0,
+    "share_tokens": 2500000,
+    "total": 1506200,
+    "images": 0,
+    "share_images": 0
+   },
+   "models": {
+    "gemini-4-hydrogen": {
+     "calls": 22,
+     "input": 1456830,
+     "output": 9303,
+     "thinking": 23691
+    },
+    "gemini-4-neon": {
+     "calls": 2,
+     "input": 12424,
+     "output": 1003,
+     "thinking": 2949
+    }
+   },
+   "final_text": "Built and exported a game-ready **military supply crate** (`military_supply_crate`) for **Godot 4** using the `antigravity-3d` Scene IR pipeline (`open_asset_session`, `apply_scene_ir`, `render_preview`, `deliver_package`).\n\n### Delivered Files\n- **Main glTF 2.0 binary (`output/`):**\n  - [military_supply_crate.glb](file:///home/agent/project/output/military_supply_crate.glb) (LOD0, embedded PBR textures)\n  - [military_supply_crate_LOD1.glb](file:///home/agent/project/output/military_supply_crate_LOD1.glb)\n  - [military_supply_crate_LOD2.glb](file:///home/agent/project/output/military_supply_crate_LOD2.glb)\n  - [military_supply_crate_LOD3.glb](file:///home/agent/project/output/military_supply_crate_LOD3.glb)\n- **PBR Atlas PNGs (`output/textures/`, 2048 \u00d7 1024, OpenGL normal):**\n  - [military_supply_crate_atlas_albedo.png](file:///home/agent/project/output/textures/military_supply_crate_atlas_albedo.png)\n  - [military_supply_crate_atlas_normal.png](file:///home/agent/project/output/textures/military_supply_crate_atlas_normal.png)\n  - [military_supply_crate_atlas_orm.png](file:///home/agent/project/output/textures/military_supply_crate_atlas_orm.png)\n- **Full studio export package:** [military_supply_crate](file:///home/agent/project/agy3d_assets/military_supply_crate-17d6e1/export/military_supply_crate) (includes [manifest.json](file:///home/agent/project/agy3d_assets/military_supply_crate-17d6e1/export/military_supply_crate/manifest.json), [military_supply_crate.usd](file:///home/agent/project/agy3d_assets/military_supply_crate-17d6e1/export/military_supply_crate/military_supply_crate.usd), [military_supply_crate.usdz](file:///home/agent/project/agy3d_assets/military_supply_crate-17d6e1/export/military_supply_crate/military_supply_crate.usdz), [military_supply_crate_colliders.glb](file:///home/agent/project/agy3d_assets/military_supply_crate-17d6e1/export/military_supply_crate/military_supply_crate_colliders.glb), and [inspector.html](file:///home/agent/project/agy3d_assets/military_supply_crate-17d6e1/export/military_supply_crate/inspector.html)).\n\n### Model & Technical Details\n- **Geometry (63 nodes):** Recessed main tub on dual bottom skid runners (`Z = 0` at ground, `1.0 m/unit`, exported `+Y` up for Godot 4), stepped seal collar, recessed lid with 4 longitudinal armor slats and 4 corner stacking pads, 8 extruded L-bracket corner guards (4 bottom, 4 top), 6 vertical reinforcement ribs, 2 multi-part side handles (backplate, lugs, brass pivot pin, swing arms, cylindrical grip), 2 front toggle draw latches, 1 center padlock hasp/staple, 1 front brass ID plate, and 2 rear barrel hinges.\n- **Mesh & Budget:**\n  - Triangles: **2,766** at LOD0 (within the 3,000-triangle budget), with LOD1 **1,647**, LOD2 **940**, and LOD3 **220** triangles.\n  - Draw calls: **1** (packed PBR atlas from 3 authored materials: olive drab painted steel, dark parkerized steel, tarnished brass).\n  - UV stretch: **0.000**; USD validation: **0 critical / 0 warnings**; Godot 4 check: **0 critical / 1 warning** (`godot_4:up_axis_reorient`).\n  - Collision: **8 convex hulls** generated in `military_supply_crate_colliders.glb` (kept in the export package folder rather than `output/` so `output/` contains only `<name>.glb`, `<name>_LOD*.glb`, and `textures/*.png`; no `-col` node is merged inside `military_supply_crate.glb`).\n\n### Notes & Preview Findings\n- The session ran as an **UNVERIFIED preview** (`image limit = 0`, offline surfaces synthesized by `kernel.smart_source` and reviewed by the uncalibrated generative fallback judge):\n  - `tier15`: **2.31** (target `3.4`), `silhouette`: **2.53** (target `3.3`), `shippability`: **2.27** (target `3.4`).\n  - Visual lookdev render: [lookdev_eevee_df71500efd57449db125fa914a1a73ac.png](file:///home/agent/project/agy3d_assets/military_supply_crate-17d6e1/artifacts/lookdev_eevee_df71500efd57449db125fa914a1a73ac.png) \u2014 inspect before shipping.\n  - Note: Scene IR `apply_scene_ir` retained minor bounding-proximity `interpenetration` warnings on the side handle arms/pivot pins, though `deliver_package` passed `blender_asset_qa` with **0 errors** after fixing the center hasp staple contact.",
+   "notes": [
+    "plugin attached by hand through SDK equivalents from <scratch>/r5/wt_native3/plugin (see PLUGIN_DISCOVERY)"
+   ],
+   "refused": [],
+   "pipeline": {
+    "workspace": "<scratch>/r5/live_native7/runs/r5_crate_N/work",
+    "task": "Make a game-ready 3D prop: a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles.\n\nTarget engine: Godot 4 (import as glTF 2.0 binary).\nBlender 5.3 is installed and on PATH as `blender`; run it headless (for example `blender -b --factory-startup --python script.py`). There is no display and no network.\n\n\"Game-ready\" here means all of the following, checked automatically afterwards:\n- Real-world scale in metres (1 unit = 1 m). Up axis: glTF's +Y (Blender's glTF exporter converts Blender's +Z up for you). The prop stands on the ground: its lowest point at height 0, centred on the origin horizontally.\n- At most 3000 triangles for the main model.\n- Every mesh has a UV map; UV islands inside 0-1 and not overlapping.\n- PBR metallic-roughness material(s), at most 3, with image textures: base colour, normal map, and roughness/metallic (an ORM or metallic-roughness texture). Texture sizes are powers of two, at most 2048 px.\n- Optional: lower-detail LODs as separate files named <name>_LOD1.glb, <name>_LOD2.glb; a simple collision mesh as a separate object whose name ends in \"-col\".\n\nDeliver into the folder `output/` of your working directory: exactly one main file `output/<name>.glb` (textures may be embedded) plus the texture images as PNG files in `output/textures/`. When you are done, reply with a short summary of what you made and anything you could not do.\n\nThis run is limited to about 45 model calls in total, counting every reply you make; plan so that a complete `output/<name>.glb` exists before then, and prefer delivering a simpler complete asset to an unfinished ambitious one.",
+    "load_1min_end": 3.37,
+    "load_1min_start": 4.81,
+    "conditions": {
+     "model_calls": 24,
+     "finish_reasons": {
+      "STOP": 24
+     },
+     "calls_at_output_cap": 0,
+     "max_output_tokens_requested": [
+      8192,
+      16384
+     ],
+     "service_failures": {
+      "turned away": 0,
+      "broken": 0,
+      "server error": 0
+     },
+     "last_call_service_failure": null,
+     "start_end_unix": [
+      1795336741.156,
+      1795337299.284
+     ]
+    },
+    "self_report": {
+     "manifests": [
+      {
+       "path": "<scratch>/r5/live_native7/runs/r5_crate_N/work/agy3d_assets/military_supply_crate-17d6e1/export/military_supply_crate/manifest.json",
+       "asset": "military_supply_crate",
+       "verified": false,
+       "preview": true,
+       "tris": 2766,
+       "evidence": null,
+       "validation": {
+        "usd": [],
+        "engine": [],
+        "package": [],
+        "package_ok": true,
+        "blender_asset_qa": {
+         "status": "passed",
+         "detail": "qa_check of EL4CTEO/blender-skills @9e7e04a (release 1.3.2), game profile, vertices merged part by part: 1 object(s), 2766 tris; no errors, 2 warning(s): hidden back-to-back faces: Batch_0 (95 pairs) - delete to save tris; 2 parts fully enclosed, not touching (eyes/internals?): ['Batch_0', 'Batch_0']",
+         "script": "qa_check",
+         "repository": "https://github.com/EL4CTEO/blender-skills",
+         "commit": "9e7e04a603c125a0d17447ab97112fa70a865067",
+         "profile": "game",
+         "merged": true,
+         "merged_within": "parts",
+         "tol_m": 0.002,
+         "errors": [],
+         "resting_on_ground": [],
+         "warnings": [
+          "hidden back-to-back faces: Batch_0 (95 pairs) - delete to save tris",
+          "2 parts fully enclosed, not touching (eyes/internals?): ['Batch_0', 'Batch_0']"
+         ],
+         "parts_in_contact_share_vertices": {},
+         "pieces_after_merge": {
+          "Batch_0": 63
+         }
+        },
+        "engine_import": {
+         "engine": "godot_4",
+         "ok": true,
+         "metrics": {
+          "images": 3,
+          "images_loaded": 3,
+          "normal_surfaces": 1,
+          "orm_surfaces": 1,
+          "surfaces": 1,
+          "textured_surfaces": 1,
+          "triangles": 2766
+         },
+         "bounds_m": [
+          [
+           -0.425000011920929,
+           -1.86264517698653e-10,
+           -0.261999994516373
+          ],
+          [
+           0.425000011920929,
+           0.426999986171722,
+           0.272000044584274
+          ]
+         ],
+         "engine_version": "4.7.2-stable (official)"
+        },
+        "engine_parity": {
+         "ok": null,
+         "skipped": "preview: parity needs the native Decisions API"
+        }
+       }
+      }
+     ],
+     "qa_records": [
+      {
+       "tier1_ok": true,
+       "tier15_score": 2.314495798319328,
+       "session_id": "military_supply_crate-17d6e1",
+       "conversation_id": "7f2ab6f2-a206-4766-a9f5-18767b44f370",
+       "asset": "military_supply_crate",
+       "revision": "a57e8a9717fa4cefb6457b16aaae86da",
+       "target": "godot_4",
+       "verdict": {
+        "revision": "a57e8a9717fa4cefb6457b16aaae86da",
+        "target": "godot_4",
+        "stage": "lookdev",
+        "renderer": "eevee",
+        "backend": "uncalibrated",
+        "action": "escalate_director",
+        "texture_hash": ""
+       },
+       "validator_ok": true,
+       "ts": 1795337189.2983086,
+       "schema": "agy3d.qa_state/2",
+       "preview": true
+      },
+      {
+       "tier1_ok": true,
+       "tier15_score": 2.314495798319328,
+       "session_id": "military_supply_crate-17d6e1",
+       "conversation_id": "7f2ab6f2-a206-4766-a9f5-18767b44f370",
+       "asset": "military_supply_crate",
+       "revision": "a57e8a9717fa4cefb6457b16aaae86da",
+       "target": "godot_4",
+       "verdict": {
+        "revision": "a57e8a9717fa4cefb6457b16aaae86da",
+        "target": "godot_4",
+        "stage": "lookdev",
+        "renderer": "eevee",
+        "backend": "uncalibrated",
+        "action": "escalate_director",
+        "texture_hash": ""
+       },
+       "validator_ok": true,
+       "ts": 1795337189.2983086,
+       "schema": "agy3d.qa_state/2",
+       "preview": true
+      },
+      {
+       "tier1_ok": true,
+       "tier15_score": 2.314495798319328,
+       "session_id": "military_supply_crate-17d6e1",
+       "conversation_id": "7f2ab6f2-a206-4766-a9f5-18767b44f370",
+       "asset": "military_supply_crate",
+       "revision": "a57e8a9717fa4cefb6457b16aaae86da",
+       "target": "godot_4",
+       "verdict": {
+        "revision": "a57e8a9717fa4cefb6457b16aaae86da",
+        "target": "godot_4",
+        "stage": "lookdev",
+        "renderer": "eevee",
+        "backend": "uncalibrated",
+        "action": "escalate_director",
+        "texture_hash": ""
+       },
+       "validator_ok": true,
+       "ts": 1795337189.2983086,
+       "schema": "agy3d.qa_state/2",
+       "preview": true
+      }
+     ]
+    },
+    "mcp_tools": {
+     "open_asset_session": 1,
+     "apply_scene_ir": 7,
+     "render_preview": 4,
+     "inspect_manifest": 1,
+     "session_status": 1,
+     "deliver_package": 2
+    },
+    "attached": {
+     "t": 1795336743.2,
+     "kind": "plugin_attached",
+     "servers": [
+      "antigravity-3d_studio"
+     ],
+     "rules": [
+      "AGENTS.md (always_on)",
+      "blender-5-3-api.md (glob)",
+      "engine-budgets.md (glob)"
+     ],
+     "subagents": [
+      "lookdev_critic",
+      "usd_verifier"
+     ],
+     "hooks": {
+      "PreToolUse": 1,
+      "PostToolUse": 1,
+      "SessionStart": 1,
+      "Stop": 1
+     },
+     "skills": "/home/agent/project/.agents/plugins/antigravity-3d/skills",
+     "limits": {
+      "tokens": 2500000,
+      "images": 0
+     },
+     "session_start": [
+      "[antigravity-3d] no target engine set (budget.json); defaults: <= 15000 tris, <= 4 draw calls, 1024 px/m, <= 8 hulls. Use conversation_id=7f2ab6f2-a206-4766-a9f5-18767b44f370 when opening a native asset session and its session_id on export. No QA verdict recorded yet. Edit via Scene IR tools; render_preview shows you the design (look and improve), run_visual_qa judges it; export needs Tier-1 ok and Tier-1.5 >= 3.4 (hook-enforced); in an uncalibrated preview a lookdev review of the current scene, whatever it scored (its findings ship with the package)."
+     ]
+    }
+   },
+   "session": 1,
+   "account": "r5:crate:N",
+   "phase": "first"
+  }
+ ],
+ "changes": [],
+ "change_requests": {
+  "crate": {
+   "text": "make the two side handles 30 % larger",
+   "ratio": 1.3
+  },
+  "hydrant": {
+   "text": "make the chained nozzle cap 30 % larger",
+   "ratio": 1.3
+  },
+  "chair": {
+   "text": "make the spindles of the back 30 % thicker",
+   "ratio": 1.3
+  }
+ },
+ "repeats": [],
+ "c_change_mode": "edit",
+ "unfair": [
+  "Arm V's screenshots reach the model in two steps: the stock harness puts an MCP tool's image into the conversation only while it is tiny (base64 under about 10 to 16 KB, measured); a larger one, which is every useful render (a 256 px solid view of a cube is 53 KB), is saved to a file and the path returned ('[Resource offloaded to file:///...media_0.png]'), and the agent sees the picture only if it opens that file with view_file (tests/test_compare_agents.py). That is the stock agent's behaviour with any MCP server and is left as it is; each V record counts screenshots taken and opened.",
+  "Arm V's Blender has a virtual display (Xvfb) inside the sandbox, because its screenshot is Blender's solid-viewport renderer (Workbench), which needs OpenGL: without a display Blender 5.3 exits at the first render (measured). Arm A's Blender has none, as in round 3; Cycles works without one.",
+  "Arm V's Blender binary is mounted in the sandbox (the MCP server starts it) but is not on PATH and not named in its task; an agent that finds it can still run it from the shell. Each record counts shell commands that start Blender (blender_invocations), so a V run that bypassed its MCP server is visible.",
+  "Arms V and A run with 0 images: the owner's image allowance is used up (29 of 30), and the relay refuses an image call. A stock agent made no image in round 3 (its textures were procedural); the task text is unchanged.",
+  "Arms N and C make their textures as images and are not run until the owner allows more images.",
+  "Arm C is told less than the agents: its command line carries the brief, engine and triangle budget, but not the rest of the game-ready list (C_UNEXPRESSED); the pipeline applies its own conventions there.",
+  "Arm C's change request is `agy3d edit OUT \"<change>\"` on a copy of its first output folder: one patch to the shipped design, no image (C_CHANGE_MODE; 'append', a new design from the sentence appended to the prompt, is kept for comparison). The agents' change sessions are new conversations over the files their first session left.",
+  "Every arm's task ends with a budget sentence ('about N model calls'), N computed from its share (CALL_MODEL); maxOutputTokens is 16,384 instead of the stock 65,535; web search and URL reading are disabled (no network).",
+  "The upstream qa_check / mesh_stats / texel_density scripts are by the author of the skills arm B used (round 1). The Godot import script and the three.js check are this project's own (C's authors); they are applied to the bare GLB of every arm with a manifest holding only the bounds read from that GLB.",
+  "The judge is Gemini (gemini-4-carbon, thinking low) judging Gemini-made assets; renders are Blender's (Cycles), not the target engine's.",
+  "Rows that only this project can pass are marked so in the scorecard (installed into a project, provenance, the same bytes from the same request): they are reported, not mixed into the shared game-ready rate.",
+  "The machine is shared: other test suites may run on its 4 cores during live runs; each record carries the load at its start and end. Wall times are not comparable with an idle machine."
+ ],
+ "plugin_discovery": {
+  "sdk": "google-antigravity 0.1.24 (bundled localharness binary), LocalAgentConfig defaults",
+  "tried": [
+   "<workspace>/.agents/plugins/antigravity-3d (plugin_install.install, workspace scope, copy mode)",
+   "<workspace>/.agents/plugins.json entry (plugin_install.register)",
+   "$HOME/.gemini/config/plugins/antigravity-3d (global install, HOME passed to the harness)"
+  ],
+  "request_carried": "in every case: no MCP server section and no MCP tools, no plugin skill (only the built-in run-workflow skill), no plugin rule; system prompt about 11.6k characters, unchanged",
+  "so": "arm C attaches each part by hand through its SDK equivalent, from the plugin's own files"
+ },
+ "not_run": {
+  "arm B": "not run in round 5: its two round-1 runs are reported as a finding (what it read, what it cost)",
+  "arm C": "arm C (this project's command line, preview mode) needs images for its textures; it waits for the owner's image allowance (29 of 30 used)"
+ },
+ "round": "r5",
+ "native_sizing": null,
+ "c_unexpressed": [
+  "real-world scale, +Y up, grounded and centred (the pipeline's own conventions apply; not a flag)",
+  "UVs inside 0-1 and not overlapping (the pipeline unwraps by its own rules)",
+  "at most 3 materials; a base colour, normal and metallic-roughness texture per material (its own lookdev decides)",
+  "texture sizes (power of two, at most 2048 px): no texture-size flag",
+  "LODs and collision named as the task asks (<name>_LOD1.glb, '-col'): it writes its own package layout",
+  "the delivery folder output/<name>.glb + output/textures/: it writes a package directory",
+  "the budget sentence: there is no agent to read it; the command's own --token-ceiling / --max-images bound it"
+ ],
+ "plan": {
+  "briefs": [
+   {
+    "id": "crate",
+    "prompt": "a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles",
+    "max_tris": 3000,
+    "size_m": [
+     0.5,
+     1.6
+    ],
+    "upright": false,
+    "why": "boxy, kit-bashed: many flat parts that must meet cleanly, hard edges, trim detail"
+   }
+  ],
+  "order": [
+   [
+    "crate",
+    "N"
+   ]
+  ],
+  "engine": "godot_4",
+  "notes": {
+   "stock model": "SDK default text model gemini-4-hydrogen (google.antigravity.models.DEFAULT_MODEL), thinking left at the model default; image tool on the SDK default gemini-3.1-flash-lite-image (0 images this round: the relay refuses image calls).",
+   "stock deviations": "web search and URL reading disabled (no network allowed); maxOutputTokens 16,384 instead of the stock 65,535 so a call's worst case does not consume a third of the run's share; file tools limited to the workspace; harness backstops exceed the modeled call allowance but may bind before the token share (harness_budget).",
+   "arm V": "the stock agent plus one MCP server, compare_vanilla_mcp.py (execute_blender_code, get_scene_info, get_object_info, get_viewport_screenshot), attached through LocalAgentConfig.mcp_servers; Blender runs inside the sandbox under Xvfb; nothing of this project is mounted.",
+   "change requests": "one per cell after it delivers, a new session over a copy of its files, half the arm's share; the two packages are diffed part by part (compare_eval.package_diff)."
+  },
+  "budget": {
+   "ceiling_tokens": 14000000,
+   "ceiling_images": 0,
+   "round": "r5",
+   "briefs": [
+    "crate"
+   ],
+   "arms_now": [
+    "N"
+   ],
+   "arms_planned": [
+    "A",
+    "N",
+    "V"
+   ],
+   "run_tokens": {
+    "V": 1200000,
+    "A": 1200000,
+    "B": 195000,
+    "N": 2500000,
+    "C": 500000
+   },
+   "run_images": {
+    "V": 0,
+    "A": 0,
+    "B": 0,
+    "N": 0,
+    "C": 0
+   },
+   "judge_tokens_per_call": 12500,
+   "small_judge_tokens_per_call": 10000,
+   "smoke_tokens": 0,
+   "continuations": {},
+   "changes": true,
+   "change_share": 0.5,
+   "change_images": {
+    "V": 0,
+    "A": 0,
+    "B": 0,
+    "N": null,
+    "C": null
+   }
+  },
+  "plan_totals": {
+   "tokens": 7485000,
+   "images": 0
+  }
+ },
+ "tally": {
+  "tokens": 1506200,
+  "images": 0,
+  "input_tokens": 1469254,
+  "output_tokens": 10306,
+  "thinking_tokens": 26640,
+  "unknown_reserved_tokens": 0,
+  "calls": 25,
+  "inflight_tokens": 0,
+  "ceiling_tokens": 14000000,
+  "ceiling_images": 0
+ }
+}

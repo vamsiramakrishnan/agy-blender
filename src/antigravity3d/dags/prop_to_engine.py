@@ -17,13 +17,14 @@ import json
 import math
 import shutil
 import tempfile
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from antigravity3d.adapters.blender_5_3 import fbx_package
 from antigravity3d.adapters.engines import web_three
 from antigravity3d.art_direction import ArtDirection, author_text, concept_prompt, texture_brief
+from antigravity3d.kernel import provenance
 from antigravity3d.kernel.package import drop_fbx
 from antigravity3d.kernel.publish import publish_directory
 from antigravity3d.kernel.validator import validate_package
@@ -33,8 +34,8 @@ from antigravity3d.decisions.compose import Thresholds
 from antigravity3d.ir import SceneIR
 from antigravity3d.kernel.usd_stage import StageManager
 from antigravity3d.state import EngineBudget
-from antigravity3d.tactics.authoring import AgentAuthor, IRAuthor, _slug
-from antigravity3d.tactics.cached import CachedForge, DesignRecord
+from antigravity3d.tactics.authoring import AgentAuthor, IRAuthor, TemplateAuthor, _slug
+from antigravity3d.tactics.cached import CachedForge, DesignRecord, image_identity
 from antigravity3d.tactics.common import uploader_for
 from antigravity3d.tactics.distill import FixLog
 from antigravity3d.tactics.pyramid import PyramidResult, default_texture_px, materials_by_area, refine, synthesize_materials
@@ -47,6 +48,7 @@ class Proposal:
     scenes: list[SceneIR]
     asset: str
     author: IRAuthor
+    indices: tuple[int, ...] = ()  # the requested-candidate number of each scene (a candidate that produced nothing leaves a gap)
 
 
 class ImageLimitRefused(RuntimeError):
@@ -114,12 +116,14 @@ class PropToEngineDAG:
                  max_rounds: int = 4, max_parallel: int | None = None, single_candidate: bool = False,
                  require_verified: bool = False, art_direction: ArtDirection | None = None,
                  token_ceiling: int | None = None, max_images: int | None = None, new_design: bool = False,
-                 announce: Any = None, min_call_tokens: int | None = None) -> None:
+                 announce: Any = None, min_call_tokens: int | None = None, strict_review: bool = False,
+                 improve_rounds: int | None = None) -> None:
         """``new_design``: author a new design instead of continuing from the one recorded beside the image cache by an
         earlier run in this workdir (``DesignRecord``); the image cache is used as always. ``announce``: called with a
         line of text before any call when this asset's ledger already holds spend from earlier runs.
         ``min_call_tokens``: the largest single call this run must be able to make (the start-up check's figure); a
-        rerun whose ledger has less than that left is refused before any call (``CeilingLeftRefused``)."""
+        rerun whose ledger has less than that left is refused before any call (``CeilingLeftRefused``).
+        ``strict_review``: an uncalibrated judge's review below target fails the run with exit 3 (``delivery``)."""
         if require_verified and getattr(plane, "preview", False):
             raise ValueError("a verified run cannot use a preview decision plane")
         self.art = art_direction
@@ -132,14 +136,49 @@ class PropToEngineDAG:
         self.record = DesignRecord(cache, fresh=new_design) if cache is not None else None
         self.announce, self.min_call_tokens = announce, min_call_tokens
         self._image_short: tuple[int, int, str] | None = None  # (need, left, refusal) deferred to propose on a rerun
+        self.no_images = False  # --max-images 0: the run generates no image (set by the route step)
         self._before: tuple[float, int] | None = None  # (spend, images) this asset's ledger held before this run
         self.workdir, self.th, self.style_anchor, self.fixlog = Path(workdir), thresholds or Thresholds(), style_anchor, fixlog
         if self.preview_judging:
-            self.th = replace(self.th, trust_uncalibrated=True)
+            self.th = self.th.for_uncalibrated_judge()
         self.max_rounds, self.max_parallel = max_rounds, max_parallel
-        self.require_verified = require_verified
+        self.require_verified, self.strict_review = require_verified, strict_review
         self.single_candidate = single_candidate
+        self.improve_rounds = improve_rounds  # None: the spend plan's count (tactics.governor.IMPROVE_ROUNDS)
         self.up = uploader_for(self.forge)
+
+    @staticmethod
+    def _provenance(manifest: dict[str, Any], facts: dict[str, Any], p: Proposal) -> None:
+        """Complete the manifest's ``provenance`` (the package writer made the structure and the deterministic steps) with
+        the facts only this pipeline has: who authored the design, who generated each image, what the user supplied.
+        A design or an image taken from the design record or the image cache carries the same identities as when it
+        was paid for (``MeteredAuthor._note_authored``, ``cached.image_identity``)."""
+        prov = manifest.get("provenance")
+        if prov is None:
+            return
+        author, winner, style = p.author, facts.get("winner"), facts.get("style_sha256")
+        log = list(getattr(author, "authored", []))
+        original = p.indices[winner] if winner is not None and winner < len(p.indices) else None
+        proposal = next((f for f in log if f["operation"] == "propose" and f["index"] == original), None)
+        if proposal is not None:
+            scene = p.scenes[winner]
+            provenance.set_design(prov, {"kind": "model_authored", "model": proposal["model"], "role": proposal["role"], "operation": "propose",
+                                         "candidate": original, "request_sha256": proposal["request_sha256"],
+                                         "scene_sha256": provenance.sha256_json(scene.model_dump(mode="json")),
+                                         **({"references": ["style_anchor"]} if style else {})})
+        elif isinstance(author, TemplateAuthor):
+            provenance.set_design(prov, {"kind": "template", "generator": "TemplateAuthor (deterministic, no model)", "seed": author.seed})
+        # Every repair request made while the design was refined. Whether each was kept is not known here (the pyramid
+        # rolls some back), so they are listed as calls made, not claimed as what shaped the files.
+        prov["authoring_calls_made"] = [{k: f[k] for k in ("operation", "model", "role", "request_sha256")}
+                                        for f in log if f["operation"] != "propose"]
+        for material, record in (facts.get("images") or {}).items():
+            provenance.set_image(prov, f"albedo:{material}", record)
+        if facts.get("ortho") and "ortho.png" in manifest["files"]:
+            provenance.set_image(prov, "ortho", facts["ortho"])
+        if style:
+            prov["sources"]["style_anchor"] = {"kind": "user_supplied", "sha256": style}
+        provenance.finalize(prov, manifest)
 
     def _texture_px(self) -> int | None:
         """The art direction's map size for this engine; None leaves the pipeline's default (same rule as the pyramid)."""
@@ -157,6 +196,7 @@ class PropToEngineDAG:
         # Stop a branch nobody can use any more (the speculative materials once geometry has failed): its later paid
         # calls would buy nothing. Every node here feeds the package; none makes something kept on a failed run.
         dag = Dag("prop_to_engine", stop_unusable=True)
+        facts: dict[str, Any] = {}  # who made what, read by the package node for the manifest's provenance (kernel/provenance.py)
 
         style_read: asyncio.Task[bytes] | None = None
 
@@ -178,7 +218,8 @@ class PropToEngineDAG:
                 **({"art_direction": self.art.id} if self.art is not None else {}),
             })
             rd = await resolve_route(self.workdir, prompt, self.budget, reference, single_candidate=self.single_candidate,
-                                     plane=self.plane, token_ceiling=self.token_ceiling, max_images=self.max_images)
+                                     plane=self.plane, token_ceiling=self.token_ceiling, max_images=self.max_images,
+                                     improve_rounds=self.improve_rounds)
             self._governor = rd.governor
             g = rd.governor
             self._before = rd.prior
@@ -212,6 +253,15 @@ class PropToEngineDAG:
                     # there, before any authoring call, and refuses as here when no design is recorded.
                     self._image_short = (need, rd.governor.max_images - rd.governor.images_used, refusal)
                     ctx.data(image_check="deferred to propose: rerun with a design record")
+                elif short and rd.governor.max_images == 0:
+                    # --max-images 0 is a request, not a shortfall: the developer wants the asset with no image generated.
+                    # Until 2026-11-22 this was refused like any other shortfall, so a run could not be made at all once
+                    # an image allowance was spent (a stock agent with Blender delivered the same brief with 0 images).
+                    # The blueprint is skipped and no material is image-textured; everything else runs.
+                    self.no_images = True
+                    ctx.data(images="none allowed (--max-images 0): no blueprint, no image textures")
+                    if self.announce is not None:
+                        self.announce("images: none allowed (--max-images 0); the blueprint is skipped and no material is image-textured")
                 elif short:
                     raise ImageLimitRefused(refusal)
             return rd
@@ -220,12 +270,15 @@ class PropToEngineDAG:
             data = await style_bytes()
             if data is None:
                 ctx.skip("no style anchor provided")
+            facts["style_sha256"] = hashlib.sha256(data).hexdigest()
             return {"bytes": data, "uri": await self.up(data)}
 
         async def ortho(ctx: NodeCtx) -> Any:
             r: Route = ctx["route"]
             if not r.needs_ortho:
                 ctx.skip(f"router: no orthographic blueprint needed (P={r.needs_ortho_p:.2f})")
+            if self.no_images:
+                ctx.skip("no images allowed (--max-images 0): no blueprint is drawn")
             st = ctx["style_anchor"]
             try:
                 t = await ortho_tournament(concept_prompt(prompt, self.art), self.forge, plane=self.plane, governor=r.governor, uploader=self.up,
@@ -236,6 +289,9 @@ class PropToEngineDAG:
                 ctx.skip(f"ortho tournament failed, continuing without a blueprint: {type(e).__name__}: {e}")
             wd.mkdir(parents=True, exist_ok=True)
             (wd / "ortho.png").write_bytes(t.winner.payload.png_bytes)
+            facts["ortho"] = {**image_identity(t.winner.payload, prompt=concept_prompt(prompt, self.art), size=None,
+                                               variant=str(t.winner.meta.get("emphasis", "")), offline=bool(getattr(self.forge, "offline", False))),
+                              **({"references": ["style_anchor"]} if st else {})}
             ctx.data(**t.to_dict())
             return t
 
@@ -288,7 +344,7 @@ class PropToEngineDAG:
                          + "; ".join(f"#{o['index']} {o['status']}" + (f" ({o['detail']})" if o.get("detail") else "") for o in lost))
             ctx.data(n_planned=n_plan, n_requested=n, n_proposed=len(scenes), outcomes=outcomes, sizing=sizing,
                      materials=sorted({m.id for s in scenes for m in s.materials}))
-            return Proposal(sm, list(scenes), asset, author)
+            return Proposal(sm, list(scenes), asset, author, tuple(o["index"] for o in outcomes if o["status"] == "produced"))
 
         async def geometry(ctx: NodeCtx) -> Any:
             p: Proposal = ctx["propose"]
@@ -296,6 +352,7 @@ class PropToEngineDAG:
             ort = ctx["ortho"]
             t = await geometry_tournament(p.author, p.stage, prompt, plane=self.plane, governor=r.governor, budget=self.budget, uploader=self.up,
                                           context_uris=[ort.winner.uri] if ort else (), scenes=p.scenes)
+            facts["winner"] = t.winner.index if t.winner is not None else None
             ctx.data(**t.to_dict())
             return t
 
@@ -314,9 +371,12 @@ class PropToEngineDAG:
                                                  brief=texture_brief(self.art))
             except Exception as e:  # noqa: BLE001 - the pyramid will retry synthesis itself
                 ctx.skip(f"speculative PBR synthesis failed ({type(e).__name__}: {e}); pyramid will retry")
+            facts["images"] = {k: v.image for k, v in out.items() if v.image}
             ctx.data(materials={k: v.tournament.to_dict() for k, v in out.items()},
                      **({"not_textured": nt} if (nt := {k: v.tournament.notes["not_textured"] for k, v in out.items()
                                                         if v.tournament.notes.get("not_textured")}) else {}))
+            if covered := {k: v.tournament.notes["cached_variants"] for k, v in out.items() if v.tournament.notes.get("cached_variants")}:
+                ctx.note("image cache: " + "; ".join(f"{k}: {v}" for k, v in covered.items()))  # what a rerun did not have to generate
             if nt:
                 ctx.note("left untextured: " + "; ".join(f"{k}: {v}" for k, v in nt.items()))
             return out
@@ -338,7 +398,8 @@ class PropToEngineDAG:
             pkg = wd / "package"
             out = dict(res.artifacts)
             if "usd" not in out or "package" not in res.objects:
-                raise RuntimeError("pyramid pass C produced no package USD")
+                stop = res.stopped.get("C", "")
+                raise RuntimeError(stop if stop.startswith("not packaged") else "pyramid pass C produced no package USD")
             authoring_path = wd / f"{asset}_authoring.usda"
             p.stage.export(authoring_path)
             out["authoring_usd"] = str(authoring_path)
@@ -349,6 +410,10 @@ class PropToEngineDAG:
                                     and bool(getattr(self.plane, "calibrated", True)))
             if self.preview_judging:  # what a person could mistake for a verified result says what it is
                 manifest.update(preview_record(self.plane, self._governor, res))
+            # What the design was made from, so the package alone is enough to change it later (``agy3d edit``): the
+            # request, the art direction and the whole budget. Facts about the asset, the same on every run of it.
+            manifest["design_inputs"] = {"brief": prompt, "art_direction": self.art.id if self.art is not None else None,
+                                         "budget": asdict(self.budget)}
             if "engine_import" in res.objects:
                 manifest["validation"]["engine_import"] = res.objects["engine_import"]
             if "blender_asset_qa" in res.objects:  # a real worker ran it; a skipped run records nothing here (the step says why)
@@ -373,6 +438,7 @@ class PropToEngineDAG:
                     manifest["files"].append(path.name)
                     manifest["file_hashes"][path.name] = {"sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                                                           "bytes": path.stat().st_size}
+            self._provenance(manifest, facts, p)
             manifest_path.write_text(json.dumps(manifest, indent=1))
             if "fbx" in res.objects or "fbx_failed" in res.objects:  # the validator re-opens the FBX: binary, its textures relative and resolving, hash as recorded
                 broken = [i for i in validate_package(pkg) if i.severity == "critical" and (i.code.startswith("pkg:fbx") or i.node_id == manifest["fbx"].get("file"))]
@@ -382,6 +448,7 @@ class PropToEngineDAG:
                         if st.name == "export_fbx":
                             st.status, st.detail = "output_failed", f"FBX failed package validation (not shipped): {broken[0].code} {broken[0].detail}"[:400]
                     manifest["evidence"]["steps"] = [{"name": x.name, "status": x.status, "detail": x.detail} for x in res.steps]
+                    provenance.finalize(manifest["provenance"], manifest)  # the dropped FBX leaves the record too
                     manifest_path.write_text(json.dumps(manifest, indent=1))
             out["inspector"] = str(pkg / manifest["inspector"])
             if manifest["verified"]:
@@ -420,6 +487,22 @@ class PropToEngineDAG:
             # on geometry alone and awaits them only before pass B, so pass A overlaps them instead of waiting.
             dag.node(name, fn, deps, late=("pbr",) if name == "pyramid" else ())
         return dag
+
+    def _delivery(self, x: dict[str, Any], dag_ok: bool, res: PyramidResult | None) -> None:
+        """``delivered``, ``review`` and ``exit`` (``antigravity3d.delivery``): what the exit code says, beside the gates,
+        which are unchanged and never read as approval."""
+        from antigravity3d import delivery as D
+
+        outputs = x["outputs"]
+        ok, why = D.delivered(dag_ok=dag_ok, res=res, outputs=outputs)
+        art = (res.artifacts or {}) if res is not None else {}
+        render = next((art[k] for k in ("web_render", "dcc_render", "engine_render") if art.get(k)), None)  # a render written to disk
+        review = D.review_record(res, self.th, self.plane, where=(outputs.get("inspector"), render))
+        calibrated_rule = self.require_verified or not self.preview_judging
+        gates = x["gates_ok"] if self.require_verified else x["preview_gates_ok"]
+        x.update(delivered={"ok": ok, "why": why}, review=review,
+                 exit=D.exit_record(calibrated_rule=calibrated_rule, gates_ok=gates, is_delivered=ok, review=review,
+                                    strict=self.strict_review))
 
     async def run(self, prompt: str) -> DagReport:
         """Runs the DAG; ``report.extras`` carries outputs, gates, costs and every skipped step with its reason."""
@@ -474,6 +557,7 @@ class PropToEngineDAG:
         if self.preview_judging:
             rep.extras["preview"] = preview_record(self.plane, gov, res)
             rep.extras["needs_review"] = True
+        self._delivery(rep.extras, rep.ok, res)
         if self.art is not None:
             rep.extras["art_direction"] = self.art.manifest_record(budget=self.budget, asset_class="prop", texture_px=self._texture_px())
         report_path = wd / "report.json"

@@ -14,6 +14,13 @@ import yaml
 from .models import CandidateScore, EngineParityResult, LodPopResult, RigRomResult, Stage, VisualQAResult
 
 
+# The fallback judge's probabilities are self-reported, not calibrated. Measured on 2026-11-22 over 144 judgements of
+# the five-view request (benchmarks/results/round5): a part that really is detached is reported at 0.88-0.98 (12 of
+# 12); 21 judgements of designs with nothing detached gave 0.05-0.20, four of them above 0.10. 0.10 is right for a
+# calibrated probability; read against these numbers it sends one sound design in five back for a repair.
+UNCALIBRATED_FLOATING_MAX = 0.30
+
+
 @dataclass(frozen=True)
 class Thresholds:
     defect_high: float = 0.78  # P(defect) at/above: high-confidence
@@ -59,6 +66,11 @@ class Thresholds:
 
     def dump(self, path: str | Path) -> None:
         Path(path).write_text(yaml.safe_dump({"thresholds": self.to_dict()}, sort_keys=False))
+
+    def for_uncalibrated_judge(self) -> "Thresholds":
+        """These thresholds as a run reads them when its judge is the uncalibrated fallback (a preview): the answers
+        may steer the run, and the detached-part threshold is the one measured for self-reported probabilities."""
+        return replace(self, trust_uncalibrated=True, floating_max=max(self.floating_max, UNCALIBRATED_FLOATING_MAX))
 
 
 # Rubric weights (renormalised over the rubrics actually asked at this stage).

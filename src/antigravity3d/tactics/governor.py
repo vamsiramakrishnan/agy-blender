@@ -34,7 +34,55 @@ class SpendPlan:
     reuse_trim_sheet: bool  # prefer shared trim sheet over unique textures
     final_render: str  # "preview" | "eevee" | "cycles"
     ceiling_usd: float  # hard spend ceiling for this asset
+    # How hard pass A tries for a better design once it passes its checks (tactics.pyramid, improvement rounds): at most
+    # ``improve_rounds`` rounds, ending once score_brief_depiction reaches ``improve_target`` or after ``improve_patience``
+    # failures in a row: with a pairwise judge, validations that restored the validated design (the comparison did not
+    # prefer the new state); with absolute scores, rounds undone or validations failed. ``improve_role``: the author tier
+    # of those rounds (None: ``builder_role``). Defaults keep a plan persisted before these fields loadable
+    # (dags.routing) and mean "no improvement rounds".
+    improve_rounds: int = 0
+    improve_target: float = 4.0
+    improve_patience: int = 1
+    improve_role: str | None = None
+    # How improvement rounds are validated (tactics.pyramid): each round is kept provisionally unless there is evidence it
+    # made things worse; every ``improve_validate_every`` provisional rounds, and at the end, the design is judged
+    # ``improve_judgements`` times in parallel and the rounds stand only if the mean depiction rose by the band for that
+    # many judgements against the best validated state (else that state is restored).
+    improve_judgements: int = 3
+    improve_validate_every: int = 2
+    # Look rounds (tactics.look_round): after the design is final and before its package is written, the asset is
+    # rendered in colour as it ships, the judge is asked about its look and the author may change its materials. 0: no
+    # look round, and the run is what it was. One in every built-in plan: a second can only help after a first was kept
+    # (the author then sees renders of its own change) and is left for the live measurement to justify.
+    look_rounds: int = 0
+    # Whether each improvement round gets its own blockout review (an absolute 0-4 judgement). With a pairwise judge the
+    # rounds are decided by the validation (current design against the best validated one, both orders) and by the
+    # kernel, so a round's own review only feeds the author's next request and finds judge-only defects early; False
+    # saves its 20-90 s (live 2026-11-22) per round. Always reviewed: the first design and the one that ships.
+    improve_review_rounds: bool = True
+    # Whether an uncalibrated judge that can compare two states (DecisionControlPlane.compare_states) decides improvement
+    # rounds and a repair the kernel shows no worse by that comparison (tactics.pyramid.compare_shape) instead of by
+    # differences of its absolute scores. False: the absolute rule a calibrated judge always uses (for a measurement
+    # against it on the same starts, and the tests of that rule).
+    improve_pairwise: bool = True
 
+
+# score_brief_depiction an improvement round aims for: midway between level 3 ("convincing: every named part present
+# and recognisable, believable proportions, some secondary detail; a few details a real one has are missing") and level
+# 4 ("complete and convincing ... it stands as a finished game prop"), decisions.questions.BRIEF_DEPICTION_LEVELS.
+# PROVISIONAL: chosen from the level texts. With the pairwise judge the rounds seldom end on it (it is read off the
+# validated design's absolute verdict); they end on a validation that does not prefer the new state, or at the count.
+IMPROVE_TARGET = 3.5
+# Improvement rounds of the built-in plans, measured live 2026-11-22 (r5/live/m3_loop2, worker tier, pairwise validation
+# every two rounds, a review per round, the same three starts as m2): crate and hydrant kept 4 of 5 rounds, both
+# validations of two rounds preferred the new state in both orders (4 of 4), and the fifth round, validated alone, was
+# "neither" every time (4 of 4, both arms) and restored; the blind start-against-final comparison preferred the final
+# 3 of 3 on all three briefs. So rounds come in pairs: four for a standard or hero asset, two for clutter and simple ones
+# (one validation). A round took 37-79 s with its review, a validation 16-27 s (51 s once), on the worker tier.
+IMPROVE_ROUNDS = {"clutter": 2, "standard": 4, "hero": 4}
+# The tier of every improvement round: the worker, also for a hero asset whose first design the director writes. The
+# measurement above is the worker's; the director truncated 5 of 9 first designs and a repair retry the same night.
+IMPROVE_ROLE = "worker"
 
 _CLUTTER = SpendPlan(
     complexity_tier=0,
@@ -49,6 +97,10 @@ _CLUTTER = SpendPlan(
     reuse_trim_sheet=True,
     final_render="preview",
     ceiling_usd=0.15,
+    improve_rounds=IMPROVE_ROUNDS["clutter"],
+    improve_target=IMPROVE_TARGET,
+    improve_role=IMPROVE_ROLE,
+    look_rounds=1,
 )
 
 _STANDARD = SpendPlan(
@@ -64,6 +116,10 @@ _STANDARD = SpendPlan(
     reuse_trim_sheet=False,
     final_render="eevee",
     ceiling_usd=0.85,
+    improve_rounds=IMPROVE_ROUNDS["standard"],
+    improve_target=IMPROVE_TARGET,
+    improve_role=IMPROVE_ROLE,
+    look_rounds=1,
 )
 
 _HERO = SpendPlan(
@@ -79,6 +135,10 @@ _HERO = SpendPlan(
     reuse_trim_sheet=False,
     final_render="cycles",
     ceiling_usd=2.20,
+    improve_rounds=IMPROVE_ROUNDS["hero"],
+    improve_target=IMPROVE_TARGET,
+    improve_role=IMPROVE_ROLE,
+    look_rounds=1,
 )
 
 PLANS: dict[int, SpendPlan] = {

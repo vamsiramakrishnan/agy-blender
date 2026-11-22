@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-Stage = Literal["blockout", "lookdev", "final"]
+Stage = Literal["blockout", "lookdev", "final", "look"]  # "look": tactics.look_round (decisions.questions.LOOK)
 Kind = Literal["ortho", "geometry", "pbr"]
 
 
@@ -32,17 +32,20 @@ class TransientDecisionError(DecisionError):
 
 @dataclass(frozen=True)
 class Answer:
-    kind: Literal["noul", "choice", "score"]
+    kind: Literal["noul", "choice", "score", "text"]
     confidence: float
     noul: float | None = None  # P(true)
     choice: str | None = None
     score: float | None = None  # expected level
+    # "text": a sentence of the judge's own (the reason of a pairwise comparison, engine.compare_states); asked only of
+    # the generative fallback (fallback.py): the native Decisions API has no such answer type
+    text: str | None = None
     probabilities: dict[str, float] = field(default_factory=dict)
     legend: dict[str, str] = field(default_factory=dict)
 
     @property
     def value(self) -> float | str:
-        return {"noul": self.noul, "choice": self.choice, "score": self.score}[self.kind]  # type: ignore[return-value]
+        return {"noul": self.noul, "choice": self.choice, "score": self.score, "text": self.text}[self.kind]  # type: ignore[return-value]
 
 
 @dataclass(frozen=True)
@@ -175,6 +178,7 @@ class PlaneStats:
     measured_knee_overruns: int = 0
     cost_usd: float = 0.0
     retries: int = 0
+    hedges: int = 0  # design judgements asked a second time because the first ran long (engine.HEDGE_AFTER_S)
     latencies_ms: list[float] = field(default_factory=list)
     by_tag: dict[str, int] = field(default_factory=dict)
 

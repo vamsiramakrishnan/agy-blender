@@ -8,6 +8,9 @@
     agy3d calibrate LABELS.json --out studio_policy.yaml [--offline]
     agy3d models
     agy3d plugin install [--target DIR] | plugin validate [PATH]
+    agy3d install PACKAGE_DIR --project PROJECT_DIR [--dest DIR_IN_PROJECT] [--dry-run] [--force] [--no-check] [--json]
+    agy3d uninstall --project PROJECT_DIR --dest DIR_IN_PROJECT [--dry-run] [--force]
+    agy3d edit OUT "<change>" [--token-ceiling N] [--max-images M] [--role ROLE] | edit OUT --patch OPS.json | edit OUT --undo
 
 ``--offline`` runs everything on the fakes (FakeDecisionsClient, FakeImageBackend) and the TemplateAuthor.
 ``--style`` is a style-anchor IMAGE; ``--art-direction`` a named style (``antigravity3d.art_direction``; ids are the
@@ -23,7 +26,7 @@ import asyncio
 import json
 import os
 import sys
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Any, get_args
 
@@ -59,9 +62,10 @@ def _print_art(art: Any) -> None:
 
 def _budget(a: argparse.Namespace) -> EngineBudget:
     keep = bool(getattr(a, "keep_contact_faces", False))
+    extra = {} if getattr(a, "surfaces", None) is None else {"generated_surfaces": a.surfaces == "generated"}
     if a.max_tris is not None:
-        return EngineBudget(a.engine, max_tris=a.max_tris, keep_contact_faces=keep)
-    return EngineBudget(a.engine, keep_contact_faces=keep)
+        return EngineBudget(a.engine, max_tris=a.max_tris, keep_contact_faces=keep, **extra)
+    return EngineBudget(a.engine, keep_contact_faces=keep, **extra)
 
 
 def offline_plane() -> Any:
@@ -121,6 +125,25 @@ def _print_record_and_run(c: dict[str, Any]) -> None:
         spent = t.get("spent_tokens", t.get("spent_usd", 0))
         amount = f"{spent:,.0f} tokens" if "spent_tokens" in t else f"${spent:.4f}"
         print(f"this run: {amount} and {t['images']} image(s); the ledger's totals above include the earlier runs of this asset")
+
+
+@asynccontextmanager
+async def _progress(author: Any = None) -> Any:
+    """Progress of this command's model calls on stderr (``progress_view``) while the block runs: the author's streamed
+    calls through its sink, the judge's calls through the context's sink (``stream_call.CURRENT_SINK``, inherited by
+    every task the run starts). Stdout is untouched."""
+    from antigravity3d.progress_view import ProgressView
+    from antigravity3d.tactics.stream_call import CURRENT_SINK
+
+    view = ProgressView()
+    if author is not None and hasattr(author, "progress"):  # AgentAuthor (passes it to the MeteredAuthor it binds) or MeteredAuthor
+        author.progress = view
+    token = CURRENT_SINK.set(view)
+    try:
+        async with view:
+            yield view
+    finally:
+        CURRENT_SINK.reset(token)
 
 
 def _print_gate(ok: bool, why: str = "") -> int:
@@ -200,6 +223,7 @@ def preflight_prop(a: argparse.Namespace, plane: Any, author: Any, strict: bool)
 
 
 async def cmd_prop(a: argparse.Namespace) -> int:
+    from antigravity3d import delivery as D
     from antigravity3d.dags.prop_to_engine import PropToEngineDAG
     from antigravity3d.kernel.cache import BuildCache, LocalBlobStore
     from antigravity3d.tactics.distill import FixLog
@@ -215,6 +239,7 @@ async def cmd_prop(a: argparse.Namespace) -> int:
         # The backend probe and the start-up checks come first: a run that would be refused does not start Blender.
         plane, forge, author, notes = await make_collaborators(a.offline, workdir=out / "agent")
         plane = preflight_prop(a, plane, author, strict)  # refuses here, before any model call, what would fail later
+        await stack.enter_async_context(_progress(author))
         pool = None
         if a.pool_socket:
             from antigravity3d.runtime.worker_daemon import PoolClient
@@ -229,8 +254,8 @@ async def cmd_prop(a: argparse.Namespace) -> int:
             plane=plane, forge=forge, author=author, workdir=out, budget=_budget(a), pool=pool,
             cache=cache, style_anchor=a.style, fixlog=FixLog.for_prop(out), max_rounds=a.max_rounds,
             require_verified=strict, single_candidate=a.single_candidate, art_direction=a.art_direction,
-            new_design=a.new_design, announce=lambda line: print(f"note: {line}", flush=True),
-            min_call_tokens=getattr(a, "min_call_tokens", None),
+            new_design=a.new_design, announce=lambda line: print(f"note: {line}", flush=True), improve_rounds=a.improve_rounds,
+            min_call_tokens=getattr(a, "min_call_tokens", None), strict_review=a.strict_review,
             **({"token_ceiling": a.token_ceiling, "max_images": a.max_images} if a.token_ceiling is not None else {}),
         )
         rep = await dag.run(a.prompt)
@@ -286,8 +311,124 @@ async def cmd_prop(a: argparse.Namespace) -> int:
         print("review: required (the judge is uncalibrated; a person must review this package before any use)")
     else:
         print("publication: " + ("published and verified" if x["published"] else "qualified preview" if x["verified"] else "unverified"))
+    ex = x["exit"]
+    if ex["rule"] == D.RULE_DELIVERY:  # an uncalibrated judge: its review is stated, the exit code is about the delivery
+        for line in D.finding_lines(x["review"], x["delivered"]["why"]):
+            print(line)
+        print(D.delivery_line(ex))
     print(f"preview gates: {'PASS' if x['preview_gates_ok'] else 'FAIL'}" + (f" ({unjudged[:300]})" if unjudged else ""))
-    return 0 if x["preview_gates_ok"] else 1
+    return ex["code"] if ex["rule"] == D.RULE_DELIVERY else 0 if x["preview_gates_ok"] else 1
+
+
+async def cmd_edit(a: argparse.Namespace) -> int:
+    """Change an asset this project shipped (``dags.edit_asset``): OUT is a prop --out folder or a package folder."""
+    from antigravity3d.dags import edit_asset as E
+
+    if a.undo:
+        try:
+            r = E.undo(a.target)
+        except E.EditError as e:
+            raise CliError(str(e)) from e
+        print(f"agy3d edit --undo: restored {r['restored']} (edit {r['undid_edit']} undone; its record is kept at {r['history_kept_at']})")
+        return 0
+    if not a.instruction and not a.patch:
+        raise CliError("say what to change (agy3d edit OUT \"make the handles 30 % larger\") or give --patch OPS.json")
+    patch = None
+    if a.patch:
+        from antigravity3d.ir import IRPatch
+
+        patch = IRPatch.model_validate_json(Path(a.patch).read_text())
+    try:
+        shipped = E.load_shipped(a.target)
+    except E.EditError as e:
+        raise CliError(str(e)) from e
+    instruction = a.instruction or f"apply the patch {Path(a.patch).name}"
+    if patch is None and a.offline:
+        raise CliError("--offline has no author that reads an instruction (the offline author is a template): give --patch "
+                       "OPS.json, or run live with --token-ceiling N")
+    if patch is None and a.token_ceiling is None:
+        raise CliError("a live edit needs your own --token-ceiling N (an edit generates no image; --max-images defaults to 0)")
+    from antigravity3d.tactics.governor import PLANS, Governor, plan_for
+
+    plan = next((p for p in PLANS.values() if p.label == shipped.plan_label), plan_for(2))
+    ledger_dir = shipped.history_base / "ledger"
+    ledger_dir.mkdir(parents=True, exist_ok=True)
+    ledger = {"token_ceiling": a.token_ceiling, "max_images": a.max_images if a.max_images is not None else 0} if a.token_ceiling else {}
+    governor = Governor(plan, journal=ledger_dir / ("spend_tokens.sqlite3" if ledger else "spend.sqlite3"), **ledger)
+    cache = None
+    if shipped.run_folder is not None and not a.no_cache:
+        from antigravity3d.kernel.cache import BuildCache, LocalBlobStore
+
+        cache = BuildCache(LocalBlobStore(shipped.run_folder / ".agy3d-cache"))
+    async with AsyncExitStack() as stack:
+        if a.offline or patch is not None and not os.environ.get("GEMINI_API_KEY"):
+            plane, forge, _, notes = await make_collaborators(True)
+            author = None
+        else:
+            plane, forge, author0, notes = await make_collaborators(False, workdir=(shipped.run_folder or shipped.package.parent) / "agent")
+            if plane is not None and not plane.calibrated:
+                plane = plane.preview_copy()
+            from antigravity3d.tactics.authoring import AgentAuthor
+            from antigravity3d.tactics.cached import DesignRecord
+
+            author = (author0.bind(governor, shipped.budget, {"asset_name": shipped.asset},
+                                   record=DesignRecord(cache) if cache is not None else None)
+                      if isinstance(author0, AgentAuthor) and patch is None else None)
+            if patch is None and author is None:
+                raise CliError(f"no author that reads an instruction is available ({'; '.join(notes)})")
+        await stack.enter_async_context(_progress(author))
+        pool = None
+        if a.pool_socket:
+            from antigravity3d.runtime.worker_daemon import PoolClient
+
+            pool = await stack.enter_async_context(PoolClient(a.pool_socket))
+        elif a.blender:
+            from antigravity3d.adapters.blender_5_3.pool import BlenderPool
+
+            pool = await stack.enter_async_context(BlenderPool(1, blender_bin=a.blender))
+        try:
+            r = await E.edit_asset(a.target, instruction, plane=plane, author=author, forge=forge, governor=governor, patch=patch,
+                                   pool=pool, cache=cache, role=a.role, announce=lambda line: print(f"note: {line}", flush=True),
+                                   strict_review=a.strict_review)
+        except E.EditError as e:
+            raise CliError(str(e)) from e
+    if a.json:
+        print(json.dumps(r.to_dict(), indent=1, default=str))
+    print(f"agy3d edit: {instruction!r} on {shipped.asset} ({shipped.package})")
+    for n in notes:
+        print(f"  {n}")
+    print(f"  materials from: {r.materials_from}")
+    for att in r.attempts:
+        sc = att.scope or {}
+        print(f"  attempt {att.n}: {'KEPT' if att.kept else 'undone'}" + (f" ({att.why})" if att.why else "")
+              + f"; {len(att.ops)} op(s); parts unchanged {sc.get('unchanged', '?')}, changed {len(sc.get('changed') or {})}, "
+              f"added {len(sc.get('added') or [])}, removed {len(sc.get('removed') or [])}"
+              + (f"; judge: done P={att.done_p:.2f}, collateral P={att.collateral_p:.2f}" if att.done_p is not None else "")
+              + f"; {att.seconds:.0f} s")
+        for nid, c in sorted((sc.get("changed") or {}).items())[:12]:
+            print(f"      {nid}: size ratio {c['ratio']}, centre moved {c['centre_moved_m']} m")
+    for w in r.warnings:
+        print(f"  warning: {w}")
+    if r.untextured:
+        print(f"  untextured (an edit generates no image): {', '.join(r.untextured)}")
+    spent = r.spend.get("spent")
+    unit = r.spend.get("unit")
+    print(f"cost: {r.seconds:.0f} s, calls: author {r.calls.get('author', 0)}, judge {r.calls.get('judge', 0)}"
+          + (f", {spent:,.0f} tokens (no price applied)" if unit == "tokens" else f", ${spent:.4f}" if spent is not None else ""))
+    if not r.kept:
+        print(f"edit: NOT MADE, the asset is unchanged: {r.why}")
+        return 1
+    print(f"edit {r.number}: made; package {r.package}; the replaced package is kept in {r.history} (agy3d edit {a.target} --undo)")
+    print(f"note: {r.note}")
+    from antigravity3d import delivery as D
+
+    ex = r.exit or {"rule": D.RULE_GATES, "code": 0 if r.preview_gates_ok else 1}
+    if ex["rule"] == D.RULE_DELIVERY:  # an uncalibrated judge: its review is stated, the exit code is about the delivery
+        for line in D.finding_lines(r.review or {}, (r.delivered or {}).get("why") or ()):
+            print(line)
+        print(D.delivery_line(ex))
+    print(f"preview gates: {'PASS' if r.preview_gates_ok else 'FAIL'}")
+    return ex["code"]
 
 
 def _count(text: str) -> int:
@@ -345,6 +486,7 @@ async def cmd_kit(a: argparse.Namespace) -> int:
     cache = None if a.no_cache else BuildCache(LocalBlobStore(Path(a.out) / ".agy3d-cache"))
     try:
         async with AsyncExitStack() as stack:
+            await stack.enter_async_context(_progress(author))
             pool = None
             if a.pool_socket:
                 from antigravity3d.runtime.worker_daemon import PoolClient
@@ -484,6 +626,49 @@ def cmd_plugin(a: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
+def _print_install(r: Any, as_json: bool, verb: str = "install") -> int:
+    if as_json:
+        print(json.dumps(r.to_dict(), indent=1))
+    else:
+        print(f"agy3d {verb}: {r.message}")
+        if r.project and r.project.get("engine"):
+            print(f"  project: {r.project['engine']} {r.project.get('version') or '(version not stated)'}")
+        changed = [f for f in r.files if f["action"] != "keep"]
+        for f in changed[:40]:
+            print(f"  {f['action']:<8} {f['path']}")
+        if len(changed) > 40:
+            print(f"  ... {len(changed) - 40} more")
+        for c in r.checks:
+            print(f"  check {c.name:<16} {c.status:<8} {c.detail}")
+        for w in r.warnings:
+            print(f"warning: {w}")
+        for n in r.notes:
+            print(f"note: {n}")
+        if r.screenshot:
+            print(f"  screenshot: {r.screenshot}")
+        if r.report_path:
+            print(f"  report: {r.report_path}")
+        if r.checks:
+            print(r.step_line())
+    if r.status in ("refused",):
+        return 2
+    return 0 if r.ok else 1
+
+
+def cmd_install(a: argparse.Namespace) -> int:
+    from antigravity3d.deliver import install_package
+
+    r = install_package(a.package, a.project, a.dest, dry_run=a.dry_run, force=a.force, check=not a.no_check,
+                        fov_deg=a.camera_fov, godot_bin=a.godot)
+    return _print_install(r, a.json)
+
+
+def cmd_uninstall(a: argparse.Namespace) -> int:
+    from antigravity3d.deliver import uninstall
+
+    return _print_install(uninstall(a.project, a.dest, dry_run=a.dry_run, force=a.force), a.json, "uninstall")
+
+
 # --------------------------------------------------------------------------- parser
 
 
@@ -513,6 +698,9 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--max-tris", type=int, default=None, help="triangle budget (default: engine budget default)")
         p.add_argument("--keep-contact-faces", action="store_true",
                        help="ship every authored triangle, also the faces parts press together (for parts that will be moved apart)")
+        p.add_argument("--surfaces", choices=("generated", "flat"), default=None,
+                       help="materials without an image: 'generated' paints wear, dirt, grain and markings from the geometry "
+                            "(the default), 'flat' ships their flat colours")
         if out:
             p.add_argument("--out", required=True, help="output directory")
 
@@ -524,6 +712,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--art-direction", type=_art_direction, default=None, metavar="ID",
                    help="named art direction (see skills/art-direction); composes with --style")
     p.add_argument("--max-rounds", type=int, default=4)
+    p.add_argument("--improve-rounds", type=_count, default=None, metavar="N",
+                   help="improvement rounds after the design passes its checks (default: the spend plan's, 2 for a simple "
+                        "prop, 4 for a standard or hero one; 0 turns them off). A round costs about 40-80 s on the worker "
+                        "tier (its author call and its review) and every two rounds a validation adds about 20-30 s "
+                        "(measured live 2026-11-22)")
     cache_flags(p)
     worker = p.add_mutually_exclusive_group()
     worker.add_argument("--blender", metavar="PATH", help="start a warm worker with this Blender executable")
@@ -535,6 +728,9 @@ def build_parser() -> argparse.ArgumentParser:
                              help="build a review candidate without requiring publication (default for --offline)")
     p.add_argument("--single-candidate", action="store_true",
                    help="use one candidate per tournament for matched baseline measurement")
+    p.add_argument("--strict", dest="strict_review", action="store_true",
+                   help="with an uncalibrated judge (a preview), exit 3 when its review is below target (default: exit 0 and "
+                        "say so: the review is a finding; a calibrated judge's gates decide either way)")
     limits(p)
     p.set_defaults(fn=cmd_prop)
 
@@ -590,6 +786,46 @@ def build_parser() -> argparse.ArgumentParser:
     pv = ps.add_parser("validate")
     pv.add_argument("path", nargs="?", default=None)
     p.set_defaults(fn=cmd_plugin)
+
+    p = sub.add_parser("install", help="install a package into a game project (Godot 4) and check it there")
+    p.add_argument("package", help="package directory (holds manifest.json)")
+    p.add_argument("--project", required=True, help="the game project's root directory")
+    p.add_argument("--dest", default=None, help="directory inside the project (default agy3d/<asset>)")
+    p.add_argument("--dry-run", action="store_true", help="print what would be written; write nothing")
+    p.add_argument("--force", action="store_true", help="replace this tool's own files even where they were edited since")
+    p.add_argument("--no-check", action="store_true", help="do not import and load the installed scene in the engine")
+    p.add_argument("--camera-fov", type=float, default=None, metavar="DEG",
+                   help="vertical field of view the level switch distances are computed for (default 60, the levels' own)")
+    p.add_argument("--godot", default=None, metavar="PATH", help="Godot binary for the check (default $GODOT_BIN, then PATH)")
+    p.add_argument("--json", action="store_true", help="print the machine-readable result")
+    p.set_defaults(fn=cmd_install)
+
+    p = sub.add_parser("edit", help="change an asset this project made: one patch, everything else kept, the old package kept")
+    p.add_argument("target", help="a prop --out folder, or a package folder (holds manifest.json)")
+    p.add_argument("instruction", nargs="?", default="", help='what to change, e.g. "make the two side handles 30 %% larger"')
+    p.add_argument("--patch", default=None, metavar="OPS.json",
+                   help="apply this patch ({\"ops\": [...]}, the scene format's patch) instead of asking a model; no model call")
+    p.add_argument("--undo", action="store_true", help="put back the package the newest edit replaced")
+    p.add_argument("--role", default=None, help="authoring tier for the edit (default: the run's improvement tier, else worker)")
+    p.add_argument("--offline", action="store_true", help="fakes only (needs --patch)")
+    p.add_argument("--no-cache", action="store_true", help="do not read or write the run folder's cache")
+    p.add_argument("--json", action="store_true", help="print the machine-readable result first")
+    p.add_argument("--strict", dest="strict_review", action="store_true",
+                   help="with an uncalibrated judge (a preview), exit 3 when its review is below target (default: exit 0 and "
+                        "say so: the review is a finding; a calibrated judge's gates decide either way)")
+    worker = p.add_mutually_exclusive_group()
+    worker.add_argument("--blender", metavar="PATH", help="start a warm worker with this Blender executable")
+    worker.add_argument("--pool-socket", metavar="PATH", help="connect to a running Blender sidecar")
+    limits(p)
+    p.set_defaults(fn=cmd_edit)
+
+    p = sub.add_parser("uninstall", help="remove exactly what agy3d install wrote")
+    p.add_argument("--project", required=True)
+    p.add_argument("--dest", required=True)
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--force", action="store_true", help="remove this tool's files even where they were edited since")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_uninstall)
     return ap
 
 

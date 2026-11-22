@@ -1,11 +1,15 @@
 ---
 name: pbr-material-forge
 description: >-
-  Creates game-ready PBR materials for an asset: Best-of-6 albedo generation,
-  de-lighting, derivation of ORM and normal maps, and a PBR policy gate before
-  the material is bound in the USD stage. Use when the user asks for
-  materials, textures, lookdev or surfacing on an asset that already has a
-  blockout or final mesh with UVs.
+  Creates the surface of an asset: generates albedo candidates with an image
+  model from words that name the material, removes baked lighting, derives
+  roughness, metallic, occlusion and normal maps, packs ORM, checks the PBR
+  policy and binds the material, then checks the look in a lookdev render. Use
+  when the user asks for materials, textures, PBR, lookdev or surfacing ("make it
+  look like rusted steel"), or reports seams, baked shadows or maps that look
+  wrong. Needs a model with UVs. Not for modelling or reshaping (use
+  parametric-kitbash), for choosing an overall style (use art-direction) or for
+  export (use engine-truth-verify).
 ---
 
 # PBR material forge
@@ -59,3 +63,55 @@ Tools: `forge_pbr_material` (generation, de-light, derivation, packing),
    `apply_shader_diff`. At most 4 rounds.
 8. **Gate.** Hand to `usd_verifier` for Tier-1; it does not run the visual
    check. Lookdev is done when `session_status` shows `tier15` at least 3.4.
+
+## Check before handing over
+
+1. `session_status` shows `tier15` at least 3.4 after `run_visual_qa`.
+2. `inspect_manifest` (LOOKDEV header, `bound:` line) lists a material for every
+   zone that should have one.
+3. The forge's last answer names no material as left untextured or `BLOCKED`.
+
+A pass is all three. A zone left flat on purpose (the image limit was used up)
+is reported to the user by name, not counted as a pass.
+
+## Gotchas
+
+- **Symptom:** every texture shows a picture of the object (panels with latches
+  and handles drawn in), and a latch appears on every face. **Cause:** the
+  prompt carried the asset brief, so the image model drew the object, and the
+  texture tiles over every face (round three: nine images, all unusable).
+  **Remedy:** the `prompt` of `forge_pbr_material` names the surface only, in a
+  few words ("olive drab painted steel, scuffed and chipped").
+- **Symptom:** hinges or rivets appear in a brass texture. **Cause:** the
+  prompt named a kind of object ("tarnished brass hardware"), and the image
+  model drew it. **Remedy:** name the substance, not what is made of it
+  ("tarnished brass").
+- **Symptom:** the judge reports baked lighting and visible seams and scores the
+  look low (1.2 of 4 in round three). **Cause:** the surface was drawn as an
+  object, with lighting in it (above). **Remedy:** a surface prompt; the forge
+  de-lights every albedo, so do not ask for painted light or shadow, and a
+  hand-painted art direction does not keep painted lighting either.
+- **Symptom:** a material comes back untextured. **Cause:** an image request
+  that returns no image (asked once more automatically since round four), or the
+  run's image limit was used up: materials are textured largest surface first and
+  the rest are named as left untextured. **Remedy:** call `forge_pbr_material`
+  again for that material if the user has images left; otherwise report it.
+- **Symptom:** a texture ranking takes minutes. **Cause:** the fallback judge
+  (used on a key without the native Decisions API) took 30 s, 176 s and more
+  than 240 s for the same ranking on one afternoon. **Remedy:** wait; do not
+  call the forge again for the same material while one is running.
+- **Symptom:** the look is scored, yet the package says unverified. **Cause:**
+  on a key whose Decisions API answers 404 only the fallback judge is
+  available. It is uncalibrated: it may steer a preview session, but
+  `verified` stays false. **Remedy:** say so in the hand-off and see the
+  preview notes in `engine-truth-verify`.
+
+## Version notes
+
+Last verified 2026-11-22 against commit 29660b8.
+
+- The Tier-1.5 threshold of 3.4 is `EXPORT_MIN_TIER15_SCORE` in `state.py`.
+- ORM packing is R = AO, G = roughness, B = metallic; the default normal
+  convention is OpenGL, and the exporter converts for Unreal Engine.
+- Best-of-6 is the plan's figure; the server may lower it to what the session's
+  limits allow.

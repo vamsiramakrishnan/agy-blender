@@ -22,14 +22,16 @@ from __future__ import annotations
 import copy
 import functools
 import json
+import os
+import re
 from typing import Annotated, Any, Literal, Union, get_args
 
 import annotated_types
-from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, create_model, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
-from antigravity3d import ir
+from antigravity3d import ir, ir_shortcuts
 
 # JSON-schema keywords the Gemini API documents for ``response_json_schema`` (google-genai GenerateContentConfig
 # docstring) and that were accepted live on gemini-4-hydrogen / neon / carbon / argon (see tests/test_ir_schema.py,
@@ -91,18 +93,247 @@ def _derive(name: str, source: type[BaseModel], subst: dict[Any, Any], doc: str 
 WireTransform = _derive("Transform", ir.Transform, {})
 
 
+# --- colour as a model writes and reads it ------------------------------------------------------------------------
+#
+# The scene format's colours are linear RGB (``ir.MaterialIR``; USD, glTF and the package are linear too), and every
+# stored or programmatic scene keeps that meaning. A model writes what a colour picker or a hex code means, sRGB-like
+# numbers: live on 2026-11-22 each of thirteen materials of this round's designs had the hue and saturation of its words
+# read as sRGB (r5/scratch_colour/EVIDENCE.txt: olive drab (0.18, 0.22, 0.14) is #2e3824 as sRGB, shipped #768169).
+# Read exactly as sRGB they first lost a blind judgement 6 of 6 (the generated wear was tuned for the pale colours: white
+# seams, dark gunmetal on dark olive stopped separating); with the corrected surfaces they win (``COLOUR_RULE``). The
+# boundary is plumbed once and the rule is one switch:
+# * every colour in a model's answer goes through ``ir_linear`` exactly once, where the answer becomes scene data
+#   (``scene_from_wire`` and ``patch_from_wire``, which every design, repair, improvement, correction, edit, kit piece
+#   and native-session edit goes through, ``apply_look`` and ``apply_material_diff``), and through ``written_colour``
+#   when it is shown to a model (``as_written`` / ``written_json``, the look round's table), so the two always agree;
+# * the rule is ``COLOUR_RULE`` (default "srgb"; "as_written" is exactly the behaviour before this change; the other two
+#   are unmeasured candidates, ``linear_colour``).
+# The wire models hold colours as written; nothing converts on validation, so a written answer copied into another one
+# (a correction) is still converted once.
+COLOUR_FIELDS = ("base_color", "emissive_color", "sheen_color", "specular_color")
+HEX_COLOUR = r"^#[0-9A-Fa-f]{6}$"
+SHOWN_DIGITS = 4  # a written colour shown back reads as written (the model writes two or three decimals)
+COLOUR_RULES = ("as_written", "srgb", "srgb_albedo", "gamma")
+# THE SWITCH. "srgb" (the default): exact sRGB -> linear, with the request saying so. Measured live on 2026-11-22 with the
+# corrected generated surfaces (wear relative to the paint, none in seams, metal 0 or 1 per layer): the same designs
+# built with converted colours against the colours as stored before, blind pairwise, both orders: crate 4 of 4 and
+# hydrant 4 of 4 for the converted ones ("richer military olive colouring, better value contrast", "richer red colour
+# and more realistic paint"); before the surface fix the same comparison had gone 0 of 6 the other way.
+# "as_written": the number is the stored (linear) value and the request says what it said on c8565a7, byte for byte
+# (tests/test_colour.py): the behaviour before this change. "srgb_albedo" (sRGB -> linear, then a base colour's
+# luminance kept inside the PBR albedo range by kind: ALBEDO_LUMINANCE, METAL_LUMINANCE_MIN) and "gamma" (linear =
+# written ** COLOUR_GAMMA): candidates, NOT MEASURED.
+# For an experiment without editing the code: AGY3D_COLOUR_RULE=<rule> / AGY3D_STATE_METALLIC=1 in the environment of
+# the process (read once, at import: the schemas and the rules text are built from them).
+COLOUR_RULE = os.environ.get("AGY3D_COLOUR_RULE") or "srgb"
+if COLOUR_RULE not in COLOUR_RULES:
+    raise ValueError(f"AGY3D_COLOUR_RULE={COLOUR_RULE!r}: one of {COLOUR_RULES}")
+# The second switch, separate because it too changes what authors write and is unmeasured: whether the request says
+# that metallic is 1 for bare metal and 0 for everything else (the live designs wrote 0.15-0.25 for painted metal and
+# 0.85-0.9 for bare metal and brass). Off: the request says what it always said.
+STATE_METALLIC = os.environ.get("AGY3D_STATE_METALLIC") == "1"
+COLOUR_GAMMA = 1.5
+# Non-metal albedo luminance, linear: sRGB 50 to 240 of 255 (charcoal to fresh snow), the usual PBR validation range.
+ALBEDO_LUMINANCE = (0.0319, 0.8714)
+# A metal's base colour is its reflectance at normal incidence: real metals are 0.5 or more (iron 0.56, steel 0.56-0.6,
+# brass (0.91, 0.78, 0.42)), so a darker "metal" is a coating, which metallic-roughness writes as metallic 0.
+METAL_LUMINANCE_MIN = 0.5
+
+
+def _unit3(v: tuple[float, float, float]) -> tuple[float, float, float]:
+    if not all(0.0 <= c <= 1.0 for c in v):
+        raise ValueError(f"colour components are 0 to 1 (sRGB, as a colour picker), got {list(v)}")
+    return v
+
+
+WrittenColour = Union[Annotated[tuple[float, float, float], AfterValidator(_unit3)],
+                      Annotated[str, Field(pattern=HEX_COLOUR)]]
+
+
+def told() -> bool:
+    """Whether the request tells the model the colour rule (the sRGB clause with its anchors, colours shown converted,
+    "#rrggbb" offered). Under "as_written" it does not: what it is told, shown and offered is what it always was
+    (tests/test_colour.py pins that byte for byte), so the default rule is inert."""
+    return COLOUR_RULE != "as_written"
+
+
+def srgb_to_linear(c: float) -> float:
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def linear_to_srgb(c: float) -> float:
+    return 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
+
+
+def _numbers(written: Any) -> list[float]:
+    if isinstance(written, str):
+        h = written.lstrip("#")
+        return [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    return [float(c) for c in written]
+
+
+def _luminance(rgb: Any) -> float:
+    return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+
+
+def linear_colour(written: Any, *, field: str = "base_color", metallic: float = 0.0, rule: str | None = None) -> tuple[float, float, float]:
+    """The one conversion: a colour as a model writes it (three numbers 0-1, or "#rrggbb") -> the scene format's linear
+    RGB, by ``rule`` (None: ``COLOUR_RULE``). ``field`` and ``metallic``: "srgb_albedo" keeps a base colour's luminance
+    in the range of its kind (a non-metal between ``ALBEDO_LUMINANCE``, a metal, metallic 0.5 or more, at least
+    ``METAL_LUMINANCE_MIN``), scaling the colour so its hue and saturation stay; other colours only convert."""
+    rule = rule or COLOUR_RULE
+    rgb = _numbers(written)  # a hex is its own values over 255 under every rule (under "as_written": what was written)
+    if rule == "as_written":
+        return tuple(rgb)  # type: ignore[return-value]
+    if rule == "gamma":
+        return tuple(c ** COLOUR_GAMMA for c in rgb)  # type: ignore[return-value]
+    lin = [srgb_to_linear(c) for c in rgb]
+    if rule == "srgb_albedo" and field == "base_color":
+        y = _luminance(lin)
+        lo, hi = (METAL_LUMINANCE_MIN, 1.0) if metallic >= 0.5 else ALBEDO_LUMINANCE
+        if y < lo:
+            lin = [min(1.0, c * lo / y) if y > 0 else lo for c in lin]
+        elif y > hi:
+            lin = [c * hi / y for c in lin]
+    elif rule not in COLOUR_RULES:
+        raise ValueError(f"unknown colour rule {rule!r}; one of {COLOUR_RULES}")
+    return tuple(lin)  # type: ignore[return-value]
+
+
+def written_colour(linear: Any, *, rule: str | None = None) -> list[float]:
+    """A stored (linear) colour as a model reads and writes it under ``rule`` (None: ``COLOUR_RULE``), ``SHOWN_DIGITS``
+    decimals: the inverse of ``linear_colour`` (for "srgb_albedo", of its conversion; a lifted colour shows as lifted)."""
+    rule = rule or COLOUR_RULE
+    if rule == "as_written":
+        out = [float(c) for c in linear]
+    elif rule == "gamma":
+        out = [float(c) ** (1 / COLOUR_GAMMA) for c in linear]
+    else:
+        out = [linear_to_srgb(float(c)) for c in linear]
+    return [round(c, SHOWN_DIGITS) + 0.0 for c in out]
+
+
+def ir_linear(fields: dict[str, Any], *, metallic: float | None = None) -> dict[str, Any]:
+    """Material fields as an answer wrote them -> as the scene format holds them (every colour field converted once).
+    ``metallic``: the material's when the fields do not write it (a partial change of a stored material)."""
+    m = float(fields.get("metallic", metallic if metallic is not None else 0.0) or 0.0)
+    return {k: (linear_colour(v, field=k, metallic=m) if k in COLOUR_FIELDS and v is not None else v) for k, v in fields.items()}
+
+
+def as_written(scene: ir.SceneIR) -> dict[str, Any]:
+    """``scene`` as a model reads it (and would write it): the dump a request shows (``exclude_defaults``), every
+    material colour in the written form of the rule. ``parse_scene(json.dumps(as_written(s)))`` is ``s`` again
+    (tests/test_colour.py). Under "as_written" the dump itself, as requests always showed it."""
+    doc = scene.model_dump(mode="json", exclude_defaults=True)
+    if not told():
+        return doc
+    if "materials" in doc:  # left out, as a default, when there are none: the dump is the one requests always showed
+        doc["materials"] = [{k: (written_colour(v) if k in COLOUR_FIELDS else v) for k, v in m.items()} for m in doc["materials"]]
+    return doc
+
+
+def written_json(scene: ir.SceneIR) -> str:
+    """``as_written`` as the compact JSON a request carries (the "Scene: ..." of a repair or improvement request); under
+    "as_written" exactly the text it always was (pydantic's own JSON)."""
+    if not told():
+        return scene.model_dump_json(exclude_defaults=True)
+    return json.dumps(as_written(scene), separators=(",", ":"))
+
+
+def _material_model() -> type[_Wire]:
+    """``MaterialIR`` as a model writes it: every colour field ``WrittenColour`` (three sRGB numbers or "#rrggbb", not
+    converted here); the cross-field rules are checked on the converted material (``ir.MaterialIR``), where the answer
+    becomes scene data. No field descriptions: what the colours mean is said once, in IR_SEMANTICS, which every request
+    and every stage that edits materials carries (a description would be repeated in each tool declaration)."""
+    fields: dict[str, Any] = {}
+    for name, info in ir.MaterialIR.model_fields.items():
+        f = copy.copy(info)
+        if name in COLOUR_FIELDS and told():  # under "as_written" the colour fields are typed as they always were
+            f.metadata = []
+            fields[name] = (WrittenColour, f)
+        else:
+            fields[name] = (info.annotation, f)
+    return create_model("MaterialIR", __base__=_Wire, __doc__=ir.MaterialIR.__doc__, **fields)
+
+
+# What a model is told about colour and metalness, once: clauses of IR_SEMANTICS, which the authoring rules text and every
+# stage agent that edits geometry or materials carry. Metallic: the same live designs wrote 0.15-0.25 for painted metal
+# and 0.85-0.9 for bare metal and brass; in metallic-roughness PBR a surface is metal or not.
+COLOUR_CLAUSE = ('colours are sRGB, as a colour picker or hex code means them: three numbers 0-1 or "#rrggbb" (military '
+                 'olive drab is about #3d4a2b, black rubber about #1c1c1c)')
+METAL_CLAUSE = "metallic is 1 for bare metal and 0 for everything else, paint on metal included"
+WireMaterial = _material_model()
+
+
+def colour_note() -> str:
+    """What an agent that writes colours through the MCP server's tools is told, as a sentence to append (the server's
+    instructions and the descriptions of the tools that take a colour): the clause of IR_SEMANTICS, and that the tools do
+    the conversion. "" under "as_written": nothing is added to what such an agent was told before the colour rule.
+
+    The stage agents carry IR_SEMANTICS; a session in a stock host reads only the server's instructions, its tool
+    descriptions and the skills, and none of them said what a colour means. Live 2026-11-22 (r5/live_rerun_N): the
+    agent wrote olive drab as (0.22, 0.27, 0.16), then on its second pass "corrected" its three materials to linear
+    values, (0.065, 0.09, 0.038) for the olive; read as sRGB the crate shipped nearly black and lost 0 of 6 blind
+    verdicts to each stock crate. Every first answer of the nine live sessions on record (27 materials) was sRGB-like."""
+    if not told():
+        return ""
+    return f" {COLOUR_CLAUSE[0].upper()}{COLOUR_CLAUSE[1:]}; the tools convert them, so never convert a colour to linear yourself."
+
+
+def _material_ir(m: BaseModel) -> dict[str, Any]:
+    """A wire material as the scene format holds it: the fields it wrote (so an unwritten colour keeps the format's
+    own default, which is linear), colours converted."""
+    return ir_linear(m.model_dump(exclude_unset=True))
+
+
+Axis = Literal["x", "y", "z"]
+RepeatCount = Annotated[int, Field(ge=2, le=ir_shortcuts.MAX_REPEAT)]
+
+
+class RepeatRow(_Wire):
+    count: RepeatCount
+    offset: ir.Vec3
+
+
+class RepeatRing(_Wire):
+    count: RepeatCount
+    around: Axis
+
+
+# The mirror / repeat shortcuts (``ir_shortcuts``): wire-only node fields, expanded into plain nodes by
+# ``scene_from_wire`` / ``patch_from_wire``. Their default is None but their type is not nullable, so the schema the
+# model is constrained by has no ``null`` branch for them: a node without a shortcut simply leaves the field out.
+# ``repeat`` is a row or a ring, each forbidding the other's key (see ir_shortcuts for the live failure behind it).
+SHORTCUT_FIELDS: dict[str, Any] = {
+    "mirror": (Axis, None),
+    "repeat": (Union[RepeatRow, RepeatRing], None),
+}
+assert tuple(SHORTCUT_FIELDS) == ir_shortcuts.SHORTCUT_FIELDS
+
+
+class _WireNode(_Wire):
+    @model_validator(mode="after")
+    def _shortcuts(self) -> "_WireNode":
+        ir_shortcuts.check({"id": self.id, "kind": self.kind, "mirror": self.mirror,
+                            "repeat": None if self.repeat is None else self.repeat.model_dump()})
+        return self
+
+
 def _node_model(kind: str) -> type[_Wire]:
     params = ir.NODE_PARAMS[kind]
     needs = any(f.is_required() for f in params.model_fields.values())
-    return _derive(f"{_camel(kind)}Node", ir.NodeIR, {ir.Transform: WireTransform}, doc=f"A {kind} node.", override={
-        "kind": (Literal[kind], ...),
-        "params": (params, ... if needs else Field(default_factory=params)),
-    })
+    fields: dict[str, Any] = {}
+    for fname, info in ir.NodeIR.model_fields.items():
+        fields[fname] = _field(ir.NodeIR, fname, info, {ir.Transform: WireTransform}.get(info.annotation, info.annotation))
+    fields["kind"] = (Literal[kind], ...)
+    fields["params"] = (params, ... if needs else Field(default_factory=params))
+    fields.update(SHORTCUT_FIELDS)
+    return create_model(f"{_camel(kind)}Node", __base__=_WireNode, __doc__=f"A {kind} node.", **fields)
 
 
 NODE_MODELS: dict[str, type[_Wire]] = {k: _node_model(k) for k in NODE_KINDS}
 WireNode = Annotated[Union[tuple(NODE_MODELS.values())], Field(discriminator="kind")]  # type: ignore[valid-type]
-_SUBST: dict[Any, Any] = {ir.NodeIR: WireNode, ir.Transform: WireTransform}
+_SUBST: dict[Any, Any] = {ir.NodeIR: WireNode, ir.Transform: WireTransform, ir.MaterialIR: WireMaterial}
 
 
 def _set_param_models() -> list[type[_Wire]]:
@@ -134,20 +365,122 @@ def _op_models() -> list[type[_Wire]]:
 OP_MODELS: list[type[_Wire]] = _op_models()
 WireOp = Union[tuple(OP_MODELS)]  # type: ignore[valid-type]
 WireScene = _derive("WireScene", ir.SceneIR, {}, override={
-    "nodes": _field(ir.SceneIR, "nodes", ir.SceneIR.model_fields["nodes"], list[WireNode])})
+    "nodes": _field(ir.SceneIR, "nodes", ir.SceneIR.model_fields["nodes"], list[WireNode]),
+    "materials": _field(ir.SceneIR, "materials", ir.SceneIR.model_fields["materials"], list[WireMaterial])})
 WirePatch = _derive("WirePatch", ir.SceneIRDiff, {}, override={
     "ops": _field(ir.SceneIRDiff, "ops", ir.SceneIRDiff.model_fields["ops"], list[WireOp])})
+
+
+# A correction of a design that failed to read (tactics.metered_author: one per candidate): only what must change, as
+# whole wire nodes and materials (an existing id replaces that entry, a new id adds one) and ids to remove, applied to
+# the failed answer before it is read again. Not a whole new design: a large answer (a director's crate was 29,521 output
+# tokens live) would be paid twice, could truncate, and could break parts that were right.
+WireCorrection = create_model(
+    "WireCorrection", __base__=_Wire, __doc__="Replacement nodes / materials and ids to remove.",
+    nodes=(list[WireNode], ...), materials=(list[WireMaterial], ...), remove=(list[ir.NodeId], ...))
+
+
+def correction_response_schema() -> dict[str, Any]:
+    return _api(WireCorrection.model_json_schema())
+
+
+def apply_correction(failed: dict[str, Any], text: str) -> ir.SceneIR:
+    """``failed`` (the answer as written, a JSON object) with the correction ``text`` applied, read as a scene.
+    Raises ValueError (a ValidationError included) naming what is still wrong."""
+    fix = WireCorrection.model_validate_json(text)
+    out = dict(failed)
+    gone = set(fix.remove)
+    # both as written (colours not converted): the merged answer is read, and converted once, by parse_scene
+    for key, new in (("nodes", [_node_wire(n) for n in fix.nodes]), ("materials", [m.model_dump(exclude_unset=True) for m in fix.materials])):
+        entries = [e for e in (failed.get(key) or []) if not (isinstance(e, dict) and e.get("id") in gone)]
+        at = {e.get("id"): i for i, e in enumerate(entries) if isinstance(e, dict)}
+        for e in new:
+            if e["id"] in at:
+                entries[at[e["id"]]] = e
+            else:
+                at[e["id"]] = len(entries)
+                entries.append(e)
+        out[key] = entries
+    return parse_scene(json.dumps(out))
+
+
+def _node_wire(node: BaseModel) -> dict[str, Any]:
+    """A wire node as the author wrote it (params unfilled, shortcuts kept), for writing back into an answer."""
+    d = node.model_dump(exclude_none=True)
+    d["params"] = _params_as_written(node)
+    if node.repeat is not None:
+        d["repeat"] = node.repeat.model_dump()
+    return d
+
+
+def _is_written_colour(v: Any) -> bool:
+    if isinstance(v, str):
+        return re.fullmatch(HEX_COLOUR[1:-1], v) is not None
+    return isinstance(v, (list, tuple)) and len(v) == 3 and all(isinstance(c, (int, float)) and not isinstance(c, bool) and 0 <= c <= 1 for c in v)
+
+
+def located_nodes(failed: dict[str, Any], exc: BaseException) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(nodes, materials) of ``failed`` that ``exc`` points at: a validation error's ``nodes.<i>`` / ``materials.<i>``
+    locations, else every node or material whose id the message names (an expansion or reference error names ids)."""
+    from pydantic import ValidationError
+
+    nodes = [n for n in failed.get("nodes") or [] if isinstance(n, dict)]
+    mats = [m for m in failed.get("materials") or [] if isinstance(m, dict)]
+    ni, mi = set(), set()
+    if isinstance(exc, ValidationError):
+        for e in exc.errors():
+            loc = e.get("loc") or ()
+            if len(loc) >= 2 and loc[0] == "nodes" and isinstance(loc[1], int):
+                ni.add(loc[1])
+            elif len(loc) >= 2 and loc[0] == "materials" and isinstance(loc[1], int):
+                mi.add(loc[1])
+    if not ni and not mi:
+        words = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", str(exc)))
+        stems = {w.split("__", 1)[0] for w in words}  # a copy's id names the node it was made from
+        ni = {i for i, n in enumerate(nodes) if n.get("id") in words or n.get("id") in stems}
+        mi = {i for i, m in enumerate(mats) if m.get("id") in words}
+    return [nodes[i] for i in sorted(ni) if i < len(nodes)], [mats[i] for i in sorted(mi) if i < len(mats)]
 
 
 # --- conversion back into the public IR types ---------------------------------------------------------------
 
 
+def _params_as_written(node: BaseModel) -> dict[str, Any]:
+    """A node's params exactly as the answer wrote them. ``NodeIR.params`` is free-form, so a typed default filled in
+    here would be written into the scene: a box that never mentions ``bevel`` would come back with ``bevel: 0`` and
+    five other new keys, and a round trip would not be exact. The kernel applies the same defaults (see
+    tests/test_ir_schema.py ``test_kernel_defaults_match_typed_param_defaults``)."""
+    return node.params.model_dump(exclude_unset=True)
+
+
+def _node_dump(node: BaseModel) -> dict[str, Any]:
+    return {**node.model_dump(exclude_none=True), "params": _params_as_written(node)}
+
+
 def scene_from_wire(wire: BaseModel) -> ir.SceneIR:
-    return ir.SceneIR.model_validate(wire.model_dump(exclude_none=True))
+    """The wire scene as ``ir.SceneIR``, mirror / repeat shortcuts expanded into plain nodes (``ir_shortcuts``)."""
+    plain, copies = ir_shortcuts.expand([_node_dump(n) for n in wire.nodes])
+    doc = {**wire.model_dump(exclude_none=True, exclude={"nodes", "materials"}), "nodes": plain + [c for _, c in copies],
+           "materials": [_material_ir(m) for m in wire.materials]}
+    return ir.SceneIR.model_validate(doc)
 
 
 def patch_from_wire(wire: BaseModel) -> ir.IRPatch:
-    return ir.IRPatch.model_validate(wire.model_dump(exclude_none=True))
+    """The wire patch as ``ir.IRPatch``. Shortcuts on ``upsert_node`` ops expand over the nodes upserted in the same
+    patch (a node already in the scene is not seen here, so its children are copied only when the patch upserts
+    them too); each copy is upserted right after the op that upserted its source node."""
+    ops = [{**op.model_dump(exclude_none=True), **({"node": _node_dump(op.node)} if op.op == "upsert_node" else {}),
+            **({"material": _material_ir(op.material)} if op.op == "upsert_material" else {})} for op in wire.ops]
+    ups = [i for i, op in enumerate(ops) if op["op"] == "upsert_node"]
+    plain, copies = ir_shortcuts.expand([ops[i]["node"] for i in ups])
+    after: dict[int, list[dict[str, Any]]] = {}
+    for i, node in zip(ups, plain, strict=True):
+        ops[i]["node"] = node
+    last = {ops[i]["node"]["id"]: i for i in ups}
+    for source, copy_ in copies:
+        after.setdefault(last[source], []).append({"op": "upsert_node", "node": copy_})
+    out = [x for i, op in enumerate(ops) for x in (op, *after.get(i, ()))]
+    return ir.IRPatch.model_validate({"ops": out})
 
 
 def parse_scene(text: str) -> ir.SceneIR:
@@ -157,6 +490,91 @@ def parse_scene(text: str) -> ir.SceneIR:
 
 def parse_patch(text: str) -> ir.IRPatch:
     return patch_from_wire(WirePatch.model_validate_json(text))
+
+
+# A look round's answer (tactics.look_round): material operations only, and possibly none. upsert_material changes the
+# material fields it writes (the others stay); assign_material moves a part to another material. Nothing
+# that moves or reshapes geometry can be written: the geometry was judged and kept before the look round.
+def _look_material() -> type[_Wire]:
+    """``MaterialIR`` with every field but ``id`` optional and no cross-field rule: a look answer writes only the fields it
+    changes, and the rules are checked on the material it makes with them (``apply_look``)."""
+    fields: dict[str, Any] = {}
+    for name, info in WireMaterial.model_fields.items():  # colours as written (converted in apply_look)
+        if name == "id":
+            fields[name] = (info.annotation, info)
+            continue
+        f = copy.copy(info)
+        f.default, f.default_factory = None, None
+        f.exclude_if = None
+        fields[name] = (info.annotation, f)
+    return create_model("LookMaterial", __base__=_Wire, __doc__="The fields of one material to change.", **fields)
+
+
+LookMaterial = _look_material()
+LookUpsertMaterial = create_model("LookUpsertMaterial", __base__=_Wire, op=(Literal["upsert_material"], ...),
+                                  material=(LookMaterial, ...))
+WireLook = create_model(
+    "WireLook", __base__=_Wire, __doc__="Material changes of a look round; an empty list is no change.",
+    ops=(list[Union[LookUpsertMaterial, next(m for m in OP_MODELS if m.__name__ == "WireAssignMaterial")]], ...))  # type: ignore[misc]
+
+
+def look_response_schema() -> dict[str, Any]:
+    return _api(WireLook.model_json_schema())
+
+
+# What a look answer may not change: what the export bundle depends on (whether a material is opaque decides hidden
+# contact faces and the atlas, fast_ops.run_export_pipeline), and the image maps, which only an image call makes.
+LOOK_FIXED_FIELDS = ("alpha_mode", "alpha_cutoff", "opacity", "transmission", "double_sided", "albedo_uri", "orm_uri",
+                     "normal_uri", "emissive_uri", "normal_convention")
+
+
+def apply_look(scene: ir.SceneIR, text: str) -> ir.IRPatch | None:
+    """A look answer read against ``scene``: an ``upsert_material`` changes only the fields it writes (the rest stay
+    as the material has them), an ``assign_material`` must name a part and a material that exist. None: no change.
+    Raises ValueError naming what is wrong (a field it may not change, a colour under an image map, a contradiction
+    between material fields), which the correction is given."""
+    wire = WireLook.model_validate_json(text)
+    mats = {m.id: m for m in scene.materials}
+    nodes = {n.id for n in scene.nodes}
+    ops: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for i, op in enumerate(wire.ops):
+        if op.op == "upsert_material":
+            written = op.material.model_dump(exclude_unset=True)
+            if op.material.id in mats:  # the answer becomes scene data: converted once, by the material's own metalness
+                written = ir_linear(written, metallic=mats[op.material.id].metallic)
+            written.pop("id", None)
+            cur = mats.get(op.material.id)
+            if cur is None:
+                errors.append(f"ops[{i}]: material {op.material.id!r} does not exist; change one of {sorted(mats)} or move a "
+                              "part to one of them with assign_material")
+                continue
+            fixed = [k for k in LOOK_FIXED_FIELDS if k in written and written[k] != getattr(cur, k)]
+            if fixed:
+                errors.append(f"ops[{i}]: {cur.id}: {', '.join(fixed)} cannot change in a look round (only colour, "
+                              "roughness, metalness, emission, coat, sheen, specular and surface words)")
+                continue
+            if cur.albedo_uri and "base_color" in written and tuple(written["base_color"]) != tuple(cur.base_color):
+                errors.append(f"ops[{i}]: {cur.id}: its colour comes from an image map; base_color cannot change without a new "
+                              "image (change roughness or metallic, or leave it)")
+                continue
+            try:
+                new = ir.MaterialIR.model_validate({**cur.model_dump(), **written, "id": cur.id})
+            except ValueError as e:
+                errors.append(f"ops[{i}]: {' '.join(str(e).split())[:300]}")
+                continue
+            mats[new.id] = new
+            ops.append({"op": "upsert_material", "material": new.model_dump()})
+        else:
+            if op.node_id not in nodes:
+                errors.append(f"ops[{i}]: assign_material: no part {op.node_id!r}")
+            elif op.material_id not in mats:
+                errors.append(f"ops[{i}]: assign_material: no material {op.material_id!r}; one of {sorted(mats)}")
+            else:
+                ops.append(op.model_dump(exclude_none=True))
+    if errors:
+        raise ValueError("; ".join(errors))
+    return ir.IRPatch.model_validate({"ops": ops}) if ops else None
 
 
 # --- API schema ----------------------------------------------------------------------------------------------
@@ -170,7 +588,83 @@ _API_UNSENT = frozenset({"title", "description"})
 
 def _api(node: Any) -> Any:
     """Reduce a pydantic JSON schema to ``API_SCHEMA_KEYWORDS`` (recursively), then write it compactly."""
-    return _share(_reduce(node))
+    return _share(_merge_alternatives(_inline_once(_reduce(node))))
+
+
+def _merge_alternatives(node: Any) -> Any:
+    """Shorter spellings of an ``anyOf`` that accept the same documents: identical branches once, and branches that
+    differ only in one string enum property merged into one branch with the union of the enums. The case it is for is
+    ``set_param``: one variant per parameter name, so that ``value`` is typed per name, but with the API's bounds
+    (``exclusiveMinimum`` written as ``minimum``) radius, bevel, inset_margin, inset_depth, depth and height take the
+    same value schema, and {name: a, value: T} | {name: b, value: T} is {name: a|b, value: T}. The wire parse still
+    checks each name's own bounds."""
+    if isinstance(node, list):
+        return [_merge_alternatives(x) for x in node]
+    if not isinstance(node, dict):
+        return node
+    node = {k: _merge_alternatives(v) for k, v in node.items()}
+    alts = node.get("anyOf")
+    if not isinstance(alts, list):
+        return node
+    out: list[Any] = []
+    for alt in alts:
+        if alt in out:
+            continue
+        for i, prev in enumerate(out):
+            merged = _enum_union(prev, alt)
+            if merged is not None:
+                out[i] = merged
+                break
+        else:
+            out.append(alt)
+    if len(out) == 1:
+        rest = {k: v for k, v in node.items() if k != "anyOf"}
+        return {**rest, **out[0]} if not set(rest) & set(out[0]) else {**node, "anyOf": out}
+    return {**node, "anyOf": out}
+
+
+def _enum_union(a: Any, b: Any) -> dict[str, Any] | None:
+    """``a`` and ``b`` as one object schema when they differ only in one string-enum property, else None."""
+    if not (isinstance(a, dict) and isinstance(b, dict)) or set(a) != set(b) or "properties" not in a:
+        return None
+    if {k: v for k, v in a.items() if k != "properties"} != {k: v for k, v in b.items() if k != "properties"}:
+        return None
+    pa, pb = a["properties"], b["properties"]
+    if list(pa) != list(pb):
+        return None
+    diff = [k for k in pa if pa[k] != pb[k]]
+    if len(diff) != 1:
+        return None
+    x, y = pa[diff[0]], pb[diff[0]]
+    if not all(set(v) == {"type", "enum"} and v["type"] == "string" for v in (x, y)):
+        return None
+    return {**a, "properties": {**pa, diff[0]: {**x, "enum": list(dict.fromkeys([*x["enum"], *y["enum"]]))}}}
+
+
+def _inline_once(schema: dict[str, Any]) -> dict[str, Any]:
+    """Write a definition referenced exactly once where it is used. pydantic gives every model a definition (each node
+    kind and its params), and a reference plus its definition's key costs about 40 bytes more than the schema in place;
+    the document a schema accepts is the same either way."""
+    defs = schema.get("$defs")
+    if not defs:
+        return schema
+    while True:
+        uses: dict[str, list[tuple[Any, Any]]] = {}
+        for root in (schema, *defs.values()):
+            for container, key in _walk_slots(root):
+                ref = container[key].get("$ref", "")
+                if ref.startswith("#/$defs/"):
+                    uses.setdefault(ref.rsplit("/", 1)[-1], []).append((container, key))
+        once = [name for name, slots in uses.items() if len(slots) == 1]
+        if not once:
+            break
+        for name in once:
+            container, key = uses[name][0]
+            container[key] = defs.pop(name)
+        if not defs:
+            del schema["$defs"]
+            break
+    return schema
 
 
 def _whole(value: Any) -> Any:
@@ -226,13 +720,20 @@ def _walk_slots(node: dict[str, Any]):
 
 def _shared_name(shape: dict[str, Any], taken: set[str]) -> str:
     items = shape.get("items")
-    if shape.get("type") == "array" and shape.get("minItems") == shape.get("maxItems") and isinstance(items, dict):
+    fixed = shape.get("minItems") is not None and shape.get("minItems") == shape.get("maxItems")
+    if shape.get("type") == "array" and fixed and isinstance(items, dict):  # a list of any length is not a vector
         name = f"Vec{shape['minItems']}" + ("NonNeg" if items.get("minimum") == 0 else "")
     elif "anyOf" in shape and {"type": "null"} in shape["anyOf"] and len(shape["anyOf"]) == 2:
         other = next(a for a in shape["anyOf"] if a != {"type": "null"})
         name = "Nullable" + str(other.get("type", "Value")).capitalize()
     elif shape.get("type") == "number" and (shape.get("minimum"), shape.get("maximum")) == (0, 1):
         name = "UnitNumber"
+    elif shape.get("type") == "number" and set(shape) == {"type", "minimum"} and shape["minimum"] == 0:
+        name = "NonNeg"
+    elif shape.get("type") == "string" and shape.get("enum") == list(ir_shortcuts.AXES):
+        name = "Axis"
+    elif shape.get("type") == "integer":
+        name = "Count"
     else:
         name = "Shared"
     base, n = name, 1
@@ -262,19 +763,20 @@ def _share(schema: dict[str, Any]) -> dict[str, Any]:
                 sub = container[key]
                 if "$ref" not in sub:
                     seen.setdefault(_dumps(sub), []).append((container, key))
-        best, gain = None, 0
+        best, gain, name = None, 0, ""
         for text, slots in seen.items():
             if len(slots) < 2:
                 continue
-            ref = len('{"$ref":"#/$defs/Vec3NonNeg"}')  # an upper bound on the reference's length
-            g = len(slots) * (len(text) - ref) - len(text) - 20
+            candidate = _shared_name(slots[0][0][slots[0][1]], set(defs))
+            # exact bytes: each slot becomes a reference; the definition is written once, with its key and a comma
+            ref = len(_dumps({"$ref": f"#/$defs/{candidate}"}))
+            g = len(slots) * (len(text) - ref) - (len(text) + len(candidate) + 4)
             if g > gain:
-                best, gain = text, g
+                best, gain, name = text, g, candidate
         if best is None:
             return schema
         slots = seen[best]
         shape = slots[0][0][slots[0][1]]
-        name = _shared_name(shape, set(defs))
         for container, key in slots:
             container[key] = {"$ref": f"#/$defs/{name}"}
         defs[name] = shape
@@ -352,7 +854,7 @@ def _ref_label(name: str) -> str:
         return "node"
     if name in {m.__name__ for m in OP_MODELS}:
         return "op"
-    return {"Transform": "transform", "MaterialIR": "material"}.get(name, name)
+    return {"Transform": "transform", "MaterialIR": "material", "RepeatRow": "row", "RepeatRing": "ring"}.get(name, name)
 
 
 def field_types(schema: dict[str, Any], obj: dict[str, Any]) -> dict[str, str]:
@@ -377,11 +879,32 @@ IR_SEMANTICS = (
     "part only, the caps come on top). box params.size is the full extent along x, y, z. A group is a transform-only "
     "parent; mesh_ref params.path is a local asset path. id fields match [A-Za-z_][A-Za-z0-9_]* (at most 64 chars) "
     "and parent / material_id / node_id / target_id must name an existing node / material. Materials are glTF 2.0 PBR: "
-    "colours are linear RGB 0-1; opacity is the base colour's alpha; transmission is thin-surface (no thickness or "
+    f"{COLOUR_CLAUSE if told() else 'colours are linear RGB 0-1'}; {METAL_CLAUSE + '; ' if STATE_METALLIC else ''}"
+    "opacity is the base colour's alpha; transmission is thin-surface (no thickness or "
     "volume); alpha_mode MASK needs alpha_cutoff and an albedo_uri whose alpha channel is the shape, "
     "BLEND needs opacity < 1 or an albedo_uri with alpha (with an albedo_uri leave opacity at 1); emissive_uri, "
     "emissive_strength need a non-black emissive_color; transmission (thin glass) needs metallic < 1; clearcoat_roughness "
     "needs clearcoat > 0; sheen_roughness needs sheen_color; double_sided for thin shells (leaves, cloth, decals)."
+)
+# What the shape parameters and the node shortcuts mean, for every geometry-editing request (the one-shot author through
+# ``ir_rules_text``, the BLOCKOUT / TWEAK / VARIANTS stage agents through harness.agents); LOOKDEV, which edits
+# materials only, does not carry it. The response schema has no descriptions (``_API_UNSENT``) and the tool schema
+# drops the params' (``_lean_params``), so this is the one place a model reads them. The limits are the kernel's
+# (kernel/compile_ir.py refuses a design outside them with a message): stating them here saves a failed candidate.
+SHAPE_SEMANTICS = (
+    "box bevel: radius (m) of the rounding on all 12 edges, below half the smallest size; bevel_segments 1 = a flat "
+    "chamfer, 2-4 = a rounded edge (cylinder bevel / bevel_segments: both cap rims). box inset_faces (\"+x\" ... \"-z\"): "
+    "each gets a recessed panel, a frame inset_margin wide (> 0) left at the face and the panel inset_depth below it; "
+    "on two neighbouring faces keep inset_depth <= bevel + inset_margin. lathe profile [[radius, z], ...]: the outline "
+    "from top to bottom, turned about local Z; an end at radius 0 closes on the axis, an end off it is capped flat, no "
+    "other point touches the axis; closed true: the points are a loop that never touches the axis (tube, ring, tyre). "
+    "extrude outline [[x, y], ...]: corners of a simple polygon in local XY, counter-clockwise, pushed depth along "
+    "local Z, centred. Shortcuts on any node, expanded into plain nodes when read: mirror \"x\"|\"y\"|\"z\" adds the "
+    "node and its children reflected through that axis's plane at the parent's origin (the part must lie on one side "
+    "of it); repeat {count: n, offset: [dx, "
+    "dy, dz]} is a row (copy k moved k offsets), {count: n, around: \"x\"|\"y\"|\"z\"} a ring of n about that axis "
+    "through the parent's origin, n 2-32 with the original; repeat comes before mirror; a mesh_ref cannot be mirrored. "
+    "Copies are named id__r1, id__mx, id__r1__mx, a copied child parent_copy__child."
 )
 # Sent with the authoring request only (``ir_rules_text``), not in IR_SEMANTICS, which every stage agent carries.
 # The pair in it is from a live run (2026-11-21): the author wrote "tarnished military brass hardware" and the image
@@ -402,7 +925,7 @@ def ir_rules_text() -> str:
     """Prose description of the IR for model prompts, generated from the wire schema (fields AND types)."""
     scene, patch = raw_schema("scene"), raw_schema("patch")
     defs = scene["$defs"]
-    lines = [IR_SEMANTICS, "Types below: ? marks an optional field, =x its default, [a,b,c] a fixed-length array.",
+    lines = [IR_SEMANTICS, SHAPE_SEMANTICS, "Types below: ? marks an optional field, =x its default, [a,b,c] a fixed-length array.",
              "scene: " + _obj_line(scene, scene)]
     node_any = scene["properties"]["nodes"]["items"]
     alts = [_resolve(scene, alt)[1] for alt in node_any.get("oneOf", node_any.get("anyOf", []))]
@@ -410,6 +933,7 @@ def ir_rules_text() -> str:
     common.pop("kind"), common.pop("params")
     lines.append("node: {kind, params, " + ", ".join(f"{k}: {v}" for k, v in common.items()) + "}")
     lines.append("transform: " + _obj_line(scene, defs["Transform"]))
+    lines.append("repeat: " + " or ".join(_obj_line(scene, defs[m.__name__]) for m in (RepeatRow, RepeatRing)))
     kinds = []
     for alt in alts:
         kind = alt["properties"]["kind"]["const"]
@@ -535,6 +1059,12 @@ def _merge(root: dict[str, Any], alts: list[dict[str, Any]], tag: str, doc: str)
             "required": required}
 
 
+def _lean_params(prop: dict[str, Any]) -> dict[str, Any]:
+    """A shape parameter without its description: what it means is in SHAPE_SEMANTICS, which every stage that edits
+    geometry carries in its system prompt (harness.agents), so the declaration would say it a second time per call."""
+    return {k: v for k, v in prop.items() if k != "description"}
+
+
 def _node_schema(root: dict[str, Any]) -> dict[str, Any]:
     alts = root["$defs"]["WireUpsertNode"]["properties"]["node"]["anyOf"]
     node = _merge(root, alts, "kind", "required fields per kind")
@@ -543,9 +1073,9 @@ def _node_schema(root: dict[str, Any]) -> dict[str, Any]:
     per_kind = []
     for kind, p in zip([_resolve(root, a)[1]["properties"]["kind"]["const"] for a in alts], params, strict=True):
         for name, prop in p.get("properties", {}).items():
-            merged.setdefault(name, _lean(root, prop))
+            merged.setdefault(name, _lean_params(_lean(root, prop)))
         req = set(p.get("required", ()))
-        fields = [f if f in req else f"{f}?={json.dumps(v['default'])}" if "default" in v else f"{f}?"
+        fields = [f if f in req else f"{f}?={json.dumps(_whole(v['default']))}" if "default" in v else f"{f}?"
                   for f, v in p.get("properties", {}).items()]
         per_kind.append(f"{kind} {{{', '.join(fields)}}}")
     node["properties"]["kind"]["description"] = "params per kind: " + "; ".join(per_kind)
@@ -736,10 +1266,16 @@ def parse_tool_scene(asset_name: str, nodes: Any, materials: Any) -> ir.SceneIR:
 
 
 def apply_material_diff(current: ir.MaterialIR, diff: dict[str, Any]) -> ir.MaterialIR:
-    """``current`` with the fields of ``diff`` replaced, validated as ``MaterialIR`` (so new material fields need no
-    change here); raises ``IRArgumentError`` naming the field."""
+    """``current`` with the fields of ``diff`` (a tool's arguments: colours as a model writes them, converted once
+    here) replaced, validated as ``MaterialIR`` (so new material fields need no change here); raises
+    ``IRArgumentError`` naming the field."""
     try:
-        return ir.MaterialIR.model_validate({**current.model_dump(), **diff, "id": current.id})
+        bad = {k: v for k, v in diff.items() if told() and k in COLOUR_FIELDS and v is not None and not _is_written_colour(v)}
+        if bad:
+            raise ValueError(f"{', '.join(bad)}: {COLOUR_CLAUSE}")
+        # under "as_written" the diff is taken as it always was (no "#rrggbb": the format refuses it, as on c8565a7)
+        fields = ir_linear(diff, metallic=current.metallic) if told() else diff
+        return ir.MaterialIR.model_validate({**current.model_dump(), **fields, "id": current.id})
     except ValueError as e:
         _raise(_explain("diff", e))
         raise  # unreachable

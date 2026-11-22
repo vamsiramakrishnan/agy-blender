@@ -10,7 +10,8 @@ Layout of ``out_dir`` (everything referenced relative to the USD layer, so the d
     textures/              copies of the material maps (normal maps converted to the engine convention)
     inspector.html         offline Three.js PBR, channels, selectable nodes, LODs and budget gauges
     manifest.json          schema_version, units, tri counts, textures, materials, glb_images, collider_sources, hashes,
-                           validation, versions; ``art_direction`` when one was applied (schema_version 3)
+                           validation, versions, ``provenance`` (schema_version 4: what made each file);
+                           ``art_direction`` when one was applied (schema_version 3)
 
 Images: ``<asset>.glb`` is the single-file deliverable and embeds every image; each image is byte-for-byte the
 ``textures/`` file the USD references. A far LOD file is never shipped without its package, so it references those
@@ -19,6 +20,12 @@ the LOD files gets one texture asset per map rather than one per file. The USDZ 
 self-contained archive) and ``inspector.html`` its embedded review GLB (it opens offline from one file).
 ``manifest.glb_images`` states, per GLB file and per glTF image, whether the image is embedded or referenced, its
 content hash and the ``textures/`` file holding the same bytes; ``validate_package`` checks all of it.
+
+One texture set per opaque prop: the opaque materials share one UV atlas (``fast_ops.unwrap_scene``), and their maps
+are baked here into one base colour, one ORM and one normal map (``_compose_atlas``). The USD keeps one material per
+surface, each reading the baked maps; the GLB gets one glTF material where nothing per-material keeps them apart
+(``merge_materials``, ``SPLIT_PROPERTIES``) and one primitive per glTF material. ``manifest.texture_atlas`` says what
+was baked, the atlas size and why, and what forced every extra material.
 
 Per-engine decisions (see ``ENGINE_RULES`` for the rule table they come from):
 
@@ -43,6 +50,7 @@ import platform
 import re
 import shutil
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -53,12 +61,12 @@ from PIL import Image
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, Vt
 
 from antigravity3d.artifacts.inspector import InspectorQA, build_inspector, bundled_three_js
-from antigravity3d.kernel import compile_ir
+from antigravity3d.kernel import compile_ir, provenance
 from antigravity3d.kernel.compile_ir import (
     CREASE_DEG, IR_KEY, MapSource, MaterialParams, author_mesh_data, read_ir, read_material, set_normal_encoding,
 )
 from antigravity3d.kernel.fast_ops import (
-    ExportBundle, Hull, Issue, LOD, UVResult, gltf_default_material, shipped, texel_density_report, write_gltf,
+    SWATCH_SPAN_PX, UV_PADDING_PX, ExportBundle, Hull, Issue, LOD, UVResult, gltf_default_material, shipped, texel_density_report, write_gltf,
 )
 from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, Sampler, TextureRef
 from antigravity3d.kernel.types import MeshData, gltf_world_bounds
@@ -81,9 +89,13 @@ from antigravity3d.state import EngineBudget
 #    engine's limit is replaced and says so in ``collider_sources``; and the OPTIONAL ``art_direction`` record names a
 #    style and the values applied (absent means no style; ``validate_package`` checks it against the files when
 #    present), with the shipped texel density beside the atlas-space one in ``texel_density``.
+# 4: the ``provenance`` record (kernel/provenance.py): per shipped file what it derives from and by which steps, and per
+#    source who made it, so that "does this file contain generated content" is answered from the manifest alone. Every
+#    package has it (the pipeline that knows the author and the image model adds those facts; a source nobody
+#    recorded says so). It is checked from version 4 on, as the art_direction record is from version 3.
 # Packages written under an older version are validated by the layout they declare.
-SCHEMA_VERSION = 3
-ART_SCHEMA_VERSION = SCHEMA_VERSION  # the version whose contract has the ``art_direction`` record
+SCHEMA_VERSION = provenance.SCHEMA_VERSION
+ART_SCHEMA_VERSION = 3  # the version whose contract has the ``art_direction`` record
 TEXTURE_DIR = PACKAGE_TEXTURE_DIR
 COLLIDERS_SCOPE = "Colliders"
 LOD_SET = "LOD"
@@ -284,6 +296,8 @@ def drop_fbx(data: dict[str, Any], out: Path, error_class: str, message: str) ->
         data["files"] = [f for f in data["files"] if f != name]
         data["file_hashes"].pop(name, None)
     data["fbx"] = fbx_failed_record(data, error_class, message)
+    if "provenance" in data:  # the dropped file leaves the record too
+        provenance.finalize(data["provenance"], data)
 
 
 def record_fbx(data: dict[str, Any], out: Path, result: Mapping[str, Any]) -> None:
@@ -298,6 +312,8 @@ def record_fbx(data: dict[str, Any], out: Path, result: Mapping[str, Any]) -> No
     path = out / name
     data["file_hashes"][name] = {"sha256": _sha256(path), "bytes": path.stat().st_size}
     data["fbx"] = rec
+    if "provenance" in data:  # a file made by Blender from the package's GLB and textures
+        provenance.finalize(data["provenance"], data)
 
 
 def _local_file(uri: str) -> Path | None:
@@ -392,7 +408,7 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str, art: Any = None)
                 im.load()
                 finished = art.finish_map(im, role, px)
             if finished is not im:
-                finished.save(out / rel, format="PNG")
+                finished.save(out / rel, format="JPEG" if rel.endswith(".jpg") else "PNG", **({"quality": 95, "subsampling": 0} if rel.endswith(".jpg") else {}))
         owners[rel] = source
         done[key] = rel
         return rel
@@ -442,6 +458,406 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str, art: Any = None)
             mat.SetCustomDataByKey("agy:normalConvention", "opengl")
     _relativise_embedded_ir(stage, records)
     return records, unresolved
+
+
+# --------------------------------------------------------------------------- one texture set per shared atlas
+
+ATLAS_ROLES = ("albedo", "orm", "normal", "emissive")
+#: Where a package keeps what a re-bake of its atlas needs (an edit of the bare package, months later): each image-mapped
+#: material's maps as they were baked from. ORM and normal are kept too: they are not derived from the base colour in
+#: every run (the lookdev fixers rewrite all three after derivation, tactics/pyramid.py; supplied maps were never
+#: derived). No engine file references them and no install copies them (deliver copies levels and textures/).
+SOURCES_DIR = "sources"
+_FLAT_NORMAL = (128, 128, 255)
+
+
+def _srgb8(linear: Sequence[float]) -> tuple[int, ...]:
+    """Linear colour factors (glTF ``baseColorFactor``, ``emissiveFactor``) as the 8-bit sRGB texel that samples to them."""
+    c = np.clip(np.asarray(linear, np.float64), 0.0, 1.0)
+    s = np.where(c <= 0.0031308, 12.92 * c, 1.055 * np.power(c, 1 / 2.4) - 0.055)
+    return tuple(int(v) for v in np.rint(s * 255.0))
+
+
+def _flat_texel(params: MaterialParams, role: str) -> tuple[int, ...]:
+    """What a material without a map for ``role`` reads as in the baked set: its factor, so an untextured material is a
+    flat patch of exactly the colour, roughness and metalness its glTF material had (``gltf_material``)."""
+    if role == "albedo":
+        return _srgb8(params.base_color)
+    if role == "orm":  # glTF metallicRoughnessTexture: G = roughness, B = metalness; R = occlusion (none: 1)
+        return (255, int(round(params.roughness * 255)), int(round(params.metallic * 255)))
+    if role == "normal":
+        return _FLAT_NORMAL
+    return _srgb8(params.emissive_color)
+
+
+#: Gutter texels within this many px of a chart carry the owning material's map continued across the gutter (the
+#: repeated map at those uvs, or its flat value); beyond, a gutter texel is that material's mean colour over its charts.
+#: Mip level 3 (8 px per texel) still filters only the material's own map, and a flat far gutter is what keeps the
+#: PNG small: measured on the round-four crate's 4096 x 2048 atlas (42 % charts), map content in every gutter texel
+#: cost 8.05 / 7.25 / 13.18 MB (albedo / ORM / normal, PNG level 6) against about 3.3 / 2.7 / 4.5 MB with an 8 px
+#: band (a 32 px band adds 0.1 %).
+GUTTER_COPY_PX = 8
+
+
+def _owner_labels(size: tuple[int, int], parts: Sequence[tuple[int, np.ndarray, np.ndarray]],
+                  with_distance: bool = False) -> tuple[np.ndarray, ...]:
+    """(owner label after gutter fill, drawn label; with ``with_distance`` also the px to the nearest chart texel) of an
+    atlas of ``size`` (width, height) px: ``surface_detail.rasterise`` without the triangle ids."""
+    from antigravity3d.kernel.surface_detail import rasterise
+
+    owner, drawn, dist, _ = rasterise(size, parts)
+    return (owner, drawn, dist) if with_distance else (owner, drawn)
+
+
+def _encoding_record(role: str, pixels: np.ndarray, on: np.ndarray, shipped: str, shipped_bytes: int) -> dict[str, Any]:
+    """What a baked map weighs as shipped and as the alternative encoding a core glTF reader takes (the other of PNG and
+    JPEG q95, 4:4:4), with the alternative's error on the chart texels: for colour data the 8-bit difference, for a
+    normal map the angle (against the 8-bit precision a normal map has anyway, about 0.17 degrees on average)."""
+    rec: dict[str, Any] = {"shipped": shipped, "bytes": shipped_bytes}
+    im = Image.fromarray(pixels, "RGB")
+    buf = io.BytesIO()
+    if shipped == "png":
+        im.save(buf, "JPEG", quality=JPEG_REPORT_QUALITY, subsampling=0)
+        alt, other = f"jpeg_q{JPEG_REPORT_QUALITY}", np.asarray(Image.open(io.BytesIO(buf.getvalue())).convert("RGB"))
+    else:
+        im.save(buf, "PNG")
+        alt, other = "png", pixels
+    a, b = pixels[on].astype(np.float64), other[on].astype(np.float64)
+    if role == "normal":
+        def unit(x):
+            v = x / 127.5 - 1.0
+            return v / np.maximum(np.linalg.norm(v, axis=-1, keepdims=True), 1e-9)
+        e = np.degrees(np.arccos(np.clip((unit(a) * unit(b)).sum(-1), -1, 1))) if len(a) else np.zeros(1)
+        err = {"angle_mean_deg": round(float(e.mean()), 3), "angle_p99_deg": round(float(np.percentile(e, 99)), 2)}
+    else:
+        d = np.abs(a - b).max(-1) if len(a) else np.zeros(1)
+        err = {"mean_abs_8bit": round(float(d.mean()), 3), "p99_abs_8bit": float(np.percentile(d, 99))}
+    rec["alternative"] = {"encoding": alt, "bytes": buf.tell(), **({} if alt == "png" else {"error_on_charts": err})}
+    return rec
+
+
+#: The JPEG quality whose bytes and error every baked map's manifest record states beside its lossless size.
+JPEG_REPORT_QUALITY = 95
+
+
+def _compose_atlas(stage: Usd.Stage, meshes: Sequence[MeshData], uvs: Sequence[UVResult], workdir: Path,
+                   asset_name: str, target_px_per_m: float, base_color_jpeg_quality: int | None = None) -> dict[str, Any] | None:
+    """Bakes the maps of the materials that share one UV atlas into one texture set and points those materials at it.
+
+    The working stage keeps one editable material per surface (authoring, repairs and texture generation work per
+    material); ``fast_ops.unwrap_scene`` laid every opaque material out in one atlas at one texel density. Each
+    texel of the baked maps is the owning material's tileable map at that same uv, repeated every ``SWATCH_SPAN_PX``
+    atlas px at the target density (so a map covers the same metres whatever the atlas side), or its flat factor when
+    it has no map for that role; a texel outside every chart takes its nearest chart's material (``_owner_labels``).
+    No chart moves and no map turns, so a tangent-space normal map keeps its frame. A role no member has a map for is baked only where the members' flat values
+    differ (a set of flat-coloured materials needs a base colour map but no normal map).
+
+    The package stage's materials stay separate prims (names and factors kept) but read the baked files, and the IR
+    embedded in the layer says so. Their glTF materials then differ at most in name and per-material factors; where
+    nothing differs they become one (``merge_materials``). Returns the manifest's ``texture_atlas`` record, or None
+    when nothing is baked: no shared atlas, or one material whose maps would come out as they are (atlas side = one
+    map repeat). One material in an atlas of another side is baked: its map repeats on a small prop instead of a
+    2048 px map shipping for a fraction of it."""
+    groups: dict[str | None, list[int]] = {}
+    for i, u in enumerate(uvs):
+        groups.setdefault(u.atlas_id, []).append(i)
+    by_node = {m.node_id: m for m in meshes}
+    shared = next(((a, ids) for a, ids in groups.items() if all(uvs[i].shared_atlas for i in ids)), None)
+    if shared is None:  # run_export_pipeline makes at most one shared atlas (the opaque materials')
+        return None
+    atlas_id, ids = shared
+    mats: dict[Sdf.Path, UsdShade.Material] = {}
+    for i in ids:
+        prim = stage.GetPrimAtPath(by_node[uvs[i].node_id].prim_path)
+        mat, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
+        if mat:
+            mats.setdefault(mat.GetPath(), mat)
+    size = uvs[ids[0]].size
+    W, H = size
+    dens = [float(uvs[i].texel_density) for i in ids if uvs[i].texel_density > 0]
+    if not mats or not dens:
+        return None
+    density = max(dens)  # the atlas's density: materials carrying less detail are drawn smaller (fast_ops.unwrap_scene)
+    # atlas px per map repeat, as the layout set it and the stage samples it (fast_ops.unwrap_scene, StageManager.author_uvs)
+    period = uvs[ids[0]].repeat_px or max(1, int(round(SWATCH_SPAN_PX * density / target_px_per_m)))
+    if len(mats) == 1 and W == H == period:
+        return None  # one material whose map already spans its atlas as it would baked: it ships as it is, byte for byte
+    params = {path: read_material(mat) for path, mat in mats.items()}
+    if any(p.alpha_mode != "OPAQUE" or p.transmission > 0.0 for p in params.values()):
+        return None  # only opaque materials are laid out together; anything else keeps its own maps
+    order = sorted(params, key=lambda p: str(p))
+    label_of = {path: k + 1 for k, path in enumerate(order)}
+    from antigravity3d.kernel import surface_detail as sd
+
+    parts, atlas_parts, base = [], [], 0
+    for i in ids:
+        u = uvs[i]
+        prim = stage.GetPrimAtPath(by_node[u.node_id].prim_path)
+        mat, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
+        tri = np.asarray(u.triangles)
+        parts.append((label_of[mat.GetPath()], u.uvs, tri))
+        atlas_parts.append(sd.AtlasPart(u.node_id, params[mat.GetPath()].name, np.asarray(u.points), np.asarray(u.uvs), tri, base))
+        base += len(tri)
+    owner, drawn, dist, tri_id = sd.rasterise(size, parts)
+    # one raster serves the bake and every surface source: who owns each texel, and the triangle under it
+    raster = sd.AtlasRaster(size, drawn, owner, dist, tri_id, tuple(atlas_parts),
+                            {params[path].name: label_of[path] for path in order}, period, density,
+                            meshes=tuple(meshes), scene=read_ir(stage.GetDefaultPrim()), asset_name=asset_name)
+    far = dist > GUTTER_COPY_PX
+    covered = int((drawn > 0).sum())
+
+    def map_file(p: MaterialParams, role: str) -> Path | None:
+        ref = p.maps.get(role)
+        return _local_file(ref.resolved or ref.authored) if ref is not None else None
+
+    lost = sorted(f"{params[path].name}.{role}" for path in order for role in params[path].maps if map_file(params[path], role) is None)
+    if lost:  # a map that is not on disk is never baked as a flat patch: the package is left to report it (unresolved)
+        return {"status": "not_baked", "atlas_id": atlas_id, "reason": f"source maps not found on disk: {lost[:6]}"}
+    members: dict[str, dict[str, Any]] = {}
+    for path in order:
+        p = params[path]
+        members[p.name] = {"chart_texels_fraction": round(float((drawn == label_of[path]).sum()) / (W * H), 4),
+                           "maps": {}, "sources": {}, "flat": {},
+                           # what the baked material's IR no longer says and a re-bake from sources/ needs
+                           "emissive_color": [float(c) for c in p.emissive_color], "normal_convention": p.normal_convention}
+    written: dict[str, str] = {}
+    encoding: dict[str, dict[str, Any]] = {}
+    omitted: dict[str, str] = {}
+    emissive = any(any(p.emissive_color) for p in params.values())
+    for role in ATLAS_ROLES:
+        sourced = {path: sd.has_texels(params[path], role) for path in order}
+        flats = {path: _flat_texel(params[path], role) for path in order}
+        if role == "emissive" and not emissive and not any(sourced.values()):
+            omitted[role] = "no member is emissive"
+            continue
+        if not any(sourced.values()) and len(set(flats.values())) == 1:
+            omitted[role] = f"no member has {role} texels and every member's flat value is {list(next(iter(flats.values())))}: the factor carries it"
+            continue
+        out = np.zeros((H, W, 3), np.uint8)
+        for path in order:
+            region = owner == label_of[path]
+            p = params[path]
+            rec = members[p.name]
+            got = sd.texels(p, role, raster) if sourced[path] else None
+            if got is None:
+                out[region] = flats[path]
+                rec["flat"][role] = list(flats[path])
+                continue
+            pix, source = got
+            out[region] = pix[region]
+            if source == "map":
+                own = sd.MAPS.last_source_px.get((p.name, role), period)
+                rec["maps"][role] = {"source_px": own, "resample_ratio": round(own / period, 4)}
+                # what a re-bake needs: the map as it was baked from, shipped in sources/ (write_engine_package)
+                f = map_file(p, role)
+                rec["sources"][role] = {"file": f"{SOURCES_DIR}/{p.name}/{f.name}", "from": str(f)}
+            else:
+                rec["sources"][role] = {"generator": source}  # made again from the geometry: nothing to keep
+                if "generated" not in rec and (gen := sd.generated_record(p.name)) is not None:
+                    rec["generated"] = gen  # class, words read, wear, masks, markings placed (kernel/smart_source.py)
+            on = drawn == label_of[path]
+            if on.any():  # the far gutter: the material's mean (flat, so it costs no bytes; see GUTTER_COPY_PX)
+                out[region & far] = np.rint(pix[on].mean(axis=0)).astype(np.uint8)
+        jpeg = role == "albedo" and base_color_jpeg_quality is not None
+        name = f"{sanitize(asset_name)}_atlas_{role}." + ("jpg" if jpeg else "png")
+        if jpeg:
+            Image.fromarray(out, "RGB").save(workdir / name, format="JPEG", quality=int(base_color_jpeg_quality), subsampling=0)
+        else:
+            Image.fromarray(out, "RGB").save(workdir / name, format="PNG")
+        written[role] = str(workdir / name)
+        encoding[role] = _encoding_record(role, out, drawn > 0, "jpeg" if jpeg else "png", (workdir / name).stat().st_size)
+        if jpeg:
+            encoding[role]["quality"] = int(base_color_jpeg_quality)
+
+    if not written and len(order) == 1:
+        return None  # one untextured material: its factors are the whole material
+    # point every member at the baked set: factors the maps replace stay as the authored fallbacks (USD convention)
+    from antigravity3d.ir import MaterialIR
+
+    scene = read_ir(stage.GetDefaultPrim())
+    ir_by_id = {m.id: m for m in scene.materials} if scene is not None else {}
+    authored: dict[Sdf.Path, MaterialIR] = {}
+    for path in order:  # every member is described first: a material the IR cannot describe leaves all of them as they were
+        p = params[path]
+        update = {**{f"{role}_uri": written.get(role) for role in ATLAS_ROLES}, "normal_convention": "opengl"}
+        if "emissive" in written:
+            update["emissive_color"] = (1.0, 1.0, 1.0)  # the baked map carries map x factor (see above)
+        base = ir_by_id.get(p.name)
+        try:
+            m_ir = base.model_copy(update=update) if base is not None else MaterialIR(id=p.name, **p.factors(), **update)
+            authored[path] = MaterialIR.model_validate(m_ir.model_dump())
+        except Exception as e:  # noqa: BLE001 - pydantic ValidationError, or a factor the IR has no field for
+            return {"status": "not_baked", "atlas_id": atlas_id, "reason": f"material {p.name}: {type(e).__name__}: {e}"[:300]}
+    for path, m_ir in authored.items():
+        compile_ir._author_material(stage, path, m_ir)  # each texture's st back on stReader: the baked maps span the atlas
+        stage.RemovePrim(path.AppendChild("stRepeat"))  # the stage's map repeat (usd_stage.repeat_maps) is in the pixels now
+        for child in stage.GetPrimAtPath(path).GetChildren():
+            for wrap in ("inputs:wrapS", "inputs:wrapT"):
+                if child.HasProperty(wrap):
+                    child.RemoveProperty(wrap)
+        if m_ir.id in ir_by_id:
+            ir_by_id[m_ir.id] = m_ir
+    if scene is not None:
+        stage.GetDefaultPrim().SetCustomDataByKey(
+            IR_KEY, scene.model_copy(update={"materials": [ir_by_id.get(m.id, m) for m in scene.materials]}).model_dump_json())
+    return {
+        "status": "baked",
+        "atlas_id": atlas_id,
+        "atlas_wh": [W, H],
+        "sizes_tried": [{"wh": [w, h], "px_per_m": d} for w, h, d in uvs[ids[0]].size_trials],
+        "texel_density_px_per_m": round(density, 2),
+        "map_repeat_px": period,
+        "map_repeat_m": round(period / density, 4),
+        "map_repeat_rule": f"a tileable map repeats every {SWATCH_SPAN_PX} atlas px at the target density (package.SWATCH_SPAN_PX), "
+                           "the span it had in the one-atlas-per-material layout, so its texels per metre do not depend on the atlas side; "
+                           "resample_ratio is map px per repeat (1: copied, above 1: shrunk, below 1: enlarged)",
+        "size_rule": "the smallest by area of fast_ops.ATLAS_SIZES (squares and two-to-one rectangles), both sides within the "
+                     "engine's max_texture_px and the budget's max_texture_px (an art direction's texture size), whose atlas holds every "
+                     "chart of these materials at the budget's texel density; when none does, the largest, at the density that fits",
+        "members": members,
+        "roles": sorted(written),
+        "roles_omitted": omitted,
+        "chart_texels_fraction": round(covered / (W * H), 4),
+        "gutter_fill": "every texel outside a chart belongs to the material of the nearest chart texel (Euclidean distance "
+                       f"transform); within {GUTTER_COPY_PX} px it carries that material's map continued, beyond it is the material's mean colour "
+                       f"(package.GUTTER_COPY_PX); charts are at least {2 * UV_PADDING_PX} px apart (fast_ops.UV_PADDING_PX)",
+        "encoding": encoding,
+        "files": {role: f"{TEXTURE_DIR}/{Path(f).name}" for role, f in written.items()},
+    }
+
+
+#: glTF material properties that hold one value per material, so materials differing in them cannot be one material:
+#: everything except the texture slots. Alpha (MASK/BLEND) and transmission never reach a shared atlas
+#: (``coplanar.opaque_materials``); the rest are listed here as what a merge compares (``merge_materials``).
+SPLIT_PROPERTIES = ("double_sided", "alpha_mode", "alpha_cutoff", "base_color_factor", "metallic_factor", "roughness_factor",
+                    "emissive_factor", "extensions: KHR_materials_emissive_strength, _clearcoat, _transmission, _ior, "
+                    "_sheen, _specular")
+
+
+def _same_material(a: GltfMaterial, b: GltfMaterial) -> bool:
+    """Equal in every field but the name (``GltfMaterial`` compares by identity; texture slots compare by image digest)."""
+    from dataclasses import fields as _fields
+
+    def norm(v: Any) -> Any:
+        return [float(x) for x in v] if isinstance(v, (list, tuple)) and v and all(isinstance(x, (int, float)) for x in v) else v
+
+    return all(norm(getattr(a, f.name)) == norm(getattr(b, f.name)) for f in _fields(a) if f.name != "name")
+
+
+def merge_materials(materials: Mapping[str, GltfMaterial], name: str) -> tuple[dict[str, GltfMaterial], list[dict[str, Any]]]:
+    """``{node: material}`` with glTF materials that are equal in everything but their name made one object (named
+    ``name`` when more than one name merges): one glTF material, so one draw call once their parts are batched.
+    Returns the mapping and, per shipped material that merged several, the names it holds. Materials that bind the
+    same baked maps but differ in a per-material value (``SPLIT_PROPERTIES``) stay apart and still share the images
+    (the GLB writer stores each image once)."""
+    reps: list[tuple[GltfMaterial, list[str]]] = []  # (shipped object, source names)
+    out: dict[str, GltfMaterial] = {}
+    seen: dict[int, GltfMaterial] = {}
+    for node, m in materials.items():
+        if id(m) in seen:
+            out[node] = seen[id(m)]
+            continue
+        for obj, names in reps:
+            if _same_material(obj, m):
+                if m.name not in names:
+                    names.append(m.name)
+                break
+        else:
+            obj, names = m, [m.name]
+            reps.append((obj, names))
+        seen[id(m)] = obj
+        out[node] = obj
+    renamed: dict[int, GltfMaterial] = {}
+    merged = []
+    for obj, names in reps:
+        if len(names) > 1:
+            from dataclasses import replace as _replace
+
+            renamed[id(obj)] = _replace(obj, name=name)
+            merged.append({"material": name, "from": sorted(names)})
+    return {n: renamed.get(id(m), m) for n, m in out.items()}, merged
+
+
+def layout_from_package(pkg: str | Path) -> Any:
+    """The layout a package shipped (``fast_ops.KeepLayout``), read from the package alone, or None when it has no shared
+    atlas to keep (``texture_atlas`` not baked). Per part (its ``agy:nodeId``): the LOD0 points of the package USD in the
+    working stage's Z-up asset space (the root's zUpToYUp rotation, ``units.root_transform``, undone), its triangles and
+    its ``st``; the atlas size from ``texture_atlas.atlas_wh``."""
+    from antigravity3d.kernel.fast_ops import KeepLayout
+
+    pkg = Path(pkg)
+    man = json.loads((pkg / "manifest.json").read_text())
+    atlas = man.get("texture_atlas") or {}
+    if atlas.get("status") != "baked" or not atlas.get("atlas_wh"):
+        return None
+    stage = Usd.Stage.Open(str(pkg / str(man.get("usd") or f"{man['asset']}.usd")))
+    xc = UsdGeom.XformCache()
+    y_up = bool((man.get("units") or {}).get("root_transform"))
+    parts: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
+    h = hashlib.sha256(json.dumps(atlas["atlas_wh"]).encode())
+    for prim in stage.Traverse():
+        if not prim.IsA(UsdGeom.Mesh) or UsdGeom.Imageable(prim).GetPurposeAttr().Get() == UsdGeom.Tokens.guide:
+            continue
+        node = prim
+        while node and not node.HasAttribute("agy:nodeId"):
+            node = node.GetParent()
+        st = UsdGeom.PrimvarsAPI(prim).GetPrimvar("st")
+        mesh = UsdGeom.Mesh(prim)
+        pts, idx = mesh.GetPointsAttr().Get(), mesh.GetFaceVertexIndicesAttr().Get()
+        if not node or not st or st.Get() is None or not pts or not idx:
+            continue
+        m = np.array(xc.GetLocalToWorldTransform(prim))
+        w = np.asarray(pts, np.float64) @ m[:3, :3] + m[3, :3]
+        if y_up:  # (x, y, z)_Y = (x, z, -y)_Z, so the working stage's point is (x, -z, y)
+            w = np.stack([w[:, 0], -w[:, 2], w[:, 1]], axis=1)
+        tri = np.asarray(idx, np.int64).reshape(-1, 3)
+        uv = np.asarray(st.Get(), np.float32)
+        nid = str(node.GetAttribute("agy:nodeId").Get())
+        parts[nid] = (w, tri, uv)
+        for a in (nid.encode(), np.round(w, 6).tobytes(), tri.tobytes(), uv.tobytes()):
+            h.update(a)
+    return KeepLayout(tuple(atlas["atlas_wh"]), parts, h.hexdigest()) if parts else None
+
+
+def _ship_sources(out: Path, record: dict[str, Any] | None) -> None:
+    """Copies each baked member's source maps into ``sources/<material>/`` and records their sha256 and bytes in the
+    member's ``sources`` (and the total in ``sources_bytes``). Not in the manifest's ``files``: they are not part of what
+    an engine loads, an install neither copies nor requires them, and a package without them is still a complete
+    package (only an edit of it needs them, and says so)."""
+    shutil.rmtree(out / SOURCES_DIR, ignore_errors=True)
+    if not record or record.get("status") != "baked":
+        return
+    total = 0
+    for rec in (record.get("members") or {}).values():
+        for src in (rec.get("sources") or {}).values():
+            origin = src.pop("from", None)
+            if origin is None:
+                continue
+            dest = out / src["file"]
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if not dest.exists():
+                shutil.copyfile(origin, dest)
+                total += dest.stat().st_size
+            src["sha256"], src["bytes"] = _sha256(dest), dest.stat().st_size
+    record["sources_dir"] = SOURCES_DIR
+    record["sources_bytes"] = total
+
+
+def _split_reasons(materials: Mapping[str, GltfMaterial]) -> list[dict[str, Any]]:
+    """Shipped glTF materials that bind the same images but stay apart, and the per-material fields that keep them apart."""
+    from dataclasses import fields as _fields
+
+    reps = list({id(m): m for m in materials.values()}.values())
+    out = []
+    for i, a in enumerate(reps):
+        for b in reps[i + 1:]:
+            ia = {r.image.digest for r in (a.base_color_texture, a.metallic_roughness_texture, a.normal_texture) if r is not None}
+            ib = {r.image.digest for r in (b.base_color_texture, b.metallic_roughness_texture, b.normal_texture) if r is not None}
+            if not ia & ib:
+                continue
+            diff = [f.name for f in _fields(a) if f.name != "name" and not f.name.endswith("_texture") and getattr(a, f.name) != getattr(b, f.name)]
+            out.append({"materials": [a.name, b.name], "differ_in": diff})
+    return out
 
 
 _ROBLOX_TEXTURES = "https://create.roblox.com/docs/art/modeling/texture-specifications"
@@ -548,16 +964,22 @@ def _relativise_embedded_ir(stage: Usd.Stage, records: list[dict[str, Any]]) -> 
 
 def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict[str, list[str]],
                      materials: dict[str, GltfMaterial], suffix: str, image_uris: Mapping[str, str] | None = None,
-                     crease_deg: float | None = None) -> None:
+                     crease_deg: float | None = None) -> dict[str, list[list[Any]]]:
+    """Writes one level's GLB, one mesh per batch. Returns, per mesh, where each part's triangles are in its index
+    buffer: [[node id, first triangle, triangle count], ...] in order (the writer keeps the triangle order of the parts
+    it concatenates: ``gltf_writer.split_by_corner_normals`` renumbers vertices, never triangles)."""
     items = []
     bound = []
     names = []
+    ranges: dict[str, list[list[Any]]] = {}
     for name, nodes in batches.items():
         group = [parts[node] for node in nodes if len(parts[node].triangles)]  # a part absent at this LOD is omitted
         if not group:  # every member absent: no node, one draw call fewer
             continue
         names.append(name)
         nodes = [node for node in nodes if len(parts[node].triangles)]
+        firsts = np.cumsum([0] + [len(p.triangles) for p in group[:-1]])
+        ranges[name + suffix] = [[node, int(f), int(len(p.triangles))] for node, f, p in zip(nodes, firsts, group)]
         if len(group) == 1:
             items.append(group[0])
         else:
@@ -567,6 +989,7 @@ def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict
                              np.vstack([p.uvs for p in group]), 0., 0.))
         bound.append(materials.get(nodes[0]))
     write_gltf(path, items, [name + suffix for name in names], materials=bound, image_uris=image_uris, crease_deg=crease_deg)
+    return ranges
 
 
 def _glb_image_records(path: Path, texture_of: Mapping[str, str], hashes: Mapping[str, str]) -> list[dict[str, Any]]:
@@ -767,7 +1190,8 @@ def _author_lod_variants(
                     stage.GetPrimAtPath(path).SetActive(False)
                     continue
                 local = (np.asarray(lod.points, dtype=np.float64) - trans) @ inv33
-                author_mesh_data(stage.GetPrimAtPath(path), local, lod.triangles, lod.uvs, weld_map=None, crease_deg=crease_deg)
+                author_mesh_data(stage.GetPrimAtPath(path), local, compile_ir.facing(lod.triangles, inv33), lod.uvs, weld_map=None,
+                                 crease_deg=crease_deg)
     vset.SetVariantSelection("LOD0")
     return [sum(shipped(t[3][i]).tri_count for t in targets) for i in range(levels)]
 
@@ -854,7 +1278,8 @@ def _ship_lod0(stage: Usd.Stage, meshes: Sequence[MeshData], uvs: Sequence[UVRes
             raise ValueError(f"{m.prim_path}: package mesh has {len(pts)} points, its unwrap {len(u.points)}")
         s = shipped(u)
         weld = prim.GetAttribute(compile_ir.UV_WELD_KEY).Get() if prim.HasAttribute(compile_ir.UV_WELD_KEY) else None
-        author_mesh_data(prim, pts[s.vertices], s.triangles, s.uvs,
+        linear = np.array(UsdGeom.XformCache().GetLocalToWorldTransform(prim))[:3, :3]
+        author_mesh_data(prim, pts[s.vertices], compile_ir.facing(s.triangles, linear), s.uvs,
                          weld_map=None if weld is None else np.asarray(weld, np.int32)[s.vertices], crease_deg=crease_deg)
         if prim.HasAttribute(compile_ir.UV_CHART_KEY):
             attr = prim.GetAttribute(compile_ir.UV_CHART_KEY)
@@ -937,7 +1362,24 @@ def write_engine_package(
     asset = stage.GetDefaultPrim()
     removed = _ship_lod0(stage, meshes, uvs, crease)
 
-    textures, unresolved = _package_textures(stage, out, engine, art)
+    # opaque materials laid out in one atlas ship one baked texture set (the stage keeps its materials and their maps)
+    atlas_tmp = tempfile.TemporaryDirectory(prefix="agy3d_atlas_") if budget.shared_atlas else None
+    try:
+        # JPEG would undo an art direction's palette quantisation (finish_map), so a style with a palette keeps PNG
+        jpeg_q = None if art is not None and getattr(art, "palette_max_colors", None) else budget.base_color_jpeg_quality
+        from antigravity3d.kernel import smart_source  # the budget's setting decides whether image-less materials are painted
+
+        with smart_source.using(budget.generated_surfaces):
+            atlas_record = (_compose_atlas(stage, meshes, uvs, Path(atlas_tmp.name), asset_name, budget.texel_density_px_per_m, jpeg_q)
+                            if atlas_tmp is not None else None)
+        textures, unresolved = _package_textures(stage, out, engine, art)  # copies the baked files into textures/
+        _ship_sources(out, atlas_record)
+        laid = next((u.layout for u in uvs if u.shared_atlas and u.layout), None)
+        if atlas_record is not None and laid:  # an edit's export: whether the shipped layout was kept (fast_ops._pack_kept)
+            atlas_record["layout"] = {"result": laid.split(":", 1)[0], "detail": laid}
+    finally:
+        if atlas_tmp is not None:
+            atlas_tmp.cleanup()
     if unresolved:
         notes.append(f"{len(unresolved)} texture path(s) not found on disk, left unchanged: {unresolved[:3]}")
 
@@ -979,17 +1421,25 @@ def write_engine_package(
         usdz_skipped = f"{type(e).__name__}: {e}"[:200]
 
     materials = gltf_materials(stage, meshes, package_dir=out, sampler=art.sampler() if art is not None else None)
+    merged: list[dict[str, Any]] = []
+    if budget.shared_atlas:
+        materials, merged = merge_materials(materials, f"{sanitize(asset_name)}_atlas")
     # Preserve selectable nodes where the draw budget allows it. Static props whose
     # node count exceeds the budget are submitted in one world-space batch per material, split where the engine
     # limits the triangles of one mesh (Roblox) so that no shipped mesh is over it (see ``split_batch``).
+    # With a shared atlas a static prop ships one batch per glTF material whatever its part count (one draw call for an
+    # opaque prop); parts that will be moved in the engine (keep_contact_faces) keep their own nodes within the budget.
     batches = {u.node_id: [u.node_id] for u in uvs}
-    if len(batches) > budget.max_draw_calls:
-        groups: dict[str | None, list[str]] = {}
+    per_material = budget.shared_atlas and not budget.keep_contact_faces and any(u.shared_atlas for u in uvs)
+    if per_material or len(batches) > budget.max_draw_calls:
+        groups: dict[Any, list[str]] = {}
         for mesh in meshes:
-            groups.setdefault(mesh.material_id, []).append(mesh.node_id)
+            key = ("gltf", id(materials[mesh.node_id])) if per_material and mesh.node_id in materials else mesh.material_id
+            groups.setdefault(key, []).append(mesh.node_id)
         cap = ENGINE_RULES[engine].max_tris_per_mesh
         chunks = [chunk for members in groups.values() for chunk in split_batch(members, {n: len(ship[n].triangles) for n in members}, cap)]
-        batches = {f"Batch_{i}": members for i, members in enumerate(chunks)}
+        if len(batches) > budget.max_draw_calls or len(chunks) < len(batches):
+            batches = {f"Batch_{i}": members for i, members in enumerate(chunks)}
     # Each texture file is hashed once: the hash is the manifest's, and (as the content digest the GLB writer
     # de-duplicates images by) it tells which file a material image is, so far LODs can reference that file.
     texture_files = list(dict.fromkeys(t[key] for t in textures for key in ("path", "usd_path")))
@@ -997,7 +1447,7 @@ def write_engine_package(
     texture_of: dict[str, str] = {}
     for rel, digest in texture_hashes.items():
         texture_of.setdefault(digest, rel)  # identical files: the first one, in manifest order
-    _write_glb_level(out / f"{asset_name}.glb", ship, batches, materials, "", crease_deg=crease)
+    part_ranges = _write_glb_level(out / f"{asset_name}.glb", ship, batches, materials, "", crease_deg=crease)
     files.append(f"{asset_name}.glb")
     glb_levels = levels
     # A material image whose bytes no package file holds (a map transcoded to PNG because glTF allows only PNG and
@@ -1040,15 +1490,21 @@ def write_engine_package(
     files.append(viewer.name)
 
     # package-level validators (UsdValidation + engine rules) on the file we actually wrote
-    mesh_data = [MeshData(u.node_id, f"/{asset.GetName()}/{u.node_id}", ship[u.node_id].points, ship[u.node_id].triangles, u.atlas_id)
+    # the engine rules count materials as they ship: with a shared atlas the glTF material a part is drawn with
+    shipped_material = {n: m.name for n, m in materials.items()} if budget.shared_atlas else {}
+    mesh_data = [MeshData(u.node_id, f"/{asset.GetName()}/{u.node_id}", ship[u.node_id].points, ship[u.node_id].triangles,
+                          shipped_material.get(u.node_id, u.atlas_id))
                  for u in uvs]
     usd_issues = validate_usd(usd_path)
     eng_issues = check_engine_compliance(Usd.Stage.Open(str(usd_path)), mesh_data, budget)
     eng_issues += batch_tri_cap_issues(engine, {b: sum(len(ship[n].triangles) for n in members) for b, members in batches.items()})
     density = texel_density_report(uvs, budget.texel_density_px_per_m)
     cap = ENGINE_RULES[engine].max_texture_px
+    members_of: dict[str, set[str | None]] = {}
+    for m, u in zip(meshes, uvs):
+        members_of.setdefault(str(u.atlas_id), set()).add(m.material_id)
     for mat_id, rec in density["materials"].items():  # what the shipped maps reach: the atlas density scaled by map side / packing side
-        side = max((max(t["width"], t["height"]) for t in textures if t["material"] == mat_id), default=None)
+        side = max((max(t["width"], t["height"]) for t in textures if t["material"] in members_of.get(mat_id, {mat_id})), default=None)
         rec["map_px"] = side
         rec["shipped_px_per_m"] = round(rec["px_per_m"] * side / rec["atlas_px"], 2) if side else None
         rec["shipped_target_met"] = bool(side) and rec["shipped_px_per_m"] >= budget.texel_density_px_per_m * (1 - 1e-9)
@@ -1067,7 +1523,8 @@ def write_engine_package(
         "usdz_skipped": usdz_skipped,
         "units": units,
         "normal_convention": NORMAL_CONVENTION.get(engine, "opengl"),
-        "budget": {k: getattr(budget, k) for k in ("max_tris", "max_draw_calls", "max_collision_hulls", "texel_density_px_per_m")},
+        "budget": {k: getattr(budget, k) for k in ("max_tris", "max_draw_calls", "max_collision_hulls", "texel_density_px_per_m",
+                                                   "generated_surfaces")},
         "tris": sum(len(s.triangles) for s in ship.values()),
         "lod_levels": max(glb_levels, len(lod_tris)),
         "lod_tris": lod_tris,
@@ -1083,6 +1540,9 @@ def write_engine_package(
         "lod_structure": f"variantSet '{LOD_SET}' on /{asset.GetName()}: LOD0 (base) .. LOD{len(lod_tris) - 1}" if len(lod_tris) > 1 else None,
         "draw_calls": len(batches),
         "glb_batches": batches,
+        # where each part is in the main GLB: per mesh, [part id, first triangle, triangle count] in its index buffer, so a
+        # reader of a one-primitive file can still tell the parts apart (benchmarks/compare_eval.package_diff)
+        "glb_part_ranges": {f"{asset_name}.glb": part_ranges},
         "contact_faces": _contact_record(budget, uvs, lods, removed, lod_tris),
         "glb_bounds_m": gltf_world_bounds((mesh.points for mesh in meshes), z_up=True),
         "texel_density": {
@@ -1109,18 +1569,29 @@ def write_engine_package(
     }
     if roblox_record is not None:
         data["roblox_surface_appearance"] = roblox_record
+    if atlas_record is not None or merged:
+        data["texture_atlas"] = {**(atlas_record or {"status": "not_baked"}), "gltf_materials": merged,
+                                 "split_properties": list(SPLIT_PROPERTIES), "splits": _split_reasons(materials),
+                                 "draw_calls": len(batches)}
     # one truth about texel density: the UV layout's figure is atlas-space (packed for UVResult.resolution); say so, and
     # give the density the shipped maps really reach beside it (a map smaller than the atlas, as on Roblox, scales it)
     side = max((max(t["width"], t["height"]) for t in textures), default=0)
     atlas_px = max((u.resolution for u in uvs), default=0)
+    atlas_wh = max((u.size for u in uvs), default=(0, 0))
     data["texel_density"].update({
-        "space": f"atlas ({atlas_px} px packing resolution)",
+        "space": f"atlas ({atlas_px} px packing resolution)" if atlas_wh[0] == atlas_wh[1]
+                 else f"atlas ({atlas_wh[0]} x {atlas_wh[1]} px packing resolution)",
         "shipped_mean_px_per_m": round(float(np.mean(dens)) * side / atlas_px, 2) if dens and side and atlas_px else None,
         "shipped_texture_px": side or None})
     if art is not None:
-        data["schema_version"] = ART_SCHEMA_VERSION
+        data["schema_version"] = max(data["schema_version"], ART_SCHEMA_VERSION)
         data["art_direction"] = _art_record(art, budget, textures, out, dens, uvs)
     data["file_hashes"] = {f: {"sha256": texture_hashes.get(f) or _sha256(out / f), "bytes": (out / f).stat().st_size} for f in files}
+    try:
+        supplied = provenance.supplied_meshes(stage_manager.base_ir())
+    except Exception:  # noqa: BLE001 - a stage without a readable scene IR has no supplied files to name
+        supplied = {}
+    data["provenance"] = provenance.finalize(provenance.build(data, supplied=supplied, styled=art is not None, asset=asset_name))
     mpath = out / "manifest.json"
     mpath.write_text(json.dumps(data, indent=1))
     pkg_issues = validate_package(out)  # cold re-open of what was just written

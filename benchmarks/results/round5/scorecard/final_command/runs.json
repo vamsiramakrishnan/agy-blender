@@ -1,0 +1,4743 @@
+{
+ "mode": "live",
+ "records": [
+  {
+   "brief": "crate",
+   "arm": "C",
+   "status": "finished",
+   "wall_s": 660.7,
+   "glb": "<scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/RuggedMilitarySupply.glb",
+   "extra_files": [
+    "<scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/RuggedMilitarySupply.usd",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/RuggedMilitarySupply.usdz",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/RuggedMilitarySupply_LOD1.glb",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/RuggedMilitarySupply_LOD2.glb",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/RuggedMilitarySupply_LOD3.glb",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/RuggedMilitarySupply_colliders.glb",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/inspector.html",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/manifest.json",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/textures/RuggedMilitarySupply_atlas_albedo.png",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/textures/RuggedMilitarySupply_atlas_normal.png",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/textures/RuggedMilitarySupply_atlas_orm.png"
+   ],
+   "model_calls": 27,
+   "tool_calls": null,
+   "blender_invocations": null,
+   "images": 0,
+   "tokens": {
+    "input_tokens": 314407,
+    "output_tokens": 17886,
+    "thinking_tokens": 34343,
+    "cached_tokens": 0,
+    "unknown_reserved_tokens": 0,
+    "share_tokens": 1200000,
+    "total": 366636,
+    "images": 0,
+    "share_images": 0
+   },
+   "models": {
+    "gemini-4-neon": {
+     "calls": 18,
+     "input": 148424,
+     "output": 4017,
+     "thinking": 13886
+    },
+    "gemini-4-hydrogen": {
+     "calls": 9,
+     "input": 165983,
+     "output": 13869,
+     "thinking": 20457
+    }
+   },
+   "final_text": "",
+   "notes": [
+    "arm C had a Blender worker (--blender): lookdev renders and the Blender-side checks are those a user with Blender gets",
+    "arm C: this project's pipeline (command line, preview mode); not expressible on its command line: real-world scale, +Y up, grounded and centred (the pipeline's own conventions apply; not a flag); UVs inside 0-1 and not overlapping (the pipeline unwraps by its own rules); at most 3 materials; a base colour, normal and metallic-roughness texture per material (its own lookdev decides); texture sizes (power of two, at most 2048 px): no texture-size flag; LODs and collision named as the task asks (<name>_LOD1.glb, '-col'): it writes its own package layout; the delivery folder output/<name>.glb + output/textures/: it writes a package directory; the budget sentence: there is no agent to read it; the command's own --token-ceiling / --max-images bound it"
+   ],
+   "refused": [],
+   "pipeline": {
+    "plan_lines": {
+     "default": [
+      "clutter: up to 3 image(s) (+2 per extra material) and about 377,827 tokens",
+      "simple: up to 4 image(s) (+2 per extra material) and about 397,122 tokens",
+      "standard: up to 8 image(s) (+4 per extra material) and about 535,332 tokens",
+      "hero: up to 11 image(s) (+6 per extra material) and about 609,645 tokens"
+     ],
+     "single_candidate": [
+      "clutter: up to 2 image(s) (+1 per extra material) and about 374,960 tokens",
+      "simple: up to 2 image(s) (+1 per extra material) and about 374,960 tokens",
+      "standard: up to 2 image(s) (+1 per extra material) and about 468,846 tokens",
+      "hero: up to 3 image(s) (+1 per extra material) and about 471,713 tokens"
+     ]
+    },
+    "mode": "default",
+    "command": [
+     "-m",
+     "antigravity3d.cli",
+     "prop",
+     "<brief crate>",
+     "--engine",
+     "godot_4",
+     "--max-tris",
+     "3000",
+     "--out",
+     "<scratch>/r5/live_final_C/runs/r5_crate_C/out",
+     "--preview",
+     "--blender",
+     "<scratch>/engines/blender-5.3.0-linux-x64/blender",
+     "--token-ceiling",
+     "1185000",
+     "--max-images",
+     "0"
+    ],
+    "prompt": "a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles",
+    "own_spend": "spend (tokens, no price applied): standard: 420,219 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 129,028, author.look 7,695, author.propose 63,586, geometry_gen 0, geometry_vision 34,510, lod_pop 5,508, route 1,983, visual_qa 177,909) | decisions plane 16 calls, 131,648 input + 15,962 output tokens cache hits=0 misses=1",
+    "exit_code": 1,
+    "publication": "UNVERIFIED PREVIEW (verified=false; judged by generative fallback, uncalibrated)",
+    "preview_gates": "FAIL",
+    "decision_backend": "generative_fallback",
+    "preview": {
+     "verified": false,
+     "preview": true,
+     "judge": {
+      "label": "generative fallback, uncalibrated",
+      "calibrated": false,
+      "meaning": "probabilities are a generative model's self-report, not calibrated Decisions output: they may steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it"
+     },
+     "needs_review": true,
+     "spend": {
+      "unit": "tokens",
+      "summary": "standard: 420,219 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 129,028, author.look 7,695, author.propose 63,586, geometry_gen 0, geometry_vision 34,510, lod_pop 5,508, route 1,983, visual_qa 177,909)"
+     }
+    },
+    "skipped": [
+     {
+      "step": "dag:style_anchor",
+      "reason": "no style anchor provided"
+     },
+     {
+      "step": "dag:ortho",
+      "reason": "router: no orthographic blueprint needed (P=0.35)"
+     },
+     {
+      "step": "pyramid:settle_pre",
+      "reason": "nothing to settle"
+     },
+     {
+      "step": "pyramid:attach_pre",
+      "reason": "every part touches another"
+     },
+     {
+      "step": "pyramid:textures",
+      "reason": "no material was textured: mat_olive_metal: image limit reached (0 of 0 images): larger surfaces were textured first; mat_rubber: image limit reached (0 of 0 images): larger surfaces were textured first; mat_dark_steel: image limit reached (0 of 0 images): larger surfaces were textured first; mat_stencil_brass: image limit reached (0 of 0 images): larger surfaces were textured first"
+     },
+     {
+      "step": "pyramid:engine_capture",
+      "reason": "engine truth disabled in spend plan"
+     },
+     {
+      "step": "pyramid:engine_parity",
+      "reason": "spend plan 'standard' has engine_truth disabled"
+     },
+     {
+      "step": "pyramid:export_fbx",
+      "reason": "no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)"
+     }
+    ],
+    "geometry_candidates": {
+     "n_planned": 4,
+     "n_requested": 4,
+     "n_proposed": 4,
+     "outcomes": [
+      {
+       "index": 0,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10751,
+        "output_tokens": 5579,
+        "thinking_tokens": 2511
+       },
+       "admission_wait_s": 0.002,
+       "reserved_usd": null,
+       "reserved_tokens": 35103.0
+      },
+      {
+       "index": 1,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10751,
+        "output_tokens": 5747,
+        "thinking_tokens": 2990
+       },
+       "admission_wait_s": 0.001,
+       "reserved_usd": null,
+       "reserved_tokens": 35103.0
+      },
+      {
+       "index": 2,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10751,
+        "output_tokens": 5248,
+        "thinking_tokens": 2911
+       },
+       "admission_wait_s": 0.001,
+       "reserved_usd": null,
+       "reserved_tokens": 35103.0
+      },
+      {
+       "index": 3,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10751,
+        "output_tokens": 4008,
+        "thinking_tokens": 1939
+       },
+       "admission_wait_s": 0.002,
+       "reserved_usd": null,
+       "reserved_tokens": 35103.0
+      }
+     ],
+     "sizing": {
+      "basis": "expected author cost + grading",
+      "expected_candidate_tokens": 19972.0,
+      "worst_case_candidate_tokens": 38609.0,
+      "remaining_tokens": 1183017.0
+     }
+    },
+    "scores": {
+     "tier15": 2.8036363636363633,
+     "tier1_ok": true,
+     "score_silhouette": 2.81,
+     "score_brief_depiction": 2.89,
+     "score_shippability": 2.8000000000000003,
+     "web_silhouette_iou": 0.9998575373690439
+    },
+    "plan": "standard: 420,219 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 129,028, author.look 7,695, author.propose 63,586, geometry_gen 0, geometry_vision 34,510, lod_pop 5,508, route 1,983, visual_qa 177,909)",
+    "pyramid_steps": [
+     [
+      "settle_pre",
+      "skipped",
+      "nothing to settle"
+     ],
+     [
+      "separate_coplanar",
+      "passed",
+      "2 coplanar face pair(s); moved 2 face(s) of 2 part(s) to 2 mm apart | moved: latch_catch_plate -y face -3.00 mm (back; was coplanar with latch_clasp); latch_group__mx__latch_catch_plate -y face -3.00 "
+     ],
+     [
+      "attach_pre",
+      "skipped",
+      "every part touches another"
+     ],
+     [
+      "improve_A1",
+      "passed",
+      "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.65->2.65, depiction 2.69->2.69, tier15 2.64->2.64, tier1 critical 0->0, 7 op(s); clean-up: separate"
+     ],
+     [
+      "improve_A2",
+      "passed",
+      "kept provisionally (rose by the judge's noise band (0.2) or more: score_brief_depiction 2.69->2.89): progress 2.65->2.82, depiction 2.69->2.89, tier15 2.64->2.79, tier1 critical 0->0, 7 op(s); clean-u"
+     ],
+     [
+      "validate_A2",
+      "passed",
+      "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.65) \"State B is closer to the request because the added reinforcing ribs, central clasp, a"
+     ],
+     [
+      "improve_A3",
+      "passed",
+      "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.82->2.80, depiction 2.89->2.84, tier15 2.79->2.79, tier1 critical 0->0, 9 op(s); clean-up: flush fa"
+     ],
+     [
+      "improve_A4",
+      "passed",
+      "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.80->2.83, depiction 2.84->2.89, tier15 2.79->2.80, tier1 critical 0->0, 14 op(s); clean-up: flush f"
+     ],
+     [
+      "validate_A4",
+      "passed",
+      "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.70) \"State B is closer to the request because it adds rugged kit-bashed details like side "
+     ],
+     [
+      "textures",
+      "skipped",
+      "no material was textured: mat_olive_metal: image limit reached (0 of 0 images): larger surfaces were textured first; mat_rubber: image limit reached (0 of 0 images): larger surfaces were textured firs"
+     ],
+     [
+      "uv_lod_colliders",
+      "passed",
+      "uv=71 lod_tris=[2928, 1056, 360, 234] hulls=4 texel_density: mat_dark_steel+mat_olive_metal+mat_rubber+mat_stencil_brass 512 (met); spread 1.00x"
+     ],
+     [
+      "look_round",
+      "passed",
+      "the author kept every material; before: score_brief_look=2.53, score_material_separation=2.53, score_pbr_realism=2.28; 1 bake(s)"
+     ],
+     [
+      "z_fighting",
+      "warned",
+      "lid_bolt: lid_bolt/lid_stack_pad_br: 0.935 cm^2 of same-facing faces within 1 mm of one plane; lid_bolt_back: lid_bolt_back/lid_stack_pad_fr: 0.935 cm^2 of same-facing faces within 1 mm of one plane; "
+     ],
+     [
+      "engine_compliance",
+      "passed",
+      "0 warning(s)"
+     ],
+     [
+      "usd_validate",
+      "passed",
+      "write_engine_package ok; 0 non-critical message(s); files=11"
+     ],
+     [
+      "lod_pop",
+      "passed",
+      "LOD pop: 3 transitions, OK; worst pair 1 (LOD1->2 @5%, 20.4 m): IoU 0.993, shade 0.019, edge 1.0px, tris 1056->360"
+     ],
+     [
+      "lod_pop_vision",
+      "failed",
+      "pair 2: score_lod_continuity 2.83 < 3.0"
+     ],
+     [
+      "export_glb",
+      "passed",
+      "RuggedMilitarySupply.glb 2174092 bytes (+3 LOD GLB)"
+     ],
+     [
+      "engine_import",
+      "passed",
+      "66,0.430000007152557,0.296000003814697]],\"images\":3,\"images_loaded\":3,\"normal_surfaces\":1,\"orm_surfaces\":1,\"surfaces\":1,\"textured_surfaces\":1,\"triangles\":2928} "
+     ],
+     [
+      "engine_capture",
+      "skipped",
+      "engine truth disabled in spend plan"
+     ],
+     [
+      "engine_parity",
+      "skipped",
+      "spend plan 'standard' has engine_truth disabled"
+     ],
+     [
+      "web_runtime",
+      "passed",
+      "three.js loaded and rendered the package: 27 checks passed, silhouette IoU 0.9999 against the USD"
+     ],
+     [
+      "blender_asset_qa",
+      "failed",
+      "qa_check of EL4CTEO/blender-skills @9e7e04a (release 1.3.2), game profile, vertices merged part by part: 1 object(s), 2928 tris; 1 error(s): z-fighting: Batch_0 (24 overlapping coplanar tri pairs)"
+     ],
+     [
+      "export_fbx",
+      "skipped",
+      "no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)"
+     ]
+    ],
+    "stdout_tail": "pair(s) reused, no call made; 9 recorded\noutputs:\n  usd: <scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/RuggedMilitarySupply.usd\n  manifest: <scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/manifest.json\n  glb: <scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/RuggedMilitarySupply.glb\n  web_render: <scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/web_three.png\n  authoring_usd: <scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/RuggedMilitarySupply_authoring.usda\n  inspector: <scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/inspector.html\n  report: <scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/report.json\nskipped:\n  - dag:style_anchor: no style anchor provided\n  - dag:ortho: router: no orthographic blueprint needed (P=0.35)\n  - pyramid:settle_pre: nothing to settle\n  - pyramid:attach_pre: every part touches another\n  - pyramid:textures: no material was textured: mat_olive_metal: image limit reached (0 of 0 images): larger surfaces were textured first; mat_rubber: image limit reached (0 of 0 images): larger surfaces were textured first; mat_dark_steel: image limit reached (0 of 0 images): larger surfaces were textured first; mat_stencil_brass: image limit reached (0 of 0 images): larger surfaces were textured first\n  - pyramid:engine_capture: engine truth disabled in spend plan\n  - pyramid:engine_parity: spend plan 'standard' has engine_truth disabled\n  - pyramid:export_fbx: no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)\nwarnings:\n  - z_fighting: lid_bolt: lid_bolt/lid_stack_pad_br: 0.935 cm^2 of same-facing faces within 1 mm of one plane; lid_bolt_back: lid_bolt_back/lid_stack_pad_fr: 0.935 cm^2 of same-facing faces within 1 mm of one plane; lid_bolt__mx: lid_bolt__mx/lid_stack_pad_bl: 0.935 cm^2 of same-facing faces within 1 mm of one plane\npublication: UNVERIFIED PREVIEW (verified=false; judged by generative fallback, uncalibrated)\n  judge: probabilities are a generative model's self-report, not calibrated Decisions output: they may steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it\nreview: required (the judge is uncalibrated; a person must review this package before any use)\nnot delivered: blender_asset_qa: qa_check of EL4CTEO/blender-skills @9e7e04a (release 1.3.2), game profile, vertices merged part by part: 1 object(s), 2928 tris; 1 error(s): z-fighting: Batch_0 (24 overlapping copla\nfinding: overall score (tier15) 2.80, below the target 3.4 by 0.60, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: silhouette 2.81, below the target 3.3 by 0.49, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: shippability 2.80, below the target 3.4 by 0.60, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: lod_pop_vision failed on the answer of generative fallback, uncalibrated (pair 2: score_lod_continuity 2.83 < 3.0); look at it before you ship\nwhere to look: <scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/inspector.html, <scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/web_three.png\ndelivered: no, or blocked (exit 1)\npreview gates: FAIL\n",
+    "stderr_tail": "sual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:blockout]    17s finished (0 still in flight)\n[judge compare:shape]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge compare:shape]     0s sent to gemini-4-neon (2 judge call(s) in flight)\n[judge compare:shape]    13s finished (1 still in flight)\n[judge compare:shape]    34s finished (0 still in flight)\n[author worker improve]     0s sent to gemini-4-hydrogen\n[author worker improve]     4s thinking: Analyzing The Design\n[author worker improve]     6s thinking: Evaluating Remaining Budget\n[author worker improve]     8s thinking: Addressing Z-Fighting Issue\n[author worker improve]    10s thinking: Refining Handle Details\n[author worker improve]    11s answer arriving: 35 characters\n[author worker improve]    14s finished STOP, 2,475 output tokens\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\nstill running: judge visual_qa:blockout 31s\nstill running: judge visual_qa:blockout 61s\ndecision 'visual_qa:blockout': no answer after 90 s; asking a second time alongside the first\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (2 judge call(s) in flight)\nstill running: judge visual_qa:blockout 121s; judge visual_qa:blockout 31s\n[judge visual_qa:blockout]    32s finished (1 still in flight)\n[judge visual_qa:blockout]   122s failed: CancelledError; 0 still in flight\n[author worker improve]     0s sent to gemini-4-hydrogen\n[author worker improve]     5s thinking: Analyzing the Design\n[author worker improve]     7s thinking: Refining the Details\n[author worker improve]     9s thinking: Evaluating Structural Integrity\n[author worker improve]    10s thinking: Assessing Assembly Accuracy\n[author worker improve]    12s thinking: Adding Design Enhancements\n[author worker improve]    14s thinking: Implementing New Details\n[author worker improve]    16s thinking: Calculating Triangle Counts\n[author worker improve]    18s thinking: Adding Final Details\n[author worker improve]    19s answer arriving: 2 characters\n[author worker improve]    23s finished STOP, 4,736 output tokens\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:blockout]    18s finished (0 still in flight)\n[judge compare:shape]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge compare:shape]     0s sent to gemini-4-neon (2 judge call(s) in flight)\n[judge compare:shape]    15s finished (1 still in flight)\n[judge compare:shape]    19s finished (0 still in flight)\n[judge visual_qa:look]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:look]    20s finished (0 still in flight)\n[author worker look]     0s sent to gemini-4-hydrogen\n[author worker look]     5s answer arriving: 10 characters\n[author worker look]     5s finished STOP, 629 output tokens\n[judge lod_pop]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge lod_pop]    12s finished (0 still in flight)\n",
+    "self_report": {
+     "manifests": [
+      {
+       "path": "<scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/manifest.json",
+       "asset": "RuggedMilitarySupply",
+       "verified": false,
+       "preview": true,
+       "tris": 2928,
+       "judge": {
+        "label": "generative fallback, uncalibrated",
+        "calibrated": false,
+        "meaning": "probabilities are a generative model's self-report, not calibrated Decisions output: they may steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it"
+       },
+       "spend": {
+        "unit": "tokens",
+        "summary": "standard: 420,219 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 129,028, author.look 7,695, author.propose 63,586, geometry_gen 0, geometry_vision 34,510, lod_pop 5,508, route 1,983, visual_qa 177,909)"
+       },
+       "evidence": {
+        "render_tier": "preview",
+        "lookdev": false,
+        "engine_parity": false,
+        "silhouette_iou": null,
+        "steps": [
+         {
+          "name": "settle_pre",
+          "status": "skipped",
+          "detail": "nothing to settle"
+         },
+         {
+          "name": "separate_coplanar",
+          "status": "passed",
+          "detail": "2 coplanar face pair(s); moved 2 face(s) of 2 part(s) to 2 mm apart | moved: latch_catch_plate -y face -3.00 mm (back; was coplanar with latch_clasp); latch_group__mx__latch_catch_plate -y face -3.00 mm (back; was coplanar with latch_group__mx__latch_clasp)"
+         },
+         {
+          "name": "attach_pre",
+          "status": "skipped",
+          "detail": "every part touches another"
+         },
+         {
+          "name": "improve_A1",
+          "status": "passed",
+          "detail": "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.65->2.65, depiction 2.69->2.69, tier15 2.64->2.64, tier1 critical 0->0, 7 op(s); clean-up: separated flush faces of 4 part(s) the patch changed"
+         },
+         {
+          "name": "improve_A2",
+          "status": "passed",
+          "detail": "kept provisionally (rose by the judge's noise band (0.2) or more: score_brief_depiction 2.69->2.89): progress 2.65->2.82, depiction 2.69->2.89, tier15 2.64->2.79, tier1 critical 0->0, 7 op(s); clean-up: flush faces left (fixing them would move parts the patch did not change): center_hasp_staple, latch_clasp, latch_group__mx__latch_clasp"
+         },
+         {
+          "name": "validate_A2",
+          "status": "passed",
+          "detail": "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.65) \"State B is closer to the request because the added reinforcing ribs, central clasp, and pressure valve make it look more like a rugged military supply crate.\"; after-first: after (0.65) \"State A is closer to the request because its extra reinforcement ribs, central lock hasp, and fron"
+         },
+         {
+          "name": "improve_A3",
+          "status": "passed",
+          "detail": "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.82->2.80, depiction 2.89->2.84, tier15 2.79->2.79, tier1 critical 0->0, 9 op(s); clean-up: flush faces left (fixing them would move parts the patch did not change): center_hasp_staple"
+         },
+         {
+          "name": "improve_A4",
+          "status": "passed",
+          "detail": "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.80->2.83, depiction 2.84->2.89, tier15 2.79->2.80, tier1 critical 0->0, 14 op(s); clean-up: flush faces left (fixing them would move parts the patch did not change): center_hasp_staple"
+         },
+         {
+          "name": "validate_A4",
+          "status": "passed",
+          "detail": "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.70) \"State B is closer to the request because it adds rugged kit-bashed details like side reinforcement ribs, top corner stacking pads, handle rivets, and a front nameplate.\"; after-first: after (0.65) \"State A is closer to the request because it includes additional rugged details like sid"
+         },
+         {
+          "name": "textures",
+          "status": "skipped",
+          "detail": "no material was textured: mat_olive_metal: image limit reached (0 of 0 images): larger surfaces were textured first; mat_rubber: image limit reached (0 of 0 images): larger surfaces were textured first; mat_dark_steel: image limit reached (0 of 0 images): larger surfaces were textured first; mat_stencil_brass: image limit reached (0 of 0 images): larger surfaces were textured first"
+         },
+         {
+          "name": "uv_lod_colliders",
+          "status": "passed",
+          "detail": "uv=71 lod_tris=[2928, 1056, 360, 234] hulls=4 texel_density: mat_dark_steel+mat_olive_metal+mat_rubber+mat_stencil_brass 512 (met); spread 1.00x"
+         },
+         {
+          "name": "look_round",
+          "status": "passed",
+          "detail": "the author kept every material; before: score_brief_look=2.53, score_material_separation=2.53, score_pbr_realism=2.28; 1 bake(s)"
+         },
+         {
+          "name": "z_fighting",
+          "status": "warned",
+          "detail": "lid_bolt: lid_bolt/lid_stack_pad_br: 0.935 cm^2 of same-facing faces within 1 mm of one plane; lid_bolt_back: lid_bolt_back/lid_stack_pad_fr: 0.935 cm^2 of same-facing faces within 1 mm of one plane; lid_bolt__mx: lid_bolt__mx/lid_stack_pad_bl: 0.935 cm^2 of same-facing faces within 1 mm of one plane"
+         },
+         {
+          "name": "engine_compliance",
+          "status": "passed",
+          "detail": "0 warning(s)"
+         },
+         {
+          "name": "usd_validate",
+          "status": "passed",
+          "detail": "write_engine_package ok; 0 non-critical message(s); files=11"
+         },
+         {
+          "name": "lod_pop",
+          "status": "passed",
+          "detail": "LOD pop: 3 transitions, OK; worst pair 1 (LOD1->2 @5%, 20.4 m): IoU 0.993, shade 0.019, edge 1.0px, tris 1056->360"
+         },
+         {
+          "name": "lod_pop_vision",
+          "status": "failed",
+          "detail": "pair 2: score_lod_continuity 2.83 < 3.0"
+         },
+         {
+          "name": "export_glb",
+          "status": "passed",
+          "detail": "RuggedMilitarySupply.glb 2174092 bytes (+3 LOD GLB)"
+         },
+         {
+          "name": "engine_import",
+          "status": "passed",
+          "detail": "66,0.430000007152557,0.296000003814697]],\"images\":3,\"images_loaded\":3,\"normal_surfaces\":1,\"orm_surfaces\":1,\"surfaces\":1,\"textured_surfaces\":1,\"triangles\":2928} "
+         },
+         {
+          "name": "engine_capture",
+          "status": "skipped",
+          "detail": "engine truth disabled in spend plan"
+         },
+         {
+          "name": "engine_parity",
+          "status": "skipped",
+          "detail": "spend plan 'standard' has engine_truth disabled"
+         },
+         {
+          "name": "web_runtime",
+          "status": "passed",
+          "detail": "three.js loaded and rendered the package: 27 checks passed, silhouette IoU 0.9999 against the USD"
+         },
+         {
+          "name": "blender_asset_qa",
+          "status": "failed",
+          "detail": "qa_check of EL4CTEO/blender-skills @9e7e04a (release 1.3.2), game profile, vertices merged part by part: 1 object(s), 2928 tris; 1 error(s): z-fighting: Batch_0 (24 overlapping coplanar tri pairs)"
+         },
+         {
+          "name": "export_fbx",
+          "status": "skipped",
+          "detail": "no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)"
+         }
+        ]
+       }
+      }
+     ],
+     "qa_records": []
+    },
+    "load_1min_end": 1.63,
+    "load_1min_start": 1.08,
+    "conditions": {
+     "model_calls": 27,
+     "finish_reasons": {
+      "STOP": 27
+     },
+     "calls_at_output_cap": 0,
+     "max_output_tokens_requested": [
+      8192,
+      12288,
+      24576
+     ],
+     "service_failures": {
+      "turned away": 0,
+      "broken": 0,
+      "server error": 0
+     },
+     "last_call_service_failure": null,
+     "start_end_unix": [
+      1795349375.3790717,
+      1795350036.1029632
+     ]
+    }
+   },
+   "session": 1,
+   "account": "r5:crate:C",
+   "phase": "first"
+  },
+  {
+   "brief": "hydrant",
+   "arm": "C",
+   "status": "finished",
+   "wall_s": 994.0,
+   "glb": "<scratch>/r5/live_final_C/runs/r5_hydrant_C/out/runs/tmplqyl2_46/package/CastIronFire.glb",
+   "extra_files": [
+    "<scratch>/r5/live_final_C/runs/r5_hydrant_C/out/runs/tmplqyl2_46/package/CastIronFire.usd",
+    "<scratch>/r5/live_final_C/runs/r5_hydrant_C/out/runs/tmplqyl2_46/package/CastIronFire.usdz",
+    "<scratch>/r5/live_final_C/runs/r5_hydrant_C/out/runs/tmplqyl2_46/package/CastIronFire_LOD1.glb",
+    "<scratch>/r5/live_final_C/runs/r5_hydrant_C/out/runs/tmplqyl2_46/package/CastIronFire_colliders.glb",
+    "<scratch>/r5/live_final_C/runs/r5_hydrant_C/out/runs/tmplqyl2_46/package/inspector.html",
+    "<scratch>/r5/live_final_C/runs/r5_hydrant_C/out/runs/tmplqyl2_46/package/manifest.json",
+    "<scratch>/r5/live_final_C/runs/r5_hydrant_C/out/runs/tmplqyl2_46/package/textures/CastIronFire_atlas_albedo.png",
+    "<scratch>/r5/live_final_C/runs/r5_hydrant_C/out/runs/tmplqyl2_46/package/textures/CastIronFire_atlas_normal.png",
+    "<scratch>/r5/live_final_C/runs/r5_hydrant_C/out/runs/tmplqyl2_46/package/textures/CastIronFire_atlas_orm.png"
+   ],
+   "model_calls": 38,
+   "tool_calls": null,
+   "blender_invocations": null,
+   "images": 0,
+   "tokens": {
+    "input_tokens": 386722,
+    "output_tokens": 27149,
+    "thinking_tokens": 40754,
+    "cached_tokens": 0,
+    "unknown_reserved_tokens": 0,
+    "share_tokens": 1200000,
+    "total": 454625,
+    "images": 0,
+    "share_images": 0
+   },
+   "models": {
+    "gemini-4-neon": {
+     "calls": 29,
+     "input": 226865,
+     "output": 7054,
+     "thinking": 24035
+    },
+    "gemini-4-hydrogen": {
+     "calls": 9,
+     "input": 159857,
+     "output": 20095,
+     "thinking": 16719
+    }
+   },
+   "final_text": "",
+   "notes": [
+    "arm C had a Blender worker (--blender): lookdev renders and the Blender-side checks are those a user with Blender gets",
+    "arm C: this project's pipeline (command line, preview mode); not expressible on its command line: real-world scale, +Y up, grounded and centred (the pipeline's own conventions apply; not a flag); UVs inside 0-1 and not overlapping (the pipeline unwraps by its own rules); at most 3 materials; a base colour, normal and metallic-roughness texture per material (its own lookdev decides); texture sizes (power of two, at most 2048 px): no texture-size flag; LODs and collision named as the task asks (<name>_LOD1.glb, '-col'): it writes its own package layout; the delivery folder output/<name>.glb + output/textures/: it writes a package directory; the budget sentence: there is no agent to read it; the command's own --token-ceiling / --max-images bound it"
+   ],
+   "refused": [],
+   "pipeline": {
+    "plan_lines": {
+     "default": [
+      "clutter: up to 3 image(s) (+2 per extra material) and about 377,827 tokens",
+      "simple: up to 4 image(s) (+2 per extra material) and about 397,122 tokens",
+      "standard: up to 8 image(s) (+4 per extra material) and about 535,332 tokens",
+      "hero: up to 11 image(s) (+6 per extra material) and about 609,645 tokens"
+     ],
+     "single_candidate": [
+      "clutter: up to 2 image(s) (+1 per extra material) and about 374,960 tokens",
+      "simple: up to 2 image(s) (+1 per extra material) and about 374,960 tokens",
+      "standard: up to 2 image(s) (+1 per extra material) and about 468,846 tokens",
+      "hero: up to 3 image(s) (+1 per extra material) and about 471,713 tokens"
+     ]
+    },
+    "mode": "default",
+    "command": [
+     "-m",
+     "antigravity3d.cli",
+     "prop",
+     "<brief hydrant>",
+     "--engine",
+     "godot_4",
+     "--max-tris",
+     "4000",
+     "--out",
+     "<scratch>/r5/live_final_C/runs/r5_hydrant_C/out",
+     "--preview",
+     "--blender",
+     "<scratch>/engines/blender-5.3.0-linux-x64/blender",
+     "--token-ceiling",
+     "1185000",
+     "--max-images",
+     "0"
+    ],
+    "prompt": "a cast-iron fire hydrant with bolted caps and a chained nozzle cap",
+    "own_spend": "spend (tokens, no price applied): standard: 454,625 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 122,714, author.look 7,798, author.propose 66,159, geometry_gen 0, geometry_vision 34,205, locate 84,618, lod_pop 3,044, route 1,827, visual_qa 134,260) | decisions plane 29 calls, 226,865 input + 31,089 output tokens cache hits=0 misses=1",
+    "exit_code": 0,
+    "publication": "UNVERIFIED PREVIEW (verified=false; judged by generative fallback, uncalibrated)",
+    "preview_gates": "FAIL",
+    "decision_backend": "generative_fallback",
+    "preview": {
+     "verified": false,
+     "preview": true,
+     "judge": {
+      "label": "generative fallback, uncalibrated",
+      "calibrated": false,
+      "meaning": "probabilities are a generative model's self-report, not calibrated Decisions output: they may steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it"
+     },
+     "needs_review": true,
+     "spend": {
+      "unit": "tokens",
+      "summary": "standard: 454,625 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 122,714, author.look 7,798, author.propose 66,159, geometry_gen 0, geometry_vision 34,205, locate 84,618, lod_pop 3,044, route 1,827, visual_qa 134,260)"
+     }
+    },
+    "skipped": [
+     {
+      "step": "dag:style_anchor",
+      "reason": "no style anchor provided"
+     },
+     {
+      "step": "dag:ortho",
+      "reason": "no images allowed (--max-images 0): no blueprint is drawn"
+     },
+     {
+      "step": "pyramid:separate_coplanar",
+      "reason": "no coplanar same-facing faces between parts"
+     },
+     {
+      "step": "pyramid:attach_pre",
+      "reason": "every part touches another"
+     },
+     {
+      "step": "pyramid:textures",
+      "reason": "no material was textured: cast_iron_red: image limit reached (0 of 0 images): larger surfaces were textured first; brass_accent: image limit reached (0 of 0 images): larger surfaces were textured first; bare_iron: image limit reached (0 of 0 images): larger surfaces were textured first"
+     },
+     {
+      "step": "pyramid:engine_capture",
+      "reason": "engine truth disabled in spend plan"
+     },
+     {
+      "step": "pyramid:engine_parity",
+      "reason": "spend plan 'standard' has engine_truth disabled"
+     },
+     {
+      "step": "pyramid:export_fbx",
+      "reason": "no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)"
+     }
+    ],
+    "geometry_candidates": {
+     "n_planned": 4,
+     "n_requested": 4,
+     "n_proposed": 4,
+     "outcomes": [
+      {
+       "index": 0,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10743,
+        "output_tokens": 5203,
+        "thinking_tokens": 1562
+       },
+       "admission_wait_s": 0.002,
+       "reserved_usd": null,
+       "reserved_tokens": 35088.0
+      },
+      {
+       "index": 1,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10743,
+        "output_tokens": 6256,
+        "thinking_tokens": 2070
+       },
+       "admission_wait_s": 0.002,
+       "reserved_usd": null,
+       "reserved_tokens": 35088.0
+      },
+      {
+       "index": 2,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10743,
+        "output_tokens": 5790,
+        "thinking_tokens": 2782
+       },
+       "admission_wait_s": 0.002,
+       "reserved_usd": null,
+       "reserved_tokens": 35088.0
+      },
+      {
+       "index": 3,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10743,
+        "output_tokens": 5938,
+        "thinking_tokens": 2483
+       },
+       "admission_wait_s": 0.002,
+       "reserved_usd": null,
+       "reserved_tokens": 35088.0
+      }
+     ],
+     "sizing": {
+      "basis": "expected author cost + grading",
+      "expected_candidate_tokens": 19962.0,
+      "worst_case_candidate_tokens": 38599.0,
+      "remaining_tokens": 1183173.0
+     }
+    },
+    "scores": {
+     "tier15": 1.9849350649350652,
+     "tier1_ok": true,
+     "score_silhouette": 2.6900000000000004,
+     "score_brief_depiction": 2.6399999999999997,
+     "score_shippability": 2.48,
+     "web_silhouette_iou": 0.9997167941093175
+    },
+    "plan": "standard: 454,625 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 122,714, author.look 7,798, author.propose 66,159, geometry_gen 0, geometry_vision 34,205, locate 84,618, lod_pop 3,044, route 1,827, visual_qa 134,260)",
+    "pyramid_steps": [
+     [
+      "settle_pre",
+      "passed",
+      "settled 2 node(s)"
+     ],
+     [
+      "separate_coplanar",
+      "skipped",
+      "no coplanar same-facing faces between parts"
+     ],
+     [
+      "attach_pre",
+      "skipped",
+      "every part touches another"
+     ],
+     [
+      "improve_A1",
+      "warned",
+      "rolled back (newly flagged twice: defect_clipping=0.35): progress 2.12->1.53, depiction 2.39->2.62, tier15 2.33->1.46, tier1 critical 0->0, 34 op(s); clean-up: settled 2 part(s) the patch left floatin"
+     ],
+     [
+      "improve_A2",
+      "passed",
+      "kept provisionally (cleared defect_brief_part_missing 0.45->0.10, defect_faceted 0.45->0.25; rose by the judge's noise band (0.2) or more: score_brief_depiction 2.39->2.64, score_shippability 2.24->2."
+     ],
+     [
+      "improve_A3",
+      "warned",
+      "rolled back (newly flagged twice: defect_clipping=0.50, defect_faceted=0.45): progress 2.01->1.37, depiction 2.64->2.61, tier15 1.98->1.31, tier1 critical 0->0, 10 op(s); clean-up: settled 2 part(s) t"
+     ],
+     [
+      "improve_A4",
+      "warned",
+      "rolled back (newly flagged twice: defect_faceted=0.45): progress 2.01->1.56, depiction 2.64->2.53, tier15 1.98->1.52, tier1 critical 0->0, 10 op(s); clean-up: settled 1 part(s) the patch left floating"
+     ],
+     [
+      "validate_A4",
+      "passed",
+      "kept, preferred to the last validated design in both orders: 1 round(s); judge: after (before-first: after (0.70) \"State B is closer to the request because it adds base bolts and properly connects the"
+     ],
+     [
+      "textures",
+      "skipped",
+      "no material was textured: cast_iron_red: image limit reached (0 of 0 images): larger surfaces were textured first; brass_accent: image limit reached (0 of 0 images): larger surfaces were textured firs"
+     ],
+     [
+      "uv_lod_colliders",
+      "passed",
+      "uv=40 lod_tris=[3807, 2081] hulls=8 texel_density: bare_iron+brass_accent+cast_iron_red 512 (met); spread 1.00x"
+     ],
+     [
+      "look_round",
+      "warned",
+      "undone cast_iron_red base_color [0.6196, 0.1412, 0.1059] roughness 0.55 metallic 0.00; bare_iron base_color [0.1725, 0.1843, 0.2] roughness 0.40 metallic 1.00; brass_accent base_color [0.6118, 0.4784,"
+     ],
+     [
+      "z_fighting",
+      "warned",
+      "chain_link__r4: chain_link__r4/chain_link__r5: 0.0947 cm^2 of same-facing faces within 1 mm of one plane"
+     ],
+     [
+      "engine_compliance",
+      "passed",
+      "0 warning(s)"
+     ],
+     [
+      "usd_validate",
+      "passed",
+      "write_engine_package ok; 0 non-critical message(s); files=9"
+     ],
+     [
+      "lod_pop",
+      "passed",
+      "LOD pop: 1 transitions, OK; worst pair 0 (LOD0->1 @5%, 18.5 m): IoU 0.998, shade 0.007, edge 1.0px, tris 3807->2081"
+     ],
+     [
+      "lod_pop_vision",
+      "passed",
+      "all LOD pairs imperceptible (judged by the generative fallback, uncalibrated: not verification)"
+     ],
+     [
+      "export_glb",
+      "passed",
+      "CastIronFire.glb 1675864 bytes (+1 LOD GLB)"
+     ],
+     [
+      "engine_import",
+      "passed",
+      "24,0.850000023841858,0.179999977350235]],\"images\":3,\"images_loaded\":3,\"normal_surfaces\":1,\"orm_surfaces\":1,\"surfaces\":1,\"textured_surfaces\":1,\"triangles\":3807} "
+     ],
+     [
+      "engine_capture",
+      "skipped",
+      "engine truth disabled in spend plan"
+     ],
+     [
+      "engine_parity",
+      "skipped",
+      "spend plan 'standard' has engine_truth disabled"
+     ],
+     [
+      "web_runtime",
+      "passed",
+      "three.js loaded and rendered the package: 23 checks passed, silhouette IoU 0.9997 against the USD"
+     ],
+     [
+      "blender_asset_qa",
+      "passed",
+      "qa_check of EL4CTEO/blender-skills @9e7e04a (release 1.3.2), game profile, vertices merged part by part: 1 object(s), 3807 tris; no errors, 1 warning(s): Batch_0: duplicate verts=1 loose verts=0 (all "
+     ],
+     [
+      "export_fbx",
+      "skipped",
+      "no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)"
+     ]
+    ],
+    "stdout_tail": "drant_C/out/runs/tmplqyl2_46/report.json\nskipped:\n  - dag:style_anchor: no style anchor provided\n  - dag:ortho: no images allowed (--max-images 0): no blueprint is drawn\n  - pyramid:separate_coplanar: no coplanar same-facing faces between parts\n  - pyramid:attach_pre: every part touches another\n  - pyramid:textures: no material was textured: cast_iron_red: image limit reached (0 of 0 images): larger surfaces were textured first; brass_accent: image limit reached (0 of 0 images): larger surfaces were textured first; bare_iron: image limit reached (0 of 0 images): larger surfaces were textured first\n  - pyramid:engine_capture: engine truth disabled in spend plan\n  - pyramid:engine_parity: spend plan 'standard' has engine_truth disabled\n  - pyramid:export_fbx: no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)\nwarnings:\n  - improve_A1: rolled back (newly flagged twice: defect_clipping=0.35): progress 2.12->1.53, depiction 2.39->2.62, tier15 2.33->1.46, tier1 critical 0->0, 34 op(s); clean-up: settled 2 part(s) the patch left floating within 25 mm: chain_link__r1, chain_link__r2; asked again about defect_clipping 0.35 then 0.40\n  - improve_A3: rolled back (newly flagged twice: defect_clipping=0.50, defect_faceted=0.45): progress 2.01->1.37, depiction 2.64->2.61, tier15 1.98->1.31, tier1 critical 0->0, 10 op(s); clean-up: settled 2 part(s) the patch left floating within 25 mm: chain_link__r1, chain_link__r2; attached chain_link__r1 moved 1.0 mm onto chain_link__r2 (+0.0, +1.0, +0.0 mm); asked again about defect_clipping 0.50 then 0.55, d\n  - improve_A4: rolled back (newly flagged twice: defect_faceted=0.45): progress 2.01->1.56, depiction 2.64->2.53, tier15 1.98->1.52, tier1 critical 0->0, 10 op(s); clean-up: settled 1 part(s) the patch left floating within 25 mm: chain_link__r1; asked again about defect_faceted 0.65 then 0.45\n  - look_round: undone cast_iron_red base_color [0.6196, 0.1412, 0.1059] roughness 0.55 metallic 0.00; bare_iron base_color [0.1725, 0.1843, 0.2] roughness 0.40 metallic 1.00; brass_accent base_color [0.6118, 0.4784, 0.2196] roughness 0.35 metallic 1.00: undone (not shown to be better): before-first: neither (0.70) \"Neither state is closer because state A and state B appear identical in colour and material.\"; after-first: neither (0.70) \"State A and State B appear identical in colour and material finish, so neither is closer to the request.\"; unconfirmed new flag(s), decided nothing: defect_tiling_repetition=\n  - z_fighting: chain_link__r4: chain_link__r4/chain_link__r5: 0.0947 cm^2 of same-facing faces within 1 mm of one plane\npublication: UNVERIFIED PREVIEW (verified=false; judged by generative fallback, uncalibrated)\n  judge: probabilities are a generative model's self-report, not calibrated Decisions output: they may steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it\nreview: required (the judge is uncalibrated; a person must review this package before any use)\nfinding: overall score (tier15) 1.98, below the target 3.4 by 1.42, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: silhouette 2.69, below the target 3.3 by 0.61, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: shippability 2.48, below the target 3.4 by 0.92, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: defect_floating at P=0.70 (acted on from 0.3), reported only by generative fallback, uncalibrated; look at it before you ship\nwhere to look: <scratch>/r5/live_final_C/runs/r5_hydrant_C/out/runs/tmplqyl2_46/package/inspector.html, <scratch>/r5/live_final_C/runs/r5_hydrant_C/out/runs/tmplqyl2_46/web_three.png\ndelivered: yes, every deterministic check passed (exit 0; the review above is a finding, not a failure)\npreview gates: FAIL\n",
+    "stderr_tail": "prove]    16s finished STOP, 2,507 output tokens\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:blockout]    21s finished (0 still in flight)\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:blockout]    23s finished (0 still in flight)\n[judge locate_defects]     0s sent to gemini-4-neon (1 judge call(s) in flight)\nstill running: judge locate_defects 31s\nstill running: judge locate_defects 61s\nstill running: judge locate_defects 91s\nstill running: judge locate_defects 121s\nstill running: judge locate_defects 151s\nstill running: judge locate_defects 181s\n[judge locate_defects]   186s finished (0 still in flight)\n[judge locate_defects]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge locate_defects]    11s finished (0 still in flight)\n[author worker improve]     0s sent to gemini-4-hydrogen\n[author worker improve]     7s thinking: Analyzing the Design\n[author worker improve]     8s thinking: Evaluating the Chain\n[author worker improve]    10s thinking: Refining the Chain Placement\n[author worker improve]    12s answer arriving: 45 characters\n[author worker improve]    15s finished STOP, 3,159 output tokens\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:blockout]    23s finished (0 still in flight)\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\nstill running: judge visual_qa:blockout 30s\n[judge visual_qa:blockout]    39s finished (0 still in flight)\n[judge compare:shape]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge compare:shape]     0s sent to gemini-4-neon (2 judge call(s) in flight)\n[judge compare:shape]    17s finished (1 still in flight)\n[judge compare:shape]    18s finished (0 still in flight)\n[judge visual_qa:look]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:look]    30s finished (0 still in flight)\n[author worker look]     0s sent to gemini-4-hydrogen\n[author worker look]     4s thinking: Inspecting Materials\n[author worker look]     6s thinking: Refining Material Parameters\n[author worker look]     6s answer arriving: 67 characters\n[author worker look]     7s finished STOP, 923 output tokens\n[judge compare:look]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge compare:look]     0s sent to gemini-4-neon (2 judge call(s) in flight)\n[judge visual_qa:look]     0s sent to gemini-4-neon (3 judge call(s) in flight)\n[judge visual_qa:look]     0s sent to gemini-4-neon (4 judge call(s) in flight)\n[judge compare:look]    14s finished (3 still in flight)\n[judge compare:look]    14s finished (2 still in flight)\n[judge visual_qa:look]    20s finished (1 still in flight)\n[judge visual_qa:look]    23s finished (0 still in flight)\n[judge lod_pop]     0s sent to gemini-4-neon (1 judge call(s) in flight)\nstill running: judge lod_pop 30s\n[judge lod_pop]    41s finished (0 still in flight)\n",
+    "self_report": {
+     "manifests": [
+      {
+       "path": "<scratch>/r5/live_final_C/runs/r5_hydrant_C/out/runs/tmplqyl2_46/package/manifest.json",
+       "asset": "CastIronFire",
+       "verified": false,
+       "preview": true,
+       "tris": 3807,
+       "judge": {
+        "label": "generative fallback, uncalibrated",
+        "calibrated": false,
+        "meaning": "probabilities are a generative model's self-report, not calibrated Decisions output: they may steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it"
+       },
+       "spend": {
+        "unit": "tokens",
+        "summary": "standard: 454,625 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 122,714, author.look 7,798, author.propose 66,159, geometry_gen 0, geometry_vision 34,205, locate 84,618, lod_pop 3,044, route 1,827, visual_qa 134,260)"
+       },
+       "evidence": {
+        "render_tier": "preview",
+        "lookdev": false,
+        "engine_parity": false,
+        "silhouette_iou": null,
+        "steps": [
+         {
+          "name": "settle_pre",
+          "status": "passed",
+          "detail": "settled 2 node(s)"
+         },
+         {
+          "name": "separate_coplanar",
+          "status": "skipped",
+          "detail": "no coplanar same-facing faces between parts"
+         },
+         {
+          "name": "attach_pre",
+          "status": "skipped",
+          "detail": "every part touches another"
+         },
+         {
+          "name": "improve_A1",
+          "status": "warned",
+          "detail": "rolled back (newly flagged twice: defect_clipping=0.35): progress 2.12->1.53, depiction 2.39->2.62, tier15 2.33->1.46, tier1 critical 0->0, 34 op(s); clean-up: settled 2 part(s) the patch left floating within 25 mm: chain_link__r1, chain_link__r2; asked again about defect_clipping 0.35 then 0.40"
+         },
+         {
+          "name": "improve_A2",
+          "status": "passed",
+          "detail": "kept provisionally (cleared defect_brief_part_missing 0.45->0.10, defect_faceted 0.45->0.25; rose by the judge's noise band (0.2) or more: score_brief_depiction 2.39->2.64, score_shippability 2.24->2.48): progress 2.12->2.01, depiction 2.39->2.64, tier15 2.33->1.98, tier1 critical 0->0, 34 op(s); clean-up: settled 2 part(s) the patch left floating within 25 mm: chain_link, chain_link__r1; attached"
+         },
+         {
+          "name": "improve_A3",
+          "status": "warned",
+          "detail": "rolled back (newly flagged twice: defect_clipping=0.50, defect_faceted=0.45): progress 2.01->1.37, depiction 2.64->2.61, tier15 1.98->1.31, tier1 critical 0->0, 10 op(s); clean-up: settled 2 part(s) the patch left floating within 25 mm: chain_link__r1, chain_link__r2; attached chain_link__r1 moved 1.0 mm onto chain_link__r2 (+0.0, +1.0, +0.0 mm); asked again about defect_clipping 0.50 then 0.55, d"
+         },
+         {
+          "name": "improve_A4",
+          "status": "warned",
+          "detail": "rolled back (newly flagged twice: defect_faceted=0.45): progress 2.01->1.56, depiction 2.64->2.53, tier15 1.98->1.52, tier1 critical 0->0, 10 op(s); clean-up: settled 1 part(s) the patch left floating within 25 mm: chain_link__r1; asked again about defect_faceted 0.65 then 0.45"
+         },
+         {
+          "name": "validate_A4",
+          "status": "passed",
+          "detail": "kept, preferred to the last validated design in both orders: 1 round(s); judge: after (before-first: after (0.70) \"State B is closer to the request because it adds base bolts and properly connects the chain to the nozzle cap.\"; after-first: after (0.75) \"State A is closer to the request because it includes the base flange bolts and a more complete chained nozzle cap.\")"
+         },
+         {
+          "name": "textures",
+          "status": "skipped",
+          "detail": "no material was textured: cast_iron_red: image limit reached (0 of 0 images): larger surfaces were textured first; brass_accent: image limit reached (0 of 0 images): larger surfaces were textured first; bare_iron: image limit reached (0 of 0 images): larger surfaces were textured first"
+         },
+         {
+          "name": "uv_lod_colliders",
+          "status": "passed",
+          "detail": "uv=40 lod_tris=[3807, 2081] hulls=8 texel_density: bare_iron+brass_accent+cast_iron_red 512 (met); spread 1.00x"
+         },
+         {
+          "name": "look_round",
+          "status": "warned",
+          "detail": "undone cast_iron_red base_color [0.6196, 0.1412, 0.1059] roughness 0.55 metallic 0.00; bare_iron base_color [0.1725, 0.1843, 0.2] roughness 0.40 metallic 1.00; brass_accent base_color [0.6118, 0.4784, 0.2196] roughness 0.35 metallic 1.00: undone (not shown to be better): before-first: neither (0.70) \"Neither state is closer because state A and state B appear identical in colour and material.\"; after-first: neither (0.70) \"State A and State B appear identical in colour and material finish, so neither is closer to the request.\"; unconfirmed new flag(s), decided nothing: defect_tiling_repetition="
+         },
+         {
+          "name": "z_fighting",
+          "status": "warned",
+          "detail": "chain_link__r4: chain_link__r4/chain_link__r5: 0.0947 cm^2 of same-facing faces within 1 mm of one plane"
+         },
+         {
+          "name": "engine_compliance",
+          "status": "passed",
+          "detail": "0 warning(s)"
+         },
+         {
+          "name": "usd_validate",
+          "status": "passed",
+          "detail": "write_engine_package ok; 0 non-critical message(s); files=9"
+         },
+         {
+          "name": "lod_pop",
+          "status": "passed",
+          "detail": "LOD pop: 1 transitions, OK; worst pair 0 (LOD0->1 @5%, 18.5 m): IoU 0.998, shade 0.007, edge 1.0px, tris 3807->2081"
+         },
+         {
+          "name": "lod_pop_vision",
+          "status": "passed",
+          "detail": "all LOD pairs imperceptible (judged by the generative fallback, uncalibrated: not verification)"
+         },
+         {
+          "name": "export_glb",
+          "status": "passed",
+          "detail": "CastIronFire.glb 1675864 bytes (+1 LOD GLB)"
+         },
+         {
+          "name": "engine_import",
+          "status": "passed",
+          "detail": "24,0.850000023841858,0.179999977350235]],\"images\":3,\"images_loaded\":3,\"normal_surfaces\":1,\"orm_surfaces\":1,\"surfaces\":1,\"textured_surfaces\":1,\"triangles\":3807} "
+         },
+         {
+          "name": "engine_capture",
+          "status": "skipped",
+          "detail": "engine truth disabled in spend plan"
+         },
+         {
+          "name": "engine_parity",
+          "status": "skipped",
+          "detail": "spend plan 'standard' has engine_truth disabled"
+         },
+         {
+          "name": "web_runtime",
+          "status": "passed",
+          "detail": "three.js loaded and rendered the package: 23 checks passed, silhouette IoU 0.9997 against the USD"
+         },
+         {
+          "name": "blender_asset_qa",
+          "status": "passed",
+          "detail": "qa_check of EL4CTEO/blender-skills @9e7e04a (release 1.3.2), game profile, vertices merged part by part: 1 object(s), 3807 tris; no errors, 1 warning(s): Batch_0: duplicate verts=1 loose verts=0 (all 2 are vertices of separate parts in contact, not unmerged duplicates)"
+         },
+         {
+          "name": "export_fbx",
+          "status": "skipped",
+          "detail": "no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)"
+         }
+        ]
+       }
+      }
+     ],
+     "qa_records": []
+    },
+    "load_1min_end": 4.36,
+    "load_1min_start": 1.63,
+    "conditions": {
+     "model_calls": 38,
+     "finish_reasons": {
+      "STOP": 38
+     },
+     "calls_at_output_cap": 0,
+     "max_output_tokens_requested": [
+      8192,
+      12288,
+      24576
+     ],
+     "service_failures": {
+      "turned away": 0,
+      "broken": 0,
+      "server error": 0
+     },
+     "last_call_service_failure": null,
+     "start_end_unix": [
+      1795350037.9170794,
+      1795351031.9033215
+     ]
+    }
+   },
+   "session": 1,
+   "account": "r5:hydrant:C",
+   "phase": "first"
+  },
+  {
+   "brief": "chair",
+   "arm": "C",
+   "status": "finished",
+   "wall_s": 527.4,
+   "glb": "<scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/WoodenWindsorChair.glb",
+   "extra_files": [
+    "<scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/WoodenWindsorChair.usd",
+    "<scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/WoodenWindsorChair.usdz",
+    "<scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/WoodenWindsorChair_LOD1.glb",
+    "<scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/WoodenWindsorChair_colliders.glb",
+    "<scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/inspector.html",
+    "<scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/manifest.json",
+    "<scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/textures/WoodenWindsorChair_atlas_albedo.png",
+    "<scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/textures/WoodenWindsorChair_atlas_normal.png",
+    "<scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/textures/WoodenWindsorChair_atlas_orm.png"
+   ],
+   "model_calls": 29,
+   "tool_calls": null,
+   "blender_invocations": null,
+   "images": 0,
+   "tokens": {
+    "input_tokens": 340264,
+    "output_tokens": 21017,
+    "thinking_tokens": 29655,
+    "cached_tokens": 0,
+    "unknown_reserved_tokens": 0,
+    "share_tokens": 1200000,
+    "total": 390936,
+    "images": 0,
+    "share_images": 0
+   },
+   "models": {
+    "gemini-4-neon": {
+     "calls": 18,
+     "input": 146823,
+     "output": 3447,
+     "thinking": 12696
+    },
+    "gemini-4-hydrogen": {
+     "calls": 11,
+     "input": 193441,
+     "output": 17570,
+     "thinking": 16959
+    }
+   },
+   "final_text": "",
+   "notes": [
+    "arm C had a Blender worker (--blender): lookdev renders and the Blender-side checks are those a user with Blender gets",
+    "arm C: this project's pipeline (command line, preview mode); not expressible on its command line: real-world scale, +Y up, grounded and centred (the pipeline's own conventions apply; not a flag); UVs inside 0-1 and not overlapping (the pipeline unwraps by its own rules); at most 3 materials; a base colour, normal and metallic-roughness texture per material (its own lookdev decides); texture sizes (power of two, at most 2048 px): no texture-size flag; LODs and collision named as the task asks (<name>_LOD1.glb, '-col'): it writes its own package layout; the delivery folder output/<name>.glb + output/textures/: it writes a package directory; the budget sentence: there is no agent to read it; the command's own --token-ceiling / --max-images bound it"
+   ],
+   "refused": [],
+   "pipeline": {
+    "plan_lines": {
+     "default": [
+      "clutter: up to 3 image(s) (+2 per extra material) and about 377,827 tokens",
+      "simple: up to 4 image(s) (+2 per extra material) and about 397,122 tokens",
+      "standard: up to 8 image(s) (+4 per extra material) and about 535,332 tokens",
+      "hero: up to 11 image(s) (+6 per extra material) and about 609,645 tokens"
+     ],
+     "single_candidate": [
+      "clutter: up to 2 image(s) (+1 per extra material) and about 374,960 tokens",
+      "simple: up to 2 image(s) (+1 per extra material) and about 374,960 tokens",
+      "standard: up to 2 image(s) (+1 per extra material) and about 468,846 tokens",
+      "hero: up to 3 image(s) (+1 per extra material) and about 471,713 tokens"
+     ]
+    },
+    "mode": "default",
+    "command": [
+     "-m",
+     "antigravity3d.cli",
+     "prop",
+     "<brief chair>",
+     "--engine",
+     "godot_4",
+     "--max-tris",
+     "5000",
+     "--out",
+     "<scratch>/r5/live_final_C/runs/r5_chair_C/out",
+     "--preview",
+     "--blender",
+     "<scratch>/engines/blender-5.3.0-linux-x64/blender",
+     "--token-ceiling",
+     "1185000",
+     "--max-images",
+     "0"
+    ],
+    "prompt": "a wooden Windsor chair with a spindle back",
+    "own_spend": "spend (tokens, no price applied): standard: 390,936 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 135,444, author.look 6,979, author.propose 59,690, author.repair 25,857, geometry_gen 0, geometry_vision 34,456, locate 9,816, lod_pop 2,980, route 1,697, visual_qa 114,017) | decisions plane 18 calls, 146,823 input + 16,143 output tokens cache hits=0 misses=1",
+    "exit_code": 0,
+    "publication": "UNVERIFIED PREVIEW (verified=false; judged by generative fallback, uncalibrated)",
+    "preview_gates": "FAIL",
+    "decision_backend": "generative_fallback",
+    "preview": {
+     "verified": false,
+     "preview": true,
+     "judge": {
+      "label": "generative fallback, uncalibrated",
+      "calibrated": false,
+      "meaning": "probabilities are a generative model's self-report, not calibrated Decisions output: they may steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it"
+     },
+     "needs_review": true,
+     "spend": {
+      "unit": "tokens",
+      "summary": "standard: 390,936 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 135,444, author.look 6,979, author.propose 59,690, author.repair 25,857, geometry_gen 0, geometry_vision 34,456, locate 9,816, lod_pop 2,980, route 1,697, visual_qa 114,017)"
+     }
+    },
+    "skipped": [
+     {
+      "step": "dag:style_anchor",
+      "reason": "no style anchor provided"
+     },
+     {
+      "step": "dag:ortho",
+      "reason": "no images allowed (--max-images 0): no blueprint is drawn"
+     },
+     {
+      "step": "pyramid:settle_pre",
+      "reason": "floating part beside another part, not above anything: left to the author"
+     },
+     {
+      "step": "pyramid:separate_coplanar",
+      "reason": "no coplanar same-facing faces between parts"
+     },
+     {
+      "step": "pyramid:tidy_A1",
+      "reason": "nothing to clean up"
+     },
+     {
+      "step": "pyramid:textures",
+      "reason": "no material was textured: wood_oak: image limit reached (0 of 0 images): larger surfaces were textured first"
+     },
+     {
+      "step": "pyramid:engine_capture",
+      "reason": "engine truth disabled in spend plan"
+     },
+     {
+      "step": "pyramid:engine_parity",
+      "reason": "spend plan 'standard' has engine_truth disabled"
+     },
+     {
+      "step": "pyramid:export_fbx",
+      "reason": "no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)"
+     }
+    ],
+    "geometry_candidates": {
+     "n_planned": 4,
+     "n_requested": 4,
+     "n_proposed": 4,
+     "outcomes": [
+      {
+       "index": 0,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10737,
+        "output_tokens": 3637,
+        "thinking_tokens": 1338
+       },
+       "admission_wait_s": 0.013,
+       "reserved_usd": null,
+       "reserved_tokens": 35088.0
+      },
+      {
+       "index": 1,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10737,
+        "output_tokens": 4104,
+        "thinking_tokens": 1328
+       },
+       "admission_wait_s": 0.008,
+       "reserved_usd": null,
+       "reserved_tokens": 35088.0
+      },
+      {
+       "index": 2,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10737,
+        "output_tokens": 5701,
+        "thinking_tokens": 3028
+       },
+       "admission_wait_s": 0.021,
+       "reserved_usd": null,
+       "reserved_tokens": 35088.0
+      },
+      {
+       "index": 3,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10737,
+        "output_tokens": 3300,
+        "thinking_tokens": 1093
+       },
+       "admission_wait_s": 0.017,
+       "reserved_usd": null,
+       "reserved_tokens": 35088.0
+      }
+     ],
+     "sizing": {
+      "basis": "expected author cost + grading",
+      "expected_candidate_tokens": 19970.0,
+      "worst_case_candidate_tokens": 38607.0,
+      "remaining_tokens": 1183303.0
+     }
+    },
+    "scores": {
+     "tier15": 2.6645454545454546,
+     "tier1_ok": true,
+     "score_silhouette": 2.69,
+     "score_brief_depiction": 2.69,
+     "score_shippability": 2.6500000000000004,
+     "web_silhouette_iou": 0.9982029865856745
+    },
+    "plan": "standard: 390,936 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 135,444, author.look 6,979, author.propose 59,690, author.repair 25,857, geometry_gen 0, geometry_vision 34,456, locate 9,816, lod_pop 2,980, route 1,697, visual_qa 114,017)",
+    "pyramid_steps": [
+     [
+      "settle_pre",
+      "skipped",
+      "floating part beside another part, not above anything: left to the author"
+     ],
+     [
+      "separate_coplanar",
+      "skipped",
+      "no coplanar same-facing faces between parts"
+     ],
+     [
+      "attach_pre",
+      "passed",
+      "attached crest_rail moved 1.0 mm onto spindle_3__mx (+0.0, +0.0, -1.0 mm)"
+     ],
+     [
+      "tidy_A1",
+      "skipped",
+      "nothing to clean up"
+     ],
+     [
+      "improve_A1",
+      "passed",
+      "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.55->2.65, depiction 2.59->2.63, tier15 2.54->2.65, tier1 critical 0->0, 4 op(s); clean-up: settled "
+     ],
+     [
+      "improve_A2",
+      "passed",
+      "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.65->2.59, depiction 2.63->2.59, tier15 2.65->2.59, tier1 critical 0->0, 6 op(s)"
+     ],
+     [
+      "validate_A2",
+      "passed",
+      "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.60) \"State B is closer to the request because it adds turned profiles to the stretchers an"
+     ],
+     [
+      "improve_A3",
+      "passed",
+      "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.59->2.62, depiction 2.59->2.64, tier15 2.59->2.61, tier1 critical 0->0, 10 op(s)"
+     ],
+     [
+      "improve_A4",
+      "passed",
+      "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.62->2.67, depiction 2.64->2.69, tier15 2.61->2.66, tier1 critical 0->0, 8 op(s)"
+     ],
+     [
+      "validate_A4",
+      "passed",
+      "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.65) \"State B is closer to the request because its legs, stretchers, and spindles feature m"
+     ],
+     [
+      "textures",
+      "skipped",
+      "no material was textured: wood_oak: image limit reached (0 of 0 images): larger surfaces were textured first"
+     ],
+     [
+      "uv_lod_colliders",
+      "passed",
+      "uv=19 lod_tris=[4510, 3246] hulls=8 texel_density: wood_oak 512 (met); spread 1.00x"
+     ],
+     [
+      "look_round",
+      "passed",
+      "the author kept every material; before: score_brief_look=2.36, score_material_separation=2.15, score_pbr_realism=1.77; 1 bake(s)"
+     ],
+     [
+      "engine_compliance",
+      "passed",
+      "0 warning(s)"
+     ],
+     [
+      "usd_validate",
+      "passed",
+      "write_engine_package ok; 0 non-critical message(s); files=9"
+     ],
+     [
+      "lod_pop",
+      "passed",
+      "LOD pop: 1 transitions, OK; worst pair 0 (LOD0->1 @10%, 10.0 m): IoU 0.984, shade 0.016, edge 1.0px, tris 4510->3246"
+     ],
+     [
+      "lod_pop_vision",
+      "passed",
+      "all LOD pairs imperceptible (judged by the generative fallback, uncalibrated: not verification)"
+     ],
+     [
+      "export_glb",
+      "passed",
+      "WoodenWindsorChair.glb 1092808 bytes (+1 LOD GLB)"
+     ],
+     [
+      "engine_import",
+      "passed",
+      "11,0.937499165534973,0.212999999523163]],\"images\":3,\"images_loaded\":3,\"normal_surfaces\":1,\"orm_surfaces\":1,\"surfaces\":1,\"textured_surfaces\":1,\"triangles\":4510} "
+     ],
+     [
+      "engine_capture",
+      "skipped",
+      "engine truth disabled in spend plan"
+     ],
+     [
+      "engine_parity",
+      "skipped",
+      "spend plan 'standard' has engine_truth disabled"
+     ],
+     [
+      "web_runtime",
+      "passed",
+      "three.js loaded and rendered the package: 23 checks passed, silhouette IoU 0.9982 against the USD"
+     ],
+     [
+      "blender_asset_qa",
+      "passed",
+      "qa_check of EL4CTEO/blender-skills @9e7e04a (release 1.3.2), game profile, vertices merged part by part: 1 object(s), 4510 tris; no errors, 1 warning(s): hidden back-to-back faces: Batch_0 (37 pairs) "
+     ],
+     [
+      "export_fbx",
+      "skipped",
+      "no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)"
+     ]
+    ],
+    "stdout_tail": "x=skipped\nrender tier: preview; stopped: {'A': 'round 2: short only of score gate(s) (silhouette), no defect to repair: improvement rounds; improvement: 4 round(s) used; 4 round(s) kept (pairwise validation), depiction 2.59->2.69', 'B': 'no textures', 'C': 'verification run'}\nscores: tier15=2.66 tier1=OK silhouette=2.69 brief_depiction=2.69 shippability=2.65\nspend (tokens, no price applied): standard: 390,936 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 135,444, author.look 6,979, author.propose 59,690, author.repair 25,857, geometry_gen 0, geometry_vision 34,456, locate 9,816, lod_pop 2,980, route 1,697, visual_qa 114,017) | decisions plane 18 calls, 146,823 input + 16,143 output tokens cache hits=0 misses=1\ndesign record: 0 design(s) and 0 repair(s) reused, no call made; 11 recorded\noutputs:\n  usd: <scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/WoodenWindsorChair.usd\n  manifest: <scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/manifest.json\n  glb: <scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/WoodenWindsorChair.glb\n  web_render: <scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/web_three.png\n  authoring_usd: <scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/WoodenWindsorChair_authoring.usda\n  inspector: <scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/inspector.html\n  report: <scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/report.json\nskipped:\n  - dag:style_anchor: no style anchor provided\n  - dag:ortho: no images allowed (--max-images 0): no blueprint is drawn\n  - pyramid:settle_pre: floating part beside another part, not above anything: left to the author\n  - pyramid:separate_coplanar: no coplanar same-facing faces between parts\n  - pyramid:tidy_A1: nothing to clean up\n  - pyramid:textures: no material was textured: wood_oak: image limit reached (0 of 0 images): larger surfaces were textured first\n  - pyramid:engine_capture: engine truth disabled in spend plan\n  - pyramid:engine_parity: spend plan 'standard' has engine_truth disabled\n  - pyramid:export_fbx: no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)\npublication: UNVERIFIED PREVIEW (verified=false; judged by generative fallback, uncalibrated)\n  judge: probabilities are a generative model's self-report, not calibrated Decisions output: they may steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it\nreview: required (the judge is uncalibrated; a person must review this package before any use)\nfinding: overall score (tier15) 2.66, below the target 3.4 by 0.74, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: silhouette 2.69, below the target 3.3 by 0.61, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: shippability 2.65, below the target 3.4 by 0.75, judged by generative fallback, uncalibrated; look at it before you ship\nwhere to look: <scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/inspector.html, <scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/web_three.png\ndelivered: yes, every deterministic check passed (exit 0; the review above is a finding, not a failure)\npreview gates: FAIL\n",
+    "stderr_tail": "ing: 27 characters\n[author worker improve]    17s finished STOP, 1,901 output tokens\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:blockout]    19s finished (0 still in flight)\n[judge compare:shape]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge compare:shape]     0s sent to gemini-4-neon (2 judge call(s) in flight)\n[judge compare:shape]    14s finished (1 still in flight)\n[judge compare:shape]    14s finished (0 still in flight)\n[author worker improve]     0s sent to gemini-4-hydrogen\n[author worker improve]     3s thinking: Analyzing the Design\n[author worker improve]     5s thinking: Refining the Chair Design\n[author worker improve]     7s thinking: Considering Design Refinements\n[author worker improve]     9s thinking: Evaluating the Geometry\n[author worker improve]    10s answer arriving: 71 characters\n[author worker improve]    16s finished STOP, 3,086 output tokens\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:blockout]    18s finished (0 still in flight)\n[author worker improve]     0s sent to gemini-4-hydrogen\n[author worker improve]     4s thinking: Analyzing Chair Design\n[author worker improve]     6s thinking: Refining Windsor Chair Details\n[author worker improve]     8s thinking: Adjusting Spindle Placement\n[author worker improve]    10s thinking: Evaluating Stile Placement\n[author worker improve]    12s answer arriving: 17 characters\n[author worker improve]    20s finished STOP, 3,824 output tokens\n[author worker improve]     0s sent to gemini-4-hydrogen\n[author worker improve]     4s thinking: Assessing Initial Scores\n[author worker improve]     6s thinking: Refining Seat & Backrest\n[author worker improve]     8s thinking: Analyzing Spindle Placement\n[author worker improve]    10s thinking: Examining Style Details\n[author worker improve]    12s thinking: Enhancing Spindle Profiles\n[author worker improve]    13s answer arriving: 38 characters\n[author worker improve]    19s finished STOP, 3,543 output tokens\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:blockout]    26s finished (0 still in flight)\n[judge compare:shape]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge compare:shape]     0s sent to gemini-4-neon (2 judge call(s) in flight)\n[judge compare:shape]    13s finished (1 still in flight)\n[judge compare:shape]    18s finished (0 still in flight)\n[judge visual_qa:look]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:look]    26s finished (0 still in flight)\n[author worker look]     0s sent to gemini-4-hydrogen\n[author worker look]    17s thinking: Analyzing the Details\n[author worker look]    18s answer arriving: 11 characters\n[author worker look]    18s finished STOP, 259 output tokens\n[judge lod_pop]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge lod_pop]    14s finished (0 still in flight)\n",
+    "self_report": {
+     "manifests": [
+      {
+       "path": "<scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/manifest.json",
+       "asset": "WoodenWindsorChair",
+       "verified": false,
+       "preview": true,
+       "tris": 4510,
+       "judge": {
+        "label": "generative fallback, uncalibrated",
+        "calibrated": false,
+        "meaning": "probabilities are a generative model's self-report, not calibrated Decisions output: they may steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it"
+       },
+       "spend": {
+        "unit": "tokens",
+        "summary": "standard: 390,936 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 135,444, author.look 6,979, author.propose 59,690, author.repair 25,857, geometry_gen 0, geometry_vision 34,456, locate 9,816, lod_pop 2,980, route 1,697, visual_qa 114,017)"
+       },
+       "evidence": {
+        "render_tier": "preview",
+        "lookdev": false,
+        "engine_parity": false,
+        "silhouette_iou": null,
+        "steps": [
+         {
+          "name": "settle_pre",
+          "status": "skipped",
+          "detail": "floating part beside another part, not above anything: left to the author"
+         },
+         {
+          "name": "separate_coplanar",
+          "status": "skipped",
+          "detail": "no coplanar same-facing faces between parts"
+         },
+         {
+          "name": "attach_pre",
+          "status": "passed",
+          "detail": "attached crest_rail moved 1.0 mm onto spindle_3__mx (+0.0, +0.0, -1.0 mm)"
+         },
+         {
+          "name": "tidy_A1",
+          "status": "skipped",
+          "detail": "nothing to clean up"
+         },
+         {
+          "name": "improve_A1",
+          "status": "passed",
+          "detail": "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.55->2.65, depiction 2.59->2.63, tier15 2.54->2.65, tier1 critical 0->0, 4 op(s); clean-up: settled 1 part(s) the patch left floating within 28 mm: crest_rail; attached crest_rail moved 1.0 mm onto spindle_center (+0.0, +0.0, -1.0 mm)"
+         },
+         {
+          "name": "improve_A2",
+          "status": "passed",
+          "detail": "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.65->2.59, depiction 2.63->2.59, tier15 2.65->2.59, tier1 critical 0->0, 6 op(s)"
+         },
+         {
+          "name": "validate_A2",
+          "status": "passed",
+          "detail": "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.60) \"State B is closer to the request because it adds turned profiles to the stretchers and rounds the ends of the top rail, better matching a traditional Windsor chair.\"; after-first: after (0.65) \"State A is closer to a traditional Windsor chair because it features turned, contoured stre"
+         },
+         {
+          "name": "improve_A3",
+          "status": "passed",
+          "detail": "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.59->2.62, depiction 2.59->2.64, tier15 2.59->2.61, tier1 critical 0->0, 10 op(s)"
+         },
+         {
+          "name": "improve_A4",
+          "status": "passed",
+          "detail": "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.62->2.67, depiction 2.64->2.69, tier15 2.61->2.66, tier1 critical 0->0, 8 op(s)"
+         },
+         {
+          "name": "validate_A4",
+          "status": "passed",
+          "detail": "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.65) \"State B is closer to the request because its legs, stretchers, and spindles feature more defined turned profiles typical of a Windsor chair.\"; after-first: after (0.45) \"State A is slightly closer to the request because its legs and stretchers have more pronounced turned profiles char"
+         },
+         {
+          "name": "textures",
+          "status": "skipped",
+          "detail": "no material was textured: wood_oak: image limit reached (0 of 0 images): larger surfaces were textured first"
+         },
+         {
+          "name": "uv_lod_colliders",
+          "status": "passed",
+          "detail": "uv=19 lod_tris=[4510, 3246] hulls=8 texel_density: wood_oak 512 (met); spread 1.00x"
+         },
+         {
+          "name": "look_round",
+          "status": "passed",
+          "detail": "the author kept every material; before: score_brief_look=2.36, score_material_separation=2.15, score_pbr_realism=1.77; 1 bake(s)"
+         },
+         {
+          "name": "engine_compliance",
+          "status": "passed",
+          "detail": "0 warning(s)"
+         },
+         {
+          "name": "usd_validate",
+          "status": "passed",
+          "detail": "write_engine_package ok; 0 non-critical message(s); files=9"
+         },
+         {
+          "name": "lod_pop",
+          "status": "passed",
+          "detail": "LOD pop: 1 transitions, OK; worst pair 0 (LOD0->1 @10%, 10.0 m): IoU 0.984, shade 0.016, edge 1.0px, tris 4510->3246"
+         },
+         {
+          "name": "lod_pop_vision",
+          "status": "passed",
+          "detail": "all LOD pairs imperceptible (judged by the generative fallback, uncalibrated: not verification)"
+         },
+         {
+          "name": "export_glb",
+          "status": "passed",
+          "detail": "WoodenWindsorChair.glb 1092808 bytes (+1 LOD GLB)"
+         },
+         {
+          "name": "engine_import",
+          "status": "passed",
+          "detail": "11,0.937499165534973,0.212999999523163]],\"images\":3,\"images_loaded\":3,\"normal_surfaces\":1,\"orm_surfaces\":1,\"surfaces\":1,\"textured_surfaces\":1,\"triangles\":4510} "
+         },
+         {
+          "name": "engine_capture",
+          "status": "skipped",
+          "detail": "engine truth disabled in spend plan"
+         },
+         {
+          "name": "engine_parity",
+          "status": "skipped",
+          "detail": "spend plan 'standard' has engine_truth disabled"
+         },
+         {
+          "name": "web_runtime",
+          "status": "passed",
+          "detail": "three.js loaded and rendered the package: 23 checks passed, silhouette IoU 0.9982 against the USD"
+         },
+         {
+          "name": "blender_asset_qa",
+          "status": "passed",
+          "detail": "qa_check of EL4CTEO/blender-skills @9e7e04a (release 1.3.2), game profile, vertices merged part by part: 1 object(s), 4510 tris; no errors, 1 warning(s): hidden back-to-back faces: Batch_0 (37 pairs) - delete to save tris"
+         },
+         {
+          "name": "export_fbx",
+          "status": "skipped",
+          "detail": "no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)"
+         }
+        ]
+       }
+      }
+     ],
+     "qa_records": []
+    },
+    "load_1min_end": 3.13,
+    "load_1min_start": 4.36,
+    "conditions": {
+     "model_calls": 29,
+     "finish_reasons": {
+      "STOP": 29
+     },
+     "calls_at_output_cap": 0,
+     "max_output_tokens_requested": [
+      8192,
+      12288,
+      24576
+     ],
+     "service_failures": {
+      "turned away": 0,
+      "broken": 0,
+      "server error": 0
+     },
+     "last_call_service_failure": null,
+     "start_end_unix": [
+      1795351033.891701,
+      1795351561.2842138
+     ]
+    }
+   },
+   "session": 1,
+   "account": "r5:chair:C",
+   "phase": "first"
+  }
+ ],
+ "changes": [
+  {
+   "brief": "chair",
+   "arm": "C",
+   "status": "finished",
+   "wall_s": 97.5,
+   "glb": "<scratch>/r5/live_final_C/runs/r5_chair_C.change/out/runs/edit-1gxi8tyh/attempt-1/package/WoodenWindsorChair.glb",
+   "extra_files": [],
+   "model_calls": 6,
+   "tool_calls": 0,
+   "blender_invocations": null,
+   "images": 0,
+   "tokens": {
+    "input_tokens": 79550,
+    "output_tokens": 2987,
+    "thinking_tokens": 3916,
+    "cached_tokens": 21973,
+    "unknown_reserved_tokens": 0,
+    "share_tokens": 600000,
+    "total": 86453,
+    "images": 0,
+    "share_images": 0
+   },
+   "models": {
+    "gemini-4-neon": {
+     "calls": 4,
+     "input": 31506,
+     "output": 638,
+     "thinking": 2582
+    },
+    "gemini-4-hydrogen": {
+     "calls": 2,
+     "input": 48044,
+     "output": 2349,
+     "thinking": 1334
+    }
+   },
+   "final_text": "",
+   "notes": [],
+   "refused": [],
+   "pipeline": {
+    "seeded_from": "<scratch>/r5/live_final_C/runs/r5_chair_C/out",
+    "change_mode": "edit",
+    "command": [
+     "-m",
+     "antigravity3d.cli",
+     "edit",
+     "<scratch>/r5/live_final_C/runs/r5_chair_C.change/out",
+     "make the spindles of the back 30 % thicker",
+     "--token-ceiling",
+     "585000",
+     "--max-images",
+     "0",
+     "--blender",
+     "<scratch>/engines/blender-5.3.0-linux-x64/blender"
+    ],
+    "exit_code": 0,
+    "edit": {
+     "kept": true,
+     "why": "",
+     "target": "<scratch>/r5/live_final_C/runs/r5_chair_C.change/out",
+     "instruction": "make the spindles of the back 30 % thicker",
+     "attempts": [
+      {
+       "n": 1,
+       "ops": [
+        "set_param spindle_center",
+        "set_param spindle_1",
+        "set_param spindle_2",
+        "set_param spindle_3",
+        "set_param spindle_1__mx",
+        "set_param spindle_2__mx",
+        "set_param spindle_3__mx"
+       ],
+       "scope": {
+        "unchanged": 12,
+        "changed": {
+         "spindle_1": {
+          "size_before": [
+           0.023,
+           0.0838,
+           0.4327
+          ],
+          "size_after": [
+           0.0299,
+           0.088,
+           0.4334
+          ],
+          "ratio": [
+           1.3,
+           1.05,
+           1.002
+          ],
+          "centre_moved_m": 0.0001
+         },
+         "spindle_1__mx": {
+          "size_before": [
+           0.023,
+           0.0838,
+           0.4327
+          ],
+          "size_after": [
+           0.0299,
+           0.088,
+           0.4334
+          ],
+          "ratio": [
+           1.3,
+           1.05,
+           1.002
+          ],
+          "centre_moved_m": 0.0001
+         },
+         "spindle_2": {
+          "size_before": [
+           0.023,
+           0.0838,
+           0.4327
+          ],
+          "size_after": [
+           0.0299,
+           0.088,
+           0.4334
+          ],
+          "ratio": [
+           1.3,
+           1.05,
+           1.002
+          ],
+          "centre_moved_m": 0.0001
+         },
+         "spindle_2__mx": {
+          "size_before": [
+           0.023,
+           0.0838,
+           0.4327
+          ],
+          "size_after": [
+           0.0299,
+           0.088,
+           0.4334
+          ],
+          "ratio": [
+           1.3,
+           1.05,
+           1.002
+          ],
+          "centre_moved_m": 0.0001
+         },
+         "spindle_3": {
+          "size_before": [
+           0.023,
+           0.0838,
+           0.4327
+          ],
+          "size_after": [
+           0.0299,
+           0.088,
+           0.4334
+          ],
+          "ratio": [
+           1.3,
+           1.05,
+           1.002
+          ],
+          "centre_moved_m": 0.0001
+         },
+         "spindle_3__mx": {
+          "size_before": [
+           0.023,
+           0.0838,
+           0.4327
+          ],
+          "size_after": [
+           0.0299,
+           0.088,
+           0.4334
+          ],
+          "ratio": [
+           1.3,
+           1.05,
+           1.002
+          ],
+          "centre_moved_m": 0.0001
+         },
+         "spindle_center": {
+          "size_before": [
+           0.023,
+           0.0838,
+           0.4327
+          ],
+          "size_after": [
+           0.0299,
+           0.088,
+           0.4334
+          ],
+          "ratio": [
+           1.3,
+           1.05,
+           1.002
+          ],
+          "centre_moved_m": 0.0001
+         }
+        },
+        "added": [],
+        "removed": [],
+        "outside": []
+       },
+       "done_p": 0.75,
+       "collateral_p": 0.25,
+       "kept": true,
+       "why": "",
+       "seconds": 86.4
+      }
+     ],
+     "package": "<scratch>/r5/live_final_C/runs/r5_chair_C.change/out/runs/edit-1gxi8tyh/attempt-1/package",
+     "previous_package": "<scratch>/r5/live_final_C/runs/r5_chair_C.change/out/runs/tmpwiy7sknj/package",
+     "history": "<scratch>/r5/live_final_C/runs/r5_chair_C.change/out/history/001",
+     "number": 1,
+     "seconds": 93.9,
+     "calls": {
+      "author": 1,
+      "judge": 3
+     },
+     "spend": {
+      "unit": "tokens",
+      "spent": 110137.0,
+      "by_category": {
+       "author.improve": 75411.0,
+       "edit_check": 12895.0,
+       "lod_pop": 2875.0,
+       "visual_qa": 18956.0
+      },
+      "images": 0
+     },
+     "preview_gates_ok": false,
+     "delivered": {
+      "ok": true,
+      "why": []
+     },
+     "review": {
+      "calibrated": false,
+      "judge": "generative fallback, uncalibrated",
+      "where": [
+       "<scratch>/r5/live_final_C/runs/r5_chair_C.change/out/runs/edit-1gxi8tyh/attempt-1/package/inspector.html",
+       "<scratch>/r5/live_final_C/runs/r5_chair_C.change/out/runs/edit-1gxi8tyh/attempt-1/package"
+      ],
+      "status": "below_target",
+      "targets": [
+       {
+        "name": "tier15",
+        "label": "overall score (tier15)",
+        "score": 2.65,
+        "target": 3.4,
+        "met": false,
+        "short_by": 0.75
+       },
+       {
+        "name": "score_silhouette",
+        "label": "silhouette",
+        "score": 2.69,
+        "target": 3.3,
+        "met": false,
+        "short_by": 0.61
+       },
+       {
+        "name": "score_shippability",
+        "label": "shippability",
+        "score": 2.62,
+        "target": 3.4,
+        "met": false,
+        "short_by": 0.78
+       },
+       {
+        "name": "score_brief_depiction",
+        "label": "depiction of the brief",
+        "score": 2.71,
+        "target": 2.5,
+        "met": true,
+        "short_by": 0.0
+       }
+      ],
+      "judge_only": [],
+      "hard_flags": [],
+      "escalated": false
+     },
+     "exit": {
+      "code": 0,
+      "rule": "deterministic delivery (an uncalibrated judge's review is a finding, not a failure)",
+      "strict": false
+     },
+     "untextured": [],
+     "warnings": [],
+     "materials_from": "the run folder's working design (source maps of each material)",
+     "layout": {
+      "result": "kept",
+      "detail": "kept: 143 of 213 charts where they shipped"
+     },
+     "look": {
+      "bound": {
+       "mean": 4.0,
+       "spread": 8.0
+      },
+      "parts": [
+       {
+        "part": "seat",
+        "mean_delta": 0.19,
+        "spread_delta": 0.01,
+        "within": true
+       },
+       {
+        "part": "leg_front",
+        "mean_delta": 0.03,
+        "spread_delta": 0.09,
+        "within": true
+       },
+       {
+        "part": "leg_back",
+        "mean_delta": 0.02,
+        "spread_delta": 0.06,
+        "within": true
+       },
+       {
+        "part": "stretcher_side",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "stretcher_center",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "stile_back",
+        "mean_delta": 0.62,
+        "spread_delta": 0.71,
+        "within": true
+       },
+       {
+        "part": "crest_rail",
+        "mean_delta": 0.39,
+        "spread_delta": 0.66,
+        "within": true
+       },
+       {
+        "part": "leg_front__mx",
+        "mean_delta": 0.04,
+        "spread_delta": 0.11,
+        "within": true
+       },
+       {
+        "part": "leg_back__mx",
+        "mean_delta": 0.02,
+        "spread_delta": 0.04,
+        "within": true
+       },
+       {
+        "part": "stretcher_side__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "stile_back__mx",
+        "mean_delta": 0.6,
+        "spread_delta": 0.72,
+        "within": true
+       },
+       {
+        "part": "seat_under",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       }
+      ],
+      "outside": 0
+     },
+     "source_maps": {},
+     "note": "edited, not re-reviewed for look: an edit runs no lookdev pass, so its package is never verified"
+    },
+    "edit_line": "edit 1: made; package <scratch>/r5/live_final_C/runs/r5_chair_C.change/out/runs/edit-1gxi8tyh/attempt-1/package; the replaced package is kept in <scratch>/r5/live_final_C/runs/r5_chair_C.change/out/history/001 (agy3d edit <scratch>/r5/live_final_C/runs/r5_chair_C.change/out --undo)",
+    "preview_gates": "FAIL",
+    "stdout_tail": "agy3d edit: 'make the spindles of the back 30 % thicker' on WoodenWindsorChair (<scratch>/r5/live_final_C/runs/r5_chair_C.change/out/runs/tmpwiy7sknj/package)\n  decision backend: generative_fallback (UNCALIBRATED: can judge only an unverified preview)\n  author: Gemini JSON IR with per-route token admission\n  materials from: the run folder's working design (source maps of each material)\n  attempt 1: KEPT; 7 op(s); parts unchanged 12, changed 7, added 0, removed 0; judge: done P=0.75, collateral P=0.25; 86 s\n      spindle_1: size ratio [1.3, 1.05, 1.002], centre moved 0.0001 m\n      spindle_1__mx: size ratio [1.3, 1.05, 1.002], centre moved 0.0001 m\n      spindle_2: size ratio [1.3, 1.05, 1.002], centre moved 0.0001 m\n      spindle_2__mx: size ratio [1.3, 1.05, 1.002], centre moved 0.0001 m\n      spindle_3: size ratio [1.3, 1.05, 1.002], centre moved 0.0001 m\n      spindle_3__mx: size ratio [1.3, 1.05, 1.002], centre moved 0.0001 m\n      spindle_center: size ratio [1.3, 1.05, 1.002], centre moved 0.0001 m\ncost: 94 s, calls: author 1, judge 3, 110,137 tokens (no price applied)\nedit 1: made; package <scratch>/r5/live_final_C/runs/r5_chair_C.change/out/runs/edit-1gxi8tyh/attempt-1/package; the replaced package is kept in <scratch>/r5/live_final_C/runs/r5_chair_C.change/out/history/001 (agy3d edit <scratch>/r5/live_final_C/runs/r5_chair_C.change/out --undo)\nnote: edited, not re-reviewed for look: an edit runs no lookdev pass, so its package is never verified\nfinding: overall score (tier15) 2.65, below the target 3.4 by 0.75, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: silhouette 2.69, below the target 3.3 by 0.61, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: shippability 2.62, below the target 3.4 by 0.78, judged by generative fallback, uncalibrated; look at it before you ship\nwhere to look: <scratch>/r5/live_final_C/runs/r5_chair_C.change/out/runs/edit-1gxi8tyh/attempt-1/package/inspector.html, <scratch>/r5/live_final_C/runs/r5_chair_C.change/out/runs/edit-1gxi8tyh/attempt-1/package\ndelivered: yes, every deterministic check passed (exit 0; the review above is a finding, not a failure)\npreview gates: FAIL\n",
+    "stderr_tail": "Decisions API unavailable (NotFoundError 404: Decisions API not available for this key/project); using generative fallback gemini-4-neon. Probabilities are self-reported and UNCALIBRATED: results carry calibrated=False and cannot auto-approve.\n[author worker improve]     0s sent to gemini-4-hydrogen\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[author worker improve]    20s retrying in 0 s: no chunk in 20 s: this connection does not stream; asked again without streaming\n[author worker improve (attempt 2)]     0s sent to gemini-4-hydrogen (without streaming: no chunk arrived within 20 s of a streamed call)\n[judge visual_qa:blockout]    25s finished (0 still in flight)\n[author worker improve (attempt 2)]    26s finished STOP\n[judge edit_check]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (2 judge call(s) in flight)\n[judge lod_pop]     0s sent to gemini-4-neon (3 judge call(s) in flight)\n[judge lod_pop]    10s finished (2 still in flight)\n[judge visual_qa:blockout]    24s finished (1 still in flight)\n[judge edit_check]    34s finished (0 still in flight)\n",
+    "conditions": {
+     "model_calls": 6,
+     "finish_reasons": {
+      "STOP": 6
+     },
+     "calls_at_output_cap": 0,
+     "max_output_tokens_requested": [
+      8192,
+      24576
+     ],
+     "service_failures": {
+      "turned away": 0,
+      "broken": 0,
+      "server error": 0
+     },
+     "last_call_service_failure": null,
+     "start_end_unix": [
+      1795351844.7996137,
+      1795351942.2721248
+     ]
+    },
+    "change": "make the spindles of the back 30 % thicker",
+    "before_glb": "<scratch>/r5/live_final_C/runs/r5_chair_C/out/runs/tmpwiy7sknj/package/WoodenWindsorChair.glb",
+    "first": {
+     "wall_s": 527.4,
+     "model_calls": 29,
+     "tokens": 390936
+    },
+    "diff": {
+     "parts": [
+      19,
+      19
+     ],
+     "triangles": [
+      4510,
+      4510
+     ],
+     "bounds_m": [
+      [
+       [
+        -0.236,
+        -0.0016,
+        -0.2557
+       ],
+       [
+        0.236,
+        0.9375,
+        0.213
+       ]
+      ],
+      [
+       [
+        -0.236,
+        -0.0016,
+        -0.2557
+       ],
+       [
+        0.236,
+        0.9375,
+        0.213
+       ]
+      ]
+     ],
+     "size_m_xyz": [
+      [
+       0.472,
+       0.9391,
+       0.4687
+      ],
+      [
+       0.472,
+       0.9391,
+       0.4687
+      ]
+     ],
+     "tolerance_m": 0.001,
+     "target_ratio": 1.3,
+     "read_by": "part ranges (manifest glb_part_ranges)",
+     "unchanged": 12,
+     "changed": [
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.002,
+        1.05
+       ],
+       "centre_moved_m": 0.0001,
+       "size_before_m": [
+        0.023,
+        0.4327,
+        0.0838
+       ],
+       "triangles": [
+        180,
+        180
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.002,
+        1.05
+       ],
+       "centre_moved_m": 0.0001,
+       "size_before_m": [
+        0.023,
+        0.4327,
+        0.0838
+       ],
+       "triangles": [
+        180,
+        180
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.002,
+        1.05
+       ],
+       "centre_moved_m": 0.0001,
+       "size_before_m": [
+        0.023,
+        0.4327,
+        0.0838
+       ],
+       "triangles": [
+        180,
+        180
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.002,
+        1.05
+       ],
+       "centre_moved_m": 0.0001,
+       "size_before_m": [
+        0.023,
+        0.4327,
+        0.0838
+       ],
+       "triangles": [
+        180,
+        180
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.002,
+        1.05
+       ],
+       "centre_moved_m": 0.0001,
+       "size_before_m": [
+        0.023,
+        0.4327,
+        0.0838
+       ],
+       "triangles": [
+        180,
+        180
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.002,
+        1.05
+       ],
+       "centre_moved_m": 0.0001,
+       "size_before_m": [
+        0.023,
+        0.4327,
+        0.0838
+       ],
+       "triangles": [
+        180,
+        180
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.002,
+        1.05
+       ],
+       "centre_moved_m": 0.0001,
+       "size_before_m": [
+        0.023,
+        0.4327,
+        0.0838
+       ],
+       "triangles": [
+        180,
+        180
+       ],
+       "on_target": true
+      }
+     ],
+     "added": 0,
+     "removed": 0,
+     "unchanged_uvs_identical": 12,
+     "on_target": 7,
+     "collateral": 0
+    }
+   },
+   "session": 1,
+   "account": "r5:chair:C.change",
+   "phase": "change"
+  },
+  {
+   "brief": "crate",
+   "arm": "C",
+   "status": "finished",
+   "wall_s": 114.6,
+   "glb": "<scratch>/r5/live_final_C/runs/r5_crate_C.change/out/runs/edit-4j0e0l64/attempt-1/package/RuggedMilitarySupply.glb",
+   "extra_files": [],
+   "model_calls": 5,
+   "tool_calls": 0,
+   "blender_invocations": null,
+   "images": 0,
+   "tokens": {
+    "input_tokens": 64735,
+    "output_tokens": 1035,
+    "thinking_tokens": 4488,
+    "cached_tokens": 0,
+    "unknown_reserved_tokens": 0,
+    "share_tokens": 600000,
+    "total": 70258,
+    "images": 0,
+    "share_images": 0
+   },
+   "models": {
+    "gemini-4-hydrogen": {
+     "calls": 1,
+     "input": 31493,
+     "output": 194,
+     "thinking": 1172
+    },
+    "gemini-4-neon": {
+     "calls": 4,
+     "input": 33242,
+     "output": 841,
+     "thinking": 3316
+    }
+   },
+   "final_text": "",
+   "notes": [],
+   "refused": [],
+   "pipeline": {
+    "seeded_from": "<scratch>/r5/live_final_C/runs/r5_crate_C/out",
+    "change_mode": "edit",
+    "command": [
+     "-m",
+     "antigravity3d.cli",
+     "edit",
+     "<scratch>/r5/live_final_C/runs/r5_crate_C.change/out",
+     "make the two side handles 30 % larger",
+     "--token-ceiling",
+     "585000",
+     "--max-images",
+     "0",
+     "--blender",
+     "<scratch>/engines/blender-5.3.0-linux-x64/blender"
+    ],
+    "exit_code": 1,
+    "edit": {
+     "kept": true,
+     "why": "",
+     "target": "<scratch>/r5/live_final_C/runs/r5_crate_C.change/out",
+     "instruction": "make the two side handles 30 % larger",
+     "attempts": [
+      {
+       "n": 1,
+       "ops": [
+        "set_transform side_handle_group",
+        "set_transform side_handle_group__mx"
+       ],
+       "scope": {
+        "unchanged": 55,
+        "changed": {
+         "handle_bracket": {
+          "size_before": [
+           0.018,
+           0.016,
+           0.035
+          ],
+          "size_after": [
+           0.0234,
+           0.0208,
+           0.0455
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0186
+         },
+         "handle_bracket__my": {
+          "size_before": [
+           0.018,
+           0.016,
+           0.035
+          ],
+          "size_after": [
+           0.0234,
+           0.0208,
+           0.0455
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0186
+         },
+         "handle_grip": {
+          "size_before": [
+           0.02,
+           0.13,
+           0.02
+          ],
+          "size_after": [
+           0.026,
+           0.169,
+           0.026
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0072
+         },
+         "handle_plate": {
+          "size_before": [
+           0.006,
+           0.16,
+           0.07
+          ],
+          "size_after": [
+           0.0078,
+           0.208,
+           0.091
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0009
+         },
+         "handle_rivet_bottom": {
+          "size_before": [
+           0.005,
+           0.0069,
+           0.008
+          ],
+          "size_after": [
+           0.0065,
+           0.009,
+           0.0104
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0195
+         },
+         "handle_rivet_bottom__my": {
+          "size_before": [
+           0.005,
+           0.0069,
+           0.008
+          ],
+          "size_after": [
+           0.0065,
+           0.009,
+           0.0104
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0195
+         },
+         "handle_rivet_left_bottom": {
+          "size_before": [
+           0.005,
+           0.0069,
+           0.008
+          ],
+          "size_after": [
+           0.0065,
+           0.009,
+           0.0104
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0195
+         },
+         "handle_rivet_left_bottom__my": {
+          "size_before": [
+           0.005,
+           0.0069,
+           0.008
+          ],
+          "size_after": [
+           0.0065,
+           0.009,
+           0.0104
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0195
+         },
+         "handle_rivet_left_top": {
+          "size_before": [
+           0.005,
+           0.0069,
+           0.008
+          ],
+          "size_after": [
+           0.0065,
+           0.009,
+           0.0104
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0195
+         },
+         "handle_rivet_left_top__my": {
+          "size_before": [
+           0.005,
+           0.0069,
+           0.008
+          ],
+          "size_after": [
+           0.0065,
+           0.009,
+           0.0104
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0195
+         },
+         "handle_rivet_top": {
+          "size_before": [
+           0.005,
+           0.0069,
+           0.008
+          ],
+          "size_after": [
+           0.0065,
+           0.009,
+           0.0104
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0195
+         },
+         "handle_rivet_top__my": {
+          "size_before": [
+           0.005,
+           0.0069,
+           0.008
+          ],
+          "size_after": [
+           0.0065,
+           0.009,
+           0.0104
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0195
+         },
+         "side_handle_group__mx__handle_bracket": {
+          "size_before": [
+           0.018,
+           0.016,
+           0.035
+          ],
+          "size_after": [
+           0.0234,
+           0.0208,
+           0.0455
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0186
+         },
+         "side_handle_group__mx__handle_bracket__my": {
+          "size_before": [
+           0.018,
+           0.016,
+           0.035
+          ],
+          "size_after": [
+           0.0234,
+           0.0208,
+           0.0455
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0186
+         },
+         "side_handle_group__mx__handle_grip": {
+          "size_before": [
+           0.02,
+           0.13,
+           0.02
+          ],
+          "size_after": [
+           0.026,
+           0.169,
+           0.026
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0072
+         },
+         "side_handle_group__mx__handle_plate": {
+          "size_before": [
+           0.006,
+           0.16,
+           0.07
+          ],
+          "size_after": [
+           0.0078,
+           0.208,
+           0.091
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0009
+         }
+        },
+        "added": [],
+        "removed": [],
+        "outside": []
+       },
+       "done_p": 0.85,
+       "collateral_p": 0.15,
+       "kept": true,
+       "why": "",
+       "seconds": 49.8
+      }
+     ],
+     "package": "<scratch>/r5/live_final_C/runs/r5_crate_C.change/out/runs/edit-4j0e0l64/attempt-1/package",
+     "previous_package": "<scratch>/r5/live_final_C/runs/r5_crate_C.change/out/runs/tmpmmoj113e/package",
+     "history": "<scratch>/r5/live_final_C/runs/r5_crate_C.change/out/history/001",
+     "number": 1,
+     "seconds": 111.3,
+     "calls": {
+      "author": 1,
+      "judge": 3
+     },
+     "spend": {
+      "unit": "tokens",
+      "spent": 70258.0,
+      "by_category": {
+       "author.improve": 32859.0,
+       "edit_check": 12535.0,
+       "lod_pop": 5746.0,
+       "visual_qa": 19118.0
+      },
+      "images": 0
+     },
+     "preview_gates_ok": false,
+     "delivered": {
+      "ok": false,
+      "why": [
+       "blender_asset_qa: qa_check of EL4CTEO/blender-skills @9e7e04a (release 1.3.2), game profile, vertices merged part by part: 1 object(s), 2928 tris; 1 error(s): z-fighting: Batch_0 (24 overlapping copla"
+      ]
+     },
+     "review": {
+      "calibrated": false,
+      "judge": "generative fallback, uncalibrated",
+      "where": [
+       "<scratch>/r5/live_final_C/runs/r5_crate_C.change/out/runs/edit-4j0e0l64/attempt-1/package/inspector.html",
+       "<scratch>/r5/live_final_C/runs/r5_crate_C.change/out/runs/edit-4j0e0l64/attempt-1/package"
+      ],
+      "status": "below_target",
+      "targets": [
+       {
+        "name": "tier15",
+        "label": "overall score (tier15)",
+        "score": 2.72,
+        "target": 3.4,
+        "met": false,
+        "short_by": 0.68
+       },
+       {
+        "name": "score_silhouette",
+        "label": "silhouette",
+        "score": 2.79,
+        "target": 3.3,
+        "met": false,
+        "short_by": 0.51
+       },
+       {
+        "name": "score_shippability",
+        "label": "shippability",
+        "score": 2.68,
+        "target": 3.4,
+        "met": false,
+        "short_by": 0.72
+       },
+       {
+        "name": "score_brief_depiction",
+        "label": "depiction of the brief",
+        "score": 2.84,
+        "target": 2.5,
+        "met": true,
+        "short_by": 0.0
+       }
+      ],
+      "judge_only": [],
+      "hard_flags": [],
+      "escalated": false
+     },
+     "exit": {
+      "code": 1,
+      "rule": "deterministic delivery (an uncalibrated judge's review is a finding, not a failure)",
+      "strict": false
+     },
+     "untextured": [],
+     "warnings": [
+      "flush faces left (fixing them would move parts the patch did not change): center_hasp_staple"
+     ],
+     "materials_from": "the run folder's working design (source maps of each material)",
+     "layout": {
+      "result": "kept",
+      "detail": "kept: 645 of 747 charts where they shipped"
+     },
+     "look": {
+      "bound": {
+       "mean": 4.0,
+       "spread": 8.0
+      },
+      "parts": [
+       {
+        "part": "crate_body",
+        "mean_delta": 0.24,
+        "spread_delta": 1.35,
+        "within": true
+       },
+       {
+        "part": "crate_lid",
+        "mean_delta": 0.01,
+        "spread_delta": 0.01,
+        "within": true
+       },
+       {
+        "part": "bottom_skid",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "lid_rib",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "corner_guard_bottom_front",
+        "mean_delta": 0.02,
+        "spread_delta": 0.05,
+        "within": true
+       },
+       {
+        "part": "corner_guard_bottom_back",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "corner_guard_lid_front",
+        "mean_delta": 0.01,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "corner_guard_lid_back",
+        "mean_delta": 0.01,
+        "spread_delta": 0.01,
+        "within": true
+       },
+       {
+        "part": "latch_base_plate",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "latch_catch_plate",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "latch_clasp",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "latch_hinge_barrel",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "hinge_leaf_body",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "hinge_leaf_lid",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "hinge_pin",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "lid_bolt",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "lid_bolt_back",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "bottom_skid__my",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "lid_rib__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "corner_guard_bottom_front__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "corner_guard_bottom_back__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "corner_guard_lid_front__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "corner_guard_lid_back__mx",
+        "mean_delta": 0.01,
+        "spread_delta": 0.02,
+        "within": true
+       },
+       {
+        "part": "latch_group__mx__latch_base_plate",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "latch_group__mx__latch_catch_plate",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "latch_group__mx__latch_clasp",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "latch_group__mx__latch_hinge_barrel",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "hinge_group__mx__hinge_leaf_body",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "hinge_group__mx__hinge_leaf_lid",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "hinge_group__mx__hinge_pin",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "lid_bolt__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "lid_bolt_back__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "body_rib_front",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "body_rib_front__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "body_rib_back",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "body_rib_back__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "lid_rib_center",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "center_hasp_plate",
+        "mean_delta": 0.03,
+        "spread_delta": 0.05,
+        "within": true
+       },
+       {
+        "part": "center_hasp_staple",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "center_hasp_strap",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "latch_tab",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "latch_tab__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "pressure_valve_base",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "pressure_valve_cap",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "front_id_plate",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "lid_stack_pad_fr",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "lid_stack_pad_fl",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "lid_stack_pad_br",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "lid_stack_pad_bl",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "id_plate_rivet_l",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "id_plate_rivet_r",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "body_rib_right_f",
+        "mean_delta": 0.06,
+        "spread_delta": 0.01,
+        "within": true
+       },
+       {
+        "part": "body_rib_right_b",
+        "mean_delta": 0.1,
+        "spread_delta": 0.17,
+        "within": true
+       },
+       {
+        "part": "body_rib_left_f",
+        "mean_delta": 0.03,
+        "spread_delta": 0.05,
+        "within": true
+       },
+       {
+        "part": "body_rib_left_b",
+        "mean_delta": 0.09,
+        "spread_delta": 0.12,
+        "within": true
+       }
+      ],
+      "outside": 0
+     },
+     "source_maps": {},
+     "note": "edited, not re-reviewed for look: an edit runs no lookdev pass, so its package is never verified"
+    },
+    "edit_line": "edit 1: made; package <scratch>/r5/live_final_C/runs/r5_crate_C.change/out/runs/edit-4j0e0l64/attempt-1/package; the replaced package is kept in <scratch>/r5/live_final_C/runs/r5_crate_C.change/out/history/001 (agy3d edit <scratch>/r5/live_final_C/runs/r5_crate_C.change/out --undo)",
+    "preview_gates": "FAIL",
+    "stdout_tail": "agy3d edit: 'make the two side handles 30 % larger' on RuggedMilitarySupply (<scratch>/r5/live_final_C/runs/r5_crate_C.change/out/runs/tmpmmoj113e/package)\n  decision backend: generative_fallback (UNCALIBRATED: can judge only an unverified preview)\n  author: Gemini JSON IR with per-route token admission\n  materials from: the run folder's working design (source maps of each material)\n  attempt 1: KEPT; 2 op(s); parts unchanged 55, changed 16, added 0, removed 0; judge: done P=0.85, collateral P=0.15; 50 s\n      handle_bracket: size ratio [1.3, 1.3, 1.3], centre moved 0.0186 m\n      handle_bracket__my: size ratio [1.3, 1.3, 1.3], centre moved 0.0186 m\n      handle_grip: size ratio [1.3, 1.3, 1.3], centre moved 0.0072 m\n      handle_plate: size ratio [1.3, 1.3, 1.3], centre moved 0.0009 m\n      handle_rivet_bottom: size ratio [1.3, 1.3, 1.3], centre moved 0.0195 m\n      handle_rivet_bottom__my: size ratio [1.3, 1.3, 1.3], centre moved 0.0195 m\n      handle_rivet_left_bottom: size ratio [1.3, 1.3, 1.3], centre moved 0.0195 m\n      handle_rivet_left_bottom__my: size ratio [1.3, 1.3, 1.3], centre moved 0.0195 m\n      handle_rivet_left_top: size ratio [1.3, 1.3, 1.3], centre moved 0.0195 m\n      handle_rivet_left_top__my: size ratio [1.3, 1.3, 1.3], centre moved 0.0195 m\n      handle_rivet_top: size ratio [1.3, 1.3, 1.3], centre moved 0.0195 m\n      handle_rivet_top__my: size ratio [1.3, 1.3, 1.3], centre moved 0.0195 m\n  warning: flush faces left (fixing them would move parts the patch did not change): center_hasp_staple\ncost: 111 s, calls: author 1, judge 3, 70,258 tokens (no price applied)\nedit 1: made; package <scratch>/r5/live_final_C/runs/r5_crate_C.change/out/runs/edit-4j0e0l64/attempt-1/package; the replaced package is kept in <scratch>/r5/live_final_C/runs/r5_crate_C.change/out/history/001 (agy3d edit <scratch>/r5/live_final_C/runs/r5_crate_C.change/out --undo)\nnote: edited, not re-reviewed for look: an edit runs no lookdev pass, so its package is never verified\nnot delivered: blender_asset_qa: qa_check of EL4CTEO/blender-skills @9e7e04a (release 1.3.2), game profile, vertices merged part by part: 1 object(s), 2928 tris; 1 error(s): z-fighting: Batch_0 (24 overlapping copla\nfinding: overall score (tier15) 2.72, below the target 3.4 by 0.68, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: silhouette 2.79, below the target 3.3 by 0.51, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: shippability 2.68, below the target 3.4 by 0.72, judged by generative fallback, uncalibrated; look at it before you ship\nwhere to look: <scratch>/r5/live_final_C/runs/r5_crate_C.change/out/runs/edit-4j0e0l64/attempt-1/package/inspector.html, <scratch>/r5/live_final_C/runs/r5_crate_C.change/out/runs/edit-4j0e0l64/attempt-1/package\ndelivered: no, or blocked (exit 1)\npreview gates: FAIL\n",
+    "stderr_tail": "Decisions API unavailable (NotFoundError 404: Decisions API not available for this key/project); using generative fallback gemini-4-neon. Probabilities are self-reported and UNCALIBRATED: results carry calibrated=False and cannot auto-approve.\n[author worker improve]     0s sent to gemini-4-hydrogen\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[author worker improve]     8s thinking: Analyzing Handle Dimensions\n[author worker improve]     9s thinking: Scaling Handle Components\n[author worker improve]    11s thinking: Verifying Spatial Relationships\n[author worker improve]    11s answer arriving: 142 characters\n[author worker improve]    11s finished STOP, 1,366 output tokens\n[judge edit_check]     0s sent to gemini-4-neon (2 judge call(s) in flight)\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (3 judge call(s) in flight)\n[judge lod_pop]     0s sent to gemini-4-neon (4 judge call(s) in flight)\n[judge lod_pop]    12s finished (3 still in flight)\n[judge edit_check]    22s finished (2 still in flight)\n[judge visual_qa:blockout]    27s finished (1 still in flight)\n[judge visual_qa:blockout]    45s finished (0 still in flight)\n",
+    "conditions": {
+     "model_calls": 5,
+     "finish_reasons": {
+      "STOP": 5
+     },
+     "calls_at_output_cap": 0,
+     "max_output_tokens_requested": [
+      8192,
+      24576
+     ],
+     "service_failures": {
+      "turned away": 0,
+      "broken": 0,
+      "server error": 0
+     },
+     "last_call_service_failure": null,
+     "start_end_unix": [
+      1795351561.751086,
+      1795351676.3528378
+     ]
+    },
+    "change": "make the two side handles 30 % larger",
+    "before_glb": "<scratch>/r5/live_final_C/runs/r5_crate_C/out/runs/tmpmmoj113e/package/RuggedMilitarySupply.glb",
+    "first": {
+     "wall_s": 660.7,
+     "model_calls": 27,
+     "tokens": 366636
+    },
+    "diff": {
+     "parts": [
+      71,
+      71
+     ],
+     "triangles": [
+      2928,
+      2928
+     ],
+     "bounds_m": [
+      [
+       [
+        -0.462,
+        0.0,
+        -0.291
+       ],
+       [
+        0.462,
+        0.43,
+        0.296
+       ]
+      ],
+      [
+       [
+        -0.4722,
+        0.0,
+        -0.291
+       ],
+       [
+        0.4722,
+        0.43,
+        0.296
+       ]
+      ]
+     ],
+     "size_m_xyz": [
+      [
+       0.924,
+       0.43,
+       0.587
+      ],
+      [
+       0.9444,
+       0.43,
+       0.587
+      ]
+     ],
+     "tolerance_m": 0.001,
+     "target_ratio": 1.3,
+     "read_by": "part ranges (manifest glb_part_ranges)",
+     "unchanged": 55,
+     "changed": [
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.3
+       ],
+       "centre_moved_m": 0.0009,
+       "size_before_m": [
+        0.006,
+        0.07,
+        0.16
+       ],
+       "triangles": [
+        42,
+        42
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.3
+       ],
+       "centre_moved_m": 0.0186,
+       "size_before_m": [
+        0.018,
+        0.035,
+        0.016
+       ],
+       "triangles": [
+        42,
+        42
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.3
+       ],
+       "centre_moved_m": 0.0072,
+       "size_before_m": [
+        0.02,
+        0.02,
+        0.13
+       ],
+       "triangles": [
+        48,
+        48
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.3
+       ],
+       "centre_moved_m": 0.0186,
+       "size_before_m": [
+        0.018,
+        0.035,
+        0.016
+       ],
+       "triangles": [
+        42,
+        42
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.301
+       ],
+       "centre_moved_m": 0.0195,
+       "size_before_m": [
+        0.005,
+        0.008,
+        0.0069
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.301
+       ],
+       "centre_moved_m": 0.0195,
+       "size_before_m": [
+        0.005,
+        0.008,
+        0.0069
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.301
+       ],
+       "centre_moved_m": 0.0195,
+       "size_before_m": [
+        0.005,
+        0.008,
+        0.0069
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.301
+       ],
+       "centre_moved_m": 0.0195,
+       "size_before_m": [
+        0.005,
+        0.008,
+        0.0069
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.3
+       ],
+       "centre_moved_m": 0.0009,
+       "size_before_m": [
+        0.006,
+        0.07,
+        0.16
+       ],
+       "triangles": [
+        42,
+        42
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.3
+       ],
+       "centre_moved_m": 0.0186,
+       "size_before_m": [
+        0.018,
+        0.035,
+        0.016
+       ],
+       "triangles": [
+        42,
+        42
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.3
+       ],
+       "centre_moved_m": 0.0186,
+       "size_before_m": [
+        0.018,
+        0.035,
+        0.016
+       ],
+       "triangles": [
+        42,
+        42
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.3
+       ],
+       "centre_moved_m": 0.0072,
+       "size_before_m": [
+        0.02,
+        0.02,
+        0.13
+       ],
+       "triangles": [
+        48,
+        48
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.301
+       ],
+       "centre_moved_m": 0.0195,
+       "size_before_m": [
+        0.005,
+        0.008,
+        0.0069
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.301
+       ],
+       "centre_moved_m": 0.0195,
+       "size_before_m": [
+        0.005,
+        0.008,
+        0.0069
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.301
+       ],
+       "centre_moved_m": 0.0195,
+       "size_before_m": [
+        0.005,
+        0.008,
+        0.0069
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.301
+       ],
+       "centre_moved_m": 0.0195,
+       "size_before_m": [
+        0.005,
+        0.008,
+        0.0069
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      }
+     ],
+     "added": 0,
+     "removed": 0,
+     "unchanged_uvs_identical": 55,
+     "on_target": 16,
+     "collateral": 0
+    }
+   },
+   "session": 1,
+   "account": "r5:crate:C.change",
+   "phase": "change"
+  },
+  {
+   "brief": "hydrant",
+   "arm": "C",
+   "status": "finished",
+   "wall_s": 164.3,
+   "glb": "<scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out/runs/edit-uao6pv4x/attempt-1/package/CastIronFire.glb",
+   "extra_files": [],
+   "model_calls": 5,
+   "tool_calls": 0,
+   "blender_invocations": null,
+   "images": 0,
+   "tokens": {
+    "input_tokens": 57027,
+    "output_tokens": 1099,
+    "thinking_tokens": 3616,
+    "cached_tokens": 0,
+    "unknown_reserved_tokens": 0,
+    "share_tokens": 600000,
+    "total": 61742,
+    "images": 0,
+    "share_images": 0
+   },
+   "models": {
+    "gemini-4-hydrogen": {
+     "calls": 1,
+     "input": 25731,
+     "output": 438,
+     "thinking": 1234
+    },
+    "gemini-4-neon": {
+     "calls": 4,
+     "input": 31296,
+     "output": 661,
+     "thinking": 2382
+    }
+   },
+   "final_text": "",
+   "notes": [],
+   "refused": [],
+   "pipeline": {
+    "seeded_from": "<scratch>/r5/live_final_C/runs/r5_hydrant_C/out",
+    "change_mode": "edit",
+    "command": [
+     "-m",
+     "antigravity3d.cli",
+     "edit",
+     "<scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out",
+     "make the chained nozzle cap 30 % larger",
+     "--token-ceiling",
+     "585000",
+     "--max-images",
+     "0",
+     "--blender",
+     "<scratch>/engines/blender-5.3.0-linux-x64/blender"
+    ],
+    "exit_code": 0,
+    "edit": {
+     "kept": true,
+     "why": "",
+     "target": "<scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out",
+     "instruction": "make the chained nozzle cap 30 % larger",
+     "attempts": [
+      {
+       "n": 1,
+       "ops": [
+        "set_param front_nozzle_cap",
+        "set_param front_nozzle_cap",
+        "set_transform front_nozzle_cap",
+        "set_transform front_cap_nut",
+        "set_transform front_cap_lug",
+        "set_transform front_cap_lug__mx"
+       ],
+       "scope": {
+        "unchanged": 36,
+        "changed": {
+         "front_cap_lug": {
+          "size_before": [
+           0.016,
+           0.014,
+           0.016
+          ],
+          "size_after": [
+           0.016,
+           0.014,
+           0.016
+          ],
+          "ratio": [
+           1.0,
+           1.0,
+           1.0
+          ],
+          "centre_moved_m": 0.0255
+         },
+         "front_cap_lug__mx": {
+          "size_before": [
+           0.016,
+           0.014,
+           0.016
+          ],
+          "size_after": [
+           0.016,
+           0.014,
+           0.016
+          ],
+          "ratio": [
+           1.0,
+           1.0,
+           1.0
+          ],
+          "centre_moved_m": 0.0255
+         },
+         "front_cap_nut": {
+          "size_before": [
+           0.0398,
+           0.025,
+           0.0418
+          ],
+          "size_after": [
+           0.0398,
+           0.025,
+           0.0418
+          ],
+          "ratio": [
+           1.0,
+           1.0,
+           1.0
+          ],
+          "centre_moved_m": 0.0096
+         },
+         "front_nozzle_cap": {
+          "size_before": [
+           0.164,
+           0.032,
+           0.164
+          ],
+          "size_after": [
+           0.2132,
+           0.0416,
+           0.2132
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0048
+         }
+        },
+        "added": [],
+        "removed": [],
+        "outside": []
+       },
+       "done_p": 0.82,
+       "collateral_p": 0.18,
+       "kept": true,
+       "why": "",
+       "seconds": 149.7
+      }
+     ],
+     "package": "<scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out/runs/edit-uao6pv4x/attempt-1/package",
+     "previous_package": "<scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out/runs/tmplqyl2_46/package",
+     "history": "<scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out/history/001",
+     "number": 1,
+     "seconds": 160.8,
+     "calls": {
+      "author": 1,
+      "judge": 3
+     },
+     "spend": {
+      "unit": "tokens",
+      "spent": 97880.0,
+      "by_category": {
+       "author.improve": 27403.0,
+       "edit_check": 12682.0,
+       "lod_pop": 2999.0,
+       "visual_qa": 54796.0
+      },
+      "images": 0
+     },
+     "preview_gates_ok": false,
+     "delivered": {
+      "ok": true,
+      "why": []
+     },
+     "review": {
+      "calibrated": false,
+      "judge": "generative fallback, uncalibrated",
+      "where": [
+       "<scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out/runs/edit-uao6pv4x/attempt-1/package/inspector.html",
+       "<scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out/runs/edit-uao6pv4x/attempt-1/package"
+      ],
+      "status": "below_target",
+      "targets": [
+       {
+        "name": "tier15",
+        "label": "overall score (tier15)",
+        "score": 1.89,
+        "target": 3.4,
+        "met": false,
+        "short_by": 1.51
+       },
+       {
+        "name": "score_silhouette",
+        "label": "silhouette",
+        "score": 2.6,
+        "target": 3.3,
+        "met": false,
+        "short_by": 0.7
+       },
+       {
+        "name": "score_shippability",
+        "label": "shippability",
+        "score": 2.35,
+        "target": 3.4,
+        "met": false,
+        "short_by": 1.05
+       },
+       {
+        "name": "score_brief_depiction",
+        "label": "depiction of the brief",
+        "score": 2.6,
+        "target": 2.5,
+        "met": true,
+        "short_by": 0.0
+       }
+      ],
+      "judge_only": [
+       {
+        "name": "defect_floating",
+        "p": 0.65,
+        "limit": 0.3
+       }
+      ],
+      "hard_flags": [],
+      "escalated": false
+     },
+     "exit": {
+      "code": 0,
+      "rule": "deterministic delivery (an uncalibrated judge's review is a finding, not a failure)",
+      "strict": false
+     },
+     "untextured": [],
+     "warnings": [
+      "5 part(s) the edit did not touch now look different beyond the bound (base colour mean 4.0/255, spread 8.0/255): front_nozzle_collar (mean 12.08, spread 2.68), chain_link__r2 (mean 3.23, spread 10.74), chain_link__r3 (mean 8.13, spread 7.12), chain_link__r4 (mean 37.2, spread 14.73), chain_link__r5 (mean 42.34, spread 13.44)"
+     ],
+     "materials_from": "the run folder's working design (source maps of each material)",
+     "layout": {
+      "result": "kept",
+      "detail": "kept: 803 of 882 charts where they shipped"
+     },
+     "look": {
+      "bound": {
+       "mean": 4.0,
+       "spread": 8.0
+      },
+      "parts": [
+       {
+        "part": "hydrant_body",
+        "mean_delta": 0.32,
+        "spread_delta": 0.45,
+        "within": true
+       },
+       {
+        "part": "op_nut_base",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "op_nut",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "bonnet_bolt",
+        "mean_delta": 0.77,
+        "spread_delta": 0.87,
+        "within": true
+       },
+       {
+        "part": "base_bolt",
+        "mean_delta": 0.01,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "side_nozzle_neck",
+        "mean_delta": 0.05,
+        "spread_delta": 0.02,
+        "within": true
+       },
+       {
+        "part": "side_nozzle_collar",
+        "mean_delta": 0.13,
+        "spread_delta": 0.04,
+        "within": true
+       },
+       {
+        "part": "side_nozzle_cap",
+        "mean_delta": 0.23,
+        "spread_delta": 0.14,
+        "within": true
+       },
+       {
+        "part": "side_cap_nut",
+        "mean_delta": 0.7,
+        "spread_delta": 0.94,
+        "within": true
+       },
+       {
+        "part": "front_nozzle_neck",
+        "mean_delta": 0.57,
+        "spread_delta": 1.56,
+        "within": true
+       },
+       {
+        "part": "front_nozzle_collar",
+        "mean_delta": 12.08,
+        "spread_delta": 2.68,
+        "within": false
+       },
+       {
+        "part": "chain_anchor",
+        "mean_delta": 0.13,
+        "spread_delta": 0.05,
+        "within": true
+       },
+       {
+        "part": "chain_link",
+        "mean_delta": 0.08,
+        "spread_delta": 0.05,
+        "within": true
+       },
+       {
+        "part": "bonnet_bolt__r1",
+        "mean_delta": 0.92,
+        "spread_delta": 1.08,
+        "within": true
+       },
+       {
+        "part": "bonnet_bolt__r2",
+        "mean_delta": 0.18,
+        "spread_delta": 0.05,
+        "within": true
+       },
+       {
+        "part": "bonnet_bolt__r3",
+        "mean_delta": 0.73,
+        "spread_delta": 1.26,
+        "within": true
+       },
+       {
+        "part": "bonnet_bolt__r4",
+        "mean_delta": 1.41,
+        "spread_delta": 1.49,
+        "within": true
+       },
+       {
+        "part": "bonnet_bolt__r5",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "bonnet_bolt__r6",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "bonnet_bolt__r7",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "base_bolt__r1",
+        "mean_delta": 0.0,
+        "spread_delta": 0.01,
+        "within": true
+       },
+       {
+        "part": "base_bolt__r2",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "base_bolt__r3",
+        "mean_delta": 0.36,
+        "spread_delta": 0.94,
+        "within": true
+       },
+       {
+        "part": "base_bolt__r4",
+        "mean_delta": 0.65,
+        "spread_delta": 0.74,
+        "within": true
+       },
+       {
+        "part": "base_bolt__r5",
+        "mean_delta": 0.08,
+        "spread_delta": 0.14,
+        "within": true
+       },
+       {
+        "part": "base_bolt__r6",
+        "mean_delta": 0.2,
+        "spread_delta": 0.3,
+        "within": true
+       },
+       {
+        "part": "base_bolt__r7",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "side_nozzle_neck__mx",
+        "mean_delta": 0.06,
+        "spread_delta": 0.06,
+        "within": true
+       },
+       {
+        "part": "side_nozzle_collar__mx",
+        "mean_delta": 0.12,
+        "spread_delta": 0.02,
+        "within": true
+       },
+       {
+        "part": "side_nozzle_cap__mx",
+        "mean_delta": 0.26,
+        "spread_delta": 0.1,
+        "within": true
+       },
+       {
+        "part": "side_cap_nut__mx",
+        "mean_delta": 0.19,
+        "spread_delta": 0.12,
+        "within": true
+       },
+       {
+        "part": "chain_link__r1",
+        "mean_delta": 0.18,
+        "spread_delta": 0.04,
+        "within": true
+       },
+       {
+        "part": "chain_link__r2",
+        "mean_delta": 3.23,
+        "spread_delta": 10.74,
+        "within": false
+       },
+       {
+        "part": "chain_link__r3",
+        "mean_delta": 8.13,
+        "spread_delta": 7.12,
+        "within": false
+       },
+       {
+        "part": "chain_link__r4",
+        "mean_delta": 37.2,
+        "spread_delta": 14.73,
+        "within": false
+       },
+       {
+        "part": "chain_link__r5",
+        "mean_delta": 42.34,
+        "spread_delta": 13.44,
+        "within": false
+       }
+      ],
+      "outside": 5
+     },
+     "source_maps": {},
+     "note": "edited, not re-reviewed for look: an edit runs no lookdev pass, so its package is never verified"
+    },
+    "edit_line": "edit 1: made; package <scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out/runs/edit-uao6pv4x/attempt-1/package; the replaced package is kept in <scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out/history/001 (agy3d edit <scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out --undo)",
+    "preview_gates": "FAIL",
+    "stdout_tail": "agy3d edit: 'make the chained nozzle cap 30 % larger' on CastIronFire (<scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out/runs/tmplqyl2_46/package)\n  decision backend: generative_fallback (UNCALIBRATED: can judge only an unverified preview)\n  author: Gemini JSON IR with per-route token admission\n  materials from: the run folder's working design (source maps of each material)\n  attempt 1: KEPT; 6 op(s); parts unchanged 36, changed 4, added 0, removed 0; judge: done P=0.82, collateral P=0.18; 150 s\n      front_cap_lug: size ratio [1.0, 1.0, 1.0], centre moved 0.0255 m\n      front_cap_lug__mx: size ratio [1.0, 1.0, 1.0], centre moved 0.0255 m\n      front_cap_nut: size ratio [1.0, 1.0, 1.0], centre moved 0.0096 m\n      front_nozzle_cap: size ratio [1.3, 1.3, 1.3], centre moved 0.0048 m\n  warning: 5 part(s) the edit did not touch now look different beyond the bound (base colour mean 4.0/255, spread 8.0/255): front_nozzle_collar (mean 12.08, spread 2.68), chain_link__r2 (mean 3.23, spread 10.74), chain_link__r3 (mean 8.13, spread 7.12), chain_link__r4 (mean 37.2, spread 14.73), chain_link__r5 (mean 42.34, spread 13.44)\ncost: 161 s, calls: author 1, judge 3, 97,880 tokens (no price applied)\nedit 1: made; package <scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out/runs/edit-uao6pv4x/attempt-1/package; the replaced package is kept in <scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out/history/001 (agy3d edit <scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out --undo)\nnote: edited, not re-reviewed for look: an edit runs no lookdev pass, so its package is never verified\nfinding: overall score (tier15) 1.89, below the target 3.4 by 1.51, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: silhouette 2.60, below the target 3.3 by 0.70, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: shippability 2.35, below the target 3.4 by 1.05, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: defect_floating at P=0.65 (acted on from 0.3), reported only by generative fallback, uncalibrated; look at it before you ship\nwhere to look: <scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out/runs/edit-uao6pv4x/attempt-1/package/inspector.html, <scratch>/r5/live_final_C/runs/r5_hydrant_C.change/out/runs/edit-uao6pv4x/attempt-1/package\ndelivered: yes, every deterministic check passed (exit 0; the review above is a finding, not a failure)\npreview gates: FAIL\n",
+    "stderr_tail": "Decisions API unavailable (NotFoundError 404: Decisions API not available for this key/project); using generative fallback gemini-4-neon. Probabilities are self-reported and UNCALIBRATED: results carry calibrated=False and cannot auto-approve.\n[author worker improve]     0s sent to gemini-4-hydrogen\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[author worker improve]    10s thinking: Identifying the Target\n[author worker improve]    12s thinking: Analyzing Interdependencies\n[author worker improve]    14s answer arriving: 80 characters\n[author worker improve]    16s finished STOP, 1,672 output tokens\n[judge edit_check]     0s sent to gemini-4-neon (2 judge call(s) in flight)\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (3 judge call(s) in flight)\n[judge lod_pop]     0s sent to gemini-4-neon (4 judge call(s) in flight)\n[judge visual_qa:blockout]    24s finished (3 still in flight)\n[judge edit_check]    28s finished (2 still in flight)\nstill running: judge visual_qa:blockout 77s; judge lod_pop 53s\n[judge lod_pop]    56s finished (1 still in flight)\ndecision 'visual_qa:blockout': no answer after 90 s; asking a second time alongside the first\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (2 judge call(s) in flight)\nstill running: judge visual_qa:blockout 121s; judge visual_qa:blockout 31s\n[judge visual_qa:blockout]    56s finished (1 still in flight)\n[judge visual_qa:blockout]   146s failed: CancelledError; 0 still in flight\n",
+    "conditions": {
+     "model_calls": 5,
+     "finish_reasons": {
+      "STOP": 5
+     },
+     "calls_at_output_cap": 0,
+     "max_output_tokens_requested": [
+      8192,
+      24576
+     ],
+     "service_failures": {
+      "turned away": 0,
+      "broken": 0,
+      "server error": 0
+     },
+     "last_call_service_failure": null,
+     "start_end_unix": [
+      1795351678.3957503,
+      1795351842.7343044
+     ]
+    },
+    "change": "make the chained nozzle cap 30 % larger",
+    "before_glb": "<scratch>/r5/live_final_C/runs/r5_hydrant_C/out/runs/tmplqyl2_46/package/CastIronFire.glb",
+    "first": {
+     "wall_s": 994.0,
+     "model_calls": 38,
+     "tokens": 454625
+    },
+    "diff": {
+     "parts": [
+      40,
+      40
+     ],
+     "triangles": [
+      3807,
+      3807
+     ],
+     "bounds_m": [
+      [
+       [
+        -0.239,
+        0.0,
+        -0.2565
+       ],
+       [
+        0.239,
+        0.85,
+        0.18
+       ]
+      ],
+      [
+       [
+        -0.239,
+        0.0,
+        -0.2661
+       ],
+       [
+        0.239,
+        0.85,
+        0.18
+       ]
+      ]
+     ],
+     "size_m_xyz": [
+      [
+       0.478,
+       0.85,
+       0.4365
+      ],
+      [
+       0.478,
+       0.85,
+       0.4461
+      ]
+     ],
+     "tolerance_m": 0.001,
+     "target_ratio": 1.3,
+     "read_by": "part ranges (manifest glb_part_ranges)",
+     "unchanged": 36,
+     "changed": [
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.3
+       ],
+       "centre_moved_m": 0.0048,
+       "size_before_m": [
+        0.164,
+        0.164,
+        0.032
+       ],
+       "triangles": [
+        128,
+        128
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "centre_moved_m": 0.0096,
+       "size_before_m": [
+        0.0398,
+        0.0418,
+        0.025
+       ],
+       "triangles": [
+        40,
+        40
+       ],
+       "on_target": false
+      },
+      {
+       "size_ratio_xyz": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "centre_moved_m": 0.0255,
+       "size_before_m": [
+        0.016,
+        0.016,
+        0.014
+       ],
+       "triangles": [
+        44,
+        44
+       ],
+       "on_target": false
+      },
+      {
+       "size_ratio_xyz": [
+        1.0,
+        1.0,
+        1.0
+       ],
+       "centre_moved_m": 0.0255,
+       "size_before_m": [
+        0.016,
+        0.016,
+        0.014
+       ],
+       "triangles": [
+        44,
+        44
+       ],
+       "on_target": false
+      }
+     ],
+     "added": 0,
+     "removed": 0,
+     "unchanged_uvs_identical": 36,
+     "on_target": 1,
+     "collateral": 3
+    }
+   },
+   "session": 1,
+   "account": "r5:hydrant:C.change",
+   "phase": "change"
+  }
+ ],
+ "change_requests": {
+  "crate": {
+   "text": "make the two side handles 30 % larger",
+   "ratio": 1.3
+  },
+  "hydrant": {
+   "text": "make the chained nozzle cap 30 % larger",
+   "ratio": 1.3
+  },
+  "chair": {
+   "text": "make the spindles of the back 30 % thicker",
+   "ratio": 1.3
+  }
+ },
+ "repeats": [
+  {
+   "brief": "crate",
+   "arm": "C",
+   "status": "finished",
+   "wall_s": 776.3,
+   "glb": "<scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/package/RuggedMilitarySupply.glb",
+   "extra_files": [
+    "<scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/package/RuggedMilitarySupply.usd",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/package/RuggedMilitarySupply.usdz",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/package/RuggedMilitarySupply_LOD1.glb",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/package/RuggedMilitarySupply_LOD2.glb",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/package/RuggedMilitarySupply_LOD3.glb",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/package/RuggedMilitarySupply_colliders.glb",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/package/inspector.html",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/package/manifest.json",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/package/textures/RuggedMilitarySupply_atlas_albedo.png",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/package/textures/RuggedMilitarySupply_atlas_normal.png",
+    "<scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/package/textures/RuggedMilitarySupply_atlas_orm.png"
+   ],
+   "model_calls": 27,
+   "tool_calls": null,
+   "blender_invocations": null,
+   "images": 0,
+   "tokens": {
+    "input_tokens": 311203,
+    "output_tokens": 10145,
+    "thinking_tokens": 26588,
+    "cached_tokens": 0,
+    "unknown_reserved_tokens": 0,
+    "share_tokens": 600000,
+    "total": 347936,
+    "images": 0,
+    "share_images": 0
+   },
+   "models": {
+    "gemini-4-neon": {
+     "calls": 21,
+     "input": 161261,
+     "output": 4226,
+     "thinking": 15123
+    },
+    "gemini-4-hydrogen": {
+     "calls": 6,
+     "input": 149942,
+     "output": 5919,
+     "thinking": 11465
+    }
+   },
+   "final_text": "",
+   "notes": [
+    "arm C had a Blender worker (--blender): lookdev renders and the Blender-side checks are those a user with Blender gets",
+    "arm C: this project's pipeline (command line, preview mode); not expressible on its command line: real-world scale, +Y up, grounded and centred (the pipeline's own conventions apply; not a flag); UVs inside 0-1 and not overlapping (the pipeline unwraps by its own rules); at most 3 materials; a base colour, normal and metallic-roughness texture per material (its own lookdev decides); texture sizes (power of two, at most 2048 px): no texture-size flag; LODs and collision named as the task asks (<name>_LOD1.glb, '-col'): it writes its own package layout; the delivery folder output/<name>.glb + output/textures/: it writes a package directory; the budget sentence: there is no agent to read it; the command's own --token-ceiling / --max-images bound it"
+   ],
+   "refused": [],
+   "pipeline": {
+    "seeded_from": "<scratch>/r5/live_final_C/runs/r5_crate_C/out/.agy3d-cache",
+    "plan_lines": {
+     "default": [
+      "clutter: up to 3 image(s) (+2 per extra material) and about 377,827 tokens",
+      "simple: up to 4 image(s) (+2 per extra material) and about 397,122 tokens",
+      "standard: up to 8 image(s) (+4 per extra material) and about 535,332 tokens",
+      "hero: up to 11 image(s) (+6 per extra material) and about 609,645 tokens"
+     ],
+     "single_candidate": [
+      "clutter: up to 2 image(s) (+1 per extra material) and about 374,960 tokens",
+      "simple: up to 2 image(s) (+1 per extra material) and about 374,960 tokens",
+      "standard: up to 2 image(s) (+1 per extra material) and about 468,846 tokens",
+      "hero: up to 3 image(s) (+1 per extra material) and about 471,713 tokens"
+     ]
+    },
+    "mode": "default",
+    "command": [
+     "-m",
+     "antigravity3d.cli",
+     "prop",
+     "<brief crate>",
+     "--engine",
+     "godot_4",
+     "--max-tris",
+     "3000",
+     "--out",
+     "<scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out",
+     "--preview",
+     "--blender",
+     "<scratch>/engines/blender-5.3.0-linux-x64/blender",
+     "--token-ceiling",
+     "585000",
+     "--max-images",
+     "0"
+    ],
+    "prompt": "a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles",
+    "own_spend": "spend (tokens, no price applied): standard: 394,149 of 585,000 tokens (no price applied); 0 of 0 images (author.improve 180,770, author.look 7,587, author.propose 0, geometry_gen 0, geometry_vision 68,061, lod_pop 5,683, route 1,869, visual_qa 130,179) | decisions plane 20 calls, 153,706 input + 18,400 output tokens cache hits=0 misses=1",
+    "exit_code": 1,
+    "publication": "UNVERIFIED PREVIEW (verified=false; judged by generative fallback, uncalibrated)",
+    "preview_gates": "FAIL",
+    "decision_backend": "generative_fallback",
+    "preview": {
+     "verified": false,
+     "preview": true,
+     "judge": {
+      "label": "generative fallback, uncalibrated",
+      "calibrated": false,
+      "meaning": "probabilities are a generative model's self-report, not calibrated Decisions output: they may steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it"
+     },
+     "needs_review": true,
+     "spend": {
+      "unit": "tokens",
+      "summary": "standard: 394,149 of 585,000 tokens (no price applied); 0 of 0 images (author.improve 180,770, author.look 7,587, author.propose 0, geometry_gen 0, geometry_vision 68,061, lod_pop 5,683, route 1,869, visual_qa 130,179)"
+     }
+    },
+    "skipped": [
+     {
+      "step": "dag:style_anchor",
+      "reason": "no style anchor provided"
+     },
+     {
+      "step": "dag:ortho",
+      "reason": "router: no orthographic blueprint needed (P=0.30)"
+     },
+     {
+      "step": "pyramid:settle_pre",
+      "reason": "floating part beside another part, not above anything: left to the author"
+     },
+     {
+      "step": "pyramid:textures",
+      "reason": "no material was textured: mat_olive_metal: image limit reached (0 of 0 images): larger surfaces were textured first; mat_dark_steel: image limit reached (0 of 0 images): larger surfaces were textured first; mat_rubber: image limit reached (0 of 0 images): larger surfaces were textured first; mat_brass: image limit reached (0 of 0 images): larger surfaces were textured first"
+     },
+     {
+      "step": "pyramid:engine_capture",
+      "reason": "engine truth disabled in spend plan"
+     },
+     {
+      "step": "pyramid:engine_parity",
+      "reason": "spend plan 'standard' has engine_truth disabled"
+     },
+     {
+      "step": "pyramid:export_fbx",
+      "reason": "no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)"
+     }
+    ],
+    "geometry_candidates": {
+     "n_planned": 4,
+     "n_requested": 4,
+     "n_proposed": 4,
+     "outcomes": [
+      {
+       "index": 0,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": null,
+       "admission_wait_s": 0.0,
+       "reserved_usd": null,
+       "reserved_tokens": 0.0,
+       "recorded": {
+        "unit": "tokens",
+        "booked": 16330.0,
+        "usage": {
+         "input_tokens": 10751,
+         "output_tokens": 5579,
+         "thinking_tokens": 2511
+        },
+        "model": "gemini-4-hydrogen",
+        "role": "worker",
+        "operation": "propose"
+       }
+      },
+      {
+       "index": 1,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": null,
+       "admission_wait_s": 0.0,
+       "reserved_usd": null,
+       "reserved_tokens": 0.0,
+       "recorded": {
+        "unit": "tokens",
+        "booked": 16498.0,
+        "usage": {
+         "input_tokens": 10751,
+         "output_tokens": 5747,
+         "thinking_tokens": 2990
+        },
+        "model": "gemini-4-hydrogen",
+        "role": "worker",
+        "operation": "propose"
+       }
+      },
+      {
+       "index": 2,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": null,
+       "admission_wait_s": 0.0,
+       "reserved_usd": null,
+       "reserved_tokens": 0.0,
+       "recorded": {
+        "unit": "tokens",
+        "booked": 15999.0,
+        "usage": {
+         "input_tokens": 10751,
+         "output_tokens": 5248,
+         "thinking_tokens": 2911
+        },
+        "model": "gemini-4-hydrogen",
+        "role": "worker",
+        "operation": "propose"
+       }
+      },
+      {
+       "index": 3,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": null,
+       "admission_wait_s": 0.0,
+       "reserved_usd": null,
+       "reserved_tokens": 0.0,
+       "recorded": {
+        "unit": "tokens",
+        "booked": 14759.0,
+        "usage": {
+         "input_tokens": 10751,
+         "output_tokens": 4008,
+         "thinking_tokens": 1939
+        },
+        "model": "gemini-4-hydrogen",
+        "role": "worker",
+        "operation": "propose"
+       }
+      }
+     ],
+     "sizing": {
+      "basis": "expected author cost + grading",
+      "expected_candidate_tokens": 19972.0,
+      "worst_case_candidate_tokens": 38609.0,
+      "remaining_tokens": 583131.0
+     }
+    },
+    "scores": {
+     "tier15": 2.7899999999999996,
+     "tier1_ok": true,
+     "score_silhouette": 2.79,
+     "score_brief_depiction": 2.84,
+     "score_shippability": 2.79,
+     "web_silhouette_iou": 0.9997437321146372
+    },
+    "plan": "standard: 394,149 of 585,000 tokens (no price applied); 0 of 0 images (author.improve 180,770, author.look 7,587, author.propose 0, geometry_gen 0, geometry_vision 68,061, lod_pop 5,683, route 1,869, visual_qa 130,179)",
+    "pyramid_steps": [
+     [
+      "settle_pre",
+      "skipped",
+      "floating part beside another part, not above anything: left to the author"
+     ],
+     [
+      "separate_coplanar",
+      "passed",
+      "8 coplanar face pair(s); moved 8 face(s) of 4 part(s) to 2 mm apart | moved: handle_grip -y face -1.00 mm (back; was coplanar with handle_bracket); handle_grip +y face -1.00 mm (back; was coplanar wit"
+     ],
+     [
+      "attach_pre",
+      "passed",
+      "attached skid moved 1.0 mm onto crate_body (+0.0, +0.0, +1.0 mm); attached skid__mx moved 1.0 mm onto crate_body (+0.0, +0.0, +1.0 mm); attached handle_bracket, handle_bracket__my, handle_grip moved 1"
+     ],
+     [
+      "improve_A1",
+      "passed",
+      "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.65->2.68, depiction 2.69->2.71, tier15 2.64->2.66, tier1 critical 0->0, 9 op(s)"
+     ],
+     [
+      "improve_A2",
+      "passed",
+      "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.68->2.75, depiction 2.71->2.79, tier15 2.66->2.74, tier1 critical 0->0, 9 op(s); clean-up: separate"
+     ],
+     [
+      "validate_A2",
+      "passed",
+      "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.70) \"State B is closer to the request because it adds lid corner guards, top reinforcing r"
+     ],
+     [
+      "improve_A3",
+      "passed",
+      "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.75->2.65, depiction 2.79->2.69, tier15 2.74->2.64, tier1 critical 0->0, 15 op(s)"
+     ],
+     [
+      "improve_A4",
+      "passed",
+      "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.65->2.80, depiction 2.69->2.84, tier15 2.64->2.79, tier1 critical 0->0, 6 op(s); clean-up: flush fa"
+     ],
+     [
+      "validate_A4",
+      "passed",
+      "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.55) \"State B is closer to the request because it adds rugged military crate details includ"
+     ],
+     [
+      "textures",
+      "skipped",
+      "no material was textured: mat_olive_metal: image limit reached (0 of 0 images): larger surfaces were textured first; mat_dark_steel: image limit reached (0 of 0 images): larger surfaces were textured "
+     ],
+     [
+      "uv_lod_colliders",
+      "passed",
+      "uv=57 lod_tris=[2376, 1776, 962, 374] hulls=4 texel_density: mat_brass+mat_dark_steel+mat_olive_metal+mat_rubber 512 (met); spread 1.00x"
+     ],
+     [
+      "look_round",
+      "warned",
+      "undone mat_olive_metal base_color [0.2392, 0.2902, 0.1686] roughness 0.55 metallic 0.00: undone (not shown to be better): before-first: neither (0.86) \"States A and B do not visibly differ in colour, "
+     ],
+     [
+      "z_fighting",
+      "warned",
+      "latch_clasp: latch_clasp/latch_tab: 0.44 cm^2 of same-facing faces within 1 mm of one plane; latch_grp__r1__latch_clasp: latch_grp__r1__latch_clasp/latch_tab_r1: 0.44 cm^2 of same-facing faces within "
+     ],
+     [
+      "engine_compliance",
+      "passed",
+      "0 warning(s)"
+     ],
+     [
+      "usd_validate",
+      "passed",
+      "write_engine_package ok; 0 non-critical message(s); files=11"
+     ],
+     [
+      "lod_pop",
+      "passed",
+      "LOD pop: 3 transitions, OK; worst pair 2 (LOD2->3 @5%, 19.5 m): IoU 0.986, shade 0.024, edge 1.0px, tris 962->374"
+     ],
+     [
+      "lod_pop_vision",
+      "failed",
+      "pair 3: defect_shading_discontinuity=0.70 >= 0.3; pair 3: defect_silhouette_change=0.55 >= 0.3; pair 3: score_lod_continuity 1.93 < 3.0"
+     ],
+     [
+      "export_glb",
+      "passed",
+      "RuggedMilitarySupply.glb 1971476 bytes (+3 LOD GLB)"
+     ],
+     [
+      "engine_import",
+      "passed",
+      "86,0.426999986171722,0.272000014781952]],\"images\":3,\"images_loaded\":3,\"normal_surfaces\":1,\"orm_surfaces\":1,\"surfaces\":1,\"textured_surfaces\":1,\"triangles\":2376} "
+     ],
+     [
+      "engine_capture",
+      "skipped",
+      "engine truth disabled in spend plan"
+     ],
+     [
+      "engine_parity",
+      "skipped",
+      "spend plan 'standard' has engine_truth disabled"
+     ],
+     [
+      "web_runtime",
+      "passed",
+      "three.js loaded and rendered the package: 27 checks passed, silhouette IoU 0.9997 against the USD"
+     ],
+     [
+      "blender_asset_qa",
+      "failed",
+      "qa_check of EL4CTEO/blender-skills @9e7e04a (release 1.3.2), game profile, vertices merged part by part: 1 object(s), 2376 tris; 1 error(s): z-fighting: Batch_0 (6 overlapping coplanar tri pairs)"
+     ],
+     [
+      "export_fbx",
+      "skipped",
+      "no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)"
+     ]
+    ],
+    "stdout_tail": "ratchpad/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/web_three.png\n  authoring_usd: <scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/RuggedMilitarySupply_authoring.usda\n  inspector: <scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/package/inspector.html\n  report: <scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/report.json\nskipped:\n  - dag:style_anchor: no style anchor provided\n  - dag:ortho: router: no orthographic blueprint needed (P=0.30)\n  - pyramid:settle_pre: floating part beside another part, not above anything: left to the author\n  - pyramid:textures: no material was textured: mat_olive_metal: image limit reached (0 of 0 images): larger surfaces were textured first; mat_dark_steel: image limit reached (0 of 0 images): larger surfaces were textured first; mat_rubber: image limit reached (0 of 0 images): larger surfaces were textured first; mat_brass: image limit reached (0 of 0 images): larger surfaces were textured first\n  - pyramid:engine_capture: engine truth disabled in spend plan\n  - pyramid:engine_parity: spend plan 'standard' has engine_truth disabled\n  - pyramid:export_fbx: no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)\nwarnings:\n  - look_round: undone mat_olive_metal base_color [0.2392, 0.2902, 0.1686] roughness 0.55 metallic 0.00: undone (not shown to be better): before-first: neither (0.86) \"States A and B do not visibly differ in colour, finish, or material representation.\"; after-first: neither (0.86) \"Neither state is closer because State A and State B appear visually identical in colour, wear, and material finish.\"; unconfirmed new flag(s), decided nothing: defect_texture_blur=0.28/0.35; before: score_brief_look=2.74, score_material_separation=2.69, score_pbr_realism=2.43; after: score_brief_look=2.65, score_material_separation\n  - z_fighting: latch_clasp: latch_clasp/latch_tab: 0.44 cm^2 of same-facing faces within 1 mm of one plane; latch_grp__r1__latch_clasp: latch_grp__r1__latch_clasp/latch_tab_r1: 0.44 cm^2 of same-facing faces within 1 mm of one plane\npublication: UNVERIFIED PREVIEW (verified=false; judged by generative fallback, uncalibrated)\n  judge: probabilities are a generative model's self-report, not calibrated Decisions output: they may steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it\nreview: required (the judge is uncalibrated; a person must review this package before any use)\nnot delivered: blender_asset_qa: qa_check of EL4CTEO/blender-skills @9e7e04a (release 1.3.2), game profile, vertices merged part by part: 1 object(s), 2376 tris; 1 error(s): z-fighting: Batch_0 (6 overlapping coplan\nfinding: overall score (tier15) 2.79, below the target 3.4 by 0.61, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: silhouette 2.79, below the target 3.3 by 0.51, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: shippability 2.79, below the target 3.4 by 0.61, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: lod_pop_vision failed on the answer of generative fallback, uncalibrated (pair 3: defect_shading_discontinuity=0.70 >= 0.3; pair 3: defect_silhouette_change=0.55 >= 0.3; pair 3: score_lod_continuity 1.93 < 3.0); look at it before you ship\nwhere to look: <scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/package/inspector.html, <scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/web_three.png\ndelivered: no, or blocked (exit 1)\npreview gates: FAIL\n",
+    "stderr_tail": "   8s thinking: Analyzing the Design\n[author worker improve]    10s thinking: Addressing Z-Fighting Issues\n[author worker improve]    12s thinking: Evaluating Visual Quality\n[author worker improve]    14s thinking: Reviewing Component Placement\n[author worker improve]    16s thinking: Considering Aesthetic Enhancements\n[author worker improve]    16s answer arriving: 86 characters\n[author worker improve]    18s finished STOP, 2,712 output tokens\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\nstill running: judge visual_qa:blockout 31s\n[judge visual_qa:blockout]    37s finished (0 still in flight)\n[author worker improve]     0s sent to gemini-4-hydrogen\n[author worker improve]    20s retrying in 2 s: unknown: StreamStalled: stream silent for 20.0 s while waiting (limit 20.0 s; 0 chunks, 0 thought and 0 answer characters received)\n[author worker improve (attempt 2)]     0s sent to gemini-4-hydrogen\n[author worker improve (attempt 2)]    14s thinking: Analyzing the Design\n[author worker improve (attempt 2)]    16s thinking: Refining the Details\n[author worker improve (attempt 2)]    18s thinking: Evaluating the Enhancements\n[author worker improve (attempt 2)]    19s thinking: Improving the Details\n[author worker improve (attempt 2)]    21s thinking: Calculating the Triangle Count\n[author worker improve (attempt 2)]    23s thinking: Calculating Additions\n[author worker improve (attempt 2)]    24s answer arriving: 4 characters\n[author worker improve (attempt 2)]    27s finished STOP, 3,233 output tokens\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:blockout]    20s finished (0 still in flight)\n[judge compare:shape]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge compare:shape]     0s sent to gemini-4-neon (2 judge call(s) in flight)\n[judge compare:shape]    27s finished (1 still in flight)\n[judge compare:shape]    38s finished (0 still in flight)\n[judge visual_qa:look]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:look]    30s finished (0 still in flight)\n[author worker look]     0s sent to gemini-4-hydrogen\n[author worker look]    17s answer arriving: 94 characters\n[author worker look]    17s finished STOP, 545 output tokens\n[judge compare:look]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge compare:look]     0s sent to gemini-4-neon (2 judge call(s) in flight)\n[judge visual_qa:look]     0s sent to gemini-4-neon (3 judge call(s) in flight)\n[judge visual_qa:look]     0s sent to gemini-4-neon (4 judge call(s) in flight)\n[judge compare:look]    24s finished (3 still in flight)\n[judge compare:look]    24s finished (2 still in flight)\n[judge visual_qa:look]    42s finished (1 still in flight)\n[judge visual_qa:look]    58s finished (0 still in flight)\n[judge lod_pop]     0s sent to gemini-4-neon (1 judge call(s) in flight)\nstill running: judge lod_pop 30s\n[judge lod_pop]    46s finished (0 still in flight)\n",
+    "self_report": {
+     "manifests": [
+      {
+       "path": "<scratch>/r5/live_final_C/runs/r5_crate_C.repeat/out/runs/tmpal5ocab8/package/manifest.json",
+       "asset": "RuggedMilitarySupply",
+       "verified": false,
+       "preview": true,
+       "tris": 2376,
+       "judge": {
+        "label": "generative fallback, uncalibrated",
+        "calibrated": false,
+        "meaning": "probabilities are a generative model's self-report, not calibrated Decisions output: they may steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it"
+       },
+       "spend": {
+        "unit": "tokens",
+        "summary": "standard: 394,149 of 585,000 tokens (no price applied); 0 of 0 images (author.improve 180,770, author.look 7,587, author.propose 0, geometry_gen 0, geometry_vision 68,061, lod_pop 5,683, route 1,869, visual_qa 130,179)"
+       },
+       "evidence": {
+        "render_tier": "preview",
+        "lookdev": false,
+        "engine_parity": false,
+        "silhouette_iou": null,
+        "steps": [
+         {
+          "name": "settle_pre",
+          "status": "skipped",
+          "detail": "floating part beside another part, not above anything: left to the author"
+         },
+         {
+          "name": "separate_coplanar",
+          "status": "passed",
+          "detail": "8 coplanar face pair(s); moved 8 face(s) of 4 part(s) to 2 mm apart | moved: handle_grip -y face -1.00 mm (back; was coplanar with handle_bracket); handle_grip +y face -1.00 mm (back; was coplanar with handle_bracket__my); handle_grp__mx__handle_grip -y face -1.00 mm (back; was coplanar with handle_grp__mx__handle_bracket); handle_grp__mx__handle_grip +y face -1.00 mm (back; was coplanar with handle_grp__mx__handle_bracket__my); hinge_grp__r1__hinge_barrel -x face -3.00 mm (back; was coplanar with hinge_grp__r1__hinge_plate); hinge_grp__r1__hinge_barrel +x face -3.00 mm (back; was coplanar with hinge_grp__r1__hinge_plate); hinge_barrel -x face -3.00 mm (back; was coplanar with hinge_plate); hinge_barrel +x face -3.00 mm (back; was coplanar with hinge_plate)"
+         },
+         {
+          "name": "attach_pre",
+          "status": "passed",
+          "detail": "attached skid moved 1.0 mm onto crate_body (+0.0, +0.0, +1.0 mm); attached skid__mx moved 1.0 mm onto crate_body (+0.0, +0.0, +1.0 mm); attached handle_bracket, handle_bracket__my, handle_grip moved 11.5 mm onto crate_body (-11.5, +0.0, +0.0 mm); attached handle_grp__mx__handle_bracket, handle_grp__mx__handle_bracket__my, handle_grp__mx__handle_grip moved 11.5 mm onto crate_body (+11.5, +0.0, +0.0"
+         },
+         {
+          "name": "improve_A1",
+          "status": "passed",
+          "detail": "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.65->2.68, depiction 2.69->2.71, tier15 2.64->2.66, tier1 critical 0->0, 9 op(s)"
+         },
+         {
+          "name": "improve_A2",
+          "status": "passed",
+          "detail": "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.68->2.75, depiction 2.71->2.79, tier15 2.66->2.74, tier1 critical 0->0, 9 op(s); clean-up: separated flush faces of 2 part(s) the patch changed; flush faces left (fixing them would move parts the patch did not change): handle_bracket, handle_bracket__my, handle_grp__mx__handle_bracket, handle_grp__"
+         },
+         {
+          "name": "validate_A2",
+          "status": "passed",
+          "detail": "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.70) \"State B is closer to the request because it adds lid corner guards, top reinforcing ribs, handle backing plates, and a front center plate that make the crate look more rugged and kit-bashed.\"; after-first: after (0.75) \"State A is closer to the request because it adds lid corner guard"
+         },
+         {
+          "name": "improve_A3",
+          "status": "passed",
+          "detail": "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.75->2.65, depiction 2.79->2.69, tier15 2.74->2.64, tier1 critical 0->0, 15 op(s)"
+         },
+         {
+          "name": "improve_A4",
+          "status": "passed",
+          "detail": "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.65->2.80, depiction 2.69->2.84, tier15 2.64->2.79, tier1 critical 0->0, 6 op(s); clean-up: flush faces left (fixing them would move parts the patch did not change): latch_clasp, latch_grp__r1__latch_clasp"
+         },
+         {
+          "name": "validate_A4",
+          "status": "passed",
+          "detail": "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.55) \"State B is closer to the request because it adds rugged military crate details including top corner pads, a front circular valve, and nameplate rivets.\"; after-first: after (0.65) \"State A is slightly closer to the request because it includes extra rugged military detailing such as to"
+         },
+         {
+          "name": "textures",
+          "status": "skipped",
+          "detail": "no material was textured: mat_olive_metal: image limit reached (0 of 0 images): larger surfaces were textured first; mat_dark_steel: image limit reached (0 of 0 images): larger surfaces were textured first; mat_rubber: image limit reached (0 of 0 images): larger surfaces were textured first; mat_brass: image limit reached (0 of 0 images): larger surfaces were textured first"
+         },
+         {
+          "name": "uv_lod_colliders",
+          "status": "passed",
+          "detail": "uv=57 lod_tris=[2376, 1776, 962, 374] hulls=4 texel_density: mat_brass+mat_dark_steel+mat_olive_metal+mat_rubber 512 (met); spread 1.00x"
+         },
+         {
+          "name": "look_round",
+          "status": "warned",
+          "detail": "undone mat_olive_metal base_color [0.2392, 0.2902, 0.1686] roughness 0.55 metallic 0.00: undone (not shown to be better): before-first: neither (0.86) \"States A and B do not visibly differ in colour, finish, or material representation.\"; after-first: neither (0.86) \"Neither state is closer because State A and State B appear visually identical in colour, wear, and material finish.\"; unconfirmed new flag(s), decided nothing: defect_texture_blur=0.28/0.35; before: score_brief_look=2.74, score_material_separation=2.69, score_pbr_realism=2.43; after: score_brief_look=2.65, score_material_separation"
+         },
+         {
+          "name": "z_fighting",
+          "status": "warned",
+          "detail": "latch_clasp: latch_clasp/latch_tab: 0.44 cm^2 of same-facing faces within 1 mm of one plane; latch_grp__r1__latch_clasp: latch_grp__r1__latch_clasp/latch_tab_r1: 0.44 cm^2 of same-facing faces within 1 mm of one plane"
+         },
+         {
+          "name": "engine_compliance",
+          "status": "passed",
+          "detail": "0 warning(s)"
+         },
+         {
+          "name": "usd_validate",
+          "status": "passed",
+          "detail": "write_engine_package ok; 0 non-critical message(s); files=11"
+         },
+         {
+          "name": "lod_pop",
+          "status": "passed",
+          "detail": "LOD pop: 3 transitions, OK; worst pair 2 (LOD2->3 @5%, 19.5 m): IoU 0.986, shade 0.024, edge 1.0px, tris 962->374"
+         },
+         {
+          "name": "lod_pop_vision",
+          "status": "failed",
+          "detail": "pair 3: defect_shading_discontinuity=0.70 >= 0.3; pair 3: defect_silhouette_change=0.55 >= 0.3; pair 3: score_lod_continuity 1.93 < 3.0"
+         },
+         {
+          "name": "export_glb",
+          "status": "passed",
+          "detail": "RuggedMilitarySupply.glb 1971476 bytes (+3 LOD GLB)"
+         },
+         {
+          "name": "engine_import",
+          "status": "passed",
+          "detail": "86,0.426999986171722,0.272000014781952]],\"images\":3,\"images_loaded\":3,\"normal_surfaces\":1,\"orm_surfaces\":1,\"surfaces\":1,\"textured_surfaces\":1,\"triangles\":2376} "
+         },
+         {
+          "name": "engine_capture",
+          "status": "skipped",
+          "detail": "engine truth disabled in spend plan"
+         },
+         {
+          "name": "engine_parity",
+          "status": "skipped",
+          "detail": "spend plan 'standard' has engine_truth disabled"
+         },
+         {
+          "name": "web_runtime",
+          "status": "passed",
+          "detail": "three.js loaded and rendered the package: 27 checks passed, silhouette IoU 0.9997 against the USD"
+         },
+         {
+          "name": "blender_asset_qa",
+          "status": "failed",
+          "detail": "qa_check of EL4CTEO/blender-skills @9e7e04a (release 1.3.2), game profile, vertices merged part by part: 1 object(s), 2376 tris; 1 error(s): z-fighting: Batch_0 (6 overlapping coplanar tri pairs)"
+         },
+         {
+          "name": "export_fbx",
+          "status": "skipped",
+          "detail": "no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)"
+         }
+        ]
+       }
+      }
+     ],
+     "qa_records": []
+    },
+    "load_1min_end": 0.78,
+    "load_1min_start": 3.21,
+    "conditions": {
+     "model_calls": 27,
+     "finish_reasons": {
+      "STOP": 27
+     },
+     "calls_at_output_cap": 0,
+     "max_output_tokens_requested": [
+      8192,
+      12288,
+      24576
+     ],
+     "service_failures": {
+      "turned away": 0,
+      "broken": 0,
+      "server error": 0
+     },
+     "last_call_service_failure": null,
+     "start_end_unix": [
+      1795351945.4963467,
+      1795352721.7810228
+     ]
+    },
+    "same_bytes": false,
+    "bytes_compare": {
+     "files": 11,
+     "different": [
+      "RuggedMilitarySupply.glb",
+      "RuggedMilitarySupply.usd",
+      "RuggedMilitarySupply.usdz",
+      "RuggedMilitarySupply_LOD1.glb",
+      "RuggedMilitarySupply_LOD2.glb",
+      "RuggedMilitarySupply_LOD3.glb",
+      "RuggedMilitarySupply_colliders.glb",
+      "inspector.html",
+      "textures/RuggedMilitarySupply_atlas_albedo.png",
+      "textures/RuggedMilitarySupply_atlas_normal.png",
+      "textures/RuggedMilitarySupply_atlas_orm.png"
+     ]
+    }
+   },
+   "session": 1,
+   "account": "r5:crate:C.repeat",
+   "phase": "repeat"
+  }
+ ],
+ "c_change_mode": "edit",
+ "unfair": [
+  "Arm V's screenshots reach the model in two steps: the stock harness puts an MCP tool's image into the conversation only while it is tiny (base64 under about 10 to 16 KB, measured); a larger one, which is every useful render (a 256 px solid view of a cube is 53 KB), is saved to a file and the path returned ('[Resource offloaded to file:///...media_0.png]'), and the agent sees the picture only if it opens that file with view_file (tests/test_compare_agents.py). That is the stock agent's behaviour with any MCP server and is left as it is; each V record counts screenshots taken and opened.",
+  "Arm V's Blender has a virtual display (Xvfb) inside the sandbox, because its screenshot is Blender's solid-viewport renderer (Workbench), which needs OpenGL: without a display Blender 5.3 exits at the first render (measured). Arm A's Blender has none, as in round 3; Cycles works without one.",
+  "Arm V's Blender binary is mounted in the sandbox (the MCP server starts it) but is not on PATH and not named in its task; an agent that finds it can still run it from the shell. Each record counts shell commands that start Blender (blender_invocations), so a V run that bypassed its MCP server is visible.",
+  "Arms V and A run with 0 images: the owner's image allowance is used up (29 of 30), and the relay refuses an image call. A stock agent made no image in round 3 (its textures were procedural); the task text is unchanged.",
+  "Arms N and C make their textures as images and are not run until the owner allows more images.",
+  "Arm C is told less than the agents: its command line carries the brief, engine and triangle budget, but not the rest of the game-ready list (C_UNEXPRESSED); the pipeline applies its own conventions there.",
+  "Arm C's change request is `agy3d edit OUT \"<change>\"` on a copy of its first output folder: one patch to the shipped design, no image (C_CHANGE_MODE; 'append', a new design from the sentence appended to the prompt, is kept for comparison). The agents' change sessions are new conversations over the files their first session left.",
+  "Every arm's task ends with a budget sentence ('about N model calls'), N computed from its share (CALL_MODEL); maxOutputTokens is 16,384 instead of the stock 65,535; web search and URL reading are disabled (no network).",
+  "The upstream qa_check / mesh_stats / texel_density scripts are by the author of the skills arm B used (round 1). The Godot import script and the three.js check are this project's own (C's authors); they are applied to the bare GLB of every arm with a manifest holding only the bounds read from that GLB.",
+  "The judge is Gemini (gemini-4-carbon, thinking low) judging Gemini-made assets; renders are Blender's (Cycles), not the target engine's.",
+  "Rows that only this project can pass are marked so in the scorecard (installed into a project, provenance, the same bytes from the same request): they are reported, not mixed into the shared game-ready rate.",
+  "The machine is shared: other test suites may run on its 4 cores during live runs; each record carries the load at its start and end. Wall times are not comparable with an idle machine."
+ ],
+ "plugin_discovery": {
+  "sdk": "google-antigravity 0.1.24 (bundled localharness binary), LocalAgentConfig defaults",
+  "tried": [
+   "<workspace>/.agents/plugins/antigravity-3d (plugin_install.install, workspace scope, copy mode)",
+   "<workspace>/.agents/plugins.json entry (plugin_install.register)",
+   "$HOME/.gemini/config/plugins/antigravity-3d (global install, HOME passed to the harness)"
+  ],
+  "request_carried": "in every case: no MCP server section and no MCP tools, no plugin skill (only the built-in run-workflow skill), no plugin rule; system prompt about 11.6k characters, unchanged",
+  "so": "arm C attaches each part by hand through its SDK equivalent, from the plugin's own files"
+ },
+ "not_run": {
+  "arm B": "not run in round 5: its two round-1 runs are reported as a finding (what it read, what it cost)",
+  "arm N": "arm N (the stock agent driving this project's plugin) needs images for its textures; it waits for the owner's image allowance (29 of 30 used)"
+ },
+ "round": "r5",
+ "native_sizing": null,
+ "c_unexpressed": [
+  "real-world scale, +Y up, grounded and centred (the pipeline's own conventions apply; not a flag)",
+  "UVs inside 0-1 and not overlapping (the pipeline unwraps by its own rules)",
+  "at most 3 materials; a base colour, normal and metallic-roughness texture per material (its own lookdev decides)",
+  "texture sizes (power of two, at most 2048 px): no texture-size flag",
+  "LODs and collision named as the task asks (<name>_LOD1.glb, '-col'): it writes its own package layout",
+  "the delivery folder output/<name>.glb + output/textures/: it writes a package directory",
+  "the budget sentence: there is no agent to read it; the command's own --token-ceiling / --max-images bound it"
+ ],
+ "plan": {
+  "briefs": [
+   {
+    "id": "crate",
+    "prompt": "a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles",
+    "max_tris": 3000,
+    "size_m": [
+     0.5,
+     1.6
+    ],
+    "upright": false,
+    "why": "boxy, kit-bashed: many flat parts that must meet cleanly, hard edges, trim detail"
+   },
+   {
+    "id": "hydrant",
+    "prompt": "a cast-iron fire hydrant with bolted caps and a chained nozzle cap",
+    "max_tris": 4000,
+    "size_m": [
+     0.5,
+     1.2
+    ],
+    "upright": true,
+    "why": "round parts: cylinders, caps, bolts; tessellation against a budget, smooth shading"
+   },
+   {
+    "id": "chair",
+    "prompt": "a wooden Windsor chair with a spindle back",
+    "max_tris": 5000,
+    "size_m": [
+     0.7,
+     1.3
+    ],
+    "upright": true,
+    "why": "thin and many parts: legs, stretchers, a dozen spindles; proportions and budget"
+   }
+  ],
+  "order": [
+   [
+    "crate",
+    "C"
+   ],
+   [
+    "hydrant",
+    "C"
+   ],
+   [
+    "chair",
+    "C"
+   ]
+  ],
+  "engine": "godot_4",
+  "notes": {
+   "stock model": "SDK default text model gemini-4-hydrogen (google.antigravity.models.DEFAULT_MODEL), thinking left at the model default; image tool on the SDK default gemini-3.1-flash-lite-image (0 images this round: the relay refuses image calls).",
+   "stock deviations": "web search and URL reading disabled (no network allowed); maxOutputTokens 16,384 instead of the stock 65,535 so a call's worst case does not consume a third of the run's share; file tools limited to the workspace; harness backstops exceed the modeled call allowance but may bind before the token share (harness_budget).",
+   "arm V": "the stock agent plus one MCP server, compare_vanilla_mcp.py (execute_blender_code, get_scene_info, get_object_info, get_viewport_screenshot), attached through LocalAgentConfig.mcp_servers; Blender runs inside the sandbox under Xvfb; nothing of this project is mounted.",
+   "change requests": "one per cell after it delivers, a new session over a copy of its files, half the arm's share; the two packages are diffed part by part (compare_eval.package_diff)."
+  },
+  "budget": {
+   "ceiling_tokens": 40000000,
+   "ceiling_images": 0,
+   "round": "r5",
+   "briefs": [
+    "crate",
+    "hydrant",
+    "chair"
+   ],
+   "arms_now": [
+    "C"
+   ],
+   "arms_planned": [
+    "A",
+    "C",
+    "V"
+   ],
+   "run_tokens": {
+    "V": 1200000,
+    "A": 1200000,
+    "B": 195000,
+    "N": 2500000,
+    "C": 1200000
+   },
+   "run_images": {
+    "V": 0,
+    "A": 0,
+    "B": 0,
+    "N": 0,
+    "C": 0
+   },
+   "judge_tokens_per_call": 12500,
+   "small_judge_tokens_per_call": 10000,
+   "smoke_tokens": 0,
+   "continuations": {},
+   "changes": true,
+   "change_share": 0.5,
+   "change_images": {
+    "V": 0,
+    "A": 0,
+    "B": 0,
+    "N": null,
+    "C": null
+   }
+  },
+  "plan_totals": {
+   "tokens": 18405000,
+   "images": 0
+  }
+ },
+ "tally": {
+  "tokens": 1798654,
+  "images": 0,
+  "input_tokens": 1553908,
+  "output_tokens": 81318,
+  "thinking_tokens": 143360,
+  "unknown_reserved_tokens": 20068,
+  "calls": 144,
+  "inflight_tokens": 0,
+  "ceiling_tokens": 40000000,
+  "ceiling_images": 0
+ }
+}

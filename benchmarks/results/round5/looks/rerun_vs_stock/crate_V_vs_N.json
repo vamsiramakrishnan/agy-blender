@@ -1,0 +1,217 @@
+{
+ "model": "gemini-4-carbon",
+ "thinking": "low",
+ "brief_id": "crate",
+ "brief": "a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles",
+ "sheets": {
+  "A": "<scratch>/r5/live_scorecard/eval/r5/crate/V/sheet.png",
+  "C": "<scratch>/r5/live_rerun_N/eval/r5/crate/N/sheet.png"
+ },
+ "calls": [
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 179,
+    "thinking": null,
+    "total": 3432
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1's olive-drab colour scheme and stencilled markings read much more clearly as a military supply crate."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Both share a believable crate scale, though Image 1 has more functional latch and corner guard proportions."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 features better material separation, colour contrast, and subtle edge wear compared to Image 2's flat grey look."
+     },
+     "defects": {
+      "winner": "tie",
+      "reason": "Both models are cleanly constructed with no obvious geometry or shading defects."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 wins overall due to its distinct military colour palette, superior material definition, and clearer hardware proportions."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 221,
+    "thinking": null,
+    "total": 3474
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Image 2's olive drab color scheme and yellow stencil markings read much more clearly as a military supply crate than Image 1's generic grey trunk."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both have believable overall scale next to the reference block, though Image 2 has more realistic hardware and corner guard proportions compared to Image 1's chunky parts."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 features better material separation between the painted body and dark metal hardware, with more natural edge wear than Image 1's overly uniform silver paint chips."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 2 places latches identically on both front and back without hinges, whereas Image 1 properly differentiates front latches from rear hinges with clean geometry."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Image 2 wins overall due to its unmistakable military aesthetic, superior material definition, and better component proportions."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 170,
+    "thinking": null,
+    "total": 3423
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Olive drab coloring, stencil markings, and distinct hardware make the first crate read more immediately as military."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Both crates share good overall scale, but the first has more functional latch and corner guard proportions."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "The first asset has clearer material separation, better color variation, and less procedural-looking edge wear."
+     },
+     "defects": {
+      "winner": "tie",
+      "reason": "Both models are cleanly constructed and free of obvious mesh, shading, or texture defects."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 wins due to superior material definition, stronger military visual cues, and more believable hardware proportions."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 191,
+    "thinking": null,
+    "total": 3444
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "The olive drab color and yellow stencil markings read much more distinctly as a military supply crate than the dark grey crate."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "While overall scale is similar, the latches and corner guards on the second crate are better proportioned and less overly chunky."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "The second crate offers better material separation between the painted body and dark hardware, with more natural edge wear."
+     },
+     "defects": {
+      "winner": "tie",
+      "reason": "Both models are cleanly constructed with well-integrated parts and no obvious shading or texture defects, though Crate 2 oddly places latches on both sides."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "The second asset wins overall due to its superior military color palette, stencil detailing, and more believable hardware proportions."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 168,
+    "thinking": null,
+    "total": 3421
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Olive drab coloring, stencil markings, and functional latches read more clearly as a military crate."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Hardware and corner guards have cleaner, less blocky proportions at this scale."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Material separation, color variation, and subtle edge wear look much more convincing than the second model's blotchy grey finish."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Clean construction throughout, whereas the second model has blocky intersections and awkward latch geometry."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Better military color palette, cleaner hardware proportions, and more refined surface texturing make it a stronger game asset."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 185,
+    "thinking": null,
+    "total": 3438
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Olive drab coloring and stencil markings read more immediately as a military supply crate, though latches appear on both long sides."
+     },
+     "proportion_scale": {
+      "winner": "tie",
+      "reason": "Both crates share nearly identical, believable real-world scales and well-proportioned hardware relative to the 1.8 m reference."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Offers better material separation between the green painted body, dark metal hardware, and subtle edge wear compared to the uniform grey of the first."
+     },
+     "defects": {
+      "winner": "tie",
+      "reason": "Both models exhibit clean geometry and shading without noticeable intersections or texture stretching."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Superior military color palette, stencil detailing, and material contrast make it a more convincing supply crate asset."
+    }
+   }
+  }
+ ],
+ "total_tokens": 20632
+}

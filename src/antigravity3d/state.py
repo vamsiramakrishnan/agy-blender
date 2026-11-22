@@ -7,6 +7,7 @@ look the session up in a process-wide :class:`SceneSessionRegistry` instead.
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -18,6 +19,11 @@ PipelineStage = Literal["ROUTE", "BLOCKOUT", "LOOKDEV", "EXPORT", "DONE"]
 
 MAX_AUDIT_DELTAS = 8
 EXPORT_MIN_TIER15_SCORE = 3.4
+
+
+def generated_surfaces_default() -> bool:
+    """``EngineBudget.generated_surfaces`` when nobody sets it: on, unless AGY3D_GENERATED_SURFACES says 0/false/off."""
+    return os.environ.get("AGY3D_GENERATED_SURFACES", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
 @dataclass(frozen=True)
@@ -36,6 +42,24 @@ class EngineBudget:
     # fast_ops.run_export_pipeline). For assets whose parts will be moved apart in the engine (a lid, a door): the
     # faces two parts press together are hidden only while the parts stay where they were authored.
     keep_contact_faces: bool = False
+    # Opaque materials share one UV atlas, sized from need, and the package bakes their maps into one texture set with
+    # one glTF material where nothing per-material keeps them apart (fast_ops.run_export_pipeline,
+    # package._compose_atlas). False: one 2048 px atlas and one map set per material, as before.
+    shared_atlas: bool = True
+    # Largest side of the shared atlas, below the engine's own limit (ENGINE_RULES max_texture_px): set by an art
+    # direction's texture size (ArtDirection.budget). None: the engine's limit and fast_ops.ATLAS_SIZES decide.
+    max_texture_px: int | None = None
+    # The baked base colour map as JPEG at this quality (4:4:4) instead of lossless PNG; None: PNG. Only the base colour:
+    # measured on the round-four crate's 4096 x 2048 atlas, JPEG q95 halves it (3.37 -> 1.59 MB) at a mean error of 1.2
+    # and a 99th percentile of 5 (of 255), while the ORM map gains 6 % for errors up to 11 levels and the normal map 23 %
+    # for 1.7 degrees, ten times the error an 8-bit normal map already has. Every manifest records both figures per map
+    # (texture_atlas.encoding), so the choice is the developer's to see. glTF readers take JPEG without an extension.
+    base_color_jpeg_quality: int | None = None
+    # Opaque materials without an image get a surface painted from the geometry (kernel/smart_materials.py: wear at
+    # edges, dirt in creases, grain, stencil markings) instead of flat factors; False ships flat colours. The default
+    # comes from AGY3D_GENERATED_SURFACES (read here and nowhere else; the test suite sets it to 0 so its tests keep
+    # testing the flat path unless they ask for generated surfaces).
+    generated_surfaces: bool = field(default_factory=lambda: generated_surfaces_default())
 
 
 @dataclass(frozen=True)
@@ -54,10 +78,22 @@ class VisualVerdict:
                 and self.backend == "decisions" and self.action == "approve")
 
     def qualifies_preview(self, revision: str, target: str) -> bool:
-        """The gate of an unverified PREVIEW export only: an approving lookdev/final verdict on the current revision,
-        from any judge on any render. Never a substitute for :meth:`qualifies`."""
-        return (bool(revision and target) and self.revision == revision and self.target == target
-                and self.stage in {"lookdev", "final"} and self.action == "approve")
+        """The gate of an unverified PREVIEW export only: a lookdev/final verdict on the current revision, from any judge on
+        any render, that approves; or, from an uncalibrated judge (``backend == "uncalibrated"``), any review that did not
+        escalate to a person (``delivers_on_review``). Never a substitute for :meth:`qualifies`."""
+        if not (bool(revision and target) and self.revision == revision and self.target == target
+                and self.stage in {"lookdev", "final"}):
+            return False
+        return self.action != "escalate_human" if self.delivers_on_review else self.action == "approve"
+
+    @property
+    def delivers_on_review(self) -> bool:
+        """Whether this verdict's scores are findings rather than a gate: the review of an uncalibrated judge (the
+        command's delivery rule, ``antigravity3d.delivery``). Measured 2026-11-22: across 27 live designs the fallback judge
+        put no first design at the 3.4 an approval needs (medians 2.05-2.79, best after an improvement round 3.32), so a
+        native preview session could never export; a package whose deterministic checks pass and whose review ran is
+        delivered, labelled unverified, with what the judge found."""
+        return self.backend == "uncalibrated"
 
 
 @dataclass
@@ -92,7 +128,9 @@ class AssetSessionState:
     @property
     def export_allowed(self) -> bool:
         """The export gate of this session: the verified gate, or (preview sessions only) the preview gate."""
-        base = (self.validator_ok is not False and self.last_tier1_ok and EXPORT_MIN_TIER15_SCORE <= self.last_tier15_score <= 4.0
+        reviewed = self.preview and self.verdict is not None and self.verdict.delivers_on_review
+        floor = 0.0 if reviewed else EXPORT_MIN_TIER15_SCORE  # an uncalibrated preview's score is a finding (VisualVerdict)
+        base = (self.validator_ok is not False and self.last_tier1_ok and floor <= self.last_tier15_score <= 4.0
                 and self.verdict is not None)
         if self.preview:
             return base and self.verdict.qualifies_preview(self.revision, self.budget.target_engine)  # type: ignore[union-attr]

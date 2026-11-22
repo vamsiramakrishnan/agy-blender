@@ -23,6 +23,12 @@ IMAGE_USD = dict.fromkeys(("ortho", "albedo", "trim", "decal", "paintover"), 0.0
 IMAGE_TOKENS_EST = 2_867
 GRADE_TOKENS_EST = 3_318
 QA_TOKENS_EST = 10_414
+# One candidate of the geometry ranking, judged alone on five separate 512 px views at the high setting
+# (tactics.judging): 7,445 input + 963 output tokens (mean of 36 live judgements on the generative fallback, 2026-11-22,
+# r5/live/judge_truth, condition E; output 846-1,225). On native Decisions the input alone is billed, at
+# engine.PRICE_PER_M_INPUT_USD ($0.10 per 1M). Sizing only, as above.
+GEOMETRY_JUDGE_TOKENS_EST = 8_408
+GEOMETRY_JUDGE_USD_EST = 7_445 * 0.10 / 1e6
 
 
 async def to_thread_drained(fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Any:

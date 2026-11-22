@@ -31,6 +31,41 @@ glob-scoped rule files add detail when matching files are in play:
   hook denies scripts that fail it. No `os`, `subprocess`, file writes,
   `eval`/`exec` or `bpy.app.handlers` in scripts.
 
+## The short path
+
+Every model call sends the whole conversation so far, so the number of calls
+is what a session costs. For a new asset:
+
+1. `open_asset_session` with the user's request as `brief`.
+2. `apply_scene_ir`: the first call sets the materials and the main body, then
+   two or three calls of at most 25 operations each; write anything that occurs
+   more than once once, with `mirror` or `repeat`. A reply is cut off at 16,384
+   output tokens, thinking included, and an operation costs about 100: a call
+   that was cut off is split and sent again.
+3. `render_preview` and look at the views; improve with one or two more
+   `apply_scene_ir` patches and look again.
+4. `deliver_package`: it reviews the design as it will ship, builds LODs and
+   colliders, validates and exports, and says what the review found. When the
+   request names a folder for the result, pass it as `dest`; the tool places the
+   engine files there, so do not copy files by hand afterwards. Its
+   answer starts with one of three:
+   - `DELIVERED`: the run is finished; the package was validated, imported and
+     checked by the tool. Reply to the user with its path and the findings,
+     and do not inspect it again.
+   - `NOT DELIVERED: a person must decide`: reply to the user with the reason
+     and stop; changing the surfaces or the design to get past it is not wanted.
+   - `NOT DELIVERED` otherwise: fix what it names with `apply_scene_ir` and
+     call `deliver_package` again.
+
+Build the design with `apply_scene_ir`, not by scripting Blender: only a
+design in the session's stage can be edited, checked and packaged by these
+tools (Blender on the command line is for inspecting files).
+
+Nothing else is required. Put tool calls that can go together in one turn,
+read a tool's schema only for the tools you call, and do not explore folders:
+the tools' answers say what you need. The stage tools below are for finer
+control when the user asks for it.
+
 ## How the tools reach you
 
 - In a conversation you did not start through the Python SDK (the app, the CLI,
@@ -46,6 +81,11 @@ glob-scoped rule files add detail when matching files are in play:
   LOOKDEV, EXPORT) and read `session_status` when unsure where you are.
 - The refusals are the gates working, not errors to route around: export needs a
   passing Tier-1 and Tier-1.5 >= 3.4 on the current geometry.
+- Everything you read stays in every later request, so read only what the
+  next step needs: `parametric-kitbash` before modelling; `pbr-material-forge`
+  only in a session that can generate images (with an image limit of 0 the
+  surfaces are generated from the geometry when the package is written);
+  `engine-truth-verify` only for a verified export or an export problem.
 
 ## Units and axes
 
@@ -73,6 +113,13 @@ glob-scoped rule files add detail when matching files are in play:
   visual score is at least 3.4 for the current state of the scene. Any edit
   after QA makes the verdict stale; re-run QA. The PreToolUse hook enforces
   this and the Stop hook refuses to finish while a changed asset is ungated.
+- In a preview judged by the uncalibrated fallback, the score is a finding,
+  not a gate: export needs Tier-1 and the validator to pass and a lookdev
+  review (`run_visual_qa` in LOOKDEV) of the current scene, whatever it
+  scored. Use its findings for at most two improvement rounds after the first
+  review, then export: the package and the tool's answer list what the judge
+  found, for the user to look at. A hard policy flag or a review that
+  escalates to a person still blocks; ask the user.
 - A verified export needs an approval from the native Decisions API. When the
   key has no access to it, `open_asset_session` says so: visual QA and export
   will be refused. Do not work around that. Ask the user whether they want an
@@ -85,10 +132,16 @@ glob-scoped rule files add detail when matching files are in play:
 - Where your stage offers them, delegate gating to the `usd_verifier` subagent
   (VARIANTS and LOOKDEV) and visual critique to the `lookdev_critic` subagent
   (LOOKDEV) so their renders and logs stay out of your context.
-- Every render goes through the QA tools (`render_preview`, `run_visual_qa`,
-  `run_paintover_loop`). They return scores, deltas and file paths, not
-  images, so renders do not accumulate in context. Do not open render images
-  yourself unless the user asks to see one.
+- Look at your work: `render_preview` returns the design's five views with
+  numbered part badges (small ones inline; open any the reply marks with
+  view_file). Look after every few edits and improve what you see before
+  `run_visual_qa`, whose findings name the parts and views. Other renders
+  (`render_lookdev`, `run_paintover_loop`) return file paths and scores.
+- A preview opened with an image limit of 0 generates no texture: the image
+  tools answer `NO IMAGES`, and the package writer makes the surfaces from the
+  geometry. Keep materials' ids and base colours and continue to export.
+- To change an asset that already exists, `open_existing_asset` and edit only
+  the parts asked for; never author it again.
 
 ## Engine budgets (summary)
 

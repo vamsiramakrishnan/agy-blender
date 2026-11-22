@@ -174,12 +174,19 @@ async def test_the_blender_asset_qa_result_reaches_the_package_manifest(tmp_path
 @pytest.mark.blender
 @needs_blender
 async def test_planted_z_fighting_fails_the_blender_asset_qa_step_with_upstreams_message(tmp_path, blender_pool):
+    """The check the step makes, on the file as it would ship: upstream's z-fighting error. Through the pipeline the
+    design no longer gets that far (2026-11-22): no clean-up can part two boxes that share half their volume, Tier-1
+    reports the same pair, and the run stops after pass A with it instead of going on through the textures, the export
+    and the engine checks to be refused here (live, r5_crate_C: 660 s and 366,636 tokens to exit 1 on four such bolts)."""
     # two boxes whose top faces are coplanar (z = 0.5), face +Z and overlap in area (benchmarks/upstream_survey.py, build_defects)
-    scene = SceneIR(asset_name="ZFight", materials=[MaterialIR(id="m0")],
-                    nodes=[box("base", (1.0, 1.0, 0.5), (0.0, 0.0, 0.25)), box("overlap", (0.6, 0.6, 0.5), (0.5, 0.0, 0.25))])
-    res = await run_pyramid(tmp_path, scene, blender_pool)
+    nodes = [box("base", (1.0, 1.0, 0.5), (0.0, 0.0, 0.25)), box("overlap", (0.6, 0.6, 0.5), (0.5, 0.0, 0.25))]
+    status, detail, data = await upstream_checks.asset_qa(blender_pool, package_glb(tmp_path / "direct", nodes), "unreal_5")
+    assert status == "failed" and "z-fighting" in detail and any(e.startswith("z-fighting") for e in data["errors"]), detail
+    res = await run_pyramid(tmp_path, SceneIR(asset_name="ZFight", materials=[MaterialIR(id="m0")], nodes=nodes), blender_pool)
     failed = dict(res.failed)
-    assert "blender_asset_qa" in failed and "z-fighting" in failed["blender_asset_qa"], (failed, [(s.name, s.status) for s in res.steps])
+    assert list(failed) == ["detached_parts"], (failed, [(s.name, s.status) for s in res.steps])
+    assert "the Blender check would refuse it: 1 z-fighting pair(s) after pass A: base/overlap" in failed["detached_parts"]
+    assert "blender_asset_qa" not in {s.name for s in res.steps}
     assert not res.ok and not res.verified
 
 
@@ -199,8 +206,10 @@ def flush_scene() -> SceneIR:
 @pytest.mark.parametrize("engine", ["unreal_5", "roblox_r15"])
 async def test_flush_details_are_separated_before_qa_and_pass_the_blender_asset_qa_step(tmp_path, blender_pool, engine, monkeypatch):
     """The deterministic separation (kernel/separate.py, step ``separate_coplanar`` of pass A) moves the flush faces 2 mm
-    apart; Blender's qa_check on the exported GLB then finds no z-fighting. Negative control: with the step switched off
-    (a separation that finds nothing) the same scene fails that check, as it did before the step existed."""
+    apart; Blender's qa_check on the exported GLB then finds no z-fighting. Negative control: the same scene exported
+    as written fails that check with upstream's message, as it did before the step existed. And with the separation
+    switched off (one that finds nothing) the second remedy parts the faces (``unstack_pre``, 2026-11-22) and the run
+    passes the check as well; with both switched off the run stops after pass A, naming the pairs."""
     from antigravity3d.kernel.separate import SeparationResult
     from antigravity3d.tactics import pyramid
 
@@ -214,12 +223,20 @@ async def test_flush_details_are_separated_before_qa_and_pass_the_blender_asset_
     assert steps["separate_coplanar"].status == "passed", steps["separate_coplanar"]
     assert steps["blender_asset_qa"].status == "passed", steps["blender_asset_qa"]
     assert "z_fighting" not in steps or steps["z_fighting"].status != "warned" or engine != "roblox_r15"
+    status, detail, _ = await upstream_checks.asset_qa(blender_pool, package_glb(tmp_path / "raw", flush_scene().nodes, engine), engine)
+    assert status == "failed" and "z-fighting" in detail, detail
     monkeypatch.setattr(pyramid, "separate_coplanar", lambda *a, **k: SeparationResult())
     sm = StageManager.create(tmp_path / "off.usda", "Flush")
     sm.apply_ir(flush_scene())
     res = await refine(sm, workdir=tmp_path / "off", **kw)
+    steps = {s.name: s for s in res.steps}
+    assert steps["unstack_pre"].status == "passed" and steps["blender_asset_qa"].status == "passed", [(s.name, s.status, s.detail) for s in res.steps]
+    monkeypatch.setattr(pyramid, "unstack_step", lambda *a, **k: [])
+    sm = StageManager.create(tmp_path / "off2.usda", "Flush")
+    sm.apply_ir(flush_scene())
+    res = await refine(sm, workdir=tmp_path / "off2", **kw)
     failed = dict(res.failed)
-    assert "z-fighting" in failed.get("blender_asset_qa", ""), failed
+    assert list(failed) == ["detached_parts"] and "z-fighting pair(s) after pass A" in failed["detached_parts"], failed
 
 
 def roblox_scene(tmp_path: Path, name: str, nodes: list[NodeIR]):
@@ -298,12 +315,14 @@ def package_glb(tmp_path: Path, nodes: list[NodeIR], engine: str = "unreal_5") -
 
 @pytest.mark.blender
 @needs_blender
-async def test_separate_boxes_resting_on_the_ground_pass_and_a_part_hovering_5_cm_fails(tmp_path, blender_pool):
-    """qa_check calls every piece but the biggest that touches nothing "floating", with no notion of ground. The worker
-    lists the pieces with their lowest z beside the result; two crates side by side are separate pieces, not floating."""
+async def test_separate_boxes_resting_on_the_ground_fail_as_the_script_says_and_a_part_hovering_5_cm_fails(tmp_path, blender_pool):
+    """qa_check calls every piece but the biggest that touches nothing "floating", with no notion of ground, and the gate
+    reads it as it is (as the scorecard's independent check does): two pieces side by side on the floor are one asset
+    with a detached piece. The worker still lists the pieces with their lowest z, and the detail says which is on the
+    ground (live 2026-11-22, r5_crate_C: a skid nothing touched passed the gate this way and failed the independent check)."""
     side = [box("a", (1, 1, 1), (0, 0, 0.5)), box("b", (1, 1, 1), (2, 0, 0.5))]
     status, detail, data = await upstream_checks.asset_qa(blender_pool, package_glb(tmp_path / "side", side), "unreal_5")
-    assert status == "passed" and "resting on the ground" in detail and "floating/detached part" in detail, detail  # both readings are in the detail
+    assert status == "failed" and "on the ground, touching no other part" in detail and "floating/detached part" in detail, detail
     assert len(data["errors"]) == 1 and data["errors"][0].startswith("floating/detached part") and data["resting_on_ground"] == data["errors"]  # upstream's text, untouched
     hover = [box("base", (1, 1, 1), (0, 0, 0.5)), box("hover", (0.3, 0.3, 0.3), (0, 0, 1.2))]  # its underside is 5 cm above the top
     status, detail, data = await upstream_checks.asset_qa(blender_pool, package_glb(tmp_path / "hover", hover), "unreal_5")
@@ -311,6 +330,86 @@ async def test_separate_boxes_resting_on_the_ground_pass_and_a_part_hovering_5_c
     raised = [box("base", (1, 1, 1), (0, 0, 0.5)), box("raised", (0.3, 0.3, 0.3), (3, 0, 0.35))]  # separate, 20 cm off the ground
     status, _, _ = await upstream_checks.asset_qa(blender_pool, package_glb(tmp_path / "raised", raised), "unreal_5")
     assert status == "failed"
+
+
+@pytest.mark.blender
+@needs_blender
+async def test_qa_check_reads_a_flush_part_as_the_kernel_does_and_as_a_contact_after_attach(tmp_path, blender_pool):
+    """A pole standing flush on a wider base, as the file ships it (the pole's bottom face left out). Whether the base
+    touches the pole is then decided by which way two float32 heights rounded, and qa_check and Tier-1 read it the same
+    way: on the seed whose pole is 35 nm under the base's top both find a contact (an edge of the base passes through
+    the pole's wall); on the seed whose pole is 4 nm over it Tier-1 reports the base and qa_check says "not touching"
+    (it passes the file only because a ray from the base's centre leaves through the pole, so it calls the base
+    enclosed). There attach sets the base a millimetre into the pole and both read a contact. Before 2026-11-22 attach
+    moved it by the 4 nm instead, the kernel's trial passed, and qa_check still said "not touching". Measured with
+    Blender 5.3; the seeds are those of tests/test_attach.py's _flush_lamp. (In 60 random flush contacts,
+    2026-11-22, Tier-1 never passed a part qa_check read as not touching; it reported 24 that qa_check read as touching.)"""
+    from test_attach import _flush_lamp
+
+    from antigravity3d.ir import IRPatch
+    from antigravity3d.kernel import attach, coplanar, fast_ops
+    from antigravity3d.kernel.package import write_engine_package
+    from antigravity3d.tactics import pyramid
+
+    budget = EngineBudget("unreal_5")
+
+    async def read(seed: int, fix: bool) -> tuple[list[str], str, list[str], list[str]]:
+        d = tmp_path / f"{seed}{'_attached' if fix else ''}"
+        d.mkdir()
+        sm = StageManager.create(d / "s.usda", "Prop")
+        sm.apply_ir(_flush_lamp(seed))
+        meshes = sm.extract_meshes()
+        if fix:
+            sm.apply_patch(IRPatch(ops=attach.attach(meshes, budget, pyramid.reach_of(meshes)).ops(sm.base_ir())))
+        sm.commit_all()
+        meshes = sm.extract_meshes()
+        reported = sorted(pyramid.floating_ids(fast_ops.tier1_qa(meshes, budget)))
+        bundle = fast_ops.run_export_pipeline(meshes, budget, "Prop", opaque_materials=coplanar.opaque_materials(sm.base_ir()))
+        pkg = write_engine_package(sm, bundle, budget, d / "pkg", asset_name="Prop", qa={"tier1_ok": True})
+        status, _, data = await upstream_checks.asset_qa(blender_pool, str(pkg.out_dir / "Prop.glb"), "unreal_5")
+        return reported, status, data["errors"], [w for w in data["warnings"] if "not touching" in w]
+
+    assert await read(0, False) == ([], "passed", [], [])
+    assert await read(2, False) == (["base"], "passed", [], ["1 parts fully enclosed, not touching (eyes/internals?): ['Batch_0']"])
+    assert await read(2, True) == ([], "passed", [], [])
+
+
+@pytest.mark.blender
+@needs_blender
+@pytest.mark.parametrize("bevel", [0.0, 0.002])
+async def test_a_plate_standing_on_the_rim_of_another_stays_its_own_part(tmp_path, blender_pool, bevel):
+    """A corner guard as models write it: a side plate, and a top plate standing on it, flush at one edge. The side
+    plate's top is covered and is left out of the file, so at the shared edge three faces meet: the top plate's
+    underside and side, and the side plate's side, whose partner is gone. The merge that finds the parts gave that rim
+    the top plate's side as its partner (half a turn round the edge), welded the two parts into one, and qa_check failed
+    a sound asset on "edges with inconsistent face winding". Live 2026-11-22 (r5/live_rerun_N3): five deliveries
+    refused with that sentence, which names no part; the agent removed 16 parts looking for it and ran out of budget.
+    Negative control: with one triangle really wound the other way the same file still fails."""
+    from antigravity3d.kernel import coplanar, fast_ops
+    from antigravity3d.kernel.package import write_engine_package
+
+    shape = {"bevel": bevel, "bevel_segments": 1} if bevel else {}
+    nodes = [NodeIR(id="base", kind="box", params={"size": (0.9, 0.56, 0.345)}, material_id="m0", transform=Transform(translate=(0, 0, 0.1725))),
+             NodeIR(id="side", kind="box", params={"size": (0.008, 0.078, 0.07), **shape}, material_id="m0",
+                    transform=Transform(translate=(0.454, 0.209, 0.38))),
+             NodeIR(id="top", kind="box", params={"size": (0.078, 0.078, 0.008), **shape}, material_id="m0",
+                    transform=Transform(translate=(0.419, 0.209, 0.419)))]
+    budget = EngineBudget("godot_4")
+    sm = StageManager.create(tmp_path / "s.usda", "Guard")
+    sm.apply_ir(SceneIR(asset_name="Guard", materials=[MaterialIR(id="m0")], nodes=nodes))
+    sm.commit_all()
+    meshes = sm.extract_meshes()
+    masks = fast_ops.shipped_masks(meshes, budget)
+    assert {m.node_id: int(k.sum()) for m, k in zip(meshes, masks)}["side"] == 2  # the covered top of the side plate is left out
+    bundle = fast_ops.run_export_pipeline(meshes, budget, "Guard", opaque_materials=coplanar.opaque_materials(sm.base_ir()))
+    pkg = write_engine_package(sm, bundle, budget, tmp_path / "pkg", asset_name="Guard", qa={"tier1_ok": True})
+    glb = pkg.out_dir / "Guard.glb"
+    status, detail, data = await upstream_checks.asset_qa(blender_pool, str(glb), "godot_4")
+    assert status == "passed" and "inconsistent face winding" not in detail and "non-manifold" not in detail, detail
+    assert sum(data["pieces_after_merge"].values()) == 3, data["pieces_after_merge"]  # three parts, as authored
+    flip_first_triangle(glb)
+    status, detail, _ = await upstream_checks.asset_qa(blender_pool, str(glb), "godot_4")
+    assert status == "failed" and "inconsistent face winding" in detail, detail
 
 
 def flip_first_triangle(glb: Path) -> None:

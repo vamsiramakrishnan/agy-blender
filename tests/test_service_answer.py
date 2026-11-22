@@ -249,7 +249,9 @@ def receipts(x, category):
 
 
 def test_a_repair_turned_away_twice_then_served_books_nothing_for_the_two_and_records_the_waits(key, tmp_path, capsys):
-    api = key(score_level="1", fail=[{"kind": "author:repair", "times": 2, "how": "503"}])  # silhouette 1: pass A asks for a repair
+    # a confirmed clipping in pass A's review: a defect, so pass A asks for a repair (since round five a low score alone
+    # gets an improvement round instead, see tests/test_improvement_rounds.py)
+    api = key(defect_sequence={"defect_clipping": [0.9]}, fail=[{"kind": "author:repair", "times": 2, "how": "503"}])
     rc, out, x = run(tmp_path, capsys)
     assert x["nodes"]["pyramid"]["status"] == "ok" and manifest(tmp_path) is not None, out
     rep = receipts(x, "author.repair")
@@ -262,7 +264,7 @@ def test_a_repair_turned_away_twice_then_served_books_nothing_for_the_two_and_re
 
 
 def test_a_repair_always_turned_away_ends_pass_a_and_the_run_exports_what_exists(key, tmp_path, capsys):
-    api = key(score_level="1", fail=[{"kind": "author:repair", "times": None, "how": "503"}])
+    api = key(defect_sequence={"defect_clipping": [0.9]}, fail=[{"kind": "author:repair", "times": None, "how": "503"}])
     rc, out, x = run(tmp_path, capsys)
     stopped = x["pyramid"]["stopped"]
     assert stopped["A"].startswith("author repair failed: AuthorUnavailable"), stopped

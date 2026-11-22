@@ -88,9 +88,40 @@ agy3d variants ASSET.usda... --offline --out out/looks   # look variants as a US
 agy3d calibrate LABELS.json --out studio_policy.yaml [--offline]   # fit studio thresholds from labelled history
 agy3d models                                         # print the model tier table
 agy3d plugin install [--target DIR] | agy3d plugin validate [PATH]   # install or check the Antigravity plugin
+agy3d install PACKAGE_DIR --project GAME_DIR [--dest DIR] [--dry-run] [--force]   # put a package into a game project and check it there
+agy3d uninstall --project GAME_DIR --dest DIR        # remove exactly what install wrote
+agy3d edit OUT "make the two side handles 30 % larger" --token-ceiling N   # change a made asset: one patch, the rest kept
+agy3d edit OUT --patch ops.json | agy3d edit OUT --undo                   # a patch you wrote (no model call); put the last edit back
 ```
 
-`prop`, `sanitize`, `kit` and `variants` take `--engine` (`unreal_5`, `unity_urp`, `godot_4` or `roblox_r15`; default `unreal_5`) and an optional `--max-tris N`. `calibrate`, `models` and `plugin` do not. Exit status 0 means the requested mode passed its gates. Status 1 signals a failed gate and 2 a usage or environment error.
+`agy3d edit` opens the asset as it shipped (the design embedded in its package; OUT is the prop's `--out` folder or a
+package folder) and applies the instruction as one patch to the parts it names. The author is shown the five badged
+views of the design and the instruction; the edit is kept only when the judge sees it carried out and nothing else
+changed, no part ends up floating and no new defect appears, and is otherwise asked for once more and then left
+undone with the reason. Every other part keeps its geometry exactly and every material its source maps; no image is
+generated. A part the edit does not change also keeps its place in the texture atlas: the same UVs and the same texels
+under them while the atlas keeps its size; when the atlas has to grow, its UVs are rescaled and its texels stay where
+they were. That holds for image maps and flat colours. When the change cannot fit in the space the other parts leave
+free, the atlas is laid out again: the manifest's edit record says `repacked` and why, and each untouched part's base
+colour is checked against the shipped one (mean within 4/255, spread within 8/255; a part outside it is named in the
+result). A surface generated from the geometry is held to that bound too, since a changed neighbour may change it. A
+package keeps the maps its atlas was baked from in `sources/` (no engine file uses them and an install does not copy
+them), so a bare package can be edited months later without its run folder. The replaced package is kept in `OUT/history/NNN/` (beside a bare package, `<name>.history/`) and
+`--undo` puts it back. The new manifest lists the edit under `edits` and its provenance names it. An edited package is
+never verified: no lookdev pass runs on it.
+
+`agy3d install` reads the project's engine and version from its own files and refuses a package built for another
+engine. For a Godot 4 project it writes, under one directory (default `agy3d/<asset>`), the package's level GLBs and
+`textures/` with explicit import settings (no Godot-generated LODs; maps VRAM-compressed with mipmaps, normal maps as
+normal maps; every level binds the one copy of each map, and one material per glTF material, which Godot extracts to `materials/` and every level shares, so a material edit is made once) and `<asset>.tscn`: the levels switched by distance (from the
+package's `lod_screen_fractions` and bounds, with hysteresis) and one StaticBody3D with the package's convex hulls.
+Drag that scene into a level. It then imports an isolated copy of the project with the project's Godot binary, loads
+the scene and reports each check (import log, scale, levels, materials, collision, rendered level switching) as
+passed, failed or skipped with the reason. Nothing outside that directory is written; a file the tool did not write
+is never replaced; an update refuses when one of its own files was edited (`--force` overrides); its record is
+`<dest>/.agy3d/install.json`. For Unity, Unreal Engine and Roblox projects it says what to import and writes nothing.
+
+`prop`, `sanitize`, `kit` and `variants` take `--engine` (`unreal_5`, `unity_urp`, `godot_4` or `roblox_r15`; default `unreal_5`) and an optional `--max-tris N`. `calibrate`, `models`, `plugin`, `install` and `uninstall` do not. Exit status 0 means the requested mode passed its gates. Status 1 signals a failed gate and 2 a usage or environment error.
 
 ### Measure the cost per accepted asset
 
@@ -209,7 +240,7 @@ Run `agy3d models` to print the effective table after overrides.
 `plugin/antigravity-3d/` is the Antigravity plugin bundle. It contains:
 
 - **Rules:** `rules/AGENTS.md` (always on), `rules/blender-5-3-api.md` (Python and .blend files) and `rules/engine-budgets.md` (USD files and `*_exports/` folders).
-- **Skills:** `concept-to-blueprint`, `parametric-kitbash`, `pbr-material-forge`, `game-ready-sanitizer` and `engine-truth-verify`.
+- **Skills:** `concept-to-blueprint`, `parametric-kitbash`, `pbr-material-forge`, `game-ready-sanitizer`, `engine-truth-verify` and `install-into-project`.
 - **Subagents:** `agents/usd_verifier.md` (read-only QA gate) and `agents/lookdev_critic.md` (visual critic).
 - **Hooks:** `hooks.json` with four scripts in `hooks/scripts/`. They block export until Tier-1 QA passes, record tool telemetry, add a session-start budget message, and stop the agent from finishing while QA is unmet.
 - **Sidecars:** `blender_pool`, `depot_watcher` and two scheduled automations: `nightly_variant_factory` (daily at 02:17 UTC) and `weekly_distill` (Sundays at 03:43 UTC).

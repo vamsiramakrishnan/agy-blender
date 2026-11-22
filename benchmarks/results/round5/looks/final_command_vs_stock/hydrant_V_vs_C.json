@@ -1,0 +1,217 @@
+{
+ "model": "gemini-4-carbon",
+ "thinking": "low",
+ "brief_id": "hydrant",
+ "brief": "a cast-iron fire hydrant with bolted caps and a chained nozzle cap",
+ "sheets": {
+  "A": "<scratch>/r5/live_scorecard/eval/r5/hydrant/V/sheet.png",
+  "C": "<scratch>/r5/live_final_C/eval/r5/hydrant/C/sheet.png"
+ },
+ "calls": [
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3247,
+    "output": 224,
+    "thinking": null,
+    "total": 3471
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 clearly shows bolted nozzle caps and a visible hanging chain with a detached cap, whereas Image 2 lacks bolted nozzle caps and its chain is barely noticeable."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "While both are realistic in overall height, Image 2 has more believable dome and top nut proportions compared to Image 1's overly conical top."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 features more realistic cast-iron roughness, subtle edge wear, and distinct brass accents compared to Image 1's heavy black edge masking."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 1 has clean, well-connected geometry, whereas Image 2 has a tiny, awkward chain fragment clipping at the top of the main nozzle."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 wins overall because it accurately fulfills all core elements of the brief, notably the bolted nozzle caps and prominent chained cap."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3247,
+    "output": 198,
+    "thinking": null,
+    "total": 3445
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Image 2 clearly displays both bolted caps and a hanging chained nozzle cap, whereas Image 1 lacks bolted caps and has a tiny, barely visible chain."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Image 1 has a more realistic, stout hydrant silhouette, while Image 2 features an overly pointy top dome."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 shows more convincing painted metal roughness and edge wear compared to Image 2's overly harsh, uniform black edge wear."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 2 has clean, coherent geometry, while Image 1 has a messy, intersecting chain fragment sitting awkwardly atop one nozzle."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Image 2 fulfills all specific elements of the brief cleanly and legibly without mesh defects."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3247,
+    "output": 228,
+    "thinking": null,
+    "total": 3475
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 clearly displays both bolted caps and a distinct hanging chained nozzle cap, whereas Image 2 lacks bolted nozzle caps and has an obscure chain."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "While both are realistically scaled next to the 1.8m block, Image 2 has more authentic, sturdy hydrant proportions compared to Image 1's overly pointed bonnet."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 features more natural, subtle edge wear and believable metallic brass accents, whereas Image 1's heavy black edge wear looks artificial."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 1 has clean, functional geometry for the chain and cap, while Image 2's tiny chain awkwardly floats and clips above the rear nozzle."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 wins overall because it explicitly fulfills all elements of the brief with clean geometry, notably the bolted caps and clearly readable chained nozzle cap."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3247,
+    "output": 215,
+    "thinking": null,
+    "total": 3462
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Prop 2 clearly features bolted nozzle caps and a visible hanging chain with a cap, whereas Prop 1 lacks bolted caps and has a barely visible, malformed chain."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Prop 1 has more authentic, sturdy proportions for a standard fire hydrant, while Prop 2 has an overly tall and pointy dome."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Prop 1 displays more believable painted cast-iron roughness and subtle edge wear compared to Prop 2's overly glossy finish and heavy black wear."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Prop 2 has clean, well-separated geometry, whereas Prop 1 has a messy, intersecting chain mesh above the large nozzle."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Prop 2 wins overall because it explicitly fulfills all parts of the brief with clean geometry, despite minor material and proportion drawbacks."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3247,
+    "output": 235,
+    "thinking": null,
+    "total": 3482
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 clearly features bolted caps and a visible hanging chained nozzle cap, whereas Image 2 lacks bolted caps and has a tiny, barely visible chain."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both have realistic overall height relative to the 1.8 m reference, but Image 2 has a more authentic, flatter bonnet shape compared to Image 1's overly conical top."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 shows more believable painted metal texture and subtle edge wear, whereas Image 1 has overly harsh, uniform black edge wear."
+     },
+     "defects": {
+      "winner": "tie",
+      "reason": "Both models have minor mesh intersections around their chain attachments, though Image 1's chain attaches implausibly to the top flange while Image 2's chain clips awkwardly at the nozzle."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 wins overall because it successfully delivers all specific elements requested in the brief, particularly the bolted caps and prominent chained nozzle cap."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3247,
+    "output": 226,
+    "thinking": null,
+    "total": 3473
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Image 2 clearly displays both bolted nozzle caps and a distinct hanging chain with a cap, whereas Image 1 lacks bolted caps and has a tiny, barely visible chain stub."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Image 1 has more authentic fire hydrant proportions with a well-shaped bonnet, while Image 2's top dome is overly conical and elongated."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 features more natural painted cast-iron roughness, subtle edge wear, and convincing brass accents compared to Image 2's heavy black grime."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 2 has clean, intact geometry throughout, whereas Image 1 exhibits a tiny, awkward chain-like stub floating or clipping above one nozzle."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Image 2 wins overall because it accurately fulfills all specific components of the brief, including the bolted caps and clearly readable chained nozzle cap."
+    }
+   }
+  }
+ ],
+ "total_tokens": 20808
+}

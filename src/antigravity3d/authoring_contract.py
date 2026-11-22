@@ -21,18 +21,28 @@ class AuthoringIntent(StrEnum):
                 self.BLOCKOUT: "intermediate blockout"}[self]
 
 
-# Keep the one-shot request byte-identical: its output allowance and recorded measurements were sized for this text.
-# The native production-prop stage uses the same requirements, with its own patch/QA workflow around them. This is
-# guidance, not an acceptance test: part and triangle counts alone cannot establish artistic completeness.
+# The one-shot author and native production stage share the current geometry language. Keep this text byte-identical
+# to PR #6's one-shot contract: its shape guidance and token measurements belong together. Kit pieces and intermediate
+# blockouts select their own requirements below. Part and triangle counts alone do not establish artistic completeness.
 PROP_CRAFT_GUIDANCE = (
     "Model a production game prop, not a blockout.\n"
     "- Every part the brief names gets its own nodes, built from the pieces a real one has: a latch is a base plate, a clasp "
     "and a hinge barrel; a handle is two brackets and a grip; a corner guard wraps its corner.\n"
     "- Add the secondary forms an object of this kind has wherever they change the silhouette or catch the light: rims, ribs, "
-    "frames, skids or feet, straps, hinges, bolt heads. Break large flat faces with raised or recessed panels made from thin "
-    "boxes.\n"
-    "- Aim for 50 to 90 parts, within max_tris: a box is 12 triangles, a cylinder 4 x segments (8 to 12 segments is enough "
-    "for a small part), a sphere or capsule costs hundreds. Do not pad with hidden or repeated filler.\n"
+    "frames, skids or feet, straps, hinges, bolt heads.\n"
+    "- Use the shape that matches how the part is made. Nothing manufactured has a razor edge: bevel boxes and cylinders "
+    "thicker than about 1 cm, by 3 to 5% of their smallest size; 1 segment for metal and small parts, 2 where a large "
+    "rounded edge is seen (worn wood, castings). A panel set into a face is inset_faces on that box, not a thin box "
+    "stacked on it. Anything turned (barrel, bottle, post, knob, wheel, lamp, pipe, finial) is one lathe whose profile "
+    "traces its silhouette in 6 to 16 points, not a stack of cylinders. Anything with a constant section (bracket, arch, "
+    "wedge, ramp, blade, L, T or U section, shaped board) is one extrude of that section.\n"
+    "- Write a symmetric or repeated part once: mirror for a left/right pair, repeat with an offset for a row, repeat "
+    "around an axis for a ring (bolts round a cap, spokes); model the original on the positive side.\n"
+    "- Aim for 50 to 90 parts (copies count) when max_tris allows it (50 plain boxes are 600 triangles); with a smaller "
+    "max_tris use as many as fit, and fewer where an art direction asks for few. A box is 12 triangles, bevelled 44 (1 segment) or 108 (2), "
+    "+16 per inset face; a cylinder 4 x segments, bevelled (4 x bevel_segments + 4) x segments (8 to 12 segments is "
+    "enough for a small part); a lathe 2 x segments per profile step (1 x where the step meets the axis) plus segments per flat end "
+    "cap, closed 2 x segments x points; an extrude 4 x corners - 4; a sphere or capsule costs hundreds. Spend triangles on what is seen, not on hidden or repeated filler.\n"
     "- Keep parts in proportion: thin plates and slim bars, not chunky blocks.\n"
     "- Attach by contact: a part's face lies exactly on the surface it is mounted on, with no gap and no overlap (hidden "
     "contact faces are removed at export). Two parts mounted on the same surface must not share area: where one crosses "

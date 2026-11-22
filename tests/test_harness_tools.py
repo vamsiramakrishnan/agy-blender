@@ -94,6 +94,18 @@ def check_line(r: str, lines: int = 3) -> str:
     return r
 
 
+def check_qa(r: str) -> str:
+    """A visual QA reply: the two-line verdict, then a fix line, one line per finding (the parts it is on), the brief's
+    requirements and the scores. Changed 2026-11-22 (native sessions): the verdict alone named no part, so an agent
+    driving the tools could not act on it as pass A's repair request does; each extra line is bounded."""
+    assert isinstance(r, str) and r and not B64_RUN.search(r) and "iVBOR" not in r, r
+    lines = r.split("\n")
+    rest = lines[2:]
+    assert all(len(x) <= RETURN_CAP for x in lines), r
+    assert all(x.startswith(("fix: ", "finding ", "brief: ", "scores (0-4): ")) for x in rest), r
+    return r
+
+
 @pytest.fixture
 def env(tmp_path):
     return make_session(tmp_path)
@@ -187,17 +199,24 @@ async def test_undo_last_edit(env):
 
 async def test_render_qa_stores_score_and_caps_audit(env):
     await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
-    r = check_line(await T.render_preview(env.ctx), 1)
-    assert r.startswith("PREVIEW #1") and "uri=fake://" in r
+    # Changed 2026-11-22 (native sessions): render_preview returned one line with the handle of a 4-view sheet that
+    # the agent never saw; it now shows the design's five views (badged, 512 px) with a line per view and the legend,
+    # the images beside the text (ToolReply.images) and never in it.
+    r = await T.render_preview(env.ctx)
+    assert r.startswith("PREVIEW #1") and not B64_RUN.search(r) and "iVBOR" not in r
+    assert [n for n, _ in r.images] == ["front", "right", "top", "persp", "persp_rear"] and all(p.is_file() for _, p in r.images)
+    assert "[01] body" in r and "[02] lid" in r
     assert env.sess().previews[-1].path.is_file() and env.backend.uploads
     for _ in range(MAX_AUDIT_DELTAS + 3):
-        r = check_line(await T.run_visual_qa(env.ctx))
+        r = check_qa(await T.run_visual_qa(env.ctx))
         assert r.startswith("QA[blockout] approve")
     assert env.state.last_tier15_score == pytest.approx(3.6, abs=0.05)
     assert len(env.state.audit_deltas) == MAX_AUDIT_DELTAS
     assert len(env.sess().previews) == 1  # QA reused the fresh sheet instead of re-rendering
+    # the blockout review is the command's (tactics.judging): the design's five views at the high setting, was one
+    # 256 px sheet at "low"
     sent = env.client.calls[-1]
-    assert sent["n_images"] == 1 and sent["input"][1]["resolution"] == "low"  # blockout tier
+    assert sent["n_images"] == 5 and {b["resolution"] for b in sent["input"] if b["type"] == "image"} == {"high"}
 
 
 async def test_geometry_edit_after_qa_resets_score(env):
@@ -216,8 +235,9 @@ async def test_reground_auto_fix(tmp_path):
     env = make_session(tmp_path, client=FakeDecisionsClient({"defect_floating": 0.95}))
     floating = {"ops": [box("body", (1, 1, 0.5), 0.75)]}  # bottom at z=0.5
     await T.apply_scene_ir(json.dumps(floating), env.ctx)
-    r = check_line(await T.run_visual_qa(env.ctx))
+    r = check_qa(await T.run_visual_qa(env.ctx))
     assert "auto_fix fixer=reground" in r and "fix: reground dz=-0.500" in r
+    assert "finding floating p=0.95: [01] body (front, right, top, persp, persp_rear)" in r  # the part, the views
     zmin = min(m.points[:, 2].min() for m in env.sess().stage.extract_meshes())
     assert abs(zmin) < 1e-6
     assert env.state.last_tier15_score == 0.0  # the fix changed geometry: re-QA required
@@ -259,7 +279,7 @@ async def test_export_refused_then_allowed_and_reloads(env, monkeypatch):
     # two boxes cannot get cheaper within any screen-space error budget: one level, no duplicate LOD files
     assert not list(out.glob("Crate_LOD*.glb")) and man["lod_tris"] == [24] and man["lod_screen_fractions"] == [1.0]
     assert man["budget"]["max_tris"] == 15000 and man["qa"]["tier1_ok"] and man["qa"]["tier15"] >= 3.4
-    assert man["schema_version"] == 3 and man["validation"]["package_ok"] and "pkg ok" in r
+    assert man["schema_version"] == 4 and man["validation"]["package_ok"] and "pkg ok" in r  # schema 4: the provenance record (kernel/provenance.py)
     assert (out / "Crate.usdz").is_file() and man["usd"] == "Crate.usd"
     assert env.sess().stage.has_uvs()  # UVs are authored into the working stage by the export pipeline
     for m in (p for p in stage.Traverse() if p.GetName() in ("body", "lid")):

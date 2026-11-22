@@ -74,13 +74,16 @@ DEFAULT_MAX_CONCURRENCY = 8
 # 512 px sheet) 16 to 18 s; texture ranking (8 questions, one albedo) 176 s once and no answer within 60 s (twice) and
 # 240 s (once), with the same result on a 512 px copy of the image, so its size is not the cause. A trivial question on
 # the same image took 5 s. The 60 s this used to be was never measured; it discarded answers the service was still
-# working on, and each discarded attempt keeps its whole reservation.
+# working on, and each discarded attempt keeps its whole reservation. A design judged on five separate 512 px views at
+# "high" (tactics.judging; 7,445 input tokens, ~10 questions), 36 live calls on 2026-11-22: 14 to 46 s, mean 23 s; four
+# views, 36 calls: 13 to 61 s once a 194 s outlier is set aside (503 retries included). Well inside this deadline.
 DEFAULT_TIMEOUT_S = 600.0
 _RESOLUTION_LEVEL = {"low": "MEDIA_RESOLUTION_LOW", "medium": "MEDIA_RESOLUTION_MEDIUM", "high": "MEDIA_RESOLUTION_HIGH",
                      "ultra_high": "MEDIA_RESOLUTION_ULTRA_HIGH"}
 # Input tokens one image bills at each per-image resolution. Measured on gemini-4-neon on 2026-11-21: 1,120 with no
 # resolution given and 280 at "low"; "medium" and "ultra_high" are the documented figures. Only used to bound a count
-# (see worst_case_tokens), never to bill.
+# (see worst_case_tokens), never to bill. "high" bills the default, so a request of five high views (tactics.judging) is
+# counted exactly by count_tokens without resolutions: measured 7,445 input tokens live against 5 x 1,120 + its text.
 IMAGE_TOKENS_DEFAULT = 1120
 IMAGE_TOKENS_AT = {"low": 280, "medium": 560, "high": 1120, "ultra_high": 2240}
 _THINKING_LADDER = ("MINIMAL", "LOW", "MEDIUM", "HIGH")  # stepped up when a model rejects the requested level
@@ -219,6 +222,8 @@ def build_response_schema(questions: Mapping[str, Mapping[str, Any]]) -> dict[st
             lv = _levels(q)
             props[qid] = {"type": "object", "properties": {k: unit for k in lv}, "required": lv,
                           "description": "probability of each score level; should sum to 1"}
+        elif t == "text":  # the reason of a pairwise comparison (engine.compare_states): one sentence
+            props[qid] = {"type": "string", "description": "one sentence"}
         else:
             raise ValueError(f"{qid}: unknown question type {t!r}")
     return {"type": "object", "properties": props, "required": list(questions)}
@@ -238,6 +243,8 @@ def render_questions(questions: Mapping[str, Mapping[str, Any]]) -> str:
         elif q["type"] == "choice":
             lines += [f"- option {o!r}: {d}" for o, d in crit.items()]
             lines.append("Answer: an object with a probability for every option.")
+        elif q["type"] == "text":
+            lines.append("Answer: one sentence, as a JSON string.")
         else:
             lines += [f"- level {i}: {d}" for i, d in enumerate(crit)]
             lines.append("Answer: an object with a probability for every level (keys are the level numbers).")
@@ -298,6 +305,10 @@ def parse_answer(qid: str, q: Mapping[str, Any], raw: Any) -> dict[str, Any]:
         expected = sum(int(k) * p for k, p in dist.items())  # computed here, never trusted from the model
         return {"type": "score", "score": expected, "confidence": max(dist.values()), "probabilities": dist,
                 "legend": {k: q["criteria"][int(k)] for k in keys}}
+    if t == "text":
+        if not isinstance(raw, str) or not raw.strip():
+            raise MalformedGenerativeAnswer(f"{qid}: expected a sentence, got {raw!r}"[:200])
+        return {"type": "text", "text": " ".join(raw.split())[:500], "confidence": 1.0, "probabilities": {}}
     raise MalformedGenerativeAnswer(f"{qid}: unknown question type {t!r}")
 
 

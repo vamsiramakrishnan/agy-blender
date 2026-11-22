@@ -1,0 +1,149 @@
+{
+ "model": "gemini-4-carbon",
+ "thinking": "low",
+ "brief_id": "crate",
+ "brief": "a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles",
+ "sheets": {
+  "A": "<scratch>/r5/live_compare/eval/r5/crate/A/sheet.png",
+  "C": "<scratch>/r5/scratch_smart4/final/before/crate/sheet/sheet.png"
+ },
+ "calls": [
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 198,
+    "thinking": null,
+    "total": 3451
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 features more distinct ribbed panels and prominent corner guards that better emphasize a modular, kit-bashed construction."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "While both crates share a believable overall scale, Image 2 has much more realistic component proportions compared to the overly chunky corner guards in Image 1."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 displays more nuanced surface wear and cohesive material response, whereas Image 1 has harsh, procedural-looking grey splotches on pitch-black corners."
+     },
+     "defects": {
+      "winner": "tie",
+      "reason": "Both models exhibit clean geometry, proper grounding, and well-mapped textures without obvious intersections or shading errors."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Image 2 wins overall due to its superior component proportions and more believable, cohesive material definition."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 187,
+    "thinking": null,
+    "total": 3440
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "tie",
+      "reason": "Both assets clearly include panels, corner guards, latches, and side handles fitting a military supply crate."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Image 1 features better-integrated hardware proportions, whereas Image 2 has overly bulky, blocky corner guards."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 has cohesive metal and painted surface wear, while Image 2 uses harsh, blotchy procedural noise on its corners."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 1 has cleaner decals and textures, whereas Image 2 displays blocky texture artifacts and garbled small text."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 is the stronger game asset due to better component proportions, superior material definition, and cleaner decal text."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 196,
+    "thinking": null,
+    "total": 3449
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 features more distinct ribbed panels and prominent corner guards that better emphasize the kit-bashed brief."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both share a realistic overall scale, but Image 2 has much more believable, refined thicknesses on its corner guards and hardware."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 displays superior material response and realistic wear compared to the blocky, artificial paint-chipping on Image 1's corner guards."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 2 is cleanly integrated, whereas Image 1 has clunky intersections and overly harsh, unnatural wear patterns on the corners."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Image 2 wins overall due to its realistic hardware proportions, superior PBR material definition, and cohesive surface detailing."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 180,
+    "thinking": null,
+    "total": 3433
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "tie",
+      "reason": "Both assets clearly fulfill the brief with olive panels, corner guards, latches, and side handles."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Prop 1 has more cohesive component proportions, whereas Prop 2 features overly bulky, protruding corner guards."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Prop 1 displays natural edge wear and convincing metal specular response, while Prop 2 has procedural-looking blotchy chipping."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Prop 1 is cleanly modeled, whereas Prop 2 has blocky, poorly integrated corner guards with harsh texture transitions."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Prop 1 wins due to superior material definition, cohesive component proportions, and cleaner geometric integration."
+    }
+   }
+  }
+ ],
+ "total_tokens": 13773
+}
