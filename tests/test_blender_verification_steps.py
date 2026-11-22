@@ -374,6 +374,44 @@ async def test_qa_check_reads_a_flush_part_as_the_kernel_does_and_as_a_contact_a
     assert await read(2, True) == ([], "passed", [], [])
 
 
+@pytest.mark.blender
+@needs_blender
+@pytest.mark.parametrize("bevel", [0.0, 0.002])
+async def test_a_plate_standing_on_the_rim_of_another_stays_its_own_part(tmp_path, blender_pool, bevel):
+    """A corner guard as models write it: a side plate, and a top plate standing on it, flush at one edge. The side
+    plate's top is covered and is left out of the file, so at the shared edge three faces meet: the top plate's
+    underside and side, and the side plate's side, whose partner is gone. The merge that finds the parts gave that rim
+    the top plate's side as its partner (half a turn round the edge), welded the two parts into one, and qa_check failed
+    a sound asset on "edges with inconsistent face winding". Live 2026-11-22 (r5/live_rerun_N3): five deliveries
+    refused with that sentence, which names no part; the agent removed 16 parts looking for it and ran out of budget.
+    Negative control: with one triangle really wound the other way the same file still fails."""
+    from antigravity3d.kernel import coplanar, fast_ops
+    from antigravity3d.kernel.package import write_engine_package
+
+    shape = {"bevel": bevel, "bevel_segments": 1} if bevel else {}
+    nodes = [NodeIR(id="base", kind="box", params={"size": (0.9, 0.56, 0.345)}, material_id="m0", transform=Transform(translate=(0, 0, 0.1725))),
+             NodeIR(id="side", kind="box", params={"size": (0.008, 0.078, 0.07), **shape}, material_id="m0",
+                    transform=Transform(translate=(0.454, 0.209, 0.38))),
+             NodeIR(id="top", kind="box", params={"size": (0.078, 0.078, 0.008), **shape}, material_id="m0",
+                    transform=Transform(translate=(0.419, 0.209, 0.419)))]
+    budget = EngineBudget("godot_4")
+    sm = StageManager.create(tmp_path / "s.usda", "Guard")
+    sm.apply_ir(SceneIR(asset_name="Guard", materials=[MaterialIR(id="m0")], nodes=nodes))
+    sm.commit_all()
+    meshes = sm.extract_meshes()
+    masks = fast_ops.shipped_masks(meshes, budget)
+    assert {m.node_id: int(k.sum()) for m, k in zip(meshes, masks)}["side"] == 2  # the covered top of the side plate is left out
+    bundle = fast_ops.run_export_pipeline(meshes, budget, "Guard", opaque_materials=coplanar.opaque_materials(sm.base_ir()))
+    pkg = write_engine_package(sm, bundle, budget, tmp_path / "pkg", asset_name="Guard", qa={"tier1_ok": True})
+    glb = pkg.out_dir / "Guard.glb"
+    status, detail, data = await upstream_checks.asset_qa(blender_pool, str(glb), "godot_4")
+    assert status == "passed" and "inconsistent face winding" not in detail and "non-manifold" not in detail, detail
+    assert sum(data["pieces_after_merge"].values()) == 3, data["pieces_after_merge"]  # three parts, as authored
+    flip_first_triangle(glb)
+    status, detail, _ = await upstream_checks.asset_qa(blender_pool, str(glb), "godot_4")
+    assert status == "failed" and "inconsistent face winding" in detail, detail
+
+
 def flip_first_triangle(glb: Path) -> None:
     """Rewrite the GLB with the first triangle of its first mesh wound the other way (two indices swapped in place)."""
     raw = bytearray(glb.read_bytes())

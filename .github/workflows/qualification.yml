@@ -135,6 +135,7 @@ jobs:
                       "test_separate_boxes_resting_on_the_ground_fail_as_the_script_says_and_a_part_hovering_5_cm_fails",
                       "test_qa_check_reads_a_flush_part_as_the_kernel_does_and_as_a_contact_after_attach",
                       "test_separate_parts_sharing_edges_in_one_mesh_pass_and_a_miswound_part_still_fails",
+                      *(f"test_a_plate_standing_on_the_rim_of_another_stays_its_own_part[{bevel}]" for bevel in ("0.0", "0.002")),
                       "test_a_roblox_material_over_the_triangle_limit_ships_as_meshes_within_it_and_one_oversized_part_still_fails",
                       "test_a_kit_piece_moved_off_its_pivot_fails_the_blender_kit_check_node_and_the_gates",
                       "test_native_export_of_a_crate_passes_the_check_with_a_real_worker",

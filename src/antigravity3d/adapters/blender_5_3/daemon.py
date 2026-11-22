@@ -469,7 +469,8 @@ def register_bpy_ops(bpy: Any) -> None:
         * used by more: the faces are taken in order around the edge, and a face is joined to the next one across the
           solid it bounds (the material behind a face is on the side its normal points away from). A lid on a body
           gives body side with body top, and lid bottom with lid side, though body top and lid bottom lie in one
-          plane. A face left without a partner (the rim of a part whose contact face was not shipped) joins nothing.
+          plane. A face left without a partner (the rim of a part whose contact face was not shipped) joins nothing:
+          its partner would be the first face round the edge, and that one opens another part's solid.
         """
         from math import atan2, tau
 
@@ -526,15 +527,24 @@ def register_bpy_ops(bpy: Any) -> None:
                 if sense != -1:
                     continue
                 best = None
+                first = tau  # how far round the first face of any kind is: the solid behind f ends there
                 for other, g, sense_g in around:
-                    if sense_g != 1 or g.index in taken:
+                    if g is f:
                         continue
                     turn = (other - angle) % tau
                     if turn < 1e-6:
                         turn = tau  # a face in the same half-plane bounds no solid with this one
+                    first = min(first, turn)
+                    if sense_g != 1 or g.index in taken:
+                        continue
                     if best is None or turn < best[0]:
                         best = (turn, g)
-                if best is not None:
+                # The partner is the first face round the edge. When a face that opens another solid comes before it,
+                # f's own partner was not shipped (a hidden contact face) and f joins nothing. Without this, the rim of
+                # a plate whose covered top was left out took the side of the plate standing on it, half a turn away:
+                # the two parts were merged into one and qa_check reported "edges with inconsistent face winding" on
+                # a sound corner guard (live 2026-11-22, r5/live_rerun_N3: five refused deliveries, no part named).
+                if best is not None and best[0] <= first + 1e-6:
                     taken.add(best[1].index)
                     union(f.index, best[1].index)
         keep: dict[tuple[int, int], Any] = {}
