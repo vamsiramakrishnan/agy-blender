@@ -48,6 +48,18 @@ BACKEND_VERSION = "kernel-fast_ops/10"
 CACHED_TAG = "(cached)"  # appended to GeneratedImage.model on a cache hit
 
 
+def image_identity(g: GeneratedImage, *, prompt: str, size: int | None = None, variant: str = "", offline: bool = False) -> dict[str, Any]:
+    """Who made an image, for the package manifest's ``provenance`` (kernel/provenance.py): identities and a hash, no
+    time and no cost. The same for the run that paid for the image and a rerun that took it from this cache: the model
+    is the one the service was asked for (the cache's mark is dropped), ``response_id`` is the paying call's (the cache
+    keeps it beside the blob), and ``prompt`` is the one the caller asked with (the forge's own wording of it may
+    differ between the two). An image of the offline stand-in says so and names no model."""
+    return {"kind": "offline_fake_image" if offline else "model_generated_image",
+            "model": "offline fake image backend" if offline else g.model.replace(f" {CACHED_TAG}", ""),
+            "prompt": prompt, "size": size, "variant": variant, "image_sha256": _digest(g.png_bytes),
+            "response_id": getattr(g.receipt, "response_id", None)}
+
+
 def _meta_key(key: str) -> str:
     return key + ".meta"
 
@@ -107,6 +119,16 @@ class CachedForge:
         """Whether :meth:`trim_sheet` with these arguments would be served from the cache (no call, no image)."""
         return self.cache.store.get(self._key("trim", {"prompt": prompt, "size": size})) is not None
 
+    def has_ortho(self, prompt: str, *, emphasis: str, style_anchor: bytes | None = None) -> bool:
+        """Whether :meth:`ortho_sheet` with these arguments would be served from the cache (see :meth:`has_albedo`)."""
+        return self.cache.store.get(self._key("ortho", {"prompt": prompt, "emphasis": emphasis, "anchor": _digest(style_anchor)})) is not None
+
+    def has_albedo(self, prompt: str, *, size: int = 2048, variant_hint: str = "") -> bool:
+        """Whether :meth:`seamless_albedo` with these arguments would be served from the cache (no call, no image, no
+        budget): a rerun's allocation uses it, so that images the earlier run paid for are not charged to the rerun's
+        image limit."""
+        return self.cache.store.get(self._key("albedo", {"prompt": prompt, "size": size, "variant": variant_hint})) is not None
+
     async def _gen(self, op: str, key_args: dict[str, Any], call: Callable[[], Awaitable[GeneratedImage]]) -> GeneratedImage:
         key = self._key(op, key_args)
         fresh: list[GeneratedImage] = []
@@ -160,6 +182,22 @@ class RecordedAnswer:
     answer: SceneIR | IRPatch
     key: str
     original: dict[str, Any]  # what the original call cost: unit, booked, usage, model, role, operation
+
+
+def request_digest(req: Any, index: int | None, upload_digest: Callable[[str], str | None] | None = None) -> str:
+    """Hash of a whole authoring request: the content of :meth:`DesignRecord.key` (which is ``"design-" +`` this), for
+    the manifest's provenance, where a run with no design record needs it too. ``upload_digest``: ``BuildCache.upload_digest``
+    (a file reference counts by the bytes uploaded under it); without it a reference stays as it is."""
+    def content(part: dict[str, Any]) -> dict[str, Any]:
+        uri = (part.get("file_data") or {}).get("file_uri")
+        digest = upload_digest(uri) if uri and upload_digest else None
+        return part if digest is None else {**part, "file_data": {**part["file_data"], "file_uri": None, "uploaded_sha256": digest}}
+
+    contents = [{**c, "parts": [content(p) for p in c.get("parts") or []]}
+                for c in (x.model_dump(mode="json", exclude_none=True) for x in req.contents)]
+    config = req.config.model_dump(mode="json", exclude_none=True, exclude={"http_options"})
+    return stable_hash({"v": DESIGN_RECORD_VERSION, "model": req.model, "role": req.role, "operation": req.operation,
+                        "contents": contents, "config": config, "index": index})
 
 
 class DesignRecord:
@@ -335,4 +373,5 @@ def cached_export_pipeline(cache: BuildCache, scene: SceneIR, meshes: list[MeshD
     return _bundle_from_bytes(data), hit
 
 
-__all__ = ["CachedForge", "DesignRecord", "RecordedAnswer", "cached_derive_pbr", "cached_export_pipeline", "export_key", "stable_hash"]
+__all__ = ["CachedForge", "DesignRecord", "RecordedAnswer", "cached_derive_pbr", "cached_export_pipeline", "export_key", "image_identity",
+           "stable_hash"]

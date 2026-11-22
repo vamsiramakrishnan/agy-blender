@@ -15,7 +15,7 @@ from antigravity3d.ir import SceneIR
 from antigravity3d.kernel.fast_ops import tier1_qa
 from antigravity3d.kernel.raster import contact_sheet
 from antigravity3d.state import EngineBudget
-from antigravity3d.tactics.cached import CACHED_TAG, cached_derive_pbr
+from antigravity3d.tactics.cached import CACHED_TAG, cached_derive_pbr, image_identity
 from antigravity3d.tactics.common import (
     GRADE_TOKENS_EST, IMAGE_TOKENS_EST, IMAGE_USD, Uploader, load_png, png_bytes, to_thread_drained, uploader_for,
 )
@@ -235,9 +235,16 @@ async def ortho_tournament(
         g = await forge.ortho_sheet(prompt, emphasis=emphasis, style_anchor=style_anchor)
         return Candidate(i, g.uri or await up(g.png_bytes), g, _gen_cost(g, "ortho"), g.latency_ms, meta={"emphasis": emphasis})
 
+    # Every planned sheet already in the image cache (a rerun in the same --out): generating them needs no image and no
+    # budget, so the plan's sizing must not drop them for the first run's images that the asset's ledger still counts.
+    # Without the blueprint the authoring request differs and the recorded design is not found (round five).
+    has = getattr(forge, "has_ortho", None)
+    planned = governor.plan.ortho_candidates if n is None else n
+    all_cached = bool(has) and planned > 0 and all(
+        has(prompt, emphasis=EMPHASES[i % len(EMPHASES)], style_anchor=style_anchor) for i in range(planned))
     return await run_tournament("ortho", generate, n, plane=plane, governor=governor, context_uris=context_uris, early_stop=early_stop,
-                                generation_precharged=precharged, unit_cost=image_est(governor, "ortho"), concurrency=concurrency, thresholds=thresholds,
-                                images_each=1)
+                                generation_precharged=precharged, unit_cost=0.0 if all_cached else image_est(governor, "ortho"),
+                                concurrency=concurrency, thresholds=thresholds, images_each=0 if all_cached else 1)
 
 
 @dataclass
@@ -249,30 +256,46 @@ class PBRTournamentResult:
     prep: str = ""  # one-line description of the deterministic albedo preparation (or why it was skipped)
     derive_ms: float = 0.0
     derive_cache_hit: bool | None = None
+    image: dict[str, Any] | None = None  # who made the winning albedo (``cached.image_identity``): the manifest's provenance
+
+
+def albedo_variant(i: int, seed_offset: int = 0) -> str:
+    """The variant hint of candidate ``i`` of a material's tournament (also the cache key's, see ``CachedForge.has_albedo``)."""
+    return ALBEDO_VARIANTS[(i + seed_offset) % len(ALBEDO_VARIANTS)]
 
 
 async def pbr_tournament(
     prompt: str, forge: Any, *, plane: Any, governor: Governor, material_id: str = "material", metallic_hint: float = 0.0,
     uploader: Uploader | None = None, n: int | None = None, size: int = 2048, cache: Any = None, seed_offset: int = 0,
     early_stop: float | None = None, concurrency: int | None = None, thresholds: Thresholds | None = None,
+    all_cached: bool = False,
 ) -> PBRTournamentResult:
-    """Screen and rank raw albedos once. Prepare and derive maps only for the winner."""
+    """Screen and rank raw albedos once. Prepare and derive maps only for the winner.
+
+    ``all_cached``: every one of the ``n`` candidate images is in the image cache (the caller checked with
+    ``CachedForge.has_albedo``), so generating them costs no budget and no image: the plan's own sizing must not trim
+    candidates for lack of either (a rerun's ledger holds the first run's images). Judging them is still a call."""
     precharged = hasattr(forge, "with_governor")
     if precharged:
         forge = forge.with_governor(governor)
     up = uploader or uploader_for(forge)
 
+    identities: dict[int, dict[str, Any]] = {}  # candidate index -> who made it (read for the winner below)
+
     async def generate(i: int) -> Candidate:
-        hint = ALBEDO_VARIANTS[(i + seed_offset) % len(ALBEDO_VARIANTS)]
+        hint = albedo_variant(i, seed_offset)
         g = await forge.seamless_albedo(prompt, size=size, variant_hint=hint)
+        identities[i] = image_identity(g, prompt=prompt, size=size, variant=hint, offline=bool(getattr(forge, "offline", False)))
         uri = g.uri or await up(g.png_bytes)
         return Candidate(i, uri, g.png_bytes, _gen_cost(g, "albedo"), g.latency_ms, meta={"hint": hint})
 
     t = await run_tournament("pbr", generate, n, plane=plane, governor=governor, early_stop=early_stop, concurrency=concurrency,
-                             unit_cost=image_est(governor, "albedo"), thresholds=thresholds, generation_precharged=precharged, images_each=1)
+                             unit_cost=0.0 if all_cached else image_est(governor, "albedo"), thresholds=thresholds,
+                             generation_precharged=precharged, images_each=0 if all_cached else 1)
     out = PBRTournamentResult(material_id, t)
     if t.winner is None:
         return out
+    out.image = identities.get(t.winner.index)
     d0 = time.perf_counter()
     def prepare_winner() -> tuple[bytes, str]:
         img, report = prepare_albedo(load_png(t.winner.payload), metallic=metallic_hint >= 0.5)

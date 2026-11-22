@@ -24,6 +24,7 @@ from typing import Any
 from antigravity3d.adapters.blender_5_3 import fbx_package
 from antigravity3d.adapters.engines import web_three
 from antigravity3d.art_direction import ArtDirection, author_text, concept_prompt, texture_brief
+from antigravity3d.kernel import provenance
 from antigravity3d.kernel.package import drop_fbx
 from antigravity3d.kernel.publish import publish_directory
 from antigravity3d.kernel.validator import validate_package
@@ -33,8 +34,8 @@ from antigravity3d.decisions.compose import Thresholds
 from antigravity3d.ir import SceneIR
 from antigravity3d.kernel.usd_stage import StageManager
 from antigravity3d.state import EngineBudget
-from antigravity3d.tactics.authoring import AgentAuthor, IRAuthor, _slug
-from antigravity3d.tactics.cached import CachedForge, DesignRecord
+from antigravity3d.tactics.authoring import AgentAuthor, IRAuthor, TemplateAuthor, _slug
+from antigravity3d.tactics.cached import CachedForge, DesignRecord, image_identity
 from antigravity3d.tactics.common import uploader_for
 from antigravity3d.tactics.distill import FixLog
 from antigravity3d.tactics.pyramid import PyramidResult, default_texture_px, materials_by_area, refine, synthesize_materials
@@ -47,6 +48,7 @@ class Proposal:
     scenes: list[SceneIR]
     asset: str
     author: IRAuthor
+    indices: tuple[int, ...] = ()  # the requested-candidate number of each scene (a candidate that produced nothing leaves a gap)
 
 
 class ImageLimitRefused(RuntimeError):
@@ -141,6 +143,39 @@ class PropToEngineDAG:
         self.single_candidate = single_candidate
         self.up = uploader_for(self.forge)
 
+    @staticmethod
+    def _provenance(manifest: dict[str, Any], facts: dict[str, Any], p: Proposal) -> None:
+        """Complete the manifest's ``provenance`` (the package writer made the structure and the deterministic steps) with
+        the facts only this pipeline has: who authored the design, who generated each image, what the user supplied.
+        A design or an image taken from the design record or the image cache carries the same identities as when it
+        was paid for (``MeteredAuthor._note_authored``, ``cached.image_identity``)."""
+        prov = manifest.get("provenance")
+        if prov is None:
+            return
+        author, winner, style = p.author, facts.get("winner"), facts.get("style_sha256")
+        log = list(getattr(author, "authored", []))
+        original = p.indices[winner] if winner is not None and winner < len(p.indices) else None
+        proposal = next((f for f in log if f["operation"] == "propose" and f["index"] == original), None)
+        if proposal is not None:
+            scene = p.scenes[winner]
+            provenance.set_design(prov, {"kind": "model_authored", "model": proposal["model"], "role": proposal["role"], "operation": "propose",
+                                         "candidate": original, "request_sha256": proposal["request_sha256"],
+                                         "scene_sha256": provenance.sha256_json(scene.model_dump(mode="json")),
+                                         **({"references": ["style_anchor"]} if style else {})})
+        elif isinstance(author, TemplateAuthor):
+            provenance.set_design(prov, {"kind": "template", "generator": "TemplateAuthor (deterministic, no model)", "seed": author.seed})
+        # Every repair request made while the design was refined. Whether each was kept is not known here (the pyramid
+        # rolls some back), so they are listed as calls made, not claimed as what shaped the files.
+        prov["authoring_calls_made"] = [{k: f[k] for k in ("operation", "model", "role", "request_sha256")}
+                                        for f in log if f["operation"] != "propose"]
+        for material, record in (facts.get("images") or {}).items():
+            provenance.set_image(prov, f"albedo:{material}", record)
+        if facts.get("ortho") and "ortho.png" in manifest["files"]:
+            provenance.set_image(prov, "ortho", facts["ortho"])
+        if style:
+            prov["sources"]["style_anchor"] = {"kind": "user_supplied", "sha256": style}
+        provenance.finalize(prov, manifest)
+
     def _texture_px(self) -> int | None:
         """The art direction's map size for this engine; None leaves the pipeline's default (same rule as the pyramid)."""
         if self.art is None or self.art.texture_px_prop is None or self.forge is None:
@@ -157,6 +192,7 @@ class PropToEngineDAG:
         # Stop a branch nobody can use any more (the speculative materials once geometry has failed): its later paid
         # calls would buy nothing. Every node here feeds the package; none makes something kept on a failed run.
         dag = Dag("prop_to_engine", stop_unusable=True)
+        facts: dict[str, Any] = {}  # who made what, read by the package node for the manifest's provenance (kernel/provenance.py)
 
         style_read: asyncio.Task[bytes] | None = None
 
@@ -220,6 +256,7 @@ class PropToEngineDAG:
             data = await style_bytes()
             if data is None:
                 ctx.skip("no style anchor provided")
+            facts["style_sha256"] = hashlib.sha256(data).hexdigest()
             return {"bytes": data, "uri": await self.up(data)}
 
         async def ortho(ctx: NodeCtx) -> Any:
@@ -236,6 +273,9 @@ class PropToEngineDAG:
                 ctx.skip(f"ortho tournament failed, continuing without a blueprint: {type(e).__name__}: {e}")
             wd.mkdir(parents=True, exist_ok=True)
             (wd / "ortho.png").write_bytes(t.winner.payload.png_bytes)
+            facts["ortho"] = {**image_identity(t.winner.payload, prompt=concept_prompt(prompt, self.art), size=None,
+                                               variant=str(t.winner.meta.get("emphasis", "")), offline=bool(getattr(self.forge, "offline", False))),
+                              **({"references": ["style_anchor"]} if st else {})}
             ctx.data(**t.to_dict())
             return t
 
@@ -288,7 +328,7 @@ class PropToEngineDAG:
                          + "; ".join(f"#{o['index']} {o['status']}" + (f" ({o['detail']})" if o.get("detail") else "") for o in lost))
             ctx.data(n_planned=n_plan, n_requested=n, n_proposed=len(scenes), outcomes=outcomes, sizing=sizing,
                      materials=sorted({m.id for s in scenes for m in s.materials}))
-            return Proposal(sm, list(scenes), asset, author)
+            return Proposal(sm, list(scenes), asset, author, tuple(o["index"] for o in outcomes if o["status"] == "produced"))
 
         async def geometry(ctx: NodeCtx) -> Any:
             p: Proposal = ctx["propose"]
@@ -296,6 +336,7 @@ class PropToEngineDAG:
             ort = ctx["ortho"]
             t = await geometry_tournament(p.author, p.stage, prompt, plane=self.plane, governor=r.governor, budget=self.budget, uploader=self.up,
                                           context_uris=[ort.winner.uri] if ort else (), scenes=p.scenes)
+            facts["winner"] = t.winner.index if t.winner is not None else None
             ctx.data(**t.to_dict())
             return t
 
@@ -314,9 +355,12 @@ class PropToEngineDAG:
                                                  brief=texture_brief(self.art))
             except Exception as e:  # noqa: BLE001 - the pyramid will retry synthesis itself
                 ctx.skip(f"speculative PBR synthesis failed ({type(e).__name__}: {e}); pyramid will retry")
+            facts["images"] = {k: v.image for k, v in out.items() if v.image}
             ctx.data(materials={k: v.tournament.to_dict() for k, v in out.items()},
                      **({"not_textured": nt} if (nt := {k: v.tournament.notes["not_textured"] for k, v in out.items()
                                                         if v.tournament.notes.get("not_textured")}) else {}))
+            if covered := {k: v.tournament.notes["cached_variants"] for k, v in out.items() if v.tournament.notes.get("cached_variants")}:
+                ctx.note("image cache: " + "; ".join(f"{k}: {v}" for k, v in covered.items()))  # what a rerun did not have to generate
             if nt:
                 ctx.note("left untextured: " + "; ".join(f"{k}: {v}" for k, v in nt.items()))
             return out
@@ -373,6 +417,7 @@ class PropToEngineDAG:
                     manifest["files"].append(path.name)
                     manifest["file_hashes"][path.name] = {"sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                                                           "bytes": path.stat().st_size}
+            self._provenance(manifest, facts, p)
             manifest_path.write_text(json.dumps(manifest, indent=1))
             if "fbx" in res.objects or "fbx_failed" in res.objects:  # the validator re-opens the FBX: binary, its textures relative and resolving, hash as recorded
                 broken = [i for i in validate_package(pkg) if i.severity == "critical" and (i.code.startswith("pkg:fbx") or i.node_id == manifest["fbx"].get("file"))]
@@ -382,6 +427,7 @@ class PropToEngineDAG:
                         if st.name == "export_fbx":
                             st.status, st.detail = "output_failed", f"FBX failed package validation (not shipped): {broken[0].code} {broken[0].detail}"[:400]
                     manifest["evidence"]["steps"] = [{"name": x.name, "status": x.status, "detail": x.detail} for x in res.steps]
+                    provenance.finalize(manifest["provenance"], manifest)  # the dropped FBX leaves the record too
                     manifest_path.write_text(json.dumps(manifest, indent=1))
             out["inspector"] = str(pkg / manifest["inspector"])
             if manifest["verified"]:

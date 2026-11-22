@@ -586,6 +586,8 @@ class MeteredAuthor:
         # Retries of an attempt whose outcome is unknown; a caller with a recovery round of its own (a kit) sets 0.
         self.unknown_retries = AUTHOR_UNKNOWN_RETRIES
         self.last_service_retries: list[dict[str, Any]] = []  # the failed attempts of the latest repair (waits included)
+        # Who answered each request this author made, for the package manifest's provenance (``_note_authored``)
+        self.authored: list[dict[str, Any]] = []
 
     def timeout_for(self, role: str) -> float:
         return author_timeout(role) if self.timeout_s is None else self.timeout_s
@@ -750,13 +752,25 @@ class MeteredAuthor:
                 self._book_reuse(req, hit)
                 record.note_reuse(hit)
                 trace.update(recorded=hit.original, **{"reserved_tokens" if self.governor.unit == "tokens" else "reserved_usd": 0.0})
+                self._note_authored(req, index, trace)  # the manifest's provenance: the same facts for a reuse as for a paid answer
                 return hit.answer
         answer = await self._generate(req, trace)
+        self._note_authored(req, index, trace)
         if key is not None and keep(answer):
             original = {"unit": self.governor.unit, "booked": trace.get("booked"), "usage": trace.get("usage"),
                         "model": req.model, "role": req.role, "operation": req.operation}
             await asyncio.shield(asyncio.to_thread(record.put, key, answer, original))  # a stop never leaves it half written
         return answer
+
+    def _note_authored(self, req: AuthorRequest, index: int | None, trace: dict[str, Any]) -> None:
+        """Who answered this request, for the package manifest's provenance (``kernel.provenance``): identities and the
+        request's hash, no time and no cost, so a reused answer and a paid one leave the same entry."""
+        from antigravity3d.tactics.cached import request_digest
+
+        facts = {"model": req.model, "role": req.role, "operation": req.operation, "index": index,
+                 "request_sha256": request_digest(req, index, self.record.cache.upload_digest if self.record is not None else None)}
+        trace["provenance"] = facts
+        self.authored.append(facts)
 
     def _book_reuse(self, req: AuthorRequest, hit: Any) -> None:
         receipt = {"model": req.model, "role": req.role, "source": "record", "status": "ok", "usage_known": True,

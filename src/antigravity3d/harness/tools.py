@@ -44,6 +44,7 @@ from antigravity3d.harness.session import Preview, Session, resolve
 from antigravity3d.harness.traceback_compressor import compress_exception
 from antigravity3d.genmedia.material_prompt import texture_prompt
 from antigravity3d.ir import IRPatch, MaterialIR, SetTransform, UpsertMaterial
+from antigravity3d.kernel import provenance
 from antigravity3d.kernel.coplanar import opaque_materials
 from antigravity3d.kernel.fast_ops import (
     ExportBundle,
@@ -64,7 +65,7 @@ from antigravity3d.state import (
 )
 from antigravity3d.art_direction import texture_brief
 from antigravity3d.kernel.compile_ir import CREASE_DEG
-from antigravity3d.tactics.cached import cached_derive_pbr
+from antigravity3d.tactics.cached import cached_derive_pbr, image_identity
 
 PREVIEW_PX = 256  # per view; the sheet is 2x2
 TEXTURE_PX = 2048
@@ -552,7 +553,8 @@ async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, ca
     art = s.art  # the session's art direction: its texture brief, map size and palette (None: as before)
     size = art.texture_px(s.state.budget.target_engine, "prop", TEXTURE_PX) if art is not None else engine_texture_px(s.state.budget.target_engine, TEXTURE_PX)
     brief = texture_brief(art)
-    results = await asyncio.gather(*(s.forge.seamless_albedo(texture_prompt(current, brief), size=size,
+    material_prompt = texture_prompt(current, brief)
+    results = await asyncio.gather(*(s.forge.seamless_albedo(material_prompt, size=size,
                                                              variant_hint=f"option {i + 1}" if n > 1 else "")
                                      for i in range(n)), return_exceptions=True)
     gens = [g for g in results if not isinstance(g, BaseException)]
@@ -583,6 +585,15 @@ async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, ca
             while (destination := mdir / f"{material_id}_v{k}").exists():
                 k += 1
             Path(temp).rename(destination)
+            # who made this albedo, for the package manifest's provenance; kept with the folder the maps went to, so that
+            # a package whose material no longer uses these maps does not claim them
+            media = s._res("generated_media")
+            if media is None:
+                media = {}
+                s._set("generated_media", media)
+            media[material_id] = {"dir": str(destination), **image_identity(
+                gens[best], prompt=material_prompt, size=size, variant=f"option {best + 1}" if n > 1 else "",
+                offline=bool(getattr(s.forge, "offline", False)))}
             try:
                 paths = {key: str(destination / file.name) for key, file in files.items()}
                 new = MaterialIR.model_validate({**current.model_dump(), **paths})
@@ -862,6 +873,7 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
             # manifest says so, and so does the answer below); it never refuses the package and never sets or clears
             # `verified` or `preview`. Placed after the verified / preview branches above, beside the Blender asset check.
             fbx_note = await _export_fbx(s, pkg)
+            _session_provenance(s, pkg.data)
             (candidate / "manifest.json").write_text(json.dumps(pkg.data, indent=1), encoding="utf-8")
             if "fbx" in pkg.data:
                 from antigravity3d.kernel.validator import validate_package
@@ -871,6 +883,7 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
                     from antigravity3d.kernel.package import drop_fbx
 
                     drop_fbx(pkg.data, candidate, "PackageValidation", f"{broken[0].code}: {broken[0].detail}")
+                    provenance.finalize(pkg.data["provenance"], pkg.data)  # the dropped FBX leaves the record too
                     fbx_note = f"FBX FAILED package validation (not shipped; the package is intact): {broken[0].code} {broken[0].detail}"[:400]
                     (candidate / "manifest.json").write_text(json.dumps(pkg.data, indent=1), encoding="utf-8")
             if st.verdict.texture_hash != s.texture_digest():
@@ -881,6 +894,27 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
     head = f"EXPORTED PREVIEW {name} (UNVERIFIED; judged by {pkg.data['judge']['label']})" if st.preview else f"EXPORTED {name}"
     return (f"{head}: usd+glb, {pkg.n_lod_files} LOD glbs, {len(b.colliders)} UCX hulls, "
             f"{len(pkg.data['textures'])} maps, manifest.json | pkg ok | {fbx_note}" + (f" | spend {s.governor.summary()}" if st.preview else ""))
+
+
+def _session_provenance(s: Session, data: dict[str, Any]) -> None:
+    """The manifest's ``provenance`` facts of a native session (``kernel/provenance.py``): the scene was edited by the
+    conversation's agent, whose model the studio does not see (a scene that only places the user's files is theirs);
+    an albedo is credited to the image model only while the material still uses the maps ``forge_pbr_material`` wrote."""
+    prov = data.get("provenance")
+    if prov is None:
+        return
+    scene = s.stage.base_ir()
+    if {n.kind for n in scene.nodes} <= {"mesh_ref", "group"}:
+        provenance.set_design(prov, {"kind": "user_supplied", "note": "the scene only places the supplied file(s)"})
+    else:
+        provenance.set_design(prov, {"kind": "model_authored_in_session", "model": None,
+                                     "note": "scene edited through apply_scene_ir by the conversation's agent; the studio does not see which model that is"})
+    media = s._res("generated_media") or {}
+    for m in scene.materials:
+        made = media.get(m.id)
+        if made and m.albedo_uri and Path(m.albedo_uri).parent == Path(made["dir"]):
+            provenance.set_image(prov, f"albedo:{m.id}", {k: v for k, v in made.items() if k != "dir"})
+    provenance.finalize(prov, data)
 
 
 async def _export_fbx(s: Session, pkg: Any) -> str:

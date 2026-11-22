@@ -57,7 +57,7 @@ from antigravity3d.tactics.governor import BudgetExceeded, Governor
 from antigravity3d.tactics import reviewed_rules
 from antigravity3d.kernel.package import write_engine_package
 from antigravity3d.tactics.package import merged_lods
-from antigravity3d.tactics.tournament import PBRTournamentResult, TournamentResult, image_est, pbr_tournament
+from antigravity3d.tactics.tournament import PBRTournamentResult, TournamentResult, albedo_variant, image_est, pbr_tournament
 
 EPS = 1e-9
 LOOKDEV_ROUNDS = 3
@@ -203,21 +203,39 @@ async def synthesize_materials(
     size = size or default_texture_px(forge)
     mats = list(scene.materials)
     unit = image_est(governor, "albedo")
-    counts = governor.allocate("pbr", len(mats), unit_cost=unit, images_each=1)
+    # A material whose every planned candidate image is already in the image cache (a rerun in the same --out) needs no
+    # image and no budget to generate, so it neither takes a slot of the image limit nor of the allowance, which the
+    # first run's images already count against (the ledger belongs to the asset). The rest are allocated as before; a
+    # material with only some of its variants cached stays in that conservative allocation, and says how many were.
+    per = governor.plan.pbr_candidates
+    has = getattr(forge, "has_albedo", None)
+    prompts = {m.id: texture_prompt(m, brief) for m in mats}
+    cached = {m.id: sum(bool(has and has(prompts[m.id], size=size, variant_hint=albedo_variant(i))) for i in range(per)) for m in mats}
+    free = {mid for mid, c in cached.items() if per > 0 and c == per}
+    paid = [m for m in mats if m.id not in free]
+    allocated = dict(zip((m.id for m in paid), governor.allocate("pbr", len(paid), unit_cost=unit, images_each=1)))
+    counts = [per if m.id in free else allocated[m.id] for m in mats]
     outs = await asyncio.gather(*(pbr_tournament(
-        texture_prompt(m, brief), forge, plane=plane, governor=governor, material_id=m.id, metallic_hint=m.metallic,
-        uploader=uploader, n=n, size=size, cache=cache, concurrency=concurrency) for m, n in zip(mats, counts) if n > 0))
+        prompts[m.id], forge, plane=plane, governor=governor, material_id=m.id, metallic_hint=m.metallic,
+        uploader=uploader, n=n, size=size, cache=cache, concurrency=concurrency, all_cached=m.id in free)
+        for m, n in zip(mats, counts) if n > 0))
     done = iter(outs)
     result: dict[str, PBRTournamentResult] = {}
     for m, n in zip(mats, counts):
         if n > 0:
             result[m.id] = next(done)
+            if cached[m.id]:  # the report says what the cache covered, whatever it decided
+                result[m.id].tournament.notes["cached_variants"] = f"{cached[m.id]} of {n} candidate image(s) were in the cache"
             continue
-        if getattr(governor, "max_images", None) is not None and governor.max_images - governor.images_used < 1:
+        # Name the limit that refused. The tournaments above have settled, so what is left is what one more candidate faces.
+        images_left = None if getattr(governor, "max_images", None) is None else governor.max_images - governor.images_used
+        fmt = getattr(governor, "fmt", lambda x: f"${x:.5f}")
+        if images_left is not None and images_left < 1:
             why = f"image limit reached ({governor.images_summary()}): larger surfaces were textured first"
-        else:
-            fmt = getattr(governor, "fmt", lambda x: f"${x:.5f}")
+        elif governor.remaining + 1e-9 < unit:
             why = f"budget: {fmt(governor.remaining)} left, one candidate needs about {fmt(unit)}; larger surfaces were textured first"
+        else:
+            why = "the spend plan allows no candidate for this material"
         t = TournamentResult("pbr", 0, None, [], {}, notes={"not_textured": why})
         t.unit = getattr(governor, "unit", "usd")
         result[m.id] = PBRTournamentResult(m.id, t)

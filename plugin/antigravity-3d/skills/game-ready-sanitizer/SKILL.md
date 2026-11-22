@@ -1,11 +1,16 @@
 ---
 name: game-ready-sanitizer
 description: >-
-  Makes an existing asset file (glTF/GLB, OBJ, PLY, STL or USD) game-ready: imports
-  it into a USD stage, normalises units and axes, fixes UVs, generates LODs
-  and colliders, and runs the USD validator and QA gate. Use when the user
-  hands over existing or third-party files, or when the depot watcher starts
-  a batch-sanitize run.
+  Makes an existing mesh file game-ready: imports glTF/GLB, OBJ, PLY, STL or USD
+  into a USD stage, normalises units and axes, welds vertices, removes degenerate
+  and duplicate faces, fixes winding, unwraps UVs, generates LODs and collision
+  hulls, and runs the USD validator and QA gate, for one file or a whole depot
+  folder. Use when the user hands over a file made by them or a third party
+  ("clean up this OBJ", "my scan has flipped faces", "make this model ready for
+  Unity"), or when the depot watcher starts a batch-sanitize run. Not for making
+  a new asset from a prompt (use concept-to-blueprint, then parametric-kitbash),
+  for materials (use pbr-material-forge) or for the engine package (use
+  engine-truth-verify).
 ---
 
 # Game-ready sanitizer
@@ -48,3 +53,45 @@ in parallel. For one file, follow the steps directly.
 ## Output
 
 One line per file: `<file>: PASS|FAIL tier1=<ok|fail> tier15=<score> tris=<n> lods=<n> hulls=<n>`.
+
+## Check
+
+Run `agy3d sanitize FILE --engine ENGINE --out OUT` (several files at once are
+fine, `--jobs N` sets the worker processes). A pass is the exit code 0 with a
+`PASS` row per file in its table and no `remaining in` or `critical` line under
+it; `report.json` in the output folder holds the same rows.
+
+## Gotchas
+
+- **Symptom:** a file's row says the largest dimension is implausible for a
+  prop (its largest side is above 20 m or below 1 cm). **Cause:** the source
+  has no unit declaration or a wrong one (millimetres read as metres). **Remedy:**
+  the validator names the unit reading that would fit and does not rescale by
+  itself; ask the user for the source unit, then set the node scale.
+- **Symptom:** the row lists issues `remaining`. **Cause:** the repairs are
+  limited to ones that cannot change the shape (weld, drop degenerate and
+  duplicate faces, fix winding, reground); anything else is reported, not
+  guessed at. **Remedy:** report them to the user with the file name; do not
+  patch the mesh by hand to make the gate pass.
+- **Symptom:** one file of a batch is `failed` with a crash or a timeout while
+  the others finished. **Cause:** a worker died (the collider decomposition has
+  segfaulted on some meshes) or passed the per-file limit (default 900 s); it
+  is killed and replaced and only that file's row fails. **Remedy:** rerun
+  that file alone, with a larger `--timeout` for a timeout; report a repeated
+  crash with the file.
+- **Symptom:** the imported asset sits half under the ground or floats.
+  **Cause:** a source origin that is not at the base; the sanitizer regrounds
+  the whole asset when its lowest point is more than 1 cm from zero.
+  **Remedy:** check the bounds with `inspect_manifest` after import.
+- **Symptom:** a glTF imports on its side. **Cause:** glTF is Y-up and the
+  stage is Z-up; the import converts. **Remedy:** do not rotate again; read the
+  world bounds in metres.
+
+## Version notes
+
+Last verified 2026-11-22 against commit 29660b8.
+
+- Accepted inputs: .glb, .gltf, .obj, .ply, .stl and the USD extensions.
+  Other formats (FBX among them) are not read.
+- The per-file timeout default is 900 s; the slowest benchmark mesh (28,000
+  triangles) needed about 3 s.

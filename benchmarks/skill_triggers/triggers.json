@@ -1,0 +1,286 @@
+[
+  {
+    "id": "concept-to-blueprint.s1",
+    "prompt": "i have an idea for a sci-fi lantern prop, can you do concept art from the front, side and top before we model anything",
+    "expected": [
+      "concept-to-blueprint"
+    ],
+    "kind": "should",
+    "notes": "direct, idea only"
+  },
+  {
+    "id": "concept-to-blueprint.s2",
+    "prompt": "need a turnaround sheet for a rusty fuel barrel, orthographic views please",
+    "expected": [
+      "concept-to-blueprint"
+    ],
+    "kind": "should",
+    "notes": "casual wording for orthos"
+  },
+  {
+    "id": "concept-to-blueprint.s3",
+    "prompt": "got a rough sketch of a treasure chest and no reference drawings yet, where do we even start with the 3d asset",
+    "expected": [
+      "concept-to-blueprint"
+    ],
+    "kind": "should",
+    "notes": "implicit: new asset, nothing approved"
+  },
+  {
+    "id": "concept-to-blueprint.nm",
+    "prompt": "the front and side drawings of the crate are approved already, now build the model in the stage",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'drawings' and 'crate'; the design exists, the work is modelling"
+  },
+  {
+    "id": "parametric-kitbash.s1",
+    "prompt": "build me a military supply crate with latches and corner guards for godot, around 3000 tris",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "should",
+    "notes": "direct"
+  },
+  {
+    "id": "parametric-kitbash.s2",
+    "prompt": "my barrel model has a lid floating above the body and the surface flickers when the camera moves",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "should",
+    "notes": "symptoms: floating part, z-fighting"
+  },
+  {
+    "id": "parametric-kitbash.s3",
+    "prompt": "make a wall piece and a doorway for a modular dungeon kit, 2m modules, they have to snap",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "should",
+    "notes": "modular kit pieces"
+  },
+  {
+    "id": "parametric-kitbash.nm",
+    "prompt": "the crate model is fine but it is flat grey, make it look like worn olive drab paint",
+    "expected": [
+      "pbr-material-forge"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'crate model'; the work is the surface"
+  },
+  {
+    "id": "pbr-material-forge.s1",
+    "prompt": "give the barrel a rusty steel material with proper roughness and normal maps",
+    "expected": [
+      "pbr-material-forge"
+    ],
+    "kind": "should",
+    "notes": "direct"
+  },
+  {
+    "id": "pbr-material-forge.s2",
+    "prompt": "the texture on my crate has latches painted on every face and shadows baked in, redo it",
+    "expected": [
+      "pbr-material-forge"
+    ],
+    "kind": "should",
+    "notes": "symptoms of a texture drawn as the object"
+  },
+  {
+    "id": "pbr-material-forge.s3",
+    "prompt": "lookdev pass on the lantern: brass frame, frosted glass, worn leather strap",
+    "expected": [
+      "pbr-material-forge"
+    ],
+    "kind": "should",
+    "notes": "lookdev wording"
+  },
+  {
+    "id": "pbr-material-forge.nm",
+    "prompt": "the lid of the crate has a gap and two plates overlap, fix the geometry",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'crate'; geometry, not surface"
+  },
+  {
+    "id": "game-ready-sanitizer.s1",
+    "prompt": "i downloaded tree.glb from a marketplace and it is a mess, make it ready for unreal",
+    "expected": [
+      "game-ready-sanitizer"
+    ],
+    "kind": "should",
+    "notes": "third-party file"
+  },
+  {
+    "id": "game-ready-sanitizer.s2",
+    "prompt": "run every obj in the depot folder through cleanup and give me lods and colliders",
+    "expected": [
+      "game-ready-sanitizer"
+    ],
+    "kind": "should",
+    "notes": "batch"
+  },
+  {
+    "id": "game-ready-sanitizer.s3",
+    "prompt": "my scanned statue.ply has duplicate faces, flipped normals and is about 1000x too big",
+    "expected": [
+      "game-ready-sanitizer"
+    ],
+    "kind": "should",
+    "notes": "symptoms on a supplied scan"
+  },
+  {
+    "id": "game-ready-sanitizer.nm",
+    "prompt": "the crate model is finished, make it a game ready package for godot and check it imports",
+    "expected": [
+      "engine-truth-verify"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'game ready'; the file was made here and needs export"
+  },
+  {
+    "id": "engine-truth-verify.s1",
+    "prompt": "export the barrel for unreal 5 and verify it imports",
+    "expected": [
+      "engine-truth-verify"
+    ],
+    "kind": "should",
+    "notes": "direct"
+  },
+  {
+    "id": "engine-truth-verify.s2",
+    "prompt": "ship this prop to unity urp, export keeps saying REFUSED, what is blocking it",
+    "expected": [
+      "engine-truth-verify"
+    ],
+    "kind": "should",
+    "notes": "symptom: refusal"
+  },
+  {
+    "id": "engine-truth-verify.s3",
+    "prompt": "i have no native judge on this key, can i still get an unverified preview package for godot",
+    "expected": [
+      "engine-truth-verify"
+    ],
+    "kind": "should",
+    "notes": "preview mode"
+  },
+  {
+    "id": "engine-truth-verify.nm",
+    "prompt": "before exporting, clean up this glb of mine, it has duplicate faces and wrong units",
+    "expected": [
+      "game-ready-sanitizer"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'export'; the file is the user's and needs repair first"
+  },
+  {
+    "id": "art-direction.s1",
+    "prompt": "i want a ps1 look, tiny textures and flat shading",
+    "expected": [
+      "art-direction"
+    ],
+    "kind": "should",
+    "notes": "era wording"
+  },
+  {
+    "id": "art-direction.s2",
+    "prompt": "chunky low poly voxel style for the whole set",
+    "expected": [
+      "art-direction"
+    ],
+    "kind": "should",
+    "notes": "style wording"
+  },
+  {
+    "id": "art-direction.s3",
+    "prompt": "cel shaded anime look for the sword",
+    "expected": [
+      "art-direction"
+    ],
+    "kind": "should",
+    "notes": "style names a shader look"
+  },
+  {
+    "id": "art-direction.nm",
+    "prompt": "my low poly tree has a branch floating in mid air, fix it",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "near-miss",
+    "notes": "shares 'low poly'; a geometry fault"
+  },
+  {
+    "id": "combo.01",
+    "prompt": "build a voxel style campfire prop for godot",
+    "expected": [
+      "art-direction",
+      "parametric-kitbash"
+    ],
+    "kind": "combo",
+    "notes": "style plus modelling"
+  },
+  {
+    "id": "combo.02",
+    "prompt": "model me a supply crate and then give it painted steel textures",
+    "expected": [
+      "parametric-kitbash",
+      "pbr-material-forge"
+    ],
+    "kind": "combo",
+    "notes": "modelling then surface"
+  },
+  {
+    "id": "combo.03",
+    "prompt": "take this obj from the store, clean it up and export it to unity with verification",
+    "expected": [
+      "game-ready-sanitizer",
+      "engine-truth-verify"
+    ],
+    "kind": "combo",
+    "notes": "repair then export"
+  },
+  {
+    "id": "combo.04",
+    "prompt": "start from this sketch of a lantern: concept art first, then build it",
+    "expected": [
+      "concept-to-blueprint",
+      "parametric-kitbash"
+    ],
+    "kind": "combo",
+    "notes": "blueprint then modelling"
+  },
+  {
+    "id": "none.01",
+    "prompt": "write a python function that parses a csv of enemy stats",
+    "expected": [],
+    "kind": "none",
+    "notes": ""
+  },
+  {
+    "id": "none.02",
+    "prompt": "how do i implement a double jump in godot gdscript",
+    "expected": [],
+    "kind": "none",
+    "notes": "game development, none of the plugin's skills"
+  },
+  {
+    "id": "none.03",
+    "prompt": "what is the capital of france",
+    "expected": [],
+    "kind": "none",
+    "notes": ""
+  },
+  {
+    "id": "none.04",
+    "prompt": "balance my game's xp curve so level 10 takes about two hours",
+    "expected": [],
+    "kind": "none",
+    "notes": "game development, none of the plugin's skills"
+  }
+]

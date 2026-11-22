@@ -10,7 +10,8 @@ Layout of ``out_dir`` (everything referenced relative to the USD layer, so the d
     textures/              copies of the material maps (normal maps converted to the engine convention)
     inspector.html         offline Three.js PBR, channels, selectable nodes, LODs and budget gauges
     manifest.json          schema_version, units, tri counts, textures, materials, glb_images, collider_sources, hashes,
-                           validation, versions; ``art_direction`` when one was applied (schema_version 3)
+                           validation, versions, ``provenance`` (schema_version 4: what made each file);
+                           ``art_direction`` when one was applied (schema_version 3)
 
 Images: ``<asset>.glb`` is the single-file deliverable and embeds every image; each image is byte-for-byte the
 ``textures/`` file the USD references. A far LOD file is never shipped without its package, so it references those
@@ -53,7 +54,7 @@ from PIL import Image
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, Vt
 
 from antigravity3d.artifacts.inspector import InspectorQA, build_inspector, bundled_three_js
-from antigravity3d.kernel import compile_ir
+from antigravity3d.kernel import compile_ir, provenance
 from antigravity3d.kernel.compile_ir import (
     CREASE_DEG, IR_KEY, MapSource, MaterialParams, author_mesh_data, read_ir, read_material, set_normal_encoding,
 )
@@ -81,9 +82,13 @@ from antigravity3d.state import EngineBudget
 #    engine's limit is replaced and says so in ``collider_sources``; and the OPTIONAL ``art_direction`` record names a
 #    style and the values applied (absent means no style; ``validate_package`` checks it against the files when
 #    present), with the shipped texel density beside the atlas-space one in ``texel_density``.
+# 4: the ``provenance`` record (kernel/provenance.py): per shipped file what it derives from and by which steps, and per
+#    source who made it, so that "does this file contain generated content" is answered from the manifest alone. Every
+#    package has it (the pipeline that knows the author and the image model adds those facts; a source nobody
+#    recorded says so). It is checked from version 4 on, as the art_direction record is from version 3.
 # Packages written under an older version are validated by the layout they declare.
-SCHEMA_VERSION = 3
-ART_SCHEMA_VERSION = SCHEMA_VERSION  # the version whose contract has the ``art_direction`` record
+SCHEMA_VERSION = provenance.SCHEMA_VERSION
+ART_SCHEMA_VERSION = 3  # the version whose contract has the ``art_direction`` record
 TEXTURE_DIR = PACKAGE_TEXTURE_DIR
 COLLIDERS_SCOPE = "Colliders"
 LOD_SET = "LOD"
@@ -284,6 +289,8 @@ def drop_fbx(data: dict[str, Any], out: Path, error_class: str, message: str) ->
         data["files"] = [f for f in data["files"] if f != name]
         data["file_hashes"].pop(name, None)
     data["fbx"] = fbx_failed_record(data, error_class, message)
+    if "provenance" in data:  # the dropped file leaves the record too
+        provenance.finalize(data["provenance"], data)
 
 
 def record_fbx(data: dict[str, Any], out: Path, result: Mapping[str, Any]) -> None:
@@ -298,6 +305,8 @@ def record_fbx(data: dict[str, Any], out: Path, result: Mapping[str, Any]) -> No
     path = out / name
     data["file_hashes"][name] = {"sha256": _sha256(path), "bytes": path.stat().st_size}
     data["fbx"] = rec
+    if "provenance" in data:  # a file made by Blender from the package's GLB and textures
+        provenance.finalize(data["provenance"], data)
 
 
 def _local_file(uri: str) -> Path | None:
@@ -1120,9 +1129,14 @@ def write_engine_package(
         "shipped_mean_px_per_m": round(float(np.mean(dens)) * side / atlas_px, 2) if dens and side and atlas_px else None,
         "shipped_texture_px": side or None})
     if art is not None:
-        data["schema_version"] = ART_SCHEMA_VERSION
+        data["schema_version"] = max(data["schema_version"], ART_SCHEMA_VERSION)
         data["art_direction"] = _art_record(art, budget, textures, out, dens, uvs)
     data["file_hashes"] = {f: {"sha256": texture_hashes.get(f) or _sha256(out / f), "bytes": (out / f).stat().st_size} for f in files}
+    try:
+        supplied = provenance.supplied_meshes(stage_manager.base_ir())
+    except Exception:  # noqa: BLE001 - a stage without a readable scene IR has no supplied files to name
+        supplied = {}
+    data["provenance"] = provenance.finalize(provenance.build(data, supplied=supplied, styled=art is not None, asset=asset_name))
     mpath = out / "manifest.json"
     mpath.write_text(json.dumps(data, indent=1))
     pkg_issues = validate_package(out)  # cold re-open of what was just written
