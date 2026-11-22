@@ -872,14 +872,15 @@ def plan_markings(brief: str, asset_name: str, classes: Mapping[str, Classificat
 
 
 def _free_grid(c: _Ctx, p: Patch, occ: mm.Occluder | None, cell: float) -> tuple[np.ndarray, float, float]:
-    """Occupancy of a face on a ``cell``-metre grid: True where every texel in the cell is open (not buried under
-    another part), has nothing standing in front of it within 15 cm (a handle, a latch) and is on this face."""
+    """Occupancy of a face on a ``cell``-metre grid: True where every texel in the cell is on this face and nothing of
+    the asset is in front of it within 15 cm, however thin (a 1 mm plate, a handle, the bars of a frame, a part that
+    buries the face): exact ray casts, ``Occluder.in_front``. Every marking kind is placed through this grid."""
     x0, _, y0, _ = p.box
     gx = np.floor((p.s - x0) / cell).astype(np.int64)
     gy = np.floor((p.t - y0) / cell).astype(np.int64)
-    ok = c.ao[p.idx] > 0.06
+    ok = np.ones(len(p.idx), bool)
     if occ is not None:
-        ok &= occ.clear_along(c.pos[p.idx], p.normal, 0.15)
+        ok = ~occ.in_front(c.pos[p.idx], p.normal, 0.15)
     keep = (gx >= 0) & (gy >= 0)
     nx, ny = int(gx[keep].max()) + 1 if keep.any() else 1, int(gy[keep].max()) + 1 if keep.any() else 1
     seen = np.zeros((ny, nx), np.int64)
@@ -905,6 +906,9 @@ def _place(free: np.ndarray, cell: float, w: float, h: float, prefer: tuple[floa
     cx, cy = prefer[0] * nx - bw / 2, prefer[1] * ny - bh / 2
     k = int(np.argmin((xs - cx) ** 2 + (ys - cy) ** 2 + 1e-6 * (ys * nx + xs)))
     return int(xs[k]), int(ys[k])
+
+
+_KIND = {"label": "stencil_label", "arrows": "this_way_up_pictogram", "hazard": "hazard_band"}  # as declared
 
 
 def _stencil_colours(base: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -1017,8 +1021,9 @@ def apply_markings(c: _Ctx, layer: Layer, node_ids: Sequence[str], plan: Mapping
             if spot is not None:
                 break
         if spot is None:
-            decl.append({"kind": kind, "material": material_id, "faces_tried": [f.node_id for f in faces[:4]], "placed": False,
-                         "strings": lines, "reason": "no open, clear area of the face large enough"})
+            decl.append({"kind": _KIND[kind], "material": material_id, "faces_tried": [f.node_id for f in faces[:4]],
+                         "placed": False, "strings": [{"text": t_, "legible": True} for t_ in lines], "legible": False,
+                         "reason": "no area of the face clear of everything in front of it (exact, any thickness) large enough"})
             continue
         s, t = p.s, p.t
         bx = gx0 + spot[0] * cell + margin
@@ -1062,7 +1067,7 @@ def apply_markings(c: _Ctx, layer: Layer, node_ids: Sequence[str], plan: Mapping
         paint_col[p.idx[sel]] = col[sel]
         plane = float(np.median(c.pos[p.idx] @ p.normal))
         centre = (bx + bw / 2) * p.u_axis + (by + bh / 2) * p.v_axis + plane * p.normal
-        decl.append({"kind": {"label": "stencil_label", "arrows": "this_way_up_pictogram", "hazard": "hazard_band"}[kind],
+        decl.append({"kind": _KIND[kind],
                      "placed": True, "material": material_id, "part": p.node_id,
                      "face_normal": [round(float(x), 3) for x in p.normal],
                      "centre_m": [round(float(x), 4) for x in centre], "size_m": [round(bw, 4), round(bh, 4)],

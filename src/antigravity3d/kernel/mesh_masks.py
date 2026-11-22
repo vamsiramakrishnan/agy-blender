@@ -50,6 +50,9 @@ FACET_DEG_HI = 35.0
 AO_DIRECTIONS = 64
 #: Side, in pixels, of each occlusion depth map. A 1 m prop gets about 2 mm per pixel.
 AO_MAP_PX = 512
+#: How far in front of a surface something must be to count as in front of it (``Occluder.in_front``): a tenth of a
+#: millimetre, so a 1 mm decal plate counts and the surface's own coplanar triangles do not.
+IN_FRONT_EPS_M = 1e-4
 #: Depth-map pixel (m) and the largest map. Occlusion within AO_RANGE_M (12 cm) is low-frequency: 4 mm pixels keep a
 #: 1 m prop's maps near 300 px. Measured on tonight's 48-part crate: at 2 mm (about 600 px) building the 64 maps was
 #: half of the whole surface generation (about 10 of 21 s); rasterising scales with the map's area.
@@ -415,28 +418,45 @@ class Occluder:
             self.maps.append((B, zbuf))
         self.build_ms = round((time.perf_counter() - t0) * 1e3, 1)
 
-    def clear_along(self, points: np.ndarray, direction: np.ndarray, reach: float) -> np.ndarray:
-        """Per point: True when nothing of the asset lies within ``reach`` in front of it along ``direction`` (a
-        handle standing off a wall is in front of the wall). One depth map per direction, made on first use."""
-        if self._geom is None or not len(points):
-            return np.ones(len(points), bool)
+    def in_front(self, points: np.ndarray, direction: np.ndarray, reach: float, eps: float = IN_FRONT_EPS_M) -> np.ndarray:
+        """Per point: True when a triangle of the asset lies in front of it along ``direction``, more than ``eps`` and
+        less than ``reach`` away: exact ray casts against the triangles themselves (all rays are parallel, so each
+        triangle is a 2D point-in-triangle test in the plane across ``direction``, then a depth from its plane).
+
+        No depth map: a map's pixel decides what it can see. Measured on a live crate (r5 prop_final_crate), a
+        6 mm placard 4 mm proud of the wall passed the earlier depth-map test (``clear_along``: 4 mm pixels, a point
+        lifted 6 mm before the lookup and a gap of 8 mm needed to block) on all 3045 texels under it, and a three-line
+        label was painted behind it. Here a 1 mm decal plate blocks, a frame blocks under its bars and not inside its
+        opening, and the surface's own coplanar triangles (depth 0) do not."""
+        n = len(points)
+        out = np.zeros(n, bool)
+        if self._geom is None or not n:
+            return out
+        P, T = self._geom
         d = np.asarray(direction, np.float64)
         d = d / np.linalg.norm(d)
-        key = tuple(int(x) for x in np.round(d * 1000))
-        n = self.map_px
-        if key not in self._along:
-            Pv, Tv = self._geom
-            B = _basis(d)
-            cam = (Pv - self.c) @ B.T
-            sxy = np.stack([cam[:, 0] * self.scale + n / 2, n / 2 - cam[:, 1] * self.scale], axis=1)
-            self._along[key] = (B, _rasterise(sxy, cam[:, 2].astype(np.float32), Tv, n)[1])
-        B, zbuf = self._along[key]
-        px_m = 1.0 / self.scale
-        qc = _dot3((points + d * (1.5 * px_m) - self.c).astype(np.float64), B.T)
-        ix = np.clip((qc[:, 0] * self.scale + n / 2).astype(np.int64), 0, n - 1)
-        iy = np.clip((n / 2 - qc[:, 1] * self.scale).astype(np.int64), 0, n - 1)
-        gap = qc[:, 2] - zbuf[iy, ix]
-        return ~((gap > 2 * px_m) & (gap < reach))
+        B = _basis(d)[:2]                                     # two axes across the rays
+        q = np.asarray(points, np.float64)
+        qd, q2 = q @ d, q @ B.T
+        A = P[T]                                              # (M, 3, 3)
+        Ad, A2 = A @ d, A @ B.T                               # depth along d, 2D position across
+        e1, e2 = A2[:, 1] - A2[:, 0], A2[:, 2] - A2[:, 0]
+        den = e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]
+        lo2, hi2 = A2.min(axis=1), A2.max(axis=1)
+        qlo, qhi = q2.min(axis=0), q2.max(axis=0)
+        cand = np.flatnonzero((np.abs(den) > 1e-14) & (Ad.max(axis=1) > qd.min() + eps) & (Ad.min(axis=1) < qd.max() + reach)
+                              & (hi2[:, 0] >= qlo[0]) & (lo2[:, 0] <= qhi[0]) & (hi2[:, 1] >= qlo[1]) & (lo2[:, 1] <= qhi[1]))
+        for k in cand:
+            sel = np.flatnonzero((q2[:, 0] >= lo2[k, 0]) & (q2[:, 0] <= hi2[k, 0]) & (q2[:, 1] >= lo2[k, 1]) & (q2[:, 1] <= hi2[k, 1]) & ~out)
+            if not len(sel):
+                continue
+            r = q2[sel] - A2[k, 0]
+            w1 = (r[:, 0] * e2[k, 1] - r[:, 1] * e2[k, 0]) / den[k]
+            w2 = (e1[k, 0] * r[:, 1] - e1[k, 1] * r[:, 0]) / den[k]
+            inside = (w1 >= -1e-9) & (w2 >= -1e-9) & (w1 + w2 <= 1 + 1e-9)
+            depth = (1 - w1 - w2) * Ad[k, 0] + w1 * Ad[k, 1] + w2 * Ad[k, 2] - qd[sel]
+            out[sel[inside & (depth > eps) & (depth < reach)]] = True
+        return out
 
     def __call__(self, points: np.ndarray, normals: np.ndarray, *, max_range: float = AO_RANGE_M) -> np.ndarray:
         """Ambient occlusion in [0, 1] (1 = open) at ``points`` (N, 3) with unit ``normals``: for each direction above

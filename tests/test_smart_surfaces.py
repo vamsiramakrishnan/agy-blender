@@ -208,8 +208,83 @@ def test_clearance_finds_the_handle_in_front_of_the_wall(built):
     _, _, _, meshes, _, _ = built
     occ = mm.Occluder(meshes)
     pts = np.array([[0.4, 0.0, 0.25], [0.4, 0.2, 0.1]])
-    clear = occ.clear_along(pts, np.array([1.0, 0.0, 0.0]), 0.15)
-    assert clear.tolist() == [False, True]
+    assert occ.in_front(pts, np.array([1.0, 0.0, 0.0]), 0.15).tolist() == [True, False]
+
+
+# --- a wall with a thin proud plate, and a wall with a frame: what is in front of a label's texels, however thin
+
+WALL_Y = 0.25          # the body's +y and -y walls
+
+
+def _plated_scene() -> SceneIR:
+    """The crate body with, on its +y wall, a 1 mm plate standing 0.5 mm proud over the label's usual place, and on its
+    -y wall a frame of four 10 mm x 3 mm bars around that place (open in the middle)."""
+    def box(i, size, at, mat="steel"):
+        return NodeIR(id=i, kind="box", params={"size": list(size)}, transform=Transform(translate=at), material_id=mat)
+
+    fz, fw, fh, bar = 0.30, 0.34, 0.12, 0.01
+    frame = [box("bar_top", (fw, 0.003, bar), (0, -WALL_Y - 0.0015, fz + fh / 2)),
+             box("bar_bottom", (fw, 0.003, bar), (0, -WALL_Y - 0.0015, fz - fh / 2)),
+             box("bar_left", (bar, 0.003, fh), (-fw / 2, -WALL_Y - 0.0015, fz)),
+             box("bar_right", (bar, 0.003, fh), (fw / 2, -WALL_Y - 0.0015, fz))]
+    return SceneIR(asset_name="Crate", nodes=[
+        box("body", (0.8, 0.5, 0.4), (0, 0, 0.22), "paint"),
+        box("plate", (0.36, 0.001, 0.16), (0, WALL_Y + 0.001, 0.30)),
+        *frame,
+    ], materials=_scene().materials)
+
+
+@pytest.fixture(scope="module")
+def plated(tmp_path_factory):
+    root = tmp_path_factory.mktemp("plated")
+    scene = _plated_scene()
+    stage = StageManager.create(root / "Crate_stage.usda", "Crate")
+    stage.apply_ir(scene)
+    meshes = stage.extract_meshes()
+    bundle = run_export_pipeline(meshes, EngineBudget("godot_4", shared_atlas=False), "Crate", opaque_materials=opaque_materials(scene))
+    return scene, meshes, bundle
+
+
+def test_a_thin_plate_and_the_bars_of_a_frame_are_in_front_and_a_frames_opening_is_not(plated):
+    _, meshes, _ = plated
+    occ = mm.Occluder(meshes)
+    y = np.array([0.0, 1.0, 0.0])
+    under_plate = np.array([[0.0, WALL_Y, 0.30], [0.17, WALL_Y, 0.37], [-0.17, WALL_Y, 0.23]])
+    beside_plate = np.array([[0.0, WALL_Y, 0.10], [0.25, WALL_Y, 0.30]])
+    assert occ.in_front(under_plate, y, 0.15).all()                   # 1 mm thick, 0.5 mm proud
+    assert not occ.in_front(beside_plate, y, 0.15).any()               # the wall's own triangles are not in front
+    under_bars = np.array([[0.0, -WALL_Y, 0.36], [-0.17, -WALL_Y, 0.30], [0.1, -WALL_Y, 0.24]])
+    in_opening = np.array([[0.0, -WALL_Y, 0.30], [0.12, -WALL_Y, 0.33]])
+    assert occ.in_front(under_bars, -y, 0.15).all()
+    assert not occ.in_front(in_opening, -y, 0.15).any()
+
+
+def _face_box(d) -> tuple[float, float, float, float]:
+    cx, cz = d["centre_m"][0], d["centre_m"][2]
+    w, h = d["size_m"]
+    return cx - w / 2, cx + w / 2, cz - h / 2, cz + h / 2
+
+
+def _overlaps(a, b) -> bool:
+    return a[0] < b[1] and b[0] < a[1] and a[2] < b[3] and b[2] < a[3]
+
+
+def test_no_marking_is_painted_under_a_thin_plate_or_across_a_frame(plated):
+    scene, meshes, bundle = plated
+    maps = sm.texture_scene(scene.materials, mm.layouts_from_uvs(bundle.uvs, 1024), meshes, brief=BRIEF)
+    decl = [d for m in maps.values() for d in m.record["markings"]]
+    walls = [d for d in decl if d.get("placed") and d.get("face_normal") and abs(d["face_normal"][1]) > 0.9]
+    plate = (-0.18, 0.18, 0.22, 0.38)
+    bars = [(-0.17, 0.17, 0.355, 0.365), (-0.17, 0.17, 0.235, 0.245), (-0.175, -0.165, 0.24, 0.36), (0.165, 0.175, 0.24, 0.36)]
+    for d in walls:
+        box = _face_box(d)
+        if d["face_normal"][1] > 0:
+            assert not _overlaps(box, plate), d
+        else:
+            assert not any(_overlaps(box, b) for b in bars), d
+    # every label is still accounted for: placed somewhere clear, or declared not placed with the reason
+    labels = [d for d in decl if d["kind"] in ("stencil_label", "label")]
+    assert labels and all(d.get("placed") or d.get("reason") for d in labels)
 
 
 # --------------------------------------------------------------------------------------------- maps
