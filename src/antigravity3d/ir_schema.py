@@ -289,6 +289,89 @@ def parse_patch(text: str) -> ir.IRPatch:
     return patch_from_wire(WirePatch.model_validate_json(text))
 
 
+# A look round's answer (tactics.look_round): material operations only, and possibly none. upsert_material changes the
+# material fields it writes (the others stay); assign_material moves a part to another material. Nothing
+# that moves or reshapes geometry can be written: the geometry was judged and kept before the look round.
+def _look_material() -> type[_Wire]:
+    """``MaterialIR`` with every field but ``id`` optional and no cross-field rule: a look answer writes only the fields it
+    changes, and the rules are checked on the material it makes with them (``apply_look``)."""
+    fields: dict[str, Any] = {}
+    for name, info in ir.MaterialIR.model_fields.items():
+        if name == "id":
+            fields[name] = (info.annotation, info)
+            continue
+        f = copy.copy(info)
+        f.default, f.default_factory = None, None
+        f.exclude_if = None
+        fields[name] = (info.annotation, f)
+    return create_model("LookMaterial", __base__=_Wire, __doc__="The fields of one material to change.", **fields)
+
+
+LookMaterial = _look_material()
+LookUpsertMaterial = create_model("LookUpsertMaterial", __base__=_Wire, op=(Literal["upsert_material"], ...),
+                                  material=(LookMaterial, ...))
+WireLook = create_model(
+    "WireLook", __base__=_Wire, __doc__="Material changes of a look round; an empty list is no change.",
+    ops=(list[Union[LookUpsertMaterial, next(m for m in OP_MODELS if m.__name__ == "WireAssignMaterial")]], ...))  # type: ignore[misc]
+
+
+def look_response_schema() -> dict[str, Any]:
+    return _api(WireLook.model_json_schema())
+
+
+# What a look answer may not change: what the export bundle depends on (whether a material is opaque decides hidden
+# contact faces and the atlas, fast_ops.run_export_pipeline), and the image maps, which only an image call makes.
+LOOK_FIXED_FIELDS = ("alpha_mode", "alpha_cutoff", "opacity", "transmission", "double_sided", "albedo_uri", "orm_uri",
+                     "normal_uri", "emissive_uri", "normal_convention")
+
+
+def apply_look(scene: ir.SceneIR, text: str) -> ir.IRPatch | None:
+    """A look answer read against ``scene``: an ``upsert_material`` changes only the fields it writes (the rest stay
+    as the material has them), an ``assign_material`` must name a part and a material that exist. None: no change.
+    Raises ValueError naming what is wrong (a field it may not change, a colour under an image map, a contradiction
+    between material fields), which the correction is given."""
+    wire = WireLook.model_validate_json(text)
+    mats = {m.id: m for m in scene.materials}
+    nodes = {n.id for n in scene.nodes}
+    ops: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for i, op in enumerate(wire.ops):
+        if op.op == "upsert_material":
+            written = op.material.model_dump(exclude_unset=True)
+            written.pop("id", None)
+            cur = mats.get(op.material.id)
+            if cur is None:
+                errors.append(f"ops[{i}]: material {op.material.id!r} does not exist; change one of {sorted(mats)} or move a "
+                              "part to one of them with assign_material")
+                continue
+            fixed = [k for k in LOOK_FIXED_FIELDS if k in written and written[k] != getattr(cur, k)]
+            if fixed:
+                errors.append(f"ops[{i}]: {cur.id}: {', '.join(fixed)} cannot change in a look round (only colour, "
+                              "roughness, metalness, emission, coat, sheen, specular and surface words)")
+                continue
+            if cur.albedo_uri and "base_color" in written and tuple(written["base_color"]) != tuple(cur.base_color):
+                errors.append(f"ops[{i}]: {cur.id}: its colour comes from an image map; base_color cannot change without a new "
+                              "image (change roughness or metallic, or leave it)")
+                continue
+            try:
+                new = ir.MaterialIR.model_validate({**cur.model_dump(), **written, "id": cur.id})
+            except ValueError as e:
+                errors.append(f"ops[{i}]: {' '.join(str(e).split())[:300]}")
+                continue
+            mats[new.id] = new
+            ops.append({"op": "upsert_material", "material": new.model_dump()})
+        else:
+            if op.node_id not in nodes:
+                errors.append(f"ops[{i}]: assign_material: no part {op.node_id!r}")
+            elif op.material_id not in mats:
+                errors.append(f"ops[{i}]: assign_material: no material {op.material_id!r}; one of {sorted(mats)}")
+            else:
+                ops.append(op.model_dump(exclude_none=True))
+    if errors:
+        raise ValueError("; ".join(errors))
+    return ir.IRPatch.model_validate({"ops": ops}) if ops else None
+
+
 # --- API schema ----------------------------------------------------------------------------------------------
 
 

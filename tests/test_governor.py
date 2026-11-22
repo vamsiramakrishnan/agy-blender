@@ -40,6 +40,8 @@ def test_standard_row():
         # pass A's improvement rounds (round five): the plan says how hard it tries for a better design
         improve_rounds=3,
         improve_target=3.5,
+        # the look round (round five, tactics.look_round): the colours are looked at once before the package is written
+        look_rounds=1,
     )
 
 
@@ -61,6 +63,7 @@ def test_hero_row():
         # pass A's improvement rounds (round five): the plan says how hard it tries for a better design
         improve_rounds=5,
         improve_target=3.5,
+        look_rounds=1,
     )
 
 

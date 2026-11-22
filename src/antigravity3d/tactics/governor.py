@@ -49,6 +49,11 @@ class SpendPlan:
     # many judgements against the best validated state (else that state is restored).
     improve_judgements: int = 3
     improve_validate_every: int = 2
+    # Look rounds (tactics.look_round): after the design is final and before its package is written, the asset is
+    # rendered in colour as it ships, the judge is asked about its look and the author may change its materials. 0: no
+    # look round, and the run is what it was. One in every built-in plan: a second can only help after a first was kept
+    # (the author then sees renders of its own change) and is left for the live measurement to justify.
+    look_rounds: int = 0
 
 
 # score_brief_depiction an improvement round aims for: midway between level 3 ("convincing: every named part present
@@ -72,6 +77,7 @@ _CLUTTER = SpendPlan(
     ceiling_usd=0.15,
     improve_rounds=1,
     improve_target=IMPROVE_TARGET,
+    look_rounds=1,
 )
 
 _STANDARD = SpendPlan(
@@ -89,6 +95,7 @@ _STANDARD = SpendPlan(
     ceiling_usd=0.85,
     improve_rounds=3,
     improve_target=IMPROVE_TARGET,
+    look_rounds=1,
 )
 
 _HERO = SpendPlan(
@@ -106,6 +113,7 @@ _HERO = SpendPlan(
     ceiling_usd=2.20,
     improve_rounds=5,
     improve_target=IMPROVE_TARGET,
+    look_rounds=1,
 )
 
 PLANS: dict[int, SpendPlan] = {

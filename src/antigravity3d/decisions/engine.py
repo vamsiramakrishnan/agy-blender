@@ -15,7 +15,7 @@ import json
 import logging
 import time
 import unicodedata
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, Sequence
 
@@ -56,6 +56,7 @@ class MediaResolution(StrEnum):
 # Resolution tiering: coarse checks and sweeps stay low; high tiers only for fine PBR audits.
 STAGE_RESOLUTION: dict[str, MediaResolution] = {
     "blockout": MediaResolution.LOW, "lookdev": MediaResolution.HIGH, "final": MediaResolution.ULTRA_HIGH,
+    "look": MediaResolution.HIGH,  # the look round's colour renders: separate views, raised to VIEW_RESOLUTION anyway
 }
 BON_RESOLUTION = MediaResolution.LOW
 # A design's shape shown as separate views (tactics.judging), one image each: each at the high setting. Measured live on
@@ -174,7 +175,7 @@ def _get(obj: Any, name: str, default: Any = None) -> Any:
 def normalise_answer(raw: Any) -> Answer:
     """SDK answer object (or dict) -> plain Answer. Unknown answer types raise."""
     kind = _get(raw, "type")
-    if kind not in ("noul", "choice", "score"):
+    if kind not in ("noul", "choice", "score", "text"):
         raise DecisionError(f"unrecognised answer type: {kind!r}")
     probs = {str(k): float(v) for k, v in (_get(raw, "probabilities") or {}).items()}
     return Answer(
@@ -182,6 +183,7 @@ def normalise_answer(raw: Any) -> Answer:
         noul=float(_get(raw, "noul")) if kind == "noul" else None,
         choice=_get(raw, "choice") if kind == "choice" else None,
         score=float(_get(raw, "score")) if kind == "score" else None,
+        text=str(_get(raw, "text") or "") if kind == "text" else None,
         probabilities=probs, legend={str(k): v for k, v in (_get(raw, "legend") or {}).items()},
     )
 
@@ -616,6 +618,30 @@ class DecisionControlPlane:
             next_action=na.choice if na else None, next_action_probs=na.probabilities if na else {},
             skipped=skipped, result=res, resolution=str(shown))
 
+    async def compare_states(self, first: Views, second: Views, *, aspect: str, brief: str | None = None,
+                             governor: Governor | None = None) -> "PairVerdict":
+        """Which of two states of one asset (each given as the same separate views) is closer to the request in
+        ``aspect`` (``questions.COMPARE_ASPECTS``): "A" (``first``), "B" (``second``) or "neither", with the judge's
+        one-sentence reason. One request; a caller that decides on it asks twice with the order swapped
+        (``tactics.look_round``). Only the generative fallback answers it (the native Decisions API has no free-text
+        answer, and a request for a service this key cannot call is not invented): elsewhere NotImplementedError."""
+        if self.backend_kind != "generative_fallback":
+            raise NotImplementedError(f"pairwise comparison is asked only of the generative fallback, not of {self.backend_kind}")
+        a, b = as_views(first), as_views(second)
+        if not a or not b or [n for n, _ in a] != [n for n, _ in b]:
+            raise ValueError("compare_states needs the same views of both states")
+        n = len(a)
+        res_tier = _at_least(STAGE_RESOLUTION["look"], VIEW_RESOLUTION)
+        span_a, span_b = f"Images 1 to {n}" if n > 1 else "Image 1", f"Images {n + 1} to {2 * n}" if n > 1 else f"Image {n + 1}"
+        blocks = [text_block(f"{span_a}: state A of the asset under review, {n} separate views. {span_b}: state B of the same "
+                             "asset, the same views in the same order."), *view_blocks(a, 1, res_tier), *view_blocks(b, n + 1, res_tier)]
+        if quoted := brief_block(brief):
+            blocks.append(quoted)
+        questions = Q.compare_questions(aspect, span_a, span_b)
+        res = await self.evaluate(blocks, questions, tag=f"compare:{aspect}", governor=governor, charge_as="visual_qa")
+        closer = res.answers[Q.COMPARE_CLOSER]
+        return PairVerdict(str(closer.choice), dict(closer.probabilities), res.answers[Q.COMPARE_REASON].text or "", res)
+
     async def rank_candidates(self, kind: str, candidate_uris: Sequence[str | Views], context_uris: Sequence[str] = (),
                               *, resolution: MediaResolution = BON_RESOLUTION, governor: Governor | None = None,
                               brief: str | None = None, marked: bool = False) -> list[CandidateScore]:
@@ -864,6 +890,16 @@ def bon_view_packets(kind: str, candidates: Sequence[Views], context_uris: Seque
             raise DecisionBudgetError(f"bon:{kind}: candidate {i} exceeds the request budget")
         packets.append((i, i + 1, blocks, questions))
     return packets
+
+
+@dataclass(frozen=True)
+class PairVerdict:
+    """One pairwise comparison (``DecisionControlPlane.compare_states``): ``closer`` is "A", "B" or "neither"."""
+
+    closer: str
+    probabilities: dict[str, float]
+    reason: str
+    result: DecisionResult
 
 
 def _clean_name(name: object) -> str:

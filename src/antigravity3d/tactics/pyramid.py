@@ -57,6 +57,7 @@ from antigravity3d.tactics.distill import FixLog, FixRecord
 from antigravity3d.tactics.governor import BudgetExceeded, Governor
 from antigravity3d.tactics import reviewed_rules
 from antigravity3d.kernel.package import write_engine_package
+from antigravity3d.tactics.look_round import look_round
 from antigravity3d.tactics.package import merged_lods
 from antigravity3d.tactics.tournament import PBRTournamentResult, TournamentResult, albedo_variant, image_est, pbr_tournament
 
@@ -994,6 +995,9 @@ class _Run:
         profile = self.author.cost_profile(role) if hasattr(self.author, "cost_profile") else None
         author = profile[0] if profile else 0.0
         later = self.governor.est(usd=LOOKDEV_ROUNDS * QA_EST_USD, tokens=LOOKDEV_ROUNDS * QA_TOKENS_EST + GRADE_TOKENS_EST)
+        # Not reserved: the look round of pass C (tactics.look_round). Under a tight ceiling the improvement rounds come
+        # first and the look round skips itself with the budget reason; reserving its share here stopped every
+        # improvement round under the 150,000-token preview ceiling (measured on the merge, 2026-11-22).
         # a round's own review and its share of a validation (k judgements every V rounds). Not reserved: a second
         # judgement of a newly reported defect (rare) and the final validation, whose refusal at admission restores the
         # last validated design (validate: "not judged"), which is safe
@@ -1719,11 +1723,17 @@ class _Run:
         t1_warnings = [f"{i.code}@{i.node_id}: {i.detail}" if i.node_id else f"{i.code}: {i.detail}"
                        for i in t1_final if i.severity == "warning" and i.code != "z_fighting"]
 
-        async def usd() -> tuple[str, str]:
-            m = await asyncio.to_thread(write_engine_package, sm, bundle, budget, pkg, asset_name=scene.asset_name,
+        def write_package(out: Path) -> Any:
+            return write_engine_package(sm, bundle, budget, out, asset_name=scene.asset_name,
                                         qa={"tier15": res.tier15, "tier1_ok": res.tier1_ok, "defects": res.defects, "audit": res.audit,
                                             "z_fighting": zfight, "tier1_warnings": t1_warnings},
                                         art=self.art)
+
+        # the look round (its plan's look_rounds; none: nothing happens) writes the package it judged into pkg
+        look = await look_round(self, bundle, pkg, write_package)
+
+        async def usd() -> tuple[str, str]:
+            m = (look.package_for(sm) if look is not None else None) or await asyncio.to_thread(write_package, pkg)
             res.objects["package"] = m
             sided = [i.detail for i in m.issues if i.code.endswith(":double_sided_contact")]
             if zfight or sided:
@@ -1954,7 +1964,7 @@ async def refine(
         style_uri=style_uri, max_rounds=max_rounds, forge=forge, upload=uploader or uploader_for(forge), pool=pool, cache=cache,
         workdir=Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="agy3d-pyramid-")), fixlog=fixlog, asset_id=asset_id,
         prompt=prompt, textures=textures, settle_first=settle_first, engine_render_uri=engine_render_uri, require_verified=require_verified,
-        art=art, judged=judged)
+        art=art, judged=judged, new_design=run_pass_a)
     run.workdir.mkdir(parents=True, exist_ok=True)
     # Pass C ends with the web-runtime check: its browser starts now, while passes A and B run, and is closed again
     # if this run fails or is cancelled before it is used.

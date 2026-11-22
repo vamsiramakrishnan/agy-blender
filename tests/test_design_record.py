@@ -131,7 +131,10 @@ def test_a_rerun_after_a_late_failure_continues_from_the_design_it_paid_for(key,
 
 def test_new_design_asks_again_and_still_reuses_the_images(key, tmp_path, capsys):
     out = tmp_path / "out"
-    roomy = [a if a != "4" else "8" for a in PREVIEW]  # --max-images 8: room for a new design's images
+    # --max-images 8: room for a new design's images. --token-ceiling 220000: three runs share this folder's ceiling,
+    # and each run that makes or changes a design now also pays for a look round (an author call and up to five judge
+    # calls, about 20,000 tokens with the stand-in); at 150,000 the third run was refused for what the first two used.
+    roomy = [{"4": "8", "150000": "220000"}.get(a, a) for a in PREVIEW]
     key()
     assert prop(out, *roomy) == 0
     again = key()

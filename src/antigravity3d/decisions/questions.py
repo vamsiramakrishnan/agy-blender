@@ -14,7 +14,7 @@ question whose image is absent is dropped (see `select`).
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Iterable, Mapping, Sequence
 
 Question = dict[str, Any]
@@ -267,6 +267,53 @@ VISUAL_QA_QUESTIONS: dict[str, QSpec] = _bank(
          "rework_lighting": "The lighting or exposure of the presentation needs rework.",
          "escalate_human": "The situation is ambiguous or risky and a human should decide."}), SURF),
 )
+
+# The look round (tactics.look_round): the finished asset rendered in colour as it ships, asked about its surfaces only.
+# Its stage "look" asks every surface question of the bank (those of "lookdev" and "final", never a geometry question: a
+# change of colour cannot move one, and its noise would decide whether a colour change is kept) and one question no
+# other stage asks: whether the colours and materials are what the request names. The two brief questions above judge
+# shape only and say so, so until this question nothing asked about the request's colour and material words.
+LOOK = "look"
+BRIEF_LOOK = ("Ignore shape and judge colour and material only. Rate how well the asset's colours and materials match what the "
+              "quoted request names or implies (a named colour or finish; painted against bare metal, wood, rubber or glass), and "
+              "whether parts made of different materials read as different materials.")
+BRIEF_LOOK_LEVELS = _LV(
+    "Contradicts the request: the wrong colour, or everything one undifferentiated material.",
+    "Mostly wrong: the colour or the materials the request names are not recognisable.",
+    "Recognisable but off: a named colour too pale, too saturated or the wrong hue, or materials that should differ look alike.",
+    "Matches the request, with small errors in one material.",
+    "Every material reads as what the request names, or what a real one is made of, and each stands apart from its neighbours.")
+VISUAL_QA_QUESTIONS = {qid: (replace(s, stages=(*s.stages, LOOK)) if s.stages == SURF else s) for qid, s in VISUAL_QA_QUESTIONS.items()}
+VISUAL_QA_QUESTIONS["score_brief_look"] = QSpec("score_brief_look", score(_SHEET + BRIEF_LOOK, BRIEF_LOOK_LEVELS), (LOOK,), ("brief",))
+
+# A pairwise comparison of two states of one asset against the request (engine.compare_states): which state is closer,
+# or neither, and one sentence of the judge's own. Measured live on 2026-11-22 (r5/live/look_worker, judge_look): a look
+# change a person calls plainly better (pale sage paint to olive drab) moved the look stage's separate 0-4 ratings by
+# 0.02 (score_brief_look 2.06 -> 2.08, three repeats each), while the same judge shown both states side by side and asked
+# which is closer preferred the change 4 of 4, in both orders. Asked only of the generative fallback (its "text" answer
+# type is its own); the fixed texts carry no user text, the request is quoted in the input as everywhere else.
+COMPARE_ASPECTS = {
+    "look": ("Ignore shape and judge colour and material only: the colours and finishes the quoted request names or implies, "
+             "and whether parts made of different materials read as different materials."),
+}
+COMPARE_CLOSER = "compare_closer"
+COMPARE_REASON = "compare_reason"
+
+
+def compare_questions(aspect: str, first: str, second: str) -> dict[str, Question]:
+    """The two questions of a pairwise comparison: ``first`` and ``second`` say which images show state A and state B
+    ("Images 1 to 2"); ``aspect`` is a key of ``COMPARE_ASPECTS``."""
+    head = (f"{first} show one state of a 3D asset (state A) and {second} show another state of the same asset (state B), "
+            f"from the same views. {COMPARE_ASPECTS[aspect]} ")
+    return {
+        COMPARE_CLOSER: choice(head + "Which state is closer to the quoted request?", {
+            "A": f"State A ({first}) is closer to the request.",
+            "B": f"State B ({second}) is closer to the request.",
+            "neither": "Neither: they are equally close to the request, or they do not differ in this."}),
+        COMPARE_REASON: {"type": "text", "instructions": head + (
+            "In one sentence, say which state is closer to the quoted request and the main visible difference that makes "
+            "it so, or say that they do not differ in this.")},
+    }
 
 BON_QUESTIONS: dict[str, dict[str, QSpec]] = {
     "ortho": _bank(

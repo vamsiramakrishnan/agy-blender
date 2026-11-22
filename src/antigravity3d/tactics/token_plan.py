@@ -33,6 +33,11 @@ AUTHOR_TOKENS_EST = MEASURED_CRAFT_INPUT_TOKENS["gemini-4-hydrogen/low"] + expec
 # decisions.fallback.IMAGE_TOKENS_DEFAULT): its input holds the scene, its answer is a patch. PROVISIONAL until the live
 # rounds measurement gives the figure.
 IMPROVE_ROUND_TOKENS_EST = AUTHOR_TOKENS_EST + 4 * 1_120 + QA_TOKENS_EST
+# One look round (tactics.look_round): its authoring call (rules text, material table, two renders; a short answer), two
+# visual QA calls (before and after its change) and, on the generative fallback, a second after-review (it confirms a
+# newly flagged question) and two pairwise comparisons (before against after, both orders). PROVISIONAL until the live
+# look check measures it.
+LOOK_ROUND_TOKENS_EST = 16_000 + 5 * QA_TOKENS_EST
 
 
 def judge_worst_tokens(plane: Any) -> int:
@@ -125,7 +130,7 @@ def plan_estimate(plan: SpendPlan, *, needs_ortho: bool = True, max_rounds: int 
                   single_candidate: bool = False) -> PlanEstimate:
     """What a prop run on ``plan`` is expected to use: route, blueprint best-of-N, geometry best-of-N, albedo best-of-N
     for one material, pass A rounds (QA + repair), every improvement round the plan allows, three lookdev rounds, the
-    LOD-pop check and, for a hero, a paint-over. Improvement rounds generate no image."""
+    LOD-pop check, every look round and, for a hero, a paint-over. Improvement and look rounds generate no image."""
     if single_candidate:
         plan = replace(plan, ortho_candidates=1, geometry_candidates=1, pbr_candidates=1)
     ortho = plan.ortho_candidates if needs_ortho else 0
@@ -139,6 +144,7 @@ def plan_estimate(plan: SpendPlan, *, needs_ortho: bool = True, max_rounds: int 
               # loop2: the start judged k - 1 more times, and k judgements per validation (every V rounds and at the end)
               + (plan.improve_judgements - 1 + plan.improve_judgements * (plan.improve_rounds // max(1, plan.improve_validate_every) + 1))
               * QA_TOKENS_EST * (plan.improve_rounds > 0)
+              + plan.look_rounds * LOOK_ROUND_TOKENS_EST
               + 3 * QA_TOKENS_EST + GRADE_TOKENS_EST
               + (IMAGE_TOKENS_EST if plan.paintover_loop else 0))
     return PlanEstimate(plan.label, images, plan.pbr_candidates, tokens)

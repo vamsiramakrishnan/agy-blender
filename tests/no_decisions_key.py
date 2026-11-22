@@ -24,7 +24,8 @@
   (``data/live_answers``: bevels, insets, lathes, extrusions, mirror and repeat), its asset name set to the one asked
   for and the rest as written (the kernel builds every shape in it).
   A patch request that starts with the improvement request's head (``metered_author.IMPROVE_HEAD`` or ``EDIT_HEAD``) is
-  logged ``author:improve``, any other ``author:repair``. ``patches``: kind -> list of patches ({"ops": [...]}) answered
+  logged ``author:improve``, a look round's request (``look_round.LOOK_HEAD``) ``author:look`` (its correction
+  ``author:look_correct``), any other ``author:repair``. ``patches``: kind -> list of patches ({"ops": [...]}) answered
   to that kind's calls in order (the last one again once the list is used up); none: an empty patch. Every authoring
   call is logged with ``images``, the number of images it carries (file references and inline data), and its ``text``.
 * ``score_sequence``: score question id (without the __N suffix) -> list of levels, answered to the blockout visual QA
@@ -83,7 +84,8 @@ class NoDecisionsKey:
                  score_overrides: dict[str, str] | None = None, propose_answers: list[str] | None = None,
                  corrections: list[dict[str, Any]] | None = None, live_designs: bool = False,
                  patches: dict[str, list[dict[str, Any]]] | None = None,
-                 score_sequence: dict[str, list[str]] | None = None,
+                 score_sequence: dict[str, list[str]] | None = None, look_sequence: dict[str, list[Any]] | None = None,
+                 pair_prefers: str = "neither",
                  defect_sequence: dict[str, list[float]] | None = None) -> None:
         self.live_designs = live_designs
         self.propose_answers = list(propose_answers or [])  # raw texts answered to propose calls, in order
@@ -106,8 +108,17 @@ class NoDecisionsKey:
         self.fail = [dict(rule, hits=0) for rule in (fail or [])]
         self.patches = {k: list(v) for k, v in (patches or {}).items()}
         self.score_sequence = {k: list(v) for k, v in (score_sequence or {}).items()}
+        # the same as score_sequence / defect_sequence for the look round's visual QA (a call asking score_brief_look):
+        # question id -> list of answers (a level for a score, P(yes) for a question), in order, the last again after
+        self.look_sequence = {k: list(v) for k, v in (look_sequence or {}).items()}
+        # A pairwise comparison (engine.compare_states: compare_closer and compare_reason) prefers: "later", the state whose
+        # images this stand-in saw last (a look round's after state, whichever order it is shown in: its before state was
+        # reviewed first); "earlier"; "A", the state shown first whatever it is (a judge with an order bias); or
+        # "neither". The reason names the winner.
+        self.pair_prefers = pair_prefers
+        self._seen_images: dict[str, int] = {}
         self.defect_sequence = {k: list(v) for k, v in (defect_sequence or {}).items()}
-        self._served = {"author:repair": 0, "author:improve": 0, "blockout": 0}
+        self._served = {"author:repair": 0, "author:improve": 0, "author:look": 0, "author:look_correct": 0, "blockout": 0}
         self.requests: list[dict[str, Any]] = []
         self._png: dict[int, bytes] = {}
         self._lock = threading.Lock()
@@ -185,7 +196,8 @@ class NoDecisionsKey:
 
     def generated(self) -> int:
         """Generation calls served (judge, author, image): what would be billed."""
-        return sum(r["kind"] in ("judge", "author:propose", "author:repair", "author:improve", "author:correct", "image:sent", "image:no_image")
+        return sum(r["kind"] in ("judge", "author:propose", "author:repair", "author:improve", "author:correct", "author:look",
+                                 "author:look_correct", "image:sent", "image:no_image")
                    for r in self.requests)
 
     def authoring(self, kind: str) -> list[dict[str, Any]]:
@@ -271,7 +283,11 @@ class NoDecisionsKey:
                 self._log(path, "judge:504", t=arrived)
                 return 504, b'{"error": {"code": 504, "message": "Deadline expired before operation could complete.", "status": "DEADLINE_EXCEEDED"}}', {}
             time.sleep(self.judge_delay_s)
-            answers = self._judge(schema, blockout=_is_blockout_qa(schema))
+            images = _image_keys(body)
+            with self._lock:
+                for key in images:
+                    self._seen_images.setdefault(key, len(self._seen_images))
+            answers = self._judge(schema, blockout=_is_blockout_qa(schema), uris=images)
             if self.sheet_labels_are_text and any(re.fullmatch(r"defect_(floating|clipping)__\d+", q) for q in answers):
                 # a geometry ranking: its candidates are labelled contact sheets (see __init__)
                 asked = dict(re.findall(r"### (policy_legible_text__\d+)  \[noul\]\n([^\n]*)", _text(body)))
@@ -321,7 +337,7 @@ class NoDecisionsKey:
         """The kinds logged for calls turned away or dropped (``<kind>:503``, ``<kind>:drop``...)."""
         return [r["kind"] for r in self.requests if r["kind"].rsplit(":", 1)[-1] in ("503", "429", "drop")]
 
-    def _judge(self, schema: dict[str, Any], *, blockout: bool = False) -> dict[str, Any]:
+    def _judge(self, schema: dict[str, Any], *, blockout: bool = False, uris: list[str] = ()) -> dict[str, Any]:
         out: dict[str, Any] = {}
         sequence: dict[str, Any] = {}
         if blockout and (self.score_sequence or self.defect_sequence):
@@ -329,10 +345,25 @@ class NoDecisionsKey:
                 n = self._served["blockout"]
                 self._served["blockout"] += 1
             sequence = {q: vals[min(n, len(vals) - 1)] for q, vals in {**self.score_sequence, **self.defect_sequence}.items() if vals}
+        elif self.look_sequence and any(re.sub(r"__\d+$", "", q) == "score_brief_look" for q in (schema.get("properties") or {})):
+            with self._lock:
+                n = self._served.setdefault("look_qa", 0)
+                self._served["look_qa"] += 1
+            sequence = {q: vals[min(n, len(vals) - 1)] for q, vals in self.look_sequence.items() if vals}
+        if "compare_closer" in (schema.get("properties") or {}):
+            win = self.pair_prefers if self.pair_prefers in ("A", "neither") else "neither"
+            if self.pair_prefers in ("later", "earlier"):
+                seen = [self._seen_images[u] for u in uris]
+                half = len(seen) // 2
+                a, b = min(seen[:half]), min(seen[half:])
+                win = "neither" if a == b else ("A" if (a > b) == (self.pair_prefers == "later") else "B")
+            keys = list(schema["properties"]["compare_closer"]["properties"])
+            return {"compare_closer": {k: (0.9 if k == win else 0.1 / (len(keys) - 1)) for k in keys},
+                    "compare_reason": f"stand-in: {win} is closer" if win != "neither" else "stand-in: they do not differ"}
         for qid, sch in (schema.get("properties") or {}).items():
             base = re.sub(r"__\d+$", "", qid)
             if sch.get("type") == "number":
-                out[qid] = sequence.get(base) if base in self.defect_sequence and base in sequence else self.overrides.get(base, self.policy if base.startswith("policy_") else 0.8 if base == "needs_ortho_blueprint"
+                out[qid] = sequence.get(base) if (base in self.defect_sequence or base in self.look_sequence) and base in sequence else self.overrides.get(base, self.policy if base.startswith("policy_") else 0.8 if base == "needs_ortho_blueprint"
                                               else self.defect if base.startswith("defect_") else 0.5)
                 continue
             keys = list((sch.get("properties") or {}).keys())
@@ -374,9 +405,13 @@ class NoDecisionsKey:
 
 
 def _patch_kind(text: str) -> str:
-    """author:improve for the improvement (or edit) request, author:repair for any other patch request."""
+    """author:improve for the improvement (or edit) request, author:look for a look round's (author:look_correct for its
+    correction), author:repair for any other patch request."""
+    from antigravity3d.tactics.look_round import LOOK_HEAD
     from antigravity3d.tactics.metered_author import EDIT_HEAD, IMPROVE_HEAD
 
+    if LOOK_HEAD in text:
+        return "author:look_correct" if "Your answer did not read" in text else "author:look"
     return "author:improve" if IMPROVE_HEAD in text or EDIT_HEAD in text else "author:repair"
 
 
@@ -411,3 +446,18 @@ def live_design(request_text: str) -> str | None:
     return json.dumps(design)
 
 
+def _image_keys(body: dict[str, Any]) -> list[str]:
+    """One key per image of a request, in order: its file reference, or a hash of its inline data."""
+    import hashlib
+
+    out = []
+    for c in body.get("contents", []):
+        for p in c.get("parts", []):
+            if not isinstance(p, dict):
+                continue
+            f, d = p.get("fileData") or p.get("file_data"), p.get("inlineData") or p.get("inline_data")
+            if isinstance(f, dict) and (f.get("fileUri") or f.get("file_uri")):
+                out.append(f.get("fileUri") or f.get("file_uri"))
+            elif isinstance(d, dict) and d.get("data"):
+                out.append(hashlib.sha256(str(d["data"]).encode()).hexdigest())
+    return out

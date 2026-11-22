@@ -114,12 +114,14 @@ LIGHTS = (((2.0, 4.0, 3.0), 3.0), ((-2.0, 2.0, -1.0), 1.0))
 ENV_SKY, ENV_GROUND = 0xCFE2F3, 0x4A3F35
 
 
-def web_camera(bounds_m) -> dict:
-    """The fixed orthographic camera, from the package's glTF-space (Y-up) AABB."""
+def web_camera(bounds_m, view_dir=VIEW_DIR_YUP) -> dict:
+    """The fixed orthographic camera, from the package's glTF-space (Y-up) AABB. ``view_dir``: the camera's offset
+    direction from the centre (glTF Y-up); the verification's is ``VIEW_DIR_YUP``, the look round adds the opposite
+    corner (``tactics.look_round``)."""
     lo, hi = (np.asarray(b, np.float64) for b in bounds_m)
     center = (lo + hi) / 2
     diameter = max(float(np.linalg.norm(hi - lo)), 1e-3)
-    return {"center": center.tolist(), "diameter": diameter, "view_dir": list(VIEW_DIR_YUP),
+    return {"center": center.tolist(), "diameter": diameter, "view_dir": [float(x) for x in view_dir],
             "ortho_width": diameter * ORTHO_FILL, "distance": diameter * CAMERA_DISTANCE, "size_px": FRAME_PX}
 
 
@@ -494,7 +496,7 @@ STAGED_DIR = "textures"
 
 
 def build_page(out_dir: Path, glb: bytes, bounds_m, lods: dict[str, bytes] | None = None,
-               files: dict[str, bytes] | None = None, env: bytes | None = None) -> Path:
+               files: dict[str, bytes] | None = None, env: bytes | None = None, view_dir=VIEW_DIR_YUP) -> Path:
     """Write ``page.html`` and everything it loads into ``out_dir`` and return the page path.
 
     The vendored three.js files are written byte-for-byte (hash-verified) at the paths the page imports, the GLBs
@@ -502,7 +504,7 @@ def build_page(out_dir: Path, glb: bytes, bounds_m, lods: dict[str, bytes] | Non
     those paths beside the page: a far LOD GLB references its maps as ``textures/<file>`` relative to itself, and
     GLTFLoader resolves that against the page (the GLBs are parsed with an empty path), so the page directory mirrors
     the package for them. ``env`` (``ENV_FILE`` bytes) makes the page load the environment map instead of rendering
-    it. The page needs no network.
+    it. ``view_dir``: the camera direction (``web_camera``). The page needs no network.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     for rel in VENDOR_FILES:
@@ -522,7 +524,7 @@ def build_page(out_dir: Path, glb: bytes, bounds_m, lods: dict[str, bytes] | Non
             raise ValueError(f"refusing to stage {rel!r} outside {STAGED_DIR}/")
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(data)
-    job = {"glb_url": f"./{GLB_DIR}/main.glb", "camera": web_camera(bounds_m),
+    job = {"glb_url": f"./{GLB_DIR}/main.glb", "camera": web_camera(bounds_m, view_dir),
            "lods": [{"name": n, "url": f"./{GLB_DIR}/{n}.glb"} for n in (lods or {})],
            "env": {"mode": "page"} if env is None else {"mode": "shared", "file": ENV_FILE},
            "rig": {"lights": [[list(p), i] for p, i in LIGHTS], "env_sky": ENV_SKY, "env_ground": ENV_GROUND}}

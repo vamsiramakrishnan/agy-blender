@@ -42,7 +42,9 @@ from antigravity3d.tactics.stream_call import ModelCallProgress, StreamLimits, S
 # "improve": a patch to a design that already passes its checks, asked for so that it reads as the finished object
 # (pass A's improvement rounds). The same schema and output row as a repair; its own operation so that the ledger
 # (author.improve), the receipts and the design record tell the two apart.
-Operation = Literal["propose", "repair", "improve", "correct"]
+# "look": the look round's material changes (tactics.look_round): material operations only, read against the scene
+# (ir_schema.apply_look, which the caller binds), ledger author.look.
+Operation = Literal["propose", "repair", "improve", "correct", "look"]
 PATCH_OPERATIONS = ("repair", "improve")
 
 
@@ -138,6 +140,10 @@ MEASURED_CRAFT_PROPOSE_WALL_S: dict[str, tuple[float, float]] = {"gemini-4-hydro
 # tokens per node, 4,096 allows 22 replacement nodes (a third of a 60-part design; past that it is a redesign, which
 # this call is not for). Thinking keeps the role's allowance (8,192 for the worker, 10x the largest seen).
 CORRECTION_ANSWER_TOKENS = 4_096
+# A look answer (tactics.look_round) writes a few fields of a few materials: about 40-80 tokens per material changed by the
+# size of one upsert_material, so 4,096 holds every material of a prop many times over (a prop has 2-8). Not measured
+# live yet; thinking keeps the role's allowance, since judging colours against the request is the work of the call.
+LOOK_ANSWER_TOKENS = 4_096
 # models.get(...).output_token_limit on this key, 2026-11-20.
 MODEL_OUTPUT_TOKEN_LIMIT = {HYDROGEN: 65_536, NEON: 65_536, CARBON: 32_768, ARGON: 32_768}
 # Measured wall time of one propose call (min, max) in seconds, 2026-11-20, same samples as the token tables above,
@@ -575,6 +581,8 @@ def build_author_request(role: str, operation: Operation, task: str, *, budget: 
     out = output or output_budget(role, kit=kit)
     if operation == "correct" and output is None:
         out = OutputBudget(answer_tokens=CORRECTION_ANSWER_TOKENS, thinking_tokens=out.thinking_tokens)
+    if operation == "look" and output is None:
+        out = OutputBudget(answer_tokens=LOOK_ANSWER_TOKENS, thinking_tokens=out.thinking_tokens)
     limit = MODEL_OUTPUT_TOKEN_LIMIT.get(mt.model)
     if limit is not None and out.max_output_tokens > limit:
         raise ValueError(f"{role} {operation}: {out.max_output_tokens} output tokens exceed {mt.model}'s limit {limit}")
@@ -584,6 +592,8 @@ def build_author_request(role: str, operation: Operation, task: str, *, budget: 
         schema, parse = ir_schema.patch_response_schema(), ir_schema.parse_patch
     elif operation == "correct":  # the caller binds the parse to the failed answer (MeteredAuthor._correct)
         schema, parse = ir_schema.correction_response_schema(), ir_schema.WireCorrection.model_validate_json
+    elif operation == "look":  # the caller binds the parse to the scene (MeteredAuthor.look)
+        schema, parse = ir_schema.look_response_schema(), ir_schema.WireLook.model_validate_json
     else:
         raise ValueError(f"unknown authoring operation {operation!r}")
     text = f"{ir_schema.ir_rules_text()}\nBudget: {json.dumps(asdict(budget))}\n{task}"
@@ -1239,3 +1249,26 @@ class MeteredAuthor:
         finally:
             self.last_service_retries = list(trace.get("service_retries") or [])
         return patch if patch.ops else None
+
+    async def look(self, scene: SceneIR, task: str, *, images: Sequence[tuple[str, str]], role: str | None = None,
+                   correct: Callable[[str, BaseException], str] | None = None) -> IRPatch | None:
+        """One look request (``tactics.look_round``): ``task`` with ``images`` (the renders), answered with material
+        operations read against ``scene`` (``ir_schema.apply_look``). None: no change. An answer that does not read is
+        corrected once (``correct(answer, error)`` gives the request text; ledger author.correct, the same schema), as a
+        candidate design is; a second failure raises ``AuthorInvalid`` with both messages."""
+        role = role or self.governor.plan.builder_role
+        parse = lambda text: ir_schema.apply_look(scene, text)  # noqa: E731
+        req = replace(self.request(role, "look", task, images=images), parse=parse)
+        trace: dict[str, Any] = {}
+        try:
+            return await self._answer(req, trace, index=None, keep=lambda p: p is not None)
+        except AuthorInvalid as first:
+            if correct is None or _json_object(first.answer_text) is None or first.cause is None:
+                raise
+            fix = replace(self.request(role, "look", correct(first.answer_text or "", first.cause), images=images),
+                          parse=parse, operation="correct")
+            try:
+                return await self._answer(fix, {}, index=None, keep=lambda p: p is not None)
+            except AuthorInvalid as again:
+                again.args = (f"{_one_line(first)}; correction: {_one_line(again)}",)
+                raise

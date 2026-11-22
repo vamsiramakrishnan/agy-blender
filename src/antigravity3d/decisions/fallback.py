@@ -222,6 +222,8 @@ def build_response_schema(questions: Mapping[str, Mapping[str, Any]]) -> dict[st
             lv = _levels(q)
             props[qid] = {"type": "object", "properties": {k: unit for k in lv}, "required": lv,
                           "description": "probability of each score level; should sum to 1"}
+        elif t == "text":  # the reason of a pairwise comparison (engine.compare_states): one sentence
+            props[qid] = {"type": "string", "description": "one sentence"}
         else:
             raise ValueError(f"{qid}: unknown question type {t!r}")
     return {"type": "object", "properties": props, "required": list(questions)}
@@ -241,6 +243,8 @@ def render_questions(questions: Mapping[str, Mapping[str, Any]]) -> str:
         elif q["type"] == "choice":
             lines += [f"- option {o!r}: {d}" for o, d in crit.items()]
             lines.append("Answer: an object with a probability for every option.")
+        elif q["type"] == "text":
+            lines.append("Answer: one sentence, as a JSON string.")
         else:
             lines += [f"- level {i}: {d}" for i, d in enumerate(crit)]
             lines.append("Answer: an object with a probability for every level (keys are the level numbers).")
@@ -301,6 +305,10 @@ def parse_answer(qid: str, q: Mapping[str, Any], raw: Any) -> dict[str, Any]:
         expected = sum(int(k) * p for k, p in dist.items())  # computed here, never trusted from the model
         return {"type": "score", "score": expected, "confidence": max(dist.values()), "probabilities": dist,
                 "legend": {k: q["criteria"][int(k)] for k in keys}}
+    if t == "text":
+        if not isinstance(raw, str) or not raw.strip():
+            raise MalformedGenerativeAnswer(f"{qid}: expected a sentence, got {raw!r}"[:200])
+        return {"type": "text", "text": " ".join(raw.split())[:500], "confidence": 1.0, "probabilities": {}}
     raise MalformedGenerativeAnswer(f"{qid}: unknown question type {t!r}")
 
 
