@@ -429,8 +429,23 @@ def crate_meshes(tmp_path_factory):
 
 def test_tier1_finds_nothing_on_the_crate_and_finds_a_lifted_knob(crate_meshes) -> None:
     budget = EngineBudget("godot_4", max_tris=6000)
+    # The lid overhangs the body and lies flush on it: in the file the package ships its underside is a hidden contact
+    # face and is left out, and what is left meets the body only along a line, which the Blender check reads either way
+    # by rounding (2026-11-22: two mirrored skids in one file, one passed and one failed). Tier-1 reports it; the clean-up
+    # every first design gets (pyramid.attach_step, kernel/attach.py) sets it a millimetre into the body, and then
+    # nothing is reported.
+    from dataclasses import replace
+
+    from antigravity3d.kernel.attach import attach
+    from antigravity3d.tactics.pyramid import reach_of
+
     rep = fast_ops.tier1_qa(crate_meshes, budget)
-    assert rep.ok and not rep.issues, rep.one_line()
+    assert [(i.code, i.node_id) for i in rep.issues] == [("floating_part", "lid")], rep.one_line()
+    moved = attach(crate_meshes, budget, reach_of(crate_meshes)).moves
+    assert list(moved) == ["lid"] and float(np.linalg.norm(moved["lid"])) == pytest.approx(0.001, abs=1e-6)
+    crate_meshes = [replace(m, points=m.points + moved[m.node_id]) if m.node_id in moved else m for m in crate_meshes]
+    rep = fast_ops.tier1_qa(crate_meshes, budget)
+    assert rep.ok and not [i for i in rep.issues if i.code != "interpenetration"], rep.one_line()
     # negative control: a knob 1 cm above the recessed lid panel floats
     lifted = [m if m.node_id != "knob" else MeshData(m.node_id, m.prim_path, m.points + [0, 0, 0.01], m.triangles) for m in crate_meshes]
     assert any(i.code == "floating_part" and i.node_id == "knob" for i in fast_ops.tier1_qa(lifted, budget).issues)

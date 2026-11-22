@@ -298,12 +298,14 @@ def package_glb(tmp_path: Path, nodes: list[NodeIR], engine: str = "unreal_5") -
 
 @pytest.mark.blender
 @needs_blender
-async def test_separate_boxes_resting_on_the_ground_pass_and_a_part_hovering_5_cm_fails(tmp_path, blender_pool):
-    """qa_check calls every piece but the biggest that touches nothing "floating", with no notion of ground. The worker
-    lists the pieces with their lowest z beside the result; two crates side by side are separate pieces, not floating."""
+async def test_separate_boxes_resting_on_the_ground_fail_as_the_script_says_and_a_part_hovering_5_cm_fails(tmp_path, blender_pool):
+    """qa_check calls every piece but the biggest that touches nothing "floating", with no notion of ground, and the gate
+    reads it as it is (as the scorecard's independent check does): two pieces side by side on the floor are one asset
+    with a detached piece. The worker still lists the pieces with their lowest z, and the detail says which is on the
+    ground (live 2026-11-22, r5_crate_C: a skid nothing touched passed the gate this way and failed the independent check)."""
     side = [box("a", (1, 1, 1), (0, 0, 0.5)), box("b", (1, 1, 1), (2, 0, 0.5))]
     status, detail, data = await upstream_checks.asset_qa(blender_pool, package_glb(tmp_path / "side", side), "unreal_5")
-    assert status == "passed" and "resting on the ground" in detail and "floating/detached part" in detail, detail  # both readings are in the detail
+    assert status == "failed" and "on the ground, touching no other part" in detail and "floating/detached part" in detail, detail
     assert len(data["errors"]) == 1 and data["errors"][0].startswith("floating/detached part") and data["resting_on_ground"] == data["errors"]  # upstream's text, untouched
     hover = [box("base", (1, 1, 1), (0, 0, 0.5)), box("hover", (0.3, 0.3, 0.3), (0, 0, 1.2))]  # its underside is 5 cm above the top
     status, detail, data = await upstream_checks.asset_qa(blender_pool, package_glb(tmp_path / "hover", hover), "unreal_5")

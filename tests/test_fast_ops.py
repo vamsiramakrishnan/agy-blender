@@ -60,8 +60,10 @@ def l_kitbash(size: float = 0.12) -> MeshData:  # two overlapping closed bodies 
 
 
 def test_clean_props_pass():
-    ms = [md(trimesh.creation.box((1, 1, 1)), "box"), md(trimesh.creation.cylinder(0.3, 1), "cyl", xy=(2, 0)),
-          md(trimesh.creation.icosphere(3, 0.4), "sph", xy=(0, 2))]
+    # parts of one prop, each resting on the one below (separate pieces side by side on the floor are a detached part to
+    # the Blender check, which the gate reads as it is since 2026-11-22: see test_pieces_side_by_side_on_the_ground_...)
+    ms = [md(trimesh.creation.box((1, 1, 1)), "box"), md(trimesh.creation.cylinder(0.3, 1), "cyl", z=1.0),
+          md(trimesh.creation.icosphere(3, 0.4), "sph", z=2.0)]
     rep = tier1_qa(ms, BUDGET)
     assert rep.ok and not rep.issues, rep.one_line()
     assert rep.one_line() == "TIER1 OK"
@@ -1151,12 +1153,16 @@ def test_barrel_hoops_cross_the_body_and_are_not_floating():
     assert not _issues(rep, "floating_part") and not _issues(rep, "floating_group")
 
 
-def test_part_on_the_ground_needs_no_neighbour_and_a_chain_reaches_the_ground():
+def test_pieces_side_by_side_on_the_ground_are_a_detached_part_and_a_chain_reaches_the_ground():
+    """The ground holds a group up; it does not make a part touch another. A piece resting on the ground that touches no
+    other part is "floating/detached" to the Blender check, which the gate reads as it is since 2026-11-22 (r5_crate_C: a
+    skid nothing touched passed as "resting on the ground" and failed the same script on the delivered file)."""
     lone = _shape("lone", "sphere", (3, 0, 0.1), radius=0.1, segments=16, rings=8)           # rests on the ground, touches nothing
     a = _slab("A", (-0.5, -0.5, 0), (0.5, 0.5, 1))
     b = _slab("B", (-0.2, -0.2, 1), (0.2, 0.2, 1.2))
     c = _shape("C", "sphere", (0, 0, 1.3), radius=0.1, segments=16, rings=8)                 # on B, B on A, A on the ground
-    assert not codes(tier1_qa([lone, a, b, c], BUDGET))
+    assert not codes(tier1_qa([a, b, c], BUDGET))
+    assert [i.node_id for i in tier1_qa([lone, a, b, c], BUDGET).issues if i.code == "floating_part"] == ["lone"]
 
 
 def test_two_parts_that_touch_each_other_and_nothing_else_are_a_floating_group():

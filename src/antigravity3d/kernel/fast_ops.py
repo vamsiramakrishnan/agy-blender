@@ -199,19 +199,23 @@ ZFIGHT_EPS = 0.001
 # and miss only by their facets (two 16-segment spheres of radius 0.1 m can be 3.8 mm apart at a contact off the
 # axes); none of the saved stages has one, so the tolerance does not add the parts' facet sag.
 TOUCH_TOL = 0.002
-FLUSH = 1e-6  # surfaces this close lie on each other (rounding), for the Blender check's triangle overlap
+CROSS_MARGIN = 5e-5  # an edge crosses a face when its ends lie at least this far on either side of the face's plane
+# The per-part rule's vertex distance: a tenth of a millimetre inside the script's 2 mm, so a pair the kernel passes is
+# not decided by rounding there. Measured with a real Blender: a cap 2.00 mm above a body passes the script, 2.01 mm
+# fails; the coplanar separation moves faces by 2 mm (kernel/separate.py MARGIN).
+WITNESS_TOL = TOUCH_TOL - 1e-4
 # Two questions, both at TOUCH_TOL. Is a part held to the body (or the ground) through a chain of touching parts?
 # Surfaces within TOUCH_TOL, any two points of them (``_PartGap.touch``): a group touching only itself is reported as
-# floating, which the Blender check does not ask. And does each part touch something by the Blender check's own rule
-# (qa_check.py lines 368-404), which is the gate: one of ITS vertices within TOUCH_TOL of another part's surface, or a
-# triangle of it crossing one of another part's (``_PartGap.witness``); the biggest part and a part whose lowest point is
-# within TOUCH_TOL of the ground are exempt, as the gate reads it (upstream_checks.read_floating). A part that fails the
-# second is reported as floating whatever the first says, so nothing the kernel passes reaches the Blender check to be
-# refused there. Measured live 2026-11-22 (r5/live_scorecard/runs/r5_hydrant_C): a chain link whose edge came within
-# 2 mm of its anchor's edge, with no vertex near, passed here and was "floating/detached" there; the run was refused at
-# its last step. Not modelled: the Blender check samples at most about 400 vertices of a larger piece, and runs on the
-# exported GLB (contact faces removed); a piece over 400 vertices with a single vertex in contact could pass here and
-# fail there.
+# floating, which the Blender check does not ask. And does each part touch another part by the Blender check's own rule
+# (qa_check.py lines 368-404), which is the gate, read robustly and on the geometry the package ships (hidden contact
+# faces removed): one of ITS vertices within TOUCH_TOL of another part's surface, or an edge through another part's face
+# (``_PartGap.witness``). Only the biggest part is exempt, as in the script; a part on the ground is not (the gate reads
+# the script as it is: upstream_checks.qa_verdict). A part that fails the second is reported as floating whatever the
+# first says, so nothing the kernel passes reaches the Blender check to be refused there. Measured live 2026-11-22: a
+# chain link whose edge came within 2 mm of its anchor's edge, with no vertex near, passed here and was "floating/
+# detached" there (r5_hydrant_C); a skid lying flush under the body, its top face removed as a hidden contact face,
+# passed the gate as "resting on the ground" and failed the same script run on the delivered GLB (r5_crate_C). Not
+# modelled: the script samples at most about 400 vertices of a larger piece.
 
 
 def closed_meshes_required(budget: EngineBudget) -> bool:
@@ -340,10 +344,12 @@ def tier1_qa(
                 nbrs.setdefault(j, []).append(i)
             diag = np.linalg.norm(bounds_hi - bounds_lo, axis=1)
             biggest = int(np.argmax(diag))
+            gap.masks = shipped_masks([v[0] for v in valid], budget)  # the geometry the package ships
             for i in range(n):
-                # exempt as the gate exempts: the biggest piece, and a piece whose lowest point is within the tolerance
-                # of the ground (upstream_checks.read_floating: "resting on the ground", not floating)
-                if i in loose_ids or i == biggest or bounds_lo[i][2] <= touch_tol or gap.witness(i, nbrs.get(i, [])):
+                # exempt as the script exempts: the biggest piece only. A piece on the ground is no exception (the gate
+                # reads the script as it is since 2026-11-22: upstream_checks.qa_verdict); the ground holds a group up,
+                # it does not make a part touch another.
+                if i in loose_ids or i == biggest or gap.witness(i, nbrs.get(i, [])):
                     continue
                 if gap.enclosed_by(i, bounds_lo, bounds_hi) is not None:
                     continue
@@ -405,6 +411,46 @@ def _inverted_bodies(pts: np.ndarray, tri: np.ndarray, closed: bool) -> list[tup
     return out
 
 
+def _edges_cross(a: np.ndarray, b: np.ndarray, margin: float) -> bool:
+    """Does an edge of a triangle of ``a`` (M, 3, 3) pass through the face of a triangle of ``b`` (N, 3, 3), its ends at
+    least ``margin`` on either side of that face's plane and the point inside the face? Only triangle pairs whose boxes
+    overlap are tested."""
+    if not len(a) or not len(b):
+        return False
+    alo, ahi, blo, bhi = a.min(1), a.max(1), b.min(1), b.max(1)
+    ia = np.flatnonzero(np.all((alo <= bhi.max(0)) & (ahi >= blo.min(0)), axis=1))
+    for s0 in range(0, len(ia), 512):
+        rows = ia[s0:s0 + 512]
+        ok = np.all((alo[rows][:, None] <= bhi[None]) & (ahi[rows][:, None] >= blo[None]), axis=2)
+        x, y = np.nonzero(ok)
+        if not len(x):
+            continue
+        A, B = a[rows[x]], b[y]
+        n = np.cross(B[:, 1] - B[:, 0], B[:, 2] - B[:, 0])
+        ln = np.linalg.norm(n, axis=1)
+        good = ln > 1e-18
+        n = n / np.where(good, ln, 1.0)[:, None]
+        for k in range(3):
+            p, q = A[:, k], A[:, (k + 1) % 3]
+            dp, dq = np.einsum("ij,ij->i", p - B[:, 0], n), np.einsum("ij,ij->i", q - B[:, 0], n)
+            hit = good & (((dp < -margin) & (dq > margin)) | ((dp > margin) & (dq < -margin)))
+            if not hit.any():
+                continue
+            t = dp[hit] / (dp[hit] - dq[hit])
+            pt = p[hit] + (q[hit] - p[hit]) * t[:, None]
+            b0, b1, b2 = B[hit, 0], B[hit, 1], B[hit, 2]
+            v0, v1, v2 = b1 - b0, b2 - b0, pt - b0
+            d00, d01, d11 = np.einsum("ij,ij->i", v0, v0), np.einsum("ij,ij->i", v0, v1), np.einsum("ij,ij->i", v1, v1)
+            d20, d21 = np.einsum("ij,ij->i", v2, v0), np.einsum("ij,ij->i", v2, v1)
+            den = d00 * d11 - d01 * d01
+            den = np.where(np.abs(den) > 1e-30, den, 1e-30)
+            v = (d11 * d20 - d01 * d21) / den
+            w = (d00 * d21 - d01 * d20) / den
+            if ((v >= 0) & (w >= 0) & (v + w <= 1)).any():
+                return True
+    return False
+
+
 class _PartGap:
     """Do two parts of one asset touch (their surfaces within ``tol``)? Answered by the cheapest exact means: the
     distance of the boxes when it is over ``tol``; a closed form when both parts are axis-aligned boxes (most
@@ -417,6 +463,7 @@ class _PartGap:
         self._box: dict[int, bool] = {}
         self._tris: dict[int, object] = {}
         self.witnessed: set[int] = set()
+        self.masks: list[np.ndarray] | None = None  # shipped_masks of ``valid``'s meshes, set by tier1_qa for ``witness``
 
     def is_box(self, i: int) -> bool:
         if i not in self._box:
@@ -465,27 +512,40 @@ class _PartGap:
             return bool((surface_gap.point_box_distance(pts, self.valid[b][2], self.valid[b][3]) <= self.tol).any())
         return surface_gap.corner_touches(pts, self.tris(b), self.valid[b][2], self.valid[b][3], self.tol)
 
-    def cross(self, i: int, j: int) -> bool:
-        """Do the two surfaces cross or lie on each other (a triangle of one through, or flush on, a triangle of the
-        other: the Blender check's triangle overlap)? Measured with a real Blender (scratch_abort/attach/blender_probe.py):
-        a lid wider than its body lying flush on it, and a full-width skid flush under a bevelled body, pass there with no
-        vertex of the lid or the skid near the other part: faces lying on each other count as overlapping."""
-        from antigravity3d.kernel import surface_gap
-
-        (_, _, li, hi_), (_, _, lj, hj) = self.valid[i], self.valid[j]
-        if self.is_box(i) and self.is_box(j):
-            over = np.minimum(hi_, hj) - np.maximum(li, lj)
-            inside = (li >= lj).all() and (hi_ <= hj).all() or (lj >= li).all() and (hj <= hi_).all()
-            return bool((over >= -FLUSH).all() and (over > FLUSH).sum() >= 2 and not inside)
-        return surface_gap.within(self.tris(i), li, hi_, self.tris(j), lj, hj, FLUSH)
+    def shipped(self, i: int) -> tuple[np.ndarray, np.ndarray]:
+        """Part i as the package ships it: its triangles without the hidden contact faces the exporter leaves out
+        (``shipped_masks``), and the vertices those triangles use."""
+        m = self.valid[i][0]
+        pts, tri = np.asarray(m.points, np.float64), np.asarray(m.triangles)
+        if self.masks is not None and len(self.masks[i]) == len(tri) and self.masks[i].any():
+            tri = tri[~self.masks[i]]
+        used = np.unique(tri.reshape(-1)) if len(tri) else np.zeros(0, int)
+        return pts[used], pts[tri] if len(tri) else np.zeros((0, 3, 3))
 
     def witness(self, i: int, near: list[int]) -> bool:
-        """Does part i have a contact of its own with one of ``near`` (a vertex of it near that part, or a crossing)?"""
-        if i in self.witnessed:
-            return True
+        """Does part i touch one of ``near`` by the Blender check's own rule, robustly, on the geometry the package ships:
+        a vertex of i within ``tol`` of the other's surface, or an edge of one through a face of the other by more than
+        CROSS_MARGIN on both sides? Faces that only lie on each other, or meet along a line, are not counted: in the
+        exported file the face that lay on the other is usually gone (a hidden contact face) and what is left meets the
+        other part exactly at its boundary, which the script reads either way by rounding. Live 2026-11-22 (r5_crate_C):
+        two mirrored skids lying flush under the body, one passed and one was "floating/detached" in the same file."""
+        from antigravity3d.kernel import surface_gap
+
+        pi, ci = self.shipped(i)
+        if not len(pi):
+            return False
         for j in near:
-            if not self.apart(i, j) and (self.vertex_near(i, j) or self.cross(i, j)):
-                self.witnessed.add(i)
+            if self.apart(i, j):
+                continue
+            pj, cj = self.shipped(j)
+            if not len(cj):
+                continue
+            lj, hj = pj.min(0), pj.max(0)
+            tj = surface_gap.Tris.__new__(surface_gap.Tris)
+            tj.c, tj.lo, tj.hi = cj, cj.min(axis=1), cj.max(axis=1)
+            if surface_gap.corner_touches(pi, tj, lj, hj, min(self.tol, WITNESS_TOL)):
+                return True
+            if _edges_cross(ci, cj, CROSS_MARGIN) or _edges_cross(cj, ci, CROSS_MARGIN):
                 return True
         return False
 

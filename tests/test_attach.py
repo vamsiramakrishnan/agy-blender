@@ -65,7 +65,9 @@ def test_the_hydrant_links_the_blender_check_refused_are_the_ones_tier1_reports(
 @pytest.mark.parametrize("nodes, floating", [
     # measured with a real Blender (scratch_abort/attach/blender_probe.py): all three pass there, the foot is refused
     ([_box("body", (1, 1, 1), (0, 0, 0.5)), _box("lid", (1.04, 1.04, 0.05), (0, 0, 1.025))], []),  # wider lid, flush
-    ([_box("body", (0.86, 0.5, 0.32), (0, 0, 0.19), bevel=0.01), _box("skid", (0.08, 0.5, 0.03), (0.32, 0, 0.015), bevel=0.004)], []),
+    # a full-width skid flush under a bevelled body: the script passed it here and failed its twin in r5_crate_C's file
+    # (its top face goes as a hidden contact face; what is left meets the body only along a line): not counted
+    ([_box("body", (0.86, 0.5, 0.32), (0, 0, 0.19), bevel=0.01), _box("skid", (0.08, 0.5, 0.03), (0.32, 0, 0.015), bevel=0.004)], ["skid"]),
     ([_box("body", (0.6, 0.4, 0.3), (0, 0, 0.15)), _box("foot", (0.05, 0.05, 0.02), (0.355, 0, 0.015))], ["foot"]),  # 5 mm up
     ([_box("body", (0.6, 0.4, 0.3), (0, 0, 0.15)), _box("cap", (0.1, 0.1, 0.02), (0, 0, 0.314))], ["cap"]),  # 4 mm above
     ([_box("body", (0.6, 0.4, 0.3), (0, 0, 0.15)), _box("cap", (0.1, 0.1, 0.02), (0, 0, 0.3115))], []),  # 1.5 mm above
@@ -160,19 +162,19 @@ async def test_a_design_the_gate_would_refuse_stops_after_pass_a(tmp_path: Path)
     assert "package" not in res.objects and not res.ok
 
 
-async def test_a_part_a_few_millimetres_off_the_ground_is_put_down_not_refused(tmp_path: Path) -> None:
-    """The gate's ground is 2 mm (upstream_checks.read_floating), the kernel's was 10 mm: a foot 5 mm up and touching
-    nothing passed here and was refused there. Now Tier-1 reports it and the settle pass puts it down."""
+async def test_a_part_off_the_ground_beside_the_body_is_put_on_the_body(tmp_path: Path) -> None:
+    """A foot 5 mm up and 10 mm beside the body, touching nothing: the gate refuses it wherever it is (on the ground too),
+    so the clean-up does not settle it onto the floor, where it would still touch nothing, but attaches it to the body."""
     from test_pyramid import Script, run_a, setup
 
-    scene = _scene(_box("body", (0.6, 0.4, 0.3), (0, 0, 0.15)), _box("foot", (0.05, 0.05, 0.02), (0.355, 0, 0.015)))
+    scene = _scene(_box("body", (0.6, 0.4, 0.3), (0, 0, 0.15)), _box("foot", (0.05, 0.05, 0.02), (0.335, 0, 0.015)))
     sm, plane = setup(tmp_path, Script(), scene)
+    assert _floating(sm.extract_meshes()) == ["foot"]
     from antigravity3d.tactics.authoring import CallableAuthor
 
-    await run_a(sm, plane, CallableAuthor(lambda *a, **k: []), tmp_path, settle_first=True, max_rounds=1)
-    foot = next(m for m in sm.extract_meshes() if m.node_id == "foot")
-    assert float(np.asarray(foot.points)[:, 2].min()) == pytest.approx(0.0, abs=1e-4)
+    res = await run_a(sm, plane, CallableAuthor(lambda *a, **k: []), tmp_path, settle_first=True, max_rounds=1)
     assert _floating(sm.extract_meshes()) == []
+    assert "attached foot moved" in next(s.detail for s in res.steps if s.name == "attach_pre")
 
 
 # --------------------------------------------------------------------------- with a real Blender
