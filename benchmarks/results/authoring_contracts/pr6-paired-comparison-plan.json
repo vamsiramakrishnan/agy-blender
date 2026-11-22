@@ -1,0 +1,150 @@
+{
+  "schema_version": 2,
+  "profile": "paired",
+  "budget": {
+    "ceiling_tokens": 1425000,
+    "ceiling_images": 24,
+    "round": "prop-contracts-pr6",
+    "briefs": [
+      "crate"
+    ],
+    "arms_now": [
+      "A",
+      "C"
+    ],
+    "arms_planned": [
+      "A",
+      "C"
+    ],
+    "run_tokens": {
+      "A": 700000,
+      "C": 700000
+    },
+    "run_images": {
+      "A": 12,
+      "C": 12
+    },
+    "judge_tokens_per_call": 12500,
+    "small_judge_tokens_per_call": 0,
+    "smoke_tokens": 0,
+    "continuations": {},
+    "changes": false,
+    "change_share": 0.5,
+    "change_images": {},
+    "paired": true,
+    "c_candidates": "single"
+  },
+  "planned_totals": {
+    "tokens": 1425000,
+    "images": 24
+  },
+  "order": [
+    [
+      "crate",
+      "A"
+    ],
+    [
+      "crate",
+      "C"
+    ]
+  ],
+  "prompts": {
+    "crate": {
+      "content": "Make a finished production game prop: a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles.\nTarget engine: Godot 4; final delivery is glTF 2.0 binary.\n- Model each named component and its recognisable construction; add visible secondary forms where they serve the brief.\n- Keep believable proportions and real-world scale: largest dimension 0.5 to 1.6 metres.\n- At most 3000 triangles. This is a ceiling, not a quality score or a target to fill with repeated detail.\n- Ground the prop and centre it horizontally; exported glTF uses +Y up (use the authoring system's own axis convention).\n- UVs inside 0-1 without overlap; at most 3 PBR metallic-roughness materials, with base colour, normal and metallic-roughness textures.\n- Texture sizes are powers of two, at most 2048 px. The complete delivered prop, including geometry and materials, is evaluated.",
+      "A": "Make a finished production game prop: a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles.\nTarget engine: Godot 4; final delivery is glTF 2.0 binary.\n- Model each named component and its recognisable construction; add visible secondary forms where they serve the brief.\n- Keep believable proportions and real-world scale: largest dimension 0.5 to 1.6 metres.\n- At most 3000 triangles. This is a ceiling, not a quality score or a target to fill with repeated detail.\n- Ground the prop and centre it horizontally; exported glTF uses +Y up (use the authoring system's own axis convention).\n- UVs inside 0-1 without overlap; at most 3 PBR metallic-roughness materials, with base colour, normal and metallic-roughness textures.\n- Texture sizes are powers of two, at most 2048 px. The complete delivered prop, including geometry and materials, is evaluated.\n\nBlender 5.3 is installed on PATH as `blender`; run it headless. There is no display and no network. Deliver exactly one main output/<name>.glb and PNG textures in output/textures/. Optional LODs and collisions may be separate files. Reply with what you made and anything you could not do.\n\nThis run is limited to about 14 model calls in total, counting every reply you make; plan so that a complete `output/<name>.glb` exists before then, and prefer delivering a simpler complete asset to an unfinished ambitious one.",
+      "C": "Make a finished production game prop: a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles.\nTarget engine: Godot 4; final delivery is glTF 2.0 binary.\n- Model each named component and its recognisable construction; add visible secondary forms where they serve the brief.\n- Keep believable proportions and real-world scale: largest dimension 0.5 to 1.6 metres.\n- At most 3000 triangles. This is a ceiling, not a quality score or a target to fill with repeated detail.\n- Ground the prop and centre it horizontally; exported glTF uses +Y up (use the authoring system's own axis convention).\n- UVs inside 0-1 without overlap; at most 3 PBR metallic-roughness materials, with base colour, normal and metallic-roughness textures.\n- Texture sizes are powers of two, at most 2048 px. The complete delivered prop, including geometry and materials, is evaluated."
+    }
+  },
+  "wall_limit_s_per_arm": 4500,
+  "source": {
+    "revision": "dea0916bdb267a13816c22c588d8783901402041",
+    "project_src": "/workspace/scratch/42c604ea9947/agy-blender/src",
+    "source_sha256": "cbb021c2fd3b359c2b54602eea9c97d1f4b88ffc38af86d15c06d7df5d0919f9",
+    "harness_sha256": {
+      "compare_agents.py": "d1947e54511cf8c4ad84955a624e14081e8e94ef49a348f432c6a9a8917ab5e6",
+      "compare_eval.py": "27c3f0a568a27c45eb6b825d34d3bb81c1481f70168e9ac67bffe56de6191def",
+      "compare_sandbox.py": "17ec415b0686ec63d4b807743ddf7464e24e4480927d15148a7d19cc1add8227"
+    },
+    "sdk_versions": {
+      "google-antigravity": "0.1.24",
+      "google-genai": "3.6.1"
+    }
+  },
+  "toolchain": {
+    "BLENDER_BIN": null,
+    "GODOT_BIN": null,
+    "CHROMIUM_BIN": null,
+    "AGY3D_THREE_JS": null,
+    "AGY3D_BLENDER_SKILLS": null,
+    "PLAYWRIGHT_BROWSERS_PATH": null,
+    "resolved_godot": {
+      "path": "/opt/godot/4.7.2/Godot_v4.7.2-stable_linux.x86_64",
+      "size": 146414384,
+      "mtime_ns": 1786978178000000000,
+      "mode": 33261
+    },
+    "resolved_chromium": {
+      "path": "/usr/bin/chromium",
+      "size": 5064,
+      "mtime_ns": 1793591502000000000,
+      "mode": 33261
+    }
+  },
+  "author_contracts": {
+    "A": "stock SDK agent with recorded benchmark overrides",
+    "C": "MeteredAuthor via CLI bind; production_prop",
+    "native_AgentAuthor_tested": false
+  },
+  "stock_execution": {
+    "text_model": "gemini-4-hydrogen",
+    "image_model": "gemini-3.1-flash-lite-image",
+    "thinking_level": null,
+    "thinking_policy": "SDK/model default when unset",
+    "max_output_tokens": 16384,
+    "service_tier": null,
+    "disabled_tools": [
+      "search_web",
+      "read_url_content"
+    ],
+    "workspace_only": true,
+    "network": "isolated; model traffic through the relay",
+    "project_plugin": false,
+    "project_skills": false,
+    "advisory_model_calls": 14,
+    "advisory_is_enforced": false,
+    "hard_limits": {
+      "max_model_calls": 40,
+      "max_tool_calls": 120
+    },
+    "sdk_timeout_s": 4500,
+    "outer_timeout_s": 4500
+  },
+  "notes": {
+    "stock model": "SDK default text model gemini-4-hydrogen; thinking left at the SDK/model default. Image model gemini-3.1-flash-lite-image; 12 images allowed for A.",
+    "stock deviations": "maxOutputTokens 16,384; web search and URL reading disabled; workspace-only file tools; isolated network. The task advises about 14 model calls; this is not a hard limit. SDK backstops: 40 model calls / 120 tool calls. Either a backstop or the token ceiling may bind first.",
+    "pipeline": "CLI MeteredAuthor, fixed single candidate policy; its per-call output/thinking settings differ from stock. This is a system comparison.",
+    "additional sessions": "No continuations, change requests or repeats in this paired profile.",
+    "judging": "Two full-size judge calls per brief; no separate game-size judge allocation."
+  },
+  "judge": {
+    "model": "gemini-4-carbon",
+    "thinking": "low",
+    "max_output_tokens": 8192,
+    "both_orders": true,
+    "order_seed": 20261121,
+    "view_size": "full",
+    "game_size_calls": 0,
+    "calls": 2
+  },
+  "limitations": [
+    "A is a stock agent scripting Blender; C is agy3d prop in preview mode. Their workflows differ. C.bind() uses MeteredAuthor: this comparison does not exercise AgentAuthor.propose_with_outcomes().",
+    "Both arms receive the same content requirements and token/image ceilings. C keeps its 15,000-token internal admission margin; account caps, actual spend and refusals are reported separately. The shared 3-material requirement is checked on delivered files; the pipeline's internal engine budget still permits 4.",
+    "C's candidate mode is fixed before execution. Its internal alternatives and repair loop differ from the stock agent's iterative workflow; this is an end-to-end system comparison, not an isolated prompt ablation.",
+    "Stock uses a 16,384-token output cap with thinking unset; C's worker author uses a 24,576-token output cap with low thinking. These per-call settings differ. Stock's advisory call count is not enforced; its separate SDK model/tool backstops can bind before its aggregate token ceiling.",
+    "No manual continuations or hand-completed packages are admitted. One session per arm per brief; a failed delivery remains a failure. Rerunning reuses its record rather than spending on a replacement.",
+    "Both outputs receive identical file checks and renders, then the same blind rubric in both orders. The fallback judge is uncalibrated and related to the author models; human acceptance is not established.",
+    "One run per arm per brief is a pilot. Dry-run model answers are scripted and establish harness behaviour, not geometry quality, model capability, production yield or a win rate.",
+    "The paired pilot reserves two full-size judge calls only. Round 5's separate game-size judge, change requests and repeat runs remain available outside this one-session profile."
+  ],
+  "approval_required_for_live": true
+}

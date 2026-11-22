@@ -401,3 +401,10 @@ costs a game developer afterwards.
 Its tests (`tests/test_compare_agents.py`) cover the ledger, the relay's refusals, the sandbox, the vanilla MCP
 server, the scorecard's rules and the change requests; the sandbox tests need root, `unshare` and `setpriv` and are
 skipped without them, and arm V's needs a real Blender and Xvfb. What it found is in `UPSTREAM_SKILLS.md`.
+
+### Fresh paired stock/pipeline runs
+
+Use the opt-in `--paired` profile for a new comparison with identical content requirements, equal explicit token/image
+shares, a fixed C candidate mode and immutable source/run provenance. `plan --json` is a no-cost preflight. Historical
+round-two defaults and records remain intact. See [the authoring-contract follow-up](AUTHORING_CONTRACT_REVIEW.md)
+for the production/kit/blockout distinction, regression evidence, proposed pilot limits and execution prerequisites.

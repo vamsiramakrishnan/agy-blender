@@ -855,7 +855,10 @@ def _evaluation(ce, suffix: str | None, *, maps: bool = True, collision_file: bo
                       "centred_xz": True, "draw_calls": 2, "materials": 1, "pbr_complete": maps,
                       "uv": {"primitives_with_uv": 2, "primitives": 2, "verts_outside_0_1_frac": 0.0,
                              "by_material": {"0": {"overlap_frac": 0.0, "coverage_frac": 0.5}}},
-                      "images": [], "collision_meshes": col, "texture_memory": {"rgba8_mips_bytes": 1}},
+                      "material_list": [{"textures": {"baseColor": 0, "normal": 1, "metallicRoughness": 2}}] if maps else [],
+                      "images": [{"index": i, "roles": [role], "width": 2, "height": 2, "mode": "RGB"}
+                                 for i, role in enumerate(("baseColor", "normal", "metallicRoughness"))] if maps else [],
+                      "collision_meshes": col, "texture_memory": {"rgba8_mips_bytes": 1}},
             "godot": {"ok": True}, "three": {"ok": True},
             "upstream": {"available": True, "qa_check": {"pass": True},
                          "texel_density": {"objects": {"x": {"spread": 1.2}, "x-col": {"spread": 9.0}}}},

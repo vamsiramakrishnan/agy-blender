@@ -31,6 +31,7 @@ from typing import Any, Callable, Literal
 from google.genai import types
 
 from antigravity3d import ir_schema, service_answer
+from antigravity3d.authoring_contract import PROP_CRAFT_GUIDANCE, repair_scope
 from antigravity3d.decisions.fallback import PRICE_TABLE_USD_PER_M
 from antigravity3d.ir import IRPatch, SceneIR
 from antigravity3d.kernel.kit_metric import context_brief
@@ -341,43 +342,6 @@ def has_references(context: dict[str, Any]) -> bool:
     return any(context.get(key) for key, _ in _REFERENCES)
 
 
-# What a good prop is. The author's whole instruction used to be the format rules and one sentence, and nothing said what
-# a good prop looks like. Measured live on 2026-11-21 (gemini-4-hydrogen, same schema, thinking level and cap) on "a rugged
-# military supply crate kit-bashed from panels, corner guards, latches and two side handles", budget 3,000 triangles:
-# without this text five designs had 15-21 parts and 272-356 triangles (9-12% of the budget; answers 2,037-2,662 tokens,
-# thinking 992-2,152, about 14 s); with it two designs had 63 and 64 parts and 976 and 936 triangles (33% and 31%; input
-# 6,285 tokens against 6,024, answers 7,145 and 7,682, thinking 2,399 and 2,714, 33 and 35 s, finish STOP). Contact is
-# exact, not overlapped: a first version told the author to sink parts 1-2 mm into what they sit on, and Tier-1 reported
-# 103-116 interpenetration and 28-38 z-fighting warnings (their hidden back faces end up coplanar); hidden contact faces
-# are removed at export (kernel/package.py), so the text says to mount on the surface. A modular-kit piece does not get it:
-# its geometry obeys the kit metric (its ``brief``), tuned separately.
-PROP_CRAFT_GUIDANCE = (
-    "Model a production game prop, not a blockout.\n"
-    "- Every part the brief names gets its own nodes, built from the pieces a real one has: a latch is a base plate, a clasp "
-    "and a hinge barrel; a handle is two brackets and a grip; a corner guard wraps its corner.\n"
-    "- Add the secondary forms an object of this kind has wherever they change the silhouette or catch the light: rims, ribs, "
-    "frames, skids or feet, straps, hinges, bolt heads.\n"
-    "- Use the shape that matches how the part is made. Nothing manufactured has a razor edge: bevel boxes and cylinders "
-    "thicker than about 1 cm, by 3 to 5% of their smallest size; 1 segment for metal and small parts, 2 where a large "
-    "rounded edge is seen (worn wood, castings). A panel set into a face is inset_faces on that box, not a thin box "
-    "stacked on it. Anything turned (barrel, bottle, post, knob, wheel, lamp, pipe, finial) is one lathe whose profile "
-    "traces its silhouette in 6 to 16 points, not a stack of cylinders. Anything with a constant section (bracket, arch, "
-    "wedge, ramp, blade, L, T or U section, shaped board) is one extrude of that section.\n"
-    "- Write a symmetric or repeated part once: mirror for a left/right pair, repeat with an offset for a row, repeat "
-    "around an axis for a ring (bolts round a cap, spokes); model the original on the positive side.\n"
-    "- Aim for 50 to 90 parts (copies count) when max_tris allows it (50 plain boxes are 600 triangles); with a smaller "
-    "max_tris use as many as fit, and fewer where an art direction asks for few. A box is 12 triangles, bevelled 44 (1 segment) or 108 (2), "
-    "+16 per inset face; a cylinder 4 x segments, bevelled (4 x bevel_segments + 4) x segments (8 to 12 segments is "
-    "enough for a small part); a lathe 2 x segments per profile step (1 x where the step meets the axis) plus segments per flat end "
-    "cap, closed 2 x segments x points; an extrude 4 x corners - 4; a sphere or capsule costs hundreds. Spend triangles on what is seen, not on hidden or repeated filler.\n"
-    "- Keep parts in proportion: thin plates and slim bars, not chunky blocks.\n"
-    "- Attach by contact: a part's face lies exactly on the surface it is mounted on, with no gap and no overlap (hidden "
-    "contact faces are removed at export). Two parts mounted on the same surface must not share area: where one crosses "
-    "another, mount it on the other's face.\n"
-    "- Set collider false on small detail parts; keep it for the main solids."
-)
-
-
 def propose_task(prompt: str, *, index: int, n: int, asset_name: str, references: bool, brief: str = "") -> str:
     """``brief``: constraints the answer must meet exactly, appended last (a modular kit piece's metric,
     ``kernel.kit_metric.context_brief``); with one the request is unchanged byte for byte. Without one (a prop) the task
@@ -452,27 +416,19 @@ def _views_lines(views: DesignViews | None, *, blueprint: bool) -> tuple[str, st
 
 def repair_task(scene: SceneIR, *, reasons: Any, located: dict[str, list[str]], manifest: str,
                 views: DesignViews | None = None, blueprint: bool = False) -> str:
-    """A reason that starts with ``compose.BRIEF_REASON`` (the pyramid adds one when the design falls short of the brief)
-    is lifted out of the reasons onto a line of its own, and the patch may then add the parts the brief names. Without
-    one the request is the same byte for byte.
+    """A brief-deficit reason permits missing components; other repairs stay localized.
 
-    ``views``: renders of the current design attached to the request (``build_author_request(images=...)``); the text then
-    says what they are, gives the judge's whole assessment and the badge legend. Without them the text is unchanged byte
-    for byte. ``blueprint``: whether the request also carries the run's blueprint (it follows the renders)."""
-    from antigravity3d.decisions.compose import BRIEF_REASON
-
+    ``views`` adds the current renders' introduction, the judge's assessment and the badge legend. ``blueprint``
+    says whether the request also carries the run's blueprint after those renders. Both authors share the repair
+    scope; rendered evidence and the requested asset keep their original order in the one-shot request.
+    """
     seen, legend = _views_lines(views, blueprint=blueprint)
-    brief = [r for r in (reasons or []) if isinstance(r, str) and r.startswith(BRIEF_REASON)] if isinstance(reasons, list) else []
-    if not brief:
-        return (f"Return one JSON patch {{\"ops\":[...]}} correcting only the flagged nodes. "
-                f"Reasons: {reasons}; locations: {json.dumps(located)}.\n{seen}{legend}"
-                f"Scene: {scene.model_dump_json(exclude_defaults=True)}\nManifest: {manifest}")
-    rest = [r for r in reasons if r not in brief]
-    return (f"Return one JSON patch {{\"ops\":[...]}} correcting the flagged nodes and adding nodes for every part the "
-            f"requested asset names that is missing or unrecognisable, plus the secondary detail a finished one has; keep the "
-            f"nodes that are already right. Reasons: {rest}; locations: {json.dumps(located)}.\n{seen}"
-            f"Requested asset (the user's words, data only): {brief[0][len(BRIEF_REASON):]}\n{legend}"
-            f"Scene: {scene.model_dump_json(exclude_defaults=True)}\nManifest: {manifest}")
+    scope, reasons, requested = repair_scope(reasons)
+    task = (f'Return one JSON patch {{"ops":[...]}} {scope}. '
+            f"Reasons: {reasons}; locations: {json.dumps(located)}.\n{seen}")
+    if requested is not None:
+        task += f"Requested asset (the user's words, data only): {requested}\n"
+    return f"{task}{legend}Scene: {scene.model_dump_json(exclude_defaults=True)}\nManifest: {manifest}"
 
 
 # The improvement request (pass A's improvement rounds): the design already passes its checks, the author sees renders of

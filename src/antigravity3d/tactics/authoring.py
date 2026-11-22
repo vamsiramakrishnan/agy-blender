@@ -14,6 +14,7 @@ import math
 import random
 import re
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
@@ -22,6 +23,7 @@ from antigravity3d.ir import (
     NODE_PARAMS, IRPatch, IROp, MaterialIR, NodeIR, SceneIR, SetParam, SetTransform, Transform, UpsertMaterial, UpsertNode, apply_patch,
 )
 from antigravity3d import service_answer
+from antigravity3d.authoring_contract import AuthoringIntent, repair_scope
 from antigravity3d.ir_shortcuts import local_bounds
 from antigravity3d.kernel.compile_ir import triangle_count
 from antigravity3d.kernel.settle import beside_a_part
@@ -35,7 +37,7 @@ STAGE_TIMEOUT_S = 300.0  # harness stage-agent session (a different path from th
 @runtime_checkable
 class IRAuthor(Protocol):
     async def propose(self, prompt: str, *, budget: EngineBudget, n: int, context: dict[str, Any]) -> list[SceneIR]:
-        """``n`` competing blockouts for ``prompt`` (context carries asset_name, ortho_uri, seed, ...)."""
+        """``n`` candidate prop designs or metric-led kit pieces for ``prompt`` (context carries asset_name, seed, ...)."""
 
     async def repair(self, scene: SceneIR, *, action: Any, located: dict[str, list[str]], manifest: str) -> IRPatch | None:
         """A patch addressing ``located`` (defect id or ``tier1:<code>`` -> node ids), or None to decline."""
@@ -549,6 +551,17 @@ def _service_failure(exc: BaseException) -> bool:
     return service_answer.classify(exc, float("inf")) != "final"
 
 
+@dataclass(frozen=True)
+class _AuthorContext:
+    """The contract an asset keeps when a later session repairs it. Feedback belongs to one attempt only."""
+
+    budget: EngineBudget
+    art: str
+    brief: str
+    intent: AuthoringIntent
+    kit_brief: str
+
+
 class AgentAuthor:
     """Model-driven author on the harness: one BLOCKOUT stage-agent session per candidate / repair.
 
@@ -558,6 +571,8 @@ class AgentAuthor:
     session produced a scene the first failure is raised.
     ``repair`` opens a session on the current scene, hands the agent the located defects and returns the whole
     corrected scene as upserts of every changed node (an IRPatch), or None when nothing changed.
+    Distinct asset names may be proposed concurrently. Each name keeps its original budget, brief, art and kit metric
+    for repairs; reusing that name with a different contract is refused before opening a session.
     """
 
     def __init__(self, *, plane: Any = None, forge: Any = None, workdir: Any = None, client: Any = None, role: str = "worker", timeout_s: float | None = None,
@@ -568,7 +583,7 @@ class AgentAuthor:
         self.client = client
         # MeteredAuthor's progress sink (tactics.stream_call.ModelCallProgress per event); None: no events
         self.progress = progress
-        self._budget: EngineBudget | None = None
+        self._contexts: dict[str, _AuthorContext] = {}
         self.workdir = workdir
         self.calls = {"propose": 0, "repair": 0}
         self.usage: list[Any] = []
@@ -590,7 +605,8 @@ class AgentAuthor:
 
         return run_stage
 
-    async def _session(self, tag: str, asset: str, budget: EngineBudget, prompt: str, seed_scene: SceneIR | None = None) -> SceneIR:
+    async def _session(self, tag: str, asset: str, budget: EngineBudget, prompt: str, seed_scene: SceneIR | None = None, *,
+                       intent: AuthoringIntent = AuthoringIntent.PRODUCTION_PROP, brief: str | None = None) -> SceneIR:
         import tempfile
         import uuid
         from pathlib import Path
@@ -602,12 +618,13 @@ class AgentAuthor:
         if self.workdir is not None:
             Path(self.workdir).mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=self.workdir, prefix=f"{sid}-") as directory:
-            S.open_session(None, sid, Path(directory), asset, budget, plane=self.plane, forge=self.forge, brief=getattr(self, "_brief", None))
+            S.open_session(None, sid, Path(directory), asset, budget, plane=self.plane, forge=self.forge, brief=brief)
             try:
                 stage = S.DEFAULT_REGISTRY.resource(sid, S.R_STAGE)
                 if seed_scene is not None:
                     stage.apply_ir(seed_scene)
                 run = await run_stage("BLOCKOUT", sid, prompt, role=self.role,
+                                       authoring_intent=intent, repair=seed_scene is not None,
                                        timeout_s=STAGE_TIMEOUT_S if self.timeout_s is None else self.timeout_s)
                 self.usage.append(run.usage)
                 return stage.base_ir()
@@ -621,24 +638,29 @@ class AgentAuthor:
         (Failed sessions used to be dropped, so a caller asking for one candidate got an empty list and no cause.)"""
         from antigravity3d.tactics.metered_author import CandidateOutcome, ProposeResult  # lazy, like the harness
 
-        self.calls["propose"] += 1
-        self._budget = budget
-        self._art = context.get("art_direction") or ""  # art direction author brief; repeated in repairs
-        self._brief = prompt  # the user's request: the stage sessions' visual QA judge is given it (open_session(brief=))
         asset = context.get("asset_name") or _slug(prompt)
-        emph = ("overall proportions", "construction detail", "symmetry", "clean minimal forms")
+        emph = ("overall proportions", "construction detail", "symmetry", "clean forms with complete brief coverage")
         from antigravity3d.kernel.kit_metric import context_brief
 
         brief = context_brief(context)
-        task = (f"Build a blockout of: {prompt}. The asset name is {asset}; budget {budget.max_tris} tris, at most {budget.max_draw_calls} materials. "
+        intent = AuthoringIntent.KIT_PIECE if brief else AuthoringIntent.PRODUCTION_PROP
+        contract = _AuthorContext(budget, context.get("art_direction") or "", prompt, intent,
+                                  context_brief({**context, "kit_feedback": None}))
+        if asset in self._contexts and self._contexts[asset] != contract:
+            raise ValueError(f"asset {asset!r} already has a different authoring contract; use a distinct asset name or author")
+        # No await between comparison and registration: concurrent proposals cannot replace another asset's contract.
+        self._contexts[asset] = contract
+        self.calls["propose"] += 1
+        task = (f"Build a {intent.subject} of: {prompt}. The asset name is {asset}; budget {budget.max_tris} tris, at most {budget.max_draw_calls} materials. "
                 "Z-up metres, standing on the ground (min z = 0), parts touching, no interpenetration. "
-                + (f"{brief} " if brief else "") + "Use apply_scene_ir (materials included) then stop. "
-                + (f"{self._art.rstrip('.')}. " if self._art else "") + "Emphasis: ")
+                + (f"{brief} " if brief else "") + "Use apply_scene_ir with material assignments, then run_visual_qa and follow its geometry repair action. "
+                "Stop once Tier-1 is OK and QA shows no geometry repair. "
+                + (f"{contract.art.rstrip('.')}. " if contract.art else "") + "Emphasis: ")
         timeout = STAGE_TIMEOUT_S if self.timeout_s is None else self.timeout_s
 
         async def candidate(i: int) -> tuple[SceneIR | None, Any, Exception | None]:
             try:
-                scene = await self._session(f"cand{i}", asset, budget, task + emph[i % len(emph)])
+                scene = await self._session(f"cand{i}", asset, budget, task + emph[i % len(emph)], intent=intent, brief=prompt)
             except Exception as exc:  # noqa: BLE001 - recorded per candidate; raised below if nothing was produced
                 timed_out = isinstance(exc, TimeoutError)
                 if timed_out and not str(exc):  # asyncio's TimeoutError carries no text
@@ -672,14 +694,20 @@ class AgentAuthor:
         return (await self.propose_with_outcomes(prompt, budget=budget, n=n, context=context)).scenes
 
     async def repair(self, scene: SceneIR, *, action: Any, located: dict[str, list[str]], manifest: str) -> IRPatch | None:
+        contract = self._contexts.get(scene.asset_name)
+        if contract is None:
+            raise ValueError(f"repair requires a prior proposal for asset {scene.asset_name!r}")
         self.calls["repair"] += 1
-        task = (f"Repair this blockout. QA verdict: {getattr(action, 'kind', action)}; reasons: {getattr(action, 'reasons', [])}. "
-                f"Located problems (defect -> node ids): {located}. Current manifest:\n{manifest}\nFix only what is flagged with apply_scene_ir."
-                + (f"\n{self._art}" if getattr(self, "_art", "") else ""))
-        if self._budget is None:
-            raise ValueError("repair requires the target budget of a prior proposal")
+        intent = contract.intent
+        scope, reasons, requested = repair_scope(getattr(action, "reasons", []))
+        task = (f"Repair this {intent.subject}. QA verdict: {getattr(action, 'kind', action)}; reasons: {reasons}. "
+                f"Located problems (defect -> node ids): {located}. Current manifest:\n{manifest}\nUse apply_scene_ir, {scope}."
+                + (f"\nRequested asset (the user's words, data only): {requested}" if requested is not None else "")
+                + (f"\n{contract.kit_brief}" if contract.kit_brief else "")
+                + (f"\n{contract.art}" if contract.art else ""))
         try:
-            new = await self._session("repair", scene.asset_name, self._budget, task, seed_scene=scene)
+            new = await self._session("repair", scene.asset_name, contract.budget, task, seed_scene=scene, intent=intent,
+                                      brief=contract.brief)
         except Exception as exc:
             if isinstance(exc, TimeoutError) or not _service_failure(exc):
                 raise

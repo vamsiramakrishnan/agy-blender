@@ -28,30 +28,21 @@ from google.antigravity import Agent
 from test_harness_tools import CRATE, make_session
 
 from antigravity3d import ir_schema
+from antigravity3d.authoring_contract import AuthoringIntent, PROP_CRAFT_GUIDANCE
 from antigravity3d.harness import agents as A
 from antigravity3d.harness import tools as T
 
-# What the budget protects: prompt waste, i.e. text the stage does not need on every model call (repeated rules, unused
-# tools, JSON-in-a-string parameters). BLOCKOUT moved from 7,000 (measured 6,914) to 8,200 (measured 8,095) deliberately:
-# the added 1,181 characters are the craft rules (harness.agents.CRAFT_RULES), which are what the model needs to model a
-# production prop instead of a blockout (measured with the one-shot request: 15-21 parts and 272-356 triangles without
-# them, 63-64 parts and 936-976 triangles with them). That is guidance, not waste, so it is inside the limit; the limit
-# still stops anything else from growing (margin ~100 characters, as before).
-# Round five moved BLOCKOUT 8,200 -> 11,400 (measured 11,364), TWEAK 6,600 -> 9,400 (9,334) and VARIANTS 15,500 -> 17,300
-# (17,263), each for the same reasons, measured on this change: (1) the tool declarations carry the new shape parameters
-# and kinds and the mirror / repeat shortcuts: apply_scene_ir's parameters 3,936 -> 5,352 characters, with the
-# parameters' descriptions left out (they are in SHAPE_SEMANTICS; with them it was 5,856 before the shortcuts); (2) the
-# system prompt of every geometry stage carries ir_schema.SHAPE_SEMANTICS (1,342: what each parameter and shortcut
-# means and the kernel's limits, which no schema states); (3) BLOCKOUT's CRAFT_RULES grew 1,103 -> 1,613 (when to bevel,
-# inset, lathe, extrude, mirror and repeat, and what each costs in triangles). All of it is what the stage needs to use
-# the new shapes; the margin is ~100 characters again. LOOKDEV and EXPORT carry none of it and are unchanged.
+# What the budget protects: repeated rules, unused tools and other static prompt waste. BLOCKOUT's default is an
+# intermediate stage. Production props carry the shared craft text explicitly; their separate budget is checked on
+# the actual posted request below. Kit pieces and localized repairs do not pay for the prop detail instructions.
+# Round five's shape parameters, mirror/repeat declarations and SHAPE_SEMANTICS are retained in every geometry
+# stage. Measured after combining contracts: intermediate 9,942, kit 9,930, production 12,010, repairs <= 9,910.
+# Production's extra text is the same 2,362-character guidance the one-shot author receives, including its shape costs.
 #            stage: (before, budget) static chars per call
-# 2026-11-22 (native sessions): BLOCKOUT 11,400 -> 11,900 and LOOKDEV 12,500 -> 12,650. BLOCKOUT's text now asks for
-# the loop the command's author runs (render_preview shows the design's five badged views: look, compare with the
-# request, patch, repeat; half the budget and plain boxes is not done; run_visual_qa names parts and views), measured
-# 11,819; both stages say that an uncalibrated preview's scores are findings (at most two improvement rounds; any lookdev
-# review lets it export, the command's delivery rule) and LOOKDEV that an image limit of 0 makes no texture (12,549).
-STATIC_BUDGET = {"BLOCKOUT": (26_224, 11_900), "TWEAK": (25_351, 9_400), "VARIANTS": (25_946, 17_300),
+# 2026-11-22 (native sessions): LOOKDEV 12,500 -> 12,650: its text says that an image limit of 0 makes no texture and
+# that in an uncalibrated preview any lookdev review lets the session export, the command's delivery rule (measured
+# 12,549). BLOCKOUT is the toolset's text only (authoring_contract: the intent says what "finished" means).
+STATIC_BUDGET = {"BLOCKOUT": (26_224, 10_000), "TWEAK": (25_351, 9_400), "VARIANTS": (25_946, 17_300),
                  "LOOKDEV": (26_256, 12_650), "EXPORT": (25_914, 2_000)}
 SUBAGENT_TOOLS = {"invoke_subagent", "define_subagent", "manage_subagents", "send_message"}
 DEFAULT_SECTIONS = {"identity", "communication_style", "conversation_transcript", "subagents", "messaging",
@@ -165,11 +156,83 @@ async def test_declared_subagent_runs_with_its_own_short_prompt(tmp_path):
     assert prompt_breakdown(sub[0])["static_chars"] < 8_000
 
 
-def test_blockout_stage_text_carries_the_craft_rules_and_the_other_geometry_stages_do_not():
-    assert A.CRAFT_RULES in A._system("BLOCKOUT") and "50 to 90 parts" in A._STAGE_TEXT["BLOCKOUT"]
-    assert "exactly on the surface" in A.CRAFT_RULES and "no overlap" in A.CRAFT_RULES  # contact, not the 1-2 mm overlap
-    assert "overlap them" not in A.CRAFT_RULES and "sink" not in A.CRAFT_RULES
-    # TWEAK edits parameters and VARIANTS adds patch alternatives on an already built base: neither is asked for more parts
+def test_stage_toolset_does_not_imply_a_finished_prop_and_other_stages_are_unchanged():
+    blockout = A._system("BLOCKOUT")
+    assert "intermediate blockout" in blockout and "Defer secondary construction detail" in blockout
+    assert PROP_CRAFT_GUIDANCE not in blockout and "50 to 90" not in blockout
+    assert "report secondary-detail deficiencies as deferred" in blockout
+    assert "QA shows no geometry repair" not in blockout
+    # Selecting an authoring intent cannot inject detail requirements into edit/lookdev/export stages.
     for stage in ("TWEAK", "VARIANTS", "LOOKDEV", "EXPORT"):
-        assert "Craft rules" not in A._system(stage), stage
-    assert len(A._system("BLOCKOUT")) < 11_900 - 6_000  # the rules are text, the rest of the static size is the tool declarations
+        assert A._system(stage, authoring_intent=AuthoringIntent.PRODUCTION_PROP) == A._system(stage)
+        assert PROP_CRAFT_GUIDANCE not in A._system(stage)
+
+
+@pytest.mark.parametrize("intent,repair", [(i, False) for i in AuthoringIntent] +
+                         [(AuthoringIntent.PRODUCTION_PROP, True), (AuthoringIntent.KIT_PIECE, True)])
+async def test_geometry_intent_reaches_the_posted_request_without_changing_tools(tmp_path, intent, repair):
+    _, stub = await run(tmp_path, "BLOCKOUT", [call("apply_scene_ir", ops=CRATE["ops"]), text("done")],
+                        authoring_intent=intent, repair=repair)
+    body = stub.requests[0]
+    instructions = system_text(body)
+    assert set(declarations(body)) == {f.__name__ for f in T.STAGE_TOOLS["BLOCKOUT"]}
+    production = intent is AuthoringIntent.PRODUCTION_PROP and not repair
+    assert (PROP_CRAFT_GUIDANCE in instructions) == production
+    assert ("50 to 90 parts" in instructions) == production
+    if repair:
+        assert "Preserve correct geometry and its level of detail" in instructions
+    elif intent is AuthoringIntent.KIT_PIECE:
+        assert "mating surfaces, openings and pivots" in instructions
+    elif intent is AuthoringIntent.BLOCKOUT:
+        assert "intermediate blockout" in instructions
+    assert ir_schema.SHAPE_SEMANTICS in instructions
+    assert prompt_breakdown(body)["static_chars"] <= (12_100 if production else 10_050)
+
+
+@pytest.mark.parametrize("intent", list(AuthoringIntent))
+async def test_geometry_intents_keep_new_shapes_and_shortcuts_on_the_actual_tool_path(tmp_path, intent):
+    # These are current wire features, not extra detail imposed on an intermediate or a metric-led piece. A merge
+    # that keeps the old tool declarations or removes shape semantics must fail even if the intent prose survives.
+    node = {"id": "turned", "kind": "lathe", "params": {"profile": [[0, 0.3], [0.08, 0.3], [0.12, 0.2],
+              [0.1, 0.05], [0.14, 0], [0, 0]], "segments": 8},
+            "transform": {"translate": [0.3, 0, 0]}, "mirror": "x"}
+    env, stub = await run(tmp_path, "BLOCKOUT", [call("apply_scene_ir", ops=[{"op": "upsert_node", "node": node}]),
+                                                text("done")], authoring_intent=intent)
+    scene = env.sess().stage.base_ir()
+    assert {n.id for n in scene.nodes} == {"turned", "turned__mx"}
+    assert all(n.kind == "lathe" and n.params["segments"] == 8 for n in scene.nodes)
+    assert env.state.last_tier1_ok
+    assert any("OK tx=" in result for result in tool_outputs(stub.requests[-1]))
+
+
+def test_unknown_authoring_intent_is_rejected_before_session_state_changes(tmp_path):
+    env = make_session(tmp_path, stage="LOOKDEV")
+    before = env.state.active_stage
+    with pytest.raises(ValueError, match="AuthoringIntent"):
+        A.build_stage_agent("BLOCKOUT", env.sid, registry=env.reg, authoring_intent="anything")
+    assert env.state.active_stage == before
+
+
+async def test_intermediate_can_stop_with_deferred_prop_detail_without_export_approval(tmp_path):
+    from antigravity3d.decisions.fakes import FakeDecisionsClient
+    from antigravity3d.harness import session as S
+    from antigravity3d.harness.hooks import unmet_gate
+
+    client = FakeDecisionsClient(answers={"score_brief_depiction": 2.0, "defect_brief_part_missing": 0.0})
+    env = make_session(tmp_path, client=client)
+    env.state.brief = "a crate with a lid"
+    cfg = A.build_stage_agent("BLOCKOUT", env.sid, registry=env.reg)
+    try:
+        assert "report secondary-detail deficiencies as deferred" in cfg.system_instructions.text
+        await T.apply_scene_ir(CRATE["ops"], env.ctx)
+        delta = await T.run_visual_qa(env.ctx)
+        assert "brief depiction 2.00 < 2.5" in delta
+        assert env.state.verdict is not None and env.state.verdict.action == "agent_repair"
+        assert unmet_gate(env.sess()) is None  # intermediate Tier-1 gate passes; the failed visual verdict is retained
+        assert not env.state.export_allowed
+        S.set_toolset(env.reg, env.sid, "EXPORT")
+        env.state.active_stage = "EXPORT"
+        assert (await T.export_engine_package(env.ctx, "intermediate")).startswith("REFUSED export blocked")
+        assert env.state.verdict.action == "agent_repair" and not env.state.export_allowed
+    finally:
+        S.unbind_conversation(cfg.conversation_id)

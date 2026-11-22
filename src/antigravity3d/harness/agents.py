@@ -24,6 +24,7 @@ from google.antigravity.models import (
 from google.antigravity.triggers import TriggerContext
 
 from antigravity3d.art_direction import author_text, texture_brief
+from antigravity3d.authoring_contract import AuthoringIntent, stage_geometry_guidance
 from antigravity3d.harness.hooks import (
     QAStopHook,
     TelemetryHook,
@@ -83,47 +84,12 @@ _IR_RULES = f"{IR_SEMANTICS}\n{SHAPE_SEMANTICS}\n{OP_SEMANTICS}"
 _IR_STAGES = frozenset({"BLOCKOUT", "TWEAK", "VARIANTS"})  # edit geometry: IR semantics and the anchor ops
 _MATERIAL_STAGES = frozenset({"LOOKDEV"})  # edit materials only: IR semantics (ids, material cross-field rules)
 
-# What a good prop is, for the stage agent that models it (the same rules as metered_author.PROP_CRAFT_GUIDANCE, which the
-# one-shot author gets: the two paths are written separately because this agent edits in patches and sees Tier-1 and QA
-# lines after each). Measured with the one-shot request on 2026-11-21: the five answers written without it for "a rugged
-# military supply crate kit-bashed from panels, corner guards, latches and two side handles" (budget 3,000 triangles) had 15
-# to 21 parts and 272 to 356 triangles; with it, two answers had 63 and 64 parts and 976 and 936 triangles. Contact is exact,
-# not overlapped: hidden contact faces are removed at export, and a part sunk into another makes Tier-1 report
-# interpenetration and z-fighting. Round five adds the new shapes and shortcuts (the same lines as PROP_CRAFT_GUIDANCE,
-# shortened); what each parameter means is in ir_schema.SHAPE_SEMANTICS, which every geometry stage carries. The rules
-# cost 1,613 characters of every BLOCKOUT prompt; they are guidance the stage needs, not waste (tests/test_stage_request.py
-# states what the character budget protects).
-CRAFT_RULES = (
-    "Craft rules: every part the brief names gets its own nodes, built from the pieces a real one has (a latch is a base plate, "
-    "a clasp and a hinge barrel; a handle is two brackets and a grip; a corner guard wraps its corner). Add the secondary forms "
-    "an object of this kind has wherever they change the silhouette or catch the light: rims, ribs, frames, skids or feet, "
-    "straps, hinges, bolt heads. Use the shape that matches how the part is made: bevel boxes and cylinders thicker than "
-    "about 1 cm by 3 to 5% of their smallest size (1 segment for metal and small parts, 2 for large rounded edges); a panel "
-    "set into a face is inset_faces, not a stacked thin box; a turned part is one lathe (profile of 6 to 16 points), a "
-    "constant section one extrude. Write a symmetric or repeated part once with mirror or repeat, the original on "
-    "the positive side. Aim for 50 to 90 parts, copies included, if max_tris allows (else as many as fit; "
-    "box 12, bevelled 44 or 108, +16 per "
-    "inset face; cylinder 4 x segments, bevelled (4 x bevel_segments + 4) x segments, 8 to 12 segments for a small part; "
-    "lathe 2 x segments per profile step; extrude 4 x corners - 4; sphere or capsule hundreds); no hidden or repeated "
-    "filler. Keep parts in proportion: thin plates and slim bars, not "
-    "chunky blocks. Attach by contact: a part's face lies exactly on the surface it is mounted on, no gap and no overlap "
-    "(hidden contact faces are removed at export); two parts on the same surface must not share area, so where one crosses "
-    "another, mount it on the other's face. Set collider false on small detail parts. A modular-kit piece's metric in the "
-    "task overrides these rules."
-)
-
 _STAGE_TEXT: dict[str, str] = {
-    "BLOCKOUT": "Build the asset as a production game prop, not a blockout, from primitives with apply_scene_ir (one patch "
-                "can hold many ops; send the main solids first, then the detail). Each edit is atomic: a failing Tier-1 check "
-                "(non-manifold, over budget) is rolled back and reported in one line; fix and resend. " + CRAFT_RULES +
-                " Then look and improve, round after round: render_preview shows you five views with a numbered badge on "
-                "every part; compare them with the request (named parts, proportions, the secondary detail a real one has) "
-                "and patch what is missing, plain or wrong. Half of max_tris used and plain boxes is not done. "
-                "run_visual_qa names the parts and views of its findings; follow its action (auto_fix is applied for you). "
-                "Stop once Tier-1 is OK, QA shows no geometry repair and the renders show the object asked for; in an "
-                "uncalibrated preview its scores are findings: at most two improvement rounds after the first review.",
-    "TWEAK": "Existing asset: change only what was asked. Use query_region for a bounded spatial working set, apply the "
-             "edits with apply_scene_ir, then render_preview to check them.",
+    "BLOCKOUT": "Use apply_scene_ir (batch ops; main solids before required detail). "
+                "Each edit is atomic: a failing Tier-1 check (non-manifold, over budget) is rolled back and reported in one "
+                "line; fix and resend.",
+    "TWEAK": "Existing asset: change only what was asked. Use query_region for a bounded spatial working set. Apply the "
+             "requested parameter edits with apply_scene_ir.",
     "VARIANTS": "Explore alternatives as variants (propose_variants), select each and run_visual_qa, promote the best.",
     "LOOKDEV": "The header's 'bound:' line lists the node ids by current material. Create materials with forge_pbr_material, "
                "whose prompt names only the material and its finish in a few words, never the object or its parts (the "
@@ -135,6 +101,12 @@ _STAGE_TEXT: dict[str, str] = {
               "approved the current scene; report what blocks it instead of retrying.",
 }
 
+_GEOMETRY_REVIEW = ("Then run_visual_qa; follow its action (auto_fix is applied for you; agent_repair names a target). "
+                    "Stop once Tier-1 is OK and QA shows no geometry repair.")
+_BLOCKOUT_REVIEW = ("Run run_visual_qa; fix primary forms, proportions and contact/clipping. Brief depiction scores finished "
+                    "props: report secondary-detail deficiencies as deferred. Stop at Tier-1 OK with primary defects fixed. "
+                    "Retain the QA verdict; no export approval.")
+
 _SUBAGENT_TEXT = {
     "usd_verifier": ("Read-only check of the composed USD scene and engine compliance.",
                      "Inspect the manifest and run the USD validator; reply with the blocking issues in at most 3 lines."),
@@ -143,7 +115,8 @@ _SUBAGENT_TEXT = {
 }
 
 
-def _system(toolset: str, subagents: tuple[str, ...] | None = None, art: Any = None) -> str:
+def _system(toolset: str, subagents: tuple[str, ...] | None = None, art: Any = None, *,
+            authoring_intent: AuthoringIntent | str = AuthoringIntent.BLOCKOUT, repair: bool = False) -> str:
     """The whole system prompt of a stage agent (it replaces the SDK default; see STAGE_BEHAVIOR). ``subagents``
     defaults to the stage's own (``tools.STAGE_SUBAGENTS``). ``art``: the session's art direction; its author brief is
     added to the geometry stages and its texture brief to LOOKDEV (nothing is added without one)."""
@@ -155,7 +128,11 @@ def _system(toolset: str, subagents: tuple[str, ...] | None = None, art: Any = N
         parts.append(_IR_RULES)
     elif toolset in _MATERIAL_STAGES:
         parts.append(IR_SEMANTICS)
+    if toolset == "BLOCKOUT":
+        parts.append(stage_geometry_guidance(authoring_intent, repair=repair))
     parts.append(_STAGE_TEXT[toolset])
+    if toolset == "BLOCKOUT":
+        parts.append(_BLOCKOUT_REVIEW if AuthoringIntent(authoring_intent) is AuthoringIntent.BLOCKOUT else _GEOMETRY_REVIEW)
     if art is not None and toolset in _IR_STAGES and (line := author_text(art)):
         parts.append(line)
     elif art is not None and toolset in _MATERIAL_STAGES and (brief := texture_brief(art)):
@@ -168,8 +145,10 @@ def _system(toolset: str, subagents: tuple[str, ...] | None = None, art: Any = N
     return "\n".join(parts)
 
 
-def _instructions(toolset: str, subagents: tuple[str, ...], art: Any = None) -> types.CustomSystemInstructions:
-    return types.CustomSystemInstructions(text=_system(toolset, subagents, art), title="stage_agent")
+def _instructions(toolset: str, subagents: tuple[str, ...], art: Any = None, *,
+                  authoring_intent: AuthoringIntent = AuthoringIntent.BLOCKOUT, repair: bool = False) -> types.CustomSystemInstructions:
+    return types.CustomSystemInstructions(text=_system(toolset, subagents, art, authoring_intent=authoring_intent,
+                                                       repair=repair), title="stage_agent")
 
 
 def model_target(role: Role) -> ModelTarget:
@@ -201,9 +180,15 @@ def build_stage_agent(
     triggers: list[Any] | None = None,
     require_header: bool = True,
     subagents: bool = True,
+    authoring_intent: AuthoringIntent | str = AuthoringIntent.BLOCKOUT,
+    repair: bool = False,
 ) -> LocalAgentConfig:
     """LocalAgentConfig exposing only ``stage``'s tools (and its subagents, see ``tools.STAGE_SUBAGENTS``; none at all
     with ``subagents=False``), bound to ``session_id``.
+
+    ``authoring_intent`` separates a completed prop or metric-led kit piece from an intermediate blockout; it
+    affects BLOCKOUT instructions only. ``repair`` preserves existing detail and limits edits to the QA request.
+    Neither changes the toolset, budget or QA gates.
 
     Side effects: sets the session's active stage/tool-set and binds the pinned conversation id
     (``cfg.conversation_id``) to the session so tools resolve it from ``ToolContext``.
@@ -211,6 +196,7 @@ def build_stage_agent(
     registry = registry if registry is not None else DEFAULT_REGISTRY
     if stage not in STAGE_TOOLS:
         raise ValueError(f"unknown stage {stage!r}; expected one of {sorted(STAGE_TOOLS)}")
+    authoring_intent = AuthoringIntent(authoring_intent)
     s = session(registry, session_id)
     s.state.active_stage = TOOLSET_STAGE[stage]  # type: ignore[assignment]
     set_toolset(registry, session_id, stage)
@@ -226,7 +212,7 @@ def build_stage_agent(
         **({"allowed_subagents": list(subs), "max_subagent_depth": 1} if subs else {}),
     )
     return LocalAgentConfig(
-        system_instructions=_instructions(stage, subs, s.art),
+        system_instructions=_instructions(stage, subs, s.art, authoring_intent=authoring_intent, repair=repair),
         capabilities=caps,
         tools=list(STAGE_TOOLS[stage]),
         policies=policy.confirm_run_command(),  # backstop; the gate hook is the primary safety policy
