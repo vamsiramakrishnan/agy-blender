@@ -326,13 +326,14 @@ def export_key(scene: SceneIR, budget: EngineBudget, meshes: list[MeshData] | No
              hashlib.sha256(np.ascontiguousarray(m.triangles, dtype="<i4")).hexdigest()) for m in meshes]
     if meshes is not None:
         # the shared atlas is laid out for the detail its materials carry (surface_detail): a map's size, not its path
-        from antigravity3d.kernel import surface_detail
+        from antigravity3d.kernel import smart_source, surface_detail
 
         seen = {}
-        for m in meshes:
-            if m.material_id not in seen:
-                d = surface_detail.detail_px_per_m(m.material, budget.texel_density_px_per_m)
-                seen[m.material_id] = round(d, 3) if d else None
+        with smart_source.using(budget.generated_surfaces):  # (also in the key through asdict(budget) above)
+            for m in meshes:
+                if m.material_id not in seen:
+                    d = surface_detail.detail_px_per_m(m.material, budget.texel_density_px_per_m)
+                    seen[m.material_id] = round(d, 3) if d else None
         inputs["layout_detail_px_per_m"] = sorted(seen.items(), key=lambda kv: str(kv[0]))
     return node_key("export.uv_lod_collider", inputs=inputs,
                     upstream=[ir_subtree_key(scene, r) for r in roots], backend_version=BACKEND_VERSION)

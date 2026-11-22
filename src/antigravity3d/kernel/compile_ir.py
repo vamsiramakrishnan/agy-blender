@@ -553,6 +553,12 @@ def _author_material(stage: Usd.Stage, path: Sdf.Path, m: MaterialIR) -> None:
     if not mat.GetPrim().IsActive():
         mat.GetPrim().SetActive(True)
     mat.GetPrim().SetCustomDataByKey("agy:normalConvention", m.normal_convention)
+    # the material's own words, for what reads a composed material without the scene description (the shared atlas's
+    # layout asks each surface source how much detail a material carries: kernel/smart_source.py)
+    if m.surface:
+        mat.GetPrim().SetCustomDataByKey("agy:surface", m.surface)
+    else:
+        mat.GetPrim().ClearCustomDataByKey("agy:surface")
     surf = UsdShade.Shader.Define(stage, path.AppendChild("Surface"))
     surf.CreateIdAttr("UsdPreviewSurface")
     mat.CreateSurfaceOutput().ConnectToSource(surf.ConnectableAPI(), "surface")
@@ -648,10 +654,11 @@ class MaterialParams:
     normal_convention: str = "opengl"
     alpha_from_albedo: bool = False
     maps: Mapping[str, MapSource] = field(default_factory=dict)
+    surface: str = ""  # MaterialIR.surface (customData agy:surface): words, not a glTF factor
 
     def factors(self) -> dict[str, Any]:
         """The scalar/colour parameters by IR field name (everything except ``name``, ``maps`` and map flags)."""
-        skip = {"name", "maps", "alpha_from_albedo", "normal_convention"}
+        skip = {"name", "maps", "alpha_from_albedo", "normal_convention", "surface"}
         return {f.name: getattr(self, f.name) for f in fields(self) if f.name not in skip}
 
 
@@ -726,6 +733,7 @@ def read_material(mat: UsdShade.Material, *, double_sided: bool | None = None) -
     convention = mat.GetPrim().GetCustomDataByKey("agy:normalConvention") if mat else None
     return MaterialParams(
         name=mat.GetPath().name if mat else "",
+        surface=str(mat.GetPrim().GetCustomDataByKey("agy:surface") or "") if mat else "",
         base_color=get(shader, "diffuseColor", (0.8, 0.8, 0.8)), metallic=get(shader, "metallic", 0.0),
         roughness=get(shader, "roughness", 0.5), alpha_mode=mode,
         alpha_cutoff=threshold if mode == "MASK" else None,

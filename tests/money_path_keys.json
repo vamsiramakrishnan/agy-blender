@@ -3,6 +3,7 @@
 "extras": [
 "/budget",
 "/budget/base_color_jpeg_quality",
+"/budget/generated_surfaces",
 "/budget/keep_contact_faces",
 "/budget/max_collision_hulls",
 "/budget/max_draw_calls",

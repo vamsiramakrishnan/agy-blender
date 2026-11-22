@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
 Question = dict[str, Any]
 MAX_QUESTIONS_PER_REQUEST = 1000
@@ -296,6 +296,23 @@ BON_QUESTIONS: dict[str, dict[str, QSpec]] = {
               _LV("Fake or flat.", "Poor.", "Acceptable.", "Good.", "Photoreal."))),
     ),
 }
+
+def placed_markings_fact(strings: Sequence[str]) -> str:
+    """The input sentence that states, as a fact about the asset, the text this pipeline painted on it on purpose
+    (kernel/smart_materials.py markings, from the package manifest's texture_atlas members): generic stencils from a
+    closed vocabulary, no brand. Empty when nothing was placed."""
+    if not strings:
+        return ""
+    return ("This pipeline painted these stencil markings on the asset on purpose; they are part of its design: "
+            + ", ".join(f'"{s}"' for s in dict.fromkeys(strings)) + ".")
+
+
+def ip_or_text_beyond(strings: Sequence[str]) -> Question:
+    """``defect_ip_or_text`` when markings were placed: the same id, kind and thresholds, asking about any OTHER legible
+    text, logo or watermark (the placed ones are listed in the input by ``placed_markings_fact``)."""
+    return noul(_SHEET + "Apart from the stencil markings listed in the input as painted on purpose, does the asset show a "
+                "recognisable trademarked logo, other legible text or a watermark?")
+
 
 POLICY_QUESTIONS: dict[str, Question] = {
     "policy_trademark_logo": noul("Does {img} show a recognisable trademarked logo or brand mark?"),

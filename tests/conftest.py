@@ -14,6 +14,10 @@ import pytest
 
 RUN_LIVE_ENV = "AGY3D_RUN_LIVE"
 
+# The suite tests the flat path by default: EngineBudget.generated_surfaces takes its default from this variable
+# (state.generated_surfaces_default). Tests of the generated surface set the field, or the variable, themselves.
+os.environ["AGY3D_GENERATED_SURFACES"] = "0"
+
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption("--run-live", action="store_true", default=False,

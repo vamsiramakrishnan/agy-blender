@@ -596,7 +596,8 @@ def _compose_atlas(stage: Usd.Stage, meshes: Sequence[MeshData], uvs: Sequence[U
     owner, drawn, dist, tri_id = sd.rasterise(size, parts)
     # one raster serves the bake and every surface source: who owns each texel, and the triangle under it
     raster = sd.AtlasRaster(size, drawn, owner, dist, tri_id, tuple(atlas_parts),
-                            {params[path].name: label_of[path] for path in order}, period, density)
+                            {params[path].name: label_of[path] for path in order}, period, density,
+                            meshes=tuple(meshes), scene=read_ir(stage.GetDefaultPrim()), asset_name=asset_name)
     far = dist > GUTTER_COPY_PX
     covered = int((drawn > 0).sum())
 
@@ -642,6 +643,8 @@ def _compose_atlas(stage: Usd.Stage, meshes: Sequence[MeshData], uvs: Sequence[U
                 rec["maps"][role] = {"source_px": own, "resample_ratio": round(own / period, 4)}
             else:
                 rec["sources"][role] = source
+                if "generated" not in rec and (gen := sd.generated_record(p.name)) is not None:
+                    rec["generated"] = gen  # class, words read, wear, masks, markings placed (kernel/smart_source.py)
             on = drawn == label_of[path]
             if on.any():  # the far gutter: the material's mean (flat, so it costs no bytes; see GUTTER_COPY_PX)
                 out[region & far] = np.rint(pix[on].mean(axis=0)).astype(np.uint8)
@@ -1282,8 +1285,11 @@ def write_engine_package(
     try:
         # JPEG would undo an art direction's palette quantisation (finish_map), so a style with a palette keeps PNG
         jpeg_q = None if art is not None and getattr(art, "palette_max_colors", None) else budget.base_color_jpeg_quality
-        atlas_record = (_compose_atlas(stage, meshes, uvs, Path(atlas_tmp.name), asset_name, budget.texel_density_px_per_m, jpeg_q)
-                        if atlas_tmp is not None else None)
+        from antigravity3d.kernel import smart_source  # the budget's setting decides whether image-less materials are painted
+
+        with smart_source.using(budget.generated_surfaces):
+            atlas_record = (_compose_atlas(stage, meshes, uvs, Path(atlas_tmp.name), asset_name, budget.texel_density_px_per_m, jpeg_q)
+                            if atlas_tmp is not None else None)
         textures, unresolved = _package_textures(stage, out, engine, art)  # copies the baked files into textures/
     finally:
         if atlas_tmp is not None:
@@ -1431,7 +1437,8 @@ def write_engine_package(
         "usdz_skipped": usdz_skipped,
         "units": units,
         "normal_convention": NORMAL_CONVENTION.get(engine, "opengl"),
-        "budget": {k: getattr(budget, k) for k in ("max_tris", "max_draw_calls", "max_collision_hulls", "texel_density_px_per_m")},
+        "budget": {k: getattr(budget, k) for k in ("max_tris", "max_draw_calls", "max_collision_hulls", "texel_density_px_per_m",
+                                                   "generated_surfaces")},
         "tris": sum(len(s.triangles) for s in ship.values()),
         "lod_levels": max(glb_levels, len(lod_tris)),
         "lod_tris": lod_tris,

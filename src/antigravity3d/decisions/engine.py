@@ -557,10 +557,14 @@ class DecisionControlPlane:
     async def evaluate_visual_qa(self, contact_sheet_uri: str | Views, ortho_uri: str | None = None,
                                  style_anchor_uri: str | None = None, stage: Stage = "lookdev", *,
                                  marked_legend: Mapping[int, str] | None = None, governor: Governor | None = None,
-                                 brief: str | None = None) -> VisualQAResult:
+                                 brief: str | None = None, placed_markings: Sequence[str] = ()) -> VisualQAResult:
         """`marked_legend` (badge number -> part name) switches on set-of-mark mode: the sheet carries numbered badges.
         `brief`: the user's request; quoted in the input (``brief_block``) and asked about (the "brief" questions). None or
         empty: the request is exactly what it was without one.
+        `placed_markings`: the strings the generated surface painted on purpose (the manifest's
+        ``texture_atlas.members[*].generated.markings``, ``smart_source.placed_strings``): stated as a fact in the input,
+        and ``defect_ip_or_text`` asks about any other text, logo or watermark (same id, kind and thresholds). Empty: the
+        request is exactly what it was.
 
         ``contact_sheet_uri`` is one image (a uri: the request is what it always was) or the design as separate views
         (``Views``, ``tactics.judging``): Images 1 to N, each captioned with its view and sent at least at
@@ -597,6 +601,10 @@ class DecisionControlPlane:
                 have.add(key)
                 blocks += [text_block(f"Image {n}: {desc}."), image_block(uri, res_tier)]
         asked, skipped = Q.select(Q.VISUAL_QA_QUESTIONS, stage=stage, have=have, labels=labels, subjects=subjects)
+        if placed_markings and "defect_ip_or_text" in asked:  # markings painted on purpose are a fact, not a defect
+            blocks.append(text_block(Q.placed_markings_fact(placed_markings)))
+            q = Q.ip_or_text_beyond(placed_markings)
+            asked["defect_ip_or_text"] = Q.render(Q.resubject(q, subjects) if subjects is not None else q, labels)
         if "brief" not in have:  # without a brief its questions do not apply: the result reads as it always did
             skipped = tuple(q for q in skipped if "brief" not in Q.VISUAL_QA_QUESTIONS[q].needs)
         res = await self._evaluate_sheet(blocks, asked, tag=f"visual_qa:{stage}", governor=governor, charge_as="visual_qa",

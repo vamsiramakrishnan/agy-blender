@@ -62,9 +62,10 @@ def _print_art(art: Any) -> None:
 
 def _budget(a: argparse.Namespace) -> EngineBudget:
     keep = bool(getattr(a, "keep_contact_faces", False))
+    extra = {} if getattr(a, "surfaces", None) is None else {"generated_surfaces": a.surfaces == "generated"}
     if a.max_tris is not None:
-        return EngineBudget(a.engine, max_tris=a.max_tris, keep_contact_faces=keep)
-    return EngineBudget(a.engine, keep_contact_faces=keep)
+        return EngineBudget(a.engine, max_tris=a.max_tris, keep_contact_faces=keep, **extra)
+    return EngineBudget(a.engine, keep_contact_faces=keep, **extra)
 
 
 def offline_plane() -> Any:
@@ -697,6 +698,9 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--max-tris", type=int, default=None, help="triangle budget (default: engine budget default)")
         p.add_argument("--keep-contact-faces", action="store_true",
                        help="ship every authored triangle, also the faces parts press together (for parts that will be moved apart)")
+        p.add_argument("--surfaces", choices=("generated", "flat"), default=None,
+                       help="materials without an image: 'generated' paints wear, dirt, grain and markings from the geometry "
+                            "(the default), 'flat' ships their flat colours")
         if out:
             p.add_argument("--out", required=True, help="output directory")
 

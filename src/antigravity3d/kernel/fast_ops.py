@@ -3947,7 +3947,10 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
     for m in meshes:
         if shared is not None and m.material_id in shared:
             first.setdefault(m.material_id, m.material)
-    detail = {mid: surface_detail.detail_px_per_m(p, target) for mid, p in first.items()}  # None: a flat colour
+    from antigravity3d.kernel import smart_source  # the budget says whether image-less materials get a painted surface
+
+    with smart_source.using(budget.generated_surfaces):
+        detail = {mid: surface_detail.detail_px_per_m(p, target) for mid, p in first.items()}  # None: a flat colour
     hidden = None
     if contact_faces_removable(budget, opaque_materials):
         hidden = hidden_contact_faces([(m.node_id, m.points, m.triangles, m.material_id) for m in meshes], opaque_materials)

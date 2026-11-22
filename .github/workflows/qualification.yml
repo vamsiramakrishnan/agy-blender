@@ -75,10 +75,12 @@ jobs:
       - name: Test native workers, engine imports, rendered frames and inspector channels
         id: tests
         run: |
-          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_fbx_export.py tests/test_fbx_package.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py tests/test_blender_verification_steps.py tests/test_shapes_engines.py tests/test_deliver.py tests/test_shared_atlas.py
+          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_fbx_export.py tests/test_fbx_package.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py tests/test_blender_verification_steps.py tests/test_shapes_engines.py tests/test_deliver.py tests/test_shared_atlas.py tests/test_generated_surfaces_e2e.py
           python - <<'PYTHON'
           import xml.etree.ElementTree as ET
           required = {"test_three_worker_mixed_asset_soak", "test_reviewed_upstream_primitives",
+                      # the default no-image package (generated surfaces) in stock Godot, agy3d install and three.js
+                      "test_godot_imports_and_installs_the_generated_package", "test_three_js_loads_the_generated_package",
                       "test_vendored_blender_skills_match_the_pinned_checkout", "test_real_blender_legacy_migrations",
                       # Blender 5.3 behaviour of the worker operations, the shim and the linter (tests/test_blender_api_53.py)
                       "test_worker_starts_from_an_empty_scene", "test_render_of_a_created_object_needs_no_factory_camera_or_light",

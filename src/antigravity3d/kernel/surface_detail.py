@@ -64,6 +64,11 @@ class AtlasRaster:
     labels: Mapping[str, int] = field(default_factory=dict)
     repeat_px: int = SWATCH_SPAN_PX
     density_px_per_m: float = 0.0
+    # for sources that read the whole asset (kernel/smart_source.py): the working meshes (closed solids, every part:
+    # occluders and part edges), the scene description embedded in the stage (material words) and the asset's name
+    meshes: tuple = ()
+    scene: Any = None
+    asset_name: str = ""
 
     def part_of(self, tri: int) -> tuple[AtlasPart, int]:
         """The part a global triangle id belongs to, and its index in that part's triangles."""
@@ -233,6 +238,15 @@ def texels(material: MaterialParams, role: str, raster: AtlasRaster) -> tuple[np
     return None
 
 
+def generated_record(material_name: str) -> dict[str, Any] | None:
+    """What a non-map source says it painted for a material (``record(name)``), for the manifest; None if none did."""
+    for s in _SOURCES:
+        rec = getattr(s, "record", None)
+        if s is not MAPS and rec is not None and (got := rec(material_name)) is not None:
+            return got
+    return None
+
+
 def has_texels(material: MaterialParams, role: str) -> bool:
     """Whether a source other than the flat factors could answer for this role (for deciding which roles to bake):
     the material has a map for it, or a registered non-map source claims detail for the material."""
@@ -245,3 +259,11 @@ def has_texels(material: MaterialParams, role: str) -> bool:
         if roles is None or role in roles(material):
             return True
     return False
+
+
+# The geometry-driven surface (no image model) answers for every opaque material without a map: registered here, after
+# the map source, so that the layout and the bake ask it wherever surface sources are asked (switch:
+# AGY3D_GENERATED_SURFACES=0). Imported last: it imports this module.
+from antigravity3d.kernel import smart_source as _smart_source  # noqa: E402
+
+register_source(_smart_source.SOURCE)

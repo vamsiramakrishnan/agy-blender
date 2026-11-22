@@ -7,6 +7,7 @@ look the session up in a process-wide :class:`SceneSessionRegistry` instead.
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -18,6 +19,11 @@ PipelineStage = Literal["ROUTE", "BLOCKOUT", "LOOKDEV", "EXPORT", "DONE"]
 
 MAX_AUDIT_DELTAS = 8
 EXPORT_MIN_TIER15_SCORE = 3.4
+
+
+def generated_surfaces_default() -> bool:
+    """``EngineBudget.generated_surfaces`` when nobody sets it: on, unless AGY3D_GENERATED_SURFACES says 0/false/off."""
+    return os.environ.get("AGY3D_GENERATED_SURFACES", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
 @dataclass(frozen=True)
@@ -49,6 +55,11 @@ class EngineBudget:
     # for 1.7 degrees, ten times the error an 8-bit normal map already has. Every manifest records both figures per map
     # (texture_atlas.encoding), so the choice is the developer's to see. glTF readers take JPEG without an extension.
     base_color_jpeg_quality: int | None = None
+    # Opaque materials without an image get a surface painted from the geometry (kernel/smart_materials.py: wear at
+    # edges, dirt in creases, grain, stencil markings) instead of flat factors; False ships flat colours. The default
+    # comes from AGY3D_GENERATED_SURFACES (read here and nowhere else; the test suite sets it to 0 so its tests keep
+    # testing the flat path unless they ask for generated surfaces).
+    generated_surfaces: bool = field(default_factory=lambda: generated_surfaces_default())
 
 
 @dataclass(frozen=True)
