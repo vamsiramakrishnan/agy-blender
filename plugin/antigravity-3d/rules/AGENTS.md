@@ -31,6 +31,39 @@ glob-scoped rule files add detail when matching files are in play:
   hook denies scripts that fail it. No `os`, `subprocess`, file writes,
   `eval`/`exec` or `bpy.app.handlers` in scripts.
 
+## The short path
+
+Every model call sends the whole conversation so far, so the number of calls
+is what a session costs. For a new asset:
+
+1. `open_asset_session` with the user's request as `brief`.
+2. `apply_scene_ir`: the first call sets the materials and the main body, then
+   two or three calls of at most 25 operations each; write anything that occurs
+   more than once once, with `mirror` or `repeat`. A reply is cut off at 16,384
+   output tokens, thinking included, and an operation costs about 100: a call
+   that was cut off is split and sent again.
+3. `render_preview` and look at the views; improve with one or two more
+   `apply_scene_ir` patches and look again.
+4. `deliver_package`: it reviews the design as it will ship, builds LODs and
+   colliders, validates and exports, and says what the review found. Its
+   answer starts with one of three:
+   - `DELIVERED`: the run is finished; the package was validated, imported and
+     checked by the tool. Reply to the user with its path and the findings,
+     and do not inspect it again.
+   - `NOT DELIVERED: a person must decide`: reply to the user with the reason
+     and stop; changing the surfaces or the design to get past it is not wanted.
+   - `NOT DELIVERED` otherwise: fix what it names with `apply_scene_ir` and
+     call `deliver_package` again.
+
+Build the design with `apply_scene_ir`, not by scripting Blender: only a
+design in the session's stage can be edited, checked and packaged by these
+tools (Blender on the command line is for inspecting files).
+
+Nothing else is required. Put tool calls that can go together in one turn,
+read a tool's schema only for the tools you call, and do not explore folders:
+the tools' answers say what you need. The stage tools below are for finer
+control when the user asks for it.
+
 ## How the tools reach you
 
 - In a conversation you did not start through the Python SDK (the app, the CLI,
@@ -46,6 +79,11 @@ glob-scoped rule files add detail when matching files are in play:
   LOOKDEV, EXPORT) and read `session_status` when unsure where you are.
 - The refusals are the gates working, not errors to route around: export needs a
   passing Tier-1 and Tier-1.5 >= 3.4 on the current geometry.
+- Everything you read stays in every later request, so read only what the
+  next step needs: `parametric-kitbash` before modelling; `pbr-material-forge`
+  only in a session that can generate images (with an image limit of 0 the
+  surfaces are generated from the geometry when the package is written);
+  `engine-truth-verify` only for a verified export or an export problem.
 
 ## Units and axes
 

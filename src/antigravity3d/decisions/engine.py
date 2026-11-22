@@ -707,7 +707,9 @@ class DecisionControlPlane:
     async def policy_gate(self, image_uri: str, *, governor: Governor | None = None) -> PolicyVerdict:
         qs = {k: Q.render(v, {"img": "Image 1"}) for k, v in Q.POLICY_QUESTIONS.items()}
         try:
-            res = await self.evaluate([image_block(image_uri, POLICY_RESOLUTION)], qs, tag="policy", governor=governor)
+            # asked a second time when it hangs (HEDGE_AFTER_S): live on 2026-11-22 one of nine screens of a material map
+            # hung for 300 s while the other eight answered in 5-37 s, and the agent's edit waited for it
+            res = await self._hedged([image_block(image_uri, POLICY_RESOLUTION)], qs, tag="policy", governor=governor)
         except PromptBlockedError as e:
             return PolicyVerdict(False, True, {}, True, (f"input filter: {e.reason}",))
         return self._note(_policy_verdict({key: res.noul(key) for key in qs}, res.calibrated, preview=self.preview))

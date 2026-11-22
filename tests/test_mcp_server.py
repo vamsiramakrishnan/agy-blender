@@ -32,7 +32,9 @@ MANAGEMENT = {"open_asset_session", "open_existing_asset", "start_preview", "set
               "install_into_project", "open_inspector", "review_notes"}
 # The inspector MCP App's app-only tools: listed (the host needs their _meta) but hidden from the model.
 APP_ONLY = {"inspector_payload", "inspector_qa_state", "inspector_list_notes", "inspector_save_note"}
-ALWAYS = MANAGEMENT | APP_ONLY
+# 2026-11-22 (native sessions): the short path's tools (tools.SHORT_PATH_TOOLS) are listed from the start, before any
+# session: an agent that listed the catalogue first found none of the tools the instructions named (r5/live_native4)
+ALWAYS = MANAGEMENT | APP_ONLY | {fn.__name__ for fn in T.SHORT_PATH_TOOLS}
 
 
 def server_env(state: Path) -> dict[str, str]:
@@ -69,7 +71,8 @@ async def test_tools_list_has_harness_tools_with_clean_schemas(tmp_path):
         for stage, entries in T.STAGE_TOOLS.items():
             await call(s, "set_stage", stage=stage)
             catalog = {t.name: t for t in (await s.list_tools()).tools}
-            assert set(catalog) == {fn.__name__ for fn in entries} | ALWAYS
+            # 2026-11-22 (native sessions): each stage but VARIANTS also lists deliver_package (tools.SESSION_TOOLS)
+            assert set(catalog) == {fn.__name__ for fn in (*entries, *T.SESSION_TOOLS[stage])} | ALWAYS
             tools.update(catalog)
     for name, fn in T.ALL_TOOLS.items():
         if name not in tools:
@@ -135,7 +138,9 @@ async def test_session_stage_scoping_export_gate_and_linter(tmp_path):
         await call(s, "set_stage", stage="EXPORT")
         r = await call(s, "export_engine_package", out_name="crate_pkg")
         assert r.startswith("REFUSED export blocked") and "tier15" in r
-        assert (await call(s, "apply_scene_ir", ops="{}")).startswith("REFUSED")
+        # 2026-11-22 (native sessions): apply_scene_ir is a short-path tool, callable in every stage but VARIANTS (an
+        # edit after export is a new revision); a finer-control tool of another stage is still refused here
+        assert (await call(s, "propose_variants", set_name="v", variants=[])).startswith("REFUSED")
 
         # unsafe raw scripts never reach the pool: the linter gate refuses them
         r = await call(s, "run_bpy_script", source="import os\nos.remove('x')\n")
@@ -199,7 +204,10 @@ def test_pipelined_calls_are_ordered_drained_and_stdout_is_protocol_only(tmp_pat
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
             call_msg(3, "open_asset_session", asset_name="Crate", target_engine="unreal_5"),
             call_msg(4, "apply_scene_ir", ops=json.dumps(CRATE)),
-            call_msg(5, "session_status")]
+            call_msg(5, "session_status"),
+            # 2026-11-22: opening a session no longer changes the catalogue (the short path's tools are listed from the
+            # start); a stage switch does
+            call_msg(6, "set_stage", stage="LOOKDEV")]
     try:
         out, err = proc.communicate(b"".join(map(_frame, msgs)), timeout=180)
     finally:
@@ -209,7 +217,7 @@ def test_pipelined_calls_are_ordered_drained_and_stdout_is_protocol_only(tmp_pat
     frames = [json.loads(ln) for ln in out.decode().splitlines()]  # every stdout line must be a JSON-RPC frame
     assert all(f.get("jsonrpc") == "2.0" for f in frames)
     by_id = {f["id"]: f for f in frames if "id" in f}
-    assert set(by_id) == {1, 2, 3, 4, 5}, (sorted(by_id), err.decode()[-800:])
+    assert set(by_id) == {1, 2, 3, 4, 5, 6}, (sorted(by_id), err.decode()[-800:])
     text = {i: by_id[i]["result"]["content"][0]["text"] for i in (3, 4, 5)}
     assert text[3].startswith("SESSION Crate-")
     assert text[4].startswith("OK tx="), text[4]
@@ -239,8 +247,8 @@ async def test_two_stdio_clients_keep_independent_stage_catalogs(tmp_path):
         await call(first, "set_stage", stage="LOOKDEV")
         await call(second, "set_stage", stage="EXPORT")
         left, right = await asyncio.gather(first.list_tools(), second.list_tools())
-        assert {t.name for t in left.tools} == ALWAYS | {f.__name__ for f in T.STAGE_TOOLS["LOOKDEV"]}
-        assert {t.name for t in right.tools} == ALWAYS | {f.__name__ for f in T.STAGE_TOOLS["EXPORT"]}
+        assert {t.name for t in left.tools} == ALWAYS | {f.__name__ for f in (*T.STAGE_TOOLS["LOOKDEV"], *T.SESSION_TOOLS["LOOKDEV"])}
+        assert {t.name for t in right.tools} == ALWAYS | {f.__name__ for f in (*T.STAGE_TOOLS["EXPORT"], *T.SESSION_TOOLS["EXPORT"])}
         assert (await call(first, "export_engine_package", out_name="wrong_stage")).startswith("REFUSED")
         # A subagent with an explicit read-only grant can still call its named probe.
         assert "nodes=0" in await call(first, "inspect_manifest")
@@ -248,12 +256,16 @@ async def test_two_stdio_clients_keep_independent_stage_catalogs(tmp_path):
 async def test_modern_client_receives_catalog_invalidation(tmp_path):
     async with client(tmp_path, modern=True) as session:
         async with listen(session, tools_list_changed=True) as changes:
+            # 2026-11-22: the short path's tools are listed before a session opens, so opening one in BLOCKOUT changes
+            # nothing; a stage switch shows or hides that stage's finer-control tools
             await call(session, "open_asset_session", asset_name="Notify", target_engine="godot_4")
-            await asyncio.wait_for(anext(changes), timeout=5)
             assert "apply_scene_ir" in {t.name for t in (await session.list_tools()).tools}
             await call(session, "set_stage", stage="LOOKDEV")
             await asyncio.wait_for(anext(changes), timeout=5)
-            assert "apply_scene_ir" not in {t.name for t in (await session.list_tools()).tools}
+            assert "forge_pbr_material" in {t.name for t in (await session.list_tools()).tools}
+            await call(session, "set_stage", stage="BLOCKOUT")
+            await asyncio.wait_for(anext(changes), timeout=5)
+            assert "forge_pbr_material" not in {t.name for t in (await session.list_tools()).tools}
 
 
 # --------------------------------------------------------------------------- inspector MCP App

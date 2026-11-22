@@ -17,6 +17,7 @@ import json
 import re
 import shutil
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -44,7 +45,7 @@ from antigravity3d.decisions.compose import (
     tier15_score,
 )
 from antigravity3d.genmedia.pbr_deriver import delight, roughness_breakup
-from antigravity3d.harness.session import Preview, Session, resolve
+from antigravity3d.harness.session import Preview, Session, resolve, set_toolset
 from antigravity3d.harness.traceback_compressor import compress_exception
 from antigravity3d.genmedia.material_prompt import texture_prompt
 from antigravity3d.ir import IRPatch, MaterialIR, SetTransform, UpsertMaterial
@@ -97,6 +98,44 @@ MAP_KEYS = ("albedo_uri", "orm_uri", "normal_uri")
 NO_IMAGES = ("NO IMAGES: this preview's image limit is {limit} and {used} used, so no image can be generated. Surfaces are "
              "generated from the geometry when the package is written: keep each material's id and base colour, skip "
              "forge_pbr_material and run_paintover_loop, and continue (render_lookdev, run_visual_qa, set_stage EXPORT).")
+
+
+# How a session gets from a request to a package in the fewest model calls (said by open_asset_session and the
+# server's instructions). Live on 2026-11-22 (r5/live_native2, arm N, crate): a model call costs what the whole
+# conversation costs (about 55,000 tokens on average, over 100,000 by the end), and walking BLOCKOUT -> LOOKDEV -> EXPORT
+# with a schema read, a render and a review at each step took 25 calls and ran out of a 1.5 M share before EXPORT; the
+# stock plain-MCP agent delivered its crate in 19 calls and 1.10 M.
+# The size of a call (r5/live_native3): an agent told to build "in as few calls as it takes" sent the whole crate in
+# one reply, which was cut off at the 16,384-token output limit (13,103 output + 3,281 thinking, MAX_TOKENS, no tool
+# call: nothing reaches a tool of ours), and it went on to script Blender in files instead. Measured on the two earlier
+# live runs: 46-133 output tokens per operation (mean about 100) and up to 5,700 thinking tokens per call, so 25
+# operations (about 2,500 tokens) leave room for any thinking seen.
+SHORT_PATH = "THE SHORT PATH (each model call costs the whole conversation so far, so put calls that can go together in one turn and do not explore folders): build the design with apply_scene_ir, not by scripting Blender, because only a design in the session's stage can be edited, checked and packaged here (Blender on the command line is for inspecting files). First call: the materials and the main body; then two or three calls of at most 25 operations each, writing anything that occurs more than once once, with mirror or repeat. A reply is cut off at 16,384 output tokens, thinking included, and an operation costs about 100: a call that was cut off is split and sent again. Then render_preview and look at the views; improve once or twice; deliver_package, which reviews, builds LODs and colliders, validates and exports. Its answer starts with one of three: \"DELIVERED\" (the run is finished: reply to the user with the package path and the findings, and do not inspect it again); \"NOT DELIVERED: a person must decide\" (reply to the user with the reason and stop); \"NOT DELIVERED\" otherwise (fix what it names with apply_scene_ir and call deliver_package again). Nothing else is required."
+
+
+# What happens to surfaces, said by the tools at the moment it matters (opening a session without images, entering
+# LOOKDEV). Live on 2026-11-22 (r5/live_native, arm N, crate): told only in the stage text, the agent wrote a PIL script
+# that painted albedo, normal and ORM maps for its three materials and bound them, 330 s of a 694 s session, and never
+# called the image tool whose answer said surfaces are generated.
+SURFACES = ("SURFACES: every material without map files gets a surface generated from the geometry when the package is "
+            "written (kernel.smart_source): its class from the material's surface words, wear, dirt and markings from those "
+            "words and the asset's name, all recorded in the manifest. Painting texture maps by script is neither needed nor "
+            "wanted. In LOOKDEV check each material's base colour and surface words (inspect_manifest lists them; "
+            "apply_shader_diff changes surface, base_color, metallic, roughness) if you want to; deliver_package renders "
+            "the generated surfaces, reviews them and exports.")
+
+
+def surfaces_note(s: Session, *, opening: bool = False) -> str:
+    """The SURFACES line for this session ('' when generated surfaces are off). ``opening``: only when the session can
+    generate no image (said at open; LOOKDEV says it always)."""
+    if not s.state.budget.generated_surfaces:
+        return ""
+    if opening:
+        limit = getattr(s.governor, "max_images", None)
+        if limit is None or s.governor.images_used < limit:
+            return ""
+        return f"NO IMAGES in this session (image limit {limit}). " + SURFACES
+    return SURFACES
 
 
 def _no_images(s: Session) -> str | None:
@@ -428,7 +467,8 @@ async def _visual_qa(s: Session, *, read_only: bool = False):
             prev = await _render(s)
         res = await s.plane.evaluate_visual_qa(
             prev.uri, ortho_uri=ortho, style_anchor_uri=s.state.style_anchor_uri, stage=qa_stage, governor=s.governor,  # type: ignore[arg-type]
-            **({"brief": s.state.brief} if s.state.brief else {}))
+            **({"brief": s.state.brief} if s.state.brief else {}),
+            **({"placed_markings": list(prev.placed)} if getattr(prev, "placed", ()) else {}))
     return prev, res, tier15_score(res, s.thresholds), decide_action(res, s.thresholds, qa_stage)  # type: ignore[arg-type]
 
 
@@ -885,15 +925,37 @@ async def render_lookdev(ctx: ToolContext, engine: str = "eevee") -> str:
         raise ValueError(f"unknown lookdev engine {engine!r}")
     stem = f"lookdev_{engine}_{uuid.uuid4().hex}"
     src = s.artifacts_dir / f"{stem}.usdc"
-    try:
-        async with s.registry.locked(s.sid):
-            version = s.geom_version
-            texture_hash = s.texture_digest()
-            await _bundle(s)
-            s.stage.export(src)
-        res = await s.pool.call("render_usd", path=str(src), engine=engine, width=512, height=512, transparent=True)
-    finally:
-        src.unlink(missing_ok=True)
+    shown = ""
+    placed: tuple[str, ...] = ()
+    with tempfile.TemporaryDirectory(dir=s.artifacts_dir, prefix=".lookdev-") as td:
+        try:
+            async with s.registry.locked(s.sid):
+                version = s.geom_version
+                texture_hash = s.texture_digest()
+                b = await _bundle(s)
+                if _generates_surfaces(s):
+                    # What ships: the package writer paints every image-less opaque material (kernel.smart_source) into
+                    # the shared atlas; render that package's USD, so the agent and the lookdev review see the surfaces
+                    # the package will carry, not the flat colours they replace.
+                    from antigravity3d.kernel.package import write_engine_package
+
+                    t0 = time.perf_counter()
+                    pkg = await _stage_worker(write_engine_package, s.stage, b, s.state.budget, Path(td) / "pkg",
+                                              asset_name=s.stage.asset_prim.GetName(), qa=None, art=s.art)
+                    src = Path(td) / "pkg" / str(pkg.data.get("usd") or f"{s.stage.asset_prim.GetName()}.usd")
+                    shown = f" | generated surfaces shown (package written for the render in {time.perf_counter() - t0:.0f} s)"
+                    from antigravity3d.kernel import smart_source
+
+                    # Live on 2026-11-22 (r5/live_native6): the review of this render, not told that the surfaces carry
+                    # stencils painted on purpose, escalated the crate to a person for "IP/text risk 0.95" and the export
+                    # was refused. The strings go with the preview and every review of it states them (as tactics/look_round).
+                    placed = tuple(smart_source.placed_strings(pkg.data))
+                else:
+                    s.stage.export(src)
+            res = await s.pool.call("render_usd", path=str(src), engine=engine, width=512, height=512, transparent=True)
+        finally:
+            if src.parent == s.artifacts_dir:
+                src.unlink(missing_ok=True)
     img = np.asarray(res["image"], dtype=np.float32)
     path = s.artifacts_dir / f"{stem}.png"
     if s.geom_version != version:
@@ -907,11 +969,22 @@ async def render_lookdev(ctx: ToolContext, engine: str = "eevee") -> str:
             kind = "clay" if res["fake"] else engine
             if texture_hash != s.texture_digest():
                 raise RuntimeError("material files changed during render; render again")
-            p = s.add_preview(path, uri, version, kind=kind, texture_hash=texture_hash)
+            p = s.add_preview(path, uri, version, kind=kind, texture_hash=texture_hash, placed=placed)
     except BaseException:
         path.unlink(missing_ok=True)
         raise
-    return f"LOOKDEV {res.get('engine', engine)} render #{p.index} uri={uri}"
+    return f"LOOKDEV {res.get('engine', engine)} render #{p.index} uri={uri}{shown}"
+
+
+def _generates_surfaces(s: Session) -> bool:
+    """Whether the package will paint a surface for some material of this scene (``kernel.smart_source``): generated
+    surfaces on, and an opaque material without map files."""
+    from antigravity3d.kernel import smart_source
+
+    if not s.state.budget.generated_surfaces:
+        return False
+    with smart_source.using(True):
+        return any(smart_source._paintable(m.material) for m in s.stage.extract_meshes())
 
 
 # --------------------------------------------------------------------------- EXPORT
@@ -1231,6 +1304,83 @@ async def run_bpy_script(source: str, ctx: ToolContext) -> str:
 
 # --------------------------------------------------------------------------- tool sets
 
+# --------------------------------------------------------------------------- the short path
+
+
+def _enter(s: Session, stage: str) -> None:
+    s.state.active_stage = TOOLSET_STAGE[stage]  # type: ignore[assignment]
+    set_toolset(s.registry, s.sid, stage)
+
+
+@_guard
+async def deliver_package(ctx: ToolContext, out_name: str = "") -> str:
+    """From a finished design to a delivered package in one call: the lookdev review of the current scene (rendered
+    with the surfaces it ships with) unless one exists, LODs, colliders, validation, export, and what the review found."""
+    s = resolve(ctx)
+    async with s.registry.locked(s.sid):
+        nodes = len(s.stage.base_ir().nodes)
+        tier1_ok = s.state.last_tier1_ok
+        asset = s.stage.asset_prim.GetName()
+    if not nodes:
+        raise ValueError("nothing to deliver: the scene is empty (build it with apply_scene_ir)")
+    if not tier1_ok:
+        return "REFUSED Tier-1 has not passed on the current scene: fix what apply_scene_ir reported, then deliver_package"
+    # The reply leads with the outcome (r5/live_native5: a first reply that led with the review as the gates word it,
+    # "agent_repair ... gates win", and ended with the refusal sent the agent back to repair; after a delivered package
+    # it went on checking the package itself until its token share ran out).
+    review: list[str] = []
+    steps: list[str] = []
+    _enter(s, "LOOKDEV")
+    for _ in range(2):  # a second pass only when the review's own deterministic fix changed the scene
+        v = s.state.verdict
+        if v is not None and v.revision == s.state.revision and v.stage in {"lookdev", "final"}:
+            break
+        if s.pool is not None:
+            steps.append(await render_lookdev(ctx, "eevee"))
+        answer = await run_visual_qa(ctx)
+        review = answer.split("\n")
+        if "\nfix: " not in answer:
+            break
+    _enter(s, "EXPORT")
+    steps.append(await generate_lods_and_colliders(ctx))
+    steps.append(await run_usd_validator(ctx))
+    exported = await export_engine_package(ctx, out_name or asset)
+    head, *found = exported.split("\n")
+    findings_rule = s.state.verdict is not None and s.state.verdict.delivers_on_review
+    # Under the delivery rule (an uncalibrated preview) the review is a set of findings for the person: its verdict
+    # lines (the action the gates would take) are left out, the findings, brief and scores kept. Otherwise the review is
+    # the gate and is shown as it is.
+    shown = [x for x in review if x.startswith(("finding", "brief:", "scores", "fix:"))] if findings_rule else review
+    if findings_rule:  # the export line names the review's action ("review: agent_repair by ..."): a finding, not an order
+        head = re.sub(r"review: [a-z_]+ by ", "review by ", head)
+    if head.startswith("EXPORTED"):
+        where = s.last_export
+        out = [f"DELIVERED: {head}", *(found or shown), *steps,
+               f"FINISHED: the package{f' at {where}' if where else ''} was validated, imported and checked by this tool. "
+               "Reply to the user with its path and the findings above; do not inspect or re-check it."]
+    elif _needs_a_person(s):
+        # Live on 2026-11-22 (r5/live_native6): refused for a person's decision, the agent went back to LOOKDEV and
+        # painted its own maps by script until its token share ran out. This refusal ends the agent's work.
+        why = next((x.removeprefix("why: ") for x in review if x.startswith("why: ")), head.removeprefix("REFUSED "))
+        out = [f"{NEEDS_A_PERSON} ({why}). Reply to the user with this reason and stop: changing the surfaces or the "
+               "design to get past it is not wanted.", *shown, *steps, head]
+    else:
+        out = [f"NOT DELIVERED: {head.removeprefix('REFUSED ')}. Fix what it names with apply_scene_ir and call "
+               "deliver_package again.", *shown, *steps]
+    return "\n".join(out)
+
+
+NEEDS_A_PERSON = "NOT DELIVERED: a person must decide"
+
+
+def _needs_a_person(s: Session) -> bool:
+    """Whether export was refused for something only a person may clear: the review escalated to a person, or the judge
+    raised a hard policy flag."""
+    v = s.state.verdict
+    flags = getattr(s.plane, "hard_policy_flags", None) if getattr(s.plane, "preview", False) else None
+    return bool(flags) or (v is not None and v.revision == s.state.revision and v.action == "escalate_human")
+
+
 STAGE_TOOLS: dict[str, list[ToolFn]] = {
     "BLOCKOUT": [apply_scene_ir, inspect_manifest, undo_last_edit, render_preview, run_visual_qa],
     "TWEAK": [apply_scene_ir, inspect_manifest, query_region, undo_last_edit],
@@ -1238,6 +1388,15 @@ STAGE_TOOLS: dict[str, list[ToolFn]] = {
     "LOOKDEV": [forge_pbr_material, apply_shader_diff, run_paintover_loop, render_lookdev, run_visual_qa],
     "EXPORT": [inspect_manifest, generate_lods_and_colliders, run_usd_validator, export_engine_package, run_bpy_script],
 }
+# The tools the short path (SHORT_PATH) calls. A session served over MCP (a native conversation: one agent, no stage
+# agents) lists them from the start, before any session exists, and may call them in every stage but VARIANTS; the
+# stage-scoped catalogue keeps hiding the finer-control tools. Live on 2026-11-22 (r5/live_native4, arm N): the agent
+# listed the server's tools before opening a session, found none of the tools the instructions named (the catalogue
+# was stage-scoped and showed them only after open_asset_session), and built the crate by scripting Blender instead.
+# Called before a session exists, each answers "no asset session: call open_asset_session first".
+SHORT_PATH_TOOLS: list[ToolFn] = [apply_scene_ir, render_preview, run_visual_qa, deliver_package, inspect_manifest,
+                                   undo_last_edit]
+SESSION_TOOLS: dict[str, list[ToolFn]] = {stage: ([] if stage == "VARIANTS" else list(SHORT_PATH_TOOLS)) for stage in STAGE_TOOLS}
 SUBAGENT_TOOLS: dict[str, list[ToolFn]] = {
     "usd_verifier": [inspect_manifest, run_usd_validator],
     "lookdev_critic": [inspect_manifest, qa_probe],
@@ -1251,5 +1410,6 @@ SUBAGENT_TOOLS: dict[str, list[ToolFn]] = {
 STAGE_SUBAGENTS: dict[str, tuple[str, ...]] = {
     "BLOCKOUT": (), "TWEAK": (), "VARIANTS": ("usd_verifier",), "LOOKDEV": ("lookdev_critic", "usd_verifier"), "EXPORT": (),
 }
-ALL_TOOLS: dict[str, ToolFn] = {f.__name__: f for fs in (*STAGE_TOOLS.values(), *SUBAGENT_TOOLS.values()) for f in fs}
+ALL_TOOLS: dict[str, ToolFn] = {f.__name__: f for fs in (*STAGE_TOOLS.values(), *SESSION_TOOLS.values(), *SUBAGENT_TOOLS.values())
+                                for f in fs}
 READ_ONLY_TOOL_NAMES = frozenset(f.__name__ for fs in SUBAGENT_TOOLS.values() for f in fs)

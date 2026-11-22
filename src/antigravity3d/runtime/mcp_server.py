@@ -78,10 +78,13 @@ MANAGEMENT_TOOLS = ("open_asset_session", "open_existing_asset", "start_preview"
 SESSION_ID_DOC = "Asset session to act on; omit to use the active (most recently opened or selected) one."
 INSTRUCTIONS = (
     "antigravity-3d asset studio. To change an asset that already exists (a package or a prop folder in the workspace), "
-    "call open_existing_asset and edit it; never author it again. For a new asset call open_asset_session first, then work stage by stage: tools outside the "
-    "active stage are refused (set_stage switches). Edit only through apply_scene_ir; export_engine_package is "
+    "call open_existing_asset and edit it; never author it again. For a new asset call open_asset_session first. "
+    + T.SHORT_PATH + " The stage tools (set_stage switches; tools outside the active stage are refused) are there for finer "
+    "control. Edit only through apply_scene_ir; outside a preview export is "
     "refused until Tier-1 passes and Decisions approves current EEVEE/Cycles lookdev at >= 3.4. Without the native Decisions "
-    "API only an UNVERIFIED preview can be exported: ask the user for a token ceiling and an image limit, then start_preview. "
+    "API only an UNVERIFIED preview can be exported: open_asset_session's reply says whether this session already is one "
+    "(limits given at open); only if the reply asks for it, ask the user for a token ceiling and an image limit and call "
+    "start_preview. "
     "Use the returned session_id for native export. Replies are one line.")
 
 
@@ -189,10 +192,10 @@ class StudioHost:
                 return f"ERROR {compress_exception(e)}"
 
     def visible_tools(self) -> set[str]:
-        names = set(MANAGEMENT_TOOLS) | set(inspector_app.TOOL_NAMES)
+        names = set(MANAGEMENT_TOOLS) | set(inspector_app.TOOL_NAMES) | {fn.__name__ for fn in T.SHORT_PATH_TOOLS}
         if self.active is not None:
             stage = session(self.registry, self.active).toolset
-            names.update(fn.__name__ for fn in T.STAGE_TOOLS[stage])
+            names.update(fn.__name__ for fn in (*T.STAGE_TOOLS[stage], *T.SESSION_TOOLS[stage]))
         return names
 
     async def change_catalog(self, ctx: Context, fn: Any, *args: Any) -> str:
@@ -222,8 +225,9 @@ class StudioHost:
                 f"stage={s.toolset} tris<={s.state.budget.max_tris}"
                 + (f" art={s.state.art_direction}" if s.state.art_direction else "") + f" workdir={s.workdir}")
         if s.state.preview:
+            note = T.surfaces_note(s, opening=True)
             return line + (f" | PREVIEW (UNVERIFIED: judged by {s.plane.judge_label if s.plane else 'none'}; never verified)"
-                           f" limits: {s.governor.summary()}")
+                           f" limits: {s.governor.summary()}") + (f" | {note}" if note else "")
         if s.plane is not None and not s.plane.calibrated:  # fail early: say now what will be refused, not at export
             return line + (" | WARNING: the native Decisions API is not available on this key, so run_visual_qa and "
                            f"export_engine_package will be refused. Remedy: {T.PREVIEW_SWITCH}")
@@ -257,7 +261,7 @@ class StudioHost:
         self._set_stage(sid, "BLOCKOUT")
         self.gates[sid] = InvariantAndSafetyGate(self.registry, sid)
         self.active = sid
-        return self._line(sid)
+        return self._line(sid) + " | " + T.SHORT_PATH
 
     async def open_existing_asset(self, path: str, workspace: str = "", conversation_id: str = "", preview: bool = False,
                                   token_ceiling: int | None = None, max_images: int | None = None) -> str:
@@ -292,7 +296,7 @@ class StudioHost:
         self.active = sid
         return (self._line(sid) + f" | opened {shipped.package} as it shipped ({len(scene.nodes)} parts; materials from {origin}). "
                 "Stage TWEAK: change only what the user asks with apply_scene_ir (inspect_manifest lists the part ids); every "
-                "other part stays as it is. Then run_visual_qa and export as usual.")
+                "other part stays as it is. Then render_preview to check the change, and deliver_package.")
 
     async def start_preview(self, token_ceiling: int, max_images: int, session_id: str = "") -> str:
         sid = self.pick(session_id)
@@ -313,7 +317,8 @@ class StudioHost:
         self._set_stage(sid, stage)
         self.active = sid
         names = ", ".join(f.__name__ for f in T.STAGE_TOOLS[stage])
-        return f"STAGE {stage} callable: {names}"
+        note = T.surfaces_note(session(self.registry, sid)) if stage == "LOOKDEV" else ""
+        return f"STAGE {stage} callable: {names}" + (f" | {note}" if note else "")
 
     async def session_status(self, session_id: str = "") -> str:
         return state_header(session(self.registry, self.pick(session_id)))

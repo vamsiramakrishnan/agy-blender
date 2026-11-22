@@ -54,7 +54,16 @@ not a handful of blocks.
    schema and the stage's instructions; the rules of mirror and repeat are in
    `ir_shortcuts.py`. The kernel never clamps a value: it builds it as given
    or refuses the node, naming it and the numbers.
-4. **Look and improve.** `render_preview` shows you the design: five 512 px
+4. **Look and improve.** Every model call sends the whole conversation, so
+   build in a few patches (the first the materials and main body, then two or
+   three of at most 25 operations, repeated parts written once with mirror or
+   repeat; a reply is cut off at 16,384 output tokens, so split a call that was
+   cut off and send it again) and put calls that can go together in one turn; when the
+   design reads right, `deliver_package` reviews, packages and exports it in one
+   call; its answer `DELIVERED` ends the run (reply with the path and the
+   findings), `NOT DELIVERED: a person must decide` means reply with the reason
+   and stop, and any other `NOT DELIVERED` names what to fix before calling it
+   again. `render_preview` shows you the design: five 512 px
    views (front, right, top, two perspectives from opposite corners), shaded
    as the package ships with part outlines drawn, a numbered badge on every
    part and a legend from badge to node id. Small views arrive inline; open a
@@ -114,7 +123,7 @@ Modelling it again changes every part; the developer asked for one.
    Keep a part's mount face where it was so it still touches what it sits on.
    Do not add a material: an edit generates no image, so a new material ships
    without a texture.
-4. Then QA and export as usual.
+4. Then `render_preview` to check the change, and `deliver_package`.
 
 From the command line the same is `agy3d edit OUT "<change>"`: one authoring
 call shown the five badged views and the instruction, kept only when the judge

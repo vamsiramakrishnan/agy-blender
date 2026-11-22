@@ -57,6 +57,9 @@ class Preview:
     # agent is shown, the legend) and the badged PNGs on disk, in view order
     design: Any = None
     view_paths: tuple[Path, ...] = ()
+    # the strings the generated surfaces painted on purpose in this render (kernel.smart_source.placed_strings of the
+    # package it shows); a review of this preview states them as a fact (engine.evaluate_visual_qa placed_markings)
+    placed: tuple[str, ...] = ()
 
 
 @dataclass
@@ -118,13 +121,15 @@ class Session:
         self._set(R_LAST_EXPORT, path)
 
     def add_preview(self, path: Path, uri: str, geom_version: int | None = None, *, kind: str = "clay",
-                    texture_hash: str = "", design: Any = None, view_paths: tuple[Path, ...] = ()) -> Preview:
+                    texture_hash: str = "", design: Any = None, view_paths: tuple[Path, ...] = (),
+                    placed: tuple[str, ...] = ()) -> Preview:
         version = self.geom_version if geom_version is None else geom_version
         if version != self.geom_version:
             raise RuntimeError("geometry changed during render; re-run")
         prev = self.previews
         image_hash = hashlib.sha256(path.read_bytes()).hexdigest()
-        p = Preview(path, uri, version, prev[-1].index + 1 if prev else 1, kind, texture_hash, image_hash, design, view_paths)
+        p = Preview(path, uri, version, prev[-1].index + 1 if prev else 1, kind, texture_hash, image_hash, design, view_paths,
+                    tuple(placed))
         self._set(R_PREVIEWS, [*prev[-7:], p])
         return p
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -158,3 +159,237 @@ async def test_uncalibrated_preview_exports_with_its_findings(tmp_path):
     assert r.startswith("EXPORTED PREVIEW crate") and "finding: silhouette 2.60, below the target 3.3" in r
     manifest = json.loads((env.sess().export_dir / "crate" / "manifest.json").read_text())
     assert manifest["review"]["status"] == "below_target" and manifest["review"]["findings"] and manifest["verified"] is False
+
+
+# ---- surfaces are said at the moment they matter; a call's maps are screened together --------------------------
+
+async def test_a_session_without_images_and_lookdev_say_what_happens_to_surfaces(tmp_path):
+    from test_mcp_server import call, client
+
+    async with client(tmp_path / "on", env={"AGY3D_GENERATED_SURFACES": "1"}) as s:  # the suite turns them off
+        r = await call(s, "open_asset_session", asset_name="Crate", target_engine="godot_4", preview=True,
+                       token_ceiling=400_000, max_images=0)
+        assert "NO IMAGES in this session (image limit 0). SURFACES:" in r and "neither needed nor wanted" in r
+        r = await call(s, "set_stage", stage="LOOKDEV")
+        assert r.startswith("STAGE LOOKDEV callable:") and "SURFACES:" in r
+        assert "SURFACES" not in await call(s, "set_stage", stage="BLOCKOUT")
+        r = await call(s, "open_asset_session", asset_name="Crate", target_engine="godot_4", preview=True,
+                       token_ceiling=400_000, max_images=4)
+        assert "SURFACES" not in r  # images can be made: said at LOOKDEV only
+    async with client(tmp_path / "off") as s:  # generated surfaces off: nothing is promised
+        r = await call(s, "open_asset_session", asset_name="Crate", target_engine="godot_4", preview=True,
+                       token_ceiling=400_000, max_images=0)
+        assert "SURFACES" not in r and "SURFACES" not in await call(s, "set_stage", stage="LOOKDEV")
+
+
+async def test_a_calls_maps_are_screened_together(tmp_path):
+    from antigravity3d.harness.hooks import InvariantAndSafetyGate
+
+    env = make_session(tmp_path, stage="LOOKDEV")
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    paths = []
+    for k in range(3):
+        p = tmp_path / f"map{k}.png"
+        Image.new("RGB", (8, 8), (k * 40, 90, 120)).save(p)
+        paths.append(str(p))
+    gate = InvariantAndSafetyGate(env.reg, env.sid)
+    running = peak = 0
+    plane = env.sess().plane
+
+    async def slow_policy(uri, *, governor=None):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.05)
+        running -= 1
+        from antigravity3d.decisions.models import PolicyVerdict
+        return PolicyVerdict(True, False, {})
+
+    plane.policy_gate = slow_policy
+    v = await gate.decide("apply_shader_diff", {"material_id": "wood", "diff": {"albedo_uri": paths[0], "orm_uri": paths[1],
+                                                                              "normal_uri": paths[2]}})
+    assert v.allow and peak == 3
+
+
+async def test_lookdev_renders_the_package_with_its_generated_surfaces(tmp_path):
+    """With generated surfaces on and an image-less opaque material, render_lookdev renders the package the export will
+    write (its shared atlas carries the painted surfaces), not the stage's flat colours."""
+    from dataclasses import replace
+
+    seen: list[Path] = []
+
+    class Pool:
+        fake = False
+
+        async def call(self, op, *, path, **kw):
+            p = Path(path)
+            assert p.is_file()
+            seen.append((p, (p.parent / "manifest.json").is_file() and any((p.parent / "textures").glob("*albedo*"))))
+            return {"image": np.zeros((512, 512, 4), np.float32) + 0.5, "fake": False, "engine": kw.get("engine")}
+
+    env = make_session(tmp_path, stage="LOOKDEV", pool=Pool())
+    crate = {"nodes": [dict(o["node"], material_id="paint") for o in CRATE["ops"]],
+             "materials": [{"id": "paint", "base_color": [0.3, 0.4, 0.25], "surface": "olive drab painted steel"}]}
+    await T.apply_scene_ir(crate, env.ctx)
+    env.state.budget = replace(env.state.budget, generated_surfaces=False)
+    r = await T.render_lookdev(env.ctx, "eevee")
+    assert "generated surfaces" not in r and seen[-1][0].suffix == ".usdc" and not seen[-1][1]
+    env.state.budget = replace(env.state.budget, generated_surfaces=True)
+    r = await T.render_lookdev(env.ctx, "eevee")
+    assert "generated surfaces shown" in r
+    assert seen[-1][1]  # rendered from a written package with its textures
+
+
+async def test_deliver_package_goes_from_a_design_to_a_package_in_one_call(tmp_path):
+    pytest.importorskip("antigravity3d.delivery")
+    env = make_session(tmp_path, client=FakeDecisionsClient(uncalibrated=True, default_score=2.6), stage="BLOCKOUT")
+    S.switch_to_preview(env.reg, env.sid, 400_000, 0)
+    assert (await T.deliver_package(env.ctx)).startswith("ERROR")  # nothing to deliver yet
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    r = await T.deliver_package(env.ctx, "crate")
+    lines = r.split("\n")
+    # the outcome first, then the findings for the person (no gate verdict: r5/live_native5 read "agent_repair" as an
+    # order), the steps, and the line that ends the run
+    assert lines[0].startswith("DELIVERED: EXPORTED PREVIEW crate"), r
+    assert lines[1].startswith("finding: ") and any(x.startswith("finding: silhouette 2.60") for x in lines)
+    assert any(x.startswith("LODS ") for x in lines) and any(x.startswith("USD ") for x in lines)
+    assert lines[-1].startswith("FINISHED: the package at ") and "do not inspect" in lines[-1]
+    assert "agent_repair" not in r and "gates win" not in r
+    assert env.sess().toolset == "EXPORT" and (env.sess().export_dir / "crate" / "manifest.json").is_file()
+    again = await T.deliver_package(env.ctx, "crate2")  # the review of this revision is reused, not asked again
+    assert again.startswith("DELIVERED: EXPORTED PREVIEW crate2")
+
+
+def test_the_short_path_says_how_big_a_call_is_and_why_not_to_script_blender():
+    """r5/live_native3: told to build in as few calls as it takes, the agent sent the whole crate in one reply, which was
+    cut off at the output limit before any tool call; it then scripted Blender in files and never used the studio."""
+    agents_md = (Path(__file__).resolve().parents[1] / "plugin" / "antigravity-3d" / "rules" / "AGENTS.md").read_text()
+    for text in (T.SHORT_PATH, mcp_server.INSTRUCTIONS, " ".join(agents_md.split())):
+        assert "at most 25 operations" in text and "16,384" in text and "split and sent again" in text
+        assert "not by scripting Blender" in text and "as few calls as it takes" not in text
+        assert "DELIVERED" in text and "do not inspect it again" in text and "NOT DELIVERED: a person must decide" in text
+
+
+def _named_tools(text: str) -> set[str]:
+    import re
+
+    from antigravity3d.runtime import inspector_server
+
+    known = set(T.ALL_TOOLS) | set(mcp_server.MANAGEMENT_TOOLS) | set(inspector_server.TOOL_NAMES)
+    return {w for w in re.findall(r"[a-z_]+", text) if w in known}
+
+
+def _bundle_text(rel: str) -> str:
+    return (Path(__file__).resolve().parents[1] / "plugin" / "antigravity-3d" / rel).read_text()
+
+
+async def test_every_tool_the_instructions_name_is_listed_before_a_session_exists(tmp_path):
+    """r5/live_native4: the agent listed the server's tools before opening a session, found none of the tools the
+    instructions named (the catalogue showed them only after open_asset_session) and scripted Blender instead. A scripted
+    model cannot catch this (it never looks): the catalogue a fresh connection gets must hold every tool the texts name."""
+    from test_mcp_server import call, client
+
+    agents = _bundle_text("rules/AGENTS.md")
+    skill = _bundle_text("skills/parametric-kitbash/SKILL.md")
+    new_asset = {"server instructions": mcp_server.INSTRUCTIONS, "SHORT_PATH": T.SHORT_PATH,
+                 "AGENTS.md short path": agents[agents.index("## The short path"):agents.index("## How the tools reach you")],
+                 "kitbash steps": skill[skill.index("## Steps"):skill.index("## Changing an asset that already exists")]}
+    edit = skill[skill.index("## Changing an asset that already exists"):skill.index("## The same loop")]
+    async with client(tmp_path) as s:
+        fresh = {t.name for t in (await s.list_tools()).tools}
+        for label, text in new_asset.items():
+            assert _named_tools(text) <= fresh, (label, _named_tools(text) - fresh)
+        assert {"apply_scene_ir", "render_preview", "deliver_package"} <= fresh
+        for name in ("apply_scene_ir", "render_preview", "deliver_package", "inspect_manifest", "run_visual_qa"):
+            r = await call(s, name, **({"ops": []} if name == "apply_scene_ir" else {}))
+            assert "no asset session: call open_asset_session first" in r, (name, r)
+    # the edit flow: open_existing_asset puts the session in TWEAK; what its texts name is listed then
+    host = mcp_server.StudioHost()
+    tweak = set(mcp_server.MANAGEMENT_TOOLS) | {f.__name__ for f in (*T.STAGE_TOOLS["TWEAK"], *T.SHORT_PATH_TOOLS)}
+    assert _named_tools(edit) <= tweak, _named_tools(edit) - tweak
+    assert host.visible_tools() >= {f.__name__ for f in T.SHORT_PATH_TOOLS}
+
+
+async def test_a_refused_delivery_says_so_first_and_what_to_fix(tmp_path, monkeypatch):
+    pytest.importorskip("antigravity3d.delivery")
+    env = make_session(tmp_path, client=FakeDecisionsClient(uncalibrated=True, default_score=2.6), stage="BLOCKOUT")
+    S.switch_to_preview(env.reg, env.sid, 400_000, 0)
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+
+    async def refuse(ctx, out_name):
+        return "REFUSED blender_asset_qa: 1 error(s): floating/detached part in Batch_0"
+
+    monkeypatch.setattr(T, "export_engine_package", refuse)
+    r = await T.deliver_package(env.ctx, "crate")
+    assert r.startswith("NOT DELIVERED: blender_asset_qa: 1 error(s)") and "call deliver_package again" in r.split("\n")[0]
+    assert "FINISHED" not in r and "agent_repair" not in r and "a person must decide" not in r
+
+
+async def test_a_review_of_a_render_with_placed_stencils_states_them_and_a_clay_one_does_not(tmp_path):
+    """r5/live_native6: the lookdev render showed the generated surfaces' stencils, the review (not told they were painted
+    on purpose) escalated to a person for IP/text risk and the export was refused."""
+    env = make_session(tmp_path, stage="LOOKDEV")
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    s = env.sess()
+    for placed in (("FRAGILE", "THIS SIDE UP"), ()):
+        s.add_preview(_png(tmp_path / f"r{len(placed)}.png"), f"https://x/r{len(placed)}.png", kind="eevee",
+                      texture_hash=s.texture_digest(), placed=placed)
+        await T.run_visual_qa(env.ctx)
+        req = [c for c in env.client.calls if "defect_cg_plastic" in c["questions"]][-1]
+        texts = " ".join(b.get("text", "") for b in req["input"])
+        asked = req["questions"]["defect_ip_or_text"]["instructions"]
+        if placed:
+            assert "FRAGILE" in texts and "THIS SIDE UP" in texts and asked.startswith(Q_BEYOND_HEAD, asked.index("Apart"))
+        else:
+            assert "FRAGILE" not in texts and "Apart from the stencil markings" not in asked
+
+
+Q_BEYOND_HEAD = "Apart from the stencil markings listed in the input as painted on purpose"
+
+
+def _png(path):
+    Image.new("RGB", (32, 32), (120, 110, 90)).save(path)
+    return path
+
+
+async def test_a_refusal_for_a_person_says_so_first_and_ends_the_work(tmp_path):
+    pytest.importorskip("antigravity3d.delivery")
+    env = make_session(tmp_path, client=FakeDecisionsClient({"defect_ip_or_text": 0.95}, uncalibrated=True,
+                                                             default_score=2.6), stage="BLOCKOUT")
+    S.switch_to_preview(env.reg, env.sid, 400_000, 0)
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    r = await T.deliver_package(env.ctx, "crate")
+    first = r.split("\n")[0]
+    assert first.startswith("NOT DELIVERED: a person must decide (") and "stop" in first and "not wanted" in first, r
+    assert "FINISHED" not in r and not (env.sess().export_dir / "crate").exists()
+
+
+async def test_a_design_whose_only_text_is_the_placed_stencils_is_delivered(tmp_path, monkeypatch):
+    """With the stand-in judge answering the plain text question yes and the 'apart from the placed markings' question
+    no (as the live judge does), the placed stencils no longer stop the export."""
+    pytest.importorskip("antigravity3d.delivery")
+
+    def responder(req):
+        q = req["questions"].get("defect_ip_or_text")
+        return {"defect_ip_or_text": 0.05 if q and "Apart from the stencil markings" in q["instructions"] else 0.95}
+
+    env = make_session(tmp_path, client=FakeDecisionsClient(responder=responder, uncalibrated=True, default_score=2.6),
+                       stage="BLOCKOUT")
+    S.switch_to_preview(env.reg, env.sid, 400_000, 0)
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    real = T.render_lookdev
+
+    async def lookdev_with_stencils(ctx, engine="eevee"):  # the package's placed strings, as render_lookdev records them
+        s = T.resolve(ctx)
+        s.add_preview(_png(tmp_path / "ld.png"), "https://x/ld.png", kind="eevee", texture_hash=s.texture_digest(),
+                      placed=("FRAGILE",))
+        env.reg.attach(env.sid, S.R_POOL, None)  # no Blender for the export's own checks offline
+        return "LOOKDEV eevee render (stand-in)"
+
+    monkeypatch.setattr(T, "render_lookdev", lookdev_with_stencils)
+    env.reg.attach(env.sid, S.R_POOL, object())  # deliver_package renders the lookdev only with a pool
+    try:
+        r = await T.deliver_package(env.ctx, "crate")
+    finally:
+        monkeypatch.setattr(T, "render_lookdev", real)
+    assert r.startswith("DELIVERED: EXPORTED PREVIEW crate"), r

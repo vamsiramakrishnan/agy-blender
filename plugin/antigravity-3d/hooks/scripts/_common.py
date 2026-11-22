@@ -39,7 +39,7 @@ STUDIO_TOOLS = (
     "install_into_project", "apply_scene_ir", "inspect_manifest", "query_region", "undo_last_edit", "render_preview", "run_visual_qa", "qa_probe",
     "propose_variants", "select_variant", "promote_variant", "forge_pbr_material", "apply_shader_diff",
     "run_paintover_loop", "render_lookdev", "generate_lods_and_colliders", "run_usd_validator",
-    "export_engine_package", "run_bpy_script",
+    "export_engine_package", "run_bpy_script", "deliver_package",
     # the 3D review inspector MCP App (runtime/inspector_server.py): two model tools, four app-only tools
     "open_inspector", "review_notes",
     "inspector_payload", "inspector_qa_state", "inspector_list_notes", "inspector_save_note",
