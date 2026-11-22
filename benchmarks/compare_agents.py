@@ -5,6 +5,11 @@
     python benchmarks/compare_agents.py dry-run [--root DIR] [--only BRIEF:ARM ...] [--skip-eval]
     python benchmarks/compare_agents.py live --go [--root DIR] [--only BRIEF:ARM ...]
 
+For a fresh stock/pipeline comparison, use ``--paired --round NAME --c-candidates single|default`` plus explicit
+equal ``--run-tokens A=N C=N``, ``--run-images A=M C=M`` and total ceilings. ``plan --json`` prints the complete
+contract without execution. Runs require a fresh explicit ``--root``; fake and live results cannot share a root.
+The paired profile measures CLI MeteredAuthor, not the native AgentAuthor stage. Historical defaults stay intact.
+
 A run whose ``runs/<brief>_<arm>/record.json`` exists is not run again: repeating a command re-evaluates, re-judges
 (within the judge's remaining share) and rewrites the gallery without spending on runs twice.
 
@@ -37,7 +42,9 @@ import asyncio
 import base64
 import contextlib
 import datetime as dt
+import hashlib
 import http.server
+import importlib.metadata
 import json
 import math
 import os
@@ -215,6 +222,12 @@ def budget_sentence(calls: int) -> str:
 
 def task_text(b: Brief, calls: int | None = None) -> str:
     """The task, identical for every arm; from round 2 it ends with the budget sentence (the arm's own call count)."""
+    if BUDGET.get("paired"):
+        return (paired_brief(b) + "\n\nBlender 5.3 is installed on PATH as `blender`; run it headless. "
+                "There is no display and no network. Deliver exactly one main output/<name>.glb and PNG textures "
+                "in output/textures/. Optional LODs and collisions may be separate files. "
+                "Reply with what you made and anything you could not do."
+                + (f"\n\n{budget_sentence(calls)}" if calls else ""))
     return f"""Make a game-ready 3D prop: {b.prompt}.
 
 Target engine: Godot 4 (import as glTF 2.0 binary).
@@ -238,6 +251,103 @@ PLAN_NOTES = {
                         "the stock 65,535 so a call's worst case does not consume a third of the run's share; "
                         "file tools limited to the workspace; harness budget backstop 40 model calls / 120 tool calls.",
 }
+
+
+def paired_brief(b: Brief) -> str:
+    """Content requirements shared verbatim by stock and pipeline; execution instructions stay arm-specific."""
+    return f"""Make a finished production game prop: {b.prompt}.
+Target engine: Godot 4; final delivery is glTF 2.0 binary.
+- Model each named component and its recognisable construction; add visible secondary forms where they serve the brief.
+- Keep believable proportions and real-world scale: largest dimension {b.size_m[0]} to {b.size_m[1]} metres.
+- At most {b.max_tris} triangles. This is a ceiling, not a quality score or a target to fill with repeated detail.
+- Ground the prop and centre it horizontally; exported glTF uses +Y up (use the authoring system's own axis convention).
+- UVs inside 0-1 without overlap; at most 3 PBR metallic-roughness materials, with base colour, normal and metallic-roughness textures.
+- Texture sizes are powers of two, at most 2048 px. The complete delivered prop, including geometry and materials, is evaluated."""
+
+
+PAIRED_LIMITATIONS = (
+    "A is a stock agent scripting Blender; C is agy3d prop in preview mode. Their workflows differ. "
+    "C.bind() uses MeteredAuthor: this comparison does not exercise AgentAuthor.propose_with_outcomes().",
+    "Both arms receive the same content requirements and token/image ceilings. C keeps its 15,000-token internal "
+    "admission margin; account caps, actual spend and refusals are reported separately. The shared 3-material "
+    "requirement is checked on delivered files; the pipeline's internal engine budget still permits 4.",
+    "C's candidate mode is fixed before execution. Its internal alternatives and repair loop differ from the stock "
+    "agent's iterative workflow; this is an end-to-end system comparison, not an isolated prompt ablation.",
+    "No manual continuations or hand-completed packages are admitted. One session per arm per brief; a failed "
+    "delivery remains a failure. Rerunning reuses its record rather than spending on a replacement.",
+    "Both outputs receive identical file checks and renders, then the same blind rubric in both orders. "
+    "The fallback judge is uncalibrated and related to the author models; human acceptance is not established.",
+    "One run per arm per brief is a pilot. Dry-run model answers are scripted and establish harness behaviour, "
+    "not geometry quality, model capability, production yield or a win rate.",
+)
+
+
+def comparison_contract() -> dict[str, Any]:
+    """A reviewable paired plan, with exact prompts and local source hashes. No model calls or file writes."""
+    files = sorted(p for p in PROJECT_SRC.rglob("*") if p.is_file() and p.suffix in {".py", ".json", ".yaml", ".yml"})
+    hashes = {str(p.relative_to(PROJECT_SRC)): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
+    harness = {name: hashlib.sha256((HERE / name).read_bytes()).hexdigest()
+               for name in ("compare_agents.py", "compare_eval.py", "compare_sandbox.py")}
+    revision = subprocess.run(["git", "-C", str(PROJECT_SRC.parent), "rev-parse", "HEAD"],
+                              capture_output=True, text=True, timeout=10)
+    versions = {}
+    for package in ("google-antigravity", "google-genai"):
+        try:
+            versions[package] = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError:
+            versions[package] = None
+    prompts = {b: {"content": paired_brief(BRIEF_BY_ID[b]),
+                   "A": task_text(BRIEF_BY_ID[b], calls_allowed("A")), "C": paired_brief(BRIEF_BY_ID[b])}
+               for b in BUDGET["briefs"]}
+    return {"schema_version": 1, "profile": "paired", "budget": json.loads(json.dumps(BUDGET)),
+            "planned_totals": plan_totals(), "order": order(), "prompts": prompts, "wall_limit_s_per_arm": C_TIMEOUT_S,
+            "source": {"revision": revision.stdout.strip() if revision.returncode == 0 else None,
+                       "project_src": str(PROJECT_SRC),
+                       "source_sha256": hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest(),
+                       "harness_sha256": harness, "sdk_versions": versions},
+            "author_contracts": {"A": "stock SDK defaults + scriptable Blender", "C": "MeteredAuthor via CLI bind; production_prop",
+                                 "native_AgentAuthor_tested": False},
+            "judge": {"model": JUDGE_MODEL, "thinking": JUDGE_THINKING, "max_output_tokens": JUDGE_MAX_OUTPUT,
+                      "both_orders": True, "order_seed": 20261121,
+                      "calls": judge_calls_planned(BUDGET["briefs"], BUDGET["arms_planned"])},
+            "limitations": list(PAIRED_LIMITATIONS), "approval_required_for_live": True}
+
+
+def bind_comparison_contract(root: Path, *, live: bool, c_against_fake: bool = False,
+                             use_blender: bool = True) -> dict[str, Any]:
+    """Keep revisions, settings and fake/live provenance immutable under one output root."""
+    contract = comparison_contract() | {"execution": {"mode": "live" if live else "dry-run",
+                                                     "c_against_fake": c_against_fake, "use_blender": use_blender}}
+    path = root / "comparison-contract.json"
+    if path.exists():
+        if json.loads(path.read_text()) != json.loads(json.dumps(contract)):
+            raise ValueError("paired comparison source, plan or execution mode changed; use a fresh --root")
+    else:
+        if (root / "ledger.json").exists() or any((root / "runs").glob("*/record.json")):
+            raise ValueError("paired comparison needs a fresh --root; existing records have no matching contract")
+        root.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(contract, indent=2) + "\n")
+    return contract
+
+
+def paired_constraints(records: list[Any], evaluation: dict[str, Any]) -> dict[str, Any]:
+    """Common numeric requirements, independent of either arm's own QA gates or the visual judge."""
+    out = {}
+    for rec in records:
+        key = f"{rec.brief}:{rec.arm}"
+        result = evaluation.get(key)
+        if result is None:
+            out[key] = {"status": "not evaluated"}
+            continue
+        facts = result.get("facts") or {}
+        checks = {"delivered_unassisted": bool(result.get("glb_exists")) and rec.status == "finished"
+                  and (rec.arm != "C" or rec.pipeline.get("exit_code") == 0),
+                  "triangle_limit": isinstance(facts.get("triangles"), int)
+                  and 0 < facts["triangles"] <= BRIEF_BY_ID[rec.brief].max_tris,
+                  "material_limit": isinstance(facts.get("materials"), int) and 0 < facts["materials"] <= 3}
+        out[key] = {"status": "passed" if all(checks.values()) else "failed", "checks": checks,
+                    "scope": "delivery, triangle and material limits only; engine, scale, UV, PBR and visual checks are reported separately"}
+    return out
 
 # Measured 2026-11-21 against the local Gemini stand-in (benchmarks/compare_agents.py, tests/test_compare_agents.py
 # test_the_headless_harness_discovers_the_plugin_nowhere): google-antigravity 0.1.24, its bundled localharness.
@@ -1374,7 +1484,8 @@ def stock_spec(run_dir: Path, arm: str, brief: Brief, *, plugin: bool = False, s
     import google.antigravity as ga
 
     pydeps = Path(ga.__file__).resolve().parents[2]
-    cfg = {"task": task_text(brief, calls), "timeout_s": STOCK_TIMEOUT_S, "max_output_tokens": STOCK_MAX_OUTPUT,
+    cfg = {"task": task_text(brief, calls), "timeout_s": C_TIMEOUT_S if BUDGET.get("paired") else STOCK_TIMEOUT_S,
+           "max_output_tokens": STOCK_MAX_OUTPUT,
            "budget": STOCK_BUDGET, "skills_path": f"{sb.WORKSPACE}/.agents/skills" if arm == "B" else None,
            "host": {"pydeps": str(pydeps), "blender_dir": str(host_blender_dir()), "ctl": str(run_dir / "ctl"),
                     "home": str(run_dir / "home"), "work": str(work), "sock_dir": str(sock_dir)}}
@@ -1744,7 +1855,8 @@ def run_c(relay: Relay | None, root: Path, brief: Brief, *, offline: bool, wall_
     share_i = BUDGET["run_images"]["C"] if share_images is None else share_images
     acc = relay.open(name, share_t, share_i, run_dir, sandboxed=False) if relay else None
     out = run_dir / "out"
-    cmd = [sys.executable, "-m", "antigravity3d.cli", "prop", brief.prompt, "--engine", ENGINE, "--max-tris",
+    content = paired_brief(brief) if BUDGET.get("paired") else brief.prompt
+    cmd = [sys.executable, "-m", "antigravity3d.cli", "prop", content, "--engine", ENGINE, "--max-tris",
            str(brief.max_tris), "--out", str(out), "--preview"]
     if os.environ.get("BLENDER_BIN"):
         cmd += ["--blender", os.environ["BLENDER_BIN"]]
@@ -1754,6 +1866,11 @@ def run_c(relay: Relay | None, root: Path, brief: Brief, *, offline: bool, wall_
         rec.notes.append("arm C had NO Blender worker (BLENDER_BIN unset)")
     single, default_lines, single_lines = c_mode(PROJECT_SRC, share_i)
     rec.pipeline["plan_lines"] = {"default": default_lines, "single_candidate": single_lines}
+    if BUDGET.get("paired"):
+        # Do not let remaining image headroom silently change the experimental treatment.
+        single = BUDGET["c_candidates"] == "single"
+        rec.pipeline["author_contract"] = "MeteredAuthor via CLI bind; production_prop (not native AgentAuthor)"
+        rec.pipeline["content_requirements"] = content
     if offline:
         cmd.append("--offline")
         rec.notes.append("dry run: --offline (fake decisions, fake images, TemplateAuthor); no model calls")
@@ -1763,12 +1880,14 @@ def run_c(relay: Relay | None, root: Path, brief: Brief, *, offline: bool, wall_
         single = True
     if single:
         cmd.append("--single-candidate")
-        rec.notes.append(f"--single-candidate, {force_single}" if force_single else
+        rec.notes.append("--single-candidate: selected in the paired comparison plan" if BUDGET.get("paired") else
+                         f"--single-candidate, {force_single}" if force_single else
                          f"--single-candidate: the default mode's plans need more than {share_i} images ({'; '.join(default_lines)})")
     rec.pipeline["mode"] = ("single-candidate" + (f" ({force_single})" if force_single else "")) if single else "default"
-    rec.notes.append("arm C: this project's pipeline (command line, preview mode); not expressible on its command line: "
-                     + "; ".join(C_UNEXPRESSED))
-    rec.pipeline["command"] = [c if c != brief.prompt else f"<brief {brief.id}>" for c in cmd[1:]]
+    rec.notes.append("arm C: this project's pipeline (command line, preview mode); "
+                     + ("shared content requirements are included in the brief; package conventions remain pipeline-specific"
+                        if BUDGET.get("paired") else "not expressible on its command line: " + "; ".join(C_UNEXPRESSED)))
+    rec.pipeline["command"] = [c if c != content else f"<brief {brief.id}>" for c in cmd[1:]]
     env = c_env(acc.endpoint if acc else None, run_dir)
     env["PYTHONPATH"] = str(PROJECT_SRC)
     load_start = None
@@ -1830,6 +1949,9 @@ def run_c(relay: Relay | None, root: Path, brief: Brief, *, offline: bool, wall_
         rec.status = "stopped at limit"
     elif code is None:
         rec.status = "timeout"
+    elif BUDGET.get("paired") and code != 0:
+        # A diagnostic GLB can exist after a failed preview gate. Preserve it, but do not count a completed run.
+        rec.status = "failed gates" if code == 1 and glb is not None else "crashed"
     elif glb is None:
         rec.status = "crashed" if code not in (0, 1) else "gave up"
     else:
@@ -1849,14 +1971,15 @@ def plan_table() -> str:
         lines.append(f"| smoke run (crate:A, real API) | {b['smoke_tokens']:,} | 0 | first: proves relay, ledger and refusal |")
     for br, arm in order(b["briefs"], b["arms_planned"]):
         status = "now" if arm in b["arms_now"] else f"reserved, pending: {PENDING.get(arm, '')[:60]}..."
-        lines.append(f"| run {br}:{arm} | {b['run_tokens'][arm]:,} | {b['run_images'][arm]} | {status}; task says about "
-                     f"{calls_allowed(arm)} model calls |")
+        task_mode = (f"fixed {b['c_candidates']} candidates" if b.get("paired") and arm == "C"
+                     else f"task says about {calls_allowed(arm)} model calls")
+        lines.append(f"| run {br}:{arm} | {b['run_tokens'][arm]:,} | {b['run_images'][arm]} | {status}; {task_mode} |")
     n_now = judge_calls_planned(b["briefs"], b["arms_now"])
     n_all = judge_calls_planned(b["briefs"], b["arms_planned"])
     lines.append(f"| judge, {n_now} calls now + {n_all - n_now} when the pending arms exist ({JUDGE_MODEL}, thinking "
                  f"{JUDGE_THINKING}, max output {JUDGE_MAX_OUTPUT:,}) | {n_all * b['judge_tokens_per_call']:,} | 0 | "
                  f"{b['judge_tokens_per_call']:,} per call |")
-    for br, why in NOT_RUN.items():
+    for br, why in ({} if b.get("paired") else NOT_RUN).items():
         if br not in b["briefs"]:
             lines.append(f"| brief {br} | 0 | 0 | {why} |")
     t = plan_totals()
@@ -1965,6 +2088,11 @@ def run_smoke(root: Path, *, live: bool, brief: str = "crate", arm: str = "A") -
 def run_all(root: Path, *, live: bool, only: list[str] | None, use_blender: bool, skip_eval: bool,
             c_against_fake: bool = False, allow_new_ceilings: bool = False, c_native: bool = False,
             allow_c: bool = False, continue_cells: list[str] | None = None) -> dict[str, Any]:
+    contract = None
+    if BUDGET.get("paired"):
+        if continue_cells or c_native:
+            raise ValueError("paired comparison uses one CLI/stock session per cell; no continuations or native-arm substitution")
+        contract = bind_comparison_contract(root, live=live, c_against_fake=c_against_fake, use_blender=use_blender)
     root.mkdir(parents=True, exist_ok=True)
     relay, fake = make_relay(root, live=live, allow_new_ceilings=allow_new_ceilings, use_blender=use_blender)
     ledger = relay.ledger
@@ -1982,7 +2110,8 @@ def run_all(root: Path, *, live: bool, only: list[str] | None, use_blender: bool
             if arm == "C" and not c_native:  # round 2: the project's pipeline from its command line, preview mode
                 rec = run_c(relay, root, brief, offline=not (live or c_against_fake))
             else:
-                rec = run_stock(relay, root, brief, arm)
+                rec = run_stock(relay, root, brief, arm,
+                                wall_s=C_TIMEOUT_S if BUDGET.get("paired") else STOCK_TIMEOUT_S + 300)
             print(f"[pilot]   {rec.status}; glb={rec.glb}; {rec.tokens.get('total', 0):,} tokens; {rec.wall_s:.0f} s", flush=True)
         for cell in continue_cells or []:
             b, arm = cell.split(":")
@@ -1994,11 +2123,16 @@ def run_all(root: Path, *, live: bool, only: list[str] | None, use_blender: bool
             print(f"[pilot]   {rec.status}; glb={rec.glb}; {rec.tokens.get('total', 0):,} tokens; {rec.wall_s:.0f} s", flush=True)
         records = collect_records(root)
         results: dict[str, Any] = {"mode": "live" if live else "dry-run", "records": [asdict(r) for r in records],
-                                   "unfair": list(UNFAIR), "plugin_discovery": PLUGIN_DISCOVERY, "not_run": {**NOT_RUN, **{f"arm {k}": v for k, v in PENDING.items()
+                                   "unfair": list(PAIRED_LIMITATIONS if contract else UNFAIR), "plugin_discovery": PLUGIN_DISCOVERY, "not_run": {**NOT_RUN, **{f"arm {k}": v for k, v in PENDING.items()
                                                                                     if k not in {r.arm for r in records}}}}
+        if contract:
+            results["comparison_contract"] = contract
+            results["not_run"] = {f"{b}:{a}": "planned cell has no run record"
+                                  for b, a in order(BUDGET["briefs"], BUDGET["arms_planned"])
+                                  if (b, a) not in {(r.brief, r.arm) for r in records}}
         rnd = BUDGET.get("round")
         results["round"] = rnd
-        if rnd:
+        if rnd and not contract:
             results["round1"] = round1_findings(root)
             results["native_sizing"] = native_sizing()
             results["c_unexpressed"] = list(C_UNEXPRESSED)
@@ -2016,6 +2150,8 @@ def run_all(root: Path, *, live: bool, only: list[str] | None, use_blender: bool
                 if path.exists():
                     with contextlib.suppress(ValueError):
                         results[key] = json.loads(path.read_text())
+        if contract:
+            results["shared_constraints"] = paired_constraints(records, results.get("evaluation", {}))
         results["tally"] = ledger.totals() | {"ceiling_tokens": ledger.data["ceiling_tokens"], "ceiling_images": ledger.data["ceiling_images"]}
         results["ledger"] = ledger.data
         results["plan"] = {"briefs": [asdict(BRIEF_BY_ID[b]) for b in BUDGET["briefs"]], "order": order(), "engine": ENGINE,
@@ -2034,6 +2170,32 @@ def run_all(root: Path, *, live: bool, only: list[str] | None, use_blender: bool
 
 
 def apply_budget_flags(a: argparse.Namespace) -> None:
+    if a.paired:
+        if a.cmd not in {"plan", "dry-run", "live"}:
+            raise ValueError("--paired is available for plan, dry-run and live")
+        if not a.round or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", a.round) or a.round in {"r1", "r2"}:
+            raise ValueError("--paired needs a fresh --round name (letters, numbers, '-' and '_'; not r1/r2)")
+        if a.c_candidates is None:
+            raise ValueError("--paired needs explicit --c-candidates single|default")
+        for flag, label in ((a.run_tokens, "--run-tokens"), (a.run_images, "--run-images")):
+            values = dict(item.split("=", 1) for item in flag)
+            if len(flag) != 2 or set(values) != {"A", "C"} or len({int(v) for v in values.values()}) != 1:
+                raise ValueError(f"--paired needs equal explicit A=N C=N shares for {label}")
+            if min(int(v) for v in values.values()) <= 0:
+                raise ValueError(f"--paired needs positive {label} shares")
+        if a.ceiling_tokens is None or a.ceiling_images is None:
+            raise ValueError("--paired needs explicit --ceiling-tokens and --ceiling-images")
+        if int(a.run_tokens[0].split("=", 1)[1]) <= C_TOKEN_MARGIN:
+            raise ValueError("paired token shares must exceed C's internal admission margin")
+        if a.arms is not None and (len(a.arms) != 2 or set(a.arms) != {"A", "C"}):
+            raise ValueError("--paired compares A and C; use --only to execute a planned cell separately")
+        if getattr(a, "continue_cells", None) or getattr(a, "c_native", False):
+            raise ValueError("--paired uses one CLI/stock session per cell; no continuations or native-arm substitution")
+        BUDGET.update(paired=True, round=a.round, c_candidates=a.c_candidates, briefs=["crate"],
+                      arms_now=["A", "C"], arms_planned=["A", "C"], continuations={}, smoke_tokens=0,
+                      run_tokens={}, run_images={})
+    elif a.round is not None or a.c_candidates is not None:
+        raise ValueError("--round and --c-candidates require --paired")
     if a.ceiling_tokens is not None:
         BUDGET["ceiling_tokens"] = a.ceiling_tokens
     if a.ceiling_images is not None:
@@ -2049,7 +2211,15 @@ def apply_budget_flags(a: argparse.Namespace) -> None:
     for flag, key in ((a.run_tokens, "run_tokens"), (a.run_images, "run_images")):
         for item in flag:
             arm, n = item.split("=")
+            if arm not in ARMS or int(n) < 0:
+                raise ValueError(f"invalid {key} share: {item}")
             BUDGET[key][arm] = int(n)
+    if BUDGET.get("paired"):
+        if not BUDGET["briefs"] or len(set(BUDGET["briefs"])) != len(BUDGET["briefs"]):
+            raise ValueError("paired briefs must be nonempty and unique")
+        planned = {f"{b}:{arm}" for b, arm in order()}
+        if any(cell not in planned for cell in getattr(a, "only", None) or []):
+            raise ValueError("--only must name a cell in the paired plan")
 
 
 def check_plan(ledger_path: Path | None = None) -> str | None:
@@ -2081,7 +2251,7 @@ def check_plan(ledger_path: Path | None = None) -> str | None:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("plan")
+    sub.add_parser("plan").add_argument("--json", action="store_true", help="print the paired plan as JSON (no execution)")
     pc = sub.add_parser("close", help="close finished accounts at what they used (logged in the ledger)")
     pc.add_argument("--root", type=Path, required=True)
     pc.add_argument("--accounts", nargs="+", required=True)
@@ -2110,6 +2280,10 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--continue", dest="continue_cells", nargs="*", default=None, metavar="BRIEF:ARM",
                            help="run the planned continuation of a stopped cell (BUDGET['continuations']), then evaluate")
     for p in sub.choices.values():
+        p.add_argument("--paired", action="store_true", help="fresh A/C comparison with equal explicit shares and fixed candidate mode")
+        p.add_argument("--round", default=None, help="fresh paired experiment name")
+        p.add_argument("--c-candidates", choices=("single", "default"), default=None,
+                       help="paired arm C's candidate mode; never inferred from remaining images")
         p.add_argument("--project-src", type=Path, default=None, help="the project tree arm C attaches (default: this one)")
         p.add_argument("--ceiling-tokens", type=int, default=None)
         p.add_argument("--ceiling-images", type=int, default=None)
@@ -2124,13 +2298,23 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(led.close_account(name, a.reason)))
         print(json.dumps(led.totals()))
         return 0
-    apply_budget_flags(a)
+    try:
+        apply_budget_flags(a)
+    except ValueError as exc:
+        print(f"refusing: {exc}", file=sys.stderr)
+        return 2
     if a.project_src is not None:
         global PROJECT_SRC
         PROJECT_SRC = a.project_src.resolve()
     if (why := check_plan()) is not None:
         print(f"refusing: {why}", file=sys.stderr)
         return 2
+    if a.cmd == "plan" and getattr(a, "json", False):
+        if not BUDGET.get("paired"):
+            print("refusing: --json requires --paired", file=sys.stderr)
+            return 2
+        print(json.dumps(comparison_contract(), indent=2))
+        return 0
     print(plan_table(), flush=True)
     if a.cmd == "plan":
         for k, v in PLAN_NOTES.items():
@@ -2138,6 +2322,9 @@ def main(argv: list[str] | None = None) -> int:
         for bid in BUDGET["briefs"]:
             b = BRIEF_BY_ID[bid]
             print(f"- brief {b.id}: {b.prompt!r} (<= {b.max_tris} tris, {b.size_m[0]}-{b.size_m[1]} m): {b.why}")
+        if BUDGET.get("paired"):
+            print(f"- paired mode: C candidates={BUDGET['c_candidates']}; no continuations; CLI MeteredAuthor, not native AgentAuthor")
+            print("- live execution requires separate explicit approval; this plan makes no model calls")
         return 0
     sys.path.insert(0, str(HERE))
     live = a.cmd == "live" or (a.cmd == "smoke" and not a.fake)
@@ -2145,10 +2332,23 @@ def main(argv: list[str] | None = None) -> int:
         if not a.go:
             print("refusing: real calls need --go (after the advisor's go)", file=sys.stderr)
             return 2
+        if BUDGET.get("paired") and not getattr(a, "allow_c", False):
+            print("refusing: paired live execution includes C and needs --allow-c", file=sys.stderr)
+            return 2
         if not os.environ.get("GEMINI_API_KEY"):
             print("refusing: GEMINI_API_KEY is not set", file=sys.stderr)
             return 2
     root = a.root or (DEFAULT_PILOT / ("live" if live else "dryrun"))
+    if BUDGET.get("paired"):
+        if a.root is None:
+            print("refusing: --paired needs an explicit fresh --root", file=sys.stderr)
+            return 2
+        try:
+            bind_comparison_contract(root, live=live, c_against_fake=getattr(a, "c_against_fake", False),
+                                     use_blender=not getattr(a, "no_blender", False))
+        except ValueError as exc:
+            print(f"refusing: {exc}", file=sys.stderr)
+            return 2
     ledger_path = root / "ledger.json"
     if (why := check_plan(ledger_path)) is not None:
         print(f"refusing: {why} (counting what {ledger_path} has booked)", file=sys.stderr)
