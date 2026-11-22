@@ -274,7 +274,7 @@ def colour_note() -> str:
     descriptions and the skills, and none of them said what a colour means. Live 2026-11-22 (r5/live_rerun_N): the
     agent wrote olive drab as (0.22, 0.27, 0.16), then on its second pass "corrected" its three materials to linear
     values, (0.065, 0.09, 0.038) for the olive; read as sRGB the crate shipped nearly black and lost 0 of 6 blind
-    verdicts to each stock crate. Every first answer of the six live sessions (18 materials) was sRGB-like."""
+    verdicts to each stock crate. Every first answer of the nine live sessions on record (27 materials) was sRGB-like."""
     if not told():
         return ""
     return f" {COLOUR_CLAUSE[0].upper()}{COLOUR_CLAUSE[1:]}; the tools convert them, so never convert a colour to linear yourself."
