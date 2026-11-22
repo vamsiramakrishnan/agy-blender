@@ -36,8 +36,9 @@ class SpendPlan:
     ceiling_usd: float  # hard spend ceiling for this asset
     # How hard pass A tries for a better design once it passes its checks (tactics.pyramid, improvement rounds): at most
     # ``improve_rounds`` rounds, ending once score_brief_depiction reaches ``improve_target`` or after ``improve_patience``
-    # rounds in a row that did not raise the progress figure (each such round is rolled back). ``improve_role``: the
-    # author tier of those rounds (None: ``builder_role``). Defaults keep a plan persisted before these fields loadable
+    # failures in a row: with a pairwise judge, validations that restored the validated design (the comparison did not
+    # prefer the new state); with absolute scores, rounds undone or validations failed. ``improve_role``: the author tier
+    # of those rounds (None: ``builder_role``). Defaults keep a plan persisted before these fields loadable
     # (dags.routing) and mean "no improvement rounds".
     improve_rounds: int = 0
     improve_target: float = 4.0
@@ -69,8 +70,19 @@ class SpendPlan:
 # score_brief_depiction an improvement round aims for: midway between level 3 ("convincing: every named part present
 # and recognisable, believable proportions, some secondary detail; a few details a real one has are missing") and level
 # 4 ("complete and convincing ... it stands as a finished game prop"), decisions.questions.BRIEF_DEPICTION_LEVELS.
-# PROVISIONAL, as are the round counts below: chosen from the level texts until the live curve of score per round exists.
+# PROVISIONAL: chosen from the level texts. With the pairwise judge the rounds seldom end on it (it is read off the
+# validated design's absolute verdict); they end on a validation that does not prefer the new state, or at the count.
 IMPROVE_TARGET = 3.5
+# Improvement rounds of the built-in plans, measured live 2026-11-22 (r5/live/m3_loop2, worker tier, pairwise validation
+# every two rounds, a review per round, the same three starts as m2): crate and hydrant kept 4 of 5 rounds, both
+# validations of two rounds preferred the new state in both orders (4 of 4), and the fifth round, validated alone, was
+# "neither" every time (4 of 4, both arms) and restored; the blind start-against-final comparison preferred the final
+# 3 of 3 on all three briefs. So rounds come in pairs: four for a standard or hero asset, two for clutter and simple ones
+# (one validation). A round took 37-79 s with its review, a validation 16-27 s (51 s once), on the worker tier.
+IMPROVE_ROUNDS = {"clutter": 2, "standard": 4, "hero": 4}
+# The tier of every improvement round: the worker, also for a hero asset whose first design the director writes. The
+# measurement above is the worker's; the director truncated 5 of 9 first designs and a repair retry the same night.
+IMPROVE_ROLE = "worker"
 
 _CLUTTER = SpendPlan(
     complexity_tier=0,
@@ -85,8 +97,9 @@ _CLUTTER = SpendPlan(
     reuse_trim_sheet=True,
     final_render="preview",
     ceiling_usd=0.15,
-    improve_rounds=1,
+    improve_rounds=IMPROVE_ROUNDS["clutter"],
     improve_target=IMPROVE_TARGET,
+    improve_role=IMPROVE_ROLE,
     look_rounds=1,
 )
 
@@ -103,8 +116,9 @@ _STANDARD = SpendPlan(
     reuse_trim_sheet=False,
     final_render="eevee",
     ceiling_usd=0.85,
-    improve_rounds=3,
+    improve_rounds=IMPROVE_ROUNDS["standard"],
     improve_target=IMPROVE_TARGET,
+    improve_role=IMPROVE_ROLE,
     look_rounds=1,
 )
 
@@ -121,15 +135,15 @@ _HERO = SpendPlan(
     reuse_trim_sheet=False,
     final_render="cycles",
     ceiling_usd=2.20,
-    improve_rounds=5,
+    improve_rounds=IMPROVE_ROUNDS["hero"],
     improve_target=IMPROVE_TARGET,
+    improve_role=IMPROVE_ROLE,
     look_rounds=1,
 )
 
 PLANS: dict[int, SpendPlan] = {
     0: replace(_CLUTTER, complexity_tier=0),
-    1: replace(_CLUTTER, complexity_tier=1, label="simple", ortho_candidates=2, geometry_candidates=2, ceiling_usd=0.35,
-               improve_rounds=2),
+    1: replace(_CLUTTER, complexity_tier=1, label="simple", ortho_candidates=2, geometry_candidates=2, ceiling_usd=0.35),
     2: _STANDARD,
     3: _HERO,
 }

@@ -30,3 +30,22 @@ async def test_route_resume_preserves_plan_and_isolates_brief_budget_style(tmp_p
                await route(style=b"b")]
     assert all(not r.reused and r.governor.spent < .001 for r in changed)
     assert len({r.governor.journal for r in [first, *changed]}) == 4
+
+
+async def test_the_users_count_of_improvement_rounds_overrides_the_plan_on_a_new_and_a_reused_route(tmp_path):
+    """``agy3d prop --improve-rounds N``: this run's count, never recorded in the route (a rerun without the flag gets
+    the plan's)."""
+    from antigravity3d.cli import build_parser
+    from antigravity3d.tactics.governor import IMPROVE_ROUNDS
+
+    client = FakeDecisionsClient(answers={"complexity_tier": 2.0}, input_tokens=360, latency_s=.005)
+    plane = DecisionControlPlane(client, backend_kind="decisions")
+    budget = EngineBudget("unreal_5")
+
+    async def route(n):
+        return await resolve_route(tmp_path, "oak barrel", budget, None, single_candidate=False, plane=plane, improve_rounds=n)
+
+    assert (await route(0)).plan.improve_rounds == 0
+    assert (await route(6)).plan.improve_rounds == 6 and (await route(None)).plan.improve_rounds == IMPROVE_ROUNDS["standard"]
+    assert build_parser().parse_args(["prop", "x", "--out", "o", "--improve-rounds", "0"]).improve_rounds == 0
+    assert "A round costs about 40-80 s" in " ".join(build_parser()._subparsers._group_actions[0].choices["prop"].format_help().split())

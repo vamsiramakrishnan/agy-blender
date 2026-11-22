@@ -84,6 +84,9 @@ SCORE_GATES = frozenset({"silhouette", "brief_depiction", "brief_part_missing"})
 # did and why it was undone (a person told what their fix broke tries again); after a second the same request at the same
 # state has failed twice. Each attempt is still one of the pass's ``max_rounds``.
 REPAIR_PATIENCE = 2
+# Improvement rounds lost in a row on their own (an answer refused twice, a round undone on the kernel's evidence) before
+# the rounds stop, when a pairwise judge decides them (SpendPlan.improve_patience then counts validations).
+ROUND_PATIENCE = 2
 # Defects the kernel checks itself (fast_ops.tier1_qa codes): the judge's answer on one of them counts only when the
 # kernel finds it too. Measured live 2026-11-22 (r5/live/m2_worker/crate, improvement round 1): the judge newly reported
 # inverted faces 0.85 and holes 0.65 on a design Tier-1 found neither on, and a rendering of it shows neither: one
@@ -519,6 +522,14 @@ def _question_text(qid: str) -> tuple[str, list[str]]:
 # Tier-1 findings an author request lists one by one (each names its parts, e.g. "lid_core/latch_hinge_L: ~32% of probe
 # points inside"); a live worker crate had 28 (26 interpenetrations, 2 z-fighting). The rest are counted, not dropped silently.
 MAX_TIER1_LINES = 60
+# What an interpenetration warning is, for the author (verdict_lines) and the developer (the manifest's tier1_warnings):
+# one part's surface partly inside another's. Not a critical issue and not a gate: where one part is set into another
+# (a bolt in a panel, a rib on a lid, a spindle socketed into a seat) it is how the object is built. Measured live
+# 2026-11-22 (r5/live/m3_loop2/crate): 32 -> 62 such warnings while every round a person would call better was kept.
+OVERLAP_NOTE = ("project check: an interpenetration warning is a part partly inside another. Where one part is set into "
+                "another on the real object (a bolt into a panel, a spindle into a seat) that is the design: leave it. "
+                "Change it only where two parts should sit side by side and do not.")
+OVERLAP_REPORT = "parts overlap (by design where one is set into another, e.g. a bolt in a panel; not a critical issue)"
 
 
 def verdict_lines(result: VisualQAResult, th: Thresholds, located: dict[str, list[str]] | None = None,
@@ -547,8 +558,12 @@ def verdict_lines(result: VisualQAResult, th: Thresholds, located: dict[str, lis
                   and not any(i.code in codes for i in tier1.issues))
         lines.append(f"{qid} P={p:.2f}: {text}" + (f" Located on: {', '.join(where)}." if where else "")
                      + (" The project's own check of the geometry finds none: do not change anything for this." if denied else ""))
-    issues = list(getattr(tier1, "issues", None) or [])
+    # Critical findings first: a list cut at MAX_TIER1_LINES never drops one behind the warnings (the live crate's
+    # improvement requests listed 60 interpenetration warnings and counted the rest).
+    issues = sorted(getattr(tier1, "issues", None) or [], key=lambda i: i.severity != "critical")
     if issues:
+        if any(i.code == "interpenetration" for i in issues):
+            lines.append(OVERLAP_NOTE)
         for i in issues[:MAX_TIER1_LINES]:
             lines.append(f"project check {i.code} ({i.severity})" + (f" at {i.node_id}" if i.node_id and i.node_id not in i.detail else "")
                          + f": {i.detail}")
@@ -1078,7 +1093,15 @@ class _Run:
 
     async def improvement_rounds(self, rnd: int, t1: Any, q: _QA) -> None:
         """Rounds whose aim is a better design (``SpendPlan.improve_*``): after pass A converged, or instead of a repair
-        when the design fails only score gates or the judge is unsure (``score_only``, an ambiguous verdict).
+        when the design fails only score gates or the judge is unsure (``score_only``, an ambiguous verdict), or after
+        pass A's repair rounds are spent with a repair kept (``after_repairs``).
+
+        With an uncalibrated judge that can compare (``self.pairwise``, the shipped fallback) the absolute rules below
+        give way to comparisons: a round is undone at once only on the kernel's evidence (``kernel_worse``); each
+        validation is the current design against the best validated one in both orders (``compare_shape``): preferred
+        both times, the rounds stand; the validated one preferred both times, it is restored; otherwise not decided yet,
+        and at the end, restored. ``improve_patience`` then counts validations in a row that restored, and the shipped
+        design gets its own review when the rounds kept were not reviewed (``improve_review_rounds``).
 
         Each round shows the author its renders, the brief and the judge's whole verdict with Tier-1's findings and the
         unused triangle budget (``MeteredAuthor.improve``), applies the patch, cleans up what the patch changed (``tidy``:
@@ -1135,7 +1158,13 @@ class _Run:
         best_mean, start_mean = dep(best_q), dep(best_q)
         self.snapshot(best_t1.ok, best_q)
         pending: list[str] = []  # transactions of the provisionally kept rounds since the best validated state
-        kept = misses = 0
+        kept = misses = vmisses = 0
+        # Patience: with the pairwise judge, ``improve_patience`` counts validations in a row that restored the validated
+        # design (the comparison preferred it, or the last one did not prefer the new state); a validation not decided
+        # yet stops nothing, the rounds go on to the next one (small gains add up). Rounds lost on their own (refused
+        # twice, undone on the kernel's evidence) stop the rounds after ROUND_PATIENCE in a row. With absolute scores,
+        # as before: rounds and failed validations in a row, both against ``improve_patience``.
+        round_patience = ROUND_PATIENCE if pairwise else plan.improve_patience
         previous = ""
         brief = clean_brief(self.prompt, 2000)
 
@@ -1149,7 +1178,7 @@ class _Run:
             """The current design against the best validated one, in both orders (compare_shape): preferred in both, the
             rounds stand; the validated one preferred in both, it is restored; split or neither, not decided (and at the
             end, restored: rounds are kept only when shown better)."""
-            nonlocal pending, best_q, best_t1, best_views, best_mean, best_judged, q, t1, kept, judged_ir
+            nonlocal pending, best_q, best_t1, best_views, best_mean, best_judged, q, t1, kept, judged_ir, vmisses
             t0 = time.perf_counter()
             meshes = sm.extract_meshes()
             try:
@@ -1164,6 +1193,7 @@ class _Run:
                 kept += len(pending)
                 t1v = tier1_qa(meshes, self.budget)
                 best_judged = judged_ir is not None and judged_ir == sm.base_ir()
+                vmisses = 0
                 best_q, best_t1, best_views, pending = q, t1v, current, []
                 best_mean = dep(best_q)
                 self.step(f"validate_A{k}", "passed", f"kept, preferred to the last validated design in both orders: {said}"[:400], t0)
@@ -1319,7 +1349,7 @@ class _Run:
                 if refusal:  # refused, invalid or unsound twice: a lost round, and the next request says why
                     previous = refusal
                     misses += 1
-                    if misses >= plan.improve_patience:
+                    if misses >= round_patience:
                         await stop(f"improvement: round {k}'s answer was refused twice", k)
                         return
                     continue
@@ -1338,7 +1368,7 @@ class _Run:
                     self.step(name, "warned", f"rolled back ({why}): {tnote}"[:400], t0)
                     previous = f"{_patch_summary(patch)}; it was undone because {why}"[:600]
                     misses += 1
-                    if misses >= plan.improve_patience:
+                    if misses >= round_patience:
                         await stop(f"improvement: round {k} made the design worse ({why})", k)
                         return
                     continue
@@ -1348,9 +1378,9 @@ class _Run:
                 t1, misses, previous = t1n, 0, ""
                 self.step(name, "passed", f"kept provisionally (not reviewed; decided by the validation): {tnote}"[:400], t0)
                 if len(pending) % every == 0 and await validate(k) is False:
-                    misses += 1
+                    vmisses += 1
                     previous = "the last rounds were undone: compared with the design before them, they did not read better"
-                    if misses >= plan.improve_patience:
+                    if vmisses >= plan.improve_patience:
                         await stop(f"improvement: the rounds up to {k} did not validate", k)
                         return
                 continue
@@ -1383,7 +1413,7 @@ class _Run:
                 self.step(name, "warned", f"rolled back ({why}): {moved}"[:400], t0)
                 previous = f"{_patch_summary(patch)}; it was undone because {why}"[:600]
                 misses += 1
-                if misses >= plan.improve_patience:
+                if misses >= round_patience:
                     await stop(f"improvement: round {k} made the design worse ({why})", k)
                     return
                 continue
@@ -1394,9 +1424,12 @@ class _Run:
             tr.note = f"improve {k}: {moved}; kept provisionally" + (f" ({evidence})" if evidence else "")
             self.step(name, "passed", (f"kept provisionally ({evidence}): {moved}" if evidence else f"kept provisionally: {moved}")[:400], t0)
             if len(pending) % every == 0 and await validate(k) is False:
-                misses += 1
+                if pairwise:
+                    vmisses += 1
+                else:
+                    misses += 1
                 previous = "the last rounds were undone: judged several times, they did not make the design read better"
-                if misses >= plan.improve_patience:
+                if (vmisses if pairwise else misses) >= plan.improve_patience:
                     await stop(f"improvement: the rounds up to {k} did not validate", k)
                     return
         await stop(f"improvement: {plan.improve_rounds} round(s) used", plan.improve_rounds)
@@ -1521,6 +1554,7 @@ class _Run:
             self.judged = None
         reuse: tuple[Any, _QA] | None = None  # after a rollback: the kept design's own verdict, not asked again
         previous, misses = "", 0  # what the last rolled-back repair did and why; repairs rolled back in a row
+        repairs_kept = 0
         for rnd in range(1, self.max_rounds + 1):
             meshes = sm.extract_meshes()
             if reuse is not None:
@@ -1578,12 +1612,14 @@ class _Run:
                         if misses >= REPAIR_PATIENCE:
                             res.stopped["A"] = f"repair rolled back {misses} time(s) in a row; last: {evidence}"[:400]
                             res.converged["A"] = False
+                            await self.after_repairs(repairs_kept, rnd, pending.t1, pending.q)
                             return
                         reuse, pending = (pending.t1, pending.q), None
                         continue
                     if q.t15 > pending.t15 + EPS:
                         self.fix_record(pending, q)
                     pending, previous, misses = None, "", 0
+                    repairs_kept += 1
             self.snapshot(t1.ok, q)
             if self.passes(t1, q):
                 res.converged["A"], res.stopped["A"] = True, f"converged in {rnd} round(s)"
@@ -1610,6 +1646,7 @@ class _Run:
                 return
             if rnd == self.max_rounds:
                 res.stopped["A"] = "rounds exhausted"
+                await self.after_repairs(repairs_kept, rnd, t1, q)
                 return
             if not self.governor.can_afford(self.governor.est(usd=QA_EST_USD, tokens=QA_TOKENS_EST)):
                 res.stopped["A"] = "budget exhausted"
@@ -1679,6 +1716,20 @@ class _Run:
         # the last round's repair was rolled back and no round was left to ask again
         res.stopped.setdefault("A", f"rounds exhausted; the last repair was rolled back ({previous})"[:400])
         res.converged.setdefault("A", False)
+        if reuse is not None:
+            await self.after_repairs(repairs_kept, self.max_rounds, *reuse)
+
+    async def after_repairs(self, kept: int, rnd: int, t1: Any, q: _QA) -> None:
+        """Pass A's repair rounds are spent and at least one repair was kept: the design still gets its improvement
+        rounds, which have their own budget (``SpendPlan.improve_rounds``) and never share pass A's ``max_rounds``. Live
+        2026-11-22 (r5/live/m3_loop2/chair): the repairs took the floating parts 6 -> 0 and used every round, so the
+        brief where proportions mattered most never had one. Not after a design with a Tier-1 critical issue left (an
+        improvement is asked of a sound design) or when nothing was kept (the repairs did not move it)."""
+        if kept <= 0 or _crit(t1) > 0 or not self.can_improve(q):
+            return
+        self.res.converged["A"] = False
+        self.res.stopped["A"] = f"{self.res.stopped['A']}; {kept} repair(s) kept: improvement rounds"
+        await self.improvement_rounds(rnd, t1, q)
 
     # ---- Pass B ---------------------------------------------------------------------------------------
 
@@ -1950,7 +2001,8 @@ class _Run:
         t1_final = tier1_qa(meshes, budget).issues
         zfight = [f"{i.node_id}: {i.detail}" for i in t1_final if i.code == "z_fighting"]
         # the other Tier-1 warnings (an open mesh on an engine that draws them, a part that floats or is enclosed, ...)
-        t1_warnings = [f"{i.code}@{i.node_id}: {i.detail}" if i.node_id else f"{i.code}: {i.detail}"
+        t1_warnings = [f"{OVERLAP_REPORT}: {i.detail}" if i.code == "interpenetration"
+                       else f"{i.code}@{i.node_id}: {i.detail}" if i.node_id else f"{i.code}: {i.detail}"
                        for i in t1_final if i.severity == "warning" and i.code != "z_fighting"]
 
         def write_package(out: Path) -> Any:

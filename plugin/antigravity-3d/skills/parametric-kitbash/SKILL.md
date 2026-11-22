@@ -132,11 +132,15 @@ differs from a native session in what that model sees and when it stops:
   judge's findings, so it improves what it can see.
 - A design that passes its checks but scores below the target on how fully it
   depicts the request gets improvement rounds, up to a number set by the spend
-  plan; a repair is for a flagged defect, an improvement for a score. One rule
-  keeps or undoes a round: its progress figure must rise by more than the
-  judge's own noise on an unchanged design. An undone round no longer ends the
-  pass: the author is asked again, told what its patch did and why it was
-  undone, and the pass stops after two undone repairs in a row.
+  plan (`--improve-rounds N` overrides it); a repair is for a flagged defect, an
+  improvement for a score. A design whose repairs were kept gets its
+  improvement rounds too: they do not share the repairs' rounds. A round is
+  kept provisionally and undone at once only on the kernel's evidence; every
+  two rounds the judge is shown the new state beside the last validated one,
+  in both orders, and the rounds stand only when the new state is preferred
+  both times. The rounds stop at the first validation that does not prefer it.
+  A repair is asked again after it is undone, told what its patch did and why,
+  and the pass stops after two undone repairs in a row.
 - The judge sees each design in its own request, as separate 512 px views.
 - An answer that does not read (it parses as JSON but fails validation, or a
   node fails the kernel's check) is sent back once with the failing nodes as
@@ -282,9 +286,9 @@ install merged; the design loop and the judge views of round five not yet).
 - The part count follows the triangle budget: 50 to 90 parts when max_tris
   allows (50 plain boxes are 600 triangles), as many as fit when it is smaller
   (an art direction such as retro-lowres caps a prop at 400).
-- Provisional until measured live (they are plan settings, read by the tests
-  from the code): the improvement rounds per spend plan, their target score
-  and the noise band that decides keep or undo.
+- Measured live (plan settings, read by the tests from the code): the
+  improvement rounds per spend plan (rounds come in pairs: a round validated
+  alone was never preferred). Provisional: their target score.
 - The 2 mm separation and the 2 mm contact distance are figures of
   `kernel/separate.py`.
 - Kit metrics (0.5 m or 1 m grid, wall heights) are the defaults of `agy3d kit`.

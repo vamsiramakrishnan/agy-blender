@@ -116,7 +116,8 @@ class PropToEngineDAG:
                  max_rounds: int = 4, max_parallel: int | None = None, single_candidate: bool = False,
                  require_verified: bool = False, art_direction: ArtDirection | None = None,
                  token_ceiling: int | None = None, max_images: int | None = None, new_design: bool = False,
-                 announce: Any = None, min_call_tokens: int | None = None, strict_review: bool = False) -> None:
+                 announce: Any = None, min_call_tokens: int | None = None, strict_review: bool = False,
+                 improve_rounds: int | None = None) -> None:
         """``new_design``: author a new design instead of continuing from the one recorded beside the image cache by an
         earlier run in this workdir (``DesignRecord``); the image cache is used as always. ``announce``: called with a
         line of text before any call when this asset's ledger already holds spend from earlier runs.
@@ -143,6 +144,7 @@ class PropToEngineDAG:
         self.max_rounds, self.max_parallel = max_rounds, max_parallel
         self.require_verified, self.strict_review = require_verified, strict_review
         self.single_candidate = single_candidate
+        self.improve_rounds = improve_rounds  # None: the spend plan's count (tactics.governor.IMPROVE_ROUNDS)
         self.up = uploader_for(self.forge)
 
     @staticmethod
@@ -216,7 +218,8 @@ class PropToEngineDAG:
                 **({"art_direction": self.art.id} if self.art is not None else {}),
             })
             rd = await resolve_route(self.workdir, prompt, self.budget, reference, single_candidate=self.single_candidate,
-                                     plane=self.plane, token_ceiling=self.token_ceiling, max_images=self.max_images)
+                                     plane=self.plane, token_ceiling=self.token_ceiling, max_images=self.max_images,
+                                     improve_rounds=self.improve_rounds)
             self._governor = rd.governor
             g = rd.governor
             self._before = rd.prior

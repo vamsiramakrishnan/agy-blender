@@ -31,9 +31,11 @@ class Route:
 
 async def resolve_route(workdir: Path, prompt: str, budget: EngineBudget, style: bytes | None, *,
                         single_candidate: bool, plane: DecisionControlPlane, token_ceiling: int | None = None,
-                        max_images: int | None = None) -> Route:
+                        max_images: int | None = None, improve_rounds: int | None = None) -> Route:
     """``token_ceiling`` / ``max_images``: the user's limits of a token ledger (see ``Governor``). A preview plane
-    (``plane.preview``) may route on an uncalibrated decision; nothing else may."""
+    (``plane.preview``) may route on an uncalibrated decision; nothing else may. ``improve_rounds``: the user's count of
+    improvement rounds (``agy3d prop --improve-rounds``), over the plan's, on a new route and on a reused one alike (it
+    changes what this run does, not what the route is)."""
     identity = {"prompt": prompt, "budget": asdict(budget), "single_candidate": single_candidate,
                 "style_sha256": hashlib.sha256(style).hexdigest() if style is not None else None,
                 "backend": plane.backend_kind, "model": plane.model}
@@ -59,6 +61,8 @@ async def resolve_route(workdir: Path, prompt: str, budget: EngineBudget, style:
         if row is not None:
             data = json.loads(row[0])
             plan = SpendPlan(**data.pop("plan"))
+            if improve_rounds is not None:
+                plan = replace(plan, improve_rounds=improve_rounds)
             governor = Governor(plan, journal=spend, **ledger)
             return Route(**data, plan=plan, governor=governor, cost_usd=0.0, reused=True,
                          prior=(governor.spent, governor.images_used))
@@ -70,8 +74,11 @@ async def resolve_route(workdir: Path, prompt: str, budget: EngineBudget, style:
         plan = plan_for(decision.complexity)
         if single_candidate:
             plan = replace(plan, ortho_candidates=1, geometry_candidates=1, pbr_candidates=1)
+        recorded = plan  # the route keeps the plan's own count: a rerun without the flag gets the plan's rounds
+        if improve_rounds is not None:
+            plan = replace(plan, improve_rounds=improve_rounds)
         data = {"pipeline": decision.pipeline, "needs_ortho": decision.needs_ortho,
                 "needs_ortho_p": decision.needs_ortho_p, "complexity": decision.complexity}
-        db.execute("INSERT INTO route VALUES(1, ?)", (json.dumps({**data, "plan": asdict(plan)}),))
+        db.execute("INSERT INTO route VALUES(1, ?)", (json.dumps({**data, "plan": asdict(recorded)}),))
         return Route(**data, plan=plan, governor=Governor(plan, journal=spend, **ledger), cost_usd=decision.result.booked_usd,
                      reused=False, prior=prior)

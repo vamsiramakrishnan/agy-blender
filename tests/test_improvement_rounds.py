@@ -420,6 +420,24 @@ def test_the_verdict_lists_tier1_findings_with_the_parts_they_name() -> None:
     assert lines[-1] == "project check: 3 more finding(s) not listed" and any(x.startswith("defect_clipping P=0.83") for x in lines)
 
 
+def test_a_critical_finding_is_listed_before_any_warning_and_overlap_by_design_is_named() -> None:
+    """The live crate's requests listed 60 interpenetration warnings (bolts in panels, ribs on the lid: how the crate is
+    built) and counted the rest: a critical finding after them would have been cut. It comes first now, and the author is
+    told what an interpenetration warning is."""
+    from types import SimpleNamespace as NS
+
+    res = DecisionResult("t", {}, 0.0, 0, 0, 0.0)
+    q = VisualQAResult("blockout", {}, {}, "approve_export", {}, (), res)  # type: ignore[arg-type]
+    issues = [NS(code="interpenetration", severity="warning", node_id="lid", detail=f"lid/bolt_{i}: ~20% of probe points inside")
+              for i in range(P.MAX_TIER1_LINES + 3)]
+    issues.append(NS(code="not_watertight", severity="critical", node_id="lid", detail="lid: 4 open edges"))
+    lines = P.verdict_lines(q, Thresholds(), {}, NS(issues=issues))
+    assert lines[0] == P.OVERLAP_NOTE and "set into" in P.OVERLAP_NOTE and "leave it" in P.OVERLAP_NOTE
+    assert lines[1] == "project check not_watertight (critical): lid: 4 open edges"
+    assert lines[-1] == "project check: 4 more finding(s) not listed"
+    assert P.OVERLAP_NOTE not in P.verdict_lines(q, Thresholds(), {}, NS(issues=issues[-1:]))
+
+
 # A patch the kernel refuses: a bevel far above half the part's smallest size (kernel/shapes.py). When this test was
 # written the kernel refused every bevel as not built; it builds them now, so the refusal has to be a real limit.
 BEVEL = {"ops": [{"op": "set_param", "node_id": "body", "name": "bevel", "value": 10.0}]}

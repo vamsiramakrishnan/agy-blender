@@ -300,6 +300,55 @@ async def test_a_part_is_not_settled_onto_a_part_that_itself_floats(tmp_path: Pa
     assert next(n for n in sm2.base_ir().nodes if n.id == "rail").transform.translate == (0.324, 0, 1.1)
 
 
+def test_the_built_in_plans_are_the_measured_ones() -> None:
+    """Measured live 2026-11-22 (r5/live/m3_loop2): validations of two rounds preferred the new state 4 of 4, a fifth
+    round validated alone was "neither" 4 of 4. Rounds come in pairs, on the worker tier, and stop at the first
+    validation that restores."""
+    from antigravity3d.tactics.governor import PLANS
+
+    assert [PLANS[i].improve_rounds for i in sorted(PLANS)] == [2, 2, 4, 4]
+    assert all(p.improve_validate_every == 2 and p.improve_patience == 1 and p.improve_role == "worker" and p.improve_review_rounds
+               and p.improve_pairwise for p in PLANS.values())
+
+
+@pytest.mark.parametrize("decide, pads, improves", [
+    (lambda n: "before", 0, 2),  # the first validation restores: the rounds stop (patience counts validations)
+    (lambda n: "neither" if n == 1 else "after", 4, 4),  # not decided yet stops nothing: four rounds, validated together
+])
+async def test_the_rounds_stop_at_the_first_validation_that_restores(tmp_path: Path, decide, pads: int, improves: int) -> None:
+    r = Rounds(tmp_path, lambda k, seen: {"score_brief_depiction": 3.0}, plan=replace(plan_for(2), improve_target=4.0))
+    _pairwise(r, decide)
+    res = await r.run()
+    assert r.pads() == pads and r.improve_calls == improves, res.stopped["A"]
+
+
+async def test_a_design_whose_repairs_used_pass_a_s_rounds_still_gets_its_improvement_rounds(tmp_path: Path) -> None:
+    """The live chair (r5/live/m3_loop2): repairs took the floating parts 6 -> 0 and used every round of pass A
+    ("rounds exhausted"); no improvement round ran on the brief where the proportions mattered most."""
+    from test_pyramid import LID_DOWN, floating_scene
+
+    lid_down = lambda: any(n.id == "lid" and n.transform.translate == (0, 0, 1.025) for n in sm.base_ir().nodes)  # noqa: E731
+    # before: floating and faceted (a repair); after: faceted only, still a gate, so pass A does not converge
+    sm, plane = setup(tmp_path, Script(blockout=lambda n: {"defect_faceted": 0.9, **({} if lid_down() else {"defect_floating": 0.9})}),
+                      floating_scene())
+    improved: list[int] = []
+
+    async def repair(*a: Any, **k: Any) -> IRPatch:
+        return LID_DOWN
+
+    async def improve(scene: SceneIR, **kw: Any) -> IRPatch:
+        improved.append(1)
+        pad = NodeIR(id=f"pad_{len(improved)}", kind="box", params={"size": (0.1, 0.1, 0.02)},
+                     transform=Transform(translate=(-0.4 + 0.15 * len(improved), 0, 1.06)), material_id="wood")
+        return IRPatch(ops=[UpsertNode(node=pad)])
+
+    author = SimpleNamespace(improve=improve, repair=repair, propose=None)
+    plan = replace(plan_for(2), improve_rounds=2, improve_target=4.0)
+    res = await run_a(sm, plane, author, tmp_path, prompt=CRATE, governor=Governor(plan), max_rounds=2)
+    assert lid_down() and len(improved) >= 1
+    assert res.stopped["A"].startswith("rounds exhausted; 1 repair(s) kept: improvement rounds")
+
+
 # --------------------------------------------------------------------------- less thinking after a cut-off answer
 
 

@@ -254,7 +254,7 @@ async def cmd_prop(a: argparse.Namespace) -> int:
             plane=plane, forge=forge, author=author, workdir=out, budget=_budget(a), pool=pool,
             cache=cache, style_anchor=a.style, fixlog=FixLog.for_prop(out), max_rounds=a.max_rounds,
             require_verified=strict, single_candidate=a.single_candidate, art_direction=a.art_direction,
-            new_design=a.new_design, announce=lambda line: print(f"note: {line}", flush=True),
+            new_design=a.new_design, announce=lambda line: print(f"note: {line}", flush=True), improve_rounds=a.improve_rounds,
             min_call_tokens=getattr(a, "min_call_tokens", None), strict_review=a.strict_review,
             **({"token_ceiling": a.token_ceiling, "max_images": a.max_images} if a.token_ceiling is not None else {}),
         )
@@ -712,6 +712,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--art-direction", type=_art_direction, default=None, metavar="ID",
                    help="named art direction (see skills/art-direction); composes with --style")
     p.add_argument("--max-rounds", type=int, default=4)
+    p.add_argument("--improve-rounds", type=_count, default=None, metavar="N",
+                   help="improvement rounds after the design passes its checks (default: the spend plan's, 2 for a simple "
+                        "prop, 4 for a standard or hero one; 0 turns them off). A round costs about 40-80 s on the worker "
+                        "tier (its author call and its review) and every two rounds a validation adds about 20-30 s "
+                        "(measured live 2026-11-22)")
     cache_flags(p)
     worker = p.add_mutually_exclusive_group()
     worker.add_argument("--blender", metavar="PATH", help="start a warm worker with this Blender executable")
