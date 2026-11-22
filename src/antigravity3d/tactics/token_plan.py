@@ -136,6 +136,9 @@ def plan_estimate(plan: SpendPlan, *, needs_ortho: bool = True, max_rounds: int 
               + plan.pbr_candidates * IMAGE_TOKENS_EST + GRADE_TOKENS_EST
               + max_rounds * QA_TOKENS_EST + (max_rounds - 1) * author_tokens
               + plan.improve_rounds * IMPROVE_ROUND_TOKENS_EST
+              # loop2: the start judged k - 1 more times, and k judgements per validation (every V rounds and at the end)
+              + (plan.improve_judgements - 1 + plan.improve_judgements * (plan.improve_rounds // max(1, plan.improve_validate_every) + 1))
+              * QA_TOKENS_EST * (plan.improve_rounds > 0)
               + 3 * QA_TOKENS_EST + GRADE_TOKENS_EST
               + (IMAGE_TOKENS_EST if plan.paintover_loop else 0))
     return PlanEstimate(plan.label, images, plan.pbr_candidates, tokens)

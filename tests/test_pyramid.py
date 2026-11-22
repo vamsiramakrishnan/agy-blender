@@ -124,7 +124,9 @@ async def test_regressing_repair_is_rolled_back_and_iteration_stops(tmp_path: Pa
     # was undone, from the kept design's own verdict (not judged again); a second rollback in a row stops the pass.
     assert author.calls["repair"] == 2 and len(res.rounds) == 3 and res.stopped["A"].startswith("repair rolled back 2 time(s)")
     assert "your previous patch for this design was undone: your patch had 1 op(s): set_transform lid" in asked[1].reasons[-1]
-    assert "newly flagged: defect_inverted_faces=0.95" in asked[1].reasons[-1]
+    # loop2: inverted faces are a defect the kernel checks itself (pyramid.KERNEL_CHECKED); the judge's 0.95 on a design
+    # Tier-1 finds no inverted face on is not evidence. The silhouette collapsing (3.6 -> 1.0) is.
+    assert "fell by more than the judge's noise band" in asked[1].reasons[-1] and "inverted" not in asked[1].reasons[-1]
     assert res.fix_records == []
     assert res.tier15 == res.rounds[0].tier15  # reported state is the pre-repair state
 

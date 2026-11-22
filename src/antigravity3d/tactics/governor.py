@@ -43,6 +43,12 @@ class SpendPlan:
     improve_target: float = 4.0
     improve_patience: int = 1
     improve_role: str | None = None
+    # How improvement rounds are validated (tactics.pyramid): each round is kept provisionally unless there is evidence it
+    # made things worse; every ``improve_validate_every`` provisional rounds, and at the end, the design is judged
+    # ``improve_judgements`` times in parallel and the rounds stand only if the mean depiction rose by the band for that
+    # many judgements against the best validated state (else that state is restored).
+    improve_judgements: int = 3
+    improve_validate_every: int = 2
 
 
 # score_brief_depiction an improvement round aims for: midway between level 3 ("convincing: every named part present

@@ -8,6 +8,7 @@ nothing that did not run is ever reported as passed.
 from __future__ import annotations
 
 import asyncio
+import math
 import inspect
 import shutil
 import tempfile
@@ -82,6 +83,127 @@ SCORE_GATES = frozenset({"silhouette", "brief_depiction", "brief_part_missing"})
 # did and why it was undone (a person told what their fix broke tries again); after a second the same request at the same
 # state has failed twice. Each attempt is still one of the pass's ``max_rounds``.
 REPAIR_PATIENCE = 2
+# Defects the kernel checks itself (fast_ops.tier1_qa codes): the judge's answer on one of them counts only when the
+# kernel finds it too. Measured live 2026-11-22 (r5/live/m2_worker/crate, improvement round 1): the judge newly reported
+# inverted faces 0.85 and holes 0.65 on a design Tier-1 found neither on, and a rendering of it shows neither: one
+# judgement's false alarm undid a good round.
+KERNEL_CHECKED = {
+    "defect_inverted_faces": frozenset({"inverted_normals", "inconsistent_winding"}),
+    "defect_visible_holes": frozenset({"not_watertight"}),
+    "defect_zfighting": frozenset({"z_fighting"}),
+    "defect_floating": frozenset({"floating_part", "floating_group", "ungrounded"}),
+}
+# A defect only the judge can see (clipping where it should not be, faceting, a named part missing, scale) that a change
+# newly brings is asked about once more before it undoes anything: it stands when both judgements report it.
+CONFIRM_JUDGE_ONLY = True
+# The judge's spread on one unchanged design (pooled standard deviation of score_brief_depiction, see IMPROVE_NOISE_BAND):
+# the validation of improvement rounds compares means of k judgements, whose difference has sd JUDGE_SD * sqrt(2 / k).
+JUDGE_SD = 0.10
+
+
+def validation_band(k: int) -> float:
+    """The rise in mean depiction over ``k`` judgements of each design that is not noise: two standard deviations of the
+    difference of two such means (k = 1 gives 0.28; k = 3 gives 0.16)."""
+    return round(2 * JUDGE_SD * math.sqrt(2 / max(1, k)), 3)
+
+
+def floating_ids(t1: Any) -> set[str]:
+    """Every part Tier-1 finds floating, group members included (a group's detail names them: "a, b touch each other")."""
+    out: set[str] = set()
+    for i in t1.issues:
+        if i.code == "floating_part" and i.node_id:
+            out.add(i.node_id)
+        elif i.code == "floating_group":
+            out |= {n.strip() for n in i.detail.split(" touch each other")[0].split(",") if n.strip()}
+    return out
+
+
+# How far tidy() drops a floating part the patch changed: a clean-up, not a redesign. A part farther above everything
+# than the larger of these is left for the author's correction.
+SETTLE_MIN_M = 0.02
+SETTLE_SHARE = 0.03  # of the asset's largest dimension
+
+
+def tidy(sm: Any, budget: EngineBudget, touched: set[str]) -> list[str]:
+    """The deterministic clean-up a first design gets, applied after an author's patch to what the patch changed and to
+    nothing else (each step its own transaction above the patch, so rolling the patch back undoes them): parts Tier-1
+    finds floating are settled onto what is below them (kernel/settle.py); curved parts lose segments until the design
+    fits the triangle budget (authoring._shrink); flush faces are separated (kernel/separate.py). Each step is kept only
+    if it raises no Tier-1 critical issue. Returns what was done, one line each. Measured live 2026-11-22
+    (r5/live/m2_worker): rounds were lost to four lid pads a few millimetres above the lid (crate, improvement round 4),
+    a design 276 triangles over a 4,000 budget (hydrant) and parts left floating by a repair (chair, twice)."""
+    from antigravity3d.kernel.fast_ops import shipped_masks
+    from antigravity3d.kernel.separate import separate_coplanar
+    from antigravity3d.tactics.authoring import _shrink, count_tris
+
+    notes: list[str] = []
+
+    def guarded(ops: list[Any], what: str) -> bool:
+        if not ops:
+            return False
+        before = _crit(tier1_qa(sm.extract_meshes(), budget))
+        tx = sm.apply_patch(IRPatch(ops=ops))
+        if _crit(tier1_qa(sm.extract_meshes(), budget)) > before:
+            sm.rollback(tx)
+            notes.append(f"{what}: not applied (it would raise a Tier-1 critical issue)")
+            return False
+        return True
+
+    meshes = sm.extract_meshes()
+    movable = floating_ids(tier1_qa(meshes, budget)) & touched & {m.node_id for m in meshes}
+    if movable:
+        pts = np.concatenate([np.asarray(m.points, np.float64) for m in meshes])
+        reach = max(SETTLE_MIN_M, SETTLE_SHARE * float((pts.max(0) - pts.min(0)).max()))
+        try:
+            sr = settle(meshes, movable)
+            # Only a small drop is a clean-up (a pad a few millimetres above the lid): a part far above anything was put
+            # there on purpose or wrongly, and either way the author decides (the correction says it floats).
+            far = {n for n, ns in sr.nodes.items() if abs(ns.dz) > reach}
+            if far:
+                sr.nodes = {n: ns for n, ns in sr.nodes.items() if n not in far}
+            ops = sr.to_ir_ops(sm.base_ir())
+        except (ValueError, KeyError) as e:
+            ops, far = [], set()
+            notes.append(f"settle: not possible ({e})")
+        if guarded(ops, "settle"):
+            notes.append(f"settled {len(ops)} part(s) the patch left floating within {reach * 1e3:.0f} mm: "
+                         f"{', '.join(sorted(movable - far)[:8])}")
+    scene = sm.base_ir()
+    if count_tris(scene) > budget.max_tris:
+        ops = _shrink(scene, budget.max_tris, only=touched)
+        if guarded(ops, "shrink"):
+            notes.append(f"fewer segments on {len({o.node_id for o in ops})} part(s) the patch changed: "
+                         f"{count_tris(sm.base_ir())} of max_tris {budget.max_tris}")
+    meshes = sm.extract_meshes()
+    try:
+        r = separate_coplanar(sm.base_ir(), meshes, hidden=shipped_masks(meshes, budget))
+    except (ValueError, KeyError):
+        r = None
+    if r is not None and r.ops:
+        ops = [o for o in r.ops if getattr(o, "node_id", None) in touched]
+        left = sorted({o.node_id for o in r.ops if getattr(o, "node_id", None) not in touched})
+        if guarded(ops, "separate"):
+            notes.append(f"separated flush faces of {len({o.node_id for o in ops})} part(s) the patch changed")
+        if left:
+            notes.append("flush faces left (fixing them would move parts the patch did not change): " + ", ".join(left[:8]))
+    return notes
+
+
+def tidy_findings(t1_before: Any, t1_after: Any, touched: set[str], budget: EngineBudget) -> str:
+    """What is still wrong with a patch after ``tidy``, on the kernel's own evidence, as a message the author can act on
+    (its correction), or '' when nothing is."""
+    out = []
+    new_float = sorted(floating_ids(t1_after) - floating_ids(t1_before))
+    if new_float:
+        out.append(f"these parts float (touch nothing they could rest on, even after settling): {', '.join(new_float[:10])}")
+    over = [i for i in t1_after.issues if i.code == "tri_budget"]
+    if over:
+        out.append(f"the design is over the triangle budget ({over[0].detail}) even with fewer segments on the parts you "
+                   "changed: remove or simplify parts")
+    crit = [i for i in t1_after.issues if i.severity == "critical" and i.code != "tri_budget"]
+    if _crit(t1_after) > _crit(t1_before):
+        out.append("the project's check finds new critical issues: " + "; ".join(f"{i.code} at {i.node_id}: {i.detail}" for i in crit[:4]))
+    return "; ".join(out)
 
 
 # Export gates (no warn bands). UV: every mesh's mean area distortion must be within
@@ -387,7 +509,11 @@ def verdict_lines(result: VisualQAResult, th: Thresholds, located: dict[str, lis
         if p < th.ambiguity_lo or not text:
             continue
         where = located.get(qid) or []
-        lines.append(f"{qid} P={p:.2f}: {text}" + (f" Located on: {', '.join(where)}." if where else ""))
+        codes = KERNEL_CHECKED.get(qid)
+        denied = (codes is not None and tier1 is not None and hasattr(tier1, "issues")
+                  and not any(i.code in codes for i in tier1.issues))
+        lines.append(f"{qid} P={p:.2f}: {text}" + (f" Located on: {', '.join(where)}." if where else "")
+                     + (" The project's own check of the geometry finds none: do not change anything for this." if denied else ""))
     issues = list(getattr(tier1, "issues", None) or [])
     if issues:
         for i in issues[:MAX_TIER1_LINES]:
@@ -748,14 +874,15 @@ class _Run:
             out.add("tier1")
         if sil is not None and sil < th.silhouette_lock:
             out.add("silhouette")
-        if fp > th.floating_max:
+        if fp > th.floating_max and self.kernel_confirms(t1, "defect_floating") is not False:
             out.add("floating")
         if q.action.kind == "escalate_human":
             out.add("escalate_human")
         from antigravity3d.decisions.compose import BRIEF_DEFECT, BRIEF_SCORE, GEOMETRY_DEFECTS
 
         out |= {f"defect:{d}" for d, p in q.result.defects.items()
-                if p >= th.defect_high and d in GEOMETRY_DEFECTS and d not in (BRIEF_DEFECT, "defect_floating")}
+                if p >= th.defect_high and d in GEOMETRY_DEFECTS and d not in (BRIEF_DEFECT, "defect_floating")
+                and self.kernel_confirms(t1, d) is not False}
 
         if (p := q.result.defects.get(BRIEF_DEFECT)) is not None and p >= th.ambiguity_lo:
             out.add("brief_part_missing")
@@ -787,8 +914,18 @@ class _Run:
         """Pass A's convergence: Tier-1 clean, silhouette locked, nothing floating, nothing for a person, the brief met."""
         return not self.gates(t1, q)
 
-    def flagged(self, q: _QA) -> set[str]:
-        return {d for d, p in q.result.defects.items() if p >= self.th.ambiguity_lo}
+    def kernel_confirms(self, t1: Any, defect: str) -> bool | None:
+        """Whether the kernel's own check finds ``defect`` on this design (KERNEL_CHECKED); None for a defect only the
+        judge can see."""
+        codes = KERNEL_CHECKED.get(defect)
+        if codes is None or t1 is None or not hasattr(t1, "issues"):
+            return None
+        return any(i.code in codes for i in t1.issues)
+
+    def flagged(self, q: _QA, t1: Any = None) -> set[str]:
+        """The defects the judge reports at or above the ambiguity floor, without those the kernel checks and does not
+        find on this design (``t1``: its Tier-1 report; None: every one the judge reports)."""
+        return {d for d, p in q.result.defects.items() if p >= self.th.ambiguity_lo and self.kernel_confirms(t1, d) is not False}
 
     def score_only(self, t1: Any, q: _QA) -> bool:
         """The design fails only score gates (silhouette below its lock, depiction below the brief's bar, a named part
@@ -796,7 +933,7 @@ class _Run:
         question. A score below its gate is not a fault a repair can name; it is what an improvement round is for."""
         from antigravity3d.decisions.compose import BRIEF_DEFECT
 
-        return bool(self.gates(t1, q)) and self.gates(t1, q) <= SCORE_GATES and not (self.flagged(q) - {BRIEF_DEFECT})
+        return bool(self.gates(t1, q)) and self.gates(t1, q) <= SCORE_GATES and not (self.flagged(q, t1) - {BRIEF_DEFECT})
 
     def can_improve(self, q: _QA) -> bool:
         from antigravity3d.decisions.compose import BRIEF_SCORE
@@ -823,7 +960,7 @@ class _Run:
             worse.append(f"Tier-1 critical issues {_crit(t1)}->{_crit(t1n)}")
         if new := sorted(n or "?" for _, n in floats(t1n) - floats(t1)):
             worse.append("Tier-1 finds a new floating part: " + ", ".join(new))
-        if raised := sorted(self.flagged(qn) - self.flagged(q)):
+        if raised := sorted(self.flagged(qn, t1n) - self.flagged(q, t1)):
             worse.append("newly flagged: " + ", ".join(f"{d}={qn.result.defects[d]:.2f}" for d in raised))
         if failing := sorted(self.gates(t1n, qn) - self.gates(t1, q)):
             worse.append("gate now failing: " + ", ".join(failing))
@@ -832,7 +969,7 @@ class _Run:
         if worse:
             return False, "; ".join(worse)
         better: list[str] = []
-        if cleared := sorted(self.flagged(q) - self.flagged(qn)):
+        if cleared := sorted(self.flagged(q, t1) - self.flagged(qn, t1n)):
             better.append("cleared " + ", ".join(f"{d} {q.result.defects[d]:.2f}->{qn.result.defects.get(d, 0.0):.2f}" for d in cleared))
         if _crit(t1n) < _crit(t1):
             better.append(f"Tier-1 critical issues {_crit(t1)}->{_crit(t1n)}")
@@ -857,31 +994,76 @@ class _Run:
         profile = self.author.cost_profile(role) if hasattr(self.author, "cost_profile") else None
         author = profile[0] if profile else 0.0
         later = self.governor.est(usd=LOOKDEV_ROUNDS * QA_EST_USD, tokens=LOOKDEV_ROUNDS * QA_TOKENS_EST + GRADE_TOKENS_EST)
-        return author + self.governor.est(usd=QA_EST_USD, tokens=QA_TOKENS_EST) + later
+        # a round's own review and its share of a validation (k judgements every V rounds). Not reserved: a second
+        # judgement of a newly reported defect (rare) and the final validation, whose refusal at admission restores the
+        # last validated design (validate: "not judged"), which is safe
+        k, v = max(1, plan.improve_judgements), max(1, plan.improve_validate_every)
+        judgements = 1 + k / v
+        return author + self.governor.est(usd=judgements * QA_EST_USD, tokens=judgements * QA_TOKENS_EST) + later
+
+    async def judge_k(self, meshes: list[Any], n: int) -> list[_QA]:
+        """``n`` independent blockout reviews of one design, asked in parallel (one slot of wall time)."""
+        if n <= 0:
+            return []
+        return list(await asyncio.gather(*(self.qa_design(meshes) for _ in range(n))))
+
+    def averaged(self, qs: list[_QA]) -> _QA:
+        """One verdict from several judgements of one design: every score and defect probability averaged (the verdict
+        the state carries after a validation); booked once already, so not counted again."""
+        if len(qs) == 1:
+            return qs[0]
+        keys_s = set().union(*(x.result.scores for x in qs))
+        keys_d = set().union(*(x.result.defects for x in qs))
+        mean = lambda vals: sum(vals) / len(vals)  # noqa: E731
+        r = replace(qs[0].result, scores={k: mean([x.result.scores[k] for x in qs if k in x.result.scores]) for k in keys_s},
+                    defects={k: mean([x.result.defects[k] for x in qs if k in x.result.defects]) for k in keys_d})
+        return self.verdict("blockout", r, qs[0].uri, qs[0].legend, qs[0].judged, reused=True)
+
+    async def confirmed(self, q: _QA, t1: Any, qn: _QA, t1n: Any, meshes: list[Any]) -> tuple[_QA, str]:
+        """``qn`` with every defect only the judge can see that it newly reports asked about once more: it stands only
+        if both judgements report it (the lower probability is kept for it; the other answers are the two averaged).
+        Returns the verdict and a note of what the second judgement said ('' when none was needed)."""
+        raised = {d for d in self.flagged(qn, t1n) - self.flagged(q, t1) if self.kernel_confirms(t1n, d) is None}
+        if not CONFIRM_JUDGE_ONLY or not raised:
+            return qn, ""
+        (second,) = await self.judge_k(meshes, 1)
+        both = self.averaged([qn, second])
+        defects = dict(both.result.defects)
+        for d in raised:
+            defects[d] = min(qn.result.defects.get(d, 0.0), second.result.defects.get(d, 0.0))
+        merged = self.verdict("blockout", replace(both.result, defects=defects), qn.uri, qn.legend, qn.judged, reused=True)
+        said = ", ".join(f"{d} {qn.result.defects[d]:.2f} then {second.result.defects.get(d, 0.0):.2f}" for d in sorted(raised))
+        return merged, f"asked again about {said}"
 
     async def improvement_rounds(self, rnd: int, t1: Any, q: _QA) -> None:
         """Rounds whose aim is a better design (``SpendPlan.improve_*``): after pass A converged, or instead of a repair
-        when the design fails only score gates (``score_only``: a score below its gate names no fault to repair).
+        when the design fails only score gates or the judge is unsure (``score_only``, an ambiguous verdict).
 
-        Each round shows the author its renders, the brief and the judge's whole verdict with Tier-1's findings
-        (``MeteredAuthor.improve``), applies the patch, separates flush faces again and asks the same blockout visual
-        QA. It is kept or rolled back on evidence (``judge_change``); a rolled-back round's next request says what that
-        patch did and why it was undone. Rounds end when the design passes pass A and depiction reaches
-        ``improve_target``, after ``improve_patience`` rounds in a row not kept, at ``improve_rounds``, when the budget
-        would not leave pass B and C their share, or when a round cannot be had (an authoring call that failed or was
-        not admitted, a judge that did not answer): that round is undone and the design kept so far ships, as judged.
-        ``res.converged["A"]`` says whether the kept design passes pass A. Each round is a RoundTrace and a step
-        ``improve_A<k>`` with its before, after and evidence."""
+        Each round shows the author its renders, the brief and the judge's whole verdict with Tier-1's findings and the
+        unused triangle budget (``MeteredAuthor.improve``), applies the patch, cleans up what the patch changed (``tidy``:
+        settle, shrink, separate), corrects once what is still wrong by the kernel's evidence (``tidy_findings``) and asks
+        the same blockout review (a newly reported defect only the judge can see is asked about again, ``confirmed``).
+
+        A round is kept PROVISIONALLY unless there is evidence it made things worse (``judge_change``'s "worse": a new
+        Tier-1 critical issue or floating part, a confirmed newly flagged defect, a gate that now fails, a score down by
+        more than the band). Every ``improve_validate_every`` provisional rounds and at the end, the design is judged
+        ``improve_judgements`` times in parallel and compared with the best validated state (at first the design the
+        rounds started from, judged as many times): the rounds since then stand if the mean depiction rose by
+        ``validation_band(k)``, else that state is restored. Real gains per round are smaller than one judgement's noise
+        (live 2026-11-22: crate rounds of +0.05 and +0.10 were each undone alone); a downward drift of small steps is
+        caught at the next validation, which compares with the validated state, never with the last round.
+
+        Rounds end when the validated design passes pass A and its mean depiction reaches ``improve_target``, after
+        ``improve_patience`` rounds in a row undone (or a failed validation), at ``improve_rounds``, when the budget would
+        not leave pass B and C their share, or when a round cannot be had; the design shipped is the best validated one.
+        Each round is a RoundTrace and a step ``improve_A<k>``; each validation a step ``validate_A<k>`` with every
+        judgement."""
         from antigravity3d.decisions.compose import BRIEF_SCORE
         from antigravity3d.decisions.engine import clean_brief
         from antigravity3d.tactics.metered_author import AuthorInvalid, AuthorOutcomeError
 
         plan, res, sm = self.governor.plan, self.res, self.sm
         base = res.stopped["A"]
-
-        def stop(why: str) -> None:
-            res.converged["A"] = self.passes(t1, q)
-            res.stopped["A"] = f"{base}; {why}"
 
         if plan.improve_rounds <= 0 or not self.prompt:  # no rounds planned, or no brief to improve toward: as before
             return
@@ -892,36 +1074,111 @@ class _Run:
         if q.result.scores.get(BRIEF_SCORE) is None:
             self.step("improve_A", "skipped", "the judge did not answer how well the design depicts the brief")
             return
-        start, kept, misses, previous = (q.progress, q.result.scores[BRIEF_SCORE]), 0, 0, ""
+        k_judge = max(1, int(getattr(plan, "improve_judgements", 1)))
+        every = max(1, int(getattr(plan, "improve_validate_every", 1)))
+        band_k = validation_band(k_judge)
+        dep = lambda x: x.result.scores.get(BRIEF_SCORE, 0.0)  # noqa: E731
+        try:  # the design the rounds start from, judged as many times as every later validation
+            start_qs = [q, *await self.judge_k(sm.extract_meshes(), k_judge - 1)]
+        except JudgeUnavailable as e:
+            self.step("improve_A", "warned", f"not started: the start design could not be judged {k_judge} times ({e})"[:400])
+            return
+        best_q, best_t1 = self.averaged(start_qs), t1
+        best_mean, start_mean = dep(best_q), dep(best_q)
+        self.snapshot(best_t1.ok, best_q)
+        pending: list[str] = []  # transactions of the provisionally kept rounds since the best validated state
+        kept = misses = 0
+        previous = ""
         brief = clean_brief(self.prompt, 2000)
+
+        def done() -> str:
+            return (f"{kept} round(s) kept, depiction (mean of {k_judge}) {start_mean:.2f}->{best_mean:.2f}, "
+                    f"start judged {', '.join(f'{dep(x):.2f}' for x in start_qs)}")
+
+        async def validate(k: int, final: bool = False) -> bool | None:
+            """Judge the design ``k_judge`` times and decide the rounds since the best validated state: they stand (True)
+            when the mean depiction rose by the band (or a flagged defect is gone and nothing got worse); that state is
+            restored (False) when the mean fell by the band, or at the end (``final``) when it did not rise; otherwise the
+            evidence is not in yet (None): the rounds stay provisional and the next validation sees them with the ones
+            after. Small real gains (0.05-0.10 a round) add up across rounds this way; a downward drift is caught as soon
+            as it exceeds the band, against the validated state, never against the last round."""
+            nonlocal pending, best_q, best_t1, best_mean, q, t1, kept
+            if not pending:
+                return True
+            t0 = time.perf_counter()
+            meshes = sm.extract_meshes()
+            try:
+                qs = await self.judge_k(meshes, k_judge)
+            except JudgeUnavailable as e:
+                sm.rollback(pending[0])
+                pending = []
+                q, t1 = best_q, best_t1
+                self.snapshot(t1.ok, q)
+                self.step(f"validate_A{k}", "warned", f"not judged ({e}); the rounds since the last validated state are undone"[:400], t0)
+                return False
+            mean = sum(dep(x) for x in qs) / len(qs)
+            said = (f"depiction {', '.join(f'{dep(x):.2f}' for x in qs)} (mean {mean:.2f}) against {best_mean:.2f} "
+                    f"(band {band_k} for {k_judge} judgements), {len(pending)} round(s)")
+            t1v = tier1_qa(meshes, self.budget)
+            avg = self.averaged(qs)
+            new_gates = self.gates(t1v, avg) - self.gates(best_t1, best_q)
+            cleared = sorted(self.flagged(best_q, best_t1) - self.flagged(avg, t1v))
+            # The rounds stand when the design reads better (mean depiction up by the band for k judgements), or when a
+            # defect the judge flagged is gone, depiction no lower than the band, and no gate newly fails.
+            rose = mean >= best_mean + band_k - EPS
+            fixed = bool(cleared) and mean >= best_mean - band_k - EPS
+            if cleared:
+                said += f"; cleared {', '.join(cleared)}"
+            fell = mean <= best_mean - band_k + EPS
+            if (rose or fixed) and not new_gates:
+                kept += len(pending)
+                best_q, best_t1, best_mean, pending = avg, t1v, mean, []
+                q, t1 = best_q, best_t1
+                self.snapshot(t1.ok, q)
+                self.step(f"validate_A{k}", "passed", f"kept: {said}"[:400], t0)
+                return True
+            if not (fell or final or new_gates):
+                self.step(f"validate_A{k}", "skipped", f"not decided yet, the rounds stay provisional: {said}"[:400], t0)
+                return None
+            sm.rollback(pending[0])
+            pending = []
+            q, t1 = best_q, best_t1
+            self.snapshot(t1.ok, q)
+            why = "it fell by the band" if fell else "a gate newly fails" if new_gates else "it did not rise by the band"
+            self.step(f"validate_A{k}", "warned", f"restored the last validated design ({why}): {said}"[:400], t0)
+            return False
+
+        async def stop(why: str, k: int) -> None:
+            await validate(k, final=True)
+            res.converged["A"] = self.passes(best_t1, best_q)
+            res.stopped["A"] = f"{base}; {why}; {done()}"
+
         for k in range(1, plan.improve_rounds + 1):
-            dep = q.result.scores[BRIEF_SCORE]
-            done = f"{kept} of {k - 1} round(s) kept, depiction {start[1]:.2f}->{dep:.2f}, progress {start[0]:.2f}->{q.progress:.2f}"
-            if self.passes(t1, q) and dep >= plan.improve_target - EPS:
-                stop(f"improvement: target met (depiction {dep:.2f} >= {plan.improve_target})" + (f"; {done}" if k > 1 else ""))
+            if not pending and self.passes(best_t1, best_q) and best_mean >= plan.improve_target - EPS:
+                await stop(f"improvement: target met (mean depiction {best_mean:.2f} >= {plan.improve_target})", k)
                 return
             need = self.improvement_need()
             if not self.governor.can_afford(need):
-                stop(f"improvement: budget ({self.governor.fmt(self.governor.remaining)} left; a round and what pass B and C "
-                     f"need after it come to about {self.governor.fmt(need)}); {done}")
+                await stop(f"improvement: budget ({self.governor.fmt(self.governor.remaining)} left; a round and what pass B and C "
+                           f"need after it come to about {self.governor.fmt(need)})", k)
                 return
             t0 = time.perf_counter()
             located = await self.locate(t1, q)
             views = self.author_views(q, located, t1, previous)
             if views is None:  # an improvement is asked for by showing the design
-                stop(f"improvement: no renders of the design to show; {done}")
+                await stop("improvement: no renders of the design to show", k)
                 return
-            meshes = sm.extract_meshes()
-            tris = sum(len(m.triangles) for m in meshes)
             name = f"improve_A{k}"
-            # One correction per round: an answer that does not validate, or a patch the kernel refuses, is asked again
-            # at once with the exact error (the patch-shaped twin of the node-level correction of a design); only a second
-            # refusal costs the round.
-            tx, refusal = None, ""
+            before_ir = sm.base_ir()
+            tris = sum(len(m.triangles) for m in sm.extract_meshes())
+            # One correction per round: an answer that does not validate, a patch the kernel refuses, or a patch that the
+            # clean-up cannot make sound (still floating, still over budget, a new critical issue) is asked again at once
+            # with the exact message; its good operations are not thrown away with a rollback and a fresh round.
+            tx, refusal, notes = None, "", []
             for attempt in (1, 2):
                 res.author_calls += 1
                 try:
-                    patch = await fn(sm.base_ir(), brief=brief, views=replace(views, previous=refusal) if refusal else views,
+                    patch = await fn(before_ir, brief=brief, views=replace(views, previous=refusal) if refusal else views,
                                      manifest=sm.manifest(), triangles=tris)
                 except AuthorInvalid as e:
                     refusal = f"your last answer did not validate: {e}"[:900]
@@ -933,68 +1190,90 @@ class _Run:
                 except (BudgetExceeded, AuthorOutcomeError) as e:
                     why = f"not admitted: {e}" if isinstance(e, BudgetExceeded) else f"{type(e).__name__} on {e.model} ({e.finish_reason}): {e}"
                     self.step(name, "warned", f"no improvement: the call failed ({why})"[:400], t0)
-                    stop(f"improvement round {k} failed ({type(e).__name__}); {done}")
+                    await stop(f"improvement round {k} failed ({type(e).__name__})", k)
                     return
                 if patch is None:
                     break
                 try:
                     tx = sm.apply_patch(patch)
-                    break
                 except Exception as e:  # noqa: BLE001 - an invalid patch must not kill the run
                     refusal = f"{_patch_summary(patch)}; it was refused before it could be judged: {type(e).__name__}: {e}"[:900]
                     if attempt == 2:
                         self.step(name, "warned", f"patch refused twice: {refusal}"[:400], t0)
+                    continue
+                from antigravity3d.dags.edit_asset import changed_nodes
+
+                touched = changed_nodes(before_ir, sm.base_ir())
+                notes = tidy(sm, self.budget, touched) if self.settle_first else []
+                wrong = tidy_findings(t1, tier1_qa(sm.extract_meshes(), self.budget), touched, self.budget)
+                if wrong and attempt == 1:
+                    sm.rollback(tx)
+                    tx = None
+                    refusal = f"{_patch_summary(patch)}; after clean-up it was still not sound, so it was not judged: {wrong}"[:900]
+                    continue
+                break
             if tx is None:
-                if refusal:  # refused or invalid twice: a lost round, and the next request says why
+                if refusal:  # refused, invalid or unsound twice: a lost round, and the next request says why
                     previous = refusal
                     misses += 1
                     if misses >= plan.improve_patience:
-                        stop(f"improvement: round {k}'s answer was refused twice; {done}")
+                        await stop(f"improvement: round {k}'s answer was refused twice", k)
                         return
                     continue
                 self.step(name, "skipped", "the author proposed no change", t0)
-                stop(f"improvement: the author proposed no change in round {k}; {done}")
+                await stop(f"improvement: the author proposed no change in round {k}", k)
                 return
-            if self.settle_first:  # the patch can bring back flush faces: separate again (undone with the round)
-                self.separate_step(f"separate_coplanar_I{k}")
             new_meshes = sm.extract_meshes()
             t1n = tier1_qa(new_meshes, self.budget)
             try:
                 qn = await self.qa_design(new_meshes)
+                qn, again = await self.confirmed(q, t1, qn, t1n, new_meshes)
             except JudgeUnavailable as e:  # what ships is what was judged: the unjudged round is undone
                 sm.rollback(tx)
                 self.snapshot(t1.ok, q)
                 self.step(name, "warned", f"not judged ({e}); rolled back"[:400], t0)
-                stop(f"improvement round {k} not judged (judge unavailable): rolled back; {done}")
+                await stop(f"improvement round {k} not judged (judge unavailable): rolled back", k)
                 return
             tr = self.trace("A", rnd + k, t1n, qn, "preview")
             tr.improve = k
             depn = qn.result.scores.get(BRIEF_SCORE)
-            moved = (f"progress {q.progress:.2f}->{qn.progress:.2f}, depiction {dep:.2f}->"
+            moved = (f"progress {q.progress:.2f}->{qn.progress:.2f}, depiction {dep(q):.2f}->"
                      + (f"{depn:.2f}" if depn is not None else "n/a") + f", tier15 {q.t15:.2f}->{qn.t15:.2f}, "
-                     f"tier1 critical {_crit(t1)}->{_crit(t1n)}, {len(patch.ops)} op(s)")
-            keep, evidence = self.judge_change(t1, q, t1n, qn)
-            if keep and depn is None:
-                keep, evidence = False, "the score of the brief was not answered"
-            if not keep:
+                     f"tier1 critical {_crit(t1)}->{_crit(t1n)}, {len(patch.ops)} op(s)"
+                     + (f"; clean-up: {'; '.join(notes)}" if notes else "") + (f"; {again}" if again else ""))
+            _, evidence = self.judge_change(t1, q, t1n, qn)
+            worse = self.worse(t1, q, t1n, qn)
+            if worse or depn is None:
+                why = worse or "the score of the brief was not answered"
                 sm.rollback(tx)
                 self.snapshot(t1.ok, q)
-                tr.rolled_back, tr.note = True, f"improve {k}: {moved}; rolled back ({evidence})"
-                self.step(name, "warned", f"rolled back ({evidence}): {moved}"[:400], t0)
-                previous = f"{_patch_summary(patch)}; it was undone because {evidence}"[:600]
+                tr.rolled_back, tr.note = True, f"improve {k}: {moved}; rolled back ({why})"
+                self.step(name, "warned", f"rolled back ({why}): {moved}"[:400], t0)
+                previous = f"{_patch_summary(patch)}; it was undone because {why}"[:600]
                 misses += 1
                 if misses >= plan.improve_patience:
-                    stop(f"improvement: round {k} did not improve the design ({evidence}); {done}")
+                    await stop(f"improvement: round {k} made the design worse ({why})", k)
                     return
                 continue
-            tr.note = f"improve {k}: {moved}; kept ({evidence})"
-            self.step(name, "passed", f"kept ({evidence}): {moved}"[:400], t0)
-            kept, misses, previous, q, t1 = kept + 1, 0, "", qn, t1n
+            pending.append(tx)
+            q, t1, misses, previous = qn, t1n, 0, ""
             self.snapshot(t1.ok, q)
-        dep = q.result.scores[BRIEF_SCORE]
-        stop(f"improvement: {plan.improve_rounds} round(s) used, {kept} kept, depiction {start[1]:.2f}->{dep:.2f}, "
-             f"progress {start[0]:.2f}->{q.progress:.2f}"
-             + (f" (target {plan.improve_target} met)" if self.passes(t1, q) and dep >= plan.improve_target - EPS else ""))
+            tr.note = f"improve {k}: {moved}; kept provisionally" + (f" ({evidence})" if evidence else "")
+            self.step(name, "passed", (f"kept provisionally ({evidence}): {moved}" if evidence else f"kept provisionally: {moved}")[:400], t0)
+            if len(pending) % every == 0 and await validate(k) is False:
+                misses += 1
+                previous = "the last rounds were undone: judged several times, they did not make the design read better"
+                if misses >= plan.improve_patience:
+                    await stop(f"improvement: the rounds up to {k} did not validate", k)
+                    return
+        await stop(f"improvement: {plan.improve_rounds} round(s) used", plan.improve_rounds)
+
+    def worse(self, t1: Any, q: _QA, t1n: Any, qn: _QA) -> str:
+        """The evidence that a change made the design worse ('' when there is none): ``judge_change``'s "worse" list."""
+        keep, evidence = self.judge_change(t1, q, t1n, qn)
+        if keep or evidence.startswith("no change beyond"):
+            return ""
+        return evidence
 
     async def pass_a(self) -> None:
         sm, th, res = self.sm, self.th, self.res
@@ -1085,6 +1364,16 @@ class _Run:
                                     "no defect to repair: improvement rounds")
                 await self.improvement_rounds(rnd, t1, q)
                 return
+            if q.action.kind == "escalate_director" and self.can_improve(q):
+                # The judge is unsure (defects in its ambiguous band, none confirmed): the author is shown the views and every
+                # answer in an improvement round on the plan's tier, where it can see what the judge half-saw. Not a director
+                # repair: live 2026-11-22 the hydrant's went 107 operations, 7 % over budget, then truncated on the retry
+                # (the director truncated 5 of 9 first designs that night).
+                res.converged["A"] = False
+                res.stopped["A"] = (f"round {rnd}: the judge is unsure ({'; '.join(q.action.reasons[:1])[:160]}): improvement "
+                                    "rounds with the views instead of a director repair")
+                await self.improvement_rounds(rnd, t1, q)
+                return
             if rnd == self.max_rounds:
                 res.stopped["A"] = "rounds exhausted"
                 return
@@ -1148,8 +1437,11 @@ class _Run:
             pending = _Pending(tx, ops=[o.op for o in patch.ops], params=_patch_params(patch), note=why[:160],
                                rule=reviewed_rules.RULE if exact else "", scene_hash=reviewed_rules.scene_hash(before_ir),
                                origin=origin, summary=_patch_summary(patch), **before)
-            if self.settle_first:  # a repair can bring back flush faces: separate again (rolled back with the repair)
-                self.separate_step(f"separate_coplanar_A{rnd}")
+            if self.settle_first:  # the clean-up a first design gets, on what the repair changed (rolled back with it)
+                from antigravity3d.dags.edit_asset import changed_nodes
+
+                notes = tidy(sm, self.budget, changed_nodes(before_ir, sm.base_ir()))
+                self.step(f"tidy_A{rnd}", "passed" if notes else "skipped", "; ".join(notes)[:400] or "nothing to clean up")
         # the last round's repair was rolled back and no round was left to ask again
         res.stopped.setdefault("A", f"rounds exhausted; the last repair was rolled back ({previous})"[:400])
         res.converged.setdefault("A", False)

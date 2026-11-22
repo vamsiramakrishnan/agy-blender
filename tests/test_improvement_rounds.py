@@ -88,18 +88,22 @@ async def _data_uri(data: bytes) -> str:
 
 
 def _run(tmp_path: Path, *, rounds: int = 3, patience: int = 1, target: float = 3.5, prompt: str = CRATE,
-         ceiling: int = 2_000_000) -> tuple[Any, StageManager, Governor]:
+         ceiling: int = 2_000_000, judgements: int = 1, every: int = 1, settle_first: bool = False) -> tuple[Any, StageManager, Governor]:
+    """loop2: ``judgements`` / ``every`` are the plan's validation (k judgements every V provisional rounds). These tests
+    were written for one judgement per round; k = 1 and V = 1 keep their verdict sequences: each round is the round's
+    own review plus one validation judgement, whose band is validation_band(1)."""
     from google import genai
 
     client = genai.Client()
-    plan = replace(plan_for(2), improve_rounds=rounds, improve_patience=patience, improve_target=target)
+    plan = replace(plan_for(2), improve_rounds=rounds, improve_patience=patience, improve_target=target,
+                   improve_judgements=judgements, improve_validate_every=every)
     gov = Governor(plan, token_ceiling=ceiling)
     plane = DecisionControlPlane(GenerativeDecisionsBackend(client), backend_kind="generative_fallback", preview=True)
     author = MeteredAuthor(client, gov, BUDGET, {"asset_name": "Prop"})
     sm = StageManager.create(tmp_path / "p.usda", "Prop")
     sm.apply_ir(_scene())
     res = asyncio.run(P.refine(sm, plane=plane, author=author, governor=gov, budget=BUDGET, uploader=_data_uri,
-                               workdir=tmp_path / "wd", prompt=prompt, settle_first=False, run_pass_b=False, run_pass_c=False))
+                               workdir=tmp_path / "wd", prompt=prompt, settle_first=settle_first, run_pass_b=False, run_pass_c=False))
     return res, sm, gov
 
 
@@ -121,8 +125,10 @@ def test_a_round_that_raises_the_score_is_kept_and_rounds_stop_at_the_target(key
     first, second = res.rounds
     assert second.improve == 1 and not second.rolled_back and second.progress > first.progress
     assert res.scores["score_brief_depiction"] == pytest.approx(3.75)  # what ships is the kept round's verdict
-    assert "target met (depiction 3.75 >= 3.5)" in res.stopped["A"] and res.stopped["A"].startswith("converged in 1 round(s)")
-    assert _step(res, "improve_A1").status == "passed" and f"kept (rose by the judge's noise band ({P.IMPROVE_NOISE_BAND}) or more: score_brief_depiction 2.88->3.75)" in _step(res, "improve_A1").detail
+    assert "target met (mean depiction 3.75 >= 3.5)" in res.stopped["A"] and res.stopped["A"].startswith("converged in 1 round(s)")
+    # loop2: kept provisionally by the round, then validated (k judgements against the start; k = 1 here)
+    assert _step(res, "improve_A1").status == "passed" and "kept provisionally (rose by the judge's noise band" in _step(res, "improve_A1").detail
+    assert _step(res, "validate_A1").status == "passed" and "depiction 3.75 (mean 3.75) against 2.88" in _step(res, "validate_A1").detail
     (call,) = api.authoring("author:improve")
     # the request shows the design: the judge's five views with badges (tactics.judging), each its own image, the
     # legend, every score and the brief
@@ -141,13 +147,15 @@ def test_a_round_that_lowers_the_score_is_rolled_back_and_the_design_that_passed
     assert f"fell by more than the judge's noise band ({P.IMPROVE_NOISE_BAND}): score_brief_depiction 2.88->2.00" in _step(res, "improve_A1").detail
     # the verdict that ships is the kept design's (2.875), not the rolled-back round's (2.0, which would miss the brief)
     assert res.scores["score_brief_depiction"] == pytest.approx(2.875) and not res.brief_unmet
-    assert "round 1 did not improve the design" in res.stopped["A"]
+    assert "round 1 made the design worse" in res.stopped["A"]
 
 
 def test_with_patience_a_rolled_back_round_is_followed_by_another_try(key, tmp_path: Path) -> None:
     key(score_sequence={"score_brief_depiction": ["3", "2", "4"]}, patches={"author:improve": [HOVERING, HANDLE_R]})
     res, sm, _ = _run(tmp_path, patience=2)
     assert "lamp" not in _ids(sm) and "handle_r" in _ids(sm)
+    # loop2: the floating lamp is corrected inside round 1 (the kernel's evidence goes back to the author at once); that
+    # round's handle is then judged lower (2.0) and undone, and round 2 is kept
     assert [s.status for s in res.steps if s.name.startswith("improve_A")] == ["warned", "passed"]
     assert "target met" in res.stopped["A"]
 
@@ -165,14 +173,18 @@ def test_rounds_stop_at_the_plans_limit(key, tmp_path: Path) -> None:
     key(score_sequence={"score_brief_depiction": ["3", "4"]}, patches={"author:improve": [HANDLE_L, HANDLE_R]})
     res, sm, _ = _run(tmp_path, rounds=1, target=4.0)  # 3.75 is kept and is still short of the target
     assert "handle_l" in _ids(sm) and "handle_r" not in _ids(sm)
-    assert "improvement: 1 round(s) used, 1 kept, depiction 2.88->3.75" in res.stopped["A"] and len(res.rounds) == 2
+    assert "improvement: 1 round(s) used; 1 round(s) kept, depiction (mean of 1) 2.88->3.75" in res.stopped["A"] and len(res.rounds) == 2
 
 
 def test_a_round_that_changes_nothing_beyond_the_judges_noise_is_not_kept(key, tmp_path: Path) -> None:
     key(score_sequence={"score_brief_depiction": ["3"]}, patches={"author:improve": [HANDLE_L]})
     res, sm, _ = _run(tmp_path)
-    assert _ids(sm) == {"body"} and res.rounds[-1].rolled_back
-    assert f"no change beyond the judge's noise band ({P.IMPROVE_NOISE_BAND}) and no defect cleared" in _step(res, "improve_A1").detail
+    # loop2: nothing shows it worse, so the round is kept provisionally; the validation finds no rise and restores the
+    # design the rounds started from
+    assert _ids(sm) == {"body"} and _step(res, "improve_A1").detail.startswith("kept provisionally")
+    assert _step(res, "validate_A1").status == "skipped" and "not decided yet" in _step(res, "validate_A1").detail
+    last = [x for x in res.steps if x.name.startswith("validate_A")][-1]  # the final validation decides: no rise, restored
+    assert last.status == "warned" and "restored the last validated design (it did not rise by the band)" in last.detail
 
 
 def test_a_design_short_only_of_a_score_gate_gets_improvement_rounds_not_a_repair(key, tmp_path: Path) -> None:
@@ -187,16 +199,17 @@ def test_a_design_short_only_of_a_score_gate_gets_improvement_rounds_not_a_repai
 def test_a_rolled_back_round_is_told_what_its_patch_did(key, tmp_path: Path) -> None:
     api = key(score_sequence={"score_brief_depiction": ["3", "2", "4"]}, patches={"author:improve": [HOVERING, HANDLE_R]})
     _run(tmp_path, patience=2)
-    first, second = api.authoring("author:improve")
+    first, second = api.authoring("author:improve")[:2]
     assert "previous patch" not in first["text"]
-    assert ("Your previous patch for this design was undone: your patch had 1 op(s): upsert_node lamp; it was undone because "
-            "Tier-1 finds a new floating part: lamp") in second["text"]
+    # loop2: the patch is corrected inside its round with the kernel's own finding
+    assert ("Your previous patch for this design was undone: your patch had 1 op(s): upsert_node lamp; after clean-up it was "
+            "still not sound, so it was not judged: these parts float") in second["text"] and "lamp" in second["text"]
 
 
 def test_a_design_already_at_the_target_gets_no_round(key, tmp_path: Path) -> None:
     api = key()  # every score at the top level: depiction 3.75
     res, sm, _ = _run(tmp_path)
-    assert api.authoring("author:improve") == [] and "target met (depiction 3.75" in res.stopped["A"]
+    assert api.authoring("author:improve") == [] and "target met (mean depiction 3.75" in res.stopped["A"]
     assert len(res.rounds) == 1
 
 

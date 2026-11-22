@@ -389,12 +389,16 @@ async def test_a_turned_away_stream_books_nothing(short_limits):
 
 @pytest.mark.parametrize("finish, error", [("MAX_TOKENS", M.AuthorTruncated), ("SAFETY", M.AuthorNoAnswer)])
 async def test_the_blocking_errors_still_come_from_a_streamed_answer(short_limits, finish, error):
-    api = Api([(0.0, THOUGHT), (0.0, chunk(answer=ANSWER[:100])), (0.0, chunk(finish=finish, usage=USAGE))])
+    script = [(0.0, THOUGHT), (0.0, chunk(answer=ANSWER[:100])), (0.0, chunk(finish=finish, usage=USAGE))]
+    # loop2: a cut-off answer whose output was mostly thinking (USAGE: 18,042 of 24,770) is asked once more at the next
+    # lower thinking level (metered_author.LESS_THINKING); here that one is cut off too, so two calls are booked
+    api = Api(script, script) if finish == "MAX_TOKENS" else Api(script)
     a, gov = author(api)
     with pytest.raises(error):
         await a.propose("crate", budget=a.budget, n=1, context={"asset_name": "RuggedMilitarySupply"})
-    [r] = authoring(gov)
-    assert r["finish_reason"] == finish and r["usage_known"] is True
+    rs = authoring(gov)
+    assert len(rs) == (2 if finish == "MAX_TOKENS" else 1)
+    assert all(r["finish_reason"] == finish and r["usage_known"] is True for r in rs)
 
 
 async def test_a_blocked_prompt_has_no_candidate_and_is_no_answer(short_limits):

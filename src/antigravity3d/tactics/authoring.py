@@ -147,8 +147,9 @@ def _lift_all(scene: SceneIR) -> list[IROp]:
     return [_move(scene, n.id, np.array([0.0, 0.0, dz])) for n in scene.nodes if n.parent is None] if abs(dz) > 1e-6 else []
 
 
-def _shrink(scene: SceneIR, max_tris: int) -> list[IROp]:
-    """Reduce segments/rings of curved nodes until the analytic tri count fits 90% of the budget."""
+def _shrink(scene: SceneIR, max_tris: int, only: set[str] | None = None) -> list[IROp]:
+    """Reduce segments/rings of curved nodes until the analytic tri count fits 90% of the budget. ``only``: change no
+    node outside this set (a patch's clean-up touches only what the patch changed; tactics.pyramid.tidy)."""
     target, cur = int(max_tris * 0.9), scene
     ops: list[IROp] = []
     for _ in range(6):
@@ -158,9 +159,9 @@ def _shrink(scene: SceneIR, max_tris: int) -> list[IROp]:
         k = max(0.25, math.sqrt(target / tris))
         # rounded bevels go to a chamfer first: they cost the most per part and change no silhouette
         step: list[IROp] = [SetParam(node_id=n.id, name="bevel_segments", value=1) for n in cur.nodes
-                            if n.params.get("bevel") and int(n.params.get("bevel_segments", 1)) > 1]
+                            if n.params.get("bevel") and int(n.params.get("bevel_segments", 1)) > 1 and (only is None or n.id in only)]
         for n in cur.nodes if not step else ():
-            if n.kind not in CURVED:
+            if n.kind not in CURVED or (only is not None and n.id not in only):
                 continue
             fields = NODE_PARAMS[n.kind].model_fields
             for name, floor in (("segments", 8), ("rings", 6)):

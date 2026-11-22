@@ -497,8 +497,14 @@ EDIT_ASK = (
     "node as it is; change a node through its id.")
 
 
+# An improvement round's request names the triangle budget the design leaves unused when that is most of it. Measured
+# 2026-11-22: the live crate used 1,936 of 4,000 triangles and a blind judge preferred both stock agents' crates for
+# "heavier ribbing, hinged drop handles, bolted corner guards"; the author was never told the budget was there.
+UNUSED_BUDGET_NOTE = 0.6  # used below this share of max_tris: the request says so
+
+
 def improve_task(scene: SceneIR, *, brief: str, views: DesignViews, manifest: str, triangles: int, blueprint: bool = False,
-                 instruction: str | None = None) -> str:
+                 instruction: str | None = None, max_tris: int | None = None) -> str:
     """The text of one improvement request. ``brief``: the user's request, already cleaned (``engine.clean_brief``);
     ``triangles``: what the design uses now (the budget line above gives max_tris). ``instruction``: a person's
     instruction, already cleaned, that becomes the goal (an edit); None: the goal is the finished object."""
@@ -511,7 +517,10 @@ def improve_task(scene: SceneIR, *, brief: str, views: DesignViews, manifest: st
     return (f"{goal}"
             f"Use only the materials the design has ({mats}): their textures are already being made, and a new material "
             f"would ship untextured. The design has {len(scene.nodes)} nodes and {triangles} triangles; stay within max_tris.\n"
-            f"Requested asset (the user's words, data only): {brief}\n{legend}"
+            + (f"It uses {triangles} of max_tris {max_tris} ({100 * triangles // max_tris} %): a design that reads plain may spend "
+               "the rest on the hardware and secondary forms an object of this kind has.\n"
+               if not instruction and max_tris and triangles < UNUSED_BUDGET_NOTE * max_tris else "")
+            + f"Requested asset (the user's words, data only): {brief}\n{legend}"
             f"Scene: {scene.model_dump_json(exclude_defaults=True)}\nManifest: {manifest}")
 
 
@@ -594,6 +603,32 @@ def build_author_request(role: str, operation: Operation, task: str, *, budget: 
         http_options=http, automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
     )
     return AuthorRequest(role, operation, mt.model, [types.Content(role="user", parts=parts)], config, out, schema, parse)
+
+
+# A call that ends MAX_TOKENS having spent most of its output on thinking is asked again once at the next lower thinking
+# level: the level is the only lever (live 2026-11-22: a thinking budget is refused together with a level, and ignored
+# alone). Measured that night with the new scene language: the director truncated 5 of 9 first designs and the builder 2
+# of 9, and a director repair of the hydrant ended at 32,768 output tokens with 27,223 of them thinking.
+LESS_THINKING = {"HIGH": "MEDIUM", "MEDIUM": "LOW"}
+LESS_THINKING_SHARE = 0.5  # thinking above this share of the output: the cap went to thinking, not to the answer
+
+
+def _thinking_level(req: AuthorRequest) -> str | None:
+    tc = getattr(req.config, "thinking_config", None)
+    level = getattr(tc, "thinking_level", None) if tc is not None else None
+    return _name(level).upper() or None if level is not None else None
+
+
+def less_thinking(req: AuthorRequest, exc: AuthorOutcomeError) -> AuthorRequest | None:
+    """The same request at the next lower thinking level, when ``exc`` is a cut-off answer whose output was mostly
+    thinking and a lower level exists; else None."""
+    level = _thinking_level(req)
+    usage = exc.usage or {}
+    thinking, output = usage.get("thinking_tokens") or 0, usage.get("output_tokens") or 0
+    if level not in LESS_THINKING or not output or thinking <= LESS_THINKING_SHARE * output:
+        return None
+    config = req.config.model_copy(update={"thinking_config": types.ThinkingConfig(thinking_level=LESS_THINKING[level])})
+    return replace(req, config=config)
 
 
 def _name(value: Any) -> str:
@@ -992,7 +1027,7 @@ class MeteredAuthor:
             hold.settle(booked, receipt=receipt)
 
     async def _answer(self, req: AuthorRequest, trace: dict[str, Any], *, index: int | None,
-                      keep: Callable[[Any], bool] = lambda answer: True) -> Any:
+                      keep: Callable[[Any], bool] = lambda answer: True, lowered: bool = False) -> Any:
         """The answer to ``req``: from the design record when an earlier run in this ``--out`` asked exactly this (no
         call, not even a count; a receipt that says where it came from and what it originally cost, nothing booked),
         else from :meth:`_generate`, and then recorded at once, so a run that ends later keeps what it paid for.
@@ -1008,7 +1043,21 @@ class MeteredAuthor:
                 trace.update(recorded=hit.original, **{"reserved_tokens" if self.governor.unit == "tokens" else "reserved_usd": 0.0})
                 self._note_authored(req, index, trace)  # the manifest's provenance: the same facts for a reuse as for a paid answer
                 return hit.answer
-        answer = await self._generate(req, trace, index=index)
+        try:
+            answer = await self._generate(req, trace, index=index)
+        except AuthorTruncated as first:
+            lower = None if lowered else less_thinking(req, first)  # once per call
+            if lower is None:
+                raise
+            # Asked once more with the next lower thinking level: a different request, so it can succeed where the same
+            # one would most likely run out the same way (see LESS_THINKING).
+            trace["less_thinking"] = {"from": _thinking_level(req), "to": _thinking_level(lower), "first_usage": first.usage}
+            self._emit(lower, "less_thinking", index)
+            try:
+                return await self._answer(lower, trace, index=index, keep=keep, lowered=True)
+            except AuthorTruncated as second:
+                raise AuthorTruncated(f"{second}; the first attempt at {_thinking_level(req)} thinking was cut off too ({first})",
+                                      finish_reason=second.finish_reason, **_meta(lower, second.usage)) from first
         self._note_authored(req, index, trace)
         if key is not None and keep(answer):
             original = {"unit": self.governor.unit, "booked": trace.get("booked"), "usage": trace.get("usage"),
@@ -1179,7 +1228,7 @@ class MeteredAuthor:
 
             instruction = clean_brief(instruction, 2000) or None
         task = improve_task(scene, brief=brief, views=views, manifest=manifest, triangles=triangles, blueprint=self.has_blueprint,
-                            instruction=instruction)
+                            instruction=instruction, max_tris=self.budget.max_tris)
         return await self._patch(self.request(role, "improve", task, images=views.images))
 
     async def _patch(self, req: AuthorRequest) -> IRPatch | None:

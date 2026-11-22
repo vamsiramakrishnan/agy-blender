@@ -1,0 +1,324 @@
+{
+ "ops": [
+  {
+   "op": "set_param",
+   "node_id": "handle_plate",
+   "name": "size",
+   "value": [
+    0.008,
+    0.2,
+    0.1
+   ]
+  },
+  {
+   "op": "set_param",
+   "node_id": "handle_plate__mx",
+   "name": "size",
+   "value": [
+    0.008,
+    0.2,
+    0.1
+   ]
+  },
+  {
+   "op": "set_param",
+   "node_id": "handle_grip",
+   "name": "radius",
+   "value": 0.015
+  },
+  {
+   "op": "set_param",
+   "node_id": "handle_grip",
+   "name": "height",
+   "value": 0.14
+  },
+  {
+   "op": "set_param",
+   "node_id": "handle_grip__mx",
+   "name": "radius",
+   "value": 0.015
+  },
+  {
+   "op": "set_param",
+   "node_id": "handle_grip__mx",
+   "name": "height",
+   "value": 0.14
+  },
+  {
+   "op": "set_param",
+   "node_id": "lid_rib",
+   "name": "size",
+   "value": [
+    0.045,
+    0.42,
+    0.018
+   ]
+  },
+  {
+   "op": "set_param",
+   "node_id": "lid_rib__mx",
+   "name": "size",
+   "value": [
+    0.045,
+    0.42,
+    0.018
+   ]
+  },
+  {
+   "op": "set_param",
+   "node_id": "rib_front",
+   "name": "size",
+   "value": [
+    0.035,
+    0.014,
+    0.25
+   ]
+  },
+  {
+   "op": "set_param",
+   "node_id": "rib_front__mx",
+   "name": "size",
+   "value": [
+    0.035,
+    0.014,
+    0.25
+   ]
+  },
+  {
+   "op": "set_param",
+   "node_id": "rib_back",
+   "name": "size",
+   "value": [
+    0.035,
+    0.014,
+    0.25
+   ]
+  },
+  {
+   "op": "set_param",
+   "node_id": "rib_back__mx",
+   "name": "size",
+   "value": [
+    0.035,
+    0.014,
+    0.25
+   ]
+  },
+  {
+   "op": "upsert_node",
+   "node": {
+    "id": "hinge_plate_lid",
+    "kind": "box",
+    "params": {
+     "size": [
+      0.06,
+      0.006,
+      0.04
+     ],
+     "bevel": 0.001,
+     "bevel_segments": 1
+    },
+    "transform": {
+     "translate": [
+      0.26,
+      0.273,
+      0.415
+     ],
+     "rotate_euler_deg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    },
+    "parent": null,
+    "material_id": "dark_gunmetal",
+    "collider": false
+   }
+  },
+  {
+   "op": "upsert_node",
+   "node": {
+    "id": "hinge_plate_lid__mx",
+    "kind": "box",
+    "params": {
+     "size": [
+      0.06,
+      0.006,
+      0.04
+     ],
+     "bevel": 0.001,
+     "bevel_segments": 1
+    },
+    "transform": {
+     "translate": [
+      -0.26,
+      0.273,
+      0.415
+     ],
+     "rotate_euler_deg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    },
+    "parent": null,
+    "material_id": "dark_gunmetal",
+    "collider": false
+   }
+  },
+  {
+   "op": "upsert_node",
+   "node": {
+    "id": "lid_stack_pad_fr",
+    "kind": "box",
+    "params": {
+     "size": [
+      0.09,
+      0.07,
+      0.014
+     ],
+     "bevel": 0.003,
+     "bevel_segments": 1
+    },
+    "transform": {
+     "translate": [
+      0.32,
+      -0.17,
+      0.457
+     ],
+     "rotate_euler_deg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    },
+    "parent": null,
+    "material_id": "dark_gunmetal",
+    "collider": false
+   }
+  },
+  {
+   "op": "upsert_node",
+   "node": {
+    "id": "lid_stack_pad_fl",
+    "kind": "box",
+    "params": {
+     "size": [
+      0.09,
+      0.07,
+      0.014
+     ],
+     "bevel": 0.003,
+     "bevel_segments": 1
+    },
+    "transform": {
+     "translate": [
+      -0.32,
+      -0.17,
+      0.457
+     ],
+     "rotate_euler_deg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    },
+    "parent": null,
+    "material_id": "dark_gunmetal",
+    "collider": false
+   }
+  },
+  {
+   "op": "upsert_node",
+   "node": {
+    "id": "lid_stack_pad_br",
+    "kind": "box",
+    "params": {
+     "size": [
+      0.09,
+      0.07,
+      0.014
+     ],
+     "bevel": 0.003,
+     "bevel_segments": 1
+    },
+    "transform": {
+     "translate": [
+      0.32,
+      0.17,
+      0.457
+     ],
+     "rotate_euler_deg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    },
+    "parent": null,
+    "material_id": "dark_gunmetal",
+    "collider": false
+   }
+  },
+  {
+   "op": "upsert_node",
+   "node": {
+    "id": "lid_stack_pad_bl",
+    "kind": "box",
+    "params": {
+     "size": [
+      0.09,
+      0.07,
+      0.014
+     ],
+     "bevel": 0.003,
+     "bevel_segments": 1
+    },
+    "transform": {
+     "translate": [
+      -0.32,
+      0.17,
+      0.457
+     ],
+     "rotate_euler_deg": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "scale": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    },
+    "parent": null,
+    "material_id": "dark_gunmetal",
+    "collider": false
+   }
+  }
+ ]
+}

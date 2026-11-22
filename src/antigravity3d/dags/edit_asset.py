@@ -714,7 +714,12 @@ async def edit_asset(target: Path | str, instruction: str, *, plane: Any, author
 
     # What the author sees (the judge's five views with badges) and, alongside the author's call, the judge's review of
     # the design as it shipped: the "before" every finding is compared with.
-    renders = await asyncio.to_thread(render_design, meshes0)
+    from antigravity3d.art_direction import load as load_art
+    from antigravity3d.kernel.compile_ir import CREASE_DEG
+
+    art = load_art(shipped.art_direction) if shipped.art_direction else None
+    crease = art.crease_deg() if art is not None else CREASE_DEG  # the views shade as the package ships (an art direction's crease)
+    renders = await asyncio.to_thread(lambda: render_design(meshes0, crease_deg=crease))
     uploaded = await asyncio.gather(*(up(b) for _, b in (*renders.plain, *renders.marked)))
     n_views = len(renders.plain)
     before_views = tuple((v, u) for (v, _), u in zip(renders.plain, uploaded[:n_views]))
@@ -725,7 +730,7 @@ async def edit_asset(target: Path | str, instruction: str, *, plane: Any, author
         if plane is None:
             return None
         calls["judge"] += 1
-        return await judge_design(plane, meshes, brief=brief, governor=governor, uploader=up)
+        return await judge_design(plane, meshes, brief=brief, governor=governor, uploader=up, crease_deg=crease)
 
     before_task = asyncio.ensure_future(review(meshes0))
     previous = ""
@@ -782,7 +787,10 @@ async def edit_asset(target: Path | str, instruction: str, *, plane: Any, author
                 continue
             before_ir = scene
             touched = touched_nodes(candidate, before_ir, sm.base_ir())
-            _separate_touched(sm, shipped.budget, touched, res)
+            # the clean-up a first design gets (settle, fit the budget, separate flush faces), on what the edit changed only
+            from antigravity3d.tactics.pyramid import tidy
+
+            res.warnings += [n for n in tidy(sm, shipped.budget, touched) if n.startswith("flush faces left")]
             meshes1 = sm.extract_meshes()
             t1_1 = tier1_qa(meshes1, shipped.budget)
             scope = measure_scope(bounds0, part_bounds(meshes1), touched)
@@ -807,7 +815,7 @@ async def edit_asset(target: Path | str, instruction: str, *, plane: Any, author
             check = None
             try:
                 if patch is None and plane is not None:
-                    after_views = await _plain_views(meshes1, up)
+                    after_views = await _plain_views(meshes1, up, crease)
                     calls["judge"] += 1
                     blocks = edit_check_blocks(before_views, after_views, instruction, scope)
                     if estimate_input_tokens(blocks, edit_questions()) >= LATENCY_KNEE_TOKENS:  # a long instruction: the table shrinks
@@ -873,31 +881,10 @@ def _judge_failed(exc: BaseException) -> bool:
     return isinstance(exc, (DecisionError, DecisionBudgetError)) or _judge_failure(exc)
 
 
-async def _plain_views(meshes: list[Any], up: Any) -> tuple[tuple[str, str], ...]:
+async def _plain_views(meshes: list[Any], up: Any, crease: float) -> tuple[tuple[str, str], ...]:
     from antigravity3d.tactics.judging import design_views
 
-    return await design_views(meshes, up)
-
-
-def _separate_touched(sm: Any, budget: EngineBudget, touched: set[str], res: EditResult) -> None:
-    """Flush-face separation of the edited design, applying only moves of parts the edit touched: a pair it would fix by
-    moving another part is left (and reported), because a part the developer did not ask about must not change."""
-    from antigravity3d.kernel.fast_ops import shipped_masks
-    from antigravity3d.kernel.separate import separate_coplanar
-
-    meshes = sm.extract_meshes()
-    try:
-        r = separate_coplanar(sm.base_ir(), meshes, hidden=shipped_masks(meshes, budget))
-    except (ValueError, KeyError) as e:
-        res.warnings.append(f"flush-face separation not run: {e}")
-        return
-    ops = [op for op in r.ops if getattr(op, "node_id", None) in touched]
-    left = sorted({getattr(op, "node_id", "?") for op in r.ops if getattr(op, "node_id", None) not in touched})
-    if ops:
-        sm.apply_patch(IRPatch(ops=ops))
-    if left:
-        res.warnings.append("flush faces left as they are, because fixing them would move parts the edit does not name: "
-                            + ", ".join(left[:10]))
+    return await design_views(meshes, up, crease_deg=crease)
 
 
 async def _finish_unchanged(res: EditResult, shipped: Shipped, wd: Path, t_start: float, calls: dict[str, int], governor: Any,

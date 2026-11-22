@@ -265,9 +265,13 @@ async def test_truncation_is_a_typed_error_and_books_the_billed_usage(monkeypatc
         await a.propose("crate", budget=budget, n=1, context=context)
     assert e.value.finish_reason == "MAX_TOKENS"
     assert e.value.usage == {"input_tokens": 6000, "output_tokens": 4096, "thinking_tokens": 4093}
-    [rec] = gov.receipts()
-    assert rec["status"] == "AuthorTruncated" and rec["finish_reason"] == "MAX_TOKENS" and rec["usage_known"]
-    assert rec["booked_usd"] == pytest.approx(cost(6000, 4096)) and gov.spent == pytest.approx(cost(6000, 4096))
+    # loop2: the hero plan's director thinks HIGH, and this answer was mostly thinking (4,093 of 4,096): it is asked once
+    # more at MEDIUM (metered_author.LESS_THINKING), which this endpoint cuts off too; each call books what it billed
+    recs = gov.receipts()
+    assert len(recs) == 2 and all(r["status"] == "AuthorTruncated" and r["finish_reason"] == "MAX_TOKENS" and r["usage_known"]
+                                  for r in recs)
+    assert all(r["booked_usd"] == pytest.approx(cost(6000, 4096)) for r in recs) and gov.spent == pytest.approx(2 * cost(6000, 4096))
+    assert "the first attempt at HIGH thinking was cut off too" in str(e.value)
 
 
 # (None, None, False), a response with no candidate and no prompt feedback, moved to the test below: the call is
