@@ -119,7 +119,7 @@ def test_three_js_loads_the_generated_package(run) -> None:
 
     rep = asyncio.run(W.WebThreeValidator().validate(_package(run), 120))
     if rep.skipped:
-        pytest.skip(rep.skipped)
+        pytest.skip(rep.skipped_reason or "the three.js check is not available here")
     assert rep.ok, [c for c in rep.checks if c.status == "fail"]
 
 
