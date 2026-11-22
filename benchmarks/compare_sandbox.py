@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Containment for the stock-agent arms (A and B) of ``compare_agents.py``.
+"""Containment for the stock-agent arms (V, A, B and N) of ``compare_agents.py``.
 
 A stock Antigravity agent runs shell commands and Python a model wrote. It runs here inside Linux namespaces, set up
 by this file in three steps (the file is self-contained: stdlib plus the SDK, because it is copied into the sandbox):
@@ -22,6 +22,10 @@ by this file in three steps (the file is self-contained: stdlib plus the SDK, be
    /run/agy             the model relay's unix socket                                rw
    /tmp                 private tmpfs                                                 rw
    ===================  ===========================================================  ======
+
+   Arm V: ``/opt/blender`` is not on PATH and ``$BLENDER_EXE`` is unset; its MCP server (``/opt/agyctl/
+   compare_vanilla_mcp.py``) starts Blender under an Xvfb display inside the sandbox. Arm N: this project's src,
+   plugin and engines are bound read-only (``plugin_attachment``).
 
    ``/home``, ``/root``, ``/tmp``, ``/opt``, ``/mnt``, ``/run``, ``/srv``, ``/media`` and ``/old_root`` are replaced
    by empty tmpfs mounts first, so the repository, the upstream clones, the worktrees, git credentials and the
@@ -140,7 +144,17 @@ def bootstrap(config_path: str) -> None:
     argv = ["setpriv", f"--reuid={NOBODY}", f"--regid={NOBODY}", "--clear-groups", "--inh-caps=-all",
             "--bounding-set=-all", "--no-new-privs", "--", "/usr/local/bin/python3", "-I", f"{CTL}/compare_sandbox.py",
             "runner", f"{CTL}/config.json"]
-    os.execvpe("setpriv", argv, scrubbed_env(cfg.get("extra_env")))
+    os.execvpe("setpriv", argv, sandbox_env(cfg))
+
+
+def sandbox_env(cfg: dict) -> dict[str, str]:
+    """The environment of everything in the sandbox. Arm V (``cfg["vanilla"]``): Blender is not on PATH and not named
+    in the environment; its MCP server is how it reaches Blender (the binary stays mounted for the server to start)."""
+    env = scrubbed_env(cfg.get("extra_env"))
+    if cfg.get("vanilla"):
+        env.pop("BLENDER_EXE", None)
+        env["PATH"] = ":".join(p for p in env["PATH"].split(":") if p != BLENDER_DIR)
+    return env
 
 
 # ----------------------------------------------------------------------------------------------- step 3 (nobody)
@@ -449,6 +463,33 @@ def plugin_attachment(cfg: dict, url: str, emit: Events, conversation_id: str) -
             "prompt_prefix": "".join(f"[SessionStart hook] {m}\n\n" for m in injected if m), "procs": procs}
 
 
+# ----------------------------------------------------------------------------------------------- arm V
+
+
+VANILLA_SOCKET = "/tmp/vanilla_blender.sock"
+
+
+def vanilla_attachment(cfg: dict, emit: Events) -> dict:
+    """LocalAgentConfig keyword arguments and background processes for arm V: one MCP server (``compare_vanilla_mcp.py
+    serve``, stdlib only) whose Blender runs in this sandbox under a virtual display. Nothing of this project."""
+    import subprocess
+
+    from google.antigravity import types
+
+    vc = cfg["vanilla"]
+    procs = []
+    if os.path.exists("/usr/bin/Xvfb"):  # Workbench (the solid-viewport screenshot) needs OpenGL, so a display
+        procs.append(subprocess.Popen(["/usr/bin/Xvfb", ":99", "-screen", "0", "1280x1024x24", "-nolisten", "tcp"],
+                                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                      start_new_session=True))
+    env = dict(os.environ) | {"DISPLAY": ":99", "VANILLA_BLENDER": vc["blender"], "VANILLA_SOCKET": VANILLA_SOCKET}
+    server = types.McpStdioServer(name="blender", command="/usr/local/bin/python3", args=["-I", vc["server"], "serve"],
+                                  env=env)
+    emit("vanilla_attached", server="blender", command=["/usr/local/bin/python3", "-I", vc["server"], "serve"],
+         blender=vc["blender"], display=bool(procs), path=os.environ.get("PATH"))
+    return {"kwargs": {"mcp_servers": [server]}, "procs": procs}
+
+
 # Tool calls approved but not yet finished: a command the harness put in the background stays here until it ends
 # (the post-tool hook fires when the command completes, not when it is backgrounded).
 OPEN_CALLS: set = set()
@@ -547,6 +588,10 @@ async def run_agent(cfg: dict, emit: Events) -> None:
         att = plugin_attachment(cfg, url, emit, conversation_id)
         kwargs |= att["kwargs"]
         extra_hooks, prompt_prefix, procs = att["hooks"], att["prompt_prefix"], att["procs"]
+    if cfg.get("vanilla"):
+        att = vanilla_attachment(cfg, emit)
+        kwargs |= att["kwargs"]
+        procs = att["procs"]
     agent_cfg = LocalAgentConfig(
         models=[ModelTarget(name=text_model, types=[ModelType.TEXT], endpoint=endpoint),
                 ModelTarget(name=DEFAULT_IMAGE_GENERATION_MODEL, types=[ModelType.IMAGE], endpoint=image_endpoint)],

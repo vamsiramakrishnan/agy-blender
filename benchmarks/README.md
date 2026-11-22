@@ -11,8 +11,9 @@ Five tools and the report written from them:
 - `perf_engines.py` times a real Blender and a real Godot, and Blender against the kernels on the same meshes. It runs
   in CI, where those binaries are. See "Engine benchmark (CI)".
 - [`RESULTS.md`](RESULTS.md) is the written report; `results/` holds the data it was written from. See "Result files".
-- `compare_agents.py` (with `compare_sandbox.py` and `compare_eval.py`) runs one brief through a stock Antigravity agent and
-  through this project's command line, under one token and image ledger, and evaluates what each leaves the same way.
+- `compare_agents.py` (with `compare_sandbox.py`, `compare_eval.py` and `compare_vanilla_mcp.py`) runs the same briefs
+  through a stock Antigravity agent (with a plain Blender MCP server, a shell Blender, or this project's plugin) and
+  through this project's command line, under one token and image ledger, and scores what each leaves the same way.
   It spends real quota, needs root and Linux namespaces, and never runs in CI. See "Agent comparison".
 - [`UPSTREAM_SKILLS.md`](UPSTREAM_SKILLS.md) is the third round's report: two upstream Blender skill packs adapted, the
   first live runs of the pipeline, and the comparison with a stock agent.
@@ -366,20 +367,37 @@ one session to the next.
 
 ## Agent comparison
 
-`compare_agents.py` is not a benchmark of speed. It answers one question on one brief: what does a stock agent with a
-Blender leave behind, and what does this project leave behind, when both are held to the same limits and judged from
-their files.
+`compare_agents.py` is not a benchmark of speed. It answers, per brief, what a stock agent with a Blender leaves behind
+and what this project leaves behind, when all are held to the same limits and judged from their files, and what each
+costs a game developer afterwards.
 
-- **Arms.** A: the stock Antigravity agent (the SDK's own system prompt and tools) with a scriptable Blender. B: the
-  same with the EL4CTEO skills installed. C: `agy3d prop ... --preview` from this tree. A and B run inside Linux
-  namespaces as an unprivileged user with no network.
+- **Arms.** V: the stock Antigravity agent with a plain Blender MCP server (`compare_vanilla_mcp.py`: Python in one
+  long-lived Blender session, the scene described, an image of it from a chosen view; nothing of this project): the
+  "vanilla MCP system". A: the same agent with a scriptable headless Blender on its PATH. B: A with the EL4CTEO skills.
+  N: the same agent with this project's plugin attached, driving it tool by tool. C: `agy3d prop ... --preview` from
+  this tree. V, A, B and N run inside Linux namespaces as an unprivileged user with no network; the task text is the
+  same for all of them except the one sentence that says how Blender is reached.
 - **One ledger.** Every model call of every arm, and of the judge, goes through a relay on the host that holds the
   key, reserves each call's worst case against the run's share, and refuses what does not fit. `ledger.json` is the
-  record; a share is closed at what it used before another run may plan with the rest.
+  record; a share is closed at what it used before another run may plan with the rest. `plan` prints every cell's
+  share, the model calls its task names and the harness's own stop before anything is spent.
 - **One evaluation.** Facts read from the GLB, an import in Godot, the three.js check, the upstream `qa_check`,
-  `mesh_stats` and `texel_density` in Blender, Cycles renders, and a blind pairwise judge asked in both orders.
+  `mesh_stats` and `texel_density` in Blender, Cycles renders, and a blind pairwise judge asked in both orders, on the
+  full contact sheet and on a 128 px one (the read at game size).
+- **The scorecard** (`compare_eval.SCORE_ROWS`, written to `scorecard_<round>.json` and the gallery): finishing,
+  game-ready checks and their rate, runtime cost (draw calls, triangles per level, texture memory from the images'
+  sizes, package bytes), looks, the change request, hand steps left in Godot 4, and trust. Each row carries the rule it
+  applies. Rows only this project can pass (installed into a project, same bytes from the same request, provenance)
+  are marked and kept out of the shared rate.
+- **Change requests.** `--change BRIEF:ARM` gives a cell that delivered one follow-up ("make the two side handles 30 %
+  larger" for the crate; `CHANGES`) in a new session over a copy of its files, and compares the two GLBs part by part
+  (`compare_eval.package_diff`: parts resized as asked, and everything else that changed). Arm C's change is the same
+  command with the change sentence appended, into a folder holding a copy of its cache (`C_CHANGE_MODE`); the command
+  line has no edit path yet. `--repeat BRIEF:C` asks arm C the same request again and compares the bytes.
 - **Commands.** `dry-run` rehearses everything against local stand-ins and spends nothing. `live --go` spends quota:
-  run one cell at a time (`--only`, `--continue`) and read its record before the next. `close` closes accounts.
+  run one cell at a time (`--only`, `--change`, `--continue`, `--repeat`) and read its record before the next.
+  `close` closes accounts. `score --root DIR` rebuilds the scorecard and gallery from what is on disk.
 
-Its tests (`tests/test_compare_agents.py`) cover the ledger, the relay's refusals and the sandbox; the sandbox tests
-need root, `unshare` and `setpriv` and are skipped without them. What it found is in `UPSTREAM_SKILLS.md`.
+Its tests (`tests/test_compare_agents.py`) cover the ledger, the relay's refusals, the sandbox, the vanilla MCP
+server, the scorecard's rules and the change requests; the sandbox tests need root, `unshare` and `setpriv` and are
+skipped without them, and arm V's needs a real Blender and Xvfb. What it found is in `UPSTREAM_SKILLS.md`.
