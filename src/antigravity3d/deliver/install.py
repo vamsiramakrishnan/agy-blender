@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from antigravity3d.deliver.detect import TARGET_OF, ProjectInfo, detect_project, version_tuple
+from antigravity3d.deliver.paths import UnsafePath, asset_name, inside, no_links, safe_name
 
 RECORD_DIR = ".agy3d"
 RECORD = f"{RECORD_DIR}/install.json"
@@ -37,6 +38,10 @@ RECORD_SCHEMA = 1
 # and added glb_images); a later version is accepted when it still carries them.
 MIN_SCHEMA = 2
 REQUIRED_FIELDS = ("asset", "target_engine", "files", "file_hashes", "glb_bounds_m", "tris")
+# Where an install's own files may be (top level: the levels, their .import files, the scene) and where Godot extracts
+# the shared materials. Every name from a record is held to these before it is joined to DEST (deliver/paths.py).
+INSTALL_FOLDERS = ("", "textures")
+MATERIAL_FOLDERS = ("materials",)
 
 
 @dataclass
@@ -100,7 +105,10 @@ def _sha_file(p: Path) -> str:
 
 def read_package(pkg: Path) -> dict[str, Any]:
     """The package's manifest, after checking that every file it lists is there with the bytes it records."""
-    mf = pkg / "manifest.json"
+    try:
+        mf = inside(pkg, "manifest.json", "package manifest", write=False)
+    except UnsafePath as e:
+        raise Refused(f"{e}; nothing was written") from e
     if not mf.is_file():
         raise Refused(f"{pkg} has no manifest.json: not an antigravity-3d package")
     try:
@@ -114,9 +122,19 @@ def read_package(pkg: Path) -> dict[str, Any]:
     missing = [k for k in REQUIRED_FIELDS if k not in data]
     if missing:
         raise Refused(f"manifest schema_version {sv} lacks {missing}, which an install needs")
+    try:
+        asset_name(data["asset"])
+        for f in [*(data.get("files") or []), *(data.get("file_hashes") or {})]:
+            safe_name(f, "manifest file")
+        unhashed = [f for f in data.get("files") or [] if f not in (data.get("file_hashes") or {})]
+        if unhashed:  # an install copies only what the manifest vouches for byte by byte
+            raise UnsafePath(f"manifest file {unhashed[0]!r} is not accepted: the manifest records no hash for it")
+        paths = {f: inside(pkg, f, "manifest file", write=False) for f in data.get("file_hashes") or {}}
+    except UnsafePath as e:
+        raise Refused(f"{e}; nothing was written") from e
     bad = []
     for f, rec in (data.get("file_hashes") or {}).items():
-        p = pkg / f
+        p = paths[f]
         if not p.is_file():
             bad.append(f"{f} missing")
         elif rec.get("sha256") and _sha_file(p) != rec["sha256"]:
@@ -177,8 +195,8 @@ def read_record(dest_dir: Path) -> dict[str, Any] | None:
 
 
 def edited(dest_dir: Path, rel: str, rec: dict[str, Any]) -> str | None:
-    """Why the tool's own file ``rel`` is no longer what it wrote (None: it is)."""
-    p = dest_dir / rel
+    """Why the tool's own file ``rel`` is no longer what it wrote (None: it is). ``rel`` has passed safe_name."""
+    p = inside(dest_dir, rel, "install record entry", write=False)
     if not p.is_file():
         return "deleted"
     if "params" in rec:  # an engine import file: the engine rewrites the rest of it; the settings are ours
@@ -190,15 +208,35 @@ def edited(dest_dir: Path, rel: str, rec: dict[str, Any]) -> str | None:
     return None if _sha_file(p) == rec["sha256"] else "content changed"
 
 
-class _Transaction:
-    """File writes under one directory that are all undone if any step fails."""
+def _check_record_names(record: dict[str, Any]) -> None:
+    """Every name an install record holds, held to what an install can have written (it is a file in the project,
+    which anyone can edit or commit): refuse the whole operation on the first one that is not."""
+    try:
+        files = record.get("files")
+        if not isinstance(files, dict):
+            raise UnsafePath(f"install record files {type(files).__name__} is not accepted: a mapping of names is expected")
+        for f in files:
+            safe_name(f, "install record entry", INSTALL_FOLDERS)
+        for g in record.get("engine_generated") or []:
+            safe_name(g, "install record entry", MATERIAL_FOLDERS)
+            if not g.endswith(".tres"):
+                raise UnsafePath(f"install record entry {g!r} is not accepted: Godot's extracted materials are .tres files")
+    except UnsafePath as e:
+        raise Refused(f"{e}; nothing was changed") from e
 
-    def __init__(self) -> None:
+
+class _Transaction:
+    """File writes under DEST that are all undone if any step fails. Every name is relative to DEST and checked on disk
+    at the moment of the write or removal (deliver/paths.inside): a folder swapped for a symbolic link after planning
+    still cannot redirect it."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
         self.created: list[Path] = []
         self.dirs: list[Path] = []
         self.saved: dict[Path, bytes] = {}
 
-    def mkdirs(self, d: Path) -> None:
+    def _mkdirs(self, d: Path) -> None:
         missing = []
         while not d.exists():
             missing.append(d)
@@ -207,8 +245,17 @@ class _Transaction:
             m.mkdir()
             self.dirs.append(m)
 
-    def write(self, p: Path, data: bytes) -> None:
-        self.mkdirs(p.parent)
+    def ensure_root(self) -> None:
+        """DEST and its missing parents (resolve_dest has placed DEST inside the project)."""
+        self._mkdirs(self.root)
+
+    def mkdir(self, rel: str) -> None:
+        self._mkdirs(inside(self.root, rel, "install folder", write=True))
+
+    def write(self, rel: str, data: bytes) -> Path:
+        p = inside(self.root, rel, "install file", write=True)
+        self._mkdirs(p.parent)
+        p = inside(self.root, rel, "install file", write=True)  # again, now that its folders exist
         if p.exists():
             self.saved.setdefault(p, p.read_bytes())
         else:
@@ -216,21 +263,34 @@ class _Transaction:
         tmp = p.with_name(f".agy3d-tmp-{p.name}")  # hidden: an editor scanning the folder skips it
         tmp.write_bytes(data)
         os.replace(tmp, p)
+        return p
 
-    def remove(self, p: Path) -> None:
+    def remove(self, rel: str) -> None:
+        p = inside(self.root, rel, "install file", write=False)
         if p.exists():
             self.saved.setdefault(p, p.read_bytes())
             p.unlink()
 
+    def _real(self, p: Path) -> bool:
+        """True while nothing between DEST and ``p`` is a link: rollback never acts through one (a folder may have been
+        swapped for a link, which is why it is rolling back)."""
+        try:
+            inside(self.root, p.relative_to(self.root).as_posix(), "rollback", write=True)
+            return True
+        except (UnsafePath, ValueError):
+            return p == self.root or not p.is_relative_to(self.root) and not p.is_symlink()
+
     def rollback(self) -> None:
         for p in self.created:
-            p.unlink(missing_ok=True)
-            p.with_name(f".agy3d-tmp-{p.name}").unlink(missing_ok=True)
+            if self._real(p):
+                p.unlink(missing_ok=True)
+                p.with_name(f".agy3d-tmp-{p.name}").unlink(missing_ok=True)
         for p, data in self.saved.items():
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_bytes(data)
-        for d in reversed(self.dirs):  # only directories this transaction made, deepest first
-            if d.is_dir() and not any(d.iterdir()):
+            if self._real(p):
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes(data)
+        for d in reversed(self.dirs):  # only directories this transaction made, deepest first; never a link
+            if not d.is_symlink() and d.is_dir() and not any(d.iterdir()):
                 d.rmdir()
 
 
@@ -458,7 +518,13 @@ def _install_godot(pkg: Path, project: Path, manifest: dict[str, Any], info: Pro
 
     rel = resolve_dest(project, dest, manifest["asset"])
     dest_dir = project / rel
+    try:
+        no_links(dest_dir, f"the destination {rel}")
+    except UnsafePath as e:
+        raise Refused(f"{e}; nothing was changed") from e
     old = read_record(dest_dir) if dest_dir.is_dir() else None
+    if old is not None:
+        _check_record_names(old)
     if old is None and dest_dir.is_dir() and any(dest_dir.iterdir()):
         raise Refused(f"{rel} exists and holds files this tool did not write (no {RECORD}); choose another --dest")
     if old is not None and old.get("asset") != manifest["asset"]:
@@ -468,6 +534,13 @@ def _install_godot(pkg: Path, project: Path, manifest: dict[str, Any], info: Pro
         plan = godot.build_plan(pkg, manifest, rel, fov_deg=fov)
     except ValueError as e:
         raise Refused(f"cannot install this package: {e}") from e
+    try:
+        for f in plan.files:
+            safe_name(f, "install file", INSTALL_FOLDERS)
+        generated = sorted({safe_name(f"{godot.MATERIAL_DIR}/{n}.tres", "glTF material name", MATERIAL_FOLDERS)
+                            for lv in plan.levels for n in godot.material_names(plan.files[lv.file])})
+    except UnsafePath as e:
+        raise Refused(f"{e}; nothing was written") from e
     maps = {lv.file: godot.expected_maps_bytes(plan.files[lv.file]) for lv in plan.levels}
     tracked = {f: {"sha256": _sha(b), "bytes": len(b), **({"params": plan.imports[f]} if f in plan.imports else {})}
                for f, b in plan.files.items()}
@@ -479,8 +552,7 @@ def _install_godot(pkg: Path, project: Path, manifest: dict[str, Any], info: Pro
         "radius_m": plan.radius_m, "switch_m": [lv.switch_in_m for lv in plan.levels[:-1]], "maps": maps,
         "image_rewrites": plan.image_rewrites, "files": tracked,
         # written by Godot on import (materials/extract), not by this tool: shared by every level, the developer's to edit
-        "engine_generated": sorted({f"{godot.MATERIAL_DIR}/{n}.tres" for lv in plan.levels
-                                    for n in godot.material_names(plan.files[lv.file])}),
+        "engine_generated": generated,
     }
 
     # what each file needs, and what stands in the way
@@ -488,7 +560,7 @@ def _install_godot(pkg: Path, project: Path, manifest: dict[str, Any], info: Pro
     blocked, edits = [], []
     old_files = (old or {}).get("files", {})
     for f, rec in tracked.items():
-        p = dest_dir / f
+        p = inside(dest_dir, f, "install file", write=True) if dest_dir.is_dir() else dest_dir / f
         if f in old_files:
             why = edited(dest_dir, f, old_files[f])
             if why:
@@ -528,19 +600,23 @@ def _install_godot(pkg: Path, project: Path, manifest: dict[str, Any], info: Pro
                           f"{n['remove']} removed; nothing was written")
         return result
 
-    txn = _Transaction()
+    txn = _Transaction(dest_dir)
     try:
+        txn.ensure_root()
         for f, a in sorted(actions.items()):
             if a in ("create", "replace"):
-                txn.write(dest_dir / f, plan.files[f])
+                written = txn.write(f, plan.files[f])
                 if _write_hook:
-                    _write_hook(dest_dir / f)
+                    _write_hook(written)
             elif a == "remove":
-                txn.remove(dest_dir / f)
-        txn.mkdirs(dest_dir / godot.MATERIAL_DIR)  # Godot extracts the shared materials here (godot.scene_params)
-        txn.write(dest_dir / RECORD_DIR / ".gdignore", b"")  # Godot does not scan or import this folder
-        txn.write(dest_dir / RECORD_DIR / "package_manifest.json", (pkg / "manifest.json").read_bytes())
-        txn.write(dest_dir / RECORD, json.dumps(record, indent=1).encode())
+                txn.remove(f)
+        txn.mkdir(godot.MATERIAL_DIR)  # Godot extracts the shared materials here (godot.scene_params)
+        txn.write(f"{RECORD_DIR}/.gdignore", b"")  # Godot does not scan or import this folder
+        txn.write(f"{RECORD_DIR}/package_manifest.json", (pkg / "manifest.json").read_bytes())
+        txn.write(RECORD, json.dumps(record, indent=1).encode())
+    except UnsafePath as e:  # something on disk changed under DEST since it was checked
+        txn.rollback()
+        raise Refused(f"{e}; nothing was changed") from e
     except BaseException:
         txn.rollback()
         raise
@@ -591,7 +667,13 @@ def check_install(project: str | Path, dest: str, *, godot_bin: str | None = Non
     """Re-run the in-project check of an existing install (after the developer changed something)."""
     project = Path(project)
     rel = resolve_dest(project, dest, "_")
-    record = read_record(project / rel)
+    try:
+        no_links(project / rel, f"the destination {rel}")
+        record = read_record(project / rel)
+        if record is not None:
+            _check_record_names(record)
+    except (UnsafePath, Refused) as e:
+        return InstallResult("refused", str(e), dest=rel)
     if record is None:
         return InstallResult("refused", f"{rel} has no {RECORD}: nothing installed there")
     manifest = json.loads((project / rel / RECORD_DIR / "package_manifest.json").read_text())
@@ -606,9 +688,14 @@ def uninstall(project: str | Path, dest: str, *, dry_run: bool = False, force: b
     try:
         rel = resolve_dest(project, dest, "_")
         dest_dir = project / rel
+        try:
+            no_links(dest_dir, f"the destination {rel}")
+        except UnsafePath as e:
+            raise Refused(f"{e}; nothing was removed") from e
         record = read_record(dest_dir) if dest_dir.is_dir() else None
         if record is None:
             raise Refused(f"{rel} has no {RECORD}: nothing installed there by this tool")
+        _check_record_names(record)
         edits = [f"{f}: {why}" for f, rec in record["files"].items() if (why := edited(dest_dir, f, rec)) and why != "deleted"]
         if edits and not force:
             raise Refused(f"file(s) were edited since the install: {'; '.join(edits[:6])}. Nothing was removed; pass --force")
@@ -631,9 +718,9 @@ def uninstall(project: str | Path, dest: str, *, dry_run: bool = False, force: b
     if generated:
         result.notes.append(f"removed Godot's material file(s) {generated} (made on import from the installed GLBs, edits "
                             "to them included): left behind they would point at the textures removed here")
-    for f in [*record["files"], *generated]:
-        (dest_dir / f).unlink(missing_ok=True)
-    shutil.rmtree(dest_dir / RECORD_DIR, ignore_errors=True)
+    for f in [*record["files"], *generated]:  # names checked above; the path again now, as it is removed
+        inside(dest_dir, f, "install record entry", write=False).unlink(missing_ok=True)
+    shutil.rmtree(dest_dir / RECORD_DIR, ignore_errors=True)  # no_links above: a real folder, not a link
     dirs = {(dest_dir / f).parent for f in record["files"]} | ({dest_dir / "materials"} if "engine_generated" in record else set())
     for d in sorted(dirs, key=lambda p: len(p.parts), reverse=True):
         _prune_empty(d, dest_dir)

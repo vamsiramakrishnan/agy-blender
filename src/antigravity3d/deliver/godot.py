@@ -181,8 +181,15 @@ def level_files(manifest: dict[str, Any]) -> list[str]:
 
 
 def build_plan(pkg: Path, manifest: dict[str, Any], rel_dest: str, *, fov_deg: float = DEFAULT_FOV_DEG) -> GodotPlan:
-    """Every file the install writes, as bytes, relative to DEST (nothing written here)."""
-    asset = manifest["asset"]
+    """Every file the install writes, as bytes, relative to DEST (nothing written here). Every package file is read
+    through deliver/paths (a plain relative name, no symbolic link, inside the package): an UnsafePath, a ValueError,
+    names the entry."""
+    from antigravity3d.deliver.paths import asset_name, inside, safe_name
+
+    def src(rel: str) -> Path:
+        return inside(pkg, safe_name(rel, "manifest file"), "manifest file", write=False)
+
+    asset = asset_name(manifest["asset"])
     res_dest = "res://" + rel_dest.strip("/")
     files: dict[str, bytes] = {}
     imports: dict[str, dict[str, str]] = {}
@@ -195,7 +202,7 @@ def build_plan(pkg: Path, manifest: dict[str, Any], rel_dest: str, *, fov_deg: f
     tex = [f for f in manifest.get("files") or [] if f.startswith(TEXTURE_DIR + "/")]
     uri_of: dict[str, str] = {}
     for rel in tex:
-        data = (pkg / rel).read_bytes()
+        data = src(rel).read_bytes()
         files[rel] = data
         uri_of.setdefault(hashlib.sha256(data).hexdigest(), rel)
         role = roles.get(rel, "albedo")
@@ -203,12 +210,12 @@ def build_plan(pkg: Path, manifest: dict[str, Any], rel_dest: str, *, fov_deg: f
         files[rel + ".import"] = import_file("texture", "CompressedTexture2D", imports[rel + ".import"]).encode()
 
     lv_files = level_files(manifest)
-    missing = [f for f in lv_files if not (pkg / f).is_file()]
+    missing = [f for f in lv_files if not src(f).is_file()]
     if missing:
         raise ValueError(f"package is missing level file(s) {missing}")
     rewrites: dict[str, list[dict]] = {}
     for f in lv_files:
-        data, report = glbtool.reference_images(pkg / f, {k: v for k, v in uri_of.items()})
+        data, report = glbtool.reference_images(src(f), {k: v for k, v in uri_of.items()})
         left = [r for r in report if r["storage"] == "embedded"]
         if left:
             # Godot would extract them into DEST as files this install did not write; refuse instead of shipping that
@@ -240,7 +247,7 @@ def build_plan(pkg: Path, manifest: dict[str, Any], rel_dest: str, *, fov_deg: f
         # T = d + m with margin m (see the module docstring): never shown closer than d
         begin, bm = (dist[i] + margin[i], margin[i]) if i else (0.0, 0.0)
         end, em = (0.0, 0.0) if last else (dist[i + 1] + margin[i + 1], margin[i + 1])
-        nodes = _gltf_mesh_node_paths(pkg / f)
+        nodes = _gltf_mesh_node_paths(src(f))
         if not nodes:
             raise ValueError(f"{f} has no mesh nodes")
         levels.append(LevelPlan(i, f, nodes, begin, bm, end, em, None if last else dist[i + 1],
@@ -251,9 +258,9 @@ def build_plan(pkg: Path, manifest: dict[str, Any], rel_dest: str, *, fov_deg: f
     colliders_file = f"{asset}_colliders.glb"
     hulls: dict[str, np.ndarray] = {}
     if hull_names:
-        if not (pkg / colliders_file).is_file():
+        if not src(colliders_file).is_file():
             raise ValueError(f"manifest names {len(hull_names)} collision hull(s) but {colliders_file} is missing")
-        hulls = glbtool.hull_points(pkg / colliders_file, hull_names)
+        hulls = glbtool.hull_points(src(colliders_file), hull_names)
     else:
         notes.append("the package has no collision hulls (manifest collider_glb_nodes is empty): the scene has no StaticBody3D")
 
