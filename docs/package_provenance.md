@@ -56,6 +56,22 @@ exports of one scene stay byte-identical and a rerun does not change a file's pr
   design was refined. Whether each repair was kept is not recorded (the pipeline rolls some back), so these are calls
   made, not a claim about what shaped the files.
 
+## An edited asset
+
+`agy3d edit` (``dags/edit_asset.py``) changes a shipped asset with one patch. The new package's record carries the
+earlier record's sources (the design, the images: an edit generates none) and adds `edit:<n>` for each edit, which
+every file made from the design also derives from: `{"kind": "model_authored", "operation": "edit", "model", "role",
+"request_sha256"}` for an edit a model made, `{"kind": "user_supplied", "operation": "edit", "patch_sha256"}` for a patch
+the developer supplied (`--patch`). `authoring_calls_made` lists the edit's authoring calls after the earlier ones. The
+manifest's `edits` lists each edit (number, instruction, ops, parts touched, the previous manifest's hash), so a design
+with two authoring calls behind it says so.
+
+## What the design was made from
+
+`design_inputs` (every `agy3d prop` package from round five on): the brief as the user wrote it, the art direction's
+id (or null) and the whole budget the design was made for. They are what an edit of the package alone needs (the run
+folder's report has them too). It is the user's own text, about the asset, the same on every run of it.
+
 ## What is absent
 
 * An offline run (`--offline`): `design.kind` is `template`, images are `offline_fake_image` with `model` "offline

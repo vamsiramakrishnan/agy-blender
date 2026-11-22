@@ -63,6 +63,15 @@
     "notes": "modular kit pieces"
   },
   {
+    "id": "parametric-kitbash.s4",
+    "prompt": "the crate you made yesterday: remove the corner guards and make it 20 % taller, leave the rest alone",
+    "expected": [
+      "parametric-kitbash"
+    ],
+    "kind": "should",
+    "notes": "a change to an asset that already exists: an edit, not a new model"
+  },
+  {
     "id": "parametric-kitbash.nm",
     "prompt": "the crate model is fine but it is flat grey, make it look like worn olive drab paint",
     "expected": [

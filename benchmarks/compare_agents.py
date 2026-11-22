@@ -25,8 +25,9 @@ Arms
 
 Change requests (``--change BRIEF:ARM``): after a cell has delivered, one follow-up in a new session over a copy of
 the files it left (CHANGES), under its own account at half the arm's share; the two packages are then compared
-(``compare_eval.package_diff``). Arm C's change is a setting (C_CHANGE_MODE): today the same command with the change
-sentence appended, into a copy of its output folder, because the command line has no way to say "change this".
+(``compare_eval.package_diff``). Arm C's change is a setting (C_CHANGE_MODE): by default ``agy3d edit OUT "<change>"`` on a
+copy of its first output folder (one patch to the shipped design, no image); "append" (the same command with the change
+sentence appended, a new design) is kept for comparison.
 
 Spend control, enforced in code (``Ledger`` and ``Relay``)
   Every model call of every arm and of the judge goes through one relay in this process: the sandboxed agents reach
@@ -219,10 +220,17 @@ PLUGIN_ARMS = ("N",)  # arms with this project's plugin attached (compare_sandbo
 CHANGES = {"crate": {"text": "make the two side handles 30 % larger", "ratio": 1.3},
            "hydrant": {"text": "make the chained nozzle cap 30 % larger", "ratio": 1.3},
            "chair": {"text": "make the spindles of the back 30 % thicker", "ratio": 1.3}}
-# Arm C's change path. "append": the same command with the change sentence appended to the prompt, into a copy of the
-# first run's output folder (the design record misses, so this is a new design; cached images whose request did not
-# change are reused). "edit": ``agy3d edit OUT "<change>"`` (scheduled this round; used once the tree has it).
-C_CHANGE_MODE = os.environ.get("AGY3D_PILOT_C_CHANGE", "append")
+# Arm C's change path. "edit" (default): ``agy3d edit OUT "<change>"`` on a copy of the first run's whole output folder
+# (dags.edit_asset: the shipped design, one patch, everything else kept, no image); live with the change account's
+# --token-ceiling and --max-images 0; offline (a dry run) with a scripted patch (scripted_c_patch), since the offline
+# author cannot read an instruction. "append": the same command with the change sentence appended to the prompt, into
+# a copy of the first run's cache (the design record misses, so this is a new design; cached images whose request did
+# not change are reused), kept to compare the two.
+C_CHANGE_MODE = os.environ.get("AGY3D_PILOT_C_CHANGE", "edit")
+if C_CHANGE_MODE not in ("edit", "append"):
+    raise ValueError(f"AGY3D_PILOT_C_CHANGE must be 'edit' or 'append', not {C_CHANGE_MODE!r}")
+# Words that name each brief's changed part group in a scene's node ids, for the dry run's scripted patch only.
+C_CHANGE_PARTS = {"crate": ("handle",), "hydrant": ("nozzle", "cap"), "chair": ("spindle",)}
 
 
 def order(briefs: list[str] | None = None, arms: list[str] | None = None) -> list[tuple[str, str]]:
@@ -402,9 +410,9 @@ UNFAIR = (
     "Arms N and C make their textures as images and are not run until the owner allows more images.",
     "Arm C is told less than the agents: its command line carries the brief, engine and triangle budget, but not the "
     "rest of the game-ready list (C_UNEXPRESSED); the pipeline applies its own conventions there.",
-    "Arm C's change request has no edit path today: the same command with the change sentence appended, into a copy of "
-    "its folder, is a new design (C_CHANGE_MODE). The agents' change sessions are new conversations over the files "
-    "their first session left.",
+    "Arm C's change request is `agy3d edit OUT \"<change>\"` on a copy of its first output folder: one patch to the shipped "
+    "design, no image (C_CHANGE_MODE; 'append', a new design from the sentence appended to the prompt, is kept for "
+    "comparison). The agents' change sessions are new conversations over the files their first session left.",
     "Every arm's task ends with a budget sentence ('about N model calls'), N computed from its share (CALL_MODEL); "
     "maxOutputTokens is 16,384 instead of the stock 65,535; web search and URL reading are disabled (no network).",
     "The upstream qa_check / mesh_stats / texel_density scripts are by the author of the skills arm B used (round 1). "
@@ -2104,6 +2112,79 @@ def c_mode(project_src: Path, max_images: int) -> tuple[bool, list[str], list[st
     return (bool(needs) and max(needs) > max_images), default, single
 
 
+def scripted_c_patch(out: Path, brief_id: str, ratio: float) -> dict[str, Any] | None:
+    """The dry run's stand-in for the author of an edit: the nodes whose ids name the brief's changed part group
+    (C_CHANGE_PARTS) scaled by ``ratio`` about their own centre. None when the design has no such node."""
+    from antigravity3d.dags.edit_asset import load_shipped
+
+    scene = load_shipped(out).scene
+    words = C_CHANGE_PARTS.get(brief_id, ())
+    ops = []
+    for n in scene.nodes:
+        if any(w in n.id for w in words):
+            t = n.transform
+            ops.append({"op": "set_transform", "node_id": n.id, "transform": {**t.model_dump(mode="json"),
+                                                                             "scale": [v * ratio for v in t.scale]}})
+    return {"ops": ops} if ops else None
+
+
+def _run_c_edit(relay: Relay | None, acc: Any, rec: RunRecord, run_dir: Path, out: Path, brief: Brief, change: str, *,
+                offline: bool, wall_s: float, share_t: int) -> RunRecord:
+    """Arm C's change in edit mode: ``agy3d edit OUT "<change>"`` on the copy of the first run's output folder."""
+    cmd = [sys.executable, "-m", "antigravity3d.cli", "edit", str(out), change]
+    rec.pipeline["change_mode"] = "edit"
+    if offline:
+        patch = scripted_c_patch(out, brief.id, CHANGES[brief.id]["ratio"])
+        if patch is not None:
+            (run_dir / "scripted_patch.json").write_text(json.dumps(patch))
+            cmd += ["--patch", str(run_dir / "scripted_patch.json")]
+        cmd.append("--offline")
+        rec.notes.append("dry run: --offline with a scripted patch (scripted_c_patch): no model call")
+    else:
+        cmd += ["--token-ceiling", str(share_t - C_TOKEN_MARGIN), "--max-images", "0"]
+    if os.environ.get("BLENDER_BIN"):
+        cmd += ["--blender", os.environ["BLENDER_BIN"]]
+    rec.pipeline["command"] = cmd[1:]
+    env = c_env(acc.endpoint if acc else None, run_dir)
+    env["PYTHONPATH"] = str(PROJECT_SRC)
+    t0, t0_unix = time.monotonic(), time.time()
+    with (run_dir / "stdout.log").open("wb") as so, (run_dir / "stderr.log").open("wb") as se:
+        proc = subprocess.Popen(cmd, env=env, cwd=run_dir, stdin=subprocess.DEVNULL, stdout=so, stderr=se, start_new_session=True)
+        try:
+            code = proc.wait(timeout=wall_s)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            code = None
+            rec.notes.append(f"killed at the wall limit of {wall_s:.0f} s")
+    rec.wall_s = round(time.monotonic() - t0, 1)
+    (run_dir / "events.jsonl").write_text(json.dumps({"t": t0_unix, "kind": "start"}) + "\n" +
+                                          json.dumps({"t": time.time(), "kind": "end", "exit": code}) + "\n")
+    stdout = (run_dir / "stdout.log").read_text(errors="replace")
+    report = {}
+    if (out / "report.json").exists():
+        with contextlib.suppress(ValueError):
+            report = json.loads((out / "report.json").read_text())
+    extras = report.get("extras") or report
+    edit = extras.get("edit") or {}
+    glb = Path(edit_glb) if (edit_glb := (extras.get("outputs") or {}).get("glb")) and Path(edit_glb).exists() and edit.get("kept") else None
+    rec.glb = str(glb) if glb else None
+    made = next((ln for ln in stdout.splitlines() if ln.startswith(("edit ", "edit:"))), None)
+    rec.status = "finished" if glb else ("gave up" if code is not None else "timeout")
+    if not glb:
+        rec.notes.append("no edited package: " + (made or "the command did not finish"))
+    rec.pipeline.update({"exit_code": code, "edit": edit, "edit_line": made,
+                         "preview_gates": next((ln.split(":", 1)[1].strip() for ln in stdout.splitlines() if ln.startswith("preview gates:")), None),
+                         "stdout_tail": stdout[-4000:], "stderr_tail": (run_dir / "stderr.log").read_text(errors="replace")[-3000:]})
+    if acc:
+        relay.close(rec.account)
+        rec.model_calls, rec.models, rec.refused = acc.calls, acc.models, list(acc.refused)
+        rec.tokens = _account_tokens(relay.ledger, rec.account)
+        rec.images = rec.tokens["images"]
+        rec.pipeline["conditions"] = run_conditions(run_dir)
+    (run_dir / "record.json").write_text(json.dumps(asdict(rec), indent=1))
+    return rec
+
+
 def run_c(relay: Relay | None, root: Path, brief: Brief, *, offline: bool, wall_s: float = C_TIMEOUT_S,
           account: str | None = None, session: int = 1, share_tokens: int | None = None, share_images: int | None = None,
           force_single: str | None = None, prompt: str | None = None, out_seed: Path | None = None,
@@ -2128,7 +2209,13 @@ def run_c(relay: Relay | None, root: Path, brief: Brief, *, offline: bool, wall_
     share_i = BUDGET["run_images"]["C"] if share_images is None else share_images
     acc = relay.open(name, share_t, share_i, run_dir, sandboxed=False) if relay else None
     out = run_dir / "out"
-    if out_seed is not None:
+    edit_mode = change is not None and C_CHANGE_MODE == "edit"
+    if out_seed is not None and edit_mode:
+        # An edit starts from the first run's whole output folder (its report names the package that shipped, its run
+        # folder the source maps), except its asset ledger (ledgers/: the relay counts this session on its own account).
+        shutil.copytree(out_seed, out, symlinks=True, ignore=lambda d, names: [n for n in names if Path(d) == out_seed and n == "ledgers"])
+        rec.pipeline["seeded_from"] = str(out_seed)
+    elif out_seed is not None:
         # A change or a repeat starts from the first run's cache (OUT/.agy3d-cache: its design record and images), which
         # is what a rerun into the same --out reads. Not copied: the first run's package and report (so any package
         # found afterwards is this run's) and its asset ledger (ledgers/: it would count the first run's spend against
@@ -2138,8 +2225,8 @@ def run_c(relay: Relay | None, root: Path, brief: Brief, *, offline: bool, wall_
             shutil.copytree(out_seed / ".agy3d-cache", out / ".agy3d-cache", symlinks=True)
         rec.pipeline["seeded_from"] = f"{out_seed}/.agy3d-cache"
     prompt = brief.prompt if prompt is None else prompt
-    if change is not None and C_CHANGE_MODE == "edit":
-        cmd = [sys.executable, "-m", "antigravity3d.cli", "edit", str(out), change, "--preview"]
+    if edit_mode:
+        return _run_c_edit(relay, acc, rec, run_dir, out, brief, change, offline=offline, wall_s=wall_s, share_t=share_t)
     else:
         cmd = [sys.executable, "-m", "antigravity3d.cli", "prop", prompt, "--engine", ENGINE, "--max-tris",
                str(brief.max_tris), "--out", str(out), "--preview"]

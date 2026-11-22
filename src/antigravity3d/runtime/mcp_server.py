@@ -71,11 +71,12 @@ log = logging.getLogger("antigravity3d.mcp")
 
 SERVER_NAME = "antigravity-3d"
 ENGINES = ("unreal_5", "unity_urp", "godot_4", "roblox_r15")
-MANAGEMENT_TOOLS = ("open_asset_session", "start_preview", "set_stage", "session_status", "list_sessions",
+MANAGEMENT_TOOLS = ("open_asset_session", "open_existing_asset", "start_preview", "set_stage", "session_status", "list_sessions",
                     "install_into_project")
 SESSION_ID_DOC = "Asset session to act on; omit to use the active (most recently opened or selected) one."
 INSTRUCTIONS = (
-    "antigravity-3d asset studio. Call open_asset_session first, then work stage by stage: tools outside the "
+    "antigravity-3d asset studio. To change an asset that already exists (a package or a prop folder in the workspace), "
+    "call open_existing_asset and edit it; never author it again. For a new asset call open_asset_session first, then work stage by stage: tools outside the "
     "active stage are refused (set_stage switches). Edit only through apply_scene_ir; export_engine_package is "
     "refused until Tier-1 passes and Decisions approves current EEVEE/Cycles lookdev at >= 3.4. Without the native Decisions "
     "API only an UNVERIFIED preview can be exported: ask the user for a token ceiling and an image limit, then start_preview. "
@@ -256,6 +257,41 @@ class StudioHost:
         self.active = sid
         return self._line(sid)
 
+    async def open_existing_asset(self, path: str, workspace: str = "", conversation_id: str = "", preview: bool = False,
+                                  token_ceiling: int | None = None, max_images: int | None = None) -> str:
+        """A session whose stage is an asset this project already shipped (``dags.edit_asset.load_shipped``: the design
+        embedded in its package, each material on its source maps), stage TWEAK: an edit changes what it names and the
+        rest stays as it shipped."""
+        from antigravity3d.dags.edit_asset import EditError, load_shipped, source_materials
+
+        root = Path(workspace or os.getcwd())
+        target = Path(path) if Path(path).is_absolute() else root / path
+        try:
+            shipped = load_shipped(target)
+        except EditError as e:
+            raise ValueError(str(e)) from e
+        await self.backends.ensure()
+        sid = f"{shipped.asset}-{uuid.uuid4().hex[:6]}"
+        wd = root / "agy3d_assets" / sid
+        scene, origin = source_materials(shipped, wd / "inputs")
+        open_session(self.registry, sid, wd, shipped.asset, shipped.budget, plane=self.backends.plane, forge=self.backends.forge,
+                     pool=self.backends.pool, state_workspace=root, art_direction=shipped.art_direction, preview=bool(preview),
+                     token_ceiling=token_ceiling, max_images=max_images, brief=shipped.brief)
+        s = session(self.registry, sid)
+        self.registry.attach(sid, T.EDIT_OF, str(shipped.package))  # an edit: separation moves only what the edit changes
+        async with self.registry.locked(sid):
+            s.stage.apply_ir(scene)
+            s.state.tx_stack = list(s.stage.tx_stack)
+            s.visuals_changed(tier1_ok=None)
+        if conversation_id:
+            bind_conversation(conversation_id, sid, self.registry)
+        self._set_stage(sid, "TWEAK")
+        self.gates[sid] = InvariantAndSafetyGate(self.registry, sid)
+        self.active = sid
+        return (self._line(sid) + f" | opened {shipped.package} as it shipped ({len(scene.nodes)} parts; materials from {origin}). "
+                "Stage TWEAK: change only what the user asks with apply_scene_ir (inspect_manifest lists the part ids); every "
+                "other part stays as it is. Then run_visual_qa and export as usual.")
+
     async def start_preview(self, token_ceiling: int, max_images: int, session_id: str = "") -> str:
         sid = self.pick(session_id)
         async with self.registry.locked(sid):
@@ -366,6 +402,21 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
 
         return await host.change_catalog(ctx, go)
 
+    async def open_existing_asset(
+        path: Annotated[str, Field(description="The asset to change: a prop output folder (holds report.json) or a package "
+                                               "folder (holds manifest.json), absolute or relative to the workspace")],
+        ctx: Context,
+        conversation_id: Annotated[str, Field(description="Native conversation ID from the SessionStart header")] = "",
+        preview: Annotated[bool, Field(description=PREVIEW_DOC)] = False,
+        token_ceiling: Annotated[int | None, Field(description=TOKEN_CEILING_DOC)] = None,
+        max_images: Annotated[int | None, Field(description=MAX_IMAGES_DOC)] = None,
+    ) -> str:
+        async def go() -> str:
+            return await host.open_existing_asset(path, await _workspace_root(ctx), conversation_id, preview=preview,
+                                                  token_ceiling=token_ceiling, max_images=max_images)
+
+        return await host.change_catalog(ctx, go)
+
     async def start_preview(
         token_ceiling: Annotated[int, Field(description=TOKEN_CEILING_DOC)],
         max_images: Annotated[int, Field(description=MAX_IMAGES_DOC)],
@@ -402,7 +453,12 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         return await host.run_ordered(go)
 
     open_asset_session.__doc__ = (
-        "Open an asset session (new USD stage) and make it active, stage BLOCKOUT. Call this first; returns the session line.")
+        "Open an asset session (new USD stage) and make it active, stage BLOCKOUT. Call this first for a NEW asset; returns the "
+        "session line.")
+    open_existing_asset.__doc__ = (
+        "Reopen an asset this studio already made (its prop output folder or its package folder) to CHANGE it: the stage is "
+        "the design as it shipped, each material on its source maps, stage TWEAK. Use this, never open_asset_session, when "
+        "the user asks to change an existing asset ('make the handles 30 % larger'): edit only the parts named and export.")
     set_stage.__doc__ = ("Switch the active stage tool-set: BLOCKOUT, TWEAK, VARIANTS, LOOKDEV or EXPORT. "
                          "Only that stage's tools are callable.")
     session_status.__doc__ = "Current stage, budget, QA verdict (tier1/tier15/export allowed) and newest audit lines."
@@ -413,8 +469,8 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         "Run with dry_run first and show the user the plan; writing into their project needs their approval.")
     start_preview.__doc__ = ("Switch the session to an UNVERIFIED preview in place (scene kept, earlier verdicts discarded), "
                              "limited to the user's token ceiling and image limit. Ask the user for both; never choose them.")
-    return {f.__name__: (f, f.__doc__ or "") for f in (open_asset_session, start_preview, set_stage, session_status, list_sessions,
-                                                       install_into_project)}
+    return {f.__name__: (f, f.__doc__ or "") for f in (open_asset_session, open_existing_asset, start_preview, set_stage, session_status,
+                                                       list_sessions, install_into_project)}
 
 
 def _install_text(r: Any) -> str:

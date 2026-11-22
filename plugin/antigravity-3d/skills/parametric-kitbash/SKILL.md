@@ -7,9 +7,11 @@ description: >-
   mirrored or repeated parts; then loops on a render and visual QA until the
   silhouette matches, and fixes floating parts, flicker (z-fighting) and
   triangle budget. Also builds modular kit pieces (wall, doorway, floor tile,
-  pillar) to one metric. Use when the user asks to model, build, make or kitbash
-  an asset, to round the edges or add panels, or to fix its shape, parts or
-  gaps. Not for textures or materials (use pbr-material-forge), for a mesh file
+  pillar) to one metric. Changes an asset that already exists ("make the two
+  side handles 30 % larger", "remove the corner guards") by reopening it and
+  patching only what is named, never by modelling it again. Use when the user
+  asks to model, build, make or kitbash an asset, to change an existing one, to
+  round the edges or add panels, or to fix its shape, parts or gaps. Not for textures or materials (use pbr-material-forge), for a mesh file
   the user already has (use game-ready-sanitizer) or for export (use
   engine-truth-verify).
 ---
@@ -82,6 +84,32 @@ not a handful of blocks.
    `usd_verifier` subagent is not offered in BLOCKOUT, so do not delegate here.
    Then hand over to `pbr-material-forge`.
 
+## Changing an asset that already exists
+
+A request about an asset that is already made ("make the two side handles
+30 % larger", "add a padlock to the front latch") is an edit, not a new model.
+Modelling it again changes every part; the developer asked for one.
+
+1. **Reopen it.** `open_existing_asset` with its prop output folder (holds
+   `report.json`) or its package folder (holds `manifest.json`). The stage is
+   the design as it shipped, after every repair, each material on its source
+   maps; the stage is TWEAK. Never `open_asset_session` for it.
+2. **Find the parts.** `inspect_manifest` lists every part id with its bounds.
+   Ids of mirrored and repeated parts are expanded (`handle__mx__grip`).
+3. **One patch, only what is named.** `apply_scene_ir` with ops on those
+   parts: `set_param` for a size, `set_transform` to move or scale (a parent's
+   transform moves its children), `upsert_node` to add, `remove_node` to remove.
+   Keep a part's mount face where it was so it still touches what it sits on.
+   Do not add a material: an edit generates no image, so a new material ships
+   without a texture.
+4. Then QA and export as usual.
+
+From the command line the same is `agy3d edit OUT "<change>"`: one authoring
+call shown the five badged views and the instruction, kept only when the judge
+sees the change done and nothing else changed and no part floats; the replaced
+package goes to `OUT/history/NNN/` and `agy3d edit OUT --undo` puts it back.
+`agy3d edit OUT --patch ops.json` applies a patch you wrote, with no model call.
+
 ## The same loop in `agy3d prop`
 
 The command runs this loop with the model that writes the design, and it
@@ -151,6 +179,18 @@ shape and contact, never that the object is what was asked for.
 - Never call `export_engine_package` from this skill.
 
 ## Gotchas
+
+- **Symptom:** a change request ("make the handles 30 % larger") comes back as
+  a different asset: 0 parts unchanged and 11 changed that nobody asked about
+  (the comparison harness, 2026-11-22, the sentence appended to the original
+  prompt). **Cause:** the asset was modelled again from a longer prompt.
+  **Remedy:** reopen it (`open_existing_asset`, or `agy3d edit`) and patch only
+  the named parts; offline the same edit as a patch left 8 of 10 parts
+  unchanged and resized the 2 named ones by exactly the ratio asked.
+- **Symptom:** after an edit an untouched part flickers against an edited one.
+  **Cause:** the edit made two faces flush, and fixing that would move the part
+  that was not asked about, so `agy3d edit` leaves it and says so in a warning.
+  **Remedy:** move or resize the edited part by more than 1 mm yourself.
 
 - **Symptom:** the model reads as a rough box with blocks stuck on (15 to 21
   parts and 272 to 356 triangles of a 3,000 budget). **Cause:** the request to

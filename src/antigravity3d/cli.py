@@ -10,6 +10,7 @@
     agy3d plugin install [--target DIR] | plugin validate [PATH]
     agy3d install PACKAGE_DIR --project PROJECT_DIR [--dest DIR_IN_PROJECT] [--dry-run] [--force] [--no-check] [--json]
     agy3d uninstall --project PROJECT_DIR --dest DIR_IN_PROJECT [--dry-run] [--force]
+    agy3d edit OUT "<change>" [--token-ceiling N] [--max-images M] [--role ROLE] | edit OUT --patch OPS.json | edit OUT --undo
 
 ``--offline`` runs everything on the fakes (FakeDecisionsClient, FakeImageBackend) and the TemplateAuthor.
 ``--style`` is a style-anchor IMAGE; ``--art-direction`` a named style (``antigravity3d.art_direction``; ids are the
@@ -290,6 +291,108 @@ async def cmd_prop(a: argparse.Namespace) -> int:
         print("publication: " + ("published and verified" if x["published"] else "qualified preview" if x["verified"] else "unverified"))
     print(f"preview gates: {'PASS' if x['preview_gates_ok'] else 'FAIL'}" + (f" ({unjudged[:300]})" if unjudged else ""))
     return 0 if x["preview_gates_ok"] else 1
+
+
+async def cmd_edit(a: argparse.Namespace) -> int:
+    """Change an asset this project shipped (``dags.edit_asset``): OUT is a prop --out folder or a package folder."""
+    from antigravity3d.dags import edit_asset as E
+
+    if a.undo:
+        try:
+            r = E.undo(a.target)
+        except E.EditError as e:
+            raise CliError(str(e)) from e
+        print(f"agy3d edit --undo: restored {r['restored']} (edit {r['undid_edit']} undone; its record is kept at {r['history_kept_at']})")
+        return 0
+    if not a.instruction and not a.patch:
+        raise CliError("say what to change (agy3d edit OUT \"make the handles 30 % larger\") or give --patch OPS.json")
+    patch = None
+    if a.patch:
+        from antigravity3d.ir import IRPatch
+
+        patch = IRPatch.model_validate_json(Path(a.patch).read_text())
+    try:
+        shipped = E.load_shipped(a.target)
+    except E.EditError as e:
+        raise CliError(str(e)) from e
+    instruction = a.instruction or f"apply the patch {Path(a.patch).name}"
+    if patch is None and a.offline:
+        raise CliError("--offline has no author that reads an instruction (the offline author is a template): give --patch "
+                       "OPS.json, or run live with --token-ceiling N")
+    if patch is None and a.token_ceiling is None:
+        raise CliError("a live edit needs your own --token-ceiling N (an edit generates no image; --max-images defaults to 0)")
+    from antigravity3d.tactics.governor import PLANS, Governor, plan_for
+
+    plan = next((p for p in PLANS.values() if p.label == shipped.plan_label), plan_for(2))
+    ledger_dir = shipped.history_base / "ledger"
+    ledger_dir.mkdir(parents=True, exist_ok=True)
+    ledger = {"token_ceiling": a.token_ceiling, "max_images": a.max_images if a.max_images is not None else 0} if a.token_ceiling else {}
+    governor = Governor(plan, journal=ledger_dir / ("spend_tokens.sqlite3" if ledger else "spend.sqlite3"), **ledger)
+    cache = None
+    if shipped.run_folder is not None and not a.no_cache:
+        from antigravity3d.kernel.cache import BuildCache, LocalBlobStore
+
+        cache = BuildCache(LocalBlobStore(shipped.run_folder / ".agy3d-cache"))
+    async with AsyncExitStack() as stack:
+        if a.offline or patch is not None and not os.environ.get("GEMINI_API_KEY"):
+            plane, forge, _, notes = await make_collaborators(True)
+            author = None
+        else:
+            plane, forge, author0, notes = await make_collaborators(False, workdir=(shipped.run_folder or shipped.package.parent) / "agent")
+            if plane is not None and not plane.calibrated:
+                plane = plane.preview_copy()
+            from antigravity3d.tactics.authoring import AgentAuthor
+            from antigravity3d.tactics.cached import DesignRecord
+
+            author = (author0.bind(governor, shipped.budget, {"asset_name": shipped.asset},
+                                   record=DesignRecord(cache) if cache is not None else None)
+                      if isinstance(author0, AgentAuthor) and patch is None else None)
+            if patch is None and author is None:
+                raise CliError(f"no author that reads an instruction is available ({'; '.join(notes)})")
+        pool = None
+        if a.pool_socket:
+            from antigravity3d.runtime.worker_daemon import PoolClient
+
+            pool = await stack.enter_async_context(PoolClient(a.pool_socket))
+        elif a.blender:
+            from antigravity3d.adapters.blender_5_3.pool import BlenderPool
+
+            pool = await stack.enter_async_context(BlenderPool(1, blender_bin=a.blender))
+        try:
+            r = await E.edit_asset(a.target, instruction, plane=plane, author=author, forge=forge, governor=governor, patch=patch,
+                                   pool=pool, cache=cache, role=a.role, announce=lambda line: print(f"note: {line}", flush=True))
+        except E.EditError as e:
+            raise CliError(str(e)) from e
+    if a.json:
+        print(json.dumps(r.to_dict(), indent=1, default=str))
+    print(f"agy3d edit: {instruction!r} on {shipped.asset} ({shipped.package})")
+    for n in notes:
+        print(f"  {n}")
+    print(f"  materials from: {r.materials_from}")
+    for att in r.attempts:
+        sc = att.scope or {}
+        print(f"  attempt {att.n}: {'KEPT' if att.kept else 'undone'}" + (f" ({att.why})" if att.why else "")
+              + f"; {len(att.ops)} op(s); parts unchanged {sc.get('unchanged', '?')}, changed {len(sc.get('changed') or {})}, "
+              f"added {len(sc.get('added') or [])}, removed {len(sc.get('removed') or [])}"
+              + (f"; judge: done P={att.done_p:.2f}, collateral P={att.collateral_p:.2f}" if att.done_p is not None else "")
+              + f"; {att.seconds:.0f} s")
+        for nid, c in sorted((sc.get("changed") or {}).items())[:12]:
+            print(f"      {nid}: size ratio {c['ratio']}, centre moved {c['centre_moved_m']} m")
+    for w in r.warnings:
+        print(f"  warning: {w}")
+    if r.untextured:
+        print(f"  untextured (an edit generates no image): {', '.join(r.untextured)}")
+    spent = r.spend.get("spent")
+    unit = r.spend.get("unit")
+    print(f"cost: {r.seconds:.0f} s, calls: author {r.calls.get('author', 0)}, judge {r.calls.get('judge', 0)}"
+          + (f", {spent:,.0f} tokens (no price applied)" if unit == "tokens" else f", ${spent:.4f}" if spent is not None else ""))
+    if not r.kept:
+        print(f"edit: NOT MADE, the asset is unchanged: {r.why}")
+        return 1
+    print(f"edit {r.number}: made; package {r.package}; the replaced package is kept in {r.history} (agy3d edit {a.target} --undo)")
+    print(f"note: {r.note}")
+    print(f"preview gates: {'PASS' if r.preview_gates_ok else 'FAIL'}")
+    return 0 if r.preview_gates_ok else 1
 
 
 def _count(text: str) -> int:
@@ -648,6 +751,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--godot", default=None, metavar="PATH", help="Godot binary for the check (default $GODOT_BIN, then PATH)")
     p.add_argument("--json", action="store_true", help="print the machine-readable result")
     p.set_defaults(fn=cmd_install)
+
+    p = sub.add_parser("edit", help="change an asset this project made: one patch, everything else kept, the old package kept")
+    p.add_argument("target", help="a prop --out folder, or a package folder (holds manifest.json)")
+    p.add_argument("instruction", nargs="?", default="", help='what to change, e.g. "make the two side handles 30 %% larger"')
+    p.add_argument("--patch", default=None, metavar="OPS.json",
+                   help="apply this patch ({\"ops\": [...]}, the scene format's patch) instead of asking a model; no model call")
+    p.add_argument("--undo", action="store_true", help="put back the package the newest edit replaced")
+    p.add_argument("--role", default=None, help="authoring tier for the edit (default: the run's improvement tier, else worker)")
+    p.add_argument("--offline", action="store_true", help="fakes only (needs --patch)")
+    p.add_argument("--no-cache", action="store_true", help="do not read or write the run folder's cache")
+    p.add_argument("--json", action="store_true", help="print the machine-readable result first")
+    worker = p.add_mutually_exclusive_group()
+    worker.add_argument("--blender", metavar="PATH", help="start a warm worker with this Blender executable")
+    worker.add_argument("--pool-socket", metavar="PATH", help="connect to a running Blender sidecar")
+    limits(p)
+    p.set_defaults(fn=cmd_edit)
 
     p = sub.add_parser("uninstall", help="remove exactly what agy3d install wrote")
     p.add_argument("--project", required=True)

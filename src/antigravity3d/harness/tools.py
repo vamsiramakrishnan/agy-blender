@@ -178,12 +178,21 @@ async def _commit(s: Session, apply: Callable[[], str]) -> tuple[str | None, Tie
     return None, report
 
 
+# Session resource naming the package an edit session was opened from (runtime/mcp_server.open_existing_asset).
+EDIT_OF = "edit_of"
+
+
 def _separated(s: Session, apply: Callable[[], str], extend: Callable[[list], Callable[[], str]], note: list[str]) -> Callable[[], str]:
     """``apply`` followed, in the same transaction, by the deterministic separation of coplanar faces pass A runs
     (kernel/separate.py): when the edit leaves z_fighting findings, the edit is re-applied together with the face moves
     as one patch, so one edit stays one transaction (``undo_last_edit`` undoes both). The moves are kept only if they
-    raise no critical issue and make no part float; what happened is appended to ``note``. Caller holds the lock."""
+    raise no critical issue and make no part float; what happened is appended to ``note``. Caller holds the lock.
+
+    In a session that edits an asset that already shipped (``open_existing_asset``: resource ``EDIT_OF``), only moves of
+    parts this edit changed are made: a flush pair that only moving another part would fix is left and named in
+    ``note``, because a part the developer did not ask about must not change (as ``agy3d edit`` does)."""
     def run() -> str:
+        prior = s.stage.base_ir() if s._res(EDIT_OF) is not None else None
         tid = apply()
         budget = s.state.budget
         meshes = s.stage.extract_meshes()
@@ -191,6 +200,15 @@ def _separated(s: Session, apply: Callable[[], str], extend: Callable[[list], Ca
         if not any(i.code == "z_fighting" for i in before.issues):
             return tid
         r = separate_coplanar(s.stage.base_ir(), meshes, hidden=shipped_masks(meshes, budget))
+        if prior is not None and r.ops:
+            from antigravity3d.dags.edit_asset import changed_nodes
+
+            changed = changed_nodes(prior, s.stage.base_ir())
+            left = sorted({op.node_id for op in r.ops if op.node_id not in changed})
+            r.ops = [op for op in r.ops if op.node_id in changed]
+            if left:
+                note.append("separate: flush faces left as they are, because fixing them would move parts this edit does not "
+                            "change: " + ", ".join(left[:8]))
         if not r.ops:
             note.append(f"separate: {r.summary()}")
             return tid

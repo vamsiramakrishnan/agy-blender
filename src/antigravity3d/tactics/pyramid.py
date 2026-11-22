@@ -763,6 +763,26 @@ class _Run:
             out.add("brief_depiction")
         return out
 
+    def adopt(self, judged: JudgedDesign | None, note: str) -> None:
+        """Pass A for a design taken as given (``refine(run_pass_a=False)``): its verdict, when there is one, becomes the
+        state's (one recorded round, no change made); without one the judge's scores are missing, never zero."""
+        res = self.res
+        meshes = self.sm.extract_meshes()
+        if not meshes:
+            res.stopped["A"] = "empty scene"
+            self.step("pass_a", "failed", "scene has no meshes")
+            return
+        t1 = tier1_qa(meshes, self.budget)
+        res.stopped["A"] = note
+        if judged is None:
+            res.tier1_ok, res.tier15, res.scores, res.defects = t1.ok, None, {}, {}
+            res.converged["A"] = False
+            return
+        q = self.verdict("blockout", judged.result, judged.views[0][1], judged.legend, judged, reused=True)
+        self.trace("A", 1, t1, q, "preview")
+        self.snapshot(t1.ok, q)
+        res.converged["A"] = self.passes(t1, q)
+
     def passes(self, t1: Any, q: _QA) -> bool:
         """Pass A's convergence: Tier-1 clean, silhouette locked, nothing floating, nothing for a person, the brief met."""
         return not self.gates(t1, q)
@@ -1596,7 +1616,7 @@ async def refine(
     pool: Any = None, cache: Any = None, workdir: Path | str | None = None, fixlog: FixLog | None = None, asset_id: str | None = None,
     prompt: str = "", textures: Any = None, settle_first: bool = True, engine_render_uri: str | None = None,
     run_pass_c: bool = True, run_pass_b: bool = True, require_verified: bool = False, art: Any = None,
-    judged: JudgedDesign | None = None,
+    judged: JudgedDesign | None = None, run_pass_a: bool = True, pass_a_note: str = "",
 ) -> PyramidResult:
     """Run passes A (silhouette lock), B (lookdev) and C (final verification) on the stage's current scene.
 
@@ -1607,6 +1627,9 @@ async def refine(
     package GLBs and the texture/paint-over brief. ``budget`` is expected to be its effective budget already.
     ``judged``: the starting design's verdict when one was already made (the geometry ranking's of its winner); pass A's
     first visual QA uses it instead of asking again, unless the deterministic pre-pass changed the design.
+    ``run_pass_a=False`` (an edit of a shipped asset, ``dags.edit_asset``): the stage's design is taken as it is: no
+    settling, separation, repair or improvement round touches it. ``judged`` is then its verdict (the edit's own
+    blockout review of exactly this design), recorded as pass A's one round; ``pass_a_note`` is pass A's stop reason.
     """
     run = _Run(
         stage_manager, plane=plane, author=author, governor=governor, budget=budget, th=thresholds or Thresholds(), ortho_uri=ortho_uri,
@@ -1620,7 +1643,10 @@ async def refine(
     browser = web_three.prestart() if run_pass_c else None
     ok = False
     try:
-        await run.pass_a()
+        if run_pass_a:
+            await run.pass_a()
+        else:
+            run.adopt(judged, pass_a_note or "pass A not run: the design was taken as given")
         if run_pass_b and run.res.stopped.get("A") != "empty scene":
             await run.pass_b()
         # The export decision (PyramidResult.ok) adds the brief's requirements on the state that ships: its last verdict

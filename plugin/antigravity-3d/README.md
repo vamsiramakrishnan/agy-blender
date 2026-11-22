@@ -103,7 +103,8 @@ watcher, scheduled automations) and by `run_workflow` agents do not get Python
 SDK custom tools. `antigravity3d.runtime.mcp_server` serves them over MCP
 instead: every tool in `harness/tools.py` with its name, docstring and a schema
 generated from its signature (no `ctx`; an optional `session_id` is added), plus
-`open_asset_session`, `set_stage`, `session_status` and `list_sessions`.
+`open_asset_session`, `open_existing_asset` (reopen an asset this studio made, to change it rather than author it
+again), `set_stage`, `session_status` and `list_sessions`.
 
 - **Enforcement.** There is no SDK hook runner on this path, so the server calls
   `InvariantAndSafetyGate.decide` (the gate's decision logic, shared with the

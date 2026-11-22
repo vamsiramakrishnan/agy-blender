@@ -393,6 +393,10 @@ class PropToEngineDAG:
                                     and bool(getattr(self.plane, "calibrated", True)))
             if self.preview_judging:  # what a person could mistake for a verified result says what it is
                 manifest.update(preview_record(self.plane, self._governor, res))
+            # What the design was made from, so the package alone is enough to change it later (``agy3d edit``): the
+            # request, the art direction and the whole budget. Facts about the asset, the same on every run of it.
+            manifest["design_inputs"] = {"brief": prompt, "art_direction": self.art.id if self.art is not None else None,
+                                         "budget": asdict(self.budget)}
             if "engine_import" in res.objects:
                 manifest["validation"]["engine_import"] = res.objects["engine_import"]
             if "blender_asset_qa" in res.objects:  # a real worker ran it; a skipped run records nothing here (the step says why)

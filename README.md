@@ -90,7 +90,18 @@ agy3d models                                         # print the model tier tabl
 agy3d plugin install [--target DIR] | agy3d plugin validate [PATH]   # install or check the Antigravity plugin
 agy3d install PACKAGE_DIR --project GAME_DIR [--dest DIR] [--dry-run] [--force]   # put a package into a game project and check it there
 agy3d uninstall --project GAME_DIR --dest DIR        # remove exactly what install wrote
+agy3d edit OUT "make the two side handles 30 % larger" --token-ceiling N   # change a made asset: one patch, the rest kept
+agy3d edit OUT --patch ops.json | agy3d edit OUT --undo                   # a patch you wrote (no model call); put the last edit back
 ```
+
+`agy3d edit` opens the asset as it shipped (the design embedded in its package; OUT is the prop's `--out` folder or a
+package folder) and applies the instruction as one patch to the parts it names. The author is shown the five badged
+views of the design and the instruction; the edit is kept only when the judge sees it carried out and nothing else
+changed, no part ends up floating and no new defect appears, and is otherwise asked for once more and then left
+undone with the reason. Every other part keeps its geometry exactly and every material its source maps; no image is
+generated. The replaced package is kept in `OUT/history/NNN/` (beside a bare package, `<name>.history/`) and
+`--undo` puts it back. The new manifest lists the edit under `edits` and its provenance names it. An edited package is
+never verified: no lookdev pass runs on it.
 
 `agy3d install` reads the project's engine and version from its own files and refuses a package built for another
 engine. For a Godot 4 project it writes, under one directory (default `agy3d/<asset>`), the package's level GLBs and

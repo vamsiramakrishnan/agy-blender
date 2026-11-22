@@ -929,7 +929,8 @@ def test_a_change_request_runs_over_a_copy_of_the_first_delivery_and_the_two_pac
 
 
 def test_arm_c_change_appends_the_request_to_its_command_and_starts_from_the_first_runs_cache(ca, tmp_path, monkeypatch):
-    """Today's path for C (C_CHANGE_MODE=append); the command is captured, not run."""
+    """The path kept for comparison (C_CHANGE_MODE=append, a new design); the command is captured, not run."""
+    monkeypatch.setattr(ca, "C_CHANGE_MODE", "append")
     seen = {}
 
     class FakeProc:
@@ -960,6 +961,40 @@ def test_arm_c_change_appends_the_request_to_its_command_and_starts_from_the_fir
     assert not (new_out / "report.json").exists() and not (new_out / "runs").exists()  # not the first package
     assert rec.status != "finished" and rec.glb is None and rec.pipeline["change_mode"] == "append"
     assert cmd[cmd.index("--token-ceiling") + 1] == str(250_000 - ca.C_TOKEN_MARGIN)
+
+
+def test_arm_c_change_edits_a_copy_of_the_first_runs_output_folder(ca, tmp_path, monkeypatch):
+    """The default path for C (C_CHANGE_MODE=edit): ``agy3d edit`` on a copy of the whole first output folder (its report
+    names the package that shipped), without its asset ledger, with the change account's tokens and no image."""
+    assert ca.C_CHANGE_MODE == "edit"
+    seen = {}
+
+    class FakeProc:
+        def __init__(self, cmd, **kw):
+            seen["cmd"] = cmd
+            self.pid = os.getpid()
+
+        def wait(self, timeout=None):
+            return 1
+
+    monkeypatch.setattr(ca.subprocess, "Popen", FakeProc)
+    root = tmp_path / "pilot"
+    first_dir = root / "runs" / "r5_crate_C"
+    out = first_dir / "out"
+    glb = _boxes_glb(out / "runs" / "tmpx" / "Crate" / "Crate.glb", [((0, .3, 0), (.8, .6, .5))])
+    (out / "ledgers" / "k").mkdir(parents=True)
+    (out / "report.json").write_text(json.dumps({"outputs": {"glb": str(glb)}}))
+    (first_dir / "record.json").write_text(json.dumps({"brief": "crate", "arm": "C", "status": "finished", "glb": str(glb)}))
+    relay = ca.Relay(ca.Ledger(root / "ledger.json"), "http://127.0.0.1:9", None, fake=True)
+    rec = ca.run_change(relay, root, ca.BRIEF_BY_ID["crate"], "C", offline=False)
+    cmd = seen["cmd"]
+    new_out = root / "runs" / "r5_crate_C.change" / "out"
+    assert cmd[cmd.index("edit"):cmd.index("edit") + 3] == ["edit", str(new_out), "make the two side handles 30 % larger"]
+    assert (new_out / "report.json").is_file() and (new_out / "runs" / "tmpx" / "Crate" / "Crate.glb").is_file()
+    assert not (new_out / "ledgers").exists()
+    assert cmd[cmd.index("--max-images") + 1] == "0" and cmd[cmd.index("--token-ceiling") + 1] == str(250_000 - ca.C_TOKEN_MARGIN)
+    # the command made no edit (exit 1, the report still names the first package): no delivery, nothing compared
+    assert rec.status == "gave up" and rec.glb is None and "diff" not in rec.pipeline and rec.pipeline["change_mode"] == "edit"
 
 
 def test_a_call_the_service_turns_away_costs_the_arm_nothing_and_a_broken_one_is_recorded_as_the_services(ca, tmp_path):
