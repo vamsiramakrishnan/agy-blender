@@ -129,15 +129,32 @@ the billable pilot.
 
 ## Validation
 
-The evidence summary and frozen plan are recorded under `results/authoring_contracts/`.
+The [evidence summary](results/authoring_contracts/pr6-integration-validation.json),
+[frozen paired plan](results/authoring_contracts/pr6-paired-comparison-plan.json), and
+[task-byte comparison](results/authoring_contracts/pr6-one-shot-compatibility.json) record the source at merge commit
+`dea0916bdb267a13816c22c588d8783901402041`. The following evidence commit changes only documentation/results.
 Validation uses local stand-ins for model calls and does not measure new model output quality.
 
-- Authoring, real SDK wire requests, streaming, design improvement, parse correction and skill-contract checks:
-  **176 passed**.
+- Final focused suite covering authoring, actual SDK wire requests, streaming, design improvement, parse correction,
+  skills, comparison controls, scorecards, modular kits, kit metrics and native hooks: **349 passed, 8 skipped**
+  in 74.23 seconds.
+- MCP server subprocess and material-prompt checks, with the source path pinned to this checkout: **37 passed**
+  in 30.37 seconds.
 - Required-map scorecard regression: **12 passed**. The same tests against unmodified PR #6 produce
   **11 failures and 1 pass**. Fixtures are real GLBs with required PNGs, missing/corrupt images, invalid references
   and an unused-image positive control.
 - One-shot proposal/repair compatibility: **22 of 22 task variants byte-identical** to PR #6's original head.
+
+The eight focused skips are six stock-sandbox tests requiring root namespace privileges, one absent upstream-skill
+checkout, and the live model test. No permission or model-spend gate was bypassed.
+
+The extended core sweep (`not blender and not browser and not live`) was killed with exit code **137** before
+completion, after its last complete progress line at 55%. It emitted no completed summary/JUnit report. Its cause
+beyond SIGKILL was not established, and it is not counted as a full-suite pass. An earlier sweep was discarded after
+reproducing a source-selection problem: relative `PYTHONPATH=src` allowed subprocesses with a temporary working
+directory to load the older editable checkout. The final focused/MCP runs use an absolute source path. The evidence
+also records an interrupted concurrent preview run without assigning it a completed pass/fail count; its isolated
+deadline check passed on both the integrated source and original PR #6.
 
 The current environment has Godot 4.7.2 and Blender 4.3.2. It cannot qualify the required Blender 5.3 worker. The
 offline suite excludes real Blender/browser/live markers and records unavailable checks explicitly; no substitute
@@ -167,6 +184,6 @@ integrated native author now beats stock. No new paid comparison was executed.
 
 ## Separate open review finding
 
-PR #6's installer path-containment finding (`discussion_r4656681979`) is outside this authoring/comparison integration
+PR #6's [installer path-containment finding](https://github.com/vamsiramakrishnan/agy-blender/pull/6#discussion_r4656681979) is outside this authoring/comparison integration
 and remains open. The merge-conflict resolution does not certify the whole PR as ready to merge. The required-map
-finding (`discussion_r4656681983`) is addressed here because it affects the requested comparison's scorecard.
+finding ([review comment](https://github.com/vamsiramakrishnan/agy-blender/pull/6#discussion_r4656681983)) is addressed here because it affects the requested comparison's scorecard.
