@@ -373,7 +373,7 @@ def test_units_and_axis_are_converted_consistently(unreal, godot):
 def test_manifest_contents_and_clean_validation(unreal, godot):
     for _, bundle, pm in (unreal, godot):
         man = json.loads((pm.out_dir / "manifest.json").read_text())
-        assert man["schema_version"] == 4  # 4: the provenance record (kernel/provenance.py) and man["asset"] == ASSET and man["usd"] == f"{ASSET}.usd"
+        assert man["schema_version"] == 4 and man["asset"] == ASSET and man["usd"] == f"{ASSET}.usd"  # schema 4: the provenance record (kernel/provenance.py)
         assert man["tris"] == man["lod_tris"][0] and man["draw_calls"] == 3
         assert man["qa"] == {"tier1_ok": True, "tier15": 3.9}
         assert {"target_px_per_m", "mean_px_per_m"} <= set(man["texel_density"])
