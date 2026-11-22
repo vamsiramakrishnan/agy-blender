@@ -57,10 +57,11 @@ from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from google.antigravity.tools.tool_runner import ToolWithSchema
 from pydantic import Field
 
+from antigravity3d.art_direction import load as art_direction_load, style_ids
 from antigravity3d.harness import tools as T
 from antigravity3d.harness.hooks import InvariantAndSafetyGate, state_header
 from antigravity3d.harness.session import (
-    CTX_REGISTRY_KEY, CTX_SESSION_KEY, bind_conversation, open_session, session, set_toolset,
+    CTX_REGISTRY_KEY, CTX_SESSION_KEY, bind_conversation, open_session, session, set_toolset, switch_to_preview,
 )
 from antigravity3d.harness.traceback_compressor import compress_exception
 from antigravity3d.runtime import inspector_server as inspector_app
@@ -70,12 +71,14 @@ log = logging.getLogger("antigravity3d.mcp")
 
 SERVER_NAME = "antigravity-3d"
 ENGINES = ("unreal_5", "unity_urp", "godot_4", "roblox_r15")
-MANAGEMENT_TOOLS = ("open_asset_session", "set_stage", "session_status", "list_sessions")
+MANAGEMENT_TOOLS = ("open_asset_session", "start_preview", "set_stage", "session_status", "list_sessions")
 SESSION_ID_DOC = "Asset session to act on; omit to use the active (most recently opened or selected) one."
 INSTRUCTIONS = (
     "antigravity-3d asset studio. Call open_asset_session first, then work stage by stage: tools outside the "
     "active stage are refused (set_stage switches). Edit only through apply_scene_ir; export_engine_package is "
-    "refused until Tier-1 passes and Decisions approves current EEVEE/Cycles lookdev at >= 3.4. Use the returned session_id for native export. Replies are one line.")
+    "refused until Tier-1 passes and Decisions approves current EEVEE/Cycles lookdev at >= 3.4. Without the native Decisions "
+    "API only an UNVERIFIED preview can be exported: ask the user for a token ceiling and an image limit, then start_preview. "
+    "Use the returned session_id for native export. Replies are one line.")
 
 
 class McpToolContext:
@@ -211,16 +214,27 @@ class StudioHost:
 
     def _line(self, sid: str) -> str:
         s = session(self.registry, sid)
-        return (f"SESSION {sid} asset={s.stage.asset_prim.GetName()} engine={s.state.budget.target_engine} "
-                f"stage={s.toolset} tris<={s.state.budget.max_tris} workdir={s.workdir}")
+        line = (f"SESSION {sid} asset={s.stage.asset_prim.GetName()} engine={s.state.budget.target_engine} "
+                f"stage={s.toolset} tris<={s.state.budget.max_tris}"
+                + (f" art={s.state.art_direction}" if s.state.art_direction else "") + f" workdir={s.workdir}")
+        if s.state.preview:
+            return line + (f" | PREVIEW (UNVERIFIED: judged by {s.plane.judge_label if s.plane else 'none'}; never verified)"
+                           f" limits: {s.governor.summary()}")
+        if s.plane is not None and not s.plane.calibrated:  # fail early: say now what will be refused, not at export
+            return line + (" | WARNING: the native Decisions API is not available on this key, so run_visual_qa and "
+                           f"export_engine_package will be refused. Remedy: {T.PREVIEW_SWITCH}")
+        return line
 
     # ---- management tools
     async def open_asset_session(self, asset_name: str, target_engine: str, max_tris: int = 15_000,
-                                 workdir: str = "", workspace: str = "", conversation_id: str = "") -> str:
+                                 workdir: str = "", workspace: str = "", conversation_id: str = "", art_direction: str = "",
+                                 keep_contact_faces: bool = False, preview: bool = False, token_ceiling: int | None = None,
+                                 max_images: int | None = None, brief: str = "") -> str:
         if target_engine not in ENGINES:
             raise ValueError(f"target_engine must be one of {', '.join(ENGINES)}")
         if int(max_tris) < 1:
             raise ValueError("max_tris must be >= 1")
+        art_direction_load(art_direction)  # an unknown id fails here, listing the valid ones, before anything is created
         asset = _slug(asset_name, "Asset")
         if delay := float(os.environ.get("AGY3D_TEST_OPEN_DELAY_S", "0") or 0):  # test hook: widens the race window
             await asyncio.sleep(delay)
@@ -229,15 +243,23 @@ class StudioHost:
         root = Path(workspace or os.getcwd())
         wd = Path(workdir) if workdir else root / "agy3d_assets" / sid
         open_session(
-            self.registry, sid, wd, asset, EngineBudget(target_engine, max_tris=int(max_tris)),  # type: ignore[arg-type]
+            self.registry, sid, wd, asset,
+            EngineBudget(target_engine, max_tris=int(max_tris), keep_contact_faces=bool(keep_contact_faces)),  # type: ignore[arg-type]
             plane=self.backends.plane, forge=self.backends.forge, pool=self.backends.pool,
-            state_workspace=root)
+            state_workspace=root, art_direction=art_direction or None, preview=bool(preview),
+            token_ceiling=token_ceiling, max_images=max_images, brief=brief or None)
         if conversation_id:
             bind_conversation(conversation_id, sid, self.registry)
         self._set_stage(sid, "BLOCKOUT")
         self.gates[sid] = InvariantAndSafetyGate(self.registry, sid)
         self.active = sid
         return self._line(sid)
+
+    async def start_preview(self, token_ceiling: int, max_images: int, session_id: str = "") -> str:
+        sid = self.pick(session_id)
+        async with self.registry.locked(sid):
+            switch_to_preview(self.registry, sid, token_ceiling, max_images)
+        return self._line(sid) + " | earlier verdicts discarded: re-run visual QA"
 
     def _set_stage(self, sid: str, stage: str) -> None:
         s = session(self.registry, sid)
@@ -310,6 +332,17 @@ def _declared_schema(input_schema: dict[str, Any]) -> dict[str, Any]:
     return {**input_schema, "properties": props}
 
 
+PREVIEW_DOC = ("Open an UNVERIFIED preview: judged by whatever judge the key has (the generative fallback when the "
+               "native Decisions API is unavailable), exported labelled verified=false. Needs token_ceiling and max_images.")
+TOKEN_CEILING_DOC = "The USER's token ceiling for this preview (input + output tokens, no price applied). Ask the user; never choose it."
+MAX_IMAGES_DOC = "The USER's limit on generated images for this preview. Ask the user; never choose it."
+BRIEF_DOC = ("The user's request for this asset, in their words (for example 'a rugged supply crate with corner guards, "
+             "latches and two side handles'). Visual QA shows it to the judge and asks whether every part it names is there "
+             "and how fully the asset depicts it. Empty: QA does not ask.")
+ART_DIRECTION_DOC = ("Named art direction (skills/art-direction): " + " | ".join(style_ids())
+                     + "; empty for none. Lowers the budget where the look needs it and styles maps, shading and prompts.")
+
+
 def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
     async def open_asset_session(
         asset_name: str,
@@ -318,11 +351,26 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         conversation_id: Annotated[str, Field(description="Native conversation ID from the SessionStart header")] = "",
         max_tris: int = 15_000,
         workdir: Annotated[str, Field(description="Session folder; default <workspace>/agy3d_assets/<session id>")] = "",
+        art_direction: Annotated[str, Field(description=ART_DIRECTION_DOC)] = "",
+        keep_contact_faces: Annotated[bool, Field(description="Ship the faces parts press together too (closed parts; for parts that will be moved apart in the engine)")] = False,
+        preview: Annotated[bool, Field(description=PREVIEW_DOC)] = False,
+        token_ceiling: Annotated[int | None, Field(description=TOKEN_CEILING_DOC)] = None,
+        max_images: Annotated[int | None, Field(description=MAX_IMAGES_DOC)] = None,
+        brief: Annotated[str, Field(description=BRIEF_DOC)] = "",
     ) -> str:
         async def go() -> str:
-            return await host.open_asset_session(asset_name, target_engine, max_tris, workdir, await _workspace_root(ctx), conversation_id)
+            return await host.open_asset_session(asset_name, target_engine, max_tris, workdir, await _workspace_root(ctx), conversation_id,
+                                                 art_direction=art_direction, keep_contact_faces=keep_contact_faces,
+                                                 preview=preview, token_ceiling=token_ceiling, max_images=max_images, brief=brief)
 
         return await host.change_catalog(ctx, go)
+
+    async def start_preview(
+        token_ceiling: Annotated[int, Field(description=TOKEN_CEILING_DOC)],
+        max_images: Annotated[int, Field(description=MAX_IMAGES_DOC)],
+        session_id: Annotated[str, Field(description=SESSION_ID_DOC)] = "",
+    ) -> str:
+        return await host.run_ordered(host.start_preview, token_ceiling, max_images, session_id)
 
     async def set_stage(stage: str, ctx: Context, session_id: Annotated[str, Field(description=SESSION_ID_DOC)] = "") -> str:
         return await host.change_catalog(ctx, host.set_stage, stage, session_id)
@@ -339,7 +387,9 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
                          "Only that stage's tools are callable.")
     session_status.__doc__ = "Current stage, budget, QA verdict (tier1/tier15/export allowed) and newest audit lines."
     list_sessions.__doc__ = "Open asset sessions; the active one is marked with *."
-    return {f.__name__: (f, f.__doc__ or "") for f in (open_asset_session, set_stage, session_status, list_sessions)}
+    start_preview.__doc__ = ("Switch the session to an UNVERIFIED preview in place (scene kept, earlier verdicts discarded), "
+                             "limited to the user's token ceiling and image limit. Ask the user for both; never choose them.")
+    return {f.__name__: (f, f.__doc__ or "") for f in (open_asset_session, start_preview, set_stage, session_status, list_sessions)}
 
 
 async def _workspace_root(ctx: Any) -> str:

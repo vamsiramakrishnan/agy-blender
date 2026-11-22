@@ -176,6 +176,7 @@ def _build_view(s: Session, key: tuple) -> _View:
 
     from antigravity3d.artifacts.inspector import inspector_payload
     from antigravity3d.artifacts.review_glb import session_materials
+    from antigravity3d.kernel.fast_ops import shipped
     from antigravity3d.kernel.types import MeshData
 
     meshes = s.stage.extract_meshes()
@@ -186,15 +187,18 @@ def _build_view(s: Session, key: tuple) -> _View:
     lods: Any = None
     colliders = None
     if bundle is not None:
-        by_id = {u.node_id: u for u in bundle.uvs}
+        by_id = {u.node_id: shipped(u) for u in bundle.uvs}  # what ships: hidden contact faces left out
         meshes = [MeshData(m.node_id, m.prim_path, by_id[m.node_id].points, by_id[m.node_id].triangles,
                            m.material_id, m.collider) if m.node_id in by_id else m for m in meshes]
-        uvs = {u.node_id: u.uvs for u in bundle.uvs}
+        uvs = {n: s.uvs for n, s in by_id.items()}
         if bundle.lods and set(bundle.lods) == {m.node_id for m in meshes}:
-            lods = bundle.lods  # {node_id: [LOD0, LOD1, ...]}, as the package's *_LODn.glb are written
+            # {node_id: [LOD0, LOD1, ...]}, as the package's *_LODn.glb are written
+            lods = {n: [shipped(lv) for lv in chain] for n, chain in bundle.lods.items()}
         colliders = [(h.name, h.points, h.triangles) for h in bundle.colliders]
+    art = s.art  # the session's art direction shades the review like the package it will export
     payload, glb = inspector_payload(meshes, asset_name=s.stage.asset_prim.GetName(), budget=s.state.budget,
-                                     materials=materials, lods=lods, colliders=colliders, uvs=uvs)
+                                     materials=materials, lods=lods, colliders=colliders, uvs=uvs,
+                                     crease_deg=art.crease_deg() if art is not None else None)
     payload["session_id"] = s.sid
     scene = json.dumps(payload, separators=(",", ":"))
     return _View(key, payload, scene, {"glb": base64.b64encode(glb).decode("ascii")})
@@ -221,7 +225,17 @@ def qa_state(s: Session) -> dict[str, Any]:
         "audit_deltas": list(st.audit_deltas),
         "defects": {},
         "stage": s.toolset,
+        **(_preview_fields(s) if st.preview else {}),
     }
+
+
+def _preview_fields(s: Session) -> dict[str, Any]:
+    """A preview session's QA panel says what it is. The built panel renders the audit list, so the label leads it;
+    the structured fields are there for any client."""
+    label = s.plane.judge_label if s.plane is not None else "none"
+    line = f"PREVIEW (UNVERIFIED): judged by {label}; an export is labelled verified=false and needs a person's review"
+    return {"preview": True, "verified": False, "judge": label, "spend": s.governor.summary(),
+            "audit_deltas": [line, *s.state.audit_deltas]}
 
 
 def _result(text: str, structured: dict[str, Any] | None = None, *, error: bool = False) -> CallToolResult:
@@ -317,7 +331,7 @@ class InspectorService:
                        "colliders": len(p["colliders"]), "textured_materials": len(textured), "glb_bytes": p["glb"]["bytes"],
                        "scene_chunks": max(1, -(-len(v.scene) // CHUNK_CHARS))},
             "notes": notes,
-            "qa": {k: qa[k] for k in ("tier1_ok", "tier15_score", "export_allowed")},
+            "qa": {k: qa[k] for k in ("tier1_ok", "tier15_score", "export_allowed", "preview", "judge") if k in qa},
             "view": directives,
         }
         shown = " ".join(f"{k}={'*' if val is None else val}" for k, val in directives.items())
@@ -366,7 +380,7 @@ class InspectorService:
         s = self._session(session_id)
         v = await self._view(s)
         qa = qa_state(s)
-        return _result(f"QA tier1={'ok' if qa['tier1_ok'] else 'fail'} tier15={qa['tier15_score']} "
+        return _result(("PREVIEW (UNVERIFIED) " if qa.get("preview") else "") + f"QA tier1={'ok' if qa['tier1_ok'] else 'fail'} tier15={qa['tier15_score']} "
                        f"export={'allowed' if qa['export_allowed'] else 'blocked'} rev={v.revision}",
                        {"session_id": s.sid, "revision": v.revision, "qa": qa})
 

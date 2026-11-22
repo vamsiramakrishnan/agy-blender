@@ -1,0 +1,619 @@
+{
+ "what": "The edit-loop benchmarks alone, three runs of each tree, alternating (after, before, after, before, after, before), taken after the paired run flagged three of these rows as slower. Medians and minimums in ms per run.",
+ "before_commit": "5a440fa80dad7ec74e62df3afca7e4df1e68b72a",
+ "after_commit": "5e1e8f92e17fafe4e30588e10ba0c9b9e0665ab9",
+ "timestamps_utc": {
+  "before": [
+   "2026-11-20T23:16:02Z",
+   "2026-11-20T23:18:41Z",
+   "2026-11-20T23:21:21Z"
+  ],
+  "after": [
+   "2026-11-20T23:14:42Z",
+   "2026-11-20T23:17:21Z",
+   "2026-11-20T23:20:00Z"
+  ]
+ },
+ "cases": [
+  {
+   "benchmark": "harness.edit.apply_scene_ir",
+   "nodes": 5,
+   "before_median_ms": [
+    5.1959,
+    5.3769,
+    5.2983
+   ],
+   "before_min_ms": [
+    3.7116,
+    4.2043,
+    4.1614
+   ],
+   "after_median_ms": [
+    5.3258,
+    5.0246,
+    5.077
+   ],
+   "after_min_ms": [
+    3.9712,
+    3.9153,
+    3.6371
+   ],
+   "after_over_before_median_of_medians": 0.958
+  },
+  {
+   "benchmark": "harness.edit.apply_scene_ir",
+   "nodes": 20,
+   "before_median_ms": [
+    9.9356,
+    10.8827,
+    11.0374
+   ],
+   "before_min_ms": [
+    7.4816,
+    8.755,
+    8.7941
+   ],
+   "after_median_ms": [
+    10.8327,
+    10.6598,
+    9.7619
+   ],
+   "after_min_ms": [
+    8.6814,
+    8.6995,
+    7.4086
+   ],
+   "after_over_before_median_of_medians": 0.98
+  },
+  {
+   "benchmark": "harness.edit.apply_scene_ir",
+   "nodes": 50,
+   "before_median_ms": [
+    20.09,
+    19.7999,
+    19.9962
+   ],
+   "before_min_ms": [
+    16.0143,
+    15.4312,
+    16.076
+   ],
+   "after_median_ms": [
+    21.8552,
+    20.7006,
+    19.2703
+   ],
+   "after_min_ms": [
+    17.6037,
+    16.163,
+    16.2228
+   ],
+   "after_over_before_median_of_medians": 1.035
+  },
+  {
+   "benchmark": "harness.edit.apply_scene_ir",
+   "nodes": 200,
+   "before_median_ms": [
+    69.8711,
+    67.5698,
+    68.9005
+   ],
+   "before_min_ms": [
+    56.6069,
+    59.6394,
+    59.1323
+   ],
+   "after_median_ms": [
+    74.9995,
+    71.391,
+    65.8662
+   ],
+   "after_min_ms": [
+    65.8367,
+    56.1627,
+    56.9792
+   ],
+   "after_over_before_median_of_medians": 1.036
+  },
+  {
+   "benchmark": "harness.edit.rejected_rollback",
+   "nodes": 5,
+   "before_median_ms": [
+    4.8157,
+    4.6356,
+    4.5741
+   ],
+   "before_min_ms": [
+    3.7531,
+    3.5896,
+    3.5384
+   ],
+   "after_median_ms": [
+    4.806,
+    4.6244,
+    4.6175
+   ],
+   "after_min_ms": [
+    3.5959,
+    3.5869,
+    3.5074
+   ],
+   "after_over_before_median_of_medians": 0.998
+  },
+  {
+   "benchmark": "harness.edit.rejected_rollback",
+   "nodes": 20,
+   "before_median_ms": [
+    9.3875,
+    9.3386,
+    9.1746
+   ],
+   "before_min_ms": [
+    7.2111,
+    7.4669,
+    7.128
+   ],
+   "after_median_ms": [
+    9.3691,
+    9.09,
+    9.1547
+   ],
+   "after_min_ms": [
+    7.5584,
+    7.7272,
+    7.3396
+   ],
+   "after_over_before_median_of_medians": 0.98
+  },
+  {
+   "benchmark": "harness.edit.rejected_rollback",
+   "nodes": 50,
+   "before_median_ms": [
+    19.2312,
+    18.7196,
+    18.6664
+   ],
+   "before_min_ms": [
+    14.2173,
+    14.9759,
+    14.551
+   ],
+   "after_median_ms": [
+    18.5735,
+    18.7482,
+    17.9493
+   ],
+   "after_min_ms": [
+    14.9517,
+    15.131,
+    15.7876
+   ],
+   "after_over_before_median_of_medians": 0.992
+  },
+  {
+   "benchmark": "harness.edit.rejected_rollback",
+   "nodes": 200,
+   "before_median_ms": [
+    67.849,
+    71.4617,
+    63.5292
+   ],
+   "before_min_ms": [
+    55.5767,
+    55.8163,
+    54.8954
+   ],
+   "after_median_ms": [
+    76.8915,
+    68.4469,
+    66.6055
+   ],
+   "after_min_ms": [
+    63.9817,
+    57.1475,
+    59.5105
+   ],
+   "after_over_before_median_of_medians": 1.009
+  },
+  {
+   "benchmark": "harness.edit.undo",
+   "nodes": 5,
+   "before_median_ms": [
+    5.8407,
+    6.0075,
+    5.9417
+   ],
+   "before_min_ms": [
+    4.3392,
+    4.4651,
+    4.4927
+   ],
+   "after_median_ms": [
+    6.5608,
+    6.1162,
+    5.3608
+   ],
+   "after_min_ms": [
+    4.7612,
+    4.4191,
+    4.1994
+   ],
+   "after_over_before_median_of_medians": 1.029
+  },
+  {
+   "benchmark": "harness.edit.undo",
+   "nodes": 20,
+   "before_median_ms": [
+    10.5773,
+    10.8401,
+    10.6881
+   ],
+   "before_min_ms": [
+    8.2941,
+    8.0651,
+    7.9518
+   ],
+   "after_median_ms": [
+    11.9052,
+    10.8638,
+    9.9915
+   ],
+   "after_min_ms": [
+    9.1372,
+    8.4756,
+    8.571
+   ],
+   "after_over_before_median_of_medians": 1.016
+  },
+  {
+   "benchmark": "harness.edit.undo",
+   "nodes": 50,
+   "before_median_ms": [
+    19.4218,
+    18.6506,
+    19.2766
+   ],
+   "before_min_ms": [
+    15.7247,
+    15.6879,
+    15.1479
+   ],
+   "after_median_ms": [
+    20.0274,
+    20.4271,
+    18.845
+   ],
+   "after_min_ms": [
+    15.7498,
+    15.8926,
+    16.0163
+   ],
+   "after_over_before_median_of_medians": 1.039
+  },
+  {
+   "benchmark": "harness.edit.undo",
+   "nodes": 200,
+   "before_median_ms": [
+    67.5597,
+    62.671,
+    65.105
+   ],
+   "before_min_ms": [
+    52.555,
+    55.1516,
+    48.5522
+   ],
+   "after_median_ms": [
+    67.3637,
+    65.8391,
+    63.0007
+   ],
+   "after_min_ms": [
+    56.4804,
+    56.5071,
+    51.3368
+   ],
+   "after_over_before_median_of_medians": 1.011
+  },
+  {
+   "benchmark": "harness.edit.to_pixels",
+   "nodes": 5,
+   "before_median_ms": [
+    41.2074,
+    38.6695,
+    38.4176
+   ],
+   "before_min_ms": [
+    33.3327,
+    35.5543,
+    33.3644
+   ],
+   "after_median_ms": [
+    39.0591,
+    44.2696,
+    36.879
+   ],
+   "after_min_ms": [
+    32.6848,
+    34.3563,
+    30.4848
+   ],
+   "after_over_before_median_of_medians": 1.01
+  },
+  {
+   "benchmark": "harness.edit.to_pixels",
+   "nodes": 20,
+   "before_median_ms": [
+    59.6107,
+    58.3061,
+    56.9243
+   ],
+   "before_min_ms": [
+    50.4865,
+    49.2944,
+    50.4684
+   ],
+   "after_median_ms": [
+    56.9143,
+    61.4432,
+    57.8681
+   ],
+   "after_min_ms": [
+    48.445,
+    51.6392,
+    46.5662
+   ],
+   "after_over_before_median_of_medians": 0.992
+  },
+  {
+   "benchmark": "harness.edit.to_pixels",
+   "nodes": 50,
+   "before_median_ms": [
+    102.6798,
+    101.3322,
+    98.9474
+   ],
+   "before_min_ms": [
+    84.0335,
+    83.7376,
+    86.3745
+   ],
+   "after_median_ms": [
+    94.2293,
+    96.5152,
+    98.1325
+   ],
+   "after_min_ms": [
+    82.1534,
+    85.6767,
+    80.9948
+   ],
+   "after_over_before_median_of_medians": 0.952
+  },
+  {
+   "benchmark": "harness.edit.to_pixels",
+   "nodes": 200,
+   "before_median_ms": [
+    324.4231,
+    313.6012,
+    308.082
+   ],
+   "before_min_ms": [
+    311.6654,
+    297.8859,
+    273.6504
+   ],
+   "after_median_ms": [
+    315.9577,
+    317.0581,
+    344.0501
+   ],
+   "after_min_ms": [
+    277.746,
+    283.7521,
+    300.2004
+   ],
+   "after_over_before_median_of_medians": 1.011
+  },
+  {
+   "benchmark": "kernel.edit.patch",
+   "nodes": 5,
+   "before_median_ms": [
+    0.5674,
+    0.4423,
+    0.512
+   ],
+   "before_min_ms": [
+    0.4282,
+    0.3262,
+    0.3665
+   ],
+   "after_median_ms": [
+    0.5433,
+    0.5632,
+    0.5306
+   ],
+   "after_min_ms": [
+    0.3657,
+    0.3836,
+    0.3445
+   ],
+   "after_over_before_median_of_medians": 1.061
+  },
+  {
+   "benchmark": "kernel.edit.patch",
+   "nodes": 20,
+   "before_median_ms": [
+    0.9001,
+    0.8397,
+    0.8907
+   ],
+   "before_min_ms": [
+    0.6757,
+    0.6295,
+    0.6213
+   ],
+   "after_median_ms": [
+    0.92,
+    0.8438,
+    0.9095
+   ],
+   "after_min_ms": [
+    0.6739,
+    0.6364,
+    0.5945
+   ],
+   "after_over_before_median_of_medians": 1.021
+  },
+  {
+   "benchmark": "kernel.edit.patch",
+   "nodes": 50,
+   "before_median_ms": [
+    1.506,
+    1.4672,
+    1.5625
+   ],
+   "before_min_ms": [
+    1.1238,
+    1.1956,
+    1.2372
+   ],
+   "after_median_ms": [
+    1.5157,
+    1.403,
+    1.5478
+   ],
+   "after_min_ms": [
+    1.1899,
+    1.1994,
+    1.2481
+   ],
+   "after_over_before_median_of_medians": 1.006
+  },
+  {
+   "benchmark": "kernel.edit.patch",
+   "nodes": 200,
+   "before_median_ms": [
+    4.6408,
+    4.6062,
+    5.1669
+   ],
+   "before_min_ms": [
+    3.8533,
+    3.8729,
+    3.9102
+   ],
+   "after_median_ms": [
+    4.7046,
+    5.2476,
+    5.148
+   ],
+   "after_min_ms": [
+    4.1343,
+    4.1835,
+    4.1915
+   ],
+   "after_over_before_median_of_medians": 1.109
+  },
+  {
+   "benchmark": "kernel.edit.patch_qa",
+   "nodes": 5,
+   "before_median_ms": [
+    2.3178,
+    2.2107,
+    2.3556
+   ],
+   "before_min_ms": [
+    2.0291,
+    1.9567,
+    2.0469
+   ],
+   "after_median_ms": [
+    2.6725,
+    2.6792,
+    2.6517
+   ],
+   "after_min_ms": [
+    2.4645,
+    2.0868,
+    2.1821
+   ],
+   "after_over_before_median_of_medians": 1.153
+  },
+  {
+   "benchmark": "kernel.edit.patch_qa",
+   "nodes": 20,
+   "before_median_ms": [
+    6.9816,
+    6.9049,
+    6.7739
+   ],
+   "before_min_ms": [
+    5.9116,
+    5.2244,
+    5.4395
+   ],
+   "after_median_ms": [
+    6.0628,
+    6.9949,
+    6.6945
+   ],
+   "after_min_ms": [
+    5.4742,
+    5.6135,
+    5.3237
+   ],
+   "after_over_before_median_of_medians": 0.97
+  },
+  {
+   "benchmark": "kernel.edit.patch_qa",
+   "nodes": 50,
+   "before_median_ms": [
+    15.8098,
+    16.1904,
+    15.7422
+   ],
+   "before_min_ms": [
+    12.0416,
+    12.1109,
+    12.102
+   ],
+   "after_median_ms": [
+    15.06,
+    16.0388,
+    13.3036
+   ],
+   "after_min_ms": [
+    12.5633,
+    12.6048,
+    11.7989
+   ],
+   "after_over_before_median_of_medians": 0.953
+  },
+  {
+   "benchmark": "kernel.edit.patch_qa",
+   "nodes": 200,
+   "before_median_ms": [
+    60.0929,
+    55.0099,
+    60.4481
+   ],
+   "before_min_ms": [
+    52.829,
+    48.3375,
+    49.6032
+   ],
+   "after_median_ms": [
+    55.1427,
+    63.4651,
+    62.7932
+   ],
+   "after_min_ms": [
+    48.9395,
+    60.7028,
+    50.3872
+   ],
+   "after_over_before_median_of_medians": 1.045
+  }
+ ]
+}

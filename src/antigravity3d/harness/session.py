@@ -84,6 +84,13 @@ class Session:
         self.registry.attach(self.sid, name, value)
 
     @property
+    def art(self) -> Any:
+        """The session's art direction (``antigravity3d.art_direction.ArtDirection``) or None."""
+        from antigravity3d.art_direction import load
+
+        return load(self.state.art_direction)
+
+    @property
     def governor(self) -> Governor:
         return self.registry.resource(self.sid, "governor")
 
@@ -193,7 +200,7 @@ class Session:
                     tier1_ok=self.state.last_tier1_ok, tier15_score=self.state.last_tier15_score, session_id=self.sid,
                     conversation_id=conv, asset=self.stage.asset_prim.GetName(), revision=self.state.revision,
                     target=self.state.budget.target_engine, verdict=self.state.verdict, validator_ok=self.state.validator_ok,
-                    workspace=self._res(R_QA_WORKSPACE, self.workdir))
+                    workspace=self._res(R_QA_WORKSPACE, self.workdir), preview=self.state.preview)
         except Exception as e:  # noqa: BLE001 - persistence is best-effort
             if strict:
                 raise RuntimeError("could not revoke the prior export approval") from e
@@ -214,6 +221,11 @@ def open_session(
     pool: Any = None,
     thresholds: Thresholds | None = None,
     state_workspace: str | Path | None = None,
+    art_direction: str | None = None,
+    preview: bool = False,
+    token_ceiling: int | None = None,
+    max_images: int | None = None,
+    brief: str | None = None,
 ) -> AssetSessionState:
     """Creates the on-disk stage under ``workdir``, registers the state and attaches resources.
 
@@ -221,7 +233,25 @@ def open_session(
     (``$AGY3D_STATE_DIR`` overrides it, exactly as in the hook scripts). It defaults to ``workdir``,
     which is the workspace the SDK stage agents run in (``workspaces=[workdir]``), so ``workspacePaths[0]``
     in a hook payload resolves to the same directory.
+
+    ``art_direction``: a named style id. It is checked first (an unknown id raises before anything is created); the
+    session's budget is then the style's effective budget (it only ever lowers ``max_tris``) and the id is kept on
+    the state, where the tools and stage agents read it.
+
+    ``preview``: an unverified preview session (see :func:`preview_resources`); it needs the user's ``token_ceiling``
+    and ``max_images``, and its whole life is labelled. A session that is not a preview keeps today's ledger and gates.
+
+    ``brief``: the user's request for the asset; visual QA quotes it to the judge and asks about it. None or blank: the
+    session behaves exactly as one opened without it.
     """
+    from antigravity3d.art_direction import load
+
+    if preview:
+        check_preview_limits(token_ceiling, max_images)
+
+    art = load(art_direction)
+    if art is not None:
+        budget = art.budget(budget, "prop")
     registry = registry if registry is not None else DEFAULT_REGISTRY
     workdir = Path(workdir).resolve()
     workdir.mkdir(parents=True, exist_ok=True)
@@ -233,9 +263,13 @@ def open_session(
         forge = forge.with_governor(ledger)
         if not isinstance(forge, CachedForge):
             forge = CachedForge(forge, BuildCache(LocalBlobStore(workdir / ".agy3d-cache")), budget=budget)
+    if preview:
+        plane, forge, ledger, thresholds = preview_resources(workdir, plane, forge, ledger, thresholds, token_ceiling, max_images)
     usd_path = workdir / f"{asset_name}.usda"
     stage = StageManager.create(usd_path, asset_name)
-    state = registry.create(AssetSessionState(session_id=session_id, usd_stage_path=usd_path, budget=budget))
+    state = registry.create(AssetSessionState(session_id=session_id, usd_stage_path=usd_path, budget=budget,
+                                              art_direction=art.id if art is not None else None, preview=bool(preview),
+                                              brief=brief if brief and brief.strip() else None))
     for name, res in (
         (R_STAGE, stage), (R_PLANE, plane), (R_FORGE, forge), (R_POOL, pool), ("governor", ledger),
         (R_THRESHOLDS, thresholds or Thresholds()), (R_WORKDIR, workdir), (R_ARTIFACTS, artifacts),
@@ -246,6 +280,51 @@ def open_session(
     state.tx_stack = list(stage.tx_stack)
     session(registry, session_id).persist_qa()  # a fresh session must not inherit an older session's verdict
     return state
+
+
+PREVIEW_JOURNAL = "spend_preview.sqlite3"  # a preview's token ledger; never the session's money journal
+
+
+def check_preview_limits(token_ceiling: Any, max_images: Any) -> None:
+    """Both limits are the user's and both are required: a token figure says almost nothing about image cost."""
+    missing = [n for n, v in (("token_ceiling", token_ceiling), ("max_images", max_images)) if v is None]
+    if missing:
+        raise ValueError(f"a preview session needs the user's {' and '.join(missing)}: ask the user for a token ceiling "
+                         "and an image limit; never choose them")
+    if int(token_ceiling) != token_ceiling or token_ceiling <= 0 or int(max_images) != max_images or max_images < 0:
+        raise ValueError("token_ceiling must be a positive whole number of tokens and max_images a whole number >= 0")
+
+
+def preview_resources(workdir: Path, plane: Any, forge: Any, ledger: Governor, thresholds: Thresholds | None,
+                      token_ceiling: int | None, max_images: int | None) -> tuple[Any, Any, Governor, Thresholds]:
+    """Plane, forge, ledger and thresholds of a preview: a token ledger with the image limit, the plane's preview copy
+    (an uncalibrated judge may steer it) and the thresholds with ``trust_uncalibrated`` set for this session only."""
+    from dataclasses import replace
+
+    check_preview_limits(token_ceiling, max_images)
+    tokens = Governor(ledger.plan, journal=Path(workdir) / PREVIEW_JOURNAL, token_ceiling=token_ceiling, max_images=max_images)
+    return (plane.preview_copy() if plane is not None else None, forge.with_governor(tokens) if forge is not None else None,
+            tokens, replace(thresholds or Thresholds(), trust_uncalibrated=True))
+
+
+def switch_to_preview(registry: SceneSessionRegistry, session_id: str, token_ceiling: int, max_images: int) -> Session:
+    """Turn an open session into a preview in place: the scene is kept; from here on the session is labelled, spends
+    against a token ledger with the image limit, and every earlier verdict is discarded (it is not an approval)."""
+    s = session(registry, session_id)
+    if s.state.preview:
+        raise ValueError("this session is already a preview")
+    plane, forge, ledger, th = preview_resources(s.workdir, s.plane, s.forge, s.governor, s.thresholds, token_ceiling, max_images)
+    for name, res in ((R_PLANE, plane), (R_FORGE, forge), ("governor", ledger), (R_THRESHOLDS, th)):
+        registry.attach(session_id, name, res)
+    s = session(registry, session_id)
+    s.state.preview = True
+    s.state.verdict = None
+    s.state.last_tier15_score = 0.0
+    s.state.revision = uuid.uuid4().hex
+    s._set("graded_preview", None)
+    s.set_last_export(None)
+    s.persist_qa(strict=True)
+    return s
 
 
 def session(registry: SceneSessionRegistry, session_id: str) -> Session:

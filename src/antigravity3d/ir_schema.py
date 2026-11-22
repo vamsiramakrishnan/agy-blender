@@ -162,10 +162,24 @@ def parse_patch(text: str) -> ir.IRPatch:
 # --- API schema ----------------------------------------------------------------------------------------------
 
 
+# Keywords the API accepts that the response schema still leaves out: they only cost prompt tokens. ``title`` repeats a
+# field name. ``description`` is pydantic's class docstring (developer documentation, not guidance); what a model needs
+# to know about units, axes and what a field means is stated once in ``IR_SEMANTICS`` / ``OP_SEMANTICS``.
+_API_UNSENT = frozenset({"title", "description"})
+
+
 def _api(node: Any) -> Any:
-    """Reduce a pydantic JSON schema to ``API_SCHEMA_KEYWORDS`` (recursively)."""
+    """Reduce a pydantic JSON schema to ``API_SCHEMA_KEYWORDS`` (recursively), then write it compactly."""
+    return _share(_reduce(node))
+
+
+def _whole(value: Any) -> Any:
+    return int(value) if isinstance(value, float) and value.is_integer() else value
+
+
+def _reduce(node: Any) -> Any:
     if isinstance(node, list):
-        return [_api(x) for x in node]
+        return [_reduce(x) for x in node]
     if not isinstance(node, dict):
         return node
     out: dict[str, Any] = {}
@@ -173,16 +187,98 @@ def _api(node: Any) -> Any:
         if key == "const":
             out["enum"] = [value]
         elif key == "oneOf":
-            out["anyOf"] = _api(value)
+            out["anyOf"] = _reduce(value)
         elif key in ("properties", "$defs"):
-            out[key] = {k: _api(v) for k, v in value.items()}
-        elif key in API_SCHEMA_KEYWORDS and key != "title":  # titles only cost prompt tokens
-            out[key] = _api(value)
+            out[key] = {k: _reduce(v) for k, v in value.items()}
+        elif key in ("minimum", "maximum"):
+            out[key] = _whole(value)  # 1.0 and 1 are one number; the shorter spelling is cheaper
+        elif key in API_SCHEMA_KEYWORDS and key not in _API_UNSENT:
+            out[key] = _reduce(value)
     if "exclusiveMinimum" in node and "minimum" not in out:  # closest documented bound; the wire parse keeps it strict
-        out["minimum"] = node["exclusiveMinimum"]
+        out["minimum"] = _whole(node["exclusiveMinimum"])
     if "$ref" in out:  # the API allows only $-keywords next to $ref
         out = {k: v for k, v in out.items() if k.startswith("$")}
+    items = out.get("prefixItems")
+    if items and out.get("minItems") == out.get("maxItems") == len(items) and all(i == items[0] for i in items):
+        del out["prefixItems"]  # a fixed-length tuple of one type is "exactly n items of that type"
+        out["items"] = items[0]
     return out
+
+
+def _schema_slots(node: dict[str, Any]):
+    """(container, key) for every sub-schema of ``node``, so a caller can read or replace it."""
+    for key in ("properties",):
+        for k in node.get(key, {}):
+            yield node[key], k
+    for key in ("anyOf", "prefixItems"):
+        for i in range(len(node.get(key, ()))):
+            yield node[key], i
+    for key in ("items", "additionalProperties"):
+        if isinstance(node.get(key), dict):
+            yield node, key
+
+
+def _walk_slots(node: dict[str, Any]):
+    for container, key in _schema_slots(node):
+        yield container, key
+        yield from _walk_slots(container[key])
+
+
+def _shared_name(shape: dict[str, Any], taken: set[str]) -> str:
+    items = shape.get("items")
+    if shape.get("type") == "array" and shape.get("minItems") == shape.get("maxItems") and isinstance(items, dict):
+        name = f"Vec{shape['minItems']}" + ("NonNeg" if items.get("minimum") == 0 else "")
+    elif "anyOf" in shape and {"type": "null"} in shape["anyOf"] and len(shape["anyOf"]) == 2:
+        other = next(a for a in shape["anyOf"] if a != {"type": "null"})
+        name = "Nullable" + str(other.get("type", "Value")).capitalize()
+    elif shape.get("type") == "number" and (shape.get("minimum"), shape.get("maximum")) == (0, 1):
+        name = "UnitNumber"
+    else:
+        name = "Shared"
+    base, n = name, 1
+    while name in taken:
+        n, name = n + 1, f"{base}{n + 1}"
+    return name
+
+
+def _dumps(x: Any) -> str:
+    return json.dumps(x, separators=(",", ":"), sort_keys=True)
+
+
+def _share(schema: dict[str, Any]) -> dict[str, Any]:
+    """Move a sub-schema written out several times into ``$defs`` once and ``$ref`` it, where that is shorter.
+
+    Only the text sent changes, never what a document must satisfy. Plain ``$ref`` to a definition is already how
+    the node and material definitions are referenced, so no keyword outside ``API_SCHEMA_KEYWORDS`` is introduced.
+    """
+    defs = schema.get("$defs")
+    if defs is None:
+        return schema
+    roots = [schema, *defs.values()]
+    while True:
+        seen: dict[str, list[tuple[Any, Any]]] = {}
+        for root in roots:
+            for container, key in _walk_slots(root):
+                sub = container[key]
+                if "$ref" not in sub:
+                    seen.setdefault(_dumps(sub), []).append((container, key))
+        best, gain = None, 0
+        for text, slots in seen.items():
+            if len(slots) < 2:
+                continue
+            ref = len('{"$ref":"#/$defs/Vec3NonNeg"}')  # an upper bound on the reference's length
+            g = len(slots) * (len(text) - ref) - len(text) - 20
+            if g > gain:
+                best, gain = text, g
+        if best is None:
+            return schema
+        slots = seen[best]
+        shape = slots[0][0][slots[0][1]]
+        name = _shared_name(shape, set(defs))
+        for container, key in slots:
+            container[key] = {"$ref": f"#/$defs/{name}"}
+        defs[name] = shape
+        roots.append(shape)
 
 
 @functools.cache
@@ -277,16 +373,26 @@ def _obj_line(schema: dict[str, Any], obj: dict[str, Any]) -> str:
 
 IR_SEMANTICS = (
     "Scene IR: metres, Z-up, right-handed, rotations XYZ Euler degrees. Primitives are centred on their local origin; "
-    "cylinder/cone/capsule axis is local Z (cone base at -height/2, apex at +height/2). A group is a transform-only "
+    "cylinder/cone/capsule axis is local Z (cone base at -height/2, apex at +height/2; capsule height is the cylinder "
+    "part only, the caps come on top). box params.size is the full extent along x, y, z. A group is a transform-only "
     "parent; mesh_ref params.path is a local asset path. id fields match [A-Za-z_][A-Za-z0-9_]* (at most 64 chars) "
     "and parent / material_id / node_id / target_id must name an existing node / material. Materials are glTF 2.0 PBR: "
-    "colours are linear RGB 0-1; alpha_mode MASK needs alpha_cutoff and an albedo_uri whose alpha channel is the shape, "
+    "colours are linear RGB 0-1; opacity is the base colour's alpha; transmission is thin-surface (no thickness or "
+    "volume); alpha_mode MASK needs alpha_cutoff and an albedo_uri whose alpha channel is the shape, "
     "BLEND needs opacity < 1 or an albedo_uri with alpha (with an albedo_uri leave opacity at 1); emissive_uri, "
     "emissive_strength need a non-black emissive_color; transmission (thin glass) needs metallic < 1; clearcoat_roughness "
     "needs clearcoat > 0; sheen_roughness needs sheen_color; double_sided for thin shells (leaves, cloth, decals)."
 )
+# Sent with the authoring request only (``ir_rules_text``), not in IR_SEMANTICS, which every stage agent carries.
+# The pair in it is from a live run (2026-11-21): the author wrote "tarnished military brass hardware" and the image
+# model drew hinges and latches; "olive drab painted steel, scuffed and chipped" in the same run came back as a surface.
+SURFACE_RULE = (
+    f"; surface (<= {ir.SURFACE_MAX_CHARS} chars) prompts a tiling texture: the substance and its finish, not what is "
+    'made of it ("tarnished brass", not "brass hardware"); never object parts, shapes or layout.'
+)
 OP_SEMANTICS = (
-    "Anchors use world AABBs. on_top_of centres X/Y and aligns bottom to target top. flush_back aligns +Y faces. "
+    "Anchors use world AABBs and place once, in world space. on_top_of centres X/Y and aligns bottom to target top. "
+    "flush_back aligns +Y faces (back is +Y in this Z-up convention). "
     "For ground contact use z = half the primitive height."
 )
 
@@ -310,7 +416,7 @@ def ir_rules_text() -> str:
         params = alt["properties"]["params"]
         kinds.append(f"{kind} params {_obj_line(scene, params)}")
     lines.append("kind -> params: " + "; ".join(kinds))
-    lines.append("material: " + _obj_line(scene, defs["MaterialIR"]))
+    lines.append("material: " + _obj_line(scene, defs["MaterialIR"]) + SURFACE_RULE)
     ops = []
     for alt in patch["properties"]["ops"]["items"]["anyOf"]:
         _, obj = _resolve(patch, alt)

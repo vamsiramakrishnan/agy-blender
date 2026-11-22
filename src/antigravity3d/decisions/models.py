@@ -62,7 +62,8 @@ class DecisionResult:
     cost_known: bool = True  # False: est_cost_usd is 0.0 only because no price is configured
     source: str = "decisions"  # "decisions" | "generative_fallback" | "fake"
 
-    booked_usd: float = 0.0  # amount settled against the caller's asset governor
+    booked_usd: float = 0.0  # dollars settled against the caller's asset governor (0.0 on a token ledger)
+    booked_tokens: int = 0  # tokens settled against a token ledger (Governor(token_ceiling=...)); no price applied
 
     def noul(self, qid: str) -> float:
         return self.answers[qid].noul  # type: ignore[return-value]

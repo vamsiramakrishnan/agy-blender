@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import contextlib
 import glob
 import gzip
 import hashlib
@@ -36,15 +37,20 @@ import io
 import json
 import os
 import shutil
+import struct
 import sys
 import tempfile
+import threading
 import time
+import zlib
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
+from urllib.parse import unquote
 
 import numpy as np
 
+from antigravity3d.adapters.engines import web_browser
 from antigravity3d.adapters.engines.validators import (
     DEFAULT_TIMEOUT,
     MIN_SILHOUETTE_IOU,
@@ -84,6 +90,16 @@ def vendor_source(gz_name: str) -> bytes:
     if hashlib.sha256(raw).hexdigest() != want:
         raise RuntimeError(f"vendored {gz_name} does not match its recorded sha256 {want}")
     return raw
+
+
+_VENDORED: dict[str, bytes] = {}
+
+
+def _vendored(rel: str) -> bytes:
+    """``vendor_source`` of a page path, decompressed and hash-checked once per process."""
+    if rel not in _VENDORED:
+        _VENDORED[rel] = vendor_source(VENDOR_FILES[rel])
+    return _VENDORED[rel]
 
 
 # --------------------------------------------------------------------------- camera / rig
@@ -256,8 +272,8 @@ class WebThreeReport(EngineReport):
 
 _PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>agy3d web_three verification page</title>
-<!-- Self-contained: everything is under ./vendor (three r160 + its own GLTFLoader, unmodified) or in the
-     #job block below. No network. Camera and lighting are documented in antigravity3d/adapters/engines/web_three.py. -->
+<!-- Self-contained: three r160 and its own GLTFLoader (unmodified) under ./vendor, the package's GLBs under ./glb,
+     their referenced textures under ./textures, the #job block below. No network. Camera and lighting are documented in antigravity3d/adapters/engines/web_three.py. -->
 <script type="importmap">{"imports":{"three":"./vendor/three.module.min.js"}}</script>
 <style>html,body{margin:0;background:transparent}canvas{display:block}</style></head>
 <body><canvas id="c" width="__SIZE__" height="__SIZE__"></canvas>
@@ -268,12 +284,53 @@ import { GLTFLoader } from './vendor/examples/jsm/loaders/GLTFLoader.js';
 const job = JSON.parse(document.getElementById('job').textContent);
 const out = { done: false, errors: [], shader_errors: [], programs: [], main: null, lods: [], render: null, png: null, mask_png: null };
 window.__agy = out;
-const bytes = (b64) => { const s = atob(b64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u.buffer; };
-const parse = (b64) => new Promise((ok, bad) => new GLTFLoader().parse(bytes(b64), '', ok, (e) => bad(e)));
+// The GLBs are files beside the page, fetched from the page's server like everything else; they are parsed with an empty
+// path, so a URI inside one resolves against the page directory, where the package's textures/ is staged.
+// Images are decoded once per distinct content. GLTFLoader hands every image, embedded (a blob: URL of the GLB's bytes)
+// or referenced (a textures/ file), to ImageBitmapLoader; this load() fetches the bytes once per URL, hashes them
+// (SHA-256) and decodes each distinct byte string once, with the loader's own options. A far LOD whose file holds the
+// same bytes as the image LOD0 embeds therefore gets the very image LOD0 decoded, and content() below hashes its
+// pixels once; a file that differs in a single byte is decoded and compared on its own.
+const fetched = new Map(), decodedImages = new Map();
+const hex = (b) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join('');
+THREE.ImageBitmapLoader.prototype.load = function (url, onLoad, onProgress, onError) {
+  if (url === undefined) url = '';
+  if (this.path !== undefined) url = this.path + url;
+  url = this.manager.resolveURL(url);
+  const options = Object.assign({}, this.options, { colorSpaceConversion: 'none' }), scope = this;
+  if (!fetched.has(url)) fetched.set(url, fetch(url, { credentials: 'same-origin', headers: this.requestHeader }).then((r) => r.arrayBuffer()));
+  scope.manager.itemStart(url);
+  fetched.get(url).then(async (bytes) => {
+    const key = hex(await crypto.subtle.digest('SHA-256', bytes)) + JSON.stringify(options);
+    if (!decodedImages.has(key)) decodedImages.set(key, createImageBitmap(new Blob([bytes]), options));
+    return decodedImages.get(key);
+  }).then((image) => { if (onLoad) onLoad(image); scope.manager.itemEnd(url); })
+    .catch((e) => { if (onError) onError(e); scope.manager.itemError(url); scope.manager.itemEnd(url); });
+};
+const load = (url) => new THREE.FileLoader().setResponseType('arraybuffer').loadAsync(url);
+const parse = (buf) => new Promise((ok, bad) => new GLTFLoader().parse(buf, '', ok, (e) => bad(e)));
 const SLOT_KEYS = { map: ['pbr', 'baseColorTexture'], metalnessMap: ['pbr', 'metallicRoughnessTexture'], roughnessMap: ['pbr', 'metallicRoughnessTexture'],
                     normalMap: [null, 'normalTexture'], aoMap: [null, 'occlusionTexture'], emissiveMap: [null, 'emissiveTexture'] };
 const c3 = (c) => (c ? [c.r, c.g, c.b] : null), num = (v) => (typeof v === 'number' ? v : null);
 const imgSize = (t) => { const i = t && t.image; return i ? [i.width || i.naturalWidth || 0, i.height || i.naturalHeight || 0] : [0, 0]; };
+// What a decoded image holds: a 64-bit hash of its RGBA pixels drawn unscaled. Two files whose images decode to the
+// same pixels get the same value, whichever GLB (embedded bytes or a referenced file) they came from.
+// Hashed once per decoded image: identical bytes share one decoded image (ImageBitmapLoader above), and a map bound to
+// several slots (ORM) is one image.
+const fpCanvas = document.createElement('canvas'), fpCtx = fpCanvas.getContext('2d', { willReadFrequently: true }), fpCache = new WeakMap();
+function content(t) {
+  const [w, h] = imgSize(t);
+  if (!w || !h) return null;
+  const key = t.image && typeof t.image === 'object' ? t.image : null;
+  if (key && fpCache.has(key)) return fpCache.get(key);
+  fpCanvas.width = w; fpCanvas.height = h; fpCtx.clearRect(0, 0, w, h); fpCtx.drawImage(t.image, 0, 0);
+  const px = new Uint32Array(fpCtx.getImageData(0, 0, w, h).data.buffer);
+  let a = 0x811c9dc5 | 0, b = 0x5bd1e995 | 0;
+  for (let i = 0; i < px.length; i++) { a = Math.imul(a ^ px[i], 0x01000193); b = (Math.imul(b ^ px[i], 0x5bd1e995) + i) | 0; }
+  const fp = (a >>> 0).toString(16).padStart(8, '0') + (b >>> 0).toString(16).padStart(8, '0');
+  if (key) fpCache.set(key, fp);
+  return fp;
+}
 
 function describe(gltf) {
   const json = gltf.parser.json, assoc = gltf.parser.associations;
@@ -295,7 +352,11 @@ function describe(gltf) {
       const src = jm ? (grp === 'pbr' ? (jm.pbrMetallicRoughness || {}) : jm) : {};
       if (src[key] !== undefined) declared.push(slot);
       const t = m[slot];
-      if (t) { const [w, h] = imgSize(t); slots[slot] = { width: w, height: h, colorSpace: t.colorSpace }; }
+      if (t) {
+        const [w, h] = imgSize(t), ta = assoc.get(t), ti = ta && ta.textures !== undefined ? json.textures[ta.textures] : null;
+        const img = ti ? (json.images || [])[ti.source] : null;
+        slots[slot] = { width: w, height: h, colorSpace: t.colorSpace, content: content(t), uri: img && img.uri ? img.uri : null };
+      }
     }
     const missing = declared.filter((s) => !slots[s] || !slots[s].width || !slots[s].height);
     return { name: m.name, type: m.type, fallback_default: idx === undefined, declared, slots, missing_slots: missing,
@@ -316,13 +377,14 @@ function describe(gltf) {
            extensions_used: json.extensionsUsed || [] };
 }
 
-function environment(renderer) {
-  const s = new THREE.Scene(), g = new THREE.SphereGeometry(10, 32, 16), c = new THREE.Color(), sky = new THREE.Color(job.rig.env_sky), gnd = new THREE.Color(job.rig.env_ground);
-  const col = []; const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) { c.copy(gnd).lerp(sky, (p.getY(i) / 10 + 1) / 2); col.push(c.r, c.g, c.b); }
-  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  s.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
-  const pm = new THREE.PMREMGenerator(renderer), t = pm.fromScene(s).texture; pm.dispose(); return t;
+__ENV_JS__
+// job.env.mode 'page': PMREMGenerator renders the environment here. 'shared': it was rendered once in this process and
+// is loaded from ENV_FILE beside the page into the same texture (identical half floats).
+let envTarget = null;
+async function environment(renderer) {
+  if (job.env.mode === 'shared') return sharedEnvironment('./' + job.env.file);
+  envTarget = gradientEnvironment(renderer, job.rig);
+  return envTarget.texture;
 }
 
 async function main() {
@@ -332,16 +394,20 @@ async function main() {
   renderer.debug.checkShaderErrors = true;
   renderer.debug.onShaderError = (gl, program, vs, fs) => out.shader_errors.push({
     program_log: gl.getProgramInfoLog(program), vertex_log: gl.getShaderInfoLog(vs), fragment_log: gl.getShaderInfoLog(fs) });
+  // asked for by the verifier after the frames, never before: hands this page's environment to later verifications
+  window.__agy_export_env = () => exportEnvironment(renderer, envTarget);
+  // Started first: the GPU process prefilters the environment while this thread fetches, parses and decodes the GLBs.
+  const env = environment(renderer);
   for (const l of job.lods) {
-    try { const g = await parse(l.b64); out.lods.push({ name: l.name, ...describe(g) }); }
+    try { const g = await parse(await load(l.url)); out.lods.push({ name: l.name, ...describe(g) }); }
     catch (e) { out.lods.push({ name: l.name, error: String((e && e.message) || e) }); }
   }
   let gltf;
-  try { gltf = await parse(job.glb_b64); } catch (e) { out.errors.push('GLTFLoader: ' + String((e && e.message) || e)); out.done = true; return; }
+  try { gltf = await parse(await load(job.glb_url)); } catch (e) { out.errors.push('GLTFLoader: ' + String((e && e.message) || e)); out.done = true; return; }
   out.main = describe(gltf);
   const scene = new THREE.Scene();
   scene.add(gltf.scene);
-  scene.environment = environment(renderer);
+  scene.environment = await env;
   for (const [pos, inten] of job.rig.lights) { const d = new THREE.DirectionalLight(0xffffff, inten); d.position.set(...pos); scene.add(d); }
   const cam = job.camera, w = cam.ortho_width / 2;
   const camera = new THREE.OrthographicCamera(-w, w, w, -w, cam.diameter * 0.01, cam.diameter * 5);
@@ -369,24 +435,135 @@ main().catch((e) => { out.errors.push('page: ' + String((e && e.stack) || e)); o
 """
 
 
-def build_page(out_dir: Path, glb: bytes, bounds_m, lods: dict[str, bytes] | None = None) -> Path:
-    """Write ``page.html`` and its ``vendor/`` tree into ``out_dir`` and return the page path.
+#: The rig's environment, shared by the verification page and the environment export. ``gradientEnvironment`` is what
+#: the page has always rendered (gradient sphere -> ``PMREMGenerator.fromScene``); ``exportEnvironment`` reads that
+#: prefiltered map back as the half floats it holds (``ENV_FILE`` format, zlib, base64); ``sharedEnvironment`` loads
+#: such a file into the texture ``fromScene`` returns.
+_ENV_JS = """
+function gradientEnvironment(renderer, rig) {
+  const s = new THREE.Scene(), g = new THREE.SphereGeometry(10, 32, 16), c = new THREE.Color(), sky = new THREE.Color(rig.env_sky), gnd = new THREE.Color(rig.env_ground);
+  const col = []; const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) { c.copy(gnd).lerp(sky, (p.getY(i) / 10 + 1) / 2); col.push(c.r, c.g, c.b); }
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  s.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  const pm = new THREE.PMREMGenerator(renderer), rt = pm.fromScene(s); pm.dispose(); return rt;
+}
+async function exportEnvironment(renderer, rt) {
+  const t = rt.texture;
+  if (t.type !== THREE.HalfFloatType || t.format !== THREE.RGBAFormat || t.mapping !== THREE.CubeUVReflectionMapping ||
+      t.magFilter !== THREE.LinearFilter || t.minFilter !== THREE.LinearFilter || t.generateMipmaps || t.colorSpace !== THREE.LinearSRGBColorSpace)
+    throw new Error('PMREMGenerator target is not the half-float CubeUV texture sharedEnvironment rebuilds');
+  const gl = renderer.getContext(), w = rt.width, h = rt.height;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, renderer.properties.get(rt).__webglFramebuffer);
+  const buf = new ArrayBuffer(8 + w * h * 8), u = new Uint16Array(buf, 8);
+  new Uint32Array(buf, 0, 2).set([w, h]);
+  if (gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT) === gl.RGBA && gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE) === gl.HALF_FLOAT) {
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.HALF_FLOAT, u);  // the stored half floats themselves
+  } else {
+    const f = new Float32Array(w * h * 4);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, f);
+    for (let i = 0; i < f.length; i++) {
+      u[i] = THREE.DataUtils.toHalfFloat(f[i]);
+      if (THREE.DataUtils.fromHalfFloat(u[i]) !== f[i]) throw new Error('environment texel ' + i + ' is not a half float: ' + f[i]);
+    }
+  }
+  const err = gl.getError();
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  if (err) throw new Error('readPixels of the environment map: GL error ' + err);
+  const z = new Uint8Array(await new Response(new Blob([buf]).stream().pipeThrough(new CompressionStream('deflate'))).arrayBuffer());
+  let b = ''; for (let i = 0; i < z.length; i += 0x8000) b += String.fromCharCode.apply(null, z.subarray(i, i + 0x8000));
+  return { width: w, height: h, zlib_b64: btoa(b) };
+}
+async function sharedEnvironment(url) {
+  const z = await new THREE.FileLoader().setResponseType('arraybuffer').loadAsync(url);
+  const buf = await new Response(new Blob([z]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer();
+  const [w, h] = new Uint32Array(buf, 0, 2);
+  const t = new THREE.DataTexture(new Uint16Array(buf, 8, w * h * 4), w, h, THREE.RGBAFormat, THREE.HalfFloatType);
+  t.mapping = THREE.CubeUVReflectionMapping; t.magFilter = t.minFilter = THREE.LinearFilter; t.generateMipmaps = false;
+  t.colorSpace = THREE.LinearSRGBColorSpace; t.needsUpdate = true; return t;
+}
+"""
 
-    The GLB bytes are embedded as base64; the vendored three.js files are written byte-for-byte
-    (hash-verified) at the paths the page imports. The page needs no network.
+#: the prefiltered environment map, written beside a page that loads it (zlib: uint32 width, height, RGBA half floats)
+ENV_FILE = "env/pmrem.bin"
+#: where the package's GLBs are written beside the page
+GLB_DIR = "glb"
+
+#: the only page-relative directory package files are staged into (the package's own textures/)
+STAGED_DIR = "textures"
+
+
+def build_page(out_dir: Path, glb: bytes, bounds_m, lods: dict[str, bytes] | None = None,
+               files: dict[str, bytes] | None = None, env: bytes | None = None) -> Path:
+    """Write ``page.html`` and everything it loads into ``out_dir`` and return the page path.
+
+    The vendored three.js files are written byte-for-byte (hash-verified) at the paths the page imports, the GLBs
+    under ``glb/``. ``files`` (``{path under textures/: bytes}``, see :func:`referenced_textures`) are written at
+    those paths beside the page: a far LOD GLB references its maps as ``textures/<file>`` relative to itself, and
+    GLTFLoader resolves that against the page (the GLBs are parsed with an empty path), so the page directory mirrors
+    the package for them. ``env`` (``ENV_FILE`` bytes) makes the page load the environment map instead of rendering
+    it. The page needs no network.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    for rel, gz in VENDOR_FILES.items():
+    for rel in VENDOR_FILES:
         dest = out_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(vendor_source(gz))
-    job = {"glb_b64": base64.b64encode(glb).decode(), "camera": web_camera(bounds_m),
-           "lods": [{"name": n, "b64": base64.b64encode(b).decode()} for n, b in (lods or {}).items()],
+        dest.write_bytes(_vendored(rel))
+    (out_dir / GLB_DIR).mkdir(exist_ok=True)
+    glbs = {"main": glb, **(lods or {})}
+    for name, data in glbs.items():
+        (out_dir / GLB_DIR / f"{name}.glb").write_bytes(data)
+    if env is not None:
+        (out_dir / ENV_FILE).parent.mkdir(parents=True, exist_ok=True)
+        (out_dir / ENV_FILE).write_bytes(env)
+    for rel, data in (files or {}).items():
+        dest = out_dir / rel
+        if rel.split("/", 1)[0] != STAGED_DIR or ".." in rel.split("/") or not dest.resolve().is_relative_to((out_dir / STAGED_DIR).resolve()):
+            raise ValueError(f"refusing to stage {rel!r} outside {STAGED_DIR}/")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+    job = {"glb_url": f"./{GLB_DIR}/main.glb", "camera": web_camera(bounds_m),
+           "lods": [{"name": n, "url": f"./{GLB_DIR}/{n}.glb"} for n in (lods or {})],
+           "env": {"mode": "page"} if env is None else {"mode": "shared", "file": ENV_FILE},
            "rig": {"lights": [[list(p), i] for p, i in LIGHTS], "env_sky": ENV_SKY, "env_ground": ENV_GROUND}}
-    html = _PAGE.replace("__SIZE__", str(FRAME_PX)).replace("__JOB__", json.dumps(job).replace("</", "<\\/"))
+    html = _PAGE.replace("__SIZE__", str(FRAME_PX)).replace("__ENV_JS__", _ENV_JS).replace("__JOB__", json.dumps(job).replace("</", "<\\/"))
     page = out_dir / "page.html"
     page.write_text(html, "utf-8")
     return page
+
+
+def _glb_doc(data: bytes) -> dict:
+    magic, version, _size, jlen, jtype = struct.unpack_from("<4sIII4s", data, 0)
+    if (magic, version, jtype) != (b"glTF", 2, b"JSON"):
+        raise ValueError("not a GLB")
+    return json.loads(data[20:20 + jlen])
+
+
+def referenced_textures(pkg_dir: Path, glbs) -> dict[str, bytes]:
+    """The package files the GLBs reference by relative URI, keyed by the path the page will request.
+
+    Only files inside the package's ``textures/`` that exist are returned. Anything else a GLB references (a
+    missing file, a path outside ``textures/``, a scheme) is not staged, so the browser's request for it is
+    blocked and recorded, and the check fails naming it. The key is the file's path relative to the package (the
+    URI percent-decoded, as the page's server decodes the request it answers).
+    """
+    root = (pkg_dir / STAGED_DIR).resolve()
+    out: dict[str, bytes] = {}
+    for data in glbs:
+        try:
+            doc = _glb_doc(data)
+        except (ValueError, struct.error):
+            continue  # an unreadable GLB is the loader's to report
+        for item in [*(doc.get("images") or []), *(doc.get("buffers") or [])]:
+            uri = item.get("uri") if isinstance(item, dict) else None
+            if not isinstance(uri, str) or not uri or ":" in uri.split("/", 1)[0] or uri.startswith("/") or any(c in uri for c in "?#\\"):
+                continue
+            rel = unquote(uri)
+            target = (pkg_dir / rel).resolve()
+            if ".." in rel.split("/") or not target.is_relative_to(root) or not target.is_file():
+                continue
+            out[rel] = target.read_bytes()
+    return out
 
 
 # --------------------------------------------------------------------------- evaluation (pure)
@@ -428,6 +605,7 @@ def evaluate(raw: dict, console: list[dict], page_errors: list[str], blocked: li
     if main is None:
         add("main GLB loaded", False, "GLTFLoader produced no scene")
         return checks, None
+    _lod_material_checks(add, main, raw.get("lods", []))
     r = raw.get("render") or {}
     add("WebGL context healthy", not r.get("context_lost") and not r.get("gl_error"),
         f"gl_error={r.get('gl_error')} context_lost={r.get('context_lost')}")
@@ -523,6 +701,50 @@ def _manifest_checks(add, main: dict, lods: list[dict], render: dict, manifest: 
                     bad.append(f"{t['material']}.{slot} {got['width']}x{got['height']} != {t['width']}x{t['height']}")
         add("manifest textures bound per role with matching pixel size", not bad,
             "; ".join(bad[:6]) if bad else f"{len(textures)} texture(s) match")
+
+
+def _slot_key(v: dict | None):
+    return None if v is None else (v.get("width"), v.get("height"), v.get("content"))
+
+
+def _lod_material_checks(add, main: dict, lods: list[dict]) -> None:
+    """Each LOD file must load with the materials of LOD0: every material it binds is one LOD0 binds (by name),
+    with the same parameters, the same texture slots, and in each slot an image of the same size and the same
+    decoded pixels (the page's content hash), whether LOD0 embeds it and the LOD file references a file or not.
+    A texture that failed to load leaves its declared slot unbound, which fails here too."""
+    base: dict[str, dict] = {}
+    for m in main["materials"]:
+        base.setdefault(m["name"], m)
+    for lod in lods:
+        if "error" in lod:
+            continue  # reported as "<LOD> loads"
+        name = f"{lod['name']} materials == LOD0 materials (parameters and texture content)"
+        if "materials" not in lod:
+            add(name, None, "the page reported no materials for this level")
+            continue
+        bad, slots = [], 0
+        for m in lod["materials"]:
+            ref = base.get(m["name"])
+            label = m["name"] or "<unnamed>"
+            if ref is None:
+                bad.append(f"{label}: not a LOD0 material")
+                continue
+            if m.get("missing_slots"):
+                bad.append(f"{label}: declared {','.join(m['missing_slots'])} not bound to a decoded image")
+            got, want = m.get("slots") or {}, ref.get("slots") or {}
+            for slot in sorted(set(got) | set(want)):
+                slots += 1
+                if _slot_key(got.get(slot)) != _slot_key(want.get(slot)):
+                    bad.append(f"{label}.{slot} {_slot_key(got.get(slot))} != LOD0 {_slot_key(want.get(slot))}")
+            for key in ("type", "metalness", "roughness", "doubleSided", "transparent", "fallback_default"):
+                if m.get(key) != ref.get(key) and not (isinstance(m.get(key), (int, float)) and _near(m.get(key), ref.get(key))):
+                    bad.append(f"{label}: {key} {m.get(key)} != LOD0 {ref.get(key)}")
+            pa, pb = m.get("params") or {}, ref.get("params") or {}
+            for key in sorted(set(pa) | set(pb)):
+                a, b = pa.get(key), pb.get(key)
+                if a != b and not (a is not None and b is not None and not isinstance(a, bool) and _near(a, b)):
+                    bad.append(f"{label}: {key} {a} != LOD0 {b}")
+        add(name, not bad, "; ".join(bad[:4]) if bad else f"{len(lod['materials'])} material(s), {slots} texture slot(s) match LOD0")
 
 
 _TOL = 1e-5
@@ -652,48 +874,197 @@ def _frame_checks(add, shot_png: bytes, mask_png: bytes | None, reference: bytes
 
 CHROMIUM_NAMES = ("google-chrome", "chromium", "chromium-browser", "chrome")
 CHROMIUM_ARGS = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
-ORIGIN = "http://agy3d-web-three.invalid/"
-_MIME = {".html": "text/html", ".js": "text/javascript"}
+_MIME = {".html": "text/html", ".js": "text/javascript", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+         ".glb": "model/gltf-binary"}
 
 
-async def run_page(page_dir: Path, exe: str | None, timeout: float) -> dict:
-    """Open ``page_dir/page.html`` in headless Chromium and collect everything. Requests outside the page
-    directory are aborted and reported, so a page that tried to reach the network cannot pass silently."""
-    from playwright.async_api import async_playwright
+# The environment map is the same for every package. The first verification of a process renders it in its page, as
+# the page always has, so a process that verifies one package does nothing extra. A later verification uses the copy
+# held here; until one exists, the verification after the first hands its page's map back once its frames are taken.
+_env_lock = threading.Lock()
+_env_cache: dict[tuple, bytes] = {}
+_pages_started = 0
 
+
+def _env_key(exe: str | None) -> tuple:
+    return (exe, _launch_args(), ENV_SKY, ENV_GROUND)
+
+
+def _environment_plan(exe: str | None) -> tuple[bytes | None, bool]:
+    """(the shared map for this page, or None to render its own; whether to hand the page's own map back)."""
+    global _pages_started
+    with _env_lock:
+        first = _pages_started == 0
+        _pages_started += 1
+        env = _env_cache.get(_env_key(exe))
+    return env, env is None and not first
+
+
+def _check_env_export(out: dict) -> bytes:
+    data = base64.b64decode(out["zlib_b64"])
+    raw = zlib.decompress(data)
+    w, h = np.frombuffer(raw[:8], "<u4")
+    if (int(w), int(h)) != (out["width"], out["height"]) or len(raw) != 8 + int(w) * int(h) * 8:
+        raise RuntimeError(f"environment map has {len(raw)} bytes, not {w}x{h} RGBA half floats")
+    return data
+
+
+def _launch_args() -> tuple[str, ...]:
+    return tuple(CHROMIUM_ARGS) + (("--no-sandbox",) if hasattr(os, "geteuid") and os.geteuid() == 0 else ())
+
+
+def prestart() -> web_browser.Lease:
+    """Start the shared browser in the background and hold it for the caller.
+
+    A pipeline run calls this when it starts, so the start-up overlaps the run's own work instead of being waited for
+    when the verification is reached. Release the lease when the run ends (``web_browser.Lease``): after a failure or
+    a cancellation that closes the browser. When the verifier cannot run here, nothing is started."""
+    v = WebThreeValidator()
+    if not v.available():
+        return web_browser.Lease(None)  # the step will be skipped with its reason; taking a real lease imports Playwright
+
+    async def started(_session) -> None:
+        return None
+    return web_browser.SHARED.lease(started, exe=v.binary(), args=_launch_args())
+
+
+def page_file(page_dir: Path, request_path: str) -> Path | None:
+    """The file of ``page_dir`` a page-relative request path names, or None. The path is percent-decoded (glTF URIs are
+    written encoded, so ``textures/a%20b.png`` is the file ``textures/a b.png``); nothing outside ``page_dir`` is a
+    file of the page, however the path is spelled."""
+    root = page_dir.resolve()
+    f = (root / unquote(request_path.split("?")[0].split("#")[0])).resolve()
+    return f if f.is_file() and f.is_relative_to(root) else None
+
+
+class PageServerUnavailable(RuntimeError):
+    """This machine cannot open a local port for the page, so the verifier cannot run here."""
+
+
+class _PageServer:
+    """Serves one page directory to the browser for one verification: on 127.0.0.1, under a random path, GET only.
+
+    The page's requests used to be answered through the browser's request interception, which passes every body
+    through the DevTools pipe as base64; for a package with 2K textures that was most of the verification (a 40 MB
+    GLB took 17 to 22 s). Interception still sees every request: one for this server is let through to it, anything
+    else is aborted and recorded as blocked, and the server records any request it cannot answer from the page
+    directory the same way."""
+
+    def __init__(self, page_dir: Path, blocked: list[str]) -> None:
+        import http.server
+        import secrets
+
+        token = secrets.token_hex(16)
+        server_self = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # the method name http.server dispatches a GET to
+                prefix = f"/{token}/"
+                f = page_file(page_dir, self.path[len(prefix):]) if self.path.startswith(prefix) else None
+                if f is None:
+                    if self.path.startswith(prefix):
+                        blocked.append(server_self.base + self.path[len(prefix):][:200])
+                    self.send_error(404)
+                    return
+                data = f.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", _MIME.get(f.suffix.lower(), "application/octet-stream"))
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                with contextlib.suppress(ConnectionError):
+                    self.wfile.write(data)
+
+            def log_message(self, *args) -> None:
+                pass
+
+        self._httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self._httpd.daemon_threads = True
+        self.base = f"http://127.0.0.1:{self._httpd.server_address[1]}/{token}/"
+        self._thread = threading.Thread(target=self._httpd.serve_forever, name="agy3d-web-page", daemon=True)
+        self._thread.start()
+
+    def close(self) -> None:
+        self._httpd.shutdown()
+        self._httpd.server_close()
+
+
+async def run_page(page_dir: Path, exe: str | None, timeout: float, *, export_env: bool = False) -> dict:
+    """Open ``page_dir/page.html`` in a fresh context of the process's headless Chromium and collect everything.
+    Requests outside the page directory are aborted and reported, so a page that tried to reach the network cannot
+    pass silently. The context is the verification's own: its routes, console, page errors and blocked requests.
+
+    ``export_env``: after the frames, read the page's own environment map back for later verifications in this process
+    (it does not change this verification's result)."""
     console: list[dict] = []
     page_errors: list[str] = []
     blocked: list[str] = []
-    args = list(CHROMIUM_ARGS) + (["--no-sandbox"] if hasattr(os, "geteuid") and os.geteuid() == 0 else [])
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(executable_path=exe, args=args)
-        try:
-            ctx = await browser.new_context(viewport={"width": FRAME_PX, "height": FRAME_PX})
 
-            async def serve(route):
+    async def verify(session, ctx) -> dict:
+        try:
+            server = await asyncio.to_thread(_PageServer, page_dir, blocked)
+        except OSError as e:
+            raise PageServerUnavailable(f"cannot serve the page on 127.0.0.1 ({e})") from e
+        try:
+            async def gate(route):
                 url = route.request.url
-                rel = url[len(ORIGIN):].split("?")[0] if url.startswith(ORIGIN) else None
-                f = (page_dir / rel).resolve() if rel else None
-                if f is None or not f.is_file() or page_dir.resolve() not in f.parents:
+                if url.startswith(server.base):
+                    await route.continue_()  # the body goes from the server to the browser, not through this process
+                else:
                     blocked.append(url[:200])
                     await route.abort()
-                    return
-                await route.fulfill(status=200, body=f.read_bytes(), content_type=_MIME.get(f.suffix, "application/octet-stream"))
 
-            await ctx.route("**/*", serve)
+            await ctx.route("**/*", gate)
             page = await ctx.new_page()
             page.on("console", lambda m: console.append({"type": m.type, "text": m.text}))
             page.on("pageerror", lambda e: page_errors.append(str(e)))
-            await page.goto(ORIGIN + "page.html", wait_until="load", timeout=timeout * 1000)
+            await page.goto(server.base + "page.html", wait_until="load", timeout=timeout * 1000)
             await page.wait_for_function("window.__agy && window.__agy.done", timeout=timeout * 1000)
             raw = await page.evaluate("window.__agy")
-            version = browser.version
+            # what the verdict is made of is taken now: nothing the export below logs can reach it
+            result = {"raw": raw, "console": list(console), "page_errors": list(page_errors), "blocked": list(blocked),
+                      "browser": session.browser.version}
+            if export_env and raw.get("render") and not raw.get("errors") and not raw.get("shader_errors") and not page_errors:
+                seen = len(console)
+                with contextlib.suppress(Exception):  # on any trouble a later verification renders its own map instead
+                    data = _check_env_export(await page.evaluate("window.__agy_export_env()"))
+                    if not [c for c in console[seen:] if c["type"] in ("error", "warning")
+                            and not any(i in c["text"] for i in PASS_RULE.ignored_console)] and not page_errors:
+                        with _env_lock:
+                            _env_cache.setdefault(_env_key(exe), data)
+            return result
         finally:
-            await browser.close()
-    return {"raw": raw, "console": console, "page_errors": page_errors, "blocked": blocked, "browser": version}
+            await asyncio.to_thread(server.close)
+
+    return await web_browser.SHARED.run(verify, exe=exe, args=_launch_args(),
+                                        context_options={"viewport": {"width": FRAME_PX, "height": FRAME_PX}})
 
 
 # --------------------------------------------------------------------------- the validator
+
+
+def _reference_meshes(usd: Path | None) -> tuple[list[MeshData] | None, str]:
+    """(meshes, why there are none) for the package USD."""
+    if usd is None:
+        return None, "no .usd in the package to derive a reference from"
+    try:
+        return usd_meshes(usd), ""
+    except Exception as e:  # noqa: BLE001  pxr missing or unreadable USD
+        return None, f"cannot derive reference from {usd.name}: {e}"
+
+
+def _usd_reference(usd: Path | None, bounds, meshes: tuple[list[MeshData] | None, str] | None = None
+                   ) -> tuple[bytes | None, str, str | None]:
+    """(reference PNG or None, note, issue): the USD rendered with the camera for ``bounds``, unless the USD's own bounds
+    disagree with them (then the reference is unusable and says why)."""
+    ref_meshes, note = meshes or _reference_meshes(usd)
+    issue = None
+    if ref_meshes and meshes is None:
+        pts = np.vstack([m.points for m in ref_meshes])
+        issue = bounds_issue(bounds, [pts.min(axis=0).tolist(), pts.max(axis=0).tolist()])
+        if issue:
+            ref_meshes = None
+    return (reference_png(ref_meshes, bounds) if ref_meshes else None), note, issue
 
 
 def _find_package(package_path: Path) -> tuple[Path, Path | None, Path | None]:
@@ -723,7 +1094,10 @@ class WebThreeValidator(EngineValidator):
     manifest; every loaded material's parameters (base colour and alpha, alpha mode and cut-off, double-sided,
     emissive colour and strength, clearcoat, transmission, IOR, sheen, specular, metallic, roughness) and bound
     texture slots equal the manifest's ``materials`` inventory, with no material loaded that the manifest does
-    not list; the frame is framed, lit, and its silhouette overlaps an independent reference (kernel rasteriser
+    not list; each LOD file loads with LOD0's materials: same parameters, same slots, and in every slot an image
+    of the same size and decoded pixels (a far LOD references the package's ``textures/`` files, which are staged
+    beside the page; a reference that cannot be served is a blocked request and an unbound slot, and fails);
+    the frame is framed, lit, and its silhouette overlaps an independent reference (kernel rasteriser
     of the package USD) at the Godot gate. The silhouette comes from a second render of the loaded scene with
     every material replaced by opaque double-sided white, so glass, cut-outs and blended materials cannot change it.
     Not verified: colour/PBR look (no photometric reference; the loaded values are compared, not the pixels
@@ -787,48 +1161,50 @@ class WebThreeValidator(EngineValidator):
                 return WebThreeReport(False, ENGINE, f"manifest.json unreadable: {e}")
         glb = glb_path.read_bytes()
         lods = {f"LOD{i}": f.read_bytes() for i in range(1, 8) if (f := glb_path.with_name(f"{glb_path.stem}_LOD{i}.glb")).is_file()}
+        # far LOD files reference the package's textures/ (LOD0 embeds its images; a reference there is staged too)
+        textures = referenced_textures(glb_path.parent, [glb, *lods.values()])
 
         bounds = (manifest or {}).get("glb_bounds_m")
-        ref_png, ref_note, ref_meshes = None, "", None
         if isinstance(reference, Path):
             reference = reference.read_bytes()
+        ref_task: asyncio.Future | None = None
         if reference is not None:
-            ref_png = reference
             if bounds is None:
                 return WebThreeReport(False, ENGINE, "an explicit reference needs manifest glb_bounds_m to fix the camera")
+            ref: tuple[bytes | None, str, str | None] = (reference, "", None)
         else:
+            # The reference is rendered on a worker thread while the browser renders the package: once the camera is
+            # fixed the two are independent. Without manifest bounds the USD itself fixes the camera, so it is read first.
             usd = next(iter(sorted(pkg_dir.glob("*.usd"))), None)
-            if usd is None:
-                ref_note = "no .usd in the package to derive a reference from"
-            else:
-                try:
-                    ref_meshes = usd_meshes(usd)
-                except Exception as e:  # noqa: BLE001  pxr missing or unreadable USD
-                    ref_note = f"cannot derive reference from {usd.name}: {e}"
-        ref_issue = None
-        if ref_meshes and bounds is not None:
-            pts = np.vstack([m.points for m in ref_meshes])
-            ref_issue = bounds_issue(bounds, [pts.min(axis=0).tolist(), pts.max(axis=0).tolist()])
-            if ref_issue:
-                ref_meshes = None
-        if bounds is None:
-            if ref_meshes:
+            with contextlib.suppress(ImportError):  # imported here, not first on the worker thread (see web_browser)
+                from pxr import Usd, UsdGeom  # noqa: F401
+
+                from antigravity3d.kernel import raster  # noqa: F401
+            if bounds is None:
+                ref_meshes, ref_note = await asyncio.to_thread(_reference_meshes, usd)
+                if not ref_meshes:
+                    return WebThreeReport(False, ENGINE, "cannot fix the camera: manifest has no glb_bounds_m and no USD reference")
                 pts = np.vstack([m.points for m in ref_meshes])
                 bounds = [pts.min(axis=0).tolist(), pts.max(axis=0).tolist()]
+                ref_task = asyncio.ensure_future(asyncio.to_thread(_usd_reference, usd, bounds, (ref_meshes, ref_note)))
             else:
-                return WebThreeReport(False, ENGINE, "cannot fix the camera: manifest has no glb_bounds_m and no USD reference")
-        if ref_png is None and ref_meshes:
-            ref_png = reference_png(ref_meshes, bounds)
+                ref_task = asyncio.ensure_future(asyncio.to_thread(_usd_reference, usd, bounds))
 
         owned = out_dir is None
         work = Path(tempfile.mkdtemp(prefix="agy3d-web-three-")) if owned else Path(out_dir)
         try:
-            page = build_page(work, glb, bounds, lods)
+            exe = self.binary()
+            env, export_env = _environment_plan(exe)
+            page = build_page(work, glb, bounds, lods, textures, env)
             t_page = time.perf_counter()
             try:
-                run = await asyncio.wait_for(run_page(work, self.binary(), timeout), timeout + 15)
+                run = await asyncio.wait_for(run_page(work, exe, timeout, export_env=export_env), timeout + 15)
+            except PageServerUnavailable as e:  # the machine cannot run the check: a skip with its reason, not a failed package
+                return self._skipped_report(f"{ENGINE}: {e}")
             except Exception as e:  # noqa: BLE001  browser launch / navigation / timeout
                 return WebThreeReport(False, ENGINE, f"browser run failed: {type(e).__name__}: {e}"[:TAIL_CHARS])
+            t_ran = time.perf_counter()
+            ref_png, ref_note, ref_issue = await ref_task if ref_task is not None else ref
             t_run = time.perf_counter()
             raw = run["raw"]
             shot = None
@@ -861,9 +1237,11 @@ class WebThreeValidator(EngineValidator):
                              "console": run["console"], "page_errors": run["page_errors"], "blocked_requests": run["blocked"],
                              "render": raw.get("render"), "browser": run["browser"]},
                 facts={"main": main, "lods": raw.get("lods")}, checks=tuple(checks), silhouette_iou=iou,
-                timings_s={"prepare": round(t_page - t0, 3), "browser": round(t_run - t_page, 3),
-                           "total": round(time.perf_counter() - t0, 3)})
+                timings_s={"prepare": round(t_page - t0, 3), "browser": round(t_ran - t_page, 3),
+                           "reference_wait": round(t_run - t_ran, 3), "total": round(time.perf_counter() - t0, 3)})
         finally:
+            if ref_task is not None and not ref_task.done():  # the browser failed first: the reference is not needed
+                ref_task.add_done_callback(lambda t: t.cancelled() or t.exception())
             if owned:
                 shutil.rmtree(work, ignore_errors=True)
 

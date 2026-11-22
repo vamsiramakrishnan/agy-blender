@@ -23,6 +23,7 @@ from google.antigravity.models import (
 )
 from google.antigravity.triggers import TriggerContext
 
+from antigravity3d.art_direction import author_text, texture_brief
 from antigravity3d.harness.hooks import (
     QAStopHook,
     TelemetryHook,
@@ -81,15 +82,38 @@ _IR_RULES = f"{IR_SEMANTICS}\n{OP_SEMANTICS}"
 _IR_STAGES = frozenset({"BLOCKOUT", "TWEAK", "VARIANTS"})  # edit geometry: IR semantics and the anchor ops
 _MATERIAL_STAGES = frozenset({"LOOKDEV"})  # edit materials only: IR semantics (ids, material cross-field rules)
 
+# What a good prop is, for the stage agent that models it (the same rules as metered_author.PROP_CRAFT_GUIDANCE, which the
+# one-shot author gets: the two paths are written separately because this agent edits in patches and sees Tier-1 and QA
+# lines after each). Measured with the one-shot request on 2026-11-21: the five answers written without it for "a rugged
+# military supply crate kit-bashed from panels, corner guards, latches and two side handles" (budget 3,000 triangles) had 15
+# to 21 parts and 272 to 356 triangles; with it, two answers had 63 and 64 parts and 976 and 936 triangles. Contact is exact,
+# not overlapped: hidden contact faces are removed at export, and a part sunk into another makes Tier-1 report
+# interpenetration and z-fighting. The rules cost about 1,200 characters of every BLOCKOUT prompt; they are guidance the
+# stage needs, not waste (tests/test_stage_request.py states what the character budget protects).
+CRAFT_RULES = (
+    "Craft rules: every part the brief names gets its own nodes, built from the pieces a real one has (a latch is a base plate, "
+    "a clasp and a hinge barrel; a handle is two brackets and a grip; a corner guard wraps its corner). Add the secondary forms "
+    "an object of this kind has wherever they change the silhouette or catch the light: rims, ribs, frames, skids or feet, "
+    "straps, hinges, bolt heads; break large flat faces with raised or recessed panels made from thin boxes. Aim for 50 to 90 "
+    "parts within max_tris (a box is 12 triangles, a cylinder 4 x segments, 8 to 12 segments is enough for a small part, a "
+    "sphere or capsule costs hundreds); no hidden or repeated filler. Keep parts in proportion: thin plates and slim bars, not "
+    "chunky blocks. Attach by contact: a part's face lies exactly on the surface it is mounted on, no gap and no overlap "
+    "(hidden contact faces are removed at export); two parts on the same surface must not share area, so where one crosses "
+    "another, mount it on the other's face. Set collider false on small detail parts. A modular-kit piece's metric in the "
+    "task overrides these rules."
+)
+
 _STAGE_TEXT: dict[str, str] = {
-    "BLOCKOUT": "Build the asset's blockout from primitives with apply_scene_ir (one patch can hold many ops). Each edit is "
-                "atomic: a failing Tier-1 check (non-manifold, over budget) is rolled back and reported in one line; fix and resend. "
-                "Then run_visual_qa; follow its action (auto_fix is applied for you; agent_repair names a target). Stop once Tier-1 "
-                "is OK and QA shows no geometry repair.",
+    "BLOCKOUT": "Build the asset as a production game prop, not a blockout, from primitives with apply_scene_ir (one patch "
+                "can hold many ops; send the main solids first, then the detail). Each edit is atomic: a failing Tier-1 check "
+                "(non-manifold, over budget) is rolled back and reported in one line; fix and resend. " + CRAFT_RULES +
+                " Then run_visual_qa; follow its action (auto_fix is applied for you; agent_repair names a target). Stop once "
+                "Tier-1 is OK and QA shows no geometry repair.",
     "TWEAK": "Use query_region for a bounded spatial working set. Apply the requested parameter edits with apply_scene_ir.",
     "VARIANTS": "Explore alternatives as variants (propose_variants), select each and run_visual_qa, promote the best.",
     "LOOKDEV": "The header's 'bound:' line lists the node ids by current material. Create materials with forge_pbr_material, "
-               "tune and assign them with apply_shader_diff (assign_to takes those node ids), then "
+               "whose prompt names only the material and its finish in a few words, never the object or its parts (the "
+               "texture tiles over every face); tune and assign them with apply_shader_diff (assign_to takes those node ids), then "
                "render_lookdev with EEVEE/Cycles and run_visual_qa until Decisions approves (tier15 >= 3.4). Images are never shown to you; reason from QA lines.",
     "EXPORT": "Run generate_lods_and_colliders and run_usd_validator, then export_engine_package. Export is refused until QA "
               "approved the current scene; report what blocks it instead of retrying.",
@@ -103,9 +127,10 @@ _SUBAGENT_TEXT = {
 }
 
 
-def _system(toolset: str, subagents: tuple[str, ...] | None = None) -> str:
+def _system(toolset: str, subagents: tuple[str, ...] | None = None, art: Any = None) -> str:
     """The whole system prompt of a stage agent (it replaces the SDK default; see STAGE_BEHAVIOR). ``subagents``
-    defaults to the stage's own (``tools.STAGE_SUBAGENTS``)."""
+    defaults to the stage's own (``tools.STAGE_SUBAGENTS``). ``art``: the session's art direction; its author brief is
+    added to the geometry stages and its texture brief to LOOKDEV (nothing is added without one)."""
     parts = [(f"You are the {toolset} stage agent of a game-asset pipeline. Nobody answers questions: work autonomously "
               "until the stage's stop condition holds, then reply with a short plain-text report of what changed and what "
               "remains. You edit the asset only through the tools; tool replies are one-line deltas; a refused or failed "
@@ -115,6 +140,10 @@ def _system(toolset: str, subagents: tuple[str, ...] | None = None) -> str:
     elif toolset in _MATERIAL_STAGES:
         parts.append(IR_SEMANTICS)
     parts.append(_STAGE_TEXT[toolset])
+    if art is not None and toolset in _IR_STAGES and (line := author_text(art)):
+        parts.append(line)
+    elif art is not None and toolset in _MATERIAL_STAGES and (brief := texture_brief(art)):
+        parts.append(f"Art direction {art.id} (forge_pbr_material adds it to every prompt): {brief}")
     if subs := (STAGE_SUBAGENTS.get(toolset, ()) if subagents is None else subagents):
         listed = "; ".join(f"{n}: {_SUBAGENT_TEXT[n][0].rstrip('.')}" for n in subs)
         parts.append(f"Subagents (invoke_subagent TypeName) run in their own context; a reply arrives as a message, do not "
@@ -123,8 +152,8 @@ def _system(toolset: str, subagents: tuple[str, ...] | None = None) -> str:
     return "\n".join(parts)
 
 
-def _instructions(toolset: str, subagents: tuple[str, ...]) -> types.CustomSystemInstructions:
-    return types.CustomSystemInstructions(text=_system(toolset, subagents), title="stage_agent")
+def _instructions(toolset: str, subagents: tuple[str, ...], art: Any = None) -> types.CustomSystemInstructions:
+    return types.CustomSystemInstructions(text=_system(toolset, subagents, art), title="stage_agent")
 
 
 def model_target(role: Role) -> ModelTarget:
@@ -181,7 +210,7 @@ def build_stage_agent(
         **({"allowed_subagents": list(subs), "max_subagent_depth": 1} if subs else {}),
     )
     return LocalAgentConfig(
-        system_instructions=_instructions(stage, subs),
+        system_instructions=_instructions(stage, subs, s.art),
         capabilities=caps,
         tools=list(STAGE_TOOLS[stage]),
         policies=policy.confirm_run_command(),  # backstop; the gate hook is the primary safety policy

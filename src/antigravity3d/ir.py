@@ -8,10 +8,11 @@ layer. Units are metres, Z-up, right-handed; rotations are XYZ Euler degrees.
 from __future__ import annotations
 
 import math
+import unicodedata
 from collections.abc import Callable
 from typing import Annotated, Literal, Union
 
-from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 Vec3 = tuple[float, float, float]
 NodeId = Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$", max_length=64)]
@@ -39,6 +40,23 @@ def _unit_rgb(v: tuple[float, float, float]) -> tuple[float, float, float]:
 Color3 = Annotated[tuple[float, float, float], AfterValidator(_unit_rgb)]  # linear RGB, each 0..1
 AlphaMode = Literal["OPAQUE", "MASK", "BLEND"]  # glTF names: opaque, cut-out at alpha_cutoff, blended
 
+SURFACE_MAX_CHARS = 120
+
+
+def clean_surface(value: object) -> object:
+    """Model-written words that end up in an image prompt: control and format characters (newlines, zero-width,
+    bidi overrides) become spaces, whitespace collapses, and the text is cut at a word boundary to
+    ``SURFACE_MAX_CHARS``. Cleaned rather than rejected: a rejection would discard a whole authored scene for a
+    prompt fragment, and nothing but the texture prompt reads this text."""
+    if not isinstance(value, str):
+        return value  # the str annotation rejects it
+    text = " ".join("".join(" " if unicodedata.category(c) in ("Cc", "Cf") else c for c in value).split())
+    if len(text) > SURFACE_MAX_CHARS:
+        cut = text[: SURFACE_MAX_CHARS + 1]
+        words = cut.rsplit(" ", 1)[0] if " " in cut else ""  # up to the last whole word, unless that drops most of it
+        text = (words if len(words) >= SURFACE_MAX_CHARS // 2 else cut[:SURFACE_MAX_CHARS]).rstrip(" ,;:.")
+    return text
+
 
 class MaterialIR(_Model):
     """A glTF 2.0 metallic-roughness material plus the ratified ``KHR_materials_*`` parameters game assets need.
@@ -50,6 +68,10 @@ class MaterialIR(_Model):
     """
 
     id: NodeId
+    # What the surface is, in a few words ("olive drab painted steel, scuffed and chipped"): the subject of the texture
+    # prompt (genmedia.material_prompt). Empty is left out of every dump, so documents without it serialise unchanged.
+    surface: Annotated[str, BeforeValidator(clean_surface), Field(max_length=SURFACE_MAX_CHARS)] = Field(
+        "", exclude_if=lambda v: v == "")
     base_color: Vec3 = (0.8, 0.8, 0.8)
     metallic: float = Field(0.0, ge=0.0, le=1.0)
     roughness: float = Field(0.5, ge=0.0, le=1.0)

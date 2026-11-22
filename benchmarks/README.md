@@ -1,6 +1,6 @@
 # Performance benchmarks
 
-Four tools and the report written from them:
+Five tools and the report written from them:
 
 - `perf_offline.py` measures the deterministic, local parts of antigravity-3d. Most of this page is about it.
 - `perf_live.py` measures the model-facing components against the real API, within hard call and token limits. See
@@ -8,15 +8,26 @@ Four tools and the report written from them:
 - `compare.py` prints a before/after table from two offline result files. See "Comparing two runs".
 - `quality_facts.py` records what the export pipeline produces, not how long it takes: UV distortion, achieved texel
   density and the LOD chain of the offline props and of computed spheres. See "Quality facts".
+- `perf_engines.py` times a real Blender and a real Godot, and Blender against the kernels on the same meshes. It runs
+  in CI, where those binaries are. See "Engine benchmark (CI)".
 - [`RESULTS.md`](RESULTS.md) is the written report; `results/` holds the data it was written from. See "Result files".
+- `compare_agents.py` (with `compare_sandbox.py` and `compare_eval.py`) runs one brief through a stock Antigravity agent and
+  through this project's command line, under one token and image ledger, and evaluates what each leaves the same way.
+  It spends real quota, needs root and Linux namespaces, and never runs in CI. See "Agent comparison".
+- [`UPSTREAM_SKILLS.md`](UPSTREAM_SKILLS.md) is the third round's report: two upstream Blender skill packs adapted, the
+  first live runs of the pipeline, and the comparison with a stock agent.
+- [`AFTER_THE_COMPARISON.md`](AFTER_THE_COMPARISON.md) is the fourth round's report: why the stock agent's crate was
+  better and why the command did not finish, cause by cause, and what was changed. Its figures are in
+  `results/round4/checks.json`.
 
 ## Offline benchmarks
 
 `perf_offline.py` measures the USD kernel, the QA / UV / LOD / collider / packaging kernels, the model-facing harness
 tools, the in-process pipelines, and the CLI. It makes no network calls and no model or API calls. It never starts
 Blender or Godot. The pipeline benchmarks do start headless Chromium, for the three.js verification step, when
-Playwright is installed (`pip install -e '.[web]'`); without it that step is skipped and recorded as skipped, and the
-pipeline and CLI figures come out about 1.5 s lower per asset than the committed ones.
+Playwright is installed (`pip install -e '.[web]'`); without it that step is skipped and recorded as skipped, the
+pipeline and CLI figures come out lower than the committed ones by the time of that step (about 0.7 s per asset once a
+browser is running, more for the first asset of a process), and `web.verify` is recorded as skipped.
 
 It is not a live-latency benchmark. Anything that waits on a model or an image API in a real run is replaced by the
 package's fakes here, so those waits are zero (or, for fake image synthesis, replaced by local CPU work, see
@@ -40,7 +51,9 @@ The JSON is rewritten after every benchmark, so a native crash keeps the results
 is enabled, so the crash leaves a Python traceback naming the benchmark it happened in. (The pre-fix tree ended one
 full run with a segmentation fault as it entered `kernel.cache.hit`; CoACD has crashed on odd input before.) Run the
 benchmarks that are missing with `--only` into a second file; `compare.py --before-rest` reads both. A benchmark that
-raises is recorded as `{"status": "error", "error": "<one line>"}` and the run continues. The exit status is 1 if any
+raises is recorded as `{"status": "error", "error": "<one line>"}` and the run continues; one that cannot run on the
+machine (`web.verify` without Playwright or a browser) is recorded as `{"status": "skipped", "reason": "..."}` and
+is not a failure. The exit status is 1 if any
 benchmark failed. Set `PERF_TRACE=1` to print tracebacks.
 
 All temporary output lives in one `tempfile.TemporaryDirectory()` that is removed on exit. `AGY3D_STATE_DIR` is pointed
@@ -53,7 +66,7 @@ into it, because otherwise the QA state and the fix log are written to `./.agy3d
 {"machine": {cpu_model, logical_cpus, ram_gb, os, python, git_commit, git_dirty_tracked_files, versions{...},
              thread_env, timestamp_utc, quick, loadavg_at_start, loadavg_at_end, offline{...}},
  "quick": bool, "total_wall_s": ...,
- "benchmarks": {"<name>": {"status": "ok"|"error", "includes": "...", "excludes": "...", "bench_wall_s": ...,
+ "benchmarks": {"<name>": {"status": "ok"|"error"|"skipped", "includes": "...", "excludes": "...", "bench_wall_s": ...,
                            "cases": [{"params": {...}, "n", "median_ms", "p95_ms", "min_ms", "max_ms", "mean_ms",
                                       "extra": {...}}]}}}
 ```
@@ -80,8 +93,10 @@ All `*_ms` values are milliseconds per call of the timed region. `extra` carries
   `PXR_WORK_THREAD_LIMIT=1` is set as well (an addition to the brief) because OpenUSD runs its own worker pool, which
   otherwise shows up as CPU time above wall time in the validation benchmarks. The values are recorded in
   `machine.thread_env`. `extra.process_cpu_over_wall` (process CPU seconds over wall seconds across the timed loop,
-  including setup) shows whether anything still ran threads: CoACD is the thing to watch, because the package gives it no
-  thread argument. The throughput benchmarks use processes, each single-threaded by the same settings.
+  including setup) shows whether anything still ran threads. CoACD, which the package gives no thread argument, measured
+  single-threaded. A decomposition that runs in a child process (input that is not one clean closed body) spends its
+  CPU there, so the ratio falls below 1 for those cases. The throughput benchmarks use processes, each single-threaded
+  by the same settings.
 * Offline: `GEMINI_API_KEY`, `GOOGLE_API_KEY`, Vertex variables and `AGY3D_POOL_SOCKET` are removed from this process and
   from every subprocess it starts, and `AGY3D_OFFLINE=1` is set. The decisions are `FakeDecisionsClient`, images are
   `FakeImageBackend`, authoring is `TemplateAuthor`, the CLI is run with `--offline`.
@@ -105,10 +120,12 @@ All `*_ms` values are milliseconds per call of the timed region. `extra` carries
 | `harness.qa.visual_overhead` | `run_visual_qa` against the fake client with a current preview: tool-side overhead only; no model latency exists here | preview render, any model call |
 | `kernel.raster.contact_sheet` | 4-view contact sheet at 256 and 512 px, about 1k / 5k / 20k triangles (12 spheres) | USD mesh extraction, PNG encode |
 | `kernel.som.marked_sheet` | set-of-mark sheet at 256 px, same scenes | extraction, any judge call |
-| `kernel.uv.unwrap` | `unwrap_uvs` at 1024 px/m into a 2048 atlas on UV spheres of about 500 / 2,000 / 10,000 / 50,000 triangles and one concave U prism. These are computed meshes, so the charts come from xatlas; primitives, which get exact charts, are timed in the crate and barrel rows of `kernel.export.pipeline` | USD authoring |
+| `kernel.uv.unwrap` | `unwrap_uvs` at 1024 px/m into a 2048 atlas on UV spheres of about 500 / 2,000 / 10,000 / 50,000 triangles and one concave U prism. These are computed meshes: xatlas computes their charts and the rectangle packer places them; primitives, which get exact charts, are timed in the crate and barrel rows of `kernel.export.pipeline` | USD authoring |
 | `kernel.lod.generate` | `generate_lods`: levels bounded by a measured deviation of one pixel on a 1080-pixel frame (ratio-driven levels before the fixes); `with_uvs` true is the pipeline's call, false the weld-first path. `extra.lod_tris` lists the levels | unwrap |
 | `kernel.collider.convex` | `generate_colliders` on the convex spheres (hull fast path, no CoACD) | hull authoring |
-| `kernel.collider.concave` | `generate_colliders` on the U prism (CoACD) | hull authoring |
+| `kernel.lod.assembly` | `generate_asset_lods` on a 2 m table top with 30 small parts on it, with UVs: every part's levels and the search for parts that may be absent at far levels. One sample, no warm-up (the tree before the second round of fixes took about a minute for this call) | unwrap |
+| `kernel.collider.concave` | `generate_colliders` on the U prism and on one mesh that holds three closed bodies (two U prisms and a cube); CoACD does the decomposition. `extra.tightness` is hull volume over mesh volume | hull authoring |
+| `kernel.collider.imperfect` | `generate_colliders` on input that is not one closed solid: two cubes sharing an edge, a sphere with six faces missing, an open cup. One sample each, no warm-up (the tree before the second round of fixes took 9 s, about 2 minutes and 45 s). `extra.sources` and `extra.reasons` say how each hull was made, `extra.fill` how closely the hulls follow the shape | hull authoring |
 | `kernel.export.pipeline` | `run_export_pipeline` (UV + LOD + colliders): the single meshes, and the TemplateAuthor crate and barrel; per-stage split in `parts_median_ms` | mesh extraction, packaging, validation |
 | `kernel.qa.tier1` | `tier1_qa` on the crate and barrel | extraction |
 | `kernel.validate.usd` | `validate_usd(stage)`, `check_engine_compliance`, and `validate_usd(path)` (includes the file open), on the written package USD | package write |
@@ -129,6 +146,7 @@ All `*_ms` values are milliseconds per call of the timed region. `extra` carries
 | `import.usd_stage` | import time of `antigravity3d.kernel.usd_stage` in a fresh interpreter, measured inside the child | interpreter start (reported as `extra.bare_interpreter_wall_ms`) |
 | `throughput.prop_offline` | K = 12 distinct offline prop runs on P = 1, 2, 4 spawned worker processes: wall time, assets per hour, scaling efficiency | worker start-up |
 | `dag.batch_sanitize` | `BatchSanitizeDAG` on 24 generated meshes with jobs = 1, 2, 4 | mesh generation |
+| `web.verify` | `WebThreeValidator.validate` on a written crate package, four times in a row in one process, without textures and with six 1,024 px maps. Samples are verifications 2 to 4; `extra.first_ms` is the first. Skipped where no browser can run | writing the package |
 
 ### Package textures (`kernel.package.*`)
 
@@ -204,8 +222,7 @@ AGY3D_BENCH_THREADS=default python benchmarks/perf_offline.py \
 ## Comparing two runs
 
 ```bash
-python benchmarks/compare.py benchmarks/results/before/offline_paired.json benchmarks/results/offline.json \
-  --before-rest benchmarks/results/before/offline_paired_rest.json \
+python benchmarks/compare.py benchmarks/results/before/offline.json benchmarks/results/offline.json \
   --repeat benchmarks/results/before/offline_repeat.json --changed
 ```
 
@@ -215,9 +232,11 @@ measures nothing. Two things decide whether its table can be trusted:
 * **Measure both sides in one session.** The machine drifted within a day: the pre-fix code, run again three to four
   hours after the first report's run, was 4 to 6% slower at the median, more than 10% slower on about a quarter of
   the cases, and up to 1.4 times slower, with no change to the code. A before file from another day or another hour
-  compares the machine, not the code. To measure an older commit beside the current one,
-  check it out with `git worktree add <dir> <commit>`, and run its own harness with `PYTHONPATH=<dir>/src` from that
-  directory, immediately before or after the current tree, with nothing else running.
+  compares the machine, not the code. To measure an older commit beside the current one, check it out with
+  `git worktree add <dir> <commit>` and run the harness from that directory with `PYTHONPATH=<dir>/src`, immediately
+  before or after the current tree, with nothing else running. Use the current harness for both when it has
+  benchmarks the older one lacks (`python <current>/benchmarks/perf_offline.py`, still from `<dir>`): the result
+  file records the commit of the code that was measured, and the harness's own when it differs.
 * **Know each benchmark's own noise.** A flat 10% threshold (`--noise`) is right for the kernels and wrong for the
   tool-level edit benchmarks, where two runs of identical code differed by up to 26% in the median. `--repeat` takes
   another run of the first side's code; the ratio between that run and the first file, times the `--noise` floor,
@@ -226,6 +245,8 @@ measures nothing. Two things decide whether its table can be trusted:
 
 `--before-rest` reads benchmarks the first file lacks from further files, for a run that was split. `--changed` omits
 rows within noise, `--only` filters by name prefix.
+Cases are matched by their parameters, leaving out a package's size in bytes, which older result files recorded
+among them although it is something the code produced.
 
 ## Quality facts
 
@@ -262,15 +283,103 @@ python benchmarks/perf_live.py --self-test                                 # the
 * No price is read or set. The files report tokens, never dollars.
 * Sample counts are 1 to 3 per entry. Read the results as observations, not distributions.
 
+## Engine benchmark (CI)
+
+`perf_engines.py` times the paths that need a real Blender and a real Godot. The benchmark machine has neither, so
+it runs in the `stock-engines` job of the qualification workflow, on every pull request, after the engine tests,
+against the pinned Blender 5.3.0 and Godot 4.7.2. It cannot fail the job: a measurement that is unavailable is
+recorded inside the JSON, and the step raises one warning when any measurement failed.
+
+```
+xvfb-run -a python benchmarks/perf_engines.py --out /tmp/engine-bench.json --markdown /tmp/engine-bench.md
+python benchmarks/perf_engines.py --fake --quick --out /tmp/fake.json      # plumbing only, anywhere
+```
+
+It needs `$BLENDER_BIN` and `$GODOT_BIN`; without them it says what is missing and exits 0. `--fake` runs every code
+path against the worker pool's fake daemon, which only lints the Blender scripts: those are not Blender numbers and
+the JSON says so (`mode: "fake"`).
+
+What it measures:
+
+- **The Blender worker pool**: cold start to the first answered ping (a fresh process each sample), a warm ping,
+  `import_usd` of three written packages, and `render_usd` of the crate with Workbench, EEVEE and Cycles at the
+  size the pipeline asks for (512 px, 16 samples). The runner has no GPU, so EEVEE's figure is software GL and is
+  not what a workstation would see.
+- **Blender against the kernels, same meshes**: UV unwrap, decimation to the kernel's own triangle counts, convex
+  hull, and a four-view sheet, on the crate, the barrel and two spheres. The Blender side reports two times: the
+  operator alone, timed inside Blender, and the whole `run_script` call per repetition, which is what a caller
+  pays. The ratio in the table uses the whole call.
+- **Godot**: the package check the pipeline runs (`GodotValidator.validate`), a capture, and the same launch with a
+  script that quits at once, so the difference is the import itself.
+- **Upstream checks survey** (`upstream_survey.py`, JSON key `upstream_checks`, schema 2): what the reviewed
+  EL4CTEO/blender-skills scripts vendored in the worker (`qa_check`, `mesh_stats`, `texel_density`, `kit_check`; their
+  commit and hashes are in the JSON) say about what the pipeline ships, beside what the project's own checks say
+  (`tier1_qa`, manifest triangles, draw calls, achieved texel density, UV distortion and overlap). Subjects: the
+  crate, barrel and sphere packaged for each target engine (each package USD, and the GLB once per distinct file),
+  five planted defects with known answers (coplanar overlapping tops, faces pressed back to back, a floating part,
+  inverted winding, no UVs), and an offline kit (unreal_5 and godot_4), each piece checked with upstream's defaults
+  and with the origin the piece templates imply, since the project states no grid or pivot convention. Every
+  topology check runs twice: on the scene as imported, and after the worker merges coincident vertices part by part
+  (`inspect_usd(weld=True)`; two parts in contact are not merged with each other), because the package writes one
+  vertex per (position, UV) and the GLB splits at seams too. Measurement only: nothing is gated on it. Each call records kwargs, triangles, duration and its outcome
+  (`ok`, `error`, `checks_skipped` when `qa_check` skipped its z-fighting and floating checks above `max_tris`, or
+  `skipped` for the time budget, at 80 % of it, leaving time for the Godot section that follows). It is skipped, with the reason, when the worker has no primitives.
+  In CI the step clears `$AGY3D_BLENDER_SKILLS` so the worker uses the vendored scripts, as production does.
+
+The two sides do not run the same algorithms, and the table says so under itself. Read these before the ratios:
+
+- Unwrap: the kernel computes charts with a bound on distortion and packs them at a requested texel density;
+  Blender's Smart UV Project projects and packs with neither. Both sides report islands, UV area and the area
+  distortion the pipeline gates on (budget 0.05), computed by the same formula. A second kernel row gives the time
+  of the path the pipeline takes for the same mesh, where primitives get exact charts.
+- LOD: the kernel simplifies, measures the deviation of every attempt and optimises the result; Blender's edit-mode
+  Decimate collapses to the same triangle counts and measures nothing.
+- Hull: roughly the same work; the kernel also checks topology and computes volume.
+- Sheet: different renderers. The Blender cameras copy the kernel's framing, and both sides report the fraction of
+  pixels covered so that a mismatch would show.
+
+The job uploads `engine-bench.json` and `engine-bench.md` as the artifact `engine-bench` and writes the Markdown
+into the job summary. `results/engines_ci.json` is the artifact of one run; its `ci` block names the commit and
+the runner. Hosted runners differ from run to run (two CPU models were seen in three runs), so compare the two
+sides within one file, not one file with another.
+
 ## Result files
+
+The second round's files are at the top of `results/`; the first round's are kept as published in `results/round1/`.
 
 | File | What it is |
 | --- | --- |
-| `results/offline.json` | The code after the fixes (the commit is in `machine.git_commit`), full offline run |
-| `results/offline_default_threads.json` | The same code with library-default threading, subset named above |
-| `results/live.json` | The live probes on the code after the fixes |
-| `results/quality.jsonl`, `results/before/quality.jsonl` | `quality_facts.py` on the final code and on the pre-fix tree |
-| `results/before/offline_paired.json` | The pre-fix tree (`14814fd`), measured immediately before `results/offline.json`. This run ended with a segmentation fault after 23 of 35 benchmarks |
-| `results/before/offline_paired_rest.json` | The other 12 benchmarks of the pre-fix tree, measured immediately after `results/offline.json` |
-| `results/before/offline_repeat.json` | Another full run of the pre-fix tree, about an hour before `offline_paired.json`: the same-code repeat behind the noise bands |
-| `results/before/offline.json`, `offline_default_threads.json`, `live.json` | The first report's data, three to four hours earlier the same day, kept as published. Do not compare timings in these with the files above: the machine was faster then |
+| `results/offline.json` | The code after the second round (`machine.git_commit`), full offline run |
+| `results/before/offline.json` | The tree the second round started from (`5a440fa`), measured with the same harness in the same session, immediately before `results/offline.json` |
+| `results/before/offline_repeat.json` | The same tree again, immediately after `results/offline.json`: the same-code repeat behind the noise bands |
+| `results/compare.md` | `compare.py` on those three files: every case, with its noise band |
+| `results/edit_recheck.json` | The edit-loop benchmarks alone, three alternating runs of each tree: the paired run flagged three of those rows as slower, and this shows they are not |
+| `results/quality.jsonl`, `results/before/quality.jsonl` | `quality_facts.py` on the two trees |
+| `results/engines_ci.json` | `perf_engines.py` from the `stock-engines` job on the final code (GitHub runner, Blender 5.3.0, Godot 4.7.2) |
+| `results/live_stage.json` | Stage runs on the builder tier, re-measured in the second round |
+| `results/live_schema_before.json`, `results/live_schema_after.json` | The paired authoring check of the old and the new response schema on the smallest tier |
+| `results/round1/offline.json`, `offline_default_threads.json`, `live.json`, `quality.jsonl` | The first round's final code (`f9e039a`) |
+| `results/round1/before/` | The first round's "before" files: `offline_paired.json` and `offline_paired_rest.json` (the pre-fix tree `14814fd` beside the final one), `offline_repeat.json` (its same-code repeat), `quality.jsonl`, and the first report's data (`offline.json`, `offline_default_threads.json`, `live.json`) |
+
+Do not compare timings across the two rounds' files, or with the first report's: the machine was not the same from
+one session to the next.
+
+## Agent comparison
+
+`compare_agents.py` is not a benchmark of speed. It answers one question on one brief: what does a stock agent with a
+Blender leave behind, and what does this project leave behind, when both are held to the same limits and judged from
+their files.
+
+- **Arms.** A: the stock Antigravity agent (the SDK's own system prompt and tools) with a scriptable Blender. B: the
+  same with the EL4CTEO skills installed. C: `agy3d prop ... --preview` from this tree. A and B run inside Linux
+  namespaces as an unprivileged user with no network.
+- **One ledger.** Every model call of every arm, and of the judge, goes through a relay on the host that holds the
+  key, reserves each call's worst case against the run's share, and refuses what does not fit. `ledger.json` is the
+  record; a share is closed at what it used before another run may plan with the rest.
+- **One evaluation.** Facts read from the GLB, an import in Godot, the three.js check, the upstream `qa_check`,
+  `mesh_stats` and `texel_density` in Blender, Cycles renders, and a blind pairwise judge asked in both orders.
+- **Commands.** `dry-run` rehearses everything against local stand-ins and spends nothing. `live --go` spends quota:
+  run one cell at a time (`--only`, `--continue`) and read its record before the next. `close` closes accounts.
+
+Its tests (`tests/test_compare_agents.py`) cover the ledger, the relay's refusals and the sandbox; the sandbox tests
+need root, `unshare` and `setpriv` and are skipped without them. What it found is in `UPSTREAM_SKILLS.md`.

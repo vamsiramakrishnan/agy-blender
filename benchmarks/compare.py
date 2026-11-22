@@ -4,8 +4,9 @@
     python benchmarks/compare.py BEFORE.json AFTER.json
     python benchmarks/compare.py BEFORE.json AFTER.json --before-rest REST.json --repeat SAME_CODE.json --changed
 
-Benchmarks are matched by name and cases by their ``params``. For every matched case the table gives both
-medians and the change. A case present on one side only is listed, not guessed at.
+Benchmarks are matched by name and cases by their ``params`` (leaving out a package's size in bytes, which older
+result files recorded there although it is something the code produced). For every matched case the table gives
+both medians and the change. A case present on one side only is listed, not guessed at.
 
 What counts as a change. A difference smaller than ``--noise`` (default 10%) is marked as within noise. That
 floor is not enough for every benchmark: the same code measured twice differs by more than 10% on some of them
@@ -29,8 +30,12 @@ import sys
 from pathlib import Path
 
 
+#: params that are an outcome of the code under test, not an input: two trees can differ in them for the same case
+_OUTCOME_PARAMS = ("package_bytes",)
+
+
 def _key(params: dict) -> str:
-    return json.dumps(params, sort_keys=True, separators=(",", ":"))
+    return json.dumps({k: v for k, v in params.items() if k not in _OUTCOME_PARAMS}, sort_keys=True, separators=(",", ":"))
 
 
 def _label(params: dict) -> str:

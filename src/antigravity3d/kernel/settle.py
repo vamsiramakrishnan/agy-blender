@@ -294,4 +294,28 @@ def contact_report(
     return sorted(out, key=lambda c: (c.a, c.b))
 
 
-__all__ = ["Contact", "GROUND_ID", "NodeSettle", "SettleResult", "contact_report", "settle"]
+#: A part whose box comes this near another part's box is "beside" it, not hovering (the window ``tier1_qa`` sweeps
+#: candidate pairs with, ``touch_eps``: what used to make two parts count as touching).
+REACH = 0.005
+
+
+def mesh_bounds(meshes: list[MeshData]) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    return {m.node_id: (np.asarray(m.points, float).min(axis=0), np.asarray(m.points, float).max(axis=0))
+            for m in meshes if len(m.points)}
+
+
+def beside_a_part(bounds: dict[str, tuple[np.ndarray, np.ndarray]], node_id: str, reach: float = REACH) -> bool:
+    """Should the repair of a floating part leave it where it is? True when nothing is under it (no other part whose top
+    is at or below its bottom over its footprint, where a vertical drop would seat it) but another part's box is within
+    ``reach``: the part is beside a part it belongs to (a gap measured sideways or at an edge), and dropping it to the
+    ground would carry it away from that part. False when something is under it (seat it there) and when nothing is near
+    (a part hovering over empty ground: the ground is its support, as before). One decision, used by the settle pass
+    (tactics/pyramid.py) and by the template author's regrounding (tactics/authoring.py)."""
+    lo, hi = bounds[node_id]
+    others = [(l, h) for o, (l, h) in bounds.items() if o != node_id]
+    if any(h[2] <= lo[2] + 1e-6 and (np.minimum(h[:2], hi[:2]) - np.maximum(l[:2], lo[:2]) > 1e-6).all() for l, h in others):
+        return False
+    return any((np.maximum(l - hi, lo - h) <= reach).all() for l, h in others)
+
+
+__all__ = ["Contact", "GROUND_ID", "NodeSettle", "SettleResult", "REACH", "beside_a_part", "contact_report", "mesh_bounds", "settle"]

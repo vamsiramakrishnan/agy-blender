@@ -31,8 +31,14 @@ from antigravity3d import ir_schema
 from antigravity3d.harness import agents as A
 from antigravity3d.harness import tools as T
 
+# What the budget protects: prompt waste, i.e. text the stage does not need on every model call (repeated rules, unused
+# tools, JSON-in-a-string parameters). BLOCKOUT moved from 7,000 (measured 6,914) to 8,200 (measured 8,095) deliberately:
+# the added 1,181 characters are the craft rules (harness.agents.CRAFT_RULES), which are what the model needs to model a
+# production prop instead of a blockout (measured with the one-shot request: 15-21 parts and 272-356 triangles without
+# them, 63-64 parts and 936-976 triangles with them). That is guidance, not waste, so it is inside the limit; the limit
+# still stops anything else from growing (margin ~100 characters, as before).
 #            stage: (before, budget) static chars per call
-STATIC_BUDGET = {"BLOCKOUT": (26_224, 7_000), "TWEAK": (25_351, 6_600), "VARIANTS": (25_946, 15_500),
+STATIC_BUDGET = {"BLOCKOUT": (26_224, 8_200), "TWEAK": (25_351, 6_600), "VARIANTS": (25_946, 15_500),
                  "LOOKDEV": (26_256, 12_500), "EXPORT": (25_914, 2_000)}
 SUBAGENT_TOOLS = {"invoke_subagent", "define_subagent", "manage_subagents", "send_message"}
 DEFAULT_SECTIONS = {"identity", "communication_style", "conversation_transcript", "subagents", "messaging",
@@ -144,3 +150,13 @@ async def test_declared_subagent_runs_with_its_own_short_prompt(tmp_path):
     # messaging) even under CustomSystemInstructions; the coding-assistant identity is gone (was 8,010 system chars)
     assert "subagent_reminder" in sections(sub[0]) and "identity" not in sections(sub[0])
     assert prompt_breakdown(sub[0])["static_chars"] < 8_000
+
+
+def test_blockout_stage_text_carries_the_craft_rules_and_the_other_geometry_stages_do_not():
+    assert A.CRAFT_RULES in A._system("BLOCKOUT") and "50 to 90 parts" in A._STAGE_TEXT["BLOCKOUT"]
+    assert "exactly on the surface" in A.CRAFT_RULES and "no overlap" in A.CRAFT_RULES  # contact, not the 1-2 mm overlap
+    assert "overlap them" not in A.CRAFT_RULES and "sink" not in A.CRAFT_RULES
+    # TWEAK edits parameters and VARIANTS adds patch alternatives on an already built base: neither is asked for more parts
+    for stage in ("TWEAK", "VARIANTS", "LOOKDEV", "EXPORT"):
+        assert "Craft rules" not in A._system(stage), stage
+    assert len(A._system("BLOCKOUT")) < 8_200 - 4_000  # the rules are text, the rest of the static size is the tool declarations

@@ -25,6 +25,12 @@ Design
   readers derive MikkTSpace tangents from POSITION/NORMAL/TEXCOORD_0 when it is absent (three.js uses screen-space
   derivatives, Godot's importer generates them, Blender computes its own), and a tangent set of our own could
   only disagree with theirs.
+* Embedded or referenced images: by default every image goes into the binary chunk, so a GLB is a single
+  self-contained file. ``image_uris`` maps an image's content digest to a relative URI; such an image is written
+  as ``{"uri", "mimeType", "name"}`` with no buffer view (glTF 2.0 allows URIs in a GLB) and the reader loads the
+  file the URI names, relative to the GLB. De-duplication, texture, sampler and material tables are the same in
+  both forms: only where the image bytes live differs. The package uses this for its far LOD files, which share
+  the package's ``textures/`` instead of carrying another copy each.
 * Deterministic: buffers, images, textures, materials and JSON keys appear in first-use order, with a fixed
   ``asset.generator`` (no library version is written), so equal input gives byte-identical files.
 
@@ -192,7 +198,8 @@ def split_by_corner_normals(points: np.ndarray, triangles: np.ndarray, uvs: np.n
 
 
 class _Builder:
-    def __init__(self) -> None:
+    def __init__(self, image_uris: Mapping[str, str] | None = None) -> None:
+        self.image_uris = dict(image_uris or {})
         self.blob = bytearray()
         self.views: list[gl.BufferView] = []
         self.accessors: list[gl.Accessor] = []
@@ -222,7 +229,11 @@ class _Builder:
 
     def image(self, image: EncodedImage) -> int:
         if image.digest not in self._image_ix:
-            self.images.append(gl.Image(bufferView=self.view(image.data), mimeType=image.mime_type, name=image.name))
+            uri = self.image_uris.get(image.digest)
+            if uri is not None:
+                self.images.append(gl.Image(uri=uri, mimeType=image.mime_type, name=image.name))
+            else:
+                self.images.append(gl.Image(bufferView=self.view(image.data), mimeType=image.mime_type, name=image.name))
             self._image_ix[image.digest] = len(self.images) - 1
         return self._image_ix[image.digest]
 
@@ -298,9 +309,15 @@ class _Builder:
         return len(self.materials) - 1
 
 
-def build_glb(meshes: Sequence[GltfMesh], *, extensions_required: Sequence[str] = ()) -> bytes:
-    """Serialises ``meshes`` (one root node each) to GLB bytes. See the module docstring."""
-    b = _Builder()
+def build_glb(meshes: Sequence[GltfMesh], *, extensions_required: Sequence[str] = (),
+              image_uris: Mapping[str, str] | None = None) -> bytes:
+    """Serialises ``meshes`` (one root node each) to GLB bytes. See the module docstring.
+
+    ``image_uris``: ``{EncodedImage.digest: relative URI}``. An image whose digest is listed is referenced by that
+    URI instead of being embedded; the caller guarantees the URI names a file holding exactly those bytes (a
+    percent-encoded relative path, RFC 3986, as glTF requires). Images not listed are embedded.
+    """
+    b = _Builder(image_uris)
     nodes, gl_meshes = [], []
     for m in meshes:
         pos = np.asarray(m.positions, dtype=np.float32).reshape(-1, 3)
@@ -348,9 +365,10 @@ def build_glb(meshes: Sequence[GltfMesh], *, extensions_required: Sequence[str] 
                      struct.pack("<I4s", len(b.blob), b"BIN\0"), bytes(b.blob)])
 
 
-def write_glb(path: str | Path, meshes: Sequence[GltfMesh], *, extensions_required: Sequence[str] = ()) -> Path:
+def write_glb(path: str | Path, meshes: Sequence[GltfMesh], *, extensions_required: Sequence[str] = (),
+              image_uris: Mapping[str, str] | None = None) -> Path:
     path = Path(path)
-    path.write_bytes(build_glb(meshes, extensions_required=extensions_required))
+    path.write_bytes(build_glb(meshes, extensions_required=extensions_required, image_uris=image_uris))
     return path
 
 

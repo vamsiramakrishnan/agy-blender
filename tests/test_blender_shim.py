@@ -9,7 +9,9 @@ def test_normalisers():
     assert S.normalize_boolean_solver("FAST") == "FLOAT"
     assert S.normalize_boolean_solver("EXACT") == "EXACT"
     assert S.normalize_pass_name("Depth") == "Depth"
-    assert S.normalize_pass_name("Diffuse Color") == S.RENDER_PASS_MAP["Diffuse Color"]
+    assert S.normalize_pass_name("Diffuse Color") == "Diffuse Color"  # current names pass through
+    assert S.normalize_pass_name("DiffCol") == "Diffuse Color" and S.normalize_pass_name("Z") == "Depth"  # pre-5.0 names are mapped
+    assert S.normalize_pass_name("AO") == "Ambient Occlusion" and S.normalize_pass_name("Emit") == "Emission"
     assert S.normalize_pass_name("Custom") == "Custom"
 
 
@@ -66,4 +68,11 @@ def test_rewrite_imported_asset_representation_and_bindcode():
     code, changes = S.rewrite_source(
         'from __future__ import annotations\nfrom bpy.types import AssetHandle as AH\nthumb = img.bindcode')
     assert "from bpy.types import AssetRepresentation as AH" in code and "import gpu.texture" in code
+    assert code.index("gpu.init()") < code.index("gpu.texture.from_image")  # in a background Blender, from_image without gpu.init() crashes
     compile(code, "<shim>", "exec")
+
+
+def test_rewritten_bindcode_source_passes_the_gpu_init_lint():
+    from antigravity3d.adapters.blender_5_3.linter import lint_script
+    out, _ = S.rewrite_source("import bpy\nimg = bpy.data.images['x']\nthumb = img.bindcode\n")
+    assert lint_script(out) == []

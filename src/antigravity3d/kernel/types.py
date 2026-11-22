@@ -14,6 +14,10 @@ class MeshData:
     # (M,) int chart id per triangle when the exact developable UV charts are known (IR primitives, see
     # compile_ir.primitive_charts); None -> the unwrap stage computes charts (imported / sanitized meshes).
     uv_charts: np.ndarray | None = None
+    # Whether the bound material is opaque (``coplanar.opaque_materials`` of the scene IR, as the exporter reads it):
+    # set by the stage manager; None for meshes that do not come from a managed stage (nothing is assumed). Not part
+    # of any cache key: it follows from the materials, which the keys hash.
+    opaque: bool | None = None
 
 def gltf_world_bounds(points: Iterable[np.ndarray], *, z_up: bool) -> list[list[float]]:
     """Tight world-space bounds of visual vertices in glTF's right-handed Y-up metres."""

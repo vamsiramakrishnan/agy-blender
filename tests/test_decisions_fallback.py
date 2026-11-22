@@ -225,6 +225,71 @@ async def test_blocked_prompt_surfaces_as_prompt_blocked_error():
     assert ei.value.reason == "SAFETY"
 
 
+class _Scripted:
+    """``aio.models`` of a client whose answers are scripted per dispatch: a dict of answer fields, in order."""
+
+    def __init__(self, *script: dict) -> None:
+        self.script, self.n = list(script), 0
+
+    async def count_tokens(self, **_):
+        return SimpleNamespace(total_tokens=50)
+
+    async def generate_content(self, *, config, **_):
+        step = self.script[min(self.n, len(self.script) - 1)]
+        self.n += 1
+        text = json.dumps({q: 0.2 for q in config.response_json_schema["properties"]}) if step.get("answer") else step.get("text")
+        usage = step.get("usage")
+        return SimpleNamespace(
+            text=text, candidates=[SimpleNamespace(finish_reason=step.get("finish", "STOP"))],
+            prompt_feedback=SimpleNamespace(block_reason=SimpleNamespace(name=step["block"]), block_reason_message="no") if step.get("block") else None,
+            usage_metadata=SimpleNamespace(prompt_token_count=usage[0], candidates_token_count=usage[1], thoughts_token_count=0) if usage else None)
+
+
+ANSWERED = {"answer": True, "usage": (10, 5)}
+
+
+@pytest.mark.parametrize(("script", "booked", "source"), [
+    # one chunk answered, the other's prompt blocked: the answered chunk and the blocked prompt are both used tokens
+    ([ANSWERED, {"block": "SAFETY", "usage": (10, 0)}], 25, "provider_usage"),
+    # generation started and was stopped: its output is used too
+    ([ANSWERED, {"finish": "SAFETY", "usage": (10, 7)}], 32, "provider_usage"),
+    # an unparseable answer, asked again, then blocked: both attempts of that chunk count
+    ([ANSWERED, {"text": "not json", "usage": (10, 4)}, {"block": "SAFETY", "usage": (10, 0)}], 39, "provider_usage"),
+    # the block reported no usage: what the call used is not known, so its whole reservation is kept
+    ([ANSWERED, {"block": "SAFETY"}], None, "reservation_estimate"),
+])
+async def test_a_blocked_call_books_what_it_used_and_never_zero(script, booked, source):
+    """A blocked chunk ends the call with no answers, and the call still used tokens (review finding on PR #4: it was
+    booked at zero, so a ceiling could be passed without the ledger showing it)."""
+    from antigravity3d.tactics.governor import Governor, plan_for
+
+    b = F.GenerativeDecisionsBackend(SimpleNamespace(aio=SimpleNamespace(models=_Scripted(*script))), model="gemini-4-neon",
+                                     thinking_level="LOW", chunk_size=1, max_concurrency=1)
+    gov = Governor(plan_for(2), token_ceiling=10_000_000)
+    plane = DecisionControlPlane(b, b.model, backend_kind="generative_fallback", preview=True)
+    with pytest.raises(PromptBlockedError) as ei:
+        await plane.evaluate("x", {"a": Q.noul("q"), "b": Q.noul("q")}, tag="t", governor=gov)
+    (receipt,) = gov.receipts()
+    assert receipt["status"] == "blocked" and receipt["source"] == source and receipt["booked_tokens"] > 0
+    assert receipt["booked_tokens"] == (booked if booked is not None else receipt["reserved_tokens"])
+    assert ei.value.result.booked_tokens == receipt["booked_tokens"]
+
+
+async def test_an_answer_that_reports_no_usage_keeps_its_reservation():
+    """A missing count is not a count of zero: the answers are used, and the call is booked at what was reserved for it."""
+    from antigravity3d.tactics.governor import Governor, plan_for
+
+    b = F.GenerativeDecisionsBackend(SimpleNamespace(aio=SimpleNamespace(models=_Scripted(ANSWERED, {"answer": True}))),
+                                     model="gemini-4-neon", thinking_level="LOW", chunk_size=1, max_concurrency=1)
+    gov = Governor(plan_for(2), token_ceiling=10_000_000)
+    plane = DecisionControlPlane(b, b.model, backend_kind="generative_fallback", preview=True)
+    r = await plane.evaluate("x", {"a": Q.noul("q"), "b": Q.noul("q")}, tag="t", governor=gov)
+    (receipt,) = gov.receipts()
+    assert r.noul("a") == r.noul("b") == pytest.approx(0.2)
+    assert receipt["status"] == "ok" and receipt["source"] == "reservation_estimate"
+    assert receipt["booked_tokens"] == receipt["reserved_tokens"] > 0
+
+
 async def test_fallback_serves_real_visual_qa_bank_and_cannot_auto_approve():
     stub = StubGen(lambda cfg: {k: (0.02 if k.startswith("defect_") else
                                     ({"approve_export": 1.0} if k == "next_action" else {"0": 0, "1": 0, "2": 0, "3": 0, "4": 1}))

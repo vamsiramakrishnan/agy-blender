@@ -54,6 +54,42 @@ async def test_env_override_and_run(tmp_path, monkeypatch):
     assert not (await v.validate(pkg)).ok
 
 
+async def test_godot_import_with_an_unloaded_image_fails(tmp_path, monkeypatch):
+    fake = tmp_path / "godot"
+    pkg = tmp_path / "a_LOD1.glb"
+    pkg.write_bytes(b"glTF")
+    monkeypatch.setenv("GODOT_BIN", str(fake))
+    line = 'AGY_IMPORT_OK {"triangles":12,"bounds_m":[[0,0,0],[1,1,1]],"images":3,"images_loaded":%d}'
+    for loaded, ok in ((3, True), (2, False)):
+        fake.write_text(f"#!/bin/sh\necho '{line % loaded}'\n")
+        fake.chmod(0o755)
+        rep = await GodotValidator().validate(pkg)
+        assert rep.ok is ok and rep.metrics["images_loaded"] == loaded
+
+
+def test_staging_a_far_lod_brings_the_textures_it_references(tmp_path):
+    import numpy as np
+
+    from antigravity3d.adapters.engines.validators import stage_glb
+    from antigravity3d.kernel.gltf_writer import EncodedImage, GltfMaterial, GltfMesh, TextureRef, build_glb
+
+    pkg = tmp_path / "pkg"
+    (pkg / "textures").mkdir(parents=True)
+    png = b"\x89PNG\r\n\x1a\n" + b"x" * 8  # bytes only: staging does not decode
+    a, b = EncodedImage(png + b"a", "image/png", "a"), EncodedImage(png + b"b", "image/png", "b")
+    (pkg / "textures" / "a map.png").write_bytes(a.data)
+    (tmp_path / "outside.png").write_bytes(b.data)
+    mesh = GltfMesh("t", np.eye(3), np.array([[0, 1, 2]]), np.zeros((3, 2)),
+                    GltfMaterial(name="m", base_color_texture=TextureRef(a), normal_texture=TextureRef(b)))
+    (pkg / "Prop_LOD1.glb").write_bytes(build_glb([mesh], image_uris={"a": "textures/a%20map.png", "b": "../outside.png"}))
+    work = tmp_path / "unity"
+    cmd, env = UnityValidator().command("unity", pkg / "Prop_LOD1.glb", work)
+    assets = work / "Assets"
+    assert env["AGY_ASSET"] == "Assets/Prop_LOD1.glb" and (assets / "Prop_LOD1.glb").read_bytes() == (pkg / "Prop_LOD1.glb").read_bytes()
+    assert (assets / "textures" / "a map.png").read_bytes() == a.data
+    assert not (work / "outside.png").exists() and not (assets / "outside.png").exists()  # never written outside the project
+
+
 async def test_missing_package(tmp_path, monkeypatch):
     exe = tmp_path / "unity"
     exe.write_text("#!/bin/sh\nexit 0\n")

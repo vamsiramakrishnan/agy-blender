@@ -186,12 +186,171 @@ async def test_missing_usage_fields_are_named_and_the_reservation_kept():
     with pytest.raises(nb_errors().ImageNotReturned) as e:
         await ImageForge(client=provider.client, governor=gov).seamless_albedo("oak", size=1024)
     assert e.value.finish_reason == "MAX_TOKENS" and e.value.usage["thoughts_token_count"] == 762
-    rec, = gov.receipts()
-    assert rec["source"] == "reservation_estimate" and rec["booked_usd"] == rec["reserved_usd"]
-    assert rec["missing_usage_fields"] == ["candidates_tokens_details"] and rec["finish_reason"] == "MAX_TOKENS"
+    # a MAX_TOKENS answer without an image is asked again once (IMAGE_NO_IMAGE_REASKS); each attempt keeps its receipt
+    first, second = gov.receipts()
+    for rec in (first, second):
+        assert rec["source"] == "reservation_estimate" and rec["booked_usd"] == rec["reserved_usd"]
+        assert rec["missing_usage_fields"] == ["candidates_tokens_details"] and rec["finish_reason"] == "MAX_TOKENS"
+    assert "reask" not in first and second["reask"] == 1 and len(provider.calls) == 2
+    assert [a["finish_reason"] for a in e.value.attempts] == ["MAX_TOKENS", "MAX_TOKENS"]
 
 
 def nb_errors():
     from antigravity3d.genmedia import nano_banana
 
     return nano_banana
+
+
+# ---------------------------------------------------------------------------------------------- an answer without an image
+
+
+def _no_image(finish=types.FinishReason.MAX_TOKENS, *, block=None):
+    """The live answer of 2026-11-21: finish MAX_TOKENS, 652 output tokens, no image part."""
+    return types.GenerateContentResponse(
+        response_id=f"no-image-{finish}", candidates=[types.Candidate(content=types.Content(parts=[types.Part(text="...")]),
+                                                                     finish_reason=finish)] if block is None else [],
+        prompt_feedback=types.GenerateContentResponsePromptFeedback(block_reason=block) if block else None,
+        usage_metadata=types.GenerateContentResponseUsageMetadata(
+            prompt_token_count=62, candidates_token_count=40, thoughts_token_count=612, total_token_count=714,
+            candidates_tokens_details=[types.ModalityTokenCount(modality="TEXT", token_count=40)]))
+
+
+class Answers(Provider):
+    """Answers in order; the last one repeats."""
+
+    def __init__(self, *answers):
+        super().__init__()
+        self.answers = list(answers)
+
+    async def generate_content(self, *, model, contents, config):
+        self.calls.append((model, config))
+        return self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+
+
+@pytest.mark.parametrize("unit", ["usd", "tokens"])
+async def test_an_answer_without_an_image_is_asked_again_once_and_both_are_booked(unit):
+    ok = Provider().response
+    provider = Answers(_no_image(), ok)
+    gov = Governor(plan_for(3), **({"token_ceiling": 200_000, "max_images": 4} if unit == "tokens" else {}))
+    image = await ImageForge(client=provider.client, governor=gov).seamless_albedo("oak")
+    assert image.receipt.status == "ok" and len(provider.calls) == 2
+    first, second = gov.receipts()
+    assert first["status"] == "ImageNotReturned" and first["source"] == "provider_usage" and first["finish_reason"] == "MAX_TOKENS"
+    assert second["status"] == "ok" and second["reask"] == 1 and second["reask_after"][0]["finish_reason"] == "MAX_TOKENS"
+    if unit == "tokens":  # the first books what it used and counts no image; the second reserved and booked as any call
+        assert first["booked_tokens"] == 62 + 40 + 612 and first["images"] == 0 and second["images"] == 1
+        assert gov.images_used == 1 and gov.spent == first["booked_tokens"] + second["booked_tokens"]
+    else:
+        assert first["booked_usd"] == pytest.approx((62 * 1.5 + (40 + 612) * 7.5) / 1e6) and first["booked_usd"] > 0
+        assert gov.spent == pytest.approx(first["booked_usd"] + second["booked_usd"])
+
+
+async def test_no_image_twice_is_left_as_today_with_both_attempts_named():
+    provider = Answers(_no_image())
+    gov = Governor(plan_for(3), token_ceiling=200_000, max_images=4)
+    with pytest.raises(nb_errors().ImageNotReturned) as e:
+        await ImageForge(client=provider.client, governor=gov).seamless_albedo("oak")
+    assert len(provider.calls) == 2  # once again, never a loop
+    text = str(e.value)
+    assert text.startswith("no image in 2 answers (#1 MAX_TOKENS, 652 output tokens; #2 MAX_TOKENS, 652 output tokens)")
+    assert len(e.value.attempts) == 2 and gov.images_used == 0
+    assert [r["status"] for r in gov.receipts()] == ["ImageNotReturned", "ImageNotReturned"]
+
+
+@pytest.mark.parametrize("answer", [
+    _no_image(types.FinishReason.IMAGE_SAFETY), _no_image(types.FinishReason.SAFETY),
+    _no_image(types.FinishReason.PROHIBITED_CONTENT), _no_image(types.FinishReason.IMAGE_PROHIBITED_CONTENT),
+    _no_image(types.FinishReason.RECITATION), _no_image(types.FinishReason.OTHER),
+    _no_image(block=types.BlockedReason.SAFETY),
+], ids=["image_safety", "safety", "prohibited", "image_prohibited", "recitation", "other", "prompt_blocked"])
+async def test_a_refusal_is_never_asked_again(answer):
+    provider = Answers(answer, Provider().response)
+    gov = Governor(plan_for(3))
+    with pytest.raises(nb_errors().ImageNotReturned) as e:
+        await ImageForge(client=provider.client, governor=gov).seamless_albedo("oak")
+    assert len(provider.calls) == 1 and len(gov.receipts()) == 1 and not e.value.attempts
+
+
+async def test_a_served_image_that_fails_its_checks_is_not_asked_again():
+    provider = Provider()  # a 2048 px image
+    gov = Governor(plan_for(3))
+    with pytest.raises(ValueError, match="provider returned 2048x2048 for a 1024x1024 image"):
+        await ImageForge(client=provider.client, governor=gov).seamless_albedo("oak", size=1024)
+    assert len(provider.calls) == 1
+
+
+async def test_negative_control_without_the_reask_the_material_gets_no_second_answer():
+    """Today's behaviour (no_image_reasks = 0): the first answer without an image is final."""
+    provider = Answers(_no_image(), Provider().response)
+    forge = ImageForge(client=provider.client, governor=Governor(plan_for(3)))
+    forge.no_image_reasks = 0
+    with pytest.raises(nb_errors().ImageNotReturned):
+        await forge.seamless_albedo("oak")
+    assert len(provider.calls) == 1
+
+
+async def test_the_reask_is_admitted_like_any_call_and_can_be_refused():
+    """The second request reserves its whole worst case again: a ceiling with room for one reservation plus what the
+    first answer booked refuses it before dispatch. (The image limit cannot refuse it on its own: the first answer
+    counted no image, so its slot is free again.)"""
+    from antigravity3d.genmedia import nano_banana as nb
+
+    prompt = nb._ALBEDO.format(prompt="oak", variant="")
+    worst = len(prompt.encode()) + 64 + nb.GenAIImageBackend.output_limit("2K")
+    gov = Governor(plan_for(3), token_ceiling=worst + 500, max_images=1)
+    provider = Answers(_no_image(), Provider().response)
+    with pytest.raises(BudgetExceeded, match="tokens available"):
+        await ImageForge(client=provider.client, governor=gov).seamless_albedo("oak")
+    assert len(provider.calls) == 1 and gov.images_used == 0 and gov.spent == 62 + 40 + 612
+
+
+# ---------------------------------------------------------------------------------------------- an image is counted from the response
+
+
+def _ledger(unit, max_images):
+    return Governor(plan_for(3), **({"token_ceiling": 200_000} if unit == "tokens" else {}), max_images=max_images)
+
+
+@pytest.mark.parametrize("unit", ["usd", "tokens"])
+async def test_an_image_without_a_modality_breakdown_is_counted_and_the_limit_holds(unit):
+    """Aggregate counts, no candidates_tokens_details: the image in the answer counts one, and with --max-images 1 a
+    second image call is refused before dispatch. (The token receipt used to read the missing breakdown as 0 image
+    tokens, so the image was not counted and the limit could be passed.)"""
+    provider = Provider()
+    provider.response.usage_metadata.candidates_tokens_details = None
+    gov = _ledger(unit, 1)
+    forge = ImageForge(client=provider.client, governor=gov)
+    image = await forge.seamless_albedo("oak")
+    assert image.receipt.status == "ok"
+    rec, = gov.receipts()
+    assert rec["images"] == 1 and rec["image_counted"] == "image in response" and gov.images_used == 1
+    with pytest.raises(BudgetExceeded, match="image"):
+        await forge.seamless_albedo("iron")
+    assert len(provider.calls) == 1
+
+
+@pytest.mark.parametrize("unit", ["usd", "tokens"])
+async def test_a_complete_answer_with_a_breakdown_and_no_image_counts_none(unit):
+    provider = Answers(_no_image(types.FinishReason.SAFETY))
+    gov = _ledger(unit, 1)
+    with pytest.raises(nb_errors().ImageNotReturned):
+        await ImageForge(client=provider.client, governor=gov).seamless_albedo("oak")
+    rec, = gov.receipts()
+    assert rec["images"] == 0 and rec["image_counted"] == "no image in response" and gov.images_used == 0
+
+
+@pytest.mark.parametrize("unit", ["usd", "tokens"])
+async def test_no_image_then_an_image_counts_one_in_all(unit):
+    provider = Answers(_no_image(), Provider().response)
+    gov = _ledger(unit, 1)
+    await ImageForge(client=provider.client, governor=gov).seamless_albedo("oak")
+    assert [r["images"] for r in gov.receipts()] == [0, 1] and gov.images_used == 1
+
+
+async def test_an_unknown_outcome_keeps_counting_one_image():
+    provider = Provider()
+    provider.failure = TimeoutError("after dispatch")
+    gov = _ledger("tokens", 2)
+    with pytest.raises(TimeoutError):
+        await ImageForge(client=provider.client, governor=gov).seamless_albedo("oak")
+    assert gov.images_used == 1

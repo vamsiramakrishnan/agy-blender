@@ -1,0 +1,508 @@
+{
+ "what": "One brief through a stock Antigravity agent with a scriptable Blender and through this project's command line, 2026-11-21. See benchmarks/UPSTREAM_SKILLS.md.",
+ "brief": "a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles",
+ "engine": "godot_4",
+ "max_tris": 3000,
+ "stock_agent": {
+  "sdk": "google-antigravity 0.1.24",
+  "model": "gemini-4-hydrogen",
+  "sessions": 2,
+  "tokens": 625818,
+  "model_calls": 20,
+  "images": 0,
+  "evaluation": {
+   "triangles": 1476,
+   "size_m_xyz": [
+    0.8495,
+    0.42,
+    0.5255
+   ],
+   "materials": 1,
+   "draw_calls": 1,
+   "texture_count": 3,
+   "max_texture_px": 2048,
+   "images": [
+    {
+     "roles": [
+      "normal"
+     ],
+     "width": 2048,
+     "flat": true
+    },
+    {
+     "roles": [
+      "metallicRoughness",
+      "occlusion"
+     ],
+     "width": 2048,
+     "roughness_p2_p50_p98": [
+      0.6,
+      0.6,
+      0.6
+     ]
+    },
+    {
+     "roles": [
+      "baseColor"
+     ],
+     "width": 2048,
+     "flat": true,
+     "srgb_luminance_p2_p50_p98": [
+      0.0,
+      0.0,
+      0.0
+     ]
+    }
+   ],
+   "uv_by_material": {
+    "0": {
+     "overlap_frac": 0.0,
+     "coverage_frac": 0.3528
+    }
+   },
+   "collision_nodes_in_main": [
+    "military_supply_crate-col"
+   ],
+   "sidecars": {
+    "lod_files": [
+     "military_supply_crate_LOD1.glb",
+     "military_supply_crate_LOD2.glb"
+    ],
+    "collision_files": []
+   },
+   "godot_import_ok": true,
+   "three_js_ok": false,
+   "three_js_failed": [
+    "no material fell back to a loader default"
+   ],
+   "upstream_qa_check": {
+    "pass": false,
+    "errors": [
+     "military_supply_crate-col: faces use empty/missing material slot(s) [0] (grey in engines)",
+     "z-fighting: military_supply_crate (98 overlapping coplanar tri pairs)",
+     "z-fighting: military_supply_crate<->military_supply_crate-col (27 overlapping coplanar tri pairs)"
+    ],
+    "warnings": [
+     "hidden back-to-back faces: military_supply_crate (86 pairs) - delete to save tris"
+    ]
+   },
+   "upstream_texel_density_px_per_m": {
+    "military_supply_crate": 532.1,
+    "military_supply_crate-col": 1186.1
+   }
+  }
+ },
+ "this_project": {
+  "command": "agy3d prop <brief> --engine godot_4 --max-tris 3000 --preview --single-candidate --token-ceiling 210000 --max-images 3 --blender ...",
+  "delivered_unassisted": false,
+  "note": "The command's run ended on a 503 from the model service after paying for the design and two textures. It was completed afterwards from that design (read from the relay's transcript) and those textures by the pipeline's own passes, with the real author for repairs and the real fallback judge; no image call.",
+  "tokens": {
+   "command_run_by_relay": 67515,
+   "completion_by_command_ledger": 36867
+  },
+  "images": 2,
+  "judge_scores_uncalibrated": {
+   "before_repair": {
+    "tier15": 1.36
+   },
+   "after_repair": {
+    "tier15": 2.07,
+    "silhouette": 2.36,
+    "pbr_realism": 2.0,
+    "material_separation": 2.33,
+    "shippability": 2.04
+   }
+  },
+  "evaluation_before_repair": {
+   "triangles": 268,
+   "size_m_xyz": [
+    0.96,
+    0.54,
+    0.62
+   ],
+   "materials": 3,
+   "draw_calls": 3,
+   "texture_count": 6,
+   "max_texture_px": 2048,
+   "images": [
+    {
+     "roles": [
+      "baseColor"
+     ],
+     "width": 2048,
+     "flat": false,
+     "srgb_luminance_p2_p50_p98": [
+      61.1,
+      82.7,
+      89.6
+     ]
+    },
+    {
+     "roles": [
+      "metallicRoughness",
+      "occlusion"
+     ],
+     "width": 2048,
+     "roughness_p2_p50_p98": [
+      0.502,
+      0.522,
+      0.608
+     ]
+    },
+    {
+     "roles": [
+      "normal"
+     ],
+     "width": 2048,
+     "flat": false
+    },
+    {
+     "roles": [
+      "baseColor"
+     ],
+     "width": 2048,
+     "flat": false,
+     "srgb_luminance_p2_p50_p98": [
+      179.5,
+      180.1,
+      180.7
+     ]
+    },
+    {
+     "roles": [
+      "metallicRoughness",
+      "occlusion"
+     ],
+     "width": 2048,
+     "roughness_p2_p50_p98": [
+      0.318,
+      0.329,
+      0.349
+     ]
+    },
+    {
+     "roles": [
+      "normal"
+     ],
+     "width": 2048,
+     "flat": true
+    }
+   ],
+   "uv_by_material": {
+    "0": {
+     "overlap_frac": 0.0,
+     "coverage_frac": 0.8416
+    },
+    "1": {
+     "overlap_frac": 0.0,
+     "coverage_frac": 0.1476
+    },
+    "2": {
+     "overlap_frac": 0.0,
+     "coverage_frac": 0.0112
+    }
+   },
+   "collision_nodes_in_main": [],
+   "sidecars": {
+    "lod_files": [
+     "RuggedMilitarySupply_LOD1.glb",
+     "RuggedMilitarySupply_LOD2.glb"
+    ],
+    "collision_files": [
+     "RuggedMilitarySupply_colliders.glb"
+    ]
+   },
+   "godot_import_ok": true,
+   "three_js_ok": true,
+   "three_js_failed": [],
+   "upstream_qa_check": {
+    "pass": false,
+    "errors": [
+     "z-fighting: Batch_0<->Batch_1 (6 overlapping coplanar tri pairs)",
+     "z-fighting: Batch_0 (2 overlapping coplanar tri pairs)"
+    ],
+    "warnings": [
+     "hidden back-to-back faces: Batch_0<->Batch_1 (6 pairs) - delete to save tris"
+    ]
+   },
+   "upstream_texel_density_px_per_m": {
+    "Batch_0": 933.5,
+    "Batch_1": 1024.0,
+    "Batch_2": 1024.0
+   }
+  },
+  "evaluation": {
+   "triangles": 266,
+   "size_m_xyz": [
+    0.96,
+    0.51,
+    0.62
+   ],
+   "materials": 3,
+   "draw_calls": 3,
+   "texture_count": 6,
+   "max_texture_px": 2048,
+   "images": [
+    {
+     "roles": [
+      "baseColor"
+     ],
+     "width": 2048,
+     "flat": false,
+     "srgb_luminance_p2_p50_p98": [
+      61.1,
+      82.7,
+      89.6
+     ]
+    },
+    {
+     "roles": [
+      "metallicRoughness",
+      "occlusion"
+     ],
+     "width": 2048,
+     "roughness_p2_p50_p98": [
+      0.502,
+      0.522,
+      0.608
+     ]
+    },
+    {
+     "roles": [
+      "normal"
+     ],
+     "width": 2048,
+     "flat": false
+    },
+    {
+     "roles": [
+      "baseColor"
+     ],
+     "width": 2048,
+     "flat": false,
+     "srgb_luminance_p2_p50_p98": [
+      179.5,
+      180.1,
+      180.7
+     ]
+    },
+    {
+     "roles": [
+      "metallicRoughness",
+      "occlusion"
+     ],
+     "width": 2048,
+     "roughness_p2_p50_p98": [
+      0.318,
+      0.329,
+      0.349
+     ]
+    },
+    {
+     "roles": [
+      "normal"
+     ],
+     "width": 2048,
+     "flat": true
+    }
+   ],
+   "uv_by_material": {
+    "0": {
+     "overlap_frac": 0.0,
+     "coverage_frac": 0.8284
+    },
+    "1": {
+     "overlap_frac": 0.0,
+     "coverage_frac": 0.1476
+    },
+    "2": {
+     "overlap_frac": 0.0,
+     "coverage_frac": 0.0112
+    }
+   },
+   "collision_nodes_in_main": [],
+   "sidecars": {
+    "lod_files": [
+     "RuggedMilitarySupply_LOD1.glb"
+    ],
+    "collision_files": [
+     "RuggedMilitarySupply_colliders.glb"
+    ]
+   },
+   "godot_import_ok": true,
+   "three_js_ok": true,
+   "three_js_failed": [],
+   "upstream_qa_check": {
+    "pass": true,
+    "errors": [],
+    "warnings": [
+     "hidden back-to-back faces: Batch_0<->Batch_2 (4 pairs) - delete to save tris"
+    ]
+   },
+   "upstream_texel_density_px_per_m": {
+    "Batch_0": 984.0,
+    "Batch_1": 1024.0,
+    "Batch_2": 1024.0
+   }
+  }
+ },
+ "blind_judge": {
+  "model": "gemini-4-carbon",
+  "thinking": "low",
+  "calls": [
+   {
+    "first": "A",
+    "second": "C",
+    "usage": {
+     "input": 3083,
+     "output": 276,
+     "thinking": null,
+     "total": 3359
+    },
+    "verdict": {
+     "criteria": {
+      "reads_as_brief": {
+       "winner": "1",
+       "reason": "Prop 1 clearly reads as a rugged military supply crate with distinct ribbed panels, corner guards, articulated latches, and recessed side handles, whereas Prop 2 uses overly simplistic blocky primitives."
+      },
+      "proportion_scale": {
+       "winner": "1",
+       "reason": "While both crates have a reasonable overall size relative to the 1.8m block, Prop 1 has much more believable part proportions compared to Prop 2's overly thick corner posts and chunky block latches."
+      },
+      "surface_material": {
+       "winner": "2",
+       "reason": "Prop 2 features olive drab military colors, metal differentiation, and surface wear, while Prop 1 appears to be a uniform, untextured dark grey plastic or clay material."
+      },
+      "defects": {
+       "winner": "2",
+       "reason": "Prop 1 has a noticeable stray piece of flat geometry lying on the ground next to its bottom-right corner in the scale view, whereas Prop 2 has no stray or broken geometry."
+      }
+     },
+     "overall": {
+      "winner": "1",
+      "reason": "Despite lacking texture variation and having a minor stray ground mesh in the scale view, Prop 1 wins overall because its detailed silhouette and kit-bashed geometry successfully fulfill the military crate brief far better than Prop 2's primitive blockout."
+     }
+    }
+   },
+   {
+    "first": "C",
+    "second": "A",
+    "usage": {
+     "input": 3083,
+     "output": 253,
+     "thinking": null,
+     "total": 3336
+    },
+    "verdict": {
+     "criteria": {
+      "reads_as_brief": {
+       "winner": "2",
+       "reason": "Prop 2 clearly features articulated panels, ribbed structural reinforcements, proper latches, corner guards, and recessed handles, whereas Prop 1 uses overly simplistic primitive blocks."
+      },
+      "proportion_scale": {
+       "winner": "2",
+       "reason": "Both crates have a believable overall size next to the 1.8 m reference, but Prop 2 has much more realistic component proportions for its latches, corner guards, and handles compared to the chunky blocks on Prop 1."
+      },
+      "surface_material": {
+       "winner": "1",
+       "reason": "Prop 1 features military olive color variation, material separation, and surface wear, while Prop 2 is rendered in a uniform, untextured dark grey clay material."
+      },
+      "defects": {
+       "winner": "tie",
+       "reason": "Both models have minor construction flaws, with Prop 1 showing rudimentary intersecting blocks for hardware and Prop 2 showing a small stray piece of geometry on the ground in the scale view."
+      }
+     },
+     "overall": {
+      "winner": "2",
+      "reason": "Despite lacking texture variation, Prop 2 is a far superior 3D asset that actually looks like a rugged military supply crate with believable mechanical details and proportions."
+     }
+    }
+   }
+  ],
+  "total_tokens": 6695
+ },
+ "relay_ledger_accounts": {
+  "smoke:crate:A": {
+   "tokens": 12436,
+   "images": 0,
+   "model_calls": 1
+  },
+  "crate:A": {
+   "tokens": 146207,
+   "images": 0,
+   "model_calls": 8
+  },
+  "crate:B": {
+   "tokens": 161594,
+   "images": 0,
+   "model_calls": 4
+  },
+  "hydrant:B": {
+   "tokens": 130129,
+   "images": 0,
+   "model_calls": 4
+  },
+  "hydrant:A": {
+   "tokens": 90491,
+   "images": 0,
+   "model_calls": 4
+  },
+  "r2:crate:A": {
+   "tokens": 451900,
+   "images": 0,
+   "model_calls": 13
+  },
+  "r2:crate:A.s2": {
+   "tokens": 173918,
+   "images": 0,
+   "model_calls": 7
+  },
+  "r2:crate:C": {
+   "tokens": 71097,
+   "images": 9,
+   "model_calls": 16
+  },
+  "r2:crate:C.s2": {
+   "tokens": 67515,
+   "images": 2,
+   "model_calls": 10
+  }
+ },
+ "spend_of_the_allowance": {
+  "allowance": {
+   "tokens": 2000000,
+   "images": 30
+  },
+  "rows": [
+   [
+    "test runs that reached the live API unintended (estimate)",
+    300000,
+    18
+   ],
+   [
+    "comparison, first attempt (stopped)",
+    540857,
+    0
+   ],
+   [
+    "stock agent, two sessions",
+    625818,
+    0
+   ],
+   [
+    "this project, command runs 1 and 4",
+    138612,
+    11
+   ],
+   [
+    "probes, two no-image pipeline runs, completion of run 4, blind judge (command ledgers; about 150,000 held for unanswered calls)",
+    258721,
+    0
+   ]
+  ],
+  "total": {
+   "tokens": 1864008,
+   "images": 29
+  }
+ }
+}

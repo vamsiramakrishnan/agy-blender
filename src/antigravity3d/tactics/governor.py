@@ -116,20 +116,29 @@ def _amount(value: float) -> float:
     return value
 
 
+USD, TOKENS = "usd", "tokens"
+# Recorded on every token-unit receipt and summary: a token figure is never a price.
+NO_PRICE_NOTE = "no price applied"
+
+
 @dataclass(frozen=True)
 class Reservation:
     governor: Governor
     id: str
     limit: float
+    images: int = 0
 
-    def settle(self, usd: float | None = None, *, receipt: dict | None = None) -> float:
-        """Record the billed amount, or retain the full reservation for an ambiguous response."""
+    def settle(self, usd: float | None = None, *, receipt: dict | None = None, images: int | None = None) -> float:
+        """Record the billed amount (in the ledger's unit; the name ``usd`` is kept for the money callers), or retain
+        the full reservation for an ambiguous response. ``images``: generated images to keep counted (None keeps the
+        reserved count: an outcome that is not known to have produced no image counts as one)."""
         booked = self.limit if usd is None else _amount(usd)
+        kept = self.images if images is None else max(0, min(self.images, int(images)))
         db = self.governor._db
         with self.governor._lock, db:
             changed = db.execute(
-                "UPDATE spend SET booked=?, receipt=? WHERE id=? AND booked IS NULL",
-                (booked, json.dumps(receipt) if receipt else None, self.id),
+                "UPDATE spend SET booked=?, receipt=?, images=? WHERE id=? AND booked IS NULL",
+                (booked, json.dumps(receipt) if receipt else None, kept, self.id),
             )
             if changed.rowcount != 1:
                 raise RuntimeError("reservation already settled")
@@ -151,10 +160,25 @@ def _resolve(future: asyncio.Future) -> None:
 
 
 class Governor:
-    """Atomic per-asset spend ledger. An optional SQLite path survives process restarts."""
+    """Atomic per-asset spend ledger. An optional SQLite path survives process restarts.
 
-    def __init__(self, plan: SpendPlan, *, journal: Path | None = None) -> None:
+    Unit. By default the ledger is in US dollars and its ceiling is the plan's ``ceiling_usd``. With ``token_ceiling``
+    it is in tokens (input + output, thinking included) and the ceiling is that number: no price is applied anywhere,
+    the plan's dollar ceiling is not used, and every receipt and summary says so. A journal records its unit and cannot
+    be reopened in the other one. ``max_images`` is a second, hard limit kept in the same ledger: the number of
+    generated images, reserved before each image call and kept when the call's outcome is unknown.
+    """
+
+    def __init__(self, plan: SpendPlan, *, journal: Path | None = None, token_ceiling: int | None = None,
+                 max_images: int | None = None) -> None:
         self._plan = plan
+        if token_ceiling is not None and (int(token_ceiling) != token_ceiling or token_ceiling <= 0):
+            raise ValueError(f"token_ceiling must be a positive whole number of tokens, got {token_ceiling!r}")
+        if max_images is not None and (int(max_images) != max_images or max_images < 0):
+            raise ValueError(f"max_images must be a non-negative whole number, got {max_images!r}")
+        self.unit = TOKENS if token_ceiling is not None else USD
+        self.token_ceiling = None if token_ceiling is None else int(token_ceiling)
+        self.max_images = None if max_images is None else int(max_images)
         if journal is not None:
             journal.parent.mkdir(parents=True, exist_ok=True)
         self.journal = journal
@@ -162,32 +186,74 @@ class Governor:
         weakref.finalize(self, self._db.close)
         self._lock = threading.RLock()
         self._waiters: list[_Waiter] = []  # FIFO of parked reserve_wait calls; guarded by self._lock
-        self._db.execute(
-            "CREATE TABLE IF NOT EXISTS spend (id TEXT PRIMARY KEY, category TEXT NOT NULL, "
-            "reserved REAL NOT NULL, booked REAL, receipt TEXT)"
-        )
+        with self._db:
+            self._db.execute(
+                "CREATE TABLE IF NOT EXISTS spend (id TEXT PRIMARY KEY, category TEXT NOT NULL, "
+                "reserved REAL NOT NULL, booked REAL, receipt TEXT, images INTEGER NOT NULL DEFAULT 0)"
+            )
+            if "images" not in {row[1] for row in self._db.execute("PRAGMA table_info(spend)")}:  # a journal from before
+                self._db.execute("ALTER TABLE spend ADD COLUMN images INTEGER NOT NULL DEFAULT 0")
+            self._db.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            row = self._db.execute("SELECT value FROM meta WHERE key='unit'").fetchone()
+            used = self._db.execute("SELECT COUNT(*) FROM spend").fetchone()[0]
+            recorded = row[0] if row else (USD if used else None)  # rows without a recorded unit predate tokens: dollars
+            if recorded is not None and recorded != self.unit:
+                raise ValueError(f"spend journal {journal} is kept in {recorded}; it cannot be reopened in {self.unit}")
+            if row is None:
+                self._db.execute("INSERT INTO meta VALUES ('unit', ?)", (self.unit,))
 
     @property
     def plan(self) -> SpendPlan:
         return self._plan
 
-    def _try_insert(self, category: str, limit: float, receipt: dict | None) -> Reservation | None:
-        """Atomically book ``limit`` against the ceiling, or return None when it does not fit right now."""
-        reservation = Reservation(self, uuid.uuid4().hex, limit)
+    @property
+    def ceiling(self) -> float:
+        """The ceiling in the ledger's unit."""
+        return float(self.token_ceiling) if self.unit == TOKENS else self._plan.ceiling_usd
+
+    def fmt(self, amount: float) -> str:
+        """An amount in the ledger's unit, written so that it cannot be read as the other unit."""
+        return f"{amount:,.0f} tokens" if self.unit == TOKENS else f"${amount:.5f}"
+
+    def key(self, name: str) -> str:
+        """``name`` with the ledger's unit as suffix (``spent_usd`` / ``spent_tokens``)."""
+        return f"{name}_{self.unit}"
+
+    def est(self, *, usd: float, tokens: float) -> float:
+        """A planning estimate in the ledger's unit."""
+        return tokens if self.unit == TOKENS else usd
+
+    @property
+    def images_used(self) -> int:
+        """Images counted: settled ones plus those held by open reservations."""
+        with self._lock:
+            return int(self._db.execute("SELECT COALESCE(SUM(images),0) FROM spend").fetchone()[0])
+
+    def _images_fit(self, images: int) -> bool:
+        return self.max_images is None or self.images_used + images <= self.max_images
+
+    def _try_insert(self, category: str, limit: float, receipt: dict | None, images: int = 0) -> Reservation | None:
+        """Atomically book ``limit`` (and ``images``) against the ceilings, or return None when it does not fit now."""
+        reservation = Reservation(self, uuid.uuid4().hex, limit, images)
         with self._lock, self._db:
             self._db.execute("BEGIN IMMEDIATE")
-            if not self.can_afford(limit):
+            if not self.can_afford(limit) or not self._images_fit(images):
                 return None
-            self._db.execute("INSERT INTO spend VALUES (?, ?, ?, NULL, ?)",
-                             (reservation.id, category, limit, json.dumps(receipt) if receipt else None))
+            self._db.execute("INSERT INTO spend VALUES (?, ?, ?, NULL, ?, ?)",
+                             (reservation.id, category, limit, json.dumps(receipt) if receipt else None, images))
         return reservation
 
-    def reserve(self, category: str, usd: float, *, receipt: dict | None = None) -> Reservation:
-        """Reserve now or raise :class:`BudgetExceeded`. Never waits."""
+    def _image_refusal(self, category: str, images: int) -> BudgetExceeded:
+        return BudgetExceeded(f"{category} needs {images} image(s): {self.images_used} of {self.max_images} images already counted")
+
+    def reserve(self, category: str, usd: float, *, receipt: dict | None = None, images: int = 0) -> Reservation:
+        """Reserve now or raise :class:`BudgetExceeded`. Never waits. ``usd`` is in the ledger's unit."""
         limit = _amount(usd)
-        reservation = self._try_insert(category, limit, receipt)
+        reservation = self._try_insert(category, limit, receipt, images)
         if reservation is None:
-            raise BudgetExceeded(f"{category} needs ${limit:.5f}, ${self.remaining:.5f} available")
+            if not self._images_fit(images):
+                raise self._image_refusal(category, images)
+            raise BudgetExceeded(f"{category} needs {self.fmt(limit)}, {self.fmt(self.remaining)} available")
         return reservation
 
     def _ledger(self) -> tuple[float, int]:
@@ -207,7 +273,7 @@ class Governor:
             except RuntimeError:  # that loop is closed; its waiter is gone
                 pass
 
-    async def reserve_wait(self, category: str, usd: float, *, receipt: dict | None = None) -> Reservation:
+    async def reserve_wait(self, category: str, usd: float, *, receipt: dict | None = None, images: int = 0) -> Reservation:
         """Reserve ``usd``, waiting for outstanding reservations to settle when it does not fit yet.
 
         * Fits now: reserved at once (when no earlier request is still waiting; waiters are served first-come
@@ -232,13 +298,16 @@ class Governor:
                 with self._lock:
                     first = not self._waiters if not queued else self._waiters[0] is waiter
                     booked, outstanding = self._ledger()
-                    ceiling = self._plan.ceiling_usd
+                    ceiling = self.ceiling
                     if limit > ceiling - booked + _TOLERANCE:
+                        f = self.fmt
                         raise BudgetExceeded(
-                            f"{category} needs ${limit:.5f} but can never fit: ceiling ${ceiling:.5f}, "
-                            f"${booked:.5f} already settled, ${max(0.0, ceiling - booked):.5f} at most available")
+                            f"{category} needs {f(limit)} but can never fit: ceiling {f(ceiling)}, "
+                            f"{f(booked)} already settled, {f(max(0.0, ceiling - booked))} at most available")
+                    if self.max_images is not None and images > self.max_images - self._settled_images():
+                        raise self._image_refusal(category, images)
                     if first:
-                        reservation = self._try_insert(category, limit, receipt)
+                        reservation = self._try_insert(category, limit, receipt, images)
                         if reservation is not None:
                             if queued:
                                 self._waiters.remove(waiter)
@@ -246,7 +315,7 @@ class Governor:
                             handoff = bool(self._waiters)
                             break
                         if outstanding == 0:  # unreachable: nothing to wait for and it does not fit
-                            raise BudgetExceeded(f"{category} needs ${limit:.5f}, ${self.remaining:.5f} available")
+                            raise BudgetExceeded(f"{category} needs {self.fmt(limit)}, {self.fmt(self.remaining)} available")
                     waiter.future = waiter.loop.create_future()
                     if not queued:
                         self._waiters.append(waiter)
@@ -263,10 +332,15 @@ class Governor:
             self._wake_waiters()  # more may fit behind this one
         return reservation
 
+    def _settled_images(self) -> int:
+        with self._lock:
+            return int(self._db.execute("SELECT COALESCE(SUM(images),0) FROM spend WHERE booked IS NOT NULL").fetchone()[0])
+
     def charge(self, category: str, usd: float) -> None:
         amount = _amount(usd)
         with self._lock, self._db:
-            self._db.execute("INSERT INTO spend VALUES (?, ?, 0, ?, NULL)", (uuid.uuid4().hex, category, amount))
+            self._db.execute("INSERT INTO spend (id, category, reserved, booked, receipt) VALUES (?, ?, 0, ?, NULL)",
+                             (uuid.uuid4().hex, category, amount))
 
     @property
     def spent(self) -> float:
@@ -282,7 +356,7 @@ class Governor:
     def remaining(self) -> float:
         with self._lock:
             committed, = self._db.execute("SELECT COALESCE(SUM(COALESCE(booked,reserved)),0) FROM spend").fetchone()
-        return max(0.0, self.plan.ceiling_usd - committed)
+        return max(0.0, self.ceiling - committed)
 
     def can_afford(self, usd: float) -> bool:
         return _amount(usd) <= self.remaining + _TOLERANCE
@@ -290,23 +364,39 @@ class Governor:
     def receipts(self) -> list[dict]:
         with self._lock:
             records = self._db.execute(
-                "SELECT id,category,reserved,booked,receipt FROM spend WHERE receipt IS NOT NULL ORDER BY rowid").fetchall()
-        return [{**json.loads(payload), "reservation_id": key, "category": cat, "reserved_usd": reserved, "booked_usd": booked,
-                 "overrun_usd": max(0.0, booked - reserved) if booked is not None else None}
-                for key, cat, reserved, booked, payload in records]
+                "SELECT id,category,reserved,booked,receipt,images FROM spend WHERE receipt IS NOT NULL ORDER BY rowid").fetchall()
+        if self.unit == USD:
+            out = [{**json.loads(payload), "reservation_id": key, "category": cat, "reserved_usd": reserved, "booked_usd": booked,
+                    "overrun_usd": max(0.0, booked - reserved) if booked is not None else None}
+                   for key, cat, reserved, booked, payload, _ in records]
+        else:  # token ledger: no *_usd key, and every receipt says that no price was applied
+            out = []
+            for key, cat, reserved, booked, payload, _ in records:
+                rec = {k: v for k, v in json.loads(payload).items() if not k.endswith("_usd")}
+                out.append({**rec, "reservation_id": key, "category": cat, "unit": TOKENS, "price_applied": False,
+                            "reserved_tokens": int(reserved), "booked_tokens": None if booked is None else int(booked),
+                            "overrun_tokens": max(0, int(booked - reserved)) if booked is not None else None})
+        if self.max_images is not None:
+            for rec, row in zip(out, records):
+                rec["images"] = int(row[5])
+        return out
 
-    def candidates(self, kind: str, *, unit_cost: float | None = None, admit_cost: float | None = None) -> int:
+    def candidates(self, kind: str, *, unit_cost: float | None = None, admit_cost: float | None = None,
+                   images_each: int = 0) -> int:
         """Best-of-N for ``kind``, reduced so N * unit_cost fits the remaining budget.
 
         Without ``unit_cost`` the plan's N is returned unchanged. The result is zero when a single candidate does
         not fit. ``unit_cost`` is what a candidate is *expected* to cost. ``admit_cost`` (default ``unit_cost``) is
         what admission must be able to reserve for one candidate, its worst case; candidates run one after another
         under the ceiling, so the last one is admitted when the others have settled near ``unit_cost`` and N is the
-        largest value with ``(N - 1) * unit_cost + admit_cost <= remaining``.
+        largest value with ``(N - 1) * unit_cost + admit_cost <= remaining``. ``images_each``: images one candidate
+        generates; with an image limit, N never asks for more images than remain under it.
         """
         if kind not in _KINDS:
             raise ValueError(f"unknown candidate kind {kind!r}; expected one of {sorted(_KINDS)}")
         base = getattr(self._plan, _KINDS[kind])
+        if images_each > 0 and self.max_images is not None:  # each candidate generates images_each images
+            base = min(base, max(0, self.max_images - self.images_used) // images_each)
         if unit_cost is None:
             return base
         if unit_cost < 0 or (admit_cost is not None and admit_cost < 0):
@@ -319,12 +409,45 @@ class Governor:
             return 0
         return max(0, min(base, 1 + math.floor(room / unit_cost)))
 
+    def allocate(self, kind: str, k: int, *, unit_cost: float | None = None, images_each: int = 0) -> list[int]:
+        """Best-of-N for each of ``k`` items (ordered by priority, first = most important), sharing what is left.
+
+        Every item gets one candidate before any gets a second, up to the plan's N each, while the total fits the
+        remaining budget (``total * unit_cost <= remaining``, the rule of :meth:`candidates`) and the image limit (each
+        candidate generates ``images_each`` images). When everything fits, every item gets the plan's N, as
+        ``candidates`` would give each; when not, the leftover goes to the earlier items instead of being lost to a
+        uniform N that is zero as soon as one round does not fit for all."""
+        if kind not in _KINDS:
+            raise ValueError(f"unknown candidate kind {kind!r}; expected one of {sorted(_KINDS)}")
+        if k <= 0:
+            return []
+        per = getattr(self._plan, _KINDS[kind])
+        total = per * k
+        if images_each > 0 and self.max_images is not None:
+            total = min(total, max(0, self.max_images - self.images_used) // images_each)
+        if unit_cost is not None and unit_cost < 0:
+            raise ValueError(f"costs must be non-negative, got unit_cost={unit_cost!r}")
+        if unit_cost:
+            room = self.remaining + _TOLERANCE - unit_cost
+            total = 0 if room < 0 else min(total, 1 + math.floor(room / unit_cost))
+        counts = [0] * k
+        for i in range(total):  # round robin: one each, then a second each, ...
+            counts[i % k] += 1
+        return counts
+
     def may_escalate_to_director(self, estimated_usd: float) -> bool:
         return self._plan.allow_director and self.can_afford(estimated_usd)
 
+    def images_summary(self) -> str:
+        return "" if self.max_images is None else f"{self.images_used} of {self.max_images} images"
+
     def summary(self) -> str:
+        imgs = f"; {self.images_summary()}" if self.max_images is not None else ""
+        if self.unit == TOKENS:
+            parts = ", ".join(f"{name} {amount:,.0f}" for name, amount in sorted(self.by_category.items()))
+            return f"{self._plan.label}: {self.spent:,.0f} of {self.token_ceiling:,} tokens ({NO_PRICE_NOTE}){imgs} ({parts})"
         parts = ", ".join(f"{name} ${amount:.4f}" for name, amount in sorted(self.by_category.items()))
-        return f"{self._plan.label}: ${self.spent:.4f} of ${self._plan.ceiling_usd:.2f} ({parts})"
+        return f"{self._plan.label}: ${self.spent:.4f} of ${self._plan.ceiling_usd:.2f}{imgs} ({parts})"
 
 
 def usage_cost_usd(

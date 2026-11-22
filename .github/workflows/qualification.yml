@@ -73,11 +73,42 @@ jobs:
             playwright install --with-deps chromium
           fi
       - name: Test native workers, engine imports, rendered frames and inspector channels
+        id: tests
         run: |
-          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_blender_shim.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py
+          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_fbx_export.py tests/test_fbx_package.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py tests/test_blender_verification_steps.py
           python - <<'PYTHON'
           import xml.etree.ElementTree as ET
           required = {"test_three_worker_mixed_asset_soak", "test_reviewed_upstream_primitives",
+                      "test_vendored_blender_skills_match_the_pinned_checkout", "test_real_blender_legacy_migrations",
+                      # Blender 5.3 behaviour of the worker operations, the shim and the linter (tests/test_blender_api_53.py)
+                      "test_worker_starts_from_an_empty_scene", "test_render_of_a_created_object_needs_no_factory_camera_or_light",
+                      "test_real_geonodes_input_changes_the_evaluated_mesh", "test_real_geonodes_geometry_input_must_be_first",
+                      "test_real_geonodes_values_by_type_and_the_linter_allowed_getattr_form",
+                      "test_real_bake_maps_store_data_maps_as_numbers_and_colour_as_colour",
+                      "test_real_bake_maps_samples_default_is_the_scene_value_and_is_restored",
+                      "test_real_bake_maps_failure_is_an_error_naming_the_cause", "test_real_import_splat_reports_what_the_file_became",
+                      "test_real_render_survives_a_scene_left_in_multilayer_output", "test_real_export_usd_writes_the_scene_and_only_the_scene",
+                      "test_real_legacy_bindcode_rewrite_runs_and_the_worker_lives", "test_real_gpu_init_first_script_and_unguarded_script",
+                      "test_real_compat_helpers", "test_real_pass_name_map_names_sockets_that_exist",
+                      "test_linter_tables_match_blender", "test_the_cross_check_catches_a_name_that_still_works",
+                      "test_gpu_calls_without_init_do_not_work_in_background", "test_the_specular_bsdf_node_still_has_a_specular_input",
+                      "test_kit_pipeline_imports_the_splat_with_a_real_worker", "test_kit_cli_imports_the_splat_with_a_real_blender",
+                      *(f"test_structural_rules_match_what_blender_does[{k}]" for k in ("AG016", "AG022", "AG022b")),
+                      "test_upstream_primitives_on_a_package_match_the_fake_shape_and_weld_closes_seams",
+                      *(f"test_fbx_export_each_preset_on_a_textured_multipart_package[{preset}]" for preset in ("unity", "unreal", "roblox")),
+                      "test_fbx_round_trip_catches_a_planted_scale_error_and_a_quarter_turn",
+                      "test_fbx_contract_refuses_excluded_keywords_presets_and_paths_outside_the_directory",
+                      "test_fbx_export_that_fails_its_comparison_removes_what_it_wrote",
+                      "test_fbx_two_materials_one_slot_each_and_the_roblox_limits_are_reported",
+                      "test_fake_worker_result_has_the_real_results_keys",
+                      *(f"test_fbx_two_exports_of_one_package_differ_only_in_the_header_time_stamp[{preset}]" for preset in ("unity", "unreal", "roblox")),
+                      *(f"test_the_helper_writes_the_fbx_into_the_package_and_the_manifest_and_validator_agree[{engine}]" for engine in ("unity_urp", "unreal_5", "roblox_r15")),
+                      "test_unreals_fbx_fails_when_it_references_the_opengl_normal_map",
+                      "test_the_texture_map_is_as_narrow_as_the_rest_of_the_contract",
+                      *(f"test_the_prop_pipeline_ships_the_fbx_in_the_package_with_its_real_hash[{engine}]" for engine in ("unreal_5", "roblox_r15")),
+                      *(f"test_a_failed_fbx_ships_the_package_without_it_and_says_so[error{i}]" for i in (0, 1)),
+                      "test_agy3d_prop_prints_the_fbx_step_like_the_others",
+                      *(f"test_the_native_export_writes_the_fbx_in_verified_and_preview_sessions_alike[{preview}]" for preview in (False, True)),
                       "test_ten_relocated_golden_packages_load_in_stock_godot",
                       "test_ten_relocated_golden_dcc_engine_silhouettes",
                       "test_staged_lookdev_and_export_share_one_imported_mesh_atlas",
@@ -86,6 +117,23 @@ jobs:
                       "test_mcp_app_in_a_browser_host", "test_committed_app_build_is_current",
                       "test_browser_good_package_passes_and_frame_is_upright_framed_textured",
                       "test_browser_replaced_mesh_fails_on_silhouette_alone",
+                      "test_godot_imports_far_lods_of_a_relocated_package_with_their_textures",
+                      "test_browser_far_lods_load_their_referenced_textures_and_match_lod0",
+                      "test_browser_far_lod_with_a_missing_texture_fails",
+                      "test_styled_package_imports_in_stock_godot_and_passes_the_web_check",
+                      "test_capped_hull_imports_in_stock_godot_as_its_collision_shape",
+                      "test_godot_draws_a_package_without_hidden_contact_faces_like_the_closed_one",
+                      *(f"test_upstream_kit_check_passes_every_piece_of_an_offline_kit[{metric}]" for metric in ("interior", "exterior")),
+                      "test_a_clean_crate_passes_the_blender_asset_qa_step",
+                      "test_the_blender_asset_qa_result_reaches_the_package_manifest",
+                      "test_planted_z_fighting_fails_the_blender_asset_qa_step_with_upstreams_message",
+                      *(f"test_flush_details_are_separated_before_qa_and_pass_the_blender_asset_qa_step[{engine}]" for engine in ("unreal_5", "roblox_r15")),
+                      "test_separate_boxes_resting_on_the_ground_pass_and_a_part_hovering_5_cm_fails",
+                      "test_separate_parts_sharing_edges_in_one_mesh_pass_and_a_miswound_part_still_fails",
+                      "test_a_roblox_material_over_the_triangle_limit_ships_as_meshes_within_it_and_one_oversized_part_still_fails",
+                      "test_a_kit_piece_moved_off_its_pivot_fails_the_blender_kit_check_node_and_the_gates",
+                      "test_native_export_of_a_crate_passes_the_check_with_a_real_worker",
+                      *(f"test_kit_passes_the_blender_kit_check_node[{metric}]" for metric in ("interior", "exterior")),
                       *(f"test_browser_asymmetric_block_passes_for_every_target_engine[{engine}]"
                         for engine in ("unreal_5", "unity_urp", "godot_4", "roblox_r15"))}
           passed = {c.get("name") for c in ET.parse("/tmp/engine-qualification.xml").iter("testcase")
@@ -93,3 +141,54 @@ jobs:
           if missing := required - passed:
               raise SystemExit(f"Required engine qualifications did not pass: {sorted(missing)}")
           PYTHON
+      # Timings of the real engines (Blender pool, Godot import, Blender versus the kernels). The tests above
+      # say whether the engines work; this says how long they take. It also runs when a test failed (the numbers
+      # are labelled with the test outcome in the JSON) but not when the run was cancelled. A measurement that
+      # is unavailable is recorded inside the JSON and does not fail anything; a crash of the benchmark itself
+      # shows as a failed step plus a warning annotation but does not fail the job, so it cannot mask or replace
+      # the test result. Cost on a hosted runner: about one minute, half of it the three EEVEE renders on software
+      # GL (3 Blender cold starts of ~0.4 s, 8 renders, 3 Godot packages x 3 imports, kernel work on 4 meshes); the
+      # upstream checks survey (about 125 inspect_usd calls on small packages, planted defects and kit pieces) is estimated at 40-80 s more, unmeasured on a runner so far. The soft budget inside the script skips late measurements after 240 s (the survey stops at 80 % of it) and the step timeout is a hard stop. It imports the installed wheel: the script is run by path, so
+      # only benchmarks/ (for quality_facts) is added to sys.path, never the checkout's src/.
+      - name: Time Blender and Godot paths against the native kernels
+        id: engine-bench
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 7
+        env:
+          AGY_BENCH_TESTS_OUTCOME: ${{ steps.tests.outcome }}
+          # empty = unset: the benchmark's worker loads the vendored upstream scripts, as production does (the
+          # checkout above is only for the byte comparison in the tests); the JSON records the source it used
+          AGY3D_BLENDER_SKILLS: ""
+        run: xvfb-run -a python benchmarks/perf_engines.py --out /tmp/engine-bench.json --markdown /tmp/engine-bench.md
+      - name: Engine benchmark summary
+        if: ${{ !cancelled() }}
+        run: |
+          if test -f /tmp/engine-bench.md; then
+            cat /tmp/engine-bench.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Engine benchmark produced no output (outcome: ${{ steps.engine-bench.outcome }})." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if test "${{ steps.engine-bench.outcome }}" != success; then
+            echo "::warning title=Engine benchmark::benchmarks/perf_engines.py ${{ steps.engine-bench.outcome }}; see the step log (test results are unaffected)"
+          fi
+          # one annotation when any single measurement failed (the step itself stays green)
+          python - <<'PYTHON'
+          import json
+          try:
+              errors = json.load(open("/tmp/engine-bench.json")).get("errors", [])
+          except (OSError, ValueError):
+              errors = []
+          if errors:
+              first = errors[0].replace("\n", " ").replace("%", "%25")[:300]
+              print(f"::warning title=Engine benchmark::{len(errors)} measurement(s) failed; first: {first}")
+          PYTHON
+      - name: Upload engine benchmark
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-bench
+          path: |
+            /tmp/engine-bench.json
+            /tmp/engine-bench.md
+          if-no-files-found: warn

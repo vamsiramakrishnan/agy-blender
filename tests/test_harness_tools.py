@@ -129,16 +129,29 @@ def Mesh "Quad"
     return path
 
 
-async def test_non_manifold_patch_rolled_back_byte_for_byte(env, tmp_path):
+def _open_sheet_patch(tmp_path):
+    quad = _open_quad_usda(tmp_path / "quad.usda")
+    return {"ops": [{"op": "upsert_node", "node": {"id": "sheet", "kind": "mesh_ref", "params": {"path": str(quad)},
+                                                   "transform": {"translate": [0, 0, 0]}}}]}
+
+
+async def test_open_mesh_patch_rolled_back_byte_for_byte_on_roblox(tmp_path):
+    """Roblox requires watertight meshes: an open sheet fails Tier-1 and the patch is rolled back (ENGINE_RULES)."""
+    env = make_session(tmp_path, budget=EngineBudget("roblox_r15"))
     await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
     before, stack = composed(env), list(env.state.tx_stack)
-    quad = _open_quad_usda(tmp_path / "quad.usda")
-    bad = {"ops": [{"op": "upsert_node", "node": {"id": "sheet", "kind": "mesh_ref", "params": {"path": str(quad)},
-                                                  "transform": {"translate": [0, 0, 0]}}}]}
-    r = check_line(await T.apply_scene_ir(json.dumps(bad), env.ctx), 1)
+    r = check_line(await T.apply_scene_ir(json.dumps(_open_sheet_patch(tmp_path)), env.ctx), 1)
     assert r.startswith("ROLLED BACK TIER1 FAIL") and "not_watertight" in r
     assert composed(env) == before
     assert env.state.tx_stack == stack == env.sess().stage.tx_stack
+    assert env.state.last_tier1_ok
+
+
+async def test_open_mesh_patch_is_accepted_with_a_warning_on_the_other_engines(env, tmp_path):
+    """Unreal, Unity and Godot draw open meshes (cards, planes): the same sheet is kept and the warning is in the reply."""
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    r = check_line(await T.apply_scene_ir(json.dumps(_open_sheet_patch(tmp_path)), env.ctx), 1)
+    assert r.startswith("OK tx=") and "warn: not_watertight@sheet" in r
     assert env.state.last_tier1_ok
 
 
@@ -246,7 +259,7 @@ async def test_export_refused_then_allowed_and_reloads(env, monkeypatch):
     # two boxes cannot get cheaper within any screen-space error budget: one level, no duplicate LOD files
     assert not list(out.glob("Crate_LOD*.glb")) and man["lod_tris"] == [24] and man["lod_screen_fractions"] == [1.0]
     assert man["budget"]["max_tris"] == 15000 and man["qa"]["tier1_ok"] and man["qa"]["tier15"] >= 3.4
-    assert man["schema_version"] == 1 and man["validation"]["package_ok"] and "pkg ok" in r
+    assert man["schema_version"] == 3 and man["validation"]["package_ok"] and "pkg ok" in r
     assert (out / "Crate.usdz").is_file() and man["usd"] == "Crate.usd"
     assert env.sess().stage.has_uvs()  # UVs are authored into the working stage by the export pipeline
     for m in (p for p in stage.Traverse() if p.GetName() in ("body", "lid")):
@@ -365,6 +378,21 @@ async def test_session_resolution_fallback_and_unbound(env):
     ctx.set_state(S.CTX_SESSION_KEY, env.sid)
     ctx.set_state(S.CTX_REGISTRY_KEY, env.reg)
     assert (await T.inspect_manifest(ctx)).startswith("# Crate")
+
+
+async def test_flush_faces_are_separated_in_the_same_transaction_as_the_edit(env):
+    """kernel/separate.py, as pass A runs it: an edit that leaves two parts with same-facing faces in one plane (a rib
+    crossing a panel of the same thickness) is applied together with the face moves, as one transaction."""
+    edit = {"ops": [box("base", (1.0, 1.0, 0.2), 0.1), box("panel", (0.4, 0.4, 0.01), 0.205), box("rib", (0.04, 0.6, 0.01), 0.205)]}
+    r = check_line(await T.apply_scene_ir(json.dumps(edit), env.ctx), 1)
+    # no material is bound, so nothing is known to be opaque: the bottoms on the base ship, and the rib is sunk 2 mm
+    # into the base as well as standing 2 mm proud of the panel
+    assert r.startswith("OK tx=") and "separate: moved 2 face(s) of 1 part(s) 2 mm apart" in r, r
+    assert "z_fighting" not in r
+    assert len(env.state.tx_stack) == 1 == len(env.sess().stage.tx_stack)
+    rib = next(n for n in env.sess().stage.base_ir().nodes if n.id == "rib")
+    assert np.isclose(rib.params["size"][2], 0.014) and np.isclose(rib.transform.translate[2], 0.205)
+    assert (await T.undo_last_edit(env.ctx)).startswith("UNDONE") and not env.sess().stage.base_ir().nodes  # one undo: both
 
 
 async def test_session_lock_serialises_concurrent_edits(env):

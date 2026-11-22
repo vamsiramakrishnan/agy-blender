@@ -142,3 +142,96 @@ def test_validate_package_requires_a_manifest(tmp_path):
     assert [i.code for i in validate_package(tmp_path)] == ["pkg:manifest_missing"]
     (tmp_path / "manifest.json").write_text("{nope")
     assert [i.code for i in validate_package(tmp_path)] == ["pkg:manifest_unreadable"]
+
+
+# --- engine hull limits, Roblox per-mesh cap, power-of-two textures, scale plausibility ---------------------------
+
+
+def _ball_package(tmp_path, engine: str, capped: bool):
+    from dataclasses import replace as dc_replace
+
+    from antigravity3d.ir import NodeIR, SceneIR
+    from antigravity3d.kernel.fast_ops import generate_colliders, run_export_pipeline
+    from antigravity3d.kernel.package import write_engine_package
+    from antigravity3d.kernel.usd_stage import StageManager
+
+    sm = StageManager.create(tmp_path / f"{engine}{capped}.usda", "Ball")
+    sm.apply_ir(SceneIR(asset_name="Ball", nodes=[NodeIR(id="ball", kind="sphere", params={"radius": 0.5, "segments": 64, "rings": 32})]))
+    budget = EngineBudget(engine)
+    bundle = run_export_pipeline(sm.extract_meshes(), budget, "Ball")
+    if not capped:  # what a caller that passes no limit would ship
+        bundle = dc_replace(bundle, colliders=generate_colliders(sm.extract_meshes(), budget.max_collision_hulls, asset_name="Ball"))
+    return write_engine_package(sm, bundle, budget, tmp_path / f"pkg_{engine}_{capped}", asset_name="Ball")
+
+
+def test_package_validator_fails_a_hull_over_the_engine_limit_in_usd_and_glb(tmp_path):
+    from antigravity3d.kernel.validator import validate_package
+
+    for engine in ("godot_4", "unity_urp"):
+        bad = _ball_package(tmp_path, engine, capped=False)
+        issues = [i for i in validate_package(bad.out_dir) if i.code == "pkg:collider_limit"]
+        assert {i.severity for i in issues} == {"critical"} and len(issues) == 2, issues  # the USD prim and the GLB node
+        assert any("Ball_colliders.glb" in i.detail for i in issues)
+        assf = [i for i in bad.issues if i.code == f"{engine}:hull_limit"]
+        assert assf and assf[0].severity == "critical" and not bad.ok
+        good = _ball_package(tmp_path, engine, capped=True)
+        assert good.ok and validate_package(good.out_dir) == []
+        assert "capped to the engine's hull limit" in good.data["collider_sources"][0]["reason"]
+    # Roblox reads no collision hulls: an uncapped hull is not a failure there
+    rb = _ball_package(tmp_path, "roblox_r15", capped=False)
+    assert not [i for i in validate_package(rb.out_dir) if i.code == "pkg:collider_limit"]
+
+
+def test_hull_limit_counts_what_each_engine_counts():
+    from antigravity3d.kernel.validator import hull_limit_issue
+
+    from antigravity3d.kernel.fast_ops import _hull
+
+    a = np.arange(128) * 2 * np.pi / 128
+    ring = np.c_[0.3 * np.cos(a), 0.3 * np.sin(a)]
+    p, t, _ = _hull(np.vstack([np.c_[ring, np.zeros(128)], np.c_[ring, np.ones(128)]]))  # 256 vertices, 508 triangles, 130 faces
+    assert "508 triangles > 255" in hull_limit_issue("unity_urp", p, t)
+    assert "256 vertices > 255" in hull_limit_issue("unreal_5", p, t) and "planar faces" not in hull_limit_issue("unreal_5", p, t)
+    assert hull_limit_issue("godot_4", p, t) == ""              # 256 points: Jolt's maximum
+    assert hull_limit_issue("roblox_r15", p, t) == ""
+
+
+def test_roblox_mesh_cap_is_the_documented_20000():
+    tm = trimesh.creation.icosphere(4, 1.0)  # 5120 tris
+    big = trimesh.util.concatenate([tm.copy().apply_translation([3 * i, 0, 0]) for i in range(3)])  # 15,360 triangles
+    m = MeshData("Big", "/Asset/Big", np.array(big.vertices), np.array(big.faces, np.int32), "m")
+    assert ENGINE_RULES["roblox_r15"].max_tris_per_mesh == 20_000
+    iss = check_engine_compliance(mk_stage(up="Y", names=("Big",)), [m], EngineBudget("roblox_r15", max_tris=50_000))
+    assert "mesh_tri_cap" not in codes(iss)
+
+
+def test_power_of_two_texture_warnings_follow_each_engine(tmp_path):
+    from PIL import Image
+
+    img = tmp_path / "t.png"
+    Image.new("RGB", (1000, 512)).save(img)
+    st = mk_stage(up="Y")
+    UsdShade.Material.Define(st, "/Asset/Mat")
+    sh = UsdShade.Shader.Define(st, "/Asset/Mat/Tex")
+    sh.CreateIdAttr("UsdUVTexture")
+    sh.CreateInput("file", Sdf.ValueTypeNames.Asset).Set(Sdf.AssetPath(str(img)))
+    for engine, warned in (("unreal_5", True), ("unity_urp", True), ("godot_4", False), ("roblox_r15", False)):
+        iss = check_engine_compliance(st, [md("Crate")], EngineBudget(engine))
+        assert ("texture_npot" in codes(iss, "warning")) is warned, engine
+        assert "texture_npot" not in codes(iss, "critical")
+
+
+def test_implausible_scale_is_a_warning_with_the_unit_readings():
+    from antigravity3d.kernel.validator import scale_issue
+
+    crate = trimesh.creation.box((80, 80, 70))  # an 80 cm crate written in centimetres, read as metres
+    m = MeshData("crate", "/Asset/crate", np.array(crate.vertices), np.array(crate.faces, np.int32), "m")
+    why = scale_issue([m])
+    assert "80 m" in why and "centimetres read as metres: 0.8 m" in why and "Not rescaled" in why
+    iss = [i for i in check_engine_compliance(None, [m], EngineBudget("unreal_5")) if i.code.endswith("implausible_scale")]
+    assert len(iss) == 1 and iss[0].severity == "warning"
+    tiny = MeshData("t", "/t", np.array(crate.vertices) * 1e-4, np.array(crate.faces, np.int32), "m")
+    assert "below 0.01 m" in scale_issue([tiny]) and "x100" in scale_issue([tiny])
+    for size in ((0.8, 0.7, 0.9), (2.0, 0.24, 3.4), (12.0, 12.0, 6.0)):  # crate, doorway, a large environment piece
+        box = trimesh.creation.box(size)
+        assert scale_issue([MeshData("b", "/b", np.array(box.vertices), np.array(box.faces, np.int32), "m")]) == ""

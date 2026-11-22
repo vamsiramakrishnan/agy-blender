@@ -1,0 +1,5563 @@
+{
+ "machine": {
+  "cpu_model": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+  "logical_cpus": 4,
+  "ram_gb": 15.7,
+  "os": "Linux 6.18.44-fc-v726",
+  "python": "3.13.18",
+  "git_commit": "14814fdb2a3d1ce14b97923865441727b246d42d",
+  "git_dirty_tracked_files": 0,
+  "versions": {
+   "antigravity-3d": "0.2.0",
+   "usd-core": "26.11",
+   "trimesh": "5.2.1",
+   "xatlas": "0.0.11",
+   "meshoptimizer": "0.2.30a0",
+   "coacd": "1.0.14",
+   "numpy": "2.5.5",
+   "scipy": "1.18.1",
+   "pillow": "13.0.0"
+  },
+  "thread_pinning": "pinned_to_1",
+  "thread_env": {
+   "OMP_NUM_THREADS": "1",
+   "OPENBLAS_NUM_THREADS": "1",
+   "MKL_NUM_THREADS": "1",
+   "PXR_WORK_THREAD_LIMIT": "1"
+  },
+  "timestamp_utc": "2026-11-20T05:41:53Z",
+  "quick": false,
+  "loadavg_at_start": [
+   1.15,
+   1.38,
+   1.54
+  ],
+  "offline": {
+   "GEMINI_API_KEY_set": false,
+   "AGY3D_OFFLINE": "1"
+  },
+  "loadavg_at_end": [
+   1.51,
+   1.46,
+   1.4
+  ]
+ },
+ "quick": false,
+ "benchmarks": {
+  "kernel.edit.patch": {
+   "includes": "StageManager.apply_patch of a one-node SetTransform: base_ir read, patch apply + validation, USD authoring into a new transaction layer.",
+   "excludes": "Building the stage, JSON parsing, mesh extraction, Tier-1 QA, and the rollback that restores the base (untimed teardown).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3
+     },
+     "n": 2000,
+     "median_ms": 0.4983,
+     "p95_ms": 0.9534,
+     "min_ms": 0.3351,
+     "max_ms": 2.8256,
+     "mean_ms": 0.5747,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3
+     },
+     "n": 2000,
+     "median_ms": 0.9016,
+     "p95_ms": 1.4225,
+     "min_ms": 0.7665,
+     "max_ms": 2.5069,
+     "mean_ms": 0.9667,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3
+     },
+     "n": 1462,
+     "median_ms": 1.7735,
+     "p95_ms": 2.7286,
+     "min_ms": 1.3254,
+     "max_ms": 4.5466,
+     "mean_ms": 1.878,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3
+     },
+     "n": 371,
+     "median_ms": 6.8862,
+     "p95_ms": 9.8168,
+     "min_ms": 5.6322,
+     "max_ms": 51.9409,
+     "mean_ms": 7.8591,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    }
+   ],
+   "bench_wall_s": 10.04
+  },
+  "kernel.edit.patch_qa": {
+   "includes": "apply_patch (one-node SetTransform) + StageManager.extract_meshes + tier1_qa, back to back.",
+   "excludes": "JSON parsing, harness state/QA persistence, rollback of the edit (untimed).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3
+     },
+     "n": 1085,
+     "median_ms": 2.4523,
+     "p95_ms": 3.5226,
+     "min_ms": 2.2166,
+     "max_ms": 4.7532,
+     "mean_ms": 2.5534,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99,
+      "parts_median_ms": {
+       "patch": 0.6866,
+       "extract_meshes": 0.5783,
+       "tier1_qa": 1.1917
+      }
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3
+     },
+     "n": 397,
+     "median_ms": 6.905,
+     "p95_ms": 10.949,
+     "min_ms": 5.2651,
+     "max_ms": 14.2764,
+     "mean_ms": 7.3239,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98,
+      "parts_median_ms": {
+       "patch": 1.1635,
+       "extract_meshes": 1.5742,
+       "tier1_qa": 4.0805
+      }
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3
+     },
+     "n": 160,
+     "median_ms": 17.0946,
+     "p95_ms": 28.1309,
+     "min_ms": 11.5494,
+     "max_ms": 37.1302,
+     "mean_ms": 18.5067,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99,
+      "parts_median_ms": {
+       "patch": 2.1041,
+       "extract_meshes": 3.909,
+       "tier1_qa": 10.6275
+      }
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3
+     },
+     "n": 44,
+     "median_ms": 64.8074,
+     "p95_ms": 90.7132,
+     "min_ms": 54.6036,
+     "max_ms": 96.4622,
+     "mean_ms": 68.1615,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99,
+      "parts_median_ms": {
+       "patch": 7.557,
+       "extract_meshes": 15.3482,
+       "tier1_qa": 41.145
+      }
+     }
+    }
+   ],
+   "bench_wall_s": 12.7
+  },
+  "harness.edit.apply_scene_ir": {
+   "includes": "T.apply_scene_ir end to end for an accepted one-node SetTransform: JSON parse, transaction, extract_meshes + Tier-1 (in a worker thread), state/QA persistence to disk, session lock, event-loop hop.",
+   "excludes": "Session open, initial scene load, the undo that restores the base (untimed), MCP framing, any model call.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3
+     },
+     "n": 253,
+     "median_ms": 5.3075,
+     "p95_ms": 6.7121,
+     "min_ms": 4.2498,
+     "max_ms": 27.1287,
+     "mean_ms": 5.5587,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.8
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3
+     },
+     "n": 128,
+     "median_ms": 11.4317,
+     "p95_ms": 15.1033,
+     "min_ms": 8.9051,
+     "max_ms": 20.325,
+     "mean_ms": 11.7169,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.89
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3
+     },
+     "n": 68,
+     "median_ms": 21.8107,
+     "p95_ms": 27.8564,
+     "min_ms": 16.7765,
+     "max_ms": 39.9123,
+     "mean_ms": 22.3255,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.92
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3
+     },
+     "n": 21,
+     "median_ms": 70.0874,
+     "p95_ms": 95.7331,
+     "min_ms": 62.6818,
+     "max_ms": 96.8672,
+     "mean_ms": 74.2753,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.96
+     }
+    }
+   ],
+   "bench_wall_s": 14.05
+  },
+  "harness.edit.rejected_rollback": {
+   "includes": "T.apply_scene_ir given an edit that fails Tier-1 critically (adds an open, non-watertight quad via mesh_ref): transaction, extract_meshes + Tier-1, automatic rollback, state sync. Returns 'ROLLED BACK ...'.",
+   "excludes": "Session open and scene load. Includes the cost of the Tier-1 pass that detects the failure, so it is the whole rejected-edit turn, not the rollback alone (see kernel.rollback.raw).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3
+     },
+     "n": 570,
+     "median_ms": 5.2218,
+     "p95_ms": 6.3729,
+     "min_ms": 3.8236,
+     "max_ms": 19.3587,
+     "mean_ms": 5.2598,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.97
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3
+     },
+     "n": 281,
+     "median_ms": 10.696,
+     "p95_ms": 13.3808,
+     "min_ms": 8.2417,
+     "max_ms": 14.7806,
+     "mean_ms": 10.6795,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3
+     },
+     "n": 138,
+     "median_ms": 21.7023,
+     "p95_ms": 27.2225,
+     "min_ms": 17.3362,
+     "max_ms": 35.5334,
+     "mean_ms": 21.7981,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3
+     },
+     "n": 39,
+     "median_ms": 79.139,
+     "p95_ms": 96.1076,
+     "min_ms": 63.6297,
+     "max_ms": 105.9385,
+     "mean_ms": 78.7922,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98
+     }
+    }
+   ],
+   "bench_wall_s": 13.12
+  },
+  "kernel.rollback.raw": {
+   "includes": "StageManager.rollback() of one pending one-node edit. Case discard=true is the path used for rejected edits (empties the layer in the same change block); discard=false is the path undo_last_edit uses. With include_next_read=true the timed region also contains the first extract_meshes() after the rollback.",
+   "excludes": "The edit that creates the pending transaction (untimed setup); Tier-1 QA.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": false
+     },
+     "n": 2000,
+     "median_ms": 0.133,
+     "p95_ms": 0.2346,
+     "min_ms": 0.0552,
+     "max_ms": 0.6506,
+     "mean_ms": 0.1436,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3,
+      "discard": false,
+      "include_next_read": false
+     },
+     "n": 2000,
+     "median_ms": 0.2873,
+     "p95_ms": 0.4874,
+     "min_ms": 0.2075,
+     "max_ms": 31.5666,
+     "mean_ms": 0.332,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.97
+     }
+    },
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": true
+     },
+     "n": 1950,
+     "median_ms": 0.7087,
+     "p95_ms": 1.0864,
+     "min_ms": 0.5171,
+     "max_ms": 6.3,
+     "mean_ms": 0.7615,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": false
+     },
+     "n": 2000,
+     "median_ms": 0.1371,
+     "p95_ms": 0.223,
+     "min_ms": 0.094,
+     "max_ms": 1.031,
+     "mean_ms": 0.1498,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3,
+      "discard": false,
+      "include_next_read": false
+     },
+     "n": 1782,
+     "median_ms": 0.4445,
+     "p95_ms": 0.6833,
+     "min_ms": 0.3459,
+     "max_ms": 1.5667,
+     "mean_ms": 0.4783,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": true
+     },
+     "n": 975,
+     "median_ms": 1.6798,
+     "p95_ms": 2.8612,
+     "min_ms": 1.4056,
+     "max_ms": 3.1559,
+     "mean_ms": 1.8597,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": false
+     },
+     "n": 1451,
+     "median_ms": 0.1494,
+     "p95_ms": 0.2452,
+     "min_ms": 0.1183,
+     "max_ms": 0.4692,
+     "mean_ms": 0.1646,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3,
+      "discard": false,
+      "include_next_read": false
+     },
+     "n": 1115,
+     "median_ms": 0.6761,
+     "p95_ms": 0.9644,
+     "min_ms": 0.5353,
+     "max_ms": 8.795,
+     "mean_ms": 0.7141,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": true
+     },
+     "n": 488,
+     "median_ms": 3.9104,
+     "p95_ms": 5.6072,
+     "min_ms": 3.3092,
+     "max_ms": 7.5655,
+     "mean_ms": 4.0925,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": false
+     },
+     "n": 411,
+     "median_ms": 0.2012,
+     "p95_ms": 0.3018,
+     "min_ms": 0.1613,
+     "max_ms": 0.6588,
+     "mean_ms": 0.218,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3,
+      "discard": false,
+      "include_next_read": false
+     },
+     "n": 297,
+     "median_ms": 1.9393,
+     "p95_ms": 3.0265,
+     "min_ms": 1.6544,
+     "max_ms": 4.1578,
+     "mean_ms": 2.0969,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3,
+      "discard": true,
+      "include_next_read": true
+     },
+     "n": 131,
+     "median_ms": 14.3743,
+     "p95_ms": 22.0666,
+     "min_ms": 11.8736,
+     "max_ms": 25.5992,
+     "mean_ms": 15.6533,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    }
+   ],
+   "bench_wall_s": 34.78
+  },
+  "harness.edit.undo": {
+   "includes": "T.undo_last_edit: lock, rollback of the top transaction, state invalidation, extract_meshes + Tier-1 re-run, QA persistence.",
+   "excludes": "The accepted edit that creates the transaction to undo (untimed setup).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3
+     },
+     "n": 245,
+     "median_ms": 6.3548,
+     "p95_ms": 8.2478,
+     "min_ms": 4.5499,
+     "max_ms": 20.5171,
+     "mean_ms": 6.5869,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.8
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3
+     },
+     "n": 125,
+     "median_ms": 12.2613,
+     "p95_ms": 15.6572,
+     "min_ms": 8.9427,
+     "max_ms": 22.7608,
+     "mean_ms": 12.2302,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.87
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3
+     },
+     "n": 69,
+     "median_ms": 21.4592,
+     "p95_ms": 26.5672,
+     "min_ms": 17.6645,
+     "max_ms": 32.1384,
+     "mean_ms": 21.663,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.92
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3
+     },
+     "n": 21,
+     "median_ms": 66.2406,
+     "p95_ms": 82.043,
+     "min_ms": 59.0481,
+     "max_ms": 100.1316,
+     "mean_ms": 68.9397,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.97
+     }
+    }
+   ],
+   "bench_wall_s": 13.25
+  },
+  "harness.edit.to_pixels": {
+   "includes": "One agent turn of the edit loop: T.apply_scene_ir (accepted one-node edit) followed by T.render_preview (4-view clay contact sheet, 256 px per view, wireframe on = the tool defaults, PNG save, fake upload, preview bookkeeping).",
+   "excludes": "The undo that restores the base (untimed), visual QA, any model call.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3,
+      "preview_px_per_view": 256,
+      "wireframe": true
+     },
+     "n": 61,
+     "median_ms": 41.1307,
+     "p95_ms": 50.878,
+     "min_ms": 32.4383,
+     "max_ms": 53.1482,
+     "mean_ms": 42.4062,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.93,
+      "parts_median_ms": {
+       "edit": 6.0318,
+       "render_preview": 34.9945
+      }
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3,
+      "preview_px_per_view": 256,
+      "wireframe": true
+     },
+     "n": 40,
+     "median_ms": 61.4491,
+     "p95_ms": 72.4485,
+     "min_ms": 51.8461,
+     "max_ms": 75.576,
+     "mean_ms": 62.1858,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.95,
+      "parts_median_ms": {
+       "edit": 11.9822,
+       "render_preview": 49.3006
+      }
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3,
+      "preview_px_per_view": 256,
+      "wireframe": true
+     },
+     "n": 25,
+     "median_ms": 100.3751,
+     "p95_ms": 118.5308,
+     "min_ms": 88.8529,
+     "max_ms": 126.259,
+     "mean_ms": 101.8859,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.97,
+      "parts_median_ms": {
+       "edit": 20.7134,
+       "render_preview": 79.424
+      }
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3,
+      "preview_px_per_view": 256,
+      "wireframe": true
+     },
+     "n": 7,
+     "median_ms": 353.8414,
+     "p95_ms": null,
+     "min_ms": 325.5417,
+     "max_ms": 400.0486,
+     "mean_ms": 361.5467,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98,
+      "parts_median_ms": {
+       "edit": 82.4751,
+       "render_preview": 281.8001
+      }
+     }
+    }
+   ],
+   "bench_wall_s": 14.28
+  },
+  "harness.qa.visual_overhead": {
+   "includes": "T.run_visual_qa against FakeDecisionsClient with a current preview: approval revocation + QA persistence, request construction, the fake client call (validation + canned answers), score composition, audit-delta, state write. Tool-side overhead only.",
+   "excludes": "Model/API latency (none is incurred), rendering the preview (rendered once, untimed, before the loop). The fake client's own share is reported in extra.fake_client_ms_median.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3
+     },
+     "n": 503,
+     "median_ms": 5.8925,
+     "p95_ms": 8.0753,
+     "min_ms": 3.564,
+     "max_ms": 16.5374,
+     "mean_ms": 5.9648,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.51,
+      "fake_client_ms_median": 0.2653,
+      "fake_client_calls_total": 505
+     }
+    },
+    {
+     "params": {
+      "nodes": 20,
+      "tris": 1876,
+      "materials": 3
+     },
+     "n": 467,
+     "median_ms": 6.1713,
+     "p95_ms": 9.1462,
+     "min_ms": 4.0825,
+     "max_ms": 21.5772,
+     "mean_ms": 6.4258,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.48,
+      "fake_client_ms_median": 0.2585,
+      "fake_client_calls_total": 469
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3
+     },
+     "n": 477,
+     "median_ms": 5.971,
+     "p95_ms": 8.7485,
+     "min_ms": 3.9888,
+     "max_ms": 21.276,
+     "mean_ms": 6.2851,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.48,
+      "fake_client_ms_median": 0.251,
+      "fake_client_calls_total": 479
+     }
+    },
+    {
+     "params": {
+      "nodes": 200,
+      "tris": 19876,
+      "materials": 3
+     },
+     "n": 481,
+     "median_ms": 6.0222,
+     "p95_ms": 8.561,
+     "min_ms": 3.3551,
+     "max_ms": 29.0292,
+     "mean_ms": 6.2393,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.5,
+      "fake_client_ms_median": 0.2641,
+      "fake_client_calls_total": 483
+     }
+    }
+   ],
+   "bench_wall_s": 13.56
+  },
+  "kernel.raster.contact_sheet": {
+   "includes": "kernel.raster.contact_sheet: 4 views (front, right, top, persp), wireframe overlay on, label + border drawing, sheet assembly (PIL image returned).",
+   "excludes": "Mesh extraction from USD, PNG encoding/saving, upload. Scenes are 12 spheres on a 4x3 grid (triangle count is the closest to the target the sphere segment count allows).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "tris": 960,
+      "meshes": 12,
+      "px_per_view": 256,
+      "views": 4,
+      "wireframe": true
+     },
+     "n": 53,
+     "median_ms": 53.7498,
+     "p95_ms": 73.7986,
+     "min_ms": 49.7298,
+     "max_ms": 82.212,
+     "mean_ms": 56.5475,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98
+     }
+    },
+    {
+     "params": {
+      "tris": 960,
+      "meshes": 12,
+      "px_per_view": 512,
+      "views": 4,
+      "wireframe": true
+     },
+     "n": 15,
+     "median_ms": 208.5087,
+     "p95_ms": null,
+     "min_ms": 192.5652,
+     "max_ms": 251.4005,
+     "mean_ms": 211.6097,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "tris": 5280,
+      "meshes": 12,
+      "px_per_view": 256,
+      "views": 4,
+      "wireframe": true
+     },
+     "n": 26,
+     "median_ms": 112.803,
+     "p95_ms": 138.3973,
+     "min_ms": 101.752,
+     "max_ms": 140.5855,
+     "mean_ms": 116.2874,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "tris": 5280,
+      "meshes": 12,
+      "px_per_view": 512,
+      "views": 4,
+      "wireframe": true
+     },
+     "n": 11,
+     "median_ms": 277.5965,
+     "p95_ms": null,
+     "min_ms": 262.8346,
+     "max_ms": 304.4096,
+     "mean_ms": 279.4737,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "tris": 20160,
+      "meshes": 12,
+      "px_per_view": 256,
+      "views": 4,
+      "wireframe": true
+     },
+     "n": 11,
+     "median_ms": 272.8815,
+     "p95_ms": null,
+     "min_ms": 250.5763,
+     "max_ms": 344.5565,
+     "mean_ms": 282.6554,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "tris": 20160,
+      "meshes": 12,
+      "px_per_view": 512,
+      "views": 4,
+      "wireframe": true
+     },
+     "n": 6,
+     "median_ms": 519.9736,
+     "p95_ms": null,
+     "min_ms": 498.23,
+     "max_ms": 550.1469,
+     "mean_ms": 519.8266,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    }
+   ],
+   "bench_wall_s": 24.28
+  },
+  "kernel.som.marked_sheet": {
+   "includes": "kernel.som.marked_contact_sheet: 4 views rendered with render_buffers, set-of-mark badge placement per view, labels, sheet assembly.",
+   "excludes": "Mesh extraction, PNG encoding, any model call that would consume the marked sheet.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "tris": 960,
+      "meshes": 12,
+      "px_per_view": 256,
+      "views": 4
+     },
+     "n": 21,
+     "median_ms": 143.7733,
+     "p95_ms": 176.255,
+     "min_ms": 128.7316,
+     "max_ms": 207.5282,
+     "mean_ms": 148.1554,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "tris": 5280,
+      "meshes": 12,
+      "px_per_view": 256,
+      "views": 4
+     },
+     "n": 19,
+     "median_ms": 158.4584,
+     "p95_ms": null,
+     "min_ms": 147.1807,
+     "max_ms": 236.6896,
+     "mean_ms": 163.741,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    },
+    {
+     "params": {
+      "tris": 20160,
+      "meshes": 12,
+      "px_per_view": 256,
+      "views": 4
+     },
+     "n": 14,
+     "median_ms": 211.0549,
+     "p95_ms": null,
+     "min_ms": 199.6881,
+     "max_ms": 313.4735,
+     "mean_ms": 221.6513,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    }
+   ],
+   "bench_wall_s": 12.4
+  },
+  "kernel.uv.unwrap": {
+   "includes": "fast_ops.unwrap_uvs (xatlas unwrap + pack + stretch statistics) at 1024 px/m and the default 2048 atlas resolution.",
+   "excludes": "Writing UVs to USD, LOD generation. Convex spheres and one concave U prism.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "mesh": "sphere_500",
+      "tris": 448,
+      "verts": 226,
+      "texel_density_px_per_m": 1024.0,
+      "resolution": 2048
+     },
+     "n": 12,
+     "median_ms": 262.8016,
+     "p95_ms": null,
+     "min_ms": 241.4014,
+     "max_ms": 328.3596,
+     "mean_ms": 267.065,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.03
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_2000",
+      "tris": 1920,
+      "verts": 962,
+      "texel_density_px_per_m": 1024.0,
+      "resolution": 2048
+     },
+     "n": 8,
+     "median_ms": 377.5612,
+     "p95_ms": null,
+     "min_ms": 354.3609,
+     "max_ms": 393.8495,
+     "mean_ms": 376.4451,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.14
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_10000",
+      "tris": 10080,
+      "verts": 5042,
+      "texel_density_px_per_m": 1024.0,
+      "resolution": 2048
+     },
+     "n": 5,
+     "median_ms": 1308.8562,
+     "p95_ms": null,
+     "min_ms": 1261.261,
+     "max_ms": 1392.2086,
+     "mean_ms": 1327.5933,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.14
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_50000",
+      "tris": 49920,
+      "verts": 24962,
+      "texel_density_px_per_m": 1024.0,
+      "resolution": 2048
+     },
+     "n": 3,
+     "median_ms": 16472.1692,
+     "p95_ms": null,
+     "min_ms": 16460.8021,
+     "max_ms": 17453.914,
+     "mean_ms": 16795.6284,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.05
+     }
+    },
+    {
+     "params": {
+      "mesh": "u_shape_concave",
+      "tris": 1964,
+      "verts": 984,
+      "texel_density_px_per_m": 1024.0,
+      "resolution": 2048
+     },
+     "n": 19,
+     "median_ms": 163.4376,
+     "p95_ms": null,
+     "min_ms": 159.2762,
+     "max_ms": 167.3764,
+     "mean_ms": 163.8097,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.01
+     }
+    }
+   ],
+   "bench_wall_s": 110.71
+  },
+  "kernel.lod.generate": {
+   "includes": "fast_ops.generate_lods with default ratios (1.0, 0.5, 0.25, 0.1): meshoptimizer simplify + cache/overdraw/fetch optimisation per level. with_uvs=true is the pipeline's call (seam-split points + UVs from unwrap, attribute-aware simplify); with_uvs=false is the weld-first path.",
+   "excludes": "UV unwrap (done once, untimed, for the with_uvs cases), writing LODs anywhere.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "mesh": "sphere_500",
+      "tris": 448,
+      "verts": 226,
+      "with_uvs": true
+     },
+     "n": 2000,
+     "median_ms": 0.7178,
+     "p95_ms": 1.1153,
+     "min_ms": 0.6327,
+     "max_ms": 5.2132,
+     "mean_ms": 0.7988,
+     "extra": {
+      "lod_tris": [
+       448,
+       224,
+       112,
+       44
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_500",
+      "tris": 448,
+      "verts": 226,
+      "with_uvs": false
+     },
+     "n": 2000,
+     "median_ms": 0.6141,
+     "p95_ms": 0.9115,
+     "min_ms": 0.5541,
+     "max_ms": 1.4682,
+     "mean_ms": 0.6534,
+     "extra": {
+      "lod_tris": [
+       448,
+       224,
+       112,
+       44
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_2000",
+      "tris": 1920,
+      "verts": 962,
+      "with_uvs": true
+     },
+     "n": 1114,
+     "median_ms": 2.5263,
+     "p95_ms": 3.7028,
+     "min_ms": 2.2466,
+     "max_ms": 8.3141,
+     "mean_ms": 2.6873,
+     "extra": {
+      "lod_tris": [
+       1920,
+       960,
+       480,
+       192
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_2000",
+      "tris": 1920,
+      "verts": 962,
+      "with_uvs": false
+     },
+     "n": 1510,
+     "median_ms": 1.8814,
+     "p95_ms": 2.7543,
+     "min_ms": 1.4855,
+     "max_ms": 3.6307,
+     "mean_ms": 1.9824,
+     "extra": {
+      "lod_tris": [
+       1920,
+       960,
+       480,
+       192
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_10000",
+      "tris": 10080,
+      "verts": 5042,
+      "with_uvs": true
+     },
+     "n": 215,
+     "median_ms": 13.5723,
+     "p95_ms": 18.2466,
+     "min_ms": 12.2703,
+     "max_ms": 20.4064,
+     "mean_ms": 13.9439,
+     "extra": {
+      "lod_tris": [
+       10080,
+       5040,
+       2520,
+       1008
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_10000",
+      "tris": 10080,
+      "verts": 5042,
+      "with_uvs": false
+     },
+     "n": 293,
+     "median_ms": 9.6207,
+     "p95_ms": 14.0519,
+     "min_ms": 7.4968,
+     "max_ms": 17.3968,
+     "mean_ms": 10.259,
+     "extra": {
+      "lod_tris": [
+       10080,
+       5040,
+       2520,
+       1008
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_50000",
+      "tris": 49920,
+      "verts": 24962,
+      "with_uvs": true
+     },
+     "n": 30,
+     "median_ms": 98.3893,
+     "p95_ms": 128.5872,
+     "min_ms": 82.667,
+     "max_ms": 129.5327,
+     "mean_ms": 101.9643,
+     "extra": {
+      "lod_tris": [
+       49920,
+       24960,
+       12480,
+       4992
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_50000",
+      "tris": 49920,
+      "verts": 24962,
+      "with_uvs": false
+     },
+     "n": 44,
+     "median_ms": 63.3595,
+     "p95_ms": 99.0906,
+     "min_ms": 60.9847,
+     "max_ms": 102.7024,
+     "mean_ms": 69.3215,
+     "extra": {
+      "lod_tris": [
+       49920,
+       24960,
+       12480,
+       4992
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "mesh": "u_shape_concave",
+      "tris": 1964,
+      "verts": 984,
+      "with_uvs": true
+     },
+     "n": 840,
+     "median_ms": 3.2909,
+     "p95_ms": 4.9928,
+     "min_ms": 2.8143,
+     "max_ms": 6.6406,
+     "mean_ms": 3.5644,
+     "extra": {
+      "lod_tris": [
+       1964,
+       982,
+       490,
+       196
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "mesh": "u_shape_concave",
+      "tris": 1964,
+      "verts": 984,
+      "with_uvs": false
+     },
+     "n": 1362,
+     "median_ms": 2.0661,
+     "p95_ms": 2.9456,
+     "min_ms": 1.6631,
+     "max_ms": 4.1129,
+     "mean_ms": 2.198,
+     "extra": {
+      "lod_tris": [
+       1964,
+       982,
+       490,
+       196
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    }
+   ],
+   "bench_wall_s": 48.69
+  },
+  "kernel.collider.convex": {
+   "includes": "fast_ops.generate_colliders (max_hulls=8) on convex closed meshes: topology check, scipy ConvexHull, the 'fast_path' (CoACD is not invoked).",
+   "excludes": "Hull authoring into USD/GLB. Only the convex spheres are run here; the concave mesh is kernel.collider.concave.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "mesh": "sphere_500",
+      "tris": 448,
+      "verts": 226
+     },
+     "n": 1560,
+     "median_ms": 1.7732,
+     "p95_ms": 2.6225,
+     "min_ms": 1.5469,
+     "max_ms": 4.8202,
+     "mean_ms": 1.9195,
+     "extra": {
+      "hulls": 1,
+      "sources": [
+       "fast_path"
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_2000",
+      "tris": 1920,
+      "verts": 962
+     },
+     "n": 481,
+     "median_ms": 6.1182,
+     "p95_ms": 7.1485,
+     "min_ms": 5.2678,
+     "max_ms": 10.257,
+     "mean_ms": 6.2389,
+     "extra": {
+      "hulls": 1,
+      "sources": [
+       "fast_path"
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_10000",
+      "tris": 10080,
+      "verts": 5042
+     },
+     "n": 74,
+     "median_ms": 39.5059,
+     "p95_ms": 51.5329,
+     "min_ms": 35.2859,
+     "max_ms": 57.7209,
+     "mean_ms": 40.7998,
+     "extra": {
+      "hulls": 1,
+      "sources": [
+       "fast_path"
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    },
+    {
+     "params": {
+      "mesh": "sphere_50000",
+      "tris": 49920,
+      "verts": 24962
+     },
+     "n": 12,
+     "median_ms": 250.6393,
+     "p95_ms": null,
+     "min_ms": 222.0985,
+     "max_ms": 317.8717,
+     "mean_ms": 254.4268,
+     "extra": {
+      "hulls": 1,
+      "sources": [
+       "fast_path"
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    }
+   ],
+   "bench_wall_s": 13.31
+  },
+  "kernel.collider.concave": {
+   "includes": "fast_ops.generate_colliders (max_hulls=8) on a concave U-shaped prism: topology check, CoACD decomposition (threshold 0.05, the package's settings), per-part hull.",
+   "excludes": "Hull authoring. CoACD may use threads that OMP_NUM_THREADS does not cap; extra.process_cpu_over_wall shows whether it did.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "mesh": "u_shape_concave",
+      "tris": 1964,
+      "verts": 984
+     },
+     "n": 7,
+     "median_ms": 454.2286,
+     "p95_ms": null,
+     "min_ms": 367.8401,
+     "max_ms": 480.9847,
+     "mean_ms": 434.7391,
+     "extra": {
+      "hulls": 3,
+      "sources": [
+       "coacd"
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98
+     }
+    }
+   ],
+   "bench_wall_s": 4.47
+  },
+  "kernel.export.pipeline": {
+   "includes": "fast_ops.run_export_pipeline: unwrap_scene (xatlas, one atlas per material) + generate_lods per mesh + generate_colliders. This is the 'UV + LOD + collider outside Blender' figure.",
+   "excludes": "Package writing/validation, USD authoring, mesh extraction (meshes are prepared untimed). Per-stage medians from ExportBundle.timings_ms are in extra.parts_median_ms.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "subject": "sphere_500",
+      "mesh": "sphere_500",
+      "tris": 448,
+      "verts": 226,
+      "parts": 1
+     },
+     "n": 12,
+     "median_ms": 260.7835,
+     "p95_ms": null,
+     "min_ms": 249.1889,
+     "max_ms": 283.9347,
+     "mean_ms": 262.9775,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.02,
+      "parts_median_ms": {
+       "uv": 257.55,
+       "lod": 1.08,
+       "colliders": 2.16,
+       "total": 260.765
+      }
+     }
+    },
+    {
+     "params": {
+      "subject": "sphere_2000",
+      "mesh": "sphere_2000",
+      "tris": 1920,
+      "verts": 962,
+      "parts": 1
+     },
+     "n": 8,
+     "median_ms": 373.3026,
+     "p95_ms": null,
+     "min_ms": 364.0145,
+     "max_ms": 451.149,
+     "mean_ms": 387.8906,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.1,
+      "parts_median_ms": {
+       "uv": 363.005,
+       "lod": 2.795,
+       "colliders": 6.645,
+       "total": 373.28
+      }
+     }
+    },
+    {
+     "params": {
+      "subject": "sphere_10000",
+      "mesh": "sphere_10000",
+      "tris": 10080,
+      "verts": 5042,
+      "parts": 1
+     },
+     "n": 5,
+     "median_ms": 1471.9218,
+     "p95_ms": null,
+     "min_ms": 1352.2987,
+     "max_ms": 1740.4348,
+     "mean_ms": 1490.1015,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.28,
+      "parts_median_ms": {
+       "uv": 1391.95,
+       "lod": 14.12,
+       "colliders": 40.69,
+       "total": 1471.89
+      }
+     }
+    },
+    {
+     "params": {
+      "subject": "sphere_50000",
+      "mesh": "sphere_50000",
+      "tris": 49920,
+      "verts": 24962,
+      "parts": 1
+     },
+     "n": 3,
+     "median_ms": 17407.223,
+     "p95_ms": null,
+     "min_ms": 17062.6834,
+     "max_ms": 17577.2112,
+     "mean_ms": 17349.0392,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.05,
+      "parts_median_ms": {
+       "uv": 17047.15,
+       "lod": 93.35,
+       "colliders": 269.15,
+       "total": 17407.2
+      }
+     }
+    },
+    {
+     "params": {
+      "subject": "u_shape_concave",
+      "mesh": "u_shape_concave",
+      "tris": 1964,
+      "verts": 984,
+      "parts": 1
+     },
+     "n": 5,
+     "median_ms": 618.6779,
+     "p95_ms": null,
+     "min_ms": 581.1871,
+     "max_ms": 663.2719,
+     "mean_ms": 620.7563,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99,
+      "parts_median_ms": {
+       "uv": 173.88,
+       "lod": 3.71,
+       "colliders": 440.84,
+       "total": 618.66
+      }
+     }
+    },
+    {
+     "params": {
+      "subject": "crate (TemplateAuthor)",
+      "tris": 144,
+      "parts": 12,
+      "materials": 2
+     },
+     "n": 13,
+     "median_ms": 238.6988,
+     "p95_ms": null,
+     "min_ms": 223.5772,
+     "max_ms": 251.1044,
+     "mean_ms": 237.7742,
+     "extra": {
+      "design_doc_target_ms": 250,
+      "hulls": 8,
+      "hull_sources": [
+       "fast_path",
+       "merged"
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0,
+      "parts_median_ms": {
+       "uv": 231.31,
+       "lod": 2.92,
+       "colliders": 4.96,
+       "total": 238.68
+      }
+     }
+    },
+    {
+     "params": {
+      "subject": "barrel (TemplateAuthor)",
+      "tris": 320,
+      "parts": 4,
+      "materials": 2
+     },
+     "n": 11,
+     "median_ms": 281.7076,
+     "p95_ms": null,
+     "min_ms": 275.2464,
+     "max_ms": 327.6134,
+     "mean_ms": 285.2951,
+     "extra": {
+      "design_doc_target_ms": 250,
+      "hulls": 4,
+      "hull_sources": [
+       "fast_path"
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0,
+      "parts_median_ms": {
+       "uv": 275.31,
+       "lod": 1.52,
+       "colliders": 2.83,
+       "total": 281.69
+      }
+     }
+    }
+   ],
+   "bench_wall_s": 117.17
+  },
+  "kernel.qa.tier1": {
+   "includes": "fast_ops.tier1_qa on the crate and barrel meshes (topology, budgets, grounding, pairwise AABB/contact checks).",
+   "excludes": "Mesh extraction from USD (meshes prepared untimed).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "subject": "crate",
+      "tris": 144,
+      "parts": 12
+     },
+     "n": 1331,
+     "median_ms": 1.9949,
+     "p95_ms": 3.2152,
+     "min_ms": 1.8611,
+     "max_ms": 14.7727,
+     "mean_ms": 2.2522,
+     "extra": {
+      "tier1_ok": true,
+      "issues": [],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "subject": "barrel",
+      "tris": 320,
+      "parts": 4
+     },
+     "n": 498,
+     "median_ms": 5.6784,
+     "p95_ms": 8.0196,
+     "min_ms": 4.9123,
+     "max_ms": 11.1485,
+     "mean_ms": 6.0273,
+     "extra": {
+      "tier1_ok": true,
+      "issues": [
+       "interpenetration"
+      ],
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    }
+   ],
+   "bench_wall_s": 6.19
+  },
+  "kernel.validate.usd": {
+   "includes": "Three separate checks on the written package USD of the crate/barrel: validate_usd(stage) (all registered UsdValidation validators), check_engine_compliance(stage, meshes, budget) (unreal_5 rules, texture size/convention, hulls), and validate_usd(path) which also opens the file.",
+   "excludes": "Writing the package. The stage is the package's own USD (LOD variants, colliders, textured materials).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "subject": "crate",
+      "tris": 144,
+      "check": "validate_usd(stage)"
+     },
+     "n": 1243,
+     "median_ms": 2.2537,
+     "p95_ms": 3.3962,
+     "min_ms": 2.0653,
+     "max_ms": 4.6465,
+     "mean_ms": 2.4102,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    },
+    {
+     "params": {
+      "subject": "crate",
+      "tris": 144,
+      "check": "check_engine_compliance(stage)"
+     },
+     "n": 2000,
+     "median_ms": 0.5903,
+     "p95_ms": 0.8016,
+     "min_ms": 0.5027,
+     "max_ms": 3.1027,
+     "mean_ms": 0.619,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    },
+    {
+     "params": {
+      "subject": "crate",
+      "tris": 144,
+      "check": "validate_usd(path) incl. open"
+     },
+     "n": 922,
+     "median_ms": 3.1065,
+     "p95_ms": 4.2387,
+     "min_ms": 2.6989,
+     "max_ms": 10.5055,
+     "mean_ms": 3.2508,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "subject": "barrel",
+      "tris": 320,
+      "check": "validate_usd(stage)"
+     },
+     "n": 1766,
+     "median_ms": 1.451,
+     "p95_ms": 2.5889,
+     "min_ms": 1.2142,
+     "max_ms": 8.4442,
+     "mean_ms": 1.6952,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98
+     }
+    },
+    {
+     "params": {
+      "subject": "barrel",
+      "tris": 320,
+      "check": "check_engine_compliance(stage)"
+     },
+     "n": 2000,
+     "median_ms": 0.4573,
+     "p95_ms": 0.8085,
+     "min_ms": 0.3673,
+     "max_ms": 3.4562,
+     "mean_ms": 0.5092,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.97
+     }
+    },
+    {
+     "params": {
+      "subject": "barrel",
+      "tris": 320,
+      "check": "validate_usd(path) incl. open"
+     },
+     "n": 1669,
+     "median_ms": 1.7472,
+     "p95_ms": 2.046,
+     "min_ms": 1.5236,
+     "max_ms": 6.3136,
+     "mean_ms": 1.7939,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    }
+   ],
+   "bench_wall_s": 17.67
+  },
+  "kernel.package.write": {
+   "includes": "kernel.package.write_engine_package on a fresh stage: UV authoring, textures copied/converted (unreal_5 DirectX normal flip), USD + USDZ + GLB LODs + collider GLB, inspector HTML, hashing, and the function's built-in validation (UsdValidation, engine compliance, cold package validation).",
+   "excludes": "Stage creation (untimed setup), the UV/LOD/collider bundle (computed once, untimed), deleting the package (untimed teardown). Texture inputs: textured=true gives every material 3 maps (albedo, ORM, normal) from FakeImageBackend + derive_pbr at 256 px (the size the offline pipeline produces); textured=false has no texture inputs, which skips texture copy/flip and the PNG encoding of textures into every GLB.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "subject": "crate",
+      "tris": 144,
+      "textured": false,
+      "texture_px": null,
+      "texture_files": 0
+     },
+     "n": 31,
+     "median_ms": 76.1235,
+     "p95_ms": 111.7682,
+     "min_ms": 67.0437,
+     "max_ms": 119.2384,
+     "mean_ms": 83.5278,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98
+     }
+    },
+    {
+     "params": {
+      "subject": "crate",
+      "tris": 144,
+      "textured": true,
+      "texture_px": 256,
+      "texture_files": 6
+     },
+     "n": 5,
+     "median_ms": 911.9322,
+     "p95_ms": null,
+     "min_ms": 884.9384,
+     "max_ms": 931.4088,
+     "mean_ms": 913.0533,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.98
+     }
+    },
+    {
+     "params": {
+      "subject": "barrel",
+      "tris": 320,
+      "textured": false,
+      "texture_px": null,
+      "texture_files": 0
+     },
+     "n": 61,
+     "median_ms": 39.9915,
+     "p95_ms": 51.6666,
+     "min_ms": 36.561,
+     "max_ms": 60.2413,
+     "mean_ms": 41.342,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.97
+     }
+    },
+    {
+     "params": {
+      "subject": "barrel",
+      "tris": 320,
+      "textured": true,
+      "texture_px": 256,
+      "texture_files": 6
+     },
+     "n": 5,
+     "median_ms": 883.0201,
+     "p95_ms": null,
+     "min_ms": 875.2535,
+     "max_ms": 917.8162,
+     "mean_ms": 892.5259,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    }
+   ],
+   "bench_wall_s": 19.31
+  },
+  "kernel.package.write_large_textures": {
+   "includes": "ONE SAMPLE, NO WARM-UP (too slow to repeat): the same write_engine_package call as kernel.package.write for the crate with 1024 px albedo/ORM/normal maps per material (384 px in --quick), to show how packaging time scales with texture size.",
+   "excludes": "Stage creation, bundle computation, texture generation (all untimed). A single sample is not a distribution: n=1, p95 null, and the first call also pays any first-use costs.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "subject": "crate",
+      "tris": 144,
+      "texture_px": 1024,
+      "texture_files": 6
+     },
+     "n": 1,
+     "median_ms": 13798.262,
+     "p95_ms": null,
+     "min_ms": 13798.262,
+     "max_ms": 13798.262,
+     "mean_ms": 13798.262,
+     "extra": {
+      "single_sample_no_warmup": true,
+      "package_bytes": 79666119,
+      "package_files": 16
+     }
+    }
+   ],
+   "bench_wall_s": 18.46
+  },
+  "kernel.package.validate_cold": {
+   "includes": "validators.validate_package on an already written package directory: manifest + hash check of every file, USD re-open, UV/texture/LOD/collider consistency checks, GLB material checks.",
+   "excludes": "Writing the package (once, untimed). Same textured packages as kernel.package.write.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "subject": "crate",
+      "tris": 144,
+      "files": 16,
+      "package_bytes": 5950276
+     },
+     "n": 143,
+     "median_ms": 20.8632,
+     "p95_ms": 23.5805,
+     "min_ms": 18.73,
+     "max_ms": 38.2723,
+     "mean_ms": 21.0333,
+     "extra": {
+      "critical_issues": 0,
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    },
+    {
+     "params": {
+      "subject": "barrel",
+      "tris": 320,
+      "files": 16,
+      "package_bytes": 5852401
+     },
+     "n": 195,
+     "median_ms": 15.2662,
+     "p95_ms": 16.6455,
+     "min_ms": 14.1748,
+     "max_ms": 18.0214,
+     "mean_ms": 15.4176,
+     "extra": {
+      "critical_issues": 0,
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    }
+   ],
+   "bench_wall_s": 6.28
+  },
+  "kernel.settle": {
+   "includes": "kernel.settle.settle: 10 movable props (boxes, cylinders, spheres; 3 stacked above others) dropped onto a static floor slab, iterating to convergence.",
+   "excludes": "Applying the resulting offsets as IR ops, mesh extraction. Meshes are built directly from compile_ir primitives.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "movable_props": 10,
+      "static_meshes": 1,
+      "tris": 924
+     },
+     "n": 343,
+     "median_ms": 8.0031,
+     "p95_ms": 11.5066,
+     "min_ms": 6.704,
+     "max_ms": 12.559,
+     "mean_ms": 8.7671,
+     "extra": {
+      "converged_all": true,
+      "total_iters": 20,
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    }
+   ],
+   "bench_wall_s": 3.13
+  },
+  "kernel.spatial.build": {
+   "includes": "Octree construction. constructor=SpatialIndex(meshes) takes world-space MeshData (per-mesh bounds + tree); constructor=from_bounds takes precomputed PrimInfo (what StageManager uses). constructor=stage_first_query is StageManager.query_region right after an edit, i.e. USD traversal + from_bounds + one query.",
+   "excludes": "Building the input mesh list / PrimInfo list (untimed). Boxes are 1 m cubes on a 1.5 m grid.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "boxes": 10000,
+      "constructor": "SpatialIndex(meshes)"
+     },
+     "n": 36,
+     "median_ms": 78.0127,
+     "p95_ms": 99.5495,
+     "min_ms": 69.9422,
+     "max_ms": 199.7587,
+     "mean_ms": 82.6127,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "boxes": 10000,
+      "constructor": "from_bounds"
+     },
+     "n": 54,
+     "median_ms": 51.0427,
+     "p95_ms": 71.8757,
+     "min_ms": 40.8999,
+     "max_ms": 137.1492,
+     "mean_ms": 54.3386,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    },
+    {
+     "params": {
+      "boxes": 200,
+      "constructor": "stage_first_query (StageManager.query_region after an edit)"
+     },
+     "n": 105,
+     "median_ms": 18.833,
+     "p95_ms": 31.7557,
+     "min_ms": 14.2767,
+     "max_ms": 46.4793,
+     "mean_ms": 20.6644,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    }
+   ],
+   "bench_wall_s": 10.22
+  },
+  "kernel.spatial.query_region": {
+   "includes": "SpatialIndex.query_region(...) + RegionResult.to_text(1200) on a prebuilt index, for a small, a medium and a whole-scene region; plus StageManager.query_region on a 200-node stage with the index already cached.",
+   "excludes": "Index construction.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "boxes": 10000,
+      "region": "small",
+      "region_half_width_m": 3.0
+     },
+     "n": 1938,
+     "median_ms": 1.4076,
+     "p95_ms": 2.4556,
+     "min_ms": 1.286,
+     "max_ms": 5.5841,
+     "mean_ms": 1.5469,
+     "extra": {
+      "result_kind": "prims",
+      "prims_in_region": 25,
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "boxes": 10000,
+      "region": "medium",
+      "region_half_width_m": 22.5
+     },
+     "n": 299,
+     "median_ms": 9.0614,
+     "p95_ms": 14.8998,
+     "min_ms": 8.1047,
+     "max_ms": 19.5844,
+     "mean_ms": 10.0414,
+     "extra": {
+      "result_kind": "cells",
+      "prims_in_region": 961,
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    },
+    {
+     "params": {
+      "boxes": 10000,
+      "region": "whole",
+      "region_half_width_m": 150.0
+     },
+     "n": 552,
+     "median_ms": 5.0206,
+     "p95_ms": 7.7865,
+     "min_ms": 4.4361,
+     "max_ms": 21.2776,
+     "mean_ms": 5.4404,
+     "extra": {
+      "result_kind": "cells",
+      "prims_in_region": 10000,
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99
+     }
+    },
+    {
+     "params": {
+      "boxes": 200,
+      "region": "6 m square, StageManager.query_region, index cached"
+     },
+     "n": 2000,
+     "median_ms": 0.2577,
+     "p95_ms": 0.465,
+     "min_ms": 0.2421,
+     "max_ms": 1.4285,
+     "mean_ms": 0.2923,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0
+     }
+    }
+   ],
+   "bench_wall_s": 10.4
+  },
+  "kernel.cache.hit": {
+   "includes": "tactics.cached.cached_export_pipeline on a populated LocalBlobStore: ir_subtree_key/node_key hashing, blob read, npz decode into an ExportBundle, hit accounting.",
+   "excludes": "The original compute. Local disk store only (no GCS tier). extra.miss_over_hit_median_ratio compares with kernel.cache.miss.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "subject": "crate",
+      "tris": 144,
+      "parts": 12
+     },
+     "n": 280,
+     "median_ms": 10.3499,
+     "p95_ms": 13.3828,
+     "min_ms": 9.3985,
+     "max_ms": 15.4212,
+     "mean_ms": 10.6802,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99,
+      "miss_over_hit_median_ratio": 25.3,
+      "miss_median_ms": 261.5046
+     }
+    },
+    {
+     "params": {
+      "subject": "barrel",
+      "tris": 320,
+      "parts": 4
+     },
+     "n": 751,
+     "median_ms": 3.8312,
+     "p95_ms": 4.8316,
+     "min_ms": 3.4186,
+     "max_ms": 8.5346,
+     "mean_ms": 3.9728,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0,
+      "miss_over_hit_median_ratio": 76.1,
+      "miss_median_ms": 291.6293
+     }
+    }
+   ],
+   "bench_wall_s": 14.52
+  },
+  "kernel.cache.miss": {
+   "includes": "cached_export_pipeline on an empty store (fresh directory per iteration): key hashing, run_export_pipeline, bundle npz encode, blob write, then decode of the returned bundle.",
+   "excludes": "Creating the empty store (untimed).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "subject": "crate",
+      "tris": 144,
+      "parts": 12
+     },
+     "n": 12,
+     "median_ms": 261.5046,
+     "p95_ms": null,
+     "min_ms": 238.8289,
+     "max_ms": 303.9894,
+     "mean_ms": 261.6956,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 0.99,
+      "miss_over_hit_median_ratio": 25.3,
+      "hit_median_ms": 10.3499
+     }
+    },
+    {
+     "params": {
+      "subject": "barrel",
+      "tris": 320,
+      "parts": 4
+     },
+     "n": 11,
+     "median_ms": 291.6293,
+     "p95_ms": null,
+     "min_ms": 272.7042,
+     "max_ms": 350.407,
+     "mean_ms": 295.1048,
+     "extra": {
+      "warmup_iters": 2,
+      "process_cpu_over_wall": 1.0,
+      "miss_over_hit_median_ratio": 76.1,
+      "hit_median_ms": 3.8312
+     }
+    }
+   ],
+   "bench_wall_s": 0.0
+  },
+  "ipc.blender_pool.fake": {
+   "includes": "STAND-IN ONLY, IPC OVERHEAD ONLY: BlenderPool(1, fake=True) (a CPython daemon, no bpy, no Blender). Case op=ping is one request/response over the socketpair; op=render_1024x1024x4_f32 requests a fake render and reads the 16.8 MB float32 image back through shared memory (the daemon synthesises the gradient with numpy: that cost is included).",
+   "excludes": "Everything about real Blender: start-up, scene import, rendering. These numbers say nothing about real render time. Pool start-up is excluded.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "op": "ping",
+      "workers": 1,
+      "fake": true
+     },
+     "n": 2000,
+     "median_ms": 0.0817,
+     "p95_ms": 0.1082,
+     "min_ms": 0.0679,
+     "max_ms": 0.9551,
+     "mean_ms": 0.0862,
+     "extra": {
+      "pool_start_ms_not_timed": 152.9835,
+      "warmup_iters": 2
+     }
+    },
+    {
+     "params": {
+      "op": "render_1024x1024x4_f32",
+      "payload_bytes": 16777216,
+      "workers": 1,
+      "fake": true
+     },
+     "n": 106,
+     "median_ms": 25.8984,
+     "p95_ms": 36.8693,
+     "min_ms": 21.6627,
+     "max_ms": 69.2892,
+     "mean_ms": 28.2866,
+     "extra": {
+      "warmup_iters": 2
+     }
+    }
+   ],
+   "bench_wall_s": 3.63
+  },
+  "mcp.roundtrip.apply_scene_ir": {
+   "includes": "tools/call apply_scene_ir (accepted one-node SetTransform) through the real MCP stdio server (python -m antigravity3d.runtime.mcp_server, offline) driven by the official mcp client: client framing, pipe I/O, server dispatch + session gate + the tool itself. extra.direct_median_ms is the same tool called in-process on an identical session (base scene applied as one open transaction, as over MCP); extra.mcp_overhead_ms = mcp median - direct median.",
+   "excludes": "Server start-up/handshake/open_asset_session (reported in extra, not in samples), the undo between iterations (untimed). The server is a separate process, so its CPU competes with the client on this 4-vCPU box.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "nodes": 5,
+      "tris": 376,
+      "materials": 3,
+      "transport": "mcp stdio, offline server"
+     },
+     "n": 189,
+     "median_ms": 7.3569,
+     "p95_ms": 9.3767,
+     "min_ms": 5.7139,
+     "max_ms": 26.5976,
+     "mean_ms": 7.6514,
+     "extra": {
+      "initialize_ms_not_timed": 1609.5922,
+      "open_session_and_scene_ms_not_timed": 460.9042,
+      "warmup_iters": 2,
+      "direct_median_ms": 5.9124,
+      "mcp_overhead_ms": 1.4445
+     }
+    },
+    {
+     "params": {
+      "nodes": 50,
+      "tris": 4876,
+      "materials": 3,
+      "transport": "mcp stdio, offline server"
+     },
+     "n": 59,
+     "median_ms": 22.1623,
+     "p95_ms": 28.0481,
+     "min_ms": 18.0523,
+     "max_ms": 30.7722,
+     "mean_ms": 22.7372,
+     "extra": {
+      "initialize_ms_not_timed": 1682.9144,
+      "open_session_and_scene_ms_not_timed": 487.0074,
+      "warmup_iters": 2,
+      "direct_median_ms": 22.0616,
+      "mcp_overhead_ms": 0.1007
+     }
+    }
+   ],
+   "bench_wall_s": 18.43
+  },
+  "pipeline.prop_to_engine.offline": {
+   "includes": "PropToEngineDAG.run wall time (in-process, same wiring as `agy3d prop --offline`, bare event-loop start included, unreal_5, max_rounds=4) per prompt x mode x cache state. cache=cold: fresh output dir; cache=warm: second run on the same dir/cache (route decision and image/PBR/export results reused); Per-node durations and fixture shares are in extra, with process CPU time (all threads) per run. For the fixture-free figure see pipeline.prop.replayed_images.",
+   "excludes": "Interpreter start (see cli.*), Blender, any real network wait. Fixture time (fake image synthesis in a worker thread, fake judge validation) IS inside the wall time. extra.wall_outside_fixture_spans_ms is wall minus the union of fixture spans; local work that runs concurrently inside a fixture span (geometry beside speculative PBR) is subtracted too, so it is only a lower bound on local work, not 'local compute'.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "prompt": "wooden crate with iron brackets",
+      "mode": "governed",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2322.0232,
+     "p95_ms": null,
+     "min_ms": 2320.5529,
+     "max_ms": 2490.1045,
+     "mean_ms": 2377.5602,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 5.5352,
+        "median_fixture_frac": 0.055,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0161,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 117.0272,
+        "median_fixture_frac": 0.874,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.6035,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 426.9702,
+        "median_fixture_frac": 0.4075,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 446.4695,
+        "median_fixture_frac": 0.3895,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1778.6755,
+        "median_fixture_frac": 0.0009,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 8.2866,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0093,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.2106,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 3224.1834,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 2060.953,
+      "fixture_union_ms_median": 262.7418,
+      "fixture_image_ms_median": 258.1544,
+      "fixture_judge_ms_median": 4.5874,
+      "fixture_image_sum_ms_median": 966.8989,
+      "decision_calls": [
+       8
+      ],
+      "image_generations": [
+       12
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        15
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden crate with iron brackets",
+      "mode": "governed",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1882.2258,
+     "p95_ms": null,
+     "min_ms": 1773.2425,
+     "max_ms": 2126.5027,
+     "mean_ms": 1927.3237,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.4565,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0112,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 18.7361,
+        "median_fixture_frac": 0.035,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 3.0178,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 309.8117,
+        "median_fixture_frac": 0.0281,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 220.4766,
+        "median_fixture_frac": 0.038,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1540.2489,
+        "median_fixture_frac": 0.0011,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 9.9149,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0079,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1705,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 2230.8042,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1871.1698,
+      "fixture_union_ms_median": 11.0559,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 11.0559,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        15,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden crate with iron brackets",
+      "mode": "single_candidate",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2111.1961,
+     "p95_ms": null,
+     "min_ms": 2023.9484,
+     "max_ms": 2187.7832,
+     "mean_ms": 2107.6426,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 7.0726,
+        "median_fixture_frac": 0.0492,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0192,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 90.5189,
+        "median_fixture_frac": 0.8684,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.8874,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 127.6801,
+        "median_fixture_frac": 0.3263,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 210.2653,
+        "median_fixture_frac": 0.2022,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1799.8232,
+        "median_fixture_frac": 0.0008,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 6.9183,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0074,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.129,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 2286.9905,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 2001.4998,
+      "fixture_union_ms_median": 125.8992,
+      "fixture_image_ms_median": 123.1397,
+      "fixture_judge_ms_median": 3.176,
+      "fixture_image_sum_ms_median": 157.2485,
+      "decision_calls": [
+       8
+      ],
+      "image_generations": [
+       3
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        6
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden crate with iron brackets",
+      "mode": "single_candidate",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1626.3801,
+     "p95_ms": null,
+     "min_ms": 1616.1953,
+     "max_ms": 1649.2916,
+     "mean_ms": 1630.6223,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.4423,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0159,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 7.3323,
+        "median_fixture_frac": 0.0405,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.6583,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 123.6171,
+        "median_fixture_frac": 0.0083,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 72.1456,
+        "median_fixture_frac": 0.0087,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1488.9118,
+        "median_fixture_frac": 0.0009,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 6.9572,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0065,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1241,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1681.7607,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1623.7749,
+      "fixture_union_ms_median": 2.6697,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 2.6697,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        6,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "rusty metal barrel",
+      "mode": "governed",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 3104.0791,
+     "p95_ms": null,
+     "min_ms": 3017.1728,
+     "max_ms": 3111.2334,
+     "mean_ms": 3077.4951,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 7.5723,
+        "median_fixture_frac": 0.0463,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0189,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 106.8496,
+        "median_fixture_frac": 0.8758,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.5208,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 554.6513,
+        "median_fixture_frac": 0.2475,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 450.8217,
+        "median_fixture_frac": 0.3041,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 2394.417,
+        "median_fixture_frac": 0.0007,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 6.5055,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0075,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.165,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 4176.3591,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 2842.1501,
+      "fixture_union_ms_median": 224.3229,
+      "fixture_image_ms_median": 219.6696,
+      "fixture_judge_ms_median": 4.6533,
+      "fixture_image_sum_ms_median": 817.9095,
+      "decision_calls": [
+       8
+      ],
+      "image_generations": [
+       12
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        15
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "rusty metal barrel",
+      "mode": "governed",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2127.5988,
+     "p95_ms": null,
+     "min_ms": 2085.4346,
+     "max_ms": 2136.103,
+     "mean_ms": 2116.3788,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.3932,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0105,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 19.5341,
+        "median_fixture_frac": 0.0438,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.9512,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 425.5013,
+        "median_fixture_frac": 0.0217,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 190.2479,
+        "median_fixture_frac": 0.0441,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1674.137,
+        "median_fixture_frac": 0.0009,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.9799,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.007,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.183,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 2721.7511,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 2116.8294,
+      "fixture_union_ms_median": 10.7694,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 10.7694,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        15,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "rusty metal barrel",
+      "mode": "single_candidate",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2767.4386,
+     "p95_ms": null,
+     "min_ms": 2744.2555,
+     "max_ms": 2907.237,
+     "mean_ms": 2806.3104,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 7.1253,
+        "median_fixture_frac": 0.0434,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0147,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 84.185,
+        "median_fixture_frac": 0.8827,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.2746,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 234.8538,
+        "median_fixture_frac": 0.1911,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 206.225,
+        "median_fixture_frac": 0.2196,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 2425.9612,
+        "median_fixture_frac": 0.0007,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.869,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0072,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.173,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 3037.0149,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 2638.4173,
+      "fixture_union_ms_median": 126.8635,
+      "fixture_image_ms_median": 123.7063,
+      "fixture_judge_ms_median": 3.3999,
+      "fixture_image_sum_ms_median": 170.2657,
+      "decision_calls": [
+       8
+      ],
+      "image_generations": [
+       3
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        6
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "rusty metal barrel",
+      "mode": "single_candidate",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1951.8451,
+     "p95_ms": null,
+     "min_ms": 1858.7673,
+     "max_ms": 2021.0971,
+     "mean_ms": 1943.9032,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.4694,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0111,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 9.1196,
+        "median_fixture_frac": 0.0382,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.8204,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 226.6105,
+        "median_fixture_frac": 0.0049,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 77.4845,
+        "median_fixture_frac": 0.0107,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1732.973,
+        "median_fixture_frac": 0.001,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.9621,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0068,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1487,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1994.2972,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1949.1172,
+      "fixture_union_ms_median": 3.2004,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 3.2004,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        6,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "oak dining table",
+      "mode": "governed",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1366.6032,
+     "p95_ms": null,
+     "min_ms": 1352.6993,
+     "max_ms": 1465.6417,
+     "mean_ms": 1394.9814,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 5.4866,
+        "median_fixture_frac": 0.0571,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0165,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 92.8109,
+        "median_fixture_frac": 0.8727,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.1077,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 236.1598,
+        "median_fixture_frac": 0.3527,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 308.5509,
+        "median_fixture_frac": 0.2683,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 951.5318,
+        "median_fixture_frac": 0.0016,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 6.1741,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0066,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1557,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1857.3541,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1197.7924,
+      "fixture_union_ms_median": 167.5333,
+      "fixture_image_ms_median": 163.2615,
+      "fixture_judge_ms_median": 3.8452,
+      "fixture_image_sum_ms_median": 501.8697,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       8
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        10
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "oak dining table",
+      "mode": "governed",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1086.5387,
+     "p95_ms": null,
+     "min_ms": 1077.9615,
+     "max_ms": 1094.127,
+     "mean_ms": 1086.2091,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.4668,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0124,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 18.5048,
+        "median_fixture_frac": 0.0341,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.8026,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 195.4821,
+        "median_fixture_frac": 0.0057,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 147.8875,
+        "median_fixture_frac": 0.004,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 866.1106,
+        "median_fixture_frac": 0.0018,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.6908,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0062,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1523,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1251.4461,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1083.4674,
+      "fixture_union_ms_median": 3.2734,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 3.2734,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       6
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        10,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "oak dining table",
+      "mode": "single_candidate",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1253.4092,
+     "p95_ms": null,
+     "min_ms": 1221.8138,
+     "max_ms": 1263.1917,
+     "mean_ms": 1246.1382,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 6.9141,
+        "median_fixture_frac": 0.045,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0169,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 79.5909,
+        "median_fixture_frac": 0.8559,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.9109,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 83.4085,
+        "median_fixture_frac": 0.436,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 185.5834,
+        "median_fixture_frac": 0.1959,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 974.438,
+        "median_fixture_frac": 0.0016,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.9442,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.007,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1295,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1270.9904,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1145.7385,
+      "fixture_union_ms_median": 107.6707,
+      "fixture_image_ms_median": 103.4752,
+      "fixture_judge_ms_median": 3.1536,
+      "fixture_image_sum_ms_median": 103.4752,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       2
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        4
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "oak dining table",
+      "mode": "single_candidate",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 968.9326,
+     "p95_ms": null,
+     "min_ms": 940.2745,
+     "max_ms": 984.7576,
+     "mean_ms": 964.6549,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.4672,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0123,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 7.615,
+        "median_fixture_frac": 0.0407,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.6668,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 86.1054,
+        "median_fixture_frac": 0.0078,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 85.9848,
+        "median_fixture_frac": 0.0078,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 867.4681,
+        "median_fixture_frac": 0.0028,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 4.6052,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0059,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1283,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 995.2018,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 966.5398,
+      "fixture_union_ms_median": 3.6044,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 3.6044,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       6
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        4,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "iron street lamp post",
+      "mode": "governed",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2011.6516,
+     "p95_ms": null,
+     "min_ms": 1963.1452,
+     "max_ms": 2066.1894,
+     "mean_ms": 2013.6621,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 6.6739,
+        "median_fixture_frac": 0.0434,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0202,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 118.9606,
+        "median_fixture_frac": 0.8843,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.1455,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 363.8068,
+        "median_fixture_frac": 0.4743,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 431.4081,
+        "median_fixture_frac": 0.3996,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1459.6805,
+        "median_fixture_frac": 0.001,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.28,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.006,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1285,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 2826.3653,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1746.0604,
+      "fixture_union_ms_median": 269.9825,
+      "fixture_image_ms_median": 265.7214,
+      "fixture_judge_ms_median": 4.6378,
+      "fixture_image_sum_ms_median": 1000.4235,
+      "decision_calls": [
+       8
+      ],
+      "image_generations": [
+       12
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        15
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": false,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "iron street lamp post",
+      "mode": "governed",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1684.2609,
+     "p95_ms": null,
+     "min_ms": 1666.4172,
+     "max_ms": 1700.1253,
+     "mean_ms": 1683.6012,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.4774,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0113,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 19.3269,
+        "median_fixture_frac": 0.0334,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.7679,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 259.3775,
+        "median_fixture_frac": 0.0105,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 190.4883,
+        "median_fixture_frac": 0.0105,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1408.6512,
+        "median_fixture_frac": 0.001,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.0311,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0058,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1418,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1944.827,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1679.5811,
+      "fixture_union_ms_median": 4.6798,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 4.6798,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        15,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": false,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "iron street lamp post",
+      "mode": "single_candidate",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1775.6119,
+     "p95_ms": null,
+     "min_ms": 1722.6744,
+     "max_ms": 1783.8927,
+     "mean_ms": 1760.7263,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 6.2141,
+        "median_fixture_frac": 0.0475,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0164,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 79.2443,
+        "median_fixture_frac": 0.8574,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.8816,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 124.4679,
+        "median_fixture_frac": 0.3241,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 176.9347,
+        "median_fixture_frac": 0.2499,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1506.0121,
+        "median_fixture_frac": 0.001,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 7.7547,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0078,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1669,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1950.043,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1665.6262,
+      "fixture_union_ms_median": 113.5502,
+      "fixture_image_ms_median": 110.574,
+      "fixture_judge_ms_median": 3.156,
+      "fixture_image_sum_ms_median": 143.7734,
+      "decision_calls": [
+       8
+      ],
+      "image_generations": [
+       3
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        6
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": false,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "iron street lamp post",
+      "mode": "single_candidate",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1506.3069,
+     "p95_ms": null,
+     "min_ms": 1468.731,
+     "max_ms": 1537.6769,
+     "mean_ms": 1504.2383,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.5584,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0166,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 9.7074,
+        "median_fixture_frac": 0.0428,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.8264,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 116.2309,
+        "median_fixture_frac": 0.0089,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 76.284,
+        "median_fixture_frac": 0.0098,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1351.8205,
+        "median_fixture_frac": 0.0011,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.63,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0075,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1445,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1531.2595,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1503.1643,
+      "fixture_union_ms_median": 3.1427,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 3.1427,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        6,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": false,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden storage shelf",
+      "mode": "governed",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1597.2696,
+     "p95_ms": null,
+     "min_ms": 1503.7091,
+     "max_ms": 1600.8395,
+     "mean_ms": 1567.2727,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 6.4271,
+        "median_fixture_frac": 0.0442,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0167,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 106.3859,
+        "median_fixture_frac": 0.8786,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.3457,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 274.8519,
+        "median_fixture_frac": 0.3819,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 334.9899,
+        "median_fixture_frac": 0.3191,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1123.3834,
+        "median_fixture_frac": 0.0013,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 7.0392,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0056,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1289,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 2119.2257,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1368.9297,
+      "fixture_union_ms_median": 216.9137,
+      "fixture_image_ms_median": 213.3599,
+      "fixture_judge_ms_median": 3.5539,
+      "fixture_image_sum_ms_median": 525.9073,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       8
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        10
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden storage shelf",
+      "mode": "governed",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1191.3338,
+     "p95_ms": null,
+     "min_ms": 1163.0639,
+     "max_ms": 1243.0081,
+     "mean_ms": 1199.1353,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.4722,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0121,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 18.4437,
+        "median_fixture_frac": 0.0331,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 2.0973,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 215.8704,
+        "median_fixture_frac": 0.0051,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 154.9093,
+        "median_fixture_frac": 0.0038,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 939.4308,
+        "median_fixture_frac": 0.0016,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 6.5431,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0069,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1524,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1393.4559,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1188.1081,
+      "fixture_union_ms_median": 3.2495,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 3.2495,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       6
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        10,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden storage shelf",
+      "mode": "single_candidate",
+      "cache": "cold",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1396.6682,
+     "p95_ms": null,
+     "min_ms": 1384.5618,
+     "max_ms": 1491.6457,
+     "mean_ms": 1424.2919,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 5.6033,
+        "median_fixture_frac": 0.0539,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0156,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 74.2876,
+        "median_fixture_frac": 0.8651,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.9352,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 109.4648,
+        "median_fixture_frac": 0.3772,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 193.4489,
+        "median_fixture_frac": 0.2095,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 1128.7109,
+        "median_fixture_frac": 0.0015,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 7.2158,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0077,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1666,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1431.3069,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1291.7983,
+      "fixture_union_ms_median": 104.8699,
+      "fixture_image_ms_median": 101.7336,
+      "fixture_judge_ms_median": 3.1363,
+      "fixture_image_sum_ms_median": 101.7336,
+      "decision_calls": [
+       7
+      ],
+      "image_generations": [
+       2
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        0,
+        4
+       ]
+      ],
+      "route_reused": [
+       false
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden storage shelf",
+      "mode": "single_candidate",
+      "cache": "warm",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1050.7288,
+     "p95_ms": null,
+     "min_ms": 1037.8842,
+     "max_ms": 1064.0965,
+     "mean_ms": 1050.9032,
+     "extra": {
+      "node_ms": {
+       "route": {
+        "median_duration_ms": 0.4343,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0111,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "skipped"
+        ]
+       },
+       "ortho": {
+        "median_duration_ms": 7.0913,
+        "median_fixture_frac": 0.0409,
+        "status": [
+         "ok"
+        ]
+       },
+       "propose": {
+        "median_duration_ms": 1.7639,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "geometry": {
+        "median_duration_ms": 91.0025,
+        "median_fixture_frac": 0.0061,
+        "status": [
+         "ok"
+        ]
+       },
+       "pbr": {
+        "median_duration_ms": 67.4539,
+        "median_fixture_frac": 0.0043,
+        "status": [
+         "ok"
+        ]
+       },
+       "pyramid": {
+        "median_duration_ms": 937.6857,
+        "median_fixture_frac": 0.0016,
+        "status": [
+         "ok"
+        ]
+       },
+       "package": {
+        "median_duration_ms": 5.3307,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "inspector": {
+        "median_duration_ms": 0.0055,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       },
+       "report": {
+        "median_duration_ms": 0.1306,
+        "median_fixture_frac": 0.0,
+        "status": [
+         "ok"
+        ]
+       }
+      },
+      "cpu_ms_median": 1056.4807,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1048.3391,
+      "fixture_union_ms_median": 2.3897,
+      "fixture_image_ms_median": 0.0,
+      "fixture_judge_ms_median": 2.3897,
+      "fixture_image_sum_ms_median": 0.0,
+      "decision_calls": [
+       6
+      ],
+      "image_generations": [
+       0
+      ],
+      "image_calls_replayed": [
+       0
+      ],
+      "cache_hits_misses": [
+       [
+        4,
+        0
+       ]
+      ],
+      "route_reused": [
+       true
+      ],
+      "dag_ok": true,
+      "preview_gates_ok": true,
+      "gates_ok_verified_publication": false,
+      "skipped_nodes": [
+       "style_anchor"
+      ],
+      "failed_nodes": [],
+      "tier15": [
+       3.6
+      ]
+     }
+    }
+   ],
+   "bench_wall_s": 160.31
+  },
+  "pipeline.prop.replayed_images": {
+   "includes": "HEADLINE fixture-free pipeline figure: PropToEngineDAG.run wall time with a fresh output dir and cache (cold) where FakeImageBackend returns, instantly, the bytes the cold run already generated, so no procedural image synthesis runs. Same prompts, modes and repeats as pipeline.prop_to_engine.offline. extra has process CPU time (all threads) for this run and for the cold run.",
+   "excludes": "Image synthesis (removed). Still included: the fake decisions client (request wire validation, canned answers) and the plane's own request/answer handling, route, USD staging and edits, Tier-1 QA, raster/contact sheets and set-of-mark sheets, UV/LOD/collider, packaging and validation, inspector, report writing, event-loop and thread hops, cache hashing and blob I/O. Interpreter start.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "prompt": "wooden crate with iron brackets",
+      "mode": "governed",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2184.1951,
+     "p95_ms": null,
+     "min_ms": 2106.1823,
+     "max_ms": 2335.4954,
+     "mean_ms": 2208.6243,
+     "extra": {
+      "cpu_ms_median_replayed": 2643.1442,
+      "cpu_ms_median_cold_with_fixture_images": 3224.1834,
+      "wall_ms_median_cold_with_fixture_images": 2322.0232,
+      "fake_judge_ms_median": 4.5151,
+      "image_calls_replayed": [
+       12
+      ],
+      "decision_calls": [
+       8
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden crate with iron brackets",
+      "mode": "single_candidate",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1928.4939,
+     "p95_ms": null,
+     "min_ms": 1909.971,
+     "max_ms": 1968.0714,
+     "mean_ms": 1935.5121,
+     "extra": {
+      "cpu_ms_median_replayed": 2096.2886,
+      "cpu_ms_median_cold_with_fixture_images": 2286.9905,
+      "wall_ms_median_cold_with_fixture_images": 2111.1961,
+      "fake_judge_ms_median": 3.1548,
+      "image_calls_replayed": [
+       3
+      ],
+      "decision_calls": [
+       8
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "rusty metal barrel",
+      "mode": "governed",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2910.3575,
+     "p95_ms": null,
+     "min_ms": 2662.0515,
+     "max_ms": 2952.2156,
+     "mean_ms": 2841.5416,
+     "extra": {
+      "cpu_ms_median_replayed": 3609.8085,
+      "cpu_ms_median_cold_with_fixture_images": 4176.3591,
+      "wall_ms_median_cold_with_fixture_images": 3104.0791,
+      "fake_judge_ms_median": 4.744,
+      "image_calls_replayed": [
+       12
+      ],
+      "decision_calls": [
+       8
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "rusty metal barrel",
+      "mode": "single_candidate",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 2651.7246,
+     "p95_ms": null,
+     "min_ms": 2642.8684,
+     "max_ms": 2652.2641,
+     "mean_ms": 2648.9524,
+     "extra": {
+      "cpu_ms_median_replayed": 2836.4439,
+      "cpu_ms_median_cold_with_fixture_images": 3037.0149,
+      "wall_ms_median_cold_with_fixture_images": 2767.4386,
+      "fake_judge_ms_median": 3.1099,
+      "image_calls_replayed": [
+       3
+      ],
+      "decision_calls": [
+       8
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "oak dining table",
+      "mode": "governed",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1206.2887,
+     "p95_ms": null,
+     "min_ms": 1171.2043,
+     "max_ms": 1251.1264,
+     "mean_ms": 1209.5398,
+     "extra": {
+      "cpu_ms_median_replayed": 1389.8532,
+      "cpu_ms_median_cold_with_fixture_images": 1857.3541,
+      "wall_ms_median_cold_with_fixture_images": 1366.6032,
+      "fake_judge_ms_median": 3.3403,
+      "image_calls_replayed": [
+       8
+      ],
+      "decision_calls": [
+       7
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "oak dining table",
+      "mode": "single_candidate",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1154.2086,
+     "p95_ms": null,
+     "min_ms": 1132.2667,
+     "max_ms": 1166.9743,
+     "mean_ms": 1151.1499,
+     "extra": {
+      "cpu_ms_median_replayed": 1170.3377,
+      "cpu_ms_median_cold_with_fixture_images": 1270.9904,
+      "wall_ms_median_cold_with_fixture_images": 1253.4092,
+      "fake_judge_ms_median": 2.8153,
+      "image_calls_replayed": [
+       2
+      ],
+      "decision_calls": [
+       7
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "iron street lamp post",
+      "mode": "governed",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1879.6131,
+     "p95_ms": null,
+     "min_ms": 1875.8668,
+     "max_ms": 1889.302,
+     "mean_ms": 1881.594,
+     "extra": {
+      "cpu_ms_median_replayed": 2266.2366,
+      "cpu_ms_median_cold_with_fixture_images": 2826.3653,
+      "wall_ms_median_cold_with_fixture_images": 2011.6516,
+      "fake_judge_ms_median": 4.6128,
+      "image_calls_replayed": [
+       12
+      ],
+      "decision_calls": [
+       8
+      ],
+      "preview_gates_ok": false,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "iron street lamp post",
+      "mode": "single_candidate",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1685.1,
+     "p95_ms": null,
+     "min_ms": 1660.058,
+     "max_ms": 1728.127,
+     "mean_ms": 1691.095,
+     "extra": {
+      "cpu_ms_median_replayed": 1799.8744,
+      "cpu_ms_median_cold_with_fixture_images": 1950.043,
+      "wall_ms_median_cold_with_fixture_images": 1775.6119,
+      "fake_judge_ms_median": 3.0021,
+      "image_calls_replayed": [
+       3
+      ],
+      "decision_calls": [
+       8
+      ],
+      "preview_gates_ok": false,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden storage shelf",
+      "mode": "governed",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1404.8911,
+     "p95_ms": null,
+     "min_ms": 1404.0257,
+     "max_ms": 1417.0505,
+     "mean_ms": 1408.6558,
+     "extra": {
+      "cpu_ms_median_replayed": 1666.131,
+      "cpu_ms_median_cold_with_fixture_images": 2119.2257,
+      "wall_ms_median_cold_with_fixture_images": 1597.2696,
+      "fake_judge_ms_median": 3.4464,
+      "image_calls_replayed": [
+       8
+      ],
+      "decision_calls": [
+       7
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    },
+    {
+     "params": {
+      "prompt": "wooden storage shelf",
+      "mode": "single_candidate",
+      "engine": "unreal_5",
+      "repeats": 3
+     },
+     "n": 3,
+     "median_ms": 1304.5861,
+     "p95_ms": null,
+     "min_ms": 1286.1122,
+     "max_ms": 1329.4914,
+     "mean_ms": 1306.7299,
+     "extra": {
+      "cpu_ms_median_replayed": 1340.6869,
+      "cpu_ms_median_cold_with_fixture_images": 1431.3069,
+      "wall_ms_median_cold_with_fixture_images": 1396.6682,
+      "fake_judge_ms_median": 2.6889,
+      "image_calls_replayed": [
+       2
+      ],
+      "decision_calls": [
+       7
+      ],
+      "preview_gates_ok": true,
+      "dag_ok": true
+     }
+    }
+   ],
+   "bench_wall_s": 0.0
+  },
+  "pipeline.prop_to_engine.node_classification": {
+   "includes": "Derived from the same runs as pipeline.prop_to_engine.offline (cold cache only): for each DAG node, the median share of its own duration during which a fixture call (fake image synthesis or fake judge) was in progress. A node is 'fixture-dominated' when that share is >= 0.5, otherwise 'local deterministic work'. The 'samples' are the per-run cold wall times.",
+   "excludes": "Warm runs. A node's wall duration overlaps other nodes (pbr runs beside geometry), so node durations do not sum to wall time. Shares assume node windows from DagReport and fixture spans use the same clock (they do, to within the event-loop start-up of Dag.run).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "mode": "governed",
+      "cache": "cold",
+      "runs": 15
+     },
+     "n": 15,
+     "median_ms": 2011.6516,
+     "p95_ms": null,
+     "min_ms": 1352.6993,
+     "max_ms": 3111.2334,
+     "mean_ms": 2086.1943,
+     "extra": {
+      "nodes": {
+       "route": {
+        "median_duration_ms": 6.4271,
+        "median_fixture_ms": 0.3043,
+        "median_fixture_frac": 0.0512,
+        "class": "local deterministic work"
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0167,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "ortho": {
+        "median_duration_ms": 106.8496,
+        "median_fixture_ms": 93.4705,
+        "median_fixture_frac": 0.8786,
+        "class": "fixture-dominated"
+       },
+       "propose": {
+        "median_duration_ms": 2.3457,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "geometry": {
+        "median_duration_ms": 363.8068,
+        "median_fixture_ms": 137.2567,
+        "median_fixture_frac": 0.364,
+        "class": "local deterministic work"
+       },
+       "pbr": {
+        "median_duration_ms": 412.0192,
+        "median_fixture_ms": 136.6161,
+        "median_fixture_frac": 0.3191,
+        "class": "local deterministic work"
+       },
+       "pyramid": {
+        "median_duration_ms": 1459.6805,
+        "median_fixture_ms": 1.5115,
+        "median_fixture_frac": 0.001,
+        "class": "local deterministic work"
+       },
+       "package": {
+        "median_duration_ms": 6.5055,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "inspector": {
+        "median_duration_ms": 0.007,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "report": {
+        "median_duration_ms": 0.144,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       }
+      },
+      "cpu_ms_median": 2826.3653,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1746.0604,
+      "fixture_union_ms_median": 228.3399,
+      "wall_ms_median": 2011.6516
+     }
+    },
+    {
+     "params": {
+      "mode": "single_candidate",
+      "cache": "cold",
+      "runs": 15
+     },
+     "n": 15,
+     "median_ms": 1775.6119,
+     "p95_ms": null,
+     "min_ms": 1221.8138,
+     "max_ms": 2907.237,
+     "mean_ms": 1869.0219,
+     "extra": {
+      "nodes": {
+       "route": {
+        "median_duration_ms": 6.7003,
+        "median_fixture_ms": 0.3067,
+        "median_fixture_frac": 0.0463,
+        "class": "local deterministic work"
+       },
+       "style_anchor": {
+        "median_duration_ms": 0.0169,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "ortho": {
+        "median_duration_ms": 79.5909,
+        "median_fixture_ms": 66.8028,
+        "median_fixture_frac": 0.8651,
+        "class": "fixture-dominated"
+       },
+       "propose": {
+        "median_duration_ms": 2.1273,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "geometry": {
+        "median_duration_ms": 123.5665,
+        "median_fixture_ms": 40.2848,
+        "median_fixture_frac": 0.3451,
+        "class": "local deterministic work"
+       },
+       "pbr": {
+        "median_duration_ms": 193.4489,
+        "median_fixture_ms": 40.2848,
+        "median_fixture_frac": 0.211,
+        "class": "local deterministic work"
+       },
+       "pyramid": {
+        "median_duration_ms": 1506.0121,
+        "median_fixture_ms": 1.562,
+        "median_fixture_frac": 0.001,
+        "class": "local deterministic work"
+       },
+       "package": {
+        "median_duration_ms": 7.2158,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "inspector": {
+        "median_duration_ms": 0.0073,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       },
+       "report": {
+        "median_duration_ms": 0.1524,
+        "median_fixture_ms": 0.0,
+        "median_fixture_frac": 0.0,
+        "class": "local deterministic work"
+       }
+      },
+      "cpu_ms_median": 1950.043,
+      "wall_outside_fixture_spans_ms_median_LOWER_BOUND_on_local_work": 1665.6262,
+      "fixture_union_ms_median": 109.6963,
+      "wall_ms_median": 1775.6119
+     }
+    }
+   ],
+   "bench_wall_s": 0.0
+  },
+  "cli.prop.offline": {
+   "includes": "Subprocess wall time of `agy3d prop \"wooden crate with iron brackets\" --offline --out DIR` (fresh DIR each run): console-script start, imports, the whole offline pipeline, report printing, process exit.",
+   "excludes": "Nothing in-process is subtracted: this is what a shell user waits for. Exit status 0 is required (preview gates passed).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "prompt": "wooden crate with iron brackets",
+      "engine": "unreal_5",
+      "runs": 3
+     },
+     "n": 3,
+     "median_ms": 4036.4876,
+     "p95_ms": null,
+     "min_ms": 3939.0657,
+     "max_ms": 4380.7537,
+     "mean_ms": 4118.769,
+     "extra": {
+      "first_run_ms": 4380.7537
+     }
+    }
+   ],
+   "bench_wall_s": 12.36
+  },
+  "cli.models": {
+   "includes": "Subprocess wall time of `agy3d models` (prints a static table): console-script start + CLI module imports + exit. A proxy for CLI cold start.",
+   "excludes": "Pipeline work. Not a warm number: each run is a new interpreter (OS file cache is warm after the first run, which is kept).",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "runs": 5
+     },
+     "n": 5,
+     "median_ms": 591.4183,
+     "p95_ms": null,
+     "min_ms": 553.2615,
+     "max_ms": 610.4861,
+     "mean_ms": 582.3956,
+     "extra": {}
+    }
+   ],
+   "bench_wall_s": 2.91
+  },
+  "import.usd_stage": {
+   "includes": "In a fresh interpreter: perf_counter around `import antigravity3d.kernel.usd_stage` only (pxr + numpy + package imports it pulls in), measured inside the child. extra.bare_interpreter_wall_ms is `python -c pass` subprocess wall time for reference.",
+   "excludes": "Interpreter start-up (reported separately). First-call lazy costs (UsdValidation registry load, etc.) are not included.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "module": "antigravity3d.kernel.usd_stage",
+      "runs": 5
+     },
+     "n": 5,
+     "median_ms": 311.5863,
+     "p95_ms": null,
+     "min_ms": 300.2749,
+     "max_ms": 339.4711,
+     "mean_ms": 317.2534,
+     "extra": {
+      "bare_interpreter_wall_ms": 17.2553
+     }
+    }
+   ],
+   "bench_wall_s": 2.02
+  },
+  "throughput.prop_offline": {
+   "includes": "K distinct offline prop runs (PropToEngineDAG, governed mode, unreal_5; prompt/author seed vary per job, each job has its own empty cache dir) executed by P spawned worker processes (ProcessPoolExecutor, spawn). One timed sample per P: wall time from submitting the K jobs to the last result.",
+   "excludes": "Worker start-up and module imports (workers are started and warmed first). This is the deterministic local portion with fixture images and fixture judges, not a live throughput figure: a live run waits on APIs and would overlap differently. 4 vCPUs only, so P=4 contends with the parent and anything else on the box.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "jobs_K": 12,
+      "worker_processes_P": 1,
+      "start_method": "spawn",
+      "threads_per_process": 1
+     },
+     "n": 1,
+     "median_ms": 25827.8409,
+     "p95_ms": null,
+     "min_ms": 25827.8409,
+     "max_ms": 25827.8409,
+     "mean_ms": 25827.8409,
+     "extra": {
+      "assets_per_hour": 1672.6137,
+      "speedup_vs_P1": 1.0,
+      "scaling_efficiency": 1.0,
+      "per_job_ms_median": 2207.623,
+      "distinct_worker_pids": 1,
+      "preview_gates_passed": 11,
+      "dag_ok_runs": 12,
+      "parent_cpu_count": 4,
+      "design_doc_claim": "120+ assets/hour on 8 workers (not comparable: 4 vCPUs, fixtures)"
+     }
+    },
+    {
+     "params": {
+      "jobs_K": 12,
+      "worker_processes_P": 2,
+      "start_method": "spawn",
+      "threads_per_process": 1
+     },
+     "n": 1,
+     "median_ms": 14383.5855,
+     "p95_ms": null,
+     "min_ms": 14383.5855,
+     "max_ms": 14383.5855,
+     "mean_ms": 14383.5855,
+     "extra": {
+      "assets_per_hour": 3003.4236,
+      "speedup_vs_P1": 1.7956,
+      "scaling_efficiency": 0.8978,
+      "per_job_ms_median": 2402.4682,
+      "distinct_worker_pids": 2,
+      "preview_gates_passed": 11,
+      "dag_ok_runs": 12,
+      "parent_cpu_count": 4,
+      "design_doc_claim": "120+ assets/hour on 8 workers (not comparable: 4 vCPUs, fixtures)"
+     }
+    },
+    {
+     "params": {
+      "jobs_K": 12,
+      "worker_processes_P": 4,
+      "start_method": "spawn",
+      "threads_per_process": 1
+     },
+     "n": 1,
+     "median_ms": 10259.6121,
+     "p95_ms": null,
+     "min_ms": 10259.6121,
+     "max_ms": 10259.6121,
+     "mean_ms": 10259.6121,
+     "extra": {
+      "assets_per_hour": 4210.6855,
+      "speedup_vs_P1": 2.5174,
+      "scaling_efficiency": 0.6294,
+      "per_job_ms_median": 2691.628,
+      "distinct_worker_pids": 4,
+      "preview_gates_passed": 11,
+      "dag_ok_runs": 12,
+      "parent_cpu_count": 4,
+      "design_doc_claim": "120+ assets/hour on 8 workers (not comparable: 4 vCPUs, fixtures)"
+     }
+    }
+   ],
+   "bench_wall_s": 56.44
+  },
+  "dag.batch_sanitize": {
+   "includes": "BatchSanitizeDAG.run over generated meshes (load, Tier-1 before, shape-preserving repair, Tier-1 after, UV+LOD+collider export pipeline, USD+GLB write, UsdValidation + engine compliance) with max_parallel=jobs, unreal_5 default budget. One timed sample per jobs value: wall time of the whole batch.",
+   "excludes": "Mesh generation (untimed). The DAG parallelises with asyncio.to_thread, i.e. threads in one process, not processes. Meshes above 15,000 triangles exceed the default unreal_5 tri budget and are reported 'needs_attention'; that is a property of the inputs, listed in extra.status_counts / extra.attention_reasons.",
+   "status": "ok",
+   "cases": [
+    {
+     "params": {
+      "meshes": 24,
+      "jobs": 1,
+      "engine": "unreal_5",
+      "max_tris": 15000
+     },
+     "n": 1,
+     "median_ms": 41291.8327,
+     "p95_ms": null,
+     "min_ms": 41291.8327,
+     "max_ms": 41291.8327,
+     "mean_ms": 41291.8327,
+     "extra": {
+      "meshes_per_minute": 34.8737,
+      "per_mesh_median_ms": 448.35,
+      "per_mesh_sum_of_stage_ms_note": "each mesh's own load+repair+export+validate stage times; overlap when jobs>1",
+      "gates_passed_ok_rows": 21,
+      "status_counts": {
+       "ok": 21,
+       "needs_attention": 3
+      },
+      "all_gates_ok": false,
+      "attention_reasons": {
+       "tri_budget": 3,
+       "unreal_5:tri_budget": 3
+      },
+      "input_tris_min_max": [
+       192,
+       28320
+      ]
+     }
+    },
+    {
+     "params": {
+      "meshes": 24,
+      "jobs": 2,
+      "engine": "unreal_5",
+      "max_tris": 15000
+     },
+     "n": 1,
+     "median_ms": 32824.5711,
+     "p95_ms": null,
+     "min_ms": 32824.5711,
+     "max_ms": 32824.5711,
+     "mean_ms": 32824.5711,
+     "extra": {
+      "meshes_per_minute": 43.8696,
+      "per_mesh_median_ms": 780.05,
+      "per_mesh_sum_of_stage_ms_note": "each mesh's own load+repair+export+validate stage times; overlap when jobs>1",
+      "gates_passed_ok_rows": 21,
+      "status_counts": {
+       "ok": 21,
+       "needs_attention": 3
+      },
+      "all_gates_ok": false,
+      "attention_reasons": {
+       "tri_budget": 3,
+       "unreal_5:tri_budget": 3
+      },
+      "input_tris_min_max": [
+       192,
+       28320
+      ]
+     }
+    },
+    {
+     "params": {
+      "meshes": 24,
+      "jobs": 4,
+      "engine": "unreal_5",
+      "max_tris": 15000
+     },
+     "n": 1,
+     "median_ms": 28365.37,
+     "p95_ms": null,
+     "min_ms": 28365.37,
+     "max_ms": 28365.37,
+     "mean_ms": 28365.37,
+     "extra": {
+      "meshes_per_minute": 50.7661,
+      "per_mesh_median_ms": 1910.8,
+      "per_mesh_sum_of_stage_ms_note": "each mesh's own load+repair+export+validate stage times; overlap when jobs>1",
+      "gates_passed_ok_rows": 21,
+      "status_counts": {
+       "ok": 21,
+       "needs_attention": 3
+      },
+      "all_gates_ok": false,
+      "attention_reasons": {
+       "tri_budget": 3,
+       "unreal_5:tri_budget": 3
+      },
+      "input_tris_min_max": [
+       192,
+       28320
+      ]
+     }
+    }
+   ],
+   "bench_wall_s": 103.38
+  }
+ },
+ "total_wall_s": 926.7
+}

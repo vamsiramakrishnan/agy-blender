@@ -2,13 +2,13 @@
 
 No LLM tokens, no Blender. Native backends actually used:
   * QA          : numpy (edge-table topology, winding-number interpenetration probe)
-  * UVs         : exact developable charts for IR primitives (unfolded here, packed by a skyline
-                  rectangle packer); xatlas charts + packing for imported meshes
+  * UVs         : exact developable charts for IR primitives (unfolded here); xatlas computes the charts
+                  of every other mesh; all charts are placed by the same skyline rectangle packer
   * LODs        : meshoptimizer (simplify / simplify_with_attributes in absolute-error mode, vertex
                   cache, overdraw, vertex fetch); levels from lod_diff's screen-space error budget,
                   each verified by an exact sampled surface distance and a silhouette check
   * colliders   : CoACD + scipy ConvexHull (fast path)
-  * glTF        : trimesh GLB export
+  * glTF        : kernel/gltf_writer.py (pygltflib structures, written here)
   * KTX2        : external ``ktx`` / ``toktx`` CLI only (never faked)
 
 FALLBACKS (see ``FALLBACKS``): trimesh's quadric simplifier needs the optional
@@ -20,10 +20,11 @@ library) rather than trimesh. Nothing else deviates from the intended library.
 from __future__ import annotations
 
 import logging
+import math
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from collections.abc import Mapping
 from typing import Literal, Sequence
@@ -74,6 +75,7 @@ class _Topo:
     degenerate: int
     duplicates: int
     volume: float
+    euler: int = 2      # vertices - edges + faces of the welded mesh: 2 per sphere-like body, so more than 2 means several bodies
 
     @property
     def closed(self) -> bool:
@@ -105,7 +107,8 @@ def _topology(points: np.ndarray, tris: np.ndarray) -> _Topo:
     else:
         inconsistent = 0
     vol = float(np.einsum("ij,ij->i", p[:, 0], np.cross(p[:, 1], p[:, 2])).sum() / 6.0)
-    return _Topo(boundary, nonmanifold, inconsistent, degenerate, duplicates, vol)
+    euler = int(np.count_nonzero(np.bincount(t.ravel(), minlength=n))) - len(ukey) + len(t)
+    return _Topo(boundary, nonmanifold, inconsistent, degenerate, duplicates, vol, euler)
 
 
 def _single_component(points: np.ndarray, tris: np.ndarray) -> bool:
@@ -182,8 +185,37 @@ def _candidate_pairs(lo: np.ndarray, hi: np.ndarray, eps: float):
             yield (i, j) if i < j else (j, i)
 
 
+# Same-facing faces of two parts closer than this to one plane, overlapping in area, fight in the depth buffer
+# (EL4CTEO/blender-skills qa_check.py uses 1 mm too). See kernel/coplanar.py for the exact overlap test.
+ZFIGHT_EPS = 0.001
+
+
+# Two parts touch when their surfaces come within this distance (EL4CTEO/blender-skills qa_check.py: 2 mm). Measured on
+# the saved authored stages (88 files, 15 distinct assets): every part that rests on another is within 0.1 micrometre
+# of it, except the 50 micrometre gaps of the prop templates' rounded sizes (fixed in tactics/authoring.py); no part
+# there has a surface gap between 0.1 mm and 5 cm. A gap of a couple of millimetres is visible at close range and
+# is where light leaks between parts, so it is the smallest value that is not noise. Must not exceed ``touch_eps``,
+# the box window the candidate pairs are swept with. Not handled: two curved parts that touch in their ideal shapes
+# and miss only by their facets (two 16-segment spheres of radius 0.1 m can be 3.8 mm apart at a contact off the
+# axes); none of the saved stages has one, so the tolerance does not add the parts' facet sag.
+TOUCH_TOL = 0.002
+
+
+def closed_meshes_required(budget: EngineBudget) -> bool:
+    """Whether an open (not watertight) authored mesh fails the asset on the target engine: the engine rule table's
+    ``closed_render_meshes`` (validator.ENGINE_RULES) unless the budget says otherwise (``require_manifold`` set).
+    An engine the table does not know is held to the stricter reading."""
+    if budget.require_manifold is not None:
+        return budget.require_manifold
+    from antigravity3d.kernel.validator import ENGINE_RULES
+
+    rules = ENGINE_RULES.get(budget.target_engine)
+    return True if rules is None else rules.closed_render_meshes
+
+
 def tier1_qa(
-    meshes: list[MeshData], budget: EngineBudget, ground_tol: float = 0.01, touch_eps: float = 0.005
+    meshes: list[MeshData], budget: EngineBudget, ground_tol: float = 0.01, touch_eps: float = 0.005,
+    zfight_eps: float = ZFIGHT_EPS, touch_tol: float = TOUCH_TOL,
 ) -> Tier1Report:
     t0 = time.perf_counter()
     issues: list[Issue] = []
@@ -191,8 +223,10 @@ def tier1_qa(
     def add(code: str, sev: Severity, node: str | None, detail: str) -> None:
         issues.append(Issue(code, sev, node, detail))
 
-    manifold_sev: Severity = "critical" if budget.require_manifold else "warning"
+    open_sev: Severity = "critical" if closed_meshes_required(budget) else "warning"  # an open mesh: per engine
+    manifold_sev: Severity = "warning" if budget.require_manifold is False else "critical"  # an edge of 3+ faces
     valid: list[tuple[MeshData, bool, np.ndarray, np.ndarray]] = []  # mesh, closed, lo, hi
+    volumes: list[float] = []
     total_tris = total_verts = 0
     for m in meshes:
         pts = np.asarray(m.points, dtype=np.float64)
@@ -216,12 +250,22 @@ def tier1_qa(
         if topo.nonmanifold:
             add("non_manifold", manifold_sev, m.node_id, f"{topo.nonmanifold} edges shared by >2 faces")
         if topo.boundary:
-            add("not_watertight", manifold_sev, m.node_id, f"{topo.boundary} boundary edges")
+            add("not_watertight", open_sev, m.node_id, f"{topo.boundary} boundary edges: an open mesh shows its hole from behind (faces seen from "
+                f"behind are culled) unless the material is double-sided; Roblox requires watertight meshes")
         if topo.inconsistent:
             add("inconsistent_winding", "critical", m.node_id, f"{topo.inconsistent} edges with flipped winding")
         elif topo.closed and topo.volume < -1e-12:
             add("inverted_normals", "critical", m.node_id, f"signed volume {topo.volume:.4g} < 0")
+        elif not topo.nonmanifold and (topo.euler != 2 or not topo.closed):
+            # one volume for several bodies hides an inside-out one among right-way-round ones; a sphere-like single
+            # body has Euler characteristic 2 (most parts: skipped here, no component search)
+            inside_out = _inverted_bodies(pts, tri, topo.closed)
+            if inside_out:
+                k, n_bodies, vol = inside_out[0]
+                add("inverted_normals", "critical", m.node_id,
+                    f"body {k + 1} of {n_bodies} has signed volume {vol:.4g} < 0 ({len(inside_out)} inside out)")
         valid.append((m, topo.closed and topo.volume > 0, pts.min(axis=0), pts.max(axis=0)))
+        volumes.append(topo.volume)
 
     draw_calls = len({m.material_id for m in meshes})
     if total_tris > budget.max_tris:
@@ -238,15 +282,56 @@ def tier1_qa(
         if abs(lo[2]) > ground_tol:
             kind = "floating" if lo[2] > 0 else "sunk below ground"
             add("ungrounded", "warning", None, f"min z {lo[2]:.4f} m ({kind}, tol {ground_tol})")
-        touched = np.zeros(len(valid), dtype=bool)
         bounds_lo, bounds_hi = np.asarray([v[2] for v in valid]), np.asarray([v[3] for v in valid])
+        # Union-find over the parts and the ground (index n): a part is supported when it is joined to the ground, by
+        # resting on it or through a chain of touching parts. A pair whose parts are already in one group is not tested.
+        n = len(valid)
+        parent = list(range(n + 1))
+
+        def find(x: int) -> int:
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        for i in np.flatnonzero(bounds_lo[:, 2] <= ground_tol):  # resting on the ground (or sunk)
+            parent[find(int(i))] = n
+        gap = _PartGap(valid, volumes, touch_tol)
+        near = []
         for i, j in _candidate_pairs(bounds_lo, bounds_hi, touch_eps):
-            touched[i] = touched[j] = True
             n_candidates += 1
+            near.append((i, j))
+            ri, rj = find(i), find(j)
+            if ri != rj and gap.touch(i, j):
+                parent[ri if ri != n else rj] = rj if ri != n else ri
             _check_pair(valid[i], valid[j], add)
-        if len(valid) > 1:
-            for i in np.flatnonzero(~touched & (bounds_lo[:, 2] > ground_tol)):
-                add("floating_part", "warning", valid[i][0].node_id, f"AABB touches nothing; min z {bounds_lo[i, 2]:.3f}")
+        if n > 1:
+            groups: dict[int, list[int]] = {}
+            for i in range(n):
+                groups.setdefault(find(i), []).append(i)
+            loose = [g for root, g in groups.items() if root != find(n)]
+            if find(n) == n and not any(find(i) == n for i in range(n)) and loose:
+                # nothing rests on the ground (a hanging asset): the group with the most surface is its body
+                loose.remove(max(loose, key=lambda g: sum(_surface_area(valid[i][0]) for i in g)))
+            for g in sorted(loose, key=lambda g: min(valid[i][0].node_id for i in g)):
+                names = sorted(valid[i][0].node_id for i in g)
+                if len(g) == 1:
+                    i = g[0]
+                    inside = gap.enclosed_by(i, bounds_lo, bounds_hi)
+                    if inside is not None:  # inside another part, touching none: a hidden part (eyes, internals), not a hovering one
+                        other = valid[inside][0].node_id
+                        add("enclosed_part", "warning", names[0],
+                            f"inside {other}, surfaces more than {touch_tol * 1e3:g} mm from every part: its triangles are "
+                            f"never seen while {other} is opaque, and it floats if {other} is see-through")
+                        issues[:] = [x for x in issues if not (x.code == "interpenetration"
+                                                               and x.detail.split(":")[0] in (f"{names[0]}/{other}", f"{other}/{names[0]}"))]
+                    else:
+                        add("floating_part", "warning", names[0], gap.describe(g, bounds_lo, bounds_hi))
+                else:
+                    add("floating_group", "warning", names[0], f"{', '.join(names)} touch each other and nothing else; "
+                        + gap.describe(g, bounds_lo, bounds_hi))
+            _check_zfight([v[0] for v in valid], zfight_eps, add, (bounds_lo, bounds_hi), near if zfight_eps <= touch_eps else None,
+                          [v[1] for v in valid], budget)
 
     ms = (time.perf_counter() - t0) * 1e3
     stats = {
@@ -260,6 +345,167 @@ def tier1_qa(
         "ms": round(ms, 2),
     }
     return Tier1Report(not any(i.severity == "critical" for i in issues), issues, stats)
+
+
+def _inverted_bodies(pts: np.ndarray, tri: np.ndarray, closed: bool) -> list[tuple[int, int, float]]:
+    """(index, number of bodies, signed volume) of every closed body of a mesh that holds several and is wound inside
+    out (negative volume); empty for a single body (its own volume is the test) or when none is."""
+    bodies = _closed_bodies(pts, tri)
+    if bodies is None:
+        return []
+    out = []
+    for k, (bp, bt) in enumerate(bodies):
+        if closed:  # a closed mesh has only closed bodies
+            c = bp[bt]
+            vol = float(np.einsum("ij,ij->i", c[:, 0], np.cross(c[:, 1], c[:, 2])).sum() / 6.0)
+        else:
+            topo = _topology(bp, bt)
+            if not topo.closed:
+                continue
+            vol = topo.volume
+        if vol < -1e-12:
+            out.append((k, len(bodies), vol))
+    return out
+
+
+class _PartGap:
+    """Do two parts of one asset touch (their surfaces within ``tol``)? Answered by the cheapest exact means: the
+    distance of the boxes when it is over ``tol``; a closed form when both parts are axis-aligned boxes (most
+    parts); else the triangle tests of kernel/surface_gap on the triangles near the other part. Per-part data is
+    built on first use, so a part that touches nothing near it costs nothing."""
+
+    def __init__(self, valid, volumes: list[float], tol: float) -> None:
+        self.valid, self.volumes, self.tol = valid, volumes, tol
+        self.diag = float(np.linalg.norm(np.max([v[3] for v in valid], axis=0) - np.min([v[2] for v in valid], axis=0)))
+        self._box: dict[int, bool] = {}
+        self._tris: dict[int, object] = {}
+
+    def is_box(self, i: int) -> bool:
+        if i not in self._box:
+            from antigravity3d.kernel import surface_gap
+
+            m, closed, lo, hi = self.valid[i]
+            self._box[i] = bool(closed and surface_gap.is_axis_box(np.asarray(m.points, np.float64), lo, hi, self.volumes[i]))
+        return self._box[i]
+
+    def tris(self, i: int):
+        if i not in self._tris:
+            from antigravity3d.kernel import surface_gap
+
+            m = self.valid[i][0]
+            self._tris[i] = surface_gap.Tris(np.asarray(m.points, np.float64), np.asarray(m.triangles))
+        return self._tris[i]
+
+    def touch(self, i: int, j: int) -> bool:
+        from antigravity3d.kernel import surface_gap
+
+        (mi, _, li, hi_), (mj, _, lj, hj) = self.valid[i], self.valid[j]
+        if (np.maximum(np.maximum(li - hj, lj - hi_), 0.0) ** 2).sum() > self.tol * self.tol:
+            return False  # the boxes are farther apart than that
+        bi, bj = self.is_box(i), self.is_box(j)
+        if bi and bj:
+            return surface_gap.box_distance(li, hi_, lj, hj) <= self.tol
+        # a corner of one part on or at the surface of the other: parts that rest on each other (nearly all of them)
+        for a, b, box in ((i, j, bj), (j, i, bi)):
+            pts = np.asarray(self.valid[a][0].points, np.float64)
+            if box:
+                if (surface_gap.point_box_distance(pts, self.valid[b][2], self.valid[b][3]) <= self.tol).any():
+                    return True
+            elif surface_gap.corner_touches(pts, self.tris(b), self.valid[b][2], self.valid[b][3], self.tol):
+                return True
+        return surface_gap.within(self.tris(i), li, hi_, self.tris(j), lj, hj, self.tol)
+
+    def enclosed_by(self, i: int, lo: np.ndarray, hi: np.ndarray) -> int | None:
+        """A closed part whose volume holds all of part i (given that i touches nothing: it is then inside or outside)."""
+        inner = np.asarray(self.valid[i][0].points, np.float64)
+        pool = np.concatenate([inner, inner[np.asarray(self.valid[i][0].triangles)].mean(axis=1)])
+        if len(pool) > 96:
+            pool = pool[np.linspace(0, len(pool) - 1, 96).astype(int)]
+        for j in np.flatnonzero(np.all(lo <= lo[i], axis=1) & np.all(hi >= hi[i], axis=1)):
+            if j == i or not self.valid[j][1]:
+                continue
+            m = self.valid[j][0]
+            if _winding_inside(pool, np.asarray(m.points, np.float64)[np.asarray(m.triangles)]).all():
+                return int(j)
+        return None
+
+    def describe(self, group: list[int], lo: np.ndarray, hi: np.ndarray) -> str:
+        """Why a part or group floats, for whoever repairs it: the nearest part outside it, the surface distance to it
+        (from the vertices of each to the other's surface: exact for those points), where it lies and the lowest z."""
+        inside = set(group)
+        others = [j for j in range(len(self.valid)) if j not in inside]
+        gaps = np.array([[float(np.linalg.norm(np.maximum(np.maximum(lo[i] - hi[j], lo[j] - hi[i]), 0.0))) for j in others]
+                         for i in group])
+        a, k = np.unravel_index(int(np.argmin(gaps)), gaps.shape)
+        i, j = group[a], others[k]
+        d = np.inf
+        for x, y in ((i, j), (j, i)):
+            mx, my = self.valid[x][0], self.valid[y][0]
+            d = min(d, float(_SurfaceIndex(my.points, my.triangles).distances(np.asarray(mx.points, np.float64), 0.0).min()))
+        sep = np.maximum(lo[i] - hi[j], lo[j] - hi[i])  # per axis: positive when the boxes are apart on it
+        axis = int(np.argmax(sep)) if sep.max() > 0 else int(np.argmax(np.abs((lo[j] + hi[j]) - (lo[i] + hi[i]))))
+        sign = "+" if (lo[j][axis] + hi[j][axis]) >= (lo[i][axis] + hi[i][axis]) else "-"
+        where = {"+z": "above it", "-z": "below it"}.get(sign + "xyz"[axis], f"beside it ({sign}{'xyz'[axis]})")
+        return (f"surface {d * 1e3:.1f} mm from {self.valid[j][0].node_id}, the nearest part, which lies {where} "
+                f"(touch tolerance {self.tol * 1e3:g} mm); min z {min(lo[m][2] for m in group):.3f}")
+
+
+def _surface_area(m: MeshData) -> float:
+    c = np.asarray(m.points, np.float64)[np.asarray(m.triangles)]
+    u, v = c[:, 1] - c[:, 0], c[:, 2] - c[:, 0]
+    n = np.stack([u[:, 1] * v[:, 2] - u[:, 2] * v[:, 1], u[:, 2] * v[:, 0] - u[:, 0] * v[:, 2], u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]], axis=1)
+    return float(np.sqrt(np.einsum("ij,ij->i", n, n)).sum() / 2)
+
+
+def shipped_masks(meshes: list[MeshData], budget: EngineBudget, only: set[int] | None = None) -> list[np.ndarray] | None:
+    """Per mesh, the triangles the exporter leaves out of the render meshes for this budget (hidden contact faces,
+    ``hidden_contact_faces`` under ``contact_faces_removable``: the export's own rule), or None when it leaves out
+    none or when opacity is not known (meshes not read from a managed stage: ``MeshData.opaque`` is None).
+
+    ``only``: the masks are needed for these meshes only. A part's hidden triangles depend on the parts whose boxes
+    touch it (nothing farther can cover it), so it is decided on those parts alone, with the same result; the
+    other meshes get empty masks."""
+    if not meshes or any(m.opaque is None for m in meshes):
+        return None
+    opaque = frozenset(m.material_id for m in meshes if m.opaque)
+    if not contact_faces_removable(budget, opaque):
+        return None
+    keep = list(range(len(meshes)))
+    if only is not None:
+        lo = np.array([np.asarray(m.points).min(axis=0) if len(m.points) else np.full(3, np.inf) for m in meshes])
+        hi = np.array([np.asarray(m.points).max(axis=0) if len(m.points) else np.full(3, -np.inf) for m in meshes])
+        pad = 1e-4 * max(1.0, float(np.linalg.norm(np.nanmax(np.where(np.isfinite(hi), hi, np.nan), axis=0)
+                                                   - np.nanmin(np.where(np.isfinite(lo), lo, np.nan), axis=0))))
+        sel = sorted(only)
+        near = np.zeros(len(meshes), bool)
+        near[sel] = True
+        for k in sel:
+            near |= np.all((lo <= hi[k] + pad) & (hi >= lo[k] - pad), axis=1)
+        keep = np.flatnonzero(near).tolist()
+    sub = hidden_contact_faces([(meshes[k].node_id, meshes[k].points, meshes[k].triangles,
+                                 meshes[k].material_id if meshes[k].opaque else None) for k in keep], opaque)
+    out = [np.zeros(len(m.triangles), bool) for m in meshes]
+    for k, mask in zip(keep, sub):
+        out[k] = mask
+    return out
+
+
+def _check_zfight(meshes: list[MeshData], eps: float, add, bounds=None, pairs=None, solid=None, budget=None) -> None:
+    """Same-facing faces of two parts within ``eps`` of one plane whose areas overlap (more than a sliver
+    ``eps`` wide; faces that only share an edge do not count): two surfaces at one depth, drawn in whichever
+    order the depth buffer's rounding picks, so they flicker in every engine. A pair of faces that both do not ship
+    (contact faces the exporter leaves out for this budget, ``shipped_masks``) is not drawn, so it is not counted;
+    where they ship (closed-mesh engines, contact faces kept by request) it is."""
+    from antigravity3d.kernel import coplanar
+
+    parts = [coplanar.Part(m.node_id, np.asarray(m.points, np.float64), np.asarray(m.triangles)) for m in meshes]
+    found = coplanar.same_facing_overlaps(parts, eps, bounds=bounds, pairs=pairs, solid=solid)
+    hidden = shipped_masks(meshes, budget, only={x for i, j, _ in found for x in (i, j)}) if found and budget is not None else None
+    if hidden is not None:  # the same pairs, counting only triangle pairs of which at least one ships
+        found = coplanar.same_facing_overlaps(parts, eps, bounds=bounds, pairs=[(i, j) for i, j, _ in found], solid=solid, hidden=hidden)
+    for i, j, area in found:
+        add("z_fighting", "warning", meshes[i].node_id,
+            f"{meshes[i].node_id}/{meshes[j].node_id}: {area * 1e4:.3g} cm^2 of same-facing faces within {eps * 1e3:g} mm of one plane")
 
 
 def _check_pair(a, b, add) -> None:
@@ -283,21 +529,27 @@ def _check_pair(a, b, add) -> None:
 
 # --------------------------------------------------------------------------- UVs
 
-UV_PADDING_PX = 2           # gutter between charts, in atlas texels
-# Computed (xatlas) charts may each flatten at most this much *smooth* Gaussian curvature (steradians). LSCM is
-# conformal, so its area distortion grows with the curvature a chart flattens, and xatlas's default charts are
-# unbounded: on UV spheres of 1.9k / 10k / 50k triangles at 1024 px/m they measure mean area distortion 0.088 /
-# 0.064 / 0.068 (budget 0.05) in 0.30 / 0.83 / 8.2 s (chart growing + LSCM cost grows superlinearly with chart
-# size). A sphere holds 4 pi sr; capping its charts at 1/32 of its area (4 pi / 32 sr each) gives 0.015 / 0.014 /
-# 0.018 in 0.27 / 0.54 / 2.4 s. More charts mean more gutter: through the export pipeline (1024 px/m, 2048 atlas)
-# the achieved density of those spheres is 0 to 5% lower than with unbounded charts (benchmarks/results/quality.jsonl
-# against results/before/quality.jsonl). Curvature concentrated on sharp edges
+UV_PADDING_PX = 2           # gutter on each side of a chart, in atlas texels (charts are 2x this apart)
+# Computed (xatlas) charts may each cover at most this much *smooth* Gaussian curvature (steradians). xatlas's
+# default charts are unbounded, and its chart growing costs superlinearly in chart size: 0.30 / 0.83 / 8.2 s on
+# UV spheres of 1.9k / 10k / 50k triangles, against 0.27 / 0.54 / 2.4 s with charts capped at 1/32 of a sphere
+# (4 pi / 32 sr each). The cap was set for xatlas's orthographic flattening (area distortion 0.015 at the cap,
+# 0.06-0.09 unbounded); charts are now re-flattened (_flatten), and the cap was re-measured with that, through
+# unwrap_uvs at 1024 px/m into 2048, on spheres of 448 to 49,920 triangles, a torus, a blob, a sheet and shells:
+#   - area distortion grows with the cap: 0.0006-0.0027 at 0.5x, 0.0023-0.0059 at 1x, 0.0027-0.0082 at 1.5x,
+#     0.0037-0.0116 at 2x, 0.015-0.043 unbounded;
+#   - density does not follow it (rectangle packing noise, -6 to +10 % against 1x with no trend; no setting is at
+#     least as dense as 1x on every subject);
+#   - 1.5x / 2x save 4 to 20 % of seam vertices, 0.5x costs 5 to 39 % more;
+#   - the 49,920-triangle sphere takes 2 to 2.5x as long at 1.5x-2x and 5.6x unbounded (xatlas chart growing).
+# So the cap stays at 1/32 of a sphere. Curvature concentrated on sharp edges
 # (box corners, cylinder rims: dihedral above CREASE) is not counted: those edges are chart seams anyway, and
 # capping such meshes only fragments flat charts (measured: a 32-sided cylinder split into one chart per side
 # quad, every rim vertex in three charts, which then locked the LOD simplifier).
 UV_CHART_CURVATURE_SR = 4.0 * np.pi / 32
 UV_SMOOTH_CREASE_DEG = 40.0
-UV_MIN_RECT_FILL = 0.6      # exact charts filling less of their bounding rectangle are cut (see _charted)
+UV_MIN_RECT_FILL = 0.6      # charts filling less of their bounding rectangle are cut (see _charted, _slabs)
+UV_CHART_PASS_PX = 64.0     # xatlas computes charts in an atlas about this many texels across (see _computed_charts)
 
 
 @dataclass(frozen=True)
@@ -315,6 +567,10 @@ class UVResult:
     fitted: bool = True         # False: requested density overflowed, re-fit with lower density
     chart_source: str = "computed"  # "analytic": exact developable charts from the IR; "computed": xatlas charts
     angle_distortion: float = 0.0  # area-weighted mean (sigma_max / sigma_min - 1) of the UV map (0 = conformal)
+    # (M,) bool: triangles that are not shipped (hidden contact faces, see kernel/coplanar.py), None = all shipped.
+    # They stay here so the working stage keeps closed solids; charts made only of them are not packed into the
+    # atlas (their uvs lie right of it, u > 1), and density and stretch above describe the shipped triangles.
+    hidden: np.ndarray | None = None
 
     def within(self, budget: EngineBudget) -> bool:
         return self.stretch_mean <= budget.max_uv_stretch
@@ -483,7 +739,8 @@ class _Charted:
     tris: np.ndarray
     uv_m: np.ndarray
     kind: str                     # "analytic" | "computed"
-    chart: np.ndarray | None = None  # (M,) chart id per triangle (analytic only)
+    chart: np.ndarray | None = None  # (M,) chart id per triangle
+    frames: list | None = None    # per chart: minimum-area rectangle (filled by _chart_frames)
 
 
 def _min_area_frame(p2: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -553,38 +810,46 @@ def _skyline_pack(sizes: np.ndarray, width: float, height: float) -> np.ndarray 
 
     Returns (n, 3) [x, y, turned] or None when they do not all fit. Deterministic: rectangles go in order of
     decreasing longer side, then area, then index; ties pick the lowest top edge, then the leftmost x.
+    The skyline is kept as x-sorted parallel lists so the segments under a candidate position are found by
+    bisection and their highest top by a slice maximum (this is called a dozen or more times per atlas by the
+    density search, with hundreds of charts on computed meshes).
     """
+    from bisect import bisect_left
+
+    sizes = [(float(a), float(b)) for a, b in np.asarray(sizes, np.float64).reshape(-1, 2)]
     order = sorted(range(len(sizes)), key=lambda i: (-max(sizes[i]), -sizes[i][0] * sizes[i][1], i))
-    sky = [(0.0, 0.0, float(width))]  # (x, y, w) segments covering [0, width)
+    sx, sy, sw = [0.0], [0.0], [float(width)]  # (x, y, w) segments covering [0, width)
     out = np.zeros((len(sizes), 3))
+    wlim, hlim = width + 1e-9, height + 1e-9
     for i in order:
         best = None
         for turned in (0, 1):
-            w, h = (sizes[i][1], sizes[i][0]) if turned else (sizes[i][0], sizes[i][1])
+            w, h = (sizes[i][1], sizes[i][0]) if turned else sizes[i]
             if w > width or h > height:
                 continue
-            for j, (x, _, _) in enumerate(sky):
-                if x + w > width + 1e-9:
+            for j in range(len(sx)):
+                x = sx[j]
+                if x + w > wlim:
                     break
-                y, k, right = 0.0, j, x + w
-                while k < len(sky) and sky[k][0] < right - 1e-9:
-                    y = max(y, sky[k][1])
-                    k += 1
-                if y + h <= height + 1e-9 and (best is None or (y + h, x) < (best[0], best[1])):
-                    best = (y + h, x, y, w, h, turned)
+                e = bisect_left(sx, x + w - 1e-9, j)  # segments j .. e-1 lie under [x, x + w)
+                y = max(max(sy[j:e]), 0.0) if e > j else 0.0
+                top = y + h
+                if top <= hlim and (best is None or top < best[0] or (top == best[0] and x < best[1])):
+                    best = (top, x, y, w, h, turned)
         if best is None:
             return None
         _, x, y, w, h, turned = best
         out[i] = (x, y, turned)
-        new, right = [], x + w
-        for sx, sy, sw in sky:
-            if sx + sw <= x + 1e-9 or sx >= right - 1e-9:
-                new.append((sx, sy, sw))
+        right = x + w
+        new = []
+        for a, b, c in zip(sx, sy, sw):
+            if a + c <= x + 1e-9 or a >= right - 1e-9:
+                new.append((a, b, c))
                 continue
-            if sx < x:
-                new.append((sx, sy, x - sx))
-            if sx + sw > right:
-                new.append((right, sy, sx + sw - right))
+            if a < x:
+                new.append((a, b, x - a))
+            if a + c > right:
+                new.append((right, b, a + c - right))
         new.append((x, y + h, w))
         new = sorted(seg for seg in new if seg[2] > 1e-9)  # zero-width slivers would break the x order
         merged = [new[0]]
@@ -594,42 +859,115 @@ def _skyline_pack(sizes: np.ndarray, width: float, height: float) -> np.ndarray 
                 merged[-1] = (px, py, pw + seg[2])
             else:
                 merged.append(seg)
-        sky = merged
+        sx = [s[0] for s in merged]
+        sy = [s[1] for s in merged]
+        sw = [s[2] for s in merged]
     return out
 
 
-def _pack_analytic(charted: list[_Charted], density: float, resolution: int) -> tuple[list[np.ndarray], float]:
-    """Packs exact charts as their minimum-area rectangles into one ``resolution`` square atlas.
+def _strip_search(ext: np.ndarray, pad: float, side: float, hi: float, tol: float = 1e-4) -> tuple[float, np.ndarray]:
+    """Largest density (to ``tol``, below ``hi``) at which the rectangles ``ext * d + pad`` fit a ``side`` square.
 
-    Each chart keeps UV_PADDING_PX texels of private gutter on every side. The requested density is used
-    when everything fits; otherwise the largest density that fits is found by bisection (the packer is
-    cheap, so this costs milliseconds, unlike re-running a raster packer). Returns per-mesh UVs in [0, 1]
-    and the density used.
+    The skyline packer never places a rectangle higher than it must, so packing into an unbounded strip of the
+    same width gives the same placements as packing into the square, up to the first one that does not fit: the
+    layout fits exactly when the strip height it needs is at most ``side``. That height (roughly proportional to
+    d squared) steers the next density, instead of only a fits / does not fit bit: a few steps bracket the
+    answer to about 1 %, and bisection finishes it. The packer is not monotone in d, so the largest density that
+    fitted is kept. Measured on computed charts that overflow (39 to 530 rectangles): 8 to 11 packings, against
+    16 or 17 for the bisection from hi / 8."""
+    best_d, best_p = 0.0, None
+    fail = hi
+    d = hi
+    for it in range(64):
+        s = ext * d + pad
+        p = _skyline_pack(s, side, np.inf)
+        height = float((p[:, 1] + np.where(p[:, 2] > 0, s[:, 0], s[:, 1])).max()) if p is not None and len(p) else np.inf
+        if height <= side + 1e-9:
+            if d > best_d:
+                best_d, best_p = d, p
+        else:
+            fail = min(fail, d)
+        if best_p is not None and fail - best_d <= tol * fail:
+            break
+        guess = d * np.sqrt(side / height) if np.isfinite(height) and height > 0 else 0.5 * d
+        if best_p is None:  # nothing fitted yet: step down, at least a little
+            d = min(guess, d * (1 - 1e-3))
+        elif it < 4 and best_d < guess < fail:  # stay inside the bracket, away from its ends
+            span = fail - best_d
+            d = min(max(guess, best_d + 0.05 * span), fail - 0.05 * span)
+        else:
+            d = 0.5 * (best_d + fail)
+    return float(best_d), best_p  # type: ignore[return-value]
+
+
+def _chart_frames(c: _Charted) -> list[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+    """(vertex ids, rotation, min corner, (w, h)) of each chart's minimum-area rectangle, in chart id order."""
+    if c.frames is None:
+        cid = _vertex_charts(c.tris, c.chart, len(c.uv_m))
+        order = np.argsort(cid, kind="stable")
+        ks, starts = np.unique(cid[order], return_index=True)
+        used = np.zeros(len(c.uv_m), bool)
+        used[np.asarray(c.tris).reshape(-1)] = True
+        c.frames = []
+        for k, v in zip(ks, np.split(order, starts[1:])):
+            v = v[used[v]]
+            if len(v):
+                c.frames.append((v, *_min_area_frame(c.uv_m[v])))
+    return c.frames
+
+
+def _pack_analytic(charted: list[_Charted], density: float, resolution: int,
+                   hidden: Sequence[np.ndarray | None] | None = None) -> tuple[list[np.ndarray], float]:
+    """Packs charts (exact ones, and computed ones in metres) as their minimum-area rectangles into one
+    ``resolution`` square atlas.
+
+    Each chart keeps UV_PADDING_PX texels of private gutter on every side, so charts are at least
+    2 * UV_PADDING_PX texels apart. The requested density is used when everything fits; otherwise the largest
+    density that fits is searched (the packer is cheap, so this costs milliseconds, unlike re-running a raster
+    packer). Returns per-mesh UVs in [0, 1] and the density used.
+
+    Groups of exact charts only keep the plain bisection they always had (same layout for the same input).
+    Groups with computed charts have hundreds of charts, where each packing costs tens of milliseconds, so
+    there the packer is run without a height limit and the height it needs steers the next density (see
+    ``_strip_search``). Both searches skip packings that cannot succeed: rectangles whose total area exceeds
+    the atlas, or one rectangle wider than it.
+
+    ``hidden`` (per mesh, a triangle mask or None): a chart all of whose triangles are hidden takes no atlas space;
+    its vertices are laid out isometrically at the same density right of the atlas (u > 1), so the mesh keeps a
+    complete, undistorted layout for the stages that still see those triangles (the working stage, the LOD
+    simplifier) while nothing that ships samples it.
     """
-    frames = []  # (mesh index, vertex ids, rotation, min corner, (w, h)) per chart
+    frames, phantom = [], []
     for mi, c in enumerate(charted):
-        cid = np.zeros(len(c.uv_m), np.int64)
-        cid[c.tris.reshape(-1)] = np.repeat(c.chart, 3)
-        for k in np.unique(c.chart):
-            v = np.flatnonzero(cid == k)
-            R, lo, wh = _min_area_frame(c.uv_m[v])
-            frames.append((mi, v, R, lo, wh))
+        h = None if hidden is None else hidden[mi]
+        seen = None
+        if h is not None and h.any():
+            seen = np.zeros(len(c.uv_m), bool)
+            seen[np.asarray(c.tris, np.int64)[~h].reshape(-1)] = True
+        for f in _chart_frames(c):
+            (frames if seen is None or seen[f[0]].any() else phantom).append((mi, *f))
+    if not frames:  # every chart hidden: nothing to pack (the caller ships nothing of these meshes)
+        frames, phantom = phantom, []
     ext = np.array([f[4] for f in frames], np.float64).reshape(-1, 2)
     pad = 2.0 * UV_PADDING_PX
     edge = 1.0  # keep half a texel clear of the atlas border, plus rounding
+    side = resolution - edge
+    area = float(ext.prod(axis=1).sum())
+    hi = min(float(density), side / max(float(ext.max()), 1e-12), side / np.sqrt(max(area, 1e-12)))
 
     def fits(d: float) -> np.ndarray | None:
-        return _skyline_pack(ext * d + pad, resolution - edge, resolution - edge)
+        return _skyline_pack(ext * d + pad, side, side)
 
     d = float(density)
-    place = fits(d)
-    if place is None:
-        area = float(ext.prod(axis=1).sum())
-        hi = min(d, (resolution - edge) / max(float(ext.max()), 1e-12), (resolution - edge) / np.sqrt(max(area, 1e-12)))
+    place = fits(d) if d <= hi else None  # above hi the rectangles cannot fit: no packing needed to know it
+    if place is None and any(c.kind == "computed" for c in charted):
+        d, place = _strip_search(ext, pad, side, hi)
+    elif place is None:
         lo = hi / 8
-        while fits(lo) is None and lo > 1e-6:
-            lo /= 2
         place = fits(lo)
+        while place is None and lo > 1e-6:
+            lo /= 2
+            place = fits(lo)
         for _ in range(24):
             mid = 0.5 * (lo + hi)
             p = fits(mid)
@@ -641,7 +979,8 @@ def _pack_analytic(charted: list[_Charted], density: float, resolution: int) -> 
                 break
         d = lo
     out = [np.zeros((len(c.uv_m), 2)) for c in charted]
-    for (mi, v, R, lo_, wh), (x, y, turned) in zip(frames, place):
+    place = list(place) + [(resolution + pad, 0.0, False)] * len(phantom)
+    for (mi, v, R, lo_, wh), (x, y, turned) in zip(frames + phantom, place):
         q = (charted[mi].uv_m[v] @ R.T - lo_) * d  # chart in px, min corner at the origin
         if turned:  # 90 degrees counter-clockwise keeps the winding: (u, v) -> (h - v, u)
             q = np.stack([wh[1] * d - q[:, 1], q[:, 0]], axis=1)
@@ -691,164 +1030,540 @@ def _smooth_curvature(meshes: Sequence[MeshData]) -> float:
     return total
 
 
-def _xatlas_options(resolution: int, tpu: float, *, input_uvs: bool, surface_area: float = 0.0,
-                    smooth_curvature: float = 0.0):
+def _xatlas_options(tpu: float, *, surface_area: float = 0.0, smooth_curvature: float = 0.0):
     import xatlas
 
     co = xatlas.ChartOptions()
-    co.use_input_mesh_uvs = input_uvs
-    if not input_uvs and surface_area > 0 and smooth_curvature > UV_CHART_CURVATURE_SR:
+    if surface_area > 0 and smooth_curvature > UV_CHART_CURVATURE_SR:
         co.max_chart_area = float(surface_area * UV_CHART_CURVATURE_SR / smooth_curvature)
     po = xatlas.PackOptions()
-    po.resolution = resolution
+    po.resolution = 0
     po.texels_per_unit = float(tpu)
-    po.padding = UV_PADDING_PX
+    po.padding = 0          # the layout is thrown away: only the charts and their flattening are kept
+    po.bilinear = False
     po.bruteForce = False
-    po.rotate_charts = True
     return co, po
 
 
-def _xatlas_fit(add, density: float, resolution: int, *, input_uvs: bool, surface_area: float = 0.0,
-                smooth_curvature: float = 0.0):
-    """xatlas generate into a *single* atlas no larger than ``resolution`` at the highest density reached.
+def _vertex_charts(tris: np.ndarray, chart: np.ndarray, nverts: int) -> np.ndarray:
+    vc = np.zeros(nverts, np.int64)
+    vc[np.asarray(tris, np.int64).reshape(-1)] = np.repeat(chart, 3)
+    return vc
 
-    xatlas's own fit mode (texels_per_unit=0) estimates a density but then grows the atlas past
-    ``resolution`` (measured: 3289 x 2808 for a 2048 request), so the earlier pipeline baked UVs normalised
-    to a non-square, oversized atlas. Here the first pass (resolution 0 = one atlas of any size) also
-    computes the charts when ``input_uvs`` is False; if it is larger than ``resolution`` only the *packing*
-    is repeated, from the charts of the first pass, at the density scaled to fit.
-    Returns (atlas, density used, uv scale factor to the resolution square).
-    """
+
+def _split_shared(vmap: np.ndarray, tris: np.ndarray, uv: np.ndarray, chart: np.ndarray):
+    """Gives every chart its own copy of a vertex it shares with another chart (same uv)."""
+    t = np.asarray(tris, np.int64)
+    corner = np.repeat(np.asarray(chart, np.int64), 3)
+    if (_vertex_charts(t, chart, len(uv))[t.reshape(-1)] == corner).all():
+        return vmap, t, uv
+    nc = int(corner.max()) + 1
+    u, inv = np.unique(t.reshape(-1) * nc + corner, return_inverse=True)
+    return vmap[u // nc], inv.reshape(-1, 3), uv[u // nc]
+
+
+def _metric_charts(p3: np.ndarray, tris: np.ndarray, uv: np.ndarray, chart: np.ndarray) -> np.ndarray:
+    """xatlas chart layouts back to their own flattening, in metres.
+
+    xatlas rescales each chart along the atlas axes so that its extents are whole texels (measured: the charts
+    of a sphere packed at 64 px/m all come out 13 x 27, 20 x 13 ... texels to within 1e-5); at a low texel
+    density that per-axis rescale is several percent and shows up as area and angle distortion that the
+    flattening does not have. The per-chart u scale that minimises the conformal energy
+    sum_t area_t |s rot90(grad u) - grad v|^2  (closed form) undoes it: exactly for planar and LSCM charts, and
+    for xatlas' orthographic-projection charts it picks the least-sheared aspect. Each chart is then scaled to
+    its 3D area, so every chart has the same texel density. Measured on UV spheres, a torus, a blob, a sheet,
+    shells and a concave prism: the result does not depend on the density xatlas packed at (32 to 1024 px/m),
+    area distortion is at or below what xatlas returns at 1024 px/m, and angle distortion lower or within 0.0005."""
+    t = np.asarray(tris, np.int64)
+    p, q = p3[t], uv[t]
+    e1, e2 = p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]
+    n = np.cross(e1, e2)
+    a3 = 0.5 * np.linalg.norm(n, axis=1)
+    l1 = np.linalg.norm(e1, axis=1)
+    ok = (a3 > 1e-14) & (l1 > 0)
+    x = e1 / np.maximum(l1, 1e-300)[:, None]
+    y = np.cross(n, x)
+    y /= np.maximum(np.linalg.norm(y, axis=1), 1e-300)[:, None]
+    P = np.zeros((len(t), 2, 2))
+    P[:, 0, 0] = l1
+    P[:, 1, 0], P[:, 1, 1] = (e2 * x).sum(1), (e2 * y).sum(1)
+    P[~ok] = np.eye(2)
+    J = np.linalg.solve(P, np.stack([q[:, 1] - q[:, 0], q[:, 2] - q[:, 0]], 1))  # J[:, :, k]: gradient of uv[k]
+    gu, gv = J[:, :, 0], J[:, :, 1]
+    rgu = np.stack([-gu[:, 1], gu[:, 0]], 1)
+    w = np.where(ok, a3, 0.0)
+    nc = int(chart.max()) + 1 if len(chart) else 0
+    num = np.bincount(chart, w * (rgu * gv).sum(1), nc)
+    den = np.bincount(chart, w * (rgu * rgu).sum(1), nc)
+    s = np.abs(num / np.where(den > 0, den, 1.0))
+    s = np.where((den > 0) & (s > 0) & np.isfinite(s), s, 1.0)
+    vc = _vertex_charts(t, chart, len(uv))
+    return _to_surface_area(p3, t, uv * np.stack([s[vc], np.ones(len(uv))], 1), chart)
+
+
+def _to_surface_area(p3: np.ndarray, tris: np.ndarray, uv: np.ndarray, chart: np.ndarray) -> np.ndarray:
+    """Scales each chart about the origin so its uv area equals its 3D area (every chart at the same density)."""
+    t = np.asarray(tris, np.int64)
+    nc = int(chart.max()) + 1 if len(chart) else 0
+    s3 = np.bincount(chart, _tri_areas(p3, t, 3), nc)
+    s2 = np.bincount(chart, _tri_areas(uv, t, 2), nc)
+    k = np.where((s2 > 0) & (s3 > 0), np.sqrt(s3 / np.where(s2 > 0, s2, 1.0)), 1.0)
+    return uv * k[_vertex_charts(t, chart, len(uv))][:, None]
+
+
+def _tri_frames(p3: np.ndarray, t: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Each triangle's corners in its own orthonormal 2D frame (counter-clockwise about its normal), and its area."""
+    p = p3[t]
+    e1, e2 = p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]
+    n = np.cross(e1, e2)
+    a = 0.5 * np.linalg.norm(n, axis=1)
+    l1 = np.linalg.norm(e1, axis=1)
+    x = e1 / np.maximum(l1, 1e-300)[:, None]
+    y = np.cross(n, x)
+    y /= np.maximum(np.linalg.norm(y, axis=1), 1e-300)[:, None]
+    q = np.zeros((len(t), 3, 2))
+    q[:, 1, 0] = l1
+    q[:, 2, 0], q[:, 2, 1] = (e2 * x).sum(1), (e2 * y).sum(1)
+    return q, a
+
+
+def _arap(p3: np.ndarray, t: np.ndarray, uv: np.ndarray, chart: np.ndarray, solve: np.ndarray, iters: int = 3) -> np.ndarray:
+    """As-rigid-as-possible flattening (local best rotations, global cotangent-Laplacian solve, one vertex pinned per
+    chart) of the charts flagged in ``solve``, starting from ``uv`` at surface area; at most ``iters`` global
+    solves, fewer when one lowers the energy by less than 1 %. The Laplacian is factorised once (SuperLU, fixed
+    column ordering: the same bytes on every run). See _flatten for the iteration count."""
+    import scipy.sparse as sp
+    from scipy.sparse.linalg import splu
+
+    nv = len(uv)
+    q, a = _tri_frames(p3, t)
+    on = solve[chart] & (a > 0)
+    cot = np.zeros((len(t), 3))
+    for k in range(3):
+        u1, u2 = q[:, (k + 1) % 3] - q[:, k], q[:, (k + 2) % 3] - q[:, k]
+        cot[:, k] = (u1 * u2).sum(1) / np.maximum(np.abs(u1[:, 0] * u2[:, 1] - u1[:, 1] * u2[:, 0]), 1e-300)
+    cot[~on] = 0.0
+    I, J, W = [], [], []
+    for k in range(3):
+        i, j, w = t[:, (k + 1) % 3], t[:, (k + 2) % 3], 0.5 * cot[:, k]
+        I += [i, j, i, j]
+        J += [j, i, i, j]
+        W += [-w, -w, w, w]
+    L = sp.csr_matrix((np.concatenate(W), (np.concatenate(I), np.concatenate(J))), shape=(nv, nv))
+    vc = np.full(nv, -1, np.int64)
+    vc[t.reshape(-1)] = np.repeat(chart, 3)
+    pin = ~((vc >= 0) & solve[np.maximum(vc, 0)])
+    order = np.argsort(vc, kind="stable")
+    ks, starts = np.unique(vc[order], return_index=True)
+    pin[order[starts][(ks >= 0)]] = True  # first vertex of every chart
+    free, held = np.flatnonzero(~pin), np.flatnonzero(pin)
+    if not len(free):
+        return uv
+    lu = splu(L[free][:, free].tocsc(), permc_spec="COLAMD")
+    Lp = L[free][:, held]
+    x = uv.copy()
+    last = np.inf
+    for _ in range(iters):
+        Q = x[t]
+        S = np.zeros((len(t), 2, 2))
+        for k in range(3):
+            de, du = q[:, (k + 1) % 3] - q[:, (k + 2) % 3], Q[:, (k + 1) % 3] - Q[:, (k + 2) % 3]
+            S += cot[:, k, None, None] * de[:, :, None] * du[:, None, :]
+        # the rotation [[c, s], [-s, c]] maximising trace(R^T S) (closed form in 2D; never a reflection)
+        c, sn = S[:, 0, 0] + S[:, 1, 1], S[:, 0, 1] - S[:, 1, 0]
+        r = np.hypot(c, sn)
+        c, sn = np.where(r > 0, c / np.where(r > 0, r, 1.0), 1.0), np.where(r > 0, sn / np.where(r > 0, r, 1.0), 0.0)
+        R = np.stack([np.stack([c, sn], 1), np.stack([-sn, c], 1)], 1)
+        energy, rhs = 0.0, np.zeros((nv, 2))
+        for k in range(3):
+            i, j = t[:, (k + 1) % 3], t[:, (k + 2) % 3]
+            rot = np.einsum("ni,nij->nj", q[:, (k + 1) % 3] - q[:, (k + 2) % 3], R)
+            energy += float((cot[:, k] * ((Q[:, (k + 1) % 3] - Q[:, (k + 2) % 3] - rot) ** 2).sum(1)).sum())
+            v = 0.5 * cot[:, k, None] * rot
+            for d in range(2):
+                rhs[:, d] += np.bincount(i, v[:, d], nv) - np.bincount(j, v[:, d], nv)
+        if energy > last * 0.99:
+            break
+        last = energy
+        b = rhs[free] - Lp @ x[held]
+        x[free] = np.stack([lu.solve(np.ascontiguousarray(b[:, 0])), lu.solve(np.ascontiguousarray(b[:, 1]))], 1)
+    return x
+
+
+def _valid_charts(uv: np.ndarray, t: np.ndarray, chart: np.ndarray) -> np.ndarray:
+    """Per chart: no triangle flipped or collapsed, and no two border edges touching or crossing (other than at a
+    shared vertex). Together these make a flattening one-to-one: a map without flips whose border does not meet
+    itself does not overlap itself (each uv point is covered as often as the border winds around it)."""
+    nc = int(chart.max()) + 1 if len(chart) else 0
+    q = uv[t]
+    signed = (q[:, 1, 0] - q[:, 0, 0]) * (q[:, 2, 1] - q[:, 0, 1]) - (q[:, 1, 1] - q[:, 0, 1]) * (q[:, 2, 0] - q[:, 0, 0])
+    ok = np.bincount(chart, signed <= 0, nc) == 0
+    e = np.concatenate([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]])
+    ec = np.tile(chart, 3)
+    key = np.sort(e, axis=1)
+    u, first, n = np.unique(key, axis=0, return_index=True, return_counts=True)
+    border, bc = u[n == 1], ec[first[n == 1]]
+    order = np.argsort(bc, kind="stable")
+    ks, starts = np.unique(bc[order], return_index=True)
+
+    def orient(p, a, b):
+        return np.sign((a[:, 0] - p[:, 0]) * (b[:, 1] - p[:, 1]) - (a[:, 1] - p[:, 1]) * (b[:, 0] - p[:, 0]))
+
+    for k, sel in zip(ks.tolist(), np.split(order, starts[1:])):
+        if not ok[k] or len(sel) < 4:
+            continue
+        b = border[sel]
+        A, B = uv[b[:, 0]], uv[b[:, 1]]
+        lo, hi = np.minimum(A, B), np.maximum(A, B)
+        xs = np.argsort(lo[:, 0], kind="stable")  # sweep along u: pairs whose u ranges overlap
+        end = np.searchsorted(lo[xs, 0], hi[xs, 0], side="right")  # sorted j in (i, end) start before i ends
+        n = np.maximum(end - np.arange(len(xs)) - 1, 0)
+        if not n.sum():
+            continue
+        i = np.repeat(np.arange(len(xs)), n)
+        j = i + 1 + (np.arange(int(n.sum())) - np.repeat(np.cumsum(n) - n, n))
+        i, j = xs[i], xs[j]
+        m = (hi[i, 1] >= lo[j, 1]) & (lo[i, 1] <= hi[j, 1])
+        i, j = i[m], j[m]
+        share = (b[i, 0] == b[j, 0]) | (b[i, 0] == b[j, 1]) | (b[i, 1] == b[j, 0]) | (b[i, 1] == b[j, 1])
+        i, j = i[~share], j[~share]
+        o1, o2 = orient(A[i], B[i], A[j]), orient(A[i], B[i], B[j])
+        o3, o4 = orient(A[j], B[j], A[i]), orient(A[j], B[j], B[i])
+        if ((o1 != o2) & (o3 != o4)).any() or ((o1 == 0) & (o2 == 0)).any():
+            ok[k] = False
+    return ok
+
+
+def _flatten(p3: np.ndarray, tris: np.ndarray, uv: np.ndarray, chart: np.ndarray, planar: np.ndarray) -> tuple[np.ndarray, dict]:
+    """Re-flattens xatlas' charts (``uv``: its layout at surface area) without changing their borders.
+
+    xatlas flattens most charts by orthographic projection, whose area distortion is the cosine of the tilt: a
+    quarter of a cylinder comes out at 0.08 (over the 0.05 budget), a 1/32 sphere cap at 0.015. As-rigid-as-
+    possible iterations from that projection remove it: a developable chart (cylinder, cone) converges to its
+    isometric unfolding (area and angle distortion 0.0000 after one or two iterations), a doubly curved one to
+    near the least distortion it can have. Measured (area / angle distortion, cost at 49,920 triangles), on UV
+    spheres of 448 to 49,920 triangles, a torus, a blob, a sheet, shells and tubes:
+      - projection: 0.014-0.080 / 0.017-0.11;
+      - least-squares conformal map: 0.003-0.012 / 0.002-0.008, 330 ms (its sparse solve has 2x the unknowns
+        and 4x the fill of ARAP's);
+      - LSCM then ARAP: 0.0018-0.0058 / 0.003-0.009, 880 ms;
+      - ARAP from the projection, 3 iterations: 0.0023-0.0059 / 0.0033-0.0089, 213 ms (1 iteration: 0.0027-0.0060
+        area, 144 ms; 10: 0.0020-0.0050, 524 ms). Against LSCM + ARAP the largest gap is the torus, 0.0041 / 0.0028.
+    So ARAP from the projection, 3 iterations: it is close to the best measured at a quarter of its cost. A chart
+    keeps the projection where the result is flipped or overlaps itself (``_valid_charts``; none did on any
+    subject measured), and charts that are not one connected piece of non-degenerate triangles keep it too.
+    Charts xatlas returned mirrored (about half) are mirrored back first, so every chart is counter-clockwise
+    (one tangent handedness). Returns the uvs and how many charts ended which way."""
+    t = np.asarray(tris, np.int64)
+    nc = int(chart.max()) + 1 if len(chart) else 0
+    _, a = _tri_frames(p3, t)
+    good = a > 0
+    solve = (np.bincount(chart, ~good, nc) == 0) & ~planar  # a planar chart's projection is already exact
+    if good.any():  # one connected piece per chart: the solve pins one vertex per chart, a second piece would float
+        piece, at = np.unique(_pieces(t[good], chart[good]), return_index=True)
+        solve &= np.bincount(chart[good][at], minlength=nc) == 1
+    else:
+        solve[:] = False
+    stats = {"charts": nc, "planar": int(planar.sum()), "projection_kept_degenerate": int(nc - solve.sum() - planar.sum())}
+    vc = _vertex_charts(t, chart, len(uv))
+    q = uv[t]
+    signed = (q[:, 1, 0] - q[:, 0, 0]) * (q[:, 2, 1] - q[:, 0, 1]) - (q[:, 1, 1] - q[:, 0, 1]) * (q[:, 2, 0] - q[:, 0, 0])
+    mirrored = np.bincount(chart, signed, nc) < 0
+    uv = uv.copy()
+    uv[mirrored[vc], 0] *= -1.0
+    stats["mirrored_back"] = int(mirrored.sum())
+    if not solve.any():
+        return uv, stats
+    flat = _to_surface_area(p3, t, _arap(p3, t, uv, chart, solve), chart)
+    ok = solve & _valid_charts(flat, t, chart)
+    stats["projection_kept_invalid"] = int((solve & ~ok).sum())
+    return np.where(ok[vc][:, None], flat, uv), stats
+
+
+def _computed_charts(meshes: Sequence[MeshData]) -> list[_Charted]:
+    """xatlas charts (one run over all the meshes, so the curvature bound sees their total), re-flattened by
+    ``_flatten``, in metres.
+
+    Only xatlas' chart borders (and its flattening, as the start and fallback) are used; its packing is not
+    (``_pack_analytic`` packs these charts with the exact ones). So xatlas packs into a tiny atlas,
+    UV_CHART_PASS_PX across: its packing cost grows with the
+    texel area it packs (measured on a 448-triangle sphere: 3 ms at 16 px/m, 114 ms at 1024 px/m, for the same
+    charts) and the result does not depend on that density once ``_metric_charts`` has undone xatlas' per-chart
+    snapping to whole texels."""
     import xatlas
 
+    area = _area(meshes)
     atlas = xatlas.Atlas()
-    add(atlas, None)
-    co, po = _xatlas_options(0, density, input_uvs=input_uvs, surface_area=surface_area, smooth_curvature=smooth_curvature)
+    for m in meshes:
+        atlas.add_mesh(np.ascontiguousarray(m.points, dtype=np.float32), np.ascontiguousarray(m.triangles, dtype=np.uint32))
+    co, po = _xatlas_options(UV_CHART_PASS_PX / np.sqrt(max(area, 1e-12)), surface_area=area, smooth_curvature=_smooth_curvature(meshes))
     atlas.generate(co, po)
-    tpu = float(density)
-    for _ in range(6):
-        w, h = atlas.width, atlas.height
-        if max(w, h) <= resolution:
-            return atlas, tpu
-        first = atlas
-        scale = np.array([w, h], np.float64) / tpu  # metres per normalised uv unit
-        tpu *= 0.98 * resolution / max(w, h)
-        atlas = xatlas.Atlas()
-        add(atlas, [first.get_mesh(i) for i in range(first.mesh_count)], scale)
-        co, po = _xatlas_options(0, tpu, input_uvs=True)
-        atlas.generate(co, po)
-    return atlas, tpu
+    wh = np.array([atlas.width, atlas.height], np.float64)
+    out = []
+    for i, m in enumerate(meshes):
+        vm, idx, uv = atlas.get_mesh(i)
+        tris = idx.reshape(-1, 3).astype(np.int64)
+        chart = np.full(len(tris), -1, np.int64)
+        planar = []
+        for c in range(atlas.get_mesh_chart_count(i)):
+            ch = atlas.get_mesh_chart(i, c)
+            chart[np.asarray(ch.faces, np.int64)] = c
+            planar.append(ch.type == xatlas.ChartType.Planar)
+        if (chart < 0).any():  # faces xatlas leaves out (zero area): one chart, a single point
+            chart[chart < 0] = len(planar)
+            planar.append(False)
+        vm = vm.astype(np.int64)
+        vm, tris, uv = _split_shared(vm, tris, np.asarray(uv, np.float64) * wh, chart)
+        p3 = np.asarray(m.points, np.float64)[vm]
+        uv, _ = _flatten(p3, tris, _metric_charts(p3, tris, uv, chart), chart, np.array(planar, bool))
+        out.append(_Charted(m, vm, tris.astype(np.int32), uv, "computed", chart))
+    return out
 
 
-def _atlas_uv(atlas, uv: np.ndarray, resolution: int) -> np.ndarray:
-    """xatlas normalises UVs by the atlas' *cropped* width and height, which differ from each other and from
-    ``resolution``; map to the ``resolution`` x ``resolution`` texture the atlas is baked into, so texels stay
-    square and the reported density is the real one."""
-    return np.asarray(uv, np.float64) * (np.array([atlas.width, atlas.height], np.float64) / float(resolution))
+def _pieces(tris: np.ndarray, label: np.ndarray) -> np.ndarray:
+    """Per triangle: 0-based id of its connected piece (triangles sharing a vertex) among those with the same label."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    nl = int(label.max()) + 1
+    _, sv = np.unique(tris.reshape(-1) * nl + np.repeat(label, 3), return_inverse=True)  # vertices shared within a label
+    sv = sv.reshape(-1, 3)
+    n = int(sv.max()) + 1
+    g = coo_matrix((np.ones(2 * len(sv)), (np.r_[sv[:, 0], sv[:, 1]], np.r_[sv[:, 1], sv[:, 2]])), shape=(n, n))
+    return np.unique(connected_components(g, directed=False)[1][sv[:, 0]], return_inverse=True)[1]
+
+
+def _slabs(c: _Charted, max_extent_m: float) -> _Charted:
+    """Cuts computed charts the way ``_charted`` cuts exact ones: a chart longer than ``max_extent_m`` or filling
+    less than UV_MIN_RECT_FILL of its minimum-area rectangle is cut across its long axis into equal slabs (each
+    connected piece of a slab is a chart), up to four times. The pieces keep their uvs, so distortion does
+    not change; the cost is seam vertices. Rectangle packing of computed charts depends on this: a torus'
+    charts are curved strips (they fill 0.32 of their rectangles), and uncut it packs at 629 px/m instead of
+    917 (1024 requested). The rectangles found here are kept for the packer."""
+    tris = np.asarray(c.tris, np.int64)
+    uv = c.uv_m
+    a2 = _tri_areas(uv, tris, 2)
+    cent = uv[tris].mean(axis=1)
+    label = np.unique(c.chart, return_inverse=True)[1]
+    todo = set(range(int(label.max()) + 1 if len(label) else 0))
+    rect: dict[int, tuple] = {}
+    for depth in range(5):
+        order = np.argsort(label, kind="stable")
+        ks, starts = np.unique(label[order], return_index=True)
+        cut = np.zeros(len(tris), bool)
+        sub = label.copy()  # slab index within a cut chart (any value elsewhere)
+        for k, sel in zip(ks.tolist(), np.split(order, starts[1:])):
+            if k not in todo:
+                continue
+            R, lo, wh = rect[k] = _min_area_frame(uv[np.unique(tris[sel])])
+            ax = int(np.argmax(wh))
+            fill = float(a2[sel].sum() / max(wh[0] * wh[1], 1e-30))
+            if depth == 4 or len(sel) < 2 or (wh[ax] <= max_extent_m and fill >= UV_MIN_RECT_FILL):
+                continue
+            n = max(2, int(np.ceil(wh[ax] / max_extent_m)))
+            coord = (cent[sel] @ R.T)[:, ax] - lo[ax]
+            slab = np.minimum((coord / max(wh[ax], 1e-30) * n).astype(np.int64), n - 1)
+            along = (uv[tris[sel]] @ R.T)[..., ax]
+            used = np.unique(slab)
+            if len(used) < 2 or max(float(np.ptp(along[slab == j])) for j in used) > max_extent_m:
+                continue  # triangles span the length: no cut helps
+            cut[sel] = True
+            sub[sel] = k * n + slab  # unique per (chart, slab) among the cut triangles of this depth
+            del rect[k]
+        if not cut.any():
+            break
+        idx = np.flatnonzero(cut)
+        top = int(label.max()) + 1
+        label[idx] = top + _pieces(tris[idx], np.unique(sub[idx], return_inverse=True)[1])
+        todo = set(np.unique(label[idx]).tolist())
+    ids, label = np.unique(label, return_inverse=True)
+    vm, t, uv2 = _split_shared(c.vmap, tris, uv, label)  # a no-op when nothing was cut
+    out = _Charted(c.mesh, vm, t.astype(np.int32), uv2, c.kind, label)
+    cid = _vertex_charts(t, label, len(uv2))
+    order = np.argsort(cid, kind="stable")
+    ks, starts = np.unique(cid[order], return_index=True)
+    out.frames = [(v, *rect[int(ids[k])]) for k, v in zip(ks, np.split(order, starts[1:]))]
+    return out
 
 
 def _result(m: MeshData, vm: np.ndarray, tris: np.ndarray, uv: np.ndarray, fitted: bool, resolution: int,
-            atlas_id: str | None, kind: str) -> UVResult:
+            atlas_id: str | None, kind: str, hidden: np.ndarray | None = None) -> UVResult:
     pts = np.asarray(m.points, dtype=np.float64)[vm]
-    uv = np.clip(uv.astype(np.float32), 0.0, 1.0)
-    a3, a2 = _tri_areas(pts, tris, 3).sum(), _tri_areas(uv, tris, 2).sum()
+    uv = uv.astype(np.float32)
+    shown = tris if hidden is None else tris[~hidden]
+    inside = np.zeros(len(uv), bool)
+    inside[np.asarray(shown, np.int64).reshape(-1)] = True
+    if hidden is None:
+        inside[:] = True
+    uv[inside] = np.clip(uv[inside], 0.0, 1.0)  # the atlas; charts of hidden triangles only lie right of it
+    if not len(shown):
+        shown = tris
+    a3, a2 = _tri_areas(pts, shown, 3).sum(), _tri_areas(uv, shown, 2).sum()
     dens = float(np.sqrt(a2 / a3) * resolution) if a3 > 0 and a2 > 0 else 0.0
-    sm, sx = _stretch(pts, tris, uv)
+    sm, sx = _stretch(pts, shown, uv)
     return UVResult(m.node_id, pts, tris, uv, vm, dens, sm, sx, resolution, atlas_id, fitted, kind,
-                    _angle_distortion(pts, tris, uv))
+                    _angle_distortion(pts, shown, uv), hidden)
 
 
 def _area(meshes: Sequence[MeshData]) -> float:
     return float(sum(_tri_areas(np.asarray(m.points, np.float64), np.asarray(m.triangles), 3).sum() for m in meshes))
 
 
-def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_id: str | None) -> list[UVResult]:
-    # an analytic chart longer than the atlas at the requested density is cut where the mesh allows it
+def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_id: str | None,
+                  hidden: Sequence[np.ndarray | None] | None = None, closed_out: list | None = None,
+                  cache: dict | None = None) -> list[UVResult]:
+    """One atlas: exact charts for meshes that carry them, xatlas charts for the others, all packed together as
+    rectangles by ``_pack_analytic`` (so a group whose meshes all carry exact charts is packed as before).
+    ``cache`` (a dict, per call site) keeps the charts and their closed packing, so a second call for the same
+    group with another ``hidden`` mask only packs again."""
+    if cache is not None and atlas_id in cache:
+        known, uvs, d, closed = cache[atlas_id]
+        return _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out)
+    # a chart longer than the atlas at the requested density is cut where the mesh allows it
     max_extent = (resolution - 1.0 - 2.0 * UV_PADDING_PX) / density
     known = [_charted(m, max_extent) for m in group]
-    if all(c is not None for c in known):
-        uvs, d = _pack_analytic(known, density, resolution)  # type: ignore[arg-type]
-        fitted = d >= density * (1 - 1e-9)
-        return [_result(c.mesh, c.vmap, c.tris, uv, fitted, resolution, atlas_id, "analytic")  # type: ignore[union-attr]
-                for c, uv in zip(known, uvs)]
+    todo = [i for i, c in enumerate(known) if c is None]
+    if todo:
+        for i, c in zip(todo, _computed_charts([group[i] for i in todo])):
+            known[i] = _slabs(c, max_extent)
+    uvs, d = _pack_analytic(known, density, resolution)  # type: ignore[arg-type]
+    # A few large computed charts can miss the requested density although their rectangles (with gutters) take
+    # less area than the atlas: then it is their size, not the area, that does not fit (measured: a 2 m^2
+    # sheet in 5 charts of 680 to 940 px packs at 1018 of 1024 px/m; xatlas fits it). Halving the longest
+    # charts (up to three times, kept only when the density rises) gives the packer smaller pieces.
+    for _ in range(3):
+        if d >= density * (1 - 1e-9) or not todo:
+            break
+        ext = np.array([f[3] for c in known for f in _chart_frames(c)], np.float64).reshape(-1, 2)  # type: ignore[arg-type]
+        if float((ext * density + 2.0 * UV_PADDING_PX).prod(axis=1).sum()) > (resolution - 1.0) ** 2:
+            break
+        longest = max(float(f[3].max()) for i in todo for f in _chart_frames(known[i]))  # type: ignore[arg-type]
+        trial = list(known)
+        for i in todo:
+            trial[i] = _slabs(known[i], 0.5 * longest)  # type: ignore[arg-type]
+        uvs2, d2 = _pack_analytic(trial, density, resolution)  # type: ignore[arg-type]
+        if d2 <= d:
+            break
+        known, uvs, d = trial, uvs2, d2
+    fitted = bool(d >= density * (1 - 1e-9))
+    closed = [_result(c.mesh, c.vmap, c.tris, uv, fitted, resolution, atlas_id, c.kind)  # type: ignore[union-attr]
+              for c, uv in zip(known, uvs)]
+    if cache is not None:
+        cache[atlas_id] = (known, uvs, d, closed)
+    return _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out)
 
-    # at least one mesh needs computed charts: xatlas computes those once and packs everything
-    bases: list[np.ndarray] = []  # per mesh: original vertex id of each vertex fed to the current atlas
 
-    def add(atlas, prev=None, scale=None):
-        nonlocal bases
-        fed = []
-        for i, (m, c) in enumerate(zip(group, known)):
-            if prev is not None:  # pack-only pass: the previous pass' layout as input UVs (charts kept)
-                vm, idx, uv = prev[i]
-                base = bases[i][vm.astype(np.int64)]
-                atlas.add_mesh(np.ascontiguousarray(np.asarray(m.points)[base], dtype=np.float32),
-                               np.ascontiguousarray(idx, dtype=np.uint32), uvs=np.ascontiguousarray(uv * scale, dtype=np.float32))
-            elif c is not None:
-                base = c.vmap
-                atlas.add_mesh(np.ascontiguousarray(np.asarray(m.points)[base], dtype=np.float32),
-                               np.ascontiguousarray(c.tris, dtype=np.uint32), uvs=np.ascontiguousarray(c.uv_m, dtype=np.float32))
-            else:
-                base = np.arange(len(m.points))
-                atlas.add_mesh(np.ascontiguousarray(m.points, dtype=np.float32), np.ascontiguousarray(m.triangles, dtype=np.uint32))
-            fed.append(base)
-        bases = fed
-
-    if any(c is not None for c in known):  # mixed group: compute the missing charts first, then pack all as input UVs
-        todo = [m for m, c in zip(group, known) if c is None]
-        import xatlas
-
-        ca = xatlas.Atlas()
-        for m in todo:
-            ca.add_mesh(np.ascontiguousarray(m.points, dtype=np.float32), np.ascontiguousarray(m.triangles, dtype=np.uint32))
-        co, po = _xatlas_options(0, density, input_uvs=False, surface_area=_area(todo), smooth_curvature=_smooth_curvature(todo))
-        ca.generate(co, po)
-        sc = np.array([ca.width, ca.height], np.float64) / float(ca.texels_per_unit or density)
-        it = iter(range(len(todo)))
-        filled = []
-        for m, c in zip(group, known):
-            if c is None:
-                vm, idx, uv = ca.get_mesh(next(it))
-                c = _Charted(m, vm.astype(np.int64), idx.reshape(-1, 3).astype(np.int32), uv.astype(np.float64) * sc, "computed")
-            filled.append(c)
-        known = filled
-    computed = [m for m, c in zip(group, known) if c is None]
-    atlas, tpu = _xatlas_fit(add, density, resolution, input_uvs=not computed, surface_area=_area(computed),
-                             smooth_curvature=_smooth_curvature(computed))
-    fitted = tpu >= density * (1 - 1e-9)
-    out = []
-    for i, (m, c) in enumerate(zip(group, known)):
-        vm, idx, uv = atlas.get_mesh(i)
-        vm = bases[i][vm.astype(np.int64)]
-        out.append(_result(m, vm, idx.reshape(-1, 3).astype(np.int32), _atlas_uv(atlas, uv, resolution), fitted, resolution,
-                           atlas_id, c.kind if c is not None else "computed"))
-    return out
+def _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out) -> list[UVResult]:
+    if closed_out is not None:
+        closed_out.extend(closed)
+    if hidden is None or not any(h is not None and h.any() for h in hidden):
+        return closed
+    # The same charts (same seam-split vertices and triangles), packed again without the charts of hidden
+    # triangles only. Kept only when it does not lower the density (rectangle packing is not monotone).
+    uvs2, d2 = _pack_analytic(known, density, resolution, hidden)  # type: ignore[arg-type]
+    if d2 < d:
+        uvs2, d2 = uvs, d
+    fitted = bool(d2 >= density * (1 - 1e-9))
+    return [_result(c.mesh, c.vmap, c.tris, uv, fitted, resolution, atlas_id, c.kind, hidden[i])  # type: ignore[union-attr]
+            for i, (c, uv) in enumerate(zip(known, uvs2))]
 
 
 def unwrap_uvs(mesh: MeshData, texel_density_px_per_m: float, resolution: int = 2048) -> UVResult:
     return _unwrap_group([mesh], texel_density_px_per_m, resolution, mesh.material_id)[0]
 
 
-def unwrap_scene(meshes: list[MeshData], budget: EngineBudget, resolution: int = 2048) -> list[UVResult]:
+def unwrap_scene(meshes: list[MeshData], budget: EngineBudget, resolution: int = 2048,
+                 hidden: Sequence[np.ndarray | None] | None = None, closed_out: list | None = None,
+                 cache: dict | None = None) -> list[UVResult]:
     """One atlas per material id; results are returned in input order.
 
     Meshes that carry exact charts (``MeshData.uv_charts``, set for IR primitives) are unfolded
-    isometrically and only packed; the others get xatlas charts, computed once.
+    isometrically and only packed; the others get xatlas charts, computed once. ``hidden`` (per mesh, a triangle
+    mask or None) marks triangles that will not ship: see ``_pack_analytic`` and ``UVResult.hidden``. With it,
+    ``closed_out`` (a list) receives the unwrap without that mask, in input order: the same charts, vertices and
+    triangles, packed as if every triangle shipped.
     """
     groups: dict[str | None, list[int]] = {}
     for i, m in enumerate(meshes):
         groups.setdefault(m.material_id, []).append(i)
     res: list[UVResult | None] = [None] * len(meshes)
+    closed: list[UVResult | None] = [None] * len(meshes)
     for mat, ids in groups.items():
-        for i, r in zip(ids, _unwrap_group([meshes[i] for i in ids], budget.texel_density_px_per_m, resolution, mat)):
+        h = None if hidden is None else [None if hidden[i] is None or not hidden[i].any() else hidden[i] for i in ids]
+        got: list[UVResult] = []
+        for i, r in zip(ids, _unwrap_group([meshes[i] for i in ids], budget.texel_density_px_per_m, resolution, mat, h, got, cache)):
             res[i] = r
+        for i, r in zip(ids, got):
+            closed[i] = r
+    if closed_out is not None:
+        closed_out.extend(closed)
     return res  # type: ignore[return-value]
 
 
-def uv_overlap_fraction(results: Sequence[UVResult], res: int = 512) -> float:
-    """Fraction of covered texels hit by more than one triangle (conservative raster)."""
-    cov = np.zeros((res, res), np.int32)
+#: EL4CTEO retopology-uv/SKILL.md and texel_density.py: the largest-to-smallest density ratio an asset should stay within
+TEXEL_SPREAD_LIMIT = 1.3
+#: a missed target is warned about from this fraction down (``target_met`` itself is exact): 7 of the benchmark's ten
+#: single-primitive assets miss 1024 px/m in a 2048 px atlas, several by under 3 %, and a warning on each would be noise
+TEXEL_TARGET_WARN_FRACTION = 0.9
+
+
+def texel_density_report(results: Sequence[UVResult], target_px_per_m: float) -> dict:
+    """Achieved texel density per material atlas and across the asset (reporting only: nothing is repacked).
+
+    Each material has one atlas and one density for all its charts (``_pack_analytic``). ``target_met`` is the packer's
+    ``fitted`` flag (False: the atlas could not hold its charts at ``target_px_per_m`` and the density was lowered).
+    ``px_per_m`` is in atlas space, at ``atlas_px`` (the packing resolution); ``needed_atlas_px`` is the side at which
+    the same layout would reach the target (the atlas side scales with the density), ``needed_atlas_px_pow2`` the
+    next power of two. ``spread`` is the highest over the lowest material density, with the two extremes named."""
+    groups: dict[str, list[UVResult]] = {}
     for r in results:
+        if r.texel_density > 0:
+            groups.setdefault(str(r.atlas_id), []).append(r)
+    mats: dict[str, dict] = {}
+    for name, rs in sorted(groups.items()):
+        d = min(r.texel_density for r in rs)
+        px = max(r.resolution for r in rs)
+        met = all(r.fitted for r in rs)
+        need = px if met else int(np.ceil(px * target_px_per_m / d))
+        # occupancy: the share of the atlas that charts cover (sum of the shipped triangles' UV areas, overlaps counted
+        # twice, so an upper bound) and the share its UV bounding box covers (what a crop to the used region would keep)
+        area, lo, hi = 0.0, np.full(2, np.inf), np.full(2, -np.inf)
+        for r in rs:
+            sh = shipped(r)
+            if sh.uvs is None or not len(sh.triangles):
+                continue
+            q = np.asarray(sh.uvs, np.float64)[np.asarray(sh.triangles)]
+            e1, e2 = q[:, 1] - q[:, 0], q[:, 2] - q[:, 0]
+            area += float(np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]).sum() / 2)
+            lo, hi = np.minimum(lo, q.reshape(-1, 2).min(0)), np.maximum(hi, q.reshape(-1, 2).max(0))
+        box = float(np.prod(np.clip(hi - lo, 0, 1))) if np.isfinite(lo).all() else 0.0
+        mats[name] = {"px_per_m": round(float(d), 2), "target_met": met, "atlas_px": px, "needed_atlas_px": need,
+                      "needed_atlas_px_pow2": 1 << max(0, need - 1).bit_length(),
+                      "chart_area_fraction": round(min(area, 1.0), 4), "uv_bbox_fraction": round(box, 4)}
+    if not mats:
+        return {"target_px_per_m": target_px_per_m, "materials": {}, "spread": None, "spread_limit": TEXEL_SPREAD_LIMIT,
+                "highest": None, "lowest": None}
+    hi = max(mats, key=lambda k: mats[k]["px_per_m"])
+    lo = min(mats, key=lambda k: mats[k]["px_per_m"])
+    return {"target_px_per_m": target_px_per_m, "materials": mats,
+            "spread": round(mats[hi]["px_per_m"] / mats[lo]["px_per_m"], 3), "spread_limit": TEXEL_SPREAD_LIMIT,
+            "highest": hi, "lowest": lo}
+
+
+def describe_texel_density(report: dict) -> str:
+    """One line for a step detail: ``stone 323/1024 px/m (target missed), metal 1024 (met); spread 3.17x``."""
+    t = report["target_px_per_m"]
+    parts = [f"{k} {v['px_per_m']:g}/{t:g} px/m (target missed)" if not v["target_met"] else f"{k} {v['px_per_m']:g} (met)"
+             for k, v in report["materials"].items()]
+    spread = report.get("spread")
+    return ", ".join(parts) + (f"; spread {spread:.2f}x" if spread is not None else "")
+
+
+def uv_overlap_fraction(results: Sequence[UVResult], res: int = 512) -> float:
+    """Fraction of covered texels hit by more than one shipped triangle (conservative raster; hidden contact faces,
+    whose charts may lie outside the atlas, are not shipped and not counted)."""
+    cov = np.zeros((res, res), np.int32)
+    for r in map(shipped, results):
         for tri in r.triangles:
             p = r.uvs[tri].astype(np.float64) * res
             x0, y0 = np.floor(p.min(axis=0)).astype(int)
@@ -875,9 +1590,13 @@ class LOD:
     points: np.ndarray           # (V, 3) float64 (float32 precision)
     triangles: np.ndarray        # (M, 3) int32
     uvs: np.ndarray | None
-    error: float                 # measured deviation from LOD0 relative to the mesh scale (meshopt simplify_scale)
-    error_m: float               # same, in metres (two-sided, sampled surface distance; see _surface_deviation)
+    error: float                 # bound on the deviation from LOD0, relative to the mesh scale (meshopt simplify_scale)
+    # The same in metres: no sample of the two-sided surface distance exceeds it, and it is within the level's
+    # budget. It is a bound, not the largest sampled distance: a sample is only settled exactly when it could
+    # exceed the budget (see _surface_deviation), so the true deviation is often well below this value.
+    error_m: float
     screen_fraction: float = 1.0  # largest screen fraction (bounding-sphere diameter / frame height) it is shown at
+    hidden: np.ndarray | None = None  # (M,) bool: triangles not shipped at this level (see UVResult.hidden)
 
     @property
     def tri_count(self) -> int:
@@ -938,8 +1657,16 @@ def _point_triangle_distance(p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.
 
 class _SurfaceIndex:
     """Search structure over one triangle mesh, built once and queried many times: centroids in a KD-tree
-    (first pass), triangle bounding boxes (exact pruning bound) and, for large meshes, a KD-tree over the
-    box centres so the second pass only visits boxes that can be closer than the bound found."""
+    (first pass) and triangle bounding boxes (exact pruning bound). The exhaustive pass looks for every box
+    closer than a bound through KD-trees over box centres, one per size class: a box can only be closer than
+    ``r`` if its centre is within ``r`` plus its half-diagonal, and one tree with the largest half-diagonal of
+    the whole mesh would make one table-top triangle turn every query into a scan of every triangle."""
+
+    SIZE_CLASS_FACTOR = 4.0   # half-diagonals within a class differ by at most this factor ...
+    SIZE_CLASSES = 8          # ... except the last class, which holds everything smaller
+    BRUTE_PAIRS = 2_000_000   # sample x box pairs tested at once without a tree (and the chunk size)
+    BRUTE_BOXES = 8192        # sample x box pairs below which the exhaustive pass tests every box
+    DENSE_PAIRS = 4096        # below this many sample x triangle pairs, exact distances are computed outright
 
     def __init__(self, p: np.ndarray, t: np.ndarray) -> None:
         from scipy.spatial import cKDTree
@@ -951,8 +1678,7 @@ class _SurfaceIndex:
         self.tree = cKDTree((self.a + self.b + self.c) / 3) if self.m else None
         self.lo = np.minimum(np.minimum(self.a, self.b), self.c)
         self.hi = np.maximum(np.maximum(self.a, self.b), self.c)
-        self._box_tree = None
-        self._half = 0.0
+        self._classes: list | None = None
         self._t = t
         self._p = p
         self._partner: np.ndarray | None = None
@@ -989,13 +1715,92 @@ class _SurfaceIndex:
             self._partner = part
         return self._partner
 
-    def _boxes(self):
+    def _size_classes(self) -> list:
+        """[(triangle ids, largest half-diagonal, KD-tree over their box centres or None)], one entry per size
+        class. Small classes are tested exhaustively (a tree would cost more than it prunes)."""
         from scipy.spatial import cKDTree
 
-        if self._box_tree is None:
-            self._box_tree = cKDTree((self.lo + self.hi) / 2)
-            self._half = float(np.linalg.norm((self.hi - self.lo) / 2, axis=1).max())
-        return self._box_tree, self._half
+        if self._classes is None:
+            half = np.linalg.norm((self.hi - self.lo) / 2, axis=1)
+            top = float(half.max()) if self.m else 0.0
+            if top > 0:
+                k = np.floor(np.log(top / np.maximum(half, top * 1e-300)) / np.log(self.SIZE_CLASS_FACTOR))
+                k = np.minimum(k, self.SIZE_CLASSES - 1).astype(np.int64)
+            else:
+                k = np.zeros(self.m, np.int64)
+            centre = (self.lo + self.hi) / 2
+            self._classes = []
+            for cls in np.unique(k):
+                ids = np.flatnonzero(k == cls)
+                self._classes.append((ids, float(half[ids].max()), cKDTree(centre[ids]) if len(ids) > 64 else None))
+        return self._classes
+
+    def _pairs(self, sl: np.ndarray, bound: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Every (sample row, triangle) whose bounding box is closer to the sample than ``bound[row]``: the only
+        triangles that can be closer than the bound. Exact: a box closer than r has its centre within r plus
+        its half-diagonal, and the tree query uses the class's largest half-diagonal (with a rounding margin)."""
+        import itertools
+
+        rows, cols = [], []
+        if len(sl) * self.m <= self.BRUTE_BOXES:  # few pairs: test every box, no class trees needed
+            classes = [(np.arange(self.m), 0.0, None)]
+        else:
+            classes = self._size_classes()
+        for ids, half, tree in classes:
+            if tree is None:
+                r2 = np.repeat(np.arange(len(sl)), len(ids))
+                c2 = np.tile(ids, len(sl))
+            else:
+                hits = tree.query_ball_point(sl, (bound + half) * (1 + 1e-9) + 1e-12, return_sorted=False)
+                cnt = np.fromiter(map(len, hits), np.int64, len(hits))
+                if not cnt.sum():
+                    continue
+                r2 = np.repeat(np.arange(len(sl)), cnt)
+                c2 = ids[np.fromiter(itertools.chain.from_iterable(hits), np.int64, int(cnt.sum()))]
+            gap = np.maximum(np.maximum(self.lo[c2] - sl[r2], sl[r2] - self.hi[c2]), 0.0)
+            keep = np.sqrt(np.einsum("ij,ij->i", gap, gap)) < bound[r2]
+            rows.append(r2[keep])
+            cols.append(c2[keep])
+        if not rows:
+            return np.zeros(0, np.int64), np.zeros(0, np.int64)
+        return np.concatenate(rows), np.concatenate(cols)
+
+    def _chunks(self, n: int):
+        """Sample slices small enough that the exhaustively tested classes stay within BRUTE_PAIRS pairs."""
+        if n * self.m <= self.BRUTE_BOXES:
+            return iter((slice(0, n),))
+        brute = sum(len(ids) for ids, _, tree in self._size_classes() if tree is None)
+        step = max(1, self.BRUTE_PAIRS // max(brute, 64))
+        return (slice(s0, s0 + step) for s0 in range(0, n, step))
+
+    def _exact(self, ub: np.ndarray, ids: np.ndarray, samples: np.ndarray) -> None:
+        """Lower ub[ids] to the exact distance of samples[ids]: the minimum over every triangle whose box is
+        closer than the current bound (any closer triangle is one of them)."""
+        for sl_ in self._chunks(len(ids)):
+            part = ids[sl_]
+            sl = samples[part]
+            r2, c2 = self._pairs(sl, ub[part])
+            self._refine(ub, part, sl, r2, c2)
+
+    def _first_bound(self, samples: np.ndarray) -> np.ndarray:
+        """Per-sample upper bound: the distance to the triangle with the nearest centroid."""
+        nn = np.asarray(self.tree.query(samples, k=1)[1]).reshape(-1)
+        return _point_triangle_distance(samples, self.a[nn], self.b[nn], self.c[nn])
+
+    def _settle(self, ub: np.ndarray, ids: np.ndarray, samples: np.ndarray, limit: float) -> None:
+        """Passes two and three of :meth:`distances` on samples[ids] (whose first bound exceeds ``limit``):
+        tighten with the 8 nearest centroids, then make exact every value still above ``limit``. Each sample is
+        settled independently, so settling a subset gives those samples the values the whole set would."""
+        k = min(8, self.m)
+        if k > 1:
+            nn = np.asarray(self.tree.query(samples[ids], k=k)[1]).reshape(len(ids), k)
+            rows = np.repeat(ids, k)
+            f = nn.reshape(-1)
+            d = _point_triangle_distance(samples[rows], self.a[f], self.b[f], self.c[f]).reshape(len(ids), k).min(axis=1)
+            ub[ids] = np.minimum(ub[ids], d)
+            ids = ids[ub[ids] > limit]
+        if len(ids):
+            self._exact(ub, ids, samples)
 
     def distances(self, samples: np.ndarray, limit: float) -> np.ndarray:
         """Per-sample distance to the surface, exact wherever it exceeds ``limit`` (else an upper bound
@@ -1007,76 +1812,87 @@ class _SurfaceIndex:
             return np.zeros(0)
         if not self.m:
             return np.full(n, np.inf)
-        nn = np.asarray(self.tree.query(samples, k=1)[1]).reshape(-1)  # any triangle gives an upper bound
-        ub = _point_triangle_distance(samples, self.a[nn], self.b[nn], self.c[nn])
+        ub = self._first_bound(samples)  # any triangle gives an upper bound
         far = np.flatnonzero(ub > limit)
-        k = min(8, self.m)
-        if len(far) and k > 1:  # tighten with the 8 nearest centroids before the exhaustive pass
-            nn = np.asarray(self.tree.query(samples[far], k=k)[1]).reshape(len(far), k)
-            rows = np.repeat(far, k)
-            f = nn.reshape(-1)
-            d = _point_triangle_distance(samples[rows], self.a[f], self.b[f], self.c[f]).reshape(len(far), k).min(axis=1)
-            ub[far] = np.minimum(ub[far], d)
-            far = far[ub[far] > limit]
-        if not len(far):
-            return ub
-        if self.m <= 2048:  # small target: bounding-box bound against every triangle
-            step = max(1, 2_000_000 // self.m)
-            for s0 in range(0, len(far), step):
-                ids = far[s0:s0 + step]
-                sl = samples[ids]
-                gap = np.maximum(np.maximum(self.lo[None] - sl[:, None], sl[:, None] - self.hi[None]), 0.0)
-                r2, c2 = np.nonzero(np.sqrt(np.einsum("ijk,ijk->ij", gap, gap)) < ub[ids][:, None])
-                self._refine(ub, ids, sl, r2, c2)
-            return ub
-        import itertools
-
-        tree, half = self._boxes()
-        sl = samples[far]
-        hits = tree.query_ball_point(sl, ub[far] + half)  # every box that can hold a closer triangle
-        cnt = np.fromiter(map(len, hits), np.int64, len(hits))
-        r2 = np.repeat(np.arange(len(far)), cnt)
-        c2 = np.fromiter(itertools.chain.from_iterable(hits), np.int64, int(cnt.sum()))
-        gap = np.maximum(np.maximum(self.lo[c2] - sl[r2], sl[r2] - self.hi[c2]), 0.0)
-        keep = np.sqrt(np.einsum("ij,ij->i", gap, gap)) < ub[far][r2]
-        self._refine(ub, far, sl, r2[keep], c2[keep])
+        if len(far):
+            self._settle(ub, far, samples, limit)
         return ub
 
+    @staticmethod
+    def _batches(ub: np.ndarray, limit: float):
+        """The samples whose bound exceeds ``limit``, in order of decreasing bound, in batches of 64 doubling to
+        4096 (the order in which :meth:`max_distance` makes them exact)."""
+        far = np.flatnonzero(ub > limit)
+        far = far[np.argsort(-ub[far], kind="stable")]
+        s0, step = 0, 64
+        while s0 < len(far):
+            yield far[s0:s0 + step]
+            s0, step = s0 + step, min(step * 2, 4096)
+
+    HEAD = 256  # samples settled first, farthest bound first: enough to find a maximum above the limit
+
+    def _head_tail(self, samples: np.ndarray, limit: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """(first bounds, the HEAD samples with the largest bounds above ``limit``, the other samples above it)."""
+        ub = self._first_bound(samples)
+        far = np.flatnonzero(ub > limit)
+        if len(far) > self.HEAD:
+            far = far[np.argsort(-ub[far], kind="stable")]
+        return ub, far[:self.HEAD], far[self.HEAD:]
+
+    def max_over(self, samples: np.ndarray, limit: float) -> float:
+        """``distances(samples, limit).max()``, the same value, without settling samples that cannot change it:
+        the samples with the largest first bounds are settled first, and once a value above ``limit`` is found
+        (it is exact) the samples whose first bound is not above it cannot hold the maximum. When no sample
+        exceeds ``limit`` every candidate is settled, exactly as :meth:`distances` does."""
+        if not len(samples):
+            return 0.0
+        if not self.m:
+            return np.inf
+        ub, head, tail = self._head_tail(samples, limit)
+        best = -np.inf
+        if len(head):
+            self._settle(ub, head, samples, limit)
+            best = float(ub[head].max())
+        if len(tail):
+            if best > limit:
+                tail = tail[ub[tail] > best]
+            if len(tail):
+                self._settle(ub, tail, samples, limit)
+                best = max(best, float(ub[tail].max()))
+        return best if best > limit else float(ub.max())
+
     def exceeds(self, samples: np.ndarray, limit: float) -> bool:
-        """True iff some sample is farther than ``limit`` from the surface (exact), stopping at the first proof:
-        candidates are refined exactly in small batches, farthest upper bound first."""
+        """True iff some sample is farther than ``limit`` from the surface (exact): the samples with the largest
+        first bounds are settled first, the others only when none of those exceeds."""
         if not len(samples):
             return False
         if not self.m:
             return True
-        nn = np.asarray(self.tree.query(samples, k=1)[1]).reshape(-1)
-        ub = _point_triangle_distance(samples, self.a[nn], self.b[nn], self.c[nn])
-        far = np.flatnonzero(ub > limit)
-        far = far[np.argsort(-ub[far], kind="stable")]
-        for s0, step in ((0, 64), (64, 4096)):
-            chunk = far[s0:s0 + step] if step == 64 else far[s0:]
-            for c0 in range(0, len(chunk), step):
-                ids = chunk[c0:c0 + step]
-                if self.distances(samples[ids], limit).max() > limit:
+        ub, head, tail = self._head_tail(samples, limit)
+        for ids in (head, tail):
+            if len(ids):
+                self._settle(ub, ids, samples, limit)
+                if ub[ids].max() > limit:
                     return True
         return False
 
     def nearest(self, samples: np.ndarray) -> np.ndarray:
         """Index of the exactly nearest triangle of each sample (8 nearest centroids, then every triangle whose
-        bounding box is closer than the distance found)."""
+        bounding box is closer than the distance found; on a tie the centroid search's pick stays, else the
+        lowest index)."""
         n, k = len(samples), min(8, self.m)
         nn = np.asarray(self.tree.query(samples, k=k)[1]).reshape(n, k)
         f = nn.reshape(-1)
         d = _point_triangle_distance(np.repeat(samples, k, axis=0), self.a[f], self.b[f], self.c[f]).reshape(n, k)
         j = d.argmin(axis=1)
         best, arg = d[np.arange(n), j], nn[np.arange(n), j]
-        for s0 in range(0, n, max(1, 2_000_000 // self.m)):
-            sl = samples[s0:s0 + max(1, 2_000_000 // self.m)]
-            gap = np.maximum(np.maximum(self.lo[None] - sl[:, None], sl[:, None] - self.hi[None]), 0.0)
-            r2, c2 = np.nonzero(np.sqrt(np.einsum("ijk,ijk->ij", gap, gap)) < best[s0:s0 + len(sl)][:, None])
+        for sl_ in self._chunks(n):
+            sl = samples[sl_]
+            s0 = sl_.start
+            r2, c2 = self._pairs(sl, best[sl_])
             if len(r2):
                 d2 = _point_triangle_distance(sl[r2], self.a[c2], self.b[c2], self.c[c2])
-                order = np.lexsort((d2, r2))  # per row, the smallest distance first
+                order = np.lexsort((c2, d2, r2))  # per row, the smallest distance first, then the lowest index
                 r2, c2, d2 = r2[order], c2[order], d2[order]
                 first = np.r_[True, r2[1:] != r2[:-1]]
                 rows = s0 + r2[first]
@@ -1084,26 +1900,38 @@ class _SurfaceIndex:
                 best[rows[better]], arg[rows[better]] = d2[first][better], c2[first][better]
         return arg
 
+    def exact(self, samples: np.ndarray) -> np.ndarray:
+        """Exact distance of every sample to the surface."""
+        n = len(samples)
+        if n * self.m <= self.DENSE_PAIRS:
+            f = np.tile(np.arange(self.m), n)
+            d = _point_triangle_distance(np.repeat(samples, self.m, axis=0), self.a[f], self.b[f], self.c[f])
+            return d.reshape(n, self.m).min(axis=1)
+        ub = self._first_bound(samples)
+        self._settle(ub, np.arange(n), samples, -1.0)
+        return ub
+
     def max_distance(self, samples: np.ndarray) -> float:
-        """Exact max over samples of the distance to the surface: cheap per-sample upper bounds first, then exact
-        values in order of decreasing bound until no remaining bound can beat the best exact value."""
-        if not len(samples):
+        """Exact max over samples of the distance to the surface. Small problems: every sample against every
+        triangle at once. Otherwise per-sample upper bounds (nearest centroid's triangle) first, then samples in
+        order of decreasing bound, each batch tightened with the 8 nearest centroids and made exact where it
+        can still beat the best exact value, until no remaining bound can."""
+        n = len(samples)
+        if not n:
             return 0.0
         if not self.m:
             return np.inf
-        n, k = len(samples), min(8, self.m)
-        nn = np.asarray(self.tree.query(samples, k=k)[1]).reshape(n, k)
-        f = nn.reshape(-1)
-        ub = _point_triangle_distance(np.repeat(samples, k, axis=0), self.a[f], self.b[f], self.c[f]).reshape(n, k).min(axis=1)
-        order = np.argsort(-ub, kind="stable")
+        if n * self.m <= self.DENSE_PAIRS:
+            f = np.tile(np.arange(self.m), n)
+            d = _point_triangle_distance(np.repeat(samples, self.m, axis=0), self.a[f], self.b[f], self.c[f])
+            return float(d.reshape(n, self.m).min(axis=1).max())
+        ub = self._first_bound(samples)
         best = 0.0
-        step = 16
-        for s0 in range(0, n, step):
-            ids = order[s0:s0 + step]
+        for ids in self._batches(ub, -np.inf):
             if ub[ids[0]] <= best:  # no remaining upper bound can beat the exact maximum found
                 break
-            best = max(best, float(self.distances(samples[ids], 0.0).max()))
-            step = min(step * 2, 1024)
+            self._settle(ub, ids, samples, best)
+            best = max(best, float(ub[ids].max()))
         return best
 
     def _refine(self, ub: np.ndarray, ids: np.ndarray, sl: np.ndarray, r2: np.ndarray, c2: np.ndarray) -> None:
@@ -1117,29 +1945,42 @@ def _one_sided(samples: np.ndarray, p: np.ndarray, t: np.ndarray, limit: float) 
     """max over samples of the distance to surface (p, t), decided exactly against ``limit`` (exact whenever it
     exceeds ``limit``, otherwise an upper bound that is still <= ``limit``: the accept / reject decision is
     never wrong). See _SurfaceIndex.distances."""
-    d = _SurfaceIndex(p, t).distances(np.asarray(samples, np.float64), limit)
-    return float(d.max()) if len(d) else 0.0
+    return _SurfaceIndex(p, t).max_over(np.asarray(samples, np.float64), limit)
 
 
 def _coarse_samples(p1: np.ndarray, t1: np.ndarray) -> np.ndarray:
+    """Centroids and edge midpoints of the triangles, each shared edge's midpoint once (both triangles of an
+    edge give the same point, and a repeated sample cannot change a maximum)."""
     a, b, c = p1[t1[:, 0]], p1[t1[:, 1]], p1[t1[:, 2]]
-    return np.vstack([(a + b + c) / 3, (a + b) / 2, (b + c) / 2, (c + a) / 2])
+    e = np.sort(np.concatenate([t1[:, [0, 1]], t1[:, [1, 2]], t1[:, [2, 0]]]), axis=1).astype(np.int64)
+    key = np.unique(e[:, 0] * (int(e.max(initial=0)) + 1) + e[:, 1])
+    i, j = np.divmod(key, int(e.max(initial=0)) + 1)
+    return np.vstack([(a + b + c) / 3, (p1[i] + p1[j]) / 2])
+
+
+def _distinct_points(p: np.ndarray) -> np.ndarray:
+    """The rows of p without exact repeats (a seam-split mesh repeats every seam position once per chart)."""
+    p = np.ascontiguousarray(p, np.float64)
+    if not len(p):
+        return p
+    _, first = np.unique(p.view(np.dtype((np.void, p.dtype.itemsize * p.shape[1]))).ravel(), return_index=True)
+    return p[np.sort(first)]
 
 
 def _surface_deviation(p0: np.ndarray, t0: np.ndarray, p1: np.ndarray, t1: np.ndarray, limit: float,
-                       ref_index: _SurfaceIndex | None = None) -> float:
+                       ref_index: _SurfaceIndex | None = None, ref_vertices: np.ndarray | None = None) -> float:
     """Two-sided surface distance (a sampled Hausdorff distance) between a mesh (p0, t0) and its
-    simplification (p1, t1), in the units of the points, decided exactly against ``limit`` (see _one_sided).
-    Reference -> simplified: the reference's vertices (where an edge collapse moves the surface most).
-    Simplified -> reference: centroids and edge midpoints of the coarse triangles (chords and bulges; its
-    vertices are reference vertices, at distance 0). ``ref_index``: a prebuilt index of (p0, t0) to reuse.
-    A value above ``limit`` is exact for the side that exceeded it (the other side is then not measured)."""
+    simplification (p1, t1), in the units of the points, decided exactly against ``limit`` (see
+    _SurfaceIndex.max_over). Reference -> simplified: the reference's vertices (where an edge collapse moves
+    the surface most). Simplified -> reference: centroids and edge midpoints of the coarse triangles (chords and
+    bulges; its vertices are reference vertices, at distance 0). ``ref_index``, ``ref_vertices``: a prebuilt
+    index of (p0, t0) and its distinct used vertices to reuse. A value above ``limit`` is exact for the side
+    that exceeded it (the other side is then not measured)."""
+    d1 = _SurfaceIndex(p1, t1).max_over(_distinct_points(p0[np.unique(t0)]) if ref_vertices is None else ref_vertices, limit)
+    if d1 > limit:  # already rejected (and exact): skip the other side
+        return d1
     ref = ref_index if ref_index is not None else _SurfaceIndex(p0, t0)
-    d1 = _SurfaceIndex(p1, t1).distances(p0[np.unique(t0)], limit)
-    if len(d1) and d1.max() > limit:  # already rejected (and exact): skip the other side
-        return float(d1.max())
-    d2 = ref.distances(_coarse_samples(p1, t1), limit)
-    return float(max(d1.max() if len(d1) else 0.0, d2.max() if len(d2) else 0.0))
+    return float(max(d1, ref.max_over(_coarse_samples(p1, t1), limit)))
 
 
 # 13 view directions (axes, face and body diagonals; opposite directions project identically)
@@ -1152,7 +1993,10 @@ def _projected_areas(p: np.ndarray, t: np.ndarray) -> np.ndarray:
     """Silhouette area of a closed mesh seen along each of _VIEW_DIRS: (1/2) sum |n . d| a (Cauchy's
     projection formula; exact for convex parts, counts overlapping layers otherwise)."""
     n = np.cross(p[t[:, 1]] - p[t[:, 0]], p[t[:, 2]] - p[t[:, 0]]) / 2  # area-weighted normals
-    return 0.5 * np.abs(n @ _VIEW_DIRS.T).sum(axis=0)
+    # in row blocks: one (n, 3) x (3, 13) product hands a large n to the threaded BLAS path, measured ten times
+    # slower than the same product in blocks, which gives a bit-identical result
+    proj = np.vstack([n[i:i + 4096] @ _VIEW_DIRS.T for i in range(0, len(n), 4096)]) if len(n) else np.zeros((0, len(_VIEW_DIRS)))
+    return 0.5 * np.abs(proj).sum(axis=0)
 
 
 class _Simplifier:
@@ -1177,13 +2021,17 @@ class _Simplifier:
         self.pts64 = np.asarray(points, np.float64)
         pts = np.ascontiguousarray(points, dtype=np.float32)
         tri = np.asarray(triangles)
+        cid = _canon(self.pts64)
+        first = np.unique(cid, return_index=True)[1]
         if uvs is None:  # weld so duplicated hard-edge verts do not freeze the mesh
-            cid = _canon(self.pts64)
-            first = np.unique(cid, return_index=True)[1]
             pts = np.ascontiguousarray(pts[first])
             tri = cid[tri]
             self.uv = None
         else:
+            # The copies of a vertex on a UV seam must be at exactly the same position: meshoptimizer joins them
+            # by bitwise equality, and copies that differ by rounding noise (a seam closed with sin(2 pi), which is
+            # -2.4e-16 and not 0) are collapsed separately, which opens the seam into hairline cracks.
+            pts = np.ascontiguousarray(pts[first][cid])
             self.uv = np.ascontiguousarray(uvs, dtype=np.float32)
         self.pts = pts
         self.idx0 = np.ascontiguousarray(tri, dtype=np.uint32).ravel()
@@ -1201,6 +2049,7 @@ class _Simplifier:
         self._floor = 0.0  # largest budget known to remove nothing: smaller budgets cannot do better
         self._measured: dict[bytes, tuple[float, float]] = {}
         self._ref_index: _SurfaceIndex | None = None  # built on first measurement, reused by every level/attempt
+        self._ref_vertices: np.ndarray | None = None  # the reference's used vertices (its side's samples), likewise
 
     @property
     def ref_index(self) -> _SurfaceIndex:
@@ -1239,8 +2088,10 @@ class _Simplifier:
         key = idx.tobytes()
         if key not in self._measured:
             sil = self.silhouette_change(idx)
+            if sil <= silhouette_tol and self._ref_vertices is None:
+                self._ref_vertices = _distinct_points(self.ref[0][np.unique(self.ref[1])])
             dev = (_surface_deviation(self.ref[0], self.ref[1], self.ref[0], idx.reshape(-1, 3).astype(np.int64), limit,
-                                      self.ref_index) if sil <= silhouette_tol else np.inf)
+                                      self.ref_index, self._ref_vertices) if sil <= silhouette_tol else np.inf)
             self._measured[key] = (sil, dev)
         return self._measured[key]
 
@@ -1347,6 +2198,18 @@ def _absent(s: "_Simplifier", screen_fraction: float) -> LOD:
                0.0, 0.0, float(screen_fraction))
 
 
+def _convex_bound(tri: np.ndarray, cand: tuple[np.ndarray, np.ndarray, np.ndarray],
+                  partner: tuple[np.ndarray, np.ndarray, np.ndarray]) -> np.ndarray:
+    """Per triangle S (corners (n, 3, 3)) the bound of :func:`_convex_upper` from 4 candidate triangles per S:
+    ``cand`` and ``partner`` are their corners and those of their coplanar partners, (4 n, 3) each."""
+    n = len(tri)
+    pts = np.repeat(tri, 4, axis=0).reshape(-1, 3)  # per S: 4 candidates x 3 corners
+    d = _point_triangle_distance(pts, *(np.repeat(x, 3, axis=0) for x in cand))
+    # T joined with its coplanar partner is still convex: distance = min of the halves
+    d = np.minimum(d, _point_triangle_distance(pts, *(np.repeat(x, 3, axis=0) for x in partner))).reshape(n, 4, 3)
+    return d.max(axis=2).min(axis=1)
+
+
 def _convex_upper(index: "_SurfaceIndex", tri: np.ndarray, *, return_candidates: bool = False):
     """Per triangle S (corners (n, 3, 3)) an upper bound of max over x in S of the distance from x to the
     indexed surface: for any one indexed triangle T, x -> dist(x, T) is convex, so its maximum over S is at a
@@ -1355,12 +2218,8 @@ def _convex_upper(index: "_SurfaceIndex", tri: np.ndarray, *, return_candidates:
     n = len(tri)
     q = np.concatenate([tri, tri.mean(axis=1, keepdims=True)], axis=1).reshape(-1, 3)
     cand = index.nearest(q).reshape(n, 4)
-    tids = np.repeat(cand.reshape(-1), 3)  # per S: 4 candidates x 3 corners
-    pts = np.repeat(tri, 4, axis=0).reshape(-1, 3)
-    d = _point_triangle_distance(pts, index.a[tids], index.b[tids], index.c[tids])
-    pt = index.partner[tids]  # T joined with its coplanar partner is still convex: distance = min of the halves
-    d = np.minimum(d, _point_triangle_distance(pts, index.a[pt], index.b[pt], index.c[pt])).reshape(n, 4, 3)
-    up = d.max(axis=2).min(axis=1)
+    c, pt = cand.reshape(-1), index.partner[cand.reshape(-1)]
+    up = _convex_bound(tri, (index.a[c], index.b[c], index.c[c]), (index.a[pt], index.b[pt], index.c[pt]))
     return (up, cand) if return_candidates else up
 
 
@@ -1387,6 +2246,13 @@ class _Removal:
         self._asset0 = [(s.ref[0], s.ref[1]) for s in simp.values()]
         self._sil: dict[float, _Silhouettes] = {}
         self._probe: dict[str, np.ndarray] = {}
+        self._query: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+        self._part: dict[str, _SurfaceIndex] = {}
+        self._near: dict[tuple[str, str, str], tuple[np.ndarray, np.ndarray]] = {}
+        self._lo_search: dict[tuple[str, frozenset], dict] = {}
+        used = {n: s.ref[0][np.unique(s.ref[1])] for n, s in simp.items()}
+        self._lo3 = {n: p.min(axis=0) for n, p in used.items()}  # bounding boxes of the parts' LOD0 surfaces
+        self._hi3 = {n: p.max(axis=0) for n, p in used.items()}
 
     def _rest_index(self, rest: frozenset) -> _SurfaceIndex:
         if rest not in self._index:
@@ -1396,13 +2262,63 @@ class _Removal:
             self._index[rest] = index
         return self._index[rest]
 
+    def _part_index(self, nid: str) -> _SurfaceIndex:
+        if nid not in self._part:
+            self._part[nid] = _SurfaceIndex(*self.simp[nid].ref)
+        return self._part[nid]
+
     def _probes(self, nid: str) -> np.ndarray:
-        """The part's vertices and triangle centroids."""
+        """The part's vertices and triangle centroids (each distinct position once)."""
         if nid not in self._probe:
             p, t = self.simp[nid].ref
             a, b, c = p[t[:, 0]], p[t[:, 1]], p[t[:, 2]]
-            self._probe[nid] = np.vstack([p[np.unique(t)], (a + b + c) / 3])
+            self._probe[nid] = _distinct_points(np.vstack([p[np.unique(t)], (a + b + c) / 3]))
         return self._probe[nid]
+
+    def _queries(self, nid: str) -> tuple[np.ndarray, np.ndarray]:
+        """(the part's triangles as corners (n, 3, 3), their corners and centroids (4 n, 3)): _convex_upper's
+        query points."""
+        if nid not in self._query:
+            s = self.simp[nid]
+            tri = s.ref[0][s.ref[1]]
+            self._query[nid] = (tri, np.concatenate([tri, tri.mean(axis=1, keepdims=True)], axis=1).reshape(-1, 3))
+        return self._query[nid]
+
+    def _nearest_in(self, kind: str, nid: str, q: str, pts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """(exact distance, nearest triangle of part q) of each of nid's probe ("probe") or query ("query")
+        points, cached: it does not depend on the level or on which other parts remain."""
+        key = (kind, nid, q)
+        if key not in self._near:
+            index = self._part_index(q)
+            n, m = len(pts), index.m
+            if n * m <= index.DENSE_PAIRS:  # small: every point against every triangle at once
+                f = np.tile(np.arange(m), n)
+                d = _point_triangle_distance(np.repeat(pts, m, axis=0), index.a[f], index.b[f], index.c[f]).reshape(n, m)
+                j = d.argmin(axis=1)
+                self._near[key] = (d[np.arange(n), j], j)
+            else:
+                j = index.nearest(pts)
+                self._near[key] = (_point_triangle_distance(pts, index.a[j], index.b[j], index.c[j]), j)
+        return self._near[key]
+
+    def _to_rest(self, kind: str, nid: str, pts: np.ndarray, rest: frozenset) -> tuple[np.ndarray, list, np.ndarray, np.ndarray]:
+        """Per point: exact distance to the remaining parts' LOD0 surface, then the owning part (an index into
+        the returned names) and triangle of a nearest triangle. Distances to the union are the minimum over the
+        parts, from per-part results cached across remaining sets and levels; a part whose bounding box is
+        farther from every point than the distance already found cannot lower it and is not measured."""
+        names = sorted(rest)
+        gap = np.stack([np.linalg.norm(np.maximum(np.maximum(self._lo3[q] - pts, pts - self._hi3[q]), 0.0), axis=1)
+                        for q in names])
+        cur = np.full(len(pts), np.inf)
+        own = np.zeros(len(pts), np.int64)
+        tri = np.zeros(len(pts), np.int64)
+        for qi in sorted(range(len(names)), key=lambda i: (float(gap[i].min()), names[i])):
+            if (gap[qi] > cur * (1 + 1e-9) + 1e-12).all():  # (with a rounding margin) farther than what was found
+                continue
+            d, j = self._nearest_in(kind, nid, names[qi], pts)
+            better = d < cur
+            cur[better], own[better], tri[better] = d[better], qi, j[better]
+        return cur, names, own, tri
 
     def _entry(self, nid: str, rest: frozenset) -> list:
         """[lo, hi, parts owning the triangles hi was measured against] of (part, remaining set), all None at
@@ -1418,24 +2334,98 @@ class _Removal:
         return min((e[1] for (n, r), e in self._bracket.items()
                     if n == nid and rest <= r and e[1] is not None and e[2] is not None and e[2] <= rest), default=np.inf)
 
-    def _lo(self, nid: str, rest: frozenset) -> float:
+    def _lo(self, nid: str, rest: frozenset, need: float = np.inf) -> float:
         """Exact largest distance to ``rest`` at LOD0 of the part's vertices and triangle centroids: a lower
         bound of D that already rejects a long pole or a wide board (their centres are far from everything
-        else)."""
+        else). The search stops once an exact distance above ``need`` is found (any exact distance of a point
+        of the part is a lower bound of D, and that one already decides) and resumes if a later question needs
+        more: the largest value found so far is returned."""
         e = self._entry(nid, rest)
-        if e[0] is None:
-            e[0] = self._rest_index(rest).max_distance(self._probes(nid))
+        st = self._lo_search.get((nid, rest))
+        if st is None:
+            st = self._lo_search[(nid, rest)] = self._lo_start(nid, rest)
+        if not st["done"] and max(e[0] or 0.0, st["best"]) <= need:
+            self._lo_resume(nid, st, need)
+        e[0] = max(e[0] or 0.0, st["best"])
         return e[0]
 
+    def _lo_start(self, nid: str, rest: frozenset) -> dict:
+        """State of the search for the largest probe distance to ``rest``. Per (part, other part), cached
+        across remaining sets and levels: an upper bound per probe (nearest centroid's triangle) and exact
+        distances computed only where needed. Probes are made exact in order of decreasing upper bound until no
+        remaining bound can beat the largest exact value; another part only takes part where its bounding box
+        is closer to the probe than the bound."""
+        x = self._probes(nid)
+        names = sorted(rest)
+        gap = {q: self._box_gap(nid, q) for q in names}
+        up = np.full(len(x), np.inf)
+        for q in sorted(names, key=lambda q: (float(gap[q].min()), q)):
+            if (gap[q] > up * (1 + 1e-9) + 1e-12).all():  # (with a rounding margin) farther than the bound
+                continue
+            up = np.minimum(up, self._pair(nid, q)[0])
+        near = [q for q in names if not (gap[q] > up * (1 + 1e-9) + 1e-12).all()]
+        return {"up": up, "gap": gap, "near": near, "order": np.argsort(-up, kind="stable"), "pos": 0, "step": 16,
+                "best": 0.0, "done": False}
+
+    def _lo_resume(self, nid: str, st: dict, need: float) -> None:
+        up, gap, order = st["up"], st["gap"], st["order"]
+        while st["pos"] < len(order):
+            ids = order[st["pos"]:st["pos"] + st["step"]]
+            if up[ids[0]] <= st["best"]:  # no remaining upper bound can beat the exact maximum found
+                break
+            d = up[ids].copy()
+            for q in st["near"]:
+                mask = ~(gap[q][ids] > d * (1 + 1e-9) + 1e-12)
+                if mask.any():
+                    d[mask] = np.minimum(d[mask], self._pair_exact(nid, q, ids[mask]))
+            st["best"] = max(st["best"], float(d.max()))
+            st["pos"], st["step"] = st["pos"] + st["step"], min(st["step"] * 2, 4096)
+            if st["best"] > need:
+                return
+        st["done"] = True
+
+    def _box_gap(self, nid: str, q: str) -> np.ndarray:
+        """Per probe of nid, its distance to part q's bounding box (a lower bound of its distance to q)."""
+        key = ("gap", nid, q)
+        if key not in self._near:
+            x = self._probes(nid)
+            self._near[key] = np.linalg.norm(np.maximum(np.maximum(self._lo3[q] - x, x - self._hi3[q]), 0.0), axis=1)
+        return self._near[key]
+
+    def _pair(self, nid: str, q: str) -> list:
+        """[upper bound, exact distance or NaN] per probe of nid against part q (see _lo_start)."""
+        key = ("pair", nid, q)
+        if key not in self._near:
+            x, index = self._probes(nid), self._part_index(q)
+            if len(x) * index.m <= index.DENSE_PAIRS:  # small: exact outright, cheaper than bounding first
+                d = index.exact(x)
+                self._near[key] = [d, d.copy()]
+            else:
+                self._near[key] = [index._first_bound(x), np.full(len(x), np.nan)]
+        return self._near[key]
+
+    def _pair_exact(self, nid: str, q: str, ids: np.ndarray) -> np.ndarray:
+        _, ex = self._pair(nid, q)
+        todo = ids[np.isnan(ex[ids])]
+        if len(todo):
+            ex[todo] = self._part_index(q).exact(self._probes(nid)[todo])
+        return ex[ids]
+
     def _hi(self, nid: str, rest: frozenset) -> float:
-        """Largest convex upper bound of the part's triangles against ``rest`` at LOD0 (D <= hi)."""
+        """Largest convex upper bound of the part's triangles against ``rest`` at LOD0 (D <= hi; see
+        _convex_upper: T ranges over a nearest triangle of the remaining parts for each corner and centroid)."""
         e = self._entry(nid, rest)
         if e[1] is None:
-            s = self.simp[nid]
-            index = self._rest_index(rest)
-            up, cand = _convex_upper(index, s.ref[0][s.ref[1]], return_candidates=True)
-            used = np.concatenate([cand.reshape(-1), index.partner[cand.reshape(-1)]])
-            e[1], e[2] = float(up.max()), frozenset(index.owner[used])
+            tri, q = self._queries(nid)
+            _, names, own, t = self._to_rest("query", nid, q, rest)
+            cand = [np.zeros((len(q), 3)) for _ in range(6)]
+            for qi in np.unique(own):
+                index, m = self._part_index(names[qi]), own == qi
+                j, pj = t[m], index.partner[t[m]]
+                for k, x in enumerate((index.a[j], index.b[j], index.c[j], index.a[pj], index.b[pj], index.c[pj])):
+                    cand[k][m] = x
+            up = _convex_bound(tri, tuple(cand[:3]), tuple(cand[3:]))
+            e[1], e[2] = float(up.max()), frozenset(names[qi] for qi in np.unique(own))
         return e[1]
 
     @staticmethod
@@ -1469,7 +2459,7 @@ class _Removal:
             return False
         if self._hi_known(nid, r) + slack <= budget:
             return True
-        if self._lo(nid, r) - slack > budget:
+        if self._lo(nid, r, budget + slack) - slack > budget:
             return False
         hi = self._hi(nid, r)
         # hi used triangles of a few parts only: each moved by at most its own measured deviation
@@ -1492,20 +2482,28 @@ class _Removal:
                   needed: int) -> set[str]:
         """Greedy set of parts absent at this level (smallest surface first, ties by name; parts absent at the
         previous level stay absent; never every part). ``needed``: triangles removal must save for the level to
-        be worth emitting; when even removing every candidate cannot save that many, nothing is measured."""
+        be worth emitting; when even removing every candidate cannot save that many, nothing is measured, and the
+        search stops as soon as the parts not yet decided could no longer make up the difference (the level is
+        not emitted then, whatever the rest of the search would find)."""
         gone = set(already)
         order = sorted((n for n in self.simp if n not in gone), key=lambda n: (self.area[n], n))
         if len(order) < 2 or sum(self.tris[n] for n in order) - min(self.tris[n] for n in order) < needed:
             return gone
+        saves = [len(picks[n][0]) // 3 for n in order]  # what absence saves at this level
+        saved, undecided = 0, sum(saves)
         new: list[str] = []
-        for nid in order:
+        for nid, save in zip(order, saves):
+            if saved + undecided < needed:
+                return gone
+            undecided -= save
             rest = [n for n in self.simp if n not in gone and n != nid]
             if not rest:
                 break
             if self._decide(nid, rest, picks, budget):
                 gone.add(nid)
                 new.append(nid)
-        if not new:
+                saved += save
+        if not new or saved < needed:
             return gone
         if object_px not in self._sil:
             self._sil[object_px] = _Silhouettes(self._asset0, object_px)
@@ -1627,7 +2625,10 @@ class Hull:
     points: np.ndarray
     triangles: np.ndarray
     volume: float
-    source: Literal["fast_path", "coacd", "merged"]
+    source: Literal["fast_path", "coacd", "merged", "body_hull"]
+    #: why a hull is not what the mesh asked for: the repair the input needed, or why decomposition gave way to the hull of a body.
+    #: "body_hull" is the convex hull of a whole body, the fallback where no decomposition finished or none was possible.
+    reason: str = ""
 
 
 def _hull(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
@@ -1646,56 +2647,762 @@ def _hull(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
     return pts, tris.astype(np.int32), float(h.volume)
 
 
+# CoACD's time grows with its input's triangle count, and a modelled solid is often a few dozen planar faces
+# cut into thousands of triangles. Fewer triangles for the same surface is work removed, not quality traded.
+def _ear_clip(poly, xy, area_tol):
+    """Triangulate a simple polygon given as vertex ids, counter-clockwise in the ``xy`` map (ids may repeat where a hole is bridged in).
+
+    A small polygon takes the ear whose smallest angle is largest, which keeps slivers out; a large one takes the first valid ear.
+    Returns None when only zero-area triangles remain."""
+    poly = list(poly)
+    out = []
+    while len(poly) > 3:
+        k = len(poly)
+        pts = [xy[v] for v in poly]
+        conv = [(pts[i][0]-pts[i-1][0])*(pts[(i+1) % k][1]-pts[i-1][1]) - (pts[i][1]-pts[i-1][1])*(pts[(i+1) % k][0]-pts[i-1][0]) for i in range(k)]
+        reflex = [i for i in range(k) if conv[i] <= area_tol]
+        pick = -1
+        best = 0.0
+        for i in range(k):
+            if conv[i] <= area_tol:
+                continue
+            ia, ic = i-1, (i+1) % k
+            ax, ay = pts[ia]; bx, by = pts[i]; cx, cy = pts[ic]
+            ids = (poly[ia], poly[i], poly[ic])
+            ok = True
+            for d in reflex:
+                if poly[d] in ids:
+                    continue
+                dx, dy = pts[d]
+                if ((bx-ax)*(dy-ay) - (by-ay)*(dx-ax) >= -area_tol and (cx-bx)*(dy-by) - (cy-by)*(dx-bx) >= -area_tol
+                        and (ax-cx)*(dy-cy) - (ay-cy)*(dx-cx) >= -area_tol):
+                    ok = False
+                    break
+            if not ok:
+                continue
+            if k > 8:
+                pick = i
+                break
+            l1 = (bx-ax)**2 + (by-ay)**2; l2 = (cx-bx)**2 + (cy-by)**2; l3 = (ax-cx)**2 + (ay-cy)**2
+            score = conv[i] / max(l1*l2, l2*l3, l3*l1)
+            if pick < 0 or score > best + 1e-15:
+                pick, best = i, score
+        if pick < 0:
+            return None
+        out.append((poly[pick-1], poly[pick], poly[(pick+1) % k]))
+        del poly[pick]
+    a, b, c = poly
+    (ax, ay), (bx, by), (cx, cy) = xy[a], xy[b], xy[c]
+    if (bx-ax)*(cy-ay) - (by-ay)*(cx-ax) <= area_tol:
+        return None
+    out.append((a, b, c))
+    return out
+
+
+def _bridge(outer, holes, xy, eps, area_tol):
+    """Join each hole (clockwise) to the outer loop (counter-clockwise) by the shortest bridge that crosses no edge and touches no
+    other vertex, so that the result is one simple polygon. None when a hole cannot be reached."""
+    outer = list(outer)
+    pending = sorted(holes, key=lambda h: -max(xy[v][0] for v in h))
+    for hi, hole in enumerate(pending):
+        edges = []
+        for loop in [outer] + pending[hi:]:
+            for i in range(len(loop)):
+                edges.append((loop[i], loop[(i+1) % len(loop)]))
+        verts = set(v for e in edges for v in e)
+        cands = sorted(((xy[o][0]-xy[h][0])**2 + (xy[o][1]-xy[h][1])**2, oi, hj) for oi, o in enumerate(outer) for hj, h in enumerate(hole))
+        done = False
+        for _, oi, hj in cands:
+            p, q = outer[oi], hole[hj]
+            (px, py), (qx, qy) = xy[p], xy[q]
+            L = math.hypot(qx-px, qy-py)
+            if L <= eps:
+                continue
+            ok = True
+            for w in verts:
+                if w == p or w == q:
+                    continue
+                wx, wy = xy[w]
+                t = ((wx-px)*(qx-px) + (wy-py)*(qy-py)) / (L*L)
+                t = min(1.0, max(0.0, t))
+                if math.hypot(px + t*(qx-px) - wx, py + t*(qy-py) - wy) <= eps:
+                    ok = False
+                    break
+            if ok:
+                for r, s in edges:
+                    if r in (p, q) or s in (p, q):
+                        continue
+                    (rx, ry), (sx, sy) = xy[r], xy[s]
+                    o1 = (qx-px)*(ry-py) - (qy-py)*(rx-px); o2 = (qx-px)*(sy-py) - (qy-py)*(sx-px)
+                    if (o1 > area_tol and o2 > area_tol) or (o1 < -area_tol and o2 < -area_tol):
+                        continue
+                    o3 = (sx-rx)*(py-ry) - (sy-ry)*(px-rx); o4 = (sx-rx)*(qy-ry) - (sy-ry)*(qx-rx)
+                    if (o3 > area_tol and o4 > area_tol) or (o3 < -area_tol and o4 < -area_tol):
+                        continue
+                    ok = False
+                    break
+            if ok:
+                outer = outer[:oi+1] + hole[hj:] + hole[:hj] + [hole[hj], p] + outer[oi+1:]
+                done = True
+                break
+        if not done:
+            return None
+    return outer
+
+
+def _merge_planar(points, tris, rel_tol=1e-8, min_gain=0.8):
+    """Merge coplanar triangles of a closed, consistently wound, welded mesh into the fewest triangles that cover the same faces.
+
+    Neighbouring triangles whose planes agree join into a region. A vertex strictly inside a region, or on a straight edge between
+    exactly two regions, is dropped; each region is then re-triangulated from its boundary loops (holes bridged in). A region whose
+    vertices stray more than ``2 * rel_tol * diagonal`` from its plane, or that cannot be re-triangulated, keeps its triangles and its
+    boundary vertices. Dropped vertices lie within ``2 * rel_tol * diagonal`` of the new surface, so for planar input the surface is
+    unchanged and the vertex set of the convex hull is too. Returns ``(points, tris)``, or None when the gain would be below
+    ``1 - min_gain`` of the triangles (nothing worth a pass) or the mesh does not qualify."""
+    P = np.asarray(points, np.float64)
+    F = np.asarray(tris, np.int64)
+    m, n = len(F), len(P)
+    diag = float(np.linalg.norm(P.max(axis=0) - P.min(axis=0)))
+    eps = rel_tol * diag
+    area_tol = 1e-10 * diag * diag
+    p0, p1, p2 = P[F[:, 0]], P[F[:, 1]], P[F[:, 2]]
+    cr = np.cross(p1 - p0, p2 - p0)
+    ar = np.linalg.norm(cr, axis=1)
+    if (ar <= area_tol).any():
+        return None
+    N = cr / ar[:, None]
+    # half-edge i = 3*f + s goes F[f,s] -> F[f,(s+1)%3]
+    ha = F.reshape(-1)
+    hb = np.roll(F, -1, axis=1).reshape(-1)
+    key = ha * n + hb
+    order = np.argsort(key)
+    sk = key[order]
+    rk = hb * n + ha
+    pos = np.searchsorted(sk, rk)
+    pos[pos >= len(sk)] = 0
+    if not (sk[pos] == rk).all():
+        return None
+    twin = order[pos]
+    f1 = np.arange(3*m) // 3
+    f2 = twin // 3
+    opp = F[f2, (twin % 3 + 2) % 3]           # third vertex of the neighbouring face
+    flat = (np.linalg.norm(N[f1] - N[f2], axis=1) <= 1e-6) & (np.abs(np.einsum("ij,ij->i", N[f1], P[opp] - P[ha])) <= eps)
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+    g = coo_matrix((np.ones(int(flat.sum())), (f1[flat], f2[flat])), shape=(m, m))
+    nreg, reg = connected_components(g, directed=False)
+    if nreg > min_gain * m:
+        return None
+    # Each vertex dropped from a closed mesh removes two triangles (Euler), and only a vertex touching one region, or two, can go.
+    pair = np.unique(F.reshape(-1) * nreg + np.repeat(reg, 3))
+    pv, pr = pair // nreg, pair % nreg
+    touching = np.bincount(pv, minlength=n)
+    if 2 * int(((touching == 1) | (touching == 2)).sum()) < (1.0 - min_gain) * m:
+        return None
+    # plane fit per region; a region whose vertices stray from its plane stays as it is
+    w = ar / 2
+    nr = np.zeros((nreg, 3)); np.add.at(nr, reg, N * w[:, None])
+    cen = np.zeros((nreg, 3)); np.add.at(cen, reg, (p0 + p1 + p2) / 3 * w[:, None])
+    wsum = np.bincount(reg, w, nreg)
+    cen /= wsum[:, None]
+    ln = np.linalg.norm(nr, axis=1)
+    nr /= np.maximum(ln, 1e-300)[:, None]
+    dev = np.zeros(nreg)
+    for pk in (p0, p1, p2):
+        np.maximum.at(dev, reg, np.abs(np.einsum("ij,ij->i", pk - cen[reg], nr[reg])))
+    pinned = (dev > 2 * eps) | (np.bincount(reg, minlength=nreg) == 1)
+    # boundary half-edges per region
+    bnd = np.flatnonzero(reg[f1] != reg[f2])
+    bnd_reg = reg[f1[bnd]]
+    o = np.argsort(bnd_reg, kind="stable")
+    bnd, bnd_reg = bnd[o], bnd_reg[o]
+    starts = np.searchsorted(bnd_reg, np.arange(nreg + 1))
+    # the regions touching each vertex are in vregs
+    vregs: dict[int, list[int]] = {}
+    for v, r in zip(pv.tolist(), pr.tolist()):
+        vregs.setdefault(v, []).append(r)
+    ploops: dict[int, list[list[int]]] = {}
+    for r in np.flatnonzero(~pinned).tolist():
+        nxt = {}
+        bad = False
+        for h in bnd[starts[r]:starts[r+1]].tolist():
+            a, b = int(ha[h]), int(hb[h])
+            if a in nxt:
+                bad = True
+                break
+            nxt[a] = b
+        loops = []
+        if not bad:
+            seen = set()
+            for s in sorted(nxt):
+                if s in seen:
+                    continue
+                loop, cur = [], s
+                while cur not in seen:
+                    seen.add(cur); loop.append(cur)
+                    cur = nxt.get(cur, -1)
+                    if cur < 0:
+                        bad = True
+                        break
+                if bad or cur != s:
+                    bad = True
+                    break
+                loops.append(loop)
+        if bad:
+            pinned[r] = True
+        else:
+            ploops[r] = loops
+    # 2-D frames
+    def frame(r):
+        x, y, z = nr[r].tolist()
+        k = min(range(3), key=lambda i: abs((x, y, z)[i]))
+        ax = [0.0, 0.0, 0.0]; ax[k] = 1.0
+        u = (y*ax[2] - z*ax[1], z*ax[0] - x*ax[2], x*ax[1] - y*ax[0])
+        ul = math.sqrt(u[0]**2 + u[1]**2 + u[2]**2)
+        u = (u[0]/ul, u[1]/ul, u[2]/ul)
+        return np.asarray(u), np.asarray((y*u[2] - z*u[1], z*u[0] - x*u[2], x*u[1] - y*u[0]))
+    result: dict[int, list[tuple[int, int, int]]] = {}
+    for _ in range(6):
+        # vertices that may be dropped: interior to one region, or on a straight edge shared by exactly two regions
+        ent: dict[int, list[tuple[int, int, int]]] = {}
+        for r, loops in ploops.items():
+            if pinned[r]:
+                continue
+            for loop in loops:
+                k = len(loop)
+                for i in range(k):
+                    ent.setdefault(loop[i], []).append((r, loop[i-1], loop[(i+1) % k]))
+        drop = set()
+        for v, rs in vregs.items():
+            if any(pinned[r] for r in rs):
+                continue
+            if len(rs) == 1:
+                drop.add(v)
+            elif len(rs) == 2:
+                e = ent.get(v)
+                if e is None or len(e) != 2 or e[0][1] != e[1][2] or e[0][2] != e[1][1]:
+                    continue
+                a, b = P[e[0][1]], P[e[0][2]]
+                ab = b - a
+                t = float(np.dot(P[v] - a, ab) / max(float(np.dot(ab, ab)), 1e-300))
+                if 0.0 < t < 1.0 and np.linalg.norm(a + t * ab - P[v]) <= eps:
+                    drop.add(v)
+        changed = False
+        result.clear()
+        for r, loops in ploops.items():
+            if pinned[r]:
+                continue
+            u, vv = frame(r)
+            keepl = [[x for x in lp if x not in drop] for lp in loops]
+            ids = sorted(set(x for lp in keepl for x in lp))
+            if any(len(lp) < 3 for lp in keepl):
+                pinned[r] = changed = True
+                continue
+            xy = {x: (float(np.dot(P[x], u)), float(np.dot(P[x], vv))) for x in ids}
+            areas = [0.5 * sum(xy[lp[i]][0]*xy[lp[(i+1) % len(lp)]][1] - xy[lp[(i+1) % len(lp)]][0]*xy[lp[i]][1] for i in range(len(lp))) for lp in keepl]
+            outs = [i for i, a in enumerate(areas) if a > 0]
+            if len(outs) != 1 or sum(len(lp) for lp in keepl) > 400:
+                pinned[r] = changed = True
+                continue
+            outer = keepl[outs[0]]
+            holes = [lp for i, lp in enumerate(keepl) if i != outs[0]]
+            poly = _bridge(outer, holes, xy, eps, area_tol) if holes else outer
+            tri = _ear_clip(poly, xy, area_tol) if poly is not None else None
+            if tri is not None:
+                tot = sum(0.5 * ((xy[b][0]-xy[a][0])*(xy[c][1]-xy[a][1]) - (xy[b][1]-xy[a][1])*(xy[c][0]-xy[a][0])) for a, b, c in tri)
+                if abs(tot - sum(areas)) > 1e-9 * max(abs(sum(areas)), 1e-300) + area_tol:
+                    tri = None
+            if tri is None:
+                pinned[r] = changed = True
+                continue
+            result[r] = tri
+        if not changed:
+            break
+    else:
+        return None
+    out = []
+    keep_reg = np.isin(reg, [r for r in range(nreg) if r not in result])
+    out.extend(map(tuple, F[keep_reg].tolist()))
+    for r in sorted(result):
+        out.extend(result[r])
+    if len(out) >= m:
+        return None
+    f = np.asarray(out, np.int64)
+    used = np.unique(f)
+    rm = np.full(n, -1, np.int64); rm[used] = np.arange(len(used))
+    return P[used], rm[f].astype(np.int32)
+
+
+def _decomposition_input(pts: np.ndarray, tri: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The mesh CoACD should decompose: the same closed solid with coplanar triangles merged, or the input itself.
+
+    Only a closed mesh is touched. The merged mesh must still be closed and manifold, with the same volume to within 1e-9."""
+    cid = _canon(pts)
+    wp = np.zeros((int(cid.max()) + 1, 3))
+    wp[cid] = pts
+    wt = cid[tri]
+    if (wt[:, 0] == wt[:, 1]).any() or (wt[:, 1] == wt[:, 2]).any() or (wt[:, 0] == wt[:, 2]).any():
+        return pts, tri
+    merged = _merge_planar(wp, wt)
+    if merged is None:
+        return pts, tri
+    before, after = _topology(wp, wt), _topology(*merged)
+    if not after.closed or after.degenerate or after.duplicates or abs(after.volume - before.volume) > 1e-9 * abs(before.volume):
+        return pts, tri
+    return merged
+
+
+def _closed_bodies(pts: np.ndarray, tri: np.ndarray) -> list[tuple[np.ndarray, np.ndarray]] | None:
+    """The separate bodies of a closed mesh that holds several (as vertices and triangles each), or None when it holds one.
+    Bodies that only touch at a vertex are separate.
+
+    CoACD's manifold pre-pass costs seconds and is only skipped for a single body, but a mesh of closed bodies needs no repair:
+    each body can be decomposed alone."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    cid = _canon(pts)
+    t = cid[tri]
+    n = int(cid.max()) + 1
+    # faces are one body when they share an edge: bodies that only touch at a vertex are separate
+    key = np.concatenate([np.minimum(t[:, i], t[:, (i + 1) % 3]) * n + np.maximum(t[:, i], t[:, (i + 1) % 3]) for i in range(3)])
+    face = np.tile(np.arange(len(t)), 3)
+    order = np.argsort(key, kind="stable")
+    same = np.flatnonzero(key[order][1:] == key[order][:-1])
+    a, b = face[order[same]], face[order[same + 1]]
+    count, label = connected_components(coo_matrix((np.ones(len(a)), (a, b)), shape=(len(t), len(t))), directed=False)
+    if count == 1:
+        return None
+    bodies = []
+    for body in range(count):
+        bt = tri[label == body]
+        used = np.unique(bt)
+        remap = np.zeros(len(pts), np.int64)
+        remap[used] = np.arange(len(used))
+        bodies.append((pts[used], remap[bt].astype(np.int32)))
+    return bodies
+
+
+#: One budget for every decomposition that runs in a child process, in one place. The slowest legitimate decomposition measured
+#: (a curved concave solid, CoACD with the repair pass off) takes 0.9 ms per triangle, and a thin shell made solid (the hardest
+#: class that still finishes) 6 ms per triangle up to 2,000 triangles, 12 s at most. The budget is three times the per-triangle
+#: figure with a floor of 30 s: a run that exceeds it is not a slow decomposition but one that is not coming back.
+DECOMPOSITION_BUDGET_FLOOR_S = 30.0
+DECOMPOSITION_BUDGET_PER_TRIANGLE_S = 3 * 0.9e-3
+#: A clean closed body is decomposed in this process (no process start on the common path) up to this many triangles, which
+#: take about 25 s; beyond it the run is long enough to be worth a deadline.
+IN_PROCESS_MAX_TRIANGLES = 25_000
+#: Thickness of the solid made from an open surface, as a fraction of the body's extent. Measured on a cup, a bowl, a wavy sheet and
+#: a sphere with a large opening: at 0.005 the hulls reach no further from the surface than the ones CoACD's own repair pass gave
+#: (0.25% against 0.4%) and cover it better; each doubling doubles the hull volume claimed beyond the surface.
+SHELL_THICKNESS = 0.005
+
+
+def decomposition_budget_s(triangles: int) -> float:
+    return max(DECOMPOSITION_BUDGET_FLOOR_S, DECOMPOSITION_BUDGET_PER_TRIANGLE_S * triangles)
+
+
+def _solid_from_surface(pts: np.ndarray, tri: np.ndarray, thickness: float) -> tuple[np.ndarray, np.ndarray] | None:
+    """A closed solid of the given thickness around an open, consistently wound surface (each vertex moved half the thickness
+    to both sides along its normal, the boundary walled), or None when the result is not a closed solid."""
+    from antigravity3d.kernel.collider_repair import _closed_volume
+
+    f = np.asarray(tri, np.int64)
+    n = len(pts)
+    vn = np.zeros_like(pts)
+    fn = np.cross(pts[f[:, 1]] - pts[f[:, 0]], pts[f[:, 2]] - pts[f[:, 0]])
+    for k in range(3):
+        np.add.at(vn, f[:, k], fn)
+    vn /= np.maximum(np.linalg.norm(vn, axis=1, keepdims=True), 1e-300)
+    a = np.concatenate([f[:, 0], f[:, 1], f[:, 2]])
+    b = np.concatenate([f[:, 1], f[:, 2], f[:, 0]])
+    edge = set(zip(a.tolist(), b.tolist()))
+    walls = [w for x, y in sorted(edge) if (y, x) not in edge for w in ((x, n + x, n + y), (x, n + y, y))]
+    solid_pts = np.vstack([pts + vn * thickness / 2, pts - vn * thickness / 2])
+    solid_tri = np.vstack([f, f[:, ::-1] + n, np.array(walls, np.int64).reshape(-1, 3)])
+    closed, volume = _closed_volume(solid_pts, solid_tri)
+    if not closed or volume == 0:
+        return None
+    return solid_pts, (solid_tri[:, ::-1] if volume < 0 else solid_tri).astype(np.int32)
+
+
+def _safe_hull(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
+    """``_hull``, and for points that lie in one plane the hull of the same points thickened by a thousandth of their extent."""
+    from scipy.spatial import QhullError
+
+    try:
+        return _hull(points)
+    except QhullError:
+        e = max(float(np.ptp(points, axis=0).max()) * 1e-3, 1e-6)
+        return _hull(np.vstack([points + d for d in (np.zeros(3), [0, 0, e], [0, e, 0], [e, 0, 0])]))
+
+
+@dataclass(frozen=True)
+class HullLimit:
+    """What a target engine accepts in one convex collision mesh (see ``validator.ENGINE_RULES``), each quantity as the
+    engine counts it on the mesh that ships; ``None`` = no limit on it.
+
+    ``vertices``: distinct points (PhysX vertices, Jolt hull points). ``triangles``: triangles of the shipped
+    triangulation (Unity). ``planar_faces``: polygons, coplanar triangles counted once (PhysX faces)."""
+    vertices: int | None = None
+    triangles: int | None = None
+    planar_faces: int | None = None
+    label: str = ""
+
+    @property
+    def max_vertices(self) -> int:
+        """The most vertices a triangulated convex hull within this limit can have (V vertices make 2V - 4 triangles)."""
+        v = self.vertices if self.vertices is not None else 10**9
+        return min(v, (self.triangles + 4) // 2) if self.triangles is not None else v
+
+    def excess(self, n_vertices: int, n_triangles: int, n_planes: int) -> str:
+        """Empty when a hull of these counts is accepted, else what is over the limit ("300 vertices > 256")."""
+        out = []
+        for n, cap, what in ((n_vertices, self.vertices, "vertices"), (n_triangles, self.triangles, "triangles"),
+                             (n_planes, self.planar_faces, "planar faces")):
+            if cap is not None and n > cap:
+                out.append(f"{n} {what} > {cap}")
+        return ", ".join(out)
+
+
+def hull_plane_count(points: np.ndarray, triangles: np.ndarray, rel_tol: float = 1e-5) -> int:
+    """Number of planar faces of a closed convex triangle mesh: triangles that share an edge are one face when each one's
+    far vertex lies within ``rel_tol`` of the diagonal from the other's plane. The tolerance is well above float32
+    rounding (USD and glTF store points as float32, which tilts the plane of a small triangle) and well below the step
+    between two real faces of a collision hull."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    p = np.asarray(points, np.float64)
+    t = np.asarray(triangles, np.int64).reshape(-1, 3)
+    m = len(t)
+    if m == 0:
+        return 0
+    tol = rel_tol * max(float(np.linalg.norm(np.ptp(p[np.unique(t)], axis=0))), 1e-300)
+    n = np.cross(p[t[:, 1]] - p[t[:, 0]], p[t[:, 2]] - p[t[:, 0]])
+    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-300)
+    d = np.einsum("ij,ij->i", n, p[t[:, 0]])
+    # half-edge (a, b) of face f, with its far vertex; the twin is (b, a)
+    a, b, far = t.reshape(-1), np.roll(t, -1, axis=1).reshape(-1), np.roll(t, -2, axis=1).reshape(-1)
+    face = np.repeat(np.arange(m), 3)
+    key = a * (int(t.max()) + 1) + b
+    twin_key = b * (int(t.max()) + 1) + a
+    order = np.argsort(key)
+    pos = np.clip(np.searchsorted(key[order], twin_key), 0, len(key) - 1)
+    has = key[order][pos] == twin_key
+    f1, f2 = face[has], face[order[pos[has]]]
+    v1, v2 = far[has], far[order[pos[has]]]
+    flat = (np.abs(np.einsum("ij,ij->i", n[f1], p[v2]) - d[f1]) <= tol) & (np.abs(np.einsum("ij,ij->i", n[f2], p[v1]) - d[f2]) <= tol)
+    count, _ = connected_components(coo_matrix((np.ones(int(flat.sum())), (f1[flat], f2[flat])), shape=(m, m)), directed=False)
+    return int(count)
+
+
+#: Vertices of a capped hull that lie closer together than this fraction of the hull's diagonal are welded: one point
+#: of a float32 mesh (as USD and glTF store it) cannot tell them apart. A welded vertex moves inward by at most this much,
+#: which bounds how far the part can lie outside the capped hull (1 um per metre of diagonal).
+HULL_WELD_REL = 1e-6
+
+
+def _dot3(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """``a @ b.T`` for (n, 3) and (m, 3) arrays, as three products: BLAS threads gain nothing on an inner dimension of 3,
+    and on a busy machine they made this 10 to 60 times slower."""
+    return a[:, None, 0] * b[None, :, 0] + a[:, None, 1] * b[None, :, 1] + a[:, None, 2] * b[None, :, 2]
+
+
+def _halfspace_vertices(normals: np.ndarray, offsets: np.ndarray, interior: np.ndarray, weld: float) -> np.ndarray:
+    """The vertices of the polytope ``normals @ x <= offsets``, those within ``weld`` of each other welded."""
+    from scipy.sparse.csgraph import connected_components
+    from scipy.sparse import coo_matrix
+    from scipy.spatial import HalfspaceIntersection, cKDTree
+
+    hs = HalfspaceIntersection(np.c_[normals, -offsets], interior)
+    v = hs.intersections
+    pairs = cKDTree(v).query_pairs(weld, output_type="ndarray")
+    if len(pairs):
+        _, lab = connected_components(coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(len(v), len(v))),
+                                      directed=False)
+        _, first = np.unique(lab, return_index=True)
+        v = v[np.sort(first)]
+    return v
+
+
+def _even_directions(n: int) -> np.ndarray:
+    """``n`` unit vectors spread evenly over the sphere (Fibonacci lattice); deterministic."""
+    i = np.arange(n) + 0.5
+    z = 1.0 - 2.0 * i / n
+    r = np.sqrt(np.maximum(0.0, 1.0 - z * z))
+    phi = i * (math.pi * (3.0 - math.sqrt(5.0)))
+    return np.c_[np.cos(phi) * r, np.sin(phi) * r, z]
+
+
+def _plane_cap(p0: np.ndarray, t0: np.ndarray, limit: HullLimit, seed: int = 0):
+    """Enclosing hull within ``limit`` as an intersection of supporting half-spaces of the hull ``(p0, t0)``.
+
+    Starts from the six axis-aligned supporting planes and, while the result stays within the limit, adds the cuts
+    that remove most: for the vertices lying furthest outside the original hull, the original face plane the vertex
+    lies furthest beyond, or the supporting plane in its direction from the centre when that cuts deeper. Every plane
+    supports the original hull, so the result contains it (up to the vertex weld, ``HULL_WELD_REL`` of the diagonal).
+    A polytope of F planes has up to 2F - 4 vertices. Returns ``(points, triangles, volume, planes, reach)``, ``reach``
+    being how far its vertices lie beyond the original face planes at most, or None when no plane set fits."""
+    diag = float(np.linalg.norm(np.ptp(p0, axis=0)))
+    weld = HULL_WELD_REL * diag
+    fn = np.cross(p0[t0[:, 1]] - p0[t0[:, 0]], p0[t0[:, 2]] - p0[t0[:, 0]])
+    ln = np.linalg.norm(fn, axis=1)
+    ok = ln > 1e-12 * diag * diag
+    N = fn[ok] / ln[ok, None]
+    D = np.einsum("ij,ij->i", N, p0[t0[ok, 0]])
+    # coplanar triangles give one candidate plane
+    _, first = np.unique(np.round(np.c_[N, D / diag] * 1e9).astype(np.int64), axis=0, return_index=True)
+    first.sort()
+    N, D = N[first], D[first]
+    centre = p0.mean(axis=0)
+    axes = np.vstack([np.eye(3), -np.eye(3)]) if seed <= 6 else _even_directions(seed)
+    planes_n = [a for a in axes]
+    planes_d = [float(x) for x in _dot3(p0, axes).max(axis=0)]
+
+    def build(nn, dd):
+        # every vertex of a half-space intersection is extreme: its triangulated hull has 2V - 4 triangles
+        hp = _halfspace_vertices(np.asarray(nn), np.asarray(dd), centre, weld)
+        return hp, None, None, limit.excess(len(hp), 2 * len(hp) - 4, len(nn))
+
+    best = build(planes_n, planes_d)
+    if best[3]:  # a box (8 vertices, 12 triangles, 6 faces) is over the limit: no plane set can do better
+        return None
+    step = None
+    known: dict[bytes, tuple[int, float]] = {}                # vertex -> (deepest original plane, how far beyond it)
+    while True:
+        hp = best[0]
+        keys = [x.tobytes() for x in hp]
+        fresh = [i for i, k in enumerate(keys) if k not in known]
+        if fresh:                                             # a vertex kept from the last round keeps its answer
+            viol = _dot3(hp[fresh], N) - D                    # how far each vertex lies beyond each original plane
+            jf = viol.argmax(axis=1)
+            for i, j, v in zip(fresh, jf.tolist(), viol[np.arange(len(fresh)), jf].tolist()):
+                known[keys[i]] = (j, v)
+        jbest = np.array([known[k][0] for k in keys], np.int64)
+        vbest = np.array([known[k][1] for k in keys])
+        if vbest.max() <= weld:
+            break                                             # the original hull itself: nothing left to cut
+        order = np.argsort(-vbest, kind="stable")
+        order = order[vbest[order] > weld]
+        room = limit.max_vertices - len(hp)
+        if limit.planar_faces is not None:
+            room = min(room, limit.planar_faces - len(planes_n))
+        k = step if step is not None else max(1, room // 8)
+        U = hp[order] - centre
+        U /= np.maximum(np.linalg.norm(U, axis=1, keepdims=True), 1e-300)
+        new_n, new_d, seen = [], [], set()
+        chunk = max(32, 2 * k)
+        for r, i in enumerate(order.tolist()):
+            if r % chunk == 0:                                # supporting planes of the original hull, as far as needed
+                part = slice(r, r + chunk)
+                HU = _dot3(p0, U[part]).max(axis=0)
+                deep = np.einsum("ij,ij->i", hp[order[part]], U[part]) - HU > vbest[order[part]]
+            if deep[r % chunk]:
+                new_n.append(U[r])
+                new_d.append(float(HU[r % chunk]))
+                if len(new_n) >= k:
+                    break
+                continue
+            j = int(jbest[i])
+            if j in seen:
+                continue
+            seen.add(j)
+            new_n.append(N[j])
+            new_d.append(float(D[j]))
+            if len(new_n) >= k:
+                break
+        if not new_n:
+            break
+        trial = build(planes_n + new_n, planes_d + new_d)
+        if trial[3]:
+            if k == 1:
+                break                                         # one more plane would exceed the limit
+            step = max(1, k // 2)                             # near the limit: fewer planes at a time
+            continue
+        planes_n += new_n
+        planes_d += new_d
+        best = trial
+    # every vertex of ``best`` was measured at the top of the last round
+    reach = max(0.0, max(known[x.tobytes()][1] for x in best[0]))
+    hp, ht, hv = _hull(best[0])
+    return hp, ht, hv, len(planes_n), reach
+
+
+#: how a hull's ``reason`` starts its note when ``_limit_hull`` replaced it
+CAPPED_MARK = "capped to the engine's hull limit"
+
+
+def _limit_hull(pts: np.ndarray, tris: np.ndarray, volume: float, limit: HullLimit):
+    """A convex hull that an engine with ``limit`` accepts and that still encloses the hull ``(pts, tris)``.
+
+    Returns ``(points, triangles, volume, note)``; the input itself (note "") when it is within the limit, else the
+    supporting half-space construction of ``_plane_cap``. The same input gives the same output bit for bit.
+
+    Measured against it (sphere 64x32, capsule, cylinder 256): a subset of the hull's vertices pushed out from the
+    centre until it encloses (per-vertex factors from a linear program) claimed 1.3 to 2 times the excess volume on a
+    sphere and far more on elongated shapes."""
+    excess = limit.excess(len(pts), len(tris), hull_plane_count(pts, tris) if limit.planar_faces is not None else 0)
+    if not excess:
+        return pts, tris, volume, ""
+    p0 = np.asarray(pts, np.float64)
+    t0 = np.asarray(tris, np.int64)
+    # Two starts: the six axis planes (best where the hull has few large faces: a cylinder keeps its own faces) and
+    # supporting planes in evenly spread directions for most of the plane budget (best on curved hulls: a sphere's worst
+    # corner comes down by about a fifth). The one whose corners reach least far beyond the original hull is kept.
+    planes_budget = min(limit.max_vertices // 2 + 2, limit.planar_faces if limit.planar_faces is not None else 10**9)
+    found = [r for r in (_plane_cap(p0, t0, limit), _plane_cap(p0, t0, limit, seed=int(0.9 * planes_budget)))
+             if r is not None]
+    if not found:
+        raise ValueError(f"no enclosing hull within the engine's limit ({limit.label}): {excess}")
+    hp, ht, hv, planes, reach = min(found, key=lambda r: (r[4], r[2]))
+    note = (f"{CAPPED_MARK}{f' ({limit.label})' if limit.label else ''}: {excess}; now "
+            f"{len(hp)} vertices, {len(ht)} triangles, {planes} planes, volume {hv / volume - 1:+.2%}, "
+            f"corners up to {reach * 1e3:.1f} mm beyond the original hull's face planes")
+    return hp, ht.astype(np.int32), hv, note
+
+
+def _coacd_params(threshold: float, share: int, off: bool) -> dict:
+    return dict(threshold=threshold, max_convex_hull=share, preprocess_mode="off" if off else "auto", resolution=500,
+                mcts_iterations=40, mcts_nodes=10, max_ch_vertex=64, decimate=True, seed=0)
+
+
+@dataclass
+class _Piece:
+    """One body to decompose: what CoACD is given, and what stands in for it if it cannot be."""
+    pts: np.ndarray
+    tri: np.ndarray
+    hull_pts: np.ndarray           # the hull of this stands in when no decomposition comes back
+    volume_hint: float             # orders pieces (largest first); the volume of the convex hull of the body
+    bounded: bool                  # run in a child process with a deadline
+    reason: str = ""               # what repair the input needed, carried to the hulls
+
+
 def generate_colliders(
-    meshes: list[MeshData], max_hulls: int, threshold: float = 0.05, asset_name: str = "Asset"
+    meshes: list[MeshData], max_hulls: int, threshold: float = 0.05, asset_name: str = "Asset", *,
+    limit: HullLimit | None = None,
 ) -> list[Hull]:
+    """Convex collision hulls for the collider meshes, at most ``max_hulls`` of them.
+
+    ``limit``: what the target engine accepts in one convex mesh (``hull_limit(engine)``); every hull over it, from
+    any path (fast path, decomposition, merge, body hull), is replaced by an enclosing hull within it, and the
+    hull's ``reason`` says so. ``None`` leaves hulls as computed."""
     import coacd
 
+    from antigravity3d.kernel import collider_worker
+    from antigravity3d.kernel.collider_repair import repair_collider_mesh
+
     coacd.set_log_level("error")
-    raw: list[tuple[np.ndarray, np.ndarray, float, str]] = []
-    concave: list[tuple[MeshData, float]] = []
+    raw: list[tuple[np.ndarray, np.ndarray, float, str, str]] = []
+    concave: list[_Piece] = []
+
+    def sort_out(pts: np.ndarray, tri: np.ndarray, topo: _Topo, reason: str = "", bounded: bool = False) -> bool:
+        """A closed body goes to the hull fast path if convex, else to decomposition (under a deadline if ``bounded``)."""
+        pp, tt, hv = _hull(pts)
+        if topo.closed and topo.volume > 0 and hv <= topo.volume * 1.02:
+            raw.append((pp, tt, hv, "fast_path", reason))
+            return True
+        concave.append(_Piece(pts, tri, pts, hv, bounded=bounded, reason=reason))
+        return False
+
     for m in meshes:
         if not m.collider or len(m.triangles) == 0:
             continue
         pts = np.asarray(m.points, dtype=np.float64)
-        pp, tt, hv = _hull(pts)
-        topo = _topology(pts, np.asarray(m.triangles))
-        if topo.closed and topo.volume > 0 and hv <= topo.volume * 1.02:
-            raw.append((pp, tt, hv, "fast_path"))
-        else:
-            concave.append((m, hv))
+        tri = np.asarray(m.triangles)
+        topo = _topology(pts, tri)
+        if topo.closed and topo.volume > 0:
+            if not sort_out(pts, tri, topo):
+                bodies = _closed_bodies(pts, tri)
+                if bodies:
+                    concave.pop()
+                    for bp, bt in bodies:
+                        sort_out(bp, bt, _topology(bp, bt))
+            continue
+        # Not one closed manifold body: CoACD's own repair pass would rebuild it as a dense shell (hundreds of thousands of
+        # triangles, minutes to decompose). Repair a private copy instead and decompose what comes out.
+        rep = repair_collider_mesh(pts, tri)
+        why = ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in rep.notes.items()
+                        if v and k in ("welded", "degenerate", "duplicate", "flipped", "capped", "nonmanifold_edges", "split_vertices"))
+        why = f"repaired input ({why})" if why else "repaired input"
+        for body in rep.bodies:
+            if body.kind == "closed":
+                # closed by vertex index; where a test by position disagrees the body touches itself, and the repair-free
+                # decomposition of such a body is not known to be bounded
+                sort_out(body.points, body.triangles, _Topo(0, 0, 0, 0, 0, body.volume), why,
+                         bounded=not _topology(body.points, body.triangles).closed)
+            elif body.kind == "pinched":
+                # closed surface with non-manifold vertices left (it touches itself): measured to take minutes even with the
+                # repair pass off, so no decomposition is attempted
+                pp, tt, hv = _safe_hull(body.points)
+                raw.append((pp, tt, hv, "body_hull", f"{why}; surface touches itself at an edge or vertex, not decomposed"))
+            else:
+                thick = SHELL_THICKNESS * float(np.linalg.norm(np.ptp(body.points, axis=0)))
+                solid = _solid_from_surface(body.points, body.triangles, thick)
+                if solid is None:
+                    pp, tt, hv = _safe_hull(body.points)
+                    raw.append((pp, tt, hv, "body_hull", f"{why}; open surface that could not be made solid, not decomposed"))
+                else:
+                    hp, _, hv = _safe_hull(solid[0])
+                    concave.append(_Piece(solid[0], solid[1], solid[0], hv, bounded=True, reason=f"{why}; open surface made solid"))
     if concave:
         budget_left = max(len(concave), max_hulls - len(raw))
-        for k, (m, hv) in enumerate(sorted(concave, key=lambda x: -x[1])):
+        for k, piece in enumerate(sorted(concave, key=lambda x: -x.volume_hint)):
             share = max(1, budget_left // (len(concave) - k))
             budget_left -= share
-            pts = np.asarray(m.points, dtype=np.float64)
-            tri = np.asarray(m.triangles)
-            # preprocess "off" segfaulted CoACD on overlapping multi-body input, so only skip the
-            # manifold pre-pass for a single closed body.
-            clean = _topology(pts, tri).closed and _single_component(pts, tri)
-            parts = coacd.run_coacd(
-                coacd.Mesh(pts, np.asarray(m.triangles, dtype=np.int32)),
-                threshold=threshold,
-                max_convex_hull=share,
-                preprocess_mode="off" if clean else "auto",
-                resolution=500,
-                mcts_iterations=40,
-                mcts_nodes=10,
-                max_ch_vertex=64,
-                decimate=True,
-                seed=0,
-            )
+            pts, tri = piece.pts, piece.tri
+            # preprocess "off" segfaulted CoACD on overlapping multi-body input, so the manifold pre-pass is only skipped for
+            # a single closed body; every such body is closed here, by position (as given) or by index (repaired)
+            if not piece.bounded:                       # (position-closed, so the coplanar merge applies)
+                pts, tri = _decomposition_input(pts, tri)
+            bounded = piece.bounded or len(tri) > IN_PROCESS_MAX_TRIANGLES
+            if bounded:
+                out = collider_worker.run_in_child(pts, tri, _coacd_params(threshold, share, True), decomposition_budget_s(len(tri)))
+                parts, fail = out.parts, out.reason
+            else:
+                parts, fail = coacd.run_coacd(coacd.Mesh(pts, np.asarray(tri, dtype=np.int32)), **_coacd_params(threshold, share, True)), ""
+            if parts is None:
+                pp, tt, hv2 = _safe_hull(piece.hull_pts)
+                raw.append((pp, tt, hv2, "body_hull", "; ".join(x for x in (piece.reason, f"decomposition stopped: {fail}") if x)))
+                continue
             for v, _f in parts:
                 pp, tt, hv2 = _hull(np.asarray(v, dtype=np.float64))
-                raw.append((pp, tt, hv2, "coacd"))
+                raw.append((pp, tt, hv2, "coacd", piece.reason))
     while len(raw) > max(1, max_hulls):
         raw.sort(key=lambda h: h[2])
         a, b = raw[0], raw[1]
         pp, tt, hv = _hull(np.vstack([a[0], b[0]]))
-        raw = [(pp, tt, hv, "merged")] + raw[2:]
+        raw = [(pp, tt, hv, "merged", "; ".join(dict.fromkeys(x for x in (a[4], b[4]) if x)))] + raw[2:]
+    if limit is not None:
+        capped = []
+        for pp, tt, hv, src, why in raw:
+            pp, tt, hv2, note = _limit_hull(pp, tt, hv, limit)
+            capped.append((pp, tt, hv2, src, "; ".join(x for x in (why, note) if x)))
+        raw = capped
     raw.sort(key=lambda h: -h[2])
-    return [Hull(f"UCX_{asset_name}_{i:02d}", p, t, v, s) for i, (p, t, v, s) in enumerate(raw)]
+    return [Hull(f"UCX_{asset_name}_{i:02d}", p, t, v, s, r) for i, (p, t, v, s, r) in enumerate(raw)]
+
+
+def hull_limit(engine: str | None) -> HullLimit | None:
+    """The convex-hull limit of a target engine, from ``validator.ENGINE_RULES``; None when it has none or is unknown."""
+    if engine is None:
+        return None
+    from antigravity3d.kernel.validator import ENGINE_RULES
+
+    rules = ENGINE_RULES.get(engine)  # type: ignore[call-overload]
+    return rules.hull_limit if rules is not None else None
+
+
+def describe_collider_sources(hulls: list[Hull]) -> str:
+    """"coacd, body_hull (decomposition stopped: timeout after 30 s)": the sources of a set of hulls, with every reason a hull
+    is not a plain decomposition or hull, so that a fallback is never silent."""
+    sources = sorted({h.source for h in hulls})
+    reasons = sorted({h.reason for h in hulls if h.source == "body_hull" and h.reason})
+    capped = [h for h in hulls if CAPPED_MARK in h.reason]
+    if capped:
+        reasons.append(f"{len(capped)} capped to the engine's hull limit, volume "
+                       + ", ".join(h.reason.split("volume ", 1)[-1].split(",", 1)[0] for h in capped))
+    return ", ".join(sources) + (f" ({'; '.join(reasons)})" if reasons else "")
 
 
 # --------------------------------------------------------------------------- export
@@ -1747,25 +3454,26 @@ def _untextured(material):
 
 
 def gltf_mesh(name: str, points: np.ndarray, triangles: np.ndarray, uvs: np.ndarray | None, material=None, *,
-              shade: bool, y_up: bool = True):
+              shade: bool, y_up: bool = True, crease_deg: float | None = None):
     """One kernel mesh (world space, Z-up, UVs with a bottom-left origin) as a ``gltf_writer.GltfMesh``.
 
     The single conversion behind every GLB this package writes: the package GLBs (:func:`write_gltf`) and the
     inspector's review GLB (``artifacts/review_glb.py``), so what is reviewed is converted exactly as what ships.
 
     ``shade``: write shading normals, the crease normals the package USD authors
-    (``compile_ir.crease_normals``, 40 degrees) turned into one normal per vertex by splitting vertices at
-    creases. ``y_up``: glTF is Y-up, so (x, y, z) -> (x, z, -y). A mesh with UVs and no material gets
+    (``compile_ir.crease_normals`` at ``crease_deg``; None is the project's 40 degrees, an art direction may set
+    another) turned into one normal per vertex by splitting vertices at creases. ``y_up``: glTF is Y-up, so (x, y, z) -> (x, z, -y). A mesh with UVs and no material gets
     :func:`gltf_default_material`; a mesh without UVs keeps only the factors of its material.
     """
     from antigravity3d.kernel import gltf_writer as gw
-    from antigravity3d.kernel.compile_ir import crease_normals
+    from antigravity3d.kernel.compile_ir import CREASE_DEG, crease_normals
 
     p = np.asarray(points, dtype=np.float64)
     tris = np.asarray(triangles)
     normals = None
     if shade:
-        p, tris, uvs, normals = gw.split_by_corner_normals(p, tris, uvs, crease_normals(p, tris))
+        crease = CREASE_DEG if crease_deg is None else crease_deg
+        p, tris, uvs, normals = gw.split_by_corner_normals(p, tris, uvs, crease_normals(p, tris, crease))
         if y_up:
             normals = gw.z_up_to_y_up(normals)
     if y_up:
@@ -1785,14 +3493,17 @@ def write_gltf(
     y_up: bool = True,
     *,
     materials: Sequence | None = None,
+    image_uris: Mapping[str, str] | None = None,
+    crease_deg: float | None = None,
 ) -> Path:
     """Writes a GLB. Our world is Z-up; glTF is Y-up, so (x,y,z) -> (x,z,-y) unless y_up=False.
 
     ``materials`` holds one ``gltf_writer.GltfMaterial`` (or None) per item; images inside are embedded as the
-    bytes they already hold (see kernel/gltf_writer.py). Items with UVs and no material get a grey default.
-    Items with UVs (the rendered ones; collider hulls have none) also get shading normals, so the GLB shades
-    like the USD; items without UVs get neither normals nor a material. Each item goes through
-    :func:`gltf_mesh`.
+    bytes they already hold (see kernel/gltf_writer.py), except those whose content digest ``image_uris`` maps to
+    a relative URI: those are referenced, not embedded (``gltf_writer.build_glb``). Items with UVs and no material
+    get a grey default. Items with UVs (the rendered ones; collider hulls have none) also get shading normals, so
+    the GLB shades like the USD; items without UVs get neither normals nor a material. Each item goes through
+    :func:`gltf_mesh` (``crease_deg``: the shading crease, see there).
     """
     from antigravity3d.kernel import gltf_writer as gw
 
@@ -1801,8 +3512,8 @@ def write_gltf(
         uv = getattr(it, "uvs", None)
         name = names[i] if names else getattr(it, "name", None) or getattr(it, "node_id", None) or f"mesh_{i}"
         material = materials[i] if uv is not None and materials else None
-        meshes.append(gltf_mesh(name, it.points, it.triangles, uv, material, shade=uv is not None, y_up=y_up))
-    return gw.write_glb(path, meshes)
+        meshes.append(gltf_mesh(name, it.points, it.triangles, uv, material, shade=uv is not None, y_up=y_up, crease_deg=crease_deg))
+    return gw.write_glb(path, meshes, image_uris=image_uris)
 
 
 def compress_texture_ktx2(png_path: str | Path, out_path: str | Path, mode: Literal["uastc", "etc1s"] = "uastc") -> Path | None:
@@ -1835,14 +3546,232 @@ class ExportBundle:
     timings_ms: dict[str, float] = field(default_factory=dict)
 
 
-def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name: str) -> ExportBundle:
+@dataclass(frozen=True)
+class Shipped:
+    """What a part ships at one level: its triangles minus the hidden ones, unreferenced vertices dropped.
+    ``vertices`` indexes the part's (seam-split) vertices it keeps, in order."""
+    points: np.ndarray
+    triangles: np.ndarray
+    uvs: np.ndarray | None
+    vertices: np.ndarray
+
+    @property
+    def tri_count(self) -> int:
+        return len(self.triangles)
+
+
+def shipped(part: UVResult | LOD) -> Shipped:
+    """The shipped form of a part (``UVResult`` = LOD0, or one ``LOD`` level): see ``UVResult.hidden``."""
+    h = getattr(part, "hidden", None)
+    pts, tri, uv = np.asarray(part.points), np.asarray(part.triangles), part.uvs
+    if h is None or not h.any():
+        return Shipped(pts, tri, uv, np.arange(len(pts)))
+    t = tri[~h]
+    keep = np.unique(t.reshape(-1))
+    remap = np.full(len(pts), -1, np.int64)
+    remap[keep] = np.arange(len(keep))
+    return Shipped(pts[keep], remap[t].astype(tri.dtype), None if uv is None else np.asarray(uv)[keep], keep)
+
+
+def _solid(points: np.ndarray, tris: np.ndarray) -> bool:
+    if not len(tris):
+        return False
+    t = _topology(np.asarray(points, np.float64), np.asarray(tris))
+    return t.closed and t.volume > 0
+
+
+def _crease_safe(points: np.ndarray, tris: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """``mask`` without the triangles whose removal would change a shipped corner normal: crease normals smooth
+    across faces within 40 degrees, so a hidden face next to a shallow visible one shades it. Box and cylinder
+    contacts meet their neighbours at 90 degrees and lose nothing here."""
+    from antigravity3d.kernel.compile_ir import crease_normals
+
+    if not mask.any():
+        return mask
+    mask = mask.copy()
+    full = crease_normals(points, tris).reshape(-1, 3, 3)
+    wid = _canon(np.asarray(points, np.float64))[np.asarray(tris)]
+    while mask.any():
+        kept = np.flatnonzero(~mask)
+        now = crease_normals(points, tris[kept]).reshape(-1, 3, 3)
+        bad = np.abs(now - full[kept]).max(axis=2) > 1e-6  # (kept, 3) corners whose normal moved
+        if not bad.any():
+            break
+        moved = np.unique(wid[kept][bad])
+        back = mask & np.isin(wid, moved).any(axis=1)
+        if not back.any():
+            break
+        mask &= ~back
+    return mask
+
+
+def contact_faces_removable(budget: EngineBudget, opaque_materials) -> bool:
+    """Whether the shipped meshes may drop hidden contact faces: the caller knows which materials are opaque
+    (``coplanar.opaque_materials``), the target engine accepts open render meshes (``EngineRules``) and the run did
+    not ask to ship the closed solids (``EngineBudget.keep_contact_faces``)."""
+    from antigravity3d.kernel.validator import ENGINE_RULES
+
+    rules = ENGINE_RULES.get(budget.target_engine)
+    return (opaque_materials is not None and rules is not None and not rules.closed_render_meshes
+            and not budget.keep_contact_faces)
+
+
+def hidden_contact_faces(parts: Sequence[tuple[str, np.ndarray, np.ndarray, str | None]], opaque_materials) -> list[np.ndarray]:
+    """Per part (node id, points, triangles, material id) the triangles hidden by coplanar contact with other
+    parts of the same asset (``coplanar.hidden_triangles``), restricted so no shipped corner normal changes."""
+    from antigravity3d.kernel import coplanar
+
+    items = [coplanar.Part(n, np.asarray(p, np.float64), np.asarray(t)) for n, p, t, _ in parts]
+    solid = [_solid(it.points, it.triangles) for it in items]
+    opaque = [mat in opaque_materials for *_, mat in parts]
+    masks = coplanar.hidden_triangles(items, solid, opaque)
+    return [_crease_safe(it.points, it.triangles, m) for it, m in zip(items, masks)]
+
+
+def _ship_levels(closed: list[UVResult], lods: dict[str, list[LOD]], materials: dict[str, str | None],
+                 opaque_materials, hidden0: dict[str, np.ndarray]) -> tuple[dict[str, list[LOD]], dict[str, np.ndarray]]:
+    """LOD chains with each level's hidden triangles marked (decided on that level's own meshes: a part absent
+    at a level covers nothing there, and a simplified part only hides what it still covers exactly). A level
+    whose shipped triangle count no longer pays for itself against the previous kept level (LOD_MIN_REDUCTION)
+    is left out, as generate_asset_lods leaves out a candidate that does not pay.
+
+    Also returns, per part, the unwrap's vertices that a kept level ships although no shipped LOD0 triangle uses
+    them (``hidden0``: LOD0's masks): their charts must be packed into the one atlas all levels share."""
+    from antigravity3d.kernel import lod_diff as ld
+
+    exposed: dict[str, np.ndarray] = {}
+    if not lods:
+        return lods, exposed
+    by_id = {u.node_id: u for u in closed}
+    names = [u.node_id for u in closed if u.node_id in lods and len(lods[u.node_id][0].triangles)]
+    levels = min(len(lods[n]) for n in names)
+    out: dict[str, list[LOD]] = {n: [] for n in names}
+    prev = None
+    for k in range(levels):
+        level = [lods[n][k] for n in names]
+        masks = hidden_contact_faces([(n, lv.points, lv.triangles, materials.get(n)) for n, lv in zip(names, level)],
+                                     opaque_materials)
+        marked = [replace(lv, hidden=m if m.any() else None) for lv, m in zip(level, masks)]
+        tris = sum(shipped(lv).tri_count for lv in marked)
+        if prev is not None and tris > (1.0 - ld.LOD_MIN_REDUCTION) * prev:
+            continue
+        for n, lv in zip(names, marked):
+            out[n].append(lv)
+            h0 = hidden0.get(n)
+            if k == 0 or h0 is None or not h0.any() or lv.uvs is None:
+                continue
+            u = by_id[n]
+            seen = np.zeros(len(u.points), bool)
+            seen[u.triangles[~h0].reshape(-1)] = True
+            at = _vertex_index(u, lv)
+            used = at[np.asarray(shipped(lv).vertices)] if lv.hidden is not None else at
+            extra = used[(used >= 0) & ~seen[np.maximum(used, 0)]]
+            if len(extra):
+                exposed[n] = np.union1d(exposed.get(n, np.zeros(0, np.int64)), extra)
+        prev = tris
+    count = max(len(c) for c in out.values())
+    for n in lods:  # parts without geometry keep a chain as long as the others
+        if n not in out:
+            out[n] = lods[n][:count]
+    return {n: out[n] for n in lods}, exposed
+
+
+def _vertex_index(u: UVResult, lv: LOD) -> np.ndarray:
+    """Per vertex of a LOD level, the unwrap vertex it is (-1 if none): meshoptimizer keeps vertices, and
+    _Simplifier joins seam copies at the position of the first copy, so a level vertex is found by that position
+    and its uv."""
+    p32 = np.ascontiguousarray(u.points, np.float32)
+    cid = _canon(np.asarray(u.points, np.float64))
+    first = np.unique(cid, return_index=True)[1]
+    ref = np.ascontiguousarray(np.hstack([p32[first][cid], np.asarray(u.uvs, np.float32)]))
+    index = {row.tobytes(): i for i, row in enumerate(ref)}
+    key = np.ascontiguousarray(np.hstack([np.asarray(lv.points, np.float32), np.asarray(lv.uvs, np.float32)]))
+    return np.array([index.get(row.tobytes(), -1) for row in key], np.int64)
+
+
+def _chart_of(tris: np.ndarray, seeds: np.ndarray) -> np.ndarray:
+    """Triangles connected (through shared vertex indices: charts are seam-split) to any of ``seeds``."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
+
+    t = np.asarray(tris, np.int64)
+    n = int(t.max()) + 1
+    g = coo_matrix((np.ones(2 * len(t)), (np.r_[t[:, 0], t[:, 1]], np.r_[t[:, 1], t[:, 2]])), shape=(n, n))
+    comp = connected_components(g, directed=False)[1]
+    seeds = seeds[(seeds >= 0) & (seeds < n)]
+    return np.isin(comp[t[:, 0]], comp[seeds])
+
+
+def _relayout(lods: dict[str, list[LOD]], closed: list[UVResult], shipped_uvs: list[UVResult]) -> dict[str, list[LOD]] | None:
+    """The LOD chains with every level's uvs moved from the closed atlas to the shipped one, vertex by vertex
+    (``_vertex_index``); None if a level vertex is not found."""
+    out: dict[str, list[LOD]] = {}
+    by_id = {c.node_id: (c, s) for c, s in zip(closed, shipped_uvs)}
+    for n, chain in lods.items():
+        if n not in by_id or chain[0].uvs is None or np.array_equal(by_id[n][0].uvs, by_id[n][1].uvs):
+            out[n] = chain
+            continue
+        c, s = by_id[n]
+        new = []
+        for lv in chain:
+            if not len(lv.points):
+                new.append(lv)
+                continue
+            at = _vertex_index(c, lv)
+            if (at < 0).any():
+                return None
+            new.append(replace(lv, uvs=np.asarray(s.uvs, np.float32)[at]))
+        out[n] = new
+    return out
+
+
+def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name: str, *,
+                        opaque_materials: frozenset[str] | set[str] | None = None) -> ExportBundle:
+    """UVs, LODs and colliders of one asset.
+
+    ``opaque_materials`` (material ids rendered opaque; None = unknown) turns on hidden contact faces where the
+    target engine allows open render meshes: triangles of a part that other parts of this asset cover exactly
+    are marked ``hidden`` in the UVs and in every LOD level, take no atlas space, and are left out of what ships
+    (``shipped``). The meshes themselves, the colliders and everything that reads the working stage keep the
+    closed solids."""
+    # Colliders depend only on the source meshes, but they are not run on a second thread beside the unwrap: in about
+    # 860 such runs the output never differed from this serial order, yet one died with a segmentation fault inside
+    # scipy's ConvexHull while the other thread was in xatlas (none in 400 serial runs). The gain was 0 to 15%.
     t = {}
     t0 = time.perf_counter()
-    uvs = unwrap_scene(meshes, budget)
-    t1 = time.perf_counter()
-    lods = generate_asset_lods(uvs)
+    hidden = None
+    if contact_faces_removable(budget, opaque_materials):
+        hidden = hidden_contact_faces([(m.node_id, m.points, m.triangles, m.material_id) for m in meshes], opaque_materials)
+        if not any(h.any() for h in hidden):
+            hidden = None
+    th = time.perf_counter()
+    if hidden is None:
+        uvs = unwrap_scene(meshes, budget)
+        t1 = time.perf_counter()
+        lods = generate_asset_lods(uvs)
+    else:
+        # One atlas for every level. LODs are made from the closed unwrap: the same chain, triangle for triangle,
+        # as without the rule (the simplifier is sensitive to where charts sit in the atlas). Each level's hidden
+        # triangles are decided on its own meshes; a chart is left out of the packing only if no kept level ships
+        # any of it. The charts are then packed once more (same charts, same vertices) and every level's uvs are
+        # carried over to that packing vertex by vertex.
+        materials = {m.node_id: m.material_id for m in meshes}
+        cache: dict = {}
+        closed = unwrap_scene(meshes, budget, cache=cache)
+        t1 = time.perf_counter()
+        lods_closed = generate_asset_lods(closed)
+        hidden0 = {u.node_id: h for u, h in zip(closed, hidden)}
+        marked, exposed = _ship_levels(closed, lods_closed, materials, opaque_materials, hidden0)
+        pack = [h & ~_chart_of(u.triangles, exposed[u.node_id]) if u.node_id in exposed else h for u, h in zip(closed, hidden)]
+        uvs = unwrap_scene(meshes, budget, hidden=pack, cache=cache)
+        uvs = [replace(u, hidden=h if h.any() else None) for u, h in zip(uvs, hidden)]
+        lods = _relayout(marked, closed, uvs)
+        if lods is None:  # a level vertex not found in the unwrap: ship every triangle, as before the rule
+            log.warning("hidden contact faces not removed for %s: LOD levels could not be carried to the shipped atlas", asset_name)
+            uvs, lods = closed, lods_closed
     t2 = time.perf_counter()
-    hulls = generate_colliders(meshes, budget.max_collision_hulls, asset_name=asset_name)
+    hulls = generate_colliders(meshes, budget.max_collision_hulls, asset_name=asset_name, limit=hull_limit(budget.target_engine))
     t3 = time.perf_counter()
-    t = {"uv": (t1 - t0) * 1e3, "lod": (t2 - t1) * 1e3, "colliders": (t3 - t2) * 1e3, "total": (t3 - t0) * 1e3}
+    t = {"contact": (th - t0) * 1e3, "uv": (t1 - th) * 1e3, "lod": (t2 - t1) * 1e3, "colliders": (t3 - t2) * 1e3,
+         "total": (t3 - t0) * 1e3}
     return ExportBundle(asset_name, uvs, lods, hulls, {k: round(v, 2) for k, v in t.items()})

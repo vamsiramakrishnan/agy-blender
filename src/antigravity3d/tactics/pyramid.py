@@ -21,30 +21,43 @@ import numpy as np
 from PIL import Image, ImageDraw
 from pxr import Usd
 
+from antigravity3d.adapters.blender_5_3 import fbx_package, upstream_checks
 from antigravity3d.adapters.engines.validators import MIN_SILHOUETTE_IOU, blender_frame_png, silhouette_iou, validator_for
+from antigravity3d.adapters.engines import web_three
 from antigravity3d.adapters.engines.web_three import WebThreeValidator
-from antigravity3d.decisions.compose import Action, Thresholds, decide_action, lod_pop_ok, lod_pop_reasons, tier15_score
+from antigravity3d.decisions.compose import (
+    BRIEF_REASON, Action, Thresholds, brief_reasons, decide_action, has_brief_answers, lod_pop_ok, lod_pop_reasons, progress_score,
+    tier15_score,
+)
 from antigravity3d.decisions.models import VisualQAResult
 from antigravity3d.decisions.questions import MARKED_DEFECT_PHRASES
+from antigravity3d.genmedia.material_prompt import texture_prompt
 from antigravity3d.genmedia.pbr_deriver import PBRMaps, delight, edge_wear, roughness_breakup
 from antigravity3d.ir import (
     AssignMaterial, IRPatch, MaterialIR, RemoveNode, SceneIR, SetParam, SetTransform, UpsertMaterial, UpsertNode, apply_patch,
 )
-from antigravity3d.kernel.fast_ops import ExportBundle, run_export_pipeline, tier1_qa
+from antigravity3d.art_direction import texture_brief
+from antigravity3d.kernel.compile_ir import CREASE_DEG, crease_normals
+from antigravity3d.kernel.coplanar import opaque_materials
+from antigravity3d.kernel.fast_ops import (
+    CAPPED_MARK, ExportBundle, describe_collider_sources, describe_texel_density, run_export_pipeline, shipped, texel_density_report,
+    shipped_masks, tier1_qa,
+)
 from antigravity3d.kernel.lod_diff import PopThresholds, lod_pop_report
 from antigravity3d.kernel.raster import CLAY, render_buffers
-from antigravity3d.kernel.settle import settle
+from antigravity3d.kernel.separate import separate_coplanar
+from antigravity3d.kernel.settle import beside_a_part, mesh_bounds, settle
 from antigravity3d.kernel.som import marked_contact_sheet
-from antigravity3d.kernel.validator import check_engine_compliance, validate_usd
+from antigravity3d.kernel.validator import check_engine_compliance, engine_texture_px, validate_usd
 from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, EngineBudget
 from antigravity3d.tactics.cached import cached_export_pipeline
-from antigravity3d.tactics.common import IMAGE_USD, Uploader, png_bytes, uploader_for
+from antigravity3d.tactics.common import QA_TOKENS_EST, Uploader, png_bytes, uploader_for
 from antigravity3d.tactics.distill import FixLog, FixRecord
 from antigravity3d.tactics.governor import BudgetExceeded, Governor
 from antigravity3d.tactics import reviewed_rules
 from antigravity3d.kernel.package import write_engine_package
 from antigravity3d.tactics.package import merged_lods
-from antigravity3d.tactics.tournament import GRADE_USD_EST, PBRTournamentResult, pbr_tournament
+from antigravity3d.tactics.tournament import PBRTournamentResult, TournamentResult, image_est, pbr_tournament
 
 EPS = 1e-9
 LOOKDEV_ROUNDS = 3
@@ -73,12 +86,18 @@ class RoundTrace:
     render_tier: str
     note: str = ""
     rolled_back: bool = False
+    # Pass A's progress figure (compose.progress_score: tier15 with the brief's answers); None when no brief was asked
+    # about (it then equals tier15 and is not written).
+    progress: float | None = None
 
 
 @dataclass
 class StepResult:
     name: str
-    status: str  # "passed" | "warned" | "failed" | "skipped"
+    # "passed" | "warned" | "failed" | "skipped" | "output_failed". "failed" is a check OF the package that did not pass: it
+    # blocks. "output_failed" is an extra output that could not be made (the FBX): it reads as a failure, is recorded in the
+    # manifest and printed, and does not block, because the package (USD, GLB) stands on its own checks.
+    status: str
     detail: str = ""  # what was checked or produced: a fact about the asset, shipped in the package manifest
     ms: float = 0.0
     run: str = ""  # a fact about this run only (cache state); with ``ms`` it stays in the run report
@@ -96,13 +115,16 @@ class PyramidResult:
     render_tier: str = "preview"
     cost_usd: float = 0.0
     tier1_ok: bool = False
-    tier15: float = 0.0
+    tier15: float | None = 0.0  # None: the judge never answered (``judge_unavailable`` says why); never a zero it did not give
     scores: dict[str, float] = field(default_factory=dict)
     defects: dict[str, float] = field(default_factory=dict)
     needs_review: bool = False
     artifacts: dict[str, str] = field(default_factory=dict)  # name -> path / uri
     objects: dict[str, Any] = field(default_factory=dict)  # live objects (bundle, meshes, maps); not serialised
     author_calls: int = 0
+    judge_unavailable: str = ""  # why a visual QA verdict is missing (the pass's stop reason and a failed step say it too)
+    unit: str = "usd"  # the ledger's unit; on a token ledger no dollar figure exists and cost_usd is written as null
+    brief_unmet: list[str] = field(default_factory=list)  # why the shipped state does not meet the brief (compose.brief_reasons)
 
     engine_truth_required: bool = False
     live_lookdev: bool = False
@@ -123,26 +145,41 @@ class PyramidResult:
         return [(s.name, s.detail) for s in self.steps if s.status == "failed"]
 
     @property
+    def failed_outputs(self) -> list[tuple[str, str]]:
+        return [(s.name, s.detail) for s in self.steps if s.status == "output_failed"]
+
+    @property
     def warned(self) -> list[tuple[str, str]]:
         return [(s.name, s.detail) for s in self.steps if s.status == "warned"]
 
     @property
     def ok(self) -> bool:
-        return (not self.failed and self.tier1_ok and self.tier15 >= EXPORT_MIN_TIER15_SCORE and not self.needs_review
+        return (not self.failed and self.tier1_ok and self.tier15 is not None and self.tier15 >= EXPORT_MIN_TIER15_SCORE
+                and not self.needs_review and not self.brief_unmet
                 and (not self.engine_truth_required or self.live_lookdev and self.live_parity))
 
     def summary(self) -> str:
         r = "; ".join(f"{t.stage}{t.n}:{t.action}{'(rolled back)' if t.rolled_back else ''} t15={t.tier15:.2f}" for t in self.rounds)
         st = ", ".join(f"{s.name}={s.status}" for s in self.steps)
-        return f"pyramid[{self.asset}] ok={self.ok} tier={self.render_tier} cost=${self.cost_usd:.4f} | {r} | {st}"
+        cost = f"${self.cost_usd:.4f}" if self.unit == "usd" else "n/a (token ledger)"
+        return f"pyramid[{self.asset}] ok={self.ok} tier={self.render_tier} cost={cost} | {r} | {st}"
 
     def to_dict(self) -> dict[str, Any]:
         d = {k: getattr(self, k) for k in ("asset", "stopped", "converged", "render_tier", "cost_usd", "tier1_ok", "tier15", "scores",
                                            "defects", "needs_review", "artifacts", "author_calls", "audit", "ok", "verified", "live_lookdev", "live_parity", "engine_truth_required")}
-        d["rounds"] = [vars(r) for r in self.rounds]
+        if self.judge_unavailable:  # only when it happened: a run the judge answered writes the keys it always wrote
+            d["judge_unavailable"] = self.judge_unavailable
+        if self.brief_unmet:  # only when it happened: a run without a brief (or meeting it) writes the keys it always wrote
+            d["brief_unmet"] = list(self.brief_unmet)
+        d["rounds"] = [{k: v for k, v in vars(r).items() if k != "progress" or v is not None} for r in self.rounds]
+        if self.unit != "usd":  # no price applied: no dollar figure (a token number never goes into a *_usd key)
+            d.update(cost_usd=None, spend_unit=self.unit)
+            d["rounds"] = [{**r, "cost_usd": None} for r in d["rounds"]]
         d["steps"] = [vars(s) for s in self.steps]
         d["fix_records"] = [vars(f) for f in self.fix_records]
         d["skipped"] = [{"step": n, "reason": r} for n, r in self.skipped]
+        if self.failed_outputs:  # only when there is one: a run without a failed output writes the keys it always wrote
+            d["failed_outputs"] = [{"step": n, "reason": r} for n, r in self.failed_outputs]
         return d
 
 
@@ -151,16 +188,66 @@ class PyramidResult:
 
 async def synthesize_materials(
     scene: SceneIR, forge: Any, *, plane: Any, governor: Governor, prompt: str, uploader: Uploader | None = None,
-    cache: Any = None, size: int | None = None, concurrency: int | None = None,
+    cache: Any = None, size: int | None = None, concurrency: int | None = None, brief: str = "",
 ) -> dict[str, PBRTournamentResult]:
-    """One ``pbr_tournament`` per material, concurrently; N is sized so all materials together fit the budget."""
-    size = size or (256 if forge.offline else 2048)
-    k = max(1, len(scene.materials))
-    n = governor.candidates("pbr", unit_cost=k * (IMAGE_USD["albedo"] + GRADE_USD_EST))
+    """One ``pbr_tournament`` per material, concurrently, with best-of-N allocated per material.
+
+    ``scene.materials`` is in priority order (the caller puts the largest surfaces first: ``materials_by_area``). Every
+    material gets one candidate before any gets a second, up to the plan's N, within the images and budget left
+    (``Governor.allocate``); when everything fits, each gets the plan's N. A material that gets no candidate is in the
+    result with no maps and its reason in ``tournament.notes["not_textured"]``, never silently left flat.
+
+    Each material's albedo prompt is ``texture_prompt(m, brief)``: its surface words, never the asset brief.
+    ``brief``: an art direction's texture brief, appended to every material prompt ('' appends nothing). ``prompt`` is
+    not used for the textures (the asset brief drew object parts into them)."""
+    size = size or default_texture_px(forge)
+    mats = list(scene.materials)
+    unit = image_est(governor, "albedo")
+    counts = governor.allocate("pbr", len(mats), unit_cost=unit, images_each=1)
     outs = await asyncio.gather(*(pbr_tournament(
-        f"{prompt}: {m.id} surface", forge, plane=plane, governor=governor, material_id=m.id, metallic_hint=m.metallic,
-        uploader=uploader, n=n, size=size, cache=cache, concurrency=concurrency) for m in scene.materials))
-    return {m.id: o for m, o in zip(scene.materials, outs)}
+        texture_prompt(m, brief), forge, plane=plane, governor=governor, material_id=m.id, metallic_hint=m.metallic,
+        uploader=uploader, n=n, size=size, cache=cache, concurrency=concurrency) for m, n in zip(mats, counts) if n > 0))
+    done = iter(outs)
+    result: dict[str, PBRTournamentResult] = {}
+    for m, n in zip(mats, counts):
+        if n > 0:
+            result[m.id] = next(done)
+            continue
+        if getattr(governor, "max_images", None) is not None and governor.max_images - governor.images_used < 1:
+            why = f"image limit reached ({governor.images_summary()}): larger surfaces were textured first"
+        else:
+            fmt = getattr(governor, "fmt", lambda x: f"${x:.5f}")
+            why = f"budget: {fmt(governor.remaining)} left, one candidate needs about {fmt(unit)}; larger surfaces were textured first"
+        t = TournamentResult("pbr", 0, None, [], {}, notes={"not_textured": why})
+        t.unit = getattr(governor, "unit", "usd")
+        result[m.id] = PBRTournamentResult(m.id, t)
+    return result
+
+
+def materials_by_area(meshes: list[Any], materials: list[MaterialIR]) -> list[MaterialIR]:
+    """``materials`` ordered by the surface area they cover in ``meshes`` (largest first; ties keep their order)."""
+    area: dict[str | None, float] = {}
+    for m in meshes:
+        pts, tri = np.asarray(m.points, np.float64), np.asarray(m.triangles)
+        if len(tri):
+            a, b, c = pts[tri[:, 0]], pts[tri[:, 1]], pts[tri[:, 2]]
+            area[m.material_id] = area.get(m.material_id, 0.0) + float(np.linalg.norm(np.cross(b - a, c - a), axis=1).sum() / 2)
+    return sorted(materials, key=lambda mat: -area.get(mat.id, 0.0))
+
+
+def _why_untextured(r: PBRTournamentResult) -> str:
+    t = r.tournament
+    if t.notes.get("not_textured"):
+        return t.notes["not_textured"]
+    first = next(iter((t.failures or t.disqualified).values()), None)
+    if first is not None:
+        return f"every candidate failed ({len(t.failures)} failed, {len(t.disqualified)} disqualified); first: {first}"[:200]
+    return "no candidate won its tournament"
+
+
+def default_texture_px(forge: Any) -> int:
+    """Side of generated PBR maps when no art direction sets one: small on the offline fakes, 2K live."""
+    return 256 if forge.offline else 2048
 
 
 # --------------------------------------------------------------------------- helpers
@@ -204,6 +291,24 @@ def preview_sheet(meshes: list[Any], tint: dict[str | None, tuple[float, float, 
     return sheet
 
 
+class JudgeUnavailable(Exception):
+    """A visual QA verdict could not be had: the judge call failed after the shared retry schedule (``service_answer``),
+    was not admitted, or answered nothing usable. A pass that meets it stops, never approves, and the run goes on to
+    export what exists with its gates failed and this reason recorded."""
+
+
+def _judge_failure(exc: BaseException) -> bool:
+    """A judge (or its upload) failure, as opposed to a bug here: the decisions error family, a refused admission, an
+    outcome the retries could not get past, or a service / transport failure."""
+    from antigravity3d import service_answer
+    from antigravity3d.decisions.models import DecisionError
+
+    # Not DecisionBudgetError: that is a configuration refusal (an unpriced judge on a governed run), which stays one.
+    return (isinstance(exc, (DecisionError, BudgetExceeded, service_answer.OutcomeUnknown))
+            or isinstance(exc, Exception) and service_answer.classify(exc, float("inf")) != "final"
+            or service_answer.is_timeout(exc) and isinstance(exc, Exception))
+
+
 @dataclass
 class _QA:
     result: VisualQAResult
@@ -212,6 +317,7 @@ class _QA:
     uri: str
     cost: float
     legend: dict[int, str] | None = None
+    progress: float = 0.0  # compose.progress_score (equals t15 when the brief was not asked about)
 
 
 @dataclass
@@ -228,19 +334,32 @@ class _Pending:
     rule: str = ""
     scene_hash: str = ""
     origin: str = "unknown"
+    progress: float = 0.0
 
 
 class _Run:
     def __init__(self, sm: Any, **kw: Any) -> None:
         self.sm = sm
         self.__dict__.update(kw)
-        self.res = PyramidResult(asset=sm.asset_prim.GetName(), engine_truth_required=self.require_verified or self.governor.plan.engine_truth)
+        self.res = PyramidResult(asset=sm.asset_prim.GetName(), engine_truth_required=self.require_verified or self.governor.plan.engine_truth,
+                                 unit=getattr(self.governor, "unit", "usd"))
         self.maps: dict[str, PBRMaps] = {}
         self.render_png: bytes | None = None
         self.locate_noted = False
         self.bundle_revision: tuple[str, ...] | None = None
         self.export_bundle: ExportBundle | None = None
         self.bundle_cache_hit: bool | None = None
+        self.crease = self.art.crease_deg() if self.art is not None else CREASE_DEG
+
+    def texture_px(self) -> int | None:
+        """The art direction's map size for this engine (None: the pipeline's default)."""
+        if self.forge is None:
+            return None
+        if self.art is None or self.art.texture_px_prop is None:  # the default size, capped to the engine's (Roblox: 1024)
+            default = default_texture_px(self.forge)
+            capped = engine_texture_px(self.budget.target_engine, default)
+            return capped if capped < default else None
+        return self.art.texture_px(self.budget.target_engine, "prop", default_texture_px(self.forge))
 
     # ---- bookkeeping --------------------------------------------------------------------------------
 
@@ -253,16 +372,26 @@ class _Run:
         r.needs_review = q.action.kind == "escalate_human" or not getattr(self.plane, "calibrated", True)
 
     async def qa(self, stage: str, png: bytes, legend: dict[int, str] | None = None) -> _QA:
-        uri = await self.upload(png)
-        r = await self.plane.evaluate_visual_qa(uri, self.ortho_uri, self.style_uri, stage, marked_legend=legend, governor=self.governor)
+        try:
+            uri = await self.upload(png)
+            brief = {"brief": self.prompt} if self.prompt else {}  # the user's request; none: the request is as it was
+            r = await self.plane.evaluate_visual_qa(uri, self.ortho_uri, self.style_uri, stage, marked_legend=legend, governor=self.governor,
+                                                    **brief)
+        except Exception as e:
+            if not _judge_failure(e):
+                raise
+            from antigravity3d import service_answer
+
+            raise JudgeUnavailable(f"{stage} visual QA: {service_answer.describe(e, 300)}") from e
         action = decide_action(r, self.th, stage)
         cost = r.result.booked_usd
         self.res.cost_usd += cost
-        return _QA(r, action, tier15_score(r, self.th), uri, cost, legend)
+        return _QA(r, action, tier15_score(r, self.th), uri, cost, legend, progress_score(r, self.th))
 
     def trace(self, stage: str, n: int, t1: Any, q: _QA, tier: str) -> RoundTrace:
         t = RoundTrace(stage, n, t1.one_line() if t1 else "n/a", bool(t1.ok) if t1 else True, q.t15, q.result.scores.get("score_silhouette"),
-                       q.result.defects.get("defect_floating", 0.0), q.action.kind, q.action.fixer, q.action.reasons[:4], q.cost, tier)
+                       q.result.defects.get("defect_floating", 0.0), q.action.kind, q.action.fixer, q.action.reasons[:4], q.cost, tier,
+                       progress=q.progress if has_brief_answers(q.result.defects) or has_brief_answers(q.result.scores) else None)
         self.res.rounds.append(t)
         self.res.audit.append(f"{stage}{n} " + q.action.audit_delta().replace("\n", " | "))
         return t
@@ -282,15 +411,49 @@ class _Run:
         meshes = self.sm.extract_meshes()
         ids = {m.node_id for m in meshes}
         floating = {i.node_id for i in t1.issues if i.code == "floating_part" and i.node_id} | (extra or set())
+        bounds = mesh_bounds(meshes)
+        beside = {n for n in floating if n in bounds and beside_a_part(bounds, n)}  # left to the author, see kernel/settle.py
+        floating -= beside
         movable = (floating & ids) or (ids if any(i.code == "ungrounded" for i in t1.issues) or extra == set() else set())
         if not movable:
-            return None, "nothing to settle"
+            return None, "floating part beside another part, not above anything: left to the author" if beside else "nothing to settle"
         try:
             sr = settle(meshes, movable)
             ops = sr.to_ir_ops(self.sm.base_ir())
         except (ValueError, KeyError) as e:
             return None, f"settle unsupported: {e}"
         return (IRPatch(ops=ops), f"settled {len(ops)} node(s)") if ops else (None, "already settled")
+
+    # ---- deterministic separation of coplanar faces (kernel/separate.py) --------------------------------
+
+    def separate_step(self, name: str) -> None:
+        """Move single faces so no two parts have same-facing faces in one plane (no model call), recorded as step
+        ``name``: what moved and by how much, the contact faces that do not ship, what was left to the author. Rolled
+        back (and said so) if it would raise the Tier-1 critical count or make a part float."""
+        t0 = time.perf_counter()
+        sm = self.sm
+        scene = sm.base_ir()
+        meshes = sm.extract_meshes()
+        try:  # faces the exporter leaves out (its own rule, fast_ops.shipped_masks) are not drawn: reported, not moved
+            r = separate_coplanar(scene, meshes, hidden=shipped_masks(meshes, self.budget))
+        except (ValueError, KeyError) as e:
+            self.step(name, "skipped", f"separation unsupported: {e}", t0)
+            return
+        why = r.describe()
+        if not r.ops:
+            self.step(name, "warned" if r.left else "skipped", why, t0)
+            return
+        t1 = tier1_qa(meshes, self.budget)
+        tx = sm.apply_patch(IRPatch(ops=r.ops))
+        t2 = tier1_qa(sm.extract_meshes(), self.budget)
+        floats = lambda t: {(i.code, i.node_id) for i in t.issues if i.code in ("floating_part", "floating_group")}  # noqa: E731
+        if _crit(t2) > _crit(t1) or floats(t2) - floats(t1):
+            sm.rollback(tx)
+            cause = (f"Tier-1 critical count {_crit(t1)}->{_crit(t2)}" if _crit(t2) > _crit(t1)
+                     else "floating " + ", ".join(sorted(n or "?" for _, n in floats(t2) - floats(t1))))
+            self.step(name, "warned", f"rolled back ({cause}): {why}", t0)
+            return
+        self.step(name, "warned" if r.left else "passed", why, t0)
 
     # ---- Pass A ---------------------------------------------------------------------------------------
 
@@ -318,6 +481,17 @@ class _Run:
         self.res.cost_usd += sum(charges)
         return located
 
+    def judge_unavailable(self, pass_name: str, rnd: int, e: JudgeUnavailable, rolled_back: str = "") -> None:
+        """Stop the pass on a missing verdict: never approved, the reason recorded where the gates, the report, the
+        manifest (its evidence steps) and the last lines carry it. Tier-1 keeps its own (deterministic) result."""
+        res = self.res
+        reason = f"judge unavailable: {e}"
+        res.stopped[pass_name] = reason
+        res.converged[pass_name] = False
+        res.needs_review = True  # nothing judged this state: a person must look
+        res.judge_unavailable = res.judge_unavailable or f"pass {pass_name} round {rnd}: {e}"
+        self.step(f"visual_qa_{pass_name}", "failed", (f"{reason} (round {rnd})" + (f"; {rolled_back}" if rolled_back else ""))[:400])
+
     async def author_repair(self, q: _QA, located: dict[str, list[str]]) -> tuple[Any, bool]:
         """One author repair call: ``(patch, failed)``. A failed call is a recorded result, not a crash.
 
@@ -331,15 +505,27 @@ class _Run:
         res = self.res
         sm = self.sm
 
+        def waits() -> str:
+            """The service's refusals and the waits before this repair's answer (a fact about the run: ``StepResult.run``)."""
+            tries = getattr(self.author, "last_service_retries", None) or []
+            return "; ".join(f"attempt {a['attempt']} {a['outcome']}: {a['answer'][:120]}"
+                             + (f", waited {a['wait_s']:.0f} s" if a.get("wait_s") is not None else "") for a in tries)
+
         def fail(reason: str) -> tuple[None, bool]:
             res.stopped["A"] = f"author repair failed: {reason}"
             res.converged["A"] = False
             self.step("author_repair", "warned", reason)
+            res.steps[-1].run = waits()
             return None, True
 
+        action = self.author_action(q)
         res.author_calls += 1
         try:
-            return await self.author.repair(sm.base_ir(), action=q.action, located=located, manifest=sm.manifest()), False
+            patch = await self.author.repair(sm.base_ir(), action=action, located=located, manifest=sm.manifest())
+            if run := waits():  # served after the service turned attempts away: the waits are recorded
+                self.step("author_repair", "passed", "answered after the service turned attempt(s) away")
+                res.steps[-1].run = run
+            return patch, False
         except BudgetExceeded as e:
             return fail(f"not admitted: {e}")
         except AuthorOutcomeError as first:
@@ -353,13 +539,26 @@ class _Run:
                 return fail(f"{kind} on {first.role} tier ({first.finish_reason}); director retry not permitted by spend plan")
             res.author_calls += 1
             try:
-                patch = await self.author.repair(sm.base_ir(), action=q.action, located=located, manifest=sm.manifest(), role="director")
+                patch = await self.author.repair(sm.base_ir(), action=action, located=located, manifest=sm.manifest(), role="director")
                 self.step("author_repair", "passed", f"{kind} on {first.role} tier; succeeded on the director tier")
                 return patch, False
             except BudgetExceeded as e:
                 return fail(f"{kind} on {first.role} tier; director retry not admitted: {e}")
             except AuthorOutcomeError as second:
                 return fail(f"{kind} on {first.role} tier; director retry also {type(second).__name__} ({second.finish_reason}): {second}")
+
+    def author_action(self, q: _QA) -> Action:
+        """The action the author is given. When the design falls short of the brief, its reasons end with what the judge
+        found and the brief itself (``BRIEF_REASON``): the judge returns probabilities, so without the request the author
+        cannot know what to add. The recorded action (trace, audit) is ``q.action``, unchanged; so is every other repair."""
+        found = brief_reasons(q.result.defects, q.result.scores, self.th)
+        if not found or not self.prompt:
+            return q.action
+        from dataclasses import replace
+
+        from antigravity3d.decisions.engine import clean_brief
+
+        return replace(q.action, reasons=[*q.action.reasons, *found, BRIEF_REASON + clean_brief(self.prompt, 2000)])
 
     async def pass_a(self) -> None:
         sm, th, res = self.sm, self.th, self.res
@@ -387,16 +586,33 @@ class _Run:
                     self.step("settle_pre", "failed", "settle raised Tier-1 critical count; rolled back", t0)
                 else:
                     self.step("settle_pre", "passed", why, t0)
+            self.separate_step("separate_coplanar")
         for rnd in range(1, self.max_rounds + 1):
             meshes = sm.extract_meshes()
             t1 = tier1_qa(meshes, self.budget)
             sheet = marked_contact_sheet(meshes, size=256)
-            q = await self.qa("blockout", png_bytes(sheet.image), sheet.legend)
+            try:
+                q = await self.qa("blockout", png_bytes(sheet.image), sheet.legend)
+            except JudgeUnavailable as e:
+                undone = ""
+                if pending is not None:  # the change this verdict was to judge is undone: what ships is what was judged
+                    sm.rollback(pending.tx)
+                    res.tier1_ok, res.tier15, res.scores, res.defects = pending.tier1_ok, pending.t15, pending.scores, pending.defects
+                    undone = (f"rolled back the unjudged {pending.origin} change of round {rnd - 1} "
+                              f"({len(pending.ops)} op(s): {', '.join(pending.ops[:4])}; {pending.note[:80]})")
+                else:  # never judged: Tier-1 says what it found, the judge's scores are missing, not zero
+                    res.tier1_ok, res.tier15, res.scores, res.defects = t1.ok, None, {}, {}
+                self.judge_unavailable("A", rnd, e, undone)
+                return
             tr = self.trace("A", rnd, t1, q, "preview")
             if pending is not None:
-                if _crit(t1) > pending.n_crit or q.t15 < pending.t15 - EPS:
+                # Progress, not tier15: with a brief, a repair that adds the named parts and loses a little silhouette is
+                # progress (compose.progress_score); without one the two are equal and this is the test it always was.
+                if _crit(t1) > pending.n_crit or q.progress < pending.progress - EPS:
                     sm.rollback(pending.tx)
-                    tr.rolled_back, tr.note = True, f"regressed (tier1 crit {pending.n_crit}->{_crit(t1)}, tier15 {pending.t15:.2f}->{q.t15:.2f}); rolled back"
+                    moved = (f"tier15 {pending.t15:.2f}->{q.t15:.2f}" if tr.progress is None else
+                             f"tier15 {pending.t15:.2f}->{q.t15:.2f}, progress {pending.progress:.2f}->{q.progress:.2f}")
+                    tr.rolled_back, tr.note = True, f"regressed (tier1 crit {pending.n_crit}->{_crit(t1)}, {moved}); rolled back"
                     res.tier1_ok, res.tier15, res.scores, res.defects = pending.tier1_ok, pending.t15, pending.scores, pending.defects
                     res.stopped["A"] = "repair regressed; rolled back"
                     res.converged["A"] = False
@@ -406,7 +622,8 @@ class _Run:
                 pending = None
             self.snapshot(t1.ok, q)
             sil, fp = q.result.scores.get("score_silhouette"), q.result.defects.get("defect_floating", 0.0)
-            if t1.ok and (sil is None or sil >= th.silhouette_lock) and fp <= th.floating_max and q.action.kind != "escalate_human":
+            if (t1.ok and (sil is None or sil >= th.silhouette_lock) and fp <= th.floating_max and q.action.kind != "escalate_human"
+                    and not brief_reasons(q.result.defects, q.result.scores, th)):  # the brief's requirements, when asked
                 res.converged["A"], res.stopped["A"] = True, f"converged in {rnd} round(s)"
                 return
             if q.action.kind == "escalate_human":
@@ -415,10 +632,11 @@ class _Run:
             if rnd == self.max_rounds:
                 res.stopped["A"] = "rounds exhausted"
                 return
-            if not self.governor.can_afford(QA_EST_USD):
+            if not self.governor.can_afford(self.governor.est(usd=QA_EST_USD, tokens=QA_TOKENS_EST)):
                 res.stopped["A"] = "budget exhausted"
                 return
-            before = dict(n_crit=_crit(t1), t15=q.t15, tier1_ok=t1.ok, scores=dict(q.result.scores), defects=dict(q.result.defects))
+            before = dict(n_crit=_crit(t1), t15=q.t15, tier1_ok=t1.ok, scores=dict(q.result.scores), defects=dict(q.result.defects),
+                          progress=q.progress)
             located = await self.locate(t1, q)
             before_ir = sm.base_ir()
             candidate = reviewed_rules.seat_patch(before_ir, located.get("tier1:floating_part", []))
@@ -434,7 +652,7 @@ class _Run:
                     res.stopped["A"] = f"auto_fix reground: {why}"
                     return
             else:
-                if q.action.kind == "escalate_director" and not self.governor.may_escalate_to_director(QA_EST_USD):
+                if q.action.kind == "escalate_director" and not self.governor.may_escalate_to_director(self.governor.est(usd=QA_EST_USD, tokens=QA_TOKENS_EST)):
                     res.stopped["A"] = "escalate_director not permitted by spend plan"
                     return
                 patch, failed = await self.author_repair(q, located)
@@ -461,25 +679,37 @@ class _Run:
             pending = _Pending(tx, ops=[o.op for o in patch.ops], params=_patch_params(patch), note=why[:160],
                                rule=reviewed_rules.RULE if exact else "", scene_hash=reviewed_rules.scene_hash(before_ir),
                                origin=origin, **before)
+            if self.settle_first:  # a repair can bring back flush faces: separate again (rolled back with the repair)
+                self.separate_step(f"separate_coplanar_A{rnd}")
 
     # ---- Pass B ---------------------------------------------------------------------------------------
 
     async def resolve_textures(self) -> dict[str, PBRMaps]:
         t = self.textures
+        synth = lambda: synthesize_materials(  # noqa: E731 - the materials the scene has now, largest surfaces first
+            self.sm.base_ir().model_copy(update={"materials": materials_by_area(self.sm.extract_meshes(), self.sm.base_ir().materials)}),
+            self.forge, plane=self.plane, governor=self.governor, prompt=self.prompt or self.res.asset, uploader=self.upload,
+            cache=self.cache, size=self.texture_px(), brief=texture_brief(self.art))
         if t is None and self.forge is not None:
-            t = await synthesize_materials(self.sm.base_ir(), self.forge, plane=self.plane, governor=self.governor, prompt=self.prompt or self.res.asset,
-                                           uploader=self.upload, cache=self.cache)
+            t = await synth()
         elif inspect.isawaitable(t):
             t = await t
+            if t is None and self.forge is not None:  # the speculative synthesis was skipped: synthesise here, as above
+                t = await synth()
+        self.untextured = {k: _why_untextured(v) for k, v in (t or {}).items()
+                           if isinstance(v, PBRTournamentResult) and v.maps is None}
         return {k: (v.maps if isinstance(v, PBRTournamentResult) else v) for k, v in (t or {}).items() if (v.maps if isinstance(v, PBRTournamentResult) else v) is not None}
 
     def write_textures(self) -> dict[str, dict[str, str]]:
         d = self.workdir / "textures"
         d.mkdir(parents=True, exist_ok=True)
         out: dict[str, dict[str, str]] = {}
+        size = self.texture_px()
         for mid, m in self.maps.items():
             out[mid] = {}
             for kind, img in (("albedo", m.albedo), ("orm", m.orm), ("normal", m.normal)):
+                if self.art is not None:  # the map as it ships: art direction's size and palette (see ArtDirection.finish_map)
+                    img = self.art.finish_map(img, kind, size)
                 (d / f"{mid}_{kind}.png").write_bytes(png_bytes(img))
                 out[mid][kind] = f"textures/{mid}_{kind}.png"
         return out
@@ -495,12 +725,13 @@ class _Run:
         if self.export_bundle is None or self.bundle_revision != revision:
             meshes, scene = self.sm.extract_meshes(), self.sm.scene_ir()
             if self.cache is None:
-                self.export_bundle = await asyncio.to_thread(run_export_pipeline, meshes, self.budget, scene.asset_name)
+                self.export_bundle = await asyncio.to_thread(run_export_pipeline, meshes, self.budget, scene.asset_name,
+                                                             opaque_materials=opaque_materials(scene))
             else:
                 self.export_bundle, self.bundle_cache_hit = await asyncio.to_thread(
                     cached_export_pipeline, self.cache, scene, meshes, self.budget)
             self.bundle_revision = revision
-        self.sm.ensure_export_uvs(self.export_bundle.uvs)
+        self.sm.ensure_export_uvs(self.export_bundle.uvs, crease_deg=self.crease)
         return self.export_bundle
 
     async def render_lookdev(self) -> tuple[bytes, str]:
@@ -558,8 +789,12 @@ class _Run:
         except Exception as e:  # noqa: BLE001
             self.step("textures", "failed", f"{type(e).__name__}: {e}", t0)
             return
+        missing = getattr(self, "untextured", {})
+        why = "; ".join(f"{k}: {v}" for k, v in missing.items())
         if not self.maps and not self.res.engine_truth_required:
-            self.step("textures", "skipped", "no PBR textures available (no forge and none supplied)")
+            # the true cause: nothing could be generated or supplied, or every material's synthesis came back empty
+            self.step("textures", "skipped", f"no material was textured: {why}" if missing
+                      else "no PBR textures available (no forge and none supplied)")
             self.res.stopped["B"] = "no textures"
             return
         scene = self.sm.base_ir()
@@ -571,12 +806,25 @@ class _Run:
         if ops:
             self.sm.apply_patch(IRPatch(ops=ops))
         self.step("textures", "passed", f"{len(paths)} material(s) textured", t0)
+        if missing:  # a material without a texture ships its flat colour: say which and why
+            self.step("textures_missing", "warned", f"{len(missing)} material(s) left untextured (flat colour): {why}"[:400])
         pending: tuple[dict[str, PBRMaps], float, str, dict[str, float], list[str]] | None = None
         for rnd in range(1, min(self.max_rounds, LOOKDEV_ROUNDS) + 1):
             png, tier = await self.render_lookdev()
-            self.render_png = png
+            judged_png, self.render_png = self.render_png, png
             t1 = tier1_qa(self.sm.extract_meshes(), self.budget)
-            q = await self.qa("lookdev", png)
+            try:
+                q = await self.qa("lookdev", png)
+            except JudgeUnavailable as e:
+                undone = ""
+                if pending is not None:  # the fixer this verdict was to judge is undone: the maps that ship were judged
+                    old, _, fx, _, _ = pending
+                    self.maps = old
+                    self.write_textures()
+                    self.render_png = judged_png  # the render of the maps that ship
+                    undone = f"rolled back the unjudged deterministic fixer {fx} of round {rnd - 1}"
+                self.judge_unavailable("B", rnd, e, undone)
+                break
             tr = self.trace("B", rnd, t1, q, tier)
             if pending is not None:
                 old, old_t15, fx, defects, params = pending
@@ -615,7 +863,9 @@ class _Run:
             self.step("paintover", "skipped", "needs an image forge and a lookdev render")
         else:
             t0 = time.perf_counter()
-            g = await self.forge.with_governor(self.governor).paint_over(self.render_png, "push realism: weathering, edge wear and colour variation")
+            direction = (f"push toward this art direction: {texture_brief(self.art)}" if texture_brief(self.art)
+                         else "push realism: weathering, edge wear and colour variation")
+            g = await self.forge.with_governor(self.governor).paint_over(self.render_png, direction)
             self.res.cost_usd += g.receipt.booked_usd
             self.res.artifacts["paintover_uri"] = await self.upload(g.png_bytes)
             self.step("paintover", "passed", "reference paint-over generated (a target for review; not baked into textures)", t0)
@@ -646,9 +896,14 @@ class _Run:
             nonlocal bundle
             bundle = await self.prepare_export_bundle()
             res.objects["bundle"] = bundle
-            levels = [sum(len(v[k].triangles) for v in bundle.lods.values()) for k in range(min((len(v) for v in bundle.lods.values()), default=0))]
+            levels = [sum(shipped(v[k]).tri_count for v in bundle.lods.values()) for k in range(min((len(v) for v in bundle.lods.values()), default=0))]
             bad = [u.node_id for u in bundle.uvs if not u.within(budget)]
             desc = f"uv={len(bundle.uvs)} lod_tris={levels} hulls={len(bundle.colliders)}"
+            density = texel_density_report(bundle.uvs, budget.texel_density_px_per_m)
+            if density["materials"]:
+                desc += f" texel_density: {describe_texel_density(density)}"
+            if any(h.source == "body_hull" or CAPPED_MARK in h.reason for h in bundle.colliders):  # a fallback or cap is never silent
+                desc += f" ({describe_collider_sources(bundle.colliders)})"
             if any(b >= a for a, b in zip(levels, levels[1:])):
                 return "failed", f"LOD triangle counts do not strictly descend: {levels}"
             if bad:
@@ -660,7 +915,7 @@ class _Run:
         if self.bundle_cache_hit is not None:  # the same bundle either way: where it came from is not part of the package
             res.steps[-1].run = f"cache={'hit' if self.bundle_cache_hit else 'miss'}"
         if bundle is None:
-            for n in ("usd_package", "usd_validate", "engine_compliance", "lod_pop", "lod_pop_vision", "export_glb", "engine_import", "engine_parity", "web_runtime"):
+            for n in ("usd_package", "usd_validate", "engine_compliance", "lod_pop", "lod_pop_vision", "export_glb", "engine_import", "engine_parity", "web_runtime", "blender_asset_qa", "export_fbx"):
                 self.step(n, "skipped", "UV/LOD/collider stage failed")
             return
 
@@ -668,10 +923,24 @@ class _Run:
             self.write_textures()
         usd_path = pkg / f"{scene.asset_name}.usd"
 
+        # Coplanar overlap between parts is a Tier-1 warning (z_fighting: same-facing faces in one plane) or, in the
+        # package, an engine warning (double_sided_contact: back-to-back faces that a double-sided material draws):
+        # neither blocks the export, both are visible defects, so the run report and the manifest carry them.
+        t1_final = tier1_qa(meshes, budget).issues
+        zfight = [f"{i.node_id}: {i.detail}" for i in t1_final if i.code == "z_fighting"]
+        # the other Tier-1 warnings (an open mesh on an engine that draws them, a part that floats or is enclosed, ...)
+        t1_warnings = [f"{i.code}@{i.node_id}: {i.detail}" if i.node_id else f"{i.code}: {i.detail}"
+                       for i in t1_final if i.severity == "warning" and i.code != "z_fighting"]
+
         async def usd() -> tuple[str, str]:
             m = await asyncio.to_thread(write_engine_package, sm, bundle, budget, pkg, asset_name=scene.asset_name,
-                                        qa={"tier15": res.tier15, "tier1_ok": res.tier1_ok, "defects": res.defects, "audit": res.audit})
+                                        qa={"tier15": res.tier15, "tier1_ok": res.tier1_ok, "defects": res.defects, "audit": res.audit,
+                                            "z_fighting": zfight, "tier1_warnings": t1_warnings},
+                                        art=self.art)
             res.objects["package"] = m
+            sided = [i.detail for i in m.issues if i.code.endswith(":double_sided_contact")]
+            if zfight or sided:
+                self.step("z_fighting", "warned", "; ".join((zfight + sided)[:3])[:400])
             res.artifacts.update(usd=str(usd_path), manifest=str(pkg / "manifest.json"))
             stage = Usd.Stage.Open(str(usd_path))
             self.step("engine_compliance", *self.compliance(stage, meshes))
@@ -684,6 +953,9 @@ class _Run:
 
         async def pop() -> tuple[str, str]:
             lods = merged_lods(bundle)
+            if self.crease != CREASE_DEG:  # judge the levels with the normals they ship with (lod_diff.shipped_normals)
+                for lod in lods:
+                    lod.normals = crease_normals(np.asarray(lod.points, np.float64), np.asarray(lod.triangles), self.crease)
             if len(lods) < 2:
                 return "skipped", "LOD0 only: no coarser level within the screen-space error budget saves enough triangles"
             rep = await asyncio.to_thread(lod_pop_report, lods)
@@ -702,7 +974,8 @@ class _Run:
             r = await fn(await self.upload(png_bytes(rep.pair_sheet())), len(rep.transitions), governor=self.governor)
             self.res.cost_usd += r.result.booked_usd
             reasons = lod_pop_reasons(r, self.th)
-            return ("passed", "all LOD pairs imperceptible") if lod_pop_ok(r, self.th) else ("failed", "; ".join(reasons[:3]))
+            judged = "" if r.result.calibrated else " (judged by the generative fallback, uncalibrated: not verification)"
+            return ("passed", "all LOD pairs imperceptible" + judged) if lod_pop_ok(r, self.th) else ("failed", "; ".join(reasons[:3]))
 
         await self.guarded("lod_pop_vision", pop_vision)
 
@@ -738,10 +1011,55 @@ class _Run:
             iou = "" if rep.silhouette_iou is None else f", silhouette IoU {rep.silhouette_iou:.4f} against the USD"
             return "passed", f"three.js loaded and rendered the package: {done} checks passed{iou}"
 
-        # Independent of the target engine's own import, so it runs while those steps wait on their engine.
-        web_check = asyncio.ensure_future(self.guarded_result(web_runtime))
+        async def blender_asset_qa() -> tuple[str, str]:
+            """EL4CTEO/blender-skills' qa_check on the GLB the engines import, vertices merged part by part (upstream_checks.asset_qa)."""
+            if "glb" not in res.artifacts:
+                return "skipped", "no GLB exported"
+            status, detail, data = await upstream_checks.asset_qa(self.pool, res.artifacts["glb"], budget.target_engine)
+            if data:
+                res.objects["blender_asset_qa"] = data
+            return status, detail
 
-        validator = validator_for(budget.target_engine)
+        # Both are independent of the target engine's own import, so they run while those steps wait on their engine.
+        side = {"web_runtime": asyncio.ensure_future(self.guarded_result(web_runtime)),
+                "blender_asset_qa": asyncio.ensure_future(self.guarded_result(blender_asset_qa))}
+        try:
+            await self._engine_steps(validator_for(budget.target_engine))
+        except BaseException:
+            for task in side.values():
+                task.cancel()  # pass C was cancelled or crashed: stop the verification with it, and let it clean up
+            await asyncio.wait(set(side.values()))
+            raise
+        for name, task in side.items():
+            status, detail, t0 = await task
+            self.step(name, status, detail, t0)
+
+        async def export_fbx() -> tuple[str, str]:
+            """The package's FBX (fbx_package.export_package_fbx), re-imported in Blender and compared with its GLB files.
+
+            It writes into the package folder, so it runs LAST: ``_engine_steps`` has returned (engine_capture writes
+            engine.png there) and both side tasks above have been awaited (web_runtime and blender_asset_qa read the
+            folder), and this coroutine starts nothing that outlives it. Nothing else writes to the folder while it
+            runs; the package node of the DAG writes manifest.json afterwards and records the FBX in it (res.objects)."""
+            if "glb" not in res.artifacts or "package" not in res.objects:
+                return "skipped", "no package exported"
+            if not any(s.name == "usd_validate" and s.status == "passed" for s in res.steps):
+                return "skipped", "the package did not pass its own validation"
+            status, detail, result = await fbx_package.export_package_fbx(self.pool, pkg, res.objects["package"].data)
+            if status == "failed":
+                res.objects["fbx_failed"] = result  # the manifest says it: no FBX ships, and why
+            elif result:
+                res.objects["fbx"] = result
+            return status, detail
+
+        status, detail, t0 = await self.guarded_result(export_fbx)
+        # An output that could not be made is "output_failed", not "failed": it does not block (see StepResult).
+        self.step("export_fbx", "output_failed" if status == "failed" else status, detail, t0)
+
+    async def _engine_steps(self, validator: Any) -> None:
+        """engine_import, engine_capture and engine_parity on the exported package (pass C, after the export)."""
+        budget, res = self.budget, self.res
+        pkg = self.workdir / "package"
 
         async def engine() -> tuple[str, str]:
             if "glb" not in res.artifacts:
@@ -800,11 +1118,9 @@ class _Run:
             if not engine_parity_ok(r, self.th):
                 return "failed", "; ".join(engine_parity_reasons(r, self.th)[:3])
             res.live_parity = bool(r.result.calibrated and r.result.source == "decisions" and "engine_render" in res.artifacts)
-            return "passed", "engine matches DCC"
+            return "passed", "engine matches DCC" + ("" if r.result.calibrated else " (judged by the generative fallback, uncalibrated: not verification)")
 
         await self.guarded("engine_parity", parity)
-        status, detail, t0 = await web_check
-        self.step("web_runtime", status, detail, t0)
 
     def compliance(self, stage: Usd.Stage, meshes: list[Any]) -> tuple[str, str]:
         issues = check_engine_compliance(stage, meshes, self.budget)
@@ -818,23 +1134,39 @@ async def refine(
     ortho_uri: str | None = None, style_uri: str | None = None, max_rounds: int = 4, forge: Any = None, uploader: Uploader | None = None,
     pool: Any = None, cache: Any = None, workdir: Path | str | None = None, fixlog: FixLog | None = None, asset_id: str | None = None,
     prompt: str = "", textures: Any = None, settle_first: bool = True, engine_render_uri: str | None = None,
-    run_pass_c: bool = True, run_pass_b: bool = True, require_verified: bool = False,
+    run_pass_c: bool = True, run_pass_b: bool = True, require_verified: bool = False, art: Any = None,
 ) -> PyramidResult:
     """Run passes A (silhouette lock), B (lookdev) and C (final verification) on the stage's current scene.
 
     ``textures``: ``{material_id: PBRMaps | PBRTournamentResult}`` or an awaitable/task of it (speculative synthesis
     started earlier); with None and a ``forge`` the textures are synthesised here.
+    ``art``: the art direction (``antigravity3d.art_direction.ArtDirection``) or None. It sets the size and palette of the
+    written maps, the shading crease (export normals, the package and the LOD pop check), the texture sampler of the
+    package GLBs and the texture/paint-over brief. ``budget`` is expected to be its effective budget already.
     """
     run = _Run(
         stage_manager, plane=plane, author=author, governor=governor, budget=budget, th=thresholds or Thresholds(), ortho_uri=ortho_uri,
         style_uri=style_uri, max_rounds=max_rounds, forge=forge, upload=uploader or uploader_for(forge), pool=pool, cache=cache,
         workdir=Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="agy3d-pyramid-")), fixlog=fixlog, asset_id=asset_id,
-        prompt=prompt, textures=textures, settle_first=settle_first, engine_render_uri=engine_render_uri, require_verified=require_verified)
+        prompt=prompt, textures=textures, settle_first=settle_first, engine_render_uri=engine_render_uri, require_verified=require_verified,
+        art=art)
     run.workdir.mkdir(parents=True, exist_ok=True)
-    await run.pass_a()
-    if run_pass_b and run.res.stopped.get("A") != "empty scene":
-        await run.pass_b()
-    if run_pass_c and run.res.stopped.get("A") != "empty scene":
-        await run.pass_c()
+    # Pass C ends with the web-runtime check: its browser starts now, while passes A and B run, and is closed again
+    # if this run fails or is cancelled before it is used.
+    browser = web_three.prestart() if run_pass_c else None
+    ok = False
+    try:
+        await run.pass_a()
+        if run_pass_b and run.res.stopped.get("A") != "empty scene":
+            await run.pass_b()
+        # The export decision (PyramidResult.ok) adds the brief's requirements on the state that ships: its last verdict
+        # (passes A and B leave res.defects / res.scores as judged, rolled-back changes included; pass C adds no answer).
+        run.res.brief_unmet = brief_reasons(run.res.defects, run.res.scores, run.th)
+        if run_pass_c and run.res.stopped.get("A") != "empty scene":
+            await run.pass_c()
+        ok = run.res.ok
+    finally:
+        if browser is not None:
+            await browser.aclose(keep=ok)
     run.res.objects["maps"] = run.maps
     return run.res

@@ -43,7 +43,7 @@ from antigravity3d.kernel.mesh_io import triangle_parts
 from antigravity3d.kernel.raster import contact_sheet
 from antigravity3d.kernel.types import MeshData
 from antigravity3d.kernel.usd_stage import StageManager, _triangulate
-from antigravity3d.kernel.validator import check_engine_compliance, validate_usd
+from antigravity3d.kernel.validator import check_engine_compliance, scale_issue, validate_usd
 from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.common import Uploader, data_uri_uploader, png_bytes
 from antigravity3d.tactics.package import write_glb_package, write_package_usd
@@ -223,6 +223,8 @@ def sanitize_file(path: Path, out_dir: Path, budget: EngineBudget, want_sheet: b
     row["repairs"] = counts
     t["repair"] = (clock() - t0) * 1e3
     after = tier1_qa(fixed_meshes, budget)
+    if why := scale_issue(fixed_meshes):  # OBJ/PLY/STL carry no unit: report a size that reads as the wrong one
+        row["scale_warning"] = why
     row.update(tris_after=after.stats["tris"], issues_after=sorted(_tokens(after)),
                issues_fixed=sorted(_tokens(before) - _tokens(after)), issues_remaining=sorted(_tokens(after)))
     crit_left = [i for i in after.issues if i.severity == "critical"]
@@ -569,4 +571,6 @@ def table(rows: list[dict[str, Any]]) -> str:
             lines.append(f"{name:<28}{'FAILED':<16}  {r.get('error', '')}")
             continue
         lines.append(f"{name:<28}{r['status']:<16}{r['tris_before']:>6}->{r['tris_after']:<6}  {len(r['issues_fixed']):>5} {len(r['issues_remaining']):>4}  {r['lod_tris']}")
+        if r.get("scale_warning"):
+            lines.append(f"{'':<28}warning: {r['scale_warning']}")
     return "\n".join(lines)

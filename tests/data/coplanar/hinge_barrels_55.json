@@ -1,0 +1,1864 @@
+{
+ "asset_name": "RuggedMilitarySupply",
+ "nodes": [
+  {
+   "id": "skid_left",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.08,
+     0.5,
+     0.03
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.34,
+     0.0,
+     0.015
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_rubber_trim",
+   "collider": true
+  },
+  {
+   "id": "skid_right",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.08,
+     0.5,
+     0.03
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.34,
+     0.0,
+     0.015
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_rubber_trim",
+   "collider": true
+  },
+  {
+   "id": "crate_body",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.84,
+     0.5,
+     0.3
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.18
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_olive_polymer",
+   "collider": true
+  },
+  {
+   "id": "crate_lid",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.86,
+     0.52,
+     0.08
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.37
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_olive_polymer",
+   "collider": true
+  },
+  {
+   "id": "lid_top_panel",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.66,
+     0.34,
+     0.012
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.416
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_olive_polymer",
+   "collider": false
+  },
+  {
+   "id": "lid_pad_fl",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.08,
+     0.08,
+     0.012
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.37,
+     -0.2,
+     0.416
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_rubber_trim",
+   "collider": false
+  },
+  {
+   "id": "lid_pad_fr",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.08,
+     0.08,
+     0.012
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.37,
+     -0.2,
+     0.416
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_rubber_trim",
+   "collider": false
+  },
+  {
+   "id": "lid_pad_bl",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.08,
+     0.08,
+     0.012
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.37,
+     0.2,
+     0.416
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_rubber_trim",
+   "collider": false
+  },
+  {
+   "id": "lid_pad_br",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.08,
+     0.08,
+     0.012
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.37,
+     0.2,
+     0.416
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_rubber_trim",
+   "collider": false
+  },
+  {
+   "id": "front_rib_left",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.035,
+     0.014,
+     0.26
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.21,
+     -0.257,
+     0.18
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_olive_polymer",
+   "collider": false
+  },
+  {
+   "id": "front_rib_right",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.035,
+     0.014,
+     0.26
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.21,
+     -0.257,
+     0.18
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_olive_polymer",
+   "collider": false
+  },
+  {
+   "id": "front_panel_center",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.35,
+     0.012,
+     0.18
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     -0.256,
+     0.17
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_olive_polymer",
+   "collider": false
+  },
+  {
+   "id": "back_rib_left",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.035,
+     0.014,
+     0.26
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.21,
+     0.257,
+     0.18
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_olive_polymer",
+   "collider": false
+  },
+  {
+   "id": "back_rib_right",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.035,
+     0.014,
+     0.26
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.21,
+     0.257,
+     0.18
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_olive_polymer",
+   "collider": false
+  },
+  {
+   "id": "back_panel_center",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.35,
+     0.012,
+     0.18
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.256,
+     0.17
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_olive_polymer",
+   "collider": false
+  },
+  {
+   "id": "cg_low_fl_x",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.01,
+     0.08,
+     0.1
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.425,
+     -0.21,
+     0.08
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "cg_low_fl_y",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.09,
+     0.01,
+     0.1
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.385,
+     -0.255,
+     0.08
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "cg_low_fr_x",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.01,
+     0.08,
+     0.1
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.425,
+     -0.21,
+     0.08
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "cg_low_fr_y",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.09,
+     0.01,
+     0.1
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.385,
+     -0.255,
+     0.08
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "cg_low_bl_x",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.01,
+     0.08,
+     0.1
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.425,
+     0.21,
+     0.08
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "cg_low_bl_y",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.09,
+     0.01,
+     0.1
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.385,
+     0.255,
+     0.08
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "cg_low_br_x",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.01,
+     0.08,
+     0.1
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.425,
+     0.21,
+     0.08
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "cg_low_br_y",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.09,
+     0.01,
+     0.1
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.385,
+     0.255,
+     0.08
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "cg_up_fl_x",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.01,
+     0.07,
+     0.08
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.435,
+     -0.225,
+     0.37
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "cg_up_fl_y",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.08,
+     0.01,
+     0.08
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.4,
+     -0.265,
+     0.37
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "cg_up_fr_x",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.01,
+     0.07,
+     0.08
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.435,
+     -0.225,
+     0.37
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "cg_up_fr_y",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.08,
+     0.01,
+     0.08
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.4,
+     -0.265,
+     0.37
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "cg_up_bl_x",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.01,
+     0.07,
+     0.08
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.435,
+     0.225,
+     0.37
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "cg_up_bl_y",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.08,
+     0.01,
+     0.08
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.4,
+     0.265,
+     0.37
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "cg_up_br_x",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.01,
+     0.07,
+     0.08
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.435,
+     0.225,
+     0.37
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "cg_up_br_y",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.08,
+     0.01,
+     0.08
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.4,
+     0.265,
+     0.37
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "latch_base_left",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.05,
+     0.012,
+     0.07
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.28,
+     -0.256,
+     0.275
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "latch_clasp_left",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.04,
+     0.014,
+     0.08
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.28,
+     -0.267,
+     0.32
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "latch_hinge_left",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.008,
+    "height": 0.052,
+    "segments": 10
+   },
+   "transform": {
+    "translate": [
+     -0.28,
+     -0.267,
+     0.36
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     90.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_brass_hardware",
+   "collider": false
+  },
+  {
+   "id": "latch_bolt_left",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.006,
+    "height": 0.01,
+    "segments": 8
+   },
+   "transform": {
+    "translate": [
+     -0.28,
+     -0.267,
+     0.255
+    ],
+    "rotate_euler_deg": [
+     90.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_brass_hardware",
+   "collider": false
+  },
+  {
+   "id": "latch_base_right",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.05,
+     0.012,
+     0.07
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.28,
+     -0.256,
+     0.275
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "latch_clasp_right",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.04,
+     0.014,
+     0.08
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.28,
+     -0.267,
+     0.32
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "latch_hinge_right",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.008,
+    "height": 0.052,
+    "segments": 10
+   },
+   "transform": {
+    "translate": [
+     0.28,
+     -0.267,
+     0.36
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     90.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_brass_hardware",
+   "collider": false
+  },
+  {
+   "id": "latch_bolt_right",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.006,
+    "height": 0.01,
+    "segments": 8
+   },
+   "transform": {
+    "translate": [
+     0.28,
+     -0.267,
+     0.255
+    ],
+    "rotate_euler_deg": [
+     90.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_brass_hardware",
+   "collider": false
+  },
+  {
+   "id": "hinge_plate_low_left",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.06,
+     0.012,
+     0.05
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.28,
+     0.256,
+     0.305
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "hinge_plate_up_left",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.06,
+     0.012,
+     0.05
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.28,
+     0.266,
+     0.355
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "hinge_barrel_left",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.01,
+    "height": 0.064,
+    "segments": 10
+   },
+   "transform": {
+    "translate": [
+     -0.28,
+     0.266,
+     0.33
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     90.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_brass_hardware",
+   "collider": false
+  },
+  {
+   "id": "hinge_plate_low_right",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.06,
+     0.012,
+     0.05
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.28,
+     0.256,
+     0.305
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "hinge_plate_up_right",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.06,
+     0.012,
+     0.05
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.28,
+     0.266,
+     0.355
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "hinge_barrel_right",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.01,
+    "height": 0.064,
+    "segments": 10
+   },
+   "transform": {
+    "translate": [
+     0.28,
+     0.266,
+     0.33
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     90.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_brass_hardware",
+   "collider": false
+  },
+  {
+   "id": "handle_bracket_front_left",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.016,
+     0.03,
+     0.05
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.428,
+     -0.09,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "handle_bracket_back_left",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.016,
+     0.03,
+     0.05
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.428,
+     0.09,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "handle_arm_front_left",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.02,
+     0.018,
+     0.018
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.436,
+     -0.09,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "handle_arm_back_left",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.02,
+     0.018,
+     0.018
+    ]
+   },
+   "transform": {
+    "translate": [
+     -0.436,
+     0.09,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "handle_grip_left",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.012,
+    "height": 0.16,
+    "segments": 10
+   },
+   "transform": {
+    "translate": [
+     -0.445,
+     0.0,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     90.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_rubber_trim",
+   "collider": false
+  },
+  {
+   "id": "handle_bracket_front_right",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.016,
+     0.03,
+     0.05
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.428,
+     -0.09,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "handle_bracket_back_right",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.016,
+     0.03,
+     0.05
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.428,
+     0.09,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "handle_arm_front_right",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.02,
+     0.018,
+     0.018
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.436,
+     -0.09,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "handle_arm_back_right",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.02,
+     0.018,
+     0.018
+    ]
+   },
+   "transform": {
+    "translate": [
+     0.436,
+     0.09,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_dark_steel",
+   "collider": false
+  },
+  {
+   "id": "handle_grip_right",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.012,
+    "height": 0.16,
+    "segments": 10
+   },
+   "transform": {
+    "translate": [
+     0.445,
+     0.0,
+     0.21
+    ],
+    "rotate_euler_deg": [
+     90.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "mat_rubber_trim",
+   "collider": false
+  }
+ ],
+ "materials": [
+  {
+   "id": "mat_olive_polymer",
+   "surface": "matte olive drab molded polymer with fine grain",
+   "base_color": [
+    0.16,
+    0.2,
+    0.11
+   ],
+   "metallic": 0.05,
+   "roughness": 0.65,
+   "albedo_uri": null,
+   "orm_uri": null,
+   "normal_uri": null,
+   "normal_convention": "opengl",
+   "alpha_mode": "OPAQUE",
+   "alpha_cutoff": null,
+   "opacity": 1.0,
+   "double_sided": false,
+   "emissive_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "emissive_strength": 1.0,
+   "emissive_uri": null,
+   "clearcoat": 0.0,
+   "clearcoat_roughness": 0.0,
+   "transmission": 0.0,
+   "ior": 1.5,
+   "sheen_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "sheen_roughness": 0.0,
+   "specular": 1.0,
+   "specular_color": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "id": "mat_dark_steel",
+   "surface": "powder-coated dark gunmetal steel with light wear",
+   "base_color": [
+    0.12,
+    0.13,
+    0.14
+   ],
+   "metallic": 0.85,
+   "roughness": 0.42,
+   "albedo_uri": null,
+   "orm_uri": null,
+   "normal_uri": null,
+   "normal_convention": "opengl",
+   "alpha_mode": "OPAQUE",
+   "alpha_cutoff": null,
+   "opacity": 1.0,
+   "double_sided": false,
+   "emissive_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "emissive_strength": 1.0,
+   "emissive_uri": null,
+   "clearcoat": 0.0,
+   "clearcoat_roughness": 0.0,
+   "transmission": 0.0,
+   "ior": 1.5,
+   "sheen_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "sheen_roughness": 0.0,
+   "specular": 1.0,
+   "specular_color": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "id": "mat_rubber_trim",
+   "surface": "matte black vulcanized rubber",
+   "base_color": [
+    0.05,
+    0.05,
+    0.05
+   ],
+   "metallic": 0.0,
+   "roughness": 0.85,
+   "albedo_uri": null,
+   "orm_uri": null,
+   "normal_uri": null,
+   "normal_convention": "opengl",
+   "alpha_mode": "OPAQUE",
+   "alpha_cutoff": null,
+   "opacity": 1.0,
+   "double_sided": false,
+   "emissive_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "emissive_strength": 1.0,
+   "emissive_uri": null,
+   "clearcoat": 0.0,
+   "clearcoat_roughness": 0.0,
+   "transmission": 0.0,
+   "ior": 1.5,
+   "sheen_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "sheen_roughness": 0.0,
+   "specular": 1.0,
+   "specular_color": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "id": "mat_brass_hardware",
+   "surface": "tarnished brass",
+   "base_color": [
+    0.45,
+    0.38,
+    0.2
+   ],
+   "metallic": 0.9,
+   "roughness": 0.35,
+   "albedo_uri": null,
+   "orm_uri": null,
+   "normal_uri": null,
+   "normal_convention": "opengl",
+   "alpha_mode": "OPAQUE",
+   "alpha_cutoff": null,
+   "opacity": 1.0,
+   "double_sided": false,
+   "emissive_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "emissive_strength": 1.0,
+   "emissive_uri": null,
+   "clearcoat": 0.0,
+   "clearcoat_roughness": 0.0,
+   "transmission": 0.0,
+   "ior": 1.5,
+   "sheen_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "sheen_roughness": 0.0,
+   "specular": 1.0,
+   "specular_color": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  }
+ ]
+}

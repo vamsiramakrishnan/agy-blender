@@ -61,6 +61,7 @@ def build_review(
     *,
     levels: Sequence[tuple[str, Sequence[ReviewPart]]] = (),
     hulls: Sequence[tuple[str, np.ndarray, np.ndarray]] = (),
+    crease_deg: float | None = None,
 ) -> tuple[dict[str, Any], bytes]:
     """Returns ``(layout, glb)``: the GLB (LOD0, further levels, hulls as root nodes) and where each part is.
 
@@ -69,7 +70,7 @@ def build_review(
 
     A part with no triangles at a level beyond LOD0 is absent there (the LOD generator drops parts that cannot be
     seen at that distance): it gets no glTF node and no entry in that level's ``parts``, exactly as the package's
-    ``*_LODn.glb`` leaves it out.
+    ``*_LODn.glb`` leaves it out. ``crease_deg``: the shading crease the package GLBs use (None: the project's).
     """
     meshes: list[GltfMesh] = []
     out_levels = []
@@ -81,7 +82,7 @@ def build_review(
             name = f"{label}:{part.node_id or 'merged'}"
             entries.append({"node": part.node_id, "glb": len(meshes), "tris": int(len(part.triangles)),
                             "uv": part.uvs is not None, "maps": _maps(part.material, part.uvs is not None)})
-            meshes.append(gltf_mesh(name, part.points, part.triangles, part.uvs, part.material, shade=True))
+            meshes.append(gltf_mesh(name, part.points, part.triangles, part.uvs, part.material, shade=True, crease_deg=crease_deg))
         out_levels.append({"label": label, "tris": sum(e["tris"] for e in entries), "parts": entries})
     colliders = []
     for name, points, triangles in hulls:

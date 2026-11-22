@@ -19,6 +19,12 @@ glob-scoped rule files add detail when matching files are in play:
   ops}])`, `apply_shader_diff(material_id, diff={...}, assign_to=[...])`.
   A rejected argument comes back as one `ERROR invalid IR: ...` line naming
   the op, the field and what was expected; fix that field and resend.
+- A material's texture is generated from words that name its surface only:
+  the material and its finish ("olive drab painted steel, scuffed and chipped"),
+  never the object, its parts or layout, because the texture tiles over every
+  face. Name the substance, not what is made of it ("tarnished brass", not
+  "brass hardware"). That is the `prompt` of `forge_pbr_material` and a material's
+  `surface` field.
 - Raw `bpy` is an escape hatch, used only when no Scene IR op can express the
   change. Every raw script must pass the Blender 5.3 linter
   (`antigravity3d.adapters.blender_5_3.linter.assert_safe`); the PreToolUse
@@ -31,7 +37,10 @@ glob-scoped rule files add detail when matching files are in play:
   `agentapi`, a workflow agent) the studio tools are served by the plugin's MCP
   server (`studio`, which the harness namespaces `antigravity-3d_studio`; the tool
   list may show the names with that prefix). Call `open_asset_session` first: it
-  opens the USD stage and makes it the active session.
+  opens the USD stage and makes it the active session. Pass the user's request
+  for the asset, in their words, as its `brief`: visual QA shows it to the judge,
+  which then checks that every part it names is there and how fully the asset
+  depicts it. Without a `brief` nothing is checked against the request.
 - Only the active stage's tools are callable; anything else is refused with a
   line naming the stage. Move with `set_stage` (BLOCKOUT, TWEAK, VARIANTS,
   LOOKDEV, EXPORT) and read `session_status` when unsure where you are.
@@ -64,6 +73,15 @@ glob-scoped rule files add detail when matching files are in play:
   visual score is at least 3.4 for the current state of the scene. Any edit
   after QA makes the verdict stale; re-run QA. The PreToolUse hook enforces
   this and the Stop hook refuses to finish while a changed asset is ungated.
+- A verified export needs an approval from the native Decisions API. When the
+  key has no access to it, `open_asset_session` says so: visual QA and export
+  will be refused. Do not work around that. Ask the user whether they want an
+  UNVERIFIED preview, and ask for their two limits: a token ceiling and an image
+  limit. Never choose those numbers yourself. Then call `start_preview` with
+  them (the scene is kept), or open the session with `preview` and both limits.
+  The user is shown both numbers and approves before the preview opens. A
+  preview is judged by an uncalibrated judge and its package says
+  `verified: false`; it is never verified and must not be presented as such.
 - Where your stage offers them, delegate gating to the `usd_verifier` subagent
   (VARIANTS and LOOKDEV) and visual critique to the `lookdev_critic` subagent
   (LOOKDEV) so their renders and logs stay out of your context.

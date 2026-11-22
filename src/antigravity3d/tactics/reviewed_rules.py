@@ -32,7 +32,8 @@ def scene_hash(scene: SceneIR) -> str:
         origin[2] = 0.0  # absolute height determines ground contact
         data = sorted(tuple(np.round(np.r_[lo - origin, hi - origin], 6)) for lo, hi in bounds)
     else:
-        data = scene.model_dump(exclude={"asset_name"})
+        # A material's surface words describe its texture, not the shape a fix applies to (like a repaint).
+        data = scene.model_dump(exclude={"asset_name": True, "materials": {"__all__": {"surface"}}})
         for key in ("nodes", "materials"):
             data[key].sort(key=lambda item: item["id"])
     return hashlib.sha256(json.dumps(data, sort_keys=True, allow_nan=False).encode()).hexdigest()

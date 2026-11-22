@@ -1,0 +1,822 @@
+{
+  "asset_name": "RuggedMilitarySupply",
+  "nodes": [
+    {
+      "id": "skid_left",
+      "kind": "box",
+      "params": {
+        "size": [0.08, 0.44, 0.022]
+      },
+      "transform": {
+        "translate": [-0.28, 0.0, 0.011]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": true
+    },
+    {
+      "id": "skid_right",
+      "kind": "box",
+      "params": {
+        "size": [0.08, 0.44, 0.022]
+      },
+      "transform": {
+        "translate": [0.28, 0.0, 0.011]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": true
+    },
+    {
+      "id": "crate_body",
+      "kind": "box",
+      "params": {
+        "size": [0.76, 0.46, 0.28]
+      },
+      "transform": {
+        "translate": [0.0, 0.0, 0.16]
+      },
+      "material_id": "mat_crate_body",
+      "collider": true
+    },
+    {
+      "id": "crate_lid",
+      "kind": "box",
+      "params": {
+        "size": [0.78, 0.48, 0.1]
+      },
+      "transform": {
+        "translate": [0.0, 0.0, 0.35]
+      },
+      "material_id": "mat_crate_body",
+      "collider": true
+    },
+    {
+      "id": "lid_gasket",
+      "kind": "box",
+      "params": {
+        "size": [0.784, 0.484, 0.012]
+      },
+      "transform": {
+        "translate": [0.0, 0.0, 0.3]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "lid_top_panel",
+      "kind": "box",
+      "params": {
+        "size": [0.6, 0.32, 0.012]
+      },
+      "transform": {
+        "translate": [0.0, 0.0, 0.404]
+      },
+      "material_id": "mat_crate_body",
+      "collider": false
+    },
+    {
+      "id": "body_rib_front_l",
+      "kind": "box",
+      "params": {
+        "size": [0.04, 0.014, 0.22]
+      },
+      "transform": {
+        "translate": [-0.22, -0.235, 0.16]
+      },
+      "material_id": "mat_crate_body",
+      "collider": false
+    },
+    {
+      "id": "body_rib_front_c",
+      "kind": "box",
+      "params": {
+        "size": [0.04, 0.014, 0.22]
+      },
+      "transform": {
+        "translate": [0.0, -0.235, 0.16]
+      },
+      "material_id": "mat_crate_body",
+      "collider": false
+    },
+    {
+      "id": "body_rib_front_r",
+      "kind": "box",
+      "params": {
+        "size": [0.04, 0.014, 0.22]
+      },
+      "transform": {
+        "translate": [0.22, -0.235, 0.16]
+      },
+      "material_id": "mat_crate_body",
+      "collider": false
+    },
+    {
+      "id": "body_rib_back_l",
+      "kind": "box",
+      "params": {
+        "size": [0.04, 0.014, 0.22]
+      },
+      "transform": {
+        "translate": [-0.22, 0.235, 0.16]
+      },
+      "material_id": "mat_crate_body",
+      "collider": false
+    },
+    {
+      "id": "body_rib_back_c",
+      "kind": "box",
+      "params": {
+        "size": [0.04, 0.014, 0.22]
+      },
+      "transform": {
+        "translate": [0.0, 0.235, 0.16]
+      },
+      "material_id": "mat_crate_body",
+      "collider": false
+    },
+    {
+      "id": "body_rib_back_r",
+      "kind": "box",
+      "params": {
+        "size": [0.04, 0.014, 0.22]
+      },
+      "transform": {
+        "translate": [0.22, 0.235, 0.16]
+      },
+      "material_id": "mat_crate_body",
+      "collider": false
+    },
+    {
+      "id": "body_rib_left_f",
+      "kind": "box",
+      "params": {
+        "size": [0.014, 0.04, 0.22]
+      },
+      "transform": {
+        "translate": [-0.385, -0.14, 0.16]
+      },
+      "material_id": "mat_crate_body",
+      "collider": false
+    },
+    {
+      "id": "body_rib_left_b",
+      "kind": "box",
+      "params": {
+        "size": [0.014, 0.04, 0.22]
+      },
+      "transform": {
+        "translate": [-0.385, 0.14, 0.16]
+      },
+      "material_id": "mat_crate_body",
+      "collider": false
+    },
+    {
+      "id": "body_rib_right_f",
+      "kind": "box",
+      "params": {
+        "size": [0.014, 0.04, 0.22]
+      },
+      "transform": {
+        "translate": [0.385, -0.14, 0.16]
+      },
+      "material_id": "mat_crate_body",
+      "collider": false
+    },
+    {
+      "id": "body_rib_right_b",
+      "kind": "box",
+      "params": {
+        "size": [0.014, 0.04, 0.22]
+      },
+      "transform": {
+        "translate": [0.385, 0.14, 0.16]
+      },
+      "material_id": "mat_crate_body",
+      "collider": false
+    },
+    {
+      "id": "cg_tfl_x",
+      "kind": "box",
+      "params": {
+        "size": [0.012, 0.07, 0.07]
+      },
+      "transform": {
+        "translate": [-0.394, -0.21, 0.37]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_tfl_y",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.012, 0.07]
+      },
+      "transform": {
+        "translate": [-0.36, -0.244, 0.37]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_tfl_z",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.07, 0.012]
+      },
+      "transform": {
+        "translate": [-0.36, -0.21, 0.404]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_tfr_x",
+      "kind": "box",
+      "params": {
+        "size": [0.012, 0.07, 0.07]
+      },
+      "transform": {
+        "translate": [0.394, -0.21, 0.37]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_tfr_y",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.012, 0.07]
+      },
+      "transform": {
+        "translate": [0.36, -0.244, 0.37]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_tfr_z",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.07, 0.012]
+      },
+      "transform": {
+        "translate": [0.36, -0.21, 0.404]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_tbl_x",
+      "kind": "box",
+      "params": {
+        "size": [0.012, 0.07, 0.07]
+      },
+      "transform": {
+        "translate": [-0.394, 0.21, 0.37]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_tbl_y",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.012, 0.07]
+      },
+      "transform": {
+        "translate": [-0.36, 0.244, 0.37]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_tbl_z",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.07, 0.012]
+      },
+      "transform": {
+        "translate": [-0.36, 0.21, 0.404]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_tbr_x",
+      "kind": "box",
+      "params": {
+        "size": [0.012, 0.07, 0.07]
+      },
+      "transform": {
+        "translate": [0.394, 0.21, 0.37]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_tbr_y",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.012, 0.07]
+      },
+      "transform": {
+        "translate": [0.36, 0.244, 0.37]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_tbr_z",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.07, 0.012]
+      },
+      "transform": {
+        "translate": [0.36, 0.21, 0.404]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_bfl_x",
+      "kind": "box",
+      "params": {
+        "size": [0.012, 0.07, 0.07]
+      },
+      "transform": {
+        "translate": [-0.384, -0.2, 0.05]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_bfl_y",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.012, 0.07]
+      },
+      "transform": {
+        "translate": [-0.35, -0.234, 0.05]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_bfl_z",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.07, 0.012]
+      },
+      "transform": {
+        "translate": [-0.35, -0.2, 0.016]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_bfr_x",
+      "kind": "box",
+      "params": {
+        "size": [0.012, 0.07, 0.07]
+      },
+      "transform": {
+        "translate": [0.384, -0.2, 0.05]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_bfr_y",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.012, 0.07]
+      },
+      "transform": {
+        "translate": [0.35, -0.234, 0.05]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_bfr_z",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.07, 0.012]
+      },
+      "transform": {
+        "translate": [0.35, -0.2, 0.016]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_bbl_x",
+      "kind": "box",
+      "params": {
+        "size": [0.012, 0.07, 0.07]
+      },
+      "transform": {
+        "translate": [-0.384, 0.2, 0.05]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_bbl_y",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.012, 0.07]
+      },
+      "transform": {
+        "translate": [-0.35, 0.234, 0.05]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_bbl_z",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.07, 0.012]
+      },
+      "transform": {
+        "translate": [-0.35, 0.2, 0.016]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_bbr_x",
+      "kind": "box",
+      "params": {
+        "size": [0.012, 0.07, 0.07]
+      },
+      "transform": {
+        "translate": [0.384, 0.2, 0.05]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_bbr_y",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.012, 0.07]
+      },
+      "transform": {
+        "translate": [0.35, 0.234, 0.05]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "cg_bbr_z",
+      "kind": "box",
+      "params": {
+        "size": [0.07, 0.07, 0.012]
+      },
+      "transform": {
+        "translate": [0.35, 0.2, 0.016]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "latch_l_base",
+      "kind": "box",
+      "params": {
+        "size": [0.05, 0.01, 0.05]
+      },
+      "transform": {
+        "translate": [-0.22, -0.234, 0.265]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "latch_l_catch",
+      "kind": "box",
+      "params": {
+        "size": [0.05, 0.01, 0.04]
+      },
+      "transform": {
+        "translate": [-0.22, -0.244, 0.33]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "latch_l_clasp",
+      "kind": "box",
+      "params": {
+        "size": [0.036, 0.01, 0.08]
+      },
+      "transform": {
+        "translate": [-0.22, -0.252, 0.3]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "latch_l_barrel",
+      "kind": "cylinder",
+      "params": {
+        "radius": 0.008,
+        "height": 0.054,
+        "segments": 8
+      },
+      "transform": {
+        "translate": [-0.22, -0.254, 0.27],
+        "rotate_euler_deg": [0.0, 90.0, 0.0]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "latch_r_base",
+      "kind": "box",
+      "params": {
+        "size": [0.05, 0.01, 0.05]
+      },
+      "transform": {
+        "translate": [0.22, -0.234, 0.265]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "latch_r_catch",
+      "kind": "box",
+      "params": {
+        "size": [0.05, 0.01, 0.04]
+      },
+      "transform": {
+        "translate": [0.22, -0.244, 0.33]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "latch_r_clasp",
+      "kind": "box",
+      "params": {
+        "size": [0.036, 0.01, 0.08]
+      },
+      "transform": {
+        "translate": [0.22, -0.252, 0.3]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "latch_r_barrel",
+      "kind": "cylinder",
+      "params": {
+        "radius": 0.008,
+        "height": 0.054,
+        "segments": 8
+      },
+      "transform": {
+        "translate": [0.22, -0.254, 0.27],
+        "rotate_euler_deg": [0.0, 90.0, 0.0]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "hinge_l_low",
+      "kind": "box",
+      "params": {
+        "size": [0.05, 0.01, 0.04]
+      },
+      "transform": {
+        "translate": [-0.22, 0.234, 0.275]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "hinge_l_up",
+      "kind": "box",
+      "params": {
+        "size": [0.05, 0.01, 0.04]
+      },
+      "transform": {
+        "translate": [-0.22, 0.244, 0.325]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "hinge_l_pin",
+      "kind": "cylinder",
+      "params": {
+        "radius": 0.008,
+        "height": 0.054,
+        "segments": 8
+      },
+      "transform": {
+        "translate": [-0.22, 0.248, 0.3],
+        "rotate_euler_deg": [0.0, 90.0, 0.0]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "hinge_r_low",
+      "kind": "box",
+      "params": {
+        "size": [0.05, 0.01, 0.04]
+      },
+      "transform": {
+        "translate": [0.22, 0.234, 0.275]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "hinge_r_up",
+      "kind": "box",
+      "params": {
+        "size": [0.05, 0.01, 0.04]
+      },
+      "transform": {
+        "translate": [0.22, 0.244, 0.325]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "hinge_r_pin",
+      "kind": "cylinder",
+      "params": {
+        "radius": 0.008,
+        "height": 0.054,
+        "segments": 8
+      },
+      "transform": {
+        "translate": [0.22, 0.248, 0.3],
+        "rotate_euler_deg": [0.0, 90.0, 0.0]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "handle_l_br_f",
+      "kind": "box",
+      "params": {
+        "size": [0.028, 0.024, 0.036]
+      },
+      "transform": {
+        "translate": [-0.392, -0.07, 0.19]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "handle_l_br_b",
+      "kind": "box",
+      "params": {
+        "size": [0.028, 0.024, 0.036]
+      },
+      "transform": {
+        "translate": [-0.392, 0.07, 0.19]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "handle_l_grip",
+      "kind": "cylinder",
+      "params": {
+        "radius": 0.011,
+        "height": 0.15,
+        "segments": 8
+      },
+      "transform": {
+        "translate": [-0.402, 0.0, 0.19],
+        "rotate_euler_deg": [90.0, 0.0, 0.0]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "handle_r_br_f",
+      "kind": "box",
+      "params": {
+        "size": [0.028, 0.024, 0.036]
+      },
+      "transform": {
+        "translate": [0.392, -0.07, 0.19]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "handle_r_br_b",
+      "kind": "box",
+      "params": {
+        "size": [0.028, 0.024, 0.036]
+      },
+      "transform": {
+        "translate": [0.392, 0.07, 0.19]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "handle_r_grip",
+      "kind": "cylinder",
+      "params": {
+        "radius": 0.011,
+        "height": 0.15,
+        "segments": 8
+      },
+      "transform": {
+        "translate": [0.402, 0.0, 0.19],
+        "rotate_euler_deg": [90.0, 0.0, 0.0]
+      },
+      "material_id": "mat_rubber_trim",
+      "collider": false
+    },
+    {
+      "id": "bolt_tfl",
+      "kind": "cylinder",
+      "params": {
+        "radius": 0.006,
+        "height": 0.008,
+        "segments": 6
+      },
+      "transform": {
+        "translate": [-0.36, -0.21, 0.41]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "bolt_tfr",
+      "kind": "cylinder",
+      "params": {
+        "radius": 0.006,
+        "height": 0.008,
+        "segments": 6
+      },
+      "transform": {
+        "translate": [0.36, -0.21, 0.41]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "bolt_tbl",
+      "kind": "cylinder",
+      "params": {
+        "radius": 0.006,
+        "height": 0.008,
+        "segments": 6
+      },
+      "transform": {
+        "translate": [-0.36, 0.21, 0.41]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    },
+    {
+      "id": "bolt_tbr",
+      "kind": "cylinder",
+      "params": {
+        "radius": 0.006,
+        "height": 0.008,
+        "segments": 6
+      },
+      "transform": {
+        "translate": [0.36, 0.21, 0.41]
+      },
+      "material_id": "mat_steel_hardware",
+      "collider": false
+    }
+  ],
+  "materials": [
+    {
+      "id": "mat_crate_body",
+      "surface": "matte olive drab painted metal with subtle wear",
+      "base_color": [0.22, 0.26, 0.16],
+      "metallic": 0.2,
+      "roughness": 0.72
+    },
+    {
+      "id": "mat_rubber_trim",
+      "surface": "matte dark charcoal vulcanized rubber",
+      "base_color": [0.08, 0.08, 0.09],
+      "metallic": 0.0,
+      "roughness": 0.85
+    },
+    {
+      "id": "mat_steel_hardware",
+      "surface": "brushed dark gunmetal steel",
+      "base_color": [0.24, 0.25, 0.27],
+      "metallic": 0.88,
+      "roughness": 0.35
+    }
+  ]
+}

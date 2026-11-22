@@ -192,6 +192,49 @@ def test_khr_extension_textures_share_the_image_table():
     assert doc["extensionsUsed"] == ["KHR_materials_clearcoat", "KHR_texture_transform"] and "extensionsRequired" not in doc
 
 
+def _full_material() -> gw.GltfMaterial:
+    """Every slot, a sampler, KHR extension textures (one shared with a core slot), emission and alpha cut-out."""
+    orm = gw.TextureRef(gw.EncodedImage.from_bytes(_png(3), "orm"), sampler=gw.Sampler(9729, 9987))
+    cc = gw.TextureRef(gw.EncodedImage.from_bytes(_png(4), "cc"), scale=0.5, extensions={"KHR_texture_transform": {"scale": [2, 2]}})
+    return gw.GltfMaterial(
+        name="all", base_color_factor=(1, 1, 1, 0.8), metallic_factor=1.0, roughness_factor=1.0,
+        base_color_texture=gw.TextureRef(gw.EncodedImage.from_bytes(_png(1, mode="RGBA"), "albedo")),
+        metallic_roughness_texture=orm, occlusion_texture=gw.TextureRef(orm.image, sampler=orm.sampler, strength=0.7),
+        normal_texture=gw.TextureRef(gw.EncodedImage.from_bytes(_png(2), "normal"), scale=0.8),
+        emissive_texture=gw.TextureRef(gw.EncodedImage.from_bytes(_png(5), "emissive")), emissive_factor=(1.0, 0.5, 0.2),
+        alpha_mode="MASK", alpha_cutoff=0.4, double_sided=True,
+        extensions={"KHR_materials_emissive_strength": {"emissiveStrength": 3.0},
+                    "KHR_materials_clearcoat": {"clearcoatFactor": 1.0, "clearcoatTexture": cc, "clearcoatRoughnessTexture": orm}})
+
+
+def test_referenced_images_keep_every_table_of_the_embedded_form():
+    m = tri()
+    m.material = _full_material()
+    images = [r.image for r in (m.material.base_color_texture, m.material.metallic_roughness_texture, m.material.normal_texture,
+                                m.material.emissive_texture, m.material.extensions["KHR_materials_clearcoat"]["clearcoatTexture"])]
+    uris = {img.digest: f"textures/{img.name}%20map.png" for img in images}
+    embedded_doc, embedded_bin = parse(gw.build_glb([m]))
+    referenced = gw.build_glb([m], image_uris=uris)
+    assert referenced == gw.build_glb([m], image_uris=dict(reversed(list(uris.items()))))  # deterministic
+    doc, binary = parse(referenced)
+    for key in ("asset", "scene", "scenes", "nodes", "meshes", "accessors", "materials", "textures", "samplers",
+                "extensionsUsed", "extensionsRequired"):
+        assert doc.get(key) == embedded_doc.get(key), key
+    assert len(doc["images"]) == len(embedded_doc["images"]) == 5  # still one image per distinct file
+    for ref, emb in zip(doc["images"], embedded_doc["images"]):
+        assert {k: v for k, v in emb.items() if k != "bufferView"} == {k: v for k, v in ref.items() if k != "uri"}
+        assert set(ref) == {"uri", "mimeType", "name"} and ref["uri"] == uris[next(i.digest for i in images if i.name == ref["name"])]
+    # geometry views and bytes are unchanged; the image views (after all geometry) are gone
+    geometry = len(doc["bufferViews"])
+    assert doc["bufferViews"] == embedded_doc["bufferViews"][:geometry] and len(embedded_doc["bufferViews"]) == geometry + 5
+    assert binary == embedded_bin[:len(binary)] and doc["buffers"] == [{"byteLength": len(binary)}]
+    # a partial mapping embeds the rest
+    some = {images[0].digest: "textures/a.png"}
+    part, _ = parse(gw.build_glb([m], image_uris=some))
+    assert [("uri" in i, "bufferView" in i) for i in part["images"]] == [(True, False)] + [(False, True)] * 4
+    assert part["materials"] == embedded_doc["materials"] and part["textures"] == embedded_doc["textures"]
+
+
 def test_bad_geometry_is_rejected():
     bad = tri()
     bad.triangles = np.array([[0, 1, 7]])
@@ -223,7 +266,8 @@ def _package(tmp: Path, engine: str, textures: Path):
 
 
 @pytest.mark.parametrize("engine", ["unreal_5", "godot_4"])
-def test_package_glbs_embed_the_texture_files_byte_for_byte(tmp_path, engine, monkeypatch):
+def test_package_glbs_carry_the_texture_files_byte_for_byte(tmp_path, engine, monkeypatch):
+    """LOD0 embeds each texture file's bytes; a far LOD references the very same file (no copy, no re-encode)."""
     textures = tmp_path / "src"
     textures.mkdir()
     encodes = []
@@ -235,7 +279,7 @@ def test_package_glbs_embed_the_texture_files_byte_for_byte(tmp_path, engine, mo
     # the only PNG encodes are the source-file fixtures (3) and, for a DirectX engine, the converted normal map (1)
     assert len(encodes) == 3 + (1 if engine == "unreal_5" else 0)
     glbs = [p for p in sorted(pm.out_dir.glob("*.glb")) if "colliders" not in p.stem]
-    assert glbs
+    assert len(glbs) == pm.data["lod_levels"] >= 2
     for glb in glbs:
         doc, binary = parse(glb.read_bytes())
         assert len(doc["images"]) == 3 and len(doc["textures"]) == 3  # ORM once, not twice
@@ -245,8 +289,14 @@ def test_package_glbs_embed_the_texture_files_byte_for_byte(tmp_path, engine, mo
         assert mat["pbrMetallicRoughness"]["metallicRoughnessTexture"]["index"] == slots["orm"]["index"]
         for role, slot in slots.items():
             image = doc["images"][doc["textures"][slot["index"]]["source"]]
-            got = view_bytes(doc, binary, image["bufferView"])
+            if glb.stem == ASSET:
+                got = view_bytes(doc, binary, image["bufferView"])
+            else:
+                assert "bufferView" not in image and image["mimeType"] == "image/png"
+                got = (glb.parent / image["uri"]).read_bytes()
             assert hashlib.sha256(got).digest() == hashlib.sha256(on_disk[role]).digest()
+        if glb.stem != ASSET:  # nothing but geometry in a far LOD's binary chunk
+            assert len(binary) == sum(-(-v["byteLength"] // 4) * 4 for v in doc["bufferViews"])
 
 
 # --------------------------------------------------------------------------- shading normals

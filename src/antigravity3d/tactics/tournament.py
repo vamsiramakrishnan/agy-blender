@@ -16,10 +16,20 @@ from antigravity3d.kernel.fast_ops import tier1_qa
 from antigravity3d.kernel.raster import contact_sheet
 from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.cached import CACHED_TAG, cached_derive_pbr
-from antigravity3d.tactics.common import IMAGE_USD, Uploader, load_png, png_bytes, uploader_for
+from antigravity3d.tactics.common import (
+    GRADE_TOKENS_EST, IMAGE_TOKENS_EST, IMAGE_USD, Uploader, load_png, png_bytes, to_thread_drained, uploader_for,
+)
 from antigravity3d.tactics.governor import Governor
 
 GRADE_USD_EST = 0.0002  # one low-resolution Decisions request; used only to size N under a ceiling
+
+
+def money(fields: dict[str, float], unit: str) -> dict[str, Any]:
+    """Dollar fields as written: unchanged on a money ledger; null (with spend_unit) on a token ledger, where no price
+    is applied and no dollar figure exists. A token number never goes into a *_usd key."""
+    if unit == "usd":
+        return fields
+    return {**{k: None for k in fields}, "spend_unit": unit}
 EMPHASES = ("overall proportions and a readable silhouette", "construction details, joints and fasteners",
             "strict left-right symmetry and view alignment", "clean flat shading and measurable dimensions")
 ALBEDO_VARIANTS = ("even, medium contrast", "slightly worn, fine grain", "darker, more saturated", "lighter, subtle patina",
@@ -54,6 +64,7 @@ class TournamentResult:
     gen_cost_usd: float = 0.0
     grade_cost_usd: float = 0.0
     notes: dict[str, Any] = field(default_factory=dict)
+    unit: str = "usd"  # the ledger's unit; on a token ledger the dollar figures are not computed and are written as null
 
     @property
     def cost_usd(self) -> float:
@@ -68,19 +79,33 @@ class TournamentResult:
         u = self.winner_score.utility if self.winner_score else None
         return (f"{self.kind}: winner={w}" + (f" utility={u:.3f}" if u is not None else "") +
                 f" n={self.n_planned} graded={len(self.ranking)} dq={len(self.disqualified)} failed={len(self.failures)} "
-                f"cancelled={len(self.cancelled)} wall={self.wall_ms:.0f}ms cost=${self.cost_usd:.4f}")
+                f"cancelled={len(self.cancelled)} wall={self.wall_ms:.0f}ms "
+                + (f"cost=${self.cost_usd:.4f}" if self.unit == "usd" else "cost=n/a (token ledger, no price applied)"))
 
     def to_dict(self) -> dict[str, Any]:
         return {"kind": self.kind, "n_planned": self.n_planned, "winner": self.winner.index if self.winner else None,
                 "ranking": [{"index": s.index, "utility": s.utility, "blocked": s.blocked} for s in self.ranking],
                 "failures": self.failures, "disqualified": self.disqualified, "cancelled": self.cancelled,
                 "gen_ms": self.gen_ms, "grade_ms": self.grade_ms, "wall_ms": self.wall_ms, "max_in_flight": self.max_in_flight,
-                "cost_usd": self.cost_usd, "gen_cost_usd": self.gen_cost_usd, "grade_cost_usd": self.grade_cost_usd, "notes": self.notes}
+                **money({"cost_usd": self.cost_usd, "gen_cost_usd": self.gen_cost_usd, "grade_cost_usd": self.grade_cost_usd}, self.unit),
+                "notes": self.notes}
 
 
-def plan_n(kind: str, governor: Governor, n: int | None, unit_cost: float | None) -> int:
+def grade_est(governor: Any) -> float:
+    """One grading call, in the ledger's unit (sizing only)."""
+    return governor.est(usd=GRADE_USD_EST, tokens=GRADE_TOKENS_EST) if hasattr(governor, "est") else GRADE_USD_EST
+
+
+def image_est(governor: Any, key: str) -> float:
+    """One generated image plus its grading, in the ledger's unit (sizing only)."""
+    if hasattr(governor, "est"):
+        return governor.est(usd=IMAGE_USD[key] + GRADE_USD_EST, tokens=IMAGE_TOKENS_EST + GRADE_TOKENS_EST)
+    return IMAGE_USD[key] + GRADE_USD_EST
+
+
+def plan_n(kind: str, governor: Governor, n: int | None, unit_cost: float | None, images_each: int = 0) -> int:
     """N from the governor; an explicit ``n`` is only ever reduced (never raised) by the budget."""
-    fit = governor.candidates(kind, unit_cost=unit_cost)
+    fit = governor.candidates(kind, unit_cost=unit_cost, images_each=images_each) if images_each else governor.candidates(kind, unit_cost=unit_cost)
     return fit if n is None else (min(n, fit) if unit_cost is not None else n)
 
 
@@ -98,18 +123,24 @@ async def run_tournament(
     thresholds: Thresholds | None = None,
     charge_as: str | None = None,
     generation_precharged: bool = False,
+    images_each: int = 0,
+    brief: str | None = None,
 ) -> TournamentResult:
     """Generate concurrently, then score every eligible candidate against one rubric.
+
+    ``brief``: the user's request, given to the judge with the candidates (``rank_candidates(brief=)``); None or empty:
+    the ranking request is exactly what it was without one.
 
     With an explicit early-stop threshold we generate and judge in waves of the chosen
     concurrency. Once a wave qualifies, remaining generators are never dispatched.
     """
     th = thresholds or Thresholds()
-    planned = plan_n(kind, governor, n, unit_cost)
+    planned = plan_n(kind, governor, n, unit_cost, images_each)
     limit = max(1, concurrency or planned)
     sem = asyncio.Semaphore(limit)
     t0 = time.perf_counter()
     res = TournamentResult(kind, planned, None, [], {})
+    res.unit = getattr(governor, "unit", "usd")
     scores: dict[int, CandidateScore] = {}
     in_flight = 0
 
@@ -143,7 +174,8 @@ async def run_tournament(
             continue
         r0 = time.perf_counter()
         try:
-            graded = await plane.rank_candidates(kind, [res.candidates[i].uri for i in eligible], context_uris, governor=governor)
+            graded = await plane.rank_candidates(kind, [res.candidates[i].uri for i in eligible], context_uris, governor=governor,
+                                                 **({"brief": brief} if brief else {}))
         except Exception as exc:
             res.failures.update({i: f"{type(exc).__name__}: {exc}" for i in eligible})
             continue
@@ -204,7 +236,8 @@ async def ortho_tournament(
         return Candidate(i, g.uri or await up(g.png_bytes), g, _gen_cost(g, "ortho"), g.latency_ms, meta={"emphasis": emphasis})
 
     return await run_tournament("ortho", generate, n, plane=plane, governor=governor, context_uris=context_uris, early_stop=early_stop,
-                                generation_precharged=precharged, unit_cost=IMAGE_USD["ortho"] + GRADE_USD_EST, concurrency=concurrency, thresholds=thresholds)
+                                generation_precharged=precharged, unit_cost=image_est(governor, "ortho"), concurrency=concurrency, thresholds=thresholds,
+                                images_each=1)
 
 
 @dataclass
@@ -236,7 +269,7 @@ async def pbr_tournament(
         return Candidate(i, uri, g.png_bytes, _gen_cost(g, "albedo"), g.latency_ms, meta={"hint": hint})
 
     t = await run_tournament("pbr", generate, n, plane=plane, governor=governor, early_stop=early_stop, concurrency=concurrency,
-                             unit_cost=IMAGE_USD["albedo"] + GRADE_USD_EST, thresholds=thresholds, generation_precharged=precharged)
+                             unit_cost=image_est(governor, "albedo"), thresholds=thresholds, generation_precharged=precharged, images_each=1)
     out = PBRTournamentResult(material_id, t)
     if t.winner is None:
         return out
@@ -245,11 +278,11 @@ async def pbr_tournament(
         img, report = prepare_albedo(load_png(t.winner.payload), metallic=metallic_hint >= 0.5)
         return (png_bytes(img) if report.changed else t.winner.payload), report.one_line()
 
-    out.albedo_png, out.prep = await asyncio.to_thread(prepare_winner)
+    out.albedo_png, out.prep = await to_thread_drained(prepare_winner)
     if cache is not None:
-        out.maps, out.derive_cache_hit = await asyncio.to_thread(cached_derive_pbr, cache, out.albedo_png, metallic_hint=metallic_hint)
+        out.maps, out.derive_cache_hit = await to_thread_drained(cached_derive_pbr, cache, out.albedo_png, metallic_hint=metallic_hint)
     else:
-        out.maps = await asyncio.to_thread(derive_pbr, load_png(out.albedo_png), metallic_hint=metallic_hint)
+        out.maps = await to_thread_drained(derive_pbr, load_png(out.albedo_png), metallic_hint=metallic_hint)
     out.derive_ms = (time.perf_counter() - d0) * 1e3
     return out
 
@@ -266,7 +299,7 @@ async def geometry_tournament(
     disqualified the one with the fewest critical issues is promoted anyway (``notes['fallback_promoted']``) so
     the pyramid has something to repair.
     """
-    n_plan = plan_n("geometry", governor, n, GRADE_USD_EST)
+    n_plan = plan_n("geometry", governor, n, grade_est(governor))
     if scenes is None:
         ctx = {"asset_name": stage_manager.asset_prim.GetName(), "ortho_uri": context_uris[0] if context_uris else None, **(context or {})}
         scenes = await author.propose(prompt, budget=budget, n=n_plan, context=ctx)
@@ -294,7 +327,7 @@ async def geometry_tournament(
         return Candidate(i, await uploader(png_bytes(sheet)), scenes[i], 0.0, 0.0, None, meta)
 
     res = await run_tournament("geometry", generate, len(scenes), plane=plane, governor=governor, context_uris=context_uris,
-                               early_stop=early_stop, concurrency=concurrency, thresholds=thresholds)
+                               early_stop=early_stop, concurrency=concurrency, thresholds=thresholds, brief=prompt)
     if res.winner is None and crit_counts and len(crit_counts) == len(scenes):
         best = min(crit_counts, key=lambda i: crit_counts[i])
         res.winner = res.candidates[best]

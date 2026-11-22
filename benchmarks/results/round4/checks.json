@@ -1,0 +1,409 @@
+{
+ "date": "2026-11-21",
+ "brief": "a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles",
+ "budget": {
+  "engine": "godot_4",
+  "max_tris": 3000
+ },
+ "authoring": {
+  "before": {
+   "what": "five live designs of round three (relay transcript), the request as it was",
+   "parts": [
+    15,
+    21
+   ],
+   "triangles": [
+    272,
+    356
+   ],
+   "tokens_per_design": [
+    {
+     "input": 5952,
+     "answer": 2662,
+     "thinking": 1703
+    },
+    {
+     "input": 5952,
+     "answer": 2635,
+     "thinking": 2152
+    },
+    {
+     "input": 5952,
+     "answer": 2037,
+     "thinking": 1098
+    },
+    {
+     "input": 5952,
+     "answer": 2611,
+     "thinking": 1461
+    },
+    {
+     "input": 6024,
+     "answer": 2041,
+     "thinking": 992
+    }
+   ]
+  },
+  "after": {
+   "what": "one design through the shipped MeteredAuthor on a token ledger (no text appended by the script)",
+   "model": "gemini-4-hydrogen",
+   "parts": 55,
+   "materials": 4,
+   "triangles": 868,
+   "tokens": {
+    "input": 6294,
+    "output_including_thinking": 9458,
+    "thinking": 3138,
+    "booked": 15752,
+    "reserved": 32368
+   },
+   "wall_s": 35.6,
+   "design": "tests/data/coplanar/hinge_barrels_55.json"
+  },
+  "wording_experiments": {
+   "what": "three designs made while choosing the wording (two with the first wording, one with the shipped one)",
+   "parts": [
+    63,
+    64,
+    55
+   ],
+   "tokens": 48197
+  }
+ },
+ "geometry_ranking_with_brief": {
+  "what": "the shipped geometry_tournament on the 15-part design the comparison used ('old') and the 55-part design above ('new'), real fallback judge",
+  "old_first": {
+   "order_shown": [
+    "old",
+    "new"
+   ],
+   "winner": "new",
+   "candidates": {
+    "new": {
+     "utility": 0.8806,
+     "score_brief_depiction": 2.89,
+     "defects": {
+      "defect_floating": 0.05,
+      "defect_clipping": 0.1,
+      "defect_brief_part_missing": 0.05
+     }
+    },
+    "old": {
+     "utility": 0.8125,
+     "score_brief_depiction": 2.12,
+     "defects": {
+      "defect_floating": 0.05,
+      "defect_clipping": 0.15,
+      "defect_brief_part_missing": 0.08
+     }
+    }
+   },
+   "tokens": {
+    "input": 3889,
+    "output": 1057,
+    "booked": 4946,
+    "reserved": 30966
+   },
+   "judge": "generative fallback (gemini-4-neon), uncalibrated",
+   "wall_s": 20.1
+  },
+  "new_first": {
+   "order_shown": [
+    "new",
+    "old"
+   ],
+   "winner": "new",
+   "candidates": {
+    "new": {
+     "utility": 0.8631,
+     "score_brief_depiction": 2.69,
+     "defects": {
+      "defect_floating": 0.05,
+      "defect_clipping": 0.12,
+      "defect_brief_part_missing": 0.05
+     }
+    },
+    "old": {
+     "utility": 0.7638,
+     "score_brief_depiction": 1.94,
+     "defects": {
+      "defect_floating": 0.08,
+      "defect_clipping": 0.15,
+      "defect_brief_part_missing": 0.2
+     }
+    }
+   },
+   "tokens": {
+    "input": 3889,
+    "output": 1243,
+    "booked": 5132,
+    "reserved": 30966
+   },
+   "judge": "generative fallback (gemini-4-neon), uncalibrated",
+   "wall_s": 25.4
+  },
+  "threshold_brief_depiction_min": 2.5
+ },
+ "offline_pipeline": {
+  "what": "each recorded detailed design through the real prop pipeline offline (stand-in judge, real Blender 5.3 worker, real Godot 4.7.2 and three.js checks), final code",
+  "designs": {
+   "exact_contact_55": {
+    "godot_4": {
+     "dag_ok": true,
+     "separate_coplanar": "passed",
+     "separate_detail": "14 coplanar face pair(s); moved 6 face(s) of 4 part(s) to 2 mm apart | moved: handle_l_grip +y face -2.00 mm (back; was coplanar with handle_l_bracket_b); handle_l_grip -y face -2.00 mm (back; was cop",
+     "blender_asset_qa": "passed"
+    },
+    "roblox_r15": {
+     "dag_ok": true,
+     "separate_coplanar": "passed",
+     "separate_detail": "14 coplanar face pair(s); moved 14 face(s) of 10 part(s) to 2 mm apart | moved: handle_l_grip +y face -2.00 mm (back; was coplanar with handle_l_bracket_b); handle_l_grip -y face -2.00 mm (back; was c",
+     "blender_asset_qa": "passed"
+    }
+   },
+   "hinge_barrels_55": {
+    "godot_4": {
+     "dag_ok": true,
+     "separate_coplanar": "passed",
+     "separate_detail": "4 coplanar face pair(s); moved 2 face(s) of 2 part(s) to 2 mm apart | moved: latch_hinge_left radius: side facets +1.39 mm (proud; its -y facet was coplanar with latch_clasp_left); latch_hinge_right r",
+     "blender_asset_qa": "passed"
+    },
+    "roblox_r15": {
+     "dag_ok": true,
+     "separate_coplanar": "passed",
+     "separate_detail": "4 coplanar face pair(s); moved 2 face(s) of 2 part(s) to 2 mm apart | moved: latch_hinge_left radius: side facets +1.39 mm (proud; its -y facet was coplanar with latch_clasp_left); latch_hinge_right r",
+     "blender_asset_qa": "passed"
+    }
+   },
+   "overlap_style_63": {
+    "godot_4": {
+     "dag_ok": true,
+     "separate_coplanar": "passed",
+     "separate_detail": "64 coplanar face pair(s); moved 48 face(s) of 24 part(s) to 2 mm apart | moved: cg_bl_x -z face -4.00 mm (back, inside the part enclosing both; was coplanar with cg_bl_y); cg_bl_x +z face -2.00 mm (ba",
+     "blender_asset_qa": "passed"
+    },
+    "roblox_r15": {
+     "dag_ok": true,
+     "separate_coplanar": "passed",
+     "separate_detail": "64 coplanar face pair(s); moved 48 face(s) of 24 part(s) to 2 mm apart | moved: cg_bl_x -z face -4.00 mm (back, inside the part enclosing both; was coplanar with cg_bl_y); cg_bl_x +z face -2.00 mm (ba",
+     "blender_asset_qa": "passed"
+    }
+   },
+   "overlap_style_64": {
+    "godot_4": {
+     "dag_ok": true,
+     "separate_coplanar": "passed",
+     "separate_detail": "56 coplanar face pair(s); moved 56 face(s) of 25 part(s) to 2 mm apart | moved: hinge_l_low -y face +3.00 mm (proud, inside the part enclosing both; was coplanar with body_rib_back_l); hinge_r_low -y ",
+     "blender_asset_qa": "passed"
+    },
+    "roblox_r15": {
+     "dag_ok": true,
+     "separate_coplanar": "passed",
+     "separate_detail": "56 coplanar face pair(s); moved 56 face(s) of 25 part(s) to 2 mm apart | moved: hinge_l_low -y face +3.00 mm (proud, inside the part enclosing both; was coplanar with body_rib_back_l); hinge_r_low -y ",
+     "blender_asset_qa": "passed"
+    }
+   }
+  },
+  "before_this_round": {
+   "what": "the same designs through the same pipeline on the code as it was when the round began (ede432c)",
+   "designs": {
+    "exact_contact_55": {
+     "godot_4": {
+      "blender_asset_qa": "failed",
+      "errors": 2,
+      "first_errors": "z-fighting: Batch_0<->Batch_3 (60 overlapping coplanar tri pairs); z-fighting: Batch_0<->Batch_1 (5 overlapping coplanar tri pairs)"
+     },
+     "roblox_r15": {
+      "blender_asset_qa": "failed",
+      "errors": 3,
+      "first_errors": "Batch_0: 16 edges with inconsistent face winding; z-fighting: Batch_0<->Batch_3 (60 overlapping coplanar tri pairs); z-fighting: Batch_0<->Batch_1 (24 overlapping coplanar tri pairs)"
+     }
+    },
+    "overlap_style_63": {
+     "godot_4": {
+      "blender_asset_qa": "failed",
+      "errors": 3,
+      "first_errors": "z-fighting: Batch_1 (12 overlapping coplanar tri pairs); z-fighting: Batch_0<->Batch_1 (10 overlapping coplanar tri pairs); z-fighting: Batch_0 (6 overlapping coplanar tri p"
+     },
+     "roblox_r15": {
+      "blender_asset_qa": "failed",
+      "errors": 3,
+      "first_errors": "z-fighting: Batch_1 (12 overlapping coplanar tri pairs); z-fighting: Batch_0<->Batch_1 (10 overlapping coplanar tri pairs); z-fighting: Batch_0 (6 overlapping coplanar tri pairs)"
+     }
+    },
+    "overlap_style_64": {
+     "godot_4": {
+      "blender_asset_qa": "failed",
+      "errors": 1,
+      "first_errors": "z-fighting: Batch_1<->Batch_2 (2 overlapping coplanar tri pairs)"
+     },
+     "roblox_r15": {
+      "blender_asset_qa": "failed",
+      "errors": 1,
+      "first_errors": "z-fighting: Batch_1<->Batch_2 (2 overlapping coplanar tri pairs)"
+     }
+    },
+    "hinge_barrels_55": {
+     "godot_4": {
+      "blender_asset_qa": "failed",
+      "errors": 1,
+      "first_errors": "z-fighting: Batch_2<->Batch_3 (8 overlapping coplanar tri pairs)"
+     },
+     "roblox_r15": {
+      "blender_asset_qa": "failed",
+      "errors": 2,
+      "first_errors": "Batch_2: 16 edges with inconsistent face winding; z-fighting: Batch_2<->Batch_3 (8 overlapping coplanar tri pairs)"
+     }
+    }
+   }
+  }
+ },
+ "blind_judge": {
+  "what": "the comparison harness's blind pairwise judge (gemini-4-carbon, thinking low), both orders; A = the stock agent's crate of round three, C = this project's crate",
+  "round_three": {
+   "C": "run 4 completed by hand: 15 parts, 2 of 3 materials textured",
+   "calls": [
+    {
+     "order_shown": [
+      "A",
+      "C"
+     ],
+     "tokens": 3359,
+     "criteria": {
+      "reads_as_brief": {
+       "winner": "A",
+       "reason": "Prop 1 clearly reads as a rugged military supply crate with distinct ribbed panels, corner guards, articulated latches, and recessed side handles, whereas Prop 2 uses overly simplistic blocky primitives."
+      },
+      "proportion_scale": {
+       "winner": "A",
+       "reason": "While both crates have a reasonable overall size relative to the 1.8m block, Prop 1 has much more believable part proportions compared to Prop 2's overly thick corner posts and chunky block latches."
+      },
+      "surface_material": {
+       "winner": "C",
+       "reason": "Prop 2 features olive drab military colors, metal differentiation, and surface wear, while Prop 1 appears to be a uniform, untextured dark grey plastic or clay material."
+      },
+      "defects": {
+       "winner": "C",
+       "reason": "Prop 1 has a noticeable stray piece of flat geometry lying on the ground next to its bottom-right corner in the scale view, whereas Prop 2 has no stray or broken geometry."
+      }
+     },
+     "overall": {
+      "winner": "A",
+      "reason": "Despite lacking texture variation and having a minor stray ground mesh in the scale view, Prop 1 wins overall because its detailed silhouette and kit-bashed geometry successfully fulfill the military crate brief far better than Prop 2's primitive blockout."
+     }
+    },
+    {
+     "order_shown": [
+      "C",
+      "A"
+     ],
+     "tokens": 3336,
+     "criteria": {
+      "reads_as_brief": {
+       "winner": "A",
+       "reason": "Prop 2 clearly features articulated panels, ribbed structural reinforcements, proper latches, corner guards, and recessed handles, whereas Prop 1 uses overly simplistic primitive blocks."
+      },
+      "proportion_scale": {
+       "winner": "A",
+       "reason": "Both crates have a believable overall size next to the 1.8 m reference, but Prop 2 has much more realistic component proportions for its latches, corner guards, and handles compared to the chunky blocks on Prop 1."
+      },
+      "surface_material": {
+       "winner": "C",
+       "reason": "Prop 1 features military olive color variation, material separation, and surface wear, while Prop 2 is rendered in a uniform, untextured dark grey clay material."
+      },
+      "defects": {
+       "winner": "tie",
+       "reason": "Both models have minor construction flaws, with Prop 1 showing rudimentary intersecting blocks for hardware and Prop 2 showing a small stray piece of geometry on the ground in the scale view."
+      }
+     },
+     "overall": {
+      "winner": "A",
+      "reason": "Despite lacking texture variation, Prop 2 is a far superior 3D asset that actually looks like a rugged military supply crate with believable mechanical details and proportions."
+     }
+    }
+   ],
+   "tokens": 6695
+  },
+  "round_four": {
+   "C": "indicative: the 55-part design above through the offline pipeline, one material textured with an image an earlier live run paid for (olive paint), three untextured; not one live run of the command",
+   "calls": [
+    {
+     "order_shown": [
+      "A",
+      "C"
+     ],
+     "tokens": 3466,
+     "criteria": {
+      "reads_as_brief": {
+       "winner": "C",
+       "reason": "Both crates feature all requested components, but Image 2 reads more distinctly as a military crate due to its olive drab colour scheme and material separation."
+      },
+      "proportion_scale": {
+       "winner": "A",
+       "reason": "Both props have believable real-world scale, though Image 1 features slightly more realistic, rugged structural ribbing compared to the blocky corner guards of Image 2."
+      },
+      "surface_material": {
+       "winner": "C",
+       "reason": "Image 2 includes distinct materials, metallic accents, and surface wear, whereas Image 1 uses a single flat, untextured dark grey shader."
+      },
+      "defects": {
+       "winner": "tie",
+       "reason": "Both assets exhibit clean geometry and construction without noticeable mesh intersections, floating parts, or shading errors."
+      }
+     },
+     "overall": {
+      "winner": "C",
+      "reason": "Image 2 is a more complete game asset with convincing military colours, material differentiation, and surface wear, while Image 1 appears untextured."
+     }
+    },
+    {
+     "order_shown": [
+      "C",
+      "A"
+     ],
+     "tokens": 3340,
+     "criteria": {
+      "reads_as_brief": {
+       "winner": "C",
+       "reason": "Both models incorporate all requested geometric parts, but Image 1 reads more immediately as a military supply crate thanks to its olive drab colour scheme and distinct hardware colours."
+      },
+      "proportion_scale": {
+       "winner": "A",
+       "reason": "Both crates share a realistic overall real-world scale next to the 1.8 m reference, though Image 2 has more believable, well-integrated proportions for its corner guards and ribbing compared to the blocky corners on Image 1."
+      },
+      "surface_material": {
+       "winner": "C",
+       "reason": "Image 1 features distinct material separation for the olive panels, dark metal hardware, and brass latches with surface wear, whereas Image 2 looks untextured in uniform dark grey."
+      },
+      "defects": {
+       "winner": "tie",
+       "reason": "Neither prop displays significant mesh defects, floating geometry, or broken shading, though Image 1's procedural wear looks slightly blotchy and stretched across some edges."
+      }
+     },
+     "overall": {
+      "winner": "C",
+      "reason": "Image 1 is a more complete game asset with colour, material separation, and wear that clearly convey a rugged military supply crate, despite Image 2 having slightly nicer geometric detailing."
+     }
+    }
+   ],
+   "tokens": 6806
+  }
+ },
+ "spend": {
+  "ceilings": {
+   "tokens": 2000000,
+   "images": 30
+  },
+  "round_three_tokens_about": 1864008,
+  "wording_experiments_tokens": 48197,
+  "live_checks_tokens": {
+   "authoring": 15752,
+   "ranking_old_first": 4946,
+   "ranking_new_first": 5132,
+   "blind_judge": 6806
+  },
+  "images_this_round": 0,
+  "images_total": 29,
+  "total_tokens_about": 1944841
+ }
+}

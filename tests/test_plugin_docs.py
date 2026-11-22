@@ -26,7 +26,10 @@ from antigravity3d.plugin_install import bundle_dir
 from antigravity3d.runtime import inspector_server, mcp_server
 
 BUNDLE = bundle_dir()
-DOCS = sorted([*BUNDLE.glob("skills/*/SKILL.md"), *BUNDLE.glob("rules/*.md"), *BUNDLE.glob("agents/*.md")])
+# Every Markdown file under a skill is agent instructions: SKILL.md and the reference files it points to (for example
+# the art-direction styles), at any depth.
+REFERENCES = sorted(p for p in BUNDLE.glob("skills/**/*.md") if p.name != "SKILL.md")
+DOCS = sorted([*BUNDLE.glob("skills/*/SKILL.md"), *REFERENCES, *BUNDLE.glob("rules/*.md"), *BUNDLE.glob("agents/*.md")])
 
 # Names the documents use on purpose that are not studio tools: platform tools, Blender modules and the Blender
 # operators the 5.3 linter blocks (rules/blender-5-3-api.md).
@@ -39,6 +42,11 @@ PRIMITIVE_WORDS = frozenset({"box", "cube", "cuboid", "cylinder", "cone", "spher
 # Modelling operations that Scene IR patches do not have (the IR ops are upsert_node ... flush_back).
 UNSUPPORTED_OPS = frozenset({"boolean", "booleans", "array", "arrays", "mirror", "bevel", "subdivide", "extrude",
                              "decimate", "instancing", "instanced"})
+# Reference files (adapted style and technique material) describe outcomes, never DCC operations, in any sentence: the
+# agent has only Scene IR. Words of the modelling operations above plus the DCC workflow vocabulary they come with.
+OPERATION_WORDS = UNSUPPORTED_OPS | frozenset({"bevels", "beveled", "bevelled", "subdivision", "subdivided", "modifier",
+                                               "modifiers", "sculpt", "sculpted", "sculpting", "remesh", "retopology",
+                                               "solidify", "shrinkwrap"})
 
 _FENCE = re.compile(r"```.*?```", re.S)
 _SPAN = re.compile(r"`([^`\n]+)`")
@@ -171,6 +179,12 @@ def unsupported_op_problems(text: str) -> list[str]:
     return problems
 
 
+def operation_word_problems(text: str) -> list[str]:
+    """A reference file must not name a modelling operation at all, negated or not (``OPERATION_WORDS``)."""
+    return [f"`{word}` names a modelling operation; describe the outcome instead: {sentence[:100]!r}"
+            for sentence in _sentences(text) for word in re.findall(r"[a-z]+", sentence.lower()) if word in OPERATION_WORDS]
+
+
 def delegation_problems(text: str) -> list[str]:
     body = _FENCE.sub(" ", text)
     return [f"`{name}` is delegated to but is not a subagent (tools.SUBAGENT_TOOLS)"
@@ -199,6 +213,17 @@ def test_patches_do_not_offer_unsupported_operations(doc: Path) -> None:
     assert not problems, "\n".join(problems)
 
 
+@pytest.mark.parametrize("doc", REFERENCES, ids=_id)
+def test_reference_files_describe_outcomes_not_operations(doc: Path) -> None:
+    problems = operation_word_problems(doc.read_text())
+    assert not problems, "\n".join(problems)
+
+
+def test_reference_files_are_covered() -> None:
+    """The reference files the guard reads include the art-direction styles (so new reference files are covered)."""
+    assert any(p.parent.name == "styles" for p in REFERENCES) and set(REFERENCES) <= set(DOCS)
+
+
 @pytest.mark.parametrize("doc", DOCS, ids=_id)
 def test_delegated_subagents_exist(doc: Path) -> None:
     problems = delegation_problems(doc.read_text())
@@ -212,3 +237,4 @@ def test_checker_flags_names_that_do_not_exist() -> None:
     assert delegation_problems(bad)
     assert not name_problems("Call `apply_scene_ir` with `ops`, then `inspect_manifest`.")
     assert not unsupported_op_problems("Scene IR has no boolean or mirror ops.")
+    assert operation_word_problems("No bevel modifier: hard edges.") and not operation_word_problems("Hard edges, no rounded corners.")
