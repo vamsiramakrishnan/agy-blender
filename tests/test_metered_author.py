@@ -509,8 +509,11 @@ def test_expected_output_tokens_come_from_the_measurements_and_stay_under_the_ca
     for role in ("worker", "bulk", "builder", "director"):
         assert 0 < expected_output_tokens(role) < AUTHOR_OUTPUT_BUDGETS[role].max_output_tokens
     assert 18_000 < expected_output_tokens("director") < 20_000  # argon: mean 11,726 answer + 7,409 thinking
-    # a prop on hydrogen/low: the mean of the two crafted samples; an unmeasured tier and a kit piece keep the older tables
-    assert expected_output_tokens("worker", craft=True) == round((7_145 + 7_682 + 6_831) / 3 + (2_399 + 2_714 + 2_562) / 3) == 9_778
+    # a prop on hydrogen/low: the mean of the five samples of the request as it ships (round five's language, which
+    # writes symmetric and repeated parts once; it was 9,778 from the round-four samples); an unmeasured tier and a kit
+    # piece keep the older tables
+    assert expected_output_tokens("worker", craft=True) == round((2_386 + 3_998 + 3_000 + 2_298 + 2_073) / 5
+                                                                 + (2_232 + 3_565 + 3_141 + 3_385 + 3_616) / 5) == 5_939
     assert expected_output_tokens("worker") < 2_100 and expected_output_tokens("director", craft=True) == expected_output_tokens("director")
 
 
@@ -520,8 +523,8 @@ def test_planning_figures_agree_with_the_measurement_and_each_other(monkeypatch)
 
     key = "gemini-4-hydrogen/low"
     measured = MEASURED_CRAFT_INPUT_TOKENS[key] + expected_output_tokens("worker", craft=True)
-    assert AUTHOR_TOKENS_EST == measured == 16_072  # 6,294 input + 7,219 answer + 2,558 thinking
-    assert 32 <= min(MEASURED_CRAFT_PROPOSE_WALL_S[key]) and max(MEASURED_CRAFT_PROPOSE_WALL_S[key]) <= MEASURED_PROPOSE_WALL_S[key][1]
+    assert AUTHOR_TOKENS_EST == measured == 16_428  # 10,489 input + 2,751 answer + 3,188 thinking (was 16,072 in round four)
+    assert 10 <= min(MEASURED_CRAFT_PROPOSE_WALL_S[key]) and max(MEASURED_CRAFT_PROPOSE_WALL_S[key]) <= MEASURED_PROPOSE_WALL_S[key][1]
     a, *_ = make_author(monkeypatch)
     a.governor.unit = "tokens"
     expected, worst = a.cost_profile("worker")  # input here is the deliberately high bound (bytes / 3 + schema bytes)

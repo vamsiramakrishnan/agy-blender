@@ -9,6 +9,10 @@ LIVE FINDINGS (2026-11-20, gemini-4-hydrogen, response_json_schema):
   float spellings took the propose schema from 7,954 to 6,064 bytes and billed 1,377 fewer prompt tokens.)
 * with ``nodes`` optional, a constrained answer contained materials and no nodes -> nodes/materials/transform/translate
   are required on the wire (WIRE_REQUIRED).
+* (2026-11-22, gemini-4-hydrogen, round five's schema) arrays of 2-number arrays inside 2..32 / 3..32 lists, a list of
+  enum strings and the shortcut fields are accepted; an inlined schema (11,020 bytes) bills the same prompt tokens as the
+  $defs form (7,797 bytes): 9,554 each. With repeat as three flat fields one answer in three wrote count + offset +
+  around, which the parse refuses; repeat is now a row or a ring object, each forbidding the other's key.
 * per-kind node typing costs prompt tokens: 6,045 prompt tokens vs 2,866 for a single node shape with an untied
   ``params`` anyOf (same rules text); kept because it makes kind/params mismatches unrepresentable.
 """
@@ -56,7 +60,8 @@ def test_every_kind_and_node_field_is_on_the_wire():
     kinds = get_args(ir.NodeIR.model_fields["kind"].annotation)
     assert set(S.NODE_MODELS) == set(kinds) == set(ir.NODE_PARAMS)
     for kind, model in S.NODE_MODELS.items():
-        assert set(model.model_fields) == set(ir.NodeIR.model_fields), kind
+        # the wire node is NodeIR plus the mirror / repeat shortcuts, which scene_from_wire expands away
+        assert set(model.model_fields) == set(ir.NodeIR.model_fields) | set(S.SHORTCUT_FIELDS), kind
         assert model.model_fields["params"].annotation is ir.NODE_PARAMS[kind]
         assert model.model_fields["collider"].annotation is bool
 
@@ -207,7 +212,9 @@ def test_stage_agents_use_the_generated_rules():
     carry in the prompt; see tests/test_harness_agents.py and tests/test_tool_schema.py."""
     agents = pytest.importorskip("antigravity3d.harness.agents")
     assert S.IR_SEMANTICS in agents._system("BLOCKOUT") and S.OP_SEMANTICS in agents._system("BLOCKOUT")
-    assert S.ir_rules_text().splitlines()[2] not in agents._system("BLOCKOUT")  # the "scene: {...}" type line
+    assert S.SHAPE_SEMANTICS in agents._system("BLOCKOUT") and S.SHAPE_SEMANTICS not in agents._system("LOOKDEV")
+    assert S.ir_rules_text().splitlines()[3] not in agents._system("BLOCKOUT")  # the "scene: {...}" type line
+    assert S.ir_rules_text().splitlines()[3].startswith("scene: {")
 
 
 # --- the response schema carries no bytes that are neither a constraint nor guidance ---------------------------
@@ -269,9 +276,28 @@ def _normal(root, node):
 
 
 def test_new_response_schemas_are_the_old_ones_with_only_inert_text_removed():
-    assert _normal(_old_scene("Crate"), _old_scene("Crate")) == _normal(S.scene_response_schema("Crate"), S.scene_response_schema("Crate"))
+    # The compact schema also merges anyOf branches that accept the same documents (S._merge_alternatives: set_param
+    # names whose API value schema is the same, cone and capsule nodes, whose params are the same once exclusiveMinimum
+    # is written as minimum), so the old spelling is compared after the same merge. That the merge accepts exactly
+    # what the branches did is test_merged_alternatives_accept_what_the_branches_accepted.
+    old = S._merge_alternatives(_normal(_old_scene("Crate"), _old_scene("Crate")))
+    assert old == _normal(S.scene_response_schema("Crate"), S.scene_response_schema("Crate"))
     old_patch = _old_api(S.raw_schema("patch"))
-    assert _normal(old_patch, old_patch) == _normal(S.patch_response_schema(), S.patch_response_schema())
+    assert S._merge_alternatives(_normal(old_patch, old_patch)) == _normal(S.patch_response_schema(), S.patch_response_schema())
+
+
+def test_merged_alternatives_accept_what_the_branches_accepted():
+    branch = lambda name, value: {"type": "object", "properties": {"name": {"type": "string", "enum": [name]}, "value": value},  # noqa: E731
+                                  "required": ["name", "value"], "additionalProperties": False}
+    num, cnt = {"type": "number", "minimum": 0}, {"type": "integer", "minimum": 3}
+    schema = {"anyOf": [branch("radius", num), branch("bevel", num), branch("segments", cnt), branch("radius", num)]}
+    merged = S._merge_alternatives(schema)
+    assert len(merged["anyOf"]) == 2 and merged["anyOf"][0]["properties"]["name"]["enum"] == ["radius", "bevel"]
+    docs = [{"name": n, "value": v} for n in ("radius", "bevel", "segments", "rings") for v in (-1, 0, 0.5, 3, 4.5, "a")]
+    for doc in docs:
+        assert _accepts(schema, doc) == _accepts(merged, doc), doc
+    two = {"anyOf": [branch("a", num), {**branch("b", num), "required": ["name"]}]}  # differs in more than the enum
+    assert len(S._merge_alternatives(two)["anyOf"]) == 2
 
 
 NODE = {"id": "n", "kind": "box", "params": {"size": [1, 1, 1]}, "transform": {"translate": [0, 0, 0]}}
@@ -403,8 +429,17 @@ def test_api_schemas_carry_no_prose_and_no_tuple_is_written_out_twice():
         tuples = [json.dumps(n, sort_keys=True) for p, n in walk(schema) if n.get("type") == "array" and n.get("minItems") == n.get("maxItems")]
         assert len(tuples) == len(set(tuples)), "a repeated tuple shape belongs in $defs"
         assert all(isinstance(n[k], int) for _, n in walk(schema) for k in ("minimum", "maximum") if k in n)
-    assert len(json.dumps(S.scene_response_schema("WoodenCrateWithIron"), separators=(",", ":"))) < 6_500
-    assert len(json.dumps(S.patch_response_schema(), separators=(",", ":"))) < 9_500
+    # Pins moved deliberately (bytes, measured on this change). What a byte pin protects is what the model has to read,
+    # not billed tokens: live (2026-11-22, gemini-4-hydrogen, the crate propose) the 7,797-byte $defs form and the same
+    # schema inlined to 11,020 bytes billed exactly 9,554 prompt tokens each, so the service bills the expanded schema.
+    # Base (7 kinds, no new parameters): scene 6,092, patch 9,317. The new parameters and kinds, after writing once-used
+    # definitions in place (_inline_once), merging equivalent branches (_merge_alternatives) and exact sharing (_share):
+    # scene 6,474 (inside the old pin), patch 10,102 (+785: set_param variants for the new parameters whose value has a
+    # type of its own: bevel_segments, inset_faces, profile, closed, outline). The mirror / repeat shortcuts (two optional
+    # fields on each of the nine node kinds; per-kind node typing is kept, see LIVE FINDINGS) bring them to 7,523 and
+    # 11,162.
+    assert len(json.dumps(S.scene_response_schema("WoodenCrateWithIron"), separators=(",", ":"))) < 7_700
+    assert len(json.dumps(S.patch_response_schema(), separators=(",", ":"))) < 11_400
 
 
 def test_guidance_dropped_from_descriptions_is_stated_once_in_the_rules_text():

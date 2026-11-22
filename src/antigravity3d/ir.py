@@ -286,7 +286,7 @@ class SetParam(_Model):
     op: Literal["set_param"] = "set_param"
     node_id: NodeId
     name: str
-    value: float | int | str | Vec3
+    value: ParamValue  # what NodeIR.params holds: a profile, an outline or inset_faces is set whole, a flag stays a bool
 
 
 class UpsertMaterial(_Model):

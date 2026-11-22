@@ -19,12 +19,12 @@ from typing import Any
 from antigravity3d.tactics.common import GRADE_TOKENS_EST, IMAGE_TOKENS_EST, QA_TOKENS_EST
 from antigravity3d.tactics.governor import PLANS, SpendPlan
 
-# A planning figure for one authoring call when the author cannot say: the measured worker propose with the prop craft
-# guidance (2026-11-21, three live samples; the first two with the first wording of the guidance, the third with the one
-# that ships): 6,294 input (the shipped wording's) + 7,219 answer + 2,558 thinking (means) = 16,072 tokens. It was 9,444
-# (7,238 + 1,140 + 1,066) for the older, shorter answers. Derived from metered_author's tables so the plan, the author's
-# expected profile and the cap cannot drift apart; with only two samples it is the expected case, not a bound (the worst
-# case is the output cap, ``author_worst_tokens``).
+# A planning figure for one authoring call when the author cannot say: the measured worker propose with the request as
+# it ships (2026-11-22, round five's language, five live samples of the crate brief): 10,489 input + 2,751 answer +
+# 3,188 thinking (means) = 16,428 tokens. Round four's request measured 16,072 (6,294 + 7,219 + 2,558): the rules text
+# grew and the answers shrank, because mirror and repeat write a repeated part once. Derived from metered_author's
+# tables so the plan, the author's expected profile and the cap cannot drift apart; it is the expected case, not a
+# bound (the worst case is the output cap, ``author_worst_tokens``).
 from antigravity3d.tactics.metered_author import MEASURED_CRAFT_INPUT_TOKENS, expected_output_tokens  # noqa: E402
 
 AUTHOR_TOKENS_EST = MEASURED_CRAFT_INPUT_TOKENS["gemini-4-hydrogen/low"] + expected_output_tokens("worker", craft=True)

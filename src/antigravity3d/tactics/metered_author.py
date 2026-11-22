@@ -23,7 +23,7 @@ import json
 import math
 import os
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Callable, Literal
 
 from google.genai import types
@@ -36,7 +36,7 @@ from antigravity3d.models import ARGON, CARBON, HYDROGEN, NEON, tier
 from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.governor import BudgetExceeded, Governor, usage_cost_usd
 
-Operation = Literal["propose", "repair"]
+Operation = Literal["propose", "repair", "correct"]
 
 
 @dataclass(frozen=True)
@@ -110,10 +110,27 @@ MEASURED_ANSWER_TOKENS: dict[str, tuple[int, ...]] = {
 # 6,294, answer 6,831, thinking 2,562, 32 s. The input figure is the shipped wording's. Only
 # hydrogen/low was measured with the guidance: the other tiers expect what they were measured at without it (argon and
 # carbon already wrote 78-168 nodes unguided), the worst case of every tier stays its cap.
-MEASURED_CRAFT_INPUT_TOKENS: dict[str, int] = {"gemini-4-hydrogen/low": 6_294}
+MEASURED_CRAFT_INPUT_TOKENS_R4: dict[str, int] = {"gemini-4-hydrogen/low": 6_294}
 MEASURED_CRAFT_ANSWER_TOKENS: dict[str, tuple[int, ...]] = {"gemini-4-hydrogen/low": (7_145, 7_682, 6_831)}
 MEASURED_CRAFT_THINKING_TOKENS: dict[str, tuple[int, ...]] = {"gemini-4-hydrogen/low": (2_399, 2_714, 2_562)}
-MEASURED_CRAFT_PROPOSE_WALL_S: dict[str, tuple[float, float]] = {"gemini-4-hydrogen/low": (32.0, 35.0)}
+MEASURED_CRAFT_PROPOSE_WALL_S_R4: dict[str, tuple[float, float]] = {"gemini-4-hydrogen/low": (32.0, 35.0)}
+# The request with round five's language (new shapes, mirror / repeat, SHAPE_SEMANTICS; 2026-11-22, the same crate
+# brief, hydrogen/low, five samples, all valid, finish STOP): the rules text is longer (input 10,489) and the answers
+# are shorter, because a symmetric or repeated part is written once: 19-25 authored nodes that expand to 45-68 parts,
+# answers 2,073-3,998 tokens, thinking 2,232-3,616, 23-29 s. These are the expected case of a prop request now. The
+# round-four samples above stay the bound on the cap: a design written without shortcuts can still be 90 parts at
+# 124 answer tokens each (tests/test_metered_author.py).
+MEASURED_CRAFT_INPUT_TOKENS: dict[str, int] = {"gemini-4-hydrogen/low": 10_489}
+MEASURED_SHAPES_ANSWER_TOKENS: dict[str, tuple[int, ...]] = {"gemini-4-hydrogen/low": (2_386, 3_998, 3_000, 2_298, 2_073)}
+MEASURED_SHAPES_THINKING_TOKENS: dict[str, tuple[int, ...]] = {"gemini-4-hydrogen/low": (2_232, 3_565, 3_141, 3_385, 3_616)}
+MEASURED_CRAFT_PROPOSE_WALL_S: dict[str, tuple[float, float]] = {"gemini-4-hydrogen/low": (23.0, 29.0)}
+# A correction (``correct_task``) writes only the nodes that failed, not the design. Measured live (2026-11-22,
+# gemini-4-hydrogen/low, the real failed crate answer replayed three times, two nodes to replace, all three rescued):
+# answers 369, 213 and 270 tokens, thinking 311, 301 and 811, 3.4-5.2 s. Twice the largest answer (738) would bound a
+# four-node correction only; the case to bound is one that replaces many nodes: at the largest measured 185 answer
+# tokens per node, 4,096 allows 22 replacement nodes (a third of a 60-part design; past that it is a redesign, which
+# this call is not for). Thinking keeps the role's allowance (8,192 for the worker, 10x the largest seen).
+CORRECTION_ANSWER_TOKENS = 4_096
 # models.get(...).output_token_limit on this key, 2026-11-20.
 MODEL_OUTPUT_TOKEN_LIMIT = {HYDROGEN: 65_536, NEON: 65_536, CARBON: 32_768, ARGON: 32_768}
 # Measured wall time of one propose call (min, max) in seconds, 2026-11-20, same samples as the token tables above,
@@ -182,7 +199,11 @@ class AuthorTimedOut(AuthorOutcomeError):
 
 
 class AuthorInvalid(AuthorOutcomeError, ValueError):
-    """A complete answer that does not parse or validate. Billed usage is booked."""
+    """A complete answer that does not parse or validate. Billed usage is booked. ``answer_text`` is the answer as
+    written and ``cause`` the parse error (both None when the failure is not the answer's text)."""
+
+    answer_text: str | None = None
+    cause: BaseException | None = None
 
 
 class AuthorUnavailable(AuthorOutcomeError):
@@ -236,10 +257,19 @@ PROP_CRAFT_GUIDANCE = (
     "- Every part the brief names gets its own nodes, built from the pieces a real one has: a latch is a base plate, a clasp "
     "and a hinge barrel; a handle is two brackets and a grip; a corner guard wraps its corner.\n"
     "- Add the secondary forms an object of this kind has wherever they change the silhouette or catch the light: rims, ribs, "
-    "frames, skids or feet, straps, hinges, bolt heads. Break large flat faces with raised or recessed panels made from thin "
-    "boxes.\n"
-    "- Aim for 50 to 90 parts, within max_tris: a box is 12 triangles, a cylinder 4 x segments (8 to 12 segments is enough "
-    "for a small part), a sphere or capsule costs hundreds. Do not pad with hidden or repeated filler.\n"
+    "frames, skids or feet, straps, hinges, bolt heads.\n"
+    "- Use the shape that matches how the part is made. Nothing manufactured has a razor edge: bevel boxes and cylinders "
+    "thicker than about 1 cm, by 3 to 5% of their smallest size; 1 segment for metal and small parts, 2 where a large "
+    "rounded edge is seen (worn wood, castings). A panel set into a face is inset_faces on that box, not a thin box "
+    "stacked on it. Anything turned (barrel, bottle, post, knob, wheel, lamp, pipe, finial) is one lathe whose profile "
+    "traces its silhouette in 6 to 16 points, not a stack of cylinders. Anything with a constant section (bracket, arch, "
+    "wedge, ramp, blade, L, T or U section, shaped board) is one extrude of that section.\n"
+    "- Write a symmetric or repeated part once: mirror for a left/right pair, repeat with an offset for a row, repeat "
+    "around an axis for a ring (bolts round a cap, spokes); model the original on the positive side.\n"
+    "- Aim for 50 to 90 parts (copies count), within max_tris: a box is 12 triangles, bevelled 44 (1 segment) or 108 (2), "
+    "+16 per inset face; a cylinder 4 x segments, bevelled (4 x bevel_segments + 4) x segments (8 to 12 segments is "
+    "enough for a small part); a lathe 2 x segments per profile step (1 x where the step meets the axis) plus segments per flat end "
+    "cap, closed 2 x segments x points; an extrude 4 x corners - 4; a sphere or capsule costs hundreds. Spend triangles on what is seen, not on hidden or repeated filler.\n"
     "- Keep parts in proportion: thin plates and slim bars, not chunky blocks.\n"
     "- Attach by contact: a part's face lies exactly on the surface it is mounted on, with no gap and no overlap (hidden "
     "contact faces are removed at export). Two parts mounted on the same surface must not share area: where one crosses "
@@ -256,6 +286,35 @@ def propose_task(prompt: str, *, index: int, n: int, asset_name: str, references
     task = (f"Build design {index + 1}/{n} for {prompt}. {refs}Return one JSON SceneIR with asset_name={asset_name!r}, "
             f"nodes and materials. Ground all parts. Include material assignments.")
     return f"{task} {brief}" if brief else f"{task}\n{PROP_CRAFT_GUIDANCE}"
+
+
+def error_text(exc: BaseException) -> str:
+    """One line per finding of a parse error: ``nodes.3.cylinder.repeat.offset: Field required (got ...)``."""
+    from pydantic import ValidationError
+
+    if not isinstance(exc, ValidationError):
+        return " ".join(str(exc).split())
+    out = []
+    for e in exc.errors(include_url=False):
+        got = "" if e["type"] == "missing" else f" (got {json.dumps(e.get('input'), default=str)[:60]})"
+        out.append(f"{'.'.join(str(x) for x in e['loc'])}: {e['msg']}{got}")
+    return "; ".join(out)
+
+
+def correct_task(prompt: str, *, index: int, n: int, failed: dict[str, Any], error: BaseException) -> str:
+    """The request to fix a design that did not read: the brief in one line, the exact messages, the failing nodes and
+    materials as written (``ir_schema.located_nodes``), every node id, and the answer's shape. The whole answer is not
+    sent: the author keeps what was right by not restating it."""
+    nodes, mats = ir_schema.located_nodes(failed, error)
+    ids = [n.get("id") for n in failed.get("nodes") or [] if isinstance(n, dict)]
+    messages = error_text(error)
+    parts = (f"Failing nodes as written: {json.dumps(nodes, separators=(',', ':'))}\n" if nodes else "") + \
+            (f"Failing materials as written: {json.dumps(mats, separators=(',', ':'))}\n" if mats else "")
+    return (f"Your design {index + 1}/{n} for {prompt} did not read. Errors: {messages[:2000]}\n{parts}"
+            f"Node ids in the design: {json.dumps(ids)}\n"
+            "Return one JSON object {\"nodes\": [...], \"materials\": [...], \"remove\": [...]} with only what must change: "
+            "each node or material whole, with the id it replaces (or a new id to add one); remove lists ids to delete. "
+            "Every part not listed stays as it is.")
 
 
 def repair_task(scene: SceneIR, *, reasons: Any, located: dict[str, list[str]], manifest: str) -> str:
@@ -277,6 +336,32 @@ def repair_task(scene: SceneIR, *, reasons: Any, located: dict[str, list[str]], 
             f"Scene: {scene.model_dump_json(exclude_defaults=True)}\nManifest: {manifest}")
 
 
+def kernel_checked(parse: Callable[[str], SceneIR]) -> Callable[[str], SceneIR]:
+    """``parse`` followed by the kernel's own per-node check (``compile_ir.check_node``: the message the build would
+    give, no mesh built), so a design the kernel would refuse (a bevel at half the size, a profile through the axis)
+    fails here, where it is corrected node by node, and not after the candidate has been compiled and ranked. Every
+    node is checked and the messages are joined, so one correction can fix them all. Until the kernel has the
+    function the parse is unchanged."""
+    from antigravity3d.kernel import compile_ir
+
+    check = getattr(compile_ir, "check_node", None)
+    if check is None:
+        return parse
+
+    def run(text: str) -> SceneIR:
+        scene = parse(text)
+        found = []
+        for node in scene.nodes:
+            try:
+                check(node)
+            except ValueError as e:
+                found.append(" ".join(str(e).split()))
+        if found:
+            raise ValueError("; ".join(found))
+        return scene
+    return run
+
+
 def build_author_request(role: str, operation: Operation, task: str, *, budget: EngineBudget, context: dict[str, Any],
                          timeout_s: float, asset_name: str | None = None,
                          output: OutputBudget | None = None, kit: bool = False) -> AuthorRequest:
@@ -289,13 +374,17 @@ def build_author_request(role: str, operation: Operation, task: str, *, budget: 
     """
     mt = tier(role)  # type: ignore[arg-type]
     out = output or output_budget(role, kit=kit)
+    if operation == "correct" and output is None:
+        out = OutputBudget(answer_tokens=CORRECTION_ANSWER_TOKENS, thinking_tokens=out.thinking_tokens)
     limit = MODEL_OUTPUT_TOKEN_LIMIT.get(mt.model)
     if limit is not None and out.max_output_tokens > limit:
         raise ValueError(f"{role} {operation}: {out.max_output_tokens} output tokens exceed {mt.model}'s limit {limit}")
     if operation == "propose":
-        schema, parse = ir_schema.scene_response_schema(asset_name), ir_schema.parse_scene
+        schema, parse = ir_schema.scene_response_schema(asset_name), kernel_checked(ir_schema.parse_scene)
     elif operation == "repair":
         schema, parse = ir_schema.patch_response_schema(), ir_schema.parse_patch
+    elif operation == "correct":  # the caller binds the parse to the failed answer (MeteredAuthor._correct)
+        schema, parse = ir_schema.correction_response_schema(), ir_schema.WireCorrection.model_validate_json
     else:
         raise ValueError(f"unknown authoring operation {operation!r}")
     text = f"{ir_schema.ir_rules_text()}\nBudget: {json.dumps(asdict(budget))}\n{task}"
@@ -368,13 +457,13 @@ def author_timeout(role: str) -> float:
 
 def expected_output_tokens(role: str, *, craft: bool = False) -> int:
     """Mean measured answer + thinking tokens of the role's model and level; the full cap when it was not measured.
-    ``craft``: a prop request (it carries ``PROP_CRAFT_GUIDANCE``) uses the crafted samples where the tier has them (three,
-    hydrogen/low only) and the older tables otherwise; a kit piece (``craft=False``) is the request measured without it."""
+    ``craft``: a prop request (it carries ``PROP_CRAFT_GUIDANCE``) uses the samples of the request as it ships where the
+    tier has them (five, hydrogen/low only) and the older tables otherwise; a kit piece (``craft=False``) is the request measured without it."""
     mt = tier(role)  # type: ignore[arg-type]
     key = f"{mt.model}/{mt.thinking.value if mt.thinking else 'none'}"
     answers, thoughts = MEASURED_ANSWER_TOKENS.get(key), MEASURED_THINKING_TOKENS.get(key)
-    if craft and key in MEASURED_CRAFT_ANSWER_TOKENS:
-        answers, thoughts = MEASURED_CRAFT_ANSWER_TOKENS[key], MEASURED_CRAFT_THINKING_TOKENS[key]
+    if craft and key in MEASURED_SHAPES_ANSWER_TOKENS:  # the request as it ships (round five's language)
+        answers, thoughts = MEASURED_SHAPES_ANSWER_TOKENS[key], MEASURED_SHAPES_THINKING_TOKENS[key]
     if not answers or not thoughts:
         return output_budget(role, kit=not craft).max_output_tokens
     return min(output_budget(role, kit=not craft).max_output_tokens, round(sum(answers) / len(answers) + sum(thoughts) / len(thoughts)))
@@ -397,6 +486,8 @@ class CandidateOutcome:
     service_retries: list[dict[str, Any]] | None = None
     # taken from the design record (no call was made): what the original answer cost (DesignRecord)
     recorded: dict[str, Any] | None = None
+    # the answer did not read and one correction was asked for: "rescued: <first error>" or "failed: <both errors>"
+    correction: str | None = None
 
     @property
     def produced(self) -> bool:
@@ -410,6 +501,8 @@ class CandidateOutcome:
             del d["service_retries"]
         if self.recorded is None:  # only for an answer from the design record
             del d["recorded"]
+        if self.correction is None:  # only for a candidate that needed a correction
+            del d["correction"]
         return d
 
 
@@ -444,6 +537,20 @@ def _rates(model: str) -> tuple[float, float]:
 
 def _meta(req: AuthorRequest, usage: dict[str, int] | None) -> dict[str, Any]:
     return dict(model=req.model, role=req.role, operation=req.operation, usage=usage, max_output_tokens=req.max_output_tokens)
+
+
+def _json_object(text: str | None) -> dict[str, Any] | None:
+    try:
+        value = json.loads(text) if text else None
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _add_usage(a: dict[str, int] | None, b: dict[str, int] | None) -> dict[str, int] | None:
+    if a is None or b is None:
+        return a or b
+    return {k: a.get(k, 0) + b.get(k, 0) for k in {*a, *b}}
 
 
 def _one_line(exc: BaseException, limit: int = 300) -> str:
@@ -615,8 +722,11 @@ class MeteredAuthor:
             try:
                 parsed = req.parse(text)
             except ValueError as exc:
-                raise AuthorInvalid(f"{req.role} {req.operation} on {req.model}: answer does not validate: {_one_line(exc)}; "
-                                    f"usage {usage}", finish_reason=receipt["finish_reason"], **_meta(req, usage)) from exc
+                invalid = AuthorInvalid(f"{req.role} {req.operation} on {req.model}: answer does not validate: "
+                                        f"{_one_line(exc)}; usage {usage}", finish_reason=receipt["finish_reason"],
+                                        **_meta(req, usage))
+                invalid.answer_text, invalid.cause = text, exc
+                raise invalid from exc
             receipt["status"] = "ok"
             return parsed
         except BaseException as exc:
@@ -687,9 +797,23 @@ class MeteredAuthor:
         async def candidate(i: int) -> tuple[SceneIR | None, CandidateOutcome, BaseException | None]:
             trace: dict[str, Any] = {}
             task = propose_task(prompt, index=i, n=n, asset_name=asset, references=refs, brief=brief)
+            correction = None
             try:
                 req = self.request(role, "propose", task, asset_name=asset, kit=bool(brief))
-                scene = await self._answer(req, trace, index=i, keep=lambda s: s.asset_name == asset and bool(s.nodes))
+                try:
+                    scene = await self._answer(req, trace, index=i, keep=lambda s: s.asset_name == asset and bool(s.nodes))
+                except AuthorInvalid as first:
+                    failed = _json_object(first.answer_text)
+                    if failed is None or first.cause is None:
+                        raise  # not JSON, or not the text's fault: nothing to correct
+                    try:
+                        scene = await self._correct(role, prompt, i, n, asset, failed, first, trace, kit=bool(brief))
+                    except AuthorInvalid as again:
+                        again.args = (f"{_one_line(first)}; correction: {_one_line(again)}",)
+                        again.usage = trace.get("usage")  # both calls
+                        correction = f"failed: {_one_line(first.cause, 200)}"
+                        raise again from first
+                    correction = f"rescued: {_one_line(first.cause, 200)}"
                 if scene.asset_name != asset or not scene.nodes:
                     raise AuthorInvalid(f"{role} propose: candidate must contain nodes for the requested asset {asset!r}",
                                         finish_reason="STOP", **_meta(req, trace.get("usage")))
@@ -699,10 +823,11 @@ class MeteredAuthor:
                 return None, CandidateOutcome(i, status, text, getattr(exc, "finish_reason", None),
                                               getattr(exc, "usage", None) or trace.get("usage"),
                                               trace.get("admission_wait_s", 0.0), trace.get("reserved_usd"),
-                                              trace.get("reserved_tokens"), trace.get("service_retries") or None), exc
+                                              trace.get("reserved_tokens"), trace.get("service_retries") or None,
+                                              correction=correction), exc
             return scene, CandidateOutcome(i, "produced", "", "STOP", trace.get("usage"), trace.get("admission_wait_s", 0.0),
                                            trace.get("reserved_usd"), trace.get("reserved_tokens"),
-                                           trace.get("service_retries") or None, trace.get("recorded")), None
+                                           trace.get("service_retries") or None, trace.get("recorded"), correction), None
 
         # A cancellation of this task cancels every candidate (gather) and propagates; a candidate that itself raises a
         # non-Exception BaseException (CancelledError, KeyboardInterrupt) propagates too.
@@ -722,6 +847,24 @@ class MeteredAuthor:
             names = ProposeResult([], outcomes).summary()
             first.args = (f"{first.args[0] if first.args else first}; no usable candidate of {len(outcomes)} requested: {names}",)
         raise first
+
+    async def _correct(self, role: str, prompt: str, index: int, n: int, asset: str, failed: dict[str, Any],
+                       first: AuthorInvalid, trace: dict[str, Any], *, kit: bool) -> SceneIR:
+        """One correction of a candidate whose answer did not read: the same role, only the failing parts asked for
+        (``correct_task``), applied to the answer as written and read again with the same parse. Booked and recorded
+        like any authoring call (ledger tag ``author.correct``); its usage is added to the candidate's. Only for a
+        JSON answer that failed validation: a truncated, blocked or empty answer, or a timeout, never reaches here."""
+        task = correct_task(prompt, index=index, n=n, failed=failed, error=first.cause)
+        req = self.request(role, "correct", task, kit=kit)
+        req = replace(req, parse=kernel_checked(lambda text: ir_schema.apply_correction(failed, text)))
+        sub: dict[str, Any] = {}
+        try:
+            return await self._answer(req, sub, index=index, keep=lambda s: s.asset_name == asset and bool(s.nodes))
+        finally:
+            trace["usage"] = _add_usage(trace.get("usage") or first.usage, sub.get("usage"))
+            for k in ("reserved_usd", "reserved_tokens"):
+                if sub.get(k) is not None:
+                    trace[k] = (trace.get(k) or 0.0) + sub[k]
 
     def recorded_candidates(self, prompt: str, *, n: int, context: dict[str, Any]) -> int:
         """How many of the ``n`` candidates :meth:`propose_with_outcomes` would take from the design record (no call is

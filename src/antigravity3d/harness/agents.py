@@ -52,6 +52,7 @@ from antigravity3d.harness.tools import (
 from antigravity3d.ir_schema import (  # prose the tool schemas cannot carry
     IR_SEMANTICS,
     OP_SEMANTICS,
+    SHAPE_SEMANTICS,
 )
 from antigravity3d.models import Role, tier
 from antigravity3d.state import SceneSessionRegistry
@@ -78,7 +79,7 @@ STAGE_BEHAVIOR = types.AgentBehavior.MINIMAL
 
 # Only what a schema cannot say: units, axes, anchors, ground contact, id rules. Field names and types are in the
 # tool declarations (generated from the same IR schema), so they are not repeated here.
-_IR_RULES = f"{IR_SEMANTICS}\n{OP_SEMANTICS}"
+_IR_RULES = f"{IR_SEMANTICS}\n{SHAPE_SEMANTICS}\n{OP_SEMANTICS}"
 _IR_STAGES = frozenset({"BLOCKOUT", "TWEAK", "VARIANTS"})  # edit geometry: IR semantics and the anchor ops
 _MATERIAL_STAGES = frozenset({"LOOKDEV"})  # edit materials only: IR semantics (ids, material cross-field rules)
 
@@ -88,15 +89,22 @@ _MATERIAL_STAGES = frozenset({"LOOKDEV"})  # edit materials only: IR semantics (
 # military supply crate kit-bashed from panels, corner guards, latches and two side handles" (budget 3,000 triangles) had 15
 # to 21 parts and 272 to 356 triangles; with it, two answers had 63 and 64 parts and 976 and 936 triangles. Contact is exact,
 # not overlapped: hidden contact faces are removed at export, and a part sunk into another makes Tier-1 report
-# interpenetration and z-fighting. The rules cost about 1,200 characters of every BLOCKOUT prompt; they are guidance the
-# stage needs, not waste (tests/test_stage_request.py states what the character budget protects).
+# interpenetration and z-fighting. Round five adds the new shapes and shortcuts (the same lines as PROP_CRAFT_GUIDANCE,
+# shortened); what each parameter means is in ir_schema.SHAPE_SEMANTICS, which every geometry stage carries. The rules
+# cost 1,613 characters of every BLOCKOUT prompt; they are guidance the stage needs, not waste (tests/test_stage_request.py
+# states what the character budget protects).
 CRAFT_RULES = (
     "Craft rules: every part the brief names gets its own nodes, built from the pieces a real one has (a latch is a base plate, "
     "a clasp and a hinge barrel; a handle is two brackets and a grip; a corner guard wraps its corner). Add the secondary forms "
     "an object of this kind has wherever they change the silhouette or catch the light: rims, ribs, frames, skids or feet, "
-    "straps, hinges, bolt heads; break large flat faces with raised or recessed panels made from thin boxes. Aim for 50 to 90 "
-    "parts within max_tris (a box is 12 triangles, a cylinder 4 x segments, 8 to 12 segments is enough for a small part, a "
-    "sphere or capsule costs hundreds); no hidden or repeated filler. Keep parts in proportion: thin plates and slim bars, not "
+    "straps, hinges, bolt heads. Use the shape that matches how the part is made: bevel boxes and cylinders thicker than "
+    "about 1 cm by 3 to 5% of their smallest size (1 segment for metal and small parts, 2 for large rounded edges); a panel "
+    "set into a face is inset_faces, not a stacked thin box; a turned part is one lathe (profile of 6 to 16 points), a "
+    "constant section one extrude. Write a symmetric or repeated part once with mirror or repeat, the original on "
+    "the positive side. Aim for 50 to 90 parts, copies included, within max_tris (box 12, bevelled 44 or 108, +16 per "
+    "inset face; cylinder 4 x segments, bevelled (4 x bevel_segments + 4) x segments, 8 to 12 segments for a small part; "
+    "lathe 2 x segments per profile step; extrude 4 x corners - 4; sphere or capsule hundreds); no hidden or repeated "
+    "filler. Keep parts in proportion: thin plates and slim bars, not "
     "chunky blocks. Attach by contact: a part's face lies exactly on the surface it is mounted on, no gap and no overlap "
     "(hidden contact faces are removed at export); two parts on the same surface must not share area, so where one crosses "
     "another, mount it on the other's face. Set collider false on small detail parts. A modular-kit piece's metric in the "
@@ -230,7 +238,7 @@ def build_stage_agent(
 
 class PartPlan(pydantic.BaseModel):
     name: str
-    primitive: Literal["box", "cylinder", "cone", "sphere", "capsule", "group", "mesh_ref"]
+    primitive: Literal["box", "cylinder", "cone", "sphere", "capsule", "lathe", "extrude", "group", "mesh_ref"]
     approx_size_m: tuple[float, float, float]
     notes: str = ""
 

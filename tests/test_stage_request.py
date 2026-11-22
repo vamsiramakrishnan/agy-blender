@@ -37,8 +37,16 @@ from antigravity3d.harness import tools as T
 # production prop instead of a blockout (measured with the one-shot request: 15-21 parts and 272-356 triangles without
 # them, 63-64 parts and 936-976 triangles with them). That is guidance, not waste, so it is inside the limit; the limit
 # still stops anything else from growing (margin ~100 characters, as before).
+# Round five moved BLOCKOUT 8,200 -> 11,400 (measured 11,364), TWEAK 6,600 -> 9,400 (9,334) and VARIANTS 15,500 -> 17,300
+# (17,263), each for the same reasons, measured on this change: (1) the tool declarations carry the new shape parameters
+# and kinds and the mirror / repeat shortcuts: apply_scene_ir's parameters 3,936 -> 5,352 characters, with the
+# parameters' descriptions left out (they are in SHAPE_SEMANTICS; with them it was 5,856 before the shortcuts); (2) the
+# system prompt of every geometry stage carries ir_schema.SHAPE_SEMANTICS (1,342: what each parameter and shortcut
+# means and the kernel's limits, which no schema states); (3) BLOCKOUT's CRAFT_RULES grew 1,103 -> 1,613 (when to bevel,
+# inset, lathe, extrude, mirror and repeat, and what each costs in triangles). All of it is what the stage needs to use
+# the new shapes; the margin is ~100 characters again. LOOKDEV and EXPORT carry none of it and are unchanged.
 #            stage: (before, budget) static chars per call
-STATIC_BUDGET = {"BLOCKOUT": (26_224, 8_200), "TWEAK": (25_351, 6_600), "VARIANTS": (25_946, 15_500),
+STATIC_BUDGET = {"BLOCKOUT": (26_224, 11_400), "TWEAK": (25_351, 9_400), "VARIANTS": (25_946, 17_300),
                  "LOOKDEV": (26_256, 12_500), "EXPORT": (25_914, 2_000)}
 SUBAGENT_TOOLS = {"invoke_subagent", "define_subagent", "manage_subagents", "send_message"}
 DEFAULT_SECTIONS = {"identity", "communication_style", "conversation_transcript", "subagents", "messaging",
@@ -159,4 +167,4 @@ def test_blockout_stage_text_carries_the_craft_rules_and_the_other_geometry_stag
     # TWEAK edits parameters and VARIANTS adds patch alternatives on an already built base: neither is asked for more parts
     for stage in ("TWEAK", "VARIANTS", "LOOKDEV", "EXPORT"):
         assert "Craft rules" not in A._system(stage), stage
-    assert len(A._system("BLOCKOUT")) < 8_200 - 4_000  # the rules are text, the rest of the static size is the tool declarations
+    assert len(A._system("BLOCKOUT")) < 11_400 - 6_000  # the rules are text, the rest of the static size is the tool declarations

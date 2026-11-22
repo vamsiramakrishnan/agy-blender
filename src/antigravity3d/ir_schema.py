@@ -22,14 +22,15 @@ from __future__ import annotations
 import copy
 import functools
 import json
+import re
 from typing import Annotated, Any, Literal, Union, get_args
 
 import annotated_types
-from pydantic import BaseModel, ConfigDict, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
-from antigravity3d import ir
+from antigravity3d import ir, ir_shortcuts
 
 # JSON-schema keywords the Gemini API documents for ``response_json_schema`` (google-genai GenerateContentConfig
 # docstring) and that were accepted live on gemini-4-hydrogen / neon / carbon / argon (see tests/test_ir_schema.py,
@@ -91,13 +92,49 @@ def _derive(name: str, source: type[BaseModel], subst: dict[Any, Any], doc: str 
 WireTransform = _derive("Transform", ir.Transform, {})
 
 
+Axis = Literal["x", "y", "z"]
+RepeatCount = Annotated[int, Field(ge=2, le=ir_shortcuts.MAX_REPEAT)]
+
+
+class RepeatRow(_Wire):
+    count: RepeatCount
+    offset: ir.Vec3
+
+
+class RepeatRing(_Wire):
+    count: RepeatCount
+    around: Axis
+
+
+# The mirror / repeat shortcuts (``ir_shortcuts``): wire-only node fields, expanded into plain nodes by
+# ``scene_from_wire`` / ``patch_from_wire``. Their default is None but their type is not nullable, so the schema the
+# model is constrained by has no ``null`` branch for them: a node without a shortcut simply leaves the field out.
+# ``repeat`` is a row or a ring, each forbidding the other's key (see ir_shortcuts for the live failure behind it).
+SHORTCUT_FIELDS: dict[str, Any] = {
+    "mirror": (Axis, None),
+    "repeat": (Union[RepeatRow, RepeatRing], None),
+}
+assert tuple(SHORTCUT_FIELDS) == ir_shortcuts.SHORTCUT_FIELDS
+
+
+class _WireNode(_Wire):
+    @model_validator(mode="after")
+    def _shortcuts(self) -> "_WireNode":
+        ir_shortcuts.check({"id": self.id, "kind": self.kind, "mirror": self.mirror,
+                            "repeat": None if self.repeat is None else self.repeat.model_dump()})
+        return self
+
+
 def _node_model(kind: str) -> type[_Wire]:
     params = ir.NODE_PARAMS[kind]
     needs = any(f.is_required() for f in params.model_fields.values())
-    return _derive(f"{_camel(kind)}Node", ir.NodeIR, {ir.Transform: WireTransform}, doc=f"A {kind} node.", override={
-        "kind": (Literal[kind], ...),
-        "params": (params, ... if needs else Field(default_factory=params)),
-    })
+    fields: dict[str, Any] = {}
+    for fname, info in ir.NodeIR.model_fields.items():
+        fields[fname] = _field(ir.NodeIR, fname, info, {ir.Transform: WireTransform}.get(info.annotation, info.annotation))
+    fields["kind"] = (Literal[kind], ...)
+    fields["params"] = (params, ... if needs else Field(default_factory=params))
+    fields.update(SHORTCUT_FIELDS)
+    return create_model(f"{_camel(kind)}Node", __base__=_WireNode, __doc__=f"A {kind} node.", **fields)
 
 
 NODE_MODELS: dict[str, type[_Wire]] = {k: _node_model(k) for k in NODE_KINDS}
@@ -139,15 +176,108 @@ WirePatch = _derive("WirePatch", ir.SceneIRDiff, {}, override={
     "ops": _field(ir.SceneIRDiff, "ops", ir.SceneIRDiff.model_fields["ops"], list[WireOp])})
 
 
+# A correction of a design that failed to read (tactics.metered_author: one per candidate): only what must change, as
+# whole wire nodes and materials (an existing id replaces that entry, a new id adds one) and ids to remove, applied to
+# the failed answer before it is read again. Not a whole new design: a large answer (a director's crate was 29,521 output
+# tokens live) would be paid twice, could truncate, and could break parts that were right.
+WireCorrection = create_model(
+    "WireCorrection", __base__=_Wire, __doc__="Replacement nodes / materials and ids to remove.",
+    nodes=(list[WireNode], ...), materials=(list[ir.MaterialIR], ...), remove=(list[ir.NodeId], ...))
+
+
+def correction_response_schema() -> dict[str, Any]:
+    return _api(WireCorrection.model_json_schema())
+
+
+def apply_correction(failed: dict[str, Any], text: str) -> ir.SceneIR:
+    """``failed`` (the answer as written, a JSON object) with the correction ``text`` applied, read as a scene.
+    Raises ValueError (a ValidationError included) naming what is still wrong."""
+    fix = WireCorrection.model_validate_json(text)
+    out = dict(failed)
+    gone = set(fix.remove)
+    for key, new in (("nodes", [_node_wire(n) for n in fix.nodes]), ("materials", [m.model_dump(exclude_none=True) for m in fix.materials])):
+        entries = [e for e in (failed.get(key) or []) if not (isinstance(e, dict) and e.get("id") in gone)]
+        at = {e.get("id"): i for i, e in enumerate(entries) if isinstance(e, dict)}
+        for e in new:
+            if e["id"] in at:
+                entries[at[e["id"]]] = e
+            else:
+                at[e["id"]] = len(entries)
+                entries.append(e)
+        out[key] = entries
+    return parse_scene(json.dumps(out))
+
+
+def _node_wire(node: BaseModel) -> dict[str, Any]:
+    """A wire node as the author wrote it (params unfilled, shortcuts kept), for writing back into an answer."""
+    d = node.model_dump(exclude_none=True)
+    d["params"] = _params_as_written(node)
+    if node.repeat is not None:
+        d["repeat"] = node.repeat.model_dump()
+    return d
+
+
+def located_nodes(failed: dict[str, Any], exc: BaseException) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(nodes, materials) of ``failed`` that ``exc`` points at: a validation error's ``nodes.<i>`` / ``materials.<i>``
+    locations, else every node or material whose id the message names (an expansion or reference error names ids)."""
+    from pydantic import ValidationError
+
+    nodes = [n for n in failed.get("nodes") or [] if isinstance(n, dict)]
+    mats = [m for m in failed.get("materials") or [] if isinstance(m, dict)]
+    ni, mi = set(), set()
+    if isinstance(exc, ValidationError):
+        for e in exc.errors():
+            loc = e.get("loc") or ()
+            if len(loc) >= 2 and loc[0] == "nodes" and isinstance(loc[1], int):
+                ni.add(loc[1])
+            elif len(loc) >= 2 and loc[0] == "materials" and isinstance(loc[1], int):
+                mi.add(loc[1])
+    if not ni and not mi:
+        words = set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", str(exc)))
+        stems = {w.split("__", 1)[0] for w in words}  # a copy's id names the node it was made from
+        ni = {i for i, n in enumerate(nodes) if n.get("id") in words or n.get("id") in stems}
+        mi = {i for i, m in enumerate(mats) if m.get("id") in words}
+    return [nodes[i] for i in sorted(ni) if i < len(nodes)], [mats[i] for i in sorted(mi) if i < len(mats)]
+
+
 # --- conversion back into the public IR types ---------------------------------------------------------------
 
 
+def _params_as_written(node: BaseModel) -> dict[str, Any]:
+    """A node's params exactly as the answer wrote them. ``NodeIR.params`` is free-form, so a typed default filled in
+    here would be written into the scene: a box that never mentions ``bevel`` would come back with ``bevel: 0`` and
+    five other new keys, and a round trip would not be exact. The kernel applies the same defaults (see
+    tests/test_ir_schema.py ``test_kernel_defaults_match_typed_param_defaults``)."""
+    return node.params.model_dump(exclude_unset=True)
+
+
+def _node_dump(node: BaseModel) -> dict[str, Any]:
+    return {**node.model_dump(exclude_none=True), "params": _params_as_written(node)}
+
+
 def scene_from_wire(wire: BaseModel) -> ir.SceneIR:
-    return ir.SceneIR.model_validate(wire.model_dump(exclude_none=True))
+    """The wire scene as ``ir.SceneIR``, mirror / repeat shortcuts expanded into plain nodes (``ir_shortcuts``)."""
+    plain, copies = ir_shortcuts.expand([_node_dump(n) for n in wire.nodes])
+    doc = {**wire.model_dump(exclude_none=True, exclude={"nodes"}), "nodes": plain + [c for _, c in copies]}
+    return ir.SceneIR.model_validate(doc)
 
 
 def patch_from_wire(wire: BaseModel) -> ir.IRPatch:
-    return ir.IRPatch.model_validate(wire.model_dump(exclude_none=True))
+    """The wire patch as ``ir.IRPatch``. Shortcuts on ``upsert_node`` ops expand over the nodes upserted in the same
+    patch (a node already in the scene is not seen here, so its children are copied only when the patch upserts
+    them too); each copy is upserted right after the op that upserted its source node."""
+    ops = [{**op.model_dump(exclude_none=True), **({"node": _node_dump(op.node)} if op.op == "upsert_node" else {})}
+           for op in wire.ops]
+    ups = [i for i, op in enumerate(ops) if op["op"] == "upsert_node"]
+    plain, copies = ir_shortcuts.expand([ops[i]["node"] for i in ups])
+    after: dict[int, list[dict[str, Any]]] = {}
+    for i, node in zip(ups, plain, strict=True):
+        ops[i]["node"] = node
+    last = {ops[i]["node"]["id"]: i for i in ups}
+    for source, copy_ in copies:
+        after.setdefault(last[source], []).append({"op": "upsert_node", "node": copy_})
+    out = [x for i, op in enumerate(ops) for x in (op, *after.get(i, ()))]
+    return ir.IRPatch.model_validate({"ops": out})
 
 
 def parse_scene(text: str) -> ir.SceneIR:
@@ -170,7 +300,83 @@ _API_UNSENT = frozenset({"title", "description"})
 
 def _api(node: Any) -> Any:
     """Reduce a pydantic JSON schema to ``API_SCHEMA_KEYWORDS`` (recursively), then write it compactly."""
-    return _share(_reduce(node))
+    return _share(_merge_alternatives(_inline_once(_reduce(node))))
+
+
+def _merge_alternatives(node: Any) -> Any:
+    """Shorter spellings of an ``anyOf`` that accept the same documents: identical branches once, and branches that
+    differ only in one string enum property merged into one branch with the union of the enums. The case it is for is
+    ``set_param``: one variant per parameter name, so that ``value`` is typed per name, but with the API's bounds
+    (``exclusiveMinimum`` written as ``minimum``) radius, bevel, inset_margin, inset_depth, depth and height take the
+    same value schema, and {name: a, value: T} | {name: b, value: T} is {name: a|b, value: T}. The wire parse still
+    checks each name's own bounds."""
+    if isinstance(node, list):
+        return [_merge_alternatives(x) for x in node]
+    if not isinstance(node, dict):
+        return node
+    node = {k: _merge_alternatives(v) for k, v in node.items()}
+    alts = node.get("anyOf")
+    if not isinstance(alts, list):
+        return node
+    out: list[Any] = []
+    for alt in alts:
+        if alt in out:
+            continue
+        for i, prev in enumerate(out):
+            merged = _enum_union(prev, alt)
+            if merged is not None:
+                out[i] = merged
+                break
+        else:
+            out.append(alt)
+    if len(out) == 1:
+        rest = {k: v for k, v in node.items() if k != "anyOf"}
+        return {**rest, **out[0]} if not set(rest) & set(out[0]) else {**node, "anyOf": out}
+    return {**node, "anyOf": out}
+
+
+def _enum_union(a: Any, b: Any) -> dict[str, Any] | None:
+    """``a`` and ``b`` as one object schema when they differ only in one string-enum property, else None."""
+    if not (isinstance(a, dict) and isinstance(b, dict)) or set(a) != set(b) or "properties" not in a:
+        return None
+    if {k: v for k, v in a.items() if k != "properties"} != {k: v for k, v in b.items() if k != "properties"}:
+        return None
+    pa, pb = a["properties"], b["properties"]
+    if list(pa) != list(pb):
+        return None
+    diff = [k for k in pa if pa[k] != pb[k]]
+    if len(diff) != 1:
+        return None
+    x, y = pa[diff[0]], pb[diff[0]]
+    if not all(set(v) == {"type", "enum"} and v["type"] == "string" for v in (x, y)):
+        return None
+    return {**a, "properties": {**pa, diff[0]: {**x, "enum": list(dict.fromkeys([*x["enum"], *y["enum"]]))}}}
+
+
+def _inline_once(schema: dict[str, Any]) -> dict[str, Any]:
+    """Write a definition referenced exactly once where it is used. pydantic gives every model a definition (each node
+    kind and its params), and a reference plus its definition's key costs about 40 bytes more than the schema in place;
+    the document a schema accepts is the same either way."""
+    defs = schema.get("$defs")
+    if not defs:
+        return schema
+    while True:
+        uses: dict[str, list[tuple[Any, Any]]] = {}
+        for root in (schema, *defs.values()):
+            for container, key in _walk_slots(root):
+                ref = container[key].get("$ref", "")
+                if ref.startswith("#/$defs/"):
+                    uses.setdefault(ref.rsplit("/", 1)[-1], []).append((container, key))
+        once = [name for name, slots in uses.items() if len(slots) == 1]
+        if not once:
+            break
+        for name in once:
+            container, key = uses[name][0]
+            container[key] = defs.pop(name)
+        if not defs:
+            del schema["$defs"]
+            break
+    return schema
 
 
 def _whole(value: Any) -> Any:
@@ -234,6 +440,12 @@ def _shared_name(shape: dict[str, Any], taken: set[str]) -> str:
         name = "Nullable" + str(other.get("type", "Value")).capitalize()
     elif shape.get("type") == "number" and (shape.get("minimum"), shape.get("maximum")) == (0, 1):
         name = "UnitNumber"
+    elif shape.get("type") == "number" and set(shape) == {"type", "minimum"} and shape["minimum"] == 0:
+        name = "NonNeg"
+    elif shape.get("type") == "string" and shape.get("enum") == list(ir_shortcuts.AXES):
+        name = "Axis"
+    elif shape.get("type") == "integer":
+        name = "Count"
     else:
         name = "Shared"
     base, n = name, 1
@@ -263,19 +475,20 @@ def _share(schema: dict[str, Any]) -> dict[str, Any]:
                 sub = container[key]
                 if "$ref" not in sub:
                     seen.setdefault(_dumps(sub), []).append((container, key))
-        best, gain = None, 0
+        best, gain, name = None, 0, ""
         for text, slots in seen.items():
             if len(slots) < 2:
                 continue
-            ref = len('{"$ref":"#/$defs/Vec3NonNeg"}')  # an upper bound on the reference's length
-            g = len(slots) * (len(text) - ref) - len(text) - 20
+            candidate = _shared_name(slots[0][0][slots[0][1]], set(defs))
+            # exact bytes: each slot becomes a reference; the definition is written once, with its key and a comma
+            ref = len(_dumps({"$ref": f"#/$defs/{candidate}"}))
+            g = len(slots) * (len(text) - ref) - (len(text) + len(candidate) + 4)
             if g > gain:
-                best, gain = text, g
+                best, gain, name = text, g, candidate
         if best is None:
             return schema
         slots = seen[best]
         shape = slots[0][0][slots[0][1]]
-        name = _shared_name(shape, set(defs))
         for container, key in slots:
             container[key] = {"$ref": f"#/$defs/{name}"}
         defs[name] = shape
@@ -353,7 +566,7 @@ def _ref_label(name: str) -> str:
         return "node"
     if name in {m.__name__ for m in OP_MODELS}:
         return "op"
-    return {"Transform": "transform", "MaterialIR": "material"}.get(name, name)
+    return {"Transform": "transform", "MaterialIR": "material", "RepeatRow": "row", "RepeatRing": "ring"}.get(name, name)
 
 
 def field_types(schema: dict[str, Any], obj: dict[str, Any]) -> dict[str, str]:
@@ -384,6 +597,26 @@ IR_SEMANTICS = (
     "emissive_strength need a non-black emissive_color; transmission (thin glass) needs metallic < 1; clearcoat_roughness "
     "needs clearcoat > 0; sheen_roughness needs sheen_color; double_sided for thin shells (leaves, cloth, decals)."
 )
+# What the shape parameters and the node shortcuts mean, for every geometry-editing request (the one-shot author through
+# ``ir_rules_text``, the BLOCKOUT / TWEAK / VARIANTS stage agents through harness.agents); LOOKDEV, which edits
+# materials only, does not carry it. The response schema has no descriptions (``_API_UNSENT``) and the tool schema
+# drops the params' (``_lean_params``), so this is the one place a model reads them. The limits are the kernel's
+# (kernel/compile_ir.py refuses a design outside them with a message): stating them here saves a failed candidate.
+SHAPE_SEMANTICS = (
+    "box bevel: radius (m) of the rounding on all 12 edges, below half the smallest size; bevel_segments 1 = a flat "
+    "chamfer, 2-4 = a rounded edge (cylinder bevel / bevel_segments: both cap rims). box inset_faces (\"+x\" ... \"-z\"): "
+    "each gets a recessed panel, a frame inset_margin wide (> 0) left at the face and the panel inset_depth below it; "
+    "on two neighbouring faces keep inset_depth <= bevel + inset_margin. lathe profile [[radius, z], ...]: the outline "
+    "from top to bottom, turned about local Z; an end at radius 0 closes on the axis, an end off it is capped flat, no "
+    "other point touches the axis; closed true: the points are a loop that never touches the axis (tube, ring, tyre). "
+    "extrude outline [[x, y], ...]: corners of a simple polygon in local XY, counter-clockwise, pushed depth along "
+    "local Z, centred. Shortcuts on any node, expanded into plain nodes when read: mirror \"x\"|\"y\"|\"z\" adds the "
+    "node and its children reflected through that axis's plane at the parent's origin (the part must lie on one side "
+    "of it); repeat {count: n, offset: [dx, "
+    "dy, dz]} is a row (copy k moved k offsets), {count: n, around: \"x\"|\"y\"|\"z\"} a ring of n about that axis "
+    "through the parent's origin, n 2-32 with the original; repeat comes before mirror; a mesh_ref cannot be mirrored. "
+    "Copies are named id__r1, id__mx, id__r1__mx, a copied child parent_copy__child."
+)
 # Sent with the authoring request only (``ir_rules_text``), not in IR_SEMANTICS, which every stage agent carries.
 # The pair in it is from a live run (2026-11-21): the author wrote "tarnished military brass hardware" and the image
 # model drew hinges and latches; "olive drab painted steel, scuffed and chipped" in the same run came back as a surface.
@@ -403,7 +636,7 @@ def ir_rules_text() -> str:
     """Prose description of the IR for model prompts, generated from the wire schema (fields AND types)."""
     scene, patch = raw_schema("scene"), raw_schema("patch")
     defs = scene["$defs"]
-    lines = [IR_SEMANTICS, "Types below: ? marks an optional field, =x its default, [a,b,c] a fixed-length array.",
+    lines = [IR_SEMANTICS, SHAPE_SEMANTICS, "Types below: ? marks an optional field, =x its default, [a,b,c] a fixed-length array.",
              "scene: " + _obj_line(scene, scene)]
     node_any = scene["properties"]["nodes"]["items"]
     alts = [_resolve(scene, alt)[1] for alt in node_any.get("oneOf", node_any.get("anyOf", []))]
@@ -411,6 +644,7 @@ def ir_rules_text() -> str:
     common.pop("kind"), common.pop("params")
     lines.append("node: {kind, params, " + ", ".join(f"{k}: {v}" for k, v in common.items()) + "}")
     lines.append("transform: " + _obj_line(scene, defs["Transform"]))
+    lines.append("repeat: " + " or ".join(_obj_line(scene, defs[m.__name__]) for m in (RepeatRow, RepeatRing)))
     kinds = []
     for alt in alts:
         kind = alt["properties"]["kind"]["const"]
@@ -536,6 +770,12 @@ def _merge(root: dict[str, Any], alts: list[dict[str, Any]], tag: str, doc: str)
             "required": required}
 
 
+def _lean_params(prop: dict[str, Any]) -> dict[str, Any]:
+    """A shape parameter without its description: what it means is in SHAPE_SEMANTICS, which every stage that edits
+    geometry carries in its system prompt (harness.agents), so the declaration would say it a second time per call."""
+    return {k: v for k, v in prop.items() if k != "description"}
+
+
 def _node_schema(root: dict[str, Any]) -> dict[str, Any]:
     alts = root["$defs"]["WireUpsertNode"]["properties"]["node"]["anyOf"]
     node = _merge(root, alts, "kind", "required fields per kind")
@@ -544,9 +784,9 @@ def _node_schema(root: dict[str, Any]) -> dict[str, Any]:
     per_kind = []
     for kind, p in zip([_resolve(root, a)[1]["properties"]["kind"]["const"] for a in alts], params, strict=True):
         for name, prop in p.get("properties", {}).items():
-            merged.setdefault(name, _lean(root, prop))
+            merged.setdefault(name, _lean_params(_lean(root, prop)))
         req = set(p.get("required", ()))
-        fields = [f if f in req else f"{f}?={json.dumps(v['default'])}" if "default" in v else f"{f}?"
+        fields = [f if f in req else f"{f}?={json.dumps(_whole(v['default']))}" if "default" in v else f"{f}?"
                   for f, v in p.get("properties", {}).items()]
         per_kind.append(f"{kind} {{{', '.join(fields)}}}")
     node["properties"]["kind"]["description"] = "params per kind: " + "; ".join(per_kind)

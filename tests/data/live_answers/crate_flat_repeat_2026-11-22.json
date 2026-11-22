@@ -1,0 +1,357 @@
+{
+  "asset_name": "RuggedMilitarySupply",
+  "nodes": [
+    {
+      "id": "crate_body",
+      "kind": "box",
+      "params": {
+        "size": [0.8, 0.5, 0.32],
+        "bevel": 0.012,
+        "bevel_segments": 2,
+        "inset_faces": ["+x", "-x", "+y", "-y"],
+        "inset_margin": 0.04,
+        "inset_depth": 0.012
+      },
+      "transform": {
+        "translate": [0, 0, 0.19]
+      },
+      "material_id": "mat_crate_body",
+      "collider": true
+    },
+    {
+      "id": "crate_lid",
+      "kind": "box",
+      "params": {
+        "size": [0.81, 0.51, 0.06],
+        "bevel": 0.01,
+        "bevel_segments": 2,
+        "inset_faces": ["+z"],
+        "inset_margin": 0.05,
+        "inset_depth": 0.01
+      },
+      "transform": {
+        "translate": [0, 0, 0.38]
+      },
+      "material_id": "mat_crate_body",
+      "collider": true
+    },
+    {
+      "id": "skid_front",
+      "kind": "box",
+      "params": {
+        "size": [0.76, 0.06, 0.03],
+        "bevel": 0.004,
+        "bevel_segments": 1
+      },
+      "transform": {
+        "translate": [0, 0.18, 0.015]
+      },
+      "material_id": "mat_dark_metal",
+      "collider": true,
+      "mirror": "y"
+    },
+    {
+      "id": "corner_guard_bot_py",
+      "kind": "extrude",
+      "params": {
+        "outline": [[0, 0], [0.05, 0], [0.05, 0.008], [0.008, 0.008], [0.008, 0.05], [0, 0.05]],
+        "depth": 0.06
+      },
+      "transform": {
+        "translate": [0.405, 0.255, 0.06],
+        "rotate_euler_deg": [0, 0, 180]
+      },
+      "material_id": "mat_dark_metal",
+      "collider": false,
+      "mirror": "x"
+    },
+    {
+      "id": "corner_guard_bot_ny",
+      "kind": "extrude",
+      "params": {
+        "outline": [[0, 0], [0.05, 0], [0.05, 0.008], [0.008, 0.008], [0.008, 0.05], [0, 0.05]],
+        "depth": 0.06
+      },
+      "transform": {
+        "translate": [0.405, -0.255, 0.06],
+        "rotate_euler_deg": [0, 0, 90]
+      },
+      "material_id": "mat_dark_metal",
+      "collider": false,
+      "mirror": "x"
+    },
+    {
+      "id": "corner_guard_top_py",
+      "kind": "extrude",
+      "params": {
+        "outline": [[0, 0], [0.05, 0], [0.05, 0.008], [0.008, 0.008], [0.008, 0.05], [0, 0.05]],
+        "depth": 0.06
+      },
+      "transform": {
+        "translate": [0.41, 0.26, 0.38],
+        "rotate_euler_deg": [0, 0, 180]
+      },
+      "material_id": "mat_dark_metal",
+      "collider": false,
+      "mirror": "x"
+    },
+    {
+      "id": "corner_guard_top_ny",
+      "kind": "extrude",
+      "params": {
+        "outline": [[0, 0], [0.05, 0], [0.05, 0.008], [0.008, 0.008], [0.008, 0.05], [0, 0.05]],
+        "depth": 0.06
+      },
+      "transform": {
+        "translate": [0.41, -0.26, 0.38],
+        "rotate_euler_deg": [0, 0, 90]
+      },
+      "material_id": "mat_dark_metal",
+      "collider": false,
+      "mirror": "x"
+    },
+    {
+      "id": "rib_front",
+      "kind": "box",
+      "params": {
+        "size": [0.025, 0.012, 0.24],
+        "bevel": 0.003,
+        "bevel_segments": 1
+      },
+      "transform": {
+        "translate": [-0.18, 0.256, 0.19]
+      },
+      "material_id": "mat_crate_body",
+      "collider": false,
+      "repeat_count": 2,
+      "repeat_offset": [0.36, 0, 0],
+      "repeat_around": "z"
+    },
+    {
+      "id": "latch_group",
+      "kind": "group",
+      "transform": {
+        "translate": [0.22, -0.25, 0.35]
+      },
+      "mirror": "x"
+    },
+    {
+      "id": "latch_base",
+      "kind": "box",
+      "params": {
+        "size": [0.05, 0.008, 0.07],
+        "bevel": 0.002,
+        "bevel_segments": 1
+      },
+      "transform": {
+        "translate": [0, -0.004, -0.04]
+      },
+      "parent": "latch_group",
+      "material_id": "mat_dark_metal",
+      "collider": false
+    },
+    {
+      "id": "latch_hinge",
+      "kind": "cylinder",
+      "params": {
+        "radius": 0.006,
+        "height": 0.05,
+        "segments": 8
+      },
+      "transform": {
+        "translate": [0, -0.01, -0.01],
+        "rotate_euler_deg": [0, 90, 0]
+      },
+      "parent": "latch_group",
+      "material_id": "mat_brass_latch",
+      "collider": false
+    },
+    {
+      "id": "latch_clasp",
+      "kind": "box",
+      "params": {
+        "size": [0.036, 0.008, 0.055],
+        "bevel": 0.002,
+        "bevel_segments": 1
+      },
+      "transform": {
+        "translate": [0, -0.012, 0.012]
+      },
+      "parent": "latch_group",
+      "material_id": "mat_brass_latch",
+      "collider": false
+    },
+    {
+      "id": "latch_catch",
+      "kind": "box",
+      "params": {
+        "size": [0.04, 0.012, 0.018],
+        "bevel": 0.002,
+        "bevel_segments": 1
+      },
+      "transform": {
+        "translate": [0, -0.006, 0.035]
+      },
+      "parent": "latch_group",
+      "material_id": "mat_dark_metal",
+      "collider": false
+    },
+    {
+      "id": "hinge_group",
+      "kind": "group",
+      "transform": {
+        "translate": [0.24, 0.25, 0.35]
+      },
+      "mirror": "x"
+    },
+    {
+      "id": "hinge_plate_bot",
+      "kind": "box",
+      "params": {
+        "size": [0.06, 0.008, 0.04],
+        "bevel": 0.002,
+        "bevel_segments": 1
+      },
+      "transform": {
+        "translate": [0, 0.004, -0.022]
+      },
+      "parent": "hinge_group",
+      "material_id": "mat_dark_metal",
+      "collider": false
+    },
+    {
+      "id": "hinge_plate_top",
+      "kind": "box",
+      "params": {
+        "size": [0.06, 0.008, 0.03],
+        "bevel": 0.002,
+        "bevel_segments": 1
+      },
+      "transform": {
+        "translate": [0, 0.004, 0.018]
+      },
+      "parent": "hinge_group",
+      "material_id": "mat_dark_metal",
+      "collider": false
+    },
+    {
+      "id": "hinge_barrel",
+      "kind": "cylinder",
+      "params": {
+        "radius": 0.007,
+        "height": 0.064,
+        "segments": 8
+      },
+      "transform": {
+        "translate": [0, 0.009, 0],
+        "rotate_euler_deg": [0, 90, 0]
+      },
+      "parent": "hinge_group",
+      "material_id": "mat_brass_latch",
+      "collider": false
+    },
+    {
+      "id": "handle_group",
+      "kind": "group",
+      "transform": {
+        "translate": [0.4, 0, 0.22]
+      },
+      "mirror": "x"
+    },
+    {
+      "id": "handle_bracket",
+      "kind": "box",
+      "params": {
+        "size": [0.018, 0.024, 0.04],
+        "bevel": 0.002,
+        "bevel_segments": 1
+      },
+      "transform": {
+        "translate": [0.009, -0.08, 0]
+      },
+      "parent": "handle_group",
+      "material_id": "mat_dark_metal",
+      "collider": false,
+      "mirror": "y"
+    },
+    {
+      "id": "handle_bar",
+      "kind": "cylinder",
+      "params": {
+        "radius": 0.007,
+        "height": 0.17,
+        "segments": 8
+      },
+      "transform": {
+        "translate": [0.022, 0, 0],
+        "rotate_euler_deg": [90, 0, 0]
+      },
+      "parent": "handle_group",
+      "material_id": "mat_dark_metal",
+      "collider": false
+    },
+    {
+      "id": "handle_grip",
+      "kind": "cylinder",
+      "params": {
+        "radius": 0.012,
+        "height": 0.1,
+        "segments": 10
+      },
+      "transform": {
+        "translate": [0.022, 0, 0],
+        "rotate_euler_deg": [90, 0, 0]
+      },
+      "parent": "handle_group",
+      "material_id": "mat_rubber_grip",
+      "collider": false
+    },
+    {
+      "id": "bolt_lid",
+      "kind": "cylinder",
+      "params": {
+        "radius": 0.006,
+        "height": 0.005,
+        "segments": 6
+      },
+      "transform": {
+        "translate": [-0.3, 0.21, 0.4125]
+      },
+      "material_id": "mat_brass_latch",
+      "collider": false,
+      "mirror": "y",
+      "repeat_count": 4,
+      "repeat_offset": [0.2, 0, 0]
+    }
+  ],
+  "materials": [
+    {
+      "id": "mat_crate_body",
+      "surface": "olive drab powder-coated steel",
+      "base_color": [0.18, 0.22, 0.14],
+      "metallic": 0.25,
+      "roughness": 0.55
+    },
+    {
+      "id": "mat_dark_metal",
+      "surface": "matte black anodized steel",
+      "base_color": [0.08, 0.08, 0.09],
+      "metallic": 0.85,
+      "roughness": 0.38
+    },
+    {
+      "id": "mat_rubber_grip",
+      "surface": "textured black vulcanized rubber",
+      "base_color": [0.05, 0.05, 0.05],
+      "metallic": 0,
+      "roughness": 0.82
+    },
+    {
+      "id": "mat_brass_latch",
+      "surface": "weathered dull brass",
+      "base_color": [0.55, 0.43, 0.18],
+      "metallic": 0.88,
+      "roughness": 0.35
+    }
+  ]
+}

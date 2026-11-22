@@ -24,7 +24,7 @@ from google.antigravity.tools.tool_context import ToolContext
 from google.antigravity.tools.tool_runner import ToolWithSchema
 from PIL import Image
 
-from antigravity3d import ir, ir_schema
+from antigravity3d import ir, ir_schema, ir_shortcuts
 from antigravity3d.adapters.blender_5_3.linter import UnsafeScriptError, assert_safe
 from antigravity3d.adapters.engines.validators import (
     MIN_SILHOUETTE_IOU,
@@ -309,6 +309,21 @@ def _edit(s: Session, ops: Any) -> tuple[Callable[[], str], int, Callable[[list]
             lambda more: (lambda: s.stage.apply_patch(IRPatch(ops=[*patch.ops, *more]))))
 
 
+def _copies(ops: Any) -> str:
+    """The ids a mirror / repeat in ``ops`` made, for the reply: the agent edits a copy by its id afterwards."""
+    payload = _decoded(ops, "ops")
+    payload = payload.get("ops", payload.get("nodes", [])) if isinstance(payload, dict) else payload
+    nodes = [o.get("node", o) for o in payload if isinstance(o, dict)] if isinstance(payload, list) else []
+    if not any(isinstance(n, dict) and ir_shortcuts.has_shortcuts(n) for n in nodes):
+        return ""
+    try:
+        made = [c["id"] for _, c in ir_shortcuts.expand([n for n in nodes if isinstance(n, dict) and "id" in n])[1]]
+    except (ValueError, KeyError, TypeError):
+        return ""  # the edit itself reports what is wrong
+    shown = ",".join(made[:12]) + (f",+{len(made) - 12}" if len(made) > 12 else "")
+    return f" copies={shown}"
+
+
 def _material_refs(materials: list[Any]) -> list[str]:
     return [m[k] for m in materials if isinstance(m, dict) for k in MAP_KEYS if isinstance(m.get(k), str)]
 
@@ -350,7 +365,7 @@ async def apply_scene_ir(ops: list[dict[str, Any]] | dict[str, Any] | str, ctx: 
         nodes = len(s.stage.base_ir().nodes)
     if tid is None:
         return f"ROLLED BACK {rep.one_line(200)}"
-    return f"OK tx={tid} ops={n} nodes={nodes} {_stats(rep)}{_warn(rep)}" + "".join(f" | {x}" for x in note)
+    return f"OK tx={tid} ops={n} nodes={nodes}{_copies(ops)} {_stats(rep)}{_warn(rep)}" + "".join(f" | {x}" for x in note)
 
 
 @_guard

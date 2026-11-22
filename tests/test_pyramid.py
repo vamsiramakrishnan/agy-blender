@@ -317,7 +317,17 @@ async def test_blocked_repair_is_not_escalated(tmp_path: Path, monkeypatch) -> N
 
 async def test_director_retry_that_cannot_be_admitted_is_recorded(tmp_path: Path, monkeypatch) -> None:
     ep = TierEndpoint({tier("worker").model: "MAX_TOKENS", tier("director").model: "STOP"})
-    gov = Governor(replace(plan_for(2), ceiling_usd=0.06))  # the worker's worst case fits, the director's does not
+    # The ceiling sits halfway between the two repair worst cases at the test's rates ($1/M in, $2/M out; 100 counted
+    # input tokens plus the patch schema's bound), so the worker's fits and the director's does not. It was a fixed
+    # 0.06, sized when the patch schema was 9,317 bytes (worker 0.0586); round five's schema (new shapes, shortcuts)
+    # puts the worker at 0.0605 and the director at 0.0770, so it is derived from the schema now.
+    from antigravity3d.ir_schema import patch_response_schema
+    from antigravity3d.tactics.metered_author import output_budget, schema_input_token_bound
+
+    worst = {r: ((100 + schema_input_token_bound(patch_response_schema())) * 1 + output_budget(r).max_output_tokens * 2) / 1e6
+             for r in ("worker", "director")}
+    assert worst["worker"] < worst["director"]
+    gov = Governor(replace(plan_for(2), ceiling_usd=(worst["worker"] + worst["director"]) / 2))
     sm, plane = setup(tmp_path, broken_script(ep))
     res = await run_a(sm, plane, metered(monkeypatch, ep, gov), tmp_path, governor=gov)
     assert ep.models == [tier("worker").model] and "director retry not admitted" in res.stopped["A"]

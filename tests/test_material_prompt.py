@@ -162,7 +162,8 @@ def test_the_authoring_request_asks_for_surface_words_and_costs_little():
     req = build_author_request("worker", "propose", task, budget=EngineBudget("unreal_5"), context={}, timeout_s=90)
     text = req.contents[0].parts[0].text
     assert ir_schema.SURFACE_RULE in text and "never object parts, shapes or layout" in text
-    assert "surface" in req.schema["$defs"]["MaterialIR"]["properties"]
+    material = req.schema["properties"]["materials"]["items"]  # written in place: the scene schema uses it once
+    assert "surface" in req.schema["$defs"][material["$ref"].rsplit("/", 1)[-1]]["properties"] if "$ref" in material else "surface" in material["properties"]
     # Measured 2026-11-21: propose text 4,029 -> 4,234 chars; scene schema 6,064 -> 6,092 bytes (pin < 6,500).
     assert len(ir_schema.SURFACE_RULE.encode()) <= 200
     assert ir_schema.SURFACE_RULE not in ir_schema.IR_SEMANTICS  # not repeated into every stage agent's prompt

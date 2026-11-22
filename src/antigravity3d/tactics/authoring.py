@@ -19,15 +19,16 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 
 from antigravity3d.ir import (
-    IRPatch, IROp, MaterialIR, NodeIR, SceneIR, SetParam, SetTransform, Transform, UpsertMaterial, UpsertNode, apply_patch,
+    NODE_PARAMS, IRPatch, IROp, MaterialIR, NodeIR, SceneIR, SetParam, SetTransform, Transform, UpsertMaterial, UpsertNode, apply_patch,
 )
 from antigravity3d import service_answer
+from antigravity3d.ir_shortcuts import local_bounds
 from antigravity3d.kernel.compile_ir import primitive_mesh
 from antigravity3d.kernel.settle import beside_a_part
 from antigravity3d.state import EngineBudget
 
 GROUND_TOL = 0.01
-CURVED = ("cylinder", "cone", "sphere", "capsule")
+CURVED = ("cylinder", "cone", "sphere", "capsule", "lathe")  # kinds with a segments count (_shrink lowers it)
 STAGE_TIMEOUT_S = 300.0  # harness stage-agent session (a different path from the governed one-shot calls)
 
 
@@ -57,17 +58,9 @@ def _local(t: Transform) -> np.ndarray:
     return m
 
 
-def _half(n: NodeIR) -> np.ndarray | None:
-    p = n.params
-    if n.kind == "box":
-        return np.asarray(p["size"], float) / 2
-    if n.kind in ("cylinder", "cone"):
-        return np.array([p["radius"], p["radius"], float(p["height"]) / 2])
-    if n.kind == "sphere":
-        return np.full(3, float(p["radius"]))
-    if n.kind == "capsule":
-        return np.array([p["radius"], p["radius"], float(p["height"]) / 2 + float(p["radius"])])
-    return None
+def _local_box(n: NodeIR) -> tuple[np.ndarray, np.ndarray] | None:
+    """(lo, hi) of a geometric node in its own frame; None for a group or a mesh_ref."""
+    return local_bounds(n.kind, n.params)
 
 
 def world_bounds(scene: SceneIR) -> dict[str, tuple[np.ndarray, np.ndarray]]:
@@ -83,10 +76,10 @@ def world_bounds(scene: SceneIR) -> dict[str, tuple[np.ndarray, np.ndarray]]:
 
     out: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     for n in scene.nodes:
-        h = _half(n)
-        if h is None:
+        box = _local_box(n)
+        if box is None:
             continue
-        corners = np.array([[sx, sy, sz] for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]) * h
+        corners = np.array([[x, y, z] for x in (box[0][0], box[1][0]) for y in (box[0][1], box[1][1]) for z in (box[0][2], box[1][2])])
         w = (mat(n.id) @ np.c_[corners, np.ones(8)].T).T[:, :3]
         out[n.id] = (w.min(0), w.max(0))
     return out
@@ -111,8 +104,39 @@ def _move(scene: SceneIR, node_id: str, delta: np.ndarray) -> SetTransform:
         translate=tuple(float(x) for x in np.array(t.translate) + d), rotate_euler_deg=t.rotate_euler_deg, scale=t.scale))
 
 
+def _estimated_triangles(node: NodeIR) -> int:
+    """Triangles of a node from its parameters, the kernel's formulas (s = bevel_segments, n = segments): box 12, a
+    bevel adds 16 s^2 + 16 s, each inset face 16; cylinder 4 n, bevelled n (4 s + 4); lathe n per band that meets the
+    axis plus n per flat end cap, 2 n per other band, a closed profile of m points 2 n m; extrude 4 k - 4 for k
+    corners. Used only until kernel.compile_ir.triangle_count exists (then that is the one source)."""
+    p = node.params
+    if node.kind in ("group", "mesh_ref"):
+        return 0
+    s = int(p.get("bevel_segments", 1))
+    bevelled = float(p.get("bevel", 0) or 0) > 0
+    if node.kind == "box":
+        return 12 + (16 * s * s + 16 * s if bevelled else 0) + 16 * len(p.get("inset_faces") or ())
+    if node.kind == "cylinder" and bevelled:
+        return int(p.get("segments", 24)) * (4 * s + 4)
+    if node.kind == "lathe":
+        n, prof = int(p.get("segments", 16)), [(float(r), float(z)) for r, z in p["profile"]]
+        if p.get("closed"):
+            return 2 * n * len(prof)
+        bands = sum(n if 0.0 in (a[0], b[0]) else 2 * n for a, b in zip(prof, prof[1:]))
+        return bands + n * sum(1 for end in (prof[0], prof[-1]) if end[0] > 0)
+    if node.kind == "extrude":
+        return 4 * len(p["outline"]) - 4
+    return len(primitive_mesh(node)[1])  # the old kinds: the kernel's own mesh, exact
+
+
+try:  # the kernel's cost function is the single source once it exists
+    from antigravity3d.kernel.compile_ir import triangle_count as tri_cost
+except ImportError:
+    tri_cost = _estimated_triangles
+
+
 def count_tris(scene: SceneIR) -> int:
-    return sum(len(primitive_mesh(n)[1]) for n in scene.nodes if n.kind in ("box", *CURVED))
+    return sum(tri_cost(n) for n in scene.nodes)
 
 
 # --------------------------------------------------------------------------- mechanical repairs
@@ -163,13 +187,17 @@ def _shrink(scene: SceneIR, max_tris: int) -> list[IROp]:
         if tris <= target:
             break
         k = max(0.25, math.sqrt(target / tris))
-        step: list[IROp] = []
-        for n in cur.nodes:
+        # rounded bevels go to a chamfer first: they cost the most per part and change no silhouette
+        step: list[IROp] = [SetParam(node_id=n.id, name="bevel_segments", value=1) for n in cur.nodes
+                            if n.params.get("bevel") and int(n.params.get("bevel_segments", 1)) > 1]
+        for n in cur.nodes if not step else ():
             if n.kind not in CURVED:
                 continue
-            for name, floor, default in (("segments", 8, 24 if n.kind != "capsule" else 16), ("rings", 6, 12)):
-                if name == "rings" and n.kind != "sphere":
+            fields = NODE_PARAMS[n.kind].model_fields
+            for name, floor in (("segments", 8), ("rings", 6)):
+                if name not in fields:
                     continue
+                default = fields[name].default
                 v = int(n.params.get(name, default))
                 nv = max(floor, int(v * k))
                 if nv < v:
