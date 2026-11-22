@@ -175,6 +175,7 @@ class PlaneStats:
     measured_knee_overruns: int = 0
     cost_usd: float = 0.0
     retries: int = 0
+    hedges: int = 0  # design judgements asked a second time because the first ran long (engine.HEDGE_AFTER_S)
     latencies_ms: list[float] = field(default_factory=list)
     by_tag: dict[str, int] = field(default_factory=dict)
 

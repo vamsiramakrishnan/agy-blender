@@ -298,13 +298,12 @@ def check_preview_limits(token_ceiling: Any, max_images: Any) -> None:
 def preview_resources(workdir: Path, plane: Any, forge: Any, ledger: Governor, thresholds: Thresholds | None,
                       token_ceiling: int | None, max_images: int | None) -> tuple[Any, Any, Governor, Thresholds]:
     """Plane, forge, ledger and thresholds of a preview: a token ledger with the image limit, the plane's preview copy
-    (an uncalibrated judge may steer it) and the thresholds with ``trust_uncalibrated`` set for this session only."""
-    from dataclasses import replace
-
+    (an uncalibrated judge may steer it) and the thresholds as an uncalibrated judge is read
+    (``Thresholds.for_uncalibrated_judge``), for this session only."""
     check_preview_limits(token_ceiling, max_images)
     tokens = Governor(ledger.plan, journal=Path(workdir) / PREVIEW_JOURNAL, token_ceiling=token_ceiling, max_images=max_images)
     return (plane.preview_copy() if plane is not None else None, forge.with_governor(tokens) if forge is not None else None,
-            tokens, replace(thresholds or Thresholds(), trust_uncalibrated=True))
+            tokens, (thresholds or Thresholds()).for_uncalibrated_judge())
 
 
 def switch_to_preview(registry: SceneSessionRegistry, session_id: str, token_ceiling: int, max_images: int) -> Session:

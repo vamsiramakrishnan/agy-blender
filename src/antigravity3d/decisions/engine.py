@@ -80,6 +80,16 @@ MAX_LOCATE_QUESTIONS = 500  # defects x badges per locate_defects request
 LOCATE_MIN_P = 0.5
 
 RETRYABLE_CODES = {408, 429, 500, 502, 503, 504}
+# A design judgement (separate views: a ranking candidate, a blockout review) still unanswered after this long is sent a
+# second time alongside the first, and whichever answers first is taken; the other is cancelled. From 318 live judge
+# calls on 2026-11-22 (r5/live judge_truth, judge_views, judge_wire, judge_design; retries included): median 22 s, p95 52 s,
+# p99 80 s, and three far out: 186, 194 and 335 s. A ranking waits for its slowest candidate, so one such call held a
+# ranking for 335 s where its other two answered in 45 and 75 s. At 90 s no call of the 315 others would have been asked
+# again (one in a hundred at most); the three long ones would have had an answer near 90 + 22 s. The cancelled request
+# keeps its whole reservation (its outcome at the service is unknown, as for any cancellation), so a hedge costs at most
+# one more worst-case booking; ``PlaneStats.hedges`` counts them. The second request is admitted only if the ceiling has
+# room for it now: it never waits, and when refused the first is waited for as before.
+HEDGE_AFTER_S = 90.0
 
 # The brief (the user's request) as the judge sees it: quoted in the input, bounded, cleaned. It is user text inside a
 # judge request, so it is framed as data and stripped of what could pass for the request's own structure.
@@ -224,17 +234,20 @@ class DecisionControlPlane:
 
     def __init__(self, client: Any, model: str = DEFAULT_MODEL, *, max_retries: int = 3,
                  sleep: Callable[[float], Awaitable[Any]] | None = None, backend_kind: str | None = None,
-                 preview: bool = False, retry: service_answer.RetryPolicy | None = None) -> None:
+                 preview: bool = False, retry: service_answer.RetryPolicy | None = None,
+                 hedge_after_s: float | None = HEDGE_AFTER_S) -> None:
         """Retries follow the shared schedule (``service_answer``): an answer that says the request was not served books
         nothing and is retried up to ``retry.not_served_retries`` times; a failure whose outcome is unknown keeps its
         reservation and is retried up to ``max_retries`` times. ``sleep`` (default: the policy's) is for tests;
-        ``retry`` replaces the shared policy (``service_answer.NO_RETRY`` sends every call once)."""
+        ``retry`` replaces the shared policy (``service_answer.NO_RETRY`` sends every call once). ``hedge_after_s``: when a
+        design judgement is asked a second time (``_hedged``); None never."""
         self._client, self.model = client, model
         self.backend_kind = backend_kind or _infer_backend_kind(client)
         self.max_retries, self._sleep, self.retry = max_retries, sleep, retry
         self.stats = PlaneStats()
         self.preview = bool(preview)
         self.hard_policy_flags: list[str] = []  # hard policy flags an uncalibrated preview judge raised (they fail a preview)
+        self.hedge_after_s = hedge_after_s
 
     @property
     def calibrated(self) -> bool:
@@ -426,9 +439,52 @@ class DecisionControlPlane:
                 raise DecisionError(f"{tag}: invalid choice for {qid}")
         return result
 
+    async def _hedged(self, input_blocks: Sequence[Block], questions: dict[str, Q.Question], *, tag: str,
+                      governor: Governor | None = None, charge_as: str | None = None,
+                      on_settle: Callable[[float], None] | None = None, wait: bool = False) -> DecisionResult:
+        """``evaluate``, asked a second time when the first has no answer after ``hedge_after_s`` (see ``HEDGE_AFTER_S``):
+        the first answer is returned (its ``attempts`` counts the extra request) and the other request is cancelled. The
+        second request does not wait for admission; refused, it is dropped and the first is waited for. When both fail,
+        the first's error is raised."""
+        def run(first: bool) -> asyncio.Future[DecisionResult]:
+            return asyncio.ensure_future(self.evaluate(input_blocks, questions, tag=tag, governor=governor, charge_as=charge_as,
+                                                       on_settle=on_settle, wait=wait and first))
+
+        one = run(True)
+        if self.hedge_after_s is None:
+            return await one
+        two: asyncio.Future[DecisionResult] | None = None
+        try:
+            done, _ = await asyncio.wait({one}, timeout=self.hedge_after_s)
+            if done:
+                return one.result()
+            log.warning("decision %r: no answer after %.0f s; asking a second time alongside the first", tag, self.hedge_after_s)
+            two = run(False)
+            pending: set[asyncio.Future[DecisionResult]] = {one, two}
+            errors: dict[int, BaseException] = {}
+            while pending:
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    if task.exception() is None:
+                        for other in pending:
+                            other.cancel()
+                        await asyncio.gather(*pending, return_exceptions=True)
+                        # the second request counts when it was sent: not when admission refused it (it never waits)
+                        refused = two.done() and not two.cancelled() and any(
+                            k.__name__ == "BudgetExceeded" for k in type(two.exception() or object()).__mro__)
+                        self.stats.hedges += not refused
+                        return replace(task.result(), attempts=task.result().attempts + (not refused))
+                    errors[0 if task is one else 1] = task.exception()  # type: ignore[assignment]
+            raise errors.get(0) or errors[1]
+        except asyncio.CancelledError:
+            for task in (one, two):
+                if task is not None:
+                    task.cancel()
+            raise
+
     async def _evaluate_sheet(self, blocks: Sequence[Block], questions: dict[str, Q.Question], *, tag: str,
                               governor: Governor | None = None, charge_as: str | None = None,
-                              on_settle: Callable[[float], None] | None = None) -> DecisionResult:
+                              on_settle: Callable[[float], None] | None = None, hedge: bool = False) -> DecisionResult:
         """Keep all checks in one call when they fit. Share the same image ordinals across overflow packets."""
         packets: list[dict[str, Q.Question]] = []
         packet: dict[str, Q.Question] = {}
@@ -443,8 +499,9 @@ class DecisionControlPlane:
                 packet = proposal
         packets.append(packet)
         started = time.perf_counter()
-        results = [await self.evaluate(blocks, part, tag=tag, governor=governor, charge_as=charge_as,
-                                       on_settle=on_settle) for part in packets]
+        ask = self._hedged if hedge else self.evaluate
+        results = [await ask(blocks, part, tag=tag, governor=governor, charge_as=charge_as,
+                             on_settle=on_settle) for part in packets]
         if len(results) == 1:
             return results[0]
         return replace(results[0], answers={k: v for r in results for k, v in r.answers.items()},
@@ -510,7 +567,8 @@ class DecisionControlPlane:
         asked, skipped = Q.select(Q.VISUAL_QA_QUESTIONS, stage=stage, have=have, labels=labels, subjects=subjects)
         if "brief" not in have:  # without a brief its questions do not apply: the result reads as it always did
             skipped = tuple(q for q in skipped if "brief" not in Q.VISUAL_QA_QUESTIONS[q].needs)
-        res = await self._evaluate_sheet(blocks, asked, tag=f"visual_qa:{stage}", governor=governor, charge_as="visual_qa")
+        res = await self._evaluate_sheet(blocks, asked, tag=f"visual_qa:{stage}", governor=governor, charge_as="visual_qa",
+                                         hedge=views is not None)  # a design judgement: see HEDGE_AFTER_S
         na = res.answers.get("next_action")
         return VisualQAResult(
             stage=stage, defects={k: v for k, v in res.by_prefix("defect_").items()},  # type: ignore[misc]
@@ -550,8 +608,9 @@ class DecisionControlPlane:
                 return [CandidateScore(i, candidate_uris[i], kind, blocked=True, policy=verdict) for i in range(first, end)]
             charges: list[float] = []
             try:
-                result = await self.evaluate(images, asked, tag=f"bon:{kind}", governor=governor,
-                                             charge_as=f"{kind}_vision", on_settle=charges.append, wait=per_view)
+                ask = self._hedged if per_view else self.evaluate  # a design judgement: see HEDGE_AFTER_S
+                result = await ask(images, asked, tag=f"bon:{kind}", governor=governor,
+                                   charge_as=f"{kind}_vision", on_settle=charges.append, wait=per_view)
             except PromptBlockedError as exc:
                 verdict = PolicyVerdict(False, True, {}, True, (f"input filter: {exc.reason}",))
                 return [CandidateScore(i, candidate_uris[i], kind, blocked=True, result=exc.result, policy=verdict, billed_on_error=sum(charges) if i == first and not exc.result else 0.0)

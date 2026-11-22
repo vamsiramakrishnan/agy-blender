@@ -111,17 +111,46 @@ def test_free_box_equals_the_brute_force_search():
 
 # ---- what the judge is shown -------------------------------------------------------------------------------------
 
-def test_render_design_views_are_the_measured_images_and_badged_ones_share_the_render():
+def _rgb(png: bytes) -> np.ndarray:
+    return np.asarray(Image.open(io.BytesIO(png)).convert("RGB"))
+
+
+def test_render_design_wire_style_is_the_measured_image_and_badges_share_a_render_of_one_style():
+    """Style "wire" is the image measured on 2026-11-22 (contact_sheet of one view, cropped); badged views drawn in the
+    judge's own style differ from its views by the badges alone."""
     ms = crate()
-    r = judging.render_design(ms, size=128)
+    r = judging.render_design(ms, size=128, style="wire")
     assert [n for n, _ in r.plain] == [n for n, _ in r.marked] == list(JUDGE_VIEWS)
     for (name, png), (_, badged) in zip(r.plain, r.marked):
-        got = np.asarray(Image.open(io.BytesIO(png)).convert("RGB"))
-        if name != "persp_rear":  # the live measurement's single views: contact_sheet of one view, cropped
-            assert np.array_equal(got, np.asarray(contact_sheet(ms, views=(name,), size=128).crop((0, 0, 128, 128))))
-        diff = (got != np.asarray(Image.open(io.BytesIO(badged)).convert("RGB"))).any(axis=2)
+        if name != "persp_rear":
+            assert np.array_equal(_rgb(png), np.asarray(contact_sheet(ms, views=(name,), size=128).crop((0, 0, 128, 128))))
+        diff = (_rgb(png) != _rgb(badged)).any(axis=2)
         assert diff.any() and diff.mean() < 0.5  # the badges, nothing else redrawn
     assert r.legend == som.assign_badges(ms) and "[01]" in r.legend_text and "persp_rear" in r.legend_text
+
+
+def test_judge_views_are_lit_as_shipped_with_feature_edges():
+    """Changed 2026-11-22 (r5/live/view_style): the judge's views were the wireframe clay above; they are now the design
+    lit with its shipped normals and drawn with its feature edges, and the badged views are the same render."""
+    ms = [md(trimesh.creation.cylinder(0.4, 1.0, sections=32), "drum", (0, 0, 0.5)),
+          md(trimesh.creation.box((0.3, 0.02, 0.3)), "plate", (0, -0.41, 0.5))]
+    r = judging.render_design(ms, size=160)
+    normals = judging.shipped_normals(ms)
+    for (name, png), (_, badged) in zip(r.plain, r.marked):
+        want = render_buffers(ms, name, 160, normals=normals, feature_edges=True).color
+        assert np.array_equal(_rgb(png)[16:-1, 1:-1], want[16:-1, 1:-1])  # all but the label and the frame
+        assert not np.array_equal(want, render_buffers(ms, name, 160, wireframe=True).color)
+        diff = (_rgb(png) != _rgb(badged)).any(axis=2)
+        assert diff.any() and diff.mean() < 0.5  # the badges over the same render
+    # the smooth drum: no line inside its side; the flush plate: its outline is drawn in the author's front view
+    front = render_buffers(ms, "front", 160, normals=normals, feature_edges=True)
+    plain = render_buffers(ms, "front", 160, normals=normals)
+    drawn = (front.color != plain.color).any(axis=2)
+    plate = front.prim_id == 1
+    side = ndimage.binary_erosion(front.prim_id == 0, iterations=2) & ~ndimage.binary_dilation(plate, iterations=2)
+    assert drawn[plate].any() and side.sum() > 1000 and not drawn[side].any()
+    wire = (render_buffers(ms, "front", 160, wireframe=True).color != render_buffers(ms, "front", 160).color).any(axis=2)
+    assert wire[side].any()  # the triangulation the wireframe drew across the same smooth side
 
 
 async def test_judge_design_one_request_of_five_high_views_with_the_brief():
@@ -274,3 +303,53 @@ async def test_geometry_tournament_notes_each_judgement(tmp_path):
     assert set(r.notes["judged"]) == {0, 1, 2} and all(v["attempts"] == 1 for v in r.notes["judged"].values())
     assert r.notes["judging"].startswith("3 candidate(s) judged separately, about ")
     assert r.candidates[r.winner.index].views and len(r.candidates[r.winner.index].views) == 5
+
+
+# ---- a judgement that runs long is asked a second time -------------------------------------------------------------
+
+class _SlowFirst(FakeDecisionsClient):
+    """The n-th request takes delays[n] seconds (the last value after that)."""
+
+    def __init__(self, delays, **kw):
+        super().__init__(**kw)
+        self.delays, self.sent = list(delays), 0
+
+    async def _create(self, model, input, questions):
+        d = self.delays[min(self.sent, len(self.delays) - 1)]
+        self.sent += 1
+        await asyncio.sleep(d)
+        return await super()._create(model, input, questions)
+
+
+async def test_a_long_design_judgement_is_asked_again_and_the_first_answer_taken(tmp_path):
+    gov = Governor(plan_for(0), journal=tmp_path / "spend.db")
+    c = _SlowFirst([5.0, 0.01], input_tokens=7000)
+    p = DecisionControlPlane(c, sleep=_nosleep, backend_kind="decisions", hedge_after_s=0.1)
+    t0 = asyncio.get_running_loop().time()
+    r = await p.evaluate_visual_qa(VIEWS, stage="blockout", governor=gov, brief="a crate")
+    assert asyncio.get_running_loop().time() - t0 < 2.0 and p.stats.hedges == 1 and r.result.attempts == 2
+    statuses = sorted(x["status"] for x in gov.receipts())
+    assert statuses == ["CancelledError", "ok"]  # the abandoned request keeps its whole reservation
+    out = await DecisionControlPlane(_SlowFirst([5.0, 0.01]), hedge_after_s=0.1).rank_candidates("geometry", [VIEWS], brief="a crate")
+    assert out[0].error is None and out[0].result.attempts == 2
+
+
+async def test_no_second_request_when_the_ceiling_has_no_room_for_it(tmp_path):
+    hold = E.MODEL_INPUT_LIMIT * E.PRICE_PER_M_INPUT_USD / 1e6
+    gov = Governor(plan_for(0), journal=tmp_path / "spend.db")
+    gov.charge("previous", gov.remaining - 1.5 * hold)
+    c = _SlowFirst([0.4, 0.01], input_tokens=7000)
+    p = DecisionControlPlane(c, sleep=_nosleep, backend_kind="decisions", hedge_after_s=0.05)
+    r = await p.evaluate_visual_qa(VIEWS, stage="blockout", governor=gov)
+    assert c.sent == 1 and r.result.attempts == 1 and p.stats.hedges == 0  # tried, refused admission, first answered
+
+
+async def test_sheet_requests_and_fast_judgements_are_never_hedged():
+    c = _SlowFirst([0.3])
+    p = DecisionControlPlane(c, hedge_after_s=0.05)
+    await p.evaluate_visual_qa("https://x/s.png", stage="blockout")
+    assert c.sent == 1 and p.stats.hedges == 0
+    c2 = _SlowFirst([0.0])
+    p2 = DecisionControlPlane(c2, hedge_after_s=0.05)
+    await p2.evaluate_visual_qa(VIEWS, stage="blockout")
+    assert c2.sent == 1 and p2.stats.hedges == 0

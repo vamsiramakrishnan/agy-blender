@@ -514,7 +514,7 @@ class _Run:
         if judged is None:
             try:
                 judged = await judge_design(self.plane, meshes, brief=self.prompt or None, governor=self.governor, uploader=self.upload,
-                                             ortho_uri=self.ortho_uri, style_uri=self.style_uri)
+                                             ortho_uri=self.ortho_uri, style_uri=self.style_uri, crease_deg=self.crease)
             except Exception as e:
                 if not _judge_failure(e):
                     raise

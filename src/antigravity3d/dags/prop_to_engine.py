@@ -17,7 +17,7 @@ import json
 import math
 import shutil
 import tempfile
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -137,7 +137,7 @@ class PropToEngineDAG:
         self._before: tuple[float, int] | None = None  # (spend, images) this asset's ledger held before this run
         self.workdir, self.th, self.style_anchor, self.fixlog = Path(workdir), thresholds or Thresholds(), style_anchor, fixlog
         if self.preview_judging:
-            self.th = replace(self.th, trust_uncalibrated=True)
+            self.th = self.th.for_uncalibrated_judge()
         self.max_rounds, self.max_parallel = max_rounds, max_parallel
         self.require_verified = require_verified
         self.single_candidate = single_candidate

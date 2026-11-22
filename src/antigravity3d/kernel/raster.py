@@ -491,8 +491,15 @@ def render_buffers(
     uvs: dict[str, np.ndarray] | None = None,
     camera: Camera | None = None,
     normals: dict[str, np.ndarray] | None = None,
+    feature_edges: bool = False,
+    crease_deg: float = 40.0,
 ) -> RenderBuffers:
     """Single rasterisation path: clay colour plus ID/depth buffers.
+
+    feature_edges: darken the lines a shaded render shows as edges instead of every triangle edge (``wireframe``):
+    each part's outline and its boundary with another part (from the ID buffer), and the edges whose faces meet at
+    more than ``crease_deg`` (the hard edges of the shipped normals, ``compile_ir.crease_normals``), open edges and
+    edges of more than two faces. Not with ``wireframe``.
 
     uvs: node_id -> (V,2) per-vertex UVs; when given, the colour is replaced by a UV
     checker pattern (tiling past [0,1] is visible) for those meshes.
@@ -541,27 +548,94 @@ def render_buffers(
     tri_loc[hit] = tri_start[tri_img[hit]]
     depth[hit] = (-1.0 / zbuf[hit] if persp else zbuf[hit]).astype(np.float32)
 
+    if wireframe and feature_edges:
+        raise ValueError("draw either every triangle edge (wireframe) or the feature edges, not both")
     if wireframe:
         e = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]])
         e = np.unique(np.sort(e, axis=1), axis=0)
-        a, b = sxy[e[:, 0]], sxy[e[:, 1]]
-        ns = np.clip(np.ceil(np.abs(b - a).max(axis=1)).astype(np.int64), 1, size * 2)
-        eid = np.repeat(np.arange(len(e)), ns)
-        t = (np.arange(len(eid)) - np.repeat(np.cumsum(ns) - ns, ns)) / np.repeat(ns, ns)
-        xy = a[eid] + (b[eid] - a[eid]) * t[:, None]
-        ix, iy = np.floor(xy[:, 0]).astype(int), np.floor(xy[:, 1]).astype(int)
-        v = (ix >= 0) & (ix < size) & (iy >= 0) & (iy < size)
-        ka, kb = key[e[:, 0]][eid], key[e[:, 1]][eid]
-        if persp:  # interpolate in 1/z space
-            za, zb = z[e[:, 0]][eid], z[e[:, 1]][eid]
-            kk = -((1 - t) / za + t / zb)
-        else:
-            kk = ka + (kb - ka) * t
-        rng = float(np.ptp(key)) or 1.0
-        v &= hit[np.clip(iy, 0, size - 1), np.clip(ix, 0, size - 1)]
-        v &= kk <= zbuf[np.clip(iy, 0, size - 1), np.clip(ix, 0, size - 1)] + 0.01 * rng
-        img[iy[v], ix[v]] = (img[iy[v], ix[v]] * 0.6).astype(np.uint8)
+        iy, ix = _visible_edge_pixels(e, sxy, key, z, persp, hit, zbuf, size)
+        img[iy, ix] = (img[iy, ix] * 0.6).astype(np.uint8)
+    elif feature_edges:
+        mask = _part_outlines(prim, depth)
+        e = _feature_edge_list(meshes, pts, tris, crease_deg)
+        if len(e):
+            iy, ix = _visible_edge_pixels(e, sxy, key, z, persp, hit, zbuf, size)
+            mask[iy, ix] = True
+        img[mask] = (img[mask] * 0.6).astype(np.uint8)
     return RenderBuffers(img, prim, tri_loc, depth, cam, view, size, nid)
+
+
+def _visible_edge_pixels(e, sxy, key, z, persp, hit, zbuf, size) -> tuple[np.ndarray, np.ndarray]:
+    """Pixels of the mesh edges ``e`` (vertex index pairs) that lie on a covered pixel and are not behind the surface
+    there (within 1% of the depth range): the lines a wireframe overlay draws."""
+    a, b = sxy[e[:, 0]], sxy[e[:, 1]]
+    ns = np.clip(np.ceil(np.abs(b - a).max(axis=1)).astype(np.int64), 1, size * 2)
+    eid = np.repeat(np.arange(len(e)), ns)
+    t = (np.arange(len(eid)) - np.repeat(np.cumsum(ns) - ns, ns)) / np.repeat(ns, ns)
+    xy = a[eid] + (b[eid] - a[eid]) * t[:, None]
+    ix, iy = np.floor(xy[:, 0]).astype(int), np.floor(xy[:, 1]).astype(int)
+    v = (ix >= 0) & (ix < size) & (iy >= 0) & (iy < size)
+    ka, kb = key[e[:, 0]][eid], key[e[:, 1]][eid]
+    if persp:  # interpolate in 1/z space
+        za, zb = z[e[:, 0]][eid], z[e[:, 1]][eid]
+        kk = -((1 - t) / za + t / zb)
+    else:
+        kk = ka + (kb - ka) * t
+    rng = float(np.ptp(key)) or 1.0
+    v &= hit[np.clip(iy, 0, size - 1), np.clip(ix, 0, size - 1)]
+    v &= kk <= zbuf[np.clip(iy, 0, size - 1), np.clip(ix, 0, size - 1)] + 0.01 * rng
+    return iy[v], ix[v]
+
+
+def _feature_edge_list(meshes, pts, tris, crease_deg: float) -> np.ndarray:
+    """Vertex index pairs of the edges a shaded render with the shipped normals shows as lines: within each part (vertices
+    welded by position, as ``compile_ir.crease_normals`` welds them), an edge whose two faces meet at more than
+    ``crease_deg`` (a hard edge in the shipped normals), an open edge, and an edge of more than two faces. The edges
+    inside a smooth surface (the triangulation) are not drawn."""
+    from antigravity3d.kernel.fast_ops import _canon
+
+    wid = np.zeros(len(pts), np.int64)
+    off = base = 0
+    for m in meshes:
+        if not len(m.triangles):
+            continue
+        k = _canon(np.asarray(m.points, np.float64))
+        wid[off:off + len(m.points)] = k + base
+        base += int(k.max()) + 1 if len(k) else 0
+        off += len(m.points)
+    E = np.concatenate([tris[:, [0, 1]], tris[:, [1, 2]], tris[:, [2, 0]]])
+    face = np.tile(np.arange(len(tris)), 3)
+    W = np.sort(wid[E], axis=1)
+    keep = W[:, 0] != W[:, 1]  # an edge welded to a point draws nothing
+    E, face, W = E[keep], face[keep], W[keep]
+    if not len(W):
+        return np.zeros((0, 2), np.int64)
+    _, first, inv, count = np.unique(W, axis=0, return_index=True, return_inverse=True, return_counts=True)
+    inv = inv.ravel()
+    p = pts[tris]
+    fn = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0])
+    ln = np.linalg.norm(fn, axis=1, keepdims=True)
+    unit = np.divide(fn, ln, out=np.zeros_like(fn), where=ln > 1e-20)
+    order = np.argsort(inv, kind="stable")
+    starts = np.concatenate([[0], np.cumsum(count)[:-1]])
+    two = count == 2
+    fa, fb = face[order[starts[two]]], face[order[starts[two] + 1]]
+    hard = np.ones(len(count), bool)
+    hard[two] = (unit[fa] * unit[fb]).sum(axis=1) < np.cos(np.radians(crease_deg)) - 1e-9
+    return E[first[hard]]
+
+
+def _part_outlines(prim: np.ndarray, depth: np.ndarray) -> np.ndarray:
+    """Pixels where one part (or the background) meets another, marked on the nearer side: every part's outline, and
+    the boundary of a flush plate on a face of its own colour, which shading alone does not show."""
+    mask = np.zeros(prim.shape, bool)
+    for a, b, da, db, ma, mb in ((prim[:, :-1], prim[:, 1:], depth[:, :-1], depth[:, 1:], mask[:, :-1], mask[:, 1:]),
+                                 (prim[:-1], prim[1:], depth[:-1], depth[1:], mask[:-1], mask[1:])):
+        diff = a != b
+        near_a = diff & (da <= db)
+        ma |= near_a
+        mb |= diff & ~near_a
+    return mask & (prim >= 0)
 
 
 def render_clay(
