@@ -429,3 +429,49 @@ async def test_upstream_kit_check_passes_every_piece_of_an_offline_kit(tmp_path,
                                 kwargs={"grid": metric.grid_m, "pivot": metric.pivot, "texture": 1024, "prefix": ""})
             (obj, rec), = r["pieces"].items()  # one mesh per piece (Blender may suffix the name: the root prim has it too)
             assert obj.startswith(name) and r["pass"] and not rec["errors"], (name, obj, rec)
+
+
+def write_material_cube(path, name: str, color, metallic: float, roughness: float) -> None:
+    """A 0.5 m box resting on the ground with one material (linear base colour), written as the studio writes a scene."""
+    from antigravity3d.ir import MaterialIR, NodeIR, SceneIR, Transform
+    from antigravity3d.kernel.usd_stage import StageManager
+
+    stage = StageManager.create(path.with_suffix(".work.usda"), name)
+    stage.apply_ir(SceneIR(asset_name=name, nodes=[
+        NodeIR(id="body", kind="box", params={"size": [0.5, 0.5, 0.5]}, transform=Transform(translate=(0, 0, 0.25)), material_id="m")],
+        materials=[MaterialIR(id="m", base_color=tuple(color), metallic=metallic, roughness=roughness)]))
+    stage.export(path)
+
+
+def _display(image):
+    """The frame as the review sees it (validators.blender_frame_png: clipped, sRGB) and its coverage."""
+    lin = np.clip(image[:, :, :3], 0, 1)
+    srgb = np.where(lin < 0.0031308, 12.92 * lin, 1.055 * lin ** (1 / 2.4) - 0.055)
+    return srgb, image[:, :, 3] > 0.99
+
+
+#: What a metal=1 surface must at least read as in the lookdev frame (mean display luminance of its pixels): with the
+#: two suns alone (no world) this grey steel cube read 0.13; with the studio world about 0.31 (daemon.WORLD_STRENGTH).
+METAL_FLOOR = 0.22
+
+
+@pytest.mark.blender
+async def test_lookdev_render_shows_metal_and_does_not_clip_white(tmp_path):
+    """r5/live_final_N: the lookdev render had no world, every metal=1 part rendered flat black and the review called
+    the steel plastic. A metal surface reads as lit; a white dielectric keeps its shading (it does not clip)."""
+    if not find_blender():
+        pytest.skip("no Blender binary ($BLENDER_BIN or PATH)")
+    metal, white = tmp_path / "metal.usda", tmp_path / "white.usda"
+    write_material_cube(metal, "Steel", (0.5, 0.5, 0.5), 1.0, 0.35)
+    write_material_cube(white, "Chalk", (0.8, 0.8, 0.8), 0.0, 0.6)
+    async with BlenderPool(1, startup_timeout=120) as pool:
+        shown = {}
+        for path in (metal, white):
+            r = await pool.call("render_usd", path=str(path), engine="eevee", width=96, height=96, samples=4, transparent=True)
+            srgb, on = _display(r["image"])
+            lum = srgb @ np.array([0.2126, 0.7152, 0.0722])
+            shown[path.stem] = (float(lum[on].mean()), float((srgb[on] >= 0.999).any(axis=1).mean()))
+            assert r["image"][:, :, 3].min() == 0  # the background stays transparent
+    print("display luminance, clipped fraction:", shown)
+    assert shown["metal"][0] > METAL_FLOOR, shown
+    assert shown["white"][1] < 0.02 and shown["white"][0] < 0.97, shown

@@ -80,6 +80,23 @@ PIECES: dict[str, Callable[[list[str]], list[dict[str, Any]] | None]] = {}
 WELD_DISTANCE_M = 1e-6
 DENOISER_CHAIN = ("DLSS", "OPTIX", "OPENIMAGEDENOISE")  # preference order; filtered by what the build offers
 ENGINE_IDS = {"workbench": "BLENDER_WORKBENCH", "eevee": "BLENDER_EEVEE", "cycles": "CYCLES"}
+
+
+def _linear(hex_rgb: int) -> tuple[float, float, float]:
+    """An sRGB colour 0xRRGGBB in linear (Blender's colour values)."""
+    def one(c: float) -> float:
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+    return tuple(round(one(((hex_rgb >> s) & 0xFF) / 255.0), 4) for s in (16, 8, 0))  # type: ignore[return-value]
+
+
+# The default rig's environment (``studio_world``): the web verification's gradient (web_three ENV_SKY / ENV_GROUND)
+WORLD_SKY, WORLD_GROUND = _linear(0xCFE2F3), _linear(0x4A3F35)
+# Strength 0.3, measured with the default suns (3.0 and 1.0) on a 0.5 m cube (tests/test_blender_pool.py, eevee,
+# display luminance as the review sees the frame): grey metal (0.5, metallic 1, roughness 0.35) 0.13 with no world, 0.31
+# at 0.3, 0.38 at 0.5, 0.49 at 1.0; a white dielectric (0.8) has 0 % of its pixels clipped with no world, about 1 % at
+# 0.3, 2 % at 0.35, 11 % at 0.5 and 37 % at 1.0 (the frame is clipped, not tone mapped, as the web render's). The suns
+# stay as they are: they give the shape, and web_three uses the same pair (3.0, 1.0).
+WORLD_STRENGTH = 0.3
 SAFE_MODULES = linter.ALLOWED_MODULES
 
 
@@ -635,6 +652,32 @@ def register_bpy_ops(bpy: Any) -> None:
                 obj = bpy.data.objects.new(light.name, light)
                 scene.collection.objects.link(obj)
                 obj.rotation_euler = (-Vector(direction)).to_track_quat("-Z", "Y").to_euler()
+            studio_world(scene)
+
+    def studio_world(scene: Any) -> None:
+        """The environment of the default rig: a vertical gradient from ``WORLD_GROUND`` (below) to ``WORLD_SKY``
+        (above), the web verification's (adapters/engines/web_three.py ENV_SKY / ENV_GROUND, its colours in linear),
+        strength 1. The suns give shape; this gives a metal surface something to reflect and fills the dark side of a
+        dielectric. Live on 2026-11-22 (r5/live_final_N) the two suns alone, against a world-less scene, rendered every
+        metal=1 part flat black and the lookdev review called the crate's steel "plastic" (0.85). The film stays
+        transparent where asked, so the background of the frame is unchanged. No image: nothing to load."""
+        world = bpy.data.worlds.new("agy3d_studio")
+        world.use_nodes = True
+        nodes, links = world.node_tree.nodes, world.node_tree.links
+        bg = nodes.get("Background") or nodes.new("ShaderNodeBackground")
+        coords = nodes.new("ShaderNodeTexCoord")
+        split = nodes.new("ShaderNodeSeparateXYZ")
+        span = nodes.new("ShaderNodeMapRange")
+        ramp = nodes.new("ShaderNodeValToRGB")
+        links.new(coords.outputs["Generated"], split.inputs[0])  # a world's Generated is the direction looked in
+        links.new(split.outputs["Z"], span.inputs["Value"])
+        span.inputs["From Min"].default_value, span.inputs["From Max"].default_value = -1.0, 1.0
+        links.new(span.outputs["Result"], ramp.inputs["Fac"])  # straight down 0, straight up 1: web_three's lerp
+        ramp.color_ramp.elements[0].color = (*WORLD_GROUND, 1.0)
+        ramp.color_ramp.elements[1].color = (*WORLD_SKY, 1.0)
+        links.new(ramp.outputs["Color"], bg.inputs["Color"])
+        bg.inputs["Strength"].default_value = WORLD_STRENGTH
+        scene.world = world
 
     def _obj(name: str) -> Any:
         obj = bpy.data.objects.get(name)
