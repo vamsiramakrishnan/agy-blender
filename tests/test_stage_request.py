@@ -42,8 +42,13 @@ from antigravity3d.harness import tools as T
 # 2026-11-22 (native sessions): LOOKDEV 12,500 -> 12,650: its text says that an image limit of 0 makes no texture and
 # that in an uncalibrated preview any lookdev review lets the session export, the command's delivery rule (measured
 # 12,549). BLOCKOUT is the toolset's text only (authoring_contract: the intent says what "finished" means).
-STATIC_BUDGET = {"BLOCKOUT": (26_224, 10_000), "TWEAK": (25_351, 9_400), "VARIANTS": (25_946, 17_300),
-                 "LOOKDEV": (26_256, 12_650), "EXPORT": (25_914, 2_000)}
+# 2026-11-22 (colour): BLOCKOUT 10,000 -> 10,350 (measured 10,255), TWEAK 9,400 -> 9,800 (9,711), VARIANTS 17,300 ->
+# 17,700 (17,596), LOOKDEV 12,650 -> 12,950 (12,882). Every stage that edits geometry or materials carries IR_SEMANTICS,
+# which now says once that a colour is written and read as sRGB (with two anchors) and that metallic is 1 or 0
+# (+213 characters: the model wrote sRGB and the format read linear, so every paint shipped washed out); and the
+# material schema in the tool declarations takes "#rrggbb" beside three numbers (+120 per declared material schema).
+STATIC_BUDGET = {"BLOCKOUT": (26_224, 10_350), "TWEAK": (25_351, 9_800), "VARIANTS": (25_946, 17_700),
+                 "LOOKDEV": (26_256, 12_950), "EXPORT": (25_914, 2_000)}
 SUBAGENT_TOOLS = {"invoke_subagent", "define_subagent", "manage_subagents", "send_message"}
 DEFAULT_SECTIONS = {"identity", "communication_style", "conversation_transcript", "subagents", "messaging",
                     "user_information", "non_interactive_mode"}
@@ -186,7 +191,8 @@ async def test_geometry_intent_reaches_the_posted_request_without_changing_tools
     elif intent is AuthoringIntent.BLOCKOUT:
         assert "intermediate blockout" in instructions
     assert ir_schema.SHAPE_SEMANTICS in instructions
-    assert prompt_breakdown(body)["static_chars"] <= (12_100 if production else 10_050)
+    # +350 each for the colour and metal clauses and the hex colour form (see STATIC_BUDGET): measured 12,323 / 10,255
+    assert prompt_breakdown(body)["static_chars"] <= (12_400 if production else 10_350)
 
 
 @pytest.mark.parametrize("intent", list(AuthoringIntent))

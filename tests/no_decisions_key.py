@@ -378,6 +378,7 @@ class NoDecisionsKey:
         return out
 
     def _scene(self, body: dict[str, Any]) -> dict[str, Any]:
+        from antigravity3d import ir_schema
         from antigravity3d.kernel.kit_metric import KitMetric
         from antigravity3d.state import EngineBudget
         from antigravity3d.tactics.authoring import TemplateAuthor, pick_template
@@ -389,7 +390,8 @@ class NoDecisionsKey:
         if pick_template(prompt) in KIT_TEMPLATES:
             ctx["kit_metric"] = KitMetric.interior()
         scene = asyncio.run(TemplateAuthor().propose(prompt, budget=EngineBudget("unreal_5"), n=1, context=ctx))[0]
-        return scene.model_dump(mode="json", exclude_defaults=True)
+        # as a model writes it: colours in sRGB (ir_schema.as_written), so the scene that is read back is the template's
+        return ir_schema.as_written(scene)
 
     def image_prompts(self) -> list[str]:
         """The text of every image request served, in order."""

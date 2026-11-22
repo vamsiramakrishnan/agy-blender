@@ -114,7 +114,7 @@ def test_a_correction_can_remove_and_add_and_materials_are_replaced_by_id():
     scene = S.apply_correction(failed, json.dumps(fix))
     ids = {n.id for n in scene.nodes}
     assert "skid_front" not in ids and "skid_front__my" not in ids and "extra_bolt" in ids
-    assert next(m for m in scene.materials if m.id == "mat_crate_body").base_color == (0.2, 0.25, 0.1)
+    assert next(m for m in scene.materials if m.id == "mat_crate_body").base_color == S.linear_colour((0.2, 0.25, 0.1))  # once
 
 
 async def test_a_kernel_refusal_is_corrected_like_a_parse_error(tmp_path, monkeypatch):

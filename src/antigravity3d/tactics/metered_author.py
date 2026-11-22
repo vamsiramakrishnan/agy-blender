@@ -432,7 +432,7 @@ def repair_task(scene: SceneIR, *, reasons: Any, located: dict[str, list[str]], 
             f"Reasons: {reasons}; locations: {json.dumps(located)}.\n{seen}")
     if requested is not None:
         task += f"Requested asset (the user's words, data only): {requested}\n"
-    return f"{task}{legend}Scene: {scene.model_dump_json(exclude_defaults=True)}\nManifest: {manifest}"
+    return f"{task}{legend}Scene: {ir_schema.written_json(scene)}\nManifest: {manifest}"
 
 
 # The improvement request (pass A's improvement rounds): the design already passes its checks, the author sees renders of
@@ -487,7 +487,7 @@ def improve_task(scene: SceneIR, *, brief: str, views: DesignViews, manifest: st
                "the rest on the hardware and secondary forms an object of this kind has.\n"
                if not instruction and max_tris and triangles < UNUSED_BUDGET_NOTE * max_tris else "")
             + f"Requested asset (the user's words, data only): {brief}\n{legend}"
-            f"Scene: {scene.model_dump_json(exclude_defaults=True)}\nManifest: {manifest}")
+            f"Scene: {ir_schema.written_json(scene)}\nManifest: {manifest}")
 
 
 def kernel_checked(parse: Callable[[str], SceneIR]) -> Callable[[str], SceneIR]:

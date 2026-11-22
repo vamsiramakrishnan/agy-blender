@@ -22,11 +22,12 @@ from __future__ import annotations
 import copy
 import functools
 import json
+import os
 import re
 from typing import Annotated, Any, Literal, Union, get_args
 
 import annotated_types
-from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, create_model, model_validator
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
@@ -92,6 +93,184 @@ def _derive(name: str, source: type[BaseModel], subst: dict[Any, Any], doc: str 
 WireTransform = _derive("Transform", ir.Transform, {})
 
 
+# --- colour as a model writes and reads it ------------------------------------------------------------------------
+#
+# The scene format's colours are linear RGB (``ir.MaterialIR``; USD, glTF and the package are linear too), and every
+# stored or programmatic scene keeps that meaning. A model writes what a colour picker or a hex code means, sRGB-like
+# numbers: live on 2026-11-22 each of thirteen materials of this round's designs had the hue and saturation of its words
+# read as sRGB (r5/scratch_colour/EVIDENCE.txt: olive drab (0.18, 0.22, 0.14) is #2e3824 as sRGB, shipped #768169).
+# Read exactly as sRGB they first lost a blind judgement 6 of 6 (the generated wear was tuned for the pale colours: white
+# seams, dark gunmetal on dark olive stopped separating); with the corrected surfaces they win (``COLOUR_RULE``). The
+# boundary is plumbed once and the rule is one switch:
+# * every colour in a model's answer goes through ``ir_linear`` exactly once, where the answer becomes scene data
+#   (``scene_from_wire`` and ``patch_from_wire``, which every design, repair, improvement, correction, edit, kit piece
+#   and native-session edit goes through, ``apply_look`` and ``apply_material_diff``), and through ``written_colour``
+#   when it is shown to a model (``as_written`` / ``written_json``, the look round's table), so the two always agree;
+# * the rule is ``COLOUR_RULE`` (default "srgb"; "as_written" is exactly the behaviour before this change; the other two
+#   are unmeasured candidates, ``linear_colour``).
+# The wire models hold colours as written; nothing converts on validation, so a written answer copied into another one
+# (a correction) is still converted once.
+COLOUR_FIELDS = ("base_color", "emissive_color", "sheen_color", "specular_color")
+HEX_COLOUR = r"^#[0-9A-Fa-f]{6}$"
+SHOWN_DIGITS = 4  # a written colour shown back reads as written (the model writes two or three decimals)
+COLOUR_RULES = ("as_written", "srgb", "srgb_albedo", "gamma")
+# THE SWITCH. "srgb" (the default): exact sRGB -> linear, with the request saying so. Measured live on 2026-11-22 with the
+# corrected generated surfaces (wear relative to the paint, none in seams, metal 0 or 1 per layer): the same designs
+# built with converted colours against the colours as stored before, blind pairwise, both orders: crate 4 of 4 and
+# hydrant 4 of 4 for the converted ones ("richer military olive colouring, better value contrast", "richer red colour
+# and more realistic paint"); before the surface fix the same comparison had gone 0 of 6 the other way.
+# "as_written": the number is the stored (linear) value and the request says what it said on c8565a7, byte for byte
+# (tests/test_colour.py): the behaviour before this change. "srgb_albedo" (sRGB -> linear, then a base colour's
+# luminance kept inside the PBR albedo range by kind: ALBEDO_LUMINANCE, METAL_LUMINANCE_MIN) and "gamma" (linear =
+# written ** COLOUR_GAMMA): candidates, NOT MEASURED.
+# For an experiment without editing the code: AGY3D_COLOUR_RULE=<rule> / AGY3D_STATE_METALLIC=1 in the environment of
+# the process (read once, at import: the schemas and the rules text are built from them).
+COLOUR_RULE = os.environ.get("AGY3D_COLOUR_RULE") or "srgb"
+if COLOUR_RULE not in COLOUR_RULES:
+    raise ValueError(f"AGY3D_COLOUR_RULE={COLOUR_RULE!r}: one of {COLOUR_RULES}")
+# The second switch, separate because it too changes what authors write and is unmeasured: whether the request says
+# that metallic is 1 for bare metal and 0 for everything else (the live designs wrote 0.15-0.25 for painted metal and
+# 0.85-0.9 for bare metal and brass). Off: the request says what it always said.
+STATE_METALLIC = os.environ.get("AGY3D_STATE_METALLIC") == "1"
+COLOUR_GAMMA = 1.5
+# Non-metal albedo luminance, linear: sRGB 50 to 240 of 255 (charcoal to fresh snow), the usual PBR validation range.
+ALBEDO_LUMINANCE = (0.0319, 0.8714)
+# A metal's base colour is its reflectance at normal incidence: real metals are 0.5 or more (iron 0.56, steel 0.56-0.6,
+# brass (0.91, 0.78, 0.42)), so a darker "metal" is a coating, which metallic-roughness writes as metallic 0.
+METAL_LUMINANCE_MIN = 0.5
+
+
+def _unit3(v: tuple[float, float, float]) -> tuple[float, float, float]:
+    if not all(0.0 <= c <= 1.0 for c in v):
+        raise ValueError(f"colour components are 0 to 1 (sRGB, as a colour picker), got {list(v)}")
+    return v
+
+
+WrittenColour = Union[Annotated[tuple[float, float, float], AfterValidator(_unit3)],
+                      Annotated[str, Field(pattern=HEX_COLOUR)]]
+
+
+def told() -> bool:
+    """Whether the request tells the model the colour rule (the sRGB clause with its anchors, colours shown converted,
+    "#rrggbb" offered). Under "as_written" it does not: what it is told, shown and offered is what it always was
+    (tests/test_colour.py pins that byte for byte), so the default rule is inert."""
+    return COLOUR_RULE != "as_written"
+
+
+def srgb_to_linear(c: float) -> float:
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def linear_to_srgb(c: float) -> float:
+    return 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
+
+
+def _numbers(written: Any) -> list[float]:
+    if isinstance(written, str):
+        h = written.lstrip("#")
+        return [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+    return [float(c) for c in written]
+
+
+def _luminance(rgb: Any) -> float:
+    return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+
+
+def linear_colour(written: Any, *, field: str = "base_color", metallic: float = 0.0, rule: str | None = None) -> tuple[float, float, float]:
+    """The one conversion: a colour as a model writes it (three numbers 0-1, or "#rrggbb") -> the scene format's linear
+    RGB, by ``rule`` (None: ``COLOUR_RULE``). ``field`` and ``metallic``: "srgb_albedo" keeps a base colour's luminance
+    in the range of its kind (a non-metal between ``ALBEDO_LUMINANCE``, a metal, metallic 0.5 or more, at least
+    ``METAL_LUMINANCE_MIN``), scaling the colour so its hue and saturation stay; other colours only convert."""
+    rule = rule or COLOUR_RULE
+    rgb = _numbers(written)  # a hex is its own values over 255 under every rule (under "as_written": what was written)
+    if rule == "as_written":
+        return tuple(rgb)  # type: ignore[return-value]
+    if rule == "gamma":
+        return tuple(c ** COLOUR_GAMMA for c in rgb)  # type: ignore[return-value]
+    lin = [srgb_to_linear(c) for c in rgb]
+    if rule == "srgb_albedo" and field == "base_color":
+        y = _luminance(lin)
+        lo, hi = (METAL_LUMINANCE_MIN, 1.0) if metallic >= 0.5 else ALBEDO_LUMINANCE
+        if y < lo:
+            lin = [min(1.0, c * lo / y) if y > 0 else lo for c in lin]
+        elif y > hi:
+            lin = [c * hi / y for c in lin]
+    elif rule not in COLOUR_RULES:
+        raise ValueError(f"unknown colour rule {rule!r}; one of {COLOUR_RULES}")
+    return tuple(lin)  # type: ignore[return-value]
+
+
+def written_colour(linear: Any, *, rule: str | None = None) -> list[float]:
+    """A stored (linear) colour as a model reads and writes it under ``rule`` (None: ``COLOUR_RULE``), ``SHOWN_DIGITS``
+    decimals: the inverse of ``linear_colour`` (for "srgb_albedo", of its conversion; a lifted colour shows as lifted)."""
+    rule = rule or COLOUR_RULE
+    if rule == "as_written":
+        out = [float(c) for c in linear]
+    elif rule == "gamma":
+        out = [float(c) ** (1 / COLOUR_GAMMA) for c in linear]
+    else:
+        out = [linear_to_srgb(float(c)) for c in linear]
+    return [round(c, SHOWN_DIGITS) + 0.0 for c in out]
+
+
+def ir_linear(fields: dict[str, Any], *, metallic: float | None = None) -> dict[str, Any]:
+    """Material fields as an answer wrote them -> as the scene format holds them (every colour field converted once).
+    ``metallic``: the material's when the fields do not write it (a partial change of a stored material)."""
+    m = float(fields.get("metallic", metallic if metallic is not None else 0.0) or 0.0)
+    return {k: (linear_colour(v, field=k, metallic=m) if k in COLOUR_FIELDS and v is not None else v) for k, v in fields.items()}
+
+
+def as_written(scene: ir.SceneIR) -> dict[str, Any]:
+    """``scene`` as a model reads it (and would write it): the dump a request shows (``exclude_defaults``), every
+    material colour in the written form of the rule. ``parse_scene(json.dumps(as_written(s)))`` is ``s`` again
+    (tests/test_colour.py). Under "as_written" the dump itself, as requests always showed it."""
+    doc = scene.model_dump(mode="json", exclude_defaults=True)
+    if not told():
+        return doc
+    if "materials" in doc:  # left out, as a default, when there are none: the dump is the one requests always showed
+        doc["materials"] = [{k: (written_colour(v) if k in COLOUR_FIELDS else v) for k, v in m.items()} for m in doc["materials"]]
+    return doc
+
+
+def written_json(scene: ir.SceneIR) -> str:
+    """``as_written`` as the compact JSON a request carries (the "Scene: ..." of a repair or improvement request); under
+    "as_written" exactly the text it always was (pydantic's own JSON)."""
+    if not told():
+        return scene.model_dump_json(exclude_defaults=True)
+    return json.dumps(as_written(scene), separators=(",", ":"))
+
+
+def _material_model() -> type[_Wire]:
+    """``MaterialIR`` as a model writes it: every colour field ``WrittenColour`` (three sRGB numbers or "#rrggbb", not
+    converted here); the cross-field rules are checked on the converted material (``ir.MaterialIR``), where the answer
+    becomes scene data. No field descriptions: what the colours mean is said once, in IR_SEMANTICS, which every request
+    and every stage that edits materials carries (a description would be repeated in each tool declaration)."""
+    fields: dict[str, Any] = {}
+    for name, info in ir.MaterialIR.model_fields.items():
+        f = copy.copy(info)
+        if name in COLOUR_FIELDS and told():  # under "as_written" the colour fields are typed as they always were
+            f.metadata = []
+            fields[name] = (WrittenColour, f)
+        else:
+            fields[name] = (info.annotation, f)
+    return create_model("MaterialIR", __base__=_Wire, __doc__=ir.MaterialIR.__doc__, **fields)
+
+
+# What a model is told about colour and metalness, once: clauses of IR_SEMANTICS, which the authoring rules text and every
+# stage agent that edits geometry or materials carry. Metallic: the same live designs wrote 0.15-0.25 for painted metal
+# and 0.85-0.9 for bare metal and brass; in metallic-roughness PBR a surface is metal or not.
+COLOUR_CLAUSE = ('colours are sRGB, as a colour picker or hex code means them: three numbers 0-1 or "#rrggbb" (military '
+                 'olive drab is about #3d4a2b, black rubber about #1c1c1c)')
+METAL_CLAUSE = "metallic is 1 for bare metal and 0 for everything else, paint on metal included"
+WireMaterial = _material_model()
+
+
+def _material_ir(m: BaseModel) -> dict[str, Any]:
+    """A wire material as the scene format holds it: the fields it wrote (so an unwritten colour keeps the format's
+    own default, which is linear), colours converted."""
+    return ir_linear(m.model_dump(exclude_unset=True))
+
+
 Axis = Literal["x", "y", "z"]
 RepeatCount = Annotated[int, Field(ge=2, le=ir_shortcuts.MAX_REPEAT)]
 
@@ -139,7 +318,7 @@ def _node_model(kind: str) -> type[_Wire]:
 
 NODE_MODELS: dict[str, type[_Wire]] = {k: _node_model(k) for k in NODE_KINDS}
 WireNode = Annotated[Union[tuple(NODE_MODELS.values())], Field(discriminator="kind")]  # type: ignore[valid-type]
-_SUBST: dict[Any, Any] = {ir.NodeIR: WireNode, ir.Transform: WireTransform}
+_SUBST: dict[Any, Any] = {ir.NodeIR: WireNode, ir.Transform: WireTransform, ir.MaterialIR: WireMaterial}
 
 
 def _set_param_models() -> list[type[_Wire]]:
@@ -171,7 +350,8 @@ def _op_models() -> list[type[_Wire]]:
 OP_MODELS: list[type[_Wire]] = _op_models()
 WireOp = Union[tuple(OP_MODELS)]  # type: ignore[valid-type]
 WireScene = _derive("WireScene", ir.SceneIR, {}, override={
-    "nodes": _field(ir.SceneIR, "nodes", ir.SceneIR.model_fields["nodes"], list[WireNode])})
+    "nodes": _field(ir.SceneIR, "nodes", ir.SceneIR.model_fields["nodes"], list[WireNode]),
+    "materials": _field(ir.SceneIR, "materials", ir.SceneIR.model_fields["materials"], list[WireMaterial])})
 WirePatch = _derive("WirePatch", ir.SceneIRDiff, {}, override={
     "ops": _field(ir.SceneIRDiff, "ops", ir.SceneIRDiff.model_fields["ops"], list[WireOp])})
 
@@ -182,7 +362,7 @@ WirePatch = _derive("WirePatch", ir.SceneIRDiff, {}, override={
 # tokens live) would be paid twice, could truncate, and could break parts that were right.
 WireCorrection = create_model(
     "WireCorrection", __base__=_Wire, __doc__="Replacement nodes / materials and ids to remove.",
-    nodes=(list[WireNode], ...), materials=(list[ir.MaterialIR], ...), remove=(list[ir.NodeId], ...))
+    nodes=(list[WireNode], ...), materials=(list[WireMaterial], ...), remove=(list[ir.NodeId], ...))
 
 
 def correction_response_schema() -> dict[str, Any]:
@@ -195,7 +375,8 @@ def apply_correction(failed: dict[str, Any], text: str) -> ir.SceneIR:
     fix = WireCorrection.model_validate_json(text)
     out = dict(failed)
     gone = set(fix.remove)
-    for key, new in (("nodes", [_node_wire(n) for n in fix.nodes]), ("materials", [m.model_dump(exclude_none=True) for m in fix.materials])):
+    # both as written (colours not converted): the merged answer is read, and converted once, by parse_scene
+    for key, new in (("nodes", [_node_wire(n) for n in fix.nodes]), ("materials", [m.model_dump(exclude_unset=True) for m in fix.materials])):
         entries = [e for e in (failed.get(key) or []) if not (isinstance(e, dict) and e.get("id") in gone)]
         at = {e.get("id"): i for i, e in enumerate(entries) if isinstance(e, dict)}
         for e in new:
@@ -215,6 +396,12 @@ def _node_wire(node: BaseModel) -> dict[str, Any]:
     if node.repeat is not None:
         d["repeat"] = node.repeat.model_dump()
     return d
+
+
+def _is_written_colour(v: Any) -> bool:
+    if isinstance(v, str):
+        return re.fullmatch(HEX_COLOUR[1:-1], v) is not None
+    return isinstance(v, (list, tuple)) and len(v) == 3 and all(isinstance(c, (int, float)) and not isinstance(c, bool) and 0 <= c <= 1 for c in v)
 
 
 def located_nodes(failed: dict[str, Any], exc: BaseException) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -258,7 +445,8 @@ def _node_dump(node: BaseModel) -> dict[str, Any]:
 def scene_from_wire(wire: BaseModel) -> ir.SceneIR:
     """The wire scene as ``ir.SceneIR``, mirror / repeat shortcuts expanded into plain nodes (``ir_shortcuts``)."""
     plain, copies = ir_shortcuts.expand([_node_dump(n) for n in wire.nodes])
-    doc = {**wire.model_dump(exclude_none=True, exclude={"nodes"}), "nodes": plain + [c for _, c in copies]}
+    doc = {**wire.model_dump(exclude_none=True, exclude={"nodes", "materials"}), "nodes": plain + [c for _, c in copies],
+           "materials": [_material_ir(m) for m in wire.materials]}
     return ir.SceneIR.model_validate(doc)
 
 
@@ -266,8 +454,8 @@ def patch_from_wire(wire: BaseModel) -> ir.IRPatch:
     """The wire patch as ``ir.IRPatch``. Shortcuts on ``upsert_node`` ops expand over the nodes upserted in the same
     patch (a node already in the scene is not seen here, so its children are copied only when the patch upserts
     them too); each copy is upserted right after the op that upserted its source node."""
-    ops = [{**op.model_dump(exclude_none=True), **({"node": _node_dump(op.node)} if op.op == "upsert_node" else {})}
-           for op in wire.ops]
+    ops = [{**op.model_dump(exclude_none=True), **({"node": _node_dump(op.node)} if op.op == "upsert_node" else {}),
+            **({"material": _material_ir(op.material)} if op.op == "upsert_material" else {})} for op in wire.ops]
     ups = [i for i, op in enumerate(ops) if op["op"] == "upsert_node"]
     plain, copies = ir_shortcuts.expand([ops[i]["node"] for i in ups])
     after: dict[int, list[dict[str, Any]]] = {}
@@ -296,7 +484,7 @@ def _look_material() -> type[_Wire]:
     """``MaterialIR`` with every field but ``id`` optional and no cross-field rule: a look answer writes only the fields it
     changes, and the rules are checked on the material it makes with them (``apply_look``)."""
     fields: dict[str, Any] = {}
-    for name, info in ir.MaterialIR.model_fields.items():
+    for name, info in WireMaterial.model_fields.items():  # colours as written (converted in apply_look)
         if name == "id":
             fields[name] = (info.annotation, info)
             continue
@@ -338,6 +526,8 @@ def apply_look(scene: ir.SceneIR, text: str) -> ir.IRPatch | None:
     for i, op in enumerate(wire.ops):
         if op.op == "upsert_material":
             written = op.material.model_dump(exclude_unset=True)
+            if op.material.id in mats:  # the answer becomes scene data: converted once, by the material's own metalness
+                written = ir_linear(written, metallic=mats[op.material.id].metallic)
             written.pop("id", None)
             cur = mats.get(op.material.id)
             if cur is None:
@@ -674,7 +864,8 @@ IR_SEMANTICS = (
     "part only, the caps come on top). box params.size is the full extent along x, y, z. A group is a transform-only "
     "parent; mesh_ref params.path is a local asset path. id fields match [A-Za-z_][A-Za-z0-9_]* (at most 64 chars) "
     "and parent / material_id / node_id / target_id must name an existing node / material. Materials are glTF 2.0 PBR: "
-    "colours are linear RGB 0-1; opacity is the base colour's alpha; transmission is thin-surface (no thickness or "
+    f"{COLOUR_CLAUSE if told() else 'colours are linear RGB 0-1'}; {METAL_CLAUSE + '; ' if STATE_METALLIC else ''}"
+    "opacity is the base colour's alpha; transmission is thin-surface (no thickness or "
     "volume); alpha_mode MASK needs alpha_cutoff and an albedo_uri whose alpha channel is the shape, "
     "BLEND needs opacity < 1 or an albedo_uri with alpha (with an albedo_uri leave opacity at 1); emissive_uri, "
     "emissive_strength need a non-black emissive_color; transmission (thin glass) needs metallic < 1; clearcoat_roughness "
@@ -1060,10 +1251,16 @@ def parse_tool_scene(asset_name: str, nodes: Any, materials: Any) -> ir.SceneIR:
 
 
 def apply_material_diff(current: ir.MaterialIR, diff: dict[str, Any]) -> ir.MaterialIR:
-    """``current`` with the fields of ``diff`` replaced, validated as ``MaterialIR`` (so new material fields need no
-    change here); raises ``IRArgumentError`` naming the field."""
+    """``current`` with the fields of ``diff`` (a tool's arguments: colours as a model writes them, converted once
+    here) replaced, validated as ``MaterialIR`` (so new material fields need no change here); raises
+    ``IRArgumentError`` naming the field."""
     try:
-        return ir.MaterialIR.model_validate({**current.model_dump(), **diff, "id": current.id})
+        bad = {k: v for k, v in diff.items() if told() and k in COLOUR_FIELDS and v is not None and not _is_written_colour(v)}
+        if bad:
+            raise ValueError(f"{', '.join(bad)}: {COLOUR_CLAUSE}")
+        # under "as_written" the diff is taken as it always was (no "#rrggbb": the format refuses it, as on c8565a7)
+        fields = ir_linear(diff, metallic=current.metallic) if told() else diff
+        return ir.MaterialIR.model_validate({**current.model_dump(), **fields, "id": current.id})
     except ValueError as e:
         _raise(_explain("diff", e))
         raise  # unreachable

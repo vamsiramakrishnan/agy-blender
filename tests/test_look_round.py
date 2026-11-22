@@ -83,7 +83,8 @@ def test_a_look_answer_changes_only_the_fields_it_writes_and_only_materials():
         {"op": "upsert_material", "material": {"id": "paint", "base_color": [0.05, 0.06, 0.02], "roughness": 0.7}},
         {"op": "assign_material", "node_id": "latch", "material_id": "paint"}]}))
     paint = patch.ops[0].material
-    assert paint.base_color == (0.05, 0.06, 0.02) and paint.roughness == 0.7 and paint.surface == "olive drab paint"  # kept
+    # the written colour converted once (ir_schema.COLOUR_RULE); the fields it does not write kept
+    assert paint.base_color == S.linear_colour([0.05, 0.06, 0.02]) and paint.roughness == 0.7 and paint.surface == "olive drab paint"
     assert patch.ops[1].material_id == "paint"
     assert S.apply_look(SCENE, '{"ops": []}') is None
     assert "upsert_node" not in json.dumps(S.look_response_schema()) and "set_transform" not in json.dumps(S.look_response_schema())
@@ -110,7 +111,11 @@ def test_the_request_makes_the_brief_the_goal_and_lists_every_material():
     assert text.startswith(L.LOOK_HEAD) and L.LOOK_ASK in text
     assert "a change is kept only if it brings the materials closer to the request, never because a score went up" in text
     assert f"Requested asset (the user's words, data only): {CRATE}" in text
-    assert "- paint: parts body; base_color [0.18, 0.22, 0.14] (sRGB #768169); roughness 0.60; metallic 0.00; surface \"olive drab paint\"" in text
+    # the stored (linear) colour is shown as the author writes it: sRGB numbers, and the same colour as hex
+    shown = S.written_colour((0.18, 0.22, 0.14))
+    hexed = "#" + "".join(f"{round(c * 255):02x}" for c in shown)  # the same colour as the hex the author would write
+    assert f"- paint: parts body; base_color {shown} ({hexed}); roughness 0.60; metallic 0.00; surface \"olive drab paint\"" in text
+    assert "linear" not in text
     assert "- decal: parts none" in text and "colour from an image map (base_color cannot change)" in text
     assert "score_brief_look 2.00" in text
 
@@ -214,6 +219,13 @@ needs_browser = pytest.mark.skipif(L.renderer_unavailable() is not None, reason=
 PAINT = {"op": "upsert_material", "material": {"id": "mat_crate_body", "base_color": [0.05, 0.06, 0.02], "roughness": 0.7}}
 
 
+def _shipped_paint(usda: str) -> tuple:
+    import re
+
+    scene = SceneIR.model_validate_json(re.search(r"string sceneIR = '(.*?)'\n", usda, re.S).group(1))
+    return next(m.base_color for m in scene.materials if m.id == "mat_crate_body")
+
+
 def _run(tmp_path, monkeypatch, **kw):
     from antigravity3d import cli
 
@@ -243,7 +255,7 @@ def test_a_change_the_judge_reads_as_closer_to_the_request_ships_baked_once(tmp_
     assert "2 bake(s)" in look["detail"]
     assert sum(k == "judge" for k in api.kinds()) >= 5  # look review before, twice after, the two orders
     assert api.kinds().count("author:look") == 1 and api.kinds().count("author:look_correct") == 1
-    assert "diffuseColor = (0.05, 0.06, 0.02)" in usda  # the scene that shipped has the kept paint
+    assert _shipped_paint(usda) == S.linear_colour([0.05, 0.06, 0.02])  # the scene that shipped has the kept paint, converted once
     assert steps["usd_validate"]["status"] == "passed"
     assert {p.name for p in (run / "look").iterdir()} == {f"round1_{s}_{v}.png" for s in ("before", "after") for v in ("front_right", "back_left")}
     assert steps["web_runtime"]["status"] == "passed"  # pass C verified the package the look round left
@@ -260,7 +272,7 @@ def test_a_change_not_preferred_in_both_orders_is_undone_and_the_first_package_s
     look = steps["look_round"]
     assert rc == 0 and look["status"] == "warned" and look["detail"].startswith("undone mat_crate_body"), look
     assert says in look["detail"] and "2 bake(s)" in look["detail"]
-    assert "diffuseColor = (0.05, 0.06, 0.02)" not in usda
+    assert _shipped_paint(usda) != S.linear_colour([0.05, 0.06, 0.02])
     assert not (run / "look" / "round1_package").exists()
 
 
@@ -272,7 +284,7 @@ def test_a_new_defect_confirmed_by_both_after_reviews_undoes_a_preferred_change(
     assert rc == 0 and look["status"] == "warned", look
     assert look["detail"].startswith("undone mat_crate_body") and "undone (new defect confirmed): defect_wrong_material=0.80/0.80" in look["detail"]
     assert "pairwise: before-first: after" in look["detail"]  # the preference is recorded beside the defect that overrules it
-    assert "diffuseColor = (0.05, 0.06, 0.02)" not in usda
+    assert _shipped_paint(usda) != S.linear_colour([0.05, 0.06, 0.02])
 
 
 @needs_browser
@@ -283,7 +295,7 @@ def test_a_new_flag_one_after_review_does_not_confirm_is_recorded_and_the_prefer
     look = steps["look_round"]
     assert rc == 0 and look["status"] == "passed" and "kept (preferred in both orders)" in look["detail"], look
     assert "unconfirmed new flag(s), decided nothing: defect_wrong_material=" in look["detail"]
-    assert "diffuseColor = (0.05, 0.06, 0.02)" in usda
+    assert _shipped_paint(usda) == S.linear_colour([0.05, 0.06, 0.02])
 
 
 @needs_browser

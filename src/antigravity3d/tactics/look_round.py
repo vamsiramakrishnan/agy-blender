@@ -2,9 +2,9 @@
 
 The author chooses every material (colour, roughness, metalness, surface words) in its first answer and never sees
 them: pass A's renders are clay, and pass B looks only when image textures exist. Measured 2026-11-22: the crate of
-"a rugged military supply crate ..." shipped pale sage green (paint (0.18, 0.22, 0.14) linear, where an olive drab is
-about 0.05), and a blind judge's reason for preferring a stock agent's crate was its "richer olive drab coloring,
-superior metallic material separation on the latches".
+"a rugged military supply crate ..." shipped pale sage green, and a blind judge's reason for preferring a stock agent's crate was its "richer olive drab coloring,
+superior metallic material separation on the latches". (Its cause was found later: the author wrote sRGB and the
+scene format read it as linear; colours are now converted where an answer is parsed, ir_schema.linear_colour.)
 
 One round (``SpendPlan.look_rounds``), after the design is final and its export bundle exists, before the package is
 written (``pyramid._Run.pass_c``):
@@ -43,6 +43,7 @@ from typing import Any
 from PIL import Image
 
 from antigravity3d.ir import IRPatch, SceneIR
+from antigravity3d.ir_schema import STATE_METALLIC, told, written_colour
 from antigravity3d.kernel import smart_source
 from antigravity3d.tactics.common import png_bytes, to_thread_drained
 
@@ -78,10 +79,13 @@ LOOK_ASK = (
     "greyed version of it; paint reads as paint, bare or worn metal as metal, rubber as rubber, wood as wood);\n"
     "- do parts of different materials stand apart where a real one's do (a latch or a handle against the panel it is "
     "mounted on, a frame against its panel);\n"
-    "- do roughness and metalness fit each material (bare metal is metallic about 1; paint, wood and rubber 0; rubber and "
-    "raw wood are rough, worn metal and gloss paint less so).\n"
-    "Colours are linear RGB 0-1, as the table lists them; the renders show them after the engine's sRGB conversion and "
-    "lighting, so a linear value looks much lighter than its number (linear 0.18 shows as sRGB 0.46).\n"
+    + ("- do roughness and metalness fit each material (bare metal is metallic 1; paint, wood and rubber 0, paint on metal "
+       "included; rubber and raw wood are rough, worn metal and gloss paint less so).\n" if STATE_METALLIC else
+       "- do roughness and metalness fit each material (bare metal is metallic about 1; paint, wood and rubber 0; rubber and "
+       "raw wood are rough, worn metal and gloss paint less so).\n")
+    + ("" if told() else
+       "Colours are linear RGB 0-1, as the table lists them; the renders show them after the engine's sRGB conversion and "
+       "lighting, so a linear value looks much lighter than its number (linear 0.18 shows as sRGB 0.46).\n") +
     "Return one JSON object {\"ops\": [...]}: upsert_material with a material's id and only the fields you change, or "
     "assign_material to move a part to another existing material. Return {\"ops\": []} if every material already reads "
     "right. Do not add materials, and do not change alpha, opacity, transmission or image maps. The judge's assessment "
@@ -105,18 +109,25 @@ class LookOutcome:
 
 
 def material_table(scene: SceneIR) -> str:
-    """One line per material: id, the parts that use it, linear base colour and its sRGB hex, roughness, metalness,
-    surface words, and whether an image map gives its colour."""
+    """One line per material: id, the parts that use it, its base colour, roughness, metalness, surface words, and whether
+    an image map gives its colour. The colour: when the colour rule is told (``ir_schema.told``), as the author writes it
+    (numbers and the same colour as hex, ``ir_schema.written_colour``); otherwise the stored linear value and its sRGB
+    hex, as always."""
     users: dict[str | None, list[str]] = {}
     for n in scene.nodes:
         if n.kind not in ("group",):
             users.setdefault(n.material_id, []).append(n.id)
     lines = []
     for m in scene.materials:
-        hexc = "#" + "".join(f"{_srgb8(c):02x}" for c in m.base_color)
         parts = users.get(m.id, [])
         shown = ", ".join(parts[:12]) + (f" and {len(parts) - 12} more" if len(parts) > 12 else "")
-        line = (f"- {m.id}: parts {shown or 'none'}; base_color {list(round(c, 3) for c in m.base_color)} (sRGB {hexc}); "
+        if told():
+            written = written_colour(m.base_color)
+            hexc = "#" + "".join(f"{max(0, min(255, round(c * 255))):02x}" for c in written)  # the same colour, written as hex
+            colour = f"base_color {written} ({hexc})"
+        else:
+            colour = f"base_color {list(round(c, 3) for c in m.base_color)} (sRGB {'#' + ''.join(f'{_srgb8(c):02x}' for c in m.base_color)})"
+        line = (f"- {m.id}: parts {shown or 'none'}; {colour}; "
                 f"roughness {m.roughness:.2f}; metallic {m.metallic:.2f}")
         if m.surface:
             line += f"; surface \"{m.surface}\""
@@ -126,12 +137,6 @@ def material_table(scene: SceneIR) -> str:
     if users.get(None):
         lines.append(f"- (no material): parts {', '.join(users[None][:12])}")
     return "\n".join(lines)
-
-
-def _srgb8(c: float) -> int:
-    c = min(1.0, max(0.0, float(c)))
-    s = 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
-    return int(round(s * 255))
 
 
 def look_task(scene: SceneIR, *, brief: str, verdict: tuple[str, ...], previous: str = "") -> str:
@@ -424,12 +429,19 @@ class LookRound:
         return None
 
 
+def _srgb8(c: float) -> int:
+    c = min(1.0, max(0.0, float(c)))
+    s = 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
+    return int(round(s * 255))
+
+
 def _summary(patch: IRPatch) -> str:
     out = []
     for op in patch.ops:
         if op.op == "upsert_material":
             m = op.material
-            out.append(f"{m.id} base_color {[round(c, 3) for c in m.base_color]} roughness {m.roughness:.2f} metallic {m.metallic:.2f}")
+            shown = written_colour(m.base_color) if told() else [round(c, 3) for c in m.base_color]
+            out.append(f"{m.id} base_color {shown} roughness {m.roughness:.2f} metallic {m.metallic:.2f}")
         else:
             out.append(f"{op.node_id} -> {op.material_id}")
     return "; ".join(out)

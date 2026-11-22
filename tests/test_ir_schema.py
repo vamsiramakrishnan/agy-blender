@@ -96,8 +96,16 @@ def test_kernel_defaults_match_typed_param_defaults():
 
 
 async def test_template_scenes_round_trip_through_the_wire():
+    # A stored scene's colours are linear and a model reads and writes sRGB (tests/test_colour.py), so the wire form of a
+    # stored scene is the one a model is shown (S.as_written), not its own dump. Its colours are shown to
+    # S.SHOWN_DIGITS sRGB decimals, so they come back within 1e-4 (an 80th of an 8-bit step); everything else exactly.
     for scene in await template_scenes():
-        assert S.parse_scene(scene.model_dump_json()) == scene
+        back = S.parse_scene(S.written_json(scene))
+        assert back.model_copy(update={"materials": scene.materials}) == scene
+        for m, n in zip(scene.materials, back.materials, strict=True):
+            for f in S.COLOUR_FIELDS:
+                assert max(abs(a - b) for a, b in zip(getattr(m, f), getattr(n, f))) < 1e-4, (m.id, f)
+            assert m.model_copy(update={f: getattr(n, f) for f in S.COLOUR_FIELDS}) == n
 
 
 def test_every_op_round_trips_to_irpatch():
@@ -116,7 +124,10 @@ def test_every_op_round_trips_to_irpatch():
         {"op": "flush_back", "node_id": "lid", "target_id": "body"},
     ]
     text = json.dumps({"ops": ops})
-    assert S.parse_patch(text) == ir.IRPatch.model_validate_json(text)
+    # the same patch read as stored data, except the written colour, which is sRGB on the wire (tests/test_colour.py)
+    stored = json.loads(text)
+    stored["ops"][7]["material"]["base_color"] = list(S.linear_colour([0.5, 0.3, 0.1]))
+    assert S.parse_patch(text) == ir.IRPatch.model_validate(stored)
     jsonschema.validate(json.loads(text), S.patch_response_schema())
 
 
