@@ -506,8 +506,10 @@ async def test_apply_scene_ir_names_a_detached_part_with_its_gap_however_many_wa
     env = make_session(tmp_path)
     r = await T.apply_scene_ir({"ops": [*CRATE["ops"], *PINS, CAP_4MM]}, env.ctx)
     assert r.startswith("OK") and "interpenetration@collar_" in r and r.endswith("..."), r  # the warnings are cut
+    # the finding ends with the move that fixes it (kernel fast_ops describe, added with the attach step)
     assert ("| detached: cap (surface 4.0 mm from lid, the nearest part, which lies below it (touch tolerance 2 mm); "
-            "min z 0.684): deliver_package will refuse delivery until it touches the asset") in r, r
+            "min z 0.684; to touch it, move cap by (+0.0, +0.0, -4.0) mm, which puts its nearest vertex on lid): "
+            "deliver_package will refuse delivery until it touches the asset") in r, r
     assert r.index("detached: cap") < r.index("warn: ")  # never behind the list that is cut at 160 characters
     fixed = await T.apply_scene_ir({"ops": [CAP_ON]}, env.ctx)
     assert fixed.startswith("OK") and "detached" not in fixed, fixed
