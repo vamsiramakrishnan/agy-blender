@@ -767,7 +767,8 @@ def _author_lod_variants(
                     stage.GetPrimAtPath(path).SetActive(False)
                     continue
                 local = (np.asarray(lod.points, dtype=np.float64) - trans) @ inv33
-                author_mesh_data(stage.GetPrimAtPath(path), local, lod.triangles, lod.uvs, weld_map=None, crease_deg=crease_deg)
+                author_mesh_data(stage.GetPrimAtPath(path), local, compile_ir.facing(lod.triangles, inv33), lod.uvs, weld_map=None,
+                                 crease_deg=crease_deg)
     vset.SetVariantSelection("LOD0")
     return [sum(shipped(t[3][i]).tri_count for t in targets) for i in range(levels)]
 
@@ -854,7 +855,8 @@ def _ship_lod0(stage: Usd.Stage, meshes: Sequence[MeshData], uvs: Sequence[UVRes
             raise ValueError(f"{m.prim_path}: package mesh has {len(pts)} points, its unwrap {len(u.points)}")
         s = shipped(u)
         weld = prim.GetAttribute(compile_ir.UV_WELD_KEY).Get() if prim.HasAttribute(compile_ir.UV_WELD_KEY) else None
-        author_mesh_data(prim, pts[s.vertices], s.triangles, s.uvs,
+        linear = np.array(UsdGeom.XformCache().GetLocalToWorldTransform(prim))[:3, :3]
+        author_mesh_data(prim, pts[s.vertices], compile_ir.facing(s.triangles, linear), s.uvs,
                          weld_map=None if weld is None else np.asarray(weld, np.int32)[s.vertices], crease_deg=crease_deg)
         if prim.HasAttribute(compile_ir.UV_CHART_KEY):
             attr = prim.GetAttribute(compile_ir.UV_CHART_KEY)

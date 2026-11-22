@@ -75,7 +75,7 @@ jobs:
       - name: Test native workers, engine imports, rendered frames and inspector channels
         id: tests
         run: |
-          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_fbx_export.py tests/test_fbx_package.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py tests/test_blender_verification_steps.py
+          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_fbx_export.py tests/test_fbx_package.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py tests/test_blender_verification_steps.py tests/test_shapes_engines.py
           python - <<'PYTHON'
           import xml.etree.ElementTree as ET
           required = {"test_three_worker_mixed_asset_soak", "test_reviewed_upstream_primitives",
@@ -110,6 +110,8 @@ jobs:
                       "test_agy3d_prop_prints_the_fbx_step_like_the_others",
                       *(f"test_the_native_export_writes_the_fbx_in_verified_and_preview_sessions_alike[{preview}]" for preview in (False, True)),
                       "test_ten_relocated_golden_packages_load_in_stock_godot",
+                      # the shaped primitives (bevel, inset, lathe, extrude) through the pipeline and the engines (tests/test_shapes_engines.py)
+                      *(f"test_shaped_crate_goes_through_the_pipeline_and_the_engines[{engine}]" for engine in ("godot_4", "roblox_r15")),
                       "test_ten_relocated_golden_dcc_engine_silhouettes",
                       "test_staged_lookdev_and_export_share_one_imported_mesh_atlas",
                       "test_refinement_lookdev_fixer_and_verification_reuse_the_same_atlas",

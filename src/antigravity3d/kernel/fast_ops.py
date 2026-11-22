@@ -518,7 +518,17 @@ def _check_pair(a, b, add) -> None:
             continue
         p = np.asarray(src.points, dtype=np.float64)
         t = np.asarray(src.triangles)
-        pool = np.concatenate([p, p[t].mean(axis=1)])
+        # Probes step a micrometre-scale distance into their own part, so a probe lying exactly on the other part's
+        # surface (two parts in flush contact) reads as outside it: on a surface the winding number is 0.5 on a face but
+        # undefined on an edge or vertex, where it can exceed the 0.9 threshold. Measured: an L-section corner guard
+        # whose inner faces sit flush on a box read "~19% of probe points inside" for two of four identical mirrored
+        # guards, and 0% with the step. A real overlap deeper than the step is still found.
+        fn = np.cross(p[t[:, 1]] - p[t[:, 0]], p[t[:, 2]] - p[t[:, 0]])
+        vn = np.zeros_like(p)
+        np.add.at(vn, t.reshape(-1), np.repeat(fn, 3, axis=0))
+        unit = lambda v: v / np.maximum(np.linalg.norm(v, axis=1, keepdims=True), 1e-30)  # noqa: E731
+        step = 1e-6 * max(float(np.linalg.norm(np.ptp(p, axis=0))), 1e-9)
+        pool = np.concatenate([p - step * unit(vn), p[t].mean(axis=1) - step * unit(fn)])
         if len(pool) > 96:
             pool = pool[np.linspace(0, len(pool) - 1, 96).astype(int)]
         inside = _winding_inside(pool, np.asarray(dst.points, dtype=np.float64)[np.asarray(dst.triangles)])
@@ -2634,8 +2644,18 @@ class Hull:
 def _hull(points: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
     from scipy.spatial import ConvexHull
 
-    h = ConvexHull(points)
-    used = np.unique(h.simplices)
+    # Hulls ship as float32 points, and the package check (validator._is_convex) runs Qhull again on those: a point
+    # Qhull kept as a vertex of a flat facet in float64 can fall a rounding error inside it in float32 and be dropped,
+    # and the hull is then reported "not convex". Measured: the merged hull of a turned knob and a ring (88 points,
+    # flat caps of 16 and 20 coplanar points) lost 9 vertices that way. So the hull is taken of the float32 values
+    # and again of its own vertices until Qhull keeps all of them (once or twice in practice).
+    points = np.asarray(points, np.float64).astype(np.float32).astype(np.float64)
+    for _ in range(4):
+        h = ConvexHull(points)
+        used = np.unique(h.simplices)
+        if len(used) == len(points):
+            break
+        points = points[used]
     remap = np.zeros(len(points), np.int64)
     remap[used] = np.arange(len(used))
     tris = remap[h.simplices]
@@ -3267,6 +3287,11 @@ def _coacd_params(threshold: float, share: int, off: bool) -> dict:
                 mcts_iterations=40, mcts_nodes=10, max_ch_vertex=64, decimate=True, seed=0)
 
 
+# The reason carried by a hull made from MeshData.collider_points, so the manifest's collider_sources says that the
+# collision of a bevelled or inset part is its plain shape.
+PROXY_REASON = "plain shape of a bevelled or inset part: rounded edges and recessed panels are not in the collision"
+
+
 @dataclass
 class _Piece:
     """One body to decompose: what CoACD is given, and what stands in for it if it cannot be."""
@@ -3307,6 +3332,10 @@ def generate_colliders(
 
     for m in meshes:
         if not m.collider or len(m.triangles) == 0:
+            continue
+        if m.collider_points is not None:  # the part's plain shape (compile_ir.collider_proxy): convex by construction
+            pp, tt, hv = _hull(np.asarray(m.collider_points, np.float64))
+            raw.append((pp, tt, hv, "fast_path", PROXY_REASON))
             continue
         pts = np.asarray(m.points, dtype=np.float64)
         tri = np.asarray(m.triangles)
@@ -3397,7 +3426,7 @@ def describe_collider_sources(hulls: list[Hull]) -> str:
     """"coacd, body_hull (decomposition stopped: timeout after 30 s)": the sources of a set of hulls, with every reason a hull
     is not a plain decomposition or hull, so that a fallback is never silent."""
     sources = sorted({h.source for h in hulls})
-    reasons = sorted({h.reason for h in hulls if h.source == "body_hull" and h.reason})
+    reasons = sorted({h.reason for h in hulls if (h.source == "body_hull" or PROXY_REASON in h.reason) and h.reason})
     capped = [h for h in hulls if CAPPED_MARK in h.reason]
     if capped:
         reasons.append(f"{len(capped)} capped to the engine's hull limit, volume "

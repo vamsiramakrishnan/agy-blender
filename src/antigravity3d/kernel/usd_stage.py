@@ -47,7 +47,7 @@ from pxr import Gf, Kind, Sdf, Tf, Usd, UsdGeom, UsdShade, UsdUtils
 from antigravity3d import ir
 from antigravity3d.ir import IRPatch, SceneIR
 from antigravity3d.kernel import usd_boot
-from antigravity3d.kernel.compile_ir import CREASE_DEG, IR_KEY, UV_CHART_KEY, UV_WELD_KEY, author_mesh_data, author_scene, node_paths, read_ir, resolve_anchor
+from antigravity3d.kernel.compile_ir import COLLIDER_PROXY_KEY, CREASE_DEG, IR_KEY, facing, UV_CHART_KEY, UV_WELD_KEY, author_mesh_data, author_scene, node_paths, read_ir, resolve_anchor
 from antigravity3d.kernel.fast_ops import UVResult
 from antigravity3d.kernel.spatial import PrimInfo, SpatialIndex
 from antigravity3d.kernel.types import MeshData
@@ -81,6 +81,7 @@ class _MeshRead(NamedTuple):
     prim: Usd.Prim
     mesh: MeshData
     local: np.ndarray  # (N, 3) float64 local-space points matching ``mesh.points`` (seam split folded)
+    linear: np.ndarray = np.eye(3)  # 3x3 local-to-world linear part (compile_ir.facing: mirrored prims flip winding)
 
 
 class StageManager:
@@ -416,11 +417,14 @@ class StageManager:
                 tris = inv.reshape(-1)[tris].astype(np.int32)
             m = np.array(xc.GetLocalToWorldTransform(prim))  # row-vector convention
             world = local @ m[:3, :3] + m[3, :3]
+            tris = facing(tris, m[:3, :3]).astype(np.int32)  # a mirrored prim's baked mesh still faces out
             node = prim
             while node and not node.HasAttribute("agy:nodeId"):
                 node = node.GetParent()
             node_id = node.GetAttribute("agy:nodeId").Get() if node else prim.GetName()
             collider = bool(node.GetAttribute("agy:collider").Get()) if node else True
+            proxy = prim.GetAttribute(COLLIDER_PROXY_KEY).Get() if prim.HasAttribute(COLLIDER_PROXY_KEY) else None
+            proxy = np.asarray(proxy, np.float64) @ m[:3, :3] + m[3, :3] if proxy is not None and len(proxy) >= 4 else None
             mat, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
             md = MeshData(
                 node_id=node_id,
@@ -430,9 +434,10 @@ class StageManager:
                 material_id=mat.GetPrim().GetName() if mat else None,
                 collider=collider,
                 uv_charts=charts,
+                collider_points=proxy,
                 opaque=None if opaque is None else (mat.GetPrim().GetName() if mat else None) in opaque,
             )
-            out.append(_MeshRead(prim, md, local))
+            out.append(_MeshRead(prim, md, local, m[:3, :3]))
         return out
 
     def extract_meshes(self) -> list[MeshData]:
@@ -465,7 +470,7 @@ class StageManager:
         with Usd.EditContext(self._stage, self._overlay_layer()):
             for r, res in zip(reads, results):
                 author_mesh_data(
-                    r.prim, r.local[res.vmapping], res.triangles, res.uvs, weld_map=res.vmapping, normals=normals,
+                    r.prim, r.local[res.vmapping], facing(res.triangles, r.linear), res.uvs, weld_map=res.vmapping, normals=normals,
                     crease_deg=crease_deg,
                 )
 

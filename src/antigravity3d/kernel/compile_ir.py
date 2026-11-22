@@ -20,17 +20,19 @@ import numpy as np
 from pxr import Gf, Kind, Sdf, Usd, UsdGeom, UsdShade, Vt
 
 from antigravity3d.ir import MaterialIR, NodeIR, PlaceRelative, SceneIR, Transform
+from antigravity3d.kernel import shapes
 from antigravity3d.kernel.mesh_io import triangle_parts
 
 IR_KEY = "agy:sceneIR"  # customData key path (USD stores it as dict agy -> sceneIR)
 LOOKS = "Looks"
 REF_CHILD = "ref"  # child prim of a mesh_ref node that carries the USD reference
-PRIMITIVES = frozenset({"box", "cylinder", "cone", "sphere", "capsule"})
-# Kinds and parameters the scene format defines (``ir.NODE_PARAMS``) whose geometry is not built yet. They are named
-# here so that a design using one fails with its reason instead of compiling to a part with no mesh or a box with
-# sharp edges. Each entry is removed by the change that builds it.
-UNBUILT_KINDS = frozenset({"lathe", "extrude"})
-UNBUILT_PARAMS: dict[str, tuple[str, ...]] = {"box": ("bevel", "inset_faces"), "cylinder": ("bevel",)}
+# Kinds compiled to a mesh from their parameters (the rest: mesh_ref reads a file, group has no geometry).
+PRIMITIVES = frozenset({"box", "cylinder", "cone", "sphere", "capsule", "lathe", "extrude"})
+# Kinds and parameters the scene format defines (``ir.NODE_PARAMS``) whose geometry is not built yet, so that a design
+# using one fails with its reason instead of compiling to a part with no mesh. Empty since the shaped primitives
+# (kernel/shapes.py) were built; kept so a future parameter can be declared before its geometry exists.
+UNBUILT_KINDS: frozenset[str] = frozenset()
+UNBUILT_PARAMS: dict[str, tuple[str, ...]] = {}
 USD_EXTS = frozenset({".usd", ".usda", ".usdc", ".usdz"})
 _MESH_ATTRS = ("points", "faceVertexCounts", "faceVertexIndices", "extent")
 
@@ -49,15 +51,44 @@ def _num(node: NodeIR, name: str, default: float | None = None, *, allow_zero: b
     return v
 
 
-def _int(node: NodeIR, name: str, default: int, minimum: int) -> int:
+def _int(node: NodeIR, name: str, default: int, minimum: int, maximum: int | None = None) -> int:
     v = node.params.get(name, default)
-    if isinstance(v, (str, tuple, list, bool)) or float(v) != int(v) or int(v) < minimum:
-        raise ValueError(f"{node.id}: param '{name}' must be an integer >= {minimum}, got {v!r}")
+    if isinstance(v, (str, tuple, list, bool)) or float(v) != int(v) or int(v) < minimum or (maximum is not None and int(v) > maximum):
+        within = f"from {minimum} to {maximum}" if maximum is not None else f">= {minimum}"
+        raise ValueError(f"{node.id}: param '{name}' must be an integer {within}, got {v!r}")
     return int(v)
 
 
-def _lathe(profile: list[tuple[float, float]], n: int) -> tuple[np.ndarray, np.ndarray]:
-    """Surface of revolution about Z from a top-to-bottom (r, z) profile.
+def _faces(node: NodeIR) -> list[str]:
+    v = node.params.get("inset_faces", [])
+    if not isinstance(v, (list, tuple)) or not all(isinstance(f, str) for f in v):
+        raise ValueError(f"{node.id}: param 'inset_faces' must be a list of face names {list(shapes.BOX_FACES)}, got {v!r}")
+    return list(v)
+
+
+def _box_shape(node: NodeIR) -> tuple | None:
+    """(size, bevel, bevel_segments, inset_faces, inset_margin, inset_depth) of a box that is not a plain sharp box."""
+    size = _box_size(node)
+    b = _num(node, "bevel", 0.0, allow_zero=True)
+    segs = _int(node, "bevel_segments", 1, 1, 4)
+    faces = _faces(node)
+    m = _num(node, "inset_margin", 0.0, allow_zero=True)
+    d = _num(node, "inset_depth", 0.0, allow_zero=True)
+    if b == 0 and not faces:
+        return None
+    return size, b, segs, faces, m, d
+
+
+def _closed(node: NodeIR) -> bool:
+    v = node.params.get("closed", False)
+    if not isinstance(v, bool):
+        raise ValueError(f"{node.id}: param 'closed' must be true or false, got {v!r}")
+    return v
+
+
+def _lathe(profile: list[tuple[float, float]], n: int, closed: bool = False) -> tuple[np.ndarray, np.ndarray]:
+    """Surface of revolution about Z from an (r, z) profile running clockwise in the (r, z) plane (top to bottom on
+    the outside of a solid); ``closed`` also joins the last row to the first (a tube or ring).
 
     Rows with r == 0 collapse to a single pole vertex, so the result is a
     closed manifold with shared vertices (no seam duplicates).
@@ -77,7 +108,7 @@ def _lathe(profile: list[tuple[float, float]], n: int) -> tuple[np.ndarray, np.n
             rows.append(np.arange(count, count + n))
             count += n
     tris: list[np.ndarray] = []
-    for a, b in pairwise(rows):
+    for a, b in pairwise(rows + rows[:1] if closed else rows):
         a1, b1 = np.roll(a, -1), np.roll(b, -1)
         if len(a) == 1:  # pole above ring: fan
             tris.append(np.column_stack([np.full(n, a[0]), b, b1]))
@@ -129,7 +160,12 @@ def _profile(node: NodeIR) -> tuple[list[tuple[float, float]], int]:
     h = _num(node, "height")
     n = _int(node, "segments", 24, 3)
     if k == "cylinder":
-        return [(0.0, h / 2), (r, h / 2), (r, -h / 2), (0.0, -h / 2)], n
+        b = _num(node, "bevel", 0.0, allow_zero=True)
+        if b == 0:
+            return [(0.0, h / 2), (r, h / 2), (r, -h / 2), (0.0, -h / 2)], n
+        if b >= min(r, h / 2):
+            raise ValueError(f"{node.id}: bevel {b} must be below the radius ({r}) and half the height ({h / 2})")
+        return shapes.rounded_cylinder_profile(r, h, b, _int(node, "bevel_segments", 1, 1, 4)), n
     return [(0.0, h / 2), (r, -h / 2), (0.0, -h / 2)], n  # cone: apex up
 
 
@@ -142,13 +178,111 @@ def _box_size(node: NodeIR) -> tuple[float, float, float]:
     return float(size[0]), float(size[1]), float(size[2])
 
 
+def _shaped(node: NodeIR) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    """(points, triangles, charts) of a node built by kernel/shapes.py, None for the plain primitives."""
+    if node.kind == "box":
+        if (spec := _box_shape(node)) is None:
+            return None
+        try:
+            return shapes.box(*spec)
+        except ValueError as e:
+            raise ValueError(f"{node.id}: {e}") from None
+    if node.kind == "extrude":
+        return shapes.extrude(node.params.get("outline"), _num(node, "depth"), node.id)
+    return None
+
+
+def _lathe_rows(node: NodeIR) -> tuple[list[tuple[float, float]], int, bool]:
+    closed = _closed(node)
+    return shapes.lathe_rows(node.params.get("profile"), closed, node.id), _int(node, "segments", 16, 3), closed
+
+
 def primitive_mesh(node: NodeIR) -> tuple[np.ndarray, np.ndarray]:
     """(points float32 Nx3, triangles int32 Mx3) for a primitive node, local space."""
+    if (shaped := _shaped(node)) is not None:
+        return shaped[0], shaped[1]
     if node.kind == "box":
         return _box(*_box_size(node))
+    if node.kind == "lathe":
+        return _lathe(*_lathe_rows(node))
     if node.kind not in PRIMITIVES:
         raise ValueError(f"{node.id}: kind '{node.kind}' is not a primitive")
     return _lathe(*_profile(node))
+
+
+def check_node(node: NodeIR) -> None:
+    """Raises the ValueError :func:`primitive_mesh` would raise for ``node``, with the same message, without building
+    a mesh (cheap enough for every node of every answer). Nothing is clamped or adjusted anywhere in the kernel: a
+    value is either built as given or refused here. mesh_ref (its file is read when authored) and group pass."""
+    k = node.kind
+    if k in ("group", "mesh_ref"):
+        return
+    if k == "box":
+        if (spec := _box_shape(node)) is not None and (why := shapes.box_problem(*spec)):
+            raise ValueError(f"{node.id}: {why}")
+    elif k == "lathe":
+        _lathe_rows(node)
+    elif k == "extrude":
+        shapes.extrude_outline(node.params.get("outline"), node.id)
+        _num(node, "depth")
+    elif k in PRIMITIVES:
+        _profile(node)
+    else:
+        raise ValueError(f"{node.id}: kind '{k}' is not a primitive")
+
+
+def collider_proxy(node: NodeIR) -> np.ndarray | None:
+    """Local points whose convex hull stands in for the render mesh in collision, or None (collision from the mesh).
+
+    A bevelled or inset box collides as its sharp box (8 points, the hull a sharp box gets), a bevelled cylinder as its
+    sharp cylinder (2 x segments points). Measured on a 1 x 0.6 x 0.4 box with a 4-segment bevel: the render mesh's
+    hull has 168 vertices and 332 triangles against 8 and 12; an inset box is concave, so without the proxy it is
+    decomposed into several hulls. A rounded edge or a recessed panel is a visual detail a game collides with as the
+    plain shape; the corners of the proxy stand at most bevel * (sqrt(3) - 1) outside the rounded surface."""
+    if node.kind == "box" and _box_shape(node) is not None:
+        x, y, z = (v / 2 for v in _box_size(node))
+        return np.array([[sx * x, sy * y, sz * z] for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)], np.float32)
+    if node.kind == "cylinder" and _num(node, "bevel", 0.0, allow_zero=True) > 0:
+        r, h, n = _num(node, "radius"), _num(node, "height"), _int(node, "segments", 24, 3)
+        return _lathe([(0.0, h / 2), (r, h / 2), (r, -h / 2), (0.0, -h / 2)], n)[0][1:-1]
+    return None
+
+
+def triangle_count(node: NodeIR) -> int:
+    """Triangles :func:`primitive_mesh` makes for ``node``, from its parameters alone (nothing is built or checked).
+
+    The one source of a part's triangle cost (budget estimates, authoring guidance); test_shapes pins it against the
+    built meshes. Per kind (s = bevel_segments when bevel > 0, else 0; n = segments):
+      box       12 + 16 s^2 + 16 s, plus 16 per inset face
+      cylinder  n (4 s + 4)
+      cone      2 n;  sphere 2 n (rings - 1);  capsule 4 n c when height > 0, else 4 n c - 2 n, with c = max(2, n // 4)
+      lathe     open: n per band touching a pole (the two ends) and 2 n per other band; closed: 2 n per profile point
+      extrude   4 k - 4 for k outline points
+      group     0
+    mesh_ref raises: its cost is in its file.
+    """
+    k, p = node.kind, node.params
+    if k == "group":
+        return 0
+    if k == "box":
+        faces = p.get("inset_faces") or []
+        return shapes.box_tris(float(p.get("bevel", 0) or 0), int(p.get("bevel_segments", 1)), len(faces))
+    if k == "extrude":
+        return shapes.extrude_tris(p["outline"])
+    if k == "lathe":
+        return shapes.lathe_tris(p["profile"], bool(p.get("closed", False)), int(p.get("segments", 16)))
+    if k == "cylinder":
+        s = int(p.get("bevel_segments", 1)) if float(p.get("bevel", 0) or 0) > 0 else 0
+        return int(p.get("segments", 24)) * (4 * s + 4)
+    if k == "cone":
+        return 2 * int(p.get("segments", 24))
+    if k == "sphere":
+        return 2 * int(p.get("segments", 24)) * (int(p.get("rings", 12)) - 1)
+    if k == "capsule":
+        n = int(p.get("segments", 16))
+        cap = max(2, n // 4)
+        return 4 * n * cap - (0 if float(p["height"]) > 0 else 2 * n)
+    raise ValueError(f"{node.id}: kind '{k}' has no triangle cost from its parameters")
 
 
 def primitive_charts(node: NodeIR) -> np.ndarray:
@@ -163,25 +297,50 @@ def primitive_charts(node: NodeIR) -> np.ndarray:
         unfolds with *zero* area and angle distortion (a polygonal conical frustum is developable), and it
         stays developable under any affine node transform. Two adjacent bands cannot share a chart without
         a non-isometric map, so a seam per latitude ring is the price of zero distortion.
+      * lathe / bevelled cylinder: one chart per band, as the sphere (two per band at an odd segment count);
+      * bevelled / inset box, extrude: see kernel/shapes.py (open strips and flat pieces, all exact).
     ``fast_ops.unwrap_scene`` unfolds each chart from the *world-space* positions, so a non-uniformly
     scaled node still gets an exact layout at the requested texel density.
     """
+    if (shaped := _shaped(node)) is not None:
+        return shaped[2]
     if node.kind == "box":
         _box_size(node)
         return (np.arange(12) // 2).astype(np.int32)  # _box lists two triangles per face
     if node.kind not in PRIMITIVES:
         raise ValueError(f"{node.id}: kind '{node.kind}' is not a primitive")
-    profile, n = _profile(node)
+    profile, n, closed = _lathe_rows(node) if node.kind == "lathe" else (*_profile(node), False)
     # _lathe emits one block per consecutive profile-row pair: n triangles for a pole fan, 2n for a quad band
-    sizes = [n if 0.0 in (a[0], b[0]) else 2 * n for a, b in pairwise(profile)]
-    return np.repeat(np.arange(len(sizes), dtype=np.int32), sizes)
+    sizes = [n if 0.0 in (a[0], b[0]) else 2 * n for a, b in pairwise(profile + profile[:1] if closed else profile)]
+    band = np.repeat(np.arange(len(sizes), dtype=np.int32), sizes)
+    shaped = node.kind == "lathe" or (node.kind == "cylinder" and _num(node, "bevel", 0.0, allow_zero=True) > 0)
+    if not (shaped and n % 2):
+        return band
+    # The unfold cuts a closed band where its two search fronts meet, opposite the first triangle: with an even
+    # segment count that is the meridian edge at 180 degrees, with an odd one the diagonal of the quad there (a
+    # texture seam across a facet). The shaped kinds split each band of an odd count into two halves at meridians.
+    # (The five original primitives keep their charts: existing packages stay byte-identical.)
+    j = np.concatenate([np.arange(k) % n for k in sizes])
+    return (2 * band + (j >= (n + 1) // 2)).astype(np.int32)
 
 
 # --- mesh data (UVs / normals) --------------------------------------------------
 
+COLLIDER_PROXY_KEY = "agy:colliderProxy"  # point3f[] local: the convex collision shape of a shaped part (collider_proxy)
 UV_WELD_KEY = "agy:uvWeldMap"  # int[] per authored vertex: id of the pre-unwrap vertex it was split from
 UV_CHART_KEY = "agy:uvChart"  # int[] per triangle of a primitive: exact developable chart (see primitive_charts)
 CREASE_DEG = 40.0
+
+
+def facing(tris: np.ndarray, linear: np.ndarray) -> np.ndarray:
+    """``tris`` with the winding a transform with 3x3 part ``linear`` needs to keep them facing the same way.
+
+    A transform with a negative determinant (a mirror: scale [-1, 1, 1], or under a mirrored parent) turns an outward
+    mesh inside out when its points are baked, so baking reverses each triangle (first vertex kept), and writing world
+    triangles back onto a mirrored prim's local points reverses them again. USD stores the local winding: renderers
+    account for the mirror themselves."""
+    t = np.asarray(tris)
+    return t[:, [0, 2, 1]] if np.linalg.det(np.asarray(linear, np.float64)[:3, :3]) < 0 else t
 
 
 def crease_normals(points: np.ndarray, tris: np.ndarray, crease_deg: float = CREASE_DEG) -> np.ndarray:
@@ -630,6 +789,10 @@ def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path)
         prim.CreateAttribute(UV_CHART_KEY, Sdf.ValueTypeNames.IntArray, custom=True).Set(
             Vt.IntArray.FromNumpy(primitive_charts(node))
         )
+        if (proxy := collider_proxy(node)) is not None:
+            prim.CreateAttribute(COLLIDER_PROXY_KEY, Sdf.ValueTypeNames.Point3fArray, custom=True).Set(Vt.Vec3fArray.FromNumpy(proxy))
+        else:
+            _block_authored(prim, [COLLIDER_PROXY_KEY])
     elif imported:
         # One IR node owns one material and one mesh, including transformed instances.
         points, faces, uvs = [], [], []
@@ -649,7 +812,7 @@ def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path)
     else:
         _block_authored(prim, ["agy:meshRef"])
     if not is_prim:  # imported / referenced geometry: charts are computed by the unwrap stage
-        _block_authored(prim, [UV_CHART_KEY])
+        _block_authored(prim, [UV_CHART_KEY, COLLIDER_PROXY_KEY])
     if ref_path is not None and not imported:
         if not ref_path.is_file():
             raise FileNotFoundError(ref_path)

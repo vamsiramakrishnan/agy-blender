@@ -192,7 +192,11 @@ def _nodes(scene: SceneIR) -> dict[str, _Node]:
 
 def _face_param(nd: _Node, axis: int) -> tuple[str, int, float] | None:
     """(param name, local axis, world length one unit of the param moves the face) of the face of ``nd`` normal to
-    world ``axis``, or None when that face is not a parameter (rotated part, cone, sphere, capsule, mesh).
+    world ``axis``, or None when that face is not a parameter (rotated part, cone, sphere, capsule, lathe, mesh).
+
+    A bevelled or inset box keeps its faces at ``size`` (the rounding and the recesses are inside it), so it moves
+    like a sharp one. An extrusion's caps are ``depth``; its side walls follow the outline, which is left to the author,
+    as are a lathe's surfaces (its profile is the only parameter that holds them).
 
     A cylinder whose axis is a world axis: its caps are ``height``; a side facet whose normal is a world axis is
     ``radius``: the facets of an n-gon lie r cos(pi / n) from the axis, so one unit of radius moves the facet by the
@@ -206,6 +210,8 @@ def _face_param(nd: _Node, axis: int) -> tuple[str, int, float] | None:
             return "size", k, s
         if kind == "cylinder" and k == 2:
             return "height", k, s
+        if kind == "extrude" and k == 2:  # the two caps of a prism, as a cylinder's: centred, so moving one is depth + translate
+            return "depth", k, s
         if kind == "cylinder" and k in (0, 1) and 2 in nd.axes:
             n = int(nd.node.params.get("segments", 24))
             return "radius", k, s * math.cos(math.pi / n)
@@ -686,6 +692,7 @@ def _ops(st: _State, moves: list[FaceMove]) -> list:
         shift = np.zeros(3)
         size = [float(v) for v in node.params["size"]] if node.kind == "box" else None
         height = float(node.params["height"]) if node.kind == "cylinder" else None
+        depth = float(node.params["depth"]) if node.kind == "extrude" else None
         radius = float(node.params["radius"]) if node.kind == "cylinder" else None
         for m in per[nid]:
             name, k, unit = _face_param(nd, m.axis)
@@ -693,6 +700,8 @@ def _ops(st: _State, moves: list[FaceMove]) -> list:
                 size[k] += m.delta / unit
             elif name == "height":
                 height += m.delta / unit
+            elif name == "depth":
+                depth += m.delta / unit
             else:  # every side facet moves by delta, symmetrically: no translate
                 radius += m.delta / unit
                 continue
@@ -701,6 +710,8 @@ def _ops(st: _State, moves: list[FaceMove]) -> list:
             ops.append(SetParam(node_id=nid, name="size", value=tuple(size)))
         if height is not None and height != float(node.params["height"]):
             ops.append(SetParam(node_id=nid, name="height", value=height))
+        if depth is not None and depth != float(node.params["depth"]):
+            ops.append(SetParam(node_id=nid, name="depth", value=depth))
         if radius is not None and radius != float(node.params["radius"]):
             ops.append(SetParam(node_id=nid, name="radius", value=radius))
         if not shift.any():

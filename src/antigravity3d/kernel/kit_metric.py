@@ -507,7 +507,9 @@ class Placement:
 
 def place(meshes: Sequence[MeshData], rot: int, t: Sequence[float]) -> list[MeshData]:
     R = _ROT[rot]
-    return [replace(m, points=np.asarray(m.points, float) @ R.T + np.asarray(t, float)) for m in meshes]
+    move = lambda p: np.asarray(p, float) @ R.T + np.asarray(t, float)  # noqa: E731
+    return [replace(m, points=move(m.points), collider_points=None if m.collider_points is None else move(m.collider_points))
+            for m in meshes]
 
 
 def _target(metric: KitMetric, template: str, rot: int, env_min: Sequence[float]) -> tuple[float, float, float]:
