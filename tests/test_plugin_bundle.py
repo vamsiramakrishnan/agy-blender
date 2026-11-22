@@ -87,8 +87,10 @@ def test_bundle_layout_follows_plugin_docs():
         assert (BUNDLE / rel).is_file(), rel
     assert not (BUNDLE / "hooks" / "hooks.json").exists()
     skills = sorted(p.name for p in (BUNDLE / "skills").iterdir())
-    assert skills == ["art-direction", "concept-to-blueprint", "engine-truth-verify", "game-ready-sanitizer", "parametric-kitbash",
-                      "pbr-material-forge"]
+    # install-into-project: delivery into the user's game project (agy3d install), separate from engine-truth-verify,
+    # which exports and verifies a package on its own
+    assert skills == ["art-direction", "concept-to-blueprint", "engine-truth-verify", "game-ready-sanitizer", "install-into-project",
+                      "parametric-kitbash", "pbr-material-forge"]
     sidecars = sorted(p.name for p in (BUNDLE / "sidecars").iterdir())
     # no inspector sidecar: the studio MCP server serves the inspector as an MCP App
     assert sidecars == ["blender_pool", "depot_watcher", "nightly_variant_factory", "weekly_distill"]

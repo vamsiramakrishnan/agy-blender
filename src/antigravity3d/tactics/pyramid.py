@@ -1068,7 +1068,8 @@ class _Run:
             if rep.ok:
                 if issue := rep.geometry_issue(res.objects["package"].data):
                     return "failed", issue
-                res.objects["engine_import"] = {"engine": rep.engine, "metrics": rep.metrics, "bounds_m": rep.bounds_m}
+                res.objects["engine_import"] = {"engine": rep.engine, "metrics": rep.metrics, "bounds_m": rep.bounds_m,
+                                                "engine_version": rep.engine_version}
             if rep.skipped:
                 return "skipped", rep.skipped_reason or "engine validator skipped"
             return ("passed" if rep.ok else "failed"), rep.log_tail[-160:].replace("\n", " ")

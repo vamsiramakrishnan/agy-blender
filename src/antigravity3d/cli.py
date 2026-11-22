@@ -8,6 +8,8 @@
     agy3d calibrate LABELS.json --out studio_policy.yaml [--offline]
     agy3d models
     agy3d plugin install [--target DIR] | plugin validate [PATH]
+    agy3d install PACKAGE_DIR --project PROJECT_DIR [--dest DIR_IN_PROJECT] [--dry-run] [--force] [--no-check] [--json]
+    agy3d uninstall --project PROJECT_DIR --dest DIR_IN_PROJECT [--dry-run] [--force]
 
 ``--offline`` runs everything on the fakes (FakeDecisionsClient, FakeImageBackend) and the TemplateAuthor.
 ``--style`` is a style-anchor IMAGE; ``--art-direction`` a named style (``antigravity3d.art_direction``; ids are the
@@ -484,6 +486,49 @@ def cmd_plugin(a: argparse.Namespace) -> int:
     return 1 if problems else 0
 
 
+def _print_install(r: Any, as_json: bool, verb: str = "install") -> int:
+    if as_json:
+        print(json.dumps(r.to_dict(), indent=1))
+    else:
+        print(f"agy3d {verb}: {r.message}")
+        if r.project and r.project.get("engine"):
+            print(f"  project: {r.project['engine']} {r.project.get('version') or '(version not stated)'}")
+        changed = [f for f in r.files if f["action"] != "keep"]
+        for f in changed[:40]:
+            print(f"  {f['action']:<8} {f['path']}")
+        if len(changed) > 40:
+            print(f"  ... {len(changed) - 40} more")
+        for c in r.checks:
+            print(f"  check {c.name:<16} {c.status:<8} {c.detail}")
+        for w in r.warnings:
+            print(f"warning: {w}")
+        for n in r.notes:
+            print(f"note: {n}")
+        if r.screenshot:
+            print(f"  screenshot: {r.screenshot}")
+        if r.report_path:
+            print(f"  report: {r.report_path}")
+        if r.checks:
+            print(r.step_line())
+    if r.status in ("refused",):
+        return 2
+    return 0 if r.ok else 1
+
+
+def cmd_install(a: argparse.Namespace) -> int:
+    from antigravity3d.deliver import install_package
+
+    r = install_package(a.package, a.project, a.dest, dry_run=a.dry_run, force=a.force, check=not a.no_check,
+                        fov_deg=a.camera_fov, godot_bin=a.godot)
+    return _print_install(r, a.json)
+
+
+def cmd_uninstall(a: argparse.Namespace) -> int:
+    from antigravity3d.deliver import uninstall
+
+    return _print_install(uninstall(a.project, a.dest, dry_run=a.dry_run, force=a.force), a.json, "uninstall")
+
+
 # --------------------------------------------------------------------------- parser
 
 
@@ -590,6 +635,27 @@ def build_parser() -> argparse.ArgumentParser:
     pv = ps.add_parser("validate")
     pv.add_argument("path", nargs="?", default=None)
     p.set_defaults(fn=cmd_plugin)
+
+    p = sub.add_parser("install", help="install a package into a game project (Godot 4) and check it there")
+    p.add_argument("package", help="package directory (holds manifest.json)")
+    p.add_argument("--project", required=True, help="the game project's root directory")
+    p.add_argument("--dest", default=None, help="directory inside the project (default agy3d/<asset>)")
+    p.add_argument("--dry-run", action="store_true", help="print what would be written; write nothing")
+    p.add_argument("--force", action="store_true", help="replace this tool's own files even where they were edited since")
+    p.add_argument("--no-check", action="store_true", help="do not import and load the installed scene in the engine")
+    p.add_argument("--camera-fov", type=float, default=None, metavar="DEG",
+                   help="vertical field of view the level switch distances are computed for (default 60, the levels' own)")
+    p.add_argument("--godot", default=None, metavar="PATH", help="Godot binary for the check (default $GODOT_BIN, then PATH)")
+    p.add_argument("--json", action="store_true", help="print the machine-readable result")
+    p.set_defaults(fn=cmd_install)
+
+    p = sub.add_parser("uninstall", help="remove exactly what agy3d install wrote")
+    p.add_argument("--project", required=True)
+    p.add_argument("--dest", required=True)
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--force", action="store_true", help="remove this tool's files even where they were edited since")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_uninstall)
     return ap
 
 

@@ -77,6 +77,9 @@ class EngineReport:
     skipped_reason: str | None = None
     metrics: dict[str, int] | None = None
     bounds_m: list[list[float]] | None = None
+    # the engine build that did the import (Godot: Engine.get_version_info().string, e.g. "4.7.2-stable (official)");
+    # recorded in the manifest so an install can say whether a project's engine is the one the package was checked in
+    engine_version: str | None = None
 
     def geometry_issue(self, manifest: dict) -> str | None:
         if self.metrics is not None and self.metrics.get("triangles") != manifest["tris"]:
@@ -149,8 +152,10 @@ class EngineValidator(ABC):
             return EngineReport(False, self.engine, f"timed out after {timeout}s")
         text = out.decode(errors="replace")
         bad = proc.returncode != 0 or self.success_marker not in text or any(m in text for m in self.error_markers)
-        metrics = bounds = None
+        metrics = bounds = version = None
         for line in text.splitlines():
+            if line.startswith("AGY_ENGINE_VERSION "):
+                version = line.removeprefix("AGY_ENGINE_VERSION ").strip() or None
             if line.startswith("AGY_IMPORT_OK {"):
                 try:
                     metrics = json.loads(line.removeprefix("AGY_IMPORT_OK "))
@@ -164,7 +169,7 @@ class EngineValidator(ABC):
                             bad = True
                 except ValueError:
                     bad = True
-        return EngineReport(not bad, self.engine, text[-TAIL_CHARS:], metrics=metrics, bounds_m=bounds)
+        return EngineReport(not bad, self.engine, text[-TAIL_CHARS:], metrics=metrics, bounds_m=bounds, engine_version=version)
 
     @abstractmethod
     def command(self, exe: str, package: Path, workdir: Path) -> tuple[list[str], dict[str, str]]:
@@ -177,6 +182,7 @@ func _init():
     call_deferred("check_asset")
 
 func check_asset():
+    print("AGY_ENGINE_VERSION ", Engine.get_version_info().string)
     var doc := GLTFDocument.new()
     var state := GLTFState.new()
     if doc.append_from_file(OS.get_environment("AGY_PACKAGE"), state) != OK:

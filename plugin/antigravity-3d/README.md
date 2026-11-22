@@ -57,6 +57,7 @@ dashboard. Following the docs, the plugin never turns itself on.
 | `skills/pbr-material-forge` | Albedo Best-of-6, de-lighting, ORM and normal derivation, then a policy gate. |
 | `skills/game-ready-sanitizer` | Makes existing files game-ready: UVs, LODs, colliders, validator. |
 | `skills/engine-truth-verify` | Export, headless engine import, then a parity check against the stage. |
+| `skills/install-into-project` | Installs a package into the user's game project (`install_into_project`; Godot 4 automatically: one scene with levels, collision and materials wired) and checks it there with the project's engine. |
 | `agents/usd_verifier.md` | Isolated, read-only subagent that runs the Tier-1 structural check (`run_usd_validator`) and returns a two-line verdict. |
 | `agents/lookdev_critic.md` | Isolated visual critic that returns a two-line audit delta. |
 | `mcp_config.json` | Registers the stdio MCP server `studio` (`python -m antigravity3d.runtime.mcp_server`, launched with `uv run --project ${PLUGIN_ROOT}`). The harness namespaces plugin servers `<plugin>_<server>`, so it appears as `antigravity-3d_studio`. See "MCP server" below. |

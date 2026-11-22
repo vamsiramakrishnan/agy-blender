@@ -816,7 +816,8 @@ async def _verify_engine(s: Session, pkg: Any, asset: str) -> str | None:
     for name, data in (("dcc.png", dcc), ("engine.png", engine_image)):
         pkg.data["files"].append(name)
         pkg.data["file_hashes"][name] = {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
-    pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": True, "metrics": smoke.metrics, "bounds_m": smoke.bounds_m}
+    pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": True, "metrics": smoke.metrics, "bounds_m": smoke.bounds_m,
+                                               "engine_version": smoke.engine_version}
     pkg.data["validation"]["engine_parity"] = {"ok": True, "silhouette_iou": overlap, "scores": parity.scores}
     return None
 
@@ -928,7 +929,8 @@ async def _preview_engine_import(s: Session, pkg: Any, asset: str) -> str | None
         return f"{smoke.engine} import: {' '.join(smoke.log_tail.split())[-160:]}"
     if issue := smoke.geometry_issue(pkg.data):
         return issue
-    pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": True, "metrics": smoke.metrics, "bounds_m": smoke.bounds_m}
+    pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": True, "metrics": smoke.metrics, "bounds_m": smoke.bounds_m,
+                                               "engine_version": smoke.engine_version}
     pkg.data["validation"]["engine_parity"] = {"ok": None, "skipped": "preview: parity needs the native Decisions API"}
     return None
 

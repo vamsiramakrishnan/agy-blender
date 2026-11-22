@@ -71,7 +71,8 @@ log = logging.getLogger("antigravity3d.mcp")
 
 SERVER_NAME = "antigravity-3d"
 ENGINES = ("unreal_5", "unity_urp", "godot_4", "roblox_r15")
-MANAGEMENT_TOOLS = ("open_asset_session", "start_preview", "set_stage", "session_status", "list_sessions")
+MANAGEMENT_TOOLS = ("open_asset_session", "start_preview", "set_stage", "session_status", "list_sessions",
+                    "install_into_project")
 SESSION_ID_DOC = "Asset session to act on; omit to use the active (most recently opened or selected) one."
 INSTRUCTIONS = (
     "antigravity-3d asset studio. Call open_asset_session first, then work stage by stage: tools outside the "
@@ -381,15 +382,50 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
     async def list_sessions() -> str:
         return await host.run_ordered(host.list_sessions)
 
+    async def install_into_project(
+        package_dir: Annotated[str, Field(description="Package directory holding manifest.json (the folder export_engine_package wrote)")],
+        ctx: Context,
+        project_dir: Annotated[str, Field(description="Game project root; default: this workspace")] = "",
+        dest: Annotated[str, Field(description="Directory inside the project; default agy3d/<asset>")] = "",
+        dry_run: Annotated[bool, Field(description="True (default): only report what would be written. Show that plan to the user "
+                                                   "and call again with false once they agree")] = True,
+        force: Annotated[bool, Field(description="Replace this tool's own files the developer edited since the last install")] = False,
+    ) -> str:
+        from antigravity3d.deliver import install_package
+
+        project = project_dir or await _workspace_root(ctx)
+
+        async def go() -> str:
+            r = await asyncio.to_thread(install_package, package_dir, project, dest or None, dry_run, force, not dry_run)
+            return _install_text(r)
+
+        return await host.run_ordered(go)
+
     open_asset_session.__doc__ = (
         "Open an asset session (new USD stage) and make it active, stage BLOCKOUT. Call this first; returns the session line.")
     set_stage.__doc__ = ("Switch the active stage tool-set: BLOCKOUT, TWEAK, VARIANTS, LOOKDEV or EXPORT. "
                          "Only that stage's tools are callable.")
     session_status.__doc__ = "Current stage, budget, QA verdict (tier1/tier15/export allowed) and newest audit lines."
     list_sessions.__doc__ = "Open asset sessions; the active one is marked with *."
+    install_into_project.__doc__ = (
+        "Install a finished package into the game project this workspace is (Godot 4: a scene with levels, collision and "
+        "materials wired, then imported and checked in the project's engine; Unity/Unreal/Roblox: says what to import). "
+        "Run with dry_run first and show the user the plan; writing into their project needs their approval.")
     start_preview.__doc__ = ("Switch the session to an UNVERIFIED preview in place (scene kept, earlier verdicts discarded), "
                              "limited to the user's token ceiling and image limit. Ask the user for both; never choose them.")
-    return {f.__name__: (f, f.__doc__ or "") for f in (open_asset_session, start_preview, set_stage, session_status, list_sessions)}
+    return {f.__name__: (f, f.__doc__ or "") for f in (open_asset_session, start_preview, set_stage, session_status, list_sessions,
+                                                       install_into_project)}
+
+
+def _install_text(r: Any) -> str:
+    """One status line, the checks, then the machine-readable result."""
+    import json
+
+    head = f"{r.status.upper()} {r.message}"
+    lines = [head, *(f"check {c.name}: {c.status} {c.detail}" for c in r.checks), *(f"warning: {w}" for w in r.warnings)]
+    body = r.to_dict()
+    body["files"] = [f for f in body["files"] if f["action"] != "keep"][:60]
+    return "\n".join(lines) + "\n" + json.dumps(body)
 
 
 async def _workspace_root(ctx: Any) -> str:

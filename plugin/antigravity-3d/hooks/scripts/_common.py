@@ -35,7 +35,7 @@ MUTATING_TOOLS = (
 # Every tool the plugin's MCP server (antigravity3d.runtime.mcp_server) serves. The server applies the same
 # gate decisions itself before dispatch; tests/test_mcp_server.py keeps this list equal to its tools/list.
 STUDIO_TOOLS = (
-    "open_asset_session", "start_preview", "set_stage", "session_status", "list_sessions",
+    "open_asset_session", "start_preview", "set_stage", "session_status", "list_sessions", "install_into_project",
     "apply_scene_ir", "inspect_manifest", "query_region", "undo_last_edit", "render_preview", "run_visual_qa", "qa_probe",
     "propose_variants", "select_variant", "promote_variant", "forge_pbr_material", "apply_shader_diff",
     "run_paintover_loop", "render_lookdev", "generate_lods_and_colliders", "run_usd_validator",
