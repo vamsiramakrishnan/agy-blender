@@ -848,7 +848,7 @@ def contact_sheet(pngs: list[str], out: Path, tile: int = 512, cols: int = 3, mi
 # distance when the levels are wired.
 SMALL_PX = 128
 SMALL_VIEWS = ("three_quarter", "front", "side", "turn_135")
-EVAL_VERSION = 2  # an evaluation written by an older version of this file is redone (round 5 added rows)
+EVAL_VERSION = 3  # an evaluation written by an older version of this file is redone (3: it reads a copy of the delivery without links)
 
 
 def small_sheet(lod0: dict[str, str], lod_last: dict[str, str] | None, out: Path) -> Path:
