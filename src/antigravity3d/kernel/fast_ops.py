@@ -646,8 +646,41 @@ def _check_zfight(meshes: list[MeshData], eps: float, add, bounds=None, pairs=No
     if hidden is not None:  # the same pairs, counting only triangle pairs of which at least one ships
         found = coplanar.same_facing_overlaps(parts, eps, bounds=bounds, pairs=[(i, j) for i, j, _ in found], solid=solid, hidden=hidden)
     for i, j, area in found:
+        # what fixes it, in terms a repair can apply (live 2026-11-22, r5/live_final_C: four bolts buried in the pads
+        # they sit beside, their undersides in the pads' plane, refused by the Blender check at the end of the run)
+        inner = next(((a, b) for a, b in ((i, j), (j, i)) if wholly_inside(meshes[a], meshes[b])), None)
+        if inner is not None:
+            fix = (f"; {meshes[inner[0]].node_id} is wholly inside {meshes[inner[1]].node_id} (never visible): remove it, or "
+                   f"move it out of {meshes[inner[1]].node_id}")
+        else:
+            fix = (f"; to fix it, move the shared face of {meshes[i].node_id} or of {meshes[j].node_id} at least "
+                   f"{2 * eps * 1e3:g} mm off that plane along its normal, or make the faces not overlap")
         add("z_fighting", "warning", meshes[i].node_id,
-            f"{meshes[i].node_id}/{meshes[j].node_id}: {area * 1e4:.3g} cm^2 of same-facing faces within {eps * 1e3:g} mm of one plane")
+            f"{meshes[i].node_id}/{meshes[j].node_id}: {area * 1e4:.3g} cm^2 of same-facing faces within {eps * 1e3:g} mm of one plane"
+            + fix)
+
+
+def wholly_inside(a: MeshData, b: MeshData, tol: float = 1e-4) -> bool:
+    """Is every vertex of part a inside closed part b or on its surface (within ``tol``)? Such a part is never seen
+    while b is opaque."""
+    pa = np.asarray(a.points, np.float64)
+    pb = np.asarray(b.points, np.float64)
+    if not len(pa) or (pa.min(0) < pb.min(0) - tol).any() or (pa.max(0) > pb.max(0) + tol).any():
+        return False
+    tb = pb[np.asarray(b.triangles)]
+    vol = float(np.einsum("ij,ij->i", tb[:, 0], np.cross(tb[:, 1], tb[:, 2])).sum()) / 6.0
+    if vol <= 0:
+        return False  # not a closed, outward solid
+    inside = _winding_inside(pa, tb)
+    if inside.all():
+        return True
+    from antigravity3d.kernel.attach import closest_on_triangles
+
+    for p in pa[~inside]:
+        q = closest_on_triangles(np.repeat(p[None], len(tb), 0), tb[:, 0], tb[:, 1], tb[:, 2])
+        if float(np.linalg.norm(q - p, axis=1).min()) > tol:
+            return False
+    return True
 
 
 def _check_pair(a, b, add) -> None:

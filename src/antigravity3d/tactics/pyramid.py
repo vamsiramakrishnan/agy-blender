@@ -195,6 +195,44 @@ def attach_step(sm: Any, budget: EngineBudget, only: set[str] | None = None) -> 
     return notes
 
 
+def drop_hidden_step(sm: Any, budget: EngineBudget, only: set[str] | None = None) -> list[str]:
+    """Remove the parts Tier-1 finds in z-fighting with a part that wholly encloses them (``fast_ops.wholly_inside``):
+    never visible while the enclosing part is opaque, they cost triangles and can only cause this (the faces they share
+    with it lie in one plane: a bolt buried in the pad it sits beside, both mounted on the lid, which the separation
+    cannot part without unmounting one; live 2026-11-22, r5/live_final_C/runs/r5_crate_C, refused by the Blender check at
+    the end of the run). ``only``: remove none but these (an author's patch: the parts it changed). One line per part
+    removed, as a transaction kept only if it raises no Tier-1 critical issue and detaches nothing."""
+    from antigravity3d.ir import RemoveNode
+    from antigravity3d.kernel.fast_ops import wholly_inside
+
+    meshes = sm.extract_meshes()
+    t1 = tier1_qa(meshes, budget)
+    pairs = [i.detail.split(":")[0].split("/") for i in t1.issues if i.code == "z_fighting"]
+    if not pairs:
+        return []
+    by = {m.node_id: m for m in meshes}
+    opaque = {m.node_id for m in meshes if m.opaque is not False}
+    drop: dict[str, str] = {}
+    for ab in pairs:
+        if len(ab) != 2 or ab[0] not in by or ab[1] not in by:
+            continue
+        for a, b in ((ab[0], ab[1]), (ab[1], ab[0])):
+            if (only is None or a in only) and b in opaque and a not in drop and b not in drop and wholly_inside(by[a], by[b]):
+                drop[a] = b
+                break
+    scene = sm.base_ir()
+    keep_children = {n.parent for n in scene.nodes if n.parent}
+    drop = {a: b for a, b in drop.items() if a not in keep_children}  # a part with children stays (they hang on it)
+    if not drop:
+        return []
+    tx = sm.apply_patch(IRPatch(ops=[RemoveNode(node_id=a) for a in sorted(drop)]))
+    t2 = tier1_qa(sm.extract_meshes(), budget)
+    if _crit(t2) > _crit(t1) or floating_ids(t2) - floating_ids(t1):
+        sm.rollback(tx)
+        return ["drop hidden parts: not applied (it would raise a Tier-1 critical issue or detach a part)"]
+    return [f"removed {a}: wholly inside {b}, never visible, in z-fighting with it" for a, b in sorted(drop.items())]
+
+
 def tidy(sm: Any, budget: EngineBudget, touched: set[str]) -> list[str]:
     """The deterministic clean-up a first design gets, applied after an author's patch to what the patch changed and to
     nothing else (each step its own transaction above the patch, so rolling the patch back undoes them): parts Tier-1
@@ -258,6 +296,7 @@ def tidy(sm: Any, budget: EngineBudget, touched: set[str]) -> list[str]:
             notes.append(f"separated flush faces of {len({o.node_id for o in ops})} part(s) the patch changed")
         if left:
             notes.append("flush faces left (fixing them would move parts the patch did not change): " + ", ".join(left[:8]))
+    notes += drop_hidden_step(sm, budget, only=touched)
     notes += attach_step(sm, budget, only=touched)
     return notes
 
@@ -1588,6 +1627,10 @@ class _Run:
                     self.step("settle_pre", "passed", why, t0)
             self.separate_step("separate_coplanar")
             t0 = time.perf_counter()
+            dropped = drop_hidden_step(sm, self.budget)
+            if dropped:
+                self.step("drop_hidden_pre", "passed", "; ".join(dropped)[:400], t0)
+                t0 = time.perf_counter()
             notes = attach_step(sm, self.budget)
             self.step("attach_pre", "passed" if any(n.startswith("attached") for n in notes) else "warned" if notes else "skipped",
                       "; ".join(notes)[:400] or "every part touches another", t0)
@@ -1778,15 +1821,20 @@ class _Run:
 
         t1 = tier1_qa(self.sm.extract_meshes(), self.budget)
         comps = detached(t1)
-        if not comps:
+        zf = [i.detail for i in t1.issues if i.code == "z_fighting"]
+        if not comps and not zf:
             return ""
         lines = {i.node_id: i.detail for i in t1.issues if i.code in ("floating_part", "floating_group")}
         named = []
         for c in comps:
             d = lines.get(c[0], "")
             named.append(f"{', '.join(c)} ({d.split(';')[0] if d else 'touches nothing'})")
-        why = (f"not packaged: the Blender check would refuse it: {sum(len(c) for c in comps)} part(s) touch nothing "
-               f"after pass A: " + "; ".join(named))
+        parts = []
+        if comps:
+            parts.append(f"{sum(len(c) for c in comps)} part(s) touch nothing after pass A: " + "; ".join(named))
+        if zf:  # the Blender check reports z-fighting as an error too (qa_check: "z-fighting: ...")
+            parts.append(f"{len(zf)} z-fighting pair(s) after pass A: " + "; ".join(z.split(" of one plane")[0] for z in zf))
+        why = "not packaged: the Blender check would refuse it: " + "; ".join(parts)
         self.res.stopped["C"] = why[:600]
         self.res.objects["detached_parts"] = [n for c in comps for n in c]
         self.step("detached_parts", "failed", why[:400])

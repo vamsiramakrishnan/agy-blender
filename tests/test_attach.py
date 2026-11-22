@@ -211,3 +211,55 @@ async def test_the_blender_check_agrees_with_the_kernel_after_attach(tmp_path: P
                 assert status == "passed", errors
             else:  # chain_link_3 sits at [0.074, -0.161, 0.47]
                 assert status == "failed" and len(errors) == 1 and "[0.074, -0.161, 0.47]" in errors[0], errors
+
+
+# --------------------------------------------------------------------------- z-fighting the separation cannot part (2026-11-22)
+
+
+def _lid_with_pad(*extra: NodeIR) -> SceneIR:
+    """The live crate's lid (a recessed top panel, 50 mm margin) on its body and a stack pad straddling the recess's
+    edge, so the pad's underside is partly over the recess and ships; ``extra`` parts on the lid too."""
+    return _scene(_box("body", (0.9, 0.56, 0.35), (0, 0, 0.175)),
+                  _box("lid", (0.9, 0.56, 0.07), (0, 0, 0.385), inset_faces=["+z"], inset_margin=0.05, inset_depth=0.01),
+                  _box("pad", (0.06, 0.06, 0.01), (0.39, 0.22, 0.425), bevel=0.002, bevel_segments=1), *extra)
+
+
+def _bolt(i: str, at: tuple) -> NodeIR:
+    return NodeIR(id=i, kind="cylinder", params={"radius": 0.006, "height": 0.006, "segments": 6},
+                  transform=Transform(translate=at), material_id="m")
+
+
+def test_a_bolt_buried_in_the_pad_beside_it_is_named_inside_and_removed(tmp_path: Path) -> None:
+    """r5/live_final_C/runs/r5_crate_C: an improvement round added four bolts (radius 6 mm, 6 mm tall) wholly inside the
+    four lid pads, both standing on the lid: their undersides lie in one plane, the separation cannot part them (both are
+    mounted by those faces), and the Blender check refused the package at the end of the run ("z-fighting: Batch_0 (24
+    overlapping coplanar tri pairs)"). The finding says the bolt is wholly inside the pad; the clean-up removes it."""
+    sm = _stage(tmp_path, _lid_with_pad(_bolt("bolt", (0.38, 0.22, 0.423))))
+    zf = [i.detail for i in tier1_qa(sm.extract_meshes(), HYDRANT).issues if i.code == "z_fighting"]
+    assert len(zf) == 1 and "bolt is wholly inside pad (never visible)" in zf[0], zf
+    assert P.drop_hidden_step(sm, HYDRANT) == ["removed bolt: wholly inside pad, never visible, in z-fighting with it"]
+    assert "bolt" not in {n.id for n in sm.base_ir().nodes}
+    assert not [i for i in tier1_qa(sm.extract_meshes(), HYDRANT).issues if i.code == "z_fighting"]
+
+
+async def test_z_fighting_the_clean_up_cannot_fix_stops_the_run_after_pass_a(tmp_path: Path) -> None:
+    """A block standing on the lid overlapping the pad: their undersides z-fight and neither is inside the other. The
+    finding says what to move; when nothing has fixed it by the end of pass A (no clean-up here), the run stops there
+    with the refusal instead of packaging what the Blender check would refuse."""
+    from test_pyramid import Script, setup
+
+    from antigravity3d.tactics.authoring import CallableAuthor
+    from antigravity3d.tactics.governor import Governor, plan_for
+    from antigravity3d.tactics.pyramid import refine
+
+    async def up(b: bytes) -> str:
+        return "fake://x"
+
+    scene = _lid_with_pad(_box("block", (0.03, 0.03, 0.02), (0.38, 0.19, 0.43)))
+    sm, plane = setup(tmp_path, Script(), scene)
+    zf = [i.detail for i in tier1_qa(sm.extract_meshes(), HYDRANT).issues if i.code == "z_fighting"]
+    assert zf and "to fix it, move the shared face of" in zf[0] and "mm off that plane" in zf[0], zf
+    res = await refine(sm, plane=plane, author=CallableAuthor(lambda *a, **k: []), governor=Governor(plan_for(2)),
+                       budget=HYDRANT, uploader=up, workdir=tmp_path / "wd", settle_first=False, max_rounds=1)
+    assert "z-fighting pair(s) after pass A: " in res.stopped["C"] and res.stopped["C"].startswith("not packaged"), res.stopped
+    assert "uv_lod_colliders" not in [s.name for s in res.steps]
