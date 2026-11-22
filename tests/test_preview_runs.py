@@ -173,6 +173,22 @@ def test_a_run_built_to_hit_the_image_limit_refuses_before_any_image(key, tmp_pa
     assert not [k for k in api.kinds() if k == "image:sent"]
 
 
+def test_a_run_allowed_no_image_delivers_a_package_and_generates_none(key, tmp_path, capsys):
+    """--max-images 0 is a request, not a shortfall. Until 2026-11-22 it was refused like any other shortfall, so no
+    run could be made at all once an image allowance was spent, while a stock agent with Blender delivered the same
+    brief without one. The blueprint is skipped, no material is textured from an image, everything else runs."""
+    api = key()
+    rc = prop(tmp_path, "--preview", "--token-ceiling", "150000", "--max-images", "0", *FAST)
+    io = capsys.readouterr()
+    assert rc == 0, io.out + io.err
+    assert not [k for k in api.kinds() if k.startswith("image")], api.kinds()
+    x = report(tmp_path)
+    assert x["cost"]["images"] == 0 and not any(r.get("images") for r in x["cost"]["receipts"])
+    m = manifest(tmp_path)
+    assert m["validation"]["package_ok"] and m["preview"] is True
+    assert "none allowed (--max-images 0)" in io.out + io.err  # the developer is told why the asset has no image textures
+
+
 def test_the_image_limit_caps_candidates_and_is_never_passed(key, tmp_path, capsys):
     api = key()
     prop(tmp_path, "--preview", "--token-ceiling", "150000", "--max-images", "2", "--single-candidate", *FAST)

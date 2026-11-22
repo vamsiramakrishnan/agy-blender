@@ -134,6 +134,7 @@ class PropToEngineDAG:
         self.record = DesignRecord(cache, fresh=new_design) if cache is not None else None
         self.announce, self.min_call_tokens = announce, min_call_tokens
         self._image_short: tuple[int, int, str] | None = None  # (need, left, refusal) deferred to propose on a rerun
+        self.no_images = False  # --max-images 0: the run generates no image (set by the route step)
         self._before: tuple[float, int] | None = None  # (spend, images) this asset's ledger held before this run
         self.workdir, self.th, self.style_anchor, self.fixlog = Path(workdir), thresholds or Thresholds(), style_anchor, fixlog
         if self.preview_judging:
@@ -248,6 +249,15 @@ class PropToEngineDAG:
                     # there, before any authoring call, and refuses as here when no design is recorded.
                     self._image_short = (need, rd.governor.max_images - rd.governor.images_used, refusal)
                     ctx.data(image_check="deferred to propose: rerun with a design record")
+                elif short and rd.governor.max_images == 0:
+                    # --max-images 0 is a request, not a shortfall: the developer wants the asset with no image generated.
+                    # Until 2026-11-22 this was refused like any other shortfall, so a run could not be made at all once
+                    # an image allowance was spent (a stock agent with Blender delivered the same brief with 0 images).
+                    # The blueprint is skipped and no material is image-textured; everything else runs.
+                    self.no_images = True
+                    ctx.data(images="none allowed (--max-images 0): no blueprint, no image textures")
+                    if self.announce is not None:
+                        self.announce("images: none allowed (--max-images 0); the blueprint is skipped and no material is image-textured")
                 elif short:
                     raise ImageLimitRefused(refusal)
             return rd
@@ -263,6 +273,8 @@ class PropToEngineDAG:
             r: Route = ctx["route"]
             if not r.needs_ortho:
                 ctx.skip(f"router: no orthographic blueprint needed (P={r.needs_ortho_p:.2f})")
+            if self.no_images:
+                ctx.skip("no images allowed (--max-images 0): no blueprint is drawn")
             st = ctx["style_anchor"]
             try:
                 t = await ortho_tournament(concept_prompt(prompt, self.art), self.forge, plane=self.plane, governor=r.governor, uploader=self.up,
