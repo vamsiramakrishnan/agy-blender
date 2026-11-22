@@ -195,6 +195,63 @@ def attach_step(sm: Any, budget: EngineBudget, only: set[str] | None = None) -> 
     return notes
 
 
+UNSTACK_STEP = 0.002  # kernel/separate.py's margin: a face this far off the shared plane no longer z-fights
+
+
+def unstack_step(sm: Any, budget: EngineBudget, only: set[str] | None = None) -> list[str]:
+    """The z-fighting pairs the separation could not part because neither face is a size it may change (an extruded or
+    rotated part, a part mounted by that face): the part that is not the asset's biggest is moved whole, UNSTACK_STEP
+    along one of the six axes, the first move that clears the pair and adds no z-fighting pair, floating part, Tier-1
+    critical issue or crossing deeper than the move itself (plus half a millimetre). Live offline 2026-11-22 (tests/test_look_round.py,
+    the stand-in's live-like crate): eight extruded corner guards with an outer face in the plane of the body's or the
+    lid's face, left by the separation ("its face is not a size parameter"; "it is mounted by that face") and refused by
+    the gate after pass A. ``only``: move none but these. One line per part moved."""
+    from antigravity3d.kernel.attach import BURY_MAX, crossing_depth, translation_ops
+
+    meshes = sm.extract_meshes()
+    t1 = tier1_qa(meshes, budget)
+    zf = lambda t: {i.detail.split(":")[0] for i in t.issues if i.code == "z_fighting"}  # noqa: E731
+    pen = lambda t: {i.detail.split(":")[0] for i in t.issues if i.code == "interpenetration"}  # noqa: E731
+    pairs = sorted(zf(t1))
+    if not pairs:
+        return []
+    diag = {m.node_id: float(np.linalg.norm(np.ptp(np.asarray(m.points), axis=0))) for m in meshes}
+    body = max(diag, key=diag.get)
+    cur, now, notes, moves = list(meshes), t1, [], {}
+    for pair in pairs:
+        if pair not in zf(now):
+            continue
+        a, b = pair.split("/")
+        done = False
+        for mover, axis, sign in [(x, ax, sg) for x in sorted((x for x in (a, b) if x != body and (only is None or x in only)),
+                                                              key=lambda x: diag.get(x, 0.0))
+                                  for ax in range(3) for sg in (1.0, -1.0)]:
+            if done:
+                break
+            d = np.zeros(3)
+            d[axis] = sign * UNSTACK_STEP
+            trial = [replace(m, points=np.asarray(m.points, np.float64) + d) if m.node_id == mover else m for m in cur]
+            t2 = tier1_qa(trial, budget)
+            if (pair in zf(t2) or zf(t2) - zf(now) or floating_ids(t2) - floating_ids(now) or _crit(t2) > _crit(now)):
+                continue
+            by = {m.node_id: m for m in trial}
+            # a move of UNSTACK_STEP may set a part that far into another (a bolt head into its panel), no deeper
+            if any(len(ab := p.split("/")) != 2 or crossing_depth(by[ab[0]], by[ab[1]]) > max(BURY_MAX, UNSTACK_STEP + 0.0005)
+                   for p in pen(t2) - pen(now)):
+                continue
+            cur, now, done = trial, t2, True
+            moves[mover] = moves.get(mover, np.zeros(3)) + d
+            notes.append(f"moved {mover} {sign * UNSTACK_STEP * 1e3:+.0f} mm along {'xyz'[axis]}: its face was in the plane "
+                         f"of {b if mover == a else a}'s")
+    if moves:
+        tx = sm.apply_patch(IRPatch(ops=translation_ops(sm.base_ir(), moves)))
+        t3 = tier1_qa(sm.extract_meshes(), budget)
+        if _crit(t3) > _crit(t1) or floating_ids(t3) - floating_ids(t1) or zf(t3) - zf(t1):
+            sm.rollback(tx)
+            return ["unstack: not applied (it would raise a Tier-1 critical issue, detach a part or add z-fighting)"]
+    return notes
+
+
 def drop_hidden_step(sm: Any, budget: EngineBudget, only: set[str] | None = None) -> list[str]:
     """Remove the parts Tier-1 finds in z-fighting with a part that wholly encloses them (``fast_ops.wholly_inside``):
     never visible while the enclosing part is opaque, they cost triangles and can only cause this (the faces they share
@@ -297,6 +354,7 @@ def tidy(sm: Any, budget: EngineBudget, touched: set[str]) -> list[str]:
         if left:
             notes.append("flush faces left (fixing them would move parts the patch did not change): " + ", ".join(left[:8]))
     notes += drop_hidden_step(sm, budget, only=touched)
+    notes += unstack_step(sm, budget, only=touched)
     notes += attach_step(sm, budget, only=touched)
     return notes
 
@@ -1630,6 +1688,11 @@ class _Run:
             dropped = drop_hidden_step(sm, self.budget)
             if dropped:
                 self.step("drop_hidden_pre", "passed", "; ".join(dropped)[:400], t0)
+                t0 = time.perf_counter()
+            unstacked = unstack_step(sm, self.budget)
+            if unstacked:
+                self.step("unstack_pre", "passed" if not unstacked[0].startswith("unstack:") else "warned",
+                          "; ".join(unstacked)[:400], t0)
                 t0 = time.perf_counter()
             notes = attach_step(sm, self.budget)
             self.step("attach_pre", "passed" if any(n.startswith("attached") for n in notes) else "warned" if notes else "skipped",

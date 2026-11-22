@@ -171,6 +171,10 @@ def _key(t1: Any) -> tuple[set, int]:
     return pen, sum(i.severity == "critical" for i in t1.issues)
 
 
+def _zf(t1: Any) -> set:
+    return {i.detail.split(":")[0] for i in t1.issues if i.code == "z_fighting"}
+
+
 def crossing_depth(a: Any, b: Any) -> float:
     """How deep two parts cross: the largest distance to the other's surface of a vertex or face centre of either that
     lies inside the other (closed meshes; generalised winding number, as Tier-1's interpenetration probe)."""
@@ -241,6 +245,8 @@ def attach(meshes: list[Any], budget: Any, reach: float, *, only: set[str] | Non
             still = {n for c in detached(t2) for n in c}
             if still & set(comp) or crit2 > crit0 or len(still) > before - len(comp):
                 continue
+            if _zf(t2) - _zf(t_now):
+                continue  # it would put a face of the moved part in another's plane: the Blender check refuses that too
             by = {m.node_id: m for m in trial}
             new = [pair.split("/") for pair in pen2 - pen_now]
             if any(len(ab) != 2 or ab[0] not in by or ab[1] not in by or crossing_depth(by[ab[0]], by[ab[1]]) > BURY_MAX

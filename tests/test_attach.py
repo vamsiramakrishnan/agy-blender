@@ -263,3 +263,29 @@ async def test_z_fighting_the_clean_up_cannot_fix_stops_the_run_after_pass_a(tmp
                        budget=HYDRANT, uploader=up, workdir=tmp_path / "wd", settle_first=False, max_rounds=1)
     assert "z-fighting pair(s) after pass A: " in res.stopped["C"] and res.stopped["C"].startswith("not packaged"), res.stopped
     assert "uv_lod_colliders" not in [s.name for s in res.steps]
+
+
+def test_faces_the_separation_cannot_part_are_unstacked_by_moving_the_smaller_part(tmp_path: Path) -> None:
+    """The stand-in's live-like crate (tests/no_decisions_key.py live_designs=True, as tests/test_look_round.py runs it),
+    as it reaches the separation: eight extruded, rotated corner guards with an outer face in the plane of the body's or
+    the lid's face, which the separation cannot move ("its face is not a size parameter"; the body "is mounted by that
+    face"), and two bolts flush with a latch plate. After zfight the gate refused it after pass A. Each smaller part is
+    moved 2 mm off the plane; nothing is left z-fighting or detached."""
+    from antigravity3d.kernel.fast_ops import shipped_masks
+    from antigravity3d.kernel.separate import separate_coplanar
+
+    budget = EngineBudget("godot_4", max_tris=3000)
+    sm = _stage(tmp_path, SceneIR.model_validate_json((DATA / "standin_crate_before_separate.json").read_text()))
+    meshes = sm.extract_meshes()
+    r = separate_coplanar(sm.base_ir(), meshes, hidden=shipped_masks(meshes, budget))
+    sm.apply_patch(IRPatch(ops=r.ops))
+    zf = lambda: [i for i in tier1_qa(sm.extract_meshes(), budget).issues if i.code == "z_fighting"]  # noqa: E731
+    assert len(zf()) == 10
+    notes = P.unstack_step(sm, budget)
+    assert len(notes) == 10 and all(n.startswith("moved ") and " mm along " in n for n in notes), notes
+    assert zf() == [] and P.floating_ids(tier1_qa(sm.extract_meshes(), budget)) <= {"handle_bar", "handle_bracket_b",
+        "handle_bracket_f", "handle_grip", "handle_grp__mx__handle_bar", "handle_grp__mx__handle_bracket_b",
+        "handle_grp__mx__handle_bracket_f", "handle_grp__mx__handle_grip"}  # the stand-in's handles: attach's to fix
+    P.attach_step(sm, budget)
+    t1 = tier1_qa(sm.extract_meshes(), budget)
+    assert not [i for i in t1.issues if i.code in ("z_fighting", "floating_part", "floating_group")]
