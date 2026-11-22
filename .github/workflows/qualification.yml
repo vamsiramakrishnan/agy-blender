@@ -144,6 +144,8 @@ jobs:
                       "test_negative_control_missing_level_fails", "test_negative_control_levels_drawn_together_fail_the_switching_check",
                       "test_negative_control_collider_over_the_limit_fails", "test_godot_measures_visibility_range_from_the_aabb_centre",
                       "test_author_part_names_survive_the_godot_import",
+                      "test_default_package_node_names_meet_no_godot_import_suffix",
+                      "test_the_comparison_harness_reads_the_install_result",
                       *(f"test_browser_asymmetric_block_passes_for_every_target_engine[{engine}]"
                         for engine in ("unreal_5", "unity_urp", "godot_4", "roblox_r15"))}
           passed = {c.get("name") for c in ET.parse("/tmp/engine-qualification.xml").iter("testcase")

@@ -73,6 +73,27 @@ SCENE_PARAMS: dict[str, str] = {
 }
 
 
+MATERIAL_DIR = "materials"
+
+
+def scene_params(res_dest: str) -> dict[str, str]:
+    """SCENE_PARAMS plus material extraction into ``DEST/materials``. Each level GLB carries its own copy of each
+    glTF material, so a developer would have to make a material edit once per level. With ``materials/extract=1`` Godot
+    writes each material once, as ``<material name>.tres`` mapped by its own glTF importer, and binds it from every
+    level that names it (measured, 4.7.2: LOD0 and LOD1 of the atlas crate bind one StandardMaterial3D resource). A
+    file already there is kept, not overwritten: an edit to it survives a reimport with the import cache deleted and
+    shows on every level (measured). Godot does not create the folder ("Cannot save file" otherwise), so the install
+    makes it. The .tres files are Godot's, not the install's: an update keeps them; uninstall removes the ones named
+    after the installed GLBs' materials, which would otherwise point at the textures it removes."""
+    return {**SCENE_PARAMS, "materials/extract": "1", "materials/extract_format": "0",
+            "materials/extract_path": f'"{res_dest}/{MATERIAL_DIR}"'}
+
+
+def material_names(glb_bytes: bytes) -> list[str]:
+    doc, _ = glbtool._split(glb_bytes)
+    return [m.get("name", f"material_{i}") for i, m in enumerate(doc.get("materials") or [])]
+
+
 def texture_params(role: str, normal_convention: str) -> dict[str, str]:
     """[params] for one map. VRAM compression with mipmaps for every map (a game samples them minified); a
     normal map as a normal map (RGTC on desktop: two channels, Z rebuilt in the shader); detect_3d off because the
@@ -200,8 +221,9 @@ def build_plan(pkg: Path, manifest: dict[str, Any], rel_dest: str, *, fov_deg: f
             raise ValueError(f"{f}: image URI(s) {unresolved} are not files of the package's textures/")
         rewrites[f] = report
         files[f] = data
-        imports[f + ".import"] = dict(SCENE_PARAMS)
-        files[f + ".import"] = import_file("scene", "PackedScene", SCENE_PARAMS).encode()
+        params = scene_params(res_dest)
+        imports[f + ".import"] = params
+        files[f + ".import"] = import_file("scene", "PackedScene", params).encode()
 
     bounds = np.asarray(manifest["glb_bounds_m"], np.float64)
     centre = (bounds[0] + bounds[1]) / 2
@@ -315,7 +337,7 @@ func run():
             var surfaces := []
             for s in mi.mesh.get_surface_count():
                 var mat = mi.get_active_material(s)
-                var rec := {"material": (mat.resource_name if mat else null), "class": (mat.get_class() if mat else null), "lods": RenderingServer.mesh_get_surface(mi.mesh.get_rid(), s).get("lods", []).size()}
+                var rec := {"material": (mat.resource_name if mat else null), "resource": (mat.resource_path if mat else null), "class": (mat.get_class() if mat else null), "lods": RenderingServer.mesh_get_surface(mi.mesh.get_rid(), s).get("lods", []).size()}
                 if mat is BaseMaterial3D:
                     rec["albedo"] = tex_info(mat.albedo_texture)
                     rec["normal"] = tex_info(mat.normal_texture) if mat.normal_enabled else null

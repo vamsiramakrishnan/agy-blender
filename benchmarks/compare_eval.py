@@ -568,8 +568,17 @@ async def three_check(glb: Path) -> dict[str, Any]:
             "not_applicable": [c["name"] for c in checks if c["status"] == "skipped"], "log_tail": (r.log_tail or "")[-800:]}
 
 
-async def upstream_checks(pool: Any, glb: Path) -> dict[str, Any]:
-    """The upstream qa_check, mesh_stats and texel_density scripts on the GLB, through the project's worker."""
+def _texel_res(facts: dict[str, Any] | None) -> int:
+    """The one resolution the upstream texel_density script takes, for this file's largest map: the side of the square
+    with the same texel count. The script assumes a square map; passing 2048 for a 4096 x 2048 atlas read every
+    island's density 1.41 times too low (the spread across islands, which the scorecard uses, does not depend on it)."""
+    sizes = [(i["width"], i["height"]) for i in (facts or {}).get("images") or [] if i.get("width") and i.get("height")]
+    return round(math.sqrt(max(w * h for w, h in sizes))) if sizes else 2048
+
+
+async def upstream_checks(pool: Any, glb: Path, *, res: int = 2048) -> dict[str, Any]:
+    """The upstream qa_check, mesh_stats and texel_density scripts on the GLB, through the project's worker. ``res``:
+    the map resolution texel_density is told (``_texel_res``)."""
     v = await pool.call("version")
     if "primitives_source" not in v:
         return {"available": False, "reason": "this tree's Blender worker has no glTF import for inspect_usd and no "
@@ -577,7 +586,7 @@ async def upstream_checks(pool: Any, glb: Path) -> dict[str, Any]:
     out: dict[str, Any] = {"available": True, "source": v.get("primitives_source")}
     # qa_check on welded copies: a GLB splits vertices along every UV seam, which would read as open edges in every
     # arm's file alike; mesh_stats and texel_density on the file as shipped.
-    for name, kwargs, weld in (("qa_check", {}, True), ("mesh_stats", {}, False), ("texel_density", {"res": 2048}, False)):
+    for name, kwargs, weld in (("qa_check", {}, True), ("mesh_stats", {}, False), ("texel_density", {"res": res}, False)):
         if name not in (v.get("primitives") or []):
             out[name] = {"error": "primitive not loaded", "loaded": v.get("primitives"), "load_error": v.get("primitives_error")}
             continue
@@ -846,10 +855,16 @@ async def install_check(manifest: Path | None, project: Path) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001 - a refusal or failure is the row's result
         return {"available": True, "offered": True, "ok": False, "error": f"{type(e).__name__}: {e}"[:500]}
     checks = d.get("checks") or []
-    statuses = [str(c.get("status")) for c in checks] if isinstance(checks, list) else [str(v) for v in checks.values()]
-    return {"available": True, "offered": True, "ok": bool(statuses) and all(x == "pass" for x in statuses),
-            "checks_failed": sum(1 for x in statuses if x == "fail"), "checks_skipped": sum(1 for x in statuses if x == "skipped"),
-            "result": d}
+    # InstallResult reports each check as "passed", "failed" or "skipped" (antigravity3d.deliver.install.Check); the
+    # short forms are accepted too. A skipped check is not a pass: the row passes only when every check passed.
+    norm = {"pass": "passed", "fail": "failed"}
+    statuses = [norm.get(str(c.get("status")), str(c.get("status"))) for c in checks] if isinstance(checks, list) \
+        else [norm.get(str(v), str(v)) for v in checks.values()]
+    return {"available": True, "offered": True,
+            "ok": d.get("status") in ("installed", "updated", "unchanged") and bool(statuses) and all(x == "passed" for x in statuses),
+            "checks_failed": sum(1 for x in statuses if x == "failed"), "checks_skipped": sum(1 for x in statuses if x == "skipped"),
+            "skipped_reasons": [f"{c.get('name')}: {c.get('detail')}" for c in checks if isinstance(c, dict) and c.get("status") == "skipped"],
+            "status": d.get("status"), "result": d}
 
 
 # ----------------------------------------------------------------------------------------------- evaluate all
@@ -923,7 +938,7 @@ async def evaluate_all(root: Path, records: list[Any], briefs: dict[str, Any], r
             r["three"] = await three_check(bare)
             if pool is not None:
                 try:
-                    r["upstream"] = await upstream_checks(pool, bare)
+                    r["upstream"] = await upstream_checks(pool, bare, res=_texel_res(r.get("facts")))
                 except Exception as e:  # noqa: BLE001
                     r["upstream"] = {"available": False, "reason": f"{type(e).__name__}: {e}"[:300]}
                 try:

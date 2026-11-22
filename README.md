@@ -106,7 +106,7 @@ never verified: no lookdev pass runs on it.
 `agy3d install` reads the project's engine and version from its own files and refuses a package built for another
 engine. For a Godot 4 project it writes, under one directory (default `agy3d/<asset>`), the package's level GLBs and
 `textures/` with explicit import settings (no Godot-generated LODs; maps VRAM-compressed with mipmaps, normal maps as
-normal maps; every level binds the one copy of each map) and `<asset>.tscn`: the levels switched by distance (from the
+normal maps; every level binds the one copy of each map, and one material per glTF material, which Godot extracts to `materials/` and every level shares, so a material edit is made once) and `<asset>.tscn`: the levels switched by distance (from the
 package's `lod_screen_fractions` and bounds, with hysteresis) and one StaticBody3D with the package's convex hulls.
 Drag that scene into a level. It then imports an isolated copy of the project with the project's Godot binary, loads
 the scene and reports each check (import log, scale, levels, materials, collision, rendered level switching) as

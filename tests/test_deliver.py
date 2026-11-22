@@ -93,6 +93,12 @@ def crate(tmp_path_factory) -> Path:
     return pkg
 
 
+def _map(pkg: Path, role: str) -> str:
+    """The package's map file for a role, as its manifest names it (never derived from a file name)."""
+    m = json.loads((pkg / "manifest.json").read_text())
+    return next(t["path"] for t in m["textures"] if t["role"] == role)
+
+
 def _project(tmp_path: Path, name: str = "game") -> Path:
     root = tmp_path / name
     root.mkdir()
@@ -180,7 +186,8 @@ def test_install_dry_run_update_refusal_and_uninstall(crate, tmp_path):
     assert not (dest / f"{record['asset']}_colliders.glb").exists()  # its hulls are shapes in the scene
 
     # the engine rewrites its .import files (uid, dest paths, defaults): not an edit, and kept as Godot wrote it
-    imp = dest / "textures/wood_albedo.png.import"
+    albedo_import = _map(crate, "albedo") + ".import"
+    imp = dest / albedo_import
     imp.write_text(imp.read_text().replace('[remap]\n', '[remap]\n\nuid="uid://abc"\n') + "process/new_default=1\n")
     keep = _sha(imp)
     same = install_package(crate, project, check=False)
@@ -199,7 +206,7 @@ def test_install_dry_run_update_refusal_and_uninstall(crate, tmp_path):
     assert "mipmaps/generate" in install_package(crate, project, check=False).message
     forced = install_package(crate, project, check=False, force=True, fov_deg=75.0)
     assert forced.status == "updated" and forced.warnings, forced.message
-    assert {f["path"] for f in forced.files if f["action"] == "replace"} >= {"WoodenCrateIron.tscn", "textures/wood_albedo.png.import"}
+    assert {f["path"] for f in forced.files if f["action"] == "replace"} >= {"WoodenCrateIron.tscn", albedo_import}
     assert (dest / "notes.txt").read_text() == "mine"
     assert json.loads((dest / RECORD).read_text())["fov_deg"] == 75.0
 
@@ -259,9 +266,15 @@ def test_refusals_name_the_reason(crate, tmp_path):
     assert install_package(crate, tmp_path / "unity" / "Assets", check=False).status == "refused"
     godot3 = _write(tmp_path / "g3", {"project.godot": "config_version=4\n"})
     assert "Godot 3" in install_package(crate, godot3, check=False).message
-    damaged = _copy_pkg(crate, tmp_path / "damaged")
-    (damaged / "textures/wood_albedo.png").write_bytes(b"not it")
-    assert "does not match its manifest" in install_package(damaged, _project(tmp_path), check=False).message
+    # every map the package ships is hashed by its manifest: a tampered one (the shared atlas images included) is refused
+    manifest = json.loads((crate / "manifest.json").read_text())
+    maps = sorted({t["path"] for t in manifest["textures"]} | set((manifest.get("texture_atlas") or {}).get("files", {}).values()))
+    assert maps
+    for i, rel in enumerate(maps):
+        damaged = _copy_pkg(crate, tmp_path / f"damaged{i}")
+        (damaged / rel).write_bytes(b"not it")
+        r = install_package(damaged, _project(tmp_path, f"d{i}"), check=False)
+        assert r.status == "refused" and "does not match its manifest" in r.message and rel in r.message, (rel, r.message)
     old = _copy_pkg(crate, tmp_path / "old", lambda m, _: m.update(schema_version=1))
     assert "older than 2" in install_package(old, _project(tmp_path, "g2"), check=False).message
 
@@ -366,7 +379,14 @@ def test_offline_crate_installed_into_a_fresh_godot_project_passes_every_check(c
     out = subprocess.run([godot_bin, "--headless", "--path", str(project), "--import"], capture_output=True, text=True, timeout=300)
     assert not G.asset_log_lines(out.stdout + out.stderr, r.dest, ["WoodenCrateIron"])
     files = {p.relative_to(project / r.dest).as_posix() for p in (project / r.dest).rglob("*") if p.is_file()}
-    assert {f for f in files if not f.startswith(".agy3d/")} == set(json.loads((project / r.dest / RECORD).read_text())["files"])
+    record = json.loads((project / r.dest / RECORD).read_text())
+    # the install's files plus the shared materials Godot extracts on import, one per glTF material (godot.scene_params)
+    assert {f for f in files if not f.startswith(".agy3d/")} == set(record["files"]) | set(record["engine_generated"])
+    assert record["engine_generated"] == [f"materials/{m['name']}.tres" for m in json.loads((crate / "manifest.json").read_text())["materials"]]
+    assert "one resource shared by every level" in checks["materials"][1]
+    # uninstall takes Godot's material files with it (they would point at removed textures) and leaves the project as it was
+    assert uninstall(project, r.dest).status == "uninstalled"
+    assert not (project / r.dest).exists()
 
 
 def _installed(crate: Path, tmp_path: Path, name: str = "game") -> tuple[Path, str]:
@@ -386,7 +406,7 @@ def test_negative_control_wrong_scale_fails_the_scale_check(crate, tmp_path, god
 
 def test_negative_control_missing_map_fails(crate, tmp_path, godot_bin):
     project, dest = _installed(crate, tmp_path)
-    (project / dest / "textures/wood_normal.png").unlink()
+    (project / dest / _map(crate, "normal")).unlink()
     checks = _checks(check_install(project, dest, render=False))
     assert checks["materials"][0] == "failed" and "normal map not bound" in checks["materials"][1], checks
     assert checks["import"][0] == "failed", checks
@@ -486,21 +506,35 @@ async def test_mcp_tool_dry_runs_by_default_and_installs_when_told(crate, tmp_pa
     assert text.startswith("INSTALLED ") and (project / "agy3d/WoodenCrateIron/WoodenCrateIron.tscn").is_file()
 
 
-def test_author_part_names_survive_the_godot_import(crate, tmp_path, godot_bin):
-    """Part ids become GLB node names: an id ending in a Godot import suffix ("rear_wheel2") must stay a mesh, and the
-    long ids of expanded mirrors and copies ("handle__mx__grip") must keep their names, or the scene's per-node
-    settings would miss their nodes."""
+@pytest.fixture(scope="module")
+def crate_parts(tmp_path_factory) -> Path:
+    """The offline crate with --keep-contact-faces: the node rule that keeps part (or per-material batch) nodes, the
+    layout in which authored ids reach the GLB. A default package ships one node per glTF material (Batch_<n>)."""
+    from antigravity3d.cli import main
+
+    out = tmp_path_factory.mktemp("crate_parts")
+    assert main(["prop", "wooden crate with iron brackets", "--offline", "--engine", "godot_4", "--keep-contact-faces",
+                 "--out", str(out)]) == 0
+    (pkg,) = out.glob("runs/*/package")
+    return pkg
+
+
+def test_author_part_names_survive_the_godot_import(crate_parts, tmp_path, godot_bin):
+    """Part ids become GLB node names where parts keep their nodes: an id ending in a Godot import suffix
+    ("rear_wheel2") must stay a mesh, and the long ids of expanded mirrors and copies ("handle__mx__grip") must keep
+    their names, or the scene's per-node settings would miss their nodes."""
     from antigravity3d.deliver.glb import _join, _split
 
+    crate = crate_parts
     names = ["rear_wheel2", "handle__mx__grip"]
 
     def rename(m, root):
-        for level in G.level_files(m):
+        for i, level in enumerate(G.level_files(m)):
             doc, blob = _split((root / level).read_bytes())
             meshes = [n for n in doc["nodes"] if "mesh" in n]
             assert len(meshes) == len(names)
             for n, new in zip(meshes, names):
-                n["name"] = new + ("" if level == f"{m['asset']}.glb" else "_" + level.rsplit("_", 1)[1][:-4])
+                n["name"] = new + ("" if i == 0 else f"_LOD{i}")
             (root / level).write_bytes(_join(doc, blob))
             m["file_hashes"][level] = {"sha256": _sha(root / level), "bytes": (root / level).stat().st_size}
 
@@ -509,3 +543,42 @@ def test_author_part_names_survive_the_godot_import(crate, tmp_path, godot_bin):
     checks = _checks(r)
     assert r.ok, checks
     assert "rear_wheel2" in (tmp_path / "game" / r.dest / "WoodenCrateIron.tscn").read_text()
+
+
+def test_default_package_node_names_meet_no_godot_import_suffix(crate, tmp_path, godot_bin):
+    """A default (shared-atlas) package names its nodes Batch_<n> and Batch_<n>_LOD<k>. Imported by stock Godot with
+    its default settings (name suffixes on), every one stays a MeshInstance3D under its own name."""
+    m = json.loads((crate / "manifest.json").read_text())
+    project = tmp_path / "stock"
+    project.mkdir()
+    (project / "project.godot").write_text(GODOT4)
+    for f in [*G.level_files(m), *(t["path"] for t in m["textures"])]:
+        (project / f).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(crate / f, project / f)
+    subprocess.run([godot_bin, "--headless", "--path", str(project), "--import"], capture_output=True, timeout=300, check=False)
+    (project / "n.gd").write_text("extends SceneTree\nfunc _init():\n    for p in OS.get_environment(\"AGY_FILES\").split(\",\"):\n"
+                                  "        for c in load(\"res://\" + p).instantiate().get_children():\n"
+                                  "            print(\"AGY_NODE \", c.name, \" \", c.get_class())\n    quit()\n")
+    out = subprocess.run([godot_bin, "--headless", "--path", str(project), "--script", "n.gd"], capture_output=True, text=True,
+                         timeout=120, env={**__import__("os").environ, "AGY_FILES": ",".join(G.level_files(m))}, check=False)
+    seen = [line.split()[1:] for line in out.stdout.splitlines() if line.startswith("AGY_NODE ")]
+    expected = [n + ("" if i == 0 else f"_LOD{i}") for i, nodes in enumerate(m["lod_glb_nodes"]) for n in nodes]
+    assert seen == [[n, "MeshInstance3D"] for n in expected], out.stdout[-1500:]
+
+
+async def test_the_comparison_harness_reads_the_install_result(crate, tmp_path, godot_bin):
+    """benchmarks/compare_eval.install_check calls install_package and reads its checks ("passed" / "failed" /
+    "skipped"): the scorecard row "Installed and checked inside a Godot project" passes only when every check passed."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "benchmarks"))
+    try:
+        import compare_eval
+    finally:
+        sys.path.pop(0)
+    r = await compare_eval.install_check(crate / "manifest.json", tmp_path / "godot_project")
+    assert r["available"] and r["offered"] and r["status"] == "installed" and r["checks_failed"] == 0, r
+    if shutil.which("xvfb-run"):
+        assert r["ok"] and r["checks_skipped"] == 0, r
+    else:  # the rendered switching check cannot run: skipped, so the row does not pass
+        assert not r["ok"] and r["checks_skipped"] == 1, r

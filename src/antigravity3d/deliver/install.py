@@ -326,8 +326,18 @@ def godot_checks(manifest: dict[str, Any], record: dict[str, Any], measured: dic
                         problems.append(f"{t['path']}: format {t['format']}, compressed={t['compressed']}, mipmaps={t['mipmaps']}")
                     else:
                         bound += 1
+    shared: dict[str, set[str]] = {}
+    for lv in data["levels"]:
+        for m in lv["meshes"]:
+            for s in m["surfaces"]:
+                shared.setdefault(str(s["material"]), set()).add(str(s.get("resource")))
+    mat_prefix = f"res://{record['dest']}/materials/"
+    for name, paths in sorted(shared.items()):
+        if len(paths) != 1 or not next(iter(paths)).startswith(mat_prefix):
+            problems.append(f"material {name!r} is not one shared resource under {mat_prefix} on every level: {sorted(paths)}")
     checks.append(Check("materials", "failed" if problems else "passed", "; ".join(problems[:6]) or
-                        f"{bound} map binding(s) on every level, each to the installed textures/ file, VRAM-compressed with mipmaps"))
+                        f"{bound} map binding(s) on every level, each to the installed textures/ file, VRAM-compressed with mipmaps; "
+                        f"{len(shared)} material(s), each one resource shared by every level ({', '.join(sorted(mat_prefix + n + '.tres' for n in shared))})"))
 
     # collision
     want_hulls = record["hulls"]
@@ -468,6 +478,9 @@ def _install_godot(pkg: Path, project: Path, manifest: dict[str, Any], info: Pro
         "levels": [asdict(lv) for lv in plan.levels], "hulls": plan.hulls, "centre": plan.centre,
         "radius_m": plan.radius_m, "switch_m": [lv.switch_in_m for lv in plan.levels[:-1]], "maps": maps,
         "image_rewrites": plan.image_rewrites, "files": tracked,
+        # written by Godot on import (materials/extract), not by this tool: shared by every level, the developer's to edit
+        "engine_generated": sorted({f"{godot.MATERIAL_DIR}/{n}.tres" for lv in plan.levels
+                                    for n in godot.material_names(plan.files[lv.file])}),
     }
 
     # what each file needs, and what stands in the way
@@ -524,6 +537,7 @@ def _install_godot(pkg: Path, project: Path, manifest: dict[str, Any], info: Pro
                     _write_hook(dest_dir / f)
             elif a == "remove":
                 txn.remove(dest_dir / f)
+        txn.mkdirs(dest_dir / godot.MATERIAL_DIR)  # Godot extracts the shared materials here (godot.scene_params)
         txn.write(dest_dir / RECORD_DIR / ".gdignore", b"")  # Godot does not scan or import this folder
         txn.write(dest_dir / RECORD_DIR / "package_manifest.json", (pkg / "manifest.json").read_bytes())
         txn.write(dest_dir / RECORD, json.dumps(record, indent=1).encode())
@@ -601,9 +615,11 @@ def uninstall(project: str | Path, dest: str, *, dry_run: bool = False, force: b
     except Refused as e:
         return InstallResult("refused", str(e), dest=dest)
     files = [{"path": f, "action": "remove"} for f in sorted(record["files"]) if (dest_dir / f).exists()]
+    generated = [g for g in record.get("engine_generated", []) if (dest_dir / g).is_file()]
+    files += [{"path": g, "action": "remove", "written_by": "godot import (materials/extract)"} for g in generated]
     others = sorted(str(p.relative_to(dest_dir)) for p in dest_dir.rglob("*") if p.is_file()
                     and not p.relative_to(dest_dir).as_posix().startswith(RECORD_DIR + "/")
-                    and p.relative_to(dest_dir).as_posix() not in record["files"])
+                    and p.relative_to(dest_dir).as_posix() not in {*record["files"], *generated})
     result = InstallResult("dry_run" if dry_run else "uninstalled", "", record.get("engine"), None, record.get("package"), rel, files)
     if others:
         result.notes.append(f"kept {len(others)} file(s) this tool did not write: {others[:5]}")
@@ -612,10 +628,14 @@ def uninstall(project: str | Path, dest: str, *, dry_run: bool = False, force: b
     if dry_run:
         result.message = f"dry run: would remove {len(files)} file(s) and {RECORD_DIR}/ from {rel}; nothing was removed"
         return result
-    for f in record["files"]:
+    if generated:
+        result.notes.append(f"removed Godot's material file(s) {generated} (made on import from the installed GLBs, edits "
+                            "to them included): left behind they would point at the textures removed here")
+    for f in [*record["files"], *generated]:
         (dest_dir / f).unlink(missing_ok=True)
     shutil.rmtree(dest_dir / RECORD_DIR, ignore_errors=True)
-    for d in sorted({(dest_dir / f).parent for f in record["files"]}, key=lambda p: len(p.parts), reverse=True):
+    dirs = {(dest_dir / f).parent for f in record["files"]} | ({dest_dir / "materials"} if "engine_generated" in record else set())
+    for d in sorted(dirs, key=lambda p: len(p.parts), reverse=True):
         _prune_empty(d, dest_dir)
     if dest_dir.is_dir() and not any(dest_dir.iterdir()):
         dest_dir.rmdir()
