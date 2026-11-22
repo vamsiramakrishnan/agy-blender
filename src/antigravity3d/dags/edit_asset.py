@@ -49,6 +49,7 @@ import numpy as np
 from antigravity3d.ir import (
     AssignMaterial, IRPatch, RemoveNode, SceneIR, SetParam, SetTransform, UpsertMaterial, UpsertNode,
 )
+from antigravity3d.safe_paths import UnsafePath, copy_without_links, inside, no_links, safe_name
 from antigravity3d.state import EngineBudget
 
 # The judge's answer to "has the change the instruction asks for been carried out" that keeps an edit, and the
@@ -74,6 +75,35 @@ EDIT_RECORD = "edit.json"
 
 class EditError(RuntimeError):
     """The target is not an asset this project shipped, or the request cannot be made (a usage problem, exit 2)."""
+
+
+# A package is data from someone else, and a run folder's report.json too: every file either names is read from inside
+# the package (or the run folder the user named) and every copy goes into the edit's work folder, through
+# antigravity3d.safe_paths. Before these checks a manifest or the scene in a package's USD could make an edit read any
+# file (and copy it into the work folder) or write beside the work folder (tests/test_edit_contain.py).
+REFUSAL = "a package is data, and an edit reads only inside it (or the run folder named) and writes only in its work folder; nothing was changed"
+
+
+def _in(root: Path, rel: str, what: str, *, write: bool = False) -> Path:
+    """``root / rel`` when ``rel`` is a plain relative name that stays inside ``root`` on disk; else EditError naming it."""
+    try:
+        return inside(root, safe_name(rel, what), what, write=write)
+    except UnsafePath as e:
+        raise EditError(f"{e}: {REFUSAL}") from e
+
+
+def _under(root: Path, path: Path, what: str) -> Path:
+    """``path`` (absolute, from a report) when it lies inside ``root`` without a symbolic link on the way."""
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        raise EditError(f"{what} {str(path)!r} is outside the run folder {root}: {REFUSAL}") from None
+    return _in(root, rel.as_posix(), what)
+
+
+def _package_uri(uri: str) -> str | None:
+    """The package-relative name of a ``./`` URI in the scene embedded in a package's USD (None for another kind)."""
+    return uri[2:] if isinstance(uri, str) and uri.startswith("./") else None
 
 
 # --------------------------------------------------------------------------- what shipped
@@ -145,10 +175,13 @@ def find_package(target: Path) -> tuple[Path, Path | None, dict[str, Any] | None
         return target, None, None
     report = _read_report(target)
     usd = rebase((_extras(report).get("outputs") or {}).get("usd"), report, target) if report else None
+    if usd is not None and not usd.is_absolute():
+        usd = target / usd
     if usd and (usd.parent / "manifest.json").is_file():
-        return usd.parent.resolve(), target, report
+        usd = _under(target, usd, "report.json outputs.usd")
+        return usd.parent, target, report
     if (target / "package" / "manifest.json").is_file():
-        return (target / "package").resolve(), target, report
+        return _in(target, "package/manifest.json", "the run folder's package").parent, target, report
     raise EditError(f"{target}: not a package this project made (no manifest.json) and not a prop --out folder whose "
                     "report.json names one")
 
@@ -177,9 +210,14 @@ def _budget(manifest: Mapping[str, Any], extras: Mapping[str, Any]) -> EngineBud
 
 def load_shipped(target: Path | str) -> Shipped:
     package, run_folder, report = find_package(Path(target))
-    manifest = json.loads((package / "manifest.json").read_text())
-    usd = package / str(manifest.get("usd") or f"{manifest['asset']}.usd")
+    try:
+        no_links(package, f"the package {package}")  # the history and undo copies would follow one
+    except UnsafePath as e:
+        raise EditError(f"{e}: {REFUSAL}") from e
+    manifest = json.loads(_in(package, "manifest.json", "the package manifest").read_text())
+    usd = _in(package, str(manifest.get("usd") or f"{manifest['asset']}.usd"), "manifest usd")
     scene = _scene_from_usd(usd)
+    _check_named_files(package, manifest, scene)
     extras = _extras(report)
     inputs = manifest.get("design_inputs") or {}
     art = (extras.get("art_direction") or {}).get("id") if extras.get("art_direction") else inputs.get("art_direction")
@@ -190,7 +228,10 @@ def load_shipped(target: Path | str) -> Shipped:
     authoring = None
     if run_folder is not None:
         path = rebase((extras.get("outputs") or {}).get("authoring_usd"), report, run_folder)
+        if path is not None and not path.is_absolute():
+            path = run_folder / path
         if path is not None and path.is_file():
+            path = _under(run_folder, path, "report.json outputs.authoring_usd")
             from antigravity3d.kernel.usd_stage import StageManager
 
             authoring = StageManager.open(path).base_ir()
@@ -201,6 +242,25 @@ def load_shipped(target: Path | str) -> Shipped:
 
 
 _URI_FIELDS = ("albedo_uri", "orm_uri", "normal_uri", "emissive_uri")
+
+
+def _check_named_files(package: Path, manifest: Mapping[str, Any], scene: SceneIR) -> None:
+    """Every file the package's manifest and embedded scene name, held to the package before anything is read: the atlas
+    images, the sources a re-bake reads, and each material's ``./`` map URIs."""
+    atlas = manifest.get("texture_atlas") or {}
+    for role, f in (atlas.get("files") or {}).items():
+        _in(package, f, f"manifest texture_atlas.files.{role}")
+    for name, rec in (atlas.get("members") or {}).items():
+        for role, src in (rec.get("sources") or {}).items():
+            if isinstance(src, dict) and src.get("file"):
+                _in(package, src["file"], f"manifest texture_atlas.members.{name}.sources.{role}")
+    for m in scene.materials:
+        for field_name in _URI_FIELDS:
+            uri = getattr(m, field_name, None)
+            if uri and not str(uri).startswith("./") and Path(str(uri)).is_absolute():
+                continue  # an author's absolute path: read only from a run folder's working design, held there
+            if (rel := _package_uri(uri)) is not None:
+                _in(package, rel, f"material {m.id} {field_name}")
 
 
 def _copy_map(src: Path, dest: Path) -> str:
@@ -239,7 +299,10 @@ def source_materials(shipped: Shipped, dest: Path) -> tuple[SceneIR, str]:
                 uri = getattr(m, name, None)
                 if not uri:
                     continue
-                src = rebase(uri, shipped.report, shipped.run_folder) if shipped.run_folder else Path(uri)
+                src = rebase(uri, shipped.report, shipped.run_folder) if shipped.run_folder else None
+                if src is not None and src.is_file():
+                    src = _under(shipped.run_folder, src if src.is_absolute() else shipped.run_folder / src,
+                                 f"material {m.id} {name}")
                 if src is None or not src.is_file():
                     raise EditError(f"material {m.id}: its source map {Path(uri).name} is not in the run folder any more "
                                     f"({uri}); the edit would change how {m.id} looks, so it is not made")
@@ -256,10 +319,10 @@ def source_materials(shipped: Shipped, dest: Path) -> tuple[SceneIR, str]:
             uri = getattr(m, name, None)
             if not uri or not uri.startswith("./"):
                 continue
-            src = (shipped.package / uri[2:]).resolve()
+            src = _in(shipped.package, uri[2:], f"material {m.id} {name}")
             if not src.is_file():
                 raise EditError(f"material {m.id}: {uri} is not in the package")
-            update[name] = _copy_map(src, dest / uri[2:])
+            update[name] = _copy_map(src, _in(dest, uri[2:], f"material {m.id} {name}", write=True))
         mats.append(m.model_copy(update=update) if update else m)
     return scene.model_copy(update={"materials": mats}), "the package's per-material maps"
 
@@ -281,14 +344,15 @@ def _from_sources(shipped: Shipped, scene: SceneIR, atlas: Mapping[str, Any], de
             update = {}
             for name in _URI_FIELDS:
                 uri = getattr(m, name, None)
-                if uri and uri.startswith("./") and (shipped.package / uri[2:]).is_file():
-                    update[name] = _copy_map(shipped.package / uri[2:], dest / uri[2:])
+                if uri and uri.startswith("./") and _in(shipped.package, uri[2:], f"material {m.id} {name}").is_file():
+                    update[name] = _copy_map(_in(shipped.package, uri[2:], f"material {m.id} {name}"),
+                                             _in(dest, uri[2:], f"material {m.id} {name}", write=True))
             mats.append(m.model_copy(update=update) if update else m)
             continue
         update: dict[str, Any] = {name: None for name in _URI_FIELDS}
         for role in rec.get("maps") or {}:
             src = (rec.get("sources") or {}).get(role) or {}
-            f = shipped.package / src["file"] if src.get("file") else None
+            f = _in(shipped.package, src["file"], f"manifest texture_atlas.members.{m.id}.sources.{role}") if src.get("file") else None
             if f is None or not f.is_file() or (src.get("sha256") and _sha256(f) != src["sha256"]):
                 missing.append(f"{m.id}.{role}" + (f" ({src['file']})" if src.get("file") else ""))
                 continue
@@ -608,7 +672,8 @@ def look_check(before: Path, after: Path, parts: list[str]) -> dict[str, Any]:
         f = ((man.get("texture_atlas") or {}).get("files") or {}).get("albedo")
         if lay is None or not f:
             return {}
-        img = np.asarray(Image.open(pkg / f).convert("RGB"), np.float64)
+        img = np.asarray(Image.open(inside(pkg, safe_name(f, "manifest texture_atlas.files.albedo"),
+                                           "manifest texture_atlas.files.albedo", write=False)).convert("RGB"), np.float64)
         out = {}
         for nid in parts:
             if nid not in lay.parts:
@@ -972,7 +1037,7 @@ async def _deliver(res: EditResult, shipped: Shipped, sm: Any, wd: Path, att: At
     # history: the replaced package, then the new one becomes current
     hist = shipped.history_base / f"{number:03d}"
     hist.mkdir(parents=True, exist_ok=False)
-    shutil.copytree(shipped.package, hist / "package")
+    copy_without_links(shipped.package, hist / "package")  # load_shipped refused links; never follow one
     if shipped.run_folder is not None and (shipped.run_folder / "report.json").is_file():
         shutil.copy2(shipped.run_folder / "report.json", hist / "report.json")
     if shipped.run_folder is None:
@@ -1114,13 +1179,19 @@ def undo(target: Path | str) -> dict[str, Any]:
         # on disk unchanged it becomes current again as it was. Otherwise the history's copy is put in a new run folder.
         report = json.loads((last / "report.json").read_text()) if (last / "report.json").is_file() else {}
         old = rebase((_extras(report).get("outputs") or {}).get("manifest"), report, run_folder)
+        if old is not None:  # a package the report names outside the run folder is not made current again
+            old = old if old.is_absolute() else run_folder / old
+            try:
+                old = _under(run_folder, old, "the replaced report's outputs.manifest")
+            except EditError:
+                old = None
         if old is not None and old.is_file() and old.read_bytes() == (saved / "manifest.json").read_bytes():
             restored = old.parent
         else:
             runs = run_folder / "runs"
             runs.mkdir(exist_ok=True)
             restored = Path(tempfile.mkdtemp(prefix="undo-", dir=runs)) / "package"
-            shutil.copytree(saved, restored)
+            copy_without_links(saved, restored)
             manifest = json.loads((restored / "manifest.json").read_text())
             ex = report.setdefault("extras", {}) if "extras" in report else report
             ex["outputs"] = {"usd": str(restored / str(manifest.get("usd"))), "manifest": str(restored / "manifest.json"),
@@ -1134,7 +1205,7 @@ def undo(target: Path | str) -> dict[str, Any]:
         from antigravity3d.kernel.publish import publish_directory
 
         stage = package.parent / f".{package.name}.undo-{int(time.time())}"
-        shutil.copytree(saved, stage)
+        copy_without_links(saved, stage)
         publish_directory(stage, package)
         if stage.exists():
             shutil.rmtree(stage)

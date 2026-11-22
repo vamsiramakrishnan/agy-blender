@@ -75,6 +75,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from antigravity3d.safe_paths import copy_without_links, real_file_in
+
 HERE = Path(__file__).resolve().parent
 DEFAULT_TEXT_MODEL = "gemini-4-hydrogen"  # google.antigravity.models.DEFAULT_MODEL
 REPO = HERE.parent
@@ -1744,7 +1746,7 @@ def install_upstream_skills(dest_project: Path) -> list[str]:
     dst.mkdir(parents=True, exist_ok=True)
     names = []
     for s in sorted(p for p in src.iterdir() if p.is_dir()):
-        shutil.copytree(s, dst / s.name, symlinks=False)
+        copy_without_links(s, dst / s.name)  # a link in the reference checkout is not followed into the sandbox
         names.append(s.name)
     return names
 
@@ -1843,9 +1845,11 @@ def stock_spec(run_dir: Path, arm: str, brief: Brief, *, plugin: bool = False, s
 
 
 def find_main_glb(folder: Path) -> Path | None:
-    if not folder.is_dir():
+    """The delivered GLB: never a symbolic link the agent left (the harness reads it on the host, outside the sandbox)."""
+    if not folder.is_dir() or folder.is_symlink():
         return None
-    glbs = sorted(p for p in folder.rglob("*.glb") if "_LOD" not in p.stem and not p.stem.lower().endswith(("-col", "_col", "_collision", "_colliders")))
+    glbs = sorted(p for p in folder.rglob("*.glb") if "_LOD" not in p.stem and not p.stem.lower().endswith(("-col", "_col", "_collision", "_colliders"))
+                  and real_file_in(folder, p))
     return max(glbs, key=lambda p: p.stat().st_size) if glbs else None
 
 
@@ -1913,14 +1917,14 @@ def plugin_self_report(work: Path) -> dict[str, Any]:
     """What the plugin says about its own output (shown in the gallery as that arm's self-report, never used to score)."""
     manifests = []
     for m in sorted(work.rglob("manifest.json")):
-        if ".agents" in m.parts:
+        if ".agents" in m.parts or not real_file_in(work, m):  # never through a link the agent left
             continue
         with contextlib.suppress(ValueError, OSError):
             d = json.loads(m.read_text())
             manifests.append({"path": str(m), "asset": d.get("asset"), "verified": d.get("verified"), "preview": d.get("preview"),
                               "tris": d.get("tris"), "evidence": d.get("evidence"), "validation": d.get("validation")})
     qa = []
-    for q in sorted((work / ".agy3d" / "qa").glob("*.json")) if (work / ".agy3d" / "qa").is_dir() else []:
+    for q in [q for q in sorted((work / ".agy3d" / "qa").glob("*.json")) if real_file_in(work, q)] if (work / ".agy3d" / "qa").is_dir() else []:
         with contextlib.suppress(ValueError, OSError):
             qa.append(json.loads(q.read_text()))
     return {"manifests": manifests, "qa_records": qa}
@@ -2027,7 +2031,7 @@ def first_record(root: Path, brief: str, arm: str) -> RunRecord | None:
 def _sha(p: Path) -> str | None:
     import hashlib
 
-    return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None
+    return hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() and not p.is_symlink() else None
 
 
 def run_change(relay: Relay, root: Path, brief: Brief, arm: str, *, offline: bool = True,
@@ -2059,13 +2063,17 @@ def run_change(relay: Relay, root: Path, brief: Brief, arm: str, *, offline: boo
         work = root / "change_work" / name.replace(":", "_")
         if work.exists():
             shutil.rmtree(work)
-        shutil.copytree(src, work, symlinks=True,
-                        ignore=lambda d, names: [n for n in names if Path(d) == src and n == ".agents" and arm in PLUGIN_ARMS])
+        # real files and folders only: a link the first session left is not carried into the copy, where the harness
+        # would later read through it on the host (find_main_glb, _sha, the evaluation)
+        left_out = copy_without_links(src, work, ignore=lambda d, names: [
+            n for n in names if Path(d) == src and n == ".agents" and arm in PLUGIN_ARMS])
         files = workspace_listing(work)
         task = change_task(brief, files, calls_allowed(arm, tokens), arm)
         seeded = _sha(work / before.relative_to(src)) if before.is_relative_to(src) else None
         rec = run_stock(relay, root, brief, arm, share_tokens=tokens, share_images=images, account=name, workspace=work,
                         task=task, phase="change", wall_s=wall_s)
+        if left_out:
+            rec.notes.append(f"links the first session left were not copied into the change workspace: {left_out[:6]}")
         after = Path(rec.glb) if rec.glb else None
         if after is not None and _sha(after) == seeded:  # the copy of the first delivery, untouched
             rec.notes.append("the main GLB is the first session's, unchanged: no new package was delivered")

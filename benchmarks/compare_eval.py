@@ -23,6 +23,8 @@ from typing import Any
 
 import numpy as np
 
+from antigravity3d.safe_paths import UnsafePath, copy_without_links, inside, real_file_in, resolve_uri
+
 COMPONENT = {5120: np.int8, 5121: np.uint8, 5122: np.int16, 5123: np.uint16, 5125: np.uint32, 5126: np.float32}
 NCOMP = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4, "MAT4": 16}
 COL_SUFFIX = ("-col", "-colonly", "-convcol", "_col", "_collision", "_collider", "_colliders")
@@ -46,8 +48,8 @@ def _load(path: Path) -> tuple[Any, list[bytes]]:
             bufs.append(g.binary_blob() or b"")
         elif b.uri.startswith("data:"):
             bufs.append(base64.b64decode(b.uri.split(",", 1)[1]))
-        else:
-            bufs.append((path.parent / b.uri).read_bytes())
+        else:  # a GLB from a stock agent is data: its URIs are read from its own folder only (UnsafePath otherwise)
+            bufs.append(resolve_uri(path.parent, b.uri, "GLB buffer URI").read_bytes())
     return g, bufs
 
 
@@ -117,8 +119,8 @@ def _image_bytes(g: Any, bufs: list[bytes], path: Path, img_index: int) -> bytes
             return _view_bytes(g, bufs, im.bufferView)
         if im.uri and im.uri.startswith("data:"):
             return base64.b64decode(im.uri.split(",", 1)[1])
-        if im.uri:
-            return (path.parent / im.uri).read_bytes()
+        if im.uri:  # a URI outside the GLB's folder (or through a link) reads as no image: UnsafePath is a ValueError
+            return resolve_uri(path.parent, im.uri, "GLB image URI").read_bytes()
     except (OSError, ValueError, IndexError, TypeError):
         return None
     return None
@@ -576,18 +578,36 @@ def package_diff(before: Path, after: Path, *, target_ratio: float | None = None
 
 
 def bare_copy(glb: Path, dest: Path, name: str) -> Path:
-    """The GLB and only the files its glTF references, nothing else (no manifest, no USD)."""
+    """The GLB and only the files its glTF references, nothing else (no manifest, no USD). Each URI is read from the
+    GLB's own folder and written under ``dest`` only (antigravity3d.safe_paths): one that leaves either, or passes a
+    symbolic link, raises UnsafePath naming it, and the caller records the delivery as not usable with that reason.
+    Before this check an agent's ``../x.png`` was copied to ``dest/../x.png`` and ``../../secret`` read from the host
+    (tests/test_compare_contain.py)."""
     g, _ = _load(glb)
+    refs = []
+    for uri in [b.uri for b in g.buffers] + [i.uri for i in g.images]:
+        if uri and not uri.startswith("data:") and "://" not in uri:
+            src = resolve_uri(glb.parent, uri, "GLB image or buffer URI")
+            refs.append((src, src.relative_to(glb.parent).as_posix()))
     dest.mkdir(parents=True, exist_ok=True)
     out = dest / f"{name}.glb"
     shutil.copyfile(glb, out)
-    for uri in [b.uri for b in g.buffers] + [i.uri for i in g.images]:
-        if uri and not uri.startswith("data:") and "://" not in uri:
-            src = glb.parent / uri
-            if src.is_file():
-                (dest / uri).parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(src, dest / uri)
+    for src, rel in refs:
+        if src.is_file():
+            target = inside(dest, rel, "GLB image or buffer URI", write=True)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, target)
     return out
+
+
+def delivered_snapshot(glb: Path, dest: Path) -> tuple[Path, list[str]]:
+    """The delivered folder (the GLB's own) copied to ``dest`` with its real files only, hidden ones left out, so the
+    evaluation reads a copy in which no link the agent left can lead anywhere. Returns the copied GLB and the entries
+    left out (links, special files). Raises UnsafePath when the delivered GLB itself is a link or not a regular file."""
+    if glb.is_symlink() or not real_file_in(glb.parent, glb):
+        raise UnsafePath(f"the delivered GLB {glb.name} is a symbolic link or not a regular file: not read")
+    skipped = copy_without_links(glb.parent, dest, ignore=lambda d, names: [n for n in names if n.startswith(".")])
+    return dest / glb.name, skipped
 
 
 # ----------------------------------------------------------------------------------------------- engine checks
@@ -851,8 +871,10 @@ def find_manifest(rec: Any, glb: Path) -> Path | None:
     one the plugin's own export wrote (a native session copies the GLB out of its package)."""
     if (glb.parent / "manifest.json").is_file():
         return glb.parent / "manifest.json"
+    ws = (getattr(rec, "pipeline", None) or {}).get("workspace")
     for m in (((getattr(rec, "pipeline", None) or {}).get("self_report") or {}).get("manifests") or []):
-        if m.get("path") and Path(m["path"]).is_file():
+        # a path the agent's run reported: used only when it is a real file inside that run's own workspace
+        if m.get("path") and ws and real_file_in(Path(ws), Path(m["path"])):
             return Path(m["path"])
     return None
 
@@ -933,7 +955,9 @@ async def evaluate_all(root: Path, records: list[Any], briefs: dict[str, Any], r
             key = f"{rec.brief}:{rec.arm}"
             b = briefs[rec.brief]
             d = root / "eval" / round_ / rec.brief / rec.arm if round_ else root / "eval" / rec.brief / rec.arm
-            digest = hashlib.sha256(Path(rec.glb).read_bytes()).hexdigest() if rec.glb and Path(rec.glb).is_file() else None
+            # never read through a link the agent left: a linked GLB is reported, not read (delivered_snapshot says why)
+            real = bool(rec.glb) and Path(rec.glb).is_file() and not Path(rec.glb).is_symlink()
+            digest = hashlib.sha256(Path(rec.glb).read_bytes()).hexdigest() if real else None
             cached = d / "evaluation.json"
             if cached.exists():  # an arm added later does not re-evaluate the others
                 prev = json.loads(cached.read_text())
@@ -946,10 +970,16 @@ async def evaluate_all(root: Path, records: list[Any], briefs: dict[str, Any], r
             d.mkdir(parents=True)
             r: dict[str, Any] = {"v": EVAL_VERSION, "glb_exists": bool(digest), "glb_sha256": digest, "source_glb": rec.glb}
             results[key] = r
+            if not r["glb_exists"] and rec.glb and Path(rec.glb).is_symlink():
+                r["usable"] = False
+                r["facts_error"] = f"the delivered GLB {Path(rec.glb).name} is a symbolic link: not read"
+                r["sheet"] = str(contact_sheet([], d / "sheet.png", missing_label="GLB is a link: not read"))
+                cached.write_text(json.dumps(r, indent=1, default=str))
+                continue
             if not r["glb_exists"]:
                 r["sheet"] = str(contact_sheet([], d / "sheet.png", missing_label="no GLB delivered"))
                 ws = Path((getattr(rec, "pipeline", None) or {}).get("workspace") or "")
-                blends = sorted(p for p in ws.rglob("*.blend") if ".blend" == p.suffix) if ws.is_dir() else []
+                blends = sorted(p for p in ws.rglob("*.blend") if ".blend" == p.suffix and real_file_in(ws, p)) if ws.is_dir() else []
                 if blends and pool is not None:  # what exists: the agent's own scene, geometry only, exported by us
                     try:
                         out = await harness_export_blend(pool, max(blends, key=lambda p: p.stat().st_mtime), d / "harness_export" / "asset.glb")
@@ -960,11 +990,18 @@ async def evaluate_all(root: Path, records: list[Any], briefs: dict[str, Any], r
                         r["harness_export"] = {"error": f"{type(e).__name__}: {e}"[:400]}
                 cached.write_text(json.dumps(r, indent=1, default=str))
                 continue
-            src = Path(rec.glb)
+            try:  # everything below reads this copy of the delivered folder, never the agent's own files
+                src, r["delivered_left_out"] = delivered_snapshot(Path(rec.glb), d / "delivered")
+            except (UnsafePath, OSError) as e:
+                r["usable"] = False
+                r["facts_error"] = f"{type(e).__name__}: {e}"[:500]
+                r["sheet"] = str(contact_sheet([], d / "sheet.png", missing_label="GLB not readable"))
+                cached.write_text(json.dumps(r, indent=1, default=str))
+                continue
             r["sidecars"] = sidecar_files(src)
             r["lods"] = lod_facts(src, r["sidecars"]["lod_files"])
             r["collision_files"] = collision_files_facts(src, r["sidecars"]["collision_files"])
-            r["package"] = package_files(src)
+            r["package"] = {**package_files(src), "folder": str(Path(rec.glb).parent)}  # measured on the copy
             manifest = find_manifest(rec, src)
             r["manifest"] = str(manifest) if manifest else None
             r["provenance"] = provenance_facts(manifest)
