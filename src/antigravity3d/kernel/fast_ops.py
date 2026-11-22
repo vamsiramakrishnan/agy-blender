@@ -199,6 +199,19 @@ ZFIGHT_EPS = 0.001
 # and miss only by their facets (two 16-segment spheres of radius 0.1 m can be 3.8 mm apart at a contact off the
 # axes); none of the saved stages has one, so the tolerance does not add the parts' facet sag.
 TOUCH_TOL = 0.002
+FLUSH = 1e-6  # surfaces this close lie on each other (rounding), for the Blender check's triangle overlap
+# Two questions, both at TOUCH_TOL. Is a part held to the body (or the ground) through a chain of touching parts?
+# Surfaces within TOUCH_TOL, any two points of them (``_PartGap.touch``): a group touching only itself is reported as
+# floating, which the Blender check does not ask. And does each part touch something by the Blender check's own rule
+# (qa_check.py lines 368-404), which is the gate: one of ITS vertices within TOUCH_TOL of another part's surface, or a
+# triangle of it crossing one of another part's (``_PartGap.witness``); the biggest part and a part whose lowest point is
+# within TOUCH_TOL of the ground are exempt, as the gate reads it (upstream_checks.read_floating). A part that fails the
+# second is reported as floating whatever the first says, so nothing the kernel passes reaches the Blender check to be
+# refused there. Measured live 2026-11-22 (r5/live_scorecard/runs/r5_hydrant_C): a chain link whose edge came within
+# 2 mm of its anchor's edge, with no vertex near, passed here and was "floating/detached" there; the run was refused at
+# its last step. Not modelled: the Blender check samples at most about 400 vertices of a larger piece, and runs on the
+# exported GLB (contact faces removed); a piece over 400 vertices with a single vertex in contact could pass here and
+# fail there.
 
 
 def closed_meshes_required(budget: EngineBudget) -> bool:
@@ -294,7 +307,11 @@ def tier1_qa(
                 x = parent[x]
             return x
 
-        for i in np.flatnonzero(bounds_lo[:, 2] <= ground_tol):  # resting on the ground (or sunk)
+        # resting on the ground (or sunk): within the touch tolerance, as the gate reads it (upstream_checks.read_floating:
+        # 2 mm), not ``ground_tol``, which is the whole asset's grounding warning. Measured with a real Blender
+        # (r5/scratch_native4/rule_probe.py): a foot 5 mm above the ground and touching nothing passed here at 10 mm and
+        # was refused there; it is now a floating part, which the settle pass puts down.
+        for i in np.flatnonzero(bounds_lo[:, 2] <= min(ground_tol, touch_tol)):
             parent[find(int(i))] = n
         gap = _PartGap(valid, volumes, touch_tol)
         near = []
@@ -313,6 +330,26 @@ def tier1_qa(
             if find(n) == n and not any(find(i) == n for i in range(n)) and loose:
                 # nothing rests on the ground (a hanging asset): the group with the most surface is its body
                 loose.remove(max(loose, key=lambda g: sum(_surface_area(valid[i][0]) for i in g)))
+            # The Blender check asks each part for a contact of its own (a vertex near another part, or a crossing): a part
+            # touched only by another's corner is detached there, unless it is the biggest (largest box diagonal), so it
+            # is here: reported as floating, with what touches it.
+            loose_ids = {i for g in loose for i in g}
+            nbrs: dict[int, list[int]] = {}
+            for i, j in near:
+                nbrs.setdefault(i, []).append(j)
+                nbrs.setdefault(j, []).append(i)
+            diag = np.linalg.norm(bounds_hi - bounds_lo, axis=1)
+            biggest = int(np.argmax(diag))
+            for i in range(n):
+                # exempt as the gate exempts: the biggest piece, and a piece whose lowest point is within the tolerance
+                # of the ground (upstream_checks.read_floating: "resting on the ground", not floating)
+                if i in loose_ids or i == biggest or bounds_lo[i][2] <= touch_tol or gap.witness(i, nbrs.get(i, [])):
+                    continue
+                if gap.enclosed_by(i, bounds_lo, bounds_hi) is not None:
+                    continue
+                add("floating_part", "warning", valid[i][0].node_id,
+                    gap.describe([i], bounds_lo, bounds_hi) + "; another part's corner touches it, but none of its own "
+                    "vertices is within the tolerance of another part and it crosses none (the Blender check counts it detached)")
             for g in sorted(loose, key=lambda g: min(valid[i][0].node_id for i in g)):
                 names = sorted(valid[i][0].node_id for i in g)
                 if len(g) == 1:
@@ -379,6 +416,7 @@ class _PartGap:
         self.diag = float(np.linalg.norm(np.max([v[3] for v in valid], axis=0) - np.min([v[2] for v in valid], axis=0)))
         self._box: dict[int, bool] = {}
         self._tris: dict[int, object] = {}
+        self.witnessed: set[int] = set()
 
     def is_box(self, i: int) -> bool:
         if i not in self._box:
@@ -397,23 +435,59 @@ class _PartGap:
         return self._tris[i]
 
     def touch(self, i: int, j: int) -> bool:
+        """Do the two surfaces come within ``tol`` (any two points of them: what a group of parts is held together by)?
+        The Blender check's stricter, per-part question is ``witness``."""
         from antigravity3d.kernel import surface_gap
 
         (mi, _, li, hi_), (mj, _, lj, hj) = self.valid[i], self.valid[j]
-        if (np.maximum(np.maximum(li - hj, lj - hi_), 0.0) ** 2).sum() > self.tol * self.tol:
+        if self.apart(i, j):
             return False  # the boxes are farther apart than that
         bi, bj = self.is_box(i), self.is_box(j)
         if bi and bj:
             return surface_gap.box_distance(li, hi_, lj, hj) <= self.tol
         # a corner of one part on or at the surface of the other: parts that rest on each other (nearly all of them)
-        for a, b, box in ((i, j, bj), (j, i, bi)):
-            pts = np.asarray(self.valid[a][0].points, np.float64)
-            if box:
-                if (surface_gap.point_box_distance(pts, self.valid[b][2], self.valid[b][3]) <= self.tol).any():
-                    return True
-            elif surface_gap.corner_touches(pts, self.tris(b), self.valid[b][2], self.valid[b][3], self.tol):
+        for a, b in ((i, j), (j, i)):
+            if self.vertex_near(a, b):
+                self.witnessed.add(a)
                 return True
         return surface_gap.within(self.tris(i), li, hi_, self.tris(j), lj, hj, self.tol)
+
+    def apart(self, i: int, j: int) -> bool:
+        (_, _, li, hi_), (_, _, lj, hj) = self.valid[i], self.valid[j]
+        return bool((np.maximum(np.maximum(li - hj, lj - hi_), 0.0) ** 2).sum() > self.tol * self.tol)
+
+    def vertex_near(self, a: int, b: int) -> bool:
+        """Is some vertex of part a within ``tol`` of part b's surface?"""
+        from antigravity3d.kernel import surface_gap
+
+        pts = np.asarray(self.valid[a][0].points, np.float64)
+        if self.is_box(b):
+            return bool((surface_gap.point_box_distance(pts, self.valid[b][2], self.valid[b][3]) <= self.tol).any())
+        return surface_gap.corner_touches(pts, self.tris(b), self.valid[b][2], self.valid[b][3], self.tol)
+
+    def cross(self, i: int, j: int) -> bool:
+        """Do the two surfaces cross or lie on each other (a triangle of one through, or flush on, a triangle of the
+        other: the Blender check's triangle overlap)? Measured with a real Blender (scratch_abort/attach/blender_probe.py):
+        a lid wider than its body lying flush on it, and a full-width skid flush under a bevelled body, pass there with no
+        vertex of the lid or the skid near the other part: faces lying on each other count as overlapping."""
+        from antigravity3d.kernel import surface_gap
+
+        (_, _, li, hi_), (_, _, lj, hj) = self.valid[i], self.valid[j]
+        if self.is_box(i) and self.is_box(j):
+            over = np.minimum(hi_, hj) - np.maximum(li, lj)
+            inside = (li >= lj).all() and (hi_ <= hj).all() or (lj >= li).all() and (hj <= hi_).all()
+            return bool((over >= -FLUSH).all() and (over > FLUSH).sum() >= 2 and not inside)
+        return surface_gap.within(self.tris(i), li, hi_, self.tris(j), lj, hj, FLUSH)
+
+    def witness(self, i: int, near: list[int]) -> bool:
+        """Does part i have a contact of its own with one of ``near`` (a vertex of it near that part, or a crossing)?"""
+        if i in self.witnessed:
+            return True
+        for j in near:
+            if not self.apart(i, j) and (self.vertex_near(i, j) or self.cross(i, j)):
+                self.witnessed.add(i)
+                return True
+        return False
 
     def enclosed_by(self, i: int, lo: np.ndarray, hi: np.ndarray) -> int | None:
         """A closed part whose volume holds all of part i (given that i touches nothing: it is then inside or outside)."""
@@ -446,8 +520,16 @@ class _PartGap:
         axis = int(np.argmax(sep)) if sep.max() > 0 else int(np.argmax(np.abs((lo[j] + hi[j]) - (lo[i] + hi[i]))))
         sign = "+" if (lo[j][axis] + hi[j][axis]) >= (lo[i][axis] + hi[i][axis]) else "-"
         where = {"+z": "above it", "-z": "below it"}.get(sign + "xyz"[axis], f"beside it ({sign}{'xyz'[axis]})")
+        # The move that would make it touch, in numbers an author can apply: a vertex of it onto the nearest part's
+        # surface (kernel/attach.py; the Blender check counts a part as touching by its own vertices). Live 2026-11-22
+        # (r5_hydrant_C): five repair rounds were told "14.7 mm from hydrant_body ... beside it (+y)" and no more.
+        from antigravity3d.kernel.attach import nearest
+
+        g = nearest([self.valid[m][0] for m in group], [self.valid[j][0]], float(np.linalg.norm(np.maximum(sep, 0.0))) + 0.05)
+        move = (f"; to touch it, move {g.vertex_of} by ({', '.join(f'{x * 1e3:+.1f}' for x in g.vector)}) mm, which puts its "
+                f"nearest vertex on {self.valid[j][0].node_id}" if g is not None else "")
         return (f"surface {d * 1e3:.1f} mm from {self.valid[j][0].node_id}, the nearest part, which lies {where} "
-                f"(touch tolerance {self.tol * 1e3:g} mm); min z {min(lo[m][2] for m in group):.3f}")
+                f"(touch tolerance {self.tol * 1e3:g} mm); min z {min(lo[m][2] for m in group):.3f}{move}")
 
 
 def _surface_area(m: MeshData) -> float:

@@ -35,6 +35,14 @@ def floating_scene() -> SceneIR:
 LID_DOWN = IRPatch(ops=[SetTransform(node_id="lid", transform=Transform(translate=(0, 0, 1.025)))])
 
 
+def sound_scene() -> SceneIR:
+    """The same prop with its lid down: nothing floats. A run that is to reach pass C needs one since 2026-11-22: a part
+    that touches nothing after pass A stops the run there (pyramid._Run.detached_refusal)."""
+    s = floating_scene()
+    s.nodes[1].transform = Transform(translate=(0, 0, 1.025))
+    return s
+
+
 class Script:
     """Programmable FakeDecisionsClient responder keyed by call kind (blockout QA / lookdev QA / locate)."""
 
@@ -204,7 +212,7 @@ async def test_web_runtime_step_is_skipped_with_the_reason_or_fails_the_run(tmp_
     from antigravity3d.tactics import pyramid
 
     async def run(sub: str):
-        sm, plane = setup(tmp_path / sub, Script())
+        sm, plane = setup(tmp_path / sub, Script(), sound_scene())
         return await refine(sm, plane=plane, author=CallableAuthor(lambda *a, **k: []), governor=Governor(plan_for(2)), budget=BUDGET,
                             uploader=up, workdir=tmp_path / sub / "wd", forge=ImageForge(FakeImageBackend()), settle_first=False)
 
@@ -229,7 +237,7 @@ async def test_web_runtime_step_is_skipped_with_the_reason_or_fails_the_run(tmp_
 
 
 async def test_hero_plan_with_a_fake_pool_and_no_engine_render(tmp_path: Path) -> None:
-    sm, plane = setup(tmp_path, Script())
+    sm, plane = setup(tmp_path, Script(), sound_scene())
     pool = BlenderPool(1, fake=True)  # never started: a fake pool must not be used as a renderer
     forge = ImageForge(FakeImageBackend())
     res = await refine(sm, plane=plane, author=CallableAuthor(lambda *a, **k: []), governor=Governor(plan_for(3)), budget=BUDGET, uploader=up,
@@ -404,7 +412,7 @@ async def test_web_browser_starts_before_pass_a_and_is_kept_only_after_a_good_ru
         log.append("pass A")
         await real_a(self)
     monkeypatch.setattr(pyramid._Run, "pass_a", pass_a)
-    sm, plane = setup(tmp_path / "ok", Script())
+    sm, plane = setup(tmp_path / "ok", Script(), sound_scene())
     res = await refine(sm, plane=plane, author=CallableAuthor(lambda *a, **k: []), governor=Governor(plan_for(2)), budget=BUDGET,
                        uploader=up, workdir=tmp_path / "ok" / "wd", forge=ImageForge(FakeImageBackend()), settle_first=False)
     assert res.ok and log == ["prestart", "pass A", f"release keep={True}"], log
@@ -448,7 +456,7 @@ async def test_cancelling_pass_c_stops_the_running_web_verification(tmp_path: Pa
             importing.set()
             await asyncio.sleep(3600)
     monkeypatch.setattr(pyramid, "validator_for", lambda engine: SlowEngine())
-    sm, plane = setup(tmp_path, Script())
+    sm, plane = setup(tmp_path, Script(), sound_scene())
     task = asyncio.ensure_future(refine(sm, plane=plane, author=CallableAuthor(lambda *a, **k: []), governor=Governor(plan_for(2)),
                                         budget=BUDGET, uploader=up, workdir=tmp_path / "wd", forge=ImageForge(FakeImageBackend()),
                                         settle_first=False))

@@ -1,0 +1,1834 @@
+{
+ "asset_name": "CastIronFire",
+ "nodes": [
+  {
+   "id": "hydrant_body",
+   "kind": "lathe",
+   "params": {
+    "profile": [
+     [
+      0.0,
+      0.78
+     ],
+     [
+      0.055,
+      0.78
+     ],
+     [
+      0.065,
+      0.76
+     ],
+     [
+      0.11,
+      0.73
+     ],
+     [
+      0.14,
+      0.68
+     ],
+     [
+      0.145,
+      0.62
+     ],
+     [
+      0.16,
+      0.61
+     ],
+     [
+      0.16,
+      0.58
+     ],
+     [
+      0.135,
+      0.57
+     ],
+     [
+      0.135,
+      0.2
+     ],
+     [
+      0.145,
+      0.12
+     ],
+     [
+      0.145,
+      0.04
+     ],
+     [
+      0.19,
+      0.04
+     ],
+     [
+      0.19,
+      0.0
+     ],
+     [
+      0.0,
+      0.0
+     ]
+    ],
+    "segments": 32,
+    "closed": false
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "cast_iron_red",
+   "collider": true
+  },
+  {
+   "id": "top_washer",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.045,
+    "height": 0.012,
+    "segments": 24,
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.786
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "cast_iron_dark",
+   "collider": false
+  },
+  {
+   "id": "top_operating_nut",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.032,
+    "height": 0.045,
+    "segments": 5,
+    "bevel": 0.003,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.8145
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "brass_tarnished",
+   "collider": true
+  },
+  {
+   "id": "base_bolt",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.012,
+    "height": 0.016,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     0.168,
+     0.0,
+     0.048
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "neck_bolt",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.009,
+    "height": 0.012,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     0.148,
+     0.0,
+     0.616
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "front_nozzle_group",
+   "kind": "group",
+   "params": {},
+   "transform": {
+    "translate": [
+     0.0,
+     -0.135,
+     0.36
+    ],
+    "rotate_euler_deg": [
+     90.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": null,
+   "collider": false
+  },
+  {
+   "id": "front_nozzle_sleeve",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.075,
+    "height": 0.09,
+    "segments": 28,
+    "bevel": 0.004,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.02
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "front_nozzle_group",
+   "material_id": "cast_iron_red",
+   "collider": true
+  },
+  {
+   "id": "front_nozzle_cap",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.082,
+    "height": 0.035,
+    "segments": 28,
+    "bevel": 0.004,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.075
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "front_nozzle_group",
+   "material_id": "cast_iron_red",
+   "collider": true
+  },
+  {
+   "id": "front_cap_nut",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.024,
+    "height": 0.025,
+    "segments": 5,
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.102
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "front_nozzle_group",
+   "material_id": "brass_tarnished",
+   "collider": false
+  },
+  {
+   "id": "front_cap_lug",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.018,
+     0.018,
+     0.022
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.084,
+     0.0,
+     0.075
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "front_nozzle_group",
+   "material_id": "cast_iron_red",
+   "collider": false
+  },
+  {
+   "id": "side_nozzle_group",
+   "kind": "group",
+   "params": {},
+   "transform": {
+    "translate": [
+     0.135,
+     0.0,
+     0.42
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     90.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": null,
+   "collider": false
+  },
+  {
+   "id": "side_nozzle_sleeve",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.052,
+    "height": 0.07,
+    "segments": 24,
+    "bevel": 0.003,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.02
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "side_nozzle_group",
+   "material_id": "cast_iron_red",
+   "collider": true
+  },
+  {
+   "id": "side_nozzle_cap",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.058,
+    "height": 0.028,
+    "segments": 24,
+    "bevel": 0.003,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.065
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "side_nozzle_group",
+   "material_id": "cast_iron_red",
+   "collider": true
+  },
+  {
+   "id": "side_cap_nut",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.018,
+    "height": 0.02,
+    "segments": 5,
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     0.088
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "side_nozzle_group",
+   "material_id": "brass_tarnished",
+   "collider": false
+  },
+  {
+   "id": "side_cap_lug",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.014,
+     0.014,
+     0.018
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.058,
+     0.0,
+     0.065
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "side_nozzle_group",
+   "material_id": "cast_iron_red",
+   "collider": false
+  },
+  {
+   "id": "chain_anchor_body",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.02,
+     0.025,
+     0.025
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.09,
+     -0.11,
+     0.54
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "cast_iron_dark",
+   "collider": false
+  },
+  {
+   "id": "chain_anchor_cap",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.01,
+    "height": 0.015,
+    "segments": 8
+   },
+   "transform": {
+    "translate": [
+     0.05,
+     -0.232,
+     0.37
+    ],
+    "rotate_euler_deg": [
+     90.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "cast_iron_dark",
+   "collider": false
+  },
+  {
+   "id": "chain_link_1",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.008,
+     0.016,
+     0.036
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.086,
+     -0.125,
+     0.518
+    ],
+    "rotate_euler_deg": [
+     35.0,
+     10.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "chain_link_2",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.016,
+     0.008,
+     0.036
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.08,
+     -0.143,
+     0.494
+    ],
+    "rotate_euler_deg": [
+     35.0,
+     12.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "chain_link_3",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.008,
+     0.016,
+     0.036
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.074,
+     -0.161,
+     0.47
+    ],
+    "rotate_euler_deg": [
+     35.0,
+     14.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "chain_link_4",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.016,
+     0.008,
+     0.036
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.068,
+     -0.179,
+     0.42103376926871755
+    ],
+    "rotate_euler_deg": [
+     35.0,
+     14.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "chain_link_5",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.008,
+     0.016,
+     0.036
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.062,
+     -0.197,
+     0.422
+    ],
+    "rotate_euler_deg": [
+     35.0,
+     12.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "chain_link_6",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.016,
+     0.008,
+     0.036
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.056,
+     -0.215,
+     0.398
+    ],
+    "rotate_euler_deg": [
+     35.0,
+     10.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "chain_link_7",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.008,
+     0.016,
+     0.034
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.052,
+     -0.228,
+     0.378
+    ],
+    "rotate_euler_deg": [
+     25.0,
+     8.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "base_bolt__r1",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.012,
+    "height": 0.016,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     0.118793939,
+     0.118793939,
+     0.048
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     45.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "base_bolt__r2",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.012,
+    "height": 0.016,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.168,
+     0.048
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     90.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "base_bolt__r3",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.012,
+    "height": 0.016,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     -0.118793939,
+     0.118793939,
+     0.048
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     135.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "base_bolt__r4",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.012,
+    "height": 0.016,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     -0.168,
+     0.0,
+     0.048
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     180.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "base_bolt__r5",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.012,
+    "height": 0.016,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     -0.118793939,
+     -0.118793939,
+     0.048
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     -135.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "base_bolt__r6",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.012,
+    "height": 0.016,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     -0.168,
+     0.048
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     -90.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "base_bolt__r7",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.012,
+    "height": 0.016,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     0.118793939,
+     -0.118793939,
+     0.048
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     -45.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "neck_bolt__r1",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.009,
+    "height": 0.012,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     0.104651804,
+     0.104651804,
+     0.616
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     45.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "neck_bolt__r2",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.009,
+    "height": 0.012,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.148,
+     0.616
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     90.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "neck_bolt__r3",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.009,
+    "height": 0.012,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     -0.104651804,
+     0.104651804,
+     0.616
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     135.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "neck_bolt__r4",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.009,
+    "height": 0.012,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     -0.148,
+     0.0,
+     0.616
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     180.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "neck_bolt__r5",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.009,
+    "height": 0.012,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     -0.104651804,
+     -0.104651804,
+     0.616
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     -135.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "neck_bolt__r6",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.009,
+    "height": 0.012,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     -0.148,
+     0.616
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     -90.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "neck_bolt__r7",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.009,
+    "height": 0.012,
+    "segments": 6
+   },
+   "transform": {
+    "translate": [
+     0.104651804,
+     -0.104651804,
+     0.616
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     -45.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": "steel_bolt",
+   "collider": false
+  },
+  {
+   "id": "front_cap_lug__r1",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.018,
+     0.018,
+     0.022
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.084,
+     0.075
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     90.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "front_nozzle_group",
+   "material_id": "cast_iron_red",
+   "collider": false
+  },
+  {
+   "id": "front_cap_lug__r2",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.018,
+     0.018,
+     0.022
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     -0.084,
+     0.0,
+     0.075
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     180.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "front_nozzle_group",
+   "material_id": "cast_iron_red",
+   "collider": false
+  },
+  {
+   "id": "front_cap_lug__r3",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.018,
+     0.018,
+     0.022
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     -0.084,
+     0.075
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     -90.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "front_nozzle_group",
+   "material_id": "cast_iron_red",
+   "collider": false
+  },
+  {
+   "id": "side_cap_lug__r1",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.014,
+     0.014,
+     0.018
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.058,
+     0.065
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     90.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "side_nozzle_group",
+   "material_id": "cast_iron_red",
+   "collider": false
+  },
+  {
+   "id": "side_cap_lug__r2",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.014,
+     0.014,
+     0.018
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     -0.058,
+     0.0,
+     0.065
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     180.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "side_nozzle_group",
+   "material_id": "cast_iron_red",
+   "collider": false
+  },
+  {
+   "id": "side_cap_lug__r3",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.014,
+     0.014,
+     0.018
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     -0.058,
+     0.065
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     -90.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "side_nozzle_group",
+   "material_id": "cast_iron_red",
+   "collider": false
+  },
+  {
+   "id": "side_nozzle_group__mx",
+   "kind": "group",
+   "params": {},
+   "transform": {
+    "translate": [
+     -0.135,
+     0.0,
+     0.42
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     90.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": null,
+   "material_id": null,
+   "collider": false
+  },
+  {
+   "id": "side_nozzle_group__mx__side_nozzle_sleeve",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.052,
+    "height": 0.07,
+    "segments": 24,
+    "bevel": 0.003,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     -0.02
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "side_nozzle_group__mx",
+   "material_id": "cast_iron_red",
+   "collider": true
+  },
+  {
+   "id": "side_nozzle_group__mx__side_nozzle_cap",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.058,
+    "height": 0.028,
+    "segments": 24,
+    "bevel": 0.003,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     -0.065
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "side_nozzle_group__mx",
+   "material_id": "cast_iron_red",
+   "collider": true
+  },
+  {
+   "id": "side_nozzle_group__mx__side_cap_nut",
+   "kind": "cylinder",
+   "params": {
+    "radius": 0.018,
+    "height": 0.02,
+    "segments": 5,
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.0,
+     -0.088
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "side_nozzle_group__mx",
+   "material_id": "brass_tarnished",
+   "collider": false
+  },
+  {
+   "id": "side_nozzle_group__mx__side_cap_lug",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.014,
+     0.014,
+     0.018
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.058,
+     0.0,
+     -0.065
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "side_nozzle_group__mx",
+   "material_id": "cast_iron_red",
+   "collider": false
+  },
+  {
+   "id": "side_nozzle_group__mx__side_cap_lug__r1",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.014,
+     0.014,
+     0.018
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     0.058,
+     -0.065
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     90.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "side_nozzle_group__mx",
+   "material_id": "cast_iron_red",
+   "collider": false
+  },
+  {
+   "id": "side_nozzle_group__mx__side_cap_lug__r2",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.014,
+     0.014,
+     0.018
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     -0.058,
+     0.0,
+     -0.065
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     180.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "side_nozzle_group__mx",
+   "material_id": "cast_iron_red",
+   "collider": false
+  },
+  {
+   "id": "side_nozzle_group__mx__side_cap_lug__r3",
+   "kind": "box",
+   "params": {
+    "size": [
+     0.014,
+     0.014,
+     0.018
+    ],
+    "bevel": 0.002,
+    "bevel_segments": 1
+   },
+   "transform": {
+    "translate": [
+     0.0,
+     -0.058,
+     -0.065
+    ],
+    "rotate_euler_deg": [
+     0.0,
+     0.0,
+     -90.0
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "parent": "side_nozzle_group__mx",
+   "material_id": "cast_iron_red",
+   "collider": false
+  }
+ ],
+ "materials": [
+  {
+   "id": "cast_iron_red",
+   "surface": "weathered painted red cast iron",
+   "base_color": [
+    0.45,
+    0.02,
+    0.02
+   ],
+   "metallic": 0.0,
+   "roughness": 0.45,
+   "albedo_uri": null,
+   "orm_uri": null,
+   "normal_uri": null,
+   "normal_convention": "opengl",
+   "alpha_mode": "OPAQUE",
+   "alpha_cutoff": null,
+   "opacity": 1.0,
+   "double_sided": false,
+   "emissive_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "emissive_strength": 1.0,
+   "emissive_uri": null,
+   "clearcoat": 0.0,
+   "clearcoat_roughness": 0.0,
+   "transmission": 0.0,
+   "ior": 1.5,
+   "sheen_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "sheen_roughness": 0.0,
+   "specular": 1.0,
+   "specular_color": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "id": "cast_iron_dark",
+   "surface": "dark oiled cast iron",
+   "base_color": [
+    0.12,
+    0.12,
+    0.13
+   ],
+   "metallic": 0.85,
+   "roughness": 0.45,
+   "albedo_uri": null,
+   "orm_uri": null,
+   "normal_uri": null,
+   "normal_convention": "opengl",
+   "alpha_mode": "OPAQUE",
+   "alpha_cutoff": null,
+   "opacity": 1.0,
+   "double_sided": false,
+   "emissive_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "emissive_strength": 1.0,
+   "emissive_uri": null,
+   "clearcoat": 0.0,
+   "clearcoat_roughness": 0.0,
+   "transmission": 0.0,
+   "ior": 1.5,
+   "sheen_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "sheen_roughness": 0.0,
+   "specular": 1.0,
+   "specular_color": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "id": "brass_tarnished",
+   "surface": "tarnished cast brass",
+   "base_color": [
+    0.65,
+    0.48,
+    0.18
+   ],
+   "metallic": 0.95,
+   "roughness": 0.35,
+   "albedo_uri": null,
+   "orm_uri": null,
+   "normal_uri": null,
+   "normal_convention": "opengl",
+   "alpha_mode": "OPAQUE",
+   "alpha_cutoff": null,
+   "opacity": 1.0,
+   "double_sided": false,
+   "emissive_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "emissive_strength": 1.0,
+   "emissive_uri": null,
+   "clearcoat": 0.0,
+   "clearcoat_roughness": 0.0,
+   "transmission": 0.0,
+   "ior": 1.5,
+   "sheen_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "sheen_roughness": 0.0,
+   "specular": 1.0,
+   "specular_color": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  {
+   "id": "steel_bolt",
+   "surface": "galvanized steel",
+   "base_color": [
+    0.5,
+    0.52,
+    0.54
+   ],
+   "metallic": 0.95,
+   "roughness": 0.35,
+   "albedo_uri": null,
+   "orm_uri": null,
+   "normal_uri": null,
+   "normal_convention": "opengl",
+   "alpha_mode": "OPAQUE",
+   "alpha_cutoff": null,
+   "opacity": 1.0,
+   "double_sided": false,
+   "emissive_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "emissive_strength": 1.0,
+   "emissive_uri": null,
+   "clearcoat": 0.0,
+   "clearcoat_roughness": 0.0,
+   "transmission": 0.0,
+   "ior": 1.5,
+   "sheen_color": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "sheen_roughness": 0.0,
+   "specular": 1.0,
+   "specular_color": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  }
+ ]
+}

@@ -160,6 +160,41 @@ SETTLE_MIN_M = 0.02
 SETTLE_SHARE = 0.03  # of the asset's largest dimension
 
 
+def reach_of(meshes: list[Any]) -> float:
+    """How far a clean-up moves a part (settle's drop, attach's move): the larger of SETTLE_MIN_M and SETTLE_SHARE of the
+    asset's largest dimension."""
+    pts = np.concatenate([np.asarray(m.points, np.float64) for m in meshes])
+    return max(SETTLE_MIN_M, SETTLE_SHARE * float((pts.max(0) - pts.min(0)).max()))
+
+
+def attach_step(sm: Any, budget: EngineBudget, only: set[str] | None = None) -> list[str]:
+    """Attach the parts that touch nothing (kernel/attach.py) within ``reach_of``, as one transaction (kept only if it
+    raises no Tier-1 critical issue); ``only``: move none but these. One line per move, then one per part left."""
+    from antigravity3d.kernel.attach import attach
+
+    meshes = sm.extract_meshes()
+    if not meshes:
+        return []
+    reach = reach_of(meshes)
+    t1 = tier1_qa(meshes, budget)
+    if not any(i.code in ("floating_part", "floating_group") for i in t1.issues):
+        return []
+    try:
+        r = attach(meshes, budget, reach, only=only)
+        ops = r.ops(sm.base_ir())
+    except (ValueError, KeyError) as e:
+        return [f"attach: not possible ({e})"]
+    notes = []
+    if ops:
+        tx = sm.apply_patch(IRPatch(ops=ops))
+        if _crit(tier1_qa(sm.extract_meshes(), budget)) > _crit(t1):
+            sm.rollback(tx)
+            return ["attach: not applied (it would raise a Tier-1 critical issue)"]
+        notes += [f"attached {a}" for a in r.attached]
+    notes += [f"left to the author: {x}" for x in r.left]
+    return notes
+
+
 def tidy(sm: Any, budget: EngineBudget, touched: set[str]) -> list[str]:
     """The deterministic clean-up a first design gets, applied after an author's patch to what the patch changed and to
     nothing else (each step its own transaction above the patch, so rolling the patch back undoes them): parts Tier-1
@@ -167,7 +202,8 @@ def tidy(sm: Any, budget: EngineBudget, touched: set[str]) -> list[str]:
     fits the triangle budget (authoring._shrink); flush faces are separated (kernel/separate.py). Each step is kept only
     if it raises no Tier-1 critical issue. Returns what was done, one line each. Measured live 2026-11-22
     (r5/live/m2_worker): rounds were lost to four lid pads a few millimetres above the lid (crate, improvement round 4),
-    a design 276 triangles over a 4,000 budget (hydrant) and parts left floating by a repair (chair, twice)."""
+    a design 276 triangles over a 4,000 budget (hydrant) and parts left floating by a repair (chair, twice). Last, a part
+    the patch changed that still touches nothing is attached to its nearest part (``attach_step``)."""
     from antigravity3d.kernel.fast_ops import shipped_masks
     from antigravity3d.kernel.separate import separate_coplanar
     from antigravity3d.tactics.authoring import _shrink, count_tris
@@ -222,6 +258,7 @@ def tidy(sm: Any, budget: EngineBudget, touched: set[str]) -> list[str]:
             notes.append(f"separated flush faces of {len({o.node_id for o in ops})} part(s) the patch changed")
         if left:
             notes.append("flush faces left (fixing them would move parts the patch did not change): " + ", ".join(left[:8]))
+    notes += attach_step(sm, budget, only=touched)
     return notes
 
 
@@ -1550,6 +1587,10 @@ class _Run:
                 else:
                     self.step("settle_pre", "passed", why, t0)
             self.separate_step("separate_coplanar")
+            t0 = time.perf_counter()
+            notes = attach_step(sm, self.budget)
+            self.step("attach_pre", "passed" if any(n.startswith("attached") for n in notes) else "warned" if notes else "skipped",
+                      "; ".join(notes)[:400] or "every part touches another", t0)
         if self.judged is not None and tuple(sm.tx_stack) != unchanged:  # settled or separated: not the design it judged
             self.judged = None
         reuse: tuple[Any, _QA] | None = None  # after a rollback: the kept design's own verdict, not asked again
@@ -1588,7 +1629,13 @@ class _Run:
                         # judge-only "clipping" of spindles socketed into the seat, and no improvement round ever ran.
                         gain = self.kernel_gain(pending.t1, t1)
                         verdict, reasons = await self.compare_change(pending.q, q)
-                        raised = sorted(d for d in self.flagged(q, t1) - self.flagged(pending.q, pending.t1)
+                        # what the comparison overrules: a defect only the judge sees that it newly flags, or whose gate
+                        # newly fails (live 2026-11-22, r5_chair_C: clipping 0.75 -> 0.85 crossed defect_high; the repair
+                        # was kept "over: gate now failing: defect:defect_clipping", the clipping was not overruled, and
+                        # the next two repairs pulled the socketed legs apart for it and were rolled back)
+                        gated = {g.split(":", 1)[1] for g in self.gates(t1, q) - self.gates(pending.t1, pending.q)
+                                 if g.startswith("defect:")}
+                        raised = sorted(d for d in (self.flagged(q, t1) - self.flagged(pending.q, pending.t1)) | gated
                                         if self.kernel_confirms(t1, d) is None)
                         said = f"judge: {verdict}" + (f" ({reasons[:200]})" if reasons else "")
                         if verdict == "after" or (verdict in ("neither", "unavailable") and gain):
@@ -1718,6 +1765,32 @@ class _Run:
         res.converged.setdefault("A", False)
         if reuse is not None:
             await self.after_repairs(repairs_kept, self.max_rounds, *reuse)
+
+    def detached_refusal(self) -> str:
+        """After pass A: parts that touch nothing (Tier-1's floating parts and groups, the Blender check's contact rule,
+        kernel/fast_ops.py TOUCH_TOL) mean the Blender check, which is the gate, would refuse the package. The run then
+        stops here with that refusal, naming each part with its numbers, instead of spending the look round, the LOD
+        review, the package and the engine checks on it. Live 2026-11-22 (r5/live_scorecard/runs/r5_hydrant_C): the run
+        went on after pass A for the look round (four judge calls), the LOD checks, the export, the Godot import and the
+        web check, and was refused at its last step for three chain links Tier-1 had reported all along. Returns the
+        refusal ('' when nothing is detached), recorded as res.stopped["C"] and a failed step "detached_parts"."""
+        from antigravity3d.kernel.attach import detached
+
+        t1 = tier1_qa(self.sm.extract_meshes(), self.budget)
+        comps = detached(t1)
+        if not comps:
+            return ""
+        lines = {i.node_id: i.detail for i in t1.issues if i.code in ("floating_part", "floating_group")}
+        named = []
+        for c in comps:
+            d = lines.get(c[0], "")
+            named.append(f"{', '.join(c)} ({d.split(';')[0] if d else 'touches nothing'})")
+        why = (f"not packaged: the Blender check would refuse it: {sum(len(c) for c in comps)} part(s) touch nothing "
+               f"after pass A: " + "; ".join(named))
+        self.res.stopped["C"] = why[:600]
+        self.res.objects["detached_parts"] = [n for c in comps for n in c]
+        self.step("detached_parts", "failed", why[:400])
+        return why
 
     async def after_repairs(self, kept: int, rnd: int, t1: Any, q: _QA) -> None:
         """Pass A's repair rounds are spent and at least one repair was kept: the design still gets its improvement
@@ -2263,6 +2336,8 @@ async def refine(
             run.res.stopped["A"] = pass_a_note or "pass A not run: the design was taken as given"
         else:
             run.adopt(judged, pass_a_note or "pass A not run: the design was taken as given")
+        if run_pass_a and run_pass_c and run.res.stopped.get("A") != "empty scene" and run.detached_refusal():
+            run_pass_b = run_pass_c = False  # the gate would refuse it: no look, no package, no engine checks
         if run_pass_b and run.res.stopped.get("A") != "empty scene":
             await run.pass_b()
         # The export decision (PyramidResult.ok) adds the brief's requirements on the state that ships: its last verdict

@@ -278,6 +278,34 @@ async def test_a_repair_the_kernel_shows_better_is_undone_only_if_the_judge_pref
         assert res.rounds[-1].rolled_back and "compared: judge: before" in step.detail
 
 
+async def test_a_judge_only_defect_whose_gate_a_kept_repair_crosses_is_overruled_too(tmp_path: Path) -> None:
+    """Live 2026-11-22 (r5/live_scorecard/runs/r5_chair_C): the repair that took the chair's floating parts 6 -> 0 was
+    kept on the comparison "over: gate now failing: defect:defect_clipping" (0.75 before, 0.85 after: flagged both times,
+    a gate only after), the clipping was not overruled, and the next two repair rounds pulled the socketed legs apart
+    for it and were rolled back ("Tier-1 finds a new floating part: stretcher_center"). A defect only the judge sees whose
+    gate newly fails is overruled with the newly flagged ones: no repair is asked for it."""
+    from test_pyramid import LID_DOWN, floating_scene
+    from antigravity3d.tactics.authoring import CallableAuthor
+
+    before = {"defect_floating": 0.9, "defect_faceted": 0.9, "defect_clipping": 0.6}
+    after = {"defect_clipping": 0.9}
+    lid_down = lambda: any(n.id == "lid" and n.transform.translate == (0, 0, 1.025) for n in sm.base_ir().nodes)  # noqa: E731
+    sm, plane = setup(tmp_path, Script(blockout=lambda n: dict(after if lid_down() else before)), floating_scene())
+    plane = Pairwise(plane, lambda n: "after")
+    repairs: list[Any] = []
+
+    def repair(*a: Any, **k: Any) -> IRPatch:
+        repairs.append(k.get("action"))
+        return LID_DOWN
+
+    res = await run_a(sm, plane, CallableAuthor(lambda *a, **k: [], repair), tmp_path, max_rounds=3)
+    step = next(s for s in res.steps if s.name == "compare_A2")
+    assert lid_down() and "gate now failing: defect:defect_clipping" in step.detail
+    assert "defect_clipping no longer counted" in step.detail
+    assert len(repairs) == 1  # nothing is left to repair: the clipping is overruled, the design passes pass A
+    assert res.converged["A"]
+
+
 async def test_a_part_is_not_settled_onto_a_part_that_itself_floats(tmp_path: Path) -> None:
     """The live chair: the crest rail dropped 216 mm down the spindles onto one that floats (settle_pre), and the chair
     shipped with its back rail at seat height and a new floating group."""

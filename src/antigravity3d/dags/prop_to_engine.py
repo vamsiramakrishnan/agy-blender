@@ -398,7 +398,8 @@ class PropToEngineDAG:
             pkg = wd / "package"
             out = dict(res.artifacts)
             if "usd" not in out or "package" not in res.objects:
-                raise RuntimeError("pyramid pass C produced no package USD")
+                stop = res.stopped.get("C", "")
+                raise RuntimeError(stop if stop.startswith("not packaged") else "pyramid pass C produced no package USD")
             authoring_path = wd / f"{asset}_authoring.usda"
             p.stage.export(authoring_path)
             out["authoring_usd"] = str(authoring_path)
