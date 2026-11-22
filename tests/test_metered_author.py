@@ -9,6 +9,7 @@ import pytest
 from google.genai import types
 
 from antigravity3d.models import tier
+from stream_fakes import StreamFromBlocking  # noqa: E402 - tests/ is on sys.path (rootdir conftest layout)
 from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.governor import BudgetExceeded, Governor, plan_for
 from antigravity3d import ir_schema
@@ -19,7 +20,7 @@ from antigravity3d.tactics.metered_author import (
 )
 
 
-class Endpoint:
+class Endpoint(StreamFromBlocking):  # MeteredAuthor streams: the scripted answer is delivered as a stream
     def __init__(self):
         self.counted = []
         self.generated = []
@@ -110,7 +111,13 @@ async def test_dispatched_request_is_the_shared_builders_request(monkeypatch):
     [sent] = ep.generated
     task = propose_task("green crate", index=0, n=1, asset_name="Crate", references=True)
     expected = build_author_request(role, "propose", task, budget=budget, context=context, timeout_s=5, asset_name="Crate")
-    assert sent["contents"] == expected.contents and sent["config"] == expected.config
+    # The call is streamed with thought summaries, which are added at send time (stream_call.with_thought_summaries) and
+    # are the only difference from the shared builder's request: the request itself, and so the design record's key and
+    # the benchmark's bytes, do not carry them.
+    from antigravity3d.tactics.stream_call import with_thought_summaries
+
+    assert sent["contents"] == expected.contents and sent["config"] == with_thought_summaries(expected.config)
+    assert sent["config"].thinking_config.include_thoughts is True and expected.config.thinking_config.include_thoughts is None
     assert sent["config"].response_json_schema == ir_schema.scene_response_schema("Crate")
     assert sent["config"].max_output_tokens == AUTHOR_OUTPUT_BUDGETS[role].max_output_tokens
     assert sent["config"].thinking_config.thinking_level.name == tier(role).thinking.name
@@ -263,8 +270,10 @@ async def test_truncation_is_a_typed_error_and_books_the_billed_usage(monkeypatc
     assert rec["booked_usd"] == pytest.approx(cost(6000, 4096)) and gov.spent == pytest.approx(cost(6000, 4096))
 
 
+# (None, None, False), a response with no candidate and no prompt feedback, moved to the test below: the call is
+# streamed, and a stream that ends with neither is one that was cut before its finish, not an answer.
 @pytest.mark.parametrize("finish,answer,blocked", [
-    ("SAFETY", "", False), ("RECITATION", '{"asset_name":"Crate"}', False), (None, None, False), ("STOP", "", False),
+    ("SAFETY", "", False), ("RECITATION", '{"asset_name":"Crate"}', False), ("STOP", "", False),
     ("STOP", None, True),
 ])
 async def test_no_usable_candidate_is_a_typed_error_and_settles(monkeypatch, finish, answer, blocked):
@@ -284,6 +293,22 @@ async def test_no_usable_candidate_is_a_typed_error_and_settles(monkeypatch, fin
     assert e.value.usage["input_tokens"] == 100
     [rec] = gov.receipts()
     assert rec["booked_usd"] == pytest.approx(cost(100, 50)) and rec["status"] == "AuthorNoAnswer"
+
+
+async def test_a_stream_with_no_candidate_no_feedback_and_no_finish_was_cut_and_keeps_its_reservation(monkeypatch):
+    """Blocking, such a response was a complete answer, booked by its usage. Streamed, it can only be a stream cut before
+    its last event (every live stream of 2026-11-22 ended with a finish reason or broke: r5/live/stream_gaps2), so it is a
+    broken stream: outcome unknown, the whole reservation kept, retried once (tactics/stream_call.StreamIncomplete)."""
+    from antigravity3d.service_answer import RetryPolicy
+    from antigravity3d.tactics.metered_author import AuthorUnavailable
+
+    a, ep, budget, context, gov = make_author(monkeypatch)
+    a.retry = RetryPolicy(sleep=lambda s: asyncio.sleep(0))  # the retry's wait is not under test
+    ep.finish, ep.answer = None, None
+    with pytest.raises(AuthorUnavailable, match="StreamIncomplete"):
+        await a.propose("crate", budget=budget, n=1, context=context)
+    assert len(ep.generated) == 2
+    assert all(r["usage_known"] is False and r["booked_usd"] == r["reserved_usd"] for r in gov.receipts())
 
 
 async def test_live_benchmark_sends_the_production_request(monkeypatch):

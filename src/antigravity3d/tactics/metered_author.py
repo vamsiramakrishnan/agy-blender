@@ -37,6 +37,7 @@ from antigravity3d.kernel.kit_metric import context_brief
 from antigravity3d.models import ARGON, CARBON, HYDROGEN, NEON, tier
 from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.governor import BudgetExceeded, Governor, usage_cost_usd
+from antigravity3d.tactics.stream_call import ModelCallProgress, StreamLimits, StreamState, stream_generate
 
 # "improve": a patch to a design that already passes its checks, asked for so that it reads as the finished object
 # (pass A's improvement rounds). The same schema and output row as a repair; its own operation so that the ledger
@@ -150,15 +151,101 @@ MEASURED_PROPOSE_WALL_S: dict[str, tuple[float, float]] = {
     "gemini-4-carbon/medium": (200.0, 285.0),
     "gemini-4-argon/high": (128.0, 262.0),
 }
-# Total request timeout per authoring role. Rule (asserted in tests/test_metered_author.py): at least
-# TIMEOUT_HEADROOM x the slowest measured call of the role's model, rounded up to a multiple of 30 s. A call that times
-# out is billed its whole reservation and yields nothing, so a timeout must not sit near the healthy range: argon's
-# slowest healthy call (262 s) was within reach of the old 300 s for every tier. The table follows the measurements,
-# not a ranking of the tiers: carbon's slowest call was slower than argon's. A total, not an idle, timeout: the
-# thinking phase of a call is silent (no chunk arrives until thinking ends, ~100 s on argon), so a stream cannot tell
-# a stalled call from a thinking one without include_thoughts, which would change the billed request.
+# Total deadline per authoring role. Rule (asserted in tests/test_metered_author.py): at least TIMEOUT_HEADROOM x the
+# slowest measured call of the role's model, rounded up to a multiple of 30 s. A call that runs out its deadline keeps
+# its whole reservation and yields nothing, so the deadline must not sit near the healthy range. The table follows the
+# measurements, not a ranking of the tiers: carbon's slowest call was slower than argon's.
+# The call is streamed (tactics/stream_call.py), and this is the stream's whole deadline, enforced by stream_call; it
+# is also the request's httpx timeout, which on a stream bounds each read, not the call. Silence is caught earlier by
+# the limits below (stream_limits). Blocking, nothing survived 300 s: on 2026-11-22 blocking builder calls were cut by
+# the far end at 300.0-300.009 s with no response (crate brief once; chair brief both attempts, r5/live/m1_before), so
+# these totals were unreachable and a slow call lost its reservation. The cut is on silence, not on total time: two
+# streamed builder calls of the chair brief ran 403.9 s and 431.1 s and reached their finish (r5/live/stream_chair).
 TIMEOUT_HEADROOM = 2.0
 AUTHOR_TIMEOUT_S: dict[str, float] = {"worker": 90.0, "bulk": 90.0, "builder": 570.0, "director": 540.0}
+# Silence limits of a streamed authoring call (stream_call.StreamLimits). Measured live 2026-11-22 on the shipped propose
+# request (crate brief; prompt 8,030 tokens) streamed with thought summaries: r5/live/stream_gaps2 (23 calls: worker x5,
+# bulk x3, builder x4, director x4, director repair x2, worker without summaries x5), plus r5/live/stream_probe and
+# stream_probe2 (one builder and one director each). Every chunk, thought chunks included, carried the running usage;
+# no chunk carried a continuation_token (so the SDK never resumed a stream on its own).
+# Thought summaries are asked for at send time (stream_call.with_thought_summaries), not in the request, so the design
+# record's key and the benchmark's request do not change. They do not change what is billed: the prompt was 8,030 tokens
+# with and without them, and worker thinking was 2,809-3,441 tokens with them against 2,433-3,315 without (five each;
+# answers 7,171-7,684 against 4,572-8,547). Without them the worker sent nothing for 11.4-14.1 s (its whole thinking);
+# with them its first chunk came at 2.1-2.9 s.
+IDLE_HEADROOM = 4.0
+# Seconds from the send to the first chunk. The 28.4 s (carbon) and 44.6 s (argon) came on a busy night: 3-6x the others.
+MEASURED_STREAM_FIRST_CHUNK_S: dict[str, tuple[float, ...]] = {
+    "gemini-4-hydrogen/low": (2.95, 2.46, 2.68, 2.40, 2.09),
+    "gemini-4-neon/low": (4.18, 4.78, 8.48),
+    "gemini-4-carbon/medium": (6.42, 8.92, 6.70, 5.42, 6.95, 28.39),
+    "gemini-4-argon/high": (12.35, 13.30, 6.97, 6.69, 44.61, 10.39, 19.00, 9.98),  # the last two: repairs
+}
+# Longest gap between two thought chunks of one call.
+MEASURED_STREAM_THOUGHT_GAP_S: dict[str, tuple[float, ...]] = {
+    "gemini-4-hydrogen/low": (2.07, 2.14, 2.59, 2.24, 2.17),
+    "gemini-4-neon/low": (3.92, 3.92, 4.42),
+    "gemini-4-carbon/medium": (7.21, 6.94, 6.34, 6.92, 7.45, 6.76),
+    "gemini-4-argon/high": (4.55, 4.31, 4.32, 5.11, 5.89, 9.77, 6.62),  # the last two: repairs
+}
+# Longest gap between two answer chunks once the answer flows (incremental answers and bursts). Not a safe limit on its
+# own: an answer can also be held part-way (r5/live/stream_chair builder, chair brief, no thinking: 121 answer chunks to
+# 34.3 s, 40.8 s of silence, then the other 142 and STOP at 75.2 s), so it is only the floor under the held-answer bound.
+MEASURED_STREAM_ANSWER_GAP_S: dict[str, tuple[float, ...]] = {
+    "gemini-4-hydrogen/low": (0.37, 0.52, 0.55, 0.52, 0.21, 0.64, 0.29, 0.49, 0.28, 0.36),
+    "gemini-4-neon/low": (0.25, 0.44),
+    "gemini-4-carbon/medium": (0.71, 0.67, 0.87, 0.56, 0.01, 0.01),
+    "gemini-4-argon/high": (0.39, 0.38, 0.43, 0.33, 0.61, 0.17, 0.25),
+}
+# Answer tokens per second from the last thought chunk to the finish, the slowest propose of each model (repairs of 234
+# tokens are all latency and say nothing about a rate). Measured: hydrogen 312-341, neon 155-156, carbon 91-112, argon
+# 147-167. Not every answer streams as it is written: 3 of 8 carbon answers and both argon repairs were held after the
+# last thought and sent at the end in under 2 s (carbon: 6,861 tokens after 75.1 s of silence, 6,717 after 67.6 s), so a
+# silence after the last thought may be an answer being written.
+MEASURED_ANSWER_TOKENS_PER_S: dict[str, float] = {
+    "gemini-4-hydrogen/low": 312.0, "gemini-4-neon/low": 155.0, "gemini-4-carbon/medium": 91.0, "gemini-4-argon/high": 146.0}
+# How much slower a slow day is: carbon's slowest call (285 s, MEASURED_PROPOSE_WALL_S) ran at about 70 output tokens/s
+# against 94-97 on its other samples. A held answer is waited for at the slowest measured rate divided by this.
+SLOW_DAY_FACTOR = 1.4
+# Answer tokens of the crafted propose in the same sample, the largest per model: an answer that cannot fit the room
+# thinking leaves under the shared cap ends MAX_TOKENS (stream_call progress reports the room as the call thinks).
+MEASURED_STREAM_ANSWER_TOKENS: dict[str, tuple[int, ...]] = {
+    "gemini-4-hydrogen/low": (7_345, 7_171, 7_684, 7_626, 7_171),
+    "gemini-4-neon/low": (5_512, 6_926),
+    "gemini-4-carbon/medium": (6_603, 6_861, 6_402, 7_145, 6_642, 6_717),
+    "gemini-4-argon/high": (6_728, 6_640, 7_160, 6_926, 6_594),
+}
+
+
+def _model_key(role: str) -> str:
+    mt = tier(role)  # type: ignore[arg-type]
+    return f"{mt.model}/{mt.thinking.value if mt.thinking else 'none'}"
+
+
+def _bound(table: dict[str, tuple[float, ...]], key: str) -> float:
+    """The model's largest measured value; the largest of every model when this one was not measured."""
+    values = table.get(key) or tuple(v for vs in table.values() for v in vs)
+    return max(values)
+
+
+def stream_limits(req: AuthorRequest, total_s: float) -> StreamLimits:
+    """The silence limits of one authoring call. Rule (asserted in tests/test_stream_call.py): IDLE_HEADROOM x the largest
+    measured value of the model (of every model, for one not measured), rounded up to 10 s, for the first chunk and,
+    as floors, for the gaps between thought chunks and between answer chunks. Any silence after a chunk may be an answer
+    being written and held (before it starts, and part-way through it), so the limit after a chunk is also long enough
+    to write the rest of the answer budget (less the answer received; less again if the shared cap leaves less after
+    the thinking and answer seen so far) at the model's slowest measured rate slowed by SLOW_DAY_FACTOR
+    (stream_call.StreamLimits.silence_after). The answer budget is itself at least twice the largest measured answer
+    (AUTHOR_OUTPUT_BUDGETS). Never above the total. A false stall costs a whole call; a late one costs only waiting,
+    which the total bounded before."""
+    key = _model_key(req.role)
+    up = lambda s: float(min(total_s, 10 * math.ceil(IDLE_HEADROOM * s / 10)))  # noqa: E731
+    rate = MEASURED_ANSWER_TOKENS_PER_S.get(key) or min(MEASURED_ANSWER_TOKENS_PER_S.values())
+    return StreamLimits(first_chunk_s=up(_bound(MEASURED_STREAM_FIRST_CHUNK_S, key)),
+                        answer_gap_s=up(_bound(MEASURED_STREAM_ANSWER_GAP_S, key)), total_s=total_s,
+                        thinking_gap_s=up(_bound(MEASURED_STREAM_THOUGHT_GAP_S, key)),
+                        held_answer_tokens=req.budget.answer_tokens, cap_tokens=req.max_output_tokens,
+                        slowest_tokens_per_s=rate, headroom=SLOW_DAY_FACTOR)
 # Prompt tokens the API bills for response_json_schema, per byte of compact schema JSON. Measured on gemini-4-neon,
 # same request with both spellings of the schema: the propose schema written out in full (7,954 bytes, descriptions,
 # tuples repeated) billed 7,305 prompt tokens, the compact one (6,064 bytes) 5,928: the schema itself 5,085 -> 3,708
@@ -692,8 +779,12 @@ class MeteredAuthor:
 
     def __init__(self, client: Any, governor: Governor, budget: EngineBudget, context: dict, *,
                  timeout_s: float | None = None, retry: service_answer.RetryPolicy | None = None,
-                 record: Any = None) -> None:
+                 record: Any = None, progress: Callable[[ModelCallProgress], None] | None = None) -> None:
         self.client, self.governor, self.budget = client, governor, budget
+        # Receives a ModelCallProgress (stream_call) as each call goes (queued, sent, thinking, answering, done, retrying,
+        # failed, reused). Called synchronously from the call's task; an exception it raises is dropped, never the call.
+        # None: no events, nothing else changes.
+        self.progress = progress
         # tactics.cached.DesignRecord: answered requests of earlier runs in the same --out, reused without a call (None: off)
         self.record = record
         self.context, self.timeout_s = dict(context), timeout_s
@@ -732,7 +823,39 @@ class MeteredAuthor:
         worst = usage_cost_usd(tokens_in, req.max_output_tokens, usd_per_m_in=pin, usd_per_m_out=pout)
         return expected, worst
 
-    async def _generate(self, req: AuthorRequest, trace: dict[str, Any] | None = None) -> Any:
+    def _emit(self, req: AuthorRequest, event: str, index: int | None, attempt: int = 1, state: StreamState | None = None,
+              **extra: Any) -> None:
+        if self.progress is None:
+            return
+        if state is not None:
+            out = getattr(state.usage, "total_token_count", None), getattr(state.usage, "prompt_token_count", None)
+            extra = dict(elapsed_s=round(state.elapsed(), 1), phase=state.phase, heading=state.heading or None,
+                         thought_chars=state.thought_chars, answer_chars=state.answer_chars,
+                         output_tokens=out[0] - out[1] if None not in out else None, **extra)
+            if event == "silent":
+                extra["silent_s"] = round(state.elapsed() - (state.last_chunk_s or 0.0), 1)
+            room = self._answer_room(req, state)
+            if room is not None:
+                largest = max(MEASURED_STREAM_ANSWER_TOKENS.get(_model_key(req.role)) or (0,))
+                extra.update(answer_room_tokens=room, room_short_of=largest if req.operation == "propose" and room < largest else None)
+        try:
+            self.progress(ModelCallProgress("author", event, req.model, req.role, req.operation, index, attempt, **extra))
+        except Exception:  # noqa: BLE001 - a progress sink never costs the call it reports on
+            pass
+
+    @staticmethod
+    def _answer_room(req: AuthorRequest, state: StreamState) -> int | None:
+        """Output tokens the cap leaves for the answer after the thinking the running usage reports; None: not reported."""
+        thinking = state.thinking_tokens()
+        return None if thinking is None else req.max_output_tokens - thinking
+
+    def _seen(self, req: AuthorRequest, state: StreamState) -> dict[str, Any]:
+        seen = state.seen()
+        if (room := self._answer_room(req, state)) is not None:
+            seen["answer_room_tokens"] = room  # a MAX_TOKENS finish with little room left was decided by the thinking
+        return seen
+
+    async def _generate(self, req: AuthorRequest, trace: dict[str, Any] | None = None, *, index: int | None = None) -> Any:
         trace = {} if trace is None else trace
         tokens = self.governor.unit == "tokens"  # a token ledger: worst case and booking in tokens, no price applied
         pin, pout = (None, None) if tokens else _rates(req.model)
@@ -785,6 +908,7 @@ class MeteredAuthor:
             if tracker.attempts:  # a retried call: which attempt this is, and what came before it
                 receipt.update(attempt=tracker.n, service_retries=tracker.record())
             t0 = time.monotonic()
+            self._emit(req, "queued", index, tracker.n)
             try:
                 # Waits for outstanding reservations to settle; fails at once only when this can never fit the ceiling.
                 hold = await self.governor.reserve_wait(f"author.{req.operation}", limit, receipt=receipt)
@@ -793,12 +917,17 @@ class MeteredAuthor:
             waited += time.monotonic() - t0
             trace.update(admission_wait_s=round(waited, 3), **{"reserved_tokens" if tokens else "reserved_usd": limit})
             sent = time.monotonic()
+            # Streamed with thought summaries (stream_call); every attempt has its own limits from its own send.
+            state, attempt = StreamState(), tracker.n
             try:
-                result = await api.generate_content(model=req.model, contents=req.contents, config=req.config)
+                result = await stream_generate(
+                    api, model=req.model, contents=req.contents, config=req.config, limits=stream_limits(req, deadline_s),
+                    state=state, on_event=lambda event, st: event != "done" and self._emit(req, event, index, attempt, st))
             except BaseException as exc:
                 elapsed = time.monotonic() - sent
                 outcome = service_answer.classify(exc, elapsed, deadline_s=deadline_s)
                 receipt["status"] = type(exc).__name__
+                receipt["stream"] = self._seen(req, state)  # what arrived before it failed: a pattern of stalls reads from receipts
                 if outcome == "not_served":  # the service said it did not run it: nothing is booked
                     receipt.update(service_answer.not_served_receipt(exc, tracker.n, elapsed), usage_known=True)
                     hold.settle(0.0, receipt=receipt)
@@ -812,14 +941,19 @@ class MeteredAuthor:
                     booked_any = True
                 if not isinstance(exc, Exception):
                     raise
-                if outcome != "final" and await tracker.failed(exc, elapsed, outcome):
-                    trace["service_retries"] = tracker.record()
-                    continue
+                wait = tracker.decide(exc, elapsed, outcome) if outcome != "final" else None
                 trace["service_retries"] = tracker.record()
+                if wait is not None:
+                    self._emit(req, "retrying", index, attempt, state, detail=f"{outcome}: {service_answer.describe(exc, 160)}",
+                               wait_s=wait)
+                    await tracker.policy.sleep(wait)
+                    continue
+                self._emit(req, "failed", index, attempt, state, detail=service_answer.describe(exc, 160))
                 if is_timeout(exc):
+                    stalled = f": {exc}" if isinstance(exc, service_answer.StreamStalled) else ""
                     raise AuthorTimedOut(
                         f"{req.role} {req.operation} on {req.model}: timed out after {elapsed:.0f}s of {deadline_s:.0f}s "
-                        f"({type(exc).__name__}); the whole reservation {self.governor.fmt(limit)} is retained"
+                        f"({type(exc).__name__}{stalled}); the whole reservation {self.governor.fmt(limit)} is retained"
                         + (f"; {tracker.summary()}" if len(tracker.attempts) > 1 else ""), finish_reason="TIMEOUT",
                         **_meta(req, None)) from exc
                 if outcome == "final":
@@ -827,6 +961,11 @@ class MeteredAuthor:
                 raise self._unavailable(req, exc, tracker, "generating", booked_any=booked_any) from exc
             break
         booked = None
+        receipt["stream"] = self._seen(req, state)
+        if state.broke_after_finish:  # (d): the answer is complete; its usage is known only if it came with the finish
+            receipt["booked_reason"] = (f"the stream broke after the finish reason arrived ({state.broke_after_finish}): the "
+                                        "answer is complete and used" + ("" if state.finish_carried_usage else
+                                        "; its usage never arrived, so the whole reservation is kept"))
         try:
             usage = usage_tokens(result)
             trace["usage"] = usage
@@ -846,9 +985,12 @@ class MeteredAuthor:
                 invalid.answer_text, invalid.cause = text, exc
                 raise invalid from exc
             receipt["status"] = "ok"
+            self._emit(req, "done", index, attempt, state, finish_reason=receipt["finish_reason"])
             return parsed
         except BaseException as exc:
             receipt["status"] = type(exc).__name__
+            self._emit(req, "failed", index, attempt, state, finish_reason=receipt.get("finish_reason"),
+                       detail=f"{type(exc).__name__}: {_one_line(exc, 160)}")
             raise
         finally:
             receipt["usage_known"] = booked is not None
@@ -867,10 +1009,11 @@ class MeteredAuthor:
             if hit is not None:
                 self._book_reuse(req, hit)
                 record.note_reuse(hit)
+                self._emit(req, "reused", index)
                 trace.update(recorded=hit.original, **{"reserved_tokens" if self.governor.unit == "tokens" else "reserved_usd": 0.0})
                 self._note_authored(req, index, trace)  # the manifest's provenance: the same facts for a reuse as for a paid answer
                 return hit.answer
-        answer = await self._generate(req, trace)
+        answer = await self._generate(req, trace, index=index)
         self._note_authored(req, index, trace)
         if key is not None and keep(answer):
             original = {"unit": self.governor.unit, "booked": trace.get("booked"), "usage": trace.get("usage"),

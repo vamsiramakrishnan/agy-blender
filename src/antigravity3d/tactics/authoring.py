@@ -590,11 +590,14 @@ class AgentAuthor:
     corrected scene as upserts of every changed node (an IRPatch), or None when nothing changed.
     """
 
-    def __init__(self, *, plane: Any = None, forge: Any = None, workdir: Any = None, client: Any = None, role: str = "worker", timeout_s: float | None = None) -> None:
+    def __init__(self, *, plane: Any = None, forge: Any = None, workdir: Any = None, client: Any = None, role: str = "worker", timeout_s: float | None = None,
+                 progress: Callable[[Any], None] | None = None) -> None:
         """``timeout_s=None``: governed model calls use the per-tier timeouts beside the output-budget table
         (``metered_author.AUTHOR_TIMEOUT_S``) and harness stage sessions ``STAGE_TIMEOUT_S``; a number overrides both."""
         self.plane, self.forge, self.role, self.timeout_s = plane, forge, role, timeout_s
         self.client = client
+        # MeteredAuthor's progress sink (tactics.stream_call.ModelCallProgress per event); None: no events
+        self.progress = progress
         self._budget: EngineBudget | None = None
         self.workdir = workdir
         self.calls = {"propose": 0, "repair": 0}
@@ -609,7 +612,8 @@ class AgentAuthor:
         from google import genai
         from antigravity3d.tactics.metered_author import MeteredAuthor
 
-        return MeteredAuthor(self.client or genai.Client(), governor, budget, context, timeout_s=self.timeout_s, record=record)
+        return MeteredAuthor(self.client or genai.Client(), governor, budget, context, timeout_s=self.timeout_s, record=record,
+                             progress=self.progress)
 
     def _run_stage(self) -> Callable[..., Any]:
         from antigravity3d.harness.agents import run_stage  # lazy

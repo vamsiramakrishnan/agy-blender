@@ -21,6 +21,7 @@ from antigravity3d.tactics.authoring import CallableAuthor
 from antigravity3d.tactics.distill import FixLog
 from antigravity3d.tactics.governor import Governor, plan_for
 from antigravity3d.tactics.pyramid import refine
+from stream_fakes import StreamFromBlocking  # noqa: E402 - tests/ is on sys.path (rootdir conftest layout)
 
 BUDGET = EngineBudget("unreal_5")
 
@@ -255,7 +256,7 @@ from antigravity3d.tactics.metered_author import AuthorNoAnswer, MeteredAuthor  
 LID_DOWN_JSON = json.dumps({"ops": [{"op": "set_transform", "node_id": "lid", "transform": {"translate": [0, 0, 1.025]}}]})
 
 
-class TierEndpoint:
+class TierEndpoint(StreamFromBlocking):  # MeteredAuthor streams: the scripted answer is delivered as a stream
     """Fake models endpoint: one scripted finish per model, so the worker and the director tier can differ."""
 
     def __init__(self, finishes: dict[str, str]) -> None:

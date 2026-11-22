@@ -144,7 +144,25 @@ class NoDecisionsKey:
                     except OSError:
                         pass
                     return
+                if status == 200 and ":streamGenerateContent" in self.path:
+                    self._send_stream(payload)
+                    return
                 self._send(status, payload, headers)
+
+            # --- streamed calls (MeteredAuthor sends authoring calls with generate_content_stream) ------------------
+            def _send_stream(self, payload: bytes) -> None:
+                """A served streamed call: the same answer as one server-sent event, as the live service ends a stream
+                (the last event carries the finish reason and the usage). A refusal or a drop is answered as for a
+                blocking call: the SDK raises it before streaming anything."""
+                body = b"data: " + payload + b"\r\n\r\n"
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Content-Length", str(len(body)))
+                try:
+                    self.end_headers()
+                    self.wfile.write(body)
+                except (BrokenPipeError, ConnectionResetError):  # the client stopped waiting (a cancelled call)
+                    self.close_connection = True
 
             def log_message(self, *a: Any) -> None:
                 pass

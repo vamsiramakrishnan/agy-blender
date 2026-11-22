@@ -41,6 +41,7 @@ from antigravity3d.tactics.metered_author import MeteredAuthor, build_author_req
 
 sys.path.insert(0, str(Path(__file__).parent))
 from no_decisions_key import NoDecisionsKey  # noqa: E402
+from stream_fakes import StreamFromBlocking  # noqa: E402 - tests/ is on sys.path (rootdir conftest layout)
 
 PREVIEW = ["--preview", "--token-ceiling", "150000", "--max-images", "4", "--single-candidate", "--art-direction", "retro-lowres"]
 
@@ -242,7 +243,7 @@ def test_a_referenced_file_counts_by_its_bytes_not_its_uri(tmp_path):
 # ---------------------------------------------------------------------------------------------- the author
 
 
-class Endpoint:
+class Endpoint(StreamFromBlocking):  # MeteredAuthor streams: the scripted answer is delivered as a stream
     """Answers design i of n with i+1 boxes, so the reused designs can be told apart."""
 
     def __init__(self):
