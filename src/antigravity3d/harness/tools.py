@@ -1363,6 +1363,8 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
     # it went on checking the package itself until its token share ran out).
     review: list[str] = []
     steps: list[str] = []
+    started = time.monotonic()
+    kept = False  # the checked package and the review stay for the next call when this one stops waiting
     try:
         for _ in range(2):  # a second pass only when the review's own deterministic fix changed the scene
             # Fail fast (r5/live_native7: the detached staple was refused by the Blender check after a 77 s lookdev
@@ -1372,21 +1374,38 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
             if refusal:
                 return "\n".join([f"NOT DELIVERED: {refusal}. Fix what it names with apply_scene_ir and call "
                                   "deliver_package again.", *steps])
+            task = _review_task(s)  # one an earlier call left running (or finished) for this scene
             v = s.state.verdict
-            if v is not None and v.revision == s.state.revision and v.stage in {"lookdev", "final"}:
+            if task is None and v is not None and v.revision == s.state.revision and v.stage in {"lookdev", "final"}:
                 break
             # Not run beside the checks: the render and the review would then be made for designs the checks refuse.
             _enter(s, "LOOKDEV")
-            if s.pool is not None:
-                steps.append(await render_lookdev(ctx, "eevee"))
-            answer = await run_visual_qa(ctx)
+            if task is None:  # none asked yet for this scene: render it and ask (a task that outlives this call)
+                if s.pool is not None:
+                    steps.append(await render_lookdev(ctx, "eevee"))
+                task = _start_review(ctx, s)
+            left = DELIVER_ANSWER_S - (time.monotonic() - started)
+            try:
+                answer = await asyncio.wait_for(asyncio.shield(task), timeout=max(left, 1.0))
+            except asyncio.TimeoutError:
+                kept = True
+                return "\n".join([f"NOT DELIVERED: the review has not answered in {time.monotonic() - started:.0f} s (the "
+                                  "judge is still working on it); nothing needs fixing: call deliver_package again, it "
+                                  "continues where this call stopped and does not render or ask again.", *steps])
+            except asyncio.CancelledError:
+                kept = True  # the client gave up on this call: the next one continues from here
+                raise
+            s._set(R_REVIEW, None)
+            if answer.startswith("STALE"):  # the scene changed while it was judged: render and ask again
+                continue
             review = answer.split("\n")
             if "\nfix: " not in answer:
                 break
         _enter(s, "EXPORT")
         exported = await export_engine_package(ctx, out_name or asset)
     finally:
-        _drop_preflight(s)
+        if not kept:
+            _drop_preflight(s)
     head, *found = exported.split("\n")
     findings_rule = s.state.verdict is not None and s.state.verdict.delivers_on_review
     # Under the delivery rule (an uncalibrated preview) the review is a set of findings for the person: its verdict
@@ -1416,6 +1435,37 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
 
 NEEDS_A_PERSON = "NOT DELIVERED: a person must decide"
 R_PREFLIGHT = "preflight_package"
+R_REVIEW = "delivery_review"
+# deliver_package answers within this many seconds of being called. Arm N's client (the stock localharness, the plugin's
+# mcp_config.json sets no timeout) abandons a tool call after 3 minutes ("timed out after 3m0s"). Live on 2026-11-22
+# (r5/live_final_N) the second delivery spent 54 s on the checks and the render and the lookdev review's one judge call
+# took 131 s (26 and 51 s for the same question later): the call was abandoned at 180 s and cancelled, and with it the
+# checked package, the render and the review. Now a review that has not answered by then is left running and kept with
+# the checked package; the reply says to call again, and the next call waits on that same review.
+DELIVER_ANSWER_S = 150.0
+
+
+def _review_task(s: Session) -> asyncio.Task | None:
+    """The delivery review still running or finished for the scene as it is now (same geometry, budget, material files
+    and revision); None otherwise (a stale one is cancelled)."""
+    held = s._res(R_REVIEW)
+    if not held:
+        return None
+    key, task = held
+    if key == (s.geom_version, s.state.budget, s.texture_digest(), s.state.revision):
+        return task
+    task.cancel()
+    s._set(R_REVIEW, None)
+    return None
+
+
+def _start_review(ctx: ToolContext, s: Session) -> asyncio.Task:
+    """run_visual_qa as a task of its own: when deliver_package stops waiting for it (its time is up, or the client gave
+    up on the call) it goes on, stores its verdict as run_visual_qa always does (or reports STALE if the scene changed),
+    and the next deliver_package takes its answer. Nothing is exported by it."""
+    task = asyncio.ensure_future(run_visual_qa(ctx))
+    s._set(R_REVIEW, ((s.geom_version, s.state.budget, s.texture_digest(), s.state.revision), task))
+    return task
 
 
 async def _preflight(ctx: ToolContext, s: Session, asset: str) -> tuple[str | None, list[str]]:
@@ -1428,6 +1478,8 @@ async def _preflight(ctx: ToolContext, s: Session, asset: str) -> tuple[str | No
     the same checks on the same file again."""
     from antigravity3d.kernel.package import write_engine_package
 
+    if (kept := _preflight_package(s)) is not None:  # passed for this very scene by a call that stopped waiting
+        return None, list(kept["steps"])
     _drop_preflight(s)
     async with s.registry.locked(s.sid):
         rep = await _tier1(s)
@@ -1461,6 +1513,7 @@ async def _preflight(ctx: ToolContext, s: Session, asset: str) -> tuple[str | No
     ran = ", ".join(f"{k} {(v.get('status') or ('ok' if v.get('ok') else 'skipped'))}" for k, v in checks.items()
                     if k in {"blender_asset_qa", "engine_import"})
     steps.append(f"CHECKED before the review: package written and validated, {ran} ({time.perf_counter() - t0:.0f} s)")
+    s._res(R_PREFLIGHT)["steps"] = tuple(steps)
     return None, steps
 
 
