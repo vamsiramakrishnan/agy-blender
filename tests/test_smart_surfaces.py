@@ -71,8 +71,11 @@ def _maps(scene, meshes, bundle, px=256, brief=BRIEF):
     ("powder-coated dark gunmetal steel", 0.85, "painted_metal"),
     ("weathered red painted cast iron with pebbled foundry grain", 0.2, "painted_metal"),
     ("satin dark forest green milk-painted hardwood with subtle woodgrain", 0.0, "painted_wood"),
-    ("parkerized dark gunmetal steel with fine grain", 0.85, "bare_metal"),
-    ("matte black anodized steel", 0.85, "bare_metal"),
+    ("parkerized dark gunmetal steel with fine grain", 0.85, "painted_metal"),
+    ("dark gunmetal steel with fine grain", 0.85, "bare_metal"),
+    # anodised, parkerised, blackened: a thin dark dielectric coat that wears through to bright metal, like paint
+    ("matte black anodized steel", 0.85, "painted_metal"),
+    ("blackened brushed steel", 0.85, "painted_metal"),
     ("dark oxidized cast iron with coarse pitted metallic grain", 0.85, "cast_metal"),
     ("tarnished cast bronze with aged patina", 0.88, "brass"),
     ("textured black vulcanized rubber", 0.0, "rubber"),
@@ -319,7 +322,9 @@ def test_painted_edges_chip_to_metal_and_creases_are_rougher(built):
     layer, c = sm.paint_material(sm.classify(m, BRIEF), m, masks, {x.node_id: x for x in meshes})
     edge, flat = c.edge > 0.9, (c.edge == 0) & (c.crease == 0) & (c.ao > 0.95)
     assert layer.metal[edge].mean() > layer.metal[flat].mean() + 0.1   # chips show steel
-    assert layer.metal[flat].mean() == pytest.approx(m.metallic, abs=0.05)
+    # paint is a dielectric: 0 whatever the author's factor (0.1 here); it used to carry the factor through, which left
+    # most texels of a painted prop in between metal and not (measured on live packages: 68-90 %)
+    assert layer.metal[flat].mean() == pytest.approx(0.0, abs=0.05)
 
 
 def test_same_design_same_bytes(built):
@@ -490,3 +495,76 @@ def test_placed_strings_come_from_the_manifest():
         {"placed": True, "strings": []}]}}, "steel": {}}}}
     assert placed_strings(m) == ["SUPPLY", "LOT A-458"]
     assert placed_strings({}) == []
+
+
+# --------------------------------------------------------------------------------------------- relief and metalness per class
+
+CLASS_SURFACES = {"painted_metal": "olive painted steel", "painted_wood": "green painted wood", "bare_metal": "dark steel",
+                  "cast_metal": "cast iron", "brass": "brass", "rubber": "black rubber grip", "polymer": "olive polymer",
+                  "wood": "oak wood", "fabric": "grey felt", "glass": "frosted glass", "plain": ""}
+
+
+@pytest.fixture(scope="module")
+def per_class(tmp_path_factory):
+    """One bevelled 0.5 m box per class (and a plate on each, so seams and contacts exist), each class its own atlas,
+    at 2 mm per texel: the density the layout ships painted surfaces at (smart_source.DETAIL_PX_PER_M, 512 px/m)."""
+    mats = [MaterialIR(id=k, surface=v, base_color=(0.3, 0.3, 0.3), metallic=0.6, roughness=0.5) for k, v in CLASS_SURFACES.items()]
+    nodes = []
+    for i, k in enumerate(CLASS_SURFACES):
+        x = i * 0.8
+        nodes.append(NodeIR(id=f"box_{k}", kind="box", params={"size": [0.5, 0.5, 0.5], "bevel": 0.004},
+                            transform=Transform(translate=(x, 0, 0.25)), material_id=k))
+        nodes.append(NodeIR(id=f"plate_{k}", kind="box", params={"size": [0.2, 0.01, 0.12]},
+                            transform=Transform(translate=(x, -0.255, 0.3)), material_id=k))
+    scene = SceneIR(asset_name="Probe", nodes=nodes, materials=mats)
+    root = tmp_path_factory.mktemp("per_class")
+    stage = StageManager.create(root / "Probe_stage.usda", "Probe")
+    stage.apply_ir(scene)
+    meshes = stage.extract_meshes()
+    bundle = run_export_pipeline(meshes, EngineBudget("godot_4", shared_atlas=False), "Probe")
+    out = {}
+    for L in mm.layouts_from_uvs(bundle.uvs):
+        tex = mm.rasterize_atlas(L)
+        side = round(L.width * tex.texel_m / 0.002 / 64) * 64          # 2 mm texels
+        L2 = mm.AtlasLayout(L.material_id, side, side, L.parts)
+        out[L.material_id] = (sm.texture_scene(scene.materials, [L2], meshes, brief="")[L.material_id], mm.rasterize_atlas(L2))
+    return out
+
+
+def _slopes(maps, tex) -> np.ndarray:
+    n = np.asarray(maps.normal, np.float64) / 127.5 - 1.0
+    return np.hypot(n[..., 0], n[..., 1])[tex.covered]
+
+
+@pytest.mark.parametrize("cls", ["painted_metal", "painted_wood", "bare_metal", "brass", "polymer", "wood", "glass", "plain"])
+def test_smooth_materials_are_smooth_between_their_features(per_class, cls):
+    """Varnished wood, paint, sheet metal, brass and moulded plastic carry relief only where something happened to
+    them (chips, dings, seams, the roll of an edge, grain at a very low amplitude): an isotropic noise relief on them
+    read as "noisy surface artifacts" and "hammered leather" on a dark oak seat (blind judge, 6 of 6). On a 0.5 m box
+    those features cover the edges only: under a fifth of the texels tilt more than one degree."""
+    s = _slopes(*per_class[cls])
+    assert (s > 0.0175).mean() < 0.2, (cls, (s > 0.0175).mean())
+
+
+@pytest.mark.parametrize("cls", ["cast_metal", "fabric", "rubber"])
+def test_textured_materials_carry_their_texture(per_class, cls):
+    """Cast iron's pebbled skin, cloth's weave, a rubber grip's knurl: most of their surface tilts."""
+    s = _slopes(*per_class[cls])
+    assert (s > 0.0175).mean() > 0.5, (cls, (s > 0.0175).mean())
+
+
+@pytest.mark.parametrize("cls", list(CLASS_SURFACES))
+def test_metallic_is_metal_or_not(per_class, cls):
+    """In metallic-roughness PBR a texel is metal or not; in between is for the blend at a boundary. The author's 0.6 is
+    not carried through: paint, plastic, rubber, wood, felt and glass are 0, bare steel, cast iron and brass are 1."""
+    maps, tex = per_class[cls]
+    metal = np.asarray(maps.orm, np.float64)[..., 2][tex.covered] / 255.0
+    decided = (metal < 0.05) | (metal > 0.95)
+    assert decided.mean() >= 0.9, (cls, decided.mean())
+    base = sm.class_metal(cls, 0.6)
+    assert abs(np.median(metal) - base) < 0.05, (cls, np.median(metal))
+    assert maps.record["metallic"]["overridden"] == (abs(base - 0.6) > 0.05)
+
+
+def test_chips_on_painted_steel_show_metal():
+    assert sm.CLASS_METAL["painted_metal"] == 0.0 and sm.binary_metal(np.array([0.3, 0.7], np.float32)).tolist() == [0.0, 1.0]
