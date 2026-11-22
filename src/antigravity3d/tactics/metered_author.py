@@ -1090,6 +1090,19 @@ class MeteredAuthor:
             await asyncio.shield(asyncio.to_thread(record.put, key, answer, original))  # a stop never leaves it half written
         return answer
 
+    async def _record_rescued(self, asked: AuthorRequest, index: int | None, answer: Any, trace: dict[str, Any]) -> None:
+        """Record an answer a correction rescued under the request that was asked, too (it is already under the
+        correction's own key). Without this a rerun asks the same request, misses (only the correction was recorded), and
+        pays for a new answer that differs, and every later request that carries the design then misses too: live
+        2026-11-23, the comparison's repeat of the crate (r5/live_scorecard, r5_crate_C.repeat) reused nothing and paid
+        298,912 tokens again. The cost recorded is both calls'."""
+        record = self.record
+        if record is None:
+            return
+        original = {"unit": self.governor.unit, "booked": trace.get("booked"), "usage": trace.get("usage"), "model": asked.model,
+                    "role": asked.role, "operation": asked.operation, "rescued_by_correction": True}
+        await asyncio.shield(asyncio.to_thread(record.put, record.key(asked, index), answer, original))
+
     def _note_authored(self, req: AuthorRequest, index: int | None, trace: dict[str, Any]) -> None:
         """Who answered this request, for the package manifest's provenance (``kernel.provenance``): identities and the
         request's hash, no time and no cost, so a reused answer and a paid one leave the same entry."""
@@ -1160,6 +1173,8 @@ class MeteredAuthor:
                         correction = f"failed: {_one_line(first.cause, 200)}"
                         raise again from first
                     correction = f"rescued: {_one_line(first.cause, 200)}"
+                    if scene.asset_name == asset and scene.nodes:
+                        await self._record_rescued(req, i, scene, trace)
                 if scene.asset_name != asset or not scene.nodes:
                     raise AuthorInvalid(f"{role} propose: candidate must contain nodes for the requested asset {asset!r}",
                                         finish_reason="STOP", **_meta(req, trace.get("usage")))
@@ -1208,7 +1223,7 @@ class MeteredAuthor:
             return await self._answer(req, sub, index=index, keep=lambda s: s.asset_name == asset and bool(s.nodes))
         finally:
             trace["usage"] = _add_usage(trace.get("usage") or first.usage, sub.get("usage"))
-            for k in ("reserved_usd", "reserved_tokens"):
+            for k in ("reserved_usd", "reserved_tokens", "booked"):
                 if sub.get(k) is not None:
                     trace[k] = (trace.get(k) or 0.0) + sub[k]
 
@@ -1276,14 +1291,21 @@ class MeteredAuthor:
         req = replace(self.request(role, "look", task, images=images), parse=parse)
         trace: dict[str, Any] = {}
         try:
-            return await self._answer(req, trace, index=None, keep=lambda p: p is not None)
+            # "No change" (None) is recorded too: it was paid for, and a rerun asking the same request continues from it
+            return await self._answer(req, trace, index=None)
         except AuthorInvalid as first:
             if correct is None or _json_object(first.answer_text) is None or first.cause is None:
                 raise
             fix = replace(self.request(role, "look", correct(first.answer_text or "", first.cause), images=images),
                           parse=parse, operation="correct")
+            sub: dict[str, Any] = {}
             try:
-                return await self._answer(fix, {}, index=None, keep=lambda p: p is not None)
+                patch = await self._answer(fix, sub, index=None)
             except AuthorInvalid as again:
                 again.args = (f"{_one_line(first)}; correction: {_one_line(again)}",)
                 raise
+            # rescued ("no change" included): recorded under the look request too, at both calls' cost
+            trace["usage"] = _add_usage(trace.get("usage") or first.usage, sub.get("usage"))
+            trace["booked"] = (trace.get("booked") or 0.0) + (sub.get("booked") or 0.0)
+            await self._record_rescued(req, None, patch, trace)
+            return patch

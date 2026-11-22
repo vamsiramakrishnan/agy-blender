@@ -1019,6 +1019,40 @@ def test_arm_c_change_appends_the_request_to_its_command_and_starts_from_the_fir
     assert cmd[cmd.index("--token-ceiling") + 1] == str(250_000 - ca.C_TOKEN_MARGIN)
 
 
+def test_arm_c_repeat_runs_the_same_command_on_a_copy_of_the_first_runs_cache(ca, tmp_path, monkeypatch):
+    """The repeat (same request, same bytes?): the first run's command again, with only --out and --token-ceiling
+    different, on a new folder seeded with the first run's design record and image cache (OUT/.agy3d-cache), nothing
+    else of it. What the command then reuses is tests/test_rerun_record.py (the same seeding, the command run)."""
+    seen = {}
+
+    class FakeProc:
+        def __init__(self, cmd, **kw):
+            seen["cmd"] = cmd
+            self.pid = os.getpid()
+
+        def wait(self, timeout=None):
+            return 2
+
+    monkeypatch.setattr(ca.subprocess, "Popen", FakeProc)
+    monkeypatch.setattr(ca, "c_mode", lambda src, n: (False, [], []))
+    root = tmp_path / "pilot"
+    first_dir = root / "runs" / "r5_crate_C"
+    out = first_dir / "out"
+    glb = _boxes_glb(out / "runs" / "tmpx" / "Crate" / "Crate.glb", [((0, .3, 0), (.8, .6, .5))])
+    (out / ".agy3d-cache" / "de" / "si").mkdir(parents=True)
+    (out / ".agy3d-cache" / "de" / "si" / "design-x").write_text("recorded")
+    (out / "report.json").write_text("{}")
+    (first_dir / "record.json").write_text(json.dumps({"brief": "crate", "arm": "C", "status": "finished", "glb": str(glb)}))
+    relay = ca.Relay(ca.Ledger(root / "ledger.json"), "http://127.0.0.1:9", None, fake=True)
+    ca.run_repeat(relay, root, ca.BRIEF_BY_ID["crate"])
+    cmd = seen["cmd"]
+    new_out = Path(cmd[cmd.index("--out") + 1])
+    assert new_out == root / "runs" / "r5_crate_C.repeat" / "out"
+    assert cmd[cmd.index("prop") + 1] == ca.BRIEF_BY_ID["crate"].prompt  # the same request, unchanged
+    assert (new_out / ".agy3d-cache" / "de" / "si" / "design-x").read_text() == "recorded"
+    assert not (new_out / "report.json").exists() and not (new_out / "runs").exists()  # only the cache is carried over
+
+
 def test_arm_c_change_edits_a_copy_of_the_first_runs_output_folder(ca, tmp_path, monkeypatch):
     """The default path for C (C_CHANGE_MODE=edit): ``agy3d edit`` on a copy of the whole first output folder (its report
     names the package that shipped), without its asset ledger, with the change account's tokens and no image."""

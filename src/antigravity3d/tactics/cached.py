@@ -182,7 +182,7 @@ DESIGN_RECORD_VERSION = "design-record/1"
 
 @dataclass(frozen=True)
 class RecordedAnswer:
-    answer: SceneIR | IRPatch
+    answer: SceneIR | IRPatch | None  # None: the answer was "no change" (a look round's), paid for like any other
     key: str
     original: dict[str, Any]  # what the original call cost: unit, booked, usage, model, role, operation
 
@@ -248,16 +248,23 @@ class DesignRecord:
             return None
         try:
             data = json.loads(raw)
+            if data["type"] == "none":
+                return RecordedAnswer(None, key, dict(data["original"]))
             model = {"SceneIR": SceneIR, "IRPatch": IRPatch}[data["type"]]
             return RecordedAnswer(model.model_validate(data["answer"]), key, dict(data["original"]))
         except Exception:  # noqa: BLE001 - a record this version cannot read is a miss, never a failure
             return None
 
-    def put(self, key: str, answer: SceneIR | IRPatch, original: dict[str, Any]) -> None:
-        kind = "SceneIR" if isinstance(answer, SceneIR) else "IRPatch"  # IRPatch is ir.SceneIRDiff
-        data = {"v": DESIGN_RECORD_VERSION, "type": kind, "answer": answer.model_dump(mode="json"),
+    def put(self, key: str, answer: SceneIR | IRPatch | None, original: dict[str, Any]) -> None:
+        """``answer`` None: the model answered that nothing should change (a look round can); a rerun that asks the same
+        request gets that answer too instead of paying for it again."""
+        kind = "none" if answer is None else "SceneIR" if isinstance(answer, SceneIR) else "IRPatch"  # IRPatch is ir.SceneIRDiff
+        data = {"v": DESIGN_RECORD_VERSION, "type": kind, "answer": None if answer is None else answer.model_dump(mode="json"),
                 "original": original}
-        self.cache.store.put(key, json.dumps(data, sort_keys=True).encode())
+        # Not sorted: a node's params are a free-form dict whose order is part of the design as written (it is in the
+        # scene embedded in the shipped USD); sorted here, a design taken from the record wrote other USD bytes than the
+        # same design paid for (found 2026-11-23: same request, same answer, a different .usd and .usdz).
+        self.cache.store.put(key, json.dumps(data).encode())
         with self._lock:
             self.recorded += 1
 
