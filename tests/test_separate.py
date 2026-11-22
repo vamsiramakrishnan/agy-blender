@@ -249,3 +249,41 @@ def test_a_part_with_child_parts_is_not_moved(tmp_path: Path) -> None:
     for m in before:
         if m.node_id not in moved:
             assert np.allclose(_bounds(before, m.node_id), _bounds(meshes, m.node_id)), m.node_id
+
+
+def _barrel(nid, at, rot, radius=0.008, height=0.052, segments=10):
+    return NodeIR(id=nid, kind="cylinder", params={"radius": radius, "height": height, "segments": segments},
+                  transform=Transform(translate=at, rotate_euler_deg=rot), material_id="paint")
+
+
+def test_a_hinge_barrel_whose_side_facets_lie_by_the_clasp_faces_grows_its_radius(tmp_path: Path) -> None:
+    # a latch clasp (14 mm thick) with a 10-segment barrel along x through its top edge: the barrel's +y and -y facets
+    # lie 8 cos(18 deg) = 7.6 mm from its axis, 0.6 mm proud of the clasp's faces at 7 mm
+    scene = _scene(_box("clasp", (0.04, 0.014, 0.08), (0.0, 0.0, 0.04)), _barrel("hinge", (0.0, 0.0, 0.08), (0.0, 90.0, 0.0)))
+    before = _meshes(tmp_path, scene)
+    assert "z_fighting" in _codes(before)
+    r, after, meshes = _separated(tmp_path, scene)
+    assert [(m.node_id, m.param) for m in r.moves] == [("hinge", "radius")] and not r.unresolved, r.describe()
+    assert abs(r.moves[0].delta - (MARGIN - (0.008 * np.cos(np.pi / 10) - 0.007))) < 1e-6  # continues the offset
+    hinge = next(n for n in after.nodes if n.id == "hinge")
+    assert hinge.params["radius"] > 0.008 and hinge.transform == next(n for n in scene.nodes if n.id == "hinge").transform
+    assert np.allclose(_bounds(meshes, "clasp"), _bounds(before, "clasp"))  # nothing else moves
+    assert "z_fighting" not in _codes(meshes) and not {"floating_part", "floating_group"} & set(_codes(meshes))
+    again = separate_coplanar(after, meshes, hidden=shipped_masks(meshes, BUDGET))
+    assert not again.ops
+
+
+def test_a_barrel_resting_on_a_plate_by_a_facet_keeps_its_radius(tmp_path: Path) -> None:
+    # a barrel along y lying on a plate by its -z facet, passing through a block whose top is flush with the barrel's
+    # +z facet: a radius change would lift the resting facet off the plate too, so the barrel is not moved
+    h = 0.008 * np.cos(np.pi / 10)
+    scene = _scene(_box("plate", (0.4, 0.4, 0.02), (0.0, 0.0, 0.01)), _barrel("barrel", (0.0, 0.0, 0.02 + h), (90.0, 0.0, 0.0), height=0.2),
+                   _box("block", (0.04, 0.03, 2 * h), (0.0, 0.0, 0.02 + h)))
+    before = _meshes(tmp_path, scene)
+    assert "z_fighting" in _codes(before)
+    r, after, meshes = _separated(tmp_path, scene)
+    assert not [m for m in r.moves if m.node_id == "barrel"], r.describe()
+    assert next(n for n in after.nodes if n.id == "barrel").params["radius"] == 0.008
+    assert np.allclose(_bounds(meshes, "barrel"), _bounds(before, "barrel"))
+    assert r.moves or any("barrel" in (u.a, u.b) for u in r.unresolved), r.describe()
+    assert not {"floating_part", "floating_group"} & set(_codes(meshes))

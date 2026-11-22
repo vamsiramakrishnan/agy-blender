@@ -38,6 +38,7 @@ already ``margin`` apart is not touched again, so the step is idempotent.
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 
@@ -67,6 +68,7 @@ class FaceMove:
     delta: float     # metres along the outward normal (+: the part grows, the face stands proud; -: it sits back)
     partner: str
     kind: str        # "visible" | "enclosed" | "contact" | "ground"
+    param: str = ""  # "radius": a cylinder's side facets, all moved by delta about its axis
 
     def describe(self) -> str:
         face = ("+" if self.sign > 0 else "-") + "xyz"[self.axis]
@@ -76,6 +78,9 @@ class FaceMove:
             return (f"{self.node_id} {face} face sunk {self.delta * 1e3:.2f} mm into the part it rests on (a contact face "
                     f"that ships, coplanar with {self.partner})")
         how = ("proud" if self.delta > 0 else "back") + (", inside the part enclosing both" if self.kind == "enclosed" else "")
+        if self.param == "radius":
+            return (f"{self.node_id} radius: side facets {self.delta * 1e3:+.2f} mm ({how}; its {face} facet was coplanar "
+                    f"with {self.partner})")
         return f"{self.node_id} {face} face {self.delta * 1e3:+.2f} mm ({how}; was coplanar with {self.partner})"
 
 
@@ -157,6 +162,7 @@ class _Node:
     parent: np.ndarray      # 3x3 linear part of the parent chain
     # local axis -> (world axis, |world scale of that local axis|) when the local axis maps onto a world axis
     axes: dict[int, tuple[int, float]]
+    origin: np.ndarray = field(default_factory=lambda: np.zeros(3))  # world position of the node's origin
 
 
 def _nodes(scene: SceneIR) -> dict[str, _Node]:
@@ -168,8 +174,11 @@ def _nodes(scene: SceneIR) -> dict[str, _Node]:
             chain.append(by_id[p])
             p = by_id[p].parent
         a = np.eye(3)
+        origin = np.zeros(3)
         for anc in reversed(chain):
+            origin = origin + a @ np.asarray(anc.transform.translate, np.float64)
             a = a @ _linear(anc.transform)
+        origin = origin + a @ np.asarray(n.transform.translate, np.float64)
         w = a @ _linear(n.transform)
         axes = {}
         for k in range(3):
@@ -177,13 +186,18 @@ def _nodes(scene: SceneIR) -> dict[str, _Node]:
             m = int(np.argmax(np.abs(col)))
             if abs(col[m]) > 0 and all(abs(col[x]) <= _ALIGNED * abs(col[m]) for x in range(3) if x != m):
                 axes[k] = (m, float(abs(col[m])))
-        out[n.id] = _Node(n, w, a, axes)
+        out[n.id] = _Node(n, w, a, axes, origin)
     return out
 
 
 def _face_param(nd: _Node, axis: int) -> tuple[str, int, float] | None:
-    """(param name, local axis, world length of one unit of the param) of the face of ``nd`` normal to world
-    ``axis``, or None when that face is not a parameter (rotated part, round side, cone, sphere, mesh)."""
+    """(param name, local axis, world length one unit of the param moves the face) of the face of ``nd`` normal to
+    world ``axis``, or None when that face is not a parameter (rotated part, cone, sphere, capsule, mesh).
+
+    A cylinder whose axis is a world axis: its caps are ``height``; a side facet whose normal is a world axis is
+    ``radius``: the facets of an n-gon lie r cos(pi / n) from the axis, so one unit of radius moves the facet by the
+    world scale of that local axis times cos(pi / n). Changing it moves every side facet at once, symmetrically about
+    the axis (no translate)."""
     kind = nd.node.kind
     for k, (m, s) in nd.axes.items():
         if m != axis:
@@ -192,6 +206,9 @@ def _face_param(nd: _Node, axis: int) -> tuple[str, int, float] | None:
             return "size", k, s
         if kind == "cylinder" and k == 2:
             return "height", k, s
+        if kind == "cylinder" and k in (0, 1) and 2 in nd.axes:
+            n = int(nd.node.params.get("segments", 24))
+            return "radius", k, s * math.cos(math.pi / n)
     return None
 
 
@@ -321,6 +338,19 @@ class _State:
         p = self.points[k].copy()
         on = np.abs(p[:, axis] - self.extreme(k, axis, sign)) <= _ON_PLANE
         p[on, axis] += sign * delta
+        return p
+
+    def radial(self, k: int, axis: int, sign: int, delta: float) -> np.ndarray:
+        """Part k (a cylinder along a world axis) with its side facet normal to ``axis`` moved ``delta`` outward: every
+        point scaled about the cylinder's axis in the two radial directions (its caps grow or shrink in their planes)."""
+        nd = self.nodes[self.ids[k]]
+        along = nd.axes[2][0]
+        h = sign * (self.extreme(k, axis, sign) - nd.origin[axis])  # the facet's distance from the axis
+        f = (h + delta) / h
+        p = self.points[k].copy()
+        for x in range(3):
+            if x != along:
+                p[:, x] = nd.origin[x] + (p[:, x] - nd.origin[x]) * f
         return p
 
     def inside(self, pt: np.ndarray, skip: set[int]) -> list[int]:
@@ -493,8 +523,13 @@ def _resolve(st: _State, pr: _Pair, margin: float, window: float, mounts, done, 
     for k, other, area in order:
         x_k, x_o = (s * pr.plane_i, s * pr.plane_j) if k == i else (s * pr.plane_j, s * pr.plane_i)
         out_d, in_d = x_o + margin - x_k, x_o - margin - x_k
+        nd = st.nodes.get(st.ids[k])
+        param = None if nd is None else _face_param(nd, ax)
         if kind == "enclosed":
             dirs = [out_d, in_d]
+        elif param is not None and param[0] == "radius" and abs(x_k - x_o) > CONTACT_TOL:
+            # a facet already off the other face's plane: continue that offset first (the smaller change)
+            dirs = [out_d, in_d] if x_k > x_o else [in_d, out_d]
         else:
             # stand proud when this is one of the part's broad faces (the part is thinnest along the normal: a plate,
             # a rib, a latch) and more than half of it lies on the other face: sitting back would hide the plate
@@ -547,13 +582,19 @@ def _try(st: _State, k: int, other: int, ax: int, s: int, d: float, margin: floa
     """Validate moving part k's (ax, s) face by d (pushed further, up to twice the margin, past other same-facing
     faces it would land on); apply it when valid. None on success, else why not."""
     nd = st.nodes.get(st.ids[k])
-    if nd is None or _face_param(nd, ax) is None:
-        return "its face is not a size parameter (rotated, round side, or a kind without flat faces)"
+    param = None if nd is None else _face_param(nd, ax)
+    if param is None:
+        return "its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces)"
+    radius = param[0] == "radius"
+    if radius and kind in ("contact", "ground"):
+        return "a cylinder's side facets move together, so the facet it rests on is not moved"
+    # a radius change moves every side facet: none of them may be a mount face, and none may have moved already
+    faces = [(k, x, sg) for x in range(3) if x != nd.axes[2][0] for sg in (1, -1)] if radius else [(k, ax, s)]
     if st.ids[k] in st.parents:  # its translate changes: its children would move with it, unchecked
         return "it has child parts, which would move with it"
-    if (k, ax, s) in mounts and kind not in ("contact", "ground"):
-        return "it is mounted by that face"
-    if (k, ax, s) in done:
+    if any(f in mounts for f in faces) and kind not in ("contact", "ground"):
+        return "it is mounted by that face" if (k, ax, s) in mounts else "it is mounted by another of its side facets"
+    if any(f in done for f in faces):
         return "that face was moved already"
     ext = float(np.ptp(st.points[k][:, ax]))
     x_k = s * st.extreme(k, ax, s)
@@ -574,9 +615,9 @@ def _try(st: _State, k: int, other: int, ax: int, s: int, d: float, margin: floa
     for _ in range(6):
         if d > 2 * margin + CONTACT_TOL and kind == "visible":  # standing proud grows the outline: at most 2 margins
             return f"{why}; a clear position needs more than {2 * margin * 1e3:g} mm proud"
-        if d < 0 and ext + d < max(margin, 0.5 * ext):
+        if d < 0 and ext + (2 * d if radius else d) < max(margin, 0.5 * ext):
             return f"too thin to sit back ({ext * 1e3:.1f} mm)"
-        new = st.moved(k, ax, s, d)
+        new = st.radial(k, ax, s, d) if radius else st.moved(k, ax, s, d)
         if kind == "enclosed" and not _still_enclosed(st, k, ax, s, d, enclosers[0], centre):
             return f"its face would leave {st.ids[enclosers[0]]}"
         if kind == "contact" and not _sunk_inside(st, k, ax, s, d, enclosers):
@@ -595,8 +636,8 @@ def _try(st: _State, k: int, other: int, ax: int, s: int, d: float, margin: floa
                  if key not in was or key == target or p.area > was[key].area * (1 + 1e-6) + 1e-12}
         if not fresh:
             st.set_points(k, new)
-            done.add((k, ax, s))
-            res.moves.append(FaceMove(st.ids[k], ax, s, float(d), st.ids[other], kind))
+            done.update(faces)
+            res.moves.append(FaceMove(st.ids[k], ax, s, float(d), st.ids[other], kind, "radius" if radius else ""))
             return None
         names = ", ".join(sorted({a if b == st.ids[k] else b for a, b, *_ in fresh}))
         why = f"it would be coplanar with {names}"
@@ -643,21 +684,27 @@ def _ops(st: _State, moves: list[FaceMove]) -> list:
         nd = st.nodes[nid]
         node = nd.node
         shift = np.zeros(3)
-        if node.kind == "box":
-            size = [float(v) for v in node.params["size"]]
-        else:
-            height = float(node.params["height"])
+        size = [float(v) for v in node.params["size"]] if node.kind == "box" else None
+        height = float(node.params["height"]) if node.kind == "cylinder" else None
+        radius = float(node.params["radius"]) if node.kind == "cylinder" else None
         for m in per[nid]:
             name, k, unit = _face_param(nd, m.axis)
             if name == "size":
                 size[k] += m.delta / unit
-            else:
+            elif name == "height":
                 height += m.delta / unit
+            else:  # every side facet moves by delta, symmetrically: no translate
+                radius += m.delta / unit
+                continue
             shift[m.axis] += m.sign * m.delta / 2
-        if node.kind == "box":
+        if size is not None:
             ops.append(SetParam(node_id=nid, name="size", value=tuple(size)))
-        else:
+        if height is not None and height != float(node.params["height"]):
             ops.append(SetParam(node_id=nid, name="height", value=height))
+        if radius is not None and radius != float(node.params["radius"]):
+            ops.append(SetParam(node_id=nid, name="radius", value=radius))
+        if not shift.any():
+            continue
         local = np.linalg.solve(nd.parent, shift)
         t = node.transform
         ops.append(SetTransform(node_id=nid, transform=Transform(
