@@ -295,6 +295,8 @@ VISUAL_QA_QUESTIONS["score_brief_look"] = QSpec("score_brief_look", score(_SHEET
 COMPARE_ASPECTS = {
     "look": ("Ignore shape and judge colour and material only: the colours and finishes the quoted request names or implies, "
              "and whether parts made of different materials read as different materials."),
+    "shape": ("Ignore colour and material and judge shape only: the parts the quoted request names or implies, their "
+              "proportions, and how they are put together."),
 }
 COMPARE_CLOSER = "compare_closer"
 COMPARE_REASON = "compare_reason"

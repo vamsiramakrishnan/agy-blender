@@ -54,6 +54,16 @@ class SpendPlan:
     # look round, and the run is what it was. One in every built-in plan: a second can only help after a first was kept
     # (the author then sees renders of its own change) and is left for the live measurement to justify.
     look_rounds: int = 0
+    # Whether each improvement round gets its own blockout review (an absolute 0-4 judgement). With a pairwise judge the
+    # rounds are decided by the validation (current design against the best validated one, both orders) and by the
+    # kernel, so a round's own review only feeds the author's next request and finds judge-only defects early; False
+    # saves its 20-90 s (live 2026-11-22) per round. Always reviewed: the first design and the one that ships.
+    improve_review_rounds: bool = True
+    # Whether an uncalibrated judge that can compare two states (DecisionControlPlane.compare_states) decides improvement
+    # rounds and a repair the kernel shows no worse by that comparison (tactics.pyramid.compare_shape) instead of by
+    # differences of its absolute scores. False: the absolute rule a calibrated judge always uses (for a measurement
+    # against it on the same starts, and the tests of that rule).
+    improve_pairwise: bool = True
 
 
 # score_brief_depiction an improvement round aims for: midway between level 3 ("convincing: every named part present

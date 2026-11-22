@@ -88,15 +88,19 @@ async def _data_uri(data: bytes) -> str:
 
 
 def _run(tmp_path: Path, *, rounds: int = 3, patience: int = 1, target: float = 3.5, prompt: str = CRATE,
-         ceiling: int = 2_000_000, judgements: int = 1, every: int = 1, settle_first: bool = False) -> tuple[Any, StageManager, Governor]:
+         ceiling: int = 2_000_000, judgements: int = 1, every: int = 1, settle_first: bool = False, pairwise: bool = False,
+         review_rounds: bool = True) -> tuple[Any, StageManager, Governor]:
     """loop2: ``judgements`` / ``every`` are the plan's validation (k judgements every V provisional rounds). These tests
     were written for one judgement per round; k = 1 and V = 1 keep their verdict sequences: each round is the round's
-    own review plus one validation judgement, whose band is validation_band(1)."""
+    own review plus one validation judgement, whose band is validation_band(1). ``pairwise``: the fallback judge decides by
+    comparing two states (SpendPlan.improve_pairwise, the shipped default); off here unless asked, these tests pin the
+    absolute rule (a calibrated judge's)."""
     from google import genai
 
     client = genai.Client()
     plan = replace(plan_for(2), improve_rounds=rounds, improve_patience=patience, improve_target=target,
-                   improve_judgements=judgements, improve_validate_every=every)
+                   improve_judgements=judgements, improve_validate_every=every, improve_pairwise=pairwise,
+                   improve_review_rounds=review_rounds)
     gov = Governor(plan, token_ceiling=ceiling)
     plane = DecisionControlPlane(GenerativeDecisionsBackend(client), backend_kind="generative_fallback", preview=True)
     author = MeteredAuthor(client, gov, BUDGET, {"asset_name": "Prop"})
@@ -138,6 +142,35 @@ def test_a_round_that_raises_the_score_is_kept_and_rounds_stop_at_the_target(key
     assert "Use only the materials the design has (wood)" in call["text"]
     assert {r["category"] for r in gov.receipts()} >= {"author.improve", "visual_qa"}
     assert [r for r in res.to_dict()["rounds"] if "improve" in r] == [res.to_dict()["rounds"][1]]
+
+
+# --------------------------------------------------------------------------- the same loop decided by comparisons (loop2)
+
+
+@pytest.mark.parametrize("prefers, kept", [("later", True), ("earlier", False), ("A", False), ("neither", False)])
+def test_with_the_fallback_judge_rounds_stand_only_when_preferred_in_both_orders(key, tmp_path: Path, prefers: str,
+                                                                                kept: bool) -> None:
+    """The shipped fallback judge answers compare_states: the rounds' validation is the current design against the
+    best validated one, asked twice with the order swapped. "A" is a judge with an order bias: it chooses whichever
+    state it is shown first, a split, which keeps nothing. The absolute scores are flat (3, 3, ...): no round is kept
+    or undone on them."""
+    key(score_sequence={"score_brief_depiction": ["3"]}, patches={"author:improve": [HANDLE_L, HANDLE_R]}, pair_prefers=prefers)
+    res, sm, _ = _run(tmp_path, rounds=2, patience=2, target=4.0, pairwise=True)
+    assert ({"handle_l", "handle_r"} <= _ids(sm)) is kept and (_ids(sm) == {"body"}) is (not kept)
+    last = [x for x in res.steps if x.name.startswith("validate_A")][-1]
+    assert (last.status == "passed") is kept
+    if prefers == "A":
+        assert "not shown better at the end" in last.detail and "before-first: before" in last.detail and "after-first: after" in last.detail
+
+
+def test_without_their_own_review_rounds_cost_no_judge_call_until_the_validation(key, tmp_path: Path) -> None:
+    key(score_sequence={"score_brief_depiction": ["3", "4"]}, patches={"author:improve": [HANDLE_L, HANDLE_R]}, pair_prefers="later")
+    res, sm, gov = _run(tmp_path, rounds=2, patience=2, target=4.0, pairwise=True, review_rounds=False, every=2)
+    assert {"handle_l", "handle_r"} <= _ids(sm)
+    # the start's review, one validation (two comparisons) and the review of the design that ships
+    assert [s.status for s in res.steps if s.name.startswith("validate_A")] == ["passed"]
+    assert res.scores["score_brief_depiction"] == pytest.approx(3.75) and "as it ships" in res.rounds[-1].note
+    assert sum(r["category"] == "visual_qa" for r in gov.receipts()) == 4
 
 
 def test_a_round_that_lowers_the_score_is_rolled_back_and_the_design_that_passed_ships(key, tmp_path: Path) -> None:

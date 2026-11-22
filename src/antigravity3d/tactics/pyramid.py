@@ -13,7 +13,7 @@ import inspect
 import shutil
 import tempfile
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -48,7 +48,7 @@ from antigravity3d.kernel.lod_diff import PopThresholds, lod_pop_report
 from antigravity3d.kernel.raster import CLAY, render_buffers
 from antigravity3d.kernel.separate import separate_coplanar
 from antigravity3d.kernel.settle import beside_a_part, mesh_bounds, settle
-from antigravity3d.tactics.judging import JUDGE_VIEW_PX, JudgedDesign, judge_design
+from antigravity3d.tactics.judging import JUDGE_VIEW_PX, JudgedDesign, design_views, judge_design, render_design
 from antigravity3d.kernel.validator import check_engine_compliance, engine_texture_px, validate_usd
 from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, EngineBudget
 from antigravity3d.tactics.cached import cached_export_pipeline
@@ -100,6 +100,38 @@ CONFIRM_JUDGE_ONLY = True
 # The judge's spread on one unchanged design (pooled standard deviation of score_brief_depiction, see IMPROVE_NOISE_BAND):
 # the validation of improvement rounds compares means of k judgements, whose difference has sd JUDGE_SD * sqrt(2 / k).
 JUDGE_SD = 0.10
+
+
+# The pairwise question the improvement rounds' validation and a repair's second opinion ask an uncalibrated judge
+# (``DecisionControlPlane.compare_states`` with ``questions.COMPARE_ASPECTS["shape"]``): which of two states of one asset,
+# shown as the same five clay views without badges, is closer to the request. Measured live 2026-11-22: the crate's
+# start against the design after three provisional rounds, blind, both orders, twice: the rounds win 4 of 4 ("additional
+# top ribs, a front label plate, a padlock hasp ..." r5/live/judge_loop/crate_start_vs_r3.json), where the absolute
+# depiction score put them at 2.81 against 2.75 and the validation restored them away (r5/live/m2_loop2/crate).
+SHAPE_ASPECT = "shape"
+COMPARE_METHOD = "compare_states"
+
+
+async def compare_shape(plane: Any, before: Sequence[tuple[str, str]], after: Sequence[tuple[str, str]], *, brief: str,
+                        governor: Any) -> tuple[str, str]:
+    """("after" | "before" | "neither", both reasons) for two states of one design shown as their views: asked twice with
+    the order swapped, both in flight together (as tactics.look_round asks); a state is preferred only when it is chosen
+    in both orders, a split or "neither" is "neither". NotImplementedError: this backend has no pairwise question."""
+    fn = getattr(plane, COMPARE_METHOD)
+    p1, p2 = await asyncio.gather(fn(tuple(before), tuple(after), aspect=SHAPE_ASPECT, brief=brief, governor=governor),
+                                  fn(tuple(after), tuple(before), aspect=SHAPE_ASPECT, brief=brief, governor=governor))
+    if p1.closer == "B" and p2.closer == "A":
+        verdict = "after"
+    elif p1.closer == "A" and p2.closer == "B":
+        verdict = "before"
+    else:
+        verdict = "neither"
+
+    def said(p: Any, after_is: str) -> str:
+        who = "after" if p.closer == after_is else "neither" if p.closer == "neither" else "before"
+        return f"{who} ({(p.probabilities or {}).get(p.closer, 0.0):.2f}) \"{p.reason}\""
+
+    return verdict, f"before-first: {said(p1, 'B')}; after-first: {said(p2, 'A')}"[:600]
 
 
 def validation_band(k: int) -> float:
@@ -592,6 +624,10 @@ class _Run:
         self.export_bundle: ExportBundle | None = None
         self.bundle_cache_hit: bool | None = None
         self.crease = self.art.crease_deg() if self.art is not None else CREASE_DEG
+        # Defects only the judge can see that a pairwise comparison overruled in this run (a change it flagged them on was
+        # preferred to the design before it, in both orders): on a Windsor chair, legs socketed into the seat are the
+        # design, and the clipping question cannot know that. They no longer gate pass A or count as flagged.
+        self.overruled: set[str] = set()
 
     def texture_px(self) -> int | None:
         """The art direction's map size for this engine (None: the pipeline's default)."""
@@ -883,7 +919,7 @@ class _Run:
 
         out |= {f"defect:{d}" for d, p in q.result.defects.items()
                 if p >= th.defect_high and d in GEOMETRY_DEFECTS and d not in (BRIEF_DEFECT, "defect_floating")
-                and self.kernel_confirms(t1, d) is not False}
+                and self.kernel_confirms(t1, d) is not False and d not in self.overruled}
 
         if (p := q.result.defects.get(BRIEF_DEFECT)) is not None and p >= th.ambiguity_lo:
             out.add("brief_part_missing")
@@ -926,7 +962,8 @@ class _Run:
     def flagged(self, q: _QA, t1: Any = None) -> set[str]:
         """The defects the judge reports at or above the ambiguity floor, without those the kernel checks and does not
         find on this design (``t1``: its Tier-1 report; None: every one the judge reports)."""
-        return {d for d, p in q.result.defects.items() if p >= self.th.ambiguity_lo and self.kernel_confirms(t1, d) is not False}
+        return {d for d, p in q.result.defects.items() if p >= self.th.ambiguity_lo and self.kernel_confirms(t1, d) is not False
+                and d not in self.overruled}
 
     def score_only(self, t1: Any, q: _QA) -> bool:
         """The design fails only score gates (silhouette below its lock, depiction below the brief's bar, a named part
@@ -1082,11 +1119,18 @@ class _Run:
         every = max(1, int(getattr(plan, "improve_validate_every", 1)))
         band_k = validation_band(k_judge)
         dep = lambda x: x.result.scores.get(BRIEF_SCORE, 0.0)  # noqa: E731
+        # An uncalibrated judge decides the rounds by comparing two states (compare_shape), never by a difference of its
+        # absolute scores; a calibrated one by k absolute judgements (it has no pairwise question we could design).
+        pairwise = self.pairwise
+        review_rounds = bool(getattr(plan, "improve_review_rounds", True)) or not pairwise
         try:  # the design the rounds start from, judged as many times as every later validation
-            start_qs = [q, *await self.judge_k(sm.extract_meshes(), k_judge - 1)]
+            start_qs = [q, *(await self.judge_k(sm.extract_meshes(), k_judge - 1) if not pairwise else [])]
         except JudgeUnavailable as e:
             self.step("improve_A", "warned", f"not started: the start design could not be judged {k_judge} times ({e})"[:400])
             return
+        best_views = (q.judged.views if q.judged is not None else ()) if pairwise else ()
+        judged_ir = sm.base_ir()  # the design the latest absolute verdict (q) is a judgement of (None: q is stale)
+        best_judged = True  # best_q is a judgement of the best validated design itself
         best_q, best_t1 = self.averaged(start_qs), t1
         best_mean, start_mean = dep(best_q), dep(best_q)
         self.snapshot(best_t1.ok, best_q)
@@ -1096,8 +1140,46 @@ class _Run:
         brief = clean_brief(self.prompt, 2000)
 
         def done() -> str:
+            if pairwise:
+                return f"{kept} round(s) kept (pairwise validation), depiction {start_mean:.2f}->{dep(best_q):.2f}"
             return (f"{kept} round(s) kept, depiction (mean of {k_judge}) {start_mean:.2f}->{best_mean:.2f}, "
                     f"start judged {', '.join(f'{dep(x):.2f}' for x in start_qs)}")
+
+        async def validate_pairwise(k: int, final: bool) -> bool | None:
+            """The current design against the best validated one, in both orders (compare_shape): preferred in both, the
+            rounds stand; the validated one preferred in both, it is restored; split or neither, not decided (and at the
+            end, restored: rounds are kept only when shown better)."""
+            nonlocal pending, best_q, best_t1, best_views, best_mean, best_judged, q, t1, kept, judged_ir
+            t0 = time.perf_counter()
+            meshes = sm.extract_meshes()
+            try:
+                current = await design_views(meshes, self.upload, crease_deg=self.crease)
+                verdict, reasons = await compare_shape(self.plane, best_views, current, brief=self.prompt, governor=self.governor)
+            except Exception as e:  # noqa: BLE001 - a judge failure only; anything else is a bug
+                if not (_judge_failure(e) or isinstance(e, NotImplementedError)):
+                    raise
+                verdict, reasons = "unavailable", f"not asked: {e}"[:300]
+            said = f"{len(pending)} round(s); judge: {verdict}" + (f" ({reasons})" if reasons else "")
+            if verdict == "after":
+                kept += len(pending)
+                t1v = tier1_qa(meshes, self.budget)
+                best_judged = judged_ir is not None and judged_ir == sm.base_ir()
+                best_q, best_t1, best_views, pending = q, t1v, current, []
+                best_mean = dep(best_q)
+                self.step(f"validate_A{k}", "passed", f"kept, preferred to the last validated design in both orders: {said}"[:400], t0)
+                return True
+            if verdict in ("neither", "unavailable") and not final:
+                self.step(f"validate_A{k}", "skipped", f"not decided yet, the rounds stay provisional: {said}"[:400], t0)
+                return None
+            sm.rollback(pending[0])
+            pending = []
+            q, t1 = best_q, best_t1
+            judged_ir = sm.base_ir() if best_judged else None
+            self.snapshot(t1.ok, q)
+            why = ("the last validated design was preferred in both orders" if verdict == "before"
+                   else "the judge could not be asked" if verdict == "unavailable" else "not shown better at the end")
+            self.step(f"validate_A{k}", "warned", f"restored the last validated design ({why}): {said}"[:400], t0)
+            return False
 
         async def validate(k: int, final: bool = False) -> bool | None:
             """Judge the design ``k_judge`` times and decide the rounds since the best validated state: they stand (True)
@@ -1109,6 +1191,8 @@ class _Run:
             nonlocal pending, best_q, best_t1, best_mean, q, t1, kept
             if not pending:
                 return True
+            if pairwise:
+                return await validate_pairwise(k, final)
             t0 = time.perf_counter()
             meshes = sm.extract_meshes()
             try:
@@ -1153,11 +1237,26 @@ class _Run:
             return False
 
         async def stop(why: str, k: int) -> None:
+            nonlocal best_q, best_t1
             await validate(k, final=True)
+            if pairwise and (judged_ir is None or judged_ir != sm.base_ir()):
+                # the design that ships gets its own absolute review (the rounds kept were not each reviewed): what the
+                # report, the gates and the findings print
+                try:
+                    meshes = sm.extract_meshes()
+                    fq = await self.qa_design(meshes)
+                    t1f = tier1_qa(meshes, self.budget)
+                    tr = self.trace("A", rnd + k + 1, t1f, fq, "preview")
+                    tr.note = "the improved design as it ships"
+                    best_q, best_t1 = fq, t1f
+                    self.snapshot(t1f.ok, fq)
+                except JudgeUnavailable as e:
+                    self.step("visual_qa_A_final", "warned", f"the shipped design's own review could not be had: {e}"[:400])
             res.converged["A"] = self.passes(best_t1, best_q)
             res.stopped["A"] = f"{base}; {why}; {done()}"
 
         for k in range(1, plan.improve_rounds + 1):
+            # (pairwise: the target is read off the last absolute verdict of the validated design, never a comparison)
             if not pending and self.passes(best_t1, best_q) and best_mean >= plan.improve_target - EPS:
                 await stop(f"improvement: target met (mean depiction {best_mean:.2f} >= {plan.improve_target})", k)
                 return
@@ -1229,6 +1328,32 @@ class _Run:
                 return
             new_meshes = sm.extract_meshes()
             t1n = tier1_qa(new_meshes, self.budget)
+            if not review_rounds:
+                # No review of this round: it stands or falls by the kernel now and by the pairwise validation later; the
+                # author's next request shows the new design (fresh badged views) with the last verdict.
+                why = self.kernel_worse(t1, t1n)
+                tnote = f"{len(patch.ops)} op(s)" + (f"; clean-up: {'; '.join(notes)}" if notes else "")
+                if why:
+                    sm.rollback(tx)
+                    self.step(name, "warned", f"rolled back ({why}): {tnote}"[:400], t0)
+                    previous = f"{_patch_summary(patch)}; it was undone because {why}"[:600]
+                    misses += 1
+                    if misses >= plan.improve_patience:
+                        await stop(f"improvement: round {k} made the design worse ({why})", k)
+                        return
+                    continue
+                q = await self.refreshed(q, new_meshes)
+                judged_ir = None
+                pending.append(tx)
+                t1, misses, previous = t1n, 0, ""
+                self.step(name, "passed", f"kept provisionally (not reviewed; decided by the validation): {tnote}"[:400], t0)
+                if len(pending) % every == 0 and await validate(k) is False:
+                    misses += 1
+                    previous = "the last rounds were undone: compared with the design before them, they did not read better"
+                    if misses >= plan.improve_patience:
+                        await stop(f"improvement: the rounds up to {k} did not validate", k)
+                        return
+                continue
             try:
                 qn = await self.qa_design(new_meshes)
                 qn, again = await self.confirmed(q, t1, qn, t1n, new_meshes)
@@ -1246,7 +1371,10 @@ class _Run:
                      f"tier1 critical {_crit(t1)}->{_crit(t1n)}, {len(patch.ops)} op(s)"
                      + (f"; clean-up: {'; '.join(notes)}" if notes else "") + (f"; {again}" if again else ""))
             _, evidence = self.judge_change(t1, q, t1n, qn)
-            worse = self.worse(t1, q, t1n, qn)
+            # With a pairwise judge a round is undone at once only on what the kernel shows or on a judge-only defect
+            # reported twice (``confirmed``); a single absolute score is not evidence (live: rounds undone for 2.90 ->
+            # 2.69 against one lucky judgement). Everything else waits for the validation.
+            worse = self.kernel_worse(t1, t1n, q, qn) if pairwise else self.worse(t1, q, t1n, qn)
             if worse or depn is None:
                 why = worse or "the score of the brief was not answered"
                 sm.rollback(tx)
@@ -1261,6 +1389,7 @@ class _Run:
                 continue
             pending.append(tx)
             q, t1, misses, previous = qn, t1n, 0, ""
+            judged_ir = sm.base_ir()
             self.snapshot(t1.ok, q)
             tr.note = f"improve {k}: {moved}; kept provisionally" + (f" ({evidence})" if evidence else "")
             self.step(name, "passed", (f"kept provisionally ({evidence}): {moved}" if evidence else f"kept provisionally: {moved}")[:400], t0)
@@ -1271,6 +1400,71 @@ class _Run:
                     await stop(f"improvement: the rounds up to {k} did not validate", k)
                     return
         await stop(f"improvement: {plan.improve_rounds} round(s) used", plan.improve_rounds)
+
+    @property
+    def pairwise(self) -> bool:
+        """Changes are decided by comparing two states (compare_shape) rather than by differences of absolute scores:
+        the judge is uncalibrated and its plane can compare."""
+        return (bool(getattr(self.governor.plan, "improve_pairwise", True)) and not getattr(self.plane, "calibrated", True)
+                and hasattr(self.plane, COMPARE_METHOD))
+
+    @staticmethod
+    def kernel_gain(t1: Any, t1n: Any) -> str:
+        """What the kernel shows a change improved: fewer Tier-1 critical issues, fewer parts floating, fewer issues of a
+        kernel-checked defect. '' when none."""
+        out = []
+        if _crit(t1n) < _crit(t1):
+            out.append(f"Tier-1 critical issues {_crit(t1)}->{_crit(t1n)}")
+        if len(floating_ids(t1n)) < len(floating_ids(t1)):
+            out.append(f"floating parts {len(floating_ids(t1))}->{len(floating_ids(t1n))}")
+        codes = frozenset().union(*KERNEL_CHECKED.values()) - {"floating_part", "floating_group"}
+        n = lambda t: sum(1 for i in t.issues if i.code in codes)  # noqa: E731
+        if n(t1n) < n(t1):
+            out.append(f"kernel-checked issues {n(t1)}->{n(t1n)}")
+        return "; ".join(out)
+
+    async def compare_change(self, before: _QA, after: _QA) -> tuple[str, str]:
+        """compare_shape on two judged designs' own plain views (no render, no upload); ("unavailable", why) when the
+        judge cannot be asked."""
+        bv = before.judged.views if before.judged is not None else ()
+        av = after.judged.views if after.judged is not None else ()
+        if not bv or not av:
+            return "unavailable", "no views of both designs"
+        try:
+            return await compare_shape(self.plane, bv, av, brief=self.prompt or self.res.asset, governor=self.governor)
+        except Exception as e:  # noqa: BLE001 - a judge failure only; anything else is a bug
+            if not (_judge_failure(e) or isinstance(e, NotImplementedError)):
+                raise
+            return "unavailable", f"not asked: {e}"[:300]
+
+    def kernel_worse(self, t1: Any, t1n: Any, q: _QA | None = None, qn: _QA | None = None) -> str:
+        """What undoes a round at once with a pairwise judge: more Tier-1 critical issues, a part Tier-1 now finds
+        floating, or (with the round's verdicts) a defect only the judge sees, newly reported by both of its judgements
+        (``confirmed`` made its probability the lower of the two). '' when nothing does."""
+        floats = lambda t: {(i.code, i.node_id) for i in t.issues if i.code in ("floating_part", "floating_group")}  # noqa: E731
+        out = []
+        if _crit(t1n) > _crit(t1):
+            out.append(f"Tier-1 critical issues {_crit(t1)}->{_crit(t1n)}")
+        if new := sorted(n or "?" for _, n in floats(t1n) - floats(t1)):
+            out.append("Tier-1 finds a new floating part: " + ", ".join(new))
+        if q is not None and qn is not None:
+            raised = sorted(d for d in self.flagged(qn, t1n) - self.flagged(q, t1) if self.kernel_confirms(t1n, d) is None)
+            if raised:
+                out.append("newly flagged twice: " + ", ".join(f"{d}={qn.result.defects[d]:.2f}" for d in raised))
+        return "; ".join(out)
+
+    async def refreshed(self, q: _QA, meshes: list[Any]) -> _QA:
+        """``q``'s verdict with the badged views of the design as it is now: what the author's next request shows when a
+        round was not reviewed (no judge call)."""
+        from antigravity3d.tactics.judging import render_design
+
+        renders = await asyncio.to_thread(lambda: render_design(meshes, crease_deg=self.crease))
+        uris = await asyncio.gather(*(self.upload(b) for _, b in renders.marked))
+        author = tuple((f"{v} view of the current design (Image {i})", u) for i, ((v, _), u) in enumerate(zip(renders.marked, uris), 1))
+        if q.judged is None:
+            return q
+        judged = replace(q.judged, author_views=author, legend=dict(renders.legend or {}), legend_text=renders.legend_text)
+        return replace(q, judged=judged)
 
     def worse(self, t1: Any, q: _QA, t1n: Any, qn: _QA) -> str:
         """The evidence that a change made the design worse ('' when there is none): ``judge_change``'s "worse" list."""
@@ -1301,7 +1495,23 @@ class _Run:
                 self.step("settle_pre", "skipped", why)
             else:
                 tx = sm.apply_patch(patch)
-                if _crit(tier1_qa(sm.extract_meshes(), self.budget)) > _crit(t1):
+                t2 = tier1_qa(sm.extract_meshes(), self.budget)
+                # A part settled onto a part that itself floats still floats, now lower and in a group: live 2026-11-22
+                # (r5/live/m2_loop2/chair) the crest rail dropped 216 mm down the spindles onto one that floats, and the
+                # chair shipped with its back rail at seat height and a new floating group. Those moves are undone and the
+                # rest applied again; the author's repair is told the part floats.
+                moved = {o.node_id for o in patch.ops if getattr(o, "node_id", None)}
+                stuck = moved & floating_ids(t2)
+                if stuck and _crit(t2) <= _crit(t1):
+                    sm.rollback(tx)
+                    rest = [o for o in patch.ops if getattr(o, "node_id", None) not in stuck]
+                    tx = sm.apply_patch(IRPatch(ops=rest)) if rest else None
+                    t2 = tier1_qa(sm.extract_meshes(), self.budget) if rest else t1
+                    why = (f"settled {len(rest)} node(s); not moved (they would land on a part that floats): "
+                           f"{', '.join(sorted(stuck))}")
+                if tx is None:
+                    self.step("settle_pre", "skipped", why, t0)
+                elif _crit(t2) > _crit(t1):
                     sm.rollback(tx)
                     self.step("settle_pre", "failed", "settle raised Tier-1 critical count; rolled back", t0)
                 else:
@@ -1336,6 +1546,26 @@ class _Run:
                     # flagged defect, a gate that now fails or a score down by more than the judge's noise band undo it;
                     # a cleared defect or a score up by the band keeps it; a change shown to do neither is undone too.
                     keep, evidence = self.judge_change(pending.t1, pending.q, t1, q)
+                    if not keep and self.pairwise and not self.kernel_worse(pending.t1, t1):
+                        # Nothing the kernel can show got worse: the judge's absolute answers alone (a newly flagged
+                        # defect only it sees, a gate on one, a score) do not undo the repair. The same question as the
+                        # improvement rounds' validation decides it: before against after, both orders. Live 2026-11-22
+                        # (r5/live/m2_loop2/chair): two repairs that took floating parts 6 -> fewer were undone on a
+                        # judge-only "clipping" of spindles socketed into the seat, and no improvement round ever ran.
+                        gain = self.kernel_gain(pending.t1, t1)
+                        verdict, reasons = await self.compare_change(pending.q, q)
+                        raised = sorted(d for d in self.flagged(q, t1) - self.flagged(pending.q, pending.t1)
+                                        if self.kernel_confirms(t1, d) is None)
+                        said = f"judge: {verdict}" + (f" ({reasons[:200]})" if reasons else "")
+                        if verdict == "after" or (verdict in ("neither", "unavailable") and gain):
+                            keep = True
+                            self.overruled |= set(raised)
+                            evidence = (f"kept on the comparison ({said}) over: {evidence}"
+                                        + (f"; the kernel shows {gain}" if gain else "")
+                                        + (f"; {', '.join(raised)} no longer counted (overruled)" if raised else ""))
+                        else:
+                            evidence = f"{evidence}; compared: {said}"
+                        self.step(f"compare_A{rnd}", "passed" if keep else "warned", evidence[:400])
                     if not keep:
                         sm.rollback(pending.tx)
                         moved = (f"tier15 {pending.t15:.2f}->{q.t15:.2f}" if tr.progress is None else
