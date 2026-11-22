@@ -55,16 +55,37 @@ def test_no_two_parts_miss_each_other_by_a_hair_and_parts_stand_on_the_ground(ke
         assert not [i for i in rep.issues if i.code in ("floating_part", "floating_group", "enclosed_part", "ungrounded")], (key, seed)
 
 
-@pytest.mark.parametrize("key,expected", [("table", lambda scene: 8),
-                                          ("lamp_post", lambda scene: next(n.params["segments"] for n in scene.nodes if n.id == "pole"))])
-def test_the_exact_hidden_face_test_finds_the_contacts_of_the_table_and_the_lamp(key, expected, tmp_path):
-    """Before the fix: the table's legs stopped 50 um short of its top (0 triangles removed on most seeds) and the lamp's
-    pole sank into its base and head (0 on most). Now every leg top (2 triangles x 4) and the pole's bottom face go."""
+def test_the_exact_hidden_face_test_finds_the_contacts_of_the_table(tmp_path):
+    """Before the fix the table's legs stopped 50 um short of its top (0 triangles removed on most seeds). Now every leg
+    top (2 triangles x 4) goes."""
     for seed in SEEDS:
-        scene, meshes = build(key, seed, tmp_path)
+        scene, meshes = build("table", seed, tmp_path)
         masks = hidden_contact_faces([(m.node_id, m.points, m.triangles, m.material_id) for m in meshes],
                                      coplanar.opaque_materials(scene))
-        assert sum(int(m.sum()) for m in masks) == expected(scene), (key, seed)
+        assert sum(int(m.sum()) for m in masks) == 8, seed
+
+
+def test_the_lamps_pole_stands_a_millimetre_into_its_base_on_every_seed(tmp_path):
+    """The pole stood flush on the base. Its bottom face is then a hidden contact face and is left out of the file, and
+    no vertex of the base is within 40 mm of what is left of the pole: whether the base touches anything was decided by
+    which way two float32 heights rounded (4 nm apart or 36 nm across, by seed). Tier-1 reported the base as floating on
+    15 seeds of 24; Blender's qa_check said "not touching" on those and passed the file only because a ray from the
+    base's centre happens to leave through the pole (measured 2026-11-22, Blender 5.3). Set a millimetre in
+    (kernel/attach.py INTO), the base's top face crosses the pole's wall and both read it as a contact on every seed.
+    The cost is the pole's bottom face (one triangle per segment), which now ships inside the base."""
+    from antigravity3d.kernel.attach import INTO
+
+    for seed in SEEDS:
+        scene, meshes = build("lamp_post", seed, tmp_path)
+        by = {m.node_id: m for m in meshes}
+        gap = float(by["base"].points[:, 2].max()) - float(by["pole"].points[:, 2].min())
+        assert gap == pytest.approx(INTO, abs=1e-6), (seed, gap)
+        assert float(by["head"].points[:, 2].min()) == pytest.approx(float(by["pole"].points[:, 2].max()), abs=1e-6)  # the head still rests on the pole's top
+        rep = tier1_qa(meshes, EngineBudget("unreal_5"))
+        assert not [i for i in rep.issues if i.code != "interpenetration"], (seed, rep.one_line())
+        masks = hidden_contact_faces([(m.node_id, m.points, m.triangles, m.material_id) for m in meshes],
+                                     coplanar.opaque_materials(scene))
+        assert sum(int(m.sum()) for m in masks) == 0, seed
 
 
 @pytest.mark.parametrize("key,least", [("crate", 18), ("shelf", 12), ("barrel", 16)])

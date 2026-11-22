@@ -145,8 +145,12 @@ def test_new_design_asks_again_and_still_reuses_the_images(key, tmp_path, capsys
     assert count(again, "image:sent") == 0
     d = report(out)["cost"]["design_record"]
     # recorded: the new design and its look round's answer ("no change" from the stand-in, recorded too since a rerun
-    # should not pay for it again: tests/test_rerun_record.py)
-    assert d["reused"] == 0 and d["recorded"] == 2 and d["new_design"] is True
+    # should not pay for it again: tests/test_rerun_record.py). The look round needs the three.js renderer: without
+    # one (CI's unit job has no browser) it is skipped with that reason and only the design is recorded.
+    from antigravity3d.tactics import look_round
+
+    looked = look_round.renderer_unavailable() is None
+    assert d["reused"] == 0 and d["recorded"] == 1 + looked and d["new_design"] is True
     third = key()  # and the next rerun continues from the new design
     assert prop(out, *roomy) == 0
     capsys.readouterr()

@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from antigravity3d import cli
+from antigravity3d.tactics import look_round
 
 sys.path.insert(0, str(Path(__file__).parent))
 from no_decisions_key import NoDecisionsKey  # noqa: E402
@@ -127,7 +128,9 @@ def test_improvement_rounds_and_the_look_round_are_reused_too_when_the_judge_ans
     assert run(first, "1185000") in (0, 3)
     capsys.readouterr()
     paid = [k for k in api.kinds() if k in AUTHOR]
-    assert "author:improve" in paid and "author:look" in paid, paid
+    # the look round renders the asset as it ships with the three.js renderer; without one (CI's unit job has no browser)
+    # the step is skipped with that reason and its author call is never made
+    assert "author:improve" in paid and ("author:look" in paid) == (look_round.renderer_unavailable() is None), paid
     (again / "out").mkdir(parents=True)
     shutil.copytree(first / "out" / ".agy3d-cache", again / "out" / ".agy3d-cache")
     api2 = standin(**script)

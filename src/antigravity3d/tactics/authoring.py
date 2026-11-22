@@ -25,6 +25,7 @@ from antigravity3d.ir import (
 from antigravity3d import service_answer
 from antigravity3d.authoring_contract import AuthoringIntent, repair_scope
 from antigravity3d.ir_shortcuts import local_bounds
+from antigravity3d.kernel.attach import INTO
 from antigravity3d.kernel.compile_ir import triangle_count
 from antigravity3d.kernel.settle import beside_a_part
 from antigravity3d.state import EngineBudget
@@ -307,7 +308,14 @@ def _lamp(rng: random.Random, name: str, prompt: str) -> SceneIR:
     lamp = MaterialIR(id="glass", base_color=(1.0, 0.92, 0.7), roughness=0.2, surface="warm frosted glass, smooth")
     top = round(0.12 + h, GRID)  # the pole's top end, which the head's lowest point rests on
     radius = round(br, GRID)
-    nodes = [_cyl("base", 0.16, 0.12, (0, 0, 0.06), "iron", seg), _cyl("pole", 0.04, h, (0, 0, 0.12 + h / 2), "iron", seg),
+    # The pole stands a millimetre into the base (kernel/attach.py INTO: what a contact is). Standing flush on it, the
+    # pole's bottom face is left out of the shipped file as a hidden contact face and no vertex of the base is within
+    # 40 mm of what is left of the pole, so whether the base touches anything is decided by float rounding: Tier-1
+    # reported the base as floating on 15 seeds of 24, and Blender's qa_check called it "not touching" on those
+    # (measured 2026-11-22 with Blender 5.3; it passed only because a ray from the base's centre leaves through the pole).
+    foot = 0.12 - INTO
+    nodes = [_cyl("base", 0.16, 0.12, (0, 0, 0.06), "iron", seg),
+             _cyl("pole", 0.04, 0.12 + h - foot, (0, 0, (foot + 0.12 + h) / 2), "iron", seg),
              NodeIR(id="head", kind="sphere", params={"radius": radius, "segments": seg, "rings": 8},
                     transform=Transform(translate=(0, 0, round(top + radius, GRID))), material_id="glass")]
     return SceneIR(asset_name=name, nodes=nodes, materials=[_IRON, lamp])
