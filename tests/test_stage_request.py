@@ -28,17 +28,15 @@ from google.antigravity import Agent
 from test_harness_tools import CRATE, make_session
 
 from antigravity3d import ir_schema
+from antigravity3d.authoring_contract import AuthoringIntent, PROP_CRAFT_GUIDANCE
 from antigravity3d.harness import agents as A
 from antigravity3d.harness import tools as T
 
-# What the budget protects: prompt waste, i.e. text the stage does not need on every model call (repeated rules, unused
-# tools, JSON-in-a-string parameters). BLOCKOUT moved from 7,000 (measured 6,914) to 8,200 (measured 8,095) deliberately:
-# the added 1,181 characters are the craft rules (harness.agents.CRAFT_RULES), which are what the model needs to model a
-# production prop instead of a blockout (measured with the one-shot request: 15-21 parts and 272-356 triangles without
-# them, 63-64 parts and 936-976 triangles with them). That is guidance, not waste, so it is inside the limit; the limit
-# still stops anything else from growing (margin ~100 characters, as before).
+# What the budget protects: repeated rules, unused tools and other static prompt waste. BLOCKOUT's default is an
+# intermediate stage. Production props carry the shared craft text explicitly; their separate budget is checked on
+# the actual posted request below. Kit pieces and localized repairs do not pay for the prop detail instructions.
 #            stage: (before, budget) static chars per call
-STATIC_BUDGET = {"BLOCKOUT": (26_224, 8_200), "TWEAK": (25_351, 6_600), "VARIANTS": (25_946, 15_500),
+STATIC_BUDGET = {"BLOCKOUT": (26_224, 7_200), "TWEAK": (25_351, 6_600), "VARIANTS": (25_946, 15_500),
                  "LOOKDEV": (26_256, 12_500), "EXPORT": (25_914, 2_000)}
 SUBAGENT_TOOLS = {"invoke_subagent", "define_subagent", "manage_subagents", "send_message"}
 DEFAULT_SECTIONS = {"identity", "communication_style", "conversation_transcript", "subagents", "messaging",
@@ -152,11 +150,66 @@ async def test_declared_subagent_runs_with_its_own_short_prompt(tmp_path):
     assert prompt_breakdown(sub[0])["static_chars"] < 8_000
 
 
-def test_blockout_stage_text_carries_the_craft_rules_and_the_other_geometry_stages_do_not():
-    assert A.CRAFT_RULES in A._system("BLOCKOUT") and "50 to 90 parts" in A._STAGE_TEXT["BLOCKOUT"]
-    assert "exactly on the surface" in A.CRAFT_RULES and "no overlap" in A.CRAFT_RULES  # contact, not the 1-2 mm overlap
-    assert "overlap them" not in A.CRAFT_RULES and "sink" not in A.CRAFT_RULES
-    # TWEAK edits parameters and VARIANTS adds patch alternatives on an already built base: neither is asked for more parts
+def test_stage_toolset_does_not_imply_a_finished_prop_and_other_stages_are_unchanged():
+    blockout = A._system("BLOCKOUT")
+    assert "intermediate blockout" in blockout and "Defer secondary construction detail" in blockout
+    assert PROP_CRAFT_GUIDANCE not in blockout and "50 to 90" not in blockout
+    assert "report secondary-detail deficiencies as deferred" in blockout
+    assert "QA shows no geometry repair" not in blockout
+    # Selecting an authoring intent cannot inject detail requirements into edit/lookdev/export stages.
     for stage in ("TWEAK", "VARIANTS", "LOOKDEV", "EXPORT"):
-        assert "Craft rules" not in A._system(stage), stage
-    assert len(A._system("BLOCKOUT")) < 8_200 - 4_000  # the rules are text, the rest of the static size is the tool declarations
+        assert A._system(stage, authoring_intent=AuthoringIntent.PRODUCTION_PROP) == A._system(stage)
+        assert PROP_CRAFT_GUIDANCE not in A._system(stage)
+
+
+@pytest.mark.parametrize("intent,repair", [(i, False) for i in AuthoringIntent] +
+                         [(AuthoringIntent.PRODUCTION_PROP, True), (AuthoringIntent.KIT_PIECE, True)])
+async def test_geometry_intent_reaches_the_posted_request_without_changing_tools(tmp_path, intent, repair):
+    _, stub = await run(tmp_path, "BLOCKOUT", [call("apply_scene_ir", ops=CRATE["ops"]), text("done")],
+                        authoring_intent=intent, repair=repair)
+    body = stub.requests[0]
+    instructions = system_text(body)
+    assert set(declarations(body)) == {f.__name__ for f in T.STAGE_TOOLS["BLOCKOUT"]}
+    production = intent is AuthoringIntent.PRODUCTION_PROP and not repair
+    assert (PROP_CRAFT_GUIDANCE in instructions) == production
+    assert ("50 to 90 parts" in instructions) == production
+    if repair:
+        assert "Preserve correct geometry and its level of detail" in instructions
+    elif intent is AuthoringIntent.KIT_PIECE:
+        assert "mating surfaces, openings and pivots" in instructions
+    elif intent is AuthoringIntent.BLOCKOUT:
+        assert "intermediate blockout" in instructions
+    assert prompt_breakdown(body)["static_chars"] <= (8_500 if production else 7_400)
+
+
+def test_unknown_authoring_intent_is_rejected_before_session_state_changes(tmp_path):
+    env = make_session(tmp_path, stage="LOOKDEV")
+    before = env.state.active_stage
+    with pytest.raises(ValueError, match="AuthoringIntent"):
+        A.build_stage_agent("BLOCKOUT", env.sid, registry=env.reg, authoring_intent="anything")
+    assert env.state.active_stage == before
+
+
+async def test_intermediate_can_stop_with_deferred_prop_detail_without_export_approval(tmp_path):
+    from antigravity3d.decisions.fakes import FakeDecisionsClient
+    from antigravity3d.harness import session as S
+    from antigravity3d.harness.hooks import unmet_gate
+
+    client = FakeDecisionsClient(answers={"score_brief_depiction": 2.0, "defect_brief_part_missing": 0.0})
+    env = make_session(tmp_path, client=client)
+    env.state.brief = "a crate with a lid"
+    cfg = A.build_stage_agent("BLOCKOUT", env.sid, registry=env.reg)
+    try:
+        assert "report secondary-detail deficiencies as deferred" in cfg.system_instructions.text
+        await T.apply_scene_ir(CRATE["ops"], env.ctx)
+        delta = await T.run_visual_qa(env.ctx)
+        assert "brief depiction 2.00 < 2.5" in delta
+        assert env.state.verdict is not None and env.state.verdict.action == "agent_repair"
+        assert unmet_gate(env.sess()) is None  # intermediate Tier-1 gate passes; the failed visual verdict is retained
+        assert not env.state.export_allowed
+        S.set_toolset(env.reg, env.sid, "EXPORT")
+        env.state.active_stage = "EXPORT"
+        assert (await T.export_engine_package(env.ctx, "intermediate")).startswith("REFUSED export blocked")
+        assert env.state.verdict.action == "agent_repair" and not env.state.export_allowed
+    finally:
+        S.unbind_conversation(cfg.conversation_id)

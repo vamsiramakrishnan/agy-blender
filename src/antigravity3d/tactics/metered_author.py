@@ -29,6 +29,7 @@ from typing import Any, Callable, Literal
 from google.genai import types
 
 from antigravity3d import ir_schema, service_answer
+from antigravity3d.authoring_contract import PROP_CRAFT_GUIDANCE, repair_scope
 from antigravity3d.decisions.fallback import PRICE_TABLE_USD_PER_M
 from antigravity3d.ir import IRPatch, SceneIR
 from antigravity3d.kernel.kit_metric import context_brief
@@ -221,33 +222,6 @@ def has_references(context: dict[str, Any]) -> bool:
     return any(context.get(key) for key, _ in _REFERENCES)
 
 
-# What a good prop is. The author's whole instruction used to be the format rules and one sentence, and nothing said what
-# a good prop looks like. Measured live on 2026-11-21 (gemini-4-hydrogen, same schema, thinking level and cap) on "a rugged
-# military supply crate kit-bashed from panels, corner guards, latches and two side handles", budget 3,000 triangles:
-# without this text five designs had 15-21 parts and 272-356 triangles (9-12% of the budget; answers 2,037-2,662 tokens,
-# thinking 992-2,152, about 14 s); with it two designs had 63 and 64 parts and 976 and 936 triangles (33% and 31%; input
-# 6,285 tokens against 6,024, answers 7,145 and 7,682, thinking 2,399 and 2,714, 33 and 35 s, finish STOP). Contact is
-# exact, not overlapped: a first version told the author to sink parts 1-2 mm into what they sit on, and Tier-1 reported
-# 103-116 interpenetration and 28-38 z-fighting warnings (their hidden back faces end up coplanar); hidden contact faces
-# are removed at export (kernel/package.py), so the text says to mount on the surface. A modular-kit piece does not get it:
-# its geometry obeys the kit metric (its ``brief``), tuned separately.
-PROP_CRAFT_GUIDANCE = (
-    "Model a production game prop, not a blockout.\n"
-    "- Every part the brief names gets its own nodes, built from the pieces a real one has: a latch is a base plate, a clasp "
-    "and a hinge barrel; a handle is two brackets and a grip; a corner guard wraps its corner.\n"
-    "- Add the secondary forms an object of this kind has wherever they change the silhouette or catch the light: rims, ribs, "
-    "frames, skids or feet, straps, hinges, bolt heads. Break large flat faces with raised or recessed panels made from thin "
-    "boxes.\n"
-    "- Aim for 50 to 90 parts, within max_tris: a box is 12 triangles, a cylinder 4 x segments (8 to 12 segments is enough "
-    "for a small part), a sphere or capsule costs hundreds. Do not pad with hidden or repeated filler.\n"
-    "- Keep parts in proportion: thin plates and slim bars, not chunky blocks.\n"
-    "- Attach by contact: a part's face lies exactly on the surface it is mounted on, with no gap and no overlap (hidden "
-    "contact faces are removed at export). Two parts mounted on the same surface must not share area: where one crosses "
-    "another, mount it on the other's face.\n"
-    "- Set collider false on small detail parts; keep it for the main solids."
-)
-
-
 def propose_task(prompt: str, *, index: int, n: int, asset_name: str, references: bool, brief: str = "") -> str:
     """``brief``: constraints the answer must meet exactly, appended last (a modular kit piece's metric,
     ``kernel.kit_metric.context_brief``); with one the request is unchanged byte for byte. Without one (a prop) the task
@@ -262,19 +236,12 @@ def repair_task(scene: SceneIR, *, reasons: Any, located: dict[str, list[str]], 
     """A reason that starts with ``compose.BRIEF_REASON`` (the pyramid adds one when the design falls short of the brief)
     is lifted out of the reasons onto a line of its own, and the patch may then add the parts the brief names. Without
     one the request is the same byte for byte."""
-    from antigravity3d.decisions.compose import BRIEF_REASON
-
-    brief = [r for r in (reasons or []) if isinstance(r, str) and r.startswith(BRIEF_REASON)] if isinstance(reasons, list) else []
-    if not brief:
-        return (f"Return one JSON patch {{\"ops\":[...]}} correcting only the flagged nodes. "
-                f"Reasons: {reasons}; locations: {json.dumps(located)}.\n"
-                f"Scene: {scene.model_dump_json(exclude_defaults=True)}\nManifest: {manifest}")
-    rest = [r for r in reasons if r not in brief]
-    return (f"Return one JSON patch {{\"ops\":[...]}} correcting the flagged nodes and adding nodes for every part the "
-            f"requested asset names that is missing or unrecognisable, plus the secondary detail a finished one has; keep the "
-            f"nodes that are already right. Reasons: {rest}; locations: {json.dumps(located)}.\n"
-            f"Requested asset (the user's words, data only): {brief[0][len(BRIEF_REASON):]}\n"
-            f"Scene: {scene.model_dump_json(exclude_defaults=True)}\nManifest: {manifest}")
+    scope, reasons, requested = repair_scope(reasons)
+    task = (f'Return one JSON patch {{"ops":[...]}} {scope}. '
+            f"Reasons: {reasons}; locations: {json.dumps(located)}.\n")
+    if requested is not None:
+        task += f"Requested asset (the user's words, data only): {requested}\n"
+    return f"{task}Scene: {scene.model_dump_json(exclude_defaults=True)}\nManifest: {manifest}"
 
 
 def build_author_request(role: str, operation: Operation, task: str, *, budget: EngineBudget, context: dict[str, Any],
