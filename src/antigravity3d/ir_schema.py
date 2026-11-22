@@ -265,6 +265,21 @@ METAL_CLAUSE = "metallic is 1 for bare metal and 0 for everything else, paint on
 WireMaterial = _material_model()
 
 
+def colour_note() -> str:
+    """What an agent that writes colours through the MCP server's tools is told, as a sentence to append (the server's
+    instructions and the descriptions of the tools that take a colour): the clause of IR_SEMANTICS, and that the tools do
+    the conversion. "" under "as_written": nothing is added to what such an agent was told before the colour rule.
+
+    The stage agents carry IR_SEMANTICS; a session in a stock host reads only the server's instructions, its tool
+    descriptions and the skills, and none of them said what a colour means. Live 2026-11-22 (r5/live_rerun_N): the
+    agent wrote olive drab as (0.22, 0.27, 0.16), then on its second pass "corrected" its three materials to linear
+    values, (0.065, 0.09, 0.038) for the olive; read as sRGB the crate shipped nearly black and lost 0 of 6 blind
+    verdicts to each stock crate. Every first answer of the six live sessions (18 materials) was sRGB-like."""
+    if not told():
+        return ""
+    return f" {COLOUR_CLAUSE[0].upper()}{COLOUR_CLAUSE[1:]}; the tools convert them, so never convert a colour to linear yourself."
+
+
 def _material_ir(m: BaseModel) -> dict[str, Any]:
     """A wire material as the scene format holds it: the fields it wrote (so an unwritten colour keeps the format's
     own default, which is linear), colours converted."""

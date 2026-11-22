@@ -58,6 +58,7 @@ from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from google.antigravity.tools.tool_runner import ToolWithSchema
 from pydantic import Field
 
+from antigravity3d import ir_schema
 from antigravity3d.art_direction import load as art_direction_load, style_ids
 from antigravity3d.harness import tools as T
 from antigravity3d.harness.hooks import InvariantAndSafetyGate, state_header
@@ -85,7 +86,9 @@ INSTRUCTIONS = (
     "API only an UNVERIFIED preview can be exported: open_asset_session's reply says whether this session already is one "
     "(limits given at open); only if the reply asks for it, ask the user for a token ceiling and an image limit and call "
     "start_preview. "
-    "Use the returned session_id for native export. Replies are one line.")
+    "Use the returned session_id for native export. Replies are one line." + ir_schema.colour_note())
+# The tools whose input carries a colour: their descriptions say what a colour means (ir_schema.colour_note).
+COLOUR_TOOLS = ("apply_scene_ir", "apply_shader_diff")
 
 
 class McpToolContext:
@@ -375,7 +378,7 @@ def _wrapper(name: str, fn: T.ToolFn, host: StudioHost) -> Any:
                 CURRENT_SINK.reset(token)
 
     tool.__name__ = tool.__qualname__ = name
-    tool.__doc__ = inspect.getdoc(raw)
+    tool.__doc__ = inspect.getdoc(raw) + (ir_schema.colour_note() if name in COLOUR_TOOLS else "")
     tool.__signature__ = inspect.Signature(params, return_annotation=str)  # type: ignore[attr-defined]
     tool.__annotations__ = {**{p.name: p.annotation for p in params}, "return": str}
     return tool

@@ -23,6 +23,7 @@ from mcp.client.subscriptions import listen
 
 from antigravity3d import ir_schema
 from antigravity3d.harness import tools as T
+from antigravity3d.runtime import mcp_server as M
 from antigravity3d.plugin_install import bundle_dir
 from test_harness_tools import CRATE, box
 
@@ -63,6 +64,28 @@ async def call(s: ClientSession, name: str, **args) -> str:
     return text
 
 
+async def test_a_session_is_told_what_a_colour_means_where_it_writes_one(tmp_path, monkeypatch):
+    """A session in a stock host reads the server's instructions, its tool descriptions and the skills; none of them said
+    what a colour means, while the tools read every colour as sRGB. Live 2026-11-22 (r5/live_rerun_N) the agent wrote
+    olive drab as (0.22, 0.27, 0.16), then "corrected" its materials to linear values, (0.065, 0.09, 0.038): the crate
+    shipped nearly black and lost 0 of 6 blind verdicts to each stock crate. The instructions and the two tools that take
+    a colour now carry the clause the authoring request carries. Under the old rule ("as_written") nothing is added."""
+    clause = 'sRGB, as a colour picker or hex code means them: three numbers 0-1 or "#rrggbb" (military olive drab is about #3d4a2b'
+    assert clause in M.INSTRUCTIONS and "never convert a colour to linear yourself" in M.INSTRUCTIONS
+    async with client(tmp_path) as s:
+        await call(s, "open_asset_session", asset_name="Catalog", target_engine="godot_4")
+        seen = {}
+        for stage in ("BLOCKOUT", "LOOKDEV"):
+            await call(s, "set_stage", stage=stage)
+            seen.update({t.name: t.description for t in (await s.list_tools()).tools})
+    assert M.COLOUR_TOOLS == ("apply_scene_ir", "apply_shader_diff")
+    for name in M.COLOUR_TOOLS:
+        assert clause in seen[name] and seen[name].endswith("never convert a colour to linear yourself."), name
+    assert not [n for n, d in seen.items() if n not in M.COLOUR_TOOLS and "sRGB" in (d or "")]
+    monkeypatch.setattr(ir_schema, "COLOUR_RULE", "as_written")
+    assert ir_schema.colour_note() == ""
+
+
 async def test_tools_list_has_harness_tools_with_clean_schemas(tmp_path):
     async with client(tmp_path) as s:
         tools = {t.name: t for t in (await s.list_tools()).tools}
@@ -81,7 +104,8 @@ async def test_tools_list_has_harness_tools_with_clean_schemas(tmp_path):
         t = tools[name]
         props = t.input_schema["properties"]
         assert "ctx" not in props and "session_id" in props, name
-        assert t.description == inspect.getdoc(inspect.unwrap(fn)), name
+        # the two tools that take a colour also say what a colour means (the next test)
+        assert t.description == inspect.getdoc(inspect.unwrap(fn)) + (ir_schema.colour_note() if name in M.COLOUR_TOOLS else ""), name
         wanted = [p.name for p in inspect.signature(fn).parameters.values() if p.name != "ctx"]
         assert [p for p in props if p != "session_id"] == wanted, name
         required = [p.name for p in inspect.signature(fn).parameters.values() if p.name != "ctx" and p.default is p.empty]
