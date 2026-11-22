@@ -1125,3 +1125,23 @@ def test_the_command_runs_in_its_default_candidate_mode_when_no_image_is_allowed
     needs = [int(x.split("up to ")[1].split(" image")[0]) for x in default_lines if "up to " in x]
     assert ca.c_mode(src, max(needs) - 1)[0] is True
     assert ca.c_mode(src, max(needs))[0] is False
+
+
+def test_the_harness_answers_the_limits_question_for_a_reopened_asset_as_for_a_new_one(ca):
+    """Spending is not the agent's choice, and nobody can be asked in a headless run: the harness answers with the
+    run's share. It did so for open_asset_session and start_preview only. A change request starts with
+    open_existing_asset: that session was not a preview, its delivery was refused for lack of the calibrated judge, the
+    agent rightly would not choose limits itself, and arm N's change request ran to its token share with nothing
+    delivered (live 2026-11-22, r5/live_rerun_N: 260 s, 1,171,112 tokens)."""
+    sb = _load("compare_sandbox")
+    limits = {"tokens": 1_250_000, "images": 0}
+    want = {"preview": True, "token_ceiling": 1_250_000, "max_images": 0}
+    for tool in ("open_asset_session", "open_existing_asset"):
+        args, refusal = sb.answer_limits(tool, {"path": "pkg", "conversation_id": "c"}, limits)
+        assert refusal is None and args == {"path": "pkg", "conversation_id": "c", **want}, tool
+        args, refusal = sb.answer_limits(tool, {"preview": True, "token_ceiling": 9_000_000, "max_images": 4}, limits)
+        assert args is None and refusal == "The user's limits for this preview are 1250000 tokens and 0 images; use exactly those.", tool
+    args, refusal = sb.answer_limits("start_preview", {"token_ceiling": 1_250_000, "max_images": 0}, limits)
+    assert refusal is None and args == {"token_ceiling": 1_250_000, "max_images": 0}  # a switch, not an open: no preview flag
+    assert sb.answer_limits("apply_scene_ir", {"ops": []}, limits) == (None, None)
+    assert sb.answer_limits("", {}, limits) == (None, None)  # not an MCP call

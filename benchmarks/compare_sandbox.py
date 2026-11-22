@@ -342,6 +342,32 @@ class HookScripts:
         return outs
 
 
+# The calls that open an asset session. On a key without the calibrated judge a session has to be a preview to deliver,
+# and a preview needs the user's two limits; nobody can be asked in a headless run.
+OPENERS = ("open_asset_session", "open_existing_asset")
+
+
+def answer_limits(tool: str, args: dict, limits: dict) -> tuple[dict | None, str | None]:
+    """What the person running this pilot would answer when the agent opens a session or switches one to a preview:
+    this run's share, and nothing else. Returns (the arguments to send, None); (None, the refusal) when the agent
+    chose limits other than the run's; (None, None) for any other tool.
+
+    ``open_existing_asset`` (a change request's first call) was not answered until 2026-11-22: the reopened session
+    was not a preview, its delivery was refused for lack of the calibrated judge, the agent rightly would not choose
+    limits itself, and arm N's change request ran to its token share with nothing delivered (r5/live_rerun_N)."""
+    if tool not in (*OPENERS, "start_preview"):
+        return None, None
+    args = dict(args)
+    given = (args.get("token_ceiling"), args.get("max_images"))
+    if given != (None, None) and (_int(given[0]), _int(given[1])) != (limits["tokens"], limits["images"]):
+        return None, (f"The user's limits for this preview are {limits['tokens']} tokens and {limits['images']} images; "
+                      "use exactly those.")
+    args.update(token_ceiling=limits["tokens"], max_images=limits["images"])
+    if tool in OPENERS:
+        args["preview"] = True
+    return args, None
+
+
 def _int(v: object) -> int | None:
     try:
         return int(v)  # type: ignore[arg-type]
@@ -400,24 +426,16 @@ def plugin_attachment(cfg: dict, url: str, emit: Events, conversation_id: str) -
         async def run(self, context, data):  # noqa: ANN001
             tool = mcp_tool(data)
             modified = None
-            if tool in ("open_asset_session", "start_preview"):
-                # Spending is not the agent's choice. Missing limits are filled with the run's share (what the person
-                # running this pilot would answer); limits other than the run's share are refused with that answer.
-                args = dict(data.args.get("Arguments") or {})
-                wants = tool == "start_preview" or args.get("preview") in (True, "true", "True", 1) or "token_ceiling" in args
-                if tool == "open_asset_session" and not wants:
-                    args["preview"] = True
-                given = (args.get("token_ceiling"), args.get("max_images"))
-                if given != (None, None) and (_int(given[0]), _int(given[1])) != (limits["tokens"], limits["images"]):
-                    emit("ask_answered", tool=tool, asked=given, answer="refused: not this run's limits")
-                    return hooks.HookResult(allow=False, message=(
-                        f"The user's limits for this preview are {limits['tokens']} tokens and {limits['images']} images; "
-                        "use exactly those."))
-                args.update(token_ceiling=limits["tokens"], max_images=limits["images"])
-                if tool == "open_asset_session":
-                    args["preview"] = True
-                emit("limits_injected", tool=tool, arguments=args)
-                modified = {"Arguments": args}
+            # Spending is not the agent's choice: answer_limits fills this run's share and refuses any other.
+            asked = dict((data.args or {}).get("Arguments") or {})
+            answered, refusal = answer_limits(tool, asked, limits)
+            if refusal:
+                emit("ask_answered", tool=tool, asked=(asked.get("token_ceiling"), asked.get("max_images")),
+                     answer="refused: not this run's limits")
+                return hooks.HookResult(allow=False, message=refusal)
+            if answered is not None:
+                emit("limits_injected", tool=tool, arguments=answered)
+                modified = {"Arguments": answered}
                 data = data.model_copy(update={"args": {**data.args, **modified}})
             call, matched = hook_call(data)
             outs = scripts.run("PreToolUse", {"toolCall": call}, tool_name=matched)
@@ -426,7 +444,7 @@ def plugin_attachment(cfg: dict, url: str, emit: Events, conversation_id: str) -
                     return hooks.HookResult(allow=False, message=o.get("reason") or "denied by the plugin's hook")
                 if o.get("decision") == "ask":
                     a_ = (data.args.get("Arguments") or {})
-                    ok = tool in ("open_asset_session", "start_preview") and \
+                    ok = tool in (*OPENERS, "start_preview") and \
                         (_int(a_.get("token_ceiling")), _int(a_.get("max_images"))) == (limits["tokens"], limits["images"])
                     # A person would be asked here. Nobody can answer a headless run, so the harness does, and approves
                     # only the run's own share.
