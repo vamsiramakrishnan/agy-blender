@@ -108,12 +108,22 @@ async def test_regressing_repair_is_rolled_back_and_iteration_stops(tmp_path: Pa
     sm, plane = setup(tmp_path, script)
     before, txs = sm.base_ir(), list(sm.tx_ids)
     bad = IRPatch(ops=[SetTransform(node_id="lid", transform=Transform(translate=(5, 0, 5)))])
-    author = CallableAuthor(lambda *a, **k: [], lambda *a, **k: bad)
+    asked: list[Any] = []
+
+    def repair(scene: SceneIR, *, action: Any, located: dict, manifest: str) -> IRPatch:
+        asked.append(action)
+        return bad
+
+    author = CallableAuthor(lambda *a, **k: [], repair)
     res = await run_a(sm, plane, author, tmp_path, max_rounds=4)
 
     assert res.rounds[-1].rolled_back and "rolled back" in res.stopped["A"] and res.converged["A"] is False
     assert sm.base_ir() == before and sm.tx_ids == txs  # the transaction is gone, not just undone by a second patch
-    assert author.calls["repair"] == 1 and len(res.rounds) == 2  # stopped iterating on this path
+    # Round five: a rolled-back repair is asked for once more (REPAIR_PATIENCE = 2), told what its patch did and why it
+    # was undone, from the kept design's own verdict (not judged again); a second rollback in a row stops the pass.
+    assert author.calls["repair"] == 2 and len(res.rounds) == 3 and res.stopped["A"].startswith("repair rolled back 2 time(s)")
+    assert "your previous patch for this design was undone: your patch had 1 op(s): set_transform lid" in asked[1].reasons[-1]
+    assert "newly flagged: defect_inverted_faces=0.95" in asked[1].reasons[-1]
     assert res.fix_records == []
     assert res.tier15 == res.rounds[0].tier15  # reported state is the pre-repair state
 

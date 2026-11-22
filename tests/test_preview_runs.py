@@ -566,13 +566,15 @@ async def test_a_judge_call_slower_than_its_deadline_is_answered_504_once_and_ho
     assert res.attempts == 1 and fast.kinds().count("judge") == 1
 
 
-def test_a_design_the_judge_reads_as_a_blockout_of_the_brief_is_sent_for_repair_not_approved(key, tmp_path, capsys):
-    """The stand-in answers the brief's depiction score low (level 1): pass A asks the author to repair instead of
-    converging, and the run's export decision fails on the brief. The same run with the default answers converges."""
+def test_a_design_the_judge_reads_as_a_blockout_of_the_brief_is_sent_back_not_approved(key, tmp_path, capsys):
+    """The stand-in answers the brief's depiction score low (level 1): pass A asks the author for a better design instead
+    of converging, and the run's export decision fails on the brief. The same run with the default answers converges.
+    Since round five a design short only of a score gate gets an improvement round (author:improve, with its renders),
+    not a repair: the score names no fault a repair could fix."""
     api = key(score_overrides={"score_brief_depiction": "1"})
     rc = prop(tmp_path, "--preview", "--token-ceiling", "150000", "--max-images", "4", "--single-candidate", *FAST)
     out = capsys.readouterr().out
-    assert "author:repair" in api.kinds(), out
+    assert "author:improve" in api.kinds() and "author:repair" not in api.kinds(), out
     x = report(tmp_path)
     blob = json.dumps(x)
     assert "brief depiction" in blob and "brief_unmet" in blob, blob[:2000]

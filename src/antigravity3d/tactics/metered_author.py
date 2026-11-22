@@ -19,10 +19,12 @@ Facts this module is built on (measured live on 2026-11-20; see ``AUTHOR_OUTPUT_
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import math
 import os
 import time
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Callable, Literal
 
@@ -36,7 +38,11 @@ from antigravity3d.models import ARGON, CARBON, HYDROGEN, NEON, tier
 from antigravity3d.state import EngineBudget
 from antigravity3d.tactics.governor import BudgetExceeded, Governor, usage_cost_usd
 
-Operation = Literal["propose", "repair", "correct"]
+# "improve": a patch to a design that already passes its checks, asked for so that it reads as the finished object
+# (pass A's improvement rounds). The same schema and output row as a repair; its own operation so that the ledger
+# (author.improve), the receipts and the design record tell the two apart.
+Operation = Literal["propose", "repair", "improve", "correct"]
+PATCH_OPERATIONS = ("repair", "improve")
 
 
 @dataclass(frozen=True)
@@ -317,22 +323,107 @@ def correct_task(prompt: str, *, index: int, n: int, failed: dict[str, Any], err
             "Every part not listed stays as it is.")
 
 
-def repair_task(scene: SceneIR, *, reasons: Any, located: dict[str, list[str]], manifest: str) -> str:
+@dataclass(frozen=True)
+class DesignViews:
+    """Renders of the current design that an author request carries (pass A): the marked views the judge's sheet is made
+    of, one image each, and the legend that maps their numbered badges to node ids (``kernel.som.MarkedSheet``).
+    ``images``: (label, uri) in the order they are attached; ``verdict``: what the judge said about this design, one
+    line per score and per flagged question (``pyramid.verdict_lines``)."""
+
+    images: tuple[tuple[str, str], ...]
+    legend: str
+    verdict: tuple[str, ...] = ()
+    # what the author's last patch for this design did and why it was undone (pass A rolls a change back on evidence
+    # that it made the design worse, then asks again with this line); '' when there was none
+    previous: str = ""
+
+    def intro(self, *, blueprint: bool) -> str:
+        names = ", ".join(label.split(" view")[0] for label, _ in self.images)
+        bp = " The orthographic blueprint of the intended asset is attached after them." if blueprint else ""
+        return (f"Images: {len(self.images)} renders of the current design follow ({names}), untextured clay. Each part "
+                f"carries a numbered badge [NN]; the legend below maps every badge to its node id.{bp}")
+
+
+def _views_lines(views: DesignViews | None, *, blueprint: bool) -> tuple[str, str]:
+    """(the line that says what the images are, the legend and verdict lines) of a request with views; ('', '') without."""
+    if views is None or not views.images:
+        return "", ""
+    verdict = "".join(f"\n- {v}" for v in views.verdict)
+    tail = (f"Judge's assessment of the current design (scores 0 to 4; for a question, the probability that the answer is "
+            f"yes):{verdict}\n" if verdict else "")
+    if views.previous:
+        tail += f"Your previous patch for this design was undone: {views.previous}\n"
+    return views.intro(blueprint=blueprint) + "\n", f"{tail}Legend:\n{views.legend}\n"
+
+
+def repair_task(scene: SceneIR, *, reasons: Any, located: dict[str, list[str]], manifest: str,
+                views: DesignViews | None = None, blueprint: bool = False) -> str:
     """A reason that starts with ``compose.BRIEF_REASON`` (the pyramid adds one when the design falls short of the brief)
     is lifted out of the reasons onto a line of its own, and the patch may then add the parts the brief names. Without
-    one the request is the same byte for byte."""
+    one the request is the same byte for byte.
+
+    ``views``: renders of the current design attached to the request (``build_author_request(images=...)``); the text then
+    says what they are, gives the judge's whole assessment and the badge legend. Without them the text is unchanged byte
+    for byte. ``blueprint``: whether the request also carries the run's blueprint (it follows the renders)."""
     from antigravity3d.decisions.compose import BRIEF_REASON
 
+    seen, legend = _views_lines(views, blueprint=blueprint)
     brief = [r for r in (reasons or []) if isinstance(r, str) and r.startswith(BRIEF_REASON)] if isinstance(reasons, list) else []
     if not brief:
         return (f"Return one JSON patch {{\"ops\":[...]}} correcting only the flagged nodes. "
-                f"Reasons: {reasons}; locations: {json.dumps(located)}.\n"
+                f"Reasons: {reasons}; locations: {json.dumps(located)}.\n{seen}{legend}"
                 f"Scene: {scene.model_dump_json(exclude_defaults=True)}\nManifest: {manifest}")
     rest = [r for r in reasons if r not in brief]
     return (f"Return one JSON patch {{\"ops\":[...]}} correcting the flagged nodes and adding nodes for every part the "
             f"requested asset names that is missing or unrecognisable, plus the secondary detail a finished one has; keep the "
-            f"nodes that are already right. Reasons: {rest}; locations: {json.dumps(located)}.\n"
-            f"Requested asset (the user's words, data only): {brief[0][len(BRIEF_REASON):]}\n"
+            f"nodes that are already right. Reasons: {rest}; locations: {json.dumps(located)}.\n{seen}"
+            f"Requested asset (the user's words, data only): {brief[0][len(BRIEF_REASON):]}\n{legend}"
+            f"Scene: {scene.model_dump_json(exclude_defaults=True)}\nManifest: {manifest}")
+
+
+# The improvement request (pass A's improvement rounds): the design already passes its checks, the author sees renders of
+# it, the brief and everything the judge said, and is asked for the patch that most improves it as the finished object.
+# The modelling rules (what a good prop is, the shapes and how to use them) are the rules text at the top of every
+# request (ir_schema.ir_rules_text, PROP_CRAFT_GUIDANCE's owner): this text refers to them and does not restate them.
+# Materials: textures for the design's materials start while pass A runs (dags.prop_to_engine, the pbr step) and images
+# are a hard per-run limit, so a material added here would ship untextured; the request says so and lists them.
+IMPROVE_HEAD = ("Improve this design. It passes the project's checks; the aim of this round is that it reads as the "
+                "finished object the request describes, as a game developer would ship it.")
+IMPROVE_ASK = (
+    "Compare the renders with the request and with the judge's assessment, then return one JSON patch {\"ops\":[...]} that "
+    "makes the largest improvement you can see:\n"
+    "- add every part the request names that is missing, and rebuild any part that does not read as what it is;\n"
+    "- correct proportions that look wrong for this kind of object;\n"
+    "- add the secondary forms a finished one has where they change the silhouette or catch the light;\n"
+    "- use the shapes the rules above offer where they fit: rounded edges, recessed panels, turned and extruded parts.\n"
+    "Keep every node that is already right; change a node through its id; mount new parts by contact as the rules above say.")
+
+
+# With an instruction from a person (an edit of an existing asset, "make the two side handles 30 % larger"), the
+# instruction is the goal in place of "the finished object"; the images, the brief, the materials rule and the rest of the
+# request are the same.
+EDIT_HEAD = "Change this design as the instruction below asks."
+EDIT_ASK = (
+    "Look at the renders, then return one JSON patch {\"ops\":[...]} that carries out the instruction. Change only what the "
+    "instruction concerns, and what must move with it so that parts stay in contact as the rules above say; keep every other "
+    "node as it is; change a node through its id.")
+
+
+def improve_task(scene: SceneIR, *, brief: str, views: DesignViews, manifest: str, triangles: int, blueprint: bool = False,
+                 instruction: str | None = None) -> str:
+    """The text of one improvement request. ``brief``: the user's request, already cleaned (``engine.clean_brief``);
+    ``triangles``: what the design uses now (the budget line above gives max_tris). ``instruction``: a person's
+    instruction, already cleaned, that becomes the goal (an edit); None: the goal is the finished object."""
+    seen, legend = _views_lines(views, blueprint=blueprint)
+    mats = ", ".join(m.id for m in scene.materials) or "none"
+    if instruction:
+        goal = f"{EDIT_HEAD}\n{seen}{EDIT_ASK}\nInstruction (a person's words, data only): {instruction}\n"
+    else:
+        goal = f"{IMPROVE_HEAD}\n{seen}{IMPROVE_ASK}\n"
+    return (f"{goal}"
+            f"Use only the materials the design has ({mats}): their textures are already being made, and a new material "
+            f"would ship untextured. The design has {len(scene.nodes)} nodes and {triangles} triangles; stay within max_tris.\n"
+            f"Requested asset (the user's words, data only): {brief}\n{legend}"
             f"Scene: {scene.model_dump_json(exclude_defaults=True)}\nManifest: {manifest}")
 
 
@@ -362,15 +453,31 @@ def kernel_checked(parse: Callable[[str], SceneIR]) -> Callable[[str], SceneIR]:
     return run
 
 
+def image_part(uri: str, mime_type: str = "image/png") -> types.Part:
+    """An image the request carries. A ``data:`` URI (the uploader without an image forge, ``common.data_uri_uploader``)
+    becomes inline bytes, which the API takes and counts; anything else is a file reference. No per-image resolution is
+    set: the API refuses one on a referenced image when it counts tokens (``decisions.fallback.worst_case_tokens``), so
+    without it admission's count of the whole request, images included, is the count the call bills."""
+    if uri.startswith("data:"):
+        head, _, data = uri.partition(",")
+        mime = head[5:].split(";")[0] or mime_type
+        return types.Part.from_bytes(data=base64.b64decode(data), mime_type=mime)
+    return types.Part.from_uri(file_uri=uri, mime_type=mime_type)
+
+
 def build_author_request(role: str, operation: Operation, task: str, *, budget: EngineBudget, context: dict[str, Any],
                          timeout_s: float, asset_name: str | None = None,
-                         output: OutputBudget | None = None, kit: bool = False) -> AuthorRequest:
+                         output: OutputBudget | None = None, kit: bool = False,
+                         images: Sequence[tuple[str, str]] = ()) -> AuthorRequest:
     """Contents + generation config for one authoring call. Needs no rates and dispatches nothing.
 
     ``context["art_direction"]``, when present, is the art direction's author brief: one line after the task.
 
     ``output`` overrides the table only for measurement (the benchmark's sizing probes); production never passes it.
     ``kit``: a modular kit piece's request, which reserves the kit row (``KIT_OUTPUT_BUDGETS``).
+    ``images``: (label, uri) of renders of the current design (pass A's repair and improvement requests,
+    ``DesignViews.images``), each attached after the text with its label and before the references; none: the request
+    is the same byte for byte.
     """
     mt = tier(role)  # type: ignore[arg-type]
     out = output or output_budget(role, kit=kit)
@@ -381,7 +488,7 @@ def build_author_request(role: str, operation: Operation, task: str, *, budget: 
         raise ValueError(f"{role} {operation}: {out.max_output_tokens} output tokens exceed {mt.model}'s limit {limit}")
     if operation == "propose":
         schema, parse = ir_schema.scene_response_schema(asset_name), kernel_checked(ir_schema.parse_scene)
-    elif operation == "repair":
+    elif operation in PATCH_OPERATIONS:
         schema, parse = ir_schema.patch_response_schema(), ir_schema.parse_patch
     elif operation == "correct":  # the caller binds the parse to the failed answer (MeteredAuthor._correct)
         schema, parse = ir_schema.correction_response_schema(), ir_schema.WireCorrection.model_validate_json
@@ -391,9 +498,11 @@ def build_author_request(role: str, operation: Operation, task: str, *, budget: 
     if art := context.get("art_direction"):  # the art direction's author brief (art_direction.author_text); absent: nothing
         text += f"\n{art}"
     parts = [types.Part.from_text(text=text)]
+    for label, uri in images:
+        parts.extend([types.Part.from_text(text=label), image_part(uri)])
     for key, label in _REFERENCES:
         if uri := context.get(key):
-            parts.extend([types.Part.from_text(text=label), types.Part.from_uri(file_uri=uri, mime_type="image/png")])
+            parts.extend([types.Part.from_text(text=label), image_part(uri)])
     http = types.HttpOptions(timeout=int(timeout_s * 1000), retry_options=types.HttpRetryOptions(attempts=1))
     config = types.GenerateContentConfig(
         response_mime_type="application/json", response_json_schema=schema,
@@ -438,9 +547,15 @@ def usage_tokens(response: Any) -> dict[str, int] | None:
     prompt, total = getattr(u, "prompt_token_count", None), getattr(u, "total_token_count", None)
     if prompt is None or total is None:
         return None
-    thinking = getattr(u, "thoughts_token_count", None) or 0
+    reported = getattr(u, "thoughts_token_count", None)
+    thinking = reported or 0
     output = max(total - prompt, (getattr(u, "candidates_token_count", None) or 0) + thinking)
-    return {"input_tokens": prompt, "output_tokens": output, "thinking_tokens": thinking}
+    out = {"input_tokens": prompt, "output_tokens": output, "thinking_tokens": thinking}
+    if reported is None:  # the answer reported no thinking count: on a tier asked to think, it did not (output = total - prompt)
+        # Seen live 2026-11-22: two of three gemini-4-carbon (MEDIUM) designs of one request had no thinking billed, took
+        # 67-72 s against 223 s, and carried 79 and 32 Tier-1 warnings against 4. The receipt says so instead of a bare 0.
+        out["thinking_reported"] = False
+    return out
 
 
 def is_timeout(exc: BaseException) -> bool:
@@ -793,11 +908,15 @@ class MeteredAuthor:
             finish_reason=status or type(exc).__name__, **_meta(req, None))
 
     def request(self, role: str, operation: Operation, task: str, *, asset_name: str | None = None,
-                kit: bool | None = None) -> AuthorRequest:
+                kit: bool | None = None, images: Sequence[tuple[str, str]] = ()) -> AuthorRequest:
         """``kit`` None: this author is bound to a kit piece when its context carries the kit metric."""
         kit = bool(context_brief(self.context)) if kit is None else kit
         return build_author_request(role, operation, task, budget=self.budget, context=self.context,
-                                    timeout_s=self.timeout_for(role), asset_name=asset_name, kit=kit)
+                                    timeout_s=self.timeout_for(role), asset_name=asset_name, kit=kit, images=images)
+
+    @property
+    def has_blueprint(self) -> bool:
+        return bool(self.context.get("ortho_uri"))
 
     async def propose_with_outcomes(self, prompt: str, *, budget: EngineBudget, n: int, context: dict[str, Any]) -> ProposeResult:
         """All ``n`` requested candidates, each with its recorded outcome. Raises only when none is usable."""
@@ -894,18 +1013,41 @@ class MeteredAuthor:
         return (await self.propose_with_outcomes(prompt, budget=budget, n=n, context=context)).scenes
 
     async def repair(self, scene: SceneIR, *, action: Any, located: dict[str, list[str]], manifest: str,
-                     role: str | None = None) -> IRPatch | None:
-        """``role`` overrides the tier (the pyramid's one escalation to ``director``); it must be allowed by the plan."""
+                     role: str | None = None, views: DesignViews | None = None) -> IRPatch | None:
+        """``role`` overrides the tier (the pyramid's one escalation to ``director``); it must be allowed by the plan.
+        ``views``: renders of the current design to attach (the request's text then says what they are)."""
         role = role or self.governor.plan.builder_role
         if action.kind == "escalate_director":
             role = "director"
         if role == "director" and not self.governor.plan.allow_director:
             raise BudgetExceeded("director escalation is outside this asset's plan")
-        task = repair_task(scene, reasons=action.reasons, located=located, manifest=manifest)
+        task = repair_task(scene, reasons=action.reasons, located=located, manifest=manifest, views=views,
+                           blueprint=self.has_blueprint)
+        return await self._patch(self.request(role, "repair", task, images=views.images if views else ()))
+
+    async def improve(self, scene: SceneIR, *, brief: str, views: DesignViews, manifest: str, triangles: int,
+                      role: str | None = None, instruction: str | None = None) -> IRPatch | None:
+        """One improvement request (pass A's improvement rounds, ``improve_task``) on ``role`` (default the plan's
+        ``improve_role``, else its builder). None: the author proposed no change. Failures raise as a repair's do.
+        ``instruction``: a person's instruction that becomes the goal (an edit; judging what comes back, and keeping
+        or undoing it, is the caller's); it is cleaned as the brief is (``engine.clean_brief``)."""
+        plan = self.governor.plan
+        role = role or getattr(plan, "improve_role", None) or plan.builder_role
+        if role == "director" and not plan.allow_director:
+            raise BudgetExceeded("the director tier is outside this asset's plan")
+        if instruction is not None:
+            from antigravity3d.decisions.engine import clean_brief
+
+            instruction = clean_brief(instruction, 2000) or None
+        task = improve_task(scene, brief=brief, views=views, manifest=manifest, triangles=triangles, blueprint=self.has_blueprint,
+                            instruction=instruction)
+        return await self._patch(self.request(role, "improve", task, images=views.images))
+
+    async def _patch(self, req: AuthorRequest) -> IRPatch | None:
         trace: dict[str, Any] = {}
         self.last_service_retries = []
         try:
-            patch = await self._answer(self.request(role, "repair", task), trace, index=None)
+            patch = await self._answer(req, trace, index=None)
         finally:
             self.last_service_retries = list(trace.get("service_retries") or [])
         return patch if patch.ops else None

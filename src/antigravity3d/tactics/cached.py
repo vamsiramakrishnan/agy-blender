@@ -271,7 +271,9 @@ class DesignRecord:
             if o.get("booked") is not None:
                 by_unit[o.get("unit") or "?"] = by_unit.get(o.get("unit") or "?", 0.0) + float(o["booked"])
         ops = [r["operation"] for r in self.reused]
-        return {"reused": len(self.reused), "reused_designs": ops.count("propose"), "reused_repairs": ops.count("repair"),
+        # an improvement (pass A's improvement rounds) is a patch like a repair and is counted with them
+        return {"reused": len(self.reused), "reused_designs": ops.count("propose"),
+                "reused_repairs": ops.count("repair") + ops.count("improve"),
                 "recorded": self.recorded, "new_design": self.fresh, "original_booked": by_unit}
 
     def line(self) -> str:

@@ -37,6 +37,9 @@ def test_standard_row():
         reuse_trim_sheet=False,
         final_render="eevee",
         ceiling_usd=0.85,
+        # pass A's improvement rounds (round five): the plan says how hard it tries for a better design
+        improve_rounds=3,
+        improve_target=3.5,
     )
 
 
@@ -55,6 +58,9 @@ def test_hero_row():
         reuse_trim_sheet=False,
         final_render="cycles",
         ceiling_usd=2.20,
+        # pass A's improvement rounds (round five): the plan says how hard it tries for a better design
+        improve_rounds=5,
+        improve_target=3.5,
     )
 
 

@@ -34,7 +34,22 @@ class SpendPlan:
     reuse_trim_sheet: bool  # prefer shared trim sheet over unique textures
     final_render: str  # "preview" | "eevee" | "cycles"
     ceiling_usd: float  # hard spend ceiling for this asset
+    # How hard pass A tries for a better design once it passes its checks (tactics.pyramid, improvement rounds): at most
+    # ``improve_rounds`` rounds, ending once score_brief_depiction reaches ``improve_target`` or after ``improve_patience``
+    # rounds in a row that did not raise the progress figure (each such round is rolled back). ``improve_role``: the
+    # author tier of those rounds (None: ``builder_role``). Defaults keep a plan persisted before these fields loadable
+    # (dags.routing) and mean "no improvement rounds".
+    improve_rounds: int = 0
+    improve_target: float = 4.0
+    improve_patience: int = 1
+    improve_role: str | None = None
 
+
+# score_brief_depiction an improvement round aims for: midway between level 3 ("convincing: every named part present
+# and recognisable, believable proportions, some secondary detail; a few details a real one has are missing") and level
+# 4 ("complete and convincing ... it stands as a finished game prop"), decisions.questions.BRIEF_DEPICTION_LEVELS.
+# PROVISIONAL, as are the round counts below: chosen from the level texts until the live curve of score per round exists.
+IMPROVE_TARGET = 3.5
 
 _CLUTTER = SpendPlan(
     complexity_tier=0,
@@ -49,6 +64,8 @@ _CLUTTER = SpendPlan(
     reuse_trim_sheet=True,
     final_render="preview",
     ceiling_usd=0.15,
+    improve_rounds=1,
+    improve_target=IMPROVE_TARGET,
 )
 
 _STANDARD = SpendPlan(
@@ -64,6 +81,8 @@ _STANDARD = SpendPlan(
     reuse_trim_sheet=False,
     final_render="eevee",
     ceiling_usd=0.85,
+    improve_rounds=3,
+    improve_target=IMPROVE_TARGET,
 )
 
 _HERO = SpendPlan(
@@ -79,11 +98,14 @@ _HERO = SpendPlan(
     reuse_trim_sheet=False,
     final_render="cycles",
     ceiling_usd=2.20,
+    improve_rounds=5,
+    improve_target=IMPROVE_TARGET,
 )
 
 PLANS: dict[int, SpendPlan] = {
     0: replace(_CLUTTER, complexity_tier=0),
-    1: replace(_CLUTTER, complexity_tier=1, label="simple", ortho_candidates=2, geometry_candidates=2, ceiling_usd=0.35),
+    1: replace(_CLUTTER, complexity_tier=1, label="simple", ortho_candidates=2, geometry_candidates=2, ceiling_usd=0.35,
+               improve_rounds=2),
     2: _STANDARD,
     3: _HERO,
 }

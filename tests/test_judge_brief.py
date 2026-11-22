@@ -251,7 +251,8 @@ async def test_a_repair_that_lowers_both_is_still_rolled_back(tmp_path: Path) ->
     before = sm.base_ir()
     res = await run_a(sm, plane, CallableAuthor(lambda *a, **k: [], lambda *a, **k: IRPatch(ops=CRATE_SCENE_PARTS)), tmp_path, prompt=CRATE)
     assert res.rounds[-1].rolled_back and "progress 3.17->2.99" in res.rounds[-1].note and sm.base_ir() == before
-    assert res.stopped["A"] == "repair regressed; rolled back"
+    # round five: one more attempt after a rollback (pyramid.REPAIR_PATIENCE), then the pass stops
+    assert res.stopped["A"].startswith("repair rolled back 2 time(s) in a row; last: fell by more than the judge's noise band")
 
 
 # --------------------------------------------------------------------------- native session

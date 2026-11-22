@@ -25,6 +25,14 @@
   the nearest old shape, so the answer compiles today and is used as written once they are built: a lathe as the
   cylinder round it; bevels and insets left out; an extrusion left out with its subtree (its box would bury a wrapped
   part such as an L-section corner guard in what it wraps, a failure the real shape does not have).
+  A patch request that starts with the improvement request's head (``metered_author.IMPROVE_HEAD`` or ``EDIT_HEAD``) is
+  logged ``author:improve``, any other ``author:repair``. ``patches``: kind -> list of patches ({"ops": [...]}) answered
+  to that kind's calls in order (the last one again once the list is used up); none: an empty patch. Every authoring
+  call is logged with ``images``, the number of images it carries (file references and inline data), and its ``text``.
+* ``score_sequence``: score question id (without the __N suffix) -> list of levels, answered to the blockout visual QA
+  calls in order (a call asking score_silhouette and not defect_cg_plastic: not the ranking, not lookdev), the last
+  level again once the list is used up; it takes precedence over ``score_overrides`` for those calls. ``defect_sequence``:
+  the same for yes/no questions (question id -> list of P(yes)), over ``overrides``.
 * Image calls: a PNG of the requested size; usage 62 input, image tokens of the tier + 321, 804 thinking (measured 2K).
   The request's text is logged as ``prompt`` (``image_prompts()``).
 * Files API resumable upload: a file URI.
@@ -33,7 +41,8 @@
   "429": 429 RESOURCE_EXHAUSTED, both answered at once; "drop": the socket is closed without a response, so the client
   sees the connection break), ``times`` (the first N matching calls; None: every one) and, for a judge call, optionally
   ``questions`` (it matches only a call asking one of these question ids, without the __N suffix) and ``exclude`` (not
-  a call asking any of these: pass A's blockout QA asks score_silhouette without next_action). A matched call is
+  a call asking any of these: pass A's blockout QA asks score_silhouette without next_action), and ``skip`` (the first N
+  matching calls are served as usual: the rule starts with the call after them). A matched call is
   logged as ``<kind>:<how>`` and is never served (``generated()`` does not count it).
   For an image call, ``how`` may also be "no_image": served and billed, but answered as the live call of 2026-11-21 was,
   finish MAX_TOKENS after 652 output tokens with no image part (logged ``image:no_image``, counted by ``generated()``);
@@ -74,7 +83,10 @@ class NoDecisionsKey:
                  image_delay_s: float = 0.0, judge_delay_s: float = 0.0, author_delay_s: float = 0.0,
                  sheet_labels_are_text: bool = True, fail: list[dict[str, Any]] | None = None,
                  score_overrides: dict[str, str] | None = None, propose_answers: list[str] | None = None,
-                 corrections: list[dict[str, Any]] | None = None, live_designs: bool = False) -> None:
+                 corrections: list[dict[str, Any]] | None = None, live_designs: bool = False,
+                 patches: dict[str, list[dict[str, Any]]] | None = None,
+                 score_sequence: dict[str, list[str]] | None = None,
+                 defect_sequence: dict[str, list[float]] | None = None) -> None:
         self.live_designs = live_designs
         self.propose_answers = list(propose_answers or [])  # raw texts answered to propose calls, in order
         self.corrections = list(corrections or [])  # correction objects answered in order
@@ -94,6 +106,10 @@ class NoDecisionsKey:
         self.overrides = dict(overrides or {})  # question id (without the __N suffix) -> P(yes)
         self.score_overrides = dict(score_overrides or {})  # score question id (without the __N suffix) -> level answered
         self.fail = [dict(rule, hits=0) for rule in (fail or [])]
+        self.patches = {k: list(v) for k, v in (patches or {}).items()}
+        self.score_sequence = {k: list(v) for k, v in (score_sequence or {}).items()}
+        self.defect_sequence = {k: list(v) for k, v in (defect_sequence or {}).items()}
+        self._served = {"author:repair": 0, "author:improve": 0, "blockout": 0}
         self.requests: list[dict[str, Any]] = []
         self._png: dict[int, bytes] = {}
         self._lock = threading.Lock()
@@ -153,7 +169,12 @@ class NoDecisionsKey:
 
     def generated(self) -> int:
         """Generation calls served (judge, author, image): what would be billed."""
-        return sum(r["kind"] in ("judge", "author:propose", "author:repair", "author:correct", "image:sent", "image:no_image") for r in self.requests)
+        return sum(r["kind"] in ("judge", "author:propose", "author:repair", "author:improve", "author:correct", "image:sent", "image:no_image")
+                   for r in self.requests)
+
+    def authoring(self, kind: str) -> list[dict[str, Any]]:
+        """The served authoring calls of ``kind`` ("author:repair", ...), in order, with ``images`` and ``text``."""
+        return [r for r in self.requests if r["kind"] == kind]
 
     # ---- answers
     def answer(self, path: str, headers: dict[str, str], raw: bytes) -> tuple[int, bytes, dict[str, str]]:
@@ -217,9 +238,13 @@ class NoDecisionsKey:
             usage = {"promptTokenCount": prompt, "candidatesTokenCount": 1140, "thoughtsTokenCount": 1066, "totalTokenCount": prompt + 2206}
             kind = "author:propose"
         elif schema and set(schema.get("properties") or {}) == {"ops"}:
-            content = {"parts": [{"text": json.dumps({"ops": []})}]}
+            kind = _patch_kind(_text(body))
+            with self._lock:
+                n = self._served[kind]
+                self._served[kind] += 1
+            answers = self.patches.get(kind) or [{"ops": []}]
+            content = {"parts": [{"text": json.dumps(answers[min(n, len(answers) - 1)])}]}
             usage = {"promptTokenCount": prompt, "candidatesTokenCount": 92, "thoughtsTokenCount": 515, "totalTokenCount": prompt + 607}
-            kind = "author:repair"
         elif schema and any(re.sub(r"__\d+$", "", q) in self.refuse_questions for q in (schema.get("properties") or {})):
             self._log(path, "judge:refused")
             return 400, b'{"error": {"code": 400, "message": "Request contains an invalid argument. (stand-in)", "status": "INVALID_ARGUMENT"}}', {}
@@ -230,7 +255,7 @@ class NoDecisionsKey:
                 self._log(path, "judge:504", t=arrived)
                 return 504, b'{"error": {"code": 504, "message": "Deadline expired before operation could complete.", "status": "DEADLINE_EXCEEDED"}}', {}
             time.sleep(self.judge_delay_s)
-            answers = self._judge(schema)
+            answers = self._judge(schema, blockout=_is_blockout_qa(schema))
             if self.sheet_labels_are_text and any(re.fullmatch(r"defect_(floating|clipping)__\d+", q) for q in answers):
                 # a geometry ranking: its candidates are labelled contact sheets (see __init__)
                 asked = dict(re.findall(r"### (policy_legible_text__\d+)  \[noul\]\n([^\n]*)", _text(body)))
@@ -245,6 +270,8 @@ class NoDecisionsKey:
             usage = {"promptTokenCount": prompt, "candidatesTokenCount": 1, "totalTokenCount": prompt + 1}
             kind = "text"
         extra = {"prompt": _text(body)} if kind.startswith("image:") else {}
+        if kind.startswith("author:"):  # what an authoring request carried: its images and its text
+            extra = {"images": _images(body), "text": _text(body)}
         self._log(path, kind, max_output_tokens=gc.get("maxOutputTokens"), t=arrived, **extra)
         ev = {"candidates": [{"content": {"role": "model", **content}, "finishReason": "STOP"}], "usageMetadata": usage,
               "responseId": uuid.uuid4().hex}
@@ -255,7 +282,7 @@ class NoDecisionsKey:
         props = (schema or {}).get("properties") or {}
         kind = ("image" if "IMAGE" in (gc.get("responseModalities") or []) else "author:correct" if set(props) == {"nodes", "materials", "remove"}
                 else "author:propose" if "nodes" in props
-                else "author:repair" if schema and set(props) == {"ops"} else "judge" if schema else "text")
+                else _patch_kind(text) if schema and set(props) == {"ops"} else "judge" if schema else "text")
         asked = {re.sub(r"__\d+$", "", q) for q in props}
         with self._lock:
             for rule in self.fail:
@@ -264,6 +291,9 @@ class NoDecisionsKey:
                 if asked & set(rule.get("exclude") or ()):
                     continue
                 if rule.get("prompt") and rule["prompt"] not in text:
+                    continue
+                if rule.get("skip"):  # the first ``skip`` matching calls are served as usual
+                    rule["skip"] -= 1
                     continue
                 if rule.get("times") is not None and rule["hits"] >= rule["times"]:
                     continue
@@ -275,18 +305,24 @@ class NoDecisionsKey:
         """The kinds logged for calls turned away or dropped (``<kind>:503``, ``<kind>:drop``...)."""
         return [r["kind"] for r in self.requests if r["kind"].rsplit(":", 1)[-1] in ("503", "429", "drop")]
 
-    def _judge(self, schema: dict[str, Any]) -> dict[str, Any]:
+    def _judge(self, schema: dict[str, Any], *, blockout: bool = False) -> dict[str, Any]:
         out: dict[str, Any] = {}
+        sequence: dict[str, Any] = {}
+        if blockout and (self.score_sequence or self.defect_sequence):
+            with self._lock:
+                n = self._served["blockout"]
+                self._served["blockout"] += 1
+            sequence = {q: vals[min(n, len(vals) - 1)] for q, vals in {**self.score_sequence, **self.defect_sequence}.items() if vals}
         for qid, sch in (schema.get("properties") or {}).items():
             base = re.sub(r"__\d+$", "", qid)
             if sch.get("type") == "number":
-                out[qid] = self.overrides.get(base, self.policy if base.startswith("policy_") else 0.8 if base == "needs_ortho_blueprint"
+                out[qid] = sequence.get(base) if base in self.defect_sequence and base in sequence else self.overrides.get(base, self.policy if base.startswith("policy_") else 0.8 if base == "needs_ortho_blueprint"
                                               else self.defect if base.startswith("defect_") else 0.5)
                 continue
             keys = list((sch.get("properties") or {}).keys())
             pref = {"pipeline_dag": "prop_to_engine", "next_action": "approve_export", "complexity_tier": "1"}.get(base)
             if all(k.isdigit() for k in keys) and base != "complexity_tier":
-                level = self.score_overrides.get(base, self.score_level)
+                level = sequence.get(base, self.score_overrides.get(base, self.score_level))
                 pref = level if level in keys else keys[-1]
             if pref not in keys:
                 pref = keys[0]
@@ -319,6 +355,23 @@ class NoDecisionsKey:
             Image.fromarray(arr).save(buf, "PNG", compress_level=1)
             self._png[size] = buf.getvalue()
         return self._png[size]
+
+
+def _patch_kind(text: str) -> str:
+    """author:improve for the improvement (or edit) request, author:repair for any other patch request."""
+    from antigravity3d.tactics.metered_author import EDIT_HEAD, IMPROVE_HEAD
+
+    return "author:improve" if IMPROVE_HEAD in text or EDIT_HEAD in text else "author:repair"
+
+
+def _is_blockout_qa(schema: dict[str, Any]) -> bool:
+    props = schema.get("properties") or {}
+    return "score_silhouette" in props and "defect_cg_plastic" not in props
+
+
+def _images(body: dict[str, Any]) -> int:
+    return sum(1 for c in body.get("contents", []) for p in c.get("parts", [])
+               if isinstance(p, dict) and ("fileData" in p or "inlineData" in p))
 
 
 def _text(body: dict[str, Any]) -> str:

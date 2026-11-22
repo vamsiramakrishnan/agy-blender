@@ -13,7 +13,7 @@ import shutil
 import tempfile
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +62,25 @@ from antigravity3d.tactics.tournament import PBRTournamentResult, TournamentResu
 EPS = 1e-9
 LOOKDEV_ROUNDS = 3
 QA_EST_USD = 0.002  # conservative cost of one visual-QA (+ locate) round when checking the ceiling
+# Side of each marked view an author request carries (repairs and improvement rounds). The judge's sheet is 2 x 2 tiles of
+# 256 px; the author gets each view as its own image at twice that, so that a view is not shrunk to a quarter of one
+# image's resolution as it is on a sheet. One image at the default resolution billed 1,120 input tokens on gemini-4-neon
+# (decisions.fallback.IMAGE_TOKENS_DEFAULT), so four are about 4,500 tokens a request; admission counts them exactly
+# (count_tokens, no per-image resolution set). The badges keep their pixel size, so at 512 px they cover less of a part.
+AUTHOR_VIEW_PX = 512
+# How much score_brief_depiction must rise for an improvement round to be kept: the judge's own spread on one unchanged
+# design. Measured live 2026-11-22 (fallback judge, the shipped viewing condition: one sheet of four 256 px views, each
+# design judged alone three times, two crate designs): pooled sd 0.115, so the same design scores within about +-0.12 and
+# a rise below about twice that cannot be told from noise. Four separate 512 px views halved the spread (sd 0.064) in the
+# same measurement; this number follows the judge's viewing condition and is to be halved with it.
+IMPROVE_NOISE_BAND = 0.25
+# Pass A gates that are scores, not locatable faults (``_Run.gates``): a design that fails only these goes to improvement
+# rounds instead of a repair. The silhouette lock is not lowered by this: it stays a gate, and the rounds aim at it.
+SCORE_GATES = frozenset({"silhouette", "brief_depiction", "brief_part_missing"})
+# Repairs in a row that may be rolled back before pass A stops: after one, the author is asked again with what its patch
+# did and why it was undone (a person told what their fix broke tries again); after a second the same request at the same
+# state has failed twice. Each attempt is still one of the pass's ``max_rounds``.
+REPAIR_PATIENCE = 2
 
 
 # Export gates (no warn bands). UV: every mesh's mean area distortion must be within
@@ -89,6 +108,11 @@ class RoundTrace:
     # Pass A's progress figure (compose.progress_score: tier15 with the brief's answers); None when no brief was asked
     # about (it then equals tier15 and is not written).
     progress: float | None = None
+    # The improvement round (1-based) this verdict judged; None for every other round (and then not written).
+    improve: int | None = None
+    # Pass A gates this verdict's design failed, each with its figure ("defect:defect_clipping=0.90", "silhouette=2.69"),
+    # so failures can be counted by gate and defect; None when it passed them all (and then not written).
+    gates: list[str] | None = None
 
 
 @dataclass
@@ -171,7 +195,7 @@ class PyramidResult:
             d["judge_unavailable"] = self.judge_unavailable
         if self.brief_unmet:  # only when it happened: a run without a brief (or meeting it) writes the keys it always wrote
             d["brief_unmet"] = list(self.brief_unmet)
-        d["rounds"] = [{k: v for k, v in vars(r).items() if k != "progress" or v is not None} for r in self.rounds]
+        d["rounds"] = [{k: v for k, v in vars(r).items() if k not in ("progress", "improve", "gates") or v is not None} for r in self.rounds]
         if self.unit != "usd":  # no price applied: no dollar figure (a token number never goes into a *_usd key)
             d.update(cost_usd=None, spend_unit=self.unit)
             d["rounds"] = [{**r, "cost_usd": None} for r in d["rounds"]]
@@ -275,6 +299,17 @@ def _crit(t1: Any) -> int:
     return sum(i.severity == "critical" for i in t1.issues)
 
 
+def _patch_summary(patch: IRPatch, limit: int = 12) -> str:
+    """What a patch did, for the request that follows its rollback: "16 op(s): upsert_node latch_clasp_l, ..."."""
+    def target(op: Any) -> str:
+        return str(getattr(op, "node_id", None) or getattr(getattr(op, "node", None), "id", None)
+                   or getattr(getattr(op, "material", None), "id", None) or "")
+
+    names = [f"{op.op} {target(op)}".strip() for op in patch.ops]
+    more = f", and {len(names) - limit} more" if len(names) > limit else ""
+    return f"your patch had {len(patch.ops)} op(s): {', '.join(names[:limit])}{more}"
+
+
 def _patch_params(patch: IRPatch) -> list[str]:
     out: list[str] = []
     for op in patch.ops:
@@ -309,6 +344,63 @@ def preview_sheet(meshes: list[Any], tint: dict[str | None, tuple[float, float, 
     return sheet
 
 
+def _question_text(qid: str) -> tuple[str, list[str]]:
+    """The judge's question ``qid`` as an author can read it (the sheet's own description and image placeholders taken
+    out) and its score levels ([] for a yes/no question); ('', []) for a question this bank does not hold."""
+    from antigravity3d.decisions import questions as Q
+
+    spec = Q.VISUAL_QA_QUESTIONS.get(qid)
+    if spec is None:
+        return "", []
+    text = str(spec.question["instructions"])
+    for prefix in (Q._SHEET, "{ortho} is a four-view orthographic blueprint of the intended asset. ", "{style} is a style reference image. "):
+        text = text.replace(prefix, "")
+    text = text.replace("{ortho}", "the blueprint").replace("{style}", "the style reference").replace("{sheet}", "the renders")
+    levels = spec.question.get("criteria") if spec.question["type"] == "score" else None
+    return text, list(levels or [])
+
+
+# Tier-1 findings an author request lists one by one (each names its parts, e.g. "lid_core/latch_hinge_L: ~32% of probe
+# points inside"); a live worker crate had 28 (26 interpenetrations, 2 z-fighting). The rest are counted, not dropped silently.
+MAX_TIER1_LINES = 60
+
+
+def verdict_lines(result: VisualQAResult, th: Thresholds, located: dict[str, list[str]] | None = None,
+                  tier1: Any = None) -> tuple[str, ...]:
+    """What the judge said about a design, for the author: every score with the level it is nearest to, and every
+    question it answered yes to at or above the ambiguity floor (``Thresholds.ambiguity_lo``, where a defect starts to
+    count) with the parts it was located on. The judge returns numbers, not text; without these lines an author sees only
+    the first reasons of the action. ``tier1``: the project's own check of the same design (``tier1_qa``): every finding
+    with its detail, which names the parts (the pair that interpenetrates, how deep), so a judge's "parts clip" comes
+    with where; without it, the parts Tier-1 located (``located["tier1:<code>"]``)."""
+    located = located or {}
+    lines: list[str] = []
+    for qid, v in sorted(result.scores.items()):
+        text, levels = _question_text(qid)
+        if not text:
+            continue
+        level = min(len(levels) - 1, max(0, int(round(v)))) if levels else None
+        lines.append(f"{qid} {v:.2f}: {text}" + (f" Nearest level {level}: {levels[level]}" if level is not None else ""))
+    for qid, p in sorted(result.defects.items()):
+        text, _ = _question_text(qid)
+        if p < th.ambiguity_lo or not text:
+            continue
+        where = located.get(qid) or []
+        lines.append(f"{qid} P={p:.2f}: {text}" + (f" Located on: {', '.join(where)}." if where else ""))
+    issues = list(getattr(tier1, "issues", None) or [])
+    if issues:
+        for i in issues[:MAX_TIER1_LINES]:
+            lines.append(f"project check {i.code} ({i.severity})" + (f" at {i.node_id}" if i.node_id and i.node_id not in i.detail else "")
+                         + f": {i.detail}")
+        if len(issues) > MAX_TIER1_LINES:
+            lines.append(f"project check: {len(issues) - MAX_TIER1_LINES} more finding(s) not listed")
+        return tuple(lines)
+    for key, ids in sorted(located.items()):
+        if key.startswith("tier1:") and ids:
+            lines.append(f"project check {key[6:]} on: {', '.join(ids)}")
+    return tuple(lines)
+
+
 class JudgeUnavailable(Exception):
     """A visual QA verdict could not be had: the judge call failed after the shared retry schedule (``service_answer``),
     was not admitted, or answered nothing usable. A pass that meets it stops, never approves, and the run goes on to
@@ -327,6 +419,36 @@ def _judge_failure(exc: BaseException) -> bool:
             or service_answer.is_timeout(exc) and isinstance(exc, Exception))
 
 
+@dataclass(frozen=True)
+class JudgedDesign:
+    """One design as the judge saw and scored it (the shape of ``tactics.judging.judge_design``, which replaces
+    ``_judge_design`` at integration). ``views``: (label, uri) exactly what the judge was shown; ``author_views``: the
+    same camera views with numbered badges, for an authoring request; ``legend``: badge -> node id of ``author_views``."""
+
+    result: VisualQAResult
+    views: tuple[tuple[str, str], ...]
+    author_views: tuple[tuple[str, str], ...]
+    legend: dict[int, str]
+    legend_text: str
+
+
+async def _judge_design(plane: Any, meshes: list[Any], *, brief: str | None, governor: Governor, uploader: Uploader,
+                        stage: str = "blockout", ortho_uri: str | None = None, style_uri: str | None = None) -> JudgedDesign:
+    """Today's judging of a design, behind the signature of ``tactics.judging.judge_design`` (whose body replaces this one
+    at integration): the marked 2 x 2 sheet of 256 px views and ``plane.evaluate_visual_qa`` with the brief, as pass A
+    always asked; plus the four marked views at ``AUTHOR_VIEW_PX`` for the author. Raises what evaluate_visual_qa and
+    the uploader raise. ``style_uri``: today's visual QA also takes the run's style reference."""
+    sheet = await asyncio.to_thread(marked_contact_sheet, meshes, size=256)
+    uri = await uploader(png_bytes(sheet.image))
+    r = await plane.evaluate_visual_qa(uri, ortho_uri, style_uri, stage, marked_legend=sheet.legend, governor=governor,
+                                       **({"brief": brief} if brief else {}))  # no brief: the request is as it was
+    big = await asyncio.to_thread(marked_contact_sheet, meshes, size=AUTHOR_VIEW_PX)  # badges number by node id: same legend
+    author = []
+    for name, view in big.views.items():
+        author.append((f"{name} view of the current design (Image {len(author) + 1})", await uploader(png_bytes(view.image))))
+    return JudgedDesign(r, (("contact sheet", uri),), tuple(author), big.legend, big.legend_text())
+
+
 @dataclass
 class _QA:
     result: VisualQAResult
@@ -336,6 +458,7 @@ class _QA:
     cost: float
     legend: dict[int, str] | None = None
     progress: float = 0.0  # compose.progress_score (equals t15 when the brief was not asked about)
+    judged: JudgedDesign | None = None  # pass A: the design as judged, with the views an author request carries
 
 
 @dataclass
@@ -353,6 +476,9 @@ class _Pending:
     scene_hash: str = ""
     origin: str = "unknown"
     progress: float = 0.0
+    t1: Any = None  # the Tier-1 result and the verdict of the design before the change (judge_change compares with them)
+    q: Any = None
+    summary: str = ""  # what the change did (_patch_summary), for the request that follows its rollback
 
 
 class _Run:
@@ -401,15 +527,48 @@ class _Run:
             from antigravity3d import service_answer
 
             raise JudgeUnavailable(f"{stage} visual QA: {service_answer.describe(e, 300)}") from e
+        return self.verdict(stage, r, uri, legend)
+
+    def verdict(self, stage: str, r: VisualQAResult, uri: str, legend: dict[int, str] | None, judged: JudgedDesign | None = None,
+                *, reused: bool = False) -> _QA:
         action = decide_action(r, self.th, stage)
-        cost = r.result.booked_usd
+        cost = 0.0 if reused else r.result.booked_usd  # a verdict made (and booked) elsewhere is not counted again
         self.res.cost_usd += cost
-        return _QA(r, action, tier15_score(r, self.th), uri, cost, legend, progress_score(r, self.th))
+        return _QA(r, action, tier15_score(r, self.th), uri, cost, legend, progress_score(r, self.th), judged)
+
+    async def qa_design(self, meshes: list[Any], judged: JudgedDesign | None = None) -> _QA:
+        """Pass A's blockout visual QA of the current design (``_judge_design``). ``judged``: a verdict already made for
+        exactly this design (the ranking's of its winner), used instead of asking again."""
+        reused = judged is not None
+        if judged is None:
+            try:
+                judged = await _judge_design(self.plane, meshes, brief=self.prompt or None, governor=self.governor, uploader=self.upload,
+                                             ortho_uri=self.ortho_uri, style_uri=self.style_uri)
+            except Exception as e:
+                if not _judge_failure(e):
+                    raise
+                from antigravity3d import service_answer
+
+                raise JudgeUnavailable(f"blockout visual QA: {service_answer.describe(e, 300)}") from e
+        return self.verdict("blockout", judged.result, judged.views[0][1], judged.legend, judged, reused=reused)
+
+    def gate_figures(self, t1: Any, q: _QA) -> list[str] | None:
+        from antigravity3d.decisions.compose import BRIEF_DEFECT, BRIEF_SCORE
+
+        figure = {"silhouette": q.result.scores.get("score_silhouette"), "floating": q.result.defects.get("defect_floating"),
+                  "brief_part_missing": q.result.defects.get(BRIEF_DEFECT), "brief_depiction": q.result.scores.get(BRIEF_SCORE)}
+        out = []
+        for g in sorted(self.gates(t1, q)):
+            v = q.result.defects.get(g[7:]) if g.startswith("defect:") else figure.get(g)
+            out.append(f"{g}={v:.2f}" if isinstance(v, (int, float)) else g)
+        return out or None
 
     def trace(self, stage: str, n: int, t1: Any, q: _QA, tier: str) -> RoundTrace:
         t = RoundTrace(stage, n, t1.one_line() if t1 else "n/a", bool(t1.ok) if t1 else True, q.t15, q.result.scores.get("score_silhouette"),
                        q.result.defects.get("defect_floating", 0.0), q.action.kind, q.action.fixer, q.action.reasons[:4], q.cost, tier,
                        progress=q.progress if has_brief_answers(q.result.defects) or has_brief_answers(q.result.scores) else None)
+        if stage == "A" and t1 is not None:
+            t.gates = self.gate_figures(t1, q)
         self.res.rounds.append(t)
         self.res.audit.append(f"{stage}{n} " + q.action.audit_delta().replace("\n", " | "))
         return t
@@ -510,7 +669,7 @@ class _Run:
         res.judge_unavailable = res.judge_unavailable or f"pass {pass_name} round {rnd}: {e}"
         self.step(f"visual_qa_{pass_name}", "failed", (f"{reason} (round {rnd})" + (f"; {rolled_back}" if rolled_back else ""))[:400])
 
-    async def author_repair(self, q: _QA, located: dict[str, list[str]]) -> tuple[Any, bool]:
+    async def author_repair(self, q: _QA, located: dict[str, list[str]], t1: Any = None, previous: str = "") -> tuple[Any, bool]:
         """One author repair call: ``(patch, failed)``. A failed call is a recorded result, not a crash.
 
         A truncated repair (or one that ended STOP with an empty answer) on a tier below the director is retried once on
@@ -537,9 +696,15 @@ class _Run:
             return None, True
 
         action = self.author_action(q)
+        if previous and not isinstance(self.author, MeteredAuthor):  # a metered author reads it with the views
+            from dataclasses import replace
+
+            action = replace(action, reasons=[*action.reasons, f"your previous patch for this design was undone: {previous}"])
         res.author_calls += 1
+        # A metered author is shown the design it is asked to repair (other authors take the request as it always was).
+        seen = {"views": self.author_views(q, located, t1, previous)} if isinstance(self.author, MeteredAuthor) else {}
         try:
-            patch = await self.author.repair(sm.base_ir(), action=action, located=located, manifest=sm.manifest())
+            patch = await self.author.repair(sm.base_ir(), action=action, located=located, manifest=sm.manifest(), **seen)
             if run := waits():  # served after the service turned attempts away: the waits are recorded
                 self.step("author_repair", "passed", "answered after the service turned attempt(s) away")
                 res.steps[-1].run = run
@@ -557,13 +722,25 @@ class _Run:
                 return fail(f"{kind} on {first.role} tier ({first.finish_reason}); director retry not permitted by spend plan")
             res.author_calls += 1
             try:
-                patch = await self.author.repair(sm.base_ir(), action=action, located=located, manifest=sm.manifest(), role="director")
+                patch = await self.author.repair(sm.base_ir(), action=action, located=located, manifest=sm.manifest(), role="director",
+                                                 **seen)
                 self.step("author_repair", "passed", f"{kind} on {first.role} tier; succeeded on the director tier")
                 return patch, False
             except BudgetExceeded as e:
                 return fail(f"{kind} on {first.role} tier; director retry not admitted: {e}")
             except AuthorOutcomeError as second:
                 return fail(f"{kind} on {first.role} tier; director retry also {type(second).__name__} ({second.finish_reason}): {second}")
+
+    def author_views(self, q: _QA, located: dict[str, list[str]], t1: Any = None, previous: str = "") -> Any:
+        """The renders an author request carries (``metered_author.DesignViews``): the marked views of the design the
+        verdict ``q`` judged (``JudgedDesign.author_views``, uploaded with it through the run's uploader: the cached forge
+        notes each one's digest, so the design record keys a rerun's identical render as the same request), the badge
+        legend and the judge's verdict on it. None when ``q`` carries no judged design (a verdict of another kind)."""
+        from antigravity3d.tactics.metered_author import DesignViews
+
+        if q.judged is None or not q.judged.author_views:
+            return None
+        return DesignViews(q.judged.author_views, q.judged.legend_text, verdict_lines(q.result, self.th, located, t1), previous)
 
     def author_action(self, q: _QA) -> Action:
         """The action the author is given. When the design falls short of the brief, its reasons end with what the judge
@@ -578,6 +755,250 @@ class _Run:
 
         return replace(q.action, reasons=[*q.action.reasons, *found, BRIEF_REASON + clean_brief(self.prompt, 2000)])
 
+    def gates(self, t1: Any, q: _QA) -> set[str]:
+        """The pass A gates this design fails: "tier1", "silhouette" (below the lock), "floating", "escalate_human",
+        "brief_part_missing", "brief_depiction" (the brief's requirements, when asked), and "defect:<id>" for a geometry
+        defect the judge answers with high confidence (>= ``Thresholds.defect_high``). Empty: pass A converged.
+
+        The last is new in round five: before it, pass A converged on a design the judge said clips (P 0.9) as long as
+        nothing floated, and nothing sent it back. With separate views the judge flags real interpenetration (live
+        2026-11-22: 0.82 on a design with 26 Tier-1 interpenetration warnings, 0.08-0.20 on designs without), so a
+        confirmed defect now goes to a repair, which is shown the pairs Tier-1 names."""
+        th = self.th
+        sil, fp = q.result.scores.get("score_silhouette"), q.result.defects.get("defect_floating", 0.0)
+        out = set()
+        if not t1.ok:
+            out.add("tier1")
+        if sil is not None and sil < th.silhouette_lock:
+            out.add("silhouette")
+        if fp > th.floating_max:
+            out.add("floating")
+        if q.action.kind == "escalate_human":
+            out.add("escalate_human")
+        from antigravity3d.decisions.compose import BRIEF_DEFECT, BRIEF_SCORE, GEOMETRY_DEFECTS
+
+        out |= {f"defect:{d}" for d, p in q.result.defects.items()
+                if p >= th.defect_high and d in GEOMETRY_DEFECTS and d not in (BRIEF_DEFECT, "defect_floating")}
+
+        if (p := q.result.defects.get(BRIEF_DEFECT)) is not None and p >= th.ambiguity_lo:
+            out.add("brief_part_missing")
+        if (v := q.result.scores.get(BRIEF_SCORE)) is not None and v < th.brief_depiction_min:
+            out.add("brief_depiction")
+        return out
+
+    def passes(self, t1: Any, q: _QA) -> bool:
+        """Pass A's convergence: Tier-1 clean, silhouette locked, nothing floating, nothing for a person, the brief met."""
+        return not self.gates(t1, q)
+
+    def flagged(self, q: _QA) -> set[str]:
+        return {d for d, p in q.result.defects.items() if p >= self.th.ambiguity_lo}
+
+    def score_only(self, t1: Any, q: _QA) -> bool:
+        """The design fails only score gates (silhouette below its lock, depiction below the brief's bar, a named part
+        the judge cannot find) and has no defect to locate and repair: Tier-1 clean, nothing flagged but the brief's own
+        question. A score below its gate is not a fault a repair can name; it is what an improvement round is for."""
+        from antigravity3d.decisions.compose import BRIEF_DEFECT
+
+        return bool(self.gates(t1, q)) and self.gates(t1, q) <= SCORE_GATES and not (self.flagged(q) - {BRIEF_DEFECT})
+
+    def can_improve(self, q: _QA) -> bool:
+        from antigravity3d.decisions.compose import BRIEF_SCORE
+
+        return (self.governor.plan.improve_rounds > 0 and bool(self.prompt) and getattr(self.author, "improve", None) is not None
+                and q.result.scores.get(BRIEF_SCORE) is not None)
+
+    def judge_change(self, t1: Any, q: _QA, t1n: Any, qn: _QA) -> tuple[bool, str]:
+        """Whether a change (a repair or an improvement round) made the design better, on evidence, and the evidence.
+
+        Worse, and rolled back, on any of: more Tier-1 critical issues; a part or group Tier-1 now finds floating (a
+        warning to Tier-1, a defect to a game developer: the rule separate_step applies too); a defect the judge newly
+        flags (P >= ambiguity_lo, where its answers separate: planted defects 0.8-0.9, intact designs at most 0.2, live
+        2026-11-22); a pass A gate that held and now fails; a score that fell by more than ``IMPROVE_NOISE_BAND``.
+        Better, and kept when nothing is worse, on any of: a flagged defect no longer flagged; fewer Tier-1 critical
+        issues or floating parts; a score that rose by at least the band. Neither: rolled back, since nothing shows the
+        change did anything the judge's own spread on an unchanged design would not. A score difference inside the band
+        counts as neither: a change is never kept or undone on noise."""
+        band = IMPROVE_NOISE_BAND
+        floats = lambda t: {(i.code, i.node_id) for i in t.issues if i.code in ("floating_part", "floating_group")}  # noqa: E731
+        before, after = q.result.scores, qn.result.scores
+        worse: list[str] = []
+        if _crit(t1n) > _crit(t1):
+            worse.append(f"Tier-1 critical issues {_crit(t1)}->{_crit(t1n)}")
+        if new := sorted(n or "?" for _, n in floats(t1n) - floats(t1)):
+            worse.append("Tier-1 finds a new floating part: " + ", ".join(new))
+        if raised := sorted(self.flagged(qn) - self.flagged(q)):
+            worse.append("newly flagged: " + ", ".join(f"{d}={qn.result.defects[d]:.2f}" for d in raised))
+        if failing := sorted(self.gates(t1n, qn) - self.gates(t1, q)):
+            worse.append("gate now failing: " + ", ".join(failing))
+        if fell := [f"{k} {v:.2f}->{after[k]:.2f}" for k, v in sorted(before.items()) if k in after and after[k] < v - band - EPS]:
+            worse.append(f"fell by more than the judge's noise band ({band}): " + ", ".join(fell))
+        if worse:
+            return False, "; ".join(worse)
+        better: list[str] = []
+        if cleared := sorted(self.flagged(q) - self.flagged(qn)):
+            better.append("cleared " + ", ".join(f"{d} {q.result.defects[d]:.2f}->{qn.result.defects.get(d, 0.0):.2f}" for d in cleared))
+        if _crit(t1n) < _crit(t1):
+            better.append(f"Tier-1 critical issues {_crit(t1)}->{_crit(t1n)}")
+        if landed := sorted(n or "?" for _, n in floats(t1) - floats(t1n)):
+            better.append("no longer floating: " + ", ".join(landed))
+        if rose := [f"{k} {v:.2f}->{after[k]:.2f}" for k, v in sorted(before.items()) if k in after and after[k] >= v + band - EPS]:
+            better.append(f"rose by the judge's noise band ({band}) or more: " + ", ".join(rose))
+        if not better:
+            return False, f"no change beyond the judge's noise band ({band}) and no defect cleared"
+        return True, "; ".join(better)
+
+    # ---- Pass A improvement rounds ----------------------------------------------------------------------
+
+    def improvement_need(self) -> float:
+        """What one improvement round is expected to cost (the author's expected call on the round's tier plus its visual
+        QA) and what must stay for pass B and C after it (three lookdev rounds and one grading call), in the ledger's
+        unit. Planning only: admission reserves each call's counted worst case."""
+        from antigravity3d.tactics.common import GRADE_TOKENS_EST
+
+        plan = self.governor.plan
+        role = plan.improve_role or plan.builder_role
+        profile = self.author.cost_profile(role) if hasattr(self.author, "cost_profile") else None
+        author = profile[0] if profile else 0.0
+        later = self.governor.est(usd=LOOKDEV_ROUNDS * QA_EST_USD, tokens=LOOKDEV_ROUNDS * QA_TOKENS_EST + GRADE_TOKENS_EST)
+        return author + self.governor.est(usd=QA_EST_USD, tokens=QA_TOKENS_EST) + later
+
+    async def improvement_rounds(self, rnd: int, t1: Any, q: _QA) -> None:
+        """Rounds whose aim is a better design (``SpendPlan.improve_*``): after pass A converged, or instead of a repair
+        when the design fails only score gates (``score_only``: a score below its gate names no fault to repair).
+
+        Each round shows the author its renders, the brief and the judge's whole verdict with Tier-1's findings
+        (``MeteredAuthor.improve``), applies the patch, separates flush faces again and asks the same blockout visual
+        QA. It is kept or rolled back on evidence (``judge_change``); a rolled-back round's next request says what that
+        patch did and why it was undone. Rounds end when the design passes pass A and depiction reaches
+        ``improve_target``, after ``improve_patience`` rounds in a row not kept, at ``improve_rounds``, when the budget
+        would not leave pass B and C their share, or when a round cannot be had (an authoring call that failed or was
+        not admitted, a judge that did not answer): that round is undone and the design kept so far ships, as judged.
+        ``res.converged["A"]`` says whether the kept design passes pass A. Each round is a RoundTrace and a step
+        ``improve_A<k>`` with its before, after and evidence."""
+        from antigravity3d.decisions.compose import BRIEF_SCORE
+        from antigravity3d.decisions.engine import clean_brief
+        from antigravity3d.tactics.metered_author import AuthorInvalid, AuthorOutcomeError
+
+        plan, res, sm = self.governor.plan, self.res, self.sm
+        base = res.stopped["A"]
+
+        def stop(why: str) -> None:
+            res.converged["A"] = self.passes(t1, q)
+            res.stopped["A"] = f"{base}; {why}"
+
+        if plan.improve_rounds <= 0 or not self.prompt:  # no rounds planned, or no brief to improve toward: as before
+            return
+        fn = getattr(self.author, "improve", None)
+        if fn is None:
+            self.step("improve_A", "skipped", f"{type(self.author).__name__} has no improvement request")
+            return
+        if q.result.scores.get(BRIEF_SCORE) is None:
+            self.step("improve_A", "skipped", "the judge did not answer how well the design depicts the brief")
+            return
+        start, kept, misses, previous = (q.progress, q.result.scores[BRIEF_SCORE]), 0, 0, ""
+        brief = clean_brief(self.prompt, 2000)
+        for k in range(1, plan.improve_rounds + 1):
+            dep = q.result.scores[BRIEF_SCORE]
+            done = f"{kept} of {k - 1} round(s) kept, depiction {start[1]:.2f}->{dep:.2f}, progress {start[0]:.2f}->{q.progress:.2f}"
+            if self.passes(t1, q) and dep >= plan.improve_target - EPS:
+                stop(f"improvement: target met (depiction {dep:.2f} >= {plan.improve_target})" + (f"; {done}" if k > 1 else ""))
+                return
+            need = self.improvement_need()
+            if not self.governor.can_afford(need):
+                stop(f"improvement: budget ({self.governor.fmt(self.governor.remaining)} left; a round and what pass B and C "
+                     f"need after it come to about {self.governor.fmt(need)}); {done}")
+                return
+            t0 = time.perf_counter()
+            located = await self.locate(t1, q)
+            views = self.author_views(q, located, t1, previous)
+            if views is None:  # an improvement is asked for by showing the design
+                stop(f"improvement: no renders of the design to show; {done}")
+                return
+            meshes = sm.extract_meshes()
+            tris = sum(len(m.triangles) for m in meshes)
+            name = f"improve_A{k}"
+            # One correction per round: an answer that does not validate, or a patch the kernel refuses, is asked again
+            # at once with the exact error (the patch-shaped twin of the node-level correction of a design); only a second
+            # refusal costs the round.
+            tx, refusal = None, ""
+            for attempt in (1, 2):
+                res.author_calls += 1
+                try:
+                    patch = await fn(sm.base_ir(), brief=brief, views=replace(views, previous=refusal) if refusal else views,
+                                     manifest=sm.manifest(), triangles=tris)
+                except AuthorInvalid as e:
+                    refusal = f"your last answer did not validate: {e}"[:900]
+                    if attempt == 1:
+                        continue
+                    patch = None
+                    self.step(name, "warned", f"no improvement: the answer did not validate twice ({e})"[:400], t0)
+                    break
+                except (BudgetExceeded, AuthorOutcomeError) as e:
+                    why = f"not admitted: {e}" if isinstance(e, BudgetExceeded) else f"{type(e).__name__} on {e.model} ({e.finish_reason}): {e}"
+                    self.step(name, "warned", f"no improvement: the call failed ({why})"[:400], t0)
+                    stop(f"improvement round {k} failed ({type(e).__name__}); {done}")
+                    return
+                if patch is None:
+                    break
+                try:
+                    tx = sm.apply_patch(patch)
+                    break
+                except Exception as e:  # noqa: BLE001 - an invalid patch must not kill the run
+                    refusal = f"{_patch_summary(patch)}; it was refused before it could be judged: {type(e).__name__}: {e}"[:900]
+                    if attempt == 2:
+                        self.step(name, "warned", f"patch refused twice: {refusal}"[:400], t0)
+            if tx is None:
+                if refusal:  # refused or invalid twice: a lost round, and the next request says why
+                    previous = refusal
+                    misses += 1
+                    if misses >= plan.improve_patience:
+                        stop(f"improvement: round {k}'s answer was refused twice; {done}")
+                        return
+                    continue
+                self.step(name, "skipped", "the author proposed no change", t0)
+                stop(f"improvement: the author proposed no change in round {k}; {done}")
+                return
+            if self.settle_first:  # the patch can bring back flush faces: separate again (undone with the round)
+                self.separate_step(f"separate_coplanar_I{k}")
+            new_meshes = sm.extract_meshes()
+            t1n = tier1_qa(new_meshes, self.budget)
+            try:
+                qn = await self.qa_design(new_meshes)
+            except JudgeUnavailable as e:  # what ships is what was judged: the unjudged round is undone
+                sm.rollback(tx)
+                self.snapshot(t1.ok, q)
+                self.step(name, "warned", f"not judged ({e}); rolled back"[:400], t0)
+                stop(f"improvement round {k} not judged (judge unavailable): rolled back; {done}")
+                return
+            tr = self.trace("A", rnd + k, t1n, qn, "preview")
+            tr.improve = k
+            depn = qn.result.scores.get(BRIEF_SCORE)
+            moved = (f"progress {q.progress:.2f}->{qn.progress:.2f}, depiction {dep:.2f}->"
+                     + (f"{depn:.2f}" if depn is not None else "n/a") + f", tier15 {q.t15:.2f}->{qn.t15:.2f}, "
+                     f"tier1 critical {_crit(t1)}->{_crit(t1n)}, {len(patch.ops)} op(s)")
+            keep, evidence = self.judge_change(t1, q, t1n, qn)
+            if keep and depn is None:
+                keep, evidence = False, "the score of the brief was not answered"
+            if not keep:
+                sm.rollback(tx)
+                self.snapshot(t1.ok, q)
+                tr.rolled_back, tr.note = True, f"improve {k}: {moved}; rolled back ({evidence})"
+                self.step(name, "warned", f"rolled back ({evidence}): {moved}"[:400], t0)
+                previous = f"{_patch_summary(patch)}; it was undone because {evidence}"[:600]
+                misses += 1
+                if misses >= plan.improve_patience:
+                    stop(f"improvement: round {k} did not improve the design ({evidence}); {done}")
+                    return
+                continue
+            tr.note = f"improve {k}: {moved}; kept ({evidence})"
+            self.step(name, "passed", f"kept ({evidence}): {moved}"[:400], t0)
+            kept, misses, previous, q, t1 = kept + 1, 0, "", qn, t1n
+            self.snapshot(t1.ok, q)
+        dep = q.result.scores[BRIEF_SCORE]
+        stop(f"improvement: {plan.improve_rounds} round(s) used, {kept} kept, depiction {start[1]:.2f}->{dep:.2f}, "
+             f"progress {start[0]:.2f}->{q.progress:.2f}"
+             + (f" (target {plan.improve_target} met)" if self.passes(t1, q) and dep >= plan.improve_target - EPS else ""))
+
     async def pass_a(self) -> None:
         sm, th, res = self.sm, self.th, self.res
         if not sm.extract_meshes():
@@ -586,6 +1007,7 @@ class _Run:
             return
         pending: _Pending | None = None
         t0 = time.perf_counter()
+        unchanged = tuple(sm.tx_stack)
         if self.settle_first:  # deterministic pre-pass: no model call
             t1 = tier1_qa(sm.extract_meshes(), self.budget)
             patch = None
@@ -605,47 +1027,66 @@ class _Run:
                 else:
                     self.step("settle_pre", "passed", why, t0)
             self.separate_step("separate_coplanar")
+        if self.judged is not None and tuple(sm.tx_stack) != unchanged:  # settled or separated: not the design it judged
+            self.judged = None
+        reuse: tuple[Any, _QA] | None = None  # after a rollback: the kept design's own verdict, not asked again
+        previous, misses = "", 0  # what the last rolled-back repair did and why; repairs rolled back in a row
         for rnd in range(1, self.max_rounds + 1):
             meshes = sm.extract_meshes()
-            t1 = tier1_qa(meshes, self.budget)
-            sheet = marked_contact_sheet(meshes, size=256)
-            try:
-                q = await self.qa("blockout", png_bytes(sheet.image), sheet.legend)
-            except JudgeUnavailable as e:
-                undone = ""
-                if pending is not None:  # the change this verdict was to judge is undone: what ships is what was judged
-                    sm.rollback(pending.tx)
-                    res.tier1_ok, res.tier15, res.scores, res.defects = pending.tier1_ok, pending.t15, pending.scores, pending.defects
-                    undone = (f"rolled back the unjudged {pending.origin} change of round {rnd - 1} "
-                              f"({len(pending.ops)} op(s): {', '.join(pending.ops[:4])}; {pending.note[:80]})")
-                else:  # never judged: Tier-1 says what it found, the judge's scores are missing, not zero
-                    res.tier1_ok, res.tier15, res.scores, res.defects = t1.ok, None, {}, {}
-                self.judge_unavailable("A", rnd, e, undone)
-                return
-            tr = self.trace("A", rnd, t1, q, "preview")
-            if pending is not None:
-                # Progress, not tier15: with a brief, a repair that adds the named parts and loses a little silhouette is
-                # progress (compose.progress_score); without one the two are equal and this is the test it always was.
-                if _crit(t1) > pending.n_crit or q.progress < pending.progress - EPS:
-                    sm.rollback(pending.tx)
-                    moved = (f"tier15 {pending.t15:.2f}->{q.t15:.2f}" if tr.progress is None else
-                             f"tier15 {pending.t15:.2f}->{q.t15:.2f}, progress {pending.progress:.2f}->{q.progress:.2f}")
-                    tr.rolled_back, tr.note = True, f"regressed (tier1 crit {pending.n_crit}->{_crit(t1)}, {moved}); rolled back"
-                    res.tier1_ok, res.tier15, res.scores, res.defects = pending.tier1_ok, pending.t15, pending.scores, pending.defects
-                    res.stopped["A"] = "repair regressed; rolled back"
-                    res.converged["A"] = False
+            if reuse is not None:
+                (t1, q), reuse = reuse, None
+            else:
+                t1 = tier1_qa(meshes, self.budget)
+                try:  # the starting design's verdict may come made (the ranking's of its winner): only before any change
+                    q = await self.qa_design(meshes, self.judged if rnd == 1 else None)
+                except JudgeUnavailable as e:
+                    undone = ""
+                    if pending is not None:  # the change this verdict was to judge is undone: what ships is what was judged
+                        sm.rollback(pending.tx)
+                        res.tier1_ok, res.tier15, res.scores, res.defects = pending.tier1_ok, pending.t15, pending.scores, pending.defects
+                        undone = (f"rolled back the unjudged {pending.origin} change of round {rnd - 1} "
+                                  f"({len(pending.ops)} op(s): {', '.join(pending.ops[:4])}; {pending.note[:80]})")
+                    else:  # never judged: Tier-1 says what it found, the judge's scores are missing, not zero
+                        res.tier1_ok, res.tier15, res.scores, res.defects = t1.ok, None, {}, {}
+                    self.judge_unavailable("A", rnd, e, undone)
                     return
-                if q.t15 > pending.t15 + EPS:
-                    self.fix_record(pending, q)
-                pending = None
+                tr = self.trace("A", rnd, t1, q, "preview")
+                if pending is not None:
+                    # Kept or undone on evidence (judge_change): a new Tier-1 critical issue or floating part, a newly
+                    # flagged defect, a gate that now fails or a score down by more than the judge's noise band undo it;
+                    # a cleared defect or a score up by the band keeps it; a change shown to do neither is undone too.
+                    keep, evidence = self.judge_change(pending.t1, pending.q, t1, q)
+                    if not keep:
+                        sm.rollback(pending.tx)
+                        moved = (f"tier15 {pending.t15:.2f}->{q.t15:.2f}" if tr.progress is None else
+                                 f"tier15 {pending.t15:.2f}->{q.t15:.2f}, progress {pending.progress:.2f}->{q.progress:.2f}")
+                        tr.rolled_back, tr.note = True, f"rolled back ({evidence}; {moved})"
+                        res.tier1_ok, res.tier15, res.scores, res.defects = pending.tier1_ok, pending.t15, pending.scores, pending.defects
+                        self.snapshot(pending.t1.ok, pending.q)
+                        misses += 1
+                        previous = f"{pending.summary}; it was undone because {evidence}"[:600]
+                        if misses >= REPAIR_PATIENCE:
+                            res.stopped["A"] = f"repair rolled back {misses} time(s) in a row; last: {evidence}"[:400]
+                            res.converged["A"] = False
+                            return
+                        reuse, pending = (pending.t1, pending.q), None
+                        continue
+                    if q.t15 > pending.t15 + EPS:
+                        self.fix_record(pending, q)
+                    pending, previous, misses = None, "", 0
             self.snapshot(t1.ok, q)
-            sil, fp = q.result.scores.get("score_silhouette"), q.result.defects.get("defect_floating", 0.0)
-            if (t1.ok and (sil is None or sil >= th.silhouette_lock) and fp <= th.floating_max and q.action.kind != "escalate_human"
-                    and not brief_reasons(q.result.defects, q.result.scores, th)):  # the brief's requirements, when asked
+            if self.passes(t1, q):
                 res.converged["A"], res.stopped["A"] = True, f"converged in {rnd} round(s)"
+                await self.improvement_rounds(rnd, t1, q)
                 return
             if q.action.kind == "escalate_human":
                 res.stopped["A"] = "escalate_human: " + "; ".join(q.action.reasons[:2])
+                return
+            if self.score_only(t1, q) and self.can_improve(q):  # a score short of its gate: not a fault to repair
+                res.converged["A"] = False
+                res.stopped["A"] = (f"round {rnd}: short only of score gate(s) ({', '.join(sorted(self.gates(t1, q)))}), "
+                                    "no defect to repair: improvement rounds")
+                await self.improvement_rounds(rnd, t1, q)
                 return
             if rnd == self.max_rounds:
                 res.stopped["A"] = "rounds exhausted"
@@ -654,7 +1095,7 @@ class _Run:
                 res.stopped["A"] = "budget exhausted"
                 return
             before = dict(n_crit=_crit(t1), t15=q.t15, tier1_ok=t1.ok, scores=dict(q.result.scores), defects=dict(q.result.defects),
-                          progress=q.progress)
+                          progress=q.progress, t1=t1, q=q)
             located = await self.locate(t1, q)
             before_ir = sm.base_ir()
             candidate = reviewed_rules.seat_patch(before_ir, located.get("tier1:floating_part", []))
@@ -673,7 +1114,7 @@ class _Run:
                 if q.action.kind == "escalate_director" and not self.governor.may_escalate_to_director(self.governor.est(usd=QA_EST_USD, tokens=QA_TOKENS_EST)):
                     res.stopped["A"] = "escalate_director not permitted by spend plan"
                     return
-                patch, failed = await self.author_repair(q, located)
+                patch, failed = await self.author_repair(q, located, t1, previous)
                 label, why = "author", f"{q.action.kind}: {q.action.reasons[0] if q.action.reasons else ''}"
                 if failed:
                     return  # res.stopped["A"] names the cause
@@ -683,9 +1124,22 @@ class _Run:
             try:
                 tx = sm.apply_patch(patch)
             except Exception as e:  # noqa: BLE001 - invalid patch must not kill the run
-                tr.note = f"patch rejected: {type(e).__name__}: {e}"
-                res.stopped["A"] = "patch rejected"
-                return
+                refusal = f"{_patch_summary(patch)}; it was refused before it could be judged: {type(e).__name__}: {e}"[:900]
+                tx = None
+                if label == "author":  # one correction with the exact error, as an improvement round gets
+                    patch, failed = await self.author_repair(q, located, t1, refusal)
+                    if failed:
+                        return  # res.stopped["A"] names the cause
+                    if patch is not None:
+                        try:
+                            tx = sm.apply_patch(patch)
+                        except Exception as e2:  # noqa: BLE001
+                            refusal = f"{_patch_summary(patch)}; refused again: {type(e2).__name__}: {e2}"[:900]
+                if tx is None:
+                    tr.note = f"patch rejected: {refusal}"[:400]
+                    self.step("author_repair", "warned", f"patch rejected: {refusal}"[:400])
+                    res.stopped["A"] = "patch rejected"
+                    return
             tr.note = f"{label}: {len(patch.ops)} op(s)"
             from antigravity3d.tactics.metered_author import MeteredAuthor
 
@@ -696,9 +1150,12 @@ class _Run:
                 origin = f"{source}/{type(self.author).__name__}"
             pending = _Pending(tx, ops=[o.op for o in patch.ops], params=_patch_params(patch), note=why[:160],
                                rule=reviewed_rules.RULE if exact else "", scene_hash=reviewed_rules.scene_hash(before_ir),
-                               origin=origin, **before)
+                               origin=origin, summary=_patch_summary(patch), **before)
             if self.settle_first:  # a repair can bring back flush faces: separate again (rolled back with the repair)
                 self.separate_step(f"separate_coplanar_A{rnd}")
+        # the last round's repair was rolled back and no round was left to ask again
+        res.stopped.setdefault("A", f"rounds exhausted; the last repair was rolled back ({previous})"[:400])
+        res.converged.setdefault("A", False)
 
     # ---- Pass B ---------------------------------------------------------------------------------------
 
@@ -708,14 +1165,22 @@ class _Run:
             self.sm.base_ir().model_copy(update={"materials": materials_by_area(self.sm.extract_meshes(), self.sm.base_ir().materials)}),
             self.forge, plane=self.plane, governor=self.governor, prompt=self.prompt or self.res.asset, uploader=self.upload,
             cache=self.cache, size=self.texture_px(), brief=texture_brief(self.art))
+        speculative = False
         if t is None and self.forge is not None:
             t = await synth()
         elif inspect.isawaitable(t):
             t = await t
+            speculative = t is not None
             if t is None and self.forge is not None:  # the speculative synthesis was skipped: synthesise here, as above
                 t = await synth()
         self.untextured = {k: _why_untextured(v) for k, v in (t or {}).items()
                            if isinstance(v, PBRTournamentResult) and v.maps is None}
+        if speculative:  # textures made for the geometry winner's materials while pass A ran: a material a repair or an
+            # improvement round added since has none, and ships its flat colour; it is named, never left flat in silence
+            for m in self.sm.base_ir().materials:
+                if m.id not in t:
+                    self.untextured[m.id] = ("added by a pass A repair or improvement round after its textures were started "
+                                             "for the chosen design's materials")
         return {k: (v.maps if isinstance(v, PBRTournamentResult) else v) for k, v in (t or {}).items() if (v.maps if isinstance(v, PBRTournamentResult) else v) is not None}
 
     def write_textures(self) -> dict[str, dict[str, str]]:
@@ -1154,6 +1619,7 @@ async def refine(
     pool: Any = None, cache: Any = None, workdir: Path | str | None = None, fixlog: FixLog | None = None, asset_id: str | None = None,
     prompt: str = "", textures: Any = None, settle_first: bool = True, engine_render_uri: str | None = None,
     run_pass_c: bool = True, run_pass_b: bool = True, require_verified: bool = False, art: Any = None,
+    judged: JudgedDesign | None = None,
 ) -> PyramidResult:
     """Run passes A (silhouette lock), B (lookdev) and C (final verification) on the stage's current scene.
 
@@ -1162,13 +1628,15 @@ async def refine(
     ``art``: the art direction (``antigravity3d.art_direction.ArtDirection``) or None. It sets the size and palette of the
     written maps, the shading crease (export normals, the package and the LOD pop check), the texture sampler of the
     package GLBs and the texture/paint-over brief. ``budget`` is expected to be its effective budget already.
+    ``judged``: the starting design's verdict when one was already made (the geometry ranking's of its winner); pass A's
+    first visual QA uses it instead of asking again, unless the deterministic pre-pass changed the design.
     """
     run = _Run(
         stage_manager, plane=plane, author=author, governor=governor, budget=budget, th=thresholds or Thresholds(), ortho_uri=ortho_uri,
         style_uri=style_uri, max_rounds=max_rounds, forge=forge, upload=uploader or uploader_for(forge), pool=pool, cache=cache,
         workdir=Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="agy3d-pyramid-")), fixlog=fixlog, asset_id=asset_id,
         prompt=prompt, textures=textures, settle_first=settle_first, engine_render_uri=engine_render_uri, require_verified=require_verified,
-        art=art)
+        art=art, judged=judged)
     run.workdir.mkdir(parents=True, exist_ok=True)
     # Pass C ends with the web-runtime check: its browser starts now, while passes A and B run, and is closed again
     # if this run fails or is cancelled before it is used.
