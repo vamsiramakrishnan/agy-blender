@@ -23,7 +23,7 @@ from antigravity3d.ir import (
 )
 from antigravity3d import service_answer
 from antigravity3d.ir_shortcuts import local_bounds
-from antigravity3d.kernel.compile_ir import primitive_mesh
+from antigravity3d.kernel.compile_ir import triangle_count
 from antigravity3d.kernel.settle import beside_a_part
 from antigravity3d.state import EngineBudget
 
@@ -104,39 +104,8 @@ def _move(scene: SceneIR, node_id: str, delta: np.ndarray) -> SetTransform:
         translate=tuple(float(x) for x in np.array(t.translate) + d), rotate_euler_deg=t.rotate_euler_deg, scale=t.scale))
 
 
-def _estimated_triangles(node: NodeIR) -> int:
-    """Triangles of a node from its parameters, the kernel's formulas (s = bevel_segments, n = segments): box 12, a
-    bevel adds 16 s^2 + 16 s, each inset face 16; cylinder 4 n, bevelled n (4 s + 4); lathe n per band that meets the
-    axis plus n per flat end cap, 2 n per other band, a closed profile of m points 2 n m; extrude 4 k - 4 for k
-    corners. Used only until kernel.compile_ir.triangle_count exists (then that is the one source)."""
-    p = node.params
-    if node.kind in ("group", "mesh_ref"):
-        return 0
-    s = int(p.get("bevel_segments", 1))
-    bevelled = float(p.get("bevel", 0) or 0) > 0
-    if node.kind == "box":
-        return 12 + (16 * s * s + 16 * s if bevelled else 0) + 16 * len(p.get("inset_faces") or ())
-    if node.kind == "cylinder" and bevelled:
-        return int(p.get("segments", 24)) * (4 * s + 4)
-    if node.kind == "lathe":
-        n, prof = int(p.get("segments", 16)), [(float(r), float(z)) for r, z in p["profile"]]
-        if p.get("closed"):
-            return 2 * n * len(prof)
-        bands = sum(n if 0.0 in (a[0], b[0]) else 2 * n for a, b in zip(prof, prof[1:]))
-        return bands + n * sum(1 for end in (prof[0], prof[-1]) if end[0] > 0)
-    if node.kind == "extrude":
-        return 4 * len(p["outline"]) - 4
-    return len(primitive_mesh(node)[1])  # the old kinds: the kernel's own mesh, exact
-
-
-try:  # the kernel's cost function is the single source once it exists
-    from antigravity3d.kernel.compile_ir import triangle_count as tri_cost
-except ImportError:
-    tri_cost = _estimated_triangles
-
-
 def count_tris(scene: SceneIR) -> int:
-    return sum(tri_cost(n) for n in scene.nodes)
+    return sum(triangle_count(n) for n in scene.nodes)  # the kernel's cost function, the one source
 
 
 # --------------------------------------------------------------------------- mechanical repairs

@@ -523,6 +523,10 @@ class EditResult:
     spend: dict[str, Any] = field(default_factory=dict)
     pyramid: dict[str, Any] | None = None
     preview_gates_ok: bool | None = None
+    # What the exit code says (antigravity3d.delivery): the package and its deterministic checks, the judge's review apart
+    delivered: dict[str, Any] | None = None
+    review: dict[str, Any] | None = None
+    exit: dict[str, Any] | None = None
     untextured: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     materials_from: str = ""
@@ -557,7 +561,7 @@ def _sha256(path: Path) -> str:
 async def edit_asset(target: Path | str, instruction: str, *, plane: Any, author: Any = None, forge: Any = None,
                      governor: Any = None, patch: IRPatch | None = None, pool: Any = None, cache: Any = None,
                      thresholds: Any = None, uploader: Any = None, role: str | None = None,
-                     announce: Any = None) -> EditResult:
+                     announce: Any = None, strict_review: bool = False) -> EditResult:
     """Apply ``instruction`` to the asset at ``target`` (a prop ``--out`` folder or a package folder) and deliver a new
     package, or leave the asset unchanged and say why.
 
@@ -752,7 +756,8 @@ async def edit_asset(target: Path | str, instruction: str, *, plane: Any, author
             sm.rollback(kept_tx)
             res.why = f"the judge could not be asked while the edited asset was checked, so it is not made: {service_answer.describe(e, 300)}"
             return await _finish_unchanged(res, shipped, wd, t_start, calls, governor, before_task)
-        return await _deliver(res, shipped, sm, wd, kept_attempt, pres, pkg, instruction, patch, author, plane, governor, t_start, calls)
+        return await _deliver(res, shipped, sm, wd, kept_attempt, pres, pkg, instruction, patch, author, plane, governor, t_start, calls,
+                              th=th, strict_review=strict_review)
     finally:
         if not before_task.done():
             before_task.cancel()
@@ -841,7 +846,8 @@ async def _discard(task: Any) -> None:
 
 
 async def _deliver(res: EditResult, shipped: Shipped, sm: Any, wd: Path, att: Attempt, pres: Any, pkg: Path, instruction: str,
-                   patch: IRPatch | None, author: Any, plane: Any, governor: Any, t_start: float, calls: dict[str, int]) -> EditResult:
+                   patch: IRPatch | None, author: Any, plane: Any, governor: Any, t_start: float, calls: dict[str, int],
+                   th: Any = None, strict_review: bool = False) -> EditResult:
     """Record the edit in the kept design's package manifest, keep the replaced package in the history, and make the new
     one current."""
     if "usd" not in pres.artifacts or "package" not in pres.objects:
@@ -883,6 +889,16 @@ async def _deliver(res: EditResult, shipped: Shipped, sm: Any, wd: Path, att: At
     from antigravity3d.dags.prop_to_engine import preview_ok
 
     res.preview_gates_ok = bool(preview_ok(pres, bool(getattr(plane, "preview", False))))
+    from antigravity3d import delivery as D
+
+    outs = {k: v for k, v in pres.artifacts.items() if k in ("usd", "glb")}
+    if manifest.get("inspector"):
+        outs["inspector"] = str(new_pkg / manifest["inspector"])
+    ok, why = D.delivered(dag_ok=True, res=pres, outputs=outs, need_inspector=False)
+    res.delivered = {"ok": ok, "why": why}
+    res.review = D.review_record(pres, th, plane, where=(outs.get("inspector"), str(new_pkg)))
+    res.exit = D.exit_record(calibrated_rule=not getattr(plane, "preview", False), gates_ok=res.preview_gates_ok,
+                             is_delivered=ok, review=res.review, strict=strict_review)
     record = {**res.to_dict(), "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     (hist / EDIT_RECORD).write_text(json.dumps(record, indent=1, default=str))
     (wd / EDIT_RECORD).write_text(json.dumps(record, indent=1, default=str))

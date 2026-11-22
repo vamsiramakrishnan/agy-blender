@@ -207,11 +207,9 @@ def test_install_skill_names_the_checks_and_files_of_the_install() -> None:
 def test_design_loop_numbers_follow_the_code() -> None:
     """Round five's loop settings are PROVISIONAL (plan settings chosen from the level texts until the live curve of
     score per round exists); the skills state them in words, and this test reads the settings from the code so that the
-    text cannot drift from them. Skipped until the design-loop change is in the tree."""
+    text cannot drift from them."""
     from antigravity3d.tactics import governor, pyramid
 
-    if not hasattr(governor, "IMPROVE_TARGET") or not hasattr(pyramid, "AUTHOR_VIEW_PX"):
-        pytest.skip("the design loop (improvement rounds, marked author views) is not merged in this tree")
     flat = re.sub(r"\s+", " ", TEXT["parametric-kitbash"])
     assert f"{pyramid.AUTHOR_VIEW_PX} px on a side" in flat
     assert f"stops after {'two' if pyramid.REPAIR_PATIENCE == 2 else pyramid.REPAIR_PATIENCE} undone repairs in a row" in flat

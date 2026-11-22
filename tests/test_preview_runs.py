@@ -87,8 +87,11 @@ def test_prop_preview_builds_a_labelled_unverified_package_within_both_limits(ke
     out = capsys.readouterr().out
     assert rc == 0, out
     lines = out.strip().splitlines()
-    assert lines[-4].startswith("publication: UNVERIFIED PREVIEW (verified=false; judged by generative fallback, uncalibrated)")
-    assert lines[-2].startswith("review: required") and lines[-1] == "preview gates: PASS"
+    # the line above the last says what the exit code means under an uncalibrated judge (antigravity3d.delivery): one more
+    # line than before round five's exit rule, so the others moved up by one
+    assert lines[-5].startswith("publication: UNVERIFIED PREVIEW (verified=false; judged by generative fallback, uncalibrated)")
+    assert lines[-3].startswith("review: required") and lines[-1] == "preview gates: PASS"
+    assert lines[-2].startswith("delivered: yes, every deterministic check passed (exit 0")
     assert "spend (tokens, no price applied):" in out and "$" not in out.split("spend (tokens")[1].splitlines()[0]
     m = manifest(tmp_path)
     assert m["verified"] is False and m["preview"] is True and m["needs_review"] is True
@@ -201,14 +204,41 @@ def test_the_image_limit_caps_candidates_and_is_never_passed(key, tmp_path, caps
 @pytest.mark.parametrize("kw, why", [
     ({"policy": 0.9}, "hard policy flag"),
     ({"overrides": {"defect_ip_or_text": 0.95}}, "escalation to a person"),
-    ({"score_level": "1"}, "failed gate"),
 ])
-def test_preview_exit_status_ignores_only_the_uncalibrated_review(key, tmp_path, capsys, kw, why):
+def test_a_hard_policy_flag_or_an_escalation_to_a_person_fails_a_preview_even_from_an_uncalibrated_judge(key, tmp_path, capsys, kw, why):
+    """Content risk, not a quality score: these keep exit 1 under the delivery rule (antigravity3d.delivery). Loosening
+    them is the owner's decision."""
     key(**kw)
     rc = prop(tmp_path, "--preview", "--token-ceiling", "150000", "--max-images", "4", "--single-candidate", *FAST)
     out = capsys.readouterr().out
-    assert rc != 0, why
-    assert "preview gates: FAIL" in out
+    assert rc == 1, why
+    assert "preview gates: FAIL" in out and "blocked:" in out
+
+
+def test_a_score_gate_an_uncalibrated_judge_fails_is_a_finding_and_exits_0_or_3_with_strict(key, tmp_path, capsys):
+    """Until round five a score below target from the uncalibrated judge failed the run (exit 1): live on 2026-11-22 a
+    crate that validated clean and imported into Godot exited 1 on silhouette 2.74 < 3.3, and no first design of 27
+    reached 3.3. Now the delivered package exits 0, the last lines name each target missed and by how much, the gates
+    stay as computed (preview gates: FAIL, never read as approval), and --strict exits 3."""
+    key(score_level="1")
+    args = ("--preview", "--token-ceiling", "150000", "--max-images", "4", "--single-candidate", *FAST)
+    assert prop(tmp_path, *args) == 0
+    cap = capsys.readouterr()
+    lines = cap.out.strip().splitlines()
+    # progress goes to stderr only: the author's streamed call and the judge's calls; stdout stays the report
+    assert "[author worker propose #1]" in cap.err and "[judge visual_qa:blockout]" in cap.err
+    assert "[author " not in cap.out and "[judge " not in cap.out
+    assert lines[-1] == "preview gates: FAIL" and lines[-2].startswith("delivered: yes")
+    assert any(ln.startswith("finding: ") and "below the target" in ln and "look at it before you ship" in ln for ln in lines)
+    x = report(tmp_path)
+    assert x["preview_gates_ok"] is False and x["gates_ok"] is False  # unchanged: nothing may read the exit code as approval
+    assert x["delivered"]["ok"] is True and x["exit"] == {"code": 0, "rule": x["exit"]["rule"], "strict": False}
+    assert x["review"]["status"] == "below_target" and x["review"]["calibrated"] is False
+    assert any(not t["met"] and t["short_by"] > 0 for t in x["review"]["targets"])
+    other = tmp_path / "strict"
+    other.mkdir()
+    assert prop(other, *args, "--strict") == 3
+    assert "--strict makes that exit 3" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------------------------- kit
@@ -288,6 +318,9 @@ def test_native_preview_session_exports_a_labelled_package(key, tmp_path, mode):
     export = lines[-1]
     assert export.startswith("export_engine_package: EXPORTED PREVIEW crate (UNVERIFIED; judged by generative fallback, uncalibrated)")
     assert "of 150,000 tokens (no price applied)" in export and "of 4 images" in export
+    # delivered and review said apart: the package's checks, then what the uncalibrated judge said
+    assert "| delivered: yes, package validation passed" in export
+    assert "| review: approve by generative fallback, uncalibrated at tier15 " in export and "a person must look at it" in export
     m = json.loads(Path(glob.glob(wd + "/export/crate/manifest.json")[0]).read_text())
     assert m["verified"] is False and m["preview"] is True and m["judge"]["calibrated"] is False
     assert m["validation"]["engine_import"]["ok"] in (None, True)  # skipped without Godot, passed with it; never parity
@@ -429,7 +462,12 @@ async def test_the_money_path_writes_exactly_the_keys_it_wrote_before(tmp_path, 
     machine = ("/pyramid/artifacts/", "/skipped[]", "/pyramid/skipped[]", "/scores/web_", "/pyramid/scores/web_")  # installed engines/browsers
     # /budget/max_texture_px, /budget/shared_atlas and /budget/base_color_jpeg_quality were added on purpose (EngineBudget: one shared atlas per prop, capped
     # by an art direction's texture size); the report writes every budget field
-    assert sorted(k for k in keypaths(keep) if not k.startswith(machine)) == before["extras"]
+    # Added on purpose in round five (antigravity3d.delivery): what the exit code said, beside the unchanged gates. On the
+    # money path (a calibrated judge) the gates decide, as before.
+    delivery = ("/delivered", "/review", "/exit")
+    assert sorted(k for k in keypaths(keep) if not k.startswith(machine + delivery)) == before["extras"]
+    assert x["exit"] == {"code": 0 if x["preview_gates_ok"] else 1, "rule": "gates of a calibrated judge"}
+    assert x["review"]["calibrated"] is True and x["delivered"]["ok"] in (True, False)
     assert {n: sorted(d.data) for n, d in rep.nodes.items()} == before["node_data"]
     assert x["cost"]["plan"].startswith("standard: $") and "tokens" not in x["cost"]["plan"]
     assert all("reserved_usd" in r and "unit" not in r for r in x["cost"]["receipts"])
@@ -596,4 +634,8 @@ def test_a_design_the_judge_reads_as_a_blockout_of_the_brief_is_sent_back_not_ap
     x = report(tmp_path)
     blob = json.dumps(x)
     assert "brief depiction" in blob and "brief_unmet" in blob, blob[:2000]
-    assert rc != 0 and not x["published"]
+    # The export decision still fails on the brief (preview gates: FAIL, never approval). The exit code is 0 since round
+    # five's delivery rule (antigravity3d.delivery): an uncalibrated judge's score below target is a finding the last
+    # lines state, not a failure; --strict makes it exit 3.
+    assert not x["published"] and x["preview_gates_ok"] is False and x["review"]["status"] == "below_target"
+    assert rc == 0 and "finding: depiction of the brief" in out

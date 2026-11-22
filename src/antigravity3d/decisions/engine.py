@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import copy
+import itertools
 import json
 import logging
 import time
@@ -228,6 +229,9 @@ PREVIEW_REMEDY = ("an unverified preview judged by the generative fallback (unca
                   "a token ceiling and an image limit")
 
 
+_CALLS = itertools.count(1)  # tells one judge call's progress events from another's
+
+
 class DecisionControlPlane:
     """``preview``: the run is an unverified preview, so an uncalibrated backend may judge it (its calls admitted against
     the ceiling like any other). Off by default; nothing verified may run on a preview plane (see ``preview_copy``)."""
@@ -248,6 +252,11 @@ class DecisionControlPlane:
         self.preview = bool(preview)
         self.hard_policy_flags: list[str] = []  # hard policy flags an uncalibrated preview judge raised (they fail a preview)
         self.hedge_after_s = hedge_after_s
+        # Judge calls in flight on this backend: a one-item list, so a preview_copy (a shallow copy) counts with it.
+        self._in_flight = [0]
+        # Receives a tactics.stream_call.ModelCallProgress when a judge call starts and ends; None: the context's sink
+        # (stream_call.CURRENT_SINK), set by the command for its run or by the MCP server for a tool call.
+        self.progress: Callable[[Any], None] | None = None
 
     @property
     def calibrated(self) -> bool:
@@ -264,6 +273,26 @@ class DecisionControlPlane:
         other.preview = True
         other.hard_policy_flags = []
         return other
+
+    def _judge_started(self, tag: str, attempt: int) -> str:
+        """Progress: a judge call is sent. A judge call is not streamed, so its start, how many are in flight, and its end
+        are what a person can be told while it runs (the fallback judge took 15-335 s a call on 2026-11-22)."""
+        from antigravity3d.tactics.stream_call import ModelCallProgress, emit
+
+        self._in_flight[0] += 1
+        call = f"judge-{id(self):x}-{next(_CALLS)}"
+        emit(ModelCallProgress("judge", "sent", self.model, operation=tag, attempt=attempt, call=call,
+                               detail=f"{self._in_flight[0]} judge call(s) in flight"), self.progress)
+        return call
+
+    def _judge_ended(self, call: str, tag: str, attempt: int, sent: float, event: str, exc: BaseException | None = None) -> None:
+        from antigravity3d.tactics.stream_call import ModelCallProgress, emit
+
+        self._in_flight[0] -= 1
+        left = f"{self._in_flight[0]} still in flight"
+        detail = left if exc is None else f"{service_answer.describe(exc, 160) if isinstance(exc, Exception) else type(exc).__name__}; {left}"
+        emit(ModelCallProgress("judge", event, self.model, operation=tag, attempt=attempt, call=call,
+                               elapsed_s=round(time.perf_counter() - sent, 1), detail=detail), self.progress)
 
     async def worst_case_tokens(self, payload: Any, questions: dict[str, Q.Question]) -> int:
         """Most tokens one dispatch can bill on this backend: native Decisions, its documented input cap (no output
@@ -324,10 +353,13 @@ class DecisionControlPlane:
                     reservation = await governor.reserve_wait(category, hold, receipt=note_r)
                 else:
                     reservation = governor.reserve(category, hold, receipt=note_r)
+            call = self._judge_started(tag, attempts)
             try:
                 resp = await self._client.aio.decisions.create(model=self.model, input=payload, questions=questions)
+                self._judge_ended(call, tag, attempts, sent, "done")
                 break
             except BaseException as exc:
+                self._judge_ended(call, tag, attempts, sent, "failed", exc)
                 elapsed = time.perf_counter() - sent
                 outcome = service_answer.classify(exc, elapsed, deadline_s=float(own_deadline) if own_deadline else None)
                 if outcome == "final" and not own_deadline and isinstance(exc, Exception) and _is_transient(exc):

@@ -910,8 +910,14 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
             publish_directory(candidate, out)
         s.set_last_export(out)
     head = f"EXPORTED PREVIEW {name} (UNVERIFIED; judged by {pkg.data['judge']['label']})" if st.preview else f"EXPORTED {name}"
+    # Delivered and review, said apart (as agy3d prop and edit do): the package passed its deterministic checks; what the
+    # judge said is a separate fact, and an uncalibrated judge's approval is not a person's.
+    judge = pkg.data["judge"]["label"] if st.preview else "Decisions"
+    review = (f"review: {st.verdict.action} by {judge} at tier15 {st.last_tier15_score:.2f} on revision {st.revision}"
+              + ("; the judge is uncalibrated: a person must look at it before it ships" if st.preview else ""))
     return (f"{head}: usd+glb, {pkg.n_lod_files} LOD glbs, {len(b.colliders)} UCX hulls, "
-            f"{len(pkg.data['textures'])} maps, manifest.json | pkg ok | {fbx_note}" + (f" | spend {s.governor.summary()}" if st.preview else ""))
+            f"{len(pkg.data['textures'])} maps, manifest.json | pkg ok | delivered: yes, package validation passed and no "
+            f"engine check refused it (manifest lists what ran) | {review} | {fbx_note}" + (f" | spend {s.governor.summary()}" if st.preview else ""))
 
 
 def _session_provenance(s: Session, data: dict[str, Any]) -> None:

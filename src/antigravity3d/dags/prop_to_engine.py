@@ -116,12 +116,13 @@ class PropToEngineDAG:
                  max_rounds: int = 4, max_parallel: int | None = None, single_candidate: bool = False,
                  require_verified: bool = False, art_direction: ArtDirection | None = None,
                  token_ceiling: int | None = None, max_images: int | None = None, new_design: bool = False,
-                 announce: Any = None, min_call_tokens: int | None = None) -> None:
+                 announce: Any = None, min_call_tokens: int | None = None, strict_review: bool = False) -> None:
         """``new_design``: author a new design instead of continuing from the one recorded beside the image cache by an
         earlier run in this workdir (``DesignRecord``); the image cache is used as always. ``announce``: called with a
         line of text before any call when this asset's ledger already holds spend from earlier runs.
         ``min_call_tokens``: the largest single call this run must be able to make (the start-up check's figure); a
-        rerun whose ledger has less than that left is refused before any call (``CeilingLeftRefused``)."""
+        rerun whose ledger has less than that left is refused before any call (``CeilingLeftRefused``).
+        ``strict_review``: an uncalibrated judge's review below target fails the run with exit 3 (``delivery``)."""
         if require_verified and getattr(plane, "preview", False):
             raise ValueError("a verified run cannot use a preview decision plane")
         self.art = art_direction
@@ -140,7 +141,7 @@ class PropToEngineDAG:
         if self.preview_judging:
             self.th = self.th.for_uncalibrated_judge()
         self.max_rounds, self.max_parallel = max_rounds, max_parallel
-        self.require_verified = require_verified
+        self.require_verified, self.strict_review = require_verified, strict_review
         self.single_candidate = single_candidate
         self.up = uploader_for(self.forge)
 
@@ -483,6 +484,22 @@ class PropToEngineDAG:
             dag.node(name, fn, deps, late=("pbr",) if name == "pyramid" else ())
         return dag
 
+    def _delivery(self, x: dict[str, Any], dag_ok: bool, res: PyramidResult | None) -> None:
+        """``delivered``, ``review`` and ``exit`` (``antigravity3d.delivery``): what the exit code says, beside the gates,
+        which are unchanged and never read as approval."""
+        from antigravity3d import delivery as D
+
+        outputs = x["outputs"]
+        ok, why = D.delivered(dag_ok=dag_ok, res=res, outputs=outputs)
+        art = (res.artifacts or {}) if res is not None else {}
+        render = next((art[k] for k in ("web_render", "dcc_render", "engine_render") if art.get(k)), None)  # a render written to disk
+        review = D.review_record(res, self.th, self.plane, where=(outputs.get("inspector"), render))
+        calibrated_rule = self.require_verified or not self.preview_judging
+        gates = x["gates_ok"] if self.require_verified else x["preview_gates_ok"]
+        x.update(delivered={"ok": ok, "why": why}, review=review,
+                 exit=D.exit_record(calibrated_rule=calibrated_rule, gates_ok=gates, is_delivered=ok, review=review,
+                                    strict=self.strict_review))
+
     async def run(self, prompt: str) -> DagReport:
         """Runs the DAG; ``report.extras`` carries outputs, gates, costs and every skipped step with its reason."""
         wd = self._run_dir()
@@ -536,6 +553,7 @@ class PropToEngineDAG:
         if self.preview_judging:
             rep.extras["preview"] = preview_record(self.plane, gov, res)
             rep.extras["needs_review"] = True
+        self._delivery(rep.extras, rep.ok, res)
         if self.art is not None:
             rep.extras["art_direction"] = self.art.manifest_record(budget=self.budget, asset_class="prop", texture_px=self._texture_px())
         report_path = wd / "report.json"

@@ -1,7 +1,7 @@
 """A real worker-tier answer that uses the new shapes and the mirror / repeat shortcuts runs through the whole offline
 pipeline (``tests/no_decisions_key.py`` ``live_designs``): the shortcuts expand before anything downstream reads the
-design, and every copy reaches the package as a part of its own. Until the kernel builds the new shapes, the stand-in
-writes them as the nearest old shape; this test then exercises them as written."""
+design, and every copy reaches the package as a part of its own. The answer is used as written: bevels, insets, lathes
+and extrusions included."""
 
 from __future__ import annotations
 

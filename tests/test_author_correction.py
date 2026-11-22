@@ -78,7 +78,9 @@ async def test_a_failed_answer_is_rescued_by_one_correction(tmp_path):
     out = res.outcomes[0]
     assert out.status == "produced" and out.correction.startswith("rescued: ")
     assert "Extra inputs are not permitted" in out.correction
-    assert out.usage["output_tokens"] == (1140 + 1066) + (400 + 900)  # both calls are on the candidate
+    # both calls are on the candidate; the stand-in's correction usage is the measured median since round five (270 answer
+    # + 311 thinking: no_decisions_key), no longer the estimate 400 + 900
+    assert out.usage["output_tokens"] == (1140 + 1066) + (270 + 311)
 
 
 async def test_a_correction_that_still_fails_keeps_both_messages(tmp_path):

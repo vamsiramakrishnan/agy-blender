@@ -519,13 +519,8 @@ def kernel_checked(parse: Callable[[str], SceneIR]) -> Callable[[str], SceneIR]:
     """``parse`` followed by the kernel's own per-node check (``compile_ir.check_node``: the message the build would
     give, no mesh built), so a design the kernel would refuse (a bevel at half the size, a profile through the axis)
     fails here, where it is corrected node by node, and not after the candidate has been compiled and ranked. Every
-    node is checked and the messages are joined, so one correction can fix them all. Until the kernel has the
-    function the parse is unchanged."""
-    from antigravity3d.kernel import compile_ir
-
-    check = getattr(compile_ir, "check_node", None)
-    if check is None:
-        return parse
+    node is checked and the messages are joined, so one correction can fix them all."""
+    from antigravity3d.kernel.compile_ir import check_node as check
 
     def run(text: str) -> SceneIR:
         scene = parse(text)

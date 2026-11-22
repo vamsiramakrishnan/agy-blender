@@ -18,13 +18,11 @@
   ``propose_answers``, those raw answer texts in turn (a recorded live answer, valid or not); repair schema: an empty
   patch. Usage: counted prompt, 1,140 answer + 1,066 thinking tokens (measured hydrogen medians). A correction (the
   schema {nodes, materials, remove}, logged ``author:correct``) answers ``corrections`` in turn, else an empty one;
-  usage: counted prompt, 400 answer + 900 thinking tokens (an estimate until the live replay of a failed answer).
+  usage: counted prompt, 270 answer + 311 thinking tokens (the median answer and thinking of the three live replays of
+  a failed crate answer, 2026-11-22: metered_author.CORRECTION_ANSWER_TOKENS).
   ``live_designs``: a propose call for a crate or a lamp is answered with a real worker-tier answer of 2026-11-22
   (``data/live_answers``: bevels, insets, lathes, extrusions, mirror and repeat), its asset name set to the one asked
-  for; the features the kernel does not build yet (``compile_ir.UNBUILT_KINDS`` / ``UNBUILT_PARAMS``) are written as
-  the nearest old shape, so the answer compiles today and is used as written once they are built: a lathe as the
-  cylinder round it; bevels and insets left out; an extrusion left out with its subtree (its box would bury a wrapped
-  part such as an L-section corner guard in what it wraps, a failure the real shape does not have).
+  for and the rest as written (the kernel builds every shape in it).
   A patch request that starts with the improvement request's head (``metered_author.IMPROVE_HEAD`` or ``EDIT_HEAD``) is
   logged ``author:improve``, any other ``author:repair``. ``patches``: kind -> list of patches ({"ops": [...]}) answered
   to that kind's calls in order (the last one again once the list is used up); none: an empty patch. Every authoring
@@ -244,7 +242,7 @@ class NoDecisionsKey:
             with self._lock:
                 fix = self.corrections.pop(0) if self.corrections else {"nodes": [], "materials": [], "remove": []}
             content = {"parts": [{"text": json.dumps(fix)}]}
-            usage = {"promptTokenCount": prompt, "candidatesTokenCount": 400, "thoughtsTokenCount": 900, "totalTokenCount": prompt + 1300}
+            usage = {"promptTokenCount": prompt, "candidatesTokenCount": 270, "thoughtsTokenCount": 311, "totalTokenCount": prompt + 581}
             kind = "author:correct"
         elif schema and "nodes" in (schema.get("properties") or {}):
             time.sleep(self.author_delay_s)
@@ -403,8 +401,6 @@ def live_design(request_text: str) -> str | None:
     """A recorded live answer for the brief in ``request_text`` (see ``live_designs``), or None for another brief."""
     from pathlib import Path
 
-    from antigravity3d.kernel import compile_ir
-
     name = re.search(r"asset_name='([^']+)'", request_text).group(1)
     brief = re.search(r"Build design \d+/\d+ for (.*?)\. (?:Use the attached|Return one JSON)", request_text, re.S).group(1)
     pick = next((f for word, f in LIVE_ANSWERS.items() if word in brief.lower()), None)
@@ -412,36 +408,6 @@ def live_design(request_text: str) -> str | None:
         return None
     design = json.loads((Path(__file__).parent / "data" / "live_answers" / pick).read_text())
     design["asset_name"] = name
-    unbuilt_kinds = getattr(compile_ir, "UNBUILT_KINDS", frozenset())
-    unbuilt = getattr(compile_ir, "UNBUILT_PARAMS", {})
-    gone = {n["id"] for n in design["nodes"] if n["kind"] == "extrude" and "extrude" in unbuilt_kinds}
-    while True:
-        more = {n["id"] for n in design["nodes"] if n.get("parent") in gone} - gone
-        if not more:
-            break
-        gone |= more
-    design["nodes"] = [n for n in design["nodes"] if n["id"] not in gone]
-    for n in design["nodes"]:
-        p = n.get("params") or {}
-        for key in unbuilt.get(n["kind"], ()):
-            p.pop(key, None)
-            p.pop(f"{key}_segments", None)
-            if key == "inset_faces":
-                p.pop("inset_margin", None), p.pop("inset_depth", None)
-        if n["kind"] in unbuilt_kinds:
-            _as_old_shape(n)
     return json.dumps(design)
 
 
-def _as_old_shape(n: dict[str, Any]) -> None:
-    """A lathe as the cylinder that encloses it, centred where the lathe's box is."""
-    from antigravity3d.ir_shortcuts import _rot, local_bounds
-
-    lo, hi = local_bounds(n["kind"], n["params"])
-    t = n.setdefault("transform", {})
-    centre = (np.asarray(lo) + np.asarray(hi)) / 2
-    rot = _rot(t.get("rotate_euler_deg", (0, 0, 0))) @ np.diag(t.get("scale", (1, 1, 1)))
-    t["translate"] = [float(x) for x in np.asarray(t.get("translate", (0, 0, 0)), float) + rot @ centre]
-    size = np.maximum(np.asarray(hi) - np.asarray(lo), 1e-3)
-    n["kind"], n["params"] = "cylinder", {"radius": float(size[0] / 2), "height": float(size[2]),
-                                           "segments": n["params"].get("segments", 16)}

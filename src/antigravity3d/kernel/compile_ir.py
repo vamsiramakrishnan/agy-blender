@@ -28,11 +28,6 @@ LOOKS = "Looks"
 REF_CHILD = "ref"  # child prim of a mesh_ref node that carries the USD reference
 # Kinds compiled to a mesh from their parameters (the rest: mesh_ref reads a file, group has no geometry).
 PRIMITIVES = frozenset({"box", "cylinder", "cone", "sphere", "capsule", "lathe", "extrude"})
-# Kinds and parameters the scene format defines (``ir.NODE_PARAMS``) whose geometry is not built yet, so that a design
-# using one fails with its reason instead of compiling to a part with no mesh. Empty since the shaped primitives
-# (kernel/shapes.py) were built; kept so a future parameter can be declared before its geometry exists.
-UNBUILT_KINDS: frozenset[str] = frozenset()
-UNBUILT_PARAMS: dict[str, tuple[str, ...]] = {}
 USD_EXTS = frozenset({".usd", ".usda", ".usdc", ".usdz"})
 _MESH_ATTRS = ("points", "faceVertexCounts", "faceVertexIndices", "extent")
 
@@ -762,10 +757,6 @@ def _author_transform(prim: Usd.Prim, t: Transform, prev: Transform | None = Non
 
 
 def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path) -> None:
-    if node.kind in UNBUILT_KINDS:
-        raise ValueError(f"{node.id}: kind '{node.kind}' is in the scene format but its geometry is not built yet")
-    if unbuilt := [name for name in UNBUILT_PARAMS.get(node.kind, ()) if node.params.get(name)]:
-        raise ValueError(f"{node.id}: {node.kind} parameter(s) {unbuilt} are in the scene format but not built yet")
     is_prim = node.kind in PRIMITIVES
     ref_path = None
     if node.kind == "mesh_ref":

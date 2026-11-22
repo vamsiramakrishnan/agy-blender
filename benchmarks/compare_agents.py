@@ -2322,7 +2322,8 @@ def run_c(relay: Relay | None, root: Path, brief: Brief, *, offline: bool, wall_
         rec.notes.append(f"the last model call was {svc} by the service; failures this run: "
                          f"{rec.pipeline['conditions']['service_failures']}")
     elif glb is None:
-        rec.status = "crashed" if code not in (0, 1) else "gave up"
+        # 0 and 1 are the command's own outcomes, and 3 (--strict: delivered, review below target; never without a package)
+        rec.status = "crashed" if code not in (0, 1, 3) else "gave up"
     else:
         rec.status = "finished"
     (run_dir / "record.json").write_text(json.dumps(asdict(rec), indent=1))

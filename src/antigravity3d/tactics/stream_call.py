@@ -33,6 +33,7 @@ import asyncio
 import logging
 import math
 import time
+from contextvars import ContextVar
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable
 
@@ -154,7 +155,7 @@ class ModelCallProgress:
     MCP ``notifications/progress`` message (``progress`` = ``elapsed_s``, which only grows within an attempt;
     ``message`` = ``line()``).
 
-    ``kind``: author | judge | image (the call's plane; only the author is wired so far). ``event``:
+    ``kind``: author | judge | image (the call's plane: the author streams, the judge reports start and end). ``event``:
     queued (waiting for budget admission), sent, thinking (a thought summary arrived; ``heading`` is its first line),
     silent (no chunk for a while: ``phase`` says whether before any chunk, while thinking, or writing an answer the
     model holds back), answering (answer text arriving; ``answer_chars``), done (``finish_reason``, ``output_tokens``),
@@ -182,6 +183,12 @@ class ModelCallProgress:
     # The largest answer measured for this model, when the room left is smaller: the call may end MAX_TOKENS. Not a
     # certainty (answers vary), so it is reported, never acted on.
     room_short_of: int | None = None
+    # Tells concurrent calls apart (a judge's calls share an operation name); None: role, operation and index do.
+    call: str | None = None
+
+    def key(self) -> tuple[Any, ...]:
+        """The call this event belongs to, for a view that shows each call in flight once."""
+        return (self.kind, self.call) if self.call is not None else (self.kind, self.role, self.operation, self.index)
 
     def to_dict(self) -> dict[str, Any]:
         return {k: v for k, v in asdict(self).items() if v not in (None, "")}
@@ -196,7 +203,7 @@ class ModelCallProgress:
         if self.event == "queued":
             what = "waiting for budget admission"
         elif self.event == "sent":
-            what = f"sent to {self.model}"
+            what = f"sent to {self.model}" + (f" ({self.detail})" if self.detail else "")
         elif self.event == "thinking":
             what = f"thinking: {self.heading}" if self.heading else "thinking"
             if self.room_short_of is not None:
@@ -211,7 +218,8 @@ class ModelCallProgress:
         elif self.event == "answering":
             what = f"answer arriving: {self.answer_chars:,} characters"
         elif self.event == "done":
-            what = f"finished {self.finish_reason or ''}".rstrip() + (f", {self.output_tokens:,} output tokens" if self.output_tokens else "")
+            what = (f"finished {self.finish_reason or ''}".rstrip() + (f", {self.output_tokens:,} output tokens" if self.output_tokens else "")
+                    + (f" ({self.detail})" if self.detail else ""))
         elif self.event == "retrying":
             what = f"retrying in {self.wait_s:.0f} s: {self.detail}" if self.wait_s is not None else f"retrying: {self.detail}"
         elif self.event == "reused":
@@ -219,6 +227,23 @@ class ModelCallProgress:
         else:
             what = f"{self.event}: {self.detail}" if self.detail else self.event
         return f"[{who}] {t} {what}"
+
+
+# The progress sink of the work running in this context, for calls whose owner has no sink of its own: the command sets it
+# for its run, the MCP server for each tool call (so two sessions' calls never report into each other's client).
+CURRENT_SINK: ContextVar[Callable[[ModelCallProgress], None] | None] = ContextVar("agy3d_progress_sink", default=None)
+
+
+def emit(event: ModelCallProgress, sink: Callable[[ModelCallProgress], None] | None = None) -> None:
+    """Hand ``event`` to ``sink``, else to the context's sink. A sink that raises is dropped for this event: progress never
+    costs the call it reports on."""
+    target = sink or CURRENT_SINK.get()
+    if target is None:
+        return
+    try:
+        target(event)
+    except Exception:  # noqa: BLE001
+        log.debug("progress sink failed on %s", event.event, exc_info=True)
 
 
 def _r(x: float | None) -> float | None:

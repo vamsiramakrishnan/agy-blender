@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import itertools
 import logging
 import os
 import re
@@ -45,7 +46,7 @@ import sys
 import typing
 import uuid
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Callable
 from urllib.parse import unquote, urlparse
 
 import anyio
@@ -66,6 +67,7 @@ from antigravity3d.harness.session import (
 from antigravity3d.harness.traceback_compressor import compress_exception
 from antigravity3d.runtime import inspector_server as inspector_app
 from antigravity3d.state import EngineBudget, SceneSessionRegistry
+from antigravity3d.tactics.stream_call import CURRENT_SINK
 
 log = logging.getLogger("antigravity3d.mcp")
 
@@ -353,14 +355,42 @@ def _wrapper(name: str, fn: T.ToolFn, host: StudioHost) -> Any:
     params.append(inspect.Parameter("session_id", inspect.Parameter.KEYWORD_ONLY, default="",
                                     annotation=Annotated[str, Field(description=SESSION_ID_DOC)]))
 
+    # The MCP request's context, injected by the SDK (found by its annotation, left out of the input schema): the tool's
+    # model calls report to its client as notifications/progress while it runs (_progress_sink).
+    params.append(inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, default=None, annotation=Context))
+
     async def tool(**kwargs: Any) -> str:
+        ctx = kwargs.pop("ctx", None)
         sid = kwargs.pop("session_id", "") or ""
-        return await host.call_tool(name, fn, sid, kwargs)
+        token = CURRENT_SINK.set(_progress_sink(ctx)) if ctx is not None else None
+        try:
+            return await host.call_tool(name, fn, sid, kwargs)
+        finally:
+            if token is not None:
+                CURRENT_SINK.reset(token)
 
     tool.__name__ = tool.__qualname__ = name
     tool.__doc__ = inspect.getdoc(raw)
     tool.__signature__ = inspect.Signature(params, return_annotation=str)  # type: ignore[attr-defined]
+    tool.__annotations__ = {**{p.name: p.annotation for p in params}, "return": str}
     return tool
+
+
+def _progress_sink(ctx: Any) -> Callable[[Any], None]:
+    """A progress sink (``tactics.stream_call.ModelCallProgress``) that sends each event to the MCP client as
+    ``notifications/progress``: ``progress`` counts events (it only grows, as the protocol asks), ``message`` is the event's
+    line. Sending is scheduled, never awaited, so a slow or gone client never slows the call; a failed send is dropped.
+    A client that sent no progress token receives nothing (the SDK sends nothing then)."""
+    loop = asyncio.get_running_loop()
+    count = itertools.count(1)
+    pending: set[asyncio.Task[Any]] = set()
+
+    def sink(e: Any) -> None:
+        task = loop.create_task(ctx.report_progress(next(count), None, e.line()))
+        pending.add(task)
+        task.add_done_callback(lambda t: (pending.discard(t), t.cancelled() or t.exception()))
+
+    return sink
 
 
 def _declared_schema(input_schema: dict[str, Any]) -> dict[str, Any]:

@@ -26,7 +26,7 @@ import asyncio
 import json
 import os
 import sys
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Any, get_args
 
@@ -126,6 +126,25 @@ def _print_record_and_run(c: dict[str, Any]) -> None:
         print(f"this run: {amount} and {t['images']} image(s); the ledger's totals above include the earlier runs of this asset")
 
 
+@asynccontextmanager
+async def _progress(author: Any = None) -> Any:
+    """Progress of this command's model calls on stderr (``progress_view``) while the block runs: the author's streamed
+    calls through its sink, the judge's calls through the context's sink (``stream_call.CURRENT_SINK``, inherited by
+    every task the run starts). Stdout is untouched."""
+    from antigravity3d.progress_view import ProgressView
+    from antigravity3d.tactics.stream_call import CURRENT_SINK
+
+    view = ProgressView()
+    if author is not None and hasattr(author, "progress"):  # AgentAuthor (passes it to the MeteredAuthor it binds) or MeteredAuthor
+        author.progress = view
+    token = CURRENT_SINK.set(view)
+    try:
+        async with view:
+            yield view
+    finally:
+        CURRENT_SINK.reset(token)
+
+
 def _print_gate(ok: bool, why: str = "") -> int:
     print(f"gates: {'PASS' if ok else 'FAIL'}" + (f" ({why})" if why else ""))
     return 0 if ok else 1
@@ -203,6 +222,7 @@ def preflight_prop(a: argparse.Namespace, plane: Any, author: Any, strict: bool)
 
 
 async def cmd_prop(a: argparse.Namespace) -> int:
+    from antigravity3d import delivery as D
     from antigravity3d.dags.prop_to_engine import PropToEngineDAG
     from antigravity3d.kernel.cache import BuildCache, LocalBlobStore
     from antigravity3d.tactics.distill import FixLog
@@ -218,6 +238,7 @@ async def cmd_prop(a: argparse.Namespace) -> int:
         # The backend probe and the start-up checks come first: a run that would be refused does not start Blender.
         plane, forge, author, notes = await make_collaborators(a.offline, workdir=out / "agent")
         plane = preflight_prop(a, plane, author, strict)  # refuses here, before any model call, what would fail later
+        await stack.enter_async_context(_progress(author))
         pool = None
         if a.pool_socket:
             from antigravity3d.runtime.worker_daemon import PoolClient
@@ -233,7 +254,7 @@ async def cmd_prop(a: argparse.Namespace) -> int:
             cache=cache, style_anchor=a.style, fixlog=FixLog.for_prop(out), max_rounds=a.max_rounds,
             require_verified=strict, single_candidate=a.single_candidate, art_direction=a.art_direction,
             new_design=a.new_design, announce=lambda line: print(f"note: {line}", flush=True),
-            min_call_tokens=getattr(a, "min_call_tokens", None),
+            min_call_tokens=getattr(a, "min_call_tokens", None), strict_review=a.strict_review,
             **({"token_ceiling": a.token_ceiling, "max_images": a.max_images} if a.token_ceiling is not None else {}),
         )
         rep = await dag.run(a.prompt)
@@ -289,8 +310,13 @@ async def cmd_prop(a: argparse.Namespace) -> int:
         print("review: required (the judge is uncalibrated; a person must review this package before any use)")
     else:
         print("publication: " + ("published and verified" if x["published"] else "qualified preview" if x["verified"] else "unverified"))
+    ex = x["exit"]
+    if ex["rule"] == D.RULE_DELIVERY:  # an uncalibrated judge: its review is stated, the exit code is about the delivery
+        for line in D.finding_lines(x["review"], x["delivered"]["why"]):
+            print(line)
+        print(D.delivery_line(ex))
     print(f"preview gates: {'PASS' if x['preview_gates_ok'] else 'FAIL'}" + (f" ({unjudged[:300]})" if unjudged else ""))
-    return 0 if x["preview_gates_ok"] else 1
+    return ex["code"] if ex["rule"] == D.RULE_DELIVERY else 0 if x["preview_gates_ok"] else 1
 
 
 async def cmd_edit(a: argparse.Namespace) -> int:
@@ -349,6 +375,7 @@ async def cmd_edit(a: argparse.Namespace) -> int:
                       if isinstance(author0, AgentAuthor) and patch is None else None)
             if patch is None and author is None:
                 raise CliError(f"no author that reads an instruction is available ({'; '.join(notes)})")
+        await stack.enter_async_context(_progress(author))
         pool = None
         if a.pool_socket:
             from antigravity3d.runtime.worker_daemon import PoolClient
@@ -360,7 +387,8 @@ async def cmd_edit(a: argparse.Namespace) -> int:
             pool = await stack.enter_async_context(BlenderPool(1, blender_bin=a.blender))
         try:
             r = await E.edit_asset(a.target, instruction, plane=plane, author=author, forge=forge, governor=governor, patch=patch,
-                                   pool=pool, cache=cache, role=a.role, announce=lambda line: print(f"note: {line}", flush=True))
+                                   pool=pool, cache=cache, role=a.role, announce=lambda line: print(f"note: {line}", flush=True),
+                                   strict_review=a.strict_review)
         except E.EditError as e:
             raise CliError(str(e)) from e
     if a.json:
@@ -391,8 +419,15 @@ async def cmd_edit(a: argparse.Namespace) -> int:
         return 1
     print(f"edit {r.number}: made; package {r.package}; the replaced package is kept in {r.history} (agy3d edit {a.target} --undo)")
     print(f"note: {r.note}")
+    from antigravity3d import delivery as D
+
+    ex = r.exit or {"rule": D.RULE_GATES, "code": 0 if r.preview_gates_ok else 1}
+    if ex["rule"] == D.RULE_DELIVERY:  # an uncalibrated judge: its review is stated, the exit code is about the delivery
+        for line in D.finding_lines(r.review or {}, (r.delivered or {}).get("why") or ()):
+            print(line)
+        print(D.delivery_line(ex))
     print(f"preview gates: {'PASS' if r.preview_gates_ok else 'FAIL'}")
-    return 0 if r.preview_gates_ok else 1
+    return ex["code"]
 
 
 def _count(text: str) -> int:
@@ -450,6 +485,7 @@ async def cmd_kit(a: argparse.Namespace) -> int:
     cache = None if a.no_cache else BuildCache(LocalBlobStore(Path(a.out) / ".agy3d-cache"))
     try:
         async with AsyncExitStack() as stack:
+            await stack.enter_async_context(_progress(author))
             pool = None
             if a.pool_socket:
                 from antigravity3d.runtime.worker_daemon import PoolClient
@@ -683,6 +719,9 @@ def build_parser() -> argparse.ArgumentParser:
                              help="build a review candidate without requiring publication (default for --offline)")
     p.add_argument("--single-candidate", action="store_true",
                    help="use one candidate per tournament for matched baseline measurement")
+    p.add_argument("--strict", dest="strict_review", action="store_true",
+                   help="with an uncalibrated judge (a preview), exit 3 when its review is below target (default: exit 0 and "
+                        "say so: the review is a finding; a calibrated judge's gates decide either way)")
     limits(p)
     p.set_defaults(fn=cmd_prop)
 
@@ -762,6 +801,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--offline", action="store_true", help="fakes only (needs --patch)")
     p.add_argument("--no-cache", action="store_true", help="do not read or write the run folder's cache")
     p.add_argument("--json", action="store_true", help="print the machine-readable result first")
+    p.add_argument("--strict", dest="strict_review", action="store_true",
+                   help="with an uncalibrated judge (a preview), exit 3 when its review is below target (default: exit 0 and "
+                        "say so: the review is a finding; a calibrated judge's gates decide either way)")
     worker = p.add_mutually_exclusive_group()
     worker.add_argument("--blender", metavar="PATH", help="start a warm worker with this Blender executable")
     worker.add_argument("--pool-socket", metavar="PATH", help="connect to a running Blender sidecar")
