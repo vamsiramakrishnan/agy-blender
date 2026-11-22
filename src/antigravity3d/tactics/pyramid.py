@@ -52,7 +52,7 @@ from antigravity3d.tactics.judging import JUDGE_VIEW_PX, JudgedDesign, design_vi
 from antigravity3d.kernel.validator import check_engine_compliance, engine_texture_px, validate_usd
 from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, EngineBudget
 from antigravity3d.tactics.cached import cached_export_pipeline
-from antigravity3d.tactics.common import QA_TOKENS_EST, Uploader, png_bytes, uploader_for
+from antigravity3d.tactics.common import QA_TOKENS_EST, Uploader, png_bytes, to_thread_drained, uploader_for
 from antigravity3d.tactics.distill import FixLog, FixRecord
 from antigravity3d.tactics.governor import BudgetExceeded, Governor
 from antigravity3d.tactics import reviewed_rules
@@ -1491,7 +1491,7 @@ class _Run:
         round was not reviewed (no judge call)."""
         from antigravity3d.tactics.judging import render_design
 
-        renders = await asyncio.to_thread(lambda: render_design(meshes, crease_deg=self.crease))
+        renders = await to_thread_drained(render_design, meshes, crease_deg=self.crease)
         uris = await asyncio.gather(*(self.upload(b) for _, b in renders.marked))
         author = tuple((f"{v} view of the current design (Image {i})", u) for i, ((v, _), u) in enumerate(zip(renders.marked, uris), 1))
         if q.judged is None:
@@ -1781,11 +1781,14 @@ class _Run:
         revision = tuple(self.sm.tx_stack)
         if self.export_bundle is None or self.bundle_revision != revision:
             meshes, scene = self.sm.extract_meshes(), self.sm.scene_ir()
+            # Every native step of pass C runs in a worker thread that a cancelled pass waits for (to_thread_drained):
+            # an edit's refused attempt cancels its packaging and then rolls its stage back, and CI aborted the process
+            # (exit 134, 2026-11-22) when that rollback met a packaging thread still writing from the same stage.
             if self.cache is None:
-                self.export_bundle = await asyncio.to_thread(run_export_pipeline, meshes, self.budget, scene.asset_name,
+                self.export_bundle = await to_thread_drained(run_export_pipeline, meshes, self.budget, scene.asset_name,
                                                              opaque_materials=opaque_materials(scene))
             else:
-                self.export_bundle, self.bundle_cache_hit = await asyncio.to_thread(
+                self.export_bundle, self.bundle_cache_hit = await to_thread_drained(
                     cached_export_pipeline, self.cache, scene, meshes, self.budget)
             self.bundle_revision = revision
         self.sm.ensure_export_uvs(self.export_bundle.uvs, crease_deg=self.crease)
@@ -2015,7 +2018,7 @@ class _Run:
         look = await look_round(self, bundle, pkg, write_package)
 
         async def usd() -> tuple[str, str]:
-            m = (look.package_for(sm) if look is not None else None) or await asyncio.to_thread(write_package, pkg)
+            m = (look.package_for(sm) if look is not None else None) or await to_thread_drained(write_package, pkg)
             res.objects["package"] = m
             sided = [i.detail for i in m.issues if i.code.endswith(":double_sided_contact")]
             if zfight or sided:
@@ -2033,7 +2036,7 @@ class _Run:
                     lod.normals = crease_normals(np.asarray(lod.points, np.float64), np.asarray(lod.triangles), self.crease)
             if len(lods) < 2:
                 return "skipped", "LOD0 only: no coarser level within the screen-space error budget saves enough triangles"
-            rep = await asyncio.to_thread(lod_pop_report, lods)
+            rep = await to_thread_drained(lod_pop_report, lods)
             res.objects["lod_pop"] = rep
             return ("passed" if rep.ok(LOD_POP_THRESHOLDS) else "failed"), rep.one_line(LOD_POP_THRESHOLDS)
 

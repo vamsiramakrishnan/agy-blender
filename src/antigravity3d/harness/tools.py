@@ -998,8 +998,9 @@ async def _bundle(s: Session) -> ExportBundle:
         bundle = cached[1]
     else:
         # material edits bump geom_version too (Session.visuals_changed), so the revision covers opacity
-        bundle = await asyncio.to_thread(run_export_pipeline, s.stage.extract_meshes(), s.state.budget,
-                                         s.stage.asset_prim.GetName(), opaque_materials=opaque_materials(s.stage.scene_ir()))
+        # drained like every native step here: a cancelled tool call must not leave xatlas running after the lock is free
+        bundle = await _stage_worker(run_export_pipeline, s.stage.extract_meshes(), s.state.budget,
+                                     s.stage.asset_prim.GetName(), opaque_materials=opaque_materials(s.stage.scene_ir()))
         s._set("bundle", (revision, bundle))
     art = s.art
     s.stage.ensure_export_uvs(bundle.uvs, crease_deg=art.crease_deg() if art is not None else CREASE_DEG)

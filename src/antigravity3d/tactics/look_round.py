@@ -44,7 +44,7 @@ from PIL import Image
 
 from antigravity3d.ir import IRPatch, SceneIR
 from antigravity3d.kernel import smart_source
-from antigravity3d.tactics.common import png_bytes
+from antigravity3d.tactics.common import png_bytes, to_thread_drained
 
 # The two views, glTF Y-up camera directions from the asset's centre: the verification's own (``web_three.VIEW_DIR_YUP``,
 # front, right side and top) and the opposite corner (back, left side and top). Together every side face and the top;
@@ -244,7 +244,7 @@ async def render_package(pkg: Path, out_dir: Path) -> list[tuple[str, bytes]]:
     out = []
     for name, view_dir in LOOK_VIEWS:
         page_dir = out_dir / name.replace(" ", "_")
-        await asyncio.to_thread(W.build_page, page_dir, data, manifest["glb_bounds_m"], files=files, view_dir=view_dir)
+        await to_thread_drained(W.build_page, page_dir, data, manifest["glb_bounds_m"], files=files, view_dir=view_dir)
         r = await W.run_page(page_dir, exe, W.DEFAULT_TIMEOUT)
         raw = r["raw"]
         if raw.get("errors") or not raw.get("png"):
@@ -271,7 +271,7 @@ class LookRound:
 
     async def package(self, out: Path) -> Any:
         """Write the current state as a package into ``out`` (``write``: pass C's own writer, the same arguments)."""
-        m = await asyncio.to_thread(self.write, out)
+        m = await to_thread_drained(self.write, out)  # writes from the run's stage: never left running
         self.outcome.bakes += 1
         # the stencil markings a generated surface painted on purpose (kernel.smart_source): the look review is told
         # them, so its question about logos and text asks about any OTHER text (decisions.engine.evaluate_visual_qa)

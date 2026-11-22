@@ -1189,7 +1189,13 @@ class WebThreeValidator(EngineValidator):
 
                 from antigravity3d.kernel import raster  # noqa: F401
             if bounds is None:
-                ref_meshes, ref_note = await asyncio.to_thread(_reference_meshes, usd)
+                read = asyncio.ensure_future(asyncio.to_thread(_reference_meshes, usd))
+                try:
+                    ref_meshes, ref_note = await asyncio.shield(read)
+                except asyncio.CancelledError:  # the thread is waited for, then the cancellation goes on
+                    with contextlib.suppress(BaseException):
+                        await read
+                    raise
                 if not ref_meshes:
                     return WebThreeReport(False, ENGINE, "cannot fix the camera: manifest has no glb_bounds_m and no USD reference")
                 pts = np.vstack([m.points for m in ref_meshes])
@@ -1212,7 +1218,7 @@ class WebThreeValidator(EngineValidator):
             except Exception as e:  # noqa: BLE001  browser launch / navigation / timeout
                 return WebThreeReport(False, ENGINE, f"browser run failed: {type(e).__name__}: {e}"[:TAIL_CHARS])
             t_ran = time.perf_counter()
-            ref_png, ref_note, ref_issue = await ref_task if ref_task is not None else ref
+            ref_png, ref_note, ref_issue = await asyncio.shield(ref_task) if ref_task is not None else ref  # a cancel drains it below
             t_run = time.perf_counter()
             raw = run["raw"]
             shot = None
@@ -1248,8 +1254,12 @@ class WebThreeValidator(EngineValidator):
                 timings_s={"prepare": round(t_page - t0, 3), "browser": round(t_ran - t_page, 3),
                            "reference_wait": round(t_run - t_ran, 3), "total": round(time.perf_counter() - t0, 3)})
         finally:
-            if ref_task is not None and not ref_task.done():  # the browser failed first: the reference is not needed
-                ref_task.add_done_callback(lambda t: t.cancelled() or t.exception())
+            if ref_task is not None and not ref_task.done():
+                # The browser failed first: the reference is not needed, but its thread (reading the package's USD) is
+                # waited for: no native work outlives the check that started it (CI abort, 2026-11-22: an edit's
+                # cancelled packaging left threads running against what the edit changed next).
+                with contextlib.suppress(BaseException):
+                    await asyncio.shield(ref_task)
             if owned:
                 shutil.rmtree(work, ignore_errors=True)
 

@@ -784,7 +784,9 @@ async def edit_asset(target: Path | str, instruction: str, *, plane: Any, author
 
     art = load_art(shipped.art_direction) if shipped.art_direction else None
     crease = art.crease_deg() if art is not None else CREASE_DEG  # the views shade as the package ships (an art direction's crease)
-    renders = await asyncio.to_thread(lambda: render_design(meshes0, crease_deg=crease))
+    from antigravity3d.tactics.common import to_thread_drained
+
+    renders = await to_thread_drained(render_design, meshes0, crease_deg=crease)
     uploaded = await asyncio.gather(*(up(b) for _, b in (*renders.plain, *renders.marked)))
     n_views = len(renders.plain)
     before_views = tuple((v, u) for (v, _), u in zip(renders.plain, uploaded[:n_views]))
@@ -798,6 +800,7 @@ async def edit_asset(target: Path | str, instruction: str, *, plane: Any, author
         return await judge_design(plane, meshes, brief=brief, governor=governor, uploader=up, crease_deg=crease)
 
     before_task = asyncio.ensure_future(review(meshes0))
+    pkg_task: Any = None
     previous = ""
     kept_tx, kept_attempt, after_judged = None, None, None
     try:
@@ -933,6 +936,8 @@ async def edit_asset(target: Path | str, instruction: str, *, plane: Any, author
     finally:
         if not before_task.done():
             before_task.cancel()
+        if pkg_task is not None and not pkg_task.done():  # an edit that ends by an exception: its packaging stops first
+            await _discard(pkg_task)
 
 
 def _judge_failed(exc: BaseException) -> bool:
@@ -990,7 +995,11 @@ async def _package(shipped: Shipped, sm: Any, wd: Path, verdict: Any, instructio
 
 
 async def _discard(task: Any) -> None:
-    """Stop the package of an edit that is not kept: its folder is its own and never read again."""
+    """Stop the package of an edit that is not kept: its folder is its own and never read again. Returns only when the
+    packaging has stopped: its native steps run in threads that its cancellation waits for (``to_thread_drained`` in
+    pass C), and the caller rolls the stage those threads read back next. Until 2026-11-22 the cancellation returned at
+    once and the thread went on writing the package from the stage while the edit rolled it back and applied the next
+    attempt (CI: the process aborted, exit 134, in the refused-edit tests)."""
     task.cancel()
     with contextlib.suppress(BaseException):
         await task

@@ -390,3 +390,55 @@ def test_a_check_the_judge_refuses_ends_the_edit_unchanged_with_the_reason(key, 
     r = _edit(run_copy, "make the whole crate 20 % taller")
     assert not r.kept and r.why.startswith("the judge could not be asked about the edit, so it is not made") and "16601" in r.why
     assert _package(run_copy) == before and not (run_copy / "history" / "001").exists()
+
+
+@pytest.mark.parametrize("overrides", [{"edit_done": 0.1, "edit_collateral": 0.05}, {"edit_done": 0.9, "edit_collateral": 0.9}],
+                         ids=["not-done", "collateral"])
+def test_a_refused_attempt_s_packaging_has_stopped_before_the_stage_is_changed_again(key, run_copy, monkeypatch, overrides) -> None:
+    """CI 2026-11-22 (commit 32d7b89, push run, test (3.13)): the process aborted (exit 134, no traceback) in the refused-
+    edit cases. A refused attempt's packaging was cancelled, but cancelling the task does not stop its worker thread: it
+    went on writing the package from the edit's stage (``write_engine_package`` authors the export UVs into it and
+    flattens it) while the edit rolled the attempt back and applied the next one on the same stage, from two threads.
+    Here every native step of the packaging is held 0.3 s inside its thread, and every change of the stage records
+    whether such a step was still running: none may be."""
+    import threading
+    import time
+
+    from antigravity3d.kernel.usd_stage import StageManager
+    from antigravity3d.tactics import pyramid as P
+
+    inside: list[str] = []
+    overlaps: list[str] = []
+    guard = threading.Lock()
+
+    def held(name: str, fn: Any) -> Any:
+        def run(*a: Any, **k: Any) -> Any:
+            with guard:
+                inside.append(name)
+            try:
+                time.sleep(0.3)
+                return fn(*a, **k)
+            finally:
+                with guard:
+                    inside.remove(name)
+        return run
+
+    for name in ("write_engine_package", "run_export_pipeline", "cached_export_pipeline", "lod_pop_report"):
+        monkeypatch.setattr(P, name, held(name, getattr(P, name)))
+
+    def watched(name: str) -> None:
+        fn = getattr(StageManager, name)
+
+        def call(self: Any, *a: Any, **k: Any) -> Any:
+            with guard:
+                if inside and threading.current_thread() is threading.main_thread():
+                    overlaps.append(f"{name} while {', '.join(inside)} ran")
+            return fn(self, *a, **k)
+        monkeypatch.setattr(StageManager, name, call)
+
+    for name in ("apply_patch", "rollback", "ensure_export_uvs", "extract_meshes"):
+        watched(name)
+    key(overrides=overrides, patches={"author:improve": [BIG_BRACKETS]})
+    r = _edit(run_copy, "make the two rear corner brackets 30 % larger")
+    assert not r.kept and len(r.attempts) == E.EDIT_ATTEMPTS
+    assert overlaps == [], overlaps
