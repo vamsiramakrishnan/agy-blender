@@ -137,6 +137,7 @@ Main modules, from the module docstrings:
 - `kernel/fast_ops.py`: deterministic in-process mesh kernels for Tier-1 QA, UVs, LODs, colliders and export.
 - `kernel/trim_atlas.py`: trim-sheet-first UVs, with one shared texture per kit.
 - `kernel/settle.py`: deterministic vertical contact settling.
+- `kernel/separate.py`: moves apart the flush (coplanar, same-facing) faces of different parts, without a model call.
 - `kernel/lod_diff.py`: LOD pop diffing at the switch distance.
 - `kernel/validator.py`: USD validation and per-engine compliance rules.
 - `kernel/package.py`: engine package writer, shared by the harness and the DAGs.

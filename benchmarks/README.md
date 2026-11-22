@@ -16,6 +16,9 @@ Five tools and the report written from them:
   It spends real quota, needs root and Linux namespaces, and never runs in CI. See "Agent comparison".
 - [`UPSTREAM_SKILLS.md`](UPSTREAM_SKILLS.md) is the third round's report: two upstream Blender skill packs adapted, the
   first live runs of the pipeline, and the comparison with a stock agent.
+- [`AFTER_THE_COMPARISON.md`](AFTER_THE_COMPARISON.md) is the fourth round's report: why the stock agent's crate was
+  better and why the command did not finish, cause by cause, and what was changed. Its figures are in
+  `results/round4/checks.json`.
 
 ## Offline benchmarks
 

@@ -274,6 +274,10 @@ tokens, of which the plugin's own calls are about 26,000: the agent's loop costs
 
 ## Open decisions
 
+The first two below were taken up in the fourth round ([`AFTER_THE_COMPARISON.md`](AFTER_THE_COMPARISON.md)): the
+authoring request now asks for a finished prop and the judge is shown the brief, and a rerun continues from the
+design a failed run paid for. They are kept here as they were written.
+
 - **Authored geometry stops far below its budget.** The comparison's clearest result: 266 triangles of a budget of
   3,000, and a blind judge calling it a blockout. Nothing asks the author to spend the budget on the detail a brief
   names. Options: say so in the authoring request and let the geometry ranking score detail against the brief; a
