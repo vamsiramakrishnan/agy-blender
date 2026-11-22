@@ -174,12 +174,19 @@ async def test_the_blender_asset_qa_result_reaches_the_package_manifest(tmp_path
 @pytest.mark.blender
 @needs_blender
 async def test_planted_z_fighting_fails_the_blender_asset_qa_step_with_upstreams_message(tmp_path, blender_pool):
+    """The check the step makes, on the file as it would ship: upstream's z-fighting error. Through the pipeline the
+    design no longer gets that far (2026-11-22): no clean-up can part two boxes that share half their volume, Tier-1
+    reports the same pair, and the run stops after pass A with it instead of going on through the textures, the export
+    and the engine checks to be refused here (live, r5_crate_C: 660 s and 366,636 tokens to exit 1 on four such bolts)."""
     # two boxes whose top faces are coplanar (z = 0.5), face +Z and overlap in area (benchmarks/upstream_survey.py, build_defects)
-    scene = SceneIR(asset_name="ZFight", materials=[MaterialIR(id="m0")],
-                    nodes=[box("base", (1.0, 1.0, 0.5), (0.0, 0.0, 0.25)), box("overlap", (0.6, 0.6, 0.5), (0.5, 0.0, 0.25))])
-    res = await run_pyramid(tmp_path, scene, blender_pool)
+    nodes = [box("base", (1.0, 1.0, 0.5), (0.0, 0.0, 0.25)), box("overlap", (0.6, 0.6, 0.5), (0.5, 0.0, 0.25))]
+    status, detail, data = await upstream_checks.asset_qa(blender_pool, package_glb(tmp_path / "direct", nodes), "unreal_5")
+    assert status == "failed" and "z-fighting" in detail and any(e.startswith("z-fighting") for e in data["errors"]), detail
+    res = await run_pyramid(tmp_path, SceneIR(asset_name="ZFight", materials=[MaterialIR(id="m0")], nodes=nodes), blender_pool)
     failed = dict(res.failed)
-    assert "blender_asset_qa" in failed and "z-fighting" in failed["blender_asset_qa"], (failed, [(s.name, s.status) for s in res.steps])
+    assert list(failed) == ["detached_parts"], (failed, [(s.name, s.status) for s in res.steps])
+    assert "the Blender check would refuse it: 1 z-fighting pair(s) after pass A: base/overlap" in failed["detached_parts"]
+    assert "blender_asset_qa" not in {s.name for s in res.steps}
     assert not res.ok and not res.verified
 
 
@@ -199,8 +206,10 @@ def flush_scene() -> SceneIR:
 @pytest.mark.parametrize("engine", ["unreal_5", "roblox_r15"])
 async def test_flush_details_are_separated_before_qa_and_pass_the_blender_asset_qa_step(tmp_path, blender_pool, engine, monkeypatch):
     """The deterministic separation (kernel/separate.py, step ``separate_coplanar`` of pass A) moves the flush faces 2 mm
-    apart; Blender's qa_check on the exported GLB then finds no z-fighting. Negative control: with the step switched off
-    (a separation that finds nothing) the same scene fails that check, as it did before the step existed."""
+    apart; Blender's qa_check on the exported GLB then finds no z-fighting. Negative control: the same scene exported
+    as written fails that check with upstream's message, as it did before the step existed. And with the separation
+    switched off (one that finds nothing) the second remedy parts the faces (``unstack_pre``, 2026-11-22) and the run
+    passes the check as well; with both switched off the run stops after pass A, naming the pairs."""
     from antigravity3d.kernel.separate import SeparationResult
     from antigravity3d.tactics import pyramid
 
@@ -214,12 +223,20 @@ async def test_flush_details_are_separated_before_qa_and_pass_the_blender_asset_
     assert steps["separate_coplanar"].status == "passed", steps["separate_coplanar"]
     assert steps["blender_asset_qa"].status == "passed", steps["blender_asset_qa"]
     assert "z_fighting" not in steps or steps["z_fighting"].status != "warned" or engine != "roblox_r15"
+    status, detail, _ = await upstream_checks.asset_qa(blender_pool, package_glb(tmp_path / "raw", flush_scene().nodes, engine), engine)
+    assert status == "failed" and "z-fighting" in detail, detail
     monkeypatch.setattr(pyramid, "separate_coplanar", lambda *a, **k: SeparationResult())
     sm = StageManager.create(tmp_path / "off.usda", "Flush")
     sm.apply_ir(flush_scene())
     res = await refine(sm, workdir=tmp_path / "off", **kw)
+    steps = {s.name: s for s in res.steps}
+    assert steps["unstack_pre"].status == "passed" and steps["blender_asset_qa"].status == "passed", [(s.name, s.status, s.detail) for s in res.steps]
+    monkeypatch.setattr(pyramid, "unstack_step", lambda *a, **k: [])
+    sm = StageManager.create(tmp_path / "off2.usda", "Flush")
+    sm.apply_ir(flush_scene())
+    res = await refine(sm, workdir=tmp_path / "off2", **kw)
     failed = dict(res.failed)
-    assert "z-fighting" in failed.get("blender_asset_qa", ""), failed
+    assert list(failed) == ["detached_parts"] and "z-fighting pair(s) after pass A" in failed["detached_parts"], failed
 
 
 def roblox_scene(tmp_path: Path, name: str, nodes: list[NodeIR]):
