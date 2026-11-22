@@ -39,7 +39,7 @@ import uuid
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import numpy as np
 from pxr import Gf, Kind, Sdf, Tf, Usd, UsdGeom, UsdShade, UsdUtils
@@ -47,7 +47,7 @@ from pxr import Gf, Kind, Sdf, Tf, Usd, UsdGeom, UsdShade, UsdUtils
 from antigravity3d import ir
 from antigravity3d.ir import IRPatch, SceneIR
 from antigravity3d.kernel import usd_boot
-from antigravity3d.kernel.compile_ir import COLLIDER_PROXY_KEY, CREASE_DEG, IR_KEY, facing, UV_CHART_KEY, UV_WELD_KEY, author_mesh_data, author_scene, node_paths, read_ir, resolve_anchor
+from antigravity3d.kernel.compile_ir import COLLIDER_PROXY_KEY, CREASE_DEG, IR_KEY, facing, UV_CHART_KEY, UV_WELD_KEY, author_mesh_data, author_scene, node_paths, read_ir, read_material, resolve_anchor
 from antigravity3d.kernel.fast_ops import UVResult
 from antigravity3d.kernel.spatial import PrimInfo, SpatialIndex
 from antigravity3d.kernel.types import MeshData
@@ -82,6 +82,50 @@ class _MeshRead(NamedTuple):
     mesh: MeshData
     local: np.ndarray  # (N, 3) float64 local-space points matching ``mesh.points`` (seam split folded)
     linear: np.ndarray = np.eye(3)  # 3x3 local-to-world linear part (compile_ir.facing: mirrored prims flip winding)
+
+
+#: The ``UsdTransform2d`` a material on a shared atlas samples its maps through (child of the material prim).
+MAP_REPEAT = "stRepeat"
+
+
+def repeat_maps(stage: Usd.Stage, parts: Sequence[tuple[Usd.Prim, UVResult]]) -> list[Sdf.Path]:
+    """Makes each material on a shared atlas sample its tileable maps as the package bakes them: one repeat every
+    ``UVResult.repeat_px`` atlas px (``fast_ops.SWATCH_SPAN_PX`` at the target density, ``package._compose_atlas``).
+
+    Without it a material's map spans the whole atlas on the stage (st in [0, 1]), so on an atlas that is not one
+    repeat across (4096 x 2048, 1024 ...) the stage, its lookdev renders and the shipped package would show the
+    surface at different scales. A ``UsdTransform2d`` (scale = atlas size / repeat) sits between the material's
+    ``stReader`` and each of its ``UsdUVTexture`` shaders, whose wrapping is set to repeat. Authored in the current
+    edit target (``author_uvs``: the UV overlay, cleared with the UVs). Returns the materials changed."""
+    done: dict[Sdf.Path, tuple[float, float]] = {}
+    for prim, res in parts:
+        if not res.shared_atlas or not res.repeat_px:
+            continue
+        w, h = res.size
+        scale = (w / res.repeat_px, h / res.repeat_px)
+        if scale == (1.0, 1.0):
+            continue  # one repeat spans the atlas: the map is sampled as the package ships it already
+        mat, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
+        if not mat or mat.GetPath() in done:
+            continue
+        reader = mat.GetPrim().GetChild("stReader")
+        if not reader:
+            continue
+        out = UsdShade.Shader(reader).GetOutput("result")
+        t2d = UsdShade.Shader.Define(stage, mat.GetPath().AppendChild(MAP_REPEAT))
+        t2d.CreateIdAttr("UsdTransform2d")
+        t2d.CreateInput("in", Sdf.ValueTypeNames.Float2).ConnectToSource(out)
+        t2d.CreateInput("scale", Sdf.ValueTypeNames.Float2).Set(Gf.Vec2f(*scale))
+        result = t2d.CreateOutput("result", Sdf.ValueTypeNames.Float2)
+        for child in mat.GetPrim().GetChildren():
+            tex = UsdShade.Shader(child)
+            if not tex or tex.GetIdAttr().Get() != "UsdUVTexture":
+                continue
+            tex.CreateInput("st", Sdf.ValueTypeNames.Float2).ConnectToSource(result)
+            for wrap in ("wrapS", "wrapT"):
+                tex.CreateInput(wrap, Sdf.ValueTypeNames.Token).Set("repeat")
+        done[mat.GetPath()] = scale
+    return list(done)
 
 
 class StageManager:
@@ -396,6 +440,7 @@ class StageManager:
 
         scene = read_ir(self.asset_prim)
         opaque = opaque_materials(scene) if scene is not None else None
+        params: dict[Sdf.Path, Any] = {}  # per material: its parameters (MeshData.material), read once
         for prim in Usd.PrimRange(self.asset_prim):  # default predicate: active, defined, concrete
             if not prim.IsA(UsdGeom.Mesh):
                 continue
@@ -426,6 +471,8 @@ class StageManager:
             proxy = prim.GetAttribute(COLLIDER_PROXY_KEY).Get() if prim.HasAttribute(COLLIDER_PROXY_KEY) else None
             proxy = np.asarray(proxy, np.float64) @ m[:3, :3] + m[3, :3] if proxy is not None and len(proxy) >= 4 else None
             mat, _ = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()
+            if mat and mat.GetPath() not in params:
+                params[mat.GetPath()] = read_material(mat, double_sided=False)
             md = MeshData(
                 node_id=node_id,
                 prim_path=str(prim.GetPath()),
@@ -436,6 +483,7 @@ class StageManager:
                 uv_charts=charts,
                 collider_points=proxy,
                 opaque=None if opaque is None else (mat.GetPrim().GetName() if mat else None) in opaque,
+                material=params.get(mat.GetPath()) if mat else None,
             )
             out.append(_MeshRead(prim, md, local, m[:3, :3]))
         return out
@@ -473,6 +521,7 @@ class StageManager:
                     r.prim, r.local[res.vmapping], facing(res.triangles, r.linear), res.uvs, weld_map=res.vmapping, normals=normals,
                     crease_deg=crease_deg,
                 )
+            repeat_maps(self._stage, [(r.prim, res) for r, res in zip(reads, results)])
 
         self._export_layout = results if normals else None
         self._export_crease = crease_deg

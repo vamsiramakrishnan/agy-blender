@@ -87,9 +87,10 @@ STACK = [_node("base", (-0.5, -0.5, 0), (0.5, 0.5, 0.4)), _node("lid", (-0.5, -0
 def _package(tmp: Path, scene: SceneIR, engine: str = "unreal_5", rule: bool = True):
     sm = StageManager.create(tmp / "s.usda", scene.asset_name)
     sm.apply_ir(scene)
-    budget = EngineBudget(engine)
-    b = run_export_pipeline(sm.extract_meshes(), budget, scene.asset_name,
-                            opaque_materials=coplanar.opaque_materials(scene) if rule else None)
+    # rule=False ships the closed parts through the budget's own switch (keep_contact_faces); the materials stay known,
+    # so both runs share one atlas layout (EngineBudget.shared_atlas) and differ only in the rule
+    budget = EngineBudget(engine, keep_contact_faces=not rule)
+    b = run_export_pipeline(sm.extract_meshes(), budget, scene.asset_name, opaque_materials=coplanar.opaque_materials(scene))
     m = write_engine_package(sm, b, budget, tmp / "pkg", asset_name=scene.asset_name)
     return sm, b, m
 

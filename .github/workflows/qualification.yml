@@ -75,7 +75,7 @@ jobs:
       - name: Test native workers, engine imports, rendered frames and inspector channels
         id: tests
         run: |
-          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_fbx_export.py tests/test_fbx_package.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py tests/test_blender_verification_steps.py tests/test_shapes_engines.py tests/test_deliver.py
+          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_fbx_export.py tests/test_fbx_package.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py tests/test_blender_verification_steps.py tests/test_shapes_engines.py tests/test_deliver.py tests/test_shared_atlas.py
           python - <<'PYTHON'
           import xml.etree.ElementTree as ET
           required = {"test_three_worker_mixed_asset_soak", "test_reviewed_upstream_primitives",
@@ -135,6 +135,8 @@ jobs:
                       "test_a_roblox_material_over_the_triangle_limit_ships_as_meshes_within_it_and_one_oversized_part_still_fails",
                       "test_a_kit_piece_moved_off_its_pivot_fails_the_blender_kit_check_node_and_the_gates",
                       "test_native_export_of_a_crate_passes_the_check_with_a_real_worker",
+                      # the working stage samples the maps of a shared atlas as the package ships them (tests/test_shared_atlas.py)
+                      "test_real_blender_renders_the_stage_and_the_shipped_glb_at_one_texture_scale",
                       *(f"test_kit_passes_the_blender_kit_check_node[{metric}]" for metric in ("interior", "exterior")),
                       # agy3d install into a fresh Godot project, its in-project checks and their negative controls
                       "test_offline_crate_installed_into_a_fresh_godot_project_passes_every_check",

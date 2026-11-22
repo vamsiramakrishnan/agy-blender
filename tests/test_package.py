@@ -1042,7 +1042,10 @@ async def test_godot_draws_a_package_without_hidden_contact_faces_like_the_close
     for closed in (True, False):
         sm = StageManager.create(tmp_path / f"w{closed}.usda", ASSET)
         sm.apply_ir(scene)
-        budget = EngineBudget("godot_4", keep_contact_faces=closed)
+        # one atlas per material on both sides: with the shared atlas the open package ships one batched primitive and the
+        # closed one (keep_contact_faces: parts that will move) keeps its nodes, and stock Godot rasterises those
+        # differently (measured: 21 pixels one grey level apart, one silhouette pixel), which is not what this tests
+        budget = EngineBudget("godot_4", keep_contact_faces=closed, shared_atlas=False)
         bundle = run_export_pipeline(sm.extract_meshes(), budget, ASSET, opaque_materials=opaque_materials(scene))
         pm = write_engine_package(sm, bundle, budget, tmp_path / f"p{closed}", asset_name=ASSET)
         assert pm.ok, pm.issues

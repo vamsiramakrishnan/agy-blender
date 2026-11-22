@@ -427,6 +427,8 @@ async def test_the_money_path_writes_exactly_the_keys_it_wrote_before(tmp_path, 
     keep = {k: v for k, v in x.items() if k not in ("outputs", "report_path", "workdir")}
     before = json.loads((Path(__file__).parent / "money_path_keys.json").read_text())
     machine = ("/pyramid/artifacts/", "/skipped[]", "/pyramid/skipped[]", "/scores/web_", "/pyramid/scores/web_")  # installed engines/browsers
+    # /budget/max_texture_px, /budget/shared_atlas and /budget/base_color_jpeg_quality were added on purpose (EngineBudget: one shared atlas per prop, capped
+    # by an art direction's texture size); the report writes every budget field
     assert sorted(k for k in keypaths(keep) if not k.startswith(machine)) == before["extras"]
     assert {n: sorted(d.data) for n, d in rep.nodes.items()} == before["node_data"]
     assert x["cost"]["plan"].startswith("standard: $") and "tokens" not in x["cost"]["plan"]

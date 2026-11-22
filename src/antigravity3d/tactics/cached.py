@@ -44,7 +44,8 @@ from antigravity3d.tactics.common import load_png, png_bytes
 # 9: the copies of a UV-seam vertex share one position in LOD levels (they could differ by rounding noise);
 # 10: the bundle records which triangles are hidden contact faces (per part and per level) and packs the atlas
 #     without the charts that never ship; a collision hull over its engine's limit is replaced by an enclosing one
-BACKEND_VERSION = "kernel-fast_ops/10"
+# 11: opaque materials share one UV atlas whose side is chosen from need (fast_ops.ATLAS_SIDES), not 2048 per material
+BACKEND_VERSION = "kernel-fast_ops/11"
 CACHED_TAG = "(cached)"  # appended to GeneratedImage.model on a cache hit
 
 
@@ -323,6 +324,16 @@ def export_key(scene: SceneIR, budget: EngineBudget, meshes: list[MeshData] | No
         inputs["composed_meshes"] = [
             (m.node_id, m.material_id, m.collider, hashlib.sha256(np.ascontiguousarray(m.points, dtype="<f8")).hexdigest(),
              hashlib.sha256(np.ascontiguousarray(m.triangles, dtype="<i4")).hexdigest()) for m in meshes]
+    if meshes is not None:
+        # the shared atlas is laid out for the detail its materials carry (surface_detail): a map's size, not its path
+        from antigravity3d.kernel import surface_detail
+
+        seen = {}
+        for m in meshes:
+            if m.material_id not in seen:
+                d = surface_detail.detail_px_per_m(m.material, budget.texel_density_px_per_m)
+                seen[m.material_id] = round(d, 3) if d else None
+        inputs["layout_detail_px_per_m"] = sorted(seen.items(), key=lambda kv: str(kv[0]))
     return node_key("export.uv_lod_collider", inputs=inputs,
                     upstream=[ir_subtree_key(scene, r) for r in roots], backend_version=BACKEND_VERSION)
 

@@ -681,6 +681,12 @@ def _manifest_checks(add, main: dict, lods: list[dict], render: dict, manifest: 
         # may legitimately have none (factor-only), so loaded material names are not compared for equality:
         # every material that has records must be present, and a material without records must bind no texture.
         textures = manifest["textures"] or []
+        # Materials baked into one texture set ship as one glTF material (``texture_atlas.gltf_materials``): their
+        # texture records (one per USD material) are checked against the material they ship as.
+        alias = {src: rec["material"] for rec in (manifest.get("texture_atlas") or {}).get("gltf_materials") or []
+                 for src in rec.get("from") or []}
+        if alias:
+            textures = [{**t, "material": alias.get(t["material"], t["material"])} for t in textures]
         by_name = {m["name"]: m for m in main["materials"]}
         want_mats = {t["material"] for t in textures}
         missing = sorted(want_mats - set(by_name))

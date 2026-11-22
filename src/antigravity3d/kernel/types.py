@@ -1,6 +1,7 @@
 from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 import numpy as np
 
 @dataclass(frozen=True)
@@ -22,6 +23,11 @@ class MeshData:
     # than the render mesh: the sharp box of a bevelled or inset box, the sharp cylinder of a bevelled one
     # (compile_ir.collider_proxy). None: collision is made from ``points``. Whoever moves ``points`` moves these too.
     collider_points: np.ndarray | None = None
+    # The bound material's parameters (compile_ir.MaterialParams, set by the stage manager; None: no material, or not
+    # from a managed stage). The layout asks the surface sources how much detail it carries (surface_detail.
+    # detail_px_per_m): a shared atlas is laid out no denser than its most detailed material needs. Not part of any
+    # cache key: it follows from the materials, which the keys hash.
+    material: Any = None
 
 def gltf_world_bounds(points: Iterable[np.ndarray], *, z_up: bool) -> list[list[float]]:
     """Tight world-space bounds of visual vertices in glTF's right-handed Y-up metres."""

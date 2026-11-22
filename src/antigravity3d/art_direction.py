@@ -79,9 +79,16 @@ class ArtDirection:
     # ---- what the pipeline applies -----------------------------------------------------------------------------
 
     def budget(self, budget: Any, asset_class: AssetClass = "prop") -> Any:
-        """The effective ``EngineBudget``: the style's triangle budget only ever lowers ``max_tris``."""
+        """The effective ``EngineBudget``: the style's triangle budget only ever lowers ``max_tris``, and its texture size
+        caps the side of the shared atlas the maps are baked into (``EngineBudget.max_texture_px``: a style that ships
+        512 px maps gets an atlas of at most 512 px, at whatever density fits, rather than a larger atlas shrunk later)."""
         cap = self.tri_budget_prop if asset_class == "prop" else self.tri_budget_kit_piece
-        return budget if cap is None or cap >= budget.max_tris else replace(budget, max_tris=int(cap))
+        out = budget if cap is None or cap >= budget.max_tris else replace(budget, max_tris=int(cap))
+        px = self.texture_px_prop if asset_class == "prop" else self.texture_px_kit
+        have = getattr(out, "max_texture_px", None)
+        if px is not None and (have is None or int(px) < have):
+            out = replace(out, max_texture_px=int(px))
+        return out
 
     def crease_deg(self) -> float:
         from antigravity3d.kernel.compile_ir import CREASE_DEG

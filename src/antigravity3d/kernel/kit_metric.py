@@ -445,7 +445,7 @@ def texel_of(trims: Sequence[Any]) -> dict[str, Any]:
         a3 += float(np.linalg.norm(np.cross(p[t[:, 1]] - p[t[:, 0]], p[t[:, 2]] - p[t[:, 0]]), axis=1).sum() / 2)
         q = uv[t]
         a2 += float(np.abs((q[:, 1, 0] - q[:, 0, 0]) * (q[:, 2, 1] - q[:, 0, 1]) - (q[:, 1, 1] - q[:, 0, 1]) * (q[:, 2, 0] - q[:, 0, 0])).sum() / 2)
-        res = r.resolution
+        res = math.sqrt(r.size[0] * r.size[1])  # a uv area of 1 is width x height texels (a trim sheet is square: its side)
         if r.report is not None:
             for c in r.report.charts:
                 if c.strip:

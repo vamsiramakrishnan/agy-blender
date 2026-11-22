@@ -36,6 +36,19 @@ class EngineBudget:
     # fast_ops.run_export_pipeline). For assets whose parts will be moved apart in the engine (a lid, a door): the
     # faces two parts press together are hidden only while the parts stay where they were authored.
     keep_contact_faces: bool = False
+    # Opaque materials share one UV atlas, sized from need, and the package bakes their maps into one texture set with
+    # one glTF material where nothing per-material keeps them apart (fast_ops.run_export_pipeline,
+    # package._compose_atlas). False: one 2048 px atlas and one map set per material, as before.
+    shared_atlas: bool = True
+    # Largest side of the shared atlas, below the engine's own limit (ENGINE_RULES max_texture_px): set by an art
+    # direction's texture size (ArtDirection.budget). None: the engine's limit and fast_ops.ATLAS_SIZES decide.
+    max_texture_px: int | None = None
+    # The baked base colour map as JPEG at this quality (4:4:4) instead of lossless PNG; None: PNG. Only the base colour:
+    # measured on the round-four crate's 4096 x 2048 atlas, JPEG q95 halves it (3.37 -> 1.59 MB) at a mean error of 1.2
+    # and a 99th percentile of 5 (of 255), while the ORM map gains 6 % for errors up to 11 levels and the normal map 23 %
+    # for 1.7 degrees, ten times the error an 8-bit normal map already has. Every manifest records both figures per map
+    # (texture_atlas.encoding), so the choice is the developer's to see. glTF readers take JPEG without an extension.
+    base_color_jpeg_quality: int | None = None
 
 
 @dataclass(frozen=True)

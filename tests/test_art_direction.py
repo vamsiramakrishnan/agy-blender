@@ -215,9 +215,13 @@ def test_a_style_never_raises_a_budget_or_a_texture_limit(sid: str, engine: str)
         base = EngineBudget(engine, max_tris=max_tris)  # type: ignore[arg-type]
         for cls, field in (("prop", "tri_budget_prop"), ("kit", "tri_budget_kit_piece")):
             eff = style.budget(base, cls)  # type: ignore[arg-type]
-            assert eff.max_tris <= max_tris and replace(eff, max_tris=max_tris) == base
+            # a style lowers two limits and nothing else: max_tris, and (since one atlas holds every opaque material)
+            # max_texture_px, the largest side of that atlas, from its texture size
+            assert eff.max_tris <= max_tris and replace(eff, max_tris=max_tris, max_texture_px=None) == base
             cap = getattr(style, field)
             assert eff.max_tris == (min(cap, max_tris) if cap else max_tris)
+            px = style.texture_px_prop if cls == "prop" else style.texture_px_kit
+            assert eff.max_texture_px == px
     for cls in ("prop", "kit"):
         assert style.texture_px(engine, cls, 2048) <= ENGINE_RULES[engine].max_texture_px  # type: ignore[arg-type]
 
@@ -489,8 +493,13 @@ def test_offline_prop_without_art_direction_runs_no_style_code(tmp_path: Path, m
     assert "art_direction" not in report and "art_direction" not in report["comparison"]
     pkg = Path(report["outputs"]["inspector"]).parent
     man = json.loads((pkg / "manifest.json").read_text())
-    assert man["schema_version"] == 4 and "art_direction" not in man and man["uv"]["normals"] == "faceVarying (crease 40 deg)"  # schema 4: the provenance record (kernel/provenance.py)
-    assert {t["width"] for t in man["textures"]} == {256}
+    # schema 4: the provenance record (kernel/provenance.py)
+    assert man["schema_version"] == 4 and "art_direction" not in man and man["uv"]["normals"] == "faceVarying (crease 40 deg)"
+    # the offline maps are 256 px; the opaque materials ship as one atlas baked from them at the density they hold
+    # (package._compose_atlas), every texel copied 1:1: no style resized anything
+    atlas = man["texture_atlas"]
+    assert {r["resample_ratio"] for m in atlas["members"].values() for r in m["maps"].values()} == {1.0}
+    assert {t["width"] for t in man["textures"]} == {atlas["atlas_wh"][0]}
     assert all("samplers" not in _glb_json(pkg / f) for f in man["files"] if f.endswith(".glb"))
     assert creases == {CREASE_DEG}
 

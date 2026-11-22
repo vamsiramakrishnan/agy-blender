@@ -1138,6 +1138,11 @@ def validate_package(out_dir: str | Path) -> list[Issue]:
         except Exception as e:  # noqa: BLE001 - unreadable GLB
             add("glb_open", "critical", glb.name, str(e))
 
+    # Materials baked into one texture set ship as one glTF material (manifest ``texture_atlas.gltf_materials``: the
+    # shipped name and the USD materials it holds); the USD keeps one material per surface, all reading the baked maps.
+    alias = {src: rec["material"] for rec in (man.get("texture_atlas") or {}).get("gltf_materials") or [] for src in rec.get("from") or []}
+    if alias:
+        bindings = {n: (alias.get(mat, mat), roles) for n, (mat, roles) in bindings.items()}
     batches = man.get("glb_batches")
     if batches:
         actual_bindings = {}

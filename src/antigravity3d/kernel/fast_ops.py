@@ -26,7 +26,7 @@ import subprocess
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from collections.abc import Mapping
+from collections.abc import Collection, Iterable, Mapping
 from typing import Literal, Sequence
 
 import numpy as np
@@ -581,6 +581,22 @@ class UVResult:
     # They stay here so the working stage keeps closed solids; charts made only of them are not packed into the
     # atlas (their uvs lie right of it, u > 1), and density and stretch above describe the shipped triangles.
     hidden: np.ndarray | None = None
+    # True: this atlas is the one several (or all) opaque materials share, sized from need; the package bakes the maps of
+    # its materials into one texture set at its side (package._compose_atlas). False: one material's own 2048 px atlas.
+    shared_atlas: bool = False
+    # Atlas height in px when it differs from ``resolution`` (the width): a two-to-one atlas (ATLAS_SIZES). None: square.
+    height: int | None = None
+    # Shared atlas only: atlas px one repeat of a tileable material map spans (SWATCH_SPAN_PX at the target density).
+    # The stage samples each material's own map with this repeat (StageManager.author_uvs) and the package bakes the
+    # maps with it (package._compose_atlas), so the stage looks as the package ships. None: the map spans the atlas.
+    repeat_px: int | None = None
+    # Shared atlas sized from need: the sizes tried, smallest first, as (width, height, px/m the packing reached).
+    size_trials: tuple = ()
+
+    @property
+    def size(self) -> tuple[int, int]:
+        """(width, height) of the atlas in px."""
+        return int(self.resolution), int(self.height or self.resolution)
 
     def within(self, budget: EngineBudget) -> bool:
         return self.stretch_mean <= budget.max_uv_stretch
@@ -875,8 +891,10 @@ def _skyline_pack(sizes: np.ndarray, width: float, height: float) -> np.ndarray 
     return out
 
 
-def _strip_search(ext: np.ndarray, pad: float, side: float, hi: float, tol: float = 1e-4) -> tuple[float, np.ndarray]:
-    """Largest density (to ``tol``, below ``hi``) at which the rectangles ``ext * d + pad`` fit a ``side`` square.
+def _strip_search(ext: np.ndarray, pad: float, side: float, hi: float, tol: float = 1e-4,
+                  height: float | None = None) -> tuple[float, np.ndarray]:
+    """Largest density (to ``tol``, below ``hi``) at which the rectangles ``ext * d + pad`` fit a ``side`` square, or
+    a ``side`` wide, ``height`` high rectangle.
 
     The skyline packer never places a rectangle higher than it must, so packing into an unbounded strip of the
     same width gives the same placements as packing into the square, up to the first one that does not fit: the
@@ -888,18 +906,19 @@ def _strip_search(ext: np.ndarray, pad: float, side: float, hi: float, tol: floa
     best_d, best_p = 0.0, None
     fail = hi
     d = hi
+    limit = side if height is None else height
     for it in range(64):
         s = ext * d + pad
         p = _skyline_pack(s, side, np.inf)
-        height = float((p[:, 1] + np.where(p[:, 2] > 0, s[:, 0], s[:, 1])).max()) if p is not None and len(p) else np.inf
-        if height <= side + 1e-9:
+        need = float((p[:, 1] + np.where(p[:, 2] > 0, s[:, 0], s[:, 1])).max()) if p is not None and len(p) else np.inf
+        if need <= limit + 1e-9:
             if d > best_d:
                 best_d, best_p = d, p
         else:
             fail = min(fail, d)
         if best_p is not None and fail - best_d <= tol * fail:
             break
-        guess = d * np.sqrt(side / height) if np.isfinite(height) and height > 0 else 0.5 * d
+        guess = d * np.sqrt(limit / need) if np.isfinite(need) and need > 0 else 0.5 * d
         if best_p is None:  # nothing fitted yet: step down, at least a little
             d = min(guess, d * (1 - 1e-3))
         elif it < 4 and best_d < guess < fail:  # stay inside the bracket, away from its ends
@@ -926,10 +945,16 @@ def _chart_frames(c: _Charted) -> list[tuple[np.ndarray, np.ndarray, np.ndarray,
     return c.frames
 
 
-def _pack_analytic(charted: list[_Charted], density: float, resolution: int,
+def _wh(resolution: int | tuple[int, int]) -> tuple[int, int]:
+    """(width, height) of an atlas given as one side (square) or as (width, height)."""
+    return (int(resolution), int(resolution)) if np.isscalar(resolution) else (int(resolution[0]), int(resolution[1]))
+
+
+def _pack_analytic(charted: list[_Charted], density: float, resolution: int | tuple[int, int],
                    hidden: Sequence[np.ndarray | None] | None = None) -> tuple[list[np.ndarray], float]:
-    """Packs charts (exact ones, and computed ones in metres) as their minimum-area rectangles into one
-    ``resolution`` square atlas.
+    """Packs charts (exact ones, and computed ones in metres) as their minimum-area rectangles into one atlas,
+    ``resolution`` px square or (width, height) px. Texels are square either way: u is divided by the width and v by
+    the height, so a chart keeps one density along both axes.
 
     Each chart keeps UV_PADDING_PX texels of private gutter on every side, so charts are at least
     2 * UV_PADDING_PX texels apart. The requested density is used when everything fits; otherwise the largest
@@ -961,17 +986,21 @@ def _pack_analytic(charted: list[_Charted], density: float, resolution: int,
     ext = np.array([f[4] for f in frames], np.float64).reshape(-1, 2)
     pad = 2.0 * UV_PADDING_PX
     edge = 1.0  # keep half a texel clear of the atlas border, plus rounding
-    side = resolution - edge
+    W, H = _wh(resolution)
+    sw, sh = W - edge, H - edge
     area = float(ext.prod(axis=1).sum())
-    hi = min(float(density), side / max(float(ext.max()), 1e-12), side / np.sqrt(max(area, 1e-12)))
+    # above hi the rectangles cannot fit (each may be turned: its longer side within the longer atlas side, its shorter
+    # within the shorter), so no packing is needed to know it
+    hi = min(float(density), max(sw, sh) / max(float(ext.max()), 1e-12), min(sw, sh) / max(float(ext.min(axis=1).max()), 1e-12),
+             np.sqrt(sw * sh / max(area, 1e-12)))
 
     def fits(d: float) -> np.ndarray | None:
-        return _skyline_pack(ext * d + pad, side, side)
+        return _skyline_pack(ext * d + pad, sw, sh)
 
     d = float(density)
-    place = fits(d) if d <= hi else None  # above hi the rectangles cannot fit: no packing needed to know it
+    place = fits(d) if d <= hi else None
     if place is None and any(c.kind == "computed" for c in charted):
-        d, place = _strip_search(ext, pad, side, hi)
+        d, place = _strip_search(ext, pad, sw, hi, height=sh)
     elif place is None:
         lo = hi / 8
         place = fits(lo)
@@ -989,12 +1018,12 @@ def _pack_analytic(charted: list[_Charted], density: float, resolution: int,
                 break
         d = lo
     out = [np.zeros((len(c.uv_m), 2)) for c in charted]
-    place = list(place) + [(resolution + pad, 0.0, False)] * len(phantom)
+    place = list(place) + [(W + pad, 0.0, False)] * len(phantom)
     for (mi, v, R, lo_, wh), (x, y, turned) in zip(frames + phantom, place):
         q = (charted[mi].uv_m[v] @ R.T - lo_) * d  # chart in px, min corner at the origin
         if turned:  # 90 degrees counter-clockwise keeps the winding: (u, v) -> (h - v, u)
             q = np.stack([wh[1] * d - q[:, 1], q[:, 0]], axis=1)
-        out[mi][v] = (q + [x + pad / 2 + edge / 2, y + pad / 2 + edge / 2]) / resolution
+        out[mi][v] = (q + [x + pad / 2 + edge / 2, y + pad / 2 + edge / 2]) / [W, H]
     return out, d
 
 
@@ -1396,7 +1425,7 @@ def _slabs(c: _Charted, max_extent_m: float) -> _Charted:
     return out
 
 
-def _result(m: MeshData, vm: np.ndarray, tris: np.ndarray, uv: np.ndarray, fitted: bool, resolution: int,
+def _result(m: MeshData, vm: np.ndarray, tris: np.ndarray, uv: np.ndarray, fitted: bool, resolution: int | tuple[int, int],
             atlas_id: str | None, kind: str, hidden: np.ndarray | None = None) -> UVResult:
     pts = np.asarray(m.points, dtype=np.float64)[vm]
     uv = uv.astype(np.float32)
@@ -1409,33 +1438,54 @@ def _result(m: MeshData, vm: np.ndarray, tris: np.ndarray, uv: np.ndarray, fitte
     if not len(shown):
         shown = tris
     a3, a2 = _tri_areas(pts, shown, 3).sum(), _tri_areas(uv, shown, 2).sum()
-    dens = float(np.sqrt(a2 / a3) * resolution) if a3 > 0 and a2 > 0 else 0.0
-    sm, sx = _stretch(pts, shown, uv)
-    return UVResult(m.node_id, pts, tris, uv, vm, dens, sm, sx, resolution, atlas_id, fitted, kind,
-                    _angle_distortion(pts, shown, uv), hidden)
+    W, H = _wh(resolution)
+    dens = float(np.sqrt(a2 * W * H / a3)) if a3 > 0 and a2 > 0 else 0.0  # a uv area of 1 is W x H texels
+    # Distortion is measured on texels (u x width, v x height): on a two-to-one atlas normalised uv scales u and v
+    # differently, so an isometric chart would read as sheared (angle distortion 1.0 on a 512 x 256 atlas).
+    px = uv.astype(np.float64) * [W, H]
+    sm, sx = _stretch(pts, shown, px)
+    return UVResult(m.node_id, pts, tris, uv, vm, dens, sm, sx, W, atlas_id, fitted, kind,
+                    _angle_distortion(pts, shown, px), hidden, height=None if H == W else H)
 
 
 def _area(meshes: Sequence[MeshData]) -> float:
     return float(sum(_tri_areas(np.asarray(m.points, np.float64), np.asarray(m.triangles), 3).sum() for m in meshes))
 
 
-def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_id: str | None,
+def _scaled(c: _Charted, f: float) -> _Charted:
+    """The same charts drawn ``f`` times as large (f < 1: a material that carries less detail than the atlas density
+    gets fewer texels; each chart stays an isometric unfolding, only its scale in the atlas changes)."""
+    frames = None if c.frames is None else [(v, R, lo * f, wh * f) for v, R, lo, wh in c.frames]
+    return _Charted(c.mesh, c.vmap, c.tris, c.uv_m * f, c.kind, c.chart, frames)
+
+
+def _unwrap_group(group: list[MeshData], density: float, resolution: int | tuple[int, int], atlas_id: str | None,
                   hidden: Sequence[np.ndarray | None] | None = None, closed_out: list | None = None,
-                  cache: dict | None = None) -> list[UVResult]:
+                  cache: dict | None = None, raw: dict | None = None, scales: Sequence[float] | None = None) -> list[UVResult]:
     """One atlas: exact charts for meshes that carry them, xatlas charts for the others, all packed together as
     rectangles by ``_pack_analytic`` (so a group whose meshes all carry exact charts is packed as before).
     ``cache`` (a dict, per call site) keeps the charts and their closed packing, so a second call for the same
-    group with another ``hidden`` mask only packs again."""
+    group with another ``hidden`` mask only packs again. ``raw`` (a dict) keeps xatlas' charts before they are cut
+    to the atlas side, so trying another side (``_unwrap_sized``) does not run xatlas again. ``scales`` (per mesh, at
+    most 1): each mesh's charts are packed that many times as large as ``density`` asks (its own density is then
+    density x scale; see ``unwrap_scene``'s ``detail_px_per_m``)."""
     if cache is not None and atlas_id in cache:
         known, uvs, d, closed = cache[atlas_id]
         return _repacked(known, uvs, d, closed, density, resolution, atlas_id, hidden, closed_out)
     # a chart longer than the atlas at the requested density is cut where the mesh allows it
-    max_extent = (resolution - 1.0 - 2.0 * UV_PADDING_PX) / density
+    max_extent = (max(_wh(resolution)) - 1.0 - 2.0 * UV_PADDING_PX) / density
     known = [_charted(m, max_extent) for m in group]
     todo = [i for i, c in enumerate(known) if c is None]
     if todo:
-        for i, c in zip(todo, _computed_charts([group[i] for i in todo])):
+        computed = raw.get(atlas_id) if raw is not None else None
+        if computed is None:
+            computed = _computed_charts([group[i] for i in todo])
+            if raw is not None:
+                raw[atlas_id] = computed
+        for i, c in zip(todo, computed):
             known[i] = _slabs(c, max_extent)
+    if scales is not None:
+        known = [_scaled(c, f) if c is not None and f < 1.0 else c for c, f in zip(known, scales)]  # type: ignore[arg-type]
     uvs, d = _pack_analytic(known, density, resolution)  # type: ignore[arg-type]
     # A few large computed charts can miss the requested density although their rectangles (with gutters) take
     # less area than the atlas: then it is their size, not the area, that does not fit (measured: a 2 m^2
@@ -1445,7 +1495,7 @@ def _unwrap_group(group: list[MeshData], density: float, resolution: int, atlas_
         if d >= density * (1 - 1e-9) or not todo:
             break
         ext = np.array([f[3] for c in known for f in _chart_frames(c)], np.float64).reshape(-1, 2)  # type: ignore[arg-type]
-        if float((ext * density + 2.0 * UV_PADDING_PX).prod(axis=1).sum()) > (resolution - 1.0) ** 2:
+        if float((ext * density + 2.0 * UV_PADDING_PX).prod(axis=1).sum()) > float(np.prod(np.subtract(_wh(resolution), 1.0))):
             break
         longest = max(float(f[3].max()) for i in todo for f in _chart_frames(known[i]))  # type: ignore[arg-type]
         trial = list(known)
@@ -1482,10 +1532,100 @@ def unwrap_uvs(mesh: MeshData, texel_density_px_per_m: float, resolution: int = 
     return _unwrap_group([mesh], texel_density_px_per_m, resolution, mesh.material_id)[0]
 
 
+#: Atlas sizes (width, height) an atlas sized from need (``unwrap_scene(shared_resolution=None)``) may take, by area. Squares
+#: and two-to-one rectangles: with squares only, a layout just over one square needs the next, four times the texels
+#: (up to three quarters empty); with two-to-one steps the next size is twice the texels (at most half empty). Only
+#: landscape is listed: the packer may turn every chart, so a portrait atlas is the same layout transposed. Every
+#: engine and block-compressed format takes non-square power-of-two maps. 4096 x 4096 is the largest: the texels of
+#: four 2048 maps, what an asset of the default four materials (``EngineBudget.max_draw_calls``) shipped before
+#: materials shared one atlas (a 4096 RGBA8 map with mips is already 85 MiB uncompressed). The engine's own
+#: ``max_texture_px`` caps both sides further (Roblox: 1024).
+ATLAS_SIZES = ((256, 256), (512, 256), (512, 512), (1024, 512), (1024, 1024), (2048, 1024), (2048, 2048), (4096, 2048),
+               (4096, 4096))
+ATLAS_SIDES = tuple(sorted({w for w, _ in ATLAS_SIZES}))
+#: Atlas px one repeat of a tileable material map spans at the target texel density: 2048, so a map covers 2 m at the
+#: default 1024 px/m. Until materials shared an atlas every material had its own 2048 px atlas and its map spanned all
+#: of it; keeping that span keeps the surface detail whatever the shared atlas measures (a 2048 px map spread over a
+#: 4096 atlas would show half its texels per metre; on a small atlas the map repeats instead of shrinking).
+SWATCH_SPAN_PX = 2048
+#: The detail (map px per SWATCH_SPAN_PX) a shared atlas of flat-coloured materials only is laid out for: the smallest
+#: atlas side. A flat patch needs no texel density, only charts wide enough that their gutters (UV_PADDING_PX) keep
+#: two colours apart; at the default target this is 128 px/m. Measured on a three-part, two-colour prop: at the full
+#: 1024 px/m its albedo map was 4096 x 4096, and stock Godot, sampling it at a high mip level, bled the two colours
+#: into each other on 22 pixels of the frame.
+FLAT_DETAIL_PX = 256
+
+
+def atlas_sizes(engine: str | None, max_px: int | None = None) -> tuple[tuple[int, int], ...]:
+    """The (width, height) sizes ``unwrap_scene`` tries for an atlas sized from need for ``engine``: ``ATLAS_SIZES`` with
+    both sides within its ``max_texture_px`` and within ``max_px`` (an art direction's texture size)."""
+    from antigravity3d.kernel.validator import ENGINE_RULES
+
+    rule = ENGINE_RULES.get(engine) if engine else None
+    cap = rule.max_texture_px if rule is not None and rule.max_texture_px else ATLAS_SIZES[-1][0]
+    if max_px:
+        cap = min(cap, int(max_px))
+    return tuple(wh for wh in ATLAS_SIZES if max(wh) <= cap) or (ATLAS_SIZES[0],)
+
+
+def shared_atlas_id(materials: Iterable[str | None]) -> str | None:
+    """The ``UVResult.atlas_id`` of an atlas several materials share: the material id itself for one material (so a
+    one-material asset reads as before), else the ids joined with '+', which no IR id contains."""
+    ids = sorted({str(m) for m in materials})
+    return ids[0] if len(ids) == 1 else "+".join(ids)
+
+
+def _unwrap_sized(group: list[MeshData], density: float, sides: Sequence[int | tuple[int, int]], atlas_id: str | None,
+                  hidden, closed_out: list | None, cache: dict | None, scales: Sequence[float] | None = None) -> list[UVResult]:
+    """``_unwrap_group`` at the smallest of ``sides`` whose atlas holds every chart at ``density`` (the largest side
+    when none does: the density is then lowered, ``UVResult.fitted`` False). The closed packing (every triangle
+    shipped) decides, so the layout with hidden faces removed, packed into the same side, never needs more. xatlas runs
+    once; each side tried costs one packing. With ``cache`` the chosen side's packing is kept (``_unwrap_group``)."""
+    if cache is not None and atlas_id in cache:
+        side = cache[atlas_id][3][0].size
+        out = _unwrap_group(group, density, side, atlas_id, hidden, closed_out, cache)
+        tried = cache.get((atlas_id, "sizes tried"), ())
+        return [replace(r, size_trials=tried) for r in out] if tried else out
+    raw: dict = {}
+    tried = []
+    for side in sides:
+        local: dict = {}
+        trial = _unwrap_group(group, density, side, atlas_id, None, None, local, raw, scales)
+        tried.append((*_wh(side), round(max((r.texel_density for r in trial if r.texel_density > 0), default=0.0), 2)))
+        if all(r.fitted for r in trial):
+            break
+    keep = cache if cache is not None else {}
+    keep[atlas_id] = local[atlas_id]
+    if len(sides) > 1:
+        keep[(atlas_id, "sizes tried")] = tuple(tried)
+    out = _unwrap_group(group, density, side, atlas_id, hidden, closed_out, keep)
+    if len(sides) > 1:
+        out = [replace(r, size_trials=tuple(tried)) for r in out]
+        if closed_out is not None:
+            closed_out[-len(out):] = [replace(r, size_trials=tuple(tried)) for r in closed_out[-len(out):]]
+    return out
+
+
 def unwrap_scene(meshes: list[MeshData], budget: EngineBudget, resolution: int = 2048,
                  hidden: Sequence[np.ndarray | None] | None = None, closed_out: list | None = None,
-                 cache: dict | None = None) -> list[UVResult]:
-    """One atlas per material id; results are returned in input order.
+                 cache: dict | None = None, shared: Collection[str] | None = None,
+                 shared_resolution: int | tuple[int, int] | None = None, max_px: int | None = None,
+                 detail_px_per_m: float | Mapping[str | None, float | None] | None = None) -> list[UVResult]:
+    """One atlas per material id, except that the materials in ``shared`` are laid out together in one atlas (at one
+    texel density, so the package can bake their maps into one texture set: ``package._compose_atlas``); results are
+    returned in input order.
+
+    ``resolution``: the side of each material's own atlas. The shared atlas is ``shared_resolution`` px (a side or
+    (width, height)), or with None sized from need: the smallest of ``atlas_sizes(budget.target_engine, max_px)`` that
+    holds its charts at ``budget.texel_density_px_per_m``; so the budget's density target and an art direction's
+    texture size (``max_px``) are what choose it. Its results carry ``repeat_px`` (``SWATCH_SPAN_PX`` at the target).
+    ``detail_px_per_m``: the most detail any shared material carries (``surface_detail.detail_px_per_m``). The shared
+    atlas is laid out at that density when it is below the target (a 256 px map spanning SWATCH_SPAN_PX at the target
+    holds an eighth of it: its texels are then copied 1:1), rather than at a density only enlarged pixels would fill.
+    Given per material (a mapping; None or absent: a flat colour, ``FLAT_DETAIL_PX``), the atlas takes the largest and
+    each material's charts are scaled down to its own: a flat patch beside a textured surface costs few texels. Only the shared atlas is sized from need because only its maps are baked at
+    the atlas side (package._compose_atlas); a material's own atlas ships the material's map as it is, spread over
+    the whole atlas, so its side is that map's span (2048, package.SWATCH_SPAN_PX).
 
     Meshes that carry exact charts (``MeshData.uv_charts``, set for IR primitives) are unfolded
     isometrically and only packed; the others get xatlas charts, computed once. ``hidden`` (per mesh, a triangle
@@ -1493,15 +1633,35 @@ def unwrap_scene(meshes: list[MeshData], budget: EngineBudget, resolution: int =
     ``closed_out`` (a list) receives the unwrap without that mask, in input order: the same charts, vertices and
     triangles, packed as if every triangle shipped.
     """
+    together = {m.material_id for m in meshes if shared is not None and m.material_id in shared}
+    joint = shared_atlas_id(together) if together else None
     groups: dict[str | None, list[int]] = {}
     for i, m in enumerate(meshes):
-        groups.setdefault(m.material_id, []).append(i)
+        groups.setdefault(joint if m.material_id in together else m.material_id, []).append(i)
+    need = atlas_sizes(budget.target_engine, max_px) if shared_resolution is None else (shared_resolution,)
     res: list[UVResult | None] = [None] * len(meshes)
     closed: list[UVResult | None] = [None] * len(meshes)
     for mat, ids in groups.items():
         h = None if hidden is None else [None if hidden[i] is None or not hidden[i].any() else hidden[i] for i in ids]
         got: list[UVResult] = []
-        for i, r in zip(ids, _unwrap_group([meshes[i] for i in ids], budget.texel_density_px_per_m, resolution, mat, h, got, cache)):
+        is_shared = bool(together) and mat == joint
+        sides = need if is_shared else (resolution,)
+        density = budget.texel_density_px_per_m
+        scales = None
+        if is_shared and isinstance(detail_px_per_m, Mapping):
+            flat = budget.texel_density_px_per_m * FLAT_DETAIL_PX / SWATCH_SPAN_PX
+            own = [min(float(detail_px_per_m.get(meshes[i].material_id) or flat), density) for i in ids]
+            density = max(own)
+            scales = [d / density for d in own]
+        elif is_shared and detail_px_per_m:
+            density = min(density, float(detail_px_per_m))
+        out = _unwrap_sized([meshes[i] for i in ids], density, sides, mat, h, got, cache, scales)
+        if is_shared:
+            d = max((r.texel_density for r in out if r.texel_density > 0), default=budget.texel_density_px_per_m)  # what ships
+            repeat = max(1, int(round(SWATCH_SPAN_PX * d / budget.texel_density_px_per_m)))
+            out = [replace(r, shared_atlas=True, repeat_px=repeat) for r in out]
+            got = [replace(r, shared_atlas=True, repeat_px=repeat) for r in got]
+        for i, r in zip(ids, out):
             res[i] = r
         for i, r in zip(ids, got):
             closed[i] = r
@@ -1522,19 +1682,24 @@ def texel_density_report(results: Sequence[UVResult], target_px_per_m: float) ->
 
     Each material has one atlas and one density for all its charts (``_pack_analytic``). ``target_met`` is the packer's
     ``fitted`` flag (False: the atlas could not hold its charts at ``target_px_per_m`` and the density was lowered).
-    ``px_per_m`` is in atlas space, at ``atlas_px`` (the packing resolution); ``needed_atlas_px`` is the side at which
-    the same layout would reach the target (the atlas side scales with the density), ``needed_atlas_px_pow2`` the
-    next power of two. ``spread`` is the highest over the lowest material density, with the two extremes named."""
+    ``px_per_m`` is in atlas space, at ``atlas_px`` (the packing resolution: the width, its longer side;
+    ``atlas_wh`` is (width, height), which differ for a two-to-one atlas); ``needed_atlas_px`` is the width at which
+    the same layout would reach the target (the atlas scales with the density), ``needed_atlas_wh`` both sides,
+    ``needed_atlas_px_pow2`` the next power of two of the width. ``spread`` is the highest over the lowest material density, with the two extremes named."""
     groups: dict[str, list[UVResult]] = {}
     for r in results:
         if r.texel_density > 0:
             groups.setdefault(str(r.atlas_id), []).append(r)
     mats: dict[str, dict] = {}
     for name, rs in sorted(groups.items()):
-        d = min(r.texel_density for r in rs)
-        px = max(r.resolution for r in rs)
+        # one density per atlas; in a shared atlas a material that carries less detail (a flat colour) is drawn smaller
+        # (unwrap_scene's detail_px_per_m), so the atlas's density is its largest
+        shared_atlas = any(r.shared_atlas for r in rs)
+        d = max(r.texel_density for r in rs) if shared_atlas else min(r.texel_density for r in rs)
+        px, py = max(r.size for r in rs)
         met = all(r.fitted for r in rs)
         need = px if met else int(np.ceil(px * target_px_per_m / d))
+        need_y = py if met else int(np.ceil(py * target_px_per_m / d))
         # occupancy: the share of the atlas that charts cover (sum of the shipped triangles' UV areas, overlaps counted
         # twice, so an upper bound) and the share its UV bounding box covers (what a crop to the used region would keep)
         area, lo, hi = 0.0, np.full(2, np.inf), np.full(2, -np.inf)
@@ -1547,8 +1712,10 @@ def texel_density_report(results: Sequence[UVResult], target_px_per_m: float) ->
             area += float(np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]).sum() / 2)
             lo, hi = np.minimum(lo, q.reshape(-1, 2).min(0)), np.maximum(hi, q.reshape(-1, 2).max(0))
         box = float(np.prod(np.clip(hi - lo, 0, 1))) if np.isfinite(lo).all() else 0.0
-        mats[name] = {"px_per_m": round(float(d), 2), "target_met": met, "atlas_px": px, "needed_atlas_px": need,
+        mats[name] = {"px_per_m": round(float(d), 2), "target_met": met, "atlas_px": px, "atlas_wh": [px, py],
+                      "needed_atlas_px": need, "needed_atlas_wh": [need, need_y],
                       "needed_atlas_px_pow2": 1 << max(0, need - 1).bit_length(),
+                      "shared": any(r.shared_atlas for r in rs),
                       "chart_area_fraction": round(min(area, 1.0), 4), "uv_bbox_fraction": round(box, 4)}
     if not mats:
         return {"target_px_per_m": target_px_per_m, "materials": {}, "spread": None, "spread_limit": TEXEL_SPREAD_LIMIT,
@@ -3768,6 +3935,19 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
     # scipy's ConvexHull while the other thread was in xatlas (none in 400 serial runs). The gain was 0 to 15%.
     t = {}
     t0 = time.perf_counter()
+    # Every opaque material is laid out in one atlas, sized from need (ATLAS_SIDES), so the package can ship one texture
+    # set and one draw call (package._compose_atlas). Materials not known to be opaque keep 2048 px atlases of their own.
+    shared = opaque_materials if opaque_materials is not None and budget.shared_atlas else None
+    # how much detail the shared materials carry (their maps, or any other surface source): the layout needs no more;
+    # flat colours only need FLAT_DETAIL_PX (surface_detail)
+    from antigravity3d.kernel import surface_detail
+
+    target = budget.texel_density_px_per_m
+    first = {}
+    for m in meshes:
+        if shared is not None and m.material_id in shared:
+            first.setdefault(m.material_id, m.material)
+    detail = {mid: surface_detail.detail_px_per_m(p, target) for mid, p in first.items()}  # None: a flat colour
     hidden = None
     if contact_faces_removable(budget, opaque_materials):
         hidden = hidden_contact_faces([(m.node_id, m.points, m.triangles, m.material_id) for m in meshes], opaque_materials)
@@ -3775,7 +3955,7 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
             hidden = None
     th = time.perf_counter()
     if hidden is None:
-        uvs = unwrap_scene(meshes, budget)
+        uvs = unwrap_scene(meshes, budget, 2048, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail)
         t1 = time.perf_counter()
         lods = generate_asset_lods(uvs)
     else:
@@ -3786,13 +3966,13 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
         # carried over to that packing vertex by vertex.
         materials = {m.node_id: m.material_id for m in meshes}
         cache: dict = {}
-        closed = unwrap_scene(meshes, budget, cache=cache)
+        closed = unwrap_scene(meshes, budget, 2048, cache=cache, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail)
         t1 = time.perf_counter()
         lods_closed = generate_asset_lods(closed)
         hidden0 = {u.node_id: h for u, h in zip(closed, hidden)}
         marked, exposed = _ship_levels(closed, lods_closed, materials, opaque_materials, hidden0)
         pack = [h & ~_chart_of(u.triangles, exposed[u.node_id]) if u.node_id in exposed else h for u, h in zip(closed, hidden)]
-        uvs = unwrap_scene(meshes, budget, hidden=pack, cache=cache)
+        uvs = unwrap_scene(meshes, budget, 2048, hidden=pack, cache=cache, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail)
         uvs = [replace(u, hidden=h if h.any() else None) for u, h in zip(uvs, hidden)]
         lods = _relayout(marked, closed, uvs)
         if lods is None:  # a level vertex not found in the unwrap: ship every triangle, as before the rule
