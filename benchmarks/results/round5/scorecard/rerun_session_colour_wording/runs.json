@@ -1,0 +1,336 @@
+{
+ "mode": "live",
+ "records": [
+  {
+   "brief": "crate",
+   "arm": "N",
+   "status": "stopped at limit",
+   "wall_s": 582.4,
+   "glb": null,
+   "extra_files": [],
+   "model_calls": 30,
+   "tool_calls": 40,
+   "blender_invocations": 0,
+   "images": 0,
+   "tokens": {
+    "input_tokens": 2314329,
+    "output_tokens": 11840,
+    "thinking_tokens": 42703,
+    "cached_tokens": 2178746,
+    "unknown_reserved_tokens": 0,
+    "share_tokens": 2500000,
+    "total": 2368872,
+    "images": 0,
+    "share_images": 0
+   },
+   "models": {
+    "gemini-4-hydrogen": {
+     "calls": 30,
+     "input": 2314329,
+     "output": 11840,
+     "thinking": 42703
+    }
+   },
+   "final_text": "",
+   "notes": [
+    "plugin attached by hand through SDK equivalents from <scratch>/r5/live_tree11/plugin (see PLUGIN_DISCOVERY)"
+   ],
+   "refused": [
+    "spend limit: run share: 2368872 used + 0 in flight + 154824 reserved > 2500000"
+   ],
+   "pipeline": {
+    "workspace": "<scratch>/r5/live_rerun_N3/runs/r5_crate_N/work",
+    "task": "Make a game-ready 3D prop: a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles.\n\nTarget engine: Godot 4 (import as glTF 2.0 binary).\nBlender 5.3 is installed and on PATH as `blender`; run it headless (for example `blender -b --factory-startup --python script.py`). There is no display and no network.\n\n\"Game-ready\" here means all of the following, checked automatically afterwards:\n- Real-world scale in metres (1 unit = 1 m). Up axis: glTF's +Y (Blender's glTF exporter converts Blender's +Z up for you). The prop stands on the ground: its lowest point at height 0, centred on the origin horizontally.\n- At most 3000 triangles for the main model.\n- Every mesh has a UV map; UV islands inside 0-1 and not overlapping.\n- PBR metallic-roughness material(s), at most 3, with image textures: base colour, normal map, and roughness/metallic (an ORM or metallic-roughness texture). Texture sizes are powers of two, at most 2048 px.\n- Optional: lower-detail LODs as separate files named <name>_LOD1.glb, <name>_LOD2.glb; a simple collision mesh as a separate object whose name ends in \"-col\".\n\nDeliver into the folder `output/` of your working directory: exactly one main file `output/<name>.glb` (textures may be embedded) plus the texture images as PNG files in `output/textures/`. When you are done, reply with a short summary of what you made and anything you could not do.\n\nThis run is limited to about 45 model calls in total, counting every reply you make; plan so that a complete `output/<name>.glb` exists before then, and prefer delivering a simpler complete asset to an unfinished ambitious one.",
+    "load_1min_end": 1.93,
+    "load_1min_start": 5.72,
+    "conditions": {
+     "model_calls": 30,
+     "finish_reasons": {
+      "STOP": 30
+     },
+     "calls_at_output_cap": 0,
+     "max_output_tokens_requested": [
+      16384
+     ],
+     "service_failures": {
+      "turned away": 0,
+      "broken": 0,
+      "server error": 0
+     },
+     "last_call_service_failure": null,
+     "start_end_unix": [
+      1795362044.728,
+      1795362626.087
+     ]
+    },
+    "self_report": {
+     "manifests": [],
+     "qa_records": [
+      {
+       "tier1_ok": true,
+       "tier15_score": 0.0,
+       "session_id": "military_supply_crate-92e6fc",
+       "conversation_id": "a69bdb6a-8599-4e25-90fa-210c5f1bbbda",
+       "asset": "military_supply_crate",
+       "revision": "01050debd215442e867d419ded84c2f6",
+       "target": "godot_4",
+       "verdict": null,
+       "validator_ok": true,
+       "ts": 1795362606.8882036,
+       "schema": "agy3d.qa_state/2",
+       "preview": true,
+       "waits_for_user": ""
+      },
+      {
+       "tier1_ok": true,
+       "tier15_score": 0.0,
+       "session_id": "military_supply_crate-92e6fc",
+       "conversation_id": "a69bdb6a-8599-4e25-90fa-210c5f1bbbda",
+       "asset": "military_supply_crate",
+       "revision": "01050debd215442e867d419ded84c2f6",
+       "target": "godot_4",
+       "verdict": null,
+       "validator_ok": true,
+       "ts": 1795362606.8882036,
+       "schema": "agy3d.qa_state/2",
+       "preview": true,
+       "waits_for_user": ""
+      },
+      {
+       "tier1_ok": true,
+       "tier15_score": 0.0,
+       "session_id": "military_supply_crate-92e6fc",
+       "conversation_id": "a69bdb6a-8599-4e25-90fa-210c5f1bbbda",
+       "asset": "military_supply_crate",
+       "revision": "01050debd215442e867d419ded84c2f6",
+       "target": "godot_4",
+       "verdict": null,
+       "validator_ok": true,
+       "ts": 1795362606.8882036,
+       "schema": "agy3d.qa_state/2",
+       "preview": true,
+       "waits_for_user": ""
+      }
+     ]
+    },
+    "mcp_tools": {
+     "open_asset_session": 1,
+     "apply_scene_ir": 13,
+     "inspect_manifest": 1,
+     "session_status": 1,
+     "render_preview": 2,
+     "deliver_package": 6,
+     "undo_last_edit": 1
+    },
+    "attached": {
+     "t": 1795362047.537,
+     "kind": "plugin_attached",
+     "servers": [
+      "antigravity-3d_studio"
+     ],
+     "rules": [
+      "AGENTS.md (always_on)",
+      "blender-5-3-api.md (glob)",
+      "engine-budgets.md (glob)"
+     ],
+     "subagents": [
+      "lookdev_critic",
+      "usd_verifier"
+     ],
+     "hooks": {
+      "PreToolUse": 1,
+      "PostToolUse": 1,
+      "SessionStart": 1,
+      "Stop": 1
+     },
+     "skills": "/home/agent/project/.agents/plugins/antigravity-3d/skills",
+     "limits": {
+      "tokens": 2500000,
+      "images": 0
+     },
+     "session_start": [
+      "[antigravity-3d] no target engine set (budget.json); defaults: <= 15000 tris, <= 4 draw calls, 1024 px/m, <= 8 hulls. Use conversation_id=a69bdb6a-8599-4e25-90fa-210c5f1bbbda when opening a native asset session and its session_id on export. No QA verdict recorded yet. Edit via Scene IR tools; render_preview shows you the design (look and improve), run_visual_qa judges it; export needs Tier-1 ok and Tier-1.5 >= 3.4 (hook-enforced); in an uncalibrated preview a lookdev review of the current scene, whatever it scored (its findings ship with the package)."
+     ]
+    }
+   },
+   "session": 1,
+   "account": "r5:crate:N",
+   "phase": "first"
+  }
+ ],
+ "changes": [],
+ "change_requests": {
+  "crate": {
+   "text": "make the two side handles 30 % larger",
+   "ratio": 1.3
+  },
+  "hydrant": {
+   "text": "make the chained nozzle cap 30 % larger",
+   "ratio": 1.3
+  },
+  "chair": {
+   "text": "make the spindles of the back 30 % thicker",
+   "ratio": 1.3
+  }
+ },
+ "repeats": [],
+ "c_change_mode": "edit",
+ "unfair": [
+  "Arm V's screenshots reach the model in two steps: the stock harness puts an MCP tool's image into the conversation only while it is tiny (base64 under about 10 to 16 KB, measured); a larger one, which is every useful render (a 256 px solid view of a cube is 53 KB), is saved to a file and the path returned ('[Resource offloaded to file:///...media_0.png]'), and the agent sees the picture only if it opens that file with view_file (tests/test_compare_agents.py). That is the stock agent's behaviour with any MCP server and is left as it is; each V record counts screenshots taken and opened.",
+  "Arm V's Blender has a virtual display (Xvfb) inside the sandbox, because its screenshot is Blender's solid-viewport renderer (Workbench), which needs OpenGL: without a display Blender 5.3 exits at the first render (measured). Arm A's Blender has none, as in round 3; Cycles works without one.",
+  "Arm V's Blender binary is mounted in the sandbox (the MCP server starts it) but is not on PATH and not named in its task; an agent that finds it can still run it from the shell. Each record counts shell commands that start Blender (blender_invocations), so a V run that bypassed its MCP server is visible.",
+  "Arms V and A run with 0 images: the owner's image allowance is used up (29 of 30), and the relay refuses an image call. A stock agent made no image in round 3 (its textures were procedural); the task text is unchanged.",
+  "Arms N and C make their textures as images and are not run until the owner allows more images.",
+  "Arm C is told less than the agents: its command line carries the brief, engine and triangle budget, but not the rest of the game-ready list (C_UNEXPRESSED); the pipeline applies its own conventions there.",
+  "Arm C's change request is `agy3d edit OUT \"<change>\"` on a copy of its first output folder: one patch to the shipped design, no image (C_CHANGE_MODE; 'append', a new design from the sentence appended to the prompt, is kept for comparison). The agents' change sessions are new conversations over the files their first session left.",
+  "Every arm's task ends with a budget sentence ('about N model calls'), N computed from its share (CALL_MODEL); maxOutputTokens is 16,384 instead of the stock 65,535; web search and URL reading are disabled (no network).",
+  "The upstream qa_check / mesh_stats / texel_density scripts are by the author of the skills arm B used (round 1). The Godot import script and the three.js check are this project's own (C's authors); they are applied to the bare GLB of every arm with a manifest holding only the bounds read from that GLB.",
+  "The judge is Gemini (gemini-4-carbon, thinking low) judging Gemini-made assets; renders are Blender's (Cycles), not the target engine's.",
+  "Rows that only this project can pass are marked so in the scorecard (installed into a project, provenance, the same bytes from the same request): they are reported, not mixed into the shared game-ready rate.",
+  "The machine is shared: other test suites may run on its 4 cores during live runs; each record carries the load at its start and end. Wall times are not comparable with an idle machine."
+ ],
+ "plugin_discovery": {
+  "sdk": "google-antigravity 0.1.24 (bundled localharness binary), LocalAgentConfig defaults",
+  "tried": [
+   "<workspace>/.agents/plugins/antigravity-3d (plugin_install.install, workspace scope, copy mode)",
+   "<workspace>/.agents/plugins.json entry (plugin_install.register)",
+   "$HOME/.gemini/config/plugins/antigravity-3d (global install, HOME passed to the harness)"
+  ],
+  "request_carried": "in every case: no MCP server section and no MCP tools, no plugin skill (only the built-in run-workflow skill), no plugin rule; system prompt about 11.6k characters, unchanged",
+  "so": "arm C attaches each part by hand through its SDK equivalent, from the plugin's own files"
+ },
+ "not_run": {
+  "arm B": "not run in round 5: its two round-1 runs are reported as a finding (what it read, what it cost)",
+  "arm C": "arm C (this project's command line, preview mode) needs images for its textures; it waits for the owner's image allowance (29 of 30 used)"
+ },
+ "round": "r5",
+ "native_sizing": null,
+ "c_unexpressed": [
+  "real-world scale, +Y up, grounded and centred (the pipeline's own conventions apply; not a flag)",
+  "UVs inside 0-1 and not overlapping (the pipeline unwraps by its own rules)",
+  "at most 3 materials; a base colour, normal and metallic-roughness texture per material (its own lookdev decides)",
+  "texture sizes (power of two, at most 2048 px): no texture-size flag",
+  "LODs and collision named as the task asks (<name>_LOD1.glb, '-col'): it writes its own package layout",
+  "the delivery folder output/<name>.glb + output/textures/: it writes a package directory",
+  "the budget sentence: there is no agent to read it; the command's own --token-ceiling / --max-images bound it"
+ ],
+ "plan": {
+  "briefs": [
+   {
+    "id": "crate",
+    "prompt": "a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles",
+    "max_tris": 3000,
+    "size_m": [
+     0.5,
+     1.6
+    ],
+    "upright": false,
+    "why": "boxy, kit-bashed: many flat parts that must meet cleanly, hard edges, trim detail"
+   },
+   {
+    "id": "hydrant",
+    "prompt": "a cast-iron fire hydrant with bolted caps and a chained nozzle cap",
+    "max_tris": 4000,
+    "size_m": [
+     0.5,
+     1.2
+    ],
+    "upright": true,
+    "why": "round parts: cylinders, caps, bolts; tessellation against a budget, smooth shading"
+   },
+   {
+    "id": "chair",
+    "prompt": "a wooden Windsor chair with a spindle back",
+    "max_tris": 5000,
+    "size_m": [
+     0.7,
+     1.3
+    ],
+    "upright": true,
+    "why": "thin and many parts: legs, stretchers, a dozen spindles; proportions and budget"
+   }
+  ],
+  "order": [
+   [
+    "crate",
+    "N"
+   ],
+   [
+    "hydrant",
+    "N"
+   ],
+   [
+    "chair",
+    "N"
+   ]
+  ],
+  "engine": "godot_4",
+  "notes": {
+   "stock model": "SDK default text model gemini-4-hydrogen (google.antigravity.models.DEFAULT_MODEL), thinking left at the model default; image tool on the SDK default gemini-3.1-flash-lite-image (0 images this round: the relay refuses image calls).",
+   "stock deviations": "web search and URL reading disabled (no network allowed); maxOutputTokens 16,384 instead of the stock 65,535 so a call's worst case does not consume a third of the run's share; file tools limited to the workspace; harness backstops exceed the modeled call allowance but may bind before the token share (harness_budget).",
+   "arm V": "the stock agent plus one MCP server, compare_vanilla_mcp.py (execute_blender_code, get_scene_info, get_object_info, get_viewport_screenshot), attached through LocalAgentConfig.mcp_servers; Blender runs inside the sandbox under Xvfb; nothing of this project is mounted.",
+   "change requests": "one per cell after it delivers, a new session over a copy of its files, half the arm's share; the two packages are diffed part by part (compare_eval.package_diff)."
+  },
+  "budget": {
+   "ceiling_tokens": 40000000,
+   "ceiling_images": 0,
+   "round": "r5",
+   "briefs": [
+    "crate",
+    "hydrant",
+    "chair"
+   ],
+   "arms_now": [
+    "N"
+   ],
+   "arms_planned": [
+    "A",
+    "N",
+    "V"
+   ],
+   "run_tokens": {
+    "V": 1200000,
+    "A": 1200000,
+    "B": 195000,
+    "N": 2500000,
+    "C": 1200000
+   },
+   "run_images": {
+    "V": 0,
+    "A": 0,
+    "B": 0,
+    "N": 0,
+    "C": 0
+   },
+   "judge_tokens_per_call": 12500,
+   "small_judge_tokens_per_call": 10000,
+   "smoke_tokens": 0,
+   "continuations": {},
+   "changes": true,
+   "change_share": 0.5,
+   "change_images": {
+    "V": 0,
+    "A": 0,
+    "B": 0,
+    "N": null,
+    "C": null
+   }
+  },
+  "plan_totals": {
+   "tokens": 22455000,
+   "images": 0
+  }
+ },
+ "tally": {
+  "tokens": 2368872,
+  "images": 0,
+  "input_tokens": 2314329,
+  "output_tokens": 11840,
+  "thinking_tokens": 42703,
+  "unknown_reserved_tokens": 0,
+  "calls": 31,
+  "inflight_tokens": 0,
+  "ceiling_tokens": 40000000,
+  "ceiling_images": 0
+ }
+}

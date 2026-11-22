@@ -1,0 +1,75 @@
+{
+ "model": "gemini-4-carbon",
+ "thinking": "low",
+ "calls": [
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 213,
+    "thinking": null,
+    "total": 3466
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 features deeper, more distinct modular panels, latches, and heavy-duty hardware that better capture a rugged kit-bashed crate."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both crates share an identical overall scale next to the reference block, though Image 2 has more believable corner guard proportions compared to the overly bulky blocks in Image 1."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 exhibits richer olive drab coloring, superior metallic material separation on the latches, and more convincing stencil decals than the flat surfaces of Image 2."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 2 is cleaner, whereas Image 1 displays patchy, unnatural procedural wear artifacts on the black corner guards."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 wins overall due to its stronger silhouette, more detailed hardware modeling, and more convincing military surface materials."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 204,
+    "thinking": null,
+    "total": 3457
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Image 2 feels more rugged and authentically military due to its ribbed panels, articulated latches, and realistic hinged side handles."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Both share believable overall scale, but Image 1 avoids the overly bulky, oversized corner guards seen in Image 2."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 features clean, cohesive stylized edge wear, whereas Image 2 suffers from harsh, noisy black-and-silver procedural blotching on the corner guards."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 1 has clean decals and textures, while Image 2 shows garbled, illegible stencil text and harsh procedural texture artifacts."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 wins overall due to its cohesive material execution, legible decals, and cleaner proportions without harsh procedural artifacts."
+    }
+   }
+  }
+ ],
+ "total_tokens": 6923
+}

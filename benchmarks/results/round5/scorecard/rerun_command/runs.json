@@ -1,0 +1,1830 @@
+{
+ "mode": "live",
+ "records": [
+  {
+   "brief": "crate",
+   "arm": "C",
+   "status": "finished",
+   "wall_s": 598.2,
+   "glb": "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/RuggedMilitarySupply.glb",
+   "extra_files": [
+    "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/RuggedMilitarySupply.usd",
+    "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/RuggedMilitarySupply.usdz",
+    "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/RuggedMilitarySupply_LOD1.glb",
+    "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/RuggedMilitarySupply_LOD2.glb",
+    "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/RuggedMilitarySupply_LOD3.glb",
+    "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/RuggedMilitarySupply_colliders.glb",
+    "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/inspector.html",
+    "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/manifest.json",
+    "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/textures/RuggedMilitarySupply_atlas_albedo.png",
+    "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/textures/RuggedMilitarySupply_atlas_normal.png",
+    "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/textures/RuggedMilitarySupply_atlas_orm.png"
+   ],
+   "model_calls": 30,
+   "tool_calls": null,
+   "blender_invocations": null,
+   "images": 0,
+   "tokens": {
+    "input_tokens": 324507,
+    "output_tokens": 19237,
+    "thinking_tokens": 33608,
+    "cached_tokens": 0,
+    "unknown_reserved_tokens": 0,
+    "share_tokens": 1200000,
+    "total": 377352,
+    "images": 0,
+    "share_images": 0
+   },
+   "models": {
+    "gemini-4-neon": {
+     "calls": 20,
+     "input": 153706,
+     "output": 3826,
+     "thinking": 15006
+    },
+    "gemini-4-hydrogen": {
+     "calls": 10,
+     "input": 170801,
+     "output": 15411,
+     "thinking": 18602
+    }
+   },
+   "final_text": "",
+   "notes": [
+    "arm C had a Blender worker (--blender): lookdev renders and the Blender-side checks are those a user with Blender gets",
+    "arm C: this project's pipeline (command line, preview mode); not expressible on its command line: real-world scale, +Y up, grounded and centred (the pipeline's own conventions apply; not a flag); UVs inside 0-1 and not overlapping (the pipeline unwraps by its own rules); at most 3 materials; a base colour, normal and metallic-roughness texture per material (its own lookdev decides); texture sizes (power of two, at most 2048 px): no texture-size flag; LODs and collision named as the task asks (<name>_LOD1.glb, '-col'): it writes its own package layout; the delivery folder output/<name>.glb + output/textures/: it writes a package directory; the budget sentence: there is no agent to read it; the command's own --token-ceiling / --max-images bound it"
+   ],
+   "refused": [],
+   "pipeline": {
+    "plan_lines": {
+     "default": [
+      "clutter: up to 3 image(s) (+2 per extra material) and about 377,827 tokens",
+      "simple: up to 4 image(s) (+2 per extra material) and about 397,122 tokens",
+      "standard: up to 8 image(s) (+4 per extra material) and about 535,332 tokens",
+      "hero: up to 11 image(s) (+6 per extra material) and about 609,645 tokens"
+     ],
+     "single_candidate": [
+      "clutter: up to 2 image(s) (+1 per extra material) and about 374,960 tokens",
+      "simple: up to 2 image(s) (+1 per extra material) and about 374,960 tokens",
+      "standard: up to 2 image(s) (+1 per extra material) and about 468,846 tokens",
+      "hero: up to 3 image(s) (+1 per extra material) and about 471,713 tokens"
+     ]
+    },
+    "mode": "default",
+    "command": [
+     "-m",
+     "antigravity3d.cli",
+     "prop",
+     "<brief crate>",
+     "--engine",
+     "godot_4",
+     "--max-tris",
+     "3000",
+     "--out",
+     "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out",
+     "--preview",
+     "--blender",
+     "<scratch>/engines/blender-5.3.0-linux-x64/blender",
+     "--token-ceiling",
+     "1185000",
+     "--max-images",
+     "0"
+    ],
+    "prompt": "a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles",
+    "own_spend": "spend (tokens, no price applied): standard: 389,779 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 125,082, author.look 27,422, author.propose 64,737, geometry_gen 0, geometry_vision 34,315, lod_pop 5,603, route 1,887, visual_qa 130,733) | decisions plane 20 calls, 153,706 input + 18,832 output tokens cache hits=0 misses=1",
+    "exit_code": 0,
+    "publication": "UNVERIFIED PREVIEW (verified=false; judged by generative fallback, uncalibrated)",
+    "preview_gates": "FAIL",
+    "decision_backend": "generative_fallback",
+    "preview": {
+     "verified": false,
+     "preview": true,
+     "judge": {
+      "label": "generative fallback, uncalibrated",
+      "calibrated": false,
+      "meaning": "probabilities are a generative model's self-report, not calibrated Decisions output: they may steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it"
+     },
+     "needs_review": true,
+     "spend": {
+      "unit": "tokens",
+      "summary": "standard: 389,779 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 125,082, author.look 27,422, author.propose 64,737, geometry_gen 0, geometry_vision 34,315, lod_pop 5,603, route 1,887, visual_qa 130,733)"
+     }
+    },
+    "skipped": [
+     {
+      "step": "dag:style_anchor",
+      "reason": "no style anchor provided"
+     },
+     {
+      "step": "dag:ortho",
+      "reason": "router: no orthographic blueprint needed (P=0.35)"
+     },
+     {
+      "step": "pyramid:textures",
+      "reason": "no material was textured: mat_olive_drab: image limit reached (0 of 0 images): larger surfaces were textured first; mat_rubber: image limit reached (0 of 0 images): larger surfaces were textured first; mat_dark_metal: image limit reached (0 of 0 images): larger surfaces were textured first"
+     },
+     {
+      "step": "pyramid:engine_capture",
+      "reason": "engine truth disabled in spend plan"
+     },
+     {
+      "step": "pyramid:engine_parity",
+      "reason": "spend plan 'standard' has engine_truth disabled"
+     },
+     {
+      "step": "pyramid:export_fbx",
+      "reason": "no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)"
+     }
+    ],
+    "geometry_candidates": {
+     "n_planned": 4,
+     "n_requested": 4,
+     "n_proposed": 4,
+     "outcomes": [
+      {
+       "index": 0,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10751,
+        "output_tokens": 6380,
+        "thinking_tokens": 2456
+       },
+       "admission_wait_s": 0.005,
+       "reserved_usd": null,
+       "reserved_tokens": 35103.0
+      },
+      {
+       "index": 1,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10751,
+        "output_tokens": 5406,
+        "thinking_tokens": 3190
+       },
+       "admission_wait_s": 0.001,
+       "reserved_usd": null,
+       "reserved_tokens": 35103.0
+      },
+      {
+       "index": 2,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10751,
+        "output_tokens": 5265,
+        "thinking_tokens": 2731
+       },
+       "admission_wait_s": 0.002,
+       "reserved_usd": null,
+       "reserved_tokens": 35103.0
+      },
+      {
+       "index": 3,
+       "status": "produced",
+       "detail": "",
+       "finish_reason": "STOP",
+       "usage": {
+        "input_tokens": 10751,
+        "output_tokens": 4682,
+        "thinking_tokens": 1420
+       },
+       "admission_wait_s": 0.002,
+       "reserved_usd": null,
+       "reserved_tokens": 35103.0
+      }
+     ],
+     "sizing": {
+      "basis": "expected author cost + grading",
+      "expected_candidate_tokens": 19972.0,
+      "worst_case_candidate_tokens": 38609.0,
+      "remaining_tokens": 1183113.0
+     }
+    },
+    "scores": {
+     "tier15": 2.5254545454545454,
+     "tier1_ok": true,
+     "score_silhouette": 2.57,
+     "score_brief_depiction": 2.62,
+     "score_shippability": 2.5,
+     "web_silhouette_iou": 0.9998650332225913
+    },
+    "plan": "standard: 389,779 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 125,082, author.look 27,422, author.propose 64,737, geometry_gen 0, geometry_vision 34,315, lod_pop 5,603, route 1,887, visual_qa 130,733)",
+    "pyramid_steps": [
+     [
+      "settle_pre",
+      "passed",
+      "settled 4 node(s)"
+     ],
+     [
+      "separate_coplanar",
+      "passed",
+      "10 coplanar face pair(s); moved 8 face(s) of 4 part(s) to 2 mm apart | moved: hinge_barrel -x face -2.00 mm (back; was coplanar with hinge_plate); hinge_barrel +x face -2.00 mm (back; was coplanar wit"
+     ],
+     [
+      "attach_pre",
+      "passed",
+      "attached handle_bracket, handle_bracket__my, handle_grip moved 7.5 mm onto crate_body (-7.5, +0.0, +0.0 mm); attached handle_group__mx__handle_bracket, handle_group__mx__handle_bracket__my, handle_gro"
+     ],
+     [
+      "improve_A1",
+      "passed",
+      "kept provisionally (rose by the judge's noise band (0.2) or more: score_shippability 2.42->2.64): progress 2.48->2.65, depiction 2.53->2.69, tier15 2.46->2.64, tier1 critical 0->0, 9 op(s); clean-up: "
+     ],
+     [
+      "improve_A2",
+      "passed",
+      "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.65->2.68, depiction 2.69->2.74, tier15 2.64->2.66, tier1 critical 0->0, 13 op(s); clean-up: separat"
+     ],
+     [
+      "validate_A2",
+      "passed",
+      "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.70) \"State B is closer to the request because it adds vertical reinforcing straps, a bolte"
+     ],
+     [
+      "improve_A3",
+      "passed",
+      "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.68->2.70, depiction 2.74->2.76, tier15 2.66->2.68, tier1 critical 0->0, 6 op(s)"
+     ],
+     [
+      "improve_A4",
+      "passed",
+      "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.70->2.55, depiction 2.76->2.62, tier15 2.68->2.53, tier1 critical 0->0, 9 op(s)"
+     ],
+     [
+      "validate_A4",
+      "passed",
+      "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.65) \"State B is closer to the request because it adds rugged military crate details includ"
+     ],
+     [
+      "textures",
+      "skipped",
+      "no material was textured: mat_olive_drab: image limit reached (0 of 0 images): larger surfaces were textured first; mat_rubber: image limit reached (0 of 0 images): larger surfaces were textured first"
+     ],
+     [
+      "uv_lod_colliders",
+      "passed",
+      "uv=68 lod_tris=[2750, 2010, 1354, 594] hulls=4 texel_density: mat_dark_metal+mat_olive_drab+mat_rubber 512 (met); spread 1.00x"
+     ],
+     [
+      "look_round",
+      "warned",
+      "undone mat_olive_drab base_color [0.2392, 0.2902, 0.1686] roughness 0.65 metallic 0.00; mat_dark_metal base_color [0.1647, 0.1765, 0.1882] roughness 0.45 metallic 0.95: undone (not shown to be better)"
+     ],
+     [
+      "engine_compliance",
+      "passed",
+      "0 warning(s)"
+     ],
+     [
+      "usd_validate",
+      "passed",
+      "write_engine_package ok; 0 non-critical message(s); files=11"
+     ],
+     [
+      "lod_pop",
+      "passed",
+      "LOD pop: 3 transitions, OK; worst pair 2 (LOD2->3 @5%, 18.4 m): IoU 0.994, shade 0.006, edge 1.0px, tris 1354->594"
+     ],
+     [
+      "lod_pop_vision",
+      "failed",
+      "pair 3: score_lod_continuity 2.84 < 3.0"
+     ],
+     [
+      "export_glb",
+      "passed",
+      "RuggedMilitarySupply.glb 1964696 bytes (+3 LOD GLB)"
+     ],
+     [
+      "engine_import",
+      "passed",
+      "07,0.429500013589859,0.268664240837097]],\"images\":3,\"images_loaded\":3,\"normal_surfaces\":1,\"orm_surfaces\":1,\"surfaces\":1,\"textured_surfaces\":1,\"triangles\":2750} "
+     ],
+     [
+      "engine_capture",
+      "skipped",
+      "engine truth disabled in spend plan"
+     ],
+     [
+      "engine_parity",
+      "skipped",
+      "spend plan 'standard' has engine_truth disabled"
+     ],
+     [
+      "web_runtime",
+      "passed",
+      "three.js loaded and rendered the package: 27 checks passed, silhouette IoU 0.9999 against the USD"
+     ],
+     [
+      "blender_asset_qa",
+      "passed",
+      "qa_check of EL4CTEO/blender-skills @9e7e04a (release 1.3.2), game profile, vertices merged part by part: 1 object(s), 2750 tris; no errors, 1 warning(s): hidden back-to-back faces: Batch_0 (108 pairs)"
+     ],
+     [
+      "export_fbx",
+      "skipped",
+      "no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)"
+     ]
+    ],
+    "stdout_tail": "design record: 0 design(s) and 0 repair(s) reused, no call made; 9 recorded\noutputs:\n  usd: <scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/RuggedMilitarySupply.usd\n  manifest: <scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/manifest.json\n  glb: <scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/RuggedMilitarySupply.glb\n  web_render: <scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/web_three.png\n  authoring_usd: <scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/RuggedMilitarySupply_authoring.usda\n  inspector: <scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/inspector.html\n  report: <scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/report.json\nskipped:\n  - dag:style_anchor: no style anchor provided\n  - dag:ortho: router: no orthographic blueprint needed (P=0.35)\n  - pyramid:textures: no material was textured: mat_olive_drab: image limit reached (0 of 0 images): larger surfaces were textured first; mat_rubber: image limit reached (0 of 0 images): larger surfaces were textured first; mat_dark_metal: image limit reached (0 of 0 images): larger surfaces were textured first\n  - pyramid:engine_capture: engine truth disabled in spend plan\n  - pyramid:engine_parity: spend plan 'standard' has engine_truth disabled\n  - pyramid:export_fbx: no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)\nwarnings:\n  - look_round: undone mat_olive_drab base_color [0.2392, 0.2902, 0.1686] roughness 0.65 metallic 0.00; mat_dark_metal base_color [0.1647, 0.1765, 0.1882] roughness 0.45 metallic 0.95: undone (not shown to be better): before-first: neither (0.70) \"State A and State B appear identical in colour, finish, and material definition, so neither is closer to the request.\"; after-first: neither (0.70) \"States A and B do not visibly differ in color or material.\"; before: score_brief_look=2.55, score_material_separation=2.54, score_pbr_realism=2.28; after: score_brief_look=2.69, score_material_separation=2.69, score_pbr\npublication: UNVERIFIED PREVIEW (verified=false; judged by generative fallback, uncalibrated)\n  judge: probabilities are a generative model's self-report, not calibrated Decisions output: they may steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it\nreview: required (the judge is uncalibrated; a person must review this package before any use)\nfinding: overall score (tier15) 2.53, below the target 3.4 by 0.87, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: silhouette 2.57, below the target 3.3 by 0.73, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: shippability 2.50, below the target 3.4 by 0.90, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: lod_pop_vision failed on the answer of generative fallback, uncalibrated (pair 3: score_lod_continuity 2.84 < 3.0); look at it before you ship\nwhere to look: <scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/inspector.html, <scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/web_three.png\ndelivered: yes, every deterministic check passed (exit 0; the review above is a finding, not a failure)\npreview gates: FAIL\n",
+    "stderr_tail": "nished (1 still in flight)\n[judge compare:shape]    17s finished (0 still in flight)\n[author worker improve]     0s sent to gemini-4-hydrogen\n[author worker improve]     4s thinking: Analyzing the Design\n[author worker improve]     5s thinking: Refining the Details\n[author worker improve]     7s thinking: Enhancing the Functionality\n[author worker improve]     9s thinking: Calculating the Additions\n[author worker improve]    11s thinking: Verifying the Placement\n[author worker improve]    12s answer arriving: 4 characters\n[author worker improve]    16s finished STOP, 3,012 output tokens\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:blockout]    22s finished (0 still in flight)\n[author worker improve]     0s sent to gemini-4-hydrogen\n[author worker improve]     4s thinking: Analyzing the Design\n[author worker improve]     5s thinking: Detailing the Components\n[author worker improve]     7s thinking: Improving the Visuals\n[author worker improve]     9s thinking: Evaluating Lid Enhancements\n[author worker improve]    11s thinking: Adding Visual Interest\n[author worker improve]    13s answer arriving: 2 characters\n[author worker improve]    15s finished STOP, 2,931 output tokens\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:blockout]    19s finished (0 still in flight)\n[judge compare:shape]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge compare:shape]     0s sent to gemini-4-neon (2 judge call(s) in flight)\n[judge compare:shape]    16s finished (1 still in flight)\n[judge compare:shape]    16s finished (0 still in flight)\n[judge visual_qa:look]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:look]    18s finished (0 still in flight)\n[author worker look]     0s sent to gemini-4-hydrogen\n[author worker look]    20s retrying in 2 s: unknown: StreamStalled: stream silent for 20.0 s while waiting (limit 20.0 s; 0 chunks, 0 thought and 0 answer characters received)\n[author worker look (attempt 2)]     0s sent to gemini-4-hydrogen\n[author worker look (attempt 2)]     6s answer arriving: 30 characters\n[author worker look (attempt 2)]     6s finished STOP, 680 output tokens\n[judge compare:look]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge compare:look]     0s sent to gemini-4-neon (2 judge call(s) in flight)\n[judge visual_qa:look]     0s sent to gemini-4-neon (3 judge call(s) in flight)\n[judge visual_qa:look]     0s sent to gemini-4-neon (4 judge call(s) in flight)\n[judge compare:look]    12s finished (3 still in flight)\n[judge visual_qa:look]    34s finished (2 still in flight)\n[judge visual_qa:look]    40s finished (1 still in flight)\nstill running: judge compare:look 70s\nstill running: judge compare:look 100s\n[judge compare:look]   118s finished (0 still in flight)\n[judge lod_pop]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge lod_pop]    18s finished (0 still in flight)\n",
+    "self_report": {
+     "manifests": [
+      {
+       "path": "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/manifest.json",
+       "asset": "RuggedMilitarySupply",
+       "verified": false,
+       "preview": true,
+       "tris": 2750,
+       "judge": {
+        "label": "generative fallback, uncalibrated",
+        "calibrated": false,
+        "meaning": "probabilities are a generative model's self-report, not calibrated Decisions output: they may steer the run (route, rank, repair, fail a gate) but never verify, publish or clear it"
+       },
+       "spend": {
+        "unit": "tokens",
+        "summary": "standard: 389,779 of 1,185,000 tokens (no price applied); 0 of 0 images (author.improve 125,082, author.look 27,422, author.propose 64,737, geometry_gen 0, geometry_vision 34,315, lod_pop 5,603, route 1,887, visual_qa 130,733)"
+       },
+       "evidence": {
+        "render_tier": "preview",
+        "lookdev": false,
+        "engine_parity": false,
+        "silhouette_iou": null,
+        "steps": [
+         {
+          "name": "settle_pre",
+          "status": "passed",
+          "detail": "settled 4 node(s)"
+         },
+         {
+          "name": "separate_coplanar",
+          "status": "passed",
+          "detail": "10 coplanar face pair(s); moved 8 face(s) of 4 part(s) to 2 mm apart | moved: hinge_barrel -x face -2.00 mm (back; was coplanar with hinge_plate); hinge_barrel +x face -2.00 mm (back; was coplanar with hinge_plate); hinge_barrel radius: side facets -0.66 mm (back; its -y facet was coplanar with hinge_plate); hinge_barrel__mx -x face -2.00 mm (back; was coplanar with hinge_plate__mx); hinge_barrel__mx +x face -2.00 mm (back; was coplanar with hinge_plate__mx); hinge_barrel__mx radius: side facets -0.66 mm (back; its -y facet was coplanar with hinge_plate__mx); latch_hinge radius: side facets -0.76 mm (back; its -y facet was coplanar with latch_clasp); latch_hinge__mx radius: side facets -0.76 mm (back; its -y facet was coplanar with latch_clasp__mx)"
+         },
+         {
+          "name": "attach_pre",
+          "status": "passed",
+          "detail": "attached handle_bracket, handle_bracket__my, handle_grip moved 7.5 mm onto crate_body (-7.5, +0.0, +0.0 mm); attached handle_group__mx__handle_bracket, handle_group__mx__handle_bracket__my, handle_group__mx__handle_grip moved 7.5 mm onto crate_body (+7.5, +0.0, +0.0 mm)"
+         },
+         {
+          "name": "improve_A1",
+          "status": "passed",
+          "detail": "kept provisionally (rose by the judge's noise band (0.2) or more: score_shippability 2.42->2.64): progress 2.48->2.65, depiction 2.53->2.69, tier15 2.46->2.64, tier1 critical 0->0, 9 op(s); clean-up: separated flush faces of 2 part(s) the patch changed"
+         },
+         {
+          "name": "improve_A2",
+          "status": "passed",
+          "detail": "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.65->2.68, depiction 2.69->2.74, tier15 2.64->2.66, tier1 critical 0->0, 13 op(s); clean-up: separated flush faces of 4 part(s) the patch changed"
+         },
+         {
+          "name": "validate_A2",
+          "status": "passed",
+          "detail": "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.70) \"State B is closer to the request because it adds vertical reinforcing straps, a bolted front plate, and fasteners that make the crate look more rugged.\"; after-first: after (0.72) \"State A is closer to the request because it adds rugged military details like vertical reinforcement str"
+         },
+         {
+          "name": "improve_A3",
+          "status": "passed",
+          "detail": "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.68->2.70, depiction 2.74->2.76, tier15 2.66->2.68, tier1 critical 0->0, 6 op(s)"
+         },
+         {
+          "name": "improve_A4",
+          "status": "passed",
+          "detail": "kept provisionally (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.70->2.55, depiction 2.76->2.62, tier15 2.68->2.53, tier1 critical 0->0, 9 op(s)"
+         },
+         {
+          "name": "validate_A4",
+          "status": "passed",
+          "detail": "kept, preferred to the last validated design in both orders: 2 round(s); judge: after (before-first: after (0.65) \"State B is closer to the request because it adds rugged military crate details including top-wrapping corner guards, a central hasp, and a pressure valve.\"; after-first: after (0.70) \"State A is closer to the request because it adds rugged military details including top-capped corner "
+         },
+         {
+          "name": "textures",
+          "status": "skipped",
+          "detail": "no material was textured: mat_olive_drab: image limit reached (0 of 0 images): larger surfaces were textured first; mat_rubber: image limit reached (0 of 0 images): larger surfaces were textured first; mat_dark_metal: image limit reached (0 of 0 images): larger surfaces were textured first"
+         },
+         {
+          "name": "uv_lod_colliders",
+          "status": "passed",
+          "detail": "uv=68 lod_tris=[2750, 2010, 1354, 594] hulls=4 texel_density: mat_dark_metal+mat_olive_drab+mat_rubber 512 (met); spread 1.00x"
+         },
+         {
+          "name": "look_round",
+          "status": "warned",
+          "detail": "undone mat_olive_drab base_color [0.2392, 0.2902, 0.1686] roughness 0.65 metallic 0.00; mat_dark_metal base_color [0.1647, 0.1765, 0.1882] roughness 0.45 metallic 0.95: undone (not shown to be better): before-first: neither (0.70) \"State A and State B appear identical in colour, finish, and material definition, so neither is closer to the request.\"; after-first: neither (0.70) \"States A and B do not visibly differ in color or material.\"; before: score_brief_look=2.55, score_material_separation=2.54, score_pbr_realism=2.28; after: score_brief_look=2.69, score_material_separation=2.69, score_pbr"
+         },
+         {
+          "name": "engine_compliance",
+          "status": "passed",
+          "detail": "0 warning(s)"
+         },
+         {
+          "name": "usd_validate",
+          "status": "passed",
+          "detail": "write_engine_package ok; 0 non-critical message(s); files=11"
+         },
+         {
+          "name": "lod_pop",
+          "status": "passed",
+          "detail": "LOD pop: 3 transitions, OK; worst pair 2 (LOD2->3 @5%, 18.4 m): IoU 0.994, shade 0.006, edge 1.0px, tris 1354->594"
+         },
+         {
+          "name": "lod_pop_vision",
+          "status": "failed",
+          "detail": "pair 3: score_lod_continuity 2.84 < 3.0"
+         },
+         {
+          "name": "export_glb",
+          "status": "passed",
+          "detail": "RuggedMilitarySupply.glb 1964696 bytes (+3 LOD GLB)"
+         },
+         {
+          "name": "engine_import",
+          "status": "passed",
+          "detail": "07,0.429500013589859,0.268664240837097]],\"images\":3,\"images_loaded\":3,\"normal_surfaces\":1,\"orm_surfaces\":1,\"surfaces\":1,\"textured_surfaces\":1,\"triangles\":2750} "
+         },
+         {
+          "name": "engine_capture",
+          "status": "skipped",
+          "detail": "engine truth disabled in spend plan"
+         },
+         {
+          "name": "engine_parity",
+          "status": "skipped",
+          "detail": "spend plan 'standard' has engine_truth disabled"
+         },
+         {
+          "name": "web_runtime",
+          "status": "passed",
+          "detail": "three.js loaded and rendered the package: 27 checks passed, silhouette IoU 0.9999 against the USD"
+         },
+         {
+          "name": "blender_asset_qa",
+          "status": "passed",
+          "detail": "qa_check of EL4CTEO/blender-skills @9e7e04a (release 1.3.2), game profile, vertices merged part by part: 1 object(s), 2750 tris; no errors, 1 warning(s): hidden back-to-back faces: Batch_0 (108 pairs) - delete to save tris"
+         },
+         {
+          "name": "export_fbx",
+          "status": "skipped",
+          "detail": "no FBX for godot_4: only unity_urp, unreal_5, roblox_r15 get one (Godot imports the glTF)"
+         }
+        ]
+       }
+      }
+     ],
+     "qa_records": []
+    },
+    "load_1min_end": 0.49,
+    "load_1min_start": 0.9,
+    "conditions": {
+     "model_calls": 30,
+     "finish_reasons": {
+      "STOP": 30
+     },
+     "calls_at_output_cap": 0,
+     "max_output_tokens_requested": [
+      8192,
+      12288,
+      24576
+     ],
+     "service_failures": {
+      "turned away": 0,
+      "broken": 0,
+      "server error": 0
+     },
+     "last_call_service_failure": null,
+     "start_end_unix": [
+      1795359984.0415323,
+      1795360582.212975
+     ]
+    }
+   },
+   "session": 1,
+   "account": "r5:crate:C",
+   "phase": "first"
+  }
+ ],
+ "changes": [
+  {
+   "brief": "crate",
+   "arm": "C",
+   "status": "finished",
+   "wall_s": 102.4,
+   "glb": "<scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out/runs/edit-th5l7fxd/attempt-1/package/RuggedMilitarySupply.glb",
+   "extra_files": [],
+   "model_calls": 5,
+   "tool_calls": 0,
+   "blender_invocations": null,
+   "images": 0,
+   "tokens": {
+    "input_tokens": 63940,
+    "output_tokens": 3451,
+    "thinking_tokens": 4545,
+    "cached_tokens": 0,
+    "unknown_reserved_tokens": 0,
+    "share_tokens": 600000,
+    "total": 71936,
+    "images": 0,
+    "share_images": 0
+   },
+   "models": {
+    "gemini-4-hydrogen": {
+     "calls": 1,
+     "input": 30766,
+     "output": 2549,
+     "thinking": 1837
+    },
+    "gemini-4-neon": {
+     "calls": 4,
+     "input": 33174,
+     "output": 902,
+     "thinking": 2708
+    }
+   },
+   "final_text": "",
+   "notes": [],
+   "refused": [],
+   "pipeline": {
+    "seeded_from": "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out",
+    "change_mode": "edit",
+    "command": [
+     "-m",
+     "antigravity3d.cli",
+     "edit",
+     "<scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out",
+     "make the two side handles 30 % larger",
+     "--token-ceiling",
+     "585000",
+     "--max-images",
+     "0",
+     "--blender",
+     "<scratch>/engines/blender-5.3.0-linux-x64/blender"
+    ],
+    "exit_code": 0,
+    "edit": {
+     "kept": true,
+     "why": "",
+     "target": "<scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out",
+     "instruction": "make the two side handles 30 % larger",
+     "attempts": [
+      {
+       "n": 1,
+       "ops": [
+        "set_param handle_bracket",
+        "set_transform handle_bracket",
+        "set_param handle_bracket__my",
+        "set_transform handle_bracket__my",
+        "set_param handle_grip",
+        "set_param handle_grip",
+        "set_transform handle_grip",
+        "set_param handle_group__mx__handle_bracket",
+        "set_transform handle_group__mx__handle_bracket",
+        "set_param handle_group__mx__handle_bracket__my",
+        "set_transform handle_group__mx__handle_bracket__my",
+        "set_param handle_group__mx__handle_grip",
+        "set_param handle_group__mx__handle_grip",
+        "set_transform handle_group__mx__handle_grip",
+        "set_param handle_bolt_top",
+        "set_param handle_bolt_top",
+        "set_transform handle_bolt_top",
+        "set_param handle_bolt_top__r1",
+        "set_param handle_bolt_top__r1",
+        "set_transform handle_bolt_top__r1",
+        "set_param handle_bolt_top__mx",
+        "set_param handle_bolt_top__mx",
+        "set_transform handle_bolt_top__mx",
+        "set_param handle_bolt_top__r1__mx",
+        "set_param handle_bolt_top__r1__mx",
+        "set_transform handle_bolt_top__r1__mx",
+        "set_param handle_bolt_bot",
+        "set_param handle_bolt_bot",
+        "set_transform handle_bolt_bot",
+        "set_param handle_bolt_bot__r1",
+        "set_param handle_bolt_bot__r1",
+        "set_transform handle_bolt_bot__r1",
+        "set_param handle_bolt_bot__mx",
+        "set_param handle_bolt_bot__mx",
+        "set_transform handle_bolt_bot__mx",
+        "set_param handle_bolt_bot__r1__mx",
+        "set_param handle_bolt_bot__r1__mx",
+        "set_transform handle_bolt_bot__r1__mx"
+       ],
+       "scope": {
+        "unchanged": 54,
+        "changed": {
+         "handle_bolt_bot": {
+          "size_before": [
+           0.004,
+           0.014,
+           0.0162
+          ],
+          "size_after": [
+           0.0052,
+           0.0182,
+           0.021
+          ],
+          "ratio": [
+           1.3,
+           1.299,
+           1.299
+          ],
+          "centre_moved_m": 0.0219
+         },
+         "handle_bolt_bot__mx": {
+          "size_before": [
+           0.004,
+           0.014,
+           0.0162
+          ],
+          "size_after": [
+           0.0052,
+           0.0182,
+           0.021
+          ],
+          "ratio": [
+           1.3,
+           1.299,
+           1.299
+          ],
+          "centre_moved_m": 0.0219
+         },
+         "handle_bolt_bot__r1": {
+          "size_before": [
+           0.004,
+           0.014,
+           0.0162
+          ],
+          "size_after": [
+           0.0052,
+           0.0182,
+           0.021
+          ],
+          "ratio": [
+           1.3,
+           1.299,
+           1.299
+          ],
+          "centre_moved_m": 0.0219
+         },
+         "handle_bolt_bot__r1__mx": {
+          "size_before": [
+           0.004,
+           0.014,
+           0.0162
+          ],
+          "size_after": [
+           0.0052,
+           0.0182,
+           0.021
+          ],
+          "ratio": [
+           1.3,
+           1.299,
+           1.299
+          ],
+          "centre_moved_m": 0.0219
+         },
+         "handle_bolt_top": {
+          "size_before": [
+           0.004,
+           0.0069,
+           0.008
+          ],
+          "size_after": [
+           0.0052,
+           0.009,
+           0.0104
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0219
+         },
+         "handle_bolt_top__mx": {
+          "size_before": [
+           0.004,
+           0.0069,
+           0.008
+          ],
+          "size_after": [
+           0.0052,
+           0.009,
+           0.0104
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0219
+         },
+         "handle_bolt_top__r1": {
+          "size_before": [
+           0.004,
+           0.0069,
+           0.008
+          ],
+          "size_after": [
+           0.0052,
+           0.009,
+           0.0104
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0219
+         },
+         "handle_bolt_top__r1__mx": {
+          "size_before": [
+           0.004,
+           0.0069,
+           0.008
+          ],
+          "size_after": [
+           0.0052,
+           0.009,
+           0.0104
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0219
+         },
+         "handle_bracket": {
+          "size_before": [
+           0.012,
+           0.025,
+           0.05
+          ],
+          "size_after": [
+           0.0156,
+           0.0325,
+           0.065
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.021
+         },
+         "handle_bracket__my": {
+          "size_before": [
+           0.012,
+           0.025,
+           0.05
+          ],
+          "size_after": [
+           0.0156,
+           0.0325,
+           0.065
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.021
+         },
+         "handle_grip": {
+          "size_before": [
+           0.02,
+           0.15,
+           0.02
+          ],
+          "size_after": [
+           0.026,
+           0.195,
+           0.026
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0076
+         },
+         "handle_group__mx__handle_bracket": {
+          "size_before": [
+           0.012,
+           0.025,
+           0.05
+          ],
+          "size_after": [
+           0.0156,
+           0.0325,
+           0.065
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.021
+         },
+         "handle_group__mx__handle_bracket__my": {
+          "size_before": [
+           0.012,
+           0.025,
+           0.05
+          ],
+          "size_after": [
+           0.0156,
+           0.0325,
+           0.065
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.021
+         },
+         "handle_group__mx__handle_grip": {
+          "size_before": [
+           0.02,
+           0.15,
+           0.02
+          ],
+          "size_after": [
+           0.026,
+           0.195,
+           0.026
+          ],
+          "ratio": [
+           1.3,
+           1.3,
+           1.3
+          ],
+          "centre_moved_m": 0.0076
+         }
+        },
+        "added": [],
+        "removed": [],
+        "outside": []
+       },
+       "done_p": 0.75,
+       "collateral_p": 0.25,
+       "kept": true,
+       "why": "",
+       "seconds": 45.1
+      }
+     ],
+     "package": "<scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out/runs/edit-th5l7fxd/attempt-1/package",
+     "previous_package": "<scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out/runs/tmpmrcv6_l7/package",
+     "history": "<scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out/history/001",
+     "number": 1,
+     "seconds": 98.9,
+     "calls": {
+      "author": 1,
+      "judge": 3
+     },
+     "spend": {
+      "unit": "tokens",
+      "spent": 71936.0,
+      "by_category": {
+       "author.improve": 35152.0,
+       "edit_check": 12383.0,
+       "lod_pop": 5831.0,
+       "visual_qa": 18570.0
+      },
+      "images": 0
+     },
+     "preview_gates_ok": false,
+     "delivered": {
+      "ok": true,
+      "why": []
+     },
+     "review": {
+      "calibrated": false,
+      "judge": "generative fallback, uncalibrated",
+      "where": [
+       "<scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out/runs/edit-th5l7fxd/attempt-1/package/inspector.html",
+       "<scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out/runs/edit-th5l7fxd/attempt-1/package"
+      ],
+      "status": "below_target",
+      "targets": [
+       {
+        "name": "tier15",
+        "label": "overall score (tier15)",
+        "score": 2.71,
+        "target": 3.4,
+        "met": false,
+        "short_by": 0.69
+       },
+       {
+        "name": "score_silhouette",
+        "label": "silhouette",
+        "score": 2.74,
+        "target": 3.3,
+        "met": false,
+        "short_by": 0.56
+       },
+       {
+        "name": "score_shippability",
+        "label": "shippability",
+        "score": 2.69,
+        "target": 3.4,
+        "met": false,
+        "short_by": 0.71
+       },
+       {
+        "name": "score_brief_depiction",
+        "label": "depiction of the brief",
+        "score": 2.74,
+        "target": 2.5,
+        "met": true,
+        "short_by": 0.0
+       }
+      ],
+      "judge_only": [
+       {
+        "name": "lod_pop_vision",
+        "step": true,
+        "detail": "pair 3: defect_holes=0.55 >= 0.3; pair 3: defect_silhouette_change=0.65 >= 0.3; pair 3: score_lod_continuity 2.31 < 3.0"
+       }
+      ],
+      "hard_flags": [],
+      "escalated": false
+     },
+     "exit": {
+      "code": 0,
+      "rule": "deterministic delivery (an uncalibrated judge's review is a finding, not a failure)",
+      "strict": false
+     },
+     "untextured": [],
+     "warnings": [],
+     "materials_from": "the run folder's working design (source maps of each material)",
+     "layout": {
+      "result": "kept",
+      "detail": "kept: 566 of 692 charts where they shipped"
+     },
+     "look": {
+      "bound": {
+       "mean": 4.0,
+       "spread": 8.0
+      },
+      "parts": [
+       {
+        "part": "skid",
+        "mean_delta": 0.01,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "crate_body",
+        "mean_delta": 0.06,
+        "spread_delta": 0.04,
+        "within": true
+       },
+       {
+        "part": "crate_lid",
+        "mean_delta": 0.01,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "lid_rib",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "corner_guard_top",
+        "mean_delta": 0.01,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "corner_guard_bot",
+        "mean_delta": 0.01,
+        "spread_delta": 0.01,
+        "within": true
+       },
+       {
+        "part": "latch_base",
+        "mean_delta": 0.07,
+        "spread_delta": 0.2,
+        "within": true
+       },
+       {
+        "part": "latch_clasp",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "latch_hinge",
+        "mean_delta": 0.0,
+        "spread_delta": 0.01,
+        "within": true
+       },
+       {
+        "part": "hinge_plate",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "hinge_barrel",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "skid__my",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "lid_rib__r1",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "lid_rib__r2",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "corner_guard_top__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.01,
+        "within": true
+       },
+       {
+        "part": "corner_guard_bot__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "corner_group__my__corner_guard_top",
+        "mean_delta": 0.03,
+        "spread_delta": 0.03,
+        "within": true
+       },
+       {
+        "part": "corner_group__my__corner_guard_top__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.02,
+        "within": true
+       },
+       {
+        "part": "corner_group__my__corner_guard_bot",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "corner_group__my__corner_guard_bot__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "latch_base__mx",
+        "mean_delta": 0.53,
+        "spread_delta": 0.35,
+        "within": true
+       },
+       {
+        "part": "latch_clasp__mx",
+        "mean_delta": 0.23,
+        "spread_delta": 0.11,
+        "within": true
+       },
+       {
+        "part": "latch_hinge__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "hinge_plate__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "hinge_barrel__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "latch_catch",
+        "mean_delta": 0.0,
+        "spread_delta": 0.01,
+        "within": true
+       },
+       {
+        "part": "latch_catch__mx",
+        "mean_delta": 0.08,
+        "spread_delta": 0.06,
+        "within": true
+       },
+       {
+        "part": "hinge_lid_plate",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "hinge_lid_plate__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "placard_plate",
+        "mean_delta": 0.1,
+        "spread_delta": 0.13,
+        "within": true
+       },
+       {
+        "part": "body_rib_front",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "body_rib_front__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "body_rib_back",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "body_rib_back__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "lid_gasket",
+        "mean_delta": 0.09,
+        "spread_delta": 0.01,
+        "within": true
+       },
+       {
+        "part": "placard_rivet_top",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "placard_rivet_top__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "placard_rivet_bot",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "placard_rivet_bot__mx",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "corner_cap_top_pp",
+        "mean_delta": 0.12,
+        "spread_delta": 0.41,
+        "within": true
+       },
+       {
+        "part": "corner_cap_top_mp",
+        "mean_delta": 0.04,
+        "spread_delta": 0.02,
+        "within": true
+       },
+       {
+        "part": "corner_cap_top_pm",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "corner_cap_top_mm",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "latch_tab_r",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "latch_tab_l",
+        "mean_delta": 0.0,
+        "spread_delta": 0.01,
+        "within": true
+       },
+       {
+        "part": "purge_valve_base",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "purge_valve_cap",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "hasp_plate_top",
+        "mean_delta": 1.8,
+        "spread_delta": 0.88,
+        "within": true
+       },
+       {
+        "part": "hasp_plate_bot",
+        "mean_delta": 0.29,
+        "spread_delta": 0.56,
+        "within": true
+       },
+       {
+        "part": "hasp_loop",
+        "mean_delta": 0.0,
+        "spread_delta": 0.0,
+        "within": true
+       },
+       {
+        "part": "corner_bolt_pp",
+        "mean_delta": 0.0,
+        "spread_delta": 0.01,
+        "within": true
+       },
+       {
+        "part": "corner_bolt_mp",
+        "mean_delta": 0.08,
+        "spread_delta": 0.1,
+        "within": true
+       },
+       {
+        "part": "corner_bolt_pm",
+        "mean_delta": 0.07,
+        "spread_delta": 0.04,
+        "within": true
+       },
+       {
+        "part": "corner_bolt_mm",
+        "mean_delta": 0.01,
+        "spread_delta": 0.01,
+        "within": true
+       }
+      ],
+      "outside": 0
+     },
+     "source_maps": {},
+     "note": "edited, not re-reviewed for look: an edit runs no lookdev pass, so its package is never verified"
+    },
+    "edit_line": "edit 1: made; package <scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out/runs/edit-th5l7fxd/attempt-1/package; the replaced package is kept in <scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out/history/001 (agy3d edit <scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out --undo)",
+    "preview_gates": "FAIL",
+    "stdout_tail": "agy3d edit: 'make the two side handles 30 % larger' on RuggedMilitarySupply (<scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out/runs/tmpmrcv6_l7/package)\n  decision backend: generative_fallback (UNCALIBRATED: can judge only an unverified preview)\n  author: Gemini JSON IR with per-route token admission\n  materials from: the run folder's working design (source maps of each material)\n  attempt 1: KEPT; 38 op(s); parts unchanged 54, changed 14, added 0, removed 0; judge: done P=0.75, collateral P=0.25; 45 s\n      handle_bolt_bot: size ratio [1.3, 1.299, 1.299], centre moved 0.0219 m\n      handle_bolt_bot__mx: size ratio [1.3, 1.299, 1.299], centre moved 0.0219 m\n      handle_bolt_bot__r1: size ratio [1.3, 1.299, 1.299], centre moved 0.0219 m\n      handle_bolt_bot__r1__mx: size ratio [1.3, 1.299, 1.299], centre moved 0.0219 m\n      handle_bolt_top: size ratio [1.3, 1.3, 1.3], centre moved 0.0219 m\n      handle_bolt_top__mx: size ratio [1.3, 1.3, 1.3], centre moved 0.0219 m\n      handle_bolt_top__r1: size ratio [1.3, 1.3, 1.3], centre moved 0.0219 m\n      handle_bolt_top__r1__mx: size ratio [1.3, 1.3, 1.3], centre moved 0.0219 m\n      handle_bracket: size ratio [1.3, 1.3, 1.3], centre moved 0.021 m\n      handle_bracket__my: size ratio [1.3, 1.3, 1.3], centre moved 0.021 m\n      handle_grip: size ratio [1.3, 1.3, 1.3], centre moved 0.0076 m\n      handle_group__mx__handle_bracket: size ratio [1.3, 1.3, 1.3], centre moved 0.021 m\ncost: 99 s, calls: author 1, judge 3, 71,936 tokens (no price applied)\nedit 1: made; package <scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out/runs/edit-th5l7fxd/attempt-1/package; the replaced package is kept in <scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out/history/001 (agy3d edit <scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out --undo)\nnote: edited, not re-reviewed for look: an edit runs no lookdev pass, so its package is never verified\nfinding: overall score (tier15) 2.71, below the target 3.4 by 0.69, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: silhouette 2.74, below the target 3.3 by 0.56, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: shippability 2.69, below the target 3.4 by 0.71, judged by generative fallback, uncalibrated; look at it before you ship\nfinding: lod_pop_vision failed on the answer of generative fallback, uncalibrated (pair 3: defect_holes=0.55 >= 0.3; pair 3: defect_silhouette_change=0.65 >= 0.3; pair 3: score_lod_continuity 2.31 < 3.0); look at it before you ship\nwhere to look: <scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out/runs/edit-th5l7fxd/attempt-1/package/inspector.html, <scratch>/r5/live_rerun_C/runs/r5_crate_C.change/out/runs/edit-th5l7fxd/attempt-1/package\ndelivered: yes, every deterministic check passed (exit 0; the review above is a finding, not a failure)\npreview gates: FAIL\n",
+    "stderr_tail": "Decisions API unavailable (NotFoundError 404: Decisions API not available for this key/project); using generative fallback gemini-4-neon. Probabilities are self-reported and UNCALIBRATED: results carry calibrated=False and cannot auto-approve.\n[author worker improve]     0s sent to gemini-4-hydrogen\n[author worker improve]     4s thinking: Analyzing Handle Nodes\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[author worker improve]     6s thinking: Examining Handle Geometry\n[author worker improve]     8s thinking: Calculating Handle Transformations\n[author worker improve]    10s answer arriving: 17 characters\n[author worker improve]    19s finished STOP, 4,386 output tokens\n[judge visual_qa:blockout]    18s finished (0 still in flight)\n[judge edit_check]     0s sent to gemini-4-neon (1 judge call(s) in flight)\n[judge visual_qa:blockout]     0s sent to gemini-4-neon (2 judge call(s) in flight)\n[judge lod_pop]     0s sent to gemini-4-neon (3 judge call(s) in flight)\n[judge edit_check]    12s finished (2 still in flight)\n[judge lod_pop]    14s finished (1 still in flight)\n[judge visual_qa:blockout]    16s finished (0 still in flight)\n",
+    "conditions": {
+     "model_calls": 5,
+     "finish_reasons": {
+      "STOP": 5
+     },
+     "calls_at_output_cap": 0,
+     "max_output_tokens_requested": [
+      8192,
+      24576
+     ],
+     "service_failures": {
+      "turned away": 0,
+      "broken": 0,
+      "server error": 0
+     },
+     "last_call_service_failure": null,
+     "start_end_unix": [
+      1795360582.5772579,
+      1795360685.0169833
+     ]
+    },
+    "change": "make the two side handles 30 % larger",
+    "before_glb": "<scratch>/r5/live_rerun_C/runs/r5_crate_C/out/runs/tmpmrcv6_l7/package/RuggedMilitarySupply.glb",
+    "first": {
+     "wall_s": 598.2,
+     "model_calls": 30,
+     "tokens": 377352
+    },
+    "diff": {
+     "parts": [
+      68,
+      68
+     ],
+     "triangles": [
+      2750,
+      2742
+     ],
+     "bounds_m": [
+      [
+       [
+        -0.4075,
+        0.0,
+        -0.255
+       ],
+       [
+        0.4075,
+        0.4295,
+        0.2687
+       ]
+      ],
+      [
+       [
+        -0.4151,
+        0.0,
+        -0.255
+       ],
+       [
+        0.4151,
+        0.4295,
+        0.2687
+       ]
+      ]
+     ],
+     "size_m_xyz": [
+      [
+       0.815,
+       0.4295,
+       0.5237
+      ],
+      [
+       0.8303,
+       0.4295,
+       0.5237
+      ]
+     ],
+     "tolerance_m": 0.001,
+     "target_ratio": 1.3,
+     "read_by": "part ranges (manifest glb_part_ranges)",
+     "unchanged": 54,
+     "changed": [
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.3
+       ],
+       "centre_moved_m": 0.021,
+       "size_before_m": [
+        0.012,
+        0.05,
+        0.025
+       ],
+       "triangles": [
+        44,
+        42
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.3
+       ],
+       "centre_moved_m": 0.0076,
+       "size_before_m": [
+        0.02,
+        0.02,
+        0.15
+       ],
+       "triangles": [
+        96,
+        96
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.3
+       ],
+       "centre_moved_m": 0.021,
+       "size_before_m": [
+        0.012,
+        0.05,
+        0.025
+       ],
+       "triangles": [
+        44,
+        42
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.3
+       ],
+       "centre_moved_m": 0.021,
+       "size_before_m": [
+        0.012,
+        0.05,
+        0.025
+       ],
+       "triangles": [
+        44,
+        42
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.3
+       ],
+       "centre_moved_m": 0.021,
+       "size_before_m": [
+        0.012,
+        0.05,
+        0.025
+       ],
+       "triangles": [
+        44,
+        42
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.3
+       ],
+       "centre_moved_m": 0.0076,
+       "size_before_m": [
+        0.02,
+        0.02,
+        0.15
+       ],
+       "triangles": [
+        96,
+        96
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.301
+       ],
+       "centre_moved_m": 0.0219,
+       "size_before_m": [
+        0.004,
+        0.008,
+        0.0069
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.301
+       ],
+       "centre_moved_m": 0.0219,
+       "size_before_m": [
+        0.004,
+        0.008,
+        0.0069
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.301
+       ],
+       "centre_moved_m": 0.0219,
+       "size_before_m": [
+        0.004,
+        0.008,
+        0.0069
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.301
+       ],
+       "centre_moved_m": 0.0219,
+       "size_before_m": [
+        0.004,
+        0.008,
+        0.0069
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.299
+       ],
+       "centre_moved_m": 0.0219,
+       "size_before_m": [
+        0.004,
+        0.0162,
+        0.014
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.299
+       ],
+       "centre_moved_m": 0.0219,
+       "size_before_m": [
+        0.004,
+        0.0162,
+        0.014
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.299
+       ],
+       "centre_moved_m": 0.0219,
+       "size_before_m": [
+        0.004,
+        0.0162,
+        0.014
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      },
+      {
+       "size_ratio_xyz": [
+        1.3,
+        1.3,
+        1.299
+       ],
+       "centre_moved_m": 0.0219,
+       "size_before_m": [
+        0.004,
+        0.0162,
+        0.014
+       ],
+       "triangles": [
+        24,
+        24
+       ],
+       "on_target": true
+      }
+     ],
+     "added": 0,
+     "removed": 0,
+     "unchanged_uvs_identical": 54,
+     "on_target": 14,
+     "collateral": 0
+    }
+   },
+   "session": 1,
+   "account": "r5:crate:C.change",
+   "phase": "change"
+  }
+ ],
+ "change_requests": {
+  "crate": {
+   "text": "make the two side handles 30 % larger",
+   "ratio": 1.3
+  },
+  "hydrant": {
+   "text": "make the chained nozzle cap 30 % larger",
+   "ratio": 1.3
+  },
+  "chair": {
+   "text": "make the spindles of the back 30 % thicker",
+   "ratio": 1.3
+  }
+ },
+ "repeats": [],
+ "c_change_mode": "edit",
+ "unfair": [
+  "Arm V's screenshots reach the model in two steps: the stock harness puts an MCP tool's image into the conversation only while it is tiny (base64 under about 10 to 16 KB, measured); a larger one, which is every useful render (a 256 px solid view of a cube is 53 KB), is saved to a file and the path returned ('[Resource offloaded to file:///...media_0.png]'), and the agent sees the picture only if it opens that file with view_file (tests/test_compare_agents.py). That is the stock agent's behaviour with any MCP server and is left as it is; each V record counts screenshots taken and opened.",
+  "Arm V's Blender has a virtual display (Xvfb) inside the sandbox, because its screenshot is Blender's solid-viewport renderer (Workbench), which needs OpenGL: without a display Blender 5.3 exits at the first render (measured). Arm A's Blender has none, as in round 3; Cycles works without one.",
+  "Arm V's Blender binary is mounted in the sandbox (the MCP server starts it) but is not on PATH and not named in its task; an agent that finds it can still run it from the shell. Each record counts shell commands that start Blender (blender_invocations), so a V run that bypassed its MCP server is visible.",
+  "Arms V and A run with 0 images: the owner's image allowance is used up (29 of 30), and the relay refuses an image call. A stock agent made no image in round 3 (its textures were procedural); the task text is unchanged.",
+  "Arms N and C make their textures as images and are not run until the owner allows more images.",
+  "Arm C is told less than the agents: its command line carries the brief, engine and triangle budget, but not the rest of the game-ready list (C_UNEXPRESSED); the pipeline applies its own conventions there.",
+  "Arm C's change request is `agy3d edit OUT \"<change>\"` on a copy of its first output folder: one patch to the shipped design, no image (C_CHANGE_MODE; 'append', a new design from the sentence appended to the prompt, is kept for comparison). The agents' change sessions are new conversations over the files their first session left.",
+  "Every arm's task ends with a budget sentence ('about N model calls'), N computed from its share (CALL_MODEL); maxOutputTokens is 16,384 instead of the stock 65,535; web search and URL reading are disabled (no network).",
+  "The upstream qa_check / mesh_stats / texel_density scripts are by the author of the skills arm B used (round 1). The Godot import script and the three.js check are this project's own (C's authors); they are applied to the bare GLB of every arm with a manifest holding only the bounds read from that GLB.",
+  "The judge is Gemini (gemini-4-carbon, thinking low) judging Gemini-made assets; renders are Blender's (Cycles), not the target engine's.",
+  "Rows that only this project can pass are marked so in the scorecard (installed into a project, provenance, the same bytes from the same request): they are reported, not mixed into the shared game-ready rate.",
+  "The machine is shared: other test suites may run on its 4 cores during live runs; each record carries the load at its start and end. Wall times are not comparable with an idle machine."
+ ],
+ "plugin_discovery": {
+  "sdk": "google-antigravity 0.1.24 (bundled localharness binary), LocalAgentConfig defaults",
+  "tried": [
+   "<workspace>/.agents/plugins/antigravity-3d (plugin_install.install, workspace scope, copy mode)",
+   "<workspace>/.agents/plugins.json entry (plugin_install.register)",
+   "$HOME/.gemini/config/plugins/antigravity-3d (global install, HOME passed to the harness)"
+  ],
+  "request_carried": "in every case: no MCP server section and no MCP tools, no plugin skill (only the built-in run-workflow skill), no plugin rule; system prompt about 11.6k characters, unchanged",
+  "so": "arm C attaches each part by hand through its SDK equivalent, from the plugin's own files"
+ },
+ "not_run": {
+  "arm B": "not run in round 5: its two round-1 runs are reported as a finding (what it read, what it cost)",
+  "arm N": "arm N (the stock agent driving this project's plugin) needs images for its textures; it waits for the owner's image allowance (29 of 30 used)"
+ },
+ "round": "r5",
+ "native_sizing": null,
+ "c_unexpressed": [
+  "real-world scale, +Y up, grounded and centred (the pipeline's own conventions apply; not a flag)",
+  "UVs inside 0-1 and not overlapping (the pipeline unwraps by its own rules)",
+  "at most 3 materials; a base colour, normal and metallic-roughness texture per material (its own lookdev decides)",
+  "texture sizes (power of two, at most 2048 px): no texture-size flag",
+  "LODs and collision named as the task asks (<name>_LOD1.glb, '-col'): it writes its own package layout",
+  "the delivery folder output/<name>.glb + output/textures/: it writes a package directory",
+  "the budget sentence: there is no agent to read it; the command's own --token-ceiling / --max-images bound it"
+ ],
+ "plan": {
+  "briefs": [
+   {
+    "id": "crate",
+    "prompt": "a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles",
+    "max_tris": 3000,
+    "size_m": [
+     0.5,
+     1.6
+    ],
+    "upright": false,
+    "why": "boxy, kit-bashed: many flat parts that must meet cleanly, hard edges, trim detail"
+   },
+   {
+    "id": "hydrant",
+    "prompt": "a cast-iron fire hydrant with bolted caps and a chained nozzle cap",
+    "max_tris": 4000,
+    "size_m": [
+     0.5,
+     1.2
+    ],
+    "upright": true,
+    "why": "round parts: cylinders, caps, bolts; tessellation against a budget, smooth shading"
+   },
+   {
+    "id": "chair",
+    "prompt": "a wooden Windsor chair with a spindle back",
+    "max_tris": 5000,
+    "size_m": [
+     0.7,
+     1.3
+    ],
+    "upright": true,
+    "why": "thin and many parts: legs, stretchers, a dozen spindles; proportions and budget"
+   }
+  ],
+  "order": [
+   [
+    "crate",
+    "C"
+   ],
+   [
+    "hydrant",
+    "C"
+   ],
+   [
+    "chair",
+    "C"
+   ]
+  ],
+  "engine": "godot_4",
+  "notes": {
+   "stock model": "SDK default text model gemini-4-hydrogen (google.antigravity.models.DEFAULT_MODEL), thinking left at the model default; image tool on the SDK default gemini-3.1-flash-lite-image (0 images this round: the relay refuses image calls).",
+   "stock deviations": "web search and URL reading disabled (no network allowed); maxOutputTokens 16,384 instead of the stock 65,535 so a call's worst case does not consume a third of the run's share; file tools limited to the workspace; harness backstops exceed the modeled call allowance but may bind before the token share (harness_budget).",
+   "arm V": "the stock agent plus one MCP server, compare_vanilla_mcp.py (execute_blender_code, get_scene_info, get_object_info, get_viewport_screenshot), attached through LocalAgentConfig.mcp_servers; Blender runs inside the sandbox under Xvfb; nothing of this project is mounted.",
+   "change requests": "one per cell after it delivers, a new session over a copy of its files, half the arm's share; the two packages are diffed part by part (compare_eval.package_diff)."
+  },
+  "budget": {
+   "ceiling_tokens": 40000000,
+   "ceiling_images": 0,
+   "round": "r5",
+   "briefs": [
+    "crate",
+    "hydrant",
+    "chair"
+   ],
+   "arms_now": [
+    "C"
+   ],
+   "arms_planned": [
+    "A",
+    "C",
+    "V"
+   ],
+   "run_tokens": {
+    "V": 1200000,
+    "A": 1200000,
+    "B": 195000,
+    "N": 2500000,
+    "C": 1200000
+   },
+   "run_images": {
+    "V": 0,
+    "A": 0,
+    "B": 0,
+    "N": 0,
+    "C": 0
+   },
+   "judge_tokens_per_call": 12500,
+   "small_judge_tokens_per_call": 10000,
+   "smoke_tokens": 0,
+   "continuations": {},
+   "changes": true,
+   "change_share": 0.5,
+   "change_images": {
+    "V": 0,
+    "A": 0,
+    "B": 0,
+    "N": null,
+    "C": null
+   }
+  },
+  "plan_totals": {
+   "tokens": 18405000,
+   "images": 0
+  }
+ },
+ "tally": {
+  "tokens": 449288,
+  "images": 0,
+  "input_tokens": 388447,
+  "output_tokens": 22688,
+  "thinking_tokens": 38153,
+  "unknown_reserved_tokens": 0,
+  "calls": 37,
+  "inflight_tokens": 0,
+  "ceiling_tokens": 40000000,
+  "ceiling_images": 0
+ }
+}

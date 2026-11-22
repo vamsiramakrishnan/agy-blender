@@ -1,0 +1,217 @@
+{
+ "model": "gemini-4-carbon",
+ "thinking": "low",
+ "brief_id": "crate",
+ "brief": "a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles",
+ "sheets": {
+  "A": "<scratch>/r5/live/sheets/crate_C_s3.png",
+  "C": "<scratch>/r5/live/sheets/crate_C_s3_srgb.png"
+ },
+ "calls": [
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3083,
+    "output": 190,
+    "thinking": null,
+    "total": 3273
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "tie",
+      "reason": "Both models use identical geometry that clearly fulfills all elements of the military supply crate brief."
+     },
+     "proportion_scale": {
+      "winner": "tie",
+      "reason": "Both crates share the exact same believable real-world dimensions and component proportions relative to the 1.8 m reference block."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 features more natural matte olive drab paint and subtle metal edge wear, whereas Image 2 looks overly glossy with harsh, stylized white edge highlights."
+     },
+     "defects": {
+      "winner": "tie",
+      "reason": "Neither model displays visible mesh, shading, or UV mapping defects."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "While sharing identical geometry and scale, Image 1 wins due to its much more believable and grounded PBR material response and edge wear compared to Image 2."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3083,
+    "output": 209,
+    "thinking": null,
+    "total": 3292
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "tie",
+      "reason": "Both models share identical geometry and clearly read as a rugged military supply crate with panels, corner guards, latches, and side handles."
+     },
+     "proportion_scale": {
+      "winner": "tie",
+      "reason": "Both props have identical dimensions and realistic real-world scale relative to the 1.8 m reference block."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 has much more subtle, believable edge wear and natural material response compared to the overly harsh, painted-on white edge highlights in Image 1."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Both share clean geometry, though Image 1 suffers from distracting, unnatural bright edge-wear lines that cut directly through the top stencil text."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "While sharing identical geometry and scale, Image 2 wins clearly due to its far more realistic material definition and cohesive, natural-looking weathering."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3083,
+    "output": 196,
+    "thinking": null,
+    "total": 3279
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "tie",
+      "reason": "Both assets share identical geometry that clearly fulfills all elements of the military supply crate brief."
+     },
+     "proportion_scale": {
+      "winner": "tie",
+      "reason": "Both crates share the exact same believable real-world scale and proportions relative to the 1.8 m reference block."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 features much more natural PBR material response and subtle edge wear, whereas Image 2 has overly dark colors and harsh, stylized white edge highlights."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 1 has cleaner textures, whereas Image 2 exhibits harsh, unnatural white line artifacts along panel seams and edges."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "While both models share identical geometry and scale, Image 1 wins due to its much more believable and cohesive surface materials and edge wear."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 171,
+    "thinking": null,
+    "total": 3424
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "tie",
+      "reason": "Both assets share identical geometry that clearly fulfills all elements of the brief."
+     },
+     "proportion_scale": {
+      "winner": "tie",
+      "reason": "Both crates share the exact same believable real-world dimensions relative to the scale reference."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "The second crate has more natural olive-drab colouring and subtle edge wear, whereas the first has overly stark, artificial-looking white edge highlights."
+     },
+     "defects": {
+      "winner": "tie",
+      "reason": "Neither model exhibits visible mesh defects, shading errors, or UV issues."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "With identical geometry and scale, the second prop wins due to its more realistic PBR material response and subtler weathering."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 206,
+    "thinking": null,
+    "total": 3459
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Both share identical geometry, but Image 1's lighter material separation makes the kit-bashed panels, latches, and corner guards read much more clearly."
+     },
+     "proportion_scale": {
+      "winner": "tie",
+      "reason": "Both props use the exact same mesh with identical, believable proportions and real-world scale."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 has more natural olive-drab colouring and subtle edge wear, whereas Image 2 uses harsh, overly stylized white edge highlights and overly dark metal."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 2 displays harsh, unnatural white texture streaks along panel seams that look like procedural mask artifacts, while Image 1 is clean."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "With identical geometry and scale, Image 1 wins due to more natural, readable PBR materials and cleaner edge wear."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 192,
+    "thinking": null,
+    "total": 3445
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "tie",
+      "reason": "Both props use identical geometry featuring panels, corner guards, latches, and side handles."
+     },
+     "proportion_scale": {
+      "winner": "tie",
+      "reason": "Both crates share identical, believable dimensions relative to the 1.8 m reference block."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 has more realistic matte olive-drab paint and subtle edge wear compared to the overly glossy, stylized look of Image 1."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 1 displays harsh, artificial-looking white edge highlights that clip awkwardly on the top lid, whereas Image 2 has cleaner texturing."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "While sharing identical geometry and scale, Image 2 wins due to its much more believable matte military material response and natural edge wear."
+    }
+   }
+  }
+ ],
+ "total_tokens": 20172
+}

@@ -1,0 +1,299 @@
+[
+ {
+  "brief": "chair",
+  "role": "builder",
+  "valid": "2 of 3",
+  "nodes": {
+   "median": 61.5,
+   "min": 61,
+   "max": 62
+  },
+  "tris": {
+   "median": 5206.0,
+   "min": 4112,
+   "max": 6300
+  },
+  "tier1_warnings": {
+   "median": 67.5,
+   "min": 62,
+   "max": 73
+  },
+  "call_s": null,
+  "output_tokens": {
+   "median": 28212,
+   "min": 22355,
+   "max": 32768
+  },
+  "thinking_tokens": {
+   "median": 22156,
+   "min": 16354,
+   "max": 28287
+  },
+  "depiction": null,
+  "judge_sd_same_design": []
+ },
+ {
+  "brief": "chair",
+  "role": "director",
+  "valid": "1 of 3",
+  "nodes": {
+   "median": 74,
+   "min": 74,
+   "max": 74
+  },
+  "tris": {
+   "median": 4352,
+   "min": 4352,
+   "max": 4352
+  },
+  "tier1_warnings": {
+   "median": 128,
+   "min": 128,
+   "max": 128
+  },
+  "call_s": null,
+  "output_tokens": {
+   "median": 32768,
+   "min": 23232,
+   "max": 32768
+  },
+  "thinking_tokens": {
+   "median": 25753,
+   "min": 17032,
+   "max": 29926
+  },
+  "depiction": null,
+  "judge_sd_same_design": []
+ },
+ {
+  "brief": "chair",
+  "role": "worker",
+  "valid": "3 of 3",
+  "nodes": {
+   "median": 18,
+   "min": 17,
+   "max": 21
+  },
+  "tris": {
+   "median": 2052,
+   "min": 1216,
+   "max": 2092
+  },
+  "tier1_warnings": {
+   "median": 20,
+   "min": 19,
+   "max": 27
+  },
+  "call_s": null,
+  "output_tokens": {
+   "median": 4016,
+   "min": 3981,
+   "max": 4569
+  },
+  "thinking_tokens": {
+   "median": 1526,
+   "min": 1212,
+   "max": 1691
+  },
+  "depiction": null,
+  "judge_sd_same_design": []
+ },
+ {
+  "brief": "crate",
+  "role": "builder",
+  "valid": "3 of 3",
+  "nodes": {
+   "median": 92,
+   "min": 88,
+   "max": 104
+  },
+  "tris": {
+   "median": 2576,
+   "min": 2560,
+   "max": 2788
+  },
+  "tier1_warnings": {
+   "median": 16,
+   "min": 8,
+   "max": 16
+  },
+  "call_s": null,
+  "output_tokens": {
+   "median": 24480,
+   "min": 24206,
+   "max": 24945
+  },
+  "thinking_tokens": {
+   "median": 20765,
+   "min": 20361,
+   "max": 20965
+  },
+  "depiction": null,
+  "judge_sd_same_design": []
+ },
+ {
+  "brief": "crate",
+  "role": "director",
+  "valid": "2 of 3",
+  "nodes": {
+   "median": 97.0,
+   "min": 84,
+   "max": 110
+  },
+  "tris": {
+   "median": 2862.0,
+   "min": 2648,
+   "max": 3076
+  },
+  "tier1_warnings": {
+   "median": 8.0,
+   "min": 0,
+   "max": 16
+  },
+  "call_s": null,
+  "output_tokens": {
+   "median": 28552,
+   "min": 23241,
+   "max": 32768
+  },
+  "thinking_tokens": {
+   "median": 24393,
+   "min": 19135,
+   "max": 30286
+  },
+  "depiction": null,
+  "judge_sd_same_design": []
+ },
+ {
+  "brief": "crate",
+  "role": "worker",
+  "valid": "3 of 3",
+  "nodes": {
+   "median": 44,
+   "min": 39,
+   "max": 56
+  },
+  "tris": {
+   "median": 1720,
+   "min": 1588,
+   "max": 2032
+  },
+  "tier1_warnings": {
+   "median": 44,
+   "min": 28,
+   "max": 128
+  },
+  "call_s": null,
+  "output_tokens": {
+   "median": 6245,
+   "min": 5377,
+   "max": 6456
+  },
+  "thinking_tokens": {
+   "median": 2660,
+   "min": 1715,
+   "max": 2916
+  },
+  "depiction": null,
+  "judge_sd_same_design": []
+ },
+ {
+  "brief": "hydrant",
+  "role": "builder",
+  "valid": "2 of 3",
+  "nodes": {
+   "median": 100.0,
+   "min": 90,
+   "max": 110
+  },
+  "tris": {
+   "median": 3776.0,
+   "min": 3716,
+   "max": 3836
+  },
+  "tier1_warnings": {
+   "median": 22.5,
+   "min": 22,
+   "max": 23
+  },
+  "call_s": null,
+  "output_tokens": {
+   "median": 32067,
+   "min": 28089,
+   "max": 32768
+  },
+  "thinking_tokens": {
+   "median": 27331,
+   "min": 23285,
+   "max": 32765
+  },
+  "depiction": null,
+  "judge_sd_same_design": []
+ },
+ {
+  "brief": "hydrant",
+  "role": "director",
+  "valid": "1 of 3",
+  "nodes": {
+   "median": 81,
+   "min": 81,
+   "max": 81
+  },
+  "tris": {
+   "median": 3808,
+   "min": 3808,
+   "max": 3808
+  },
+  "tier1_warnings": {
+   "median": 14,
+   "min": 14,
+   "max": 14
+  },
+  "call_s": null,
+  "output_tokens": {
+   "median": 32768,
+   "min": 32425,
+   "max": 32768
+  },
+  "thinking_tokens": {
+   "median": 28403,
+   "min": 27516,
+   "max": 28813
+  },
+  "depiction": null,
+  "judge_sd_same_design": []
+ },
+ {
+  "brief": "hydrant",
+  "role": "worker",
+  "valid": "3 of 3",
+  "nodes": {
+   "median": 45,
+   "min": 34,
+   "max": 58
+  },
+  "tris": {
+   "median": 2940,
+   "min": 2460,
+   "max": 3976
+  },
+  "tier1_warnings": {
+   "median": 37,
+   "min": 31,
+   "max": 61
+  },
+  "call_s": null,
+  "output_tokens": {
+   "median": 4994,
+   "min": 4316,
+   "max": 7273
+  },
+  "thinking_tokens": {
+   "median": 2702,
+   "min": 2212,
+   "max": 3448
+  },
+  "depiction": null,
+  "judge_sd_same_design": []
+ }
+]

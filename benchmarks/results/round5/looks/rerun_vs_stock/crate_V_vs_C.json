@@ -1,0 +1,217 @@
+{
+ "model": "gemini-4-carbon",
+ "thinking": "low",
+ "brief_id": "crate",
+ "brief": "a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles",
+ "sheets": {
+  "A": "<scratch>/r5/live_scorecard/eval/r5/crate/V/sheet.png",
+  "C": "<scratch>/r5/live_rerun_C/eval/r5/crate/C/sheet.png"
+ },
+ "calls": [
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 209,
+    "thinking": null,
+    "total": 3462
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Both crates include all requested parts, but the second adds clearer military decals, hinges, and a central hasp that make it read better as a supply crate."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both have believable overall real-world scale next to the reference block, though the second has more realistically proportioned hardware compared to the chunky parts on the first."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "The second asset features legible stenciled decals and more natural edge wear, whereas the first has blurry yellow markings and uniform procedural edge lines."
+     },
+     "defects": {
+      "winner": "tie",
+      "reason": "Both models exhibit clean geometry, solid grounding, and proper UV mapping without noticeable shading or intersection errors."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "The second crate wins overall due to more realistic hardware proportions, superior texturing with legible stencils, and functional details like rear hinges."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 180,
+    "thinking": null,
+    "total": 3433
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "tie",
+      "reason": "Both assets clearly fulfill the brief with paneled bodies, corner guards, latches, and side handles."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Image 1 features more realistic hardware thickness, whereas the corner guards in Image 2 are overly bulky."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 has crisp, legible stencils and believable edge wear, while Image 2 uses blurry, indistinct yellow markings."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 1 has clean textures and geometry, whereas Image 2 suffers from blurry, low-resolution decal artifacts."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 wins due to superior hardware proportions, cleaner material execution, and legible military stenciling."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 199,
+    "thinking": null,
+    "total": 3452
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Both crates meet the component requirements, though Image 2 includes legible military stencils and nameplate details that clarify its identity."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "While both share an appropriate overall scale relative to the reference block, Image 2 has more realistic component proportions whereas Image 1 has overly chunky corner guards."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 features sharper stenciling, subtle edge wear, and distinct front/back detailing compared to the blurry, repetitive yellow markings on Image 1."
+     },
+     "defects": {
+      "winner": "tie",
+      "reason": "Neither model exhibits noticeable geometry errors, broken shading, or severe UV stretching."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Image 2 wins overall due to more realistic hardware proportions, legible military stenciling, and varied front-to-back detailing."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 214,
+    "thinking": null,
+    "total": 3467
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Both include all requested elements, but Image 1 features readable military stencils that reinforce the supply crate brief better than Image 2's blurry markings."
+     },
+     "proportion_scale": {
+      "winner": "tie",
+      "reason": "Both crates share nearly identical real-world dimensions relative to the 1.8 m reference block and have believable hardware proportions."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 has crisp decals, distinct metal wear, and clean material separation, whereas Image 2 displays low-resolution, blurry yellow markings."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 1 has clean geometry and textures, while Image 2 suffers from smeared, illegible stencil textures and latches on both long sides without hinges."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 is the stronger game asset due to its crisp military decals, logical hinge-and-latch layout, and cleaner surface detailing."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 199,
+    "thinking": null,
+    "total": 3452
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Both include all requested parts, but 2 features legible military stencils and additional hardware like a center hasp and nameplate that read more authentically."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "While overall scale relative to the reference block is identical, 2 has more realistic component proportions whereas 1 uses overly chunky corner guards."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Prop 2 features sharper stenciling, more believable olive drab coloration, and cleaner metallic edge wear compared to the blurry yellow markings on 1."
+     },
+     "defects": {
+      "winner": "tie",
+      "reason": "Both models are cleanly constructed with well-fitted geometry and no visible mesh or shading defects."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Prop 2 wins overall due to more realistic hardware proportions, superior material wear, and crisp, readable military markings."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 210,
+    "thinking": null,
+    "total": 3463
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 features legible military stencils and realistic hardware, whereas Image 2 uses blurry, indistinct yellow markings."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Both crates have believable overall scale, but Image 1 has more realistically proportioned latches and corner guards compared to Image 2's chunky hardware."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 has crisp stencils, convincing edge wear, and distinct material separation, while Image 2 suffers from muddy, low-resolution decals."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 1 has clean geometry and textures, including proper rear hinges, whereas Image 2 has latches on both front and back and blurry texture artifacts."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 wins overall due to sharper texturing, legible military stencils, realistic hardware proportions, and proper functional details like rear hinges."
+    }
+   }
+  }
+ ],
+ "total_tokens": 20729
+}

@@ -1,0 +1,341 @@
+[
+ {
+  "brief": "crate",
+  "role": "worker",
+  "improve_role": "worker",
+  "judge_backend": "generative_fallback",
+  "stopped": {
+   "A": "round 1: short only of score gate(s) (silhouette), no defect to repair: improvement rounds; improvement: 5 round(s) used, 1 kept, depiction 2.64->2.74, progress 2.62->2.72"
+  },
+  "converged": {
+   "A": false
+  },
+  "author_calls": 5,
+  "scores": {
+   "score_silhouette": 2.7399999999999998,
+   "score_brief_depiction": 2.7399999999999998,
+   "score_shippability": 2.69
+  },
+  "rounds": [
+   {
+    "n": 1,
+    "improve": null,
+    "tier15": 2.6081818181818184,
+    "progress": 2.6166666666666667,
+    "rolled_back": false,
+    "action": "agent_repair",
+    "note": ""
+   },
+   {
+    "n": 2,
+    "improve": 1,
+    "tier15": 0.7651948051948048,
+    "progress": 0.9196190476190473,
+    "rolled_back": true,
+    "action": "agent_repair",
+    "note": "improve 1: progress 2.62->0.92, depiction 2.64->2.63, tier15 2.61->0.77, tier1 critical 0->0, 14 op(s); rolled back (newly flagged: defect_inverted_faces=0.85, defect_visible_holes=0.65; gate now failing: defect:defect_inverted_faces; fell by more than the judge's noise band (0.2): score_shippability 2.59->1.72)"
+   },
+   {
+    "n": 3,
+    "improve": 2,
+    "tier15": 2.7081818181818176,
+    "progress": 2.7166666666666663,
+    "rolled_back": false,
+    "action": "agent_repair",
+    "note": "improve 2: progress 2.62->2.72, depiction 2.64->2.74, tier15 2.61->2.71, tier1 critical 0->0, 14 op(s); kept (no longer floating: handle_bolt, handle_bolt__mx)"
+   },
+   {
+    "n": 4,
+    "improve": 3,
+    "tier15": 2.739090909090909,
+    "progress": 2.7526666666666664,
+    "rolled_back": true,
+    "action": "agent_repair",
+    "note": "improve 3: progress 2.72->2.75, depiction 2.74->2.79, tier15 2.71->2.74, tier1 critical 0->0, 5 op(s); rolled back (no change beyond the judge's noise band (0.2) and no defect cleared)"
+   },
+   {
+    "n": 5,
+    "improve": 4,
+    "tier15": 2.744545454545454,
+    "progress": 2.7699999999999996,
+    "rolled_back": true,
+    "action": "agent_repair",
+    "note": "improve 4: progress 2.72->2.77, depiction 2.74->2.84, tier15 2.71->2.74, tier1 critical 0->0, 18 op(s); rolled back (Tier-1 finds a new floating part: lid_stack_pad_bl, lid_stack_pad_br, lid_stack_pad_fl, lid_stack_pad_fr)"
+   },
+   {
+    "n": 6,
+    "improve": 5,
+    "tier15": 2.7899999999999996,
+    "progress": 2.8033333333333332,
+    "rolled_back": true,
+    "action": "agent_repair",
+    "note": "improve 5: progress 2.72->2.80, depiction 2.74->2.84, tier15 2.71->2.79, tier1 critical 0->0, 15 op(s); rolled back (no change beyond the judge's noise band (0.2) and no defect cleared)"
+   }
+  ],
+  "steps": [
+   {
+    "name": "separate_coplanar",
+    "status": "warned",
+    "detail": "16 coplanar face pair(s); moved 8 face(s) of 6 part(s) to 2 mm apart | moved: rib_back +y face +2.00 mm (proud; was coplanar with crate_body); rib_back__mx +y face +2.00 mm (proud; was coplanar with crate_body); rib_front -y face +2.00 mm (proud; was coplanar with crate_body); rib_front__mx -y face +2.00 mm (proud; was coplanar with crate_body); hinge_barrel -x face -2.00 mm (back; was coplanar with hinge_plate_body); hinge_barrel +x face -2.00 mm (back; was coplanar with hinge_plate_body); hinge_barrel__mx -x face -2.00 mm (back; was coplanar with hinge_plate_body__mx); hinge_barrel__mx +x face -2.00 mm (back; was coplanar with hinge_plate_body__mx) | unresolved 8 (left to the author): crate_body/corner_guard_back: -x faces: no valid move (corner_guard_back back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back, corner_guard_back__mx, corner_guard_front__mx); crate_body/corner_guard_back: -y faces: no valid move (corner_guard_back back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_back__mx: +x faces: no valid move (corner_guard_back__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back, corner_guard_back__mx, corner_guard_front); crate_body/corner_guard_back__mx: -y faces: no valid move (corner_guard_back__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front: -x faces: no valid move (corner_guard_front back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back__mx, corner_guard_front, corner_guard_front__mx); crate_body/corner_guard_front: +y faces: no valid move (corner_guard_front back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front__mx: +x faces: no valid move (corner_guard_front__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back, corner_guard_front, corner_guard_front__mx); crate_body/corner_guard_front__mx: +y faces: no valid move (corner_guard_front__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face)",
+    "ms": 2514
+   },
+   {
+    "name": "separate_coplanar_I1",
+    "status": "warned",
+    "detail": "8 coplanar face pair(s); moved 0 face(s) of 0 part(s) to 2 mm apart | unresolved 8 (left to the author): crate_body/corner_guard_back: -x faces: no valid move (corner_guard_back back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back, corner_guard_back__mx, corner_guard_front__mx); crate_body/corner_guard_back: -y faces: no valid move (corner_guard_back back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_back__mx: +x faces: no valid move (corner_guard_back__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back, corner_guard_back__mx, corner_guard_front); crate_body/corner_guard_back__mx: -y faces: no valid move (corner_guard_back__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front: -x faces: no valid move (corner_guard_front back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back__mx, corner_guard_front, corner_guard_front__mx); crate_body/corner_guard_front: +y faces: no valid move (corner_guard_front back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front__mx: +x faces: no valid move (corner_guard_front__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back, corner_guard_front, corner_guard_front__mx); crate_body/corner_guard_front__mx: +y faces: no valid move (corner_guard_front__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face)",
+    "ms": 308
+   },
+   {
+    "name": "improve_A1",
+    "status": "warned",
+    "detail": "rolled back (newly flagged: defect_inverted_faces=0.85, defect_visible_holes=0.65; gate now failing: defect:defect_inverted_faces; fell by more than the judge's noise band (0.2): score_shippability 2.59->1.72): progress 2.62->0.92, depiction 2.64->2.63, tier15 2.61->0.77, tier1 critical 0->0, 14 op(s)",
+    "ms": 42778
+   },
+   {
+    "name": "separate_coplanar_I2",
+    "status": "warned",
+    "detail": "8 coplanar face pair(s); moved 0 face(s) of 0 part(s) to 2 mm apart | unresolved 8 (left to the author): crate_body/corner_guard_back: -x faces: no valid move (corner_guard_back back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_back: -y faces: no valid move (corner_guard_back back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_back__mx: +x faces: no valid move (corner_guard_back__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_back__mx: -y faces: no valid move (corner_guard_back__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front: -x faces: no valid move (corner_guard_front back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front: +y faces: no valid move (corner_guard_front back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front__mx: +x faces: no valid move (corner_guard_front__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front__mx: +y faces: no valid move (corner_guard_front__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face)",
+    "ms": 116
+   },
+   {
+    "name": "improve_A2",
+    "status": "passed",
+    "detail": "kept (no longer floating: handle_bolt, handle_bolt__mx): progress 2.62->2.72, depiction 2.64->2.74, tier15 2.61->2.71, tier1 critical 0->0, 14 op(s)",
+    "ms": 76954
+   },
+   {
+    "name": "separate_coplanar_I3",
+    "status": "warned",
+    "detail": "8 coplanar face pair(s); moved 0 face(s) of 0 part(s) to 2 mm apart | unresolved 8 (left to the author): crate_body/corner_guard_back: -x faces: no valid move (corner_guard_back back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_back: -y faces: no valid move (corner_guard_back back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_back__mx: +x faces: no valid move (corner_guard_back__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_back__mx: -y faces: no valid move (corner_guard_back__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front: -x faces: no valid move (corner_guard_front back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front: +y faces: no valid move (corner_guard_front back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front__mx: +x faces: no valid move (corner_guard_front__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front__mx: +y faces: no valid move (corner_guard_front__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face)",
+    "ms": 197
+   },
+   {
+    "name": "improve_A3",
+    "status": "warned",
+    "detail": "rolled back (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.72->2.75, depiction 2.74->2.79, tier15 2.71->2.74, tier1 critical 0->0, 5 op(s)",
+    "ms": 44096
+   },
+   {
+    "name": "separate_coplanar_I4",
+    "status": "warned",
+    "detail": "8 coplanar face pair(s); moved 0 face(s) of 0 part(s) to 2 mm apart | unresolved 8 (left to the author): crate_body/corner_guard_back: -x faces: no valid move (corner_guard_back back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back, corner_guard_back__mx, corner_guard_front__mx); crate_body/corner_guard_back: -y faces: no valid move (corner_guard_back back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_back__mx: +x faces: no valid move (corner_guard_back__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back, corner_guard_back__mx, corner_guard_front); crate_body/corner_guard_back__mx: -y faces: no valid move (corner_guard_back__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front: -x faces: no valid move (corner_guard_front back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back__mx, corner_guard_front, corner_guard_front__mx); crate_body/corner_guard_front: +y faces: no valid move (corner_guard_front back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front__mx: +x faces: no valid move (corner_guard_front__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back, corner_guard_front, corner_guard_front__mx); crate_body/corner_guard_front__mx: +y faces: no valid move (corner_guard_front__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face)",
+    "ms": 472
+   },
+   {
+    "name": "improve_A4",
+    "status": "warned",
+    "detail": "rolled back (Tier-1 finds a new floating part: lid_stack_pad_bl, lid_stack_pad_br, lid_stack_pad_fl, lid_stack_pad_fr): progress 2.72->2.77, depiction 2.74->2.84, tier15 2.71->2.74, tier1 critical 0->0, 18 op(s)",
+    "ms": 52067
+   },
+   {
+    "name": "separate_coplanar_I5",
+    "status": "warned",
+    "detail": "8 coplanar face pair(s); moved 0 face(s) of 0 part(s) to 2 mm apart | unresolved 8 (left to the author): crate_body/corner_guard_back: -x faces: no valid move (corner_guard_back back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back, corner_guard_back__mx, corner_guard_front__mx); crate_body/corner_guard_back: -y faces: no valid move (corner_guard_back back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_back__mx: +x faces: no valid move (corner_guard_back__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back, corner_guard_back__mx, corner_guard_front); crate_body/corner_guard_back__mx: -y faces: no valid move (corner_guard_back__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_back__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front: -x faces: no valid move (corner_guard_front back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back__mx, corner_guard_front, corner_guard_front__mx); crate_body/corner_guard_front: +y faces: no valid move (corner_guard_front back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face); crate_body/corner_guard_front__mx: +x faces: no valid move (corner_guard_front__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: too thin to sit back (840.0 mm); crate_body proud: it would be coplanar with corner_guard_back, corner_guard_front, corner_guard_front__mx); crate_body/corner_guard_front__mx: +y faces: no valid move (corner_guard_front__mx back: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); corner_guard_front__mx proud: its face is not a size parameter (rotated, a round part off the world axes, or a kind without flat faces); crate_body back: it is mounted by that face; crate_body proud: it is mounted by that face)",
+    "ms": 567
+   },
+   {
+    "name": "improve_A5",
+    "status": "warned",
+    "detail": "rolled back (no change beyond the judge's noise band (0.2) and no defect cleared): progress 2.72->2.80, depiction 2.74->2.84, tier15 2.71->2.79, tier1 critical 0->0, 15 op(s)",
+    "ms": 41618
+   }
+  ],
+  "nodes_start": 44,
+  "nodes_final": 46,
+  "wall_s": 326.4,
+  "improve_calls": [
+   {
+    "status": "ok",
+    "input_tokens": 27337,
+    "output_tokens": 2672,
+    "thinking_tokens": 1986,
+    "booked_tokens": 30009,
+    "reserved_tokens": 53067,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 27525,
+    "output_tokens": 2910,
+    "thinking_tokens": 1659,
+    "booked_tokens": 30435,
+    "reserved_tokens": 53255,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 27472,
+    "output_tokens": 2794,
+    "thinking_tokens": 2123,
+    "booked_tokens": 30266,
+    "reserved_tokens": 53202,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 27560,
+    "output_tokens": 4510,
+    "thinking_tokens": 2869,
+    "booked_tokens": 32070,
+    "reserved_tokens": 53290,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 27637,
+    "output_tokens": 3595,
+    "thinking_tokens": 2211,
+    "booked_tokens": 31232,
+    "reserved_tokens": 53367,
+    "finish_reason": "STOP"
+   }
+  ],
+  "tokens_by_category": {
+   "author.improve": 154012.0,
+   "visual_qa": 57529.0
+  }
+ },
+ {
+  "brief": "hydrant",
+  "role": "worker",
+  "improve_role": "worker",
+  "judge_backend": "generative_fallback",
+  "stopped": {
+   "A": "author repair failed: AuthorTruncated on director tier (MAX_TOKENS); no larger tier to retry on: director repair on gemini-4-argon: output cut off at max_output_tokens=32768 (16384 answer + 16384 thinking); usage {'input_tokens': 25938, 'output_tokens': 32768, 'thinking_tokens': 27223}"
+  },
+  "converged": {
+   "A": false
+  },
+  "author_calls": 2,
+  "scores": {
+   "score_silhouette": 2.3800000000000003,
+   "score_brief_depiction": 2.3800000000000003,
+   "score_shippability": 2.21
+  },
+  "rounds": [
+   {
+    "n": 1,
+    "improve": null,
+    "tier15": 1.6468181818181815,
+    "progress": 1.6756666666666669,
+    "rolled_back": false,
+    "action": "escalate_director",
+    "note": "author: 107 op(s)"
+   },
+   {
+    "n": 2,
+    "improve": null,
+    "tier15": 2.656363636363636,
+    "progress": 2.692,
+    "rolled_back": true,
+    "action": "escalate_director",
+    "note": "rolled back (Tier-1 critical issues 0->1; Tier-1 finds a new floating part: chain_link__r1, chain_link__r2; gate now failing: tier1; tier15 1.65->2.66, progress 1.68->2.69)"
+   }
+  ],
+  "steps": [
+   {
+    "name": "separate_coplanar",
+    "status": "skipped",
+    "detail": "no coplanar same-facing faces between parts",
+    "ms": 59
+   },
+   {
+    "name": "separate_coplanar_A1",
+    "status": "skipped",
+    "detail": "no coplanar same-facing faces between parts",
+    "ms": 311
+   },
+   {
+    "name": "author_repair",
+    "status": "warned",
+    "detail": "AuthorTruncated on director tier (MAX_TOKENS); no larger tier to retry on: director repair on gemini-4-argon: output cut off at max_output_tokens=32768 (16384 answer + 16384 thinking); usage {'input_tokens': 25938, 'output_tokens': 32768, 'thinking_tokens': 27223}",
+    "ms": 0
+   }
+  ],
+  "nodes_start": 34,
+  "nodes_final": 34,
+  "wall_s": 756.4,
+  "improve_calls": [],
+  "tokens_by_category": {
+   "author.repair": 116999.0,
+   "locate": 65950.0,
+   "visual_qa": 19085.0
+  }
+ },
+ {
+  "brief": "chair",
+  "role": "worker",
+  "improve_role": "worker",
+  "judge_backend": "generative_fallback",
+  "stopped": {
+   "A": "repair rolled back 2 time(s) in a row; last: newly flagged: defect_floating=0.85; gate now failing: floating"
+  },
+  "converged": {
+   "A": false
+  },
+  "author_calls": 2,
+  "scores": {
+   "score_silhouette": 2.12,
+   "score_brief_depiction": 2.06,
+   "score_shippability": 1.77
+  },
+  "rounds": [
+   {
+    "n": 1,
+    "improve": null,
+    "tier15": 1.0579870129870124,
+    "progress": 1.1013809523809523,
+    "rolled_back": false,
+    "action": "agent_repair",
+    "note": "author: 15 op(s)"
+   },
+   {
+    "n": 2,
+    "improve": null,
+    "tier15": 0.36577922077922054,
+    "progress": 0.5274761904761904,
+    "rolled_back": true,
+    "action": "agent_repair",
+    "note": "author: 13 op(s)"
+   },
+   {
+    "n": 4,
+    "improve": null,
+    "tier15": 0.8125974025974021,
+    "progress": 0.92047619047619,
+    "rolled_back": true,
+    "action": "agent_repair",
+    "note": "rolled back (newly flagged: defect_floating=0.85; gate now failing: floating; tier15 1.06->0.81, progress 1.10->0.92)"
+   }
+  ],
+  "steps": [
+   {
+    "name": "separate_coplanar",
+    "status": "skipped",
+    "detail": "no coplanar same-facing faces between parts",
+    "ms": 118
+   },
+   {
+    "name": "separate_coplanar_A1",
+    "status": "skipped",
+    "detail": "no coplanar same-facing faces between parts",
+    "ms": 52
+   },
+   {
+    "name": "separate_coplanar_A3",
+    "status": "skipped",
+    "detail": "no coplanar same-facing faces between parts",
+    "ms": 58
+   }
+  ],
+  "nodes_start": 18,
+  "nodes_final": 18,
+  "wall_s": 227.3,
+  "improve_calls": [],
+  "tokens_by_category": {
+   "author.repair": 52900.0,
+   "locate": 41260.0,
+   "visual_qa": 28977.0
+  }
+ }
+]

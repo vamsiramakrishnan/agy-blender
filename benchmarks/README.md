@@ -20,6 +20,9 @@ Five tools and the report written from them:
 - [`AFTER_THE_COMPARISON.md`](AFTER_THE_COMPARISON.md) is the fourth round's report: why the stock agent's crate was
   better and why the command did not finish, cause by cause, and what was changed. Its figures are in
   `results/round4/checks.json`.
+- [`ROUND_FIVE.md`](ROUND_FIVE.md) is the fifth round's report: this project's command and its plugin in a session
+  against two stock agents on three briefs, row by row, and what was changed where it was worse. Its records,
+  scorecards and blind verdicts are in `results/round5/`.
 
 ## Offline benchmarks
 

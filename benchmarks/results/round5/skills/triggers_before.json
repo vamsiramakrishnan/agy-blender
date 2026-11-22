@@ -1,0 +1,633 @@
+{
+  "file": "<scratch>/r5/integ/benchmarks/skill_triggers/triggers.json",
+  "root": "<scratch>/r5/live/triggers/before",
+  "judge": "python -I <scratch>/r5/integ/benchmarks/skill_triggers/gemini_judge.py",
+  "summary": {
+    "answered": 32,
+    "judge_errors": 0,
+    "precision": 0.7436,
+    "recall": 0.9062,
+    "true_positives": 29,
+    "false_positives": 10,
+    "false_negatives": 3,
+    "kinds": {
+      "should": {
+        "passed": 17,
+        "total": 18,
+        "rate": 0.9444
+      },
+      "near-miss": {
+        "passed": 3,
+        "total": 6,
+        "rate": 0.5
+      },
+      "combo": {
+        "passed": 4,
+        "total": 4,
+        "rate": 1.0
+      },
+      "none": {
+        "passed": 4,
+        "total": 4,
+        "rate": 1.0
+      },
+      "all": {
+        "passed": 28,
+        "total": 32,
+        "rate": 0.875
+      }
+    },
+    "worst_skills": [
+      {
+        "skill": "concept-to-blueprint",
+        "tp": 4,
+        "fp": 4,
+        "fn": 0,
+        "missed_ids": [],
+        "false_ids": [
+          "parametric-kitbash.s1",
+          "parametric-kitbash.s3",
+          "combo.01",
+          "combo.02"
+        ],
+        "precision": 0.5,
+        "recall": 1.0,
+        "f1": 0.6667
+      },
+      {
+        "skill": "engine-truth-verify",
+        "tp": 5,
+        "fp": 3,
+        "fn": 0,
+        "missed_ids": [],
+        "false_ids": [
+          "parametric-kitbash.s1",
+          "game-ready-sanitizer.s1",
+          "combo.01"
+        ],
+        "precision": 0.625,
+        "recall": 1.0,
+        "f1": 0.7692
+      },
+      {
+        "skill": "parametric-kitbash",
+        "tp": 6,
+        "fp": 0,
+        "fn": 3,
+        "missed_ids": [
+          "parametric-kitbash.s2",
+          "pbr-material-forge.nm",
+          "art-direction.nm"
+        ],
+        "false_ids": [],
+        "precision": 1.0,
+        "recall": 0.6667,
+        "f1": 0.8
+      },
+      {
+        "skill": "pbr-material-forge",
+        "tp": 5,
+        "fp": 2,
+        "fn": 0,
+        "missed_ids": [],
+        "false_ids": [
+          "parametric-kitbash.s1",
+          "combo.01"
+        ],
+        "precision": 0.7143,
+        "recall": 1.0,
+        "f1": 0.8333
+      },
+      {
+        "skill": "game-ready-sanitizer",
+        "tp": 5,
+        "fp": 1,
+        "fn": 0,
+        "missed_ids": [],
+        "false_ids": [
+          "game-ready-sanitizer.nm"
+        ],
+        "precision": 0.8333,
+        "recall": 1.0,
+        "f1": 0.9091
+      }
+    ],
+    "skills": {
+      "art-direction": {
+        "tp": 4,
+        "fp": 0,
+        "fn": 0,
+        "missed_ids": [],
+        "false_ids": [],
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "concept-to-blueprint": {
+        "tp": 4,
+        "fp": 4,
+        "fn": 0,
+        "missed_ids": [],
+        "false_ids": [
+          "parametric-kitbash.s1",
+          "parametric-kitbash.s3",
+          "combo.01",
+          "combo.02"
+        ],
+        "precision": 0.5,
+        "recall": 1.0,
+        "f1": 0.6667
+      },
+      "engine-truth-verify": {
+        "tp": 5,
+        "fp": 3,
+        "fn": 0,
+        "missed_ids": [],
+        "false_ids": [
+          "parametric-kitbash.s1",
+          "game-ready-sanitizer.s1",
+          "combo.01"
+        ],
+        "precision": 0.625,
+        "recall": 1.0,
+        "f1": 0.7692
+      },
+      "game-ready-sanitizer": {
+        "tp": 5,
+        "fp": 1,
+        "fn": 0,
+        "missed_ids": [],
+        "false_ids": [
+          "game-ready-sanitizer.nm"
+        ],
+        "precision": 0.8333,
+        "recall": 1.0,
+        "f1": 0.9091
+      },
+      "parametric-kitbash": {
+        "tp": 6,
+        "fp": 0,
+        "fn": 3,
+        "missed_ids": [
+          "parametric-kitbash.s2",
+          "pbr-material-forge.nm",
+          "art-direction.nm"
+        ],
+        "false_ids": [],
+        "precision": 1.0,
+        "recall": 0.6667,
+        "f1": 0.8
+      },
+      "pbr-material-forge": {
+        "tp": 5,
+        "fp": 2,
+        "fn": 0,
+        "missed_ids": [],
+        "false_ids": [
+          "parametric-kitbash.s1",
+          "combo.01"
+        ],
+        "precision": 0.7143,
+        "recall": 1.0,
+        "f1": 0.8333
+      }
+    }
+  },
+  "results": [
+    {
+      "id": "concept-to-blueprint.s1",
+      "kind": "should",
+      "expected": [
+        "concept-to-blueprint"
+      ],
+      "selected": [
+        "concept-to-blueprint"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "concept-to-blueprint.s2",
+      "kind": "should",
+      "expected": [
+        "concept-to-blueprint"
+      ],
+      "selected": [
+        "concept-to-blueprint"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "concept-to-blueprint.s3",
+      "kind": "should",
+      "expected": [
+        "concept-to-blueprint"
+      ],
+      "selected": [
+        "concept-to-blueprint"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "concept-to-blueprint.nm",
+      "kind": "near-miss",
+      "expected": [
+        "parametric-kitbash"
+      ],
+      "selected": [
+        "parametric-kitbash"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "parametric-kitbash.s1",
+      "kind": "should",
+      "expected": [
+        "parametric-kitbash"
+      ],
+      "selected": [
+        "concept-to-blueprint",
+        "engine-truth-verify",
+        "parametric-kitbash",
+        "pbr-material-forge"
+      ],
+      "missed": [],
+      "extra": [
+        "concept-to-blueprint",
+        "engine-truth-verify",
+        "pbr-material-forge"
+      ],
+      "passed": true
+    },
+    {
+      "id": "parametric-kitbash.s2",
+      "kind": "should",
+      "expected": [
+        "parametric-kitbash"
+      ],
+      "selected": [],
+      "missed": [
+        "parametric-kitbash"
+      ],
+      "extra": [],
+      "passed": false
+    },
+    {
+      "id": "parametric-kitbash.s3",
+      "kind": "should",
+      "expected": [
+        "parametric-kitbash"
+      ],
+      "selected": [
+        "concept-to-blueprint",
+        "parametric-kitbash"
+      ],
+      "missed": [],
+      "extra": [
+        "concept-to-blueprint"
+      ],
+      "passed": true
+    },
+    {
+      "id": "parametric-kitbash.nm",
+      "kind": "near-miss",
+      "expected": [
+        "pbr-material-forge"
+      ],
+      "selected": [
+        "pbr-material-forge"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "pbr-material-forge.s1",
+      "kind": "should",
+      "expected": [
+        "pbr-material-forge"
+      ],
+      "selected": [
+        "pbr-material-forge"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "pbr-material-forge.s2",
+      "kind": "should",
+      "expected": [
+        "pbr-material-forge"
+      ],
+      "selected": [
+        "pbr-material-forge"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "pbr-material-forge.s3",
+      "kind": "should",
+      "expected": [
+        "pbr-material-forge"
+      ],
+      "selected": [
+        "pbr-material-forge"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "pbr-material-forge.nm",
+      "kind": "near-miss",
+      "expected": [
+        "parametric-kitbash"
+      ],
+      "selected": [],
+      "missed": [
+        "parametric-kitbash"
+      ],
+      "extra": [],
+      "passed": false
+    },
+    {
+      "id": "game-ready-sanitizer.s1",
+      "kind": "should",
+      "expected": [
+        "game-ready-sanitizer"
+      ],
+      "selected": [
+        "engine-truth-verify",
+        "game-ready-sanitizer"
+      ],
+      "missed": [],
+      "extra": [
+        "engine-truth-verify"
+      ],
+      "passed": true
+    },
+    {
+      "id": "game-ready-sanitizer.s2",
+      "kind": "should",
+      "expected": [
+        "game-ready-sanitizer"
+      ],
+      "selected": [
+        "game-ready-sanitizer"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "game-ready-sanitizer.s3",
+      "kind": "should",
+      "expected": [
+        "game-ready-sanitizer"
+      ],
+      "selected": [
+        "game-ready-sanitizer"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "game-ready-sanitizer.nm",
+      "kind": "near-miss",
+      "expected": [
+        "engine-truth-verify"
+      ],
+      "selected": [
+        "engine-truth-verify",
+        "game-ready-sanitizer"
+      ],
+      "missed": [],
+      "extra": [
+        "game-ready-sanitizer"
+      ],
+      "passed": false
+    },
+    {
+      "id": "engine-truth-verify.s1",
+      "kind": "should",
+      "expected": [
+        "engine-truth-verify"
+      ],
+      "selected": [
+        "engine-truth-verify"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "engine-truth-verify.s2",
+      "kind": "should",
+      "expected": [
+        "engine-truth-verify"
+      ],
+      "selected": [
+        "engine-truth-verify"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "engine-truth-verify.s3",
+      "kind": "should",
+      "expected": [
+        "engine-truth-verify"
+      ],
+      "selected": [
+        "engine-truth-verify"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "engine-truth-verify.nm",
+      "kind": "near-miss",
+      "expected": [
+        "game-ready-sanitizer"
+      ],
+      "selected": [
+        "game-ready-sanitizer"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "art-direction.s1",
+      "kind": "should",
+      "expected": [
+        "art-direction"
+      ],
+      "selected": [
+        "art-direction"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "art-direction.s2",
+      "kind": "should",
+      "expected": [
+        "art-direction"
+      ],
+      "selected": [
+        "art-direction"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "art-direction.s3",
+      "kind": "should",
+      "expected": [
+        "art-direction"
+      ],
+      "selected": [
+        "art-direction"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "art-direction.nm",
+      "kind": "near-miss",
+      "expected": [
+        "parametric-kitbash"
+      ],
+      "selected": [],
+      "missed": [
+        "parametric-kitbash"
+      ],
+      "extra": [],
+      "passed": false
+    },
+    {
+      "id": "combo.01",
+      "kind": "combo",
+      "expected": [
+        "art-direction",
+        "parametric-kitbash"
+      ],
+      "selected": [
+        "art-direction",
+        "concept-to-blueprint",
+        "engine-truth-verify",
+        "parametric-kitbash",
+        "pbr-material-forge"
+      ],
+      "missed": [],
+      "extra": [
+        "concept-to-blueprint",
+        "engine-truth-verify",
+        "pbr-material-forge"
+      ],
+      "passed": true
+    },
+    {
+      "id": "combo.02",
+      "kind": "combo",
+      "expected": [
+        "parametric-kitbash",
+        "pbr-material-forge"
+      ],
+      "selected": [
+        "concept-to-blueprint",
+        "parametric-kitbash",
+        "pbr-material-forge"
+      ],
+      "missed": [],
+      "extra": [
+        "concept-to-blueprint"
+      ],
+      "passed": true
+    },
+    {
+      "id": "combo.03",
+      "kind": "combo",
+      "expected": [
+        "engine-truth-verify",
+        "game-ready-sanitizer"
+      ],
+      "selected": [
+        "engine-truth-verify",
+        "game-ready-sanitizer"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "combo.04",
+      "kind": "combo",
+      "expected": [
+        "concept-to-blueprint",
+        "parametric-kitbash"
+      ],
+      "selected": [
+        "concept-to-blueprint",
+        "parametric-kitbash"
+      ],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "none.01",
+      "kind": "none",
+      "expected": [],
+      "selected": [],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "none.02",
+      "kind": "none",
+      "expected": [],
+      "selected": [],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "none.03",
+      "kind": "none",
+      "expected": [],
+      "selected": [],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    },
+    {
+      "id": "none.04",
+      "kind": "none",
+      "expected": [],
+      "selected": [],
+      "missed": [],
+      "extra": [],
+      "passed": true
+    }
+  ],
+  "errors": []
+}

@@ -1,0 +1,53 @@
+[
+ {
+  "stage": "A",
+  "n": 1,
+  "tier1": "TIER1 OK | warn: interpenetration@hydrant_body; interpenetration@pumper_collar; interpenetration@pumper_cap; interpenetration@nut_washer",
+  "tier1_ok": true,
+  "tier15": 1.6468181818181815,
+  "silhouette": 2.3800000000000003,
+  "floating_p": 0.15,
+  "action": "escalate_director",
+  "fixer": null,
+  "reasons": [
+   "ambiguous defects with no high-confidence signal: defect_clipping=0.65, defect_faceted=0.65"
+  ],
+  "cost_usd": 0.0,
+  "render_tier": "preview",
+  "note": "author: 107 op(s)",
+  "rolled_back": false,
+  "progress": 1.6756666666666669,
+  "improve": null,
+  "gates": [
+   "brief_depiction=2.38",
+   "floating=0.15",
+   "silhouette=2.38"
+  ],
+  "depiction": null
+ },
+ {
+  "stage": "A",
+  "n": 2,
+  "tier1": "TIER1 FAIL: tris 4276>4000 | warn: interpenetration@hydrant_body; interpenetration@pumper_cap; interpenetration@chain_link__r5; interpenetration@chain_link__r2; floating_part@chain_link__r1; floati...",
+  "tier1_ok": false,
+  "tier15": 2.656363636363636,
+  "silhouette": 2.79,
+  "floating_p": 0.05,
+  "action": "escalate_director",
+  "fixer": null,
+  "reasons": [
+   "ambiguous defects with no high-confidence signal: defect_faceted=0.30"
+  ],
+  "cost_usd": 0.0,
+  "render_tier": "preview",
+  "note": "rolled back (Tier-1 critical issues 0->1; Tier-1 finds a new floating part: chain_link__r1, chain_link__r2; gate now failing: tier1; tier15 1.65->2.66, progress 1.68->2.69)",
+  "rolled_back": true,
+  "progress": 2.692,
+  "improve": null,
+  "gates": [
+   "silhouette=2.79",
+   "tier1"
+  ],
+  "depiction": null
+ }
+]

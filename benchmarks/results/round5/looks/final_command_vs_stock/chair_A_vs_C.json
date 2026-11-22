@@ -1,0 +1,217 @@
+{
+ "model": "gemini-4-carbon",
+ "thinking": "low",
+ "brief_id": "chair",
+ "brief": "a wooden Windsor chair with a spindle back",
+ "sheets": {
+  "A": "<scratch>/r5/live_scorecard/eval/r5/chair/A/sheet.png",
+  "C": "<scratch>/r5/live_final_C/eval/r5/chair/C/sheet.png"
+ },
+ "calls": [
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3241,
+    "output": 220,
+    "thinking": null,
+    "total": 3461
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "tie",
+      "reason": "Both assets clearly read as spindle-back Windsor chairs, representing classic bow-back and comb-back styles respectively."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both have believable overall height next to the 1.8 m reference, but Image 2 has much better part proportions whereas Image 1 has an overly pointed arch and awkward leg angles."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 features more realistic wood colour and glossiness, while Image 2 looks flat with repetitive horizontal striping across the seat."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 2 is structurally sound, whereas Image 1 has severe geometry defects where the legs visibly float and disconnect from the underside of the seat."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Image 2 wins overall because its clean construction and accurate proportions make it a usable game asset, unlike Image 1 which suffers from disconnected, floating legs."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3241,
+    "output": 204,
+    "thinking": null,
+    "total": 3445
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Image 2 features the classic bow-back and sculpted saddle seat typical of a Windsor chair, though Image 1 is a valid flat-top variant."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Image 2 has more refined, slender spindle and seat proportions while both sit at a believable ~90 cm real-world height."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 shows more realistic wood grain and specular response, whereas Image 1 has repetitive linear stripes on the seat."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 1 has clean geometry, while Image 2 suffers from noticeable gaps where the front legs float below the seat."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Despite simpler styling and textures, Image 1 wins overall because Image 2 has severe floating geometry defects at the leg joints."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3241,
+    "output": 208,
+    "thinking": null,
+    "total": 3449
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "tie",
+      "reason": "Both clearly read as wooden Windsor chairs, with Image 1 depicting a hoop-back style and Image 2 a comb-back style."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both match real-world scale (~90 cm tall), though Image 2 has sturdier, better-balanced seat thickness and leg proportions."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 displays more natural wood grain and specular response, while Image 2 looks somewhat uniform and procedurally striped."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 1 has visible gaps where the legs detach slightly from the underside of the seat, whereas Image 2 has solid, clean intersections."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Image 2 wins overall due to clean geometry without floating-leg defects and solid structural proportions, despite simpler wood texturing."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3241,
+    "output": 218,
+    "thinking": null,
+    "total": 3459
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Image 2 features a classic bow-back and sculpted saddle seat characteristic of a Windsor chair, though Image 1 is also a valid fan-back variant."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Image 2 displays more authentic Windsor proportions with thinner spindles and seat profile, while both match the 1.8 m scale block well."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 has more realistic wood grain, natural colour variation, and specular response compared to the uniform, repetitive texture on Image 1."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 1 has clean geometry connections, whereas Image 2 shows visible floating gaps where the legs meet the underside of the seat."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Despite minor leg-to-seat gap defects, Image 2 is a much more convincing Windsor chair with superior proportions, sculpting, and wood material quality."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3241,
+    "output": 220,
+    "thinking": null,
+    "total": 3461
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 features a classic bow-back silhouette and sculpted saddle seat typical of a Windsor chair, whereas Image 2 looks more like a generic spindle-back dining chair."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both chairs have believable overall scale relative to the 1.8 m reference, though Image 2 has sturdier component proportions while Image 1's hoop back is overly pointed."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 displays more natural wood grain and specular response compared to the uniform, repetitive texture stripes on Image 2's seat."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 2 is cleanly assembled, whereas Image 1 has visibly disconnected floating legs beneath the seat in several views."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Image 2 wins overall because it is free of major structural geometry defects like the floating legs seen in Image 1."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3071,
+    "output": 228,
+    "thinking": null,
+    "total": 3299
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Image 2 captures the iconic bow-back silhouette and saddle-contoured seat of a classic Windsor chair better than the comb-back design in Image 1."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Image 1 has cleaner, more refined proportions with realistic turned legs and stretcher thickness, though both chairs match the 1.8 m scale block well."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 features rich dark wood grain and believable specular highlights, whereas Image 1 has repetitive, synthetic-looking linear stripes on the seat."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 1 has cohesive, well-connected geometry, whereas Image 2 displays noticeable floating gaps between the top of the legs and the underside of the seat."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 is the better game asset overall because its geometry is solid and free of major assembly defects like the floating legs seen in Image 2."
+    }
+   }
+  }
+ ],
+ "total_tokens": 20574
+}

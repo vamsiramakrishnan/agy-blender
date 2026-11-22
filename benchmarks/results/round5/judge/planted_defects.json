@@ -1,0 +1,1843 @@
+{
+ "tree": "/home/user/agy-blender/src/antigravity3d/__init__.py",
+ "backend": "generative_fallback",
+ "repeats": 3,
+ "rows": [
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "A",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.02,
+    "defect_clipping": 0.04,
+    "defect_brief_part_missing": 0.02,
+    "score_brief_depiction": 2.63
+   },
+   "input_tokens": 2208,
+   "output_tokens": 805,
+   "wall_s": 36.6,
+   "booked": 3013
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "A",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_brief_part_missing": 0.08,
+    "score_brief_depiction": 2.69
+   },
+   "input_tokens": 2208,
+   "output_tokens": 950,
+   "wall_s": 18.3,
+   "booked": 3158
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "A",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.12,
+    "defect_clipping": 0.18,
+    "defect_brief_part_missing": 0.12,
+    "score_brief_depiction": 2.6
+   },
+   "input_tokens": 2208,
+   "output_tokens": 774,
+   "wall_s": 15.4,
+   "booked": 2982
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "D",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.85,
+    "defect_brief_part_missing": 0.05,
+    "score_brief_depiction": 2.33
+   },
+   "input_tokens": 6345,
+   "output_tokens": 925,
+   "wall_s": 52.5,
+   "booked": 7270
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "D",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.85,
+    "defect_brief_part_missing": 0.05,
+    "score_brief_depiction": 2.39
+   },
+   "input_tokens": 6345,
+   "output_tokens": 1055,
+   "wall_s": 18.7,
+   "booked": 7400
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "D",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.8,
+    "defect_brief_part_missing": 0.05,
+    "score_brief_depiction": 2.58
+   },
+   "input_tokens": 6345,
+   "output_tokens": 1043,
+   "wall_s": 17.4,
+   "booked": 7388
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "E",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.85,
+    "defect_brief_part_missing": 0.05,
+    "score_brief_depiction": 2.62
+   },
+   "input_tokens": 7445,
+   "output_tokens": 959,
+   "wall_s": 16.3,
+   "booked": 8404
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "E",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.78,
+    "defect_brief_part_missing": 0.1,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 7445,
+   "output_tokens": 1225,
+   "wall_s": 19.6,
+   "booked": 8670
+  },
+  {
+   "design": "worker",
+   "variant": "intact",
+   "nodes": 61,
+   "cond": "E",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.82,
+    "defect_brief_part_missing": 0.1,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 7445,
+   "output_tokens": 1148,
+   "wall_s": 20.6,
+   "booked": 8593
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "A",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.2,
+    "defect_brief_part_missing": 0.15,
+    "score_brief_depiction": 2.4
+   },
+   "input_tokens": 2208,
+   "output_tokens": 872,
+   "wall_s": 29.2,
+   "booked": 3080
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "A",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.25,
+    "defect_brief_part_missing": 0.15,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 2208,
+   "output_tokens": 918,
+   "wall_s": 30.7,
+   "booked": 3126
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "A",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.15,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 2208,
+   "output_tokens": 972,
+   "wall_s": 79.6,
+   "booked": 76458
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "D",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.65,
+    "defect_brief_part_missing": 0.1,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 6345,
+   "output_tokens": 980,
+   "wall_s": 17.5,
+   "booked": 7325
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "D",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.7,
+    "defect_brief_part_missing": 0.08,
+    "score_brief_depiction": 2.28
+   },
+   "input_tokens": 6345,
+   "output_tokens": 965,
+   "wall_s": 38.9,
+   "booked": 7310
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "D",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.88,
+    "defect_clipping": 0.65,
+    "defect_brief_part_missing": 0.15,
+    "score_brief_depiction": 2.28
+   },
+   "input_tokens": 6345,
+   "output_tokens": 895,
+   "wall_s": 15.8,
+   "booked": 7240
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "E",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.7,
+    "defect_brief_part_missing": 0.15,
+    "score_brief_depiction": 2.34
+   },
+   "input_tokens": 7445,
+   "output_tokens": 1002,
+   "wall_s": 33.2,
+   "booked": 41913
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "E",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.88,
+    "defect_clipping": 0.45,
+    "defect_brief_part_missing": 0.15,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 7445,
+   "output_tokens": 934,
+   "wall_s": 18.2,
+   "booked": 8379
+  },
+  {
+   "design": "worker",
+   "variant": "floating",
+   "nodes": 61,
+   "cond": "E",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.72,
+    "defect_brief_part_missing": 0.08,
+    "score_brief_depiction": 2.28
+   },
+   "input_tokens": 7445,
+   "output_tokens": 999,
+   "wall_s": 22.9,
+   "booked": 8444
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "A",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.25,
+    "defect_brief_part_missing": 0.78,
+    "score_brief_depiction": 2.27
+   },
+   "input_tokens": 2208,
+   "output_tokens": 1007,
+   "wall_s": 39.3,
+   "booked": 3215
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "A",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.2,
+    "defect_brief_part_missing": 0.8,
+    "score_brief_depiction": 2.28
+   },
+   "input_tokens": 2208,
+   "output_tokens": 955,
+   "wall_s": 27.5,
+   "booked": 27589
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "A",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.2,
+    "defect_clipping": 0.25,
+    "defect_brief_part_missing": 0.75,
+    "score_brief_depiction": 2.15
+   },
+   "input_tokens": 2208,
+   "output_tokens": 1042,
+   "wall_s": 17.8,
+   "booked": 3250
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "D",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.12,
+    "defect_clipping": 0.82,
+    "defect_brief_part_missing": 0.85,
+    "score_brief_depiction": 1.95
+   },
+   "input_tokens": 6345,
+   "output_tokens": 997,
+   "wall_s": 193.9,
+   "booked": 7342
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "D",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.8,
+    "defect_brief_part_missing": 0.85,
+    "score_brief_depiction": 1.9
+   },
+   "input_tokens": 6345,
+   "output_tokens": 1065,
+   "wall_s": 28.6,
+   "booked": 38618
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "D",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.85,
+    "defect_brief_part_missing": 0.9,
+    "score_brief_depiction": 1.87
+   },
+   "input_tokens": 6345,
+   "output_tokens": 1195,
+   "wall_s": 18.3,
+   "booked": 7540
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "E",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.85,
+    "defect_brief_part_missing": 0.9,
+    "score_brief_depiction": 2.06
+   },
+   "input_tokens": 7445,
+   "output_tokens": 893,
+   "wall_s": 35.0,
+   "booked": 75270
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "E",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.1,
+    "defect_clipping": 0.75,
+    "defect_brief_part_missing": 0.8,
+    "score_brief_depiction": 1.95
+   },
+   "input_tokens": 7445,
+   "output_tokens": 1002,
+   "wall_s": 34.6,
+   "booked": 75379
+  },
+  {
+   "design": "worker",
+   "variant": "missing",
+   "nodes": 55,
+   "cond": "E",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.1,
+    "defect_clipping": 0.8,
+    "defect_brief_part_missing": 0.85,
+    "score_brief_depiction": 2.06
+   },
+   "input_tokens": 7445,
+   "output_tokens": 1098,
+   "wall_s": 22.3,
+   "booked": 42009
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "A",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_brief_part_missing": 0.04,
+    "score_brief_depiction": 2.69
+   },
+   "input_tokens": 2208,
+   "output_tokens": 810,
+   "wall_s": 16.9,
+   "booked": 3018
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "A",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.1,
+    "score_brief_depiction": 2.69
+   },
+   "input_tokens": 2208,
+   "output_tokens": 732,
+   "wall_s": 24.1,
+   "booked": 2940
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "A",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.18,
+    "defect_brief_part_missing": 0.12,
+    "score_brief_depiction": 2.71
+   },
+   "input_tokens": 2208,
+   "output_tokens": 1013,
+   "wall_s": 26.4,
+   "booked": 3221
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "D",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.08,
+    "defect_brief_part_missing": 0.03,
+    "score_brief_depiction": 2.79
+   },
+   "input_tokens": 6345,
+   "output_tokens": 1022,
+   "wall_s": 17.5,
+   "booked": 7367
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "D",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_brief_part_missing": 0.03,
+    "score_brief_depiction": 2.79
+   },
+   "input_tokens": 6345,
+   "output_tokens": 945,
+   "wall_s": 16.7,
+   "booked": 7290
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "D",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_brief_part_missing": 0.03,
+    "score_brief_depiction": 2.64
+   },
+   "input_tokens": 6345,
+   "output_tokens": 1117,
+   "wall_s": 17.6,
+   "booked": 7462
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "E",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.25,
+    "defect_clipping": 0.25,
+    "defect_brief_part_missing": 0.2,
+    "score_brief_depiction": 2.73
+   },
+   "input_tokens": 7445,
+   "output_tokens": 1144,
+   "wall_s": 18.7,
+   "booked": 8589
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "E",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.12,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.08,
+    "score_brief_depiction": 2.74
+   },
+   "input_tokens": 7445,
+   "output_tokens": 1024,
+   "wall_s": 16.6,
+   "booked": 8469
+  },
+  {
+   "design": "builder",
+   "variant": "intact",
+   "nodes": 86,
+   "cond": "E",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.2,
+    "defect_brief_part_missing": 0.15,
+    "score_brief_depiction": 2.63
+   },
+   "input_tokens": 7445,
+   "output_tokens": 883,
+   "wall_s": 20.4,
+   "booked": 8328
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "A",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.1,
+    "score_brief_depiction": 2.79
+   },
+   "input_tokens": 2208,
+   "output_tokens": 886,
+   "wall_s": 26.5,
+   "booked": 3094
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "A",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.25,
+    "defect_brief_part_missing": 0.2,
+    "score_brief_depiction": 2.68
+   },
+   "input_tokens": 2208,
+   "output_tokens": 879,
+   "wall_s": 16.3,
+   "booked": 3087
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "A",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.1,
+    "defect_brief_part_missing": 0.08,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 2208,
+   "output_tokens": 970,
+   "wall_s": 16.5,
+   "booked": 3178
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "D",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.25,
+    "defect_brief_part_missing": 0.2,
+    "score_brief_depiction": 2.4
+   },
+   "input_tokens": 6345,
+   "output_tokens": 1032,
+   "wall_s": 23.6,
+   "booked": 7377
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "D",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.12,
+    "defect_brief_part_missing": 0.08,
+    "score_brief_depiction": 2.85
+   },
+   "input_tokens": 6345,
+   "output_tokens": 783,
+   "wall_s": 14.8,
+   "booked": 7128
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "D",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.8,
+    "defect_clipping": 0.25,
+    "defect_brief_part_missing": 0.25,
+    "score_brief_depiction": 2.2
+   },
+   "input_tokens": 6345,
+   "output_tokens": 901,
+   "wall_s": 16.1,
+   "booked": 7246
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "E",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.88,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.08,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 7445,
+   "output_tokens": 958,
+   "wall_s": 33.7,
+   "booked": 8403
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "E",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.1,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 7445,
+   "output_tokens": 857,
+   "wall_s": 16.3,
+   "booked": 8302
+  },
+  {
+   "design": "builder",
+   "variant": "floating",
+   "nodes": 86,
+   "cond": "E",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.88,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.12,
+    "score_brief_depiction": 2.89
+   },
+   "input_tokens": 7445,
+   "output_tokens": 880,
+   "wall_s": 17.1,
+   "booked": 8325
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "A",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.18,
+    "defect_brief_part_missing": 0.25,
+    "score_brief_depiction": 2.28
+   },
+   "input_tokens": 2208,
+   "output_tokens": 998,
+   "wall_s": 20.5,
+   "booked": 3206
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "A",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.15,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 2208,
+   "output_tokens": 1001,
+   "wall_s": 17.7,
+   "booked": 3209
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "A",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.18,
+    "defect_clipping": 0.22,
+    "defect_brief_part_missing": 0.2,
+    "score_brief_depiction": 2.3
+   },
+   "input_tokens": 2208,
+   "output_tokens": 1201,
+   "wall_s": 32.4,
+   "booked": 3409
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "D",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.25,
+    "score_brief_depiction": 2.63
+   },
+   "input_tokens": 6345,
+   "output_tokens": 856,
+   "wall_s": 35.5,
+   "booked": 38409
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "D",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.18,
+    "defect_clipping": 0.2,
+    "defect_brief_part_missing": 0.35,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 6345,
+   "output_tokens": 1150,
+   "wall_s": 17.0,
+   "booked": 7495
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "D",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.25,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.25,
+    "score_brief_depiction": 2.43
+   },
+   "input_tokens": 6345,
+   "output_tokens": 1055,
+   "wall_s": 15.7,
+   "booked": 7400
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "E",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.1,
+    "defect_brief_part_missing": 0.25,
+    "score_brief_depiction": 2.68
+   },
+   "input_tokens": 7445,
+   "output_tokens": 1051,
+   "wall_s": 23.0,
+   "booked": 8496
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "E",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.25,
+    "score_brief_depiction": 2.36
+   },
+   "input_tokens": 7445,
+   "output_tokens": 1083,
+   "wall_s": 45.9,
+   "booked": 8528
+  },
+  {
+   "design": "builder",
+   "variant": "missing",
+   "nodes": 70,
+   "cond": "E",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.1,
+    "defect_brief_part_missing": 0.15,
+    "score_brief_depiction": 2.39
+   },
+   "input_tokens": 7445,
+   "output_tokens": 1034,
+   "wall_s": 43.0,
+   "booked": 8479
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "A",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.18,
+    "defect_brief_part_missing": 0.12,
+    "score_brief_depiction": 2.68
+   },
+   "input_tokens": 2208,
+   "output_tokens": 797,
+   "wall_s": 12.9,
+   "booked": 3005
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "A",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_brief_part_missing": 0.08,
+    "score_brief_depiction": 2.74
+   },
+   "input_tokens": 2208,
+   "output_tokens": 947,
+   "wall_s": 17.1,
+   "booked": 3155
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "A",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_brief_part_missing": 0.05,
+    "score_brief_depiction": 2.79
+   },
+   "input_tokens": 2208,
+   "output_tokens": 916,
+   "wall_s": 16.5,
+   "booked": 3124
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "D",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_brief_part_missing": 0.04,
+    "score_brief_depiction": 2.69
+   },
+   "input_tokens": 6345,
+   "output_tokens": 1021,
+   "wall_s": 14.7,
+   "booked": 7366
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "D",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.1,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.1,
+    "score_brief_depiction": 2.76
+   },
+   "input_tokens": 6345,
+   "output_tokens": 997,
+   "wall_s": 16.2,
+   "booked": 7342
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "D",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_brief_part_missing": 0.05,
+    "score_brief_depiction": 2.79
+   },
+   "input_tokens": 6345,
+   "output_tokens": 789,
+   "wall_s": 13.4,
+   "booked": 7134
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "E",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_brief_part_missing": 0.05,
+    "score_brief_depiction": 2.79
+   },
+   "input_tokens": 7445,
+   "output_tokens": 866,
+   "wall_s": 16.0,
+   "booked": 8311
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "E",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_brief_part_missing": 0.08,
+    "score_brief_depiction": 2.71
+   },
+   "input_tokens": 7445,
+   "output_tokens": 952,
+   "wall_s": 19.7,
+   "booked": 8397
+  },
+  {
+   "design": "director",
+   "variant": "intact",
+   "nodes": 85,
+   "cond": "E",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_brief_part_missing": 0.05,
+    "score_brief_depiction": 2.69
+   },
+   "input_tokens": 7445,
+   "output_tokens": 952,
+   "wall_s": 17.4,
+   "booked": 8397
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "A",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.8,
+    "defect_clipping": 0.25,
+    "defect_brief_part_missing": 0.2,
+    "score_brief_depiction": 2.35
+   },
+   "input_tokens": 2208,
+   "output_tokens": 1177,
+   "wall_s": 18.9,
+   "booked": 3385
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "A",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.82,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.12,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 2208,
+   "output_tokens": 894,
+   "wall_s": 15.7,
+   "booked": 3102
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "A",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.8,
+    "defect_clipping": 0.2,
+    "defect_brief_part_missing": 0.2,
+    "score_brief_depiction": 2.4
+   },
+   "input_tokens": 2208,
+   "output_tokens": 976,
+   "wall_s": 34.2,
+   "booked": 3184
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "D",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.88,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.12,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 6345,
+   "output_tokens": 885,
+   "wall_s": 15.1,
+   "booked": 7230
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "D",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.25,
+    "defect_brief_part_missing": 0.2,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 6345,
+   "output_tokens": 735,
+   "wall_s": 13.7,
+   "booked": 7080
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "D",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.88,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.12,
+    "score_brief_depiction": 2.79
+   },
+   "input_tokens": 6345,
+   "output_tokens": 689,
+   "wall_s": 13.0,
+   "booked": 7034
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "E",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.1,
+    "defect_brief_part_missing": 0.08,
+    "score_brief_depiction": 2.74
+   },
+   "input_tokens": 7445,
+   "output_tokens": 708,
+   "wall_s": 14.0,
+   "booked": 8153
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "E",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.1,
+    "score_brief_depiction": 2.68
+   },
+   "input_tokens": 7445,
+   "output_tokens": 661,
+   "wall_s": 14.0,
+   "booked": 8106
+  },
+  {
+   "design": "director",
+   "variant": "floating",
+   "nodes": 85,
+   "cond": "E",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.1,
+    "score_brief_depiction": 2.7
+   },
+   "input_tokens": 7445,
+   "output_tokens": 988,
+   "wall_s": 16.1,
+   "booked": 8433
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "A",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.85,
+    "score_brief_depiction": 2.28
+   },
+   "input_tokens": 2208,
+   "output_tokens": 986,
+   "wall_s": 15.1,
+   "booked": 3194
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "A",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.8,
+    "score_brief_depiction": 2.38
+   },
+   "input_tokens": 2208,
+   "output_tokens": 953,
+   "wall_s": 35.0,
+   "booked": 3161
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "A",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.2,
+    "defect_brief_part_missing": 0.8,
+    "score_brief_depiction": 2.23
+   },
+   "input_tokens": 2208,
+   "output_tokens": 926,
+   "wall_s": 34.8,
+   "booked": 3134
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "D",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_brief_part_missing": 0.85,
+    "score_brief_depiction": 2.28
+   },
+   "input_tokens": 6345,
+   "output_tokens": 834,
+   "wall_s": 15.8,
+   "booked": 7179
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "D",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_brief_part_missing": 0.9,
+    "score_brief_depiction": 2.34
+   },
+   "input_tokens": 6345,
+   "output_tokens": 1006,
+   "wall_s": 16.6,
+   "booked": 7351
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "D",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.2,
+    "defect_brief_part_missing": 0.8,
+    "score_brief_depiction": 2.15
+   },
+   "input_tokens": 6345,
+   "output_tokens": 914,
+   "wall_s": 16.1,
+   "booked": 7259
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "E",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_brief_part_missing": 0.92,
+    "score_brief_depiction": 2.33
+   },
+   "input_tokens": 7445,
+   "output_tokens": 1187,
+   "wall_s": 28.2,
+   "booked": 8632
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "E",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_brief_part_missing": 0.92,
+    "score_brief_depiction": 2.24
+   },
+   "input_tokens": 7445,
+   "output_tokens": 987,
+   "wall_s": 18.8,
+   "booked": 8432
+  },
+  {
+   "design": "director",
+   "variant": "missing",
+   "nodes": 77,
+   "cond": "E",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_brief_part_missing": 0.9,
+    "score_brief_depiction": 2.18
+   },
+   "input_tokens": 7445,
+   "output_tokens": 1052,
+   "wall_s": 19.9,
+   "booked": 8497
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "A",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.2,
+    "defect_brief_part_missing": 0.15,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 2208,
+   "output_tokens": 710,
+   "wall_s": 28.3,
+   "booked": 2918
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "A",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.12,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.1,
+    "score_brief_depiction": 2.54
+   },
+   "input_tokens": 2208,
+   "output_tokens": 1100,
+   "wall_s": 22.8,
+   "booked": 3308
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "A",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.1,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.1,
+    "score_brief_depiction": 2.63
+   },
+   "input_tokens": 2208,
+   "output_tokens": 954,
+   "wall_s": 21.4,
+   "booked": 3162
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "D",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_brief_part_missing": 0.05,
+    "score_brief_depiction": 2.79
+   },
+   "input_tokens": 6345,
+   "output_tokens": 910,
+   "wall_s": 185.7,
+   "booked": 38463
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "D",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.08,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 6345,
+   "output_tokens": 937,
+   "wall_s": 14.8,
+   "booked": 7282
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "D",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.08,
+    "defect_brief_part_missing": 0.05,
+    "score_brief_depiction": 2.79
+   },
+   "input_tokens": 6345,
+   "output_tokens": 884,
+   "wall_s": 25.6,
+   "booked": 7229
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "E",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.1,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.1,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 7445,
+   "output_tokens": 1006,
+   "wall_s": 18.3,
+   "booked": 8451
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "E",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_brief_part_missing": 0.08,
+    "score_brief_depiction": 2.74
+   },
+   "input_tokens": 7445,
+   "output_tokens": 879,
+   "wall_s": 16.9,
+   "booked": 8324
+  },
+  {
+   "design": "detailed55",
+   "variant": "intact",
+   "nodes": 55,
+   "cond": "E",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_brief_part_missing": 0.08,
+    "score_brief_depiction": 2.71
+   },
+   "input_tokens": 7445,
+   "output_tokens": 878,
+   "wall_s": 40.4,
+   "booked": 8323
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "A",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.88,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.12,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 2208,
+   "output_tokens": 840,
+   "wall_s": 14.8,
+   "booked": 3048
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "A",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.12,
+    "score_brief_depiction": 2.76
+   },
+   "input_tokens": 2208,
+   "output_tokens": 839,
+   "wall_s": 14.9,
+   "booked": 3047
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "A",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.82,
+    "defect_clipping": 0.18,
+    "defect_brief_part_missing": 0.15,
+    "score_brief_depiction": 2.53
+   },
+   "input_tokens": 2208,
+   "output_tokens": 957,
+   "wall_s": 30.0,
+   "booked": 3165
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "D",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.25,
+    "defect_brief_part_missing": 0.15,
+    "score_brief_depiction": 2.63
+   },
+   "input_tokens": 6345,
+   "output_tokens": 877,
+   "wall_s": 53.0,
+   "booked": 7222
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "D",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.88,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.12,
+    "score_brief_depiction": 2.76
+   },
+   "input_tokens": 6345,
+   "output_tokens": 862,
+   "wall_s": 17.7,
+   "booked": 7207
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "D",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.25,
+    "defect_brief_part_missing": 0.2,
+    "score_brief_depiction": 2.38
+   },
+   "input_tokens": 6345,
+   "output_tokens": 934,
+   "wall_s": 16.2,
+   "booked": 7279
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "E",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.92,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.12,
+    "score_brief_depiction": 2.76
+   },
+   "input_tokens": 7445,
+   "output_tokens": 874,
+   "wall_s": 18.5,
+   "booked": 8319
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "E",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.95,
+    "defect_clipping": 0.12,
+    "defect_brief_part_missing": 0.08,
+    "score_brief_depiction": 2.79
+   },
+   "input_tokens": 7445,
+   "output_tokens": 876,
+   "wall_s": 20.6,
+   "booked": 8321
+  },
+  {
+   "design": "detailed55",
+   "variant": "floating",
+   "nodes": 55,
+   "cond": "E",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.85,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.15,
+    "score_brief_depiction": 2.67
+   },
+   "input_tokens": 7445,
+   "output_tokens": 899,
+   "wall_s": 39.9,
+   "booked": 8344
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "A",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.12,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.85,
+    "score_brief_depiction": 1.9
+   },
+   "input_tokens": 2208,
+   "output_tokens": 1040,
+   "wall_s": 16.9,
+   "booked": 3248
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "A",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.2,
+    "defect_brief_part_missing": 0.85,
+    "score_brief_depiction": 2.23
+   },
+   "input_tokens": 2208,
+   "output_tokens": 873,
+   "wall_s": 14.8,
+   "booked": 3081
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "A",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.15,
+    "defect_clipping": 0.2,
+    "defect_brief_part_missing": 0.8,
+    "score_brief_depiction": 1.95
+   },
+   "input_tokens": 2208,
+   "output_tokens": 708,
+   "wall_s": 15.0,
+   "booked": 2916
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "D",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.1,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.85,
+    "score_brief_depiction": 1.92
+   },
+   "input_tokens": 6345,
+   "output_tokens": 1040,
+   "wall_s": 15.9,
+   "booked": 7385
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "D",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_brief_part_missing": 0.85,
+    "score_brief_depiction": 1.95
+   },
+   "input_tokens": 6345,
+   "output_tokens": 899,
+   "wall_s": 19.5,
+   "booked": 7244
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "D",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.1,
+    "defect_clipping": 0.15,
+    "defect_brief_part_missing": 0.85,
+    "score_brief_depiction": 2.02
+   },
+   "input_tokens": 6345,
+   "output_tokens": 870,
+   "wall_s": 18.9,
+   "booked": 7215
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "E",
+   "rep": 0,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.1,
+    "defect_brief_part_missing": 0.92,
+    "score_brief_depiction": 1.95
+   },
+   "input_tokens": 7445,
+   "output_tokens": 841,
+   "wall_s": 14.6,
+   "booked": 8286
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "E",
+   "rep": 1,
+   "answers": {
+    "defect_floating": 0.08,
+    "defect_clipping": 0.12,
+    "defect_brief_part_missing": 0.9,
+    "score_brief_depiction": 2.17
+   },
+   "input_tokens": 7445,
+   "output_tokens": 926,
+   "wall_s": 15.1,
+   "booked": 8371
+  },
+  {
+   "design": "detailed55",
+   "variant": "missing",
+   "nodes": 45,
+   "cond": "E",
+   "rep": 2,
+   "answers": {
+    "defect_floating": 0.05,
+    "defect_clipping": 0.12,
+    "defect_brief_part_missing": 0.92,
+    "score_brief_depiction": 1.95
+   },
+   "input_tokens": 7445,
+   "output_tokens": 962,
+   "wall_s": 16.6,
+   "booked": 8407
+  }
+ ]
+}

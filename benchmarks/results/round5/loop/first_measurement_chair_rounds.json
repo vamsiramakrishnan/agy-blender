@@ -1,0 +1,81 @@
+[
+ {
+  "stage": "A",
+  "n": 1,
+  "tier1": "TIER1 OK | warn: interpenetration@seat; interpenetration@leg_front_r__mx; interpenetration@leg_back_r__mx; interpenetration@stretcher_center; interpenetration@stretcher_side_r; interpenetration@leg...",
+  "tier1_ok": true,
+  "tier15": 1.0579870129870124,
+  "silhouette": 2.12,
+  "floating_p": 0.08,
+  "action": "agent_repair",
+  "fixer": null,
+  "reasons": [
+   "multiple/entangled defects: defect_clipping=0.75, defect_faceted=0.85"
+  ],
+  "cost_usd": 0.0,
+  "render_tier": "preview",
+  "note": "author: 15 op(s)",
+  "rolled_back": false,
+  "progress": 1.1013809523809523,
+  "improve": null,
+  "gates": [
+   "brief_depiction=2.06",
+   "defect:defect_faceted=0.85",
+   "silhouette=2.12"
+  ],
+  "depiction": null
+ },
+ {
+  "stage": "A",
+  "n": 2,
+  "tier1": "TIER1 OK | warn: interpenetration@seat; floating_part@crest_rail; floating_group@stretcher_center",
+  "tier1_ok": true,
+  "tier15": 0.36577922077922054,
+  "silhouette": 1.75,
+  "floating_p": 0.98,
+  "action": "agent_repair",
+  "fixer": null,
+  "reasons": [
+   "multiple/entangled defects: defect_faceted=0.85, defect_floating=0.98"
+  ],
+  "cost_usd": 0.0,
+  "render_tier": "preview",
+  "note": "author: 13 op(s)",
+  "rolled_back": true,
+  "progress": 0.5274761904761904,
+  "improve": null,
+  "gates": [
+   "brief_depiction=2.14",
+   "defect:defect_faceted=0.85",
+   "floating=0.98",
+   "silhouette=1.75"
+  ],
+  "depiction": null
+ },
+ {
+  "stage": "A",
+  "n": 4,
+  "tier1": "TIER1 OK | warn: interpenetration@seat; interpenetration@leg_front_r__mx; interpenetration@crest_rail; interpenetration@spindle_center; interpenetration@spindle_inner_r; interpenetration@spindle_mi...",
+  "tier1_ok": true,
+  "tier15": 0.8125974025974021,
+  "silhouette": 2.28,
+  "floating_p": 0.85,
+  "action": "agent_repair",
+  "fixer": null,
+  "reasons": [
+   "multiple/entangled defects: defect_clipping=0.45, defect_faceted=0.70, defect_floating=0.85"
+  ],
+  "cost_usd": 0.0,
+  "render_tier": "preview",
+  "note": "rolled back (newly flagged: defect_floating=0.85; gate now failing: floating; tier15 1.06->0.81, progress 1.10->0.92)",
+  "rolled_back": true,
+  "progress": 0.92047619047619,
+  "improve": null,
+  "gates": [
+   "brief_depiction=2.36",
+   "floating=0.85",
+   "silhouette=2.28"
+  ],
+  "depiction": null
+ }
+]

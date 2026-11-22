@@ -1,0 +1,2002 @@
+[
+ {
+  "brief": "crate",
+  "role": "worker",
+  "model": "gemini-4-hydrogen",
+  "thinking": "ThinkingLevel.LOW",
+  "index": 0,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6294,
+   "output_tokens": 12347,
+   "thinking_tokens": 3912
+  },
+  "call_s": 37.5,
+  "attempts": [
+   {
+    "s": 37.5,
+    "model": "gemini-4-hydrogen"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 37.9,
+  "nodes": 68,
+  "kinds": {
+   "box": 56,
+   "cylinder": 12
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 1040,
+   "critical": 0,
+   "warnings": 22,
+   "codes": {
+    "warning:interpenetration": 16,
+    "warning:z_fighting": 6
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 12347,
+    "thinking_tokens": 3912,
+    "reserved_tokens": 32368,
+    "booked_tokens": 18641,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 9094,
+    "thinking_tokens": 2753,
+    "reserved_tokens": 32368,
+    "booked_tokens": 15388,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 7067,
+    "thinking_tokens": 2848,
+    "reserved_tokens": 32368,
+    "booked_tokens": 13361,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "crate",
+  "role": "worker",
+  "model": "gemini-4-hydrogen",
+  "thinking": "ThinkingLevel.LOW",
+  "index": 1,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6294,
+   "output_tokens": 7067,
+   "thinking_tokens": 2848
+  },
+  "call_s": 23.2,
+  "attempts": [
+   {
+    "s": 23.2,
+    "model": "gemini-4-hydrogen"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 37.9,
+  "nodes": 58,
+  "kinds": {
+   "box": 52,
+   "cylinder": 6
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 832,
+   "critical": 0,
+   "warnings": 28,
+   "codes": {
+    "warning:interpenetration": 26,
+    "warning:z_fighting": 2
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 12347,
+    "thinking_tokens": 3912,
+    "reserved_tokens": 32368,
+    "booked_tokens": 18641,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 9094,
+    "thinking_tokens": 2753,
+    "reserved_tokens": 32368,
+    "booked_tokens": 15388,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 7067,
+    "thinking_tokens": 2848,
+    "reserved_tokens": 32368,
+    "booked_tokens": 13361,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "crate",
+  "role": "worker",
+  "model": "gemini-4-hydrogen",
+  "thinking": "ThinkingLevel.LOW",
+  "index": 2,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6294,
+   "output_tokens": 9094,
+   "thinking_tokens": 2753
+  },
+  "call_s": 31.3,
+  "attempts": [
+   {
+    "s": 31.3,
+    "model": "gemini-4-hydrogen"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 37.9,
+  "nodes": 57,
+  "kinds": {
+   "box": 47,
+   "cylinder": 10
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 900,
+   "critical": 0,
+   "warnings": 30,
+   "codes": {
+    "warning:interpenetration": 20,
+    "warning:z_fighting": 10
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 12347,
+    "thinking_tokens": 3912,
+    "reserved_tokens": 32368,
+    "booked_tokens": 18641,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 9094,
+    "thinking_tokens": 2753,
+    "reserved_tokens": 32368,
+    "booked_tokens": 15388,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 7067,
+    "thinking_tokens": 2848,
+    "reserved_tokens": 32368,
+    "booked_tokens": 13361,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "crate",
+  "role": "builder",
+  "model": "gemini-4-carbon",
+  "thinking": "ThinkingLevel.MEDIUM",
+  "index": 0,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6294,
+   "output_tokens": 18224,
+   "thinking_tokens": 11112
+  },
+  "call_s": 190.4,
+  "attempts": [
+   {
+    "s": 190.4,
+    "model": "gemini-4-carbon"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 221.2,
+  "nodes": 89,
+  "kinds": {
+   "box": 79,
+   "cylinder": 10
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 1380,
+   "critical": 0,
+   "warnings": 0,
+   "codes": {}
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 23583,
+    "thinking_tokens": 17111,
+    "reserved_tokens": 40560,
+    "booked_tokens": 29877,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 18224,
+    "thinking_tokens": 11112,
+    "reserved_tokens": 40560,
+    "booked_tokens": 24518,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 18631,
+    "thinking_tokens": 11796,
+    "reserved_tokens": 40560,
+    "booked_tokens": 24925,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "crate",
+  "role": "builder",
+  "model": "gemini-4-carbon",
+  "thinking": "ThinkingLevel.MEDIUM",
+  "index": 1,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6294,
+   "output_tokens": 23583,
+   "thinking_tokens": 17111
+  },
+  "call_s": 220.8,
+  "attempts": [
+   {
+    "s": 220.8,
+    "model": "gemini-4-carbon"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 221.2,
+  "nodes": 88,
+  "kinds": {
+   "box": 80,
+   "cylinder": 8
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 1312,
+   "critical": 0,
+   "warnings": 0,
+   "codes": {}
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 23583,
+    "thinking_tokens": 17111,
+    "reserved_tokens": 40560,
+    "booked_tokens": 29877,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 18224,
+    "thinking_tokens": 11112,
+    "reserved_tokens": 40560,
+    "booked_tokens": 24518,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 18631,
+    "thinking_tokens": 11796,
+    "reserved_tokens": 40560,
+    "booked_tokens": 24925,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "crate",
+  "role": "builder",
+  "model": "gemini-4-carbon",
+  "thinking": "ThinkingLevel.MEDIUM",
+  "index": 2,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6294,
+   "output_tokens": 18631,
+   "thinking_tokens": 11796
+  },
+  "call_s": 210.5,
+  "attempts": [
+   {
+    "s": 210.5,
+    "model": "gemini-4-carbon"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 221.2,
+  "nodes": 86,
+  "kinds": {
+   "box": 67,
+   "cylinder": 19
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 1428,
+   "critical": 0,
+   "warnings": 0,
+   "codes": {}
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 23583,
+    "thinking_tokens": 17111,
+    "reserved_tokens": 40560,
+    "booked_tokens": 29877,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 18224,
+    "thinking_tokens": 11112,
+    "reserved_tokens": 40560,
+    "booked_tokens": 24518,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 18631,
+    "thinking_tokens": 11796,
+    "reserved_tokens": 40560,
+    "booked_tokens": 24925,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "crate",
+  "role": "director",
+  "model": "gemini-4-argon",
+  "thinking": "ThinkingLevel.HIGH",
+  "index": 0,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6294,
+   "output_tokens": 23127,
+   "thinking_tokens": 15106
+  },
+  "call_s": 165.2,
+  "attempts": [
+   {
+    "s": 165.2,
+    "model": "gemini-4-argon"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 305.0,
+  "nodes": 85,
+  "kinds": {
+   "box": 74,
+   "cylinder": 11
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 1288,
+   "critical": 0,
+   "warnings": 0,
+   "codes": {}
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 23127,
+    "thinking_tokens": 15106,
+    "reserved_tokens": 40560,
+    "booked_tokens": 29421,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 29880,
+    "thinking_tokens": 19279,
+    "reserved_tokens": 40560,
+    "booked_tokens": 36174,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ReadError",
+    "input_tokens": null,
+    "output_tokens": null,
+    "thinking_tokens": null,
+    "reserved_tokens": 40560,
+    "booked_tokens": 40560,
+    "finish_reason": null
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 21330,
+    "thinking_tokens": 14978,
+    "reserved_tokens": 40560,
+    "booked_tokens": 27624,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "crate",
+  "role": "director",
+  "model": "gemini-4-argon",
+  "thinking": "ThinkingLevel.HIGH",
+  "index": 1,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6294,
+   "output_tokens": 21330,
+   "thinking_tokens": 14978
+  },
+  "call_s": 162.3,
+  "attempts": [
+   {
+    "error": "ReadError: ",
+    "s": 140.2
+   },
+   {
+    "s": 162.3,
+    "model": "gemini-4-argon"
+   }
+  ],
+  "service_retries": [
+   {
+    "attempt": 1,
+    "outcome": "unknown",
+    "answer": "ReadError",
+    "elapsed_s": 140.247,
+    "wait_s": 2.0
+   }
+  ],
+  "batch_wall_s": 305.0,
+  "nodes": 79,
+  "kinds": {
+   "box": 68,
+   "cylinder": 11
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 1200,
+   "critical": 0,
+   "warnings": 41,
+   "codes": {
+    "warning:floating_part": 33,
+    "warning:floating_group": 8
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 23127,
+    "thinking_tokens": 15106,
+    "reserved_tokens": 40560,
+    "booked_tokens": 29421,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 29880,
+    "thinking_tokens": 19279,
+    "reserved_tokens": 40560,
+    "booked_tokens": 36174,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ReadError",
+    "input_tokens": null,
+    "output_tokens": null,
+    "thinking_tokens": null,
+    "reserved_tokens": 40560,
+    "booked_tokens": 40560,
+    "finish_reason": null
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 21330,
+    "thinking_tokens": 14978,
+    "reserved_tokens": 40560,
+    "booked_tokens": 27624,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "crate",
+  "role": "director",
+  "model": "gemini-4-argon",
+  "thinking": "ThinkingLevel.HIGH",
+  "index": 2,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6294,
+   "output_tokens": 29880,
+   "thinking_tokens": 19279
+  },
+  "call_s": 194.5,
+  "attempts": [
+   {
+    "s": 194.5,
+    "model": "gemini-4-argon"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 305.0,
+  "nodes": 89,
+  "kinds": {
+   "box": 82,
+   "cylinder": 7
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 1288,
+   "critical": 0,
+   "warnings": 0,
+   "codes": {}
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 23127,
+    "thinking_tokens": 15106,
+    "reserved_tokens": 40560,
+    "booked_tokens": 29421,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 29880,
+    "thinking_tokens": 19279,
+    "reserved_tokens": 40560,
+    "booked_tokens": 36174,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ReadError",
+    "input_tokens": null,
+    "output_tokens": null,
+    "thinking_tokens": null,
+    "reserved_tokens": 40560,
+    "booked_tokens": 40560,
+    "finish_reason": null
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6294,
+    "output_tokens": 21330,
+    "thinking_tokens": 14978,
+    "reserved_tokens": 40560,
+    "booked_tokens": 27624,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "hydrant",
+  "role": "worker",
+  "model": "gemini-4-hydrogen",
+  "thinking": "ThinkingLevel.LOW",
+  "index": 0,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6288,
+   "output_tokens": 10345,
+   "thinking_tokens": 2963
+  },
+  "call_s": 38.1,
+  "attempts": [
+   {
+    "s": 38.1,
+    "model": "gemini-4-hydrogen"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 44.7,
+  "nodes": 64,
+  "kinds": {
+   "cylinder": 45,
+   "box": 18,
+   "sphere": 1
+  },
+  "materials": 3,
+  "tier1": {
+   "ok": true,
+   "tris": 2456,
+   "critical": 0,
+   "warnings": 35,
+   "codes": {
+    "warning:interpenetration": 34,
+    "warning:enclosed_part": 1
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 9670,
+    "thinking_tokens": 3033,
+    "reserved_tokens": 32357,
+    "booked_tokens": 15958,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 11354,
+    "thinking_tokens": 3268,
+    "reserved_tokens": 32357,
+    "booked_tokens": 17642,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 10345,
+    "thinking_tokens": 2963,
+    "reserved_tokens": 32357,
+    "booked_tokens": 16633,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "hydrant",
+  "role": "worker",
+  "model": "gemini-4-hydrogen",
+  "thinking": "ThinkingLevel.LOW",
+  "index": 1,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6288,
+   "output_tokens": 9670,
+   "thinking_tokens": 3033
+  },
+  "call_s": 37.5,
+  "attempts": [
+   {
+    "s": 37.5,
+    "model": "gemini-4-hydrogen"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 44.7,
+  "nodes": 59,
+  "kinds": {
+   "cylinder": 41,
+   "box": 17,
+   "cone": 1
+  },
+  "materials": 3,
+  "tier1": {
+   "ok": true,
+   "tris": 1684,
+   "critical": 0,
+   "warnings": 52,
+   "codes": {
+    "warning:interpenetration": 50,
+    "warning:floating_part": 1,
+    "warning:z_fighting": 1
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 9670,
+    "thinking_tokens": 3033,
+    "reserved_tokens": 32357,
+    "booked_tokens": 15958,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 11354,
+    "thinking_tokens": 3268,
+    "reserved_tokens": 32357,
+    "booked_tokens": 17642,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 10345,
+    "thinking_tokens": 2963,
+    "reserved_tokens": 32357,
+    "booked_tokens": 16633,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "hydrant",
+  "role": "worker",
+  "model": "gemini-4-hydrogen",
+  "thinking": "ThinkingLevel.LOW",
+  "index": 2,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6288,
+   "output_tokens": 11354,
+   "thinking_tokens": 3268
+  },
+  "call_s": 44.4,
+  "attempts": [
+   {
+    "s": 44.4,
+    "model": "gemini-4-hydrogen"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 44.7,
+  "nodes": 71,
+  "kinds": {
+   "cylinder": 59,
+   "box": 12
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 2504,
+   "critical": 0,
+   "warnings": 29,
+   "codes": {
+    "warning:interpenetration": 22,
+    "warning:enclosed_part": 1,
+    "warning:floating_part": 5,
+    "warning:z_fighting": 1
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 9670,
+    "thinking_tokens": 3033,
+    "reserved_tokens": 32357,
+    "booked_tokens": 15958,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 11354,
+    "thinking_tokens": 3268,
+    "reserved_tokens": 32357,
+    "booked_tokens": 17642,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 10345,
+    "thinking_tokens": 2963,
+    "reserved_tokens": 32357,
+    "booked_tokens": 16633,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "hydrant",
+  "role": "builder",
+  "model": "gemini-4-carbon",
+  "thinking": "ThinkingLevel.MEDIUM",
+  "index": 0,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6288,
+   "output_tokens": 6810,
+   "thinking_tokens": 0
+  },
+  "call_s": 66.9,
+  "attempts": [
+   {
+    "s": 66.9,
+    "model": "gemini-4-carbon"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 223.0,
+  "nodes": 86,
+  "kinds": {
+   "group": 4,
+   "cylinder": 62,
+   "box": 19,
+   "cone": 1
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 2824,
+   "critical": 0,
+   "warnings": 79,
+   "codes": {
+    "warning:interpenetration": 77,
+    "warning:floating_part": 1,
+    "warning:z_fighting": 1
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 20850,
+    "thinking_tokens": 13619,
+    "reserved_tokens": 40549,
+    "booked_tokens": 27138,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 7815,
+    "thinking_tokens": 0,
+    "reserved_tokens": 40549,
+    "booked_tokens": 14103,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 6810,
+    "thinking_tokens": 0,
+    "reserved_tokens": 40549,
+    "booked_tokens": 13098,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "hydrant",
+  "role": "builder",
+  "model": "gemini-4-carbon",
+  "thinking": "ThinkingLevel.MEDIUM",
+  "index": 1,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6288,
+   "output_tokens": 7815,
+   "thinking_tokens": 0
+  },
+  "call_s": 71.9,
+  "attempts": [
+   {
+    "s": 71.9,
+    "model": "gemini-4-carbon"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 223.0,
+  "nodes": 88,
+  "kinds": {
+   "group": 1,
+   "cylinder": 65,
+   "box": 21,
+   "cone": 1
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 3056,
+   "critical": 0,
+   "warnings": 32,
+   "codes": {
+    "warning:interpenetration": 30,
+    "warning:floating_part": 1,
+    "warning:z_fighting": 1
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 20850,
+    "thinking_tokens": 13619,
+    "reserved_tokens": 40549,
+    "booked_tokens": 27138,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 7815,
+    "thinking_tokens": 0,
+    "reserved_tokens": 40549,
+    "booked_tokens": 14103,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 6810,
+    "thinking_tokens": 0,
+    "reserved_tokens": 40549,
+    "booked_tokens": 13098,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "hydrant",
+  "role": "builder",
+  "model": "gemini-4-carbon",
+  "thinking": "ThinkingLevel.MEDIUM",
+  "index": 2,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6288,
+   "output_tokens": 20850,
+   "thinking_tokens": 13619
+  },
+  "call_s": 222.7,
+  "attempts": [
+   {
+    "s": 222.7,
+    "model": "gemini-4-carbon"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 223.0,
+  "nodes": 86,
+  "kinds": {
+   "cylinder": 66,
+   "box": 20
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 2800,
+   "critical": 0,
+   "warnings": 4,
+   "codes": {
+    "warning:interpenetration": 4
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 20850,
+    "thinking_tokens": 13619,
+    "reserved_tokens": 40549,
+    "booked_tokens": 27138,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 7815,
+    "thinking_tokens": 0,
+    "reserved_tokens": 40549,
+    "booked_tokens": 14103,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 6810,
+    "thinking_tokens": 0,
+    "reserved_tokens": 40549,
+    "booked_tokens": 13098,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "hydrant",
+  "role": "director",
+  "model": "gemini-4-argon",
+  "thinking": "ThinkingLevel.HIGH",
+  "index": 0,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6288,
+   "output_tokens": 30049,
+   "thinking_tokens": 13921
+  },
+  "call_s": 198.3,
+  "attempts": [
+   {
+    "s": 198.3,
+    "model": "gemini-4-argon"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 247.1,
+  "nodes": 89,
+  "kinds": {
+   "group": 1,
+   "cylinder": 70,
+   "box": 18
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 3664,
+   "critical": 0,
+   "warnings": 4,
+   "codes": {
+    "warning:interpenetration": 4
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 29473,
+    "thinking_tokens": 21972,
+    "reserved_tokens": 40549,
+    "booked_tokens": 35761,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 17121,
+    "thinking_tokens": 9116,
+    "reserved_tokens": 40549,
+    "booked_tokens": 23409,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 30049,
+    "thinking_tokens": 13921,
+    "reserved_tokens": 40549,
+    "booked_tokens": 36337,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "hydrant",
+  "role": "director",
+  "model": "gemini-4-argon",
+  "thinking": "ThinkingLevel.HIGH",
+  "index": 1,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6288,
+   "output_tokens": 29473,
+   "thinking_tokens": 21972
+  },
+  "call_s": 246.9,
+  "attempts": [
+   {
+    "s": 246.9,
+    "model": "gemini-4-argon"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 247.1,
+  "nodes": 87,
+  "kinds": {
+   "cylinder": 63,
+   "box": 24
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 2760,
+   "critical": 0,
+   "warnings": 25,
+   "codes": {
+    "warning:interpenetration": 22,
+    "warning:floating_part": 3
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 29473,
+    "thinking_tokens": 21972,
+    "reserved_tokens": 40549,
+    "booked_tokens": 35761,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 17121,
+    "thinking_tokens": 9116,
+    "reserved_tokens": 40549,
+    "booked_tokens": 23409,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 30049,
+    "thinking_tokens": 13921,
+    "reserved_tokens": 40549,
+    "booked_tokens": 36337,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "hydrant",
+  "role": "director",
+  "model": "gemini-4-argon",
+  "thinking": "ThinkingLevel.HIGH",
+  "index": 2,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6288,
+   "output_tokens": 17121,
+   "thinking_tokens": 9116
+  },
+  "call_s": 115.6,
+  "attempts": [
+   {
+    "s": 115.6,
+    "model": "gemini-4-argon"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 247.1,
+  "nodes": 87,
+  "kinds": {
+   "cylinder": 66,
+   "box": 13,
+   "sphere": 1,
+   "capsule": 7
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 3660,
+   "critical": 0,
+   "warnings": 97,
+   "codes": {
+    "warning:interpenetration": 40,
+    "warning:floating_group": 9,
+    "warning:floating_part": 43,
+    "warning:enclosed_part": 1,
+    "warning:z_fighting": 4
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 29473,
+    "thinking_tokens": 21972,
+    "reserved_tokens": 40549,
+    "booked_tokens": 35761,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 17121,
+    "thinking_tokens": 9116,
+    "reserved_tokens": 40549,
+    "booked_tokens": 23409,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6288,
+    "output_tokens": 30049,
+    "thinking_tokens": 13921,
+    "reserved_tokens": 40549,
+    "booked_tokens": 36337,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "chair",
+  "role": "worker",
+  "model": "gemini-4-hydrogen",
+  "thinking": "ThinkingLevel.LOW",
+  "index": 0,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6278,
+   "output_tokens": 9854,
+   "thinking_tokens": 1951
+  },
+  "call_s": 37.2,
+  "attempts": [
+   {
+    "error": "ReadError: ",
+    "s": 31.2
+   },
+   {
+    "s": 37.2,
+    "model": "gemini-4-hydrogen"
+   }
+  ],
+  "service_retries": [
+   {
+    "attempt": 1,
+    "outcome": "unknown",
+    "answer": "ReadError",
+    "elapsed_s": 31.235,
+    "wait_s": 2.0
+   }
+  ],
+  "batch_wall_s": 70.9,
+  "nodes": 53,
+  "kinds": {
+   "group": 1,
+   "cylinder": 41,
+   "box": 9,
+   "sphere": 2
+  },
+  "materials": 3,
+  "tier1": {
+   "ok": true,
+   "tris": 1860,
+   "critical": 0,
+   "warnings": 54,
+   "codes": {
+    "warning:interpenetration": 38,
+    "warning:floating_group": 3,
+    "warning:floating_part": 9,
+    "warning:z_fighting": 4
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ReadError",
+    "input_tokens": null,
+    "output_tokens": null,
+    "thinking_tokens": null,
+    "reserved_tokens": 32346,
+    "booked_tokens": 32346,
+    "finish_reason": null
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 6249,
+    "thinking_tokens": 1395,
+    "reserved_tokens": 32346,
+    "booked_tokens": 12527,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 9939,
+    "thinking_tokens": 1253,
+    "reserved_tokens": 32346,
+    "booked_tokens": 16217,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 9854,
+    "thinking_tokens": 1951,
+    "reserved_tokens": 32346,
+    "booked_tokens": 16132,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "chair",
+  "role": "worker",
+  "model": "gemini-4-hydrogen",
+  "thinking": "ThinkingLevel.LOW",
+  "index": 1,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6278,
+   "output_tokens": 9939,
+   "thinking_tokens": 1253
+  },
+  "call_s": 33.7,
+  "attempts": [
+   {
+    "s": 33.7,
+    "model": "gemini-4-hydrogen"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 70.9,
+  "nodes": 60,
+  "kinds": {
+   "group": 1,
+   "box": 9,
+   "cylinder": 50
+  },
+  "materials": 4,
+  "tier1": {
+   "ok": true,
+   "tris": 2020,
+   "critical": 0,
+   "warnings": 80,
+   "codes": {
+    "warning:interpenetration": 71,
+    "warning:floating_group": 2,
+    "warning:z_fighting": 7
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ReadError",
+    "input_tokens": null,
+    "output_tokens": null,
+    "thinking_tokens": null,
+    "reserved_tokens": 32346,
+    "booked_tokens": 32346,
+    "finish_reason": null
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 6249,
+    "thinking_tokens": 1395,
+    "reserved_tokens": 32346,
+    "booked_tokens": 12527,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 9939,
+    "thinking_tokens": 1253,
+    "reserved_tokens": 32346,
+    "booked_tokens": 16217,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 9854,
+    "thinking_tokens": 1951,
+    "reserved_tokens": 32346,
+    "booked_tokens": 16132,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "chair",
+  "role": "worker",
+  "model": "gemini-4-hydrogen",
+  "thinking": "ThinkingLevel.LOW",
+  "index": 2,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6278,
+   "output_tokens": 6249,
+   "thinking_tokens": 1395
+  },
+  "call_s": 25.3,
+  "attempts": [
+   {
+    "s": 25.3,
+    "model": "gemini-4-hydrogen"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 70.9,
+  "nodes": 56,
+  "kinds": {
+   "box": 8,
+   "cylinder": 46,
+   "sphere": 2
+  },
+  "materials": 2,
+  "tier1": {
+   "ok": true,
+   "tris": 2312,
+   "critical": 0,
+   "warnings": 85,
+   "codes": {
+    "warning:interpenetration": 78,
+    "warning:floating_group": 1,
+    "warning:z_fighting": 6
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ReadError",
+    "input_tokens": null,
+    "output_tokens": null,
+    "thinking_tokens": null,
+    "reserved_tokens": 32346,
+    "booked_tokens": 32346,
+    "finish_reason": null
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 6249,
+    "thinking_tokens": 1395,
+    "reserved_tokens": 32346,
+    "booked_tokens": 12527,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 9939,
+    "thinking_tokens": 1253,
+    "reserved_tokens": 32346,
+    "booked_tokens": 16217,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 9854,
+    "thinking_tokens": 1951,
+    "reserved_tokens": 32346,
+    "booked_tokens": 16132,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "chair",
+  "role": "builder",
+  "model": "gemini-4-carbon",
+  "thinking": "ThinkingLevel.MEDIUM",
+  "index": 0,
+  "status": "unavailable",
+  "detail": "builder propose on gemini-4-carbon: no answer while generating after 2 attempt(s) over 2 s of waiting; the service answered RemoteProtocolError: Server disconnected without sending a response. (every attempt that may have run kept its reservation)",
+  "finish": "RemoteProtocolError",
+  "usage": null,
+  "call_s": 300.3,
+  "attempts": [
+   {
+    "error": "RemoteProtocolError: Server disconnected without sending a response.",
+    "s": 300.0
+   },
+   {
+    "error": "RemoteProtocolError: Server disconnected without sending a response.",
+    "s": 300.3
+   }
+  ],
+  "service_retries": [
+   {
+    "attempt": 1,
+    "outcome": "unknown",
+    "answer": "RemoteProtocolError: Server disconnected without sending a response.",
+    "elapsed_s": 300.049,
+    "wait_s": 2.0
+   },
+   {
+    "attempt": 2,
+    "outcome": "unknown",
+    "answer": "RemoteProtocolError: Server disconnected without sending a response.",
+    "elapsed_s": 300.291,
+    "wait_s": null
+   }
+  ],
+  "batch_wall_s": 602.9,
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 20624,
+    "thinking_tokens": 13045,
+    "reserved_tokens": 40538,
+    "booked_tokens": 26902,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 24280,
+    "thinking_tokens": 16759,
+    "reserved_tokens": 40538,
+    "booked_tokens": 30558,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "RemoteProtocolError",
+    "input_tokens": null,
+    "output_tokens": null,
+    "thinking_tokens": null,
+    "reserved_tokens": 40538,
+    "booked_tokens": 40538,
+    "finish_reason": null
+   },
+   {
+    "status": "RemoteProtocolError",
+    "input_tokens": null,
+    "output_tokens": null,
+    "thinking_tokens": null,
+    "reserved_tokens": 40538,
+    "booked_tokens": 40538,
+    "finish_reason": null
+   }
+  ]
+ },
+ {
+  "brief": "chair",
+  "role": "builder",
+  "model": "gemini-4-carbon",
+  "thinking": "ThinkingLevel.MEDIUM",
+  "index": 1,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6278,
+   "output_tokens": 20624,
+   "thinking_tokens": 13045
+  },
+  "call_s": 225.2,
+  "attempts": [
+   {
+    "s": 225.2,
+    "model": "gemini-4-carbon"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 602.9,
+  "nodes": 89,
+  "kinds": {
+   "group": 5,
+   "cylinder": 67,
+   "box": 17
+  },
+  "materials": 3,
+  "tier1": {
+   "ok": true,
+   "tris": 3196,
+   "critical": 0,
+   "warnings": 16,
+   "codes": {
+    "warning:interpenetration": 16
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 20624,
+    "thinking_tokens": 13045,
+    "reserved_tokens": 40538,
+    "booked_tokens": 26902,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 24280,
+    "thinking_tokens": 16759,
+    "reserved_tokens": 40538,
+    "booked_tokens": 30558,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "RemoteProtocolError",
+    "input_tokens": null,
+    "output_tokens": null,
+    "thinking_tokens": null,
+    "reserved_tokens": 40538,
+    "booked_tokens": 40538,
+    "finish_reason": null
+   },
+   {
+    "status": "RemoteProtocolError",
+    "input_tokens": null,
+    "output_tokens": null,
+    "thinking_tokens": null,
+    "reserved_tokens": 40538,
+    "booked_tokens": 40538,
+    "finish_reason": null
+   }
+  ]
+ },
+ {
+  "brief": "chair",
+  "role": "builder",
+  "model": "gemini-4-carbon",
+  "thinking": "ThinkingLevel.MEDIUM",
+  "index": 2,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6278,
+   "output_tokens": 24280,
+   "thinking_tokens": 16759
+  },
+  "call_s": 257.4,
+  "attempts": [
+   {
+    "s": 257.4,
+    "model": "gemini-4-carbon"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 602.9,
+  "nodes": 88,
+  "kinds": {
+   "cylinder": 65,
+   "group": 6,
+   "box": 17
+  },
+  "materials": 3,
+  "tier1": {
+   "ok": true,
+   "tris": 2828,
+   "critical": 0,
+   "warnings": 66,
+   "codes": {
+    "warning:interpenetration": 62,
+    "warning:z_fighting": 4
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 20624,
+    "thinking_tokens": 13045,
+    "reserved_tokens": 40538,
+    "booked_tokens": 26902,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 24280,
+    "thinking_tokens": 16759,
+    "reserved_tokens": 40538,
+    "booked_tokens": 30558,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "RemoteProtocolError",
+    "input_tokens": null,
+    "output_tokens": null,
+    "thinking_tokens": null,
+    "reserved_tokens": 40538,
+    "booked_tokens": 40538,
+    "finish_reason": null
+   },
+   {
+    "status": "RemoteProtocolError",
+    "input_tokens": null,
+    "output_tokens": null,
+    "thinking_tokens": null,
+    "reserved_tokens": 40538,
+    "booked_tokens": 40538,
+    "finish_reason": null
+   }
+  ]
+ },
+ {
+  "brief": "chair",
+  "role": "director",
+  "model": "gemini-4-argon",
+  "thinking": "ThinkingLevel.HIGH",
+  "index": 0,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6278,
+   "output_tokens": 28965,
+   "thinking_tokens": 21577
+  },
+  "call_s": 207.2,
+  "attempts": [
+   {
+    "s": 207.2,
+    "model": "gemini-4-argon"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 346.8,
+  "nodes": 89,
+  "kinds": {
+   "box": 34,
+   "cylinder": 55
+  },
+  "materials": 3,
+  "tier1": {
+   "ok": true,
+   "tris": 2872,
+   "critical": 0,
+   "warnings": 20,
+   "codes": {
+    "warning:floating_part": 14,
+    "warning:floating_group": 6
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ReadError",
+    "input_tokens": null,
+    "output_tokens": null,
+    "thinking_tokens": null,
+    "reserved_tokens": 40538,
+    "booked_tokens": 40538,
+    "finish_reason": null
+   },
+   {
+    "status": "AuthorTruncated",
+    "input_tokens": 6278,
+    "output_tokens": 32768,
+    "thinking_tokens": 25501,
+    "reserved_tokens": 40538,
+    "booked_tokens": 39046,
+    "finish_reason": "MAX_TOKENS"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 28965,
+    "thinking_tokens": 21577,
+    "reserved_tokens": 40538,
+    "booked_tokens": 35243,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 28050,
+    "thinking_tokens": 18164,
+    "reserved_tokens": 40538,
+    "booked_tokens": 34328,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "chair",
+  "role": "director",
+  "model": "gemini-4-argon",
+  "thinking": "ThinkingLevel.HIGH",
+  "index": 1,
+  "status": "produced",
+  "detail": "",
+  "finish": "STOP",
+  "usage": {
+   "input_tokens": 6278,
+   "output_tokens": 28050,
+   "thinking_tokens": 18164
+  },
+  "call_s": 266.0,
+  "attempts": [
+   {
+    "error": "ReadError: ",
+    "s": 78.2
+   },
+   {
+    "s": 266.0,
+    "model": "gemini-4-argon"
+   }
+  ],
+  "service_retries": [
+   {
+    "attempt": 1,
+    "outcome": "unknown",
+    "answer": "ReadError",
+    "elapsed_s": 78.231,
+    "wait_s": 2.0
+   }
+  ],
+  "batch_wall_s": 346.8,
+  "nodes": 88,
+  "kinds": {
+   "box": 23,
+   "group": 4,
+   "cylinder": 61
+  },
+  "materials": 3,
+  "tier1": {
+   "ok": true,
+   "tris": 3012,
+   "critical": 0,
+   "warnings": 92,
+   "codes": {
+    "warning:interpenetration": 84,
+    "warning:z_fighting": 8
+   }
+  },
+  "receipts_of_batch": [
+   {
+    "status": "ReadError",
+    "input_tokens": null,
+    "output_tokens": null,
+    "thinking_tokens": null,
+    "reserved_tokens": 40538,
+    "booked_tokens": 40538,
+    "finish_reason": null
+   },
+   {
+    "status": "AuthorTruncated",
+    "input_tokens": 6278,
+    "output_tokens": 32768,
+    "thinking_tokens": 25501,
+    "reserved_tokens": 40538,
+    "booked_tokens": 39046,
+    "finish_reason": "MAX_TOKENS"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 28965,
+    "thinking_tokens": 21577,
+    "reserved_tokens": 40538,
+    "booked_tokens": 35243,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 28050,
+    "thinking_tokens": 18164,
+    "reserved_tokens": 40538,
+    "booked_tokens": 34328,
+    "finish_reason": "STOP"
+   }
+  ]
+ },
+ {
+  "brief": "chair",
+  "role": "director",
+  "model": "gemini-4-argon",
+  "thinking": "ThinkingLevel.HIGH",
+  "index": 2,
+  "status": "truncated",
+  "detail": "director propose on gemini-4-argon: output cut off at max_output_tokens=32768 (16384 answer + 16384 thinking); usage {'input_tokens': 6278, 'output_tokens': 32768, 'thinking_tokens': 25501}",
+  "finish": "MAX_TOKENS",
+  "usage": {
+   "input_tokens": 6278,
+   "output_tokens": 32768,
+   "thinking_tokens": 25501
+  },
+  "call_s": 229.2,
+  "attempts": [
+   {
+    "s": 229.2,
+    "model": "gemini-4-argon"
+   }
+  ],
+  "service_retries": null,
+  "batch_wall_s": 346.8,
+  "receipts_of_batch": [
+   {
+    "status": "ReadError",
+    "input_tokens": null,
+    "output_tokens": null,
+    "thinking_tokens": null,
+    "reserved_tokens": 40538,
+    "booked_tokens": 40538,
+    "finish_reason": null
+   },
+   {
+    "status": "AuthorTruncated",
+    "input_tokens": 6278,
+    "output_tokens": 32768,
+    "thinking_tokens": 25501,
+    "reserved_tokens": 40538,
+    "booked_tokens": 39046,
+    "finish_reason": "MAX_TOKENS"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 28965,
+    "thinking_tokens": 21577,
+    "reserved_tokens": 40538,
+    "booked_tokens": 35243,
+    "finish_reason": "STOP"
+   },
+   {
+    "status": "ok",
+    "input_tokens": 6278,
+    "output_tokens": 28050,
+    "thinking_tokens": 18164,
+    "reserved_tokens": 40538,
+    "booked_tokens": 34328,
+    "finish_reason": "STOP"
+   }
+  ]
+ }
+]

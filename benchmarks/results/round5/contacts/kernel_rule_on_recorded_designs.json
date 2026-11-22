@@ -1,0 +1,96 @@
+{
+ "runs/r5_chair_C.change/WoodenWindsorChair_authoring.usda": {
+  "parts": 18,
+  "floating": [],
+  "attached": [],
+  "left": []
+ },
+ "runs/r5_chair_C/WoodenWindsorChair_authoring.usda": {
+  "parts": 18,
+  "floating": [],
+  "attached": [],
+  "left": []
+ },
+ "runs/r5_crate_C.change/RuggedMilitarySupply_authoring.usda": {
+  "parts": 68,
+  "floating": [
+   [
+    "floating_part",
+    "skid"
+   ],
+   [
+    "floating_part",
+    "skid__mx"
+   ]
+  ],
+  "attached": [
+   "skid moved 1.0 mm onto crate_body (+0.0, +0.0, +1.0 mm)",
+   "skid__mx moved 1.0 mm onto crate_body (+0.0, +0.0, +1.0 mm)"
+  ],
+  "left": []
+ },
+ "runs/r5_crate_C.repeat/RuggedMilitarySupply_authoring.usda": {
+  "parts": 61,
+  "floating": [],
+  "attached": [],
+  "left": []
+ },
+ "runs/r5_crate_C/RuggedMilitarySupply_authoring.usda": {
+  "parts": 67,
+  "floating": [],
+  "attached": [],
+  "left": []
+ },
+ "runs/r5_hydrant_C.change/CastIronFire_authoring.usda": {
+  "parts": 49,
+  "floating": [
+   [
+    "enclosed_part",
+    "chain_link_6"
+   ],
+   [
+    "floating_part",
+    "chain_link_1"
+   ],
+   [
+    "floating_part",
+    "chain_link_2"
+   ],
+   [
+    "floating_part",
+    "chain_link_3"
+   ]
+  ],
+  "attached": [
+   "chain_link_1 moved 1.0 mm onto chain_anchor_body (+0.0, +0.0, +1.0 mm)",
+   "chain_link_2 moved 14.2 mm onto hydrant_body (-6.7, +12.5, +0.0 mm)"
+  ],
+  "left": [
+   "chain_link_3: no part within 25 mm of it"
+  ]
+ },
+ "runs/r5_hydrant_C/CastIronFire_authoring.usda": {
+  "parts": 49,
+  "floating": [
+   [
+    "floating_part",
+    "chain_link_1"
+   ],
+   [
+    "floating_part",
+    "chain_link_2"
+   ],
+   [
+    "floating_part",
+    "chain_link_3"
+   ]
+  ],
+  "attached": [
+   "chain_link_1 moved 1.0 mm onto chain_anchor_body (+0.0, +0.0, +1.0 mm)",
+   "chain_link_2 moved 14.2 mm onto hydrant_body (-6.7, +12.5, +0.0 mm)"
+  ],
+  "left": [
+   "chain_link_3: no part within 25 mm of it"
+  ]
+ }
+}

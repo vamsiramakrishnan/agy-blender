@@ -1,0 +1,147 @@
+[
+ {
+  "stage": "A",
+  "n": 1,
+  "tier1": "TIER1 OK | warn: interpenetration@handle_bracket__mx; interpenetration@handle_bracket__r1__mx; interpenetration@handle_plate__mx; interpenetration@crate_lid; interpenetration@crate_body; interpenet...",
+  "tier1_ok": true,
+  "tier15": 2.6081818181818184,
+  "silhouette": 2.64,
+  "floating_p": 0.05,
+  "action": "agent_repair",
+  "fixer": null,
+  "reasons": [
+   "silhouette 2.64 < lock 3.3"
+  ],
+  "cost_usd": 0.0,
+  "render_tier": "preview",
+  "note": "",
+  "rolled_back": false,
+  "progress": 2.6166666666666667,
+  "improve": null,
+  "gates": [
+   "silhouette=2.64"
+  ],
+  "depiction": null
+ },
+ {
+  "stage": "A",
+  "n": 2,
+  "tier1": "TIER1 OK | warn: interpenetration@handle_bracket__mx; interpenetration@handle_bracket__r1__mx; interpenetration@crate_lid; interpenetration@crate_body; interpenetration@hinge_plate_body__mx; interp...",
+  "tier1_ok": true,
+  "tier15": 0.7651948051948048,
+  "silhouette": 2.63,
+  "floating_p": 0.08,
+  "action": "agent_repair",
+  "fixer": null,
+  "reasons": [
+   "multiple/entangled defects: defect_inverted_faces=0.85, defect_visible_holes=0.65"
+  ],
+  "cost_usd": 0.0,
+  "render_tier": "preview",
+  "note": "improve 1: progress 2.62->0.92, depiction 2.64->2.63, tier15 2.61->0.77, tier1 critical 0->0, 14 op(s); rolled back (newly flagged: defect_inverted_faces=0.85, defect_visible_holes=0.65; gate now failing: defect:defect_inverted_faces; fell by more than the judge's noise band (0.2): score_shippability 2.59->1.72)",
+  "rolled_back": true,
+  "progress": 0.9196190476190473,
+  "improve": 1,
+  "gates": [
+   "defect:defect_inverted_faces=0.85",
+   "silhouette=2.63"
+  ],
+  "depiction": null
+ },
+ {
+  "stage": "A",
+  "n": 3,
+  "tier1": "TIER1 OK | warn: interpenetration@handle_bracket__mx; interpenetration@handle_bracket__r1__mx; interpenetration@crate_lid; interpenetration@handle_plate__mx; interpenetration@crate_body; interpenet...",
+  "tier1_ok": true,
+  "tier15": 2.7081818181818176,
+  "silhouette": 2.7399999999999998,
+  "floating_p": 0.05,
+  "action": "agent_repair",
+  "fixer": null,
+  "reasons": [
+   "silhouette 2.74 < lock 3.3"
+  ],
+  "cost_usd": 0.0,
+  "render_tier": "preview",
+  "note": "improve 2: progress 2.62->2.72, depiction 2.64->2.74, tier15 2.61->2.71, tier1 critical 0->0, 14 op(s); kept (no longer floating: handle_bolt, handle_bolt__mx)",
+  "rolled_back": false,
+  "progress": 2.7166666666666663,
+  "improve": 2,
+  "gates": [
+   "silhouette=2.74"
+  ],
+  "depiction": null
+ },
+ {
+  "stage": "A",
+  "n": 4,
+  "tier1": "TIER1 OK | warn: interpenetration@handle_bracket__mx; interpenetration@handle_bracket__r1__mx; interpenetration@crate_lid; interpenetration@handle_plate__mx; interpenetration@crate_body; interpenet...",
+  "tier1_ok": true,
+  "tier15": 2.739090909090909,
+  "silhouette": 2.79,
+  "floating_p": 0.05,
+  "action": "agent_repair",
+  "fixer": null,
+  "reasons": [
+   "silhouette 2.79 < lock 3.3"
+  ],
+  "cost_usd": 0.0,
+  "render_tier": "preview",
+  "note": "improve 3: progress 2.72->2.75, depiction 2.74->2.79, tier15 2.71->2.74, tier1 critical 0->0, 5 op(s); rolled back (no change beyond the judge's noise band (0.2) and no defect cleared)",
+  "rolled_back": true,
+  "progress": 2.7526666666666664,
+  "improve": 3,
+  "gates": [
+   "silhouette=2.79"
+  ],
+  "depiction": null
+ },
+ {
+  "stage": "A",
+  "n": 5,
+  "tier1": "TIER1 OK | warn: interpenetration@handle_bracket__mx; interpenetration@handle_bracket__r1__mx; interpenetration@crate_lid; interpenetration@handle_plate__mx; interpenetration@crate_body; interpenet...",
+  "tier1_ok": true,
+  "tier15": 2.744545454545454,
+  "silhouette": 2.84,
+  "floating_p": 0.05,
+  "action": "agent_repair",
+  "fixer": null,
+  "reasons": [
+   "silhouette 2.84 < lock 3.3"
+  ],
+  "cost_usd": 0.0,
+  "render_tier": "preview",
+  "note": "improve 4: progress 2.72->2.77, depiction 2.74->2.84, tier15 2.71->2.74, tier1 critical 0->0, 18 op(s); rolled back (Tier-1 finds a new floating part: lid_stack_pad_bl, lid_stack_pad_br, lid_stack_pad_fl, lid_stack_pad_fr)",
+  "rolled_back": true,
+  "progress": 2.7699999999999996,
+  "improve": 4,
+  "gates": [
+   "silhouette=2.84"
+  ],
+  "depiction": null
+ },
+ {
+  "stage": "A",
+  "n": 6,
+  "tier1": "TIER1 OK | warn: interpenetration@handle_bracket__mx; interpenetration@handle_bracket__r1__mx; interpenetration@crate_lid; interpenetration@handle_plate__mx; interpenetration@crate_body; interpenet...",
+  "tier1_ok": true,
+  "tier15": 2.7899999999999996,
+  "silhouette": 2.79,
+  "floating_p": 0.05,
+  "action": "agent_repair",
+  "fixer": null,
+  "reasons": [
+   "silhouette 2.79 < lock 3.3"
+  ],
+  "cost_usd": 0.0,
+  "render_tier": "preview",
+  "note": "improve 5: progress 2.72->2.80, depiction 2.74->2.84, tier15 2.71->2.79, tier1 critical 0->0, 15 op(s); rolled back (no change beyond the judge's noise band (0.2) and no defect cleared)",
+  "rolled_back": true,
+  "progress": 2.8033333333333332,
+  "improve": 5,
+  "gates": [
+   "silhouette=2.79"
+  ],
+  "depiction": null
+ }
+]

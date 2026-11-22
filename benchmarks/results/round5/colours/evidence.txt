@@ -1,0 +1,21 @@
+Colours the model wrote in this round's live designs (worker tier), read both ways.
+"read as sRGB": the number taken as an sRGB value, the way a colour picker or a hex code means it.
+"shown today": the same number taken as linear (what the scene format says it is) and displayed.
+
+asset                  material          written              read as sRGB   shown today   surface words
+crate (direct run)     olive_drab_metal  (0.18, 0.22, 0.14)   #2e3824        #768169       olive drab painted stamped steel
+crate (direct run)     dark_gunmetal     (0.12, 0.13, 0.14)   #1f2124        #616569       dark anodized gunmetal steel
+crate (direct run)     rubber_grip       (0.08, 0.08, 0.08)   #141414        #505050       matte black vulcanized rubber
+crate (direct run)     brass_hardware    (0.65, 0.50, 0.22)   #a68038        #d3bc81       brushed brass hardware
+crate (harness run)    mat_olive_body    (0.18, 0.22, 0.13)   #2e3821        #768165       olive drab painted military metal
+crate (harness run)    mat_rubber        (0.05, 0.05, 0.05)   #0d0d0d        #3f3f3f       textured matte black rubber
+crate (harness run)    mat_brass_accent  (0.55, 0.42, 0.18)   #8c6b2e        #c4ad76       tarnished brass hardware
+crate (native session) mat_crate_olive   (0.24, 0.28, 0.17)   #3d472b        #868f76       olive drab painted steel
+hydrant                cast_iron_red     (0.65, 0.08, 0.06)   #a6140f        #d35045       painted red cast iron
+hydrant                bare_iron         (0.18, 0.19, 0.20)   #2e3033        #76797c       dark weathered bare cast iron
+chair                  wood_oak          (0.42, 0.24, 0.11)   #6b3d1c        #ad865d       aged honey oak wood grain, satin varnish
+chair                  wood_dark_accent  (0.25, 0.14, 0.07)   #402412        #89694b       dark stained hardwood, satin finish
+chair                  brass_pin         (0.78, 0.58, 0.22)   #c79438        #e5c881       aged brass
+
+Every one is the right colour for its words when read as sRGB and a washed-out one as shipped.
+Metallic the same authors wrote: painted metal 0.15-0.25, gunmetal / bare iron 0.85, brass 0.9, rubber and wood 0.0.
