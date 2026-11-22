@@ -359,12 +359,12 @@ def _wrapper(name: str, fn: T.ToolFn, host: StudioHost) -> Any:
     # model calls report to its client as notifications/progress while it runs (_progress_sink).
     params.append(inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, default=None, annotation=Context))
 
-    async def tool(**kwargs: Any) -> str:
+    async def tool(**kwargs: Any) -> Any:
         ctx = kwargs.pop("ctx", None)
         sid = kwargs.pop("session_id", "") or ""
         token = CURRENT_SINK.set(_progress_sink(ctx)) if ctx is not None else None
         try:
-            return await host.call_tool(name, fn, sid, kwargs)
+            return _with_images(await host.call_tool(name, fn, sid, kwargs))
         finally:
             if token is not None:
                 CURRENT_SINK.reset(token)
@@ -391,6 +391,21 @@ def _progress_sink(ctx: Any) -> Callable[[Any], None]:
         task.add_done_callback(lambda t: (pending.discard(t), t.cancelled() or t.exception()))
 
     return sink
+
+
+def _with_images(reply: Any) -> Any:
+    """A reply that shows images (``tools.ToolReply``: the renders of the design) as the text and one image content per
+    file (PNG or WebP), so the client can put them in front of the model; any other reply as it is."""
+    images = getattr(reply, "images", ())
+    if not images:
+        return reply
+    import base64
+
+    from mcp_types import ImageContent, TextContent
+
+    return [TextContent(type="text", text=str(reply)),
+            *(ImageContent(type="image", data=base64.b64encode(Path(path).read_bytes()).decode(),
+                           mime_type="image/webp" if Path(path).suffix == ".webp" else "image/png") for _, path in images)]
 
 
 def _declared_schema(input_schema: dict[str, Any]) -> dict[str, Any]:

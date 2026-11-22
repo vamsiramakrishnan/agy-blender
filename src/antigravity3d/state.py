@@ -78,10 +78,22 @@ class VisualVerdict:
                 and self.backend == "decisions" and self.action == "approve")
 
     def qualifies_preview(self, revision: str, target: str) -> bool:
-        """The gate of an unverified PREVIEW export only: an approving lookdev/final verdict on the current revision,
-        from any judge on any render. Never a substitute for :meth:`qualifies`."""
-        return (bool(revision and target) and self.revision == revision and self.target == target
-                and self.stage in {"lookdev", "final"} and self.action == "approve")
+        """The gate of an unverified PREVIEW export only: a lookdev/final verdict on the current revision, from any judge on
+        any render, that approves; or, from an uncalibrated judge (``backend == "uncalibrated"``), any review that did not
+        escalate to a person (``delivers_on_review``). Never a substitute for :meth:`qualifies`."""
+        if not (bool(revision and target) and self.revision == revision and self.target == target
+                and self.stage in {"lookdev", "final"}):
+            return False
+        return self.action != "escalate_human" if self.delivers_on_review else self.action == "approve"
+
+    @property
+    def delivers_on_review(self) -> bool:
+        """Whether this verdict's scores are findings rather than a gate: the review of an uncalibrated judge (the
+        command's delivery rule, ``antigravity3d.delivery``). Measured 2026-11-22: across 27 live designs the fallback judge
+        put no first design at the 3.4 an approval needs (medians 2.05-2.79, best after an improvement round 3.32), so a
+        native preview session could never export; a package whose deterministic checks pass and whose review ran is
+        delivered, labelled unverified, with what the judge found."""
+        return self.backend == "uncalibrated"
 
 
 @dataclass
@@ -116,7 +128,9 @@ class AssetSessionState:
     @property
     def export_allowed(self) -> bool:
         """The export gate of this session: the verified gate, or (preview sessions only) the preview gate."""
-        base = (self.validator_ok is not False and self.last_tier1_ok and EXPORT_MIN_TIER15_SCORE <= self.last_tier15_score <= 4.0
+        reviewed = self.preview and self.verdict is not None and self.verdict.delivers_on_review
+        floor = 0.0 if reviewed else EXPORT_MIN_TIER15_SCORE  # an uncalibrated preview's score is a finding (VisualVerdict)
+        base = (self.validator_ok is not False and self.last_tier1_ok and floor <= self.last_tier15_score <= 4.0
                 and self.verdict is not None)
         if self.preview:
             return base and self.verdict.qualifies_preview(self.revision, self.budget.target_engine)  # type: ignore[union-attr]

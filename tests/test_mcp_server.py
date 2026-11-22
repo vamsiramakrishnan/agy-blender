@@ -93,7 +93,9 @@ async def test_tools_list_has_harness_tools_with_clean_schemas(tmp_path):
         assert {**schema, "properties": declared["properties"]} == declared == T.ALL_TOOLS[name].input_schema, name
     op = tools["apply_scene_ir"].input_schema["properties"]["ops"]["items"]
     assert "upsert_node" in op["properties"]["op"]["enum"] and op["properties"]["node"]["properties"]["collider"]["type"] == "boolean"
-    assert tools["render_preview"].input_schema["properties"]["wireframe"]["default"] is True
+    # render_preview took a wireframe flag for its 4-view sheet; it now shows the design's five views as shipped
+    # (tactics.judging, 2026-11-22) and takes no argument but the session
+    assert set(tools["render_preview"].input_schema["properties"]) == {"session_id"}
     assert tools["forge_pbr_material"].input_schema["properties"]["candidates"]["type"] == "integer"
     assert set(tools["open_asset_session"].input_schema["required"]) == {"asset_name", "target_engine"}
     assert "max_tris" in tools["open_asset_session"].input_schema["properties"]

@@ -53,6 +53,10 @@ class Preview:
     kind: str = "clay"
     texture_hash: str = ""
     image_hash: str = ""
+    # kind "views": the design's separate views (tactics.judging.UploadedDesign: the judge's views, the badged ones the
+    # agent is shown, the legend) and the badged PNGs on disk, in view order
+    design: Any = None
+    view_paths: tuple[Path, ...] = ()
 
 
 @dataclass
@@ -114,13 +118,13 @@ class Session:
         self._set(R_LAST_EXPORT, path)
 
     def add_preview(self, path: Path, uri: str, geom_version: int | None = None, *, kind: str = "clay",
-                    texture_hash: str = "") -> Preview:
+                    texture_hash: str = "", design: Any = None, view_paths: tuple[Path, ...] = ()) -> Preview:
         version = self.geom_version if geom_version is None else geom_version
         if version != self.geom_version:
             raise RuntimeError("geometry changed during render; re-run")
         prev = self.previews
         image_hash = hashlib.sha256(path.read_bytes()).hexdigest()
-        p = Preview(path, uri, version, prev[-1].index + 1 if prev else 1, kind, texture_hash, image_hash)
+        p = Preview(path, uri, version, prev[-1].index + 1 if prev else 1, kind, texture_hash, image_hash, design, view_paths)
         self._set(R_PREVIEWS, [*prev[-7:], p])
         return p
 

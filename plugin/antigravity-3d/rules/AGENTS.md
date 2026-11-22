@@ -73,6 +73,13 @@ glob-scoped rule files add detail when matching files are in play:
   visual score is at least 3.4 for the current state of the scene. Any edit
   after QA makes the verdict stale; re-run QA. The PreToolUse hook enforces
   this and the Stop hook refuses to finish while a changed asset is ungated.
+- In a preview judged by the uncalibrated fallback, the score is a finding,
+  not a gate: export needs Tier-1 and the validator to pass and a lookdev
+  review (`run_visual_qa` in LOOKDEV) of the current scene, whatever it
+  scored. Use its findings for at most two improvement rounds after the first
+  review, then export: the package and the tool's answer list what the judge
+  found, for the user to look at. A hard policy flag or a review that
+  escalates to a person still blocks; ask the user.
 - A verified export needs an approval from the native Decisions API. When the
   key has no access to it, `open_asset_session` says so: visual QA and export
   will be refused. Do not work around that. Ask the user whether they want an
@@ -85,10 +92,16 @@ glob-scoped rule files add detail when matching files are in play:
 - Where your stage offers them, delegate gating to the `usd_verifier` subagent
   (VARIANTS and LOOKDEV) and visual critique to the `lookdev_critic` subagent
   (LOOKDEV) so their renders and logs stay out of your context.
-- Every render goes through the QA tools (`render_preview`, `run_visual_qa`,
-  `run_paintover_loop`). They return scores, deltas and file paths, not
-  images, so renders do not accumulate in context. Do not open render images
-  yourself unless the user asks to see one.
+- Look at your work: `render_preview` returns the design's five views with
+  numbered part badges (small ones inline; open any the reply marks with
+  view_file). Look after every few edits and improve what you see before
+  `run_visual_qa`, whose findings name the parts and views. Other renders
+  (`render_lookdev`, `run_paintover_loop`) return file paths and scores.
+- A preview opened with an image limit of 0 generates no texture: the image
+  tools answer `NO IMAGES`, and the package writer makes the surfaces from the
+  geometry. Keep materials' ids and base colours and continue to export.
+- To change an asset that already exists, `open_existing_asset` and edit only
+  the parts asked for; never author it again.
 
 ## Engine budgets (summary)
 

@@ -116,14 +116,21 @@ _STAGE_TEXT: dict[str, str] = {
     "BLOCKOUT": "Build the asset as a production game prop, not a blockout, from primitives with apply_scene_ir (one patch "
                 "can hold many ops; send the main solids first, then the detail). Each edit is atomic: a failing Tier-1 check "
                 "(non-manifold, over budget) is rolled back and reported in one line; fix and resend. " + CRAFT_RULES +
-                " Then run_visual_qa; follow its action (auto_fix is applied for you; agent_repair names a target). Stop once "
-                "Tier-1 is OK and QA shows no geometry repair.",
-    "TWEAK": "Use query_region for a bounded spatial working set. Apply the requested parameter edits with apply_scene_ir.",
+                " Then look and improve, round after round: render_preview shows you five views with a numbered badge on "
+                "every part; compare them with the request (named parts, proportions, the secondary detail a real one has) "
+                "and patch what is missing, plain or wrong. Half of max_tris used and plain boxes is not done. "
+                "run_visual_qa names the parts and views of its findings; follow its action (auto_fix is applied for you). "
+                "Stop once Tier-1 is OK, QA shows no geometry repair and the renders show the object asked for; in an "
+                "uncalibrated preview its scores are findings: at most two improvement rounds after the first review.",
+    "TWEAK": "Existing asset: change only what was asked. Use query_region for a bounded spatial working set, apply the "
+             "edits with apply_scene_ir, then render_preview to check them.",
     "VARIANTS": "Explore alternatives as variants (propose_variants), select each and run_visual_qa, promote the best.",
     "LOOKDEV": "The header's 'bound:' line lists the node ids by current material. Create materials with forge_pbr_material, "
                "whose prompt names only the material and its finish in a few words, never the object or its parts (the "
                "texture tiles over every face); tune and assign them with apply_shader_diff (assign_to takes those node ids), then "
-               "render_lookdev with EEVEE/Cycles and run_visual_qa until Decisions approves (tier15 >= 3.4). Images are never shown to you; reason from QA lines.",
+               "render_lookdev with EEVEE/Cycles and run_visual_qa until Decisions approves (tier15 >= 3.4). With an image "
+               "limit of 0, forge_pbr_material answers NO IMAGES: skip it; surfaces are made from the geometry at export. In an "
+               "uncalibrated preview any lookdev review of the current scene lets it export; its findings ship with it.",
     "EXPORT": "Run generate_lods_and_colliders and run_usd_validator, then export_engine_package. Export is refused until QA "
               "approved the current scene; report what blocks it instead of retrying.",
 }

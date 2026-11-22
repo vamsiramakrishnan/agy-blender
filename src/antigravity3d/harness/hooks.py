@@ -219,7 +219,7 @@ class InvariantAndSafetyGate(_Shared, PreToolCallDecideHook):
         allowed = {f.__name__ for f in STAGE_TOOLS.get(s.toolset, [])} | READ_ONLY_TOOL_NAMES
         if name not in allowed:
             return _deny(f"{name} is not available in the {s.toolset} stage")
-        if name == "export_engine_package" and (why := export_block_reason(s.state)):
+        if name == "export_engine_package" and (why := export_block_reason(s.state, s.plane)):
             return _deny(why)
         if name == "run_bpy_script":
             errs = [i for i in lint_script(str(args.get("source", ""))) if i.severity == "error"]

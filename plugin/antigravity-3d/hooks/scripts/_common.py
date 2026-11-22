@@ -182,14 +182,22 @@ def export_gate(root: Path, conversation: str, session_id: str = "") -> tuple[bo
     score = float(qa.get("tier15_score", 0.0))
     if qa.get("tier1_ok") is not True:
         return False, "Tier-1 QA has not passed: fix the run_usd_validator / Tier-1 findings, then re-run QA"
-    if not EXPORT_MIN_TIER15_SCORE <= score <= 4.0:
-        return False, f"Tier-1.5 score {score:.2f} < {EXPORT_MIN_TIER15_SCORE}: iterate lookdev/blockout and re-run QA"
     v = qa.get("verdict")
     preview = qa.get("preview") is True  # an unverified preview session (its package is labelled verified=false)
+    # An uncalibrated judge's review in a preview is a finding, not a gate (state.VisualVerdict.delivers_on_review): the
+    # review must have run on this revision and must not have escalated to a person; its score is not a floor.
+    findings = preview and isinstance(v, dict) and v.get("backend") == "uncalibrated"
+    if not findings and not EXPORT_MIN_TIER15_SCORE <= score <= 4.0:
+        return False, f"Tier-1.5 score {score:.2f} < {EXPORT_MIN_TIER15_SCORE}: iterate lookdev/blockout and re-run QA"
+    approved = v.get("action") != "escalate_human" if findings else isinstance(v, dict) and v.get("action") == "approve"
     if (not isinstance(v, dict) or not qa.get("revision") or not qa.get("target")
             or v.get("revision") != qa["revision"] or v.get("target") != qa["target"]
-            or v.get("stage") not in {"lookdev", "final"} or v.get("action") != "approve"
+            or v.get("stage") not in {"lookdev", "final"} or not approved
             or (not preview and (v.get("renderer") not in {"eevee", "cycles"} or v.get("backend") != "decisions"))):
+        if findings and v.get("action") == "escalate_human":
+            return False, "PREVIEW session: the review escalated this design to a person; ask the user before exporting"
+        if findings:
+            return False, "PREVIEW session: the current revision needs a lookdev/final visual QA review (run_visual_qa)"
         if preview:
             return False, "PREVIEW session: the current revision needs an approving lookdev/final visual QA verdict"
         return False, ("current revision needs a Decisions lookdev/final approval on an EEVEE or Cycles render "

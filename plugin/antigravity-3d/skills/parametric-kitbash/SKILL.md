@@ -54,14 +54,26 @@ not a handful of blocks.
    schema and the stage's instructions; the rules of mirror and repeat are in
    `ir_shortcuts.py`. The kernel never clamps a value: it builds it as given
    or refuses the node, naming it and the numbers.
-4. **Silhouette lock loop.** `render_preview` (a 4-view clay contact sheet),
-   then `run_visual_qa`, which takes no arguments. Lock when it reports no
-   geometry repair. If it reports one, read the returned delta and fix line,
-   emit one corrective `apply_scene_ir` patch, and repeat. When the session
+4. **Look and improve.** `render_preview` shows you the design: five 512 px
+   views (front, right, top, two perspectives from opposite corners), shaded
+   as the package ships with part outlines drawn, a numbered badge on every
+   part and a legend from badge to node id. Small views arrive inline; open a
+   view the reply marks "open it with view_file" with view_file. Look at every
+   view after every few patches, compare it with the request and add what is
+   missing, plain or wrong (name parts by node id). A design that uses less
+   than half of the triangle budget and reads as plain boxes is not done. Then
+   `run_visual_qa`, which takes no arguments: it judges the same five views,
+   and its `finding` lines name each defect's parts with their badges and the
+   views they are seen in. Lock when it reports no geometry repair. If it
+   reports one, emit a corrective `apply_scene_ir` patch for the parts named,
+   and repeat. When the session
    was opened with a `brief` and the delta says a part the brief names is
    missing or the brief depiction is below its minimum, the patch adds those
    parts (and the secondary detail of the object) as new nodes instead. Cap at
-   6 iterations; after that, report the remaining delta to the user.
+   6 iterations; after that, report the remaining delta to the user. In a
+   preview judged by the uncalibrated fallback its scores are findings, not a
+   wall: make at most two improvement rounds after the first review, then go
+   on (the export lists what the judge found).
 5. **Budget check.** `inspect_manifest` again: its header gives the total
    triangle count, which must be inside the budget `session_status` shows
    before lookdev. If over, reduce segment counts in the IR parameters rather

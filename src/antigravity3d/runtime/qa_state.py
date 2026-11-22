@@ -64,7 +64,9 @@ class QAState:
 
     @property
     def export_allowed(self) -> bool:
-        base = (self.validator_ok is not False and self.tier1_ok is True and EXPORT_MIN_TIER15_SCORE <= self.tier15_score <= 4.0
+        reviewed = self.preview is True and self.verdict is not None and self.verdict.delivers_on_review
+        floor = 0.0 if reviewed else EXPORT_MIN_TIER15_SCORE  # an uncalibrated preview's score is a finding (VisualVerdict)
+        base = (self.validator_ok is not False and self.tier1_ok is True and floor <= self.tier15_score <= 4.0
                 and self.verdict is not None)
         if self.preview is True:
             return base and self.verdict.qualifies_preview(self.revision, self.target)  # type: ignore[union-attr]

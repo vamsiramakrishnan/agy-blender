@@ -46,8 +46,13 @@ from antigravity3d.harness import tools as T
 # inset, lathe, extrude, mirror and repeat, and what each costs in triangles). All of it is what the stage needs to use
 # the new shapes; the margin is ~100 characters again. LOOKDEV and EXPORT carry none of it and are unchanged.
 #            stage: (before, budget) static chars per call
-STATIC_BUDGET = {"BLOCKOUT": (26_224, 11_400), "TWEAK": (25_351, 9_400), "VARIANTS": (25_946, 17_300),
-                 "LOOKDEV": (26_256, 12_500), "EXPORT": (25_914, 2_000)}
+# 2026-11-22 (native sessions): BLOCKOUT 11,400 -> 11,900 and LOOKDEV 12,500 -> 12,650. BLOCKOUT's text now asks for
+# the loop the command's author runs (render_preview shows the design's five badged views: look, compare with the
+# request, patch, repeat; half the budget and plain boxes is not done; run_visual_qa names parts and views), measured
+# 11,819; both stages say that an uncalibrated preview's scores are findings (at most two improvement rounds; any lookdev
+# review lets it export, the command's delivery rule) and LOOKDEV that an image limit of 0 makes no texture (12,549).
+STATIC_BUDGET = {"BLOCKOUT": (26_224, 11_900), "TWEAK": (25_351, 9_400), "VARIANTS": (25_946, 17_300),
+                 "LOOKDEV": (26_256, 12_650), "EXPORT": (25_914, 2_000)}
 SUBAGENT_TOOLS = {"invoke_subagent", "define_subagent", "manage_subagents", "send_message"}
 DEFAULT_SECTIONS = {"identity", "communication_style", "conversation_transcript", "subagents", "messaging",
                     "user_information", "non_interactive_mode"}
@@ -167,4 +172,4 @@ def test_blockout_stage_text_carries_the_craft_rules_and_the_other_geometry_stag
     # TWEAK edits parameters and VARIANTS adds patch alternatives on an already built base: neither is asked for more parts
     for stage in ("TWEAK", "VARIANTS", "LOOKDEV", "EXPORT"):
         assert "Craft rules" not in A._system(stage), stage
-    assert len(A._system("BLOCKOUT")) < 11_400 - 6_000  # the rules are text, the rest of the static size is the tool declarations
+    assert len(A._system("BLOCKOUT")) < 11_900 - 6_000  # the rules are text, the rest of the static size is the tool declarations

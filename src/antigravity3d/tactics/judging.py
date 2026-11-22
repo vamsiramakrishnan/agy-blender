@@ -86,6 +86,22 @@ class DesignRenders:
     marked: tuple[tuple[str, bytes], ...] = ()
     legend: dict[int, str] | None = None
     legend_text: str = ""
+    visible: dict[str, list[int]] | None = None  # view -> badge numbers drawn in it
+
+
+@dataclass(frozen=True)
+class UploadedDesign:
+    """One rendering of a design, uploaded: the judge's views and the badged author views as (view name, uri), and the
+    PNGs themselves (a tool that shows the views to an agent attaches them). Made by ``upload_design``; judged by
+    ``judge_uploaded`` (``judge_design`` is the two in one)."""
+
+    renders: DesignRenders
+    plain: tuple[tuple[str, str], ...]
+    badged: tuple[tuple[str, str], ...]
+
+    @property
+    def legend(self) -> dict[int, str]:
+        return dict(self.renders.legend or {})
 
 
 def _label(img: Image.Image, view: str) -> Image.Image:
@@ -137,7 +153,7 @@ def render_design(meshes: list[MeshData], *, views: Sequence[View] = JUDGE_VIEWS
     if legend is None:
         return DesignRenders(tuple(plain))
     sheet = MarkedSheet(Image.new("RGB", (1, 1)), legend, visible, sorted(set(legend.values()) - seen))
-    return DesignRenders(tuple(plain), tuple(badged), legend, sheet.legend_text())
+    return DesignRenders(tuple(plain), tuple(badged), legend, sheet.legend_text(), visible)
 
 
 async def _upload_all(uploader: Uploader, pngs: Sequence[tuple[str, bytes]]) -> tuple[tuple[str, str], ...]:
@@ -153,6 +169,28 @@ async def design_views(meshes: list[MeshData], uploader: Uploader, *, size: int 
     return await _upload_all(uploader, renders.plain)
 
 
+async def upload_design(meshes: list[MeshData], uploader: Uploader, *, style: str | None = None,
+                        crease_deg: float = CREASE_DEG) -> UploadedDesign:
+    """Render the design's views (off the event loop), plain and badged, and upload them. A rendering or upload failure
+    propagates."""
+    renders = await to_thread_drained(render_design, meshes, style=style, crease_deg=crease_deg)
+    uploaded = await _upload_all(uploader, [*renders.plain, *renders.marked])
+    return UploadedDesign(renders, uploaded[:len(renders.plain)], uploaded[len(renders.plain):])
+
+
+async def judge_uploaded(plane: Any, design: UploadedDesign, *, brief: str | None, governor: Any, stage: str = "blockout",
+                         ortho_uri: str | None = None, style_uri: str | None = None, badges: bool | None = None) -> JudgedDesign:
+    """Ask the stage's visual QA about one uploaded design alone (see ``judge_design``)."""
+    badges = JUDGE_SEES_BADGES if badges is None else badges
+    shown = design.badged if badges else design.plain
+    legend = design.legend
+    result = await plane.evaluate_visual_qa(shown, ortho_uri, style_uri, stage, governor=governor,  # type: ignore[arg-type]
+                                            **({"marked_legend": legend} if badges else {}),
+                                            **({"brief": brief} if brief else {}))
+    author = tuple((f"{name} view of the current design (Image {k})", uri) for k, (name, uri) in enumerate(design.badged, 1))
+    return JudgedDesign(result, tuple(shown), author, legend, design.renders.legend_text)
+
+
 async def judge_design(plane: Any, meshes: list[MeshData], *, brief: str | None, governor: Any, uploader: Uploader,
                        stage: str = "blockout", ortho_uri: str | None = None, style_uri: str | None = None,
                        badges: bool | None = None, style: str | None = None, crease_deg: float = CREASE_DEG) -> JudgedDesign:
@@ -162,14 +200,6 @@ async def judge_design(plane: Any, meshes: list[MeshData], *, brief: str | None,
     a rendering or upload failure propagates. ``badges``: show the judge the badged views (None: ``JUDGE_SEES_BADGES``);
     for the measurement that decides that default. ``style``: how the judge's views are drawn (None: ``JUDGE_VIEW_STYLE``),
     for the measurement that decides that; ``crease_deg``: the shading crease the package is written with."""
-    badges = JUDGE_SEES_BADGES if badges is None else badges
-    renders = await to_thread_drained(render_design, meshes, style=style, crease_deg=crease_deg)
-    uploaded = await _upload_all(uploader, [*renders.plain, *renders.marked])
-    plain, badged = uploaded[:len(renders.plain)], uploaded[len(renders.plain):]
-    shown = badged if badges else plain
-    legend = renders.legend or {}
-    result = await plane.evaluate_visual_qa(shown, ortho_uri, style_uri, stage, governor=governor,  # type: ignore[arg-type]
-                                            **({"marked_legend": legend} if badges else {}),
-                                            **({"brief": brief} if brief else {}))
-    author = tuple((f"{name} view of the current design (Image {k})", uri) for k, (name, uri) in enumerate(badged, 1))
-    return JudgedDesign(result, tuple(shown), author, dict(legend), renders.legend_text)
+    design = await upload_design(meshes, uploader, style=style, crease_deg=crease_deg)
+    return await judge_uploaded(plane, design, brief=brief, governor=governor, stage=stage, ortho_uri=ortho_uri,
+                                style_uri=style_uri, badges=badges)
