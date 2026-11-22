@@ -969,13 +969,20 @@ class Relay:
             def _handle(self, method: str) -> None:
                 raw = self.rfile.read(int(self.headers.get("content-length") or 0))
                 hdrs = {k.lower(): v for k, v in self.headers.items()}
-                status, out, payload = relay.forward(acc, method, self.path, raw, hdrs)
-                self.send_response(status)
-                for k, v in out.items():
-                    self.send_header(k, v)
-                self.send_header("Content-Length", str(len(payload)))
-                self.end_headers()
-                self.wfile.write(payload)
+                stream = _StreamOut(self)
+                status, out, payload = relay.forward(acc, method, self.path, raw, hdrs, stream_out=stream)
+                if stream.started:  # already sent as it arrived
+                    stream.end()
+                    return
+                try:
+                    self.send_response(status)
+                    for k, v in out.items():
+                        self.send_header(k, v)
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
+                except (BrokenPipeError, ConnectionResetError):  # the client hung up: nothing left to tell it
+                    self.close_connection = True
 
             def do_POST(self) -> None:  # http.server API
                 self._handle("POST")
@@ -1022,6 +1029,31 @@ class Relay:
 
     def _auth(self, acc: Account) -> dict[str, str]:
         return {"X-Pilot-Account": acc.name} if self.fake else {"x-goog-api-key": self._key or ""}
+
+    def _send_streamed(self, url: str, method: str, raw: bytes | None, headers: dict[str, str],
+                       out: "_StreamOut") -> tuple[int, Any, bytes]:
+        """A streamed generateContent (``alt=sse``): a 200 is passed to the client chunk by chunk as it arrives (a relay
+        that buffered it made every streamed call look silent to its client: live 2026-11-22, the command's arm stalled
+        at its first-chunk limit with 0 chunks). The whole body is still collected, so it is metered as before. A client
+        that hangs up stops being written to; the upstream body is still read to its end, because the service bills the
+        call whether or not anyone reads it, and its usage is in the last event."""
+        req = urllib.request.Request(url, data=raw, method=method, headers=headers)
+        try:
+            r = urllib.request.urlopen(req, timeout=600)
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers, e.read()
+        with r:
+            if r.status != 200:
+                return r.status, r.headers, r.read()
+            out.start(r.status, {"Content-Type": r.headers.get("Content-Type", "text/event-stream")})
+            parts = []
+            while True:
+                b = r.read1(65536)  # what has arrived, without waiting for the rest
+                if not b:
+                    break
+                parts.append(b)
+                out.write(b)
+            return r.status, r.headers, b"".join(parts)
 
     def _send(self, url: str, method: str, raw: bytes | None, headers: dict[str, str]) -> tuple[int, Any, bytes]:
         req = urllib.request.Request(url, data=raw, method=method, headers=headers)
@@ -1082,7 +1114,9 @@ class Relay:
         return status, out, payload
 
     def forward(self, acc: Account, method: str, path: str, raw: bytes,
-                hdrs: dict[str, str] | None = None) -> tuple[int, dict[str, str], bytes]:
+                hdrs: dict[str, str] | None = None, stream_out: "_StreamOut | None" = None) -> tuple[int, dict[str, str], bytes]:
+        """``stream_out``: where a streamed reply (``alt=sse``) is written as it arrives; when it has started, the reply
+        is already with the client and the return value is only what was metered."""
         hdrs = hdrs or {}
         clean = path.split("?")[0]
         model = clean.rsplit("/", 1)[-1].split(":")[0] if "/models/" in clean else ""
@@ -1125,9 +1159,16 @@ class Relay:
         query = "?alt=sse" if "alt=sse" in path else ""
         t0 = time.monotonic()
         try:
-            status, rh, payload = self._send(self.upstream + clean + query, method, raw, js | self._auth(acc))
+            if stream_out is not None and query:
+                status, rh, payload = self._send_streamed(self.upstream + clean + query, method, raw, js | self._auth(acc), stream_out)
+                rec.update(streamed=stream_out.started, client_gone=stream_out.gone)
+            else:
+                status, rh, payload = self._send(self.upstream + clean + query, method, raw, js | self._auth(acc))
             ctype = rh.get("Content-Type", "application/json") if rh else "application/json"
         except Exception as e:  # noqa: BLE001 - unknown usage: the reservation stays booked
+            if stream_out is not None and stream_out.started:  # broken mid-stream: the client sees it break, not end
+                stream_out.gone = True
+                stream_out.h.close_connection = True
             self.ledger.settle(res, None, 0)
             rec.update(status=502, error=f"{type(e).__name__}: {e}"[:300], tokens_known=False, wall_s=round(time.monotonic() - t0, 2),
                        service="broken")  # the connection broke: the service's failure, not the arm's
@@ -1169,6 +1210,43 @@ class Relay:
                                          "usage": u, "finish": parsed["finish"]})
         self._write(acc.log, rec)
         return status, {"Content-Type": ctype}, payload
+
+
+class _StreamOut:
+    """A reply written to the relay's client as it arrives (chunked transfer encoding). A client that hangs up is noted
+    (``gone``) and written to no more; nothing raises into the relay."""
+
+    def __init__(self, handler: Any) -> None:
+        self.h, self.started, self.gone = handler, False, False
+
+    def _put(self, data: bytes) -> None:
+        if self.gone:
+            return
+        try:
+            self.h.wfile.write(data)
+            self.h.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            self.gone = True
+            self.h.close_connection = True
+
+    def start(self, status: int, headers: dict[str, str]) -> None:
+        self.started = True
+        try:
+            self.h.send_response(status)
+            for k, v in headers.items():
+                self.h.send_header(k, v)
+            self.h.send_header("Transfer-Encoding", "chunked")
+            self.h.end_headers()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            self.gone = True
+            self.h.close_connection = True
+
+    def write(self, data: bytes) -> None:
+        if data:
+            self._put(b"%x\r\n%s\r\n" % (len(data), data))
+
+    def end(self) -> None:
+        self._put(b"0\r\n\r\n")
 
 
 def _clip(v: Any, n: int = 3000) -> Any:
@@ -1575,7 +1653,10 @@ def _fc(name: str, **args: Any) -> dict[str, Any]:
 class FakeUpstream:
     """Gemini REST stand-in for dry runs: scripted agent turns per account, a deterministic judge, 404 decisions."""
 
-    def __init__(self, scripts: dict[str, list[dict[str, Any]]] | None = None, seed: int = 0) -> None:
+    def __init__(self, scripts: dict[str, list[dict[str, Any]]] | None = None, seed: int = 0, slow_stream_s: float = 0.0) -> None:
+        """``slow_stream_s``: a streamed answer is sent as a thought event, then this pause, then the answer (chunked),
+        as the service streams; ``last_sent_at`` is when the answer's chunk left (time.monotonic)."""
+        self.slow_stream_s, self.last_sent_at = slow_stream_s, 0.0
         self.scripts = {k: list(v) for k, v in (scripts or {}).items()}
         self.requests: list[dict[str, Any]] = []
         self.rng = random.Random(seed)
@@ -1616,7 +1697,23 @@ class FakeUpstream:
                 body = json.loads(raw or b"{}")
                 fake.requests.append({"account": acct, "path": self.path, "body": body})
                 status, ctype, payload = fake.answer(acct, self.path, body)
+                if status == 200 and "event-stream" in ctype and fake.slow_stream_s:
+                    return self._slow_stream(payload, ctype)
                 self._reply(status, payload, ctype)
+
+            def _slow_stream(self, payload: bytes, ctype: str) -> None:
+                thought = {"candidates": [{"content": {"role": "model", "parts": [{"text": "**Planning**", "thought": True}]}}]}
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Transfer-Encoding", "chunked")
+                self.end_headers()
+                for i, part in enumerate((f"data: {json.dumps(thought)}\n\n".encode(), payload)):
+                    if i:
+                        time.sleep(fake.slow_stream_s)
+                        fake.last_sent_at = time.monotonic()
+                    self.wfile.write(b"%x\r\n%s\r\n" % (len(part), part))
+                    self.wfile.flush()
+                self.wfile.write(b"0\r\n\r\n")
 
             def do_GET(self) -> None:  # http.server API
                 name = self.path.split("?")[0].rsplit("/", 1)[-1]

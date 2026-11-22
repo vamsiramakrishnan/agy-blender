@@ -310,7 +310,9 @@ async def test_a_stall_on_every_attempt_ends_as_timed_out_with_both_reservations
 
 
 async def test_raise_timed_out_when_no_candidate_is_usable(short_limits):
-    api = Api([(0.0, "hang")], [(0.0, "hang")])
+    # The first attempt streams a chunk (the connection streams), so the silent retry is a stall, not a path that does not
+    # stream: since a stream with no chunk at all is asked again unstreamed (the tests at the end), this case needs one.
+    api = Api([(0.0, THOUGHT), (0.0, "hang")], [(0.0, "hang")])
     a, _ = author(api)
     with pytest.raises(M.AuthorTimedOut, match="stream silent"):
         await a.propose("crate", budget=a.budget, n=1, context={"asset_name": "RuggedMilitarySupply"})
@@ -590,3 +592,88 @@ async def test_real_sdk_drop_after_the_finish_returns_the_answer():
     assert resp.text == '{"a":1}'
     # A drop after the last event may also read as a clean end; either way the answer is used.
     assert state.broke_after_finish is None or resp.usage_metadata is not None
+
+
+# ---------------------------------------------------------------------------------------------- a path that does not stream
+
+
+class Blocking(Api):
+    """``client.aio.models`` behind a proxy that buffers the response: the stream sends nothing within the first-chunk
+    limit (each streamed call takes the next script), and the blocking call answers ``answer`` (or raises it)."""
+
+    def __init__(self, *scripts, answer=None):
+        super().__init__(*scripts)
+        self.blocking: list[dict] = []
+        self.answer = answer
+
+    async def generate_content(self, **kw):
+        self.blocking.append(kw)
+        if isinstance(self.answer, BaseException):
+            raise self.answer
+        from stream_fakes import _usage
+
+        return types.GenerateContentResponse(
+            candidates=[types.Candidate(content=types.Content(role="model", parts=[types.Part(text=ANSWER)]), finish_reason="STOP")],
+            usage_metadata=_usage(USAGE))
+
+
+class Client:
+    """A client the run's authors share (weakly referable, as genai.Client is)."""
+
+    def __init__(self, models):
+        self.aio = SimpleNamespace(models=models)
+
+
+def shared_author(client, *, progress=None):
+    gov = Governor(plan_for(3), token_ceiling=10_000_000)
+    return M.MeteredAuthor(client, gov, EngineBudget("godot_4", max_tris=3000), {"asset_name": "RuggedMilitarySupply"},
+                           timeout_s=3.0, retry=service_answer.RetryPolicy(sleep=no_sleep, unknown_retries=1),
+                           progress=progress), gov
+
+
+async def test_a_stream_that_sends_nothing_is_asked_again_without_streaming_and_the_run_remembers_it(short_limits):
+    """Live 2026-11-22, the comparison harness's relay (it buffers the whole response): every streamed call stalled at its
+    first-chunk limit with 0 chunks and the run gave up with no design, where the blocking call had worked in round four.
+    Now the call is asked again without streaming at once; the stalled attempt keeps its reservation (it may have run),
+    the answer is booked by its usage, and every later call of the run, by any author on the same client, goes unstreamed
+    without losing the first-chunk limit again."""
+    api = Blocking([(0.0, "hang")])
+    client = Client(api)
+    events: list[ModelCallProgress] = []
+    a, gov = shared_author(client, progress=events.append)
+    res = await propose(a)
+    assert res.outcomes[0].status == "produced" and len(api.sent) == 1 and len(api.blocking) == 1
+    stalled, answered = authoring(gov)
+    assert stalled["status"] == "StreamStalled" and stalled["usage_known"] is False
+    assert stalled["booked_tokens"] == stalled["reserved_tokens"]
+    assert stalled["stream_fallback"].startswith("no chunk in 0 s: this connection does not stream; asked again without streaming")
+    assert answered["status"] == "ok" and answered["usage_known"] is True and answered["stream"]["streamed"] is False
+    assert api.blocking[0]["config"].thinking_config.include_thoughts is None  # the request as built, nothing added
+    retry = next(e for e in events if e.event == "retrying")
+    assert "this connection does not stream" in retry.detail and retry.wait_s == 0.0
+    assert any(e.event == "sent" and e.attempt == 2 and "without streaming" in (e.detail or "") for e in events)
+    # a later author of the same run (same client): unstreamed from the start, no stall first
+    b, gov2 = shared_author(client)
+    assert (await propose(b)).outcomes[0].status == "produced"
+    assert len(api.sent) == 1 and len(api.blocking) == 2 and len(authoring(gov2)) == 1
+
+
+async def test_a_stream_that_stalls_after_chunks_arrived_is_retried_streamed_as_before(short_limits):
+    api = Blocking([(0.0, THOUGHT), (0.0, "hang")], OK)
+    a, gov = shared_author(Client(api))
+    assert (await propose(a)).outcomes[0].status == "produced"
+    assert len(api.sent) == 2 and api.blocking == [] and a.not_streaming() is None
+    assert "stream_fallback" not in authoring(gov)[0]
+
+
+async def test_the_unstreamed_retry_is_made_once_and_its_timeout_is_the_requests_whole_deadline(short_limits):
+    """Once per call: a blocking call that also fails ends the call (here its deadline ran out: AuthorTimedOut, final,
+    as a blocking call's timeout always was). The deadline is the role's AUTHOR_TIMEOUT_S (timeout_s here), not 300 s:
+    streamed calls completed at up to 431 s."""
+    api = Blocking([(0.0, "hang")], answer=TimeoutError("deadline"))
+    a, gov = shared_author(Client(api))
+    with pytest.raises(M.AuthorTimedOut):
+        await a.propose("crate", budget=a.budget, n=1, context={"asset_name": "RuggedMilitarySupply"})
+    assert len(api.sent) == 1 and len(api.blocking) == 1
+    assert api.blocking[0]["config"].http_options.timeout == 3000  # the request's own deadline (timeout_s=3)
+    assert all(r["booked_tokens"] == r["reserved_tokens"] for r in authoring(gov))

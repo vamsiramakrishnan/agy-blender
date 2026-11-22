@@ -221,6 +221,59 @@ def test_relay_counts_usage_logs_function_calls_and_refuses_before_forwarding(ca
         fake.close()
 
 
+def test_relay_passes_a_streamed_answer_through_as_it_arrives_and_meters_it_as_before(ca, tmp_path, capfd):
+    """Live 2026-11-22 the relay read the whole upstream answer before writing any of it, so the command's streamed
+    authoring call saw nothing for 20 s and gave up. Now the client gets the first chunk before the upstream has sent the
+    last; the usage is still metered from the stream's last event and the reservation settled the same way. A client
+    that hangs up mid-stream is handled without a traceback, and the call it left is still metered (it was billed)."""
+    import http.client
+    import time
+
+    fake = ca.FakeUpstream({"r": [ca._fc("run_command", CommandLine="ls")] * 2}, slow_stream_s=1.0)
+    try:
+        led = ca.Ledger(tmp_path / "l.json")
+        relay = ca.Relay(led, fake.url, None, fake=True)
+        acc = relay.open("r", 20_000, 0, tmp_path, sandboxed=False)
+        body = json.dumps({"contents": [{"role": "user", "parts": [{"text": "x" * 300}]}],
+                           "generationConfig": {"maxOutputTokens": 1000}}).encode()
+        path = "/v1beta/models/gemini-4-hydrogen:streamGenerateContent?alt=sse"
+        host, port = acc.endpoint.removeprefix("http://").split(":")
+
+        def open_stream():
+            conn = http.client.HTTPConnection(host, int(port), timeout=10)
+            conn.request("POST", path, body, {"Content-Type": "application/json"})
+            return conn, conn.getresponse()
+
+        conn, r = open_stream()
+        assert r.status == 200 and r.getheader("Transfer-Encoding") == "chunked"
+        first = r.read1(65536)
+        first_at = time.monotonic()
+        rest = r.read()
+        assert b'"thought": true' in first and b"run_command" not in first  # the thought event, on its own
+        assert first_at < fake.last_sent_at  # seen before the upstream sent the answer
+        assert b"run_command" in rest and b"usageMetadata" in rest
+        conn.close()
+        a = led.data["accounts"]["r"]
+        assert a["calls"] == 1 and a["input_tokens"] > 0 and a["inflight_tokens"] == 0
+        assert acc.function_calls == [{"name": "run_command", "args": {"CommandLine": "ls"}}]
+
+        conn, r = open_stream()  # a client that hangs up after the first chunk
+        r.read1(65536)
+        conn.sock.close()
+        conn.close()
+        deadline = time.monotonic() + 10
+        while led.data["accounts"]["r"]["calls"] < 2 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        a = led.data["accounts"]["r"]
+        assert a["calls"] == 2 and a["inflight_tokens"] == 0  # metered from the last event the client never read
+        lines = [json.loads(x) for x in (tmp_path / "relay_calls.jsonl").read_text().splitlines()]
+        assert [x.get("streamed") for x in lines] == [True, True] and lines[0]["client_gone"] is False
+        time.sleep(0.2)
+        assert "Traceback" not in capfd.readouterr().err
+    finally:
+        fake.close()
+
+
 def test_relay_for_a_sandboxed_run_only_serves_generation_paths_and_never_runs_live_by_mistake(ca, tmp_path):
     led = ca.Ledger(tmp_path / "l.json")
     with pytest.raises(ValueError):

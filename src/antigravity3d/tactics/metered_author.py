@@ -24,6 +24,7 @@ import json
 import math
 import os
 import time
+import weakref
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from typing import Any, Callable, Literal
@@ -168,6 +169,9 @@ MEASURED_PROPOSE_WALL_S: dict[str, tuple[float, float]] = {
 # the far end at 300.0-300.009 s with no response (crate brief once; chair brief both attempts, r5/live/m1_before), so
 # these totals were unreachable and a slow call lost its reservation. The cut is on silence, not on total time: two
 # streamed builder calls of the chair brief ran 403.9 s and 431.1 s and reached their finish (r5/live/stream_chair).
+# On a connection that does not stream (a proxy that buffers the whole response; MeteredAuthor._generate asks again
+# without streaming), the blocking call gets this same deadline: this project adds no 300 s cut of its own, so a call that
+# thinks long can still complete wherever the path between allows it; a direct blocking call meets the far end's cut.
 TIMEOUT_HEADROOM = 2.0
 AUTHOR_TIMEOUT_S: dict[str, float] = {"worker": 90.0, "bulk": 90.0, "builder": 570.0, "director": 540.0}
 # Silence limits of a streamed authoring call (stream_call.StreamLimits). Measured live 2026-11-22 on the shipped propose
@@ -757,6 +761,13 @@ def _one_line(exc: BaseException, limit: int = 300) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
+# Clients whose connection was found not to stream (see MeteredAuthor._generate), with the reason, so every later call of
+# the run sends its request without streaming at once instead of first losing the first-chunk limit. Keyed by the client
+# object, which the authors of one run share (AgentAuthor.bind); a client that cannot be weakly referenced is remembered
+# by its author only.
+_NOT_STREAMING: "weakref.WeakKeyDictionary[Any, str]" = weakref.WeakKeyDictionary()
+
+
 class MeteredAuthor:
     """Bound to one route's budget, spend ledger and image references, including during repair.
 
@@ -791,6 +802,24 @@ class MeteredAuthor:
         self.last_service_retries: list[dict[str, Any]] = []  # the failed attempts of the latest repair (waits included)
         # Who answered each request this author made, for the package manifest's provenance (``_note_authored``)
         self.authored: list[dict[str, Any]] = []
+        self._not_streaming: str | None = None  # why this author's connection does not stream (None: it streams)
+        self._chunks_seen = False  # a chunk has arrived on a streamed call: this connection streams
+
+    def not_streaming(self) -> str | None:
+        """Why calls are sent without streaming on this run's connection, or None while it streams."""
+        if self._not_streaming is None:
+            try:
+                self._not_streaming = _NOT_STREAMING.get(self.client)
+            except TypeError:
+                pass
+        return self._not_streaming
+
+    def _mark_not_streaming(self, reason: str) -> None:
+        self._not_streaming = reason
+        try:
+            _NOT_STREAMING[self.client] = reason
+        except TypeError:  # a client that cannot be weakly referenced (a test's namespace): this author remembers it
+            pass
 
     def timeout_for(self, role: str) -> float:
         return author_timeout(role) if self.timeout_s is None else self.timeout_s
@@ -898,6 +927,7 @@ class MeteredAuthor:
             receipt.update(input_usd_per_m=pin, output_usd_per_m=pout)
         base_receipt = receipt
         booked_any = False  # whether an attempt of this call kept a reservation (it may have run)
+        fell_back = False  # whether this call was already asked again without streaming
         waited = 0.0
         while True:
             receipt = dict(base_receipt)
@@ -913,17 +943,38 @@ class MeteredAuthor:
             waited += time.monotonic() - t0
             trace.update(admission_wait_s=round(waited, 3), **{"reserved_tokens" if tokens else "reserved_usd": limit})
             sent = time.monotonic()
-            # Streamed with thought summaries (stream_call); every attempt has its own limits from its own send.
+            # Streamed with thought summaries (stream_call); every attempt has its own limits from its own send. On a
+            # connection found not to stream (below), the blocking call, with the request's whole deadline.
             state, attempt = StreamState(), tracker.n
+            no_stream = self.not_streaming()
             try:
-                result = await stream_generate(
-                    api, model=req.model, contents=req.contents, config=req.config, limits=stream_limits(req, deadline_s),
-                    state=state, on_event=lambda event, st: event != "done" and self._emit(req, event, index, attempt, st))
+                if no_stream is None:
+                    result = await stream_generate(
+                        api, model=req.model, contents=req.contents, config=req.config, limits=stream_limits(req, deadline_s),
+                        state=state, on_event=lambda event, st: event != "done" and self._emit(req, event, index, attempt, st))
+                else:
+                    state.sent_at = time.monotonic()
+                    self._emit(req, "sent", index, attempt, state, detail=f"without streaming: {no_stream}")
+                    result = await asyncio.wait_for(api.generate_content(model=req.model, contents=req.contents, config=req.config),
+                                                    deadline_s)
             except BaseException as exc:
                 elapsed = time.monotonic() - sent
                 outcome = service_answer.classify(exc, elapsed, deadline_s=deadline_s)
                 receipt["status"] = type(exc).__name__
-                receipt["stream"] = self._seen(req, state)  # what arrived before it failed: a pattern of stalls reads from receipts
+                receipt["stream"] = self._seen(req, state) if no_stream is None else {"streamed": False, "why": no_stream}
+                # A stream that never sent a chunk within the first-chunk limit has said nothing about the model: the path
+                # may not deliver incrementally (a proxy that buffers the response; live 2026-11-22, the comparison
+                # harness's relay: every streamed call stalled at 20 s with 0 chunks, where the blocking call had run in
+                # round four). Once per call it is asked again without streaming, and the run remembers it; not when a
+                # chunk has ever arrived on this author's calls (the connection streams; the model is what went silent).
+                # A stream that stalls after chunks arrived keeps the behaviour above (one retry, streamed).
+                self._chunks_seen = self._chunks_seen or state.chunks > 0
+                fallback = (no_stream is None and not fell_back and not self._chunks_seen
+                            and isinstance(exc, service_answer.StreamStalled) and state.chunks == 0)
+                if fallback:
+                    why = (f"no chunk in {state.limit_s:.0f} s: this connection does not stream; asked again without "
+                           f"streaming")
+                    receipt["stream_fallback"] = why
                 if outcome == "not_served":  # the service said it did not run it: nothing is booked
                     receipt.update(service_answer.not_served_receipt(exc, tracker.n, elapsed), usage_known=True)
                     hold.settle(0.0, receipt=receipt)
@@ -937,6 +988,13 @@ class MeteredAuthor:
                     booked_any = True
                 if not isinstance(exc, Exception):
                     raise
+                if fallback:
+                    fell_back = True
+                    self._mark_not_streaming(f"no chunk arrived within {state.limit_s:.0f} s of a streamed call")
+                    tracker.decide(exc, elapsed, outcome)  # recorded as a failed attempt; asked again at once, unstreamed
+                    trace["service_retries"] = tracker.record()
+                    self._emit(req, "retrying", index, attempt, state, detail=why, wait_s=0.0)
+                    continue
                 wait = tracker.decide(exc, elapsed, outcome) if outcome != "final" else None
                 trace["service_retries"] = tracker.record()
                 if wait is not None:
@@ -957,7 +1015,8 @@ class MeteredAuthor:
                 raise self._unavailable(req, exc, tracker, "generating", booked_any=booked_any) from exc
             break
         booked = None
-        receipt["stream"] = self._seen(req, state)
+        self._chunks_seen = self._chunks_seen or state.chunks > 0
+        receipt["stream"] = self._seen(req, state) if no_stream is None else {"streamed": False, "why": no_stream}
         if state.broke_after_finish:  # (d): the answer is complete; its usage is known only if it came with the finish
             receipt["booked_reason"] = (f"the stream broke after the finish reason arrived ({state.broke_after_finish}): the "
                                         "answer is complete and used" + ("" if state.finish_carried_usage else
