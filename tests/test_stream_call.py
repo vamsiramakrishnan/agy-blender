@@ -219,7 +219,10 @@ async def test_a_held_answer_gets_the_held_answer_limit_before_and_part_way():
     usage = lambda n: types.GenerateContentResponseUsageMetadata(prompt_token_count=1, candidates_token_count=n)  # noqa: E731
     resp, state, _ = await run([(0.0, THOUGHT), (0.6, chunk(answer='{"asset_name":', usage=usage(10))),
                                 (0.6, chunk(answer='"x"}', finish="STOP", usage=USAGE))], lim)
-    assert resp.text == '{"asset_name":"x"}' and state.longest_gap_s >= 0.6
+    # Two silences of 0.6 s, twelve times the 0.05 s allowed between answer chunks, and no stall. The gap is measured
+    # between arrivals, so it reads a few milliseconds under what the script slept (0.597 s in CI on 2026-11-22, where
+    # ">= 0.6" failed one job of four).
+    assert resp.text == '{"asset_name":"x"}' and state.longest_gap_s >= 0.5
     # thinking that has used most of the shared cap leaves less answer to wait for
     assert StreamLimits(1, 1, 5, 0.1, held_answer_tokens=100, cap_tokens=150, slowest_tokens_per_s=200, headroom=2).silence_after(120) == pytest.approx(2 * 30 / 200)
     # without running usage the answer received is estimated from its characters, erring towards a longer limit
