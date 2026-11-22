@@ -568,3 +568,78 @@ def test_metallic_is_metal_or_not(per_class, cls):
 
 def test_chips_on_painted_steel_show_metal():
     assert sm.CLASS_METAL["painted_metal"] == 0.0 and sm.binary_metal(np.array([0.3, 0.7], np.float32)).tolist() == [0.0, 1.0]
+
+
+def test_a_second_package_of_the_same_design_reuses_the_paint_and_ships_the_same_maps(tmp_path, monkeypatch):
+    """deliver_package writes the package for its checks before the review and again for the export: on run 7's 63-part
+    crate the paint was 22 of the writer's 27 s. The second write reuses it; a changed design is painted again."""
+    from antigravity3d.kernel import smart_source
+
+    painted = []
+    real = sm.texture_scene
+    monkeypatch.setattr(sm, "texture_scene", lambda *a, **k: painted.append(1) or real(*a, **k))
+    monkeypatch.setattr(smart_source, "_LAST_PAINTED", None)
+    scene = _scene()
+    stage = StageManager.create(tmp_path / "Crate_stage.usda", "Crate")
+    stage.apply_ir(scene)
+    budget = EngineBudget("godot_4", generated_surfaces=True)
+
+    def package(name):
+        meshes = stage.extract_meshes()
+        bundle = run_export_pipeline(meshes, budget, "Crate", opaque_materials=opaque_materials(stage.scene_ir()))
+        m = write_engine_package(stage, bundle, budget, tmp_path / name, asset_name="Crate")
+        assert m.ok
+        return {p.name: p.read_bytes() for p in sorted((tmp_path / name / "textures").iterdir())}
+
+    first, second = package("a"), package("b")
+    assert len(painted) == 1 and first == second
+    stage.apply_patch(IRPatch(ops=[UpsertMaterial(material=scene.materials[0].model_copy(update={"base_color": (0.5, 0.2, 0.1)}))]))
+    # Painted again, and its own maps: in a long test process (native5b) this package came out identical to the first,
+    # the source having matched the freed raster's reused id() (smart_source.SmartSource keeps a weak reference now).
+    assert package("c") != first and len(painted) == 2
+
+
+def test_two_packages_written_at_once_in_two_threads_ship_their_own_maps(tmp_path, monkeypatch):
+    """One SOURCE serves every package of the process (two sessions of one MCP server write theirs in worker threads):
+    each package ships the maps and records its own design gets when written alone."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from antigravity3d.kernel import smart_source
+
+    budget = EngineBudget("godot_4", generated_surfaces=True)
+    designs = {"olive": _scene(), "rust": _scene()}
+    designs["rust"].materials[0] = designs["rust"].materials[0].model_copy(update={"base_color": (0.5, 0.2, 0.1)})
+
+    def package(name, out):
+        stage = StageManager.create(out / f"{name}_stage.usda", "Crate")
+        stage.apply_ir(designs[name])
+        meshes = stage.extract_meshes()
+        bundle = run_export_pipeline(meshes, budget, "Crate", opaque_materials=opaque_materials(stage.scene_ir()))
+        m = write_engine_package(stage, bundle, budget, out / name, asset_name="Crate")
+        assert m.ok
+        files = {p.name: p.read_bytes() for p in sorted((out / name / "textures").iterdir())}
+        return files, json.dumps(m.data["texture_atlas"]["members"], sort_keys=True)
+
+    alone = {}
+    for name in designs:
+        monkeypatch.setattr(smart_source, "_LAST_PAINTED", None)
+        (tmp_path / "alone").mkdir(exist_ok=True)
+        alone[name] = package(name, tmp_path / "alone")
+    assert alone["olive"][0] != alone["rust"][0]
+    monkeypatch.setattr(smart_source, "_LAST_PAINTED", None)
+    (tmp_path / "together").mkdir()
+    import threading
+
+    meet, real = threading.Barrier(2), sm.texture_scene
+
+    def overlapping(*a, **k):  # both writers are inside the painting at once
+        try:
+            meet.wait(timeout=10)
+        except threading.BrokenBarrierError:
+            pass
+        return real(*a, **k)
+
+    monkeypatch.setattr(sm, "texture_scene", overlapping)
+    with ThreadPoolExecutor(2) as pool:
+        together = dict(zip(designs, pool.map(lambda n: package(n, tmp_path / "together"), designs)))
+    assert together == alone

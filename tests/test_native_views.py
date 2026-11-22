@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import io
 import json
 
@@ -387,7 +388,12 @@ async def test_a_design_whose_only_text_is_the_placed_stencils_is_delivered(tmp_
         return "LOOKDEV eevee render (stand-in)"
 
     monkeypatch.setattr(T, "render_lookdev", lookdev_with_stencils)
-    env.reg.attach(env.sid, S.R_POOL, object())  # deliver_package renders the lookdev only with a pool
+    # deliver_package renders the lookdev only with a pool. A fake one (its Blender check is skipped, never passed):
+    # since native5 the package's Blender check runs before the lookdev render, while this stand-in is attached, and a
+    # bare object() made it fail on "'object' object has no attribute 'call'".
+    from types import SimpleNamespace
+
+    env.reg.attach(env.sid, S.R_POOL, SimpleNamespace(fake=True))
     try:
         r = await T.deliver_package(env.ctx, "crate")
     finally:
@@ -443,3 +449,107 @@ async def test_a_destination_through_a_symbolic_link_is_refused(tmp_path):
     r = await T.deliver_package(env.ctx, "Crate", dest="link/output")
     assert r.startswith("NOT DELIVERED: destination") and "symbolic link" in r, r
     assert not list(outside.iterdir())
+
+
+# ---- a detached part is said when it is made, and refuses delivery before anything is rendered ---------------------
+
+# eight posts on the ground beside the crate, each through a collar: eight interpenetration warnings come first
+PINS = [box(f"{part}_{c}", size, 0.1) for c in "abcdefgh" for part, size in (("collar", (0.06, 0.06, 0.05)), ("post", (0.03, 0.03, 0.2)))]
+for _k, _pin in enumerate(PINS):
+    _pin["node"]["transform"]["translate"][:2] = [-0.45 + 0.13 * (_k // 2), 0.6]
+CAP_4MM = box("cap", (0.1, 0.1, 0.02), 0.694)  # lid top at 0.68: the cap's bottom is 4 mm above it
+CAP_ON = box("cap", (0.1, 0.1, 0.02), 0.69)
+
+
+class _RenderPool:
+    """A Blender pool stand-in that counts lookdev renders and records the GLB beside the USD it was asked to render."""
+
+    fake = False
+
+    def __init__(self):
+        self.renders: list[str] = []
+
+    async def call(self, op, *, path, **kw):
+        assert op == "render_usd", op
+        glb = Path(path).with_suffix(".glb")  # the package's main GLB, beside its USD
+        self.renders.append(hashlib.sha256(glb.read_bytes()).hexdigest() if glb.is_file() else "")
+        return {"image": np.zeros((512, 512, 4), np.float32) + 0.5, "fake": False, "engine": kw.get("engine")}
+
+
+def _fail_fast_session(tmp_path, monkeypatch, blender="passed"):
+    from antigravity3d.adapters.blender_5_3 import upstream_checks
+    from antigravity3d.state import EngineBudget
+
+    checks: list[str] = []
+
+    async def asset_qa(pool, glb, target_engine):  # the Blender check of the package's GLB, stood in
+        checks.append(hashlib.sha256(Path(glb).read_bytes()).hexdigest())
+        return blender, "stand-in qa_check" + ("; 1 error(s): floating/detached part in Batch_0" if blender == "failed" else ""), {}
+
+    monkeypatch.setattr(upstream_checks, "asset_qa", asset_qa)
+    pool = _RenderPool()
+    env = make_session(tmp_path, budget=EngineBudget("godot_4", generated_surfaces=True), pool=pool, stage="BLOCKOUT",
+                       client=FakeDecisionsClient(uncalibrated=True, default_score=2.6))
+    S.switch_to_preview(env.reg, env.sid, 400_000, 0)
+    return env, pool, checks
+
+
+def _design(*extra):
+    return {"nodes": [dict(o["node"], material_id="paint") for o in [*CRATE["ops"], *extra]],
+            "materials": [{"id": "paint", "base_color": [0.3, 0.4, 0.25], "surface": "olive drab painted steel"}]}
+
+
+async def test_apply_scene_ir_names_a_detached_part_with_its_gap_however_many_warnings_come_first(tmp_path):
+    """r5/live_native7: the kernel found the hasp staple 4 mm from everything from the fourth edit on, but its token came
+    after the interpenetration ones and was cut from the reply; the agent heard of it from the Blender check 77 s into
+    deliver_package."""
+    env = make_session(tmp_path)
+    r = await T.apply_scene_ir({"ops": [*CRATE["ops"], *PINS, CAP_4MM]}, env.ctx)
+    assert r.startswith("OK") and "interpenetration@collar_" in r and r.endswith("..."), r  # the warnings are cut
+    assert ("| detached: cap (surface 4.0 mm from lid, the nearest part, which lies below it (touch tolerance 2 mm); "
+            "min z 0.684): deliver_package will refuse delivery until it touches the asset") in r, r
+    assert r.index("detached: cap") < r.index("warn: ")  # never behind the list that is cut at 160 characters
+    fixed = await T.apply_scene_ir({"ops": [CAP_ON]}, env.ctx)
+    assert fixed.startswith("OK") and "detached" not in fixed, fixed
+
+
+async def test_a_detached_part_refuses_delivery_with_no_render_and_no_judge_call(tmp_path, monkeypatch):
+    pytest.importorskip("antigravity3d.delivery")
+    env, pool, checks = _fail_fast_session(tmp_path, monkeypatch)
+    await T.apply_scene_ir(_design(CAP_4MM), env.ctx)
+    asked = len(env.client.calls)
+    r = await T.deliver_package(env.ctx, "crate")
+    assert r.startswith("NOT DELIVERED: cap is detached from the rest of the asset (surface 4.0 mm from lid"), r
+    assert "call deliver_package again" in r.split("\n")[0] and "a person must decide" not in r
+    assert pool.renders == [] and len(env.client.calls) == asked and checks == []  # refused by the kernel's rule alone
+    assert not (env.sess().export_dir / "crate").exists()
+
+
+async def test_a_blender_check_refusal_comes_before_the_render_and_the_review(tmp_path, monkeypatch):
+    pytest.importorskip("antigravity3d.delivery")
+    env, pool, checks = _fail_fast_session(tmp_path, monkeypatch, blender="failed")
+    await T.apply_scene_ir(_design(), env.ctx)
+    asked = len(env.client.calls)
+    r = await T.deliver_package(env.ctx, "crate")
+    assert r.startswith("NOT DELIVERED: blender_asset_qa: stand-in qa_check; 1 error(s): floating/detached part"), r
+    assert len(checks) == 1 and pool.renders == [] and len(env.client.calls) == asked
+    assert any(x.startswith("LODS ") for x in r.split("\n")) and not (env.sess().export_dir / "crate").exists()
+    assert not list(env.sess().artifacts_dir.glob(".preflight-*"))  # the checked package is not left behind
+
+
+async def test_a_delivered_package_is_the_one_that_was_checked_rendered_and_reviewed(tmp_path, monkeypatch):
+    pytest.importorskip("antigravity3d.delivery")
+    env, pool, checks = _fail_fast_session(tmp_path, monkeypatch)
+    await T.apply_scene_ir(_design(), env.ctx)
+    asked = len(env.client.calls)
+    r = await T.deliver_package(env.ctx, "crate")
+    lines = r.split("\n")
+    assert lines[0].startswith("DELIVERED: EXPORTED PREVIEW crate"), r
+    assert any(x.startswith("CHECKED before the review: package written and validated, blender_asset_qa passed") for x in lines)
+    assert any(x.startswith("finding: ") for x in lines) and len(env.client.calls) > asked  # the review was asked
+    shipped = hashlib.sha256((env.sess().export_dir / "crate" / "Crate.glb").read_bytes()).hexdigest()
+    # one Blender check and one lookdev render, both of the GLB that shipped; the export records the check it passed
+    assert checks == [shipped] and pool.renders == [shipped], (checks, pool.renders, shipped)
+    manifest = json.loads((env.sess().export_dir / "crate" / "manifest.json").read_text())
+    assert manifest["validation"]["blender_asset_qa"]["status"] == "passed" and manifest["review"]["findings"]
+    assert not list(env.sess().artifacts_dir.glob(".preflight-*"))

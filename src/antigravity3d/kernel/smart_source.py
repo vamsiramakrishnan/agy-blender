@@ -19,10 +19,15 @@ applied around the layout and the bake with ``using``. ``AGY3D_MARKINGS`` = full
 from __future__ import annotations
 
 import contextlib
+import copy
 import contextvars
+import dataclasses
+import hashlib
 import os
 import re
+import threading
 import time
+import weakref
 from typing import Any
 
 import numpy as np
@@ -73,11 +78,25 @@ def _paintable(material: Any) -> bool:
 class SmartSource:
     name = "smart"
 
+    # What was painted for which raster is kept per thread, and the raster by a weak reference to it, never by id():
+    # one SOURCE serves every package written in the process. Found on 2026-11-22 (native5b): with the state on the
+    # instance and the raster known by id(raster), a package written after another one's raster was freed got the
+    # address back, matched, and shipped the earlier package's maps (test_smart_surfaces' changed-colour package came
+    # out byte-identical to the first, in a long test process only); two packages written at once in two threads (two
+    # sessions of one MCP server) could each read the other's maps and records.
     def __init__(self) -> None:
-        self._raster_id: int | None = None
-        self._maps: dict[str, sm.SmartMaps] = {}
-        self._records: dict[str, dict[str, Any]] = {}
-        self.timings: dict[str, Any] = {}  # the last atlas painted: where the seconds went (not in the manifest)
+        self._local = threading.local()
+
+    def _state(self) -> Any:
+        st = self._local
+        if not hasattr(st, "maps"):
+            st.raster, st.maps, st.records, st.timings = None, {}, {}, {}
+        return st
+
+    @property
+    def timings(self) -> dict[str, Any]:
+        """The last atlas painted in this thread: where the seconds went (not in the manifest)."""
+        return self._state().timings
 
     # --- the layout's question
     def detail_px_per_m(self, material: Any, target_px_per_m: float) -> float | None:
@@ -94,22 +113,24 @@ class SmartSource:
     def texels(self, material: Any, role: str, raster: Any) -> np.ndarray | None:
         if role not in ROLES or not _paintable(material) or material.name not in raster.labels:
             return None
-        if self._raster_id != id(raster):
+        st = self._state()
+        if st.raster is None or st.raster() is not raster:
             self._paint(raster, material)
-        got = self._maps.get(material.name)
+        got = st.maps.get(material.name)
         if got is None:
             return None
         return np.asarray(getattr(got, role).convert("RGB"), np.uint8)
 
     def record(self, material_name: str) -> dict[str, Any] | None:
-        return self._records.get(material_name)
+        return self._state().records.get(material_name)
 
     def _paint(self, raster: Any, asking: Any) -> None:
         """Every paintable member of this raster's atlas, at once."""
         from antigravity3d.ir import MaterialIR
 
         t0 = time.perf_counter()
-        self._raster_id, self._maps, self._records = id(raster), {}, {}
+        st = self._state()
+        st.raster, st.maps, st.records = weakref.ref(raster), {}, {}
         W, H = raster.size
         scene = getattr(raster, "scene", None)
         ir = {m.id: m for m in scene.materials} if scene is not None else {}
@@ -136,14 +157,60 @@ class SmartSource:
         asset = getattr(raster, "asset_name", "") or (scene.asset_name if scene is not None else "")
         mode = os.environ.get("AGY3D_MARKINGS", "full").strip().lower() or "full"
         brief = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", asset).replace("_", " ")   # the name stands in for the brief
-        self._maps = sm.texture_scene(mats, layouts, meshes, brief=brief, asset_name=asset, markings=mode)
+        global _LAST_PAINTED
+        key = _paint_key(mats, layouts, meshes, brief, asset, mode)
+        with _PAINT_LOCK:
+            last = _LAST_PAINTED
+        if last is not None and last[0] == key:
+            st.maps = last[1]
+        else:
+            st.maps = sm.texture_scene(mats, layouts, meshes, brief=brief, asset_name=asset, markings=mode)
+            with _PAINT_LOCK:  # key and maps are replaced together: a reader sees one pair, never a key with other maps
+                _LAST_PAINTED = (key, st.maps)
         # the manifest gets what was decided, never how long it took: two builds of one design are the same bytes
         volatile = {"timings_ms", "occluder_ms"}
-        self.timings = {"atlas_px": [W, H], "total_ms": round((time.perf_counter() - t0) * 1e3, 1), "occluder_ms": None}
-        for name, mp in self._maps.items():
-            self._records[name] = {k: v for k, v in mp.record.items() if k not in volatile}
-            self.timings[name] = mp.record.get("timings_ms")
-            self.timings["occluder_ms"] = mp.record.get("occluder_ms")
+        st.timings = {"atlas_px": [W, H], "total_ms": round((time.perf_counter() - t0) * 1e3, 1), "occluder_ms": None}
+        for name, mp in st.maps.items():
+            st.records[name] = copy.deepcopy({k: v for k, v in mp.record.items() if k not in volatile})  # the manifest's own
+            st.timings[name] = mp.record.get("timings_ms")
+            st.timings["occluder_ms"] = mp.record.get("occluder_ms")
+
+
+#: The last atlas painted, by a digest of everything ``texture_scene`` reads (it is a function of them: two builds of one
+#: design are the same bytes). deliver_package writes the package for its checks before the review and again for the
+#: export: on run 7's 63-part crate the paint was 22 of the writer's 27 s, and the second write repeated it.
+#: Shared by every session of the process, and safe to share: the key is a digest of every input of the painting (the
+#: materials' fields, each layout's size and every part's points, triangles and UVs, every field of every working mesh,
+#: brief, asset name and markings mode), so equal keys mean the same maps; the stored maps are never changed afterwards
+#: (readers take ``.convert("RGB")`` copies, and each package a deep copy of the records); and the (key, maps) pair is read and
+#: replaced whole under ``_PAINT_LOCK``.
+_LAST_PAINTED: tuple[str, dict[str, Any]] | None = None
+_PAINT_LOCK = threading.Lock()
+
+
+def _paint_key(mats: list[Any], layouts: list[mm.AtlasLayout], meshes: list[Any], brief: str, asset: str, mode: str) -> str:
+    h = hashlib.sha256()
+
+    def put(x: Any) -> None:
+        if isinstance(x, np.ndarray):
+            a = np.ascontiguousarray(x)
+            h.update(f"{a.dtype}{a.shape}".encode())
+            h.update(a.tobytes())
+        else:
+            h.update(repr(x).encode())
+        h.update(b"|")
+
+    for m in mats:
+        put(m.model_dump_json())
+    for lay in layouts:
+        put((lay.material_id, lay.width, lay.height))
+        for part in lay.parts:
+            put(part.node_id), put(part.points), put(part.triangles), put(part.uvs)
+    for mesh in meshes:
+        for f in dataclasses.fields(mesh):
+            put(getattr(mesh, f.name))
+    put((brief, asset, mode, os.environ.get("AGY3D_MARKINGS")))
+    return h.hexdigest()
 
 
 def placed_strings(manifest: dict) -> list[str]:

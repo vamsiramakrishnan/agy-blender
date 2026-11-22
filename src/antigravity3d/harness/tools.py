@@ -327,8 +327,25 @@ def _stats(r: Tier1Report) -> str:
 
 
 def _warn(r: Tier1Report) -> str:
-    line = r.one_line(160)
-    return f" |{line.split('|', 1)[1]}" if "|" in line else ""
+    """The detached parts, each on its own segment with its gap, then the other warnings (cut at 160 characters).
+    Live on 2026-11-22 (r5/live_native7) the kernel found the crate's hasp staple 4 mm from everything from the fourth
+    edit on, but its token came after the interpenetration ones and was cut from the reply: the agent first heard of it
+    from the Blender check, at the end of a 77 s delivery."""
+    detached = "".join(f" | {line}" for line in _detached(r))
+    line = Tier1Report(r.ok, [i for i in r.issues if i.code not in DETACHED], r.stats).one_line(160)
+    return detached + (f" |{line.split('|', 1)[1]}" if "|" in line else "")
+
+
+# The kernel's rule for a part that is not joined to the rest of the asset (kernel/fast_ops tier1_qa, the rule pass A's
+# repair uses): a part, or a group of parts touching only each other, more than TOUCH_TOL (2 mm) from every other part
+# and not resting on the ground. The Blender check of the package (upstream qa_check, same 2 mm tolerance) refuses it.
+DETACHED = ("floating_part", "floating_group")
+
+
+def _detached(r: Tier1Report) -> list[str]:
+    """One sentence per detached part or group, with its id and gap, worded as what it will do to the delivery."""
+    return [f"detached: {i.node_id} ({i.detail}): deliver_package will refuse delivery until it touches the asset"
+            for i in r.issues if i.code in DETACHED]
 
 
 def _material(s: Session, mid: str) -> MaterialIR | None:
@@ -933,7 +950,12 @@ async def render_lookdev(ctx: ToolContext, engine: str = "eevee") -> str:
                 version = s.geom_version
                 texture_hash = s.texture_digest()
                 b = await _bundle(s)
-                if _generates_surfaces(s):
+                checked = _preflight_package(s)
+                if checked is not None and _generates_surfaces(s):
+                    # deliver_package's checks wrote and passed this scene's package a moment ago: render that one
+                    src, placed = checked["usd"], checked["placed"]
+                    shown = " | generated surfaces shown (the package the checks passed)"
+                elif _generates_surfaces(s):
                     # What ships: the package writer paints every image-less opaque material (kernel.smart_source) into
                     # the shared atlas; render that package's USD, so the agent and the lookdev review see the surfaces
                     # the package will carry, not the flat colours they replace.
@@ -1154,7 +1176,10 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
                 crit = [i.code for i in pkg.issues if i.severity == "critical"]
                 return f"REFUSED package validation failed: {', '.join(dict.fromkeys(crit))[:140]}"
             if st.preview:
-                if reason := await _preview_engine_import(s, pkg, asset):
+                checked, glb_sha = _preflight_package(s), _sha256(candidate / f"{asset}.glb")
+                if checked is not None and glb_sha and checked["glb_sha256"] == glb_sha:
+                    pkg.data["validation"].update(checked["validation"])  # the same GLB bytes passed them in deliver_package
+                elif reason := await _preview_engine_import(s, pkg, asset):
                     return f"REFUSED {reason}"
                 pkg.data.update(preview_label(s))
                 if findings := _review_findings(s):  # the review of an uncalibrated judge: what it found ships with it
@@ -1315,8 +1340,9 @@ def _enter(s: Session, stage: str) -> None:
 
 @_guard
 async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") -> str:
-    """From a finished design to a delivered package in one call: the lookdev review of the current scene (rendered
-    with the surfaces it ships with) unless one exists, LODs, colliders, validation, export, and what the review found.
+    """From a finished design to a delivered package in one call: first the checks that can refuse it (detached parts,
+    LODs, colliders, validation, the package's Blender check and engine import), then the lookdev review of what ships
+    unless one exists, the export, and what the review found.
     dest: the folder the user named for the result, relative to the workspace; the engine files are placed there."""
     s = resolve(ctx)
     if dest:
@@ -1337,21 +1363,30 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
     # it went on checking the package itself until its token share ran out).
     review: list[str] = []
     steps: list[str] = []
-    _enter(s, "LOOKDEV")
-    for _ in range(2):  # a second pass only when the review's own deterministic fix changed the scene
-        v = s.state.verdict
-        if v is not None and v.revision == s.state.revision and v.stage in {"lookdev", "final"}:
-            break
-        if s.pool is not None:
-            steps.append(await render_lookdev(ctx, "eevee"))
-        answer = await run_visual_qa(ctx)
-        review = answer.split("\n")
-        if "\nfix: " not in answer:
-            break
-    _enter(s, "EXPORT")
-    steps.append(await generate_lods_and_colliders(ctx))
-    steps.append(await run_usd_validator(ctx))
-    exported = await export_engine_package(ctx, out_name or asset)
+    try:
+        for _ in range(2):  # a second pass only when the review's own deterministic fix changed the scene
+            # Fail fast (r5/live_native7: the detached staple was refused by the Blender check after a 77 s lookdev
+            # render and review): everything deterministic that can refuse runs first, and a refusal is returned
+            # before anything is rendered or the judge is asked.
+            refusal, steps = await _preflight(ctx, s, asset)
+            if refusal:
+                return "\n".join([f"NOT DELIVERED: {refusal}. Fix what it names with apply_scene_ir and call "
+                                  "deliver_package again.", *steps])
+            v = s.state.verdict
+            if v is not None and v.revision == s.state.revision and v.stage in {"lookdev", "final"}:
+                break
+            # Not run beside the checks: the render and the review would then be made for designs the checks refuse.
+            _enter(s, "LOOKDEV")
+            if s.pool is not None:
+                steps.append(await render_lookdev(ctx, "eevee"))
+            answer = await run_visual_qa(ctx)
+            review = answer.split("\n")
+            if "\nfix: " not in answer:
+                break
+        _enter(s, "EXPORT")
+        exported = await export_engine_package(ctx, out_name or asset)
+    finally:
+        _drop_preflight(s)
     head, *found = exported.split("\n")
     findings_rule = s.state.verdict is not None and s.state.verdict.delivers_on_review
     # Under the delivery rule (an uncalibrated preview) the review is a set of findings for the person: its verdict
@@ -1380,6 +1415,72 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
 
 
 NEEDS_A_PERSON = "NOT DELIVERED: a person must decide"
+R_PREFLIGHT = "preflight_package"
+
+
+async def _preflight(ctx: ToolContext, s: Session, asset: str) -> tuple[str | None, list[str]]:
+    """deliver_package's deterministic checks, in order, stopping at the first that refuses: the kernel's detached-part
+    rule (Tier-1 itself passed before this), LODs and colliders, USD and engine-compliance validation, then the package
+    written as the export writes it (package validation), the Blender check of its GLB and the target engine's import.
+    Returns (the refusal in one sentence or None, the step lines). The package that passed is kept for the lookdev
+    render and the export of this scene (``_preflight_package``): the render shows those surfaces, and the export, whose
+    GLB has the same bytes (the package is a function of scene and budget), records these results instead of running
+    the same checks on the same file again."""
+    from antigravity3d.kernel.package import write_engine_package
+
+    _drop_preflight(s)
+    async with s.registry.locked(s.sid):
+        rep = await _tier1(s)
+    if detached := [i for i in rep.issues if i.code in DETACHED]:
+        return "; ".join(f"{i.node_id} is detached from the rest of the asset ({i.detail})" for i in detached), []
+    steps = [await generate_lods_and_colliders(ctx), await run_usd_validator(ctx)]
+    if s.state.validator_ok is False:
+        return f"USD validation failed: {steps[-1]}", steps
+    t0 = time.perf_counter()
+    directory = Path(tempfile.mkdtemp(dir=s.artifacts_dir, prefix=".preflight-"))
+    async with s.registry.locked(s.sid):
+        key = (s.geom_version, s.state.budget, s.texture_digest())
+        b = await _bundle(s)
+        pkg = await _stage_worker(write_engine_package, s.stage, b, s.state.budget, directory / "pkg", asset_name=asset,
+                                  qa=None, art=s.art)
+    if not pkg.ok:
+        shutil.rmtree(directory, ignore_errors=True)
+        crit = [i.code for i in pkg.issues if i.severity == "critical"]
+        return f"package validation failed: {', '.join(dict.fromkeys(crit))[:140]}", steps
+    if reason := await _preview_engine_import(s, pkg, asset):
+        shutil.rmtree(directory, ignore_errors=True)
+        return reason, steps
+    from antigravity3d.kernel import smart_source
+
+    s._set(R_PREFLIGHT, {"key": key, "dir": directory, "glb_sha256": _sha256(pkg.out_dir / f"{asset}.glb"),
+                         "usd": pkg.out_dir / str(pkg.data.get("usd") or f"{asset}.usd"),
+                         "placed": tuple(smart_source.placed_strings(pkg.data)),
+                         "validation": {k: v for k, v in pkg.data["validation"].items()
+                                        if k in {"blender_asset_qa", "engine_import", "engine_parity"}}})
+    checks = pkg.data["validation"]
+    ran = ", ".join(f"{k} {(v.get('status') or ('ok' if v.get('ok') else 'skipped'))}" for k, v in checks.items()
+                    if k in {"blender_asset_qa", "engine_import"})
+    steps.append(f"CHECKED before the review: package written and validated, {ran} ({time.perf_counter() - t0:.0f} s)")
+    return None, steps
+
+
+def _preflight_package(s: Session) -> dict[str, Any] | None:
+    """The package ``_preflight`` passed, while the scene, budget and material files are still the ones it was written
+    from; None otherwise."""
+    checked = s._res(R_PREFLIGHT)
+    if not checked or checked["key"] != (s.geom_version, s.state.budget, s.texture_digest()):
+        return None
+    return checked
+
+
+def _drop_preflight(s: Session) -> None:
+    if checked := s._res(R_PREFLIGHT):
+        shutil.rmtree(checked["dir"], ignore_errors=True)
+        s._set(R_PREFLIGHT, None)
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else ""
 # What deliver_package(dest=...) places in the folder the user named: the files a game engine imports (every GLB of the
 # package: the asset, its levels of detail and its colliders; an FBX where the engine takes one; the textures) and the
 # manifest (what each file is, the review's findings, provenance; small, and what install_into_project and a later edit
