@@ -459,7 +459,7 @@ def separate_coplanar(scene: SceneIR, meshes: list[MeshData], margin: float = MA
             break
     left = _find_pairs(st.parts(), st.solid, window, hidden=hidden) if res.moves else (pairs if first else {})
     res.unresolved = [Unresolved(a, b, f"{_face(*f)} faces: " + last.get((a, b, f), "not resolved within the step's rounds"))
-                      for a, b, f in sorted(_key(st, p) for p in left.values())]
+                      for a, b, f in sorted((_key(st, p) for p in left.values()), key=_key_order)]
     res.unresolved += [Unresolved(st.ids[i], st.ids[j], f"{_face(ax, sg)} faces: {HIDDEN_CONTACT}")
                        for i, j, ax, sg in (not_shipped if first is not None else [])]
     res.pairs_found = (first or 0) + (len(not_shipped) if first is not None else 0)
@@ -474,6 +474,15 @@ def _face(axis: int | None, sign) -> str:
 
 def _key(st: _State, p: _Pair) -> tuple:
     return (st.ids[p.i], st.ids[p.j], (p.axis, p.sign))
+
+
+def _key_order(key: tuple) -> tuple:
+    """Sort order of ``_key`` values. A pair of faces that is not axis-aligned has ``axis`` None and its normal as
+    ``sign``; the same two parts can also have an axis-aligned pair (an int axis), and a plain sort then compares None
+    with an int and raises (live 2026-11-22: four apply_scene_ir calls of a native session answered "TypeError: '<' not
+    supported between instances of 'NoneType' and 'int'"). The face is ordered by its text, which keeps the order
+    axis-aligned keys always had."""
+    return (key[0], key[1], repr(key[2]))
 
 
 def _classify(st: _State, pr: _Pair) -> tuple[str, list[int], list[int]]:
