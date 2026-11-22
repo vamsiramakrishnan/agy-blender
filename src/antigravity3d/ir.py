@@ -15,6 +15,7 @@ from typing import Annotated, Literal, Union
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 Vec3 = tuple[float, float, float]
+Vec2 = tuple[float, float]
 NodeId = Annotated[str, Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$", max_length=64)]
 
 
@@ -134,14 +135,24 @@ PositiveFloat = Annotated[float, Field(gt=0, allow_inf_nan=False)]
 NonNegativeFloat = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 
 
+BoxFace = Literal["+x", "-x", "+y", "-y", "+z", "-z"]
+
+
 class BoxParams(_Model):
     size: tuple[PositiveFloat, PositiveFloat, PositiveFloat] = Field(description="full extents x, y, z")
+    bevel: NonNegativeFloat = Field(0.0, description="radius, in metres, of the rounding on all twelve edges; 0 keeps them sharp")
+    bevel_segments: int = Field(1, ge=1, le=4, description="1 = a flat chamfer; 2 to 4 = a rounded edge")
+    inset_faces: list[BoxFace] = Field(default_factory=list, description="faces that carry a recessed panel")
+    inset_margin: NonNegativeFloat = Field(0.0, description="width, in metres, of the frame left around each recessed panel")
+    inset_depth: NonNegativeFloat = Field(0.0, description="depth, in metres, of each recessed panel below its face")
 
 
 class CylinderParams(_Model):
     radius: PositiveFloat
     height: PositiveFloat
     segments: int = Field(24, ge=3)
+    bevel: NonNegativeFloat = Field(0.0, description="radius, in metres, of the rounding on both cap rims; 0 keeps them sharp")
+    bevel_segments: int = Field(1, ge=1, le=4, description="1 = a flat chamfer; 2 to 4 = a rounded rim")
 
 
 class ConeParams(_Model):
@@ -162,6 +173,21 @@ class CapsuleParams(_Model):
     segments: int = Field(16, ge=3)
 
 
+class LatheParams(_Model):
+    """A profile turned about local Z: barrels, bottles, lamps, wheels, knobs; with ``closed``, tubes and rings."""
+
+    profile: list[Vec2] = Field(min_length=2, max_length=32, description="(radius, z) points along the outline, top to bottom; radius >= 0")
+    segments: int = Field(16, ge=3)
+    closed: bool = Field(False, description="the profile is a closed loop that never touches the axis: a tube, pipe or ring")
+
+
+class ExtrudeParams(_Model):
+    """A flat outline pushed along local Z: brackets, arches, wedges, ramps, blades, L, T and U sections."""
+
+    outline: list[Vec2] = Field(min_length=3, max_length=32, description="(x, y) corners of a simple polygon, counter-clockwise")
+    depth: PositiveFloat = Field(description="extent along local Z, centred on the origin")
+
+
 class MeshRefParams(_Model):
     path: str = Field(min_length=1, description="glTF/OBJ/PLY/USD file to reference")
 
@@ -174,26 +200,33 @@ class GroupParams(_Model):
 # free-form dict for backward compatibility; the model-facing schema (``antigravity3d.ir_schema``) is built from this.
 NODE_PARAMS: dict[str, type[_Model]] = {
     "box": BoxParams, "cylinder": CylinderParams, "cone": ConeParams, "sphere": SphereParams,
-    "capsule": CapsuleParams, "mesh_ref": MeshRefParams, "group": GroupParams,
+    "capsule": CapsuleParams, "lathe": LatheParams, "extrude": ExtrudeParams, "mesh_ref": MeshRefParams, "group": GroupParams,
 }
+
+# What one entry of ``NodeIR.params`` may hold: a number, a flag, a name, a vector, a list of face names
+# (``inset_faces``) or a list of 2D points (``profile``, ``outline``).
+ParamValue = Union[bool, int, float, str, Vec3, list[Vec2], list[str]]
 
 
 class NodeIR(_Model):
     """One scene node. Primitives are centred on their local origin.
 
     ``params`` by kind:
-      box       size: Vec3 (full extents)
-      cylinder  radius, height, segments=24            (axis = local Z)
+      box       size: Vec3 (full extents); bevel=0, bevel_segments=1 (all twelve edges rounded);
+                inset_faces=[], inset_margin=0, inset_depth=0 (a recessed panel on each listed face)
+      cylinder  radius, height, segments=24            (axis = local Z); bevel=0, bevel_segments=1 (both cap rims)
       cone      radius, height, segments=24            (base at -h/2, apex +h/2)
       sphere    radius, segments=24, rings=12
       capsule   radius, height (cylinder part), segments=16
+      lathe     profile: [(radius, z), ...] turned about local Z, segments=16, closed=False (True: a tube or ring)
+      extrude   outline: [(x, y), ...] counter-clockwise in local XY, depth along local Z (centred)
       mesh_ref  path: str (glTF/OBJ/PLY/USD file to reference)
       group     no params; pure transform parent
     """
 
     id: NodeId
-    kind: Literal["box", "cylinder", "cone", "sphere", "capsule", "mesh_ref", "group"]
-    params: dict[str, float | int | str | Vec3] = Field(default_factory=dict)
+    kind: Literal["box", "cylinder", "cone", "sphere", "capsule", "lathe", "extrude", "mesh_ref", "group"]
+    params: dict[str, ParamValue] = Field(default_factory=dict)
     transform: Transform = Field(default_factory=Transform)
     parent: NodeId | None = None
     material_id: NodeId | None = None

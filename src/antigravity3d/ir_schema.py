@@ -226,7 +226,8 @@ def _walk_slots(node: dict[str, Any]):
 
 def _shared_name(shape: dict[str, Any], taken: set[str]) -> str:
     items = shape.get("items")
-    if shape.get("type") == "array" and shape.get("minItems") == shape.get("maxItems") and isinstance(items, dict):
+    fixed = shape.get("minItems") is not None and shape.get("minItems") == shape.get("maxItems")
+    if shape.get("type") == "array" and fixed and isinstance(items, dict):  # a list of any length is not a vector
         name = f"Vec{shape['minItems']}" + ("NonNeg" if items.get("minimum") == 0 else "")
     elif "anyOf" in shape and {"type": "null"} in shape["anyOf"] and len(shape["anyOf"]) == 2:
         other = next(a for a in shape["anyOf"] if a != {"type": "null"})

@@ -26,6 +26,11 @@ IR_KEY = "agy:sceneIR"  # customData key path (USD stores it as dict agy -> scen
 LOOKS = "Looks"
 REF_CHILD = "ref"  # child prim of a mesh_ref node that carries the USD reference
 PRIMITIVES = frozenset({"box", "cylinder", "cone", "sphere", "capsule"})
+# Kinds and parameters the scene format defines (``ir.NODE_PARAMS``) whose geometry is not built yet. They are named
+# here so that a design using one fails with its reason instead of compiling to a part with no mesh or a box with
+# sharp edges. Each entry is removed by the change that builds it.
+UNBUILT_KINDS = frozenset({"lathe", "extrude"})
+UNBUILT_PARAMS: dict[str, tuple[str, ...]] = {"box": ("bevel", "inset_faces"), "cylinder": ("bevel",)}
 USD_EXTS = frozenset({".usd", ".usda", ".usdc", ".usdz"})
 _MESH_ATTRS = ("points", "faceVertexCounts", "faceVertexIndices", "extent")
 
@@ -598,6 +603,10 @@ def _author_transform(prim: Usd.Prim, t: Transform, prev: Transform | None = Non
 
 
 def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path) -> None:
+    if node.kind in UNBUILT_KINDS:
+        raise ValueError(f"{node.id}: kind '{node.kind}' is in the scene format but its geometry is not built yet")
+    if unbuilt := [name for name in UNBUILT_PARAMS.get(node.kind, ()) if node.params.get(name)]:
+        raise ValueError(f"{node.id}: {node.kind} parameter(s) {unbuilt} are in the scene format but not built yet")
     is_prim = node.kind in PRIMITIVES
     ref_path = None
     if node.kind == "mesh_ref":
