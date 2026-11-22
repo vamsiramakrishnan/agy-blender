@@ -583,11 +583,21 @@ class _PartGap:
         # The move that would make it touch, in numbers an author can apply: a vertex of it onto the nearest part's
         # surface (kernel/attach.py; the Blender check counts a part as touching by its own vertices). Live 2026-11-22
         # (r5_hydrant_C): five repair rounds were told "14.7 mm from hydrant_body ... beside it (+y)" and no more.
-        from antigravity3d.kernel.attach import nearest
+        from antigravity3d.kernel.attach import FLUSH, INTO, facing_step, nearest
 
         g = nearest([self.valid[m][0] for m in group], [self.valid[j][0]], float(np.linalg.norm(np.maximum(sep, 0.0))) + 0.05)
-        move = (f"; to touch it, move {g.vertex_of} by ({', '.join(f'{x * 1e3:+.1f}' for x in g.vector)}) mm, which puts its "
-                f"nearest vertex on {self.valid[j][0].node_id}" if g is not None else "")
+        other = self.valid[j][0].node_id
+        if g is None:
+            move = ""
+        elif g.length < FLUSH:
+            # flush on it: a move "onto" it is no move. What makes a contact is setting it into the other part.
+            step = facing_step(np.min([lo[m] for m in group], axis=0), np.max([hi[m] for m in group], axis=0), self.valid[j][0].points)
+            move = (f"; it lies flush on {other}, where the faces pressed together are left out of the file: to make a contact, "
+                    f"move {g.vertex_of} by ({', '.join(f'{x * 1e3:+.1f}' for x in step)}) mm, which sets it {INTO * 1e3:g} mm into "
+                    f"{other}")
+        else:
+            move = (f"; to touch it, move {g.vertex_of} by ({', '.join(f'{x * 1e3:+.1f}' for x in g.vector)}) mm, which puts its "
+                    f"nearest vertex on {other}")
         return (f"surface {d * 1e3:.1f} mm from {self.valid[j][0].node_id}, the nearest part, which lies {where} "
                 f"(touch tolerance {self.tol * 1e3:g} mm); min z {min(lo[m][2] for m in group):.3f}{move}")
 

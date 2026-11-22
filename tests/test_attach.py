@@ -177,6 +177,48 @@ async def test_a_part_off_the_ground_beside_the_body_is_put_on_the_body(tmp_path
     assert "attached foot moved" in next(s.detail for s in res.steps if s.name == "attach_pre")
 
 
+# --------------------------------------------------------------------------- a part lying flush on another (2026-11-22)
+
+
+def _flush_lamp(seed: int) -> SceneIR:
+    """The offline lamp post's base and pole as the template built them until 2026-11-22: the pole standing flush on
+    the base. The pole is the biggest part; its bottom face is a hidden contact face and is left out of the file."""
+    import random
+
+    from antigravity3d.tactics import authoring
+
+    rng = random.Random(seed)
+    h, seg = rng.uniform(2.6, 3.6), rng.choice([12, 16])
+    return _scene(authoring._cyl("base", 0.16, 0.12, (0, 0, 0.06), "m", seg), authoring._cyl("pole", 0.04, h, (0, 0, 0.12 + h / 2), "m", seg))
+
+
+def test_a_part_lying_flush_is_set_a_millimetre_in_and_never_moved_by_nothing(tmp_path: Path) -> None:
+    """Whether Tier-1 reports the base depends on which way the pole's rim rounded (4 nm over the base's top: reported;
+    36 nm under: an edge of the base passes through the pole's wall, which is a contact, to Blender's qa_check as well:
+    tests/test_blender_verification_steps.py). Where it was reported, attach moved the base "onto" the pole by those
+    4 nm: the kernel's trial passed and qa_check still read the file as "not touching". A part already on its
+    neighbour is now set a millimetre into it, and the finding says so in numbers."""
+    budget = EngineBudget("unreal_5")
+    reported = []
+    for seed in range(24):
+        sm = _stage(tmp_path / str(seed), _flush_lamp(seed))
+        meshes = sm.extract_meshes()
+        t1 = tier1_qa(meshes, budget)
+        if not P.floating_ids(t1):
+            continue
+        reported.append(seed)
+        assert sorted(P.floating_ids(t1)) == ["base"], seed
+        said = next(i.detail for i in t1.issues if i.node_id == "base")
+        assert "it lies flush on pole" in said and "move base by (+0.0, +0.0, +1.0) mm, which sets it 1 mm into pole" in said, said
+        r = A.attach(meshes, budget, P.reach_of(meshes))
+        assert r.attached == ["base moved 1.0 mm onto pole (+0.0, +0.0, +1.0 mm)"] and not r.left, (seed, r.attached, r.left)
+        sm.apply_patch(IRPatch(ops=r.ops(sm.base_ir())))
+        after = {m.node_id: m for m in sm.extract_meshes()}
+        assert float(after["base"].points[:, 2].max()) - float(after["pole"].points[:, 2].min()) == pytest.approx(A.INTO, abs=1e-6)
+        assert _floating(list(after.values()), budget) == [], seed
+    assert reported == [2, 4, 5, 7, 8, 9, 12, 13, 14, 16, 17, 20, 21, 22, 23]  # the 15 seeds the lamp template failed on
+
+
 # --------------------------------------------------------------------------- with a real Blender
 
 

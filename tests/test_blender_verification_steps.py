@@ -315,6 +315,48 @@ async def test_separate_boxes_resting_on_the_ground_fail_as_the_script_says_and_
     assert status == "failed"
 
 
+@pytest.mark.blender
+@needs_blender
+async def test_qa_check_reads_a_flush_part_as_the_kernel_does_and_as_a_contact_after_attach(tmp_path, blender_pool):
+    """A pole standing flush on a wider base, as the file ships it (the pole's bottom face left out). Whether the base
+    touches the pole is then decided by which way two float32 heights rounded, and qa_check and Tier-1 read it the same
+    way: on the seed whose pole is 35 nm under the base's top both find a contact (an edge of the base passes through
+    the pole's wall); on the seed whose pole is 4 nm over it Tier-1 reports the base and qa_check says "not touching"
+    (it passes the file only because a ray from the base's centre leaves through the pole, so it calls the base
+    enclosed). There attach sets the base a millimetre into the pole and both read a contact. Before 2026-11-22 attach
+    moved it by the 4 nm instead, the kernel's trial passed, and qa_check still said "not touching". Measured with
+    Blender 5.3; the seeds are those of tests/test_attach.py's _flush_lamp. (In 60 random flush contacts,
+    2026-11-22, Tier-1 never passed a part qa_check read as not touching; it reported 24 that qa_check read as touching.)"""
+    from test_attach import _flush_lamp
+
+    from antigravity3d.ir import IRPatch
+    from antigravity3d.kernel import attach, coplanar, fast_ops
+    from antigravity3d.kernel.package import write_engine_package
+    from antigravity3d.tactics import pyramid
+
+    budget = EngineBudget("unreal_5")
+
+    async def read(seed: int, fix: bool) -> tuple[list[str], str, list[str], list[str]]:
+        d = tmp_path / f"{seed}{'_attached' if fix else ''}"
+        d.mkdir()
+        sm = StageManager.create(d / "s.usda", "Prop")
+        sm.apply_ir(_flush_lamp(seed))
+        meshes = sm.extract_meshes()
+        if fix:
+            sm.apply_patch(IRPatch(ops=attach.attach(meshes, budget, pyramid.reach_of(meshes)).ops(sm.base_ir())))
+        sm.commit_all()
+        meshes = sm.extract_meshes()
+        reported = sorted(pyramid.floating_ids(fast_ops.tier1_qa(meshes, budget)))
+        bundle = fast_ops.run_export_pipeline(meshes, budget, "Prop", opaque_materials=coplanar.opaque_materials(sm.base_ir()))
+        pkg = write_engine_package(sm, bundle, budget, d / "pkg", asset_name="Prop", qa={"tier1_ok": True})
+        status, _, data = await upstream_checks.asset_qa(blender_pool, str(pkg.out_dir / "Prop.glb"), "unreal_5")
+        return reported, status, data["errors"], [w for w in data["warnings"] if "not touching" in w]
+
+    assert await read(0, False) == ([], "passed", [], [])
+    assert await read(2, False) == (["base"], "passed", [], ["1 parts fully enclosed, not touching (eyes/internals?): ['Batch_0']"])
+    assert await read(2, True) == ([], "passed", [], [])
+
+
 def flip_first_triangle(glb: Path) -> None:
     """Rewrite the GLB with the first triangle of its first mesh wound the other way (two indices swapped in place)."""
     raw = bytearray(glb.read_bytes())

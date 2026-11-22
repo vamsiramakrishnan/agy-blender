@@ -31,6 +31,25 @@ INTO = 0.001  # or this far into it: "a millimetre of overlap"
 # every move that brings chain_link_1 within 2 mm of anything crosses the anchor's edge by under 0.1 mm, with no vertex
 # inside, and reads as a new warning; so new warnings are allowed up to this depth and no deeper.
 BURY_MAX = 0.0015
+# A vertex this near another part already lies on it (a flush contact): the line between them is a rounding error, so
+# it has no direction to follow and "onto the surface" is where the part already is. Measured 2026-11-22 on the offline
+# lamp post (a pole flush on its base, the pole's bottom face left out of the file): the nearest vertex was 4 nm away,
+# the move "onto the surface" was 4 nm, the kernel then passed by rounding and Blender's qa_check still read the base
+# as "not touching".
+FLUSH = 1e-6
+
+
+def facing_step(lo: np.ndarray, hi: np.ndarray, target_points: Any, into: float = INTO) -> np.ndarray:
+    """The move that takes the box [lo, hi] ``into`` the target's box along the axis the two boxes face each other on
+    (the axis they are farthest apart on, or overlap least on), past whatever gap they have on it: what makes a
+    contact of a part lying flush on another."""
+    tp = np.asarray(target_points, np.float64)
+    sep = np.maximum(tp.min(0) - hi, lo - tp.max(0))
+    axis = int(np.argmax(sep))
+    sign = 1.0 if tp.min(0)[axis] + tp.max(0)[axis] >= lo[axis] + hi[axis] else -1.0
+    step = np.zeros(3)
+    step[axis] = sign * (max(float(sep[axis]), 0.0) + into)
+    return step
 
 
 def closest_on_triangles(p: np.ndarray, a: np.ndarray, b: np.ndarray, c: np.ndarray) -> np.ndarray:
@@ -215,18 +234,13 @@ def attach(meshes: list[Any], budget: Any, reach: float, *, only: set[str] | Non
         fall beyond the other's face, a skid under a bevelled body: crossing it by a millimetre is a contact the Blender
         check sees; lying flush is one it sees or not by rounding, r5_crate_C)."""
         unit = g.vector / max(g.length, 1e-12)
-        out = [unit * s for s in (g.length - GAP_SHORT, g.length, g.length + INTO) if s > 0]
+        # a vertex already on the target (FLUSH) has no line to follow: only the step along the facing axis is tried
+        out = [] if g.length < FLUSH else [unit * s for s in (g.length - GAP_SHORT, g.length, g.length + INTO) if s > 0]
         mine = [m for m in cur if m.node_id in comp]
         tgt = next(m for m in cur if m.node_id == g.target)
         lo = np.min([np.asarray(m.points).min(0) for m in mine], axis=0)
         hi = np.max([np.asarray(m.points).max(0) for m in mine], axis=0)
-        tp = np.asarray(tgt.points)
-        sep = np.maximum(tp.min(0) - hi, lo - tp.max(0))
-        axis = int(np.argmax(sep))
-        sign = 1.0 if tp.min(0)[axis] + tp.max(0)[axis] >= lo[axis] + hi[axis] else -1.0
-        step = np.zeros(3)
-        step[axis] = sign * (max(float(sep[axis]), 0.0) + INTO)
-        out.append(step)
+        out.append(facing_step(lo, hi, tgt.points))
         return out
 
     def try_move(comp: list[str], g: Gap, t_now: Any, pen_now: set) -> tuple | None:
@@ -301,4 +315,5 @@ def attach(meshes: list[Any], budget: Any, reach: float, *, only: set[str] | Non
     return res
 
 
-__all__ = ["AttachResult", "Gap", "attach", "closest_on_triangles", "detached", "gaps", "nearest", "translation_ops"]
+__all__ = ["FLUSH", "INTO", "AttachResult", "Gap", "attach", "closest_on_triangles", "detached", "facing_step", "gaps", "nearest",
+           "translation_ops"]
