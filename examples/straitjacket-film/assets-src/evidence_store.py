@@ -5,7 +5,7 @@ a = Asset("evidence_store", engine="web_three", max_tris=6000, art_direction="re
                 "a plinth, eight equal bays and one wider bay with three shelves, brushed aluminium divider edges and a small "
                 "brass label holder over each bay; new and clean")
 
-steel = a.material("charcoal_steel", "#23272e", surface="satin charcoal powder-coated steel, matte, clean, new",
+steel = a.material("charcoal_steel", "#2b3038", surface="satin charcoal powder-coated steel, matte, clean, new",
                    metallic=0.0, roughness=0.62)
 alu = a.material("brushed_aluminium", "#b8bcc2", surface="brushed aluminium, fine linear grain, clean, new",
                  metallic=1.0, roughness=0.38)
@@ -46,5 +46,12 @@ bay_c = [(-2.16 - 1.74) / 2, (-1.70 - 1.28) / 2, (-1.24 - 0.82) / 2, (-0.78 - 0.
 for i, cx in enumerate(bay_c):
     a.box(f"label_{i}", size=(0.28, 0.006, 0.05), bevel=0.0015, inset_faces=("-y",), inset_margin=0.008, inset_depth=0.002,
           at=(cx, -OY - 0.001, (RAIL0 + TOP) / 2), material=brass)
+
+# brushed aluminium trim along the front edges (12 mm wide, 4 mm proud): top rail (upper and lower edge) and plinth (top, bottom)
+TW, TP = 0.012, 0.004
+ty = -OY - TP / 2 + 0.001
+for nm, zc in (("trim_rail_top", TOP - TW / 2), ("trim_rail_bot", RAIL0 + TW / 2),
+               ("trim_plinth_top", FLOOR - TW / 2), ("trim_plinth_bot", TW / 2)):
+    a.box(nm, size=(2 * OX, TP + 0.002, TW), bevel=0.001, at=(0, ty, zc), material=alu)
 
 a.save()

@@ -5,7 +5,7 @@ a = Asset("context_frame", engine="web_three", max_tris=2500, art_direction="rea
                 "with brushed aluminium corner brackets and bolt heads on the front face, a small brass label holder on the "
                 "top bar near the left end, and two wide feet; new and clean")
 
-steel = a.material("charcoal_steel", "#23272e", surface="satin charcoal powder-coated steel, matte, clean, new",
+steel = a.material("charcoal_steel", "#2b3038", surface="satin charcoal powder-coated steel, matte, clean, new",
                    metallic=0.0, roughness=0.62)
 alu = a.material("brushed_aluminium", "#b8bcc2", surface="brushed aluminium, fine linear grain, clean, new",
                  metallic=1.0, roughness=0.38)
@@ -48,5 +48,19 @@ for sx in (-1, 1):
 # brass label holder on the front of the top bar, near the left end (about 0.30 x 0.05)
 a.box("label_holder", size=(0.30, 0.008, 0.05), bevel=0.0015, at=(-0.93, -IY - 0.004 + 0.002, IZ1 + BAR / 2), material=brass)
 a.box("label_slot", size=(0.26, 0.004, 0.026), bevel=0.001, at=(-0.93, -IY - 0.008 - 0.002 + 0.002, IZ1 + BAR / 2), material=steel)
+
+# brushed aluminium trim strips on the front face (y = -0.33): 12 mm wide, 4 mm proud, round the outer perimeter and round
+# the inner edge of the opening. They lie in front of the bars (y < -0.33), never inside the opening volume.
+TW, TP = 0.012, 0.004
+ty = -IY - TP / 2 + 0.001
+for nm, sz, at in (
+    ("trim_out_top", (2 * OX, TP + 0.002, TW), (0, ty, ZT1 - TW / 2)),
+    ("trim_out_bot", (2 * OX, TP + 0.002, TW), (0, ty, ZB0 + TW / 2)),
+    ("trim_in_top", (2 * IX, TP + 0.002, TW), (0, ty, IZ1 + TW / 2)),
+    ("trim_in_bot", (2 * IX, TP + 0.002, TW), (0, ty, IZ0 - TW / 2)),
+):
+    a.box(nm, size=sz, bevel=0.001, at=at, material=alu)
+a.box("trim_out_side", size=(TW, TP + 0.002, ZT1 - ZB0), bevel=0.001, at=(OX - TW / 2, ty, (ZT1 + ZB0) / 2), material=alu, mirror="x")
+a.box("trim_in_side", size=(TW, TP + 0.002, IZ1 - IZ0 + 2 * TW), bevel=0.001, at=(IX + TW / 2, ty, (IZ0 + IZ1) / 2), material=alu, mirror="x")
 
 a.save()
