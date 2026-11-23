@@ -7,7 +7,7 @@
 <style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>How Straitjacket Works</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="Follow one real 20,001-line log through Straitjacket: captured once, shown to the agent as a 531-token digest, and retrievable line by line.">
+<meta name="description" content="Follow a 20,001-line benchmark log through Straitjacket: captured once, shown to the agent as a 531-token digest, and retrievable by address.">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="css/film.css">
 </head>
@@ -55,7 +55,7 @@
     <div class="panel panel--hero">
       <p class="eyebrow">Straitjacket · how it works</p>
       <h1 class="claim claim--hero">Capture once. Retrieve the line that matters.</h1>
-      <p class="lede">Straitjacket keeps a command's full output on disk and gives the coding agent a short digest, with an address for everything it left out. Scroll to follow one real log through it: <span data-fact="log.lines">20,001</span> lines, one of which matters.</p>
+      <p class="lede">Straitjacket captures a command's output on disk and gives the coding agent a short digest, with an address for what it left out. Scroll to follow the log from its own benchmark through it: <span data-fact="log.lines">20,001</span> lines, one of which matters.</p>
       <p class="actions">
         <a class="btn btn--primary" href="https://vamsiramakrishnan.github.io/straitjacket/start/getting-started/">Install the CLI</a>
         <a class="btn" href="https://github.com/vamsiramakrishnan/straitjacket">View on GitHub</a>
@@ -116,7 +116,7 @@ INFO worker-6 request req-00002 accepted in 87ms
     <div class="panel">
       <p class="eyebrow">05 / Capture</p>
       <h2 class="claim">Captured once, before it reaches the model</h2>
-      <p>Run the same command through <code>ctx</code>. It executes with your permissions and writes stdout and stderr to a local store. A profile that knows the format sorts what it captured: <span data-fact="digest.templates">11</span> templates cover all <span data-fact="digest.covered">20,001</span> lines. The digest is computed locally, with no model call.</p>
+      <p>Run the same command through <code>ctx</code>. It executes with your permissions and writes stdout and stderr to a local store. A profile that knows the format sorts what it captured: <span data-fact="digest.templates">11</span> templates cover all <span data-fact="digest.covered">20,001</span> lines. By default the digest is computed locally, with no model call.</p>
       <pre class="specimen" aria-label="The same command run through ctx"><code><span class="sp-prompt">$ </span>ctx run -- cat corpus.log
 <span class="sp-id">[ctx run:8956c843e556 profile=logtemplate/v1]</span>
 stdout: 20,001 lines · 979.1 KiB</code></pre>
@@ -129,7 +129,7 @@ stdout: 20,001 lines · 979.1 KiB</code></pre>
     <div class="panel panel--wide">
       <p class="eyebrow">06 / The digest</p>
       <h2 class="claim">This is an index, not a summary</h2>
-      <p>The agent receives <span data-fact="fates.digest.tokens">531</span> tokens. They state what ran, count the lines under each template, quote the three lines that fit no pattern, say what was left out, and print the commands that fetch it. Line <span data-fact="log.needle_line">14,238</span> is one of the three.</p>
+      <p>The agent receives <span data-fact="fates.digest.tokens">531</span> tokens. They state what ran, count the lines under each template, quote the three exceptional lines, say what was left out, and print the commands that fetch it. Line <span data-fact="log.needle_line">14,238</span> is one of the three.</p>
       <pre class="specimen specimen--digest" id="digest-specimen" tabindex="0" aria-label="The digest the agent receives, in full"><code><span class="dg dg--id">[ctx run:8956c843e556 profile=logtemplate/v1]</span>
 <span class="dg">cwd: .</span>
 <span class="dg">command: cat corpus.log</span>
@@ -173,12 +173,12 @@ stdout: 20,001 lines · 979.1 KiB</code></pre>
   <section class="ch" id="retrieve" data-ch="retrieve">
     <div class="panel">
       <p class="eyebrow">07 / Retrieval</p>
-      <h2 class="claim">Every omission has an address</h2>
-      <p><span data-fact="digest.lines_omitted">19,988</span> lines stayed out of the prompt. None of them is gone. The handle names the run and a selector names the lines, so the agent asks for exactly what the next decision needs. A read that would be too large comes back as a narrower view with a continuation.</p>
+      <h2 class="claim">The omission has an address</h2>
+      <p><span data-fact="digest.lines_omitted">19,988</span> lines stayed out of the prompt. They are still in the store. The handle names the run and a selector names the lines, so the agent can ask for exactly what the next decision needs. A read that would be too large comes back as a narrower view with a continuation.</p>
       <pre class="specimen" aria-label="Retrieving one line by its address"><code><span class="sp-prompt">$ </span>ctx get <span class="sp-id">run:8956c843e556#stdout</span> --lines 14238:14238
 <span class="sp-needle">L14238: INFO worker-14 checkout request req-14237 fell back to legacy gateway after circuit opened</span></code></pre>
-      <p class="measure measure--ok"><strong>1 line</strong><span>fetched when the decision needs it</span></p>
-      <p class="receipt">From <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/docs/CONCEPTS.md">docs/CONCEPTS.md</a> and the <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/tests/fixtures/field_needle_main_digest.txt">digest fixture</a></p>
+      <p class="measure measure--ok"><strong>1 line</strong><span>asked for by address when the decision needs it</span></p>
+      <p class="receipt">The example on the documentation's home page. The receipt checks that the address is emitted; it does not run the round trip. See <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/docs/CONCEPTS.md">docs/CONCEPTS.md</a></p>
     </div>
   </section>
 
@@ -241,7 +241,7 @@ moved → L46:58  <span class="sp-ok">@07407f1c ✓</span></code></pre>
     <div class="panel panel--doc">
       <p class="eyebrow">12 / Receipts</p>
       <h2 class="claim">Receipts before spectacle</h2>
-      <p>Every figure on this page comes from a file checked into the repository. Some of them are not flattering. Small, complete native results may be cheaper and easier to use. Straitjacket is for when access to what was left out matters.</p>
+      <p>Every measured figure on this page comes from a receipt checked into the repository, and the seven-turn trace is marked as illustrative. Some of the results are not flattering. Small, complete native results may be cheaper and easier to use. Straitjacket is for when access to what was left out matters.</p>
       <div class="table-wrap">
         <table class="results">
           <thead><tr><th scope="col">Workload</th><th scope="col">Observed result</th></tr></thead>

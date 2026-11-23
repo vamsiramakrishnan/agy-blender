@@ -1,6 +1,6 @@
 from agy3d import Asset
 
-a = Asset("context_frame", engine="web_three", max_tris=2500,
+a = Asset("context_frame", engine="web_three", max_tris=2500, art_direction="realistic",
           brief="a precision laboratory window frame in satin charcoal powder-coated steel, open through front to back, "
                 "with brushed aluminium corner brackets and bolt heads on the front face, a small brass label holder on the "
                 "top bar near the left end, and two wide feet; new and clean")
