@@ -4,6 +4,8 @@ __pycache__/
 .pytest_cache/
 dist/
 build/
+# the project's own package src/antigravity3d/build is source, not a build output
+!src/antigravity3d/build/
 *.whl
 *.egg-info/
 out/

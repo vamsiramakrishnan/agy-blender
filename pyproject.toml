@@ -38,7 +38,7 @@ agy3d = "antigravity3d.cli:main"
 agy3d-plugin = "antigravity3d.plugin_install:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/antigravity3d"]
+packages = ["src/antigravity3d", "src/agy3d"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "plugin/antigravity-3d" = "antigravity3d/_plugin_bundle/antigravity-3d"

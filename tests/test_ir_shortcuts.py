@@ -131,8 +131,10 @@ def test_a_mirrored_parent_carries_its_subtree():
 
 def test_a_part_that_straddles_the_mirror_plane_is_refused_with_where_it_lies():
     pin = node("hinge_pin", "cylinder", translate=(0, 0.016, 0), parent="hinge", mirror="x")  # the live case
+    # the extent is the kernel's mesh, not the corners of the shape's box (ir_shortcuts._local_points): this cylinder's
+    # polygon has a vertex at +x and none at -x, so the mesh spans -0.090 to 0.100 (the box said -0.100)
     with pytest.raises(ValueError, match=r"hinge_pin: mirror x needs the part on one side of its parent's x = 0 plane, "
-                                         r"but it spans x -0.100 to 0.100"):
+                                         r"but it spans x -0.090 to 0.100"):
         scene(node("hinge", "group", translate=(0.26, 0.25, 0.37)), pin)
     with pytest.raises(ValueError, match="the asset's y = 0 plane"):  # a group's whole subtree counts
         scene(node("g", "group", translate=(0, 0.05, 0), mirror="y"), node("c", "box", translate=(0, 0, 0), parent="g"))
