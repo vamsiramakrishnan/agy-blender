@@ -37,6 +37,7 @@ from antigravity3d.deliver.install import (
     read_record,
 )
 from antigravity3d.deliver.paths import UnsafePath, asset_name, inside, no_links, safe_name
+from antigravity3d.deliver.portable import locate_package, package_ref, write_report
 
 _SKIP_DIRS = {"node_modules", ".git", "dist", "build", ".next", ".svelte-kit", ".cache", "coverage", ".turbo", ".nuxt", ".output"}
 
@@ -161,7 +162,6 @@ def install_web(pkg: Path, project: Path, manifest: dict[str, Any], info: Projec
     from antigravity3d.kernel.lod_diff import DEFAULT_FOV_DEG
 
     asset = manifest["asset"]
-    package = {**package, "path": str(pkg.resolve())}  # as typed it would be relative to a folder the next check may not run from
     try:
         layout = web.choose_layout(project, asset, dest, assets, _taken(project))
     except web.WebRefused as e:
@@ -205,7 +205,9 @@ def install_web(pkg: Path, project: Path, manifest: dict[str, Any], info: Projec
             "schema": RECORD_SCHEMA, "tool": "antigravity3d", "asset": asset, "dest": layout.code, "engine": "threejs",
             "assets": layout.assets, "assets_url": layout.assets_url, "basis": layout.basis if plan.shared else None,
             "basis_url": layout.basis_url, "layout_rule": layout.rule,
-            "package": {**package, "manifest_sha256": _sha_file(pkg / "manifest.json")},
+            # committed with the game: relative to the project, or the folder's name and the hash, never this machine's path
+            "package": {**{k: v for k, v in package.items() if k != "path"},
+                        **package_ref(pkg, project, _sha_file(pkg / "manifest.json"))},
             "project": {"engine": info.engine, "version": info.version,
                         "three": {"version": three.version, "revision": three.revision, "supported": three.supported}},
             "fov_deg": fov, "levels": [asdict(lv) for lv in plan.levels], "hulls": plan.hulls, "centre": plan.centre,
@@ -506,16 +508,18 @@ def check_into(result: InstallResult, project: Path, record: dict[str, Any], man
         w = measured["wire"]
         result.notes.append(f"a page loading this asset received {w['asset_bytes']:,} bytes for it (all levels, textures once, collision "
                             f"data) and {w['transcoder_bytes']:,} for the shared KTX2 transcoder")
-    (out / "report.json").write_text(json.dumps({**result.to_dict(), "measured": measured}, indent=1, default=str))
+    write_report(project, out, result, record, measured)
     result.report_path = str(out / "report.json")
 
 
 def check_web(project: Path, dest: str, record: dict[str, Any]) -> InstallResult:
     manifest = json.loads((project / dest / RECORD_DIR / "package_manifest.json").read_text())
-    pkg = Path(record["package"]["path"])
+    pkg, why_not = locate_package(project, record)
     three = web.three_info(project, detect_project(project))
     result = InstallResult("unchanged", f"checked {dest}", "threejs", detect_project(project).to_dict(), record["package"], dest)
-    check_into(result, project, record, manifest, pkg if pkg.is_dir() else None, three)
+    if pkg is None:
+        result.notes.append(why_not)
+    check_into(result, project, record, manifest, pkg, three)
     return result
 
 

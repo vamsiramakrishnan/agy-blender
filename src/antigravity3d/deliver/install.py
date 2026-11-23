@@ -34,6 +34,7 @@ from typing import Any, Callable
 
 from antigravity3d.deliver.detect import TARGET_OF, ProjectInfo, detect_project, version_tuple
 from antigravity3d.deliver.paths import UnsafePath, asset_name, inside, no_links, safe_name
+from antigravity3d.deliver.portable import package_ref, write_report
 
 RECORD_DIR = ".agy3d"
 RECORD = f"{RECORD_DIR}/install.json"
@@ -606,7 +607,10 @@ def _install_godot(pkg: Path, project: Path, manifest: dict[str, Any], info: Pro
                for f, b in plan.files.items()}
     record = {
         "schema": RECORD_SCHEMA, "tool": "antigravity3d", "asset": manifest["asset"], "dest": rel, "engine": "godot",
-        "package": {**package, "manifest_sha256": _sha_file(pkg / "manifest.json")},
+        # the record is committed with the game: the package is named relative to the project, or by folder name and hash,
+        # never by where this machine keeps it (deliver/portable.py)
+        "package": {**{k: v for k, v in package.items() if k != "path"},
+                    **package_ref(pkg, project, _sha_file(pkg / "manifest.json"))},
         "project": {"engine": info.engine, "version": info.version}, "fov_deg": fov,
         "levels": [asdict(lv) for lv in plan.levels], "hulls": plan.hulls, "centre": plan.centre,
         "radius_m": plan.radius_m, "switch_m": [lv.switch_in_m for lv in plan.levels[:-1]], "maps": maps,
@@ -692,10 +696,11 @@ def _check_into(result: InstallResult, project: Path, rel: str, manifest: dict[s
         if shot:
             shutil.copyfile(shot, out / "godot.png")
             result.screenshot = str(out / "godot.png")
+            measured["render"]["screenshot"] = None  # the temp copy; the file is the one in check/
         if measured.get("isolated_copy_left_out"):
             result.notes.append(f"checked in an isolated copy of the project without its {measured['isolated_copy_left_out']} "
                                 "section(s), so none of the project's own code ran")
-        (out / "report.json").write_text(json.dumps({**result.to_dict(), "measured": _strip(measured)}, indent=1))
+        write_report(project, out, result, record, _strip(measured))
         result.report_path = str(out / "report.json")
 
 

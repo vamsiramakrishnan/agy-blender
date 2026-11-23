@@ -1274,7 +1274,10 @@ def test_the_hull_check_names_what_it_compared_and_holds_the_installed_data_to_i
     coll.write_text(coll.read_text().replace("0", "1", 3))
     data, source, pre = WC.expected_hulls(project, rec, manifest, None)
     assert pre and "not what was installed" in pre[0]  # edited since: the loader agreeing with it proves nothing
-    assert rec["package"]["path"] == str(crate.resolve())  # absolute, whatever folder it was typed from
+    # was: the absolute path. The record is committed with the game, so it names the package relative to the project, or by
+    # folder name and hash when that would name the machine (deliver/portable.py); never by where this machine keeps it
+    assert rec["package"]["path"] != str(crate.resolve()) and not os.path.isabs(rec["package"].get("path") or "")
+    assert rec["package"]["folder"] == crate.name and rec["package"]["manifest_sha256"]
 
 
 def test_the_page_runner_removes_webrtc_and_collects_policy_reports(tmp_path):
@@ -1478,7 +1481,8 @@ def test_browser_the_react_check_works_from_a_relative_project_path_and_leaves_n
     for d in left:
         assert {p.name for p in Path(d).iterdir()} <= {".config", ".local", ".cache"}, d
         assert oct(Path(d).stat().st_mode & 0o777) == "0o700"
-    assert json.loads((project / r.dest / RECORD).read_text())["package"]["path"] == str(crate.resolve())
+    # was: the absolute path (see test_the_hull_check_names_what_it_compared...): the record no longer holds one
+    assert not os.path.isabs(json.loads((project / r.dest / RECORD).read_text())["package"].get("path") or "")
 
 
 @pytest.mark.browser
