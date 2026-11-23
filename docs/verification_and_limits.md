@@ -235,33 +235,39 @@ What `agy3d install` into a three.js project does not do, and what it cannot tel
   and 0.187.0. Outside r152 to r187 the files are written and the result says "not checked on this version".
 - **Collision hulls are handed over as plain arrays** (`group.userData.agy3d.hulls`, points and triangle indices).
   No physics library is wired; three.js has none, and Rapier or cannon-es takes the points.
-- **A first install with compression takes tens of seconds** (the table below: 20 to 96 s with `--compress
-  always`, 2 to 5 s with `--compress never`), because every encoding is rendered and compared in a browser.
+- **A first install with compression takes tens of seconds** (the table below: 20 to 103 s with `--compress
+  always`, 2 to 8 s with `--compress never`), because every encoding is rendered and compared in a browser.
 - **The install itself downloads nothing.** It uses only packages already in the project's `node_modules`; without the
   compression packages it ships PNG and prints the one command that enables compression
   (`npm install -D @gltf-transform/core @gltf-transform/extensions @gltf-transform/functions ktx2-encoder
   meshoptimizer sharp`).
 
-Measured once: three props, two projects (Vite with three.js 0.170.0, Vite with React Three Fiber on three.js
-0.169.0), one run each. The installs, the in-project checks and the undo (`agy3d uninstall` left the project's files
+Measured once: three props (round six's scripts, delivered for the web with round seven's surfaces), two projects
+(Vite with three.js 0.170.0, Vite with React Three Fiber on three.js 0.169.0), one run each, while other jobs were
+using the machine. The installs, the in-project checks and the undo (`agy3d uninstall` left the project's files
 byte-identical) passed in all six cells. The goal of half the bytes of today's files was not reached: the crate's
-files came to 50.2 % and the chair's to 51.6 % of today's, and with the shared KTX2 transcoder (584,862 bytes, counted
-once per project) a page loading one asset gets 76.5 % and 95.7 %. The hydrant stayed PNG under `auto`: its cheapest
-encoding was outside the tolerance (6.01 % of pixels over the limit against 1 %), the next was outside too, and the
-one inside saved too little to pay for the transcoder. "Today's files" are the highest level's GLB as a page fetches
-it from the package (`web_download`). Seconds are for `--compress always`; sizes in bytes; GPU memory in MB
-(uncompressed, then block-compressed), computed.
+files came to 50.4 %, the chair's to 54.4 % and the hydrant's to 81.6 % of today's. With the shared KTX2
+transcoder (584,862 bytes, counted once per project) a page loading one asset gets 77.0 % for the crate, and more
+than today's file for the chair (110.6 %) and the hydrant (113.5 %).
+
+The hydrant stayed PNG under `auto`: its cheapest encoding was outside the tolerance (5.62 % of pixels over the
+limit against 1 %), the next was outside too (3.01 %), and the one inside saved too little to pay for the
+transcoder. The chair is compressed under `auto`, which compares like with like: the compressed install against the
+PNG install, every level and the transcoder included (1,149,777 against 1,178,713 bytes).
+
+"Today's files" are the highest level's GLB as a page fetches it from the package (`web_download`). Seconds are for
+`--compress always`; sizes in bytes; GPU memory in MB (uncompressed, then block-compressed), computed.
 
 | three.js | Asset | Install, s (`never` / `always`) | PNG install | Compressed install | Of today's | With transcoder | `auto` | GPU MB, computed |
 |---|---|---|---|---|---|---|---|---|
-| 0.170.0 | crate | 3.0 / 38.1 | 2,421,279 | 1,117,317 (etc1s, albedo and ORM) | 50.2 % | 76.5 % | compressed | 33.6 to 5.6 |
-| 0.170.0 | hydrant | 2.4 / 89.1 | 1,995,486 | 1,498,659 (uastc, every map) | 81.6 % | 113.4 % | stayed PNG | 16.8 to 4.2 |
-| 0.170.0 | chair | 2.2 / 19.7 | 1,479,745 | 682,681 (etc1s, albedo and ORM) | 51.6 % | 95.7 % | compressed | 8.4 to 1.4 |
-| 0.169.0, React Three Fiber | crate | 5.1 / 41.9 | 2,421,279 | 1,117,317 | 50.2 % | 76.5 % | compressed | 33.6 to 5.6 |
-| 0.169.0, React Three Fiber | hydrant | 4.5 / 96.2 | 1,995,486 | 1,498,659 | 81.6 % | 113.4 % | stayed PNG | 16.8 to 4.2 |
-| 0.169.0, React Three Fiber | chair | 4.2 / 23.8 | 1,479,745 | 682,681 | 51.6 % | 95.7 % | compressed | 8.4 to 1.4 |
+| 0.170.0 | crate | 4.8 / 39.2 | 2,398,154 | 1,108,978 (etc1s, albedo and ORM) | 50.4 % | 77.0 % | compressed | 33.6 to 5.6 |
+| 0.170.0 | hydrant | 2.3 / 102.4 | 1,998,172 | 1,498,985 (uastc, every map) | 81.6 % | 113.5 % | stayed PNG | 16.8 to 4.2 |
+| 0.170.0 | chair | 2.5 / 20.5 | 1,178,713 | 564,915 (etc1s, albedo and ORM) | 54.4 % | 110.6 % | compressed | 8.4 to 1.4 |
+| 0.169.0, React Three Fiber | crate | 7.7 / 42.5 | 2,398,154 | 1,108,978 | 50.4 % | 77.0 % | compressed | 33.6 to 5.6 |
+| 0.169.0, React Three Fiber | hydrant | 5.9 / 102.7 | 1,998,172 | 1,498,985 | 81.6 % | 113.5 % | stayed PNG | 16.8 to 4.2 |
+| 0.169.0, React Three Fiber | chair | 4.4 / 23.7 | 1,178,713 | 564,915 | 54.4 % | 110.6 % | compressed | 8.4 to 1.4 |
 
-Today's bytes: crate 2,226,168, hydrant 1,837,508, chair 1,323,976. Checks: 11 passed, 0 failed, 0 skipped in the
+Today's bytes: crate 2,199,072, hydrant 1,836,004, chair 1,039,268. Checks: 11 passed, 0 failed, 0 skipped in the
 first three rows, 12 in the last three.
 
 ### Judging, rendering and editing
