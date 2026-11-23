@@ -1,0 +1,6591 @@
+{
+ "arms": {
+  "N": {
+   "change_runs": [
+    {
+     "agent_calls": 14,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "chair",
+     "cache_miss_input": 255902,
+     "cache_misses": 4,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 20685,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 698,
+       "seconds": 6.42,
+       "thinking": 253,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 6.5,
+       "cached": 20686,
+       "input": 31895,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 312,
+       "seconds": 14.21,
+       "thinking": 430,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 20.9,
+       "cached": 0,
+       "input": 55193,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 140,
+       "seconds": 4.09,
+       "thinking": 457,
+       "tools": [
+        "open_existing_asset"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 25.8,
+       "cached": 0,
+       "input": 56212,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 157,
+       "seconds": 3.2,
+       "thinking": 172,
+       "tools": [
+        "inspect_manifest",
+        "render_preview"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 32.7,
+       "cached": 55795,
+       "input": 63311,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 167,
+       "seconds": 4.37,
+       "thinking": 361,
+       "tools": [
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 37.2,
+       "cached": 63312,
+       "input": 65413,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 87,
+       "seconds": 7.26,
+       "thinking": 325,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 44.5,
+       "cached": 63364,
+       "input": 66151,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 219,
+       "seconds": 3.28,
+       "thinking": 218,
+       "tools": [
+        "run_command",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 47.9,
+       "cached": 64102,
+       "input": 67446,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 178,
+       "seconds": 3.7,
+       "thinking": 90,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 51.7,
+       "cached": 65397,
+       "input": 67837,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 202,
+       "seconds": 6.48,
+       "thinking": 124,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 58.3,
+       "cached": 67715,
+       "input": 71020,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 118,
+       "seconds": 7.25,
+       "thinking": 128,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 70.6,
+       "cached": 68971,
+       "input": 71522,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 13,
+       "seconds": 1.85,
+       "thinking": 13,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 665.6,
+       "cached": 0,
+       "input": 71839,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 112,
+       "seconds": 3.74,
+       "thinking": 85,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 674.4,
+       "cached": 69790,
+       "input": 72287,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 12,
+       "seconds": 1.69,
+       "thinking": 68,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 1269.4,
+       "cached": 0,
+       "input": 72658,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 100,
+       "seconds": 4.08,
+       "thinking": 183,
+       "tools": [
+        "run_command"
+       ]
+      }
+     ],
+     "calls_without_usage": 0,
+     "checks": null,
+     "consistency": [
+      "agrees on 5 figures (record lacks fresh, cache_misses, cache_miss_input)"
+     ],
+     "delivered": false,
+     "ended": "crashed",
+     "failed_calls": 0,
+     "hand_steps": null,
+     "id": "r5_chair_N.change",
+     "kind": "change",
+     "largest_tool": {
+      "name": "run_command",
+      "seconds": 1208.0
+     },
+     "letter": "N",
+     "miss_fresh_input": 255902,
+     "model_calls": 14,
+     "model_s": 71.62,
+     "notes": [],
+     "other_s": -6.2,
+     "path": "live_N_p1/runs/r5_chair_N.change",
+     "per_tool": {
+      "inspect_manifest": {
+       "calls": 1,
+       "seconds": 0.1
+      },
+      "open_existing_asset": {
+       "calls": 1,
+       "seconds": 0.7
+      },
+      "render_preview": {
+       "calls": 1,
+       "seconds": 3.6
+      },
+      "run_command": {
+       "calls": 5,
+       "seconds": 1208.1
+      },
+      "view_file": {
+       "calls": 14,
+       "seconds": 0.3
+      }
+     },
+     "root": "live_N_p1",
+     "round": "r5",
+     "scope": null,
+     "scorecard": false,
+     "status": "crashed",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 539132,
+      "fresh": 319759,
+      "input": 853469,
+      "output": 2515,
+      "thinking": 2907
+     },
+     "tool_calls": 24,
+     "tool_calls_seen": 24,
+     "tool_s": 1212.84,
+     "triangles": null,
+     "wall_s": 1278.3
+    },
+    {
+     "agent_calls": 19,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "crate",
+     "cache_miss_input": 33552,
+     "cache_misses": 1,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 20807,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 693,
+       "seconds": 5.84,
+       "thinking": 284,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 6.2,
+       "cached": 20808,
+       "input": 32037,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 133,
+       "seconds": 5.56,
+       "thinking": 962,
+       "tools": [
+        "open_existing_asset"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 12.5,
+       "cached": 0,
+       "input": 33552,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 121,
+       "seconds": 3.19,
+       "thinking": 262,
+       "tools": [
+        "inspect_manifest",
+        "render_preview"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 20.3,
+       "cached": 33137,
+       "input": 40371,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 245,
+       "seconds": 3.91,
+       "thinking": 233,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 24.4,
+       "cached": 40372,
+       "input": 43601,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 87,
+       "seconds": 4.81,
+       "thinking": 179,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 29.3,
+       "cached": 41552,
+       "input": 44268,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 105,
+       "seconds": 2.32,
+       "thinking": 111,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 31.6,
+       "cached": 42219,
+       "input": 44850,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 202,
+       "seconds": 3.4,
+       "thinking": 159,
+       "tools": [
+        "query_region",
+        "query_region"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 35.2,
+       "cached": 42801,
+       "input": 46340,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 85,
+       "seconds": 3.1,
+       "thinking": 397,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 38.4,
+       "cached": 44291,
+       "input": 47149,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 91,
+       "seconds": 2.26,
+       "thinking": 178,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 40.7,
+       "cached": 46823,
+       "input": 50770,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 237,
+       "seconds": 5.42,
+       "thinking": 579,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 46.2,
+       "cached": 48721,
+       "input": 51709,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 164,
+       "seconds": 3.35,
+       "thinking": 69,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 49.7,
+       "cached": 49660,
+       "input": 52021,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 783,
+       "seconds": 7.19,
+       "thinking": 429,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 57.0,
+       "cached": 51943,
+       "input": 54834,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 890,
+       "seconds": 9.63,
+       "thinking": 1172,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 66.7,
+       "cached": 54835,
+       "input": 57357,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 602,
+       "seconds": 6.2,
+       "thinking": 688,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 73.0,
+       "cached": 55308,
+       "input": 58801,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1654,
+       "seconds": 50.95,
+       "thinking": 10844,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 124.6,
+       "cached": 58648,
+       "input": 71444,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 320,
+       "seconds": 4.07,
+       "thinking": 198,
+       "tools": [
+        "render_preview",
+        "session_status",
+        "query_region",
+        "query_region"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 133.6,
+       "cached": 71300,
+       "input": 78714,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 168,
+       "seconds": 3.97,
+       "thinking": 210,
+       "tools": [
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 137.7,
+       "cached": 78715,
+       "input": 81444,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 72,
+       "seconds": 8.99,
+       "thinking": 745,
+       "tools": [
+        "deliver_package"
+       ]
+      },
+      {
+       "agent": false,
+       "at_s": 195.6,
+       "cached": 0,
+       "input": 5438,
+       "miss": false,
+       "model": "gemini-4-neon",
+       "output": 400,
+       "seconds": 20.21,
+       "thinking": 1228,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 218.5,
+       "cached": 80269,
+       "input": 83187,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1072,
+       "seconds": 8.2,
+       "thinking": 787,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 1,
+     "checks": null,
+     "consistency": [
+      "agrees on 5 figures (record lacks fresh, cache_misses, cache_miss_input)"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": null,
+     "id": "r5_crate_N.change",
+     "kind": "change",
+     "largest_tool": {
+      "name": "deliver_package",
+      "seconds": 71.7
+     },
+     "letter": "N",
+     "miss_fresh_input": 33552,
+     "model_calls": 20,
+     "model_s": 142.36,
+     "notes": [],
+     "other_s": 26.8,
+     "path": "live_N_p1/runs/r5_crate_N.change",
+     "per_tool": {
+      "apply_scene_ir": {
+       "calls": 1,
+       "seconds": 0.6
+      },
+      "deliver_package": {
+       "calls": 1,
+       "seconds": 71.7
+      },
+      "inspect_manifest": {
+       "calls": 1,
+       "seconds": 0.1
+      },
+      "open_existing_asset": {
+       "calls": 1,
+       "seconds": 0.7
+      },
+      "query_region": {
+       "calls": 4,
+       "seconds": 9.7
+      },
+      "render_preview": {
+       "calls": 2,
+       "seconds": 9.3
+      },
+      "run_command": {
+       "calls": 6,
+       "seconds": 0.2
+      },
+      "session_status": {
+       "calls": 1,
+       "seconds": 4.7
+      },
+      "view_file": {
+       "calls": 15,
+       "seconds": 0.5
+      }
+     },
+     "root": "live_N_p1",
+     "round": "r5",
+     "scope": {
+      "added": 0,
+      "collateral": 0,
+      "on_target": 14,
+      "parts": [
+       65,
+       65
+      ],
+      "passed": true,
+      "removed": 0,
+      "triangles": [
+       2654,
+       2654
+      ],
+      "unchanged": 51
+     },
+     "scorecard": false,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 861402,
+      "fresh": 165130,
+      "input": 998694,
+      "output": 8124,
+      "thinking": 19714
+     },
+     "tool_calls": 32,
+     "tool_calls_seen": 32,
+     "tool_s": 83.29,
+     "triangles": null,
+     "wall_s": 252.5
+    },
+    {
+     "agent_calls": 18,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "hydrant",
+     "cache_miss_input": 147707,
+     "cache_misses": 2,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 20950,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 680,
+       "seconds": 5.94,
+       "thinking": 318,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 6.3,
+       "cached": 20951,
+       "input": 32206,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 208,
+       "seconds": 5.53,
+       "thinking": 886,
+       "tools": [
+        "view_file",
+        "open_existing_asset"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 12.6,
+       "cached": 0,
+       "input": 44225,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 121,
+       "seconds": 5.91,
+       "thinking": 472,
+       "tools": [
+        "inspect_manifest",
+        "render_preview"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 22.4,
+       "cached": 43809,
+       "input": 52396,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 176,
+       "seconds": 9.1,
+       "thinking": 926,
+       "tools": [
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 31.6,
+       "cached": 52397,
+       "input": 55072,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 87,
+       "seconds": 2.64,
+       "thinking": 121,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 34.3,
+       "cached": 53023,
+       "input": 55677,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 164,
+       "seconds": 6.52,
+       "thinking": 130,
+       "tools": [
+        "view_file",
+        "session_status"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 41.0,
+       "cached": 53628,
+       "input": 56525,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 101,
+       "seconds": 2.74,
+       "thinking": 167,
+       "tools": [
+        "query_region"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 43.8,
+       "cached": 54476,
+       "input": 57649,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 83,
+       "seconds": 5.19,
+       "thinking": 751,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 49.1,
+       "cached": 55600,
+       "input": 58809,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 225,
+       "seconds": 13.61,
+       "thinking": 273,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 62.8,
+       "cached": 56760,
+       "input": 59445,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 273,
+       "seconds": 11.53,
+       "thinking": 71,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 74.4,
+       "cached": 57396,
+       "input": 59916,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 95,
+       "seconds": 3.27,
+       "thinking": 202,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 77.8,
+       "cached": 59790,
+       "input": 70292,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 200,
+       "seconds": 8.29,
+       "thinking": 911,
+       "tools": [
+        "query_region",
+        "query_region"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 86.3,
+       "cached": 70293,
+       "input": 73150,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 372,
+       "seconds": 4.44,
+       "thinking": 236,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 91.5,
+       "cached": 73151,
+       "input": 76638,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 389,
+       "seconds": 21.21,
+       "thinking": 4133,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 113.4,
+       "cached": 76639,
+       "input": 83922,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1170,
+       "seconds": 37.78,
+       "thinking": 8341,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 152.2,
+       "cached": 83923,
+       "input": 93580,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 123,
+       "seconds": 4.92,
+       "thinking": 105,
+       "tools": [
+        "render_preview",
+        "session_status"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 160.9,
+       "cached": 93434,
+       "input": 100636,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 165,
+       "seconds": 6.28,
+       "thinking": 619,
+       "tools": [
+        "view_file",
+        "deliver_package"
+       ]
+      },
+      {
+       "agent": false,
+       "at_s": 204.3,
+       "cached": 0,
+       "input": 5384,
+       "miss": false,
+       "model": "gemini-4-neon",
+       "output": 491,
+       "seconds": 24.86,
+       "thinking": 1324,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 230.9,
+       "cached": 0,
+       "input": 103482,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 987,
+       "seconds": 21.99,
+       "thinking": 841,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 1,
+     "checks": null,
+     "consistency": [
+      "agrees on 5 figures (record lacks fresh, cache_misses, cache_miss_input)"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": null,
+     "id": "r5_hydrant_N.change",
+     "kind": "change",
+     "largest_tool": {
+      "name": "deliver_package",
+      "seconds": 63.7
+     },
+     "letter": "N",
+     "miss_fresh_input": 147707,
+     "model_calls": 19,
+     "model_s": 176.89,
+     "notes": [],
+     "other_s": 26.6,
+     "path": "live_N_p1/runs/r5_hydrant_N.change",
+     "per_tool": {
+      "apply_scene_ir": {
+       "calls": 1,
+       "seconds": 1.0
+      },
+      "deliver_package": {
+       "calls": 1,
+       "seconds": 63.7
+      },
+      "inspect_manifest": {
+       "calls": 1,
+       "seconds": 0.1
+      },
+      "open_existing_asset": {
+       "calls": 1,
+       "seconds": 0.7
+      },
+      "query_region": {
+       "calls": 3,
+       "seconds": 0.2
+      },
+      "render_preview": {
+       "calls": 2,
+       "seconds": 7.4
+      },
+      "run_command": {
+       "calls": 5,
+       "seconds": 1.4
+      },
+      "session_status": {
+       "calls": 2,
+       "seconds": 3.7
+      },
+      "view_file": {
+       "calls": 14,
+       "seconds": 0.5
+      }
+     },
+     "root": "live_N_p1",
+     "round": "r5",
+     "scope": {
+      "added": 0,
+      "collateral": 5,
+      "on_target": 10,
+      "parts": [
+       64,
+       64
+      ],
+      "passed": false,
+      "removed": 0,
+      "triangles": [
+       3433,
+       3433
+      ],
+      "unchanged": 49
+     },
+     "scorecard": false,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 905270,
+      "fresh": 281621,
+      "input": 1159954,
+      "output": 6110,
+      "thinking": 20827
+     },
+     "tool_calls": 30,
+     "tool_calls_seen": 30,
+     "tool_s": 74.99,
+     "triangles": null,
+     "wall_s": 278.5
+    }
+   ],
+   "notes": [],
+   "roots": [
+    "live_N_p1",
+    "live_N_main"
+   ],
+   "runs": [
+    {
+     "agent_calls": 13,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "chair",
+     "cache_miss_input": 0,
+     "cache_misses": 0,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 19722,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 495,
+       "seconds": 5.5,
+       "thinking": 574,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 5.7,
+       "cached": 19723,
+       "input": 30656,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 354,
+       "seconds": 4.19,
+       "thinking": 262,
+       "tools": [
+        "open_asset_session",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 10.8,
+       "cached": 30252,
+       "input": 32498,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1271,
+       "seconds": 28.22,
+       "thinking": 4060,
+       "tools": [
+        "apply_scene_ir",
+        "inspect_manifest"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 39.2,
+       "cached": 32187,
+       "input": 38018,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1472,
+       "seconds": 10.46,
+       "thinking": 910,
+       "tools": [
+        "apply_scene_ir",
+        "inspect_manifest"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 49.8,
+       "cached": 37934,
+       "input": 41176,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1625,
+       "seconds": 39.83,
+       "thinking": 5808,
+       "tools": [
+        "apply_scene_ir",
+        "inspect_manifest"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 90.0,
+       "cached": 41177,
+       "input": 49502,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1931,
+       "seconds": 25.5,
+       "thinking": 3755,
+       "tools": [
+        "apply_scene_ir",
+        "inspect_manifest",
+        "render_preview"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 119.2,
+       "cached": 49503,
+       "input": 63129,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 2339,
+       "seconds": 25.4,
+       "thinking": 2379,
+       "tools": [
+        "apply_scene_ir",
+        "inspect_manifest"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 144.7,
+       "cached": 63130,
+       "input": 68966,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 3281,
+       "seconds": 16.5,
+       "thinking": 758,
+       "tools": [
+        "apply_scene_ir",
+        "inspect_manifest",
+        "render_preview"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 165.7,
+       "cached": 68967,
+       "input": 80068,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 90,
+       "seconds": 3.97,
+       "thinking": 44,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 169.7,
+       "cached": 78019,
+       "input": 81378,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 499,
+       "seconds": 18.08,
+       "thinking": 1434,
+       "tools": [
+        "apply_scene_ir",
+        "session_status"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 188.8,
+       "cached": 81379,
+       "input": 83697,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 115,
+       "seconds": 5.63,
+       "thinking": 218,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 195.3,
+       "cached": 81648,
+       "input": 84176,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 74,
+       "seconds": 3.7,
+       "thinking": 141,
+       "tools": [
+        "deliver_package"
+       ]
+      },
+      {
+       "agent": false,
+       "at_s": 229.9,
+       "cached": 0,
+       "input": 6138,
+       "miss": false,
+       "model": "gemini-4-neon",
+       "output": 456,
+       "seconds": 17.44,
+       "thinking": 949,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 248.7,
+       "cached": 82127,
+       "input": 85196,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 960,
+       "seconds": 16.92,
+       "thinking": 2462,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 1,
+     "checks": {
+      "failed": [
+       "LOD files present and valid [lods]"
+      ],
+      "of": 11,
+      "passed": 10,
+      "unknown": 0
+     },
+     "consistency": [
+      "agrees on 5 figures (record lacks fresh, cache_misses, cache_miss_input)"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": 2,
+     "id": "r5_chair_N",
+     "kind": "",
+     "largest_tool": {
+      "name": "deliver_package",
+      "seconds": 49.6
+     },
+     "letter": "N",
+     "miss_fresh_input": 0,
+     "model_calls": 14,
+     "model_s": 203.9,
+     "notes": [],
+     "other_s": 24.9,
+     "path": "live_N_p1/runs/r5_chair_N",
+     "per_tool": {
+      "apply_scene_ir": {
+       "calls": 8,
+       "seconds": 4.0
+      },
+      "deliver_package": {
+       "calls": 1,
+       "seconds": 49.6
+      },
+      "inspect_manifest": {
+       "calls": 6,
+       "seconds": 2.2
+      },
+      "open_asset_session": {
+       "calls": 1,
+       "seconds": 0.7
+      },
+      "render_preview": {
+       "calls": 2,
+       "seconds": 7.9
+      },
+      "session_status": {
+       "calls": 1,
+       "seconds": 0.9
+      },
+      "view_file": {
+       "calls": 8,
+       "seconds": 1.8
+      }
+     },
+     "root": "live_N_p1",
+     "round": "r5",
+     "scorecard": true,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 666046,
+      "fresh": 136990,
+      "input": 764320,
+      "output": 14962,
+      "thinking": 23754
+     },
+     "tool_calls": 27,
+     "tool_calls_seen": 27,
+     "tool_s": 61.33,
+     "triangles": 3128,
+     "wall_s": 290.1
+    },
+    {
+     "agent_calls": 10,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "crate",
+     "cache_miss_input": 0,
+     "cache_misses": 0,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 19725,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 478,
+       "seconds": 3.91,
+       "thinking": 181,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 4.1,
+       "cached": 19726,
+       "input": 30233,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 352,
+       "seconds": 3.4,
+       "thinking": 200,
+       "tools": [
+        "view_file",
+        "view_file",
+        "open_asset_session"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 8.3,
+       "cached": 29928,
+       "input": 32004,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 935,
+       "seconds": 32.81,
+       "thinking": 6298,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 41.3,
+       "cached": 32005,
+       "input": 39348,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1325,
+       "seconds": 13.51,
+       "thinking": 2019,
+       "tools": [
+        "apply_scene_ir",
+        "inspect_manifest"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 55.2,
+       "cached": 39214,
+       "input": 43860,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1809,
+       "seconds": 18.76,
+       "thinking": 2886,
+       "tools": [
+        "apply_scene_ir",
+        "render_preview"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 79.0,
+       "cached": 43861,
+       "input": 54144,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 164,
+       "seconds": 2.32,
+       "thinking": 35,
+       "tools": [
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 81.4,
+       "cached": 54145,
+       "input": 56695,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 952,
+       "seconds": 13.36,
+       "thinking": 2170,
+       "tools": [
+        "apply_scene_ir",
+        "session_status"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 95.3,
+       "cached": 56696,
+       "input": 60173,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 78,
+       "seconds": 3.93,
+       "thinking": 530,
+       "tools": [
+        "render_preview"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 103.2,
+       "cached": 59984,
+       "input": 66208,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 183,
+       "seconds": 3.57,
+       "thinking": 174,
+       "tools": [
+        "view_file",
+        "deliver_package"
+       ]
+      },
+      {
+       "agent": false,
+       "at_s": 153.4,
+       "cached": 0,
+       "input": 6204,
+       "miss": false,
+       "model": "gemini-4-neon",
+       "output": 448,
+       "seconds": 22.64,
+       "thinking": 1422,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 178.2,
+       "cached": 66209,
+       "input": 68567,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1111,
+       "seconds": 9.84,
+       "thinking": 881,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 1,
+     "checks": {
+      "failed": [],
+      "of": 11,
+      "passed": 11,
+      "unknown": 0
+     },
+     "consistency": [
+      "agrees on 5 figures (record lacks fresh, cache_misses, cache_miss_input)"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": 2,
+     "id": "r5_crate_N",
+     "kind": "",
+     "largest_tool": {
+      "name": "deliver_package",
+      "seconds": 71.4
+     },
+     "letter": "N",
+     "miss_fresh_input": 0,
+     "model_calls": 11,
+     "model_s": 105.41,
+     "notes": [],
+     "other_s": 25.6,
+     "path": "live_N_p1/runs/r5_crate_N",
+     "per_tool": {
+      "apply_scene_ir": {
+       "calls": 4,
+       "seconds": 1.8
+      },
+      "deliver_package": {
+       "calls": 1,
+       "seconds": 71.4
+      },
+      "inspect_manifest": {
+       "calls": 1,
+       "seconds": 0.3
+      },
+      "open_asset_session": {
+       "calls": 1,
+       "seconds": 0.6
+      },
+      "render_preview": {
+       "calls": 2,
+       "seconds": 8.8
+      },
+      "session_status": {
+       "calls": 1,
+       "seconds": 0.5
+      },
+      "view_file": {
+       "calls": 10,
+       "seconds": 0.5
+      }
+     },
+     "root": "live_N_p1",
+     "round": "r5",
+     "scorecard": true,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 401768,
+      "fresh": 100024,
+      "input": 477161,
+      "output": 7835,
+      "thinking": 16796
+     },
+     "tool_calls": 20,
+     "tool_calls_seen": 20,
+     "tool_s": 82.2,
+     "triangles": 2654,
+     "wall_s": 213.2
+    },
+    {
+     "agent_calls": 14,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "hydrant",
+     "cache_miss_input": 68879,
+     "cache_misses": 1,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 19728,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 494,
+       "seconds": 5.39,
+       "thinking": 564,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 5.7,
+       "cached": 19729,
+       "input": 30651,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 467,
+       "seconds": 6.39,
+       "thinking": 453,
+       "tools": [
+        "open_asset_session",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 12.8,
+       "cached": 30342,
+       "input": 33117,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 2177,
+       "seconds": 26.94,
+       "thinking": 3784,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 39.9,
+       "cached": 32800,
+       "input": 39066,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1636,
+       "seconds": 10.05,
+       "thinking": 735,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 50.5,
+       "cached": 38957,
+       "input": 41620,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1919,
+       "seconds": 25.99,
+       "thinking": 2763,
+       "tools": [
+        "inspect_manifest",
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 77.4,
+       "cached": 41438,
+       "input": 47535,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1450,
+       "seconds": 41.1,
+       "thinking": 7114,
+       "tools": [
+        "apply_scene_ir",
+        "render_preview"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 123.2,
+       "cached": 47283,
+       "input": 62900,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 153,
+       "seconds": 7.7,
+       "thinking": 960,
+       "tools": [
+        "view_file",
+        "session_status"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 131.0,
+       "cached": 62901,
+       "input": 65375,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 560,
+       "seconds": 15.22,
+       "thinking": 2389,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 146.4,
+       "cached": 0,
+       "input": 68879,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 578,
+       "seconds": 10.4,
+       "thinking": 952,
+       "tools": [
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 156.8,
+       "cached": 65190,
+       "input": 71027,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 2051,
+       "seconds": 19.95,
+       "thinking": 1258,
+       "tools": [
+        "apply_scene_ir",
+        "render_preview"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 182.1,
+       "cached": 68880,
+       "input": 81445,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 304,
+       "seconds": 8.28,
+       "thinking": 706,
+       "tools": [
+        "apply_scene_ir",
+        "render_preview"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 195.3,
+       "cached": 81446,
+       "input": 89247,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 148,
+       "seconds": 4.06,
+       "thinking": 129,
+       "tools": [
+        "view_file",
+        "session_status"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 199.4,
+       "cached": 87198,
+       "input": 90886,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 85,
+       "seconds": 4.58,
+       "thinking": 270,
+       "tools": [
+        "deliver_package"
+       ]
+      },
+      {
+       "agent": false,
+       "at_s": 243.8,
+       "cached": 0,
+       "input": 6144,
+       "miss": false,
+       "model": "gemini-4-neon",
+       "output": 548,
+       "seconds": 25.88,
+       "thinking": 1402,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 271.2,
+       "cached": 88837,
+       "input": 92048,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 948,
+       "seconds": 9.49,
+       "thinking": 764,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 1,
+     "checks": {
+      "failed": [],
+      "of": 11,
+      "passed": 11,
+      "unknown": 0
+     },
+     "consistency": [
+      "agrees on 5 figures (record lacks fresh, cache_misses, cache_miss_input)"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": 2,
+     "id": "r5_hydrant_N",
+     "kind": "",
+     "largest_tool": {
+      "name": "deliver_package",
+      "seconds": 67.1
+     },
+     "letter": "N",
+     "miss_fresh_input": 68879,
+     "model_calls": 15,
+     "model_s": 195.54,
+     "notes": [],
+     "other_s": 26.2,
+     "path": "live_N_p1/runs/r5_hydrant_N",
+     "per_tool": {
+      "apply_scene_ir": {
+       "calls": 6,
+       "seconds": 4.8
+      },
+      "deliver_package": {
+       "calls": 1,
+       "seconds": 67.1
+      },
+      "inspect_manifest": {
+       "calls": 1,
+       "seconds": 0.1
+      },
+      "open_asset_session": {
+       "calls": 1,
+       "seconds": 0.6
+      },
+      "render_preview": {
+       "calls": 3,
+       "seconds": 14.6
+      },
+      "run_command": {
+       "calls": 2,
+       "seconds": 0.1
+      },
+      "session_status": {
+       "calls": 2,
+       "seconds": 0.1
+      },
+      "view_file": {
+       "calls": 10,
+       "seconds": 2.1
+      }
+     },
+     "root": "live_N_p1",
+     "round": "r5",
+     "scorecard": true,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 665001,
+      "fresh": 212428,
+      "input": 839668,
+      "output": 13518,
+      "thinking": 24243
+     },
+     "tool_calls": 26,
+     "tool_calls_seen": 26,
+     "tool_s": 84.41,
+     "triangles": 3433,
+     "wall_s": 306.1
+    },
+    {
+     "agent_calls": 11,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "chair",
+     "cache_miss_input": 0,
+     "cache_misses": 0,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 19726,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 503,
+       "seconds": 5.22,
+       "thinking": 224,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 5.5,
+       "cached": 19727,
+       "input": 30326,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 152,
+       "seconds": 3.09,
+       "thinking": 178,
+       "tools": [
+        "open_asset_session"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 9.1,
+       "cached": 28277,
+       "input": 31264,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1537,
+       "seconds": 62.24,
+       "thinking": 11247,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 71.8,
+       "cached": 31265,
+       "input": 44213,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 108,
+       "seconds": 3.39,
+       "thinking": 162,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 75.3,
+       "cached": 42164,
+       "input": 44791,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 65,
+       "seconds": 1.3,
+       "thinking": 55,
+       "tools": [
+        "inspect_manifest"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 76.7,
+       "cached": 42742,
+       "input": 45542,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 2521,
+       "seconds": 36.38,
+       "thinking": 6625,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 113.8,
+       "cached": 45543,
+       "input": 54894,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 128,
+       "seconds": 2.61,
+       "thinking": 69,
+       "tools": [
+        "render_preview",
+        "inspect_manifest"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 119.7,
+       "cached": 54689,
+       "input": 62983,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1640,
+       "seconds": 30.44,
+       "thinking": 5402,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 150.7,
+       "cached": 62984,
+       "input": 70159,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 578,
+       "seconds": 10.7,
+       "thinking": 1799,
+       "tools": [
+        "apply_scene_ir",
+        "render_preview",
+        "inspect_manifest"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 164.5,
+       "cached": 70017,
+       "input": 80551,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 95,
+       "seconds": 9.57,
+       "thinking": 658,
+       "tools": [
+        "deliver_package"
+       ]
+      },
+      {
+       "agent": false,
+       "at_s": 206.6,
+       "cached": 0,
+       "input": 6138,
+       "miss": false,
+       "model": "gemini-4-neon",
+       "output": 552,
+       "seconds": 19.71,
+       "thinking": 1071,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 227.6,
+       "cached": 79587,
+       "input": 82076,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 707,
+       "seconds": 8.85,
+       "thinking": 915,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 1,
+     "checks": {
+      "failed": [
+       "LOD files present and valid [lods]"
+      ],
+      "of": 11,
+      "passed": 10,
+      "unknown": 0
+     },
+     "consistency": [
+      "agrees on 5 figures (record lacks fresh, cache_misses, cache_miss_input)"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": 2,
+     "id": "r5_chair_N",
+     "kind": "",
+     "largest_tool": {
+      "name": "deliver_package",
+      "seconds": 53.5
+     },
+     "letter": "N",
+     "miss_fresh_input": 0,
+     "model_calls": 12,
+     "model_s": 173.79,
+     "notes": [],
+     "other_s": 24.9,
+     "path": "live_N_main/runs/r5_chair_N",
+     "per_tool": {
+      "apply_scene_ir": {
+       "calls": 4,
+       "seconds": 2.2
+      },
+      "deliver_package": {
+       "calls": 1,
+       "seconds": 53.5
+      },
+      "inspect_manifest": {
+       "calls": 3,
+       "seconds": 6.3
+      },
+      "open_asset_session": {
+       "calls": 1,
+       "seconds": 0.5
+      },
+      "render_preview": {
+       "calls": 2,
+       "seconds": 6.2
+      },
+      "view_file": {
+       "calls": 6,
+       "seconds": 0.4
+      }
+     },
+     "root": "live_N_main",
+     "round": "r5",
+     "scorecard": true,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 476995,
+      "fresh": 132659,
+      "input": 572663,
+      "output": 8586,
+      "thinking": 28405
+     },
+     "tool_calls": 17,
+     "tool_calls_seen": 17,
+     "tool_s": 62.77,
+     "triangles": 3050,
+     "wall_s": 261.5
+    },
+    {
+     "agent_calls": 13,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "crate",
+     "cache_miss_input": 0,
+     "cache_misses": 0,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 19734,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 494,
+       "seconds": 5.78,
+       "thinking": 251,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 6.1,
+       "cached": 19735,
+       "input": 30344,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 364,
+       "seconds": 6.73,
+       "thinking": 291,
+       "tools": [
+        "open_asset_session",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 13.7,
+       "cached": 29940,
+       "input": 32228,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 867,
+       "seconds": 40.13,
+       "thinking": 6842,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 54.0,
+       "cached": 31923,
+       "input": 40184,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1862,
+       "seconds": 17.35,
+       "thinking": 1855,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 72.3,
+       "cached": 39936,
+       "input": 44205,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1780,
+       "seconds": 36.73,
+       "thinking": 4169,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 110.4,
+       "cached": 43902,
+       "input": 50709,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 313,
+       "seconds": 6.77,
+       "thinking": 777,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 117.9,
+       "cached": 48660,
+       "input": 52151,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 326,
+       "seconds": 3.69,
+       "thinking": 331,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 122.2,
+       "cached": 50102,
+       "input": 52955,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 120,
+       "seconds": 2.66,
+       "thinking": 72,
+       "tools": [
+        "render_preview",
+        "session_status"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 128.8,
+       "cached": 52809,
+       "input": 60099,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 89,
+       "seconds": 5.79,
+       "thinking": 54,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 134.7,
+       "cached": 58050,
+       "input": 61418,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 265,
+       "seconds": 10.89,
+       "thinking": 1778,
+       "tools": [
+        "apply_scene_ir",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 146.1,
+       "cached": 61419,
+       "input": 63926,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 123,
+       "seconds": 3.59,
+       "thinking": 258,
+       "tools": [
+        "render_preview",
+        "inspect_manifest"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 153.7,
+       "cached": 63609,
+       "input": 72055,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 167,
+       "seconds": 6.03,
+       "thinking": 662,
+       "tools": [
+        "view_file",
+        "deliver_package"
+       ]
+      },
+      {
+       "agent": false,
+       "at_s": 211.9,
+       "cached": 0,
+       "input": 6204,
+       "miss": false,
+       "model": "gemini-4-neon",
+       "output": 686,
+       "seconds": 17.53,
+       "thinking": 462,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 232.5,
+       "cached": 72056,
+       "input": 74890,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1211,
+       "seconds": 9.72,
+       "thinking": 543,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 1,
+     "checks": {
+      "failed": [],
+      "of": 11,
+      "passed": 11,
+      "unknown": 0
+     },
+     "consistency": [
+      "agrees on 5 figures (record lacks fresh, cache_misses, cache_miss_input)"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": 2,
+     "id": "r5_crate_N",
+     "kind": "",
+     "largest_tool": {
+      "name": "deliver_package",
+      "seconds": 72.7
+     },
+     "letter": "N",
+     "miss_fresh_input": 0,
+     "model_calls": 14,
+     "model_s": 155.86,
+     "notes": [],
+     "other_s": 25.5,
+     "path": "live_N_main/runs/r5_crate_N",
+     "per_tool": {
+      "apply_scene_ir": {
+       "calls": 6,
+       "seconds": 4.0
+      },
+      "deliver_package": {
+       "calls": 1,
+       "seconds": 72.7
+      },
+      "inspect_manifest": {
+       "calls": 1,
+       "seconds": 3.9
+      },
+      "open_asset_session": {
+       "calls": 1,
+       "seconds": 0.7
+      },
+      "render_preview": {
+       "calls": 2,
+       "seconds": 7.8
+      },
+      "session_status": {
+       "calls": 1,
+       "seconds": 3.9
+      },
+      "view_file": {
+       "calls": 10,
+       "seconds": 2.3
+      }
+     },
+     "root": "live_N_main",
+     "round": "r5",
+     "scorecard": true,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 572141,
+      "fresh": 115973,
+      "input": 661102,
+      "output": 8667,
+      "thinking": 18345
+     },
+     "tool_calls": 22,
+     "tool_calls_seen": 22,
+     "tool_s": 85.74,
+     "triangles": 2890,
+     "wall_s": 267.1
+    },
+    {
+     "agent_calls": 12,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "hydrant",
+     "cache_miss_input": 0,
+     "cache_misses": 0,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 19721,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 577,
+       "seconds": 5.05,
+       "thinking": 391,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 5.4,
+       "cached": 19722,
+       "input": 31320,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 154,
+       "seconds": 3.32,
+       "thinking": 272,
+       "tools": [
+        "open_asset_session"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 9.2,
+       "cached": 29271,
+       "input": 32356,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 898,
+       "seconds": 31.45,
+       "thinking": 6045,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 40.9,
+       "cached": 32357,
+       "input": 39388,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1909,
+       "seconds": 15.19,
+       "thinking": 1841,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 56.7,
+       "cached": 39292,
+       "input": 43440,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1470,
+       "seconds": 25.42,
+       "thinking": 4786,
+       "tools": [
+        "apply_scene_ir"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 83.5,
+       "cached": 43139,
+       "input": 49960,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1576,
+       "seconds": 15.87,
+       "thinking": 1841,
+       "tools": [
+        "apply_scene_ir",
+        "render_preview"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 104.6,
+       "cached": 49697,
+       "input": 59289,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 167,
+       "seconds": 6.46,
+       "thinking": 687,
+       "tools": [
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 111.2,
+       "cached": 59290,
+       "input": 62495,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1247,
+       "seconds": 22.16,
+       "thinking": 3336,
+       "tools": [
+        "apply_scene_ir",
+        "render_preview"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 137.8,
+       "cached": 62496,
+       "input": 73864,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 92,
+       "seconds": 7.65,
+       "thinking": 386,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 145.6,
+       "cached": 71815,
+       "input": 75518,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 508,
+       "seconds": 10.83,
+       "thinking": 1568,
+       "tools": [
+        "apply_scene_ir",
+        "inspect_manifest"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 158.3,
+       "cached": 75519,
+       "input": 78727,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 104,
+       "seconds": 3.43,
+       "thinking": 239,
+       "tools": [
+        "deliver_package"
+       ]
+      },
+      {
+       "agent": false,
+       "at_s": 196.8,
+       "cached": 0,
+       "input": 6144,
+       "miss": false,
+       "model": "gemini-4-neon",
+       "output": 559,
+       "seconds": 23.93,
+       "thinking": 1455,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 222.2,
+       "cached": 77781,
+       "input": 79883,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 922,
+       "seconds": 9.63,
+       "thinking": 835,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 1,
+     "checks": {
+      "failed": [],
+      "of": 11,
+      "passed": 11,
+      "unknown": 0
+     },
+     "consistency": [
+      "agrees on 5 figures (record lacks fresh, cache_misses, cache_miss_input)"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": 2,
+     "id": "r5_hydrant_N",
+     "kind": "",
+     "largest_tool": {
+      "name": "deliver_package",
+      "seconds": 60.4
+     },
+     "letter": "N",
+     "miss_fresh_input": 0,
+     "model_calls": 13,
+     "model_s": 156.46,
+     "notes": [],
+     "other_s": 26.0,
+     "path": "live_N_main/runs/r5_hydrant_N",
+     "per_tool": {
+      "apply_scene_ir": {
+       "calls": 6,
+       "seconds": 6.0
+      },
+      "deliver_package": {
+       "calls": 1,
+       "seconds": 60.4
+      },
+      "inspect_manifest": {
+       "calls": 1,
+       "seconds": 1.8
+      },
+      "open_asset_session": {
+       "calls": 1,
+       "seconds": 0.5
+      },
+      "render_preview": {
+       "calls": 2,
+       "seconds": 9.6
+      },
+      "view_file": {
+       "calls": 9,
+       "seconds": 0.3
+      }
+     },
+     "root": "live_N_main",
+     "round": "r5",
+     "scorecard": true,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 560379,
+      "fresh": 125591,
+      "input": 652105,
+      "output": 10183,
+      "thinking": 23682
+     },
+     "tool_calls": 20,
+     "tool_calls_seen": 20,
+     "tool_s": 74.68,
+     "triangles": 3282,
+     "wall_s": 257.1
+    }
+   ]
+  },
+  "S": {
+   "change_runs": [
+    {
+     "agent_calls": 9,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "chair",
+     "cache_miss_input": 0,
+     "cache_misses": 0,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 21360,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 443,
+       "seconds": 3.65,
+       "thinking": 148,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 3.9,
+       "cached": 21361,
+       "input": 35328,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 222,
+       "seconds": 5.87,
+       "thinking": 440,
+       "tools": [
+        "view_file",
+        "view_file",
+        "list_sessions"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 9.9,
+       "cached": 35329,
+       "input": 47175,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 325,
+       "seconds": 6.61,
+       "thinking": 699,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 16.6,
+       "cached": 47100,
+       "input": 58377,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 137,
+       "seconds": 9.79,
+       "thinking": 1644,
+       "tools": [
+        "open_existing_asset"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 26.6,
+       "cached": 57961,
+       "input": 60328,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 248,
+       "seconds": 4.67,
+       "thinking": 469,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 31.3,
+       "cached": 58279,
+       "input": 61453,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 120,
+       "seconds": 2.8,
+       "thinking": 71,
+       "tools": [
+        "run_build"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 41.0,
+       "cached": 61046,
+       "input": 67085,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 86,
+       "seconds": 3.85,
+       "thinking": 250,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 44.9,
+       "cached": 65036,
+       "input": 68597,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 76,
+       "seconds": 3.18,
+       "thinking": 59,
+       "tools": [
+        "deliver_package"
+       ]
+      },
+      {
+       "agent": false,
+       "at_s": 77.7,
+       "cached": 0,
+       "input": 6141,
+       "miss": false,
+       "model": "gemini-4-neon",
+       "output": 548,
+       "seconds": 22.45,
+       "thinking": 1444,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 101.0,
+       "cached": 67422,
+       "input": 69608,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 798,
+       "seconds": 4.88,
+       "thinking": 146,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 1,
+     "checks": null,
+     "consistency": [
+      "agrees on 8 figures"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": null,
+     "id": "r5_chair_S.change",
+     "kind": "change",
+     "largest_tool": {
+      "name": "deliver_package",
+      "seconds": 52.9
+     },
+     "letter": "S",
+     "miss_fresh_input": 0,
+     "model_calls": 10,
+     "model_s": 45.3,
+     "notes": [],
+     "other_s": 25.7,
+     "path": "live_S_p1/runs/r5_chair_S.change",
+     "per_tool": {
+      "deliver_package": {
+       "calls": 1,
+       "seconds": 52.9
+      },
+      "edit_file": {
+       "calls": 1,
+       "seconds": 0.0
+      },
+      "list_sessions": {
+       "calls": 1,
+       "seconds": 0.1
+      },
+      "open_existing_asset": {
+       "calls": 1,
+       "seconds": 0.1
+      },
+      "run_build": {
+       "calls": 1,
+       "seconds": 6.8
+      },
+      "view_file": {
+       "calls": 12,
+       "seconds": 0.5
+      }
+     },
+     "root": "live_S_p1",
+     "round": "r5",
+     "scope": {
+      "added": 0,
+      "collateral": 6,
+      "on_target": 1,
+      "parts": [
+       23,
+       23
+      ],
+      "passed": false,
+      "removed": 0,
+      "triangles": [
+       4072,
+       4072
+      ],
+      "unchanged": 16
+     },
+     "scorecard": false,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 413534,
+      "fresh": 90291,
+      "input": 495452,
+      "output": 3003,
+      "thinking": 5370
+     },
+     "tool_calls": 17,
+     "tool_calls_seen": 17,
+     "tool_s": 60.2,
+     "triangles": null,
+     "wall_s": 131.2
+    },
+    {
+     "agent_calls": 9,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "crate",
+     "cache_miss_input": 69032,
+     "cache_misses": 1,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 19243,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 312,
+       "seconds": 3.84,
+       "thinking": 199,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 4.0,
+       "cached": 19244,
+       "input": 31427,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 198,
+       "seconds": 1.79,
+       "thinking": 54,
+       "tools": [
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 5.8,
+       "cached": 29378,
+       "input": 32487,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 186,
+       "seconds": 2.0,
+       "thinking": 156,
+       "tools": [
+        "list_sessions",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 7.9,
+       "cached": 32228,
+       "input": 43278,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 162,
+       "seconds": 5.18,
+       "thinking": 687,
+       "tools": [
+        "open_existing_asset",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 13.3,
+       "cached": 43056,
+       "input": 50534,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 2266,
+       "seconds": 28.79,
+       "thinking": 4951,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 42.1,
+       "cached": 50535,
+       "input": 59904,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 111,
+       "seconds": 2.96,
+       "thinking": 66,
+       "tools": [
+        "run_build"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 55.5,
+       "cached": 59905,
+       "input": 66123,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 89,
+       "seconds": 4.91,
+       "thinking": 400,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 60.5,
+       "cached": 64074,
+       "input": 67788,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 70,
+       "seconds": 3.78,
+       "thinking": 232,
+       "tools": [
+        "deliver_package"
+       ]
+      },
+      {
+       "agent": false,
+       "at_s": 113.5,
+       "cached": 0,
+       "input": 6215,
+       "miss": false,
+       "model": "gemini-4-neon",
+       "output": 449,
+       "seconds": 27.97,
+       "thinking": 1455,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 144.1,
+       "cached": 0,
+       "input": 69032,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 994,
+       "seconds": 10.97,
+       "thinking": 374,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 1,
+     "checks": null,
+     "consistency": [
+      "agrees on 8 figures"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": null,
+     "id": "r5_crate_S.change",
+     "kind": "change",
+     "largest_tool": {
+      "name": "deliver_package",
+      "seconds": 79.7
+     },
+     "letter": "S",
+     "miss_fresh_input": 69032,
+     "model_calls": 10,
+     "model_s": 64.22,
+     "notes": [],
+     "other_s": 25.7,
+     "path": "live_S_p1/runs/r5_crate_S.change",
+     "per_tool": {
+      "deliver_package": {
+       "calls": 1,
+       "seconds": 79.7
+      },
+      "edit_file": {
+       "calls": 1,
+       "seconds": 0.0
+      },
+      "list_sessions": {
+       "calls": 1,
+       "seconds": 0.0
+      },
+      "open_existing_asset": {
+       "calls": 1,
+       "seconds": 0.1
+      },
+      "run_build": {
+       "calls": 1,
+       "seconds": 10.4
+      },
+      "view_file": {
+       "calls": 10,
+       "seconds": 0.3
+      }
+     },
+     "root": "live_S_p1",
+     "round": "r5",
+     "scope": {
+      "added": 0,
+      "collateral": 0,
+      "on_target": 16,
+      "parts": [
+       70,
+       70
+      ],
+      "passed": true,
+      "removed": 0,
+      "triangles": [
+       2784,
+       2784
+      ],
+      "unchanged": 54
+     },
+     "scorecard": false,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 298420,
+      "fresh": 161022,
+      "input": 446031,
+      "output": 4837,
+      "thinking": 8574
+     },
+     "tool_calls": 15,
+     "tool_calls_seen": 15,
+     "tool_s": 90.44,
+     "triangles": null,
+     "wall_s": 180.4
+    },
+    {
+     "agent_calls": 12,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "hydrant",
+     "cache_miss_input": 0,
+     "cache_misses": 0,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 20597,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 642,
+       "seconds": 4.31,
+       "thinking": 112,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 4.7,
+       "cached": 20598,
+       "input": 33895,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 382,
+       "seconds": 11.12,
+       "thinking": 239,
+       "tools": [
+        "list_sessions",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 16.0,
+       "cached": 33480,
+       "input": 48771,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 111,
+       "seconds": 9.63,
+       "thinking": 691,
+       "tools": [
+        "open_existing_asset"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 25.7,
+       "cached": 46798,
+       "input": 49712,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 134,
+       "seconds": 9.45,
+       "thinking": 138,
+       "tools": [
+        "open_existing_asset"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 35.3,
+       "cached": 47663,
+       "input": 50154,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 62,
+       "seconds": 5.65,
+       "thinking": 162,
+       "tools": [
+        "list_sessions"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 41.1,
+       "cached": 48105,
+       "input": 50454,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 989,
+       "seconds": 36.99,
+       "thinking": 8018,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 78.1,
+       "cached": 50379,
+       "input": 60432,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 583,
+       "seconds": 4.87,
+       "thinking": 189,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 83.1,
+       "cached": 59462,
+       "input": 61696,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 242,
+       "seconds": 2.86,
+       "thinking": 164,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 86.0,
+       "cached": 59647,
+       "input": 62541,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 114,
+       "seconds": 1.65,
+       "thinking": 70,
+       "tools": [
+        "run_build"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 95.0,
+       "cached": 62103,
+       "input": 69551,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 70,
+       "seconds": 9.02,
+       "thinking": 889,
+       "tools": [
+        "deliver_package"
+       ]
+      },
+      {
+       "agent": false,
+       "at_s": 151.3,
+       "cached": 0,
+       "input": 6144,
+       "miss": false,
+       "model": "gemini-4-neon",
+       "output": 546,
+       "seconds": 22.65,
+       "thinking": 1530,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 175.6,
+       "cached": 67502,
+       "input": 71407,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 105,
+       "seconds": 12.37,
+       "thinking": 164,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 188.0,
+       "cached": 70511,
+       "input": 72852,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 939,
+       "seconds": 11.51,
+       "thinking": 306,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 1,
+     "checks": null,
+     "consistency": [
+      "agrees on 8 figures"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": null,
+     "id": "r5_hydrant_S.change",
+     "kind": "change",
+     "largest_tool": {
+      "name": "deliver_package",
+      "seconds": 71.5
+     },
+     "letter": "S",
+     "miss_fresh_input": 0,
+     "model_calls": 13,
+     "model_s": 119.43,
+     "notes": [],
+     "other_s": 25.2,
+     "path": "live_S_p1/runs/r5_hydrant_S.change",
+     "per_tool": {
+      "deliver_package": {
+       "calls": 1,
+       "seconds": 71.5
+      },
+      "edit_file": {
+       "calls": 3,
+       "seconds": 0.1
+      },
+      "list_sessions": {
+       "calls": 2,
+       "seconds": 0.1
+      },
+      "open_existing_asset": {
+       "calls": 2,
+       "seconds": 0.2
+      },
+      "run_build": {
+       "calls": 1,
+       "seconds": 7.3
+      },
+      "view_file": {
+       "calls": 12,
+       "seconds": 0.9
+      }
+     },
+     "root": "live_S_p1",
+     "round": "r5",
+     "scope": {
+      "added": 0,
+      "collateral": 7,
+      "on_target": 9,
+      "parts": [
+       54,
+       54
+      ],
+      "passed": false,
+      "removed": 0,
+      "triangles": [
+       3912,
+       3912
+      ],
+      "unchanged": 38
+     },
+     "scorecard": false,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 566248,
+      "fresh": 109549,
+      "input": 658206,
+      "output": 4919,
+      "thinking": 12672
+     },
+     "tool_calls": 21,
+     "tool_calls_seen": 21,
+     "tool_s": 79.54,
+     "triangles": null,
+     "wall_s": 224.2
+    }
+   ],
+   "notes": [],
+   "roots": [
+    "live_S_p1"
+   ],
+   "runs": [
+    {
+     "agent_calls": 16,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "chair",
+     "cache_miss_input": 0,
+     "cache_misses": 0,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 17478,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 207,
+       "seconds": 2.88,
+       "thinking": 185,
+       "tools": [
+        "view_file",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 3.0,
+       "cached": 17479,
+       "input": 23035,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 414,
+       "seconds": 2.81,
+       "thinking": 78,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 5.9,
+       "cached": 23036,
+       "input": 25538,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 5956,
+       "seconds": 56.62,
+       "thinking": 6760,
+       "tools": [
+        "write_to_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 62.6,
+       "cached": 25120,
+       "input": 38366,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 129,
+       "seconds": 2.83,
+       "thinking": 65,
+       "tools": [
+        "run_build"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 66.6,
+       "cached": 36317,
+       "input": 38746,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 832,
+       "seconds": 8.82,
+       "thinking": 599,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 75.5,
+       "cached": 38561,
+       "input": 40865,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 129,
+       "seconds": 2.04,
+       "thinking": 12,
+       "tools": [
+        "run_build"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 78.7,
+       "cached": 38816,
+       "input": 41192,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 79,
+       "seconds": 6.08,
+       "thinking": 612,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 84.8,
+       "cached": 41007,
+       "input": 47110,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 7394,
+       "seconds": 24.09,
+       "thinking": 89,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 109.0,
+       "cached": 47111,
+       "input": 56135,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 129,
+       "seconds": 2.84,
+       "thinking": 11,
+       "tools": [
+        "run_build"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 118.7,
+       "cached": 56136,
+       "input": 61729,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 92,
+       "seconds": 2.28,
+       "thinking": 28,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 121.0,
+       "cached": 59680,
+       "input": 63025,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 6230,
+       "seconds": 30.2,
+       "thinking": 1678,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 151.3,
+       "cached": 63026,
+       "input": 75212,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 119,
+       "seconds": 2.58,
+       "thinking": 17,
+       "tools": [
+        "run_build"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 159.1,
+       "cached": 75213,
+       "input": 80659,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 84,
+       "seconds": 2.57,
+       "thinking": 10,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 161.8,
+       "cached": 78610,
+       "input": 81929,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 72,
+       "seconds": 4.36,
+       "thinking": 425,
+       "tools": [
+        "deliver_package"
+       ]
+      },
+      {
+       "agent": false,
+       "at_s": 195.2,
+       "cached": 0,
+       "input": 6141,
+       "miss": false,
+       "model": "gemini-4-neon",
+       "output": 551,
+       "seconds": 23.79,
+       "thinking": 1138,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 219.9,
+       "cached": 80754,
+       "input": 83214,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 109,
+       "seconds": 5.09,
+       "thinking": 511,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 225.1,
+       "cached": 82427,
+       "input": 85010,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 794,
+       "seconds": 8.23,
+       "thinking": 835,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 1,
+     "checks": {
+      "failed": [],
+      "of": 11,
+      "passed": 11,
+      "unknown": 0
+     },
+     "consistency": [
+      "agrees on 8 figures"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": 2,
+     "id": "r5_chair_S",
+     "kind": "",
+     "largest_tool": {
+      "name": "deliver_package",
+      "seconds": 53.7
+     },
+     "letter": "S",
+     "miss_fresh_input": 0,
+     "model_calls": 17,
+     "model_s": 164.32,
+     "notes": [],
+     "other_s": 25.8,
+     "path": "live_S_p1/runs/r5_chair_S",
+     "per_tool": {
+      "create_file": {
+       "calls": 1,
+       "seconds": 0.0
+      },
+      "deliver_package": {
+       "calls": 1,
+       "seconds": 53.7
+      },
+      "edit_file": {
+       "calls": 3,
+       "seconds": 0.1
+      },
+      "run_build": {
+       "calls": 4,
+       "seconds": 14.1
+      },
+      "run_command": {
+       "calls": 1,
+       "seconds": 0.1
+      },
+      "view_file": {
+       "calls": 9,
+       "seconds": 0.2
+      }
+     },
+     "root": "live_S_p1",
+     "round": "r5",
+     "scorecard": true,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 763293,
+      "fresh": 138464,
+      "input": 865384,
+      "output": 23320,
+      "thinking": 13053
+     },
+     "tool_calls": 19,
+     "tool_calls_seen": 19,
+     "tool_s": 68.11,
+     "triangles": 4072,
+     "wall_s": 258.2
+    },
+    {
+     "agent_calls": 14,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "crate",
+     "cache_miss_input": 59129,
+     "cache_misses": 1,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 17478,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 337,
+       "seconds": 3.18,
+       "thinking": 74,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 3.4,
+       "cached": 17479,
+       "input": 23548,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 4230,
+       "seconds": 39.63,
+       "thinking": 3950,
+       "tools": [
+        "write_to_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 43.1,
+       "cached": 23298,
+       "input": 31841,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 116,
+       "seconds": 6.44,
+       "thinking": 70,
+       "tools": [
+        "run_build"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 50.1,
+       "cached": 29792,
+       "input": 32192,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 413,
+       "seconds": 9.12,
+       "thinking": 278,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 59.3,
+       "cached": 30143,
+       "input": 33226,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 116,
+       "seconds": 2.02,
+       "thinking": 12,
+       "tools": [
+        "run_build"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 61.9,
+       "cached": 31177,
+       "input": 33487,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1155,
+       "seconds": 8.54,
+       "thinking": 392,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 70.5,
+       "cached": 31438,
+       "input": 35388,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 116,
+       "seconds": 1.89,
+       "thinking": 11,
+       "tools": [
+        "run_build"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 82.0,
+       "cached": 35035,
+       "input": 41455,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 90,
+       "seconds": 3.13,
+       "thinking": 69,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 85.2,
+       "cached": 39406,
+       "input": 42790,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 4569,
+       "seconds": 26.32,
+       "thinking": 1616,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 111.6,
+       "cached": 42791,
+       "input": 50549,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 116,
+       "seconds": 2.18,
+       "thinking": 25,
+       "tools": [
+        "run_build"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 123.1,
+       "cached": 50550,
+       "input": 56604,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 89,
+       "seconds": 4.02,
+       "thinking": 125,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 127.2,
+       "cached": 54555,
+       "input": 57994,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 91,
+       "seconds": 17.19,
+       "thinking": 191,
+       "tools": [
+        "deliver_package"
+       ]
+      },
+      {
+       "agent": false,
+       "at_s": 191.7,
+       "cached": 0,
+       "input": 6215,
+       "miss": false,
+       "model": "gemini-4-neon",
+       "output": 448,
+       "seconds": 17.01,
+       "thinking": 596,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 211.3,
+       "cached": 0,
+       "input": 59129,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 111,
+       "seconds": 6.08,
+       "thinking": 396,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 217.5,
+       "cached": 58277,
+       "input": 60812,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 996,
+       "seconds": 11.54,
+       "thinking": 1071,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 1,
+     "checks": {
+      "failed": [],
+      "of": 11,
+      "passed": 11,
+      "unknown": 0
+     },
+     "consistency": [
+      "agrees on 8 figures"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": 2,
+     "id": "r5_crate_S",
+     "kind": "",
+     "largest_tool": {
+      "name": "deliver_package",
+      "seconds": 66.9
+     },
+     "letter": "S",
+     "miss_fresh_input": 59129,
+     "model_calls": 15,
+     "model_s": 141.28,
+     "notes": [],
+     "other_s": 26.0,
+     "path": "live_S_p1/runs/r5_crate_S",
+     "per_tool": {
+      "create_file": {
+       "calls": 1,
+       "seconds": 0.0
+      },
+      "deliver_package": {
+       "calls": 1,
+       "seconds": 66.9
+      },
+      "edit_file": {
+       "calls": 3,
+       "seconds": 0.1
+      },
+      "run_build": {
+       "calls": 4,
+       "seconds": 19.8
+      },
+      "run_command": {
+       "calls": 1,
+       "seconds": 0.1
+      },
+      "view_file": {
+       "calls": 6,
+       "seconds": 0.2
+      }
+     },
+     "root": "live_S_p1",
+     "round": "r5",
+     "scorecard": true,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 443941,
+      "fresh": 160636,
+      "input": 582708,
+      "output": 12993,
+      "thinking": 8876
+     },
+     "tool_calls": 16,
+     "tool_calls_seen": 16,
+     "tool_s": 86.91,
+     "triangles": 2784,
+     "wall_s": 254.2
+    },
+    {
+     "agent_calls": 11,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "hydrant",
+     "cache_miss_input": 36426,
+     "cache_misses": 1,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 17474,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 360,
+       "seconds": 4.98,
+       "thinking": 121,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 5.2,
+       "cached": 17475,
+       "input": 23729,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 4573,
+       "seconds": 59.56,
+       "thinking": 8012,
+       "tools": [
+        "write_to_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 64.8,
+       "cached": 0,
+       "input": 36426,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 116,
+       "seconds": 2.65,
+       "thinking": 73,
+       "tools": [
+        "run_build"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 68.2,
+       "cached": 23366,
+       "input": 36808,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 6804,
+       "seconds": 40.11,
+       "thinking": 1086,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 108.4,
+       "cached": 36616,
+       "input": 47918,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 116,
+       "seconds": 7.09,
+       "thinking": 12,
+       "tools": [
+        "run_build"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 123.1,
+       "cached": 47919,
+       "input": 54863,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 5747,
+       "seconds": 34.45,
+       "thinking": 2699,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 157.7,
+       "cached": 54864,
+       "input": 65636,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 118,
+       "seconds": 3.02,
+       "thinking": 17,
+       "tools": [
+        "run_build"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 167.1,
+       "cached": 65637,
+       "input": 72447,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1275,
+       "seconds": 9.42,
+       "thinking": 671,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 176.6,
+       "cached": 72448,
+       "input": 74949,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 115,
+       "seconds": 2.17,
+       "thinking": 19,
+       "tools": [
+        "run_build"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 185.3,
+       "cached": 74950,
+       "input": 81759,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 74,
+       "seconds": 11.06,
+       "thinking": 1982,
+       "tools": [
+        "deliver_package"
+       ]
+      },
+      {
+       "agent": false,
+       "at_s": 241.5,
+       "cached": 0,
+       "input": 6144,
+       "miss": false,
+       "model": "gemini-4-neon",
+       "output": 453,
+       "seconds": 22.96,
+       "thinking": 1403,
+       "tools": []
+      },
+      {
+       "agent": true,
+       "at_s": 266.0,
+       "cached": 81760,
+       "input": 84633,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1036,
+       "seconds": 20.66,
+       "thinking": 1139,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 1,
+     "checks": {
+      "failed": [],
+      "of": 11,
+      "passed": 11,
+      "unknown": 0
+     },
+     "consistency": [
+      "agrees on 8 figures"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": 2,
+     "id": "r5_hydrant_S",
+     "kind": "",
+     "largest_tool": {
+      "name": "deliver_package",
+      "seconds": 69.6
+     },
+     "letter": "S",
+     "miss_fresh_input": 36426,
+     "model_calls": 12,
+     "model_s": 195.17,
+     "notes": [],
+     "other_s": 26.4,
+     "path": "live_S_p1/runs/r5_hydrant_S",
+     "per_tool": {
+      "create_file": {
+       "calls": 1,
+       "seconds": 0.0
+      },
+      "deliver_package": {
+       "calls": 1,
+       "seconds": 69.6
+      },
+      "edit_file": {
+       "calls": 3,
+       "seconds": 0.1
+      },
+      "run_build": {
+       "calls": 4,
+       "seconds": 21.1
+      },
+      "run_command": {
+       "calls": 1,
+       "seconds": 0.1
+      },
+      "view_file": {
+       "calls": 3,
+       "seconds": 0.2
+      }
+     },
+     "root": "live_S_p1",
+     "round": "r5",
+     "scorecard": true,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 475035,
+      "fresh": 165772,
+      "input": 602786,
+      "output": 20787,
+      "thinking": 17234
+     },
+     "tool_calls": 13,
+     "tool_calls_seen": 13,
+     "tool_s": 90.99,
+     "triangles": 3912,
+     "wall_s": 312.6
+    }
+   ]
+  },
+  "V": {
+   "change_runs": [
+    {
+     "agent_calls": 9,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "chair",
+     "cache_miss_input": 38804,
+     "cache_misses": 1,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 13360,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 417,
+       "seconds": 4.22,
+       "thinking": 102,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 4.3,
+       "cached": 13361,
+       "input": 36700,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 133,
+       "seconds": 26.76,
+       "thinking": 1171,
+       "tools": [
+        "get_scene_info",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 36.8,
+       "cached": 0,
+       "input": 38804,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 255,
+       "seconds": 87.06,
+       "thinking": 3648,
+       "tools": [
+        "execute_blender_code",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 127.3,
+       "cached": 38640,
+       "input": 43079,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 101,
+       "seconds": 1.59,
+       "thinking": 74,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 129.0,
+       "cached": 41030,
+       "input": 44430,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 416,
+       "seconds": 35.0,
+       "thinking": 5442,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 164.1,
+       "cached": 44431,
+       "input": 50815,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 100,
+       "seconds": 2.79,
+       "thinking": 114,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 202.0,
+       "cached": 50289,
+       "input": 52341,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 292,
+       "seconds": 5.22,
+       "thinking": 291,
+       "tools": [
+        "get_scene_info",
+        "get_viewport_screenshot",
+        "get_viewport_screenshot",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 218.8,
+       "cached": 51030,
+       "input": 54360,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 369,
+       "seconds": 3.85,
+       "thinking": 30,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 223.0,
+       "cached": 54195,
+       "input": 58634,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 709,
+       "seconds": 7.58,
+       "thinking": 351,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 0,
+     "checks": null,
+     "consistency": [
+      "agrees on 5 figures (record lacks fresh, cache_misses, cache_miss_input)"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": null,
+     "id": "r5_chair_V.change",
+     "kind": "change",
+     "largest_tool": {
+      "name": "execute_blender_code",
+      "seconds": 35.1
+     },
+     "letter": "V",
+     "miss_fresh_input": 38804,
+     "model_calls": 9,
+     "model_s": 174.07,
+     "notes": [],
+     "other_s": 22.9,
+     "path": "round5:live_scorecard/runs/r5_chair_V.change",
+     "per_tool": {
+      "edit_file": {
+       "calls": 1,
+       "seconds": 0.1
+      },
+      "execute_blender_code": {
+       "calls": 2,
+       "seconds": 35.3
+      },
+      "get_scene_info": {
+       "calls": 2,
+       "seconds": 1.2
+      },
+      "get_viewport_screenshot": {
+       "calls": 5,
+       "seconds": 25.2
+      },
+      "run_command": {
+       "calls": 1,
+       "seconds": 0.3
+      },
+      "view_file": {
+       "calls": 9,
+       "seconds": 1.0
+      }
+     },
+     "root": "round5:live_scorecard",
+     "round": "r5",
+     "scope": {
+      "added": 0,
+      "collateral": 10,
+      "on_target": 1,
+      "parts": [
+       23,
+       23
+      ],
+      "passed": false,
+      "removed": 0,
+      "triangles": [
+       3580,
+       3580
+      ],
+      "unchanged": 12
+     },
+     "scorecard": false,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 292976,
+      "fresh": 113562,
+      "input": 392523,
+      "output": 2792,
+      "thinking": 11223
+     },
+     "tool_calls": 20,
+     "tool_calls_seen": 20,
+     "tool_s": 56.2,
+     "triangles": null,
+     "wall_s": 253.2
+    },
+    {
+     "agent_calls": 12,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "crate",
+     "cache_miss_input": 0,
+     "cache_misses": 0,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 13353,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 545,
+       "seconds": 4.4,
+       "thinking": 141,
+       "tools": [
+        "run_command",
+        "view_file",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 4.5,
+       "cached": 13354,
+       "input": 16060,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 319,
+       "seconds": 4.65,
+       "thinking": 132,
+       "tools": [
+        "get_scene_info",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 9.8,
+       "cached": 14011,
+       "input": 17348,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1125,
+       "seconds": 7.13,
+       "thinking": 257,
+       "tools": [
+        "execute_blender_code",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 17.5,
+       "cached": 17147,
+       "input": 19237,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 177,
+       "seconds": 2.87,
+       "thinking": 44,
+       "tools": [
+        "view_file",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 24.5,
+       "cached": 18867,
+       "input": 35269,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 949,
+       "seconds": 5.7,
+       "thinking": 167,
+       "tools": [
+        "view_file",
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 30.4,
+       "cached": 35104,
+       "input": 37697,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 101,
+       "seconds": 2.84,
+       "thinking": 119,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 33.3,
+       "cached": 37562,
+       "input": 54638,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 952,
+       "seconds": 7.78,
+       "thinking": 541,
+       "tools": [
+        "execute_blender_code",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 41.8,
+       "cached": 54639,
+       "input": 57870,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 185,
+       "seconds": 2.56,
+       "thinking": 81,
+       "tools": [
+        "view_file",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 45.3,
+       "cached": 55821,
+       "input": 59476,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 759,
+       "seconds": 10.29,
+       "thinking": 1339,
+       "tools": [
+        "view_file",
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 55.7,
+       "cached": 59313,
+       "input": 64668,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1239,
+       "seconds": 16.51,
+       "thinking": 2138,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 72.4,
+       "cached": 64669,
+       "input": 69112,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1696,
+       "seconds": 22.72,
+       "thinking": 2904,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 95.4,
+       "cached": 69113,
+       "input": 75014,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 566,
+       "seconds": 5.26,
+       "thinking": 252,
+       "tools": [
+        "get_viewport_screenshot",
+        "get_viewport_screenshot",
+        "run_command"
+       ]
+      }
+     ],
+     "calls_without_usage": 0,
+     "checks": null,
+     "consistency": [
+      "agrees on 5 figures (record lacks fresh, cache_misses, cache_miss_input)"
+     ],
+     "delivered": false,
+     "ended": "stopped at limit",
+     "failed_calls": 1,
+     "hand_steps": null,
+     "id": "r5_crate_V.change",
+     "kind": "change",
+     "largest_tool": {
+      "name": "get_viewport_screenshot",
+      "seconds": 4.1
+     },
+     "letter": "V",
+     "miss_fresh_input": 0,
+     "model_calls": 12,
+     "model_s": 92.71,
+     "notes": [],
+     "other_s": 2.6,
+     "path": "round5:live_scorecard/runs/r5_crate_V.change",
+     "per_tool": {
+      "execute_blender_code": {
+       "calls": 6,
+       "seconds": 1.1
+      },
+      "get_scene_info": {
+       "calls": 1,
+       "seconds": 0.6
+      },
+      "get_viewport_screenshot": {
+       "calls": 5,
+       "seconds": 7.7
+      },
+      "run_command": {
+       "calls": 4,
+       "seconds": 2.5
+      },
+      "view_file": {
+       "calls": 9,
+       "seconds": 0.3
+      }
+     },
+     "root": "round5:live_scorecard",
+     "round": "r5",
+     "scope": {
+      "added": 0,
+      "collateral": 0,
+      "on_target": 8,
+      "parts": [
+       66,
+       66
+      ],
+      "passed": true,
+      "removed": 0,
+      "triangles": [
+       1392,
+       1392
+      ],
+      "unchanged": 58
+     },
+     "scorecard": false,
+     "status": "stopped at limit",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 439600,
+      "fresh": 96870,
+      "input": 519742,
+      "output": 8613,
+      "thinking": 8115
+     },
+     "tool_calls": 25,
+     "tool_calls_seen": 25,
+     "tool_s": 8.83,
+     "triangles": null,
+     "wall_s": 104.1
+    },
+    {
+     "agent_calls": 13,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "hydrant",
+     "cache_miss_input": 0,
+     "cache_misses": 0,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 13345,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 434,
+       "seconds": 4.38,
+       "thinking": 134,
+       "tools": [
+        "run_command",
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 4.5,
+       "cached": 13346,
+       "input": 15687,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 135,
+       "seconds": 4.65,
+       "thinking": 102,
+       "tools": [
+        "get_scene_info",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 13.5,
+       "cached": 13638,
+       "input": 16722,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1327,
+       "seconds": 8.39,
+       "thinking": 210,
+       "tools": [
+        "execute_blender_code",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 22.5,
+       "cached": 16560,
+       "input": 19142,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 247,
+       "seconds": 3.24,
+       "thinking": 54,
+       "tools": [
+        "view_file",
+        "get_viewport_screenshot",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 30.5,
+       "cached": 19143,
+       "input": 35397,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 730,
+       "seconds": 5.46,
+       "thinking": 144,
+       "tools": [
+        "view_file",
+        "view_file",
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 36.3,
+       "cached": 35236,
+       "input": 44811,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1146,
+       "seconds": 15.09,
+       "thinking": 1949,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 51.6,
+       "cached": 44812,
+       "input": 48826,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1228,
+       "seconds": 12.91,
+       "thinking": 1493,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 64.8,
+       "cached": 48827,
+       "input": 52122,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 642,
+       "seconds": 12.74,
+       "thinking": 1468,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 77.7,
+       "cached": 52123,
+       "input": 54681,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1385,
+       "seconds": 16.67,
+       "thinking": 2145,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 94.7,
+       "cached": 54233,
+       "input": 58774,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 238,
+       "seconds": 14.63,
+       "thinking": 274,
+       "tools": [
+        "get_viewport_screenshot",
+        "get_viewport_screenshot",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 112.5,
+       "cached": 56725,
+       "input": 59774,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 299,
+       "seconds": 3.03,
+       "thinking": 45,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 115.7,
+       "cached": 59613,
+       "input": 63646,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1052,
+       "seconds": 14.72,
+       "thinking": 480,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 130.9,
+       "cached": 63647,
+       "input": 65956,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 566,
+       "seconds": 9.22,
+       "thinking": 148,
+       "tools": [
+        "run_command"
+       ]
+      }
+     ],
+     "calls_without_usage": 0,
+     "checks": null,
+     "consistency": [
+      "agrees on 5 figures (record lacks fresh, cache_misses, cache_miss_input)"
+     ],
+     "delivered": false,
+     "ended": "stopped at limit",
+     "failed_calls": 1,
+     "hand_steps": null,
+     "id": "r5_hydrant_V.change",
+     "kind": "change",
+     "largest_tool": {
+      "name": "get_viewport_screenshot",
+      "seconds": 4.8
+     },
+     "letter": "V",
+     "miss_fresh_input": 0,
+     "model_calls": 13,
+     "model_s": 125.13,
+     "notes": [],
+     "other_s": 4.0,
+     "path": "round5:live_scorecard/runs/r5_hydrant_V.change",
+     "per_tool": {
+      "execute_blender_code": {
+       "calls": 7,
+       "seconds": 1.8
+      },
+      "get_scene_info": {
+       "calls": 1,
+       "seconds": 0.9
+      },
+      "get_viewport_screenshot": {
+       "calls": 6,
+       "seconds": 18.8
+      },
+      "run_command": {
+       "calls": 3,
+       "seconds": 0.7
+      },
+      "view_file": {
+       "calls": 9,
+       "seconds": 0.7
+      }
+     },
+     "root": "round5:live_scorecard",
+     "round": "r5",
+     "scope": {
+      "added": 0,
+      "collateral": 51,
+      "on_target": 6,
+      "parts": [
+       57,
+       57
+      ],
+      "passed": false,
+      "removed": 0,
+      "triangles": [
+       3820,
+       3820
+      ],
+      "unchanged": 0
+     },
+     "scorecard": false,
+     "status": "stopped at limit",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 477903,
+      "fresh": 89055,
+      "input": 548883,
+      "output": 9429,
+      "thinking": 8646
+     },
+     "tool_calls": 26,
+     "tool_calls_seen": 26,
+     "tool_s": 14.4,
+     "triangles": null,
+     "wall_s": 143.5
+    }
+   ],
+   "notes": [],
+   "roots": [
+    "round5:live_scorecard"
+   ],
+   "runs": [
+    {
+     "agent_calls": 20,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "chair",
+     "cache_miss_input": 0,
+     "cache_misses": 0,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 13207,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 370,
+       "seconds": 3.17,
+       "thinking": 69,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 3.2,
+       "cached": 11158,
+       "input": 14760,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 231,
+       "seconds": 2.56,
+       "thinking": 49,
+       "tools": [
+        "get_scene_info",
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 6.7,
+       "cached": 12711,
+       "input": 15794,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 153,
+       "seconds": 25.22,
+       "thinking": 3579,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 32.0,
+       "cached": 15676,
+       "input": 19606,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 7982,
+       "seconds": 50.59,
+       "thinking": 2789,
+       "tools": [
+        "write_to_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 82.7,
+       "cached": 19527,
+       "input": 30490,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 303,
+       "seconds": 4.02,
+       "thinking": 86,
+       "tools": [
+        "execute_blender_code",
+        "get_scene_info",
+        "get_viewport_screenshot",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 90.3,
+       "cached": 28441,
+       "input": 31911,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 316,
+       "seconds": 7.31,
+       "thinking": 110,
+       "tools": [
+        "execute_blender_code",
+        "get_scene_info",
+        "get_viewport_screenshot",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 99.4,
+       "cached": 29862,
+       "input": 33173,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 200,
+       "seconds": 3.05,
+       "thinking": 67,
+       "tools": [
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 102.5,
+       "cached": 33013,
+       "input": 35792,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 8757,
+       "seconds": 50.01,
+       "thinking": 3049,
+       "tools": [
+        "write_to_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 152.7,
+       "cached": 35793,
+       "input": 47711,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 499,
+       "seconds": 3.66,
+       "thinking": 45,
+       "tools": [
+        "execute_blender_code",
+        "get_scene_info",
+        "get_viewport_screenshot",
+        "get_viewport_screenshot",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 159.3,
+       "cached": 45662,
+       "input": 49290,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 295,
+       "seconds": 3.68,
+       "thinking": 196,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 163.2,
+       "cached": 49130,
+       "input": 53309,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 10974,
+       "seconds": 55.72,
+       "thinking": 3454,
+       "tools": [
+        "write_to_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 219.0,
+       "cached": 53310,
+       "input": 67850,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 152,
+       "seconds": 2.36,
+       "thinking": 40,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 222.2,
+       "cached": 65801,
+       "input": 68189,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 6437,
+       "seconds": 36.98,
+       "thinking": 1915,
+       "tools": [
+        "write_to_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 259.3,
+       "cached": 68043,
+       "input": 76656,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 107,
+       "seconds": 5.67,
+       "thinking": 89,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 291.4,
+       "cached": 74607,
+       "input": 77221,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 184,
+       "seconds": 3.53,
+       "thinking": 149,
+       "tools": [
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 295.0,
+       "cached": 75172,
+       "input": 77815,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 268,
+       "seconds": 2.74,
+       "thinking": 37,
+       "tools": [
+        "execute_blender_code",
+        "get_viewport_screenshot",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 312.1,
+       "cached": 77555,
+       "input": 79930,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 265,
+       "seconds": 5.51,
+       "thinking": 403,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 317.9,
+       "cached": 79768,
+       "input": 84126,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 4492,
+       "seconds": 30.58,
+       "thinking": 874,
+       "tools": [
+        "replace_file_content",
+        "replace_file_content"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 348.6,
+       "cached": 84127,
+       "input": 92613,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 344,
+       "seconds": 4.07,
+       "thinking": 97,
+       "tools": [
+        "replace_file_content",
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 364.4,
+       "cached": 90564,
+       "input": 94639,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 704,
+       "seconds": 6.04,
+       "thinking": 146,
+       "tools": [
+        "get_viewport_screenshot",
+        "get_viewport_screenshot",
+        "run_command"
+       ]
+      }
+     ],
+     "calls_without_usage": 0,
+     "checks": {
+      "failed": [
+       "Texel density even [texel_even]",
+       "Collision present and simple [collision]"
+      ],
+      "of": 11,
+      "passed": 9,
+      "unknown": 0
+     },
+     "consistency": [
+      "agrees on 5 figures (record lacks fresh, cache_misses, cache_miss_input)"
+     ],
+     "delivered": false,
+     "ended": "stopped at limit",
+     "failed_calls": 1,
+     "hand_steps": 2,
+     "id": "r5_chair_V",
+     "kind": "",
+     "largest_tool": {
+      "name": "execute_blender_code",
+      "seconds": 66.6
+     },
+     "letter": "V",
+     "miss_fresh_input": 0,
+     "model_calls": 20,
+     "model_s": 306.47,
+     "notes": [],
+     "other_s": -43.4,
+     "path": "round5:live_scorecard/runs/r5_chair_V",
+     "per_tool": {
+      "create_file": {
+       "calls": 4,
+       "seconds": 0.1
+      },
+      "edit_file": {
+       "calls": 4,
+       "seconds": 0.1
+      },
+      "execute_blender_code": {
+       "calls": 8,
+       "seconds": 111.6
+      },
+      "get_scene_info": {
+       "calls": 4,
+       "seconds": 1.3
+      },
+      "get_viewport_screenshot": {
+       "calls": 11,
+       "seconds": 52.4
+      },
+      "run_command": {
+       "calls": 2,
+       "seconds": 7.4
+      },
+      "view_file": {
+       "calls": 11,
+       "seconds": 1.2
+      }
+     },
+     "root": "round5:live_scorecard",
+     "round": "r5",
+     "scorecard": true,
+     "status": "stopped at limit",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 949920,
+      "fresh": 174438,
+      "input": 1064082,
+      "output": 43033,
+      "thinking": 17243
+     },
+     "tool_calls": 45,
+     "tool_calls_seen": 45,
+     "tool_s": 117.25,
+     "triangles": 3580,
+     "wall_s": 380.3
+    },
+    {
+     "agent_calls": 19,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "crate",
+     "cache_miss_input": 133181,
+     "cache_misses": 2,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 13219,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 353,
+       "seconds": 3.29,
+       "thinking": 189,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 3.3,
+       "cached": 11170,
+       "input": 14875,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 223,
+       "seconds": 9.25,
+       "thinking": 1548,
+       "tools": [
+        "get_scene_info",
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 13.9,
+       "cached": 14710,
+       "input": 17444,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 6510,
+       "seconds": 50.42,
+       "thinking": 5090,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 64.5,
+       "cached": 17282,
+       "input": 29229,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 229,
+       "seconds": 3.32,
+       "thinking": 222,
+       "tools": [
+        "get_viewport_screenshot",
+        "get_viewport_screenshot",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 73.7,
+       "cached": 27180,
+       "input": 30165,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 284,
+       "seconds": 2.31,
+       "thinking": 12,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 76.3,
+       "cached": 30005,
+       "input": 33989,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 5789,
+       "seconds": 26.14,
+       "thinking": 781,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 105.3,
+       "cached": 33990,
+       "input": 40739,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 156,
+       "seconds": 3.3,
+       "thinking": 224,
+       "tools": [
+        "get_viewport_screenshot",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 110.5,
+       "cached": 38690,
+       "input": 41443,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 192,
+       "seconds": 4.13,
+       "thinking": 7,
+       "tools": [
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 114.8,
+       "cached": 41283,
+       "input": 43994,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 8291,
+       "seconds": 44.86,
+       "thinking": 2212,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 164.2,
+       "cached": 43995,
+       "input": 54911,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 583,
+       "seconds": 9.65,
+       "thinking": 429,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 174.0,
+       "cached": 52862,
+       "input": 55997,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 232,
+       "seconds": 2.05,
+       "thinking": 28,
+       "tools": [
+        "get_viewport_screenshot",
+        "get_viewport_screenshot",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 266.7,
+       "cached": 0,
+       "input": 56742,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 290,
+       "seconds": 4.33,
+       "thinking": 9,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 271.5,
+       "cached": 56582,
+       "input": 60569,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 12873,
+       "seconds": 54.55,
+       "thinking": 1454,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 343.8,
+       "cached": 60570,
+       "input": 75560,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 232,
+       "seconds": 4.4,
+       "thinking": 162,
+       "tools": [
+        "get_viewport_screenshot",
+        "get_viewport_screenshot",
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 440.3,
+       "cached": 0,
+       "input": 76439,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 2418,
+       "seconds": 11.89,
+       "thinking": 31,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 453.6,
+       "cached": 76279,
+       "input": 83602,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 12909,
+       "seconds": 56.54,
+       "thinking": 974,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 518.9,
+       "cached": 83603,
+       "input": 98058,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1851,
+       "seconds": 9.37,
+       "thinking": 99,
+       "tools": [
+        "get_viewport_screenshot",
+        "get_viewport_screenshot",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 571.2,
+       "cached": 98059,
+       "input": 100938,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 275,
+       "seconds": 6.77,
+       "thinking": 50,
+       "tools": [
+        "view_file",
+        "view_file",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 578.3,
+       "cached": 100939,
+       "input": 103975,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 780,
+       "seconds": 8.81,
+       "thinking": 669,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 0,
+     "checks": {
+      "failed": [
+       "Independent Blender check passes [upstream_qa]"
+      ],
+      "of": 11,
+      "passed": 10,
+      "unknown": 0
+     },
+     "consistency": [
+      "agrees on 5 figures (record lacks fresh, cache_misses, cache_miss_input)"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": 2,
+     "id": "r5_crate_V",
+     "kind": "",
+     "largest_tool": {
+      "name": "get_viewport_screenshot",
+      "seconds": 92.0
+     },
+     "letter": "V",
+     "miss_fresh_input": 133181,
+     "model_calls": 19,
+     "model_s": 315.38,
+     "notes": [],
+     "other_s": 23.0,
+     "path": "round5:live_scorecard/runs/r5_crate_V",
+     "per_tool": {
+      "execute_blender_code": {
+       "calls": 7,
+       "seconds": 35.2
+      },
+      "get_scene_info": {
+       "calls": 1,
+       "seconds": 1.2
+      },
+      "get_viewport_screenshot": {
+       "calls": 13,
+       "seconds": 471.4
+      },
+      "run_command": {
+       "calls": 4,
+       "seconds": 44.5
+      },
+      "view_file": {
+       "calls": 16,
+       "seconds": 2.8
+      }
+     },
+     "root": "round5:live_scorecard",
+     "round": "r5",
+     "scorecard": true,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 787199,
+      "fresh": 313349,
+      "input": 1031888,
+      "output": 54470,
+      "thinking": 14190
+     },
+     "tool_calls": 41,
+     "tool_calls_seen": 41,
+     "tool_s": 270.92,
+     "triangles": 1392,
+     "wall_s": 609.3
+    },
+    {
+     "agent_calls": 17,
+     "agent_model": "gemini-4-hydrogen",
+     "brief": "hydrant",
+     "cache_miss_input": 101998,
+     "cache_misses": 2,
+     "calls": [
+      {
+       "agent": true,
+       "at_s": 0.0,
+       "cached": 0,
+       "input": 13213,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 369,
+       "seconds": 3.52,
+       "thinking": 105,
+       "tools": [
+        "view_file",
+        "view_file",
+        "view_file",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 3.6,
+       "cached": 11164,
+       "input": 14814,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 205,
+       "seconds": 7.57,
+       "thinking": 1114,
+       "tools": [
+        "get_scene_info",
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 11.2,
+       "cached": 12765,
+       "input": 16119,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 59,
+       "seconds": 2.14,
+       "thinking": 64,
+       "tools": [
+        "get_scene_info"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 14.2,
+       "cached": 14070,
+       "input": 16877,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 275,
+       "seconds": 17.47,
+       "thinking": 2378,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 32.0,
+       "cached": 16878,
+       "input": 19866,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 261,
+       "seconds": 5.6,
+       "thinking": 402,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 37.7,
+       "cached": 17817,
+       "input": 20900,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 6022,
+       "seconds": 69.07,
+       "thinking": 8965,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 108.4,
+       "cached": 20530,
+       "input": 36066,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 86,
+       "seconds": 2.95,
+       "thinking": 243,
+       "tools": [
+        "get_viewport_screenshot"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 113.0,
+       "cached": 34017,
+       "input": 36559,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 106,
+       "seconds": 7.21,
+       "thinking": 69,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 120.2,
+       "cached": 34510,
+       "input": 37910,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 4455,
+       "seconds": 29.17,
+       "thinking": 2050,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 210.5,
+       "cached": 0,
+       "input": 44576,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 1431,
+       "seconds": 11.37,
+       "thinking": 608,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 222.2,
+       "cached": 44416,
+       "input": 46949,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 347,
+       "seconds": 4.76,
+       "thinking": 289,
+       "tools": [
+        "get_viewport_screenshot",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 229.1,
+       "cached": 44900,
+       "input": 48446,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 108,
+       "seconds": 4.58,
+       "thinking": 350,
+       "tools": [
+        "view_file"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 233.8,
+       "cached": 47750,
+       "input": 50080,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 5435,
+       "seconds": 25.85,
+       "thinking": 1297,
+       "tools": [
+        "execute_blender_code"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 313.7,
+       "cached": 0,
+       "input": 57422,
+       "miss": true,
+       "model": "gemini-4-hydrogen",
+       "output": 791,
+       "seconds": 5.57,
+       "thinking": 136,
+       "tools": [
+        "get_viewport_screenshot",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 324.5,
+       "cached": 55373,
+       "input": 58820,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 1035,
+       "seconds": 6.4,
+       "thinking": 197,
+       "tools": [
+        "view_file",
+        "get_viewport_screenshot",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 335.6,
+       "cached": 58514,
+       "input": 62163,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 809,
+       "seconds": 11.72,
+       "thinking": 197,
+       "tools": [
+        "view_file",
+        "run_command"
+       ]
+      },
+      {
+       "agent": true,
+       "at_s": 347.5,
+       "cached": 62164,
+       "input": 64852,
+       "miss": false,
+       "model": "gemini-4-hydrogen",
+       "output": 628,
+       "seconds": 7.58,
+       "thinking": 696,
+       "tools": []
+      }
+     ],
+     "calls_without_usage": 0,
+     "checks": {
+      "failed": [
+       "Independent Blender check passes [upstream_qa]",
+       "Collision present and simple [collision]"
+      ],
+      "of": 11,
+      "passed": 9,
+      "unknown": 0
+     },
+     "consistency": [
+      "agrees on 5 figures (record lacks fresh, cache_misses, cache_miss_input)"
+     ],
+     "delivered": true,
+     "ended": "finished",
+     "failed_calls": 0,
+     "hand_steps": 2,
+     "id": "r5_hydrant_V",
+     "kind": "",
+     "largest_tool": {
+      "name": "execute_blender_code",
+      "seconds": 61.1
+     },
+     "letter": "V",
+     "miss_fresh_input": 101998,
+     "model_calls": 17,
+     "model_s": 222.53,
+     "notes": [],
+     "other_s": 22.5,
+     "path": "round5:live_scorecard/runs/r5_hydrant_V",
+     "per_tool": {
+      "execute_blender_code": {
+       "calls": 6,
+       "seconds": 117.4
+      },
+      "get_scene_info": {
+       "calls": 1,
+       "seconds": 0.9
+      },
+      "get_viewport_screenshot": {
+       "calls": 4,
+       "seconds": 13.4
+      },
+      "run_command": {
+       "calls": 5,
+       "seconds": 12.1
+      },
+      "view_file": {
+       "calls": 7,
+       "seconds": 0.3
+      }
+     },
+     "root": "round5:live_scorecard",
+     "round": "r5",
+     "scorecard": true,
+     "status": "finished",
+     "token_source": "relay_calls.jsonl",
+     "tokens": {
+      "cached": 474868,
+      "fresh": 212346,
+      "input": 645632,
+      "output": 22422,
+      "thinking": 19160
+     },
+     "tool_calls": 23,
+     "tool_calls_seen": 23,
+     "tool_s": 132.13,
+     "triangles": 3820,
+     "wall_s": 377.2
+    }
+   ]
+  }
+ },
+ "judges": {
+  "N vs V": {
+   "briefs": {
+    "chair": {
+     "comparisons": 6,
+     "criteria": {
+      "defects": {
+       "V": 6
+      },
+      "proportion_scale": {
+       "V": 6
+      },
+      "reads_as_brief": {
+       "V": 6
+      },
+      "surface_material": {
+       "N": 2,
+       "V": 4
+      }
+     },
+     "errors": 0,
+     "files": [
+      "judge_p1_NV/chair_V_vs_N.json"
+     ],
+     "overall": {
+      "V": 6
+     }
+    },
+    "crate": {
+     "comparisons": 6,
+     "criteria": {
+      "defects": {
+       "N": 6
+      },
+      "proportion_scale": {
+       "tie": 6
+      },
+      "reads_as_brief": {
+       "N": 6
+      },
+      "surface_material": {
+       "N": 6
+      }
+     },
+     "errors": 0,
+     "files": [
+      "judge_p1_NV/crate_V_vs_N.json"
+     ],
+     "overall": {
+      "N": 6
+     }
+    },
+    "hydrant": {
+     "comparisons": 6,
+     "criteria": {
+      "defects": {
+       "N": 5,
+       "V": 1
+      },
+      "proportion_scale": {
+       "N": 6
+      },
+      "reads_as_brief": {
+       "V": 6
+      },
+      "surface_material": {
+       "N": 6
+      }
+     },
+     "errors": 0,
+     "files": [
+      "judge_p1_NV/hydrant_V_vs_N.json"
+     ],
+     "overall": {
+      "N": 6
+     }
+    }
+   },
+   "label": "N vs V",
+   "left": "N",
+   "notes": [],
+   "right": "V"
+  },
+  "S vs N": {
+   "briefs": {
+    "chair": {
+     "comparisons": 6,
+     "criteria": {
+      "defects": {
+       "N": 3,
+       "S": 3
+      },
+      "proportion_scale": {
+       "S": 6
+      },
+      "reads_as_brief": {
+       "S": 5,
+       "tie": 1
+      },
+      "surface_material": {
+       "S": 5,
+       "tie": 1
+      }
+     },
+     "errors": 0,
+     "files": [
+      "judge_p1_SN/chair_N_vs_S.json"
+     ],
+     "overall": {
+      "S": 6
+     }
+    },
+    "crate": {
+     "comparisons": 6,
+     "criteria": {
+      "defects": {
+       "N": 5,
+       "S": 1
+      },
+      "proportion_scale": {
+       "S": 4,
+       "tie": 2
+      },
+      "reads_as_brief": {
+       "S": 6
+      },
+      "surface_material": {
+       "N": 1,
+       "S": 5
+      }
+     },
+     "errors": 0,
+     "files": [
+      "judge_p1_SN/crate_N_vs_S.json"
+     ],
+     "overall": {
+      "N": 2,
+      "S": 4
+     }
+    },
+    "hydrant": {
+     "comparisons": 6,
+     "criteria": {
+      "defects": {
+       "S": 6
+      },
+      "proportion_scale": {
+       "S": 2,
+       "tie": 4
+      },
+      "reads_as_brief": {
+       "S": 6
+      },
+      "surface_material": {
+       "S": 6
+      }
+     },
+     "errors": 0,
+     "files": [
+      "judge_p1_SN/hydrant_N_vs_S.json"
+     ],
+     "overall": {
+      "S": 6
+     }
+    }
+   },
+   "label": "S vs N",
+   "left": "S",
+   "notes": [],
+   "right": "N"
+  },
+  "S vs V": {
+   "briefs": {
+    "chair": {
+     "comparisons": 6,
+     "criteria": {
+      "defects": {
+       "V": 6
+      },
+      "proportion_scale": {
+       "V": 3,
+       "tie": 3
+      },
+      "reads_as_brief": {
+       "tie": 6
+      },
+      "surface_material": {
+       "V": 6
+      }
+     },
+     "errors": 0,
+     "files": [
+      "judge_p1_SV/chair_V_vs_S.json"
+     ],
+     "overall": {
+      "V": 6
+     }
+    },
+    "crate": {
+     "comparisons": 6,
+     "criteria": {
+      "defects": {
+       "S": 6
+      },
+      "proportion_scale": {
+       "S": 3,
+       "tie": 3
+      },
+      "reads_as_brief": {
+       "S": 6
+      },
+      "surface_material": {
+       "S": 6
+      }
+     },
+     "errors": 0,
+     "files": [
+      "judge_p1_SV/crate_V_vs_S.json"
+     ],
+     "overall": {
+      "S": 6
+     }
+    },
+    "hydrant": {
+     "comparisons": 5,
+     "criteria": {
+      "defects": {
+       "S": 5
+      },
+      "proportion_scale": {
+       "S": 5
+      },
+      "reads_as_brief": {
+       "S": 2,
+       "V": 3
+      },
+      "surface_material": {
+       "S": 5
+      }
+     },
+     "errors": 1,
+     "files": [
+      "judge_p1_SV/hydrant_V_vs_S.json"
+     ],
+     "overall": {
+      "S": 5
+     }
+    }
+   },
+   "label": "S vs V",
+   "left": "S",
+   "notes": [],
+   "right": "V"
+  }
+ },
+ "rule": {
+  "per_brief": {
+   "fresh tokens": [
+    {
+     "N": [
+      100024,
+      115973
+     ],
+     "N_median": 107998.5,
+     "S": [
+      160636
+     ],
+     "S_median": 160636,
+     "brief": "crate",
+     "diff": 52637.5,
+     "overlap": false,
+     "percent": 48.73910285791007,
+     "result": "FAIL",
+     "runs": [
+      1,
+      2
+     ]
+    },
+    {
+     "N": [
+      212428,
+      125591
+     ],
+     "N_median": 169009.5,
+     "S": [
+      165772
+     ],
+     "S_median": 165772,
+     "brief": "hydrant",
+     "diff": -3237.5,
+     "overlap": true,
+     "percent": -1.9155727932453501,
+     "result": "PASS",
+     "runs": [
+      1,
+      2
+     ]
+    },
+    {
+     "N": [
+      136990,
+      132659
+     ],
+     "N_median": 134824.5,
+     "S": [
+      138464
+     ],
+     "S_median": 138464,
+     "brief": "chair",
+     "diff": 3639.5,
+     "overlap": false,
+     "percent": 2.6994351916751036,
+     "result": "FAIL",
+     "runs": [
+      1,
+      2
+     ]
+    }
+   ],
+   "time": [
+    {
+     "N": [
+      213.2,
+      267.1
+     ],
+     "N_median": 240.15,
+     "S": [
+      254.2
+     ],
+     "S_median": 254.2,
+     "brief": "crate",
+     "diff": 14.049999999999983,
+     "overlap": true,
+     "percent": 5.8505100978555,
+     "result": "FAIL",
+     "runs": [
+      1,
+      2
+     ]
+    },
+    {
+     "N": [
+      306.1,
+      257.1
+     ],
+     "N_median": 281.6,
+     "S": [
+      312.6
+     ],
+     "S_median": 312.6,
+     "brief": "hydrant",
+     "diff": 31.0,
+     "overlap": false,
+     "percent": 11.008522727272727,
+     "result": "FAIL",
+     "runs": [
+      1,
+      2
+     ]
+    },
+    {
+     "N": [
+      290.1,
+      261.5
+     ],
+     "N_median": 275.8,
+     "S": [
+      258.2
+     ],
+     "S_median": 258.2,
+     "brief": "chair",
+     "diff": -17.600000000000023,
+     "overlap": false,
+     "percent": -6.381435823060197,
+     "result": "PASS",
+     "runs": [
+      1,
+      2
+     ]
+    }
+   ]
+  },
+  "tests": [
+   {
+    "detail": "S lower than N on 1 of 3 briefs; not beaten on crate, hydrant",
+    "id": "time",
+    "result": "FAIL",
+    "text": "S beats N on time on every one of the three briefs (median of the runs)"
+   },
+   {
+    "detail": "S lower than N on 1 of 3 briefs; not beaten on crate, chair",
+    "id": "fresh tokens",
+    "result": "FAIL",
+    "text": "S beats N on fresh tokens on every one of the three briefs (median of the runs)"
+   },
+   {
+    "counts": true,
+    "detail": "S 6, N 0, ties 0 of 6 comparisons",
+    "id": "chair against N",
+    "result": "PASS",
+    "text": "chair: in the blind comparison S wins more comparisons than it loses to today's session"
+   },
+   {
+    "counts": false,
+    "detail": "S 0, V 6, ties 0 of 6 comparisons",
+    "id": "chair against V",
+    "result": "FAIL",
+    "text": "chair: in the blind comparison S does not win fewer comparisons than the stock Blender agent"
+   },
+   {
+    "detail": "3 of 3 evaluated S runs passed every check",
+    "id": "checks stay",
+    "result": "PASS",
+    "text": "checks passed stay at 11 of 11 for S (guard from the contract)"
+   }
+  ],
+  "verdict": "FAIL"
+ }
+}

@@ -1,0 +1,217 @@
+{
+ "model": "gemini-4-carbon",
+ "thinking": "low",
+ "brief_id": "crate",
+ "brief": "a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles",
+ "sheets": {
+  "A": "live_N_p1/eval/r5/crate/N/sheet.png",
+  "C": "live_S_p1/eval/r5/crate/S/sheet.png"
+ },
+ "calls": [
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 180,
+    "thinking": null,
+    "total": 3433
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Image 2 features more distinct and functional-looking front latches and rear hinges compared to Image 1."
+     },
+     "proportion_scale": {
+      "winner": "tie",
+      "reason": "Both crates share nearly identical, believable real-world dimensions relative to the 1.8 m reference block."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 has cleaner stencil placement, whereas Image 2 places stencils awkwardly across raised structural ribs."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 2 suffers from stencils intersecting raised geometry and side handles angled outward unnaturally against gravity."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 is more polished overall, avoiding the stencil placement overlaps and floating-handle physics issues seen in Image 2."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 182,
+    "thinking": null,
+    "total": 3435
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 features more detailed, functional-looking latches and clearer military stenciling on the lid."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Both crates share a realistic scale, but Image 1 has more believable hardware proportions for its latches and handles."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 displays slightly better material definition and cleaner edge wear across its latches and top surface."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 1 has cleaner component placement, whereas Image 2 has awkward intersections between the lid ribs and hinges."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 wins overall due to more convincing latch hardware, better top-surface detailing, and cleaner kit-bashed geometry."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 201,
+    "thinking": null,
+    "total": 3454
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Image 2 features more distinct mechanical latches and hinged hardware, reading more convincingly as a functional crate than Image 1."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both share a believable overall scale, but Image 2 has more realistic component proportions with angled side handles and sleeker lid ribs."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 shows more subtle and natural edge wear, whereas Image 1 has overly uniform, heavy silver edge highlights."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 2 has side ribs intersecting directly through the yellow stencil text, while Image 1 places its decals cleanly within the recessed panels."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 wins overall because it avoids obvious kit-bashing intersection errors with its decals while cleanly fulfilling all aspects of the brief."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 197,
+    "thinking": null,
+    "total": 3450
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 has more detailed, functional-looking toggle latches and clearer military markings on the lid and sides."
+     },
+     "proportion_scale": {
+      "winner": "tie",
+      "reason": "Both crates share nearly identical overall dimensions and believable component proportions next to the 1.8 m reference block."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "While both feature good painted metal materials and edge wear, Image 1 includes better decal placement on the lid to break up the surface."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 1's front latches intersect directly through the vertical structural ribs, whereas Image 2 spaces its ribs cleanly around the hardware."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 wins overall due to superior hardware detailing on the latches and more complete decal work, despite minor rib-latch intersections."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3253,
+    "output": 210,
+    "thinking": null,
+    "total": 3463
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Image 2 features more distinct mechanical latches and clear top stenciling that better fulfill the military supply crate brief."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both crates sit at a believable real-world scale next to the reference block, though Image 2 has better-proportioned hardware and less chunky ribbing."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 shows more refined edge wear, better-integrated decals, and more detailed metallic response on the latches and handles."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 2 has a vertical rib intersecting right through the yellow supply text on the side, whereas Image 1 keeps decals cleanly placed inside recessed panels."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Despite minor decal intersection on the side rib, Image 2 wins overall due to superior hardware detailing, better proportions, and stronger visual read."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3253,
+    "output": 208,
+    "thinking": null,
+    "total": 3461
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 features more detailed toggle latches and clearer top stenciling, whereas Image 2 uses simpler hinges on one side."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Both crates share realistic dimensions relative to the scale block, though Image 1 has more functional proportions for its latches and side handles."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 exhibits slightly cleaner edge wear and extra top decal detail compared to the heavier, uniform edge lines on Image 2's ribs."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "In Image 1, one side latch visibly clips into the yellow stencil text on the front panel, while Image 2 avoids text intersections."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Despite minor latch-over-decal clipping, Image 1 wins overall due to superior hardware detailing and visual interest on the lid."
+    }
+   }
+  }
+ ],
+ "total_tokens": 20696
+}

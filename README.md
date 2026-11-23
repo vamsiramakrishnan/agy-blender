@@ -257,6 +257,8 @@ agy3d plugin validate [PATH]            # validates the bundled bundle, or the d
 
 `agy3d-plugin` is the same installer as `python -m antigravity3d.plugin_install`. That entry point also takes `--symlink`, `--workspace` and `--depot`. The scheduled automations do not start themselves; turn them on in the Automations dashboard.
 
+**Script mode (opt-in).** `agy3d-plugin install --authoring script` installs the bundle in a second mode in which the agent writes an asset as one Python file (`from agy3d import Asset`: the scene format's shapes plus rods along any path, skins through cross-sections, computed meshes and Blender snippets) and one tool, `run_build`, runs the file, checks the design and returns findings and colour views; `deliver_package` is unchanged, and the script travels with the package as `source/build.py`. It is not the default. Measured against the default on three briefs it was no faster and no cheaper for a first build; its assets were preferred in blind comparisons and a change request became an edit of the file. See `benchmarks/ROUND_SIX.md` for the numbers and for what it does not do yet (no image-model textures; the check before a script runs is not a sandbox).
+
 `plugin/antigravity-3d/README.md` has a table of which plugin formats the Antigravity harness documentation confirms and which it does not. Read it before relying on any plugin behaviour.
 
 ## Testing
