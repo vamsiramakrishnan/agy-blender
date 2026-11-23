@@ -463,6 +463,7 @@ class _PartGap:
         self._box: dict[int, bool] = {}
         self._tris: dict[int, object] = {}
         self.witnessed: set[int] = set()
+        self._index: dict[int, _SurfaceIndex] = {}
         self.masks: list[np.ndarray] | None = None  # shipped_masks of ``valid``'s meshes, set by tier1_qa for ``witness``
 
     def is_box(self, i: int) -> bool:
@@ -568,14 +569,30 @@ class _PartGap:
         (from the vertices of each to the other's surface: exact for those points), where it lies and the lowest z."""
         inside = set(group)
         others = [j for j in range(len(self.valid)) if j not in inside]
-        gaps = np.array([[float(np.linalg.norm(np.maximum(np.maximum(lo[i] - hi[j], lo[j] - hi[i]), 0.0))) for j in others]
-                         for i in group])
-        a, k = np.unravel_index(int(np.argmin(gaps)), gaps.shape)
-        i, j = group[a], others[k]
-        d = np.inf
-        for x, y in ((i, j), (j, i)):
-            mx, my = self.valid[x][0], self.valid[y][0]
-            d = min(d, float(_SurfaceIndex(my.points, my.triangles).distances(np.asarray(mx.points, np.float64), 0.0).min()))
+        g_, o_ = np.asarray(group), np.asarray(others)
+        gaps = np.linalg.norm(np.maximum(np.maximum(lo[g_][:, None] - hi[o_][None], lo[o_][None] - hi[g_][:, None]), 0.0), axis=-1)
+        # The nearest part is the one whose SURFACE is nearest, not whose box is: a part whose box overlaps (box distance
+        # exactly 0) used to beat the part lying flush on this one, whose box distance is rounding (1e-9, float32
+        # coordinates), and the finding then named the far part with a move that wrecked the design (lantern, gallery:
+        # "29.6 mm from guard", the flush collar and chimney unnamed). The box distance is a lower bound of the surface
+        # distance, so the pairs are tried in order of it and the search stops at the first box farther than the best
+        # surface found; surfaces within SAME of each other are one distance (flush contacts), and the first in node
+        # order wins.
+        order = sorted(((float(gaps[a, k]), others[k], group[a]) for a in range(len(group)) for k in range(len(others))))
+
+        def surface(x: int, y: int) -> float:  # vertices of x to the surface of y
+            if y not in self._index:  # built once per part: every floating part asks about the same neighbours
+                self._index[y] = _SurfaceIndex(self.valid[y][0].points, self.valid[y][0].triangles)
+            return float(self._index[y].distances(np.asarray(self.valid[x][0].points, np.float64), 0.0).min())
+
+        SAME = 1e-6
+        d, j, i = np.inf, others[0], group[0]
+        for box, jj, ii in order:
+            if box > d + SAME:
+                break
+            dd = min(surface(ii, jj), surface(jj, ii))
+            if dd < d - SAME or (abs(dd - d) <= SAME and (jj, ii) < (j, i)):
+                d, j, i = min(dd, d), jj, ii
         sep = np.maximum(lo[i] - hi[j], lo[j] - hi[i])  # per axis: positive when the boxes are apart on it
         axis = int(np.argmax(sep)) if sep.max() > 0 else int(np.argmax(np.abs((lo[j] + hi[j]) - (lo[i] + hi[i]))))
         sign = "+" if (lo[j][axis] + hi[j][axis]) >= (lo[i][axis] + hi[i][axis]) else "-"

@@ -1138,6 +1138,48 @@ def test_sphere_beside_a_box_corner_floats_though_the_boxes_touch():
     assert not codes(tier1_qa(resting, BUDGET))
 
 
+def _describe_stack(order: tuple[str, ...]) -> tuple[str, list[str]]:
+    """The finding for "gallery" in a stack (collar, wider gallery, narrower chimney, each flush on the one below,
+    the collar a rounding error (3.4e-10 m: float32 coordinates) under the gallery) beside which a thin post stands
+    with its box inside the gallery's box and its surface 12 mm from the gallery. ``order`` is the node order."""
+    from antigravity3d.kernel.fast_ops import _PartGap
+
+    parts = {
+        "collar": _shape("collar", "cylinder", (0, 0, 0.1 - 3.4e-10), radius=0.035, height=0.03, segments=24),
+        "gallery": _shape("gallery", "cylinder", (0, 0, 0.125), radius=0.056, height=0.02, segments=24),
+        "chimney": _shape("chimney", "cylinder", (0, 0, 0.16), radius=0.03, height=0.05, segments=24),
+        "post": _shape("post", "box", (0.05, 0.05, 0.14), size=(0.004, 0.004, 0.06)),
+    }
+    ms = [parts[k] for k in order]
+    valid = [(m, True, m.points.min(axis=0), m.points.max(axis=0)) for m in ms]
+    gap = _PartGap(valid, [1.0] * len(ms), 0.002)
+    lo, hi = np.array([v[2] for v in valid]), np.array([v[3] for v in valid])
+    return gap.describe([list(order).index("gallery")], lo, hi), list(order)
+
+
+@pytest.mark.parametrize("order", [("collar", "gallery", "chimney", "post"), ("post", "collar", "gallery", "chimney")])
+def test_nearest_part_is_the_one_with_the_nearest_surface_not_the_nearest_box(order):
+    """Live 2026-11-22 (lantern): a part lying flush on two others was said to be "29.6 mm from guard", a wire whose
+    box overlaps its own (box distance 0) while the part it lies on had a box distance of a rounding error; the move
+    suggested was 29.5 mm sideways, which wrecked the design. The surface decides, and a flush neighbour is named
+    with the flush wording, the first in node order when several are flush."""
+    said, _ = _describe_stack(order)
+    assert said.startswith("surface 0.0 mm from collar, the nearest part, which lies below it"), said
+    assert "it lies flush on collar" in said and "post" not in said, said
+    assert "sets it 1 mm into collar" in said, said
+
+
+def test_a_part_with_no_flush_neighbour_is_still_told_its_nearest_surface():
+    from antigravity3d.kernel.fast_ops import _PartGap
+
+    ms = [_shape("gallery", "cylinder", (0, 0, 0.125), radius=0.056, height=0.02, segments=24),
+          _shape("post", "box", (0.05, 0.05, 0.14), size=(0.004, 0.004, 0.06))]
+    valid = [(m, True, m.points.min(axis=0), m.points.max(axis=0)) for m in ms]
+    lo, hi = np.array([v[2] for v in valid]), np.array([v[3] for v in valid])
+    said = _PartGap(valid, [1.0, 1.0], 0.002).describe([0], lo, hi)
+    assert said.startswith("surface 11.") and "from post, the nearest part" in said and "to touch it, move gallery by" in said, said
+
+
 def test_touch_tolerance_is_two_millimetres_of_surface():
     base = _slab("A", (-0.5, -0.5, 0), (0.5, 0.5, 1))
     for gap, floats in ((0.0, False), (50e-6, False), (0.0019, False), (0.003, True), (0.02, True)):
