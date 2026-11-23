@@ -178,6 +178,9 @@ the MCP Apps SDK's own host bridge in Chromium, not inside a running Antigravity
   index of refraction, sheen, specular).
 - Transmission is thin-surface only: there is no volume (thickness, attenuation).
 - Only the emissive map and the albedo alpha channel were added as textures; the other new parameters are factors.
+- Generated surfaces (the textures painted when no image model is used) size wear, relief and grime by how wide a
+  part is across: a rod's diameter, a plate's width. A loft carries one radius per section, so a wide, thin lofted
+  plank is treated as narrow. Parts under 3 cm across collect grime only where occlusion is deep.
 - In a package only `<asset>.glb` (LOD0) is self-contained. `<asset>_LOD<n>.glb` reference the maps in the
   package's `textures/`, so a package is copied or imported as a directory. A map in a format glTF cannot reference
   (anything but PNG or JPEG) is still embedded in every LOD file.
@@ -282,10 +285,16 @@ first three rows, 12 in the last three.
 
 ### Where this project is behind a stock agent with Blender
 
-From [`benchmarks/ROUND_SIX.md`](../benchmarks/ROUND_SIX.md), "What is still worse": first builds take minutes
-and script mode is not faster or cheaper than the default; both of this project's chairs lose every blind verdict
-to a stock agent's chair, because of the surface this project paints on rods and free-form parts; image-model
-textures are not wired into script mode; and the check before a script runs is not a sandbox.
+From [`benchmarks/ROUND_SEVEN.md`](../benchmarks/ROUND_SEVEN.md) and
+[`benchmarks/ROUND_SIX.md`](../benchmarks/ROUND_SIX.md):
+
+- First builds take minutes, and script mode is not faster or cheaper than the default.
+- The wooden chair is about even with a stock agent's chair, not ahead of it (7 of 11 blind verdicts). Its
+  generated wood is preferred in every verdict; what loses the others is its shape: turned legs and spindles built
+  as few-sided rods read as lumpy. The default mode's chair has not been judged again since round six, when it
+  lost every verdict.
+- Image-model textures are not wired into script mode.
+- The check before a script runs is not a sandbox.
 
 ## Running the tests
 

@@ -64,12 +64,16 @@ With React Three Fiber: `<MilitarySupplyCrate />` in a `<Canvas>`, from `./agy3d
 | Time to a package, minutes | 4 to 5 | 4 to 5 | 6 to 10 |
 | Blind verdicts won against the stock agent: crate / hydrant / chair | 6 of 6 / 6 of 6 / 0 of 6 | 6 of 6 / 5 of 5 / 0 of 6 | |
 | A change request finished on its own | 2 of 3 | 3 of 3 | 1 of 3; 2 stopped at their limit |
-| Installed into a Godot project and checked there by one command | yes | yes | not offered |
+| Installed into a Godot or three.js project and checked there by one command | yes | yes | not offered |
 
 Three briefs; our runs are from round six, the stock agent's from round five, one or two runs each. Looks were
-judged blind by a general model, six times per pair. Our chairs lose every verdict; for the script-mode chair the cause is
-the surface we paint, not the shape. Details and tokens: [round six](benchmarks/ROUND_SIX.md),
-[round five](benchmarks/ROUND_FIVE.md).
+judged blind by a general model, six times per pair. Both of our chairs lost every verdict then, because of the
+surface this project painted on them.
+
+Round seven repainted the script-mode props without touching their meshes. The crate and the hydrant still win
+(12 of 12 each). The chair is now about even with the stock agent's (7 of 11): every verdict prefers its wood, and
+the ones it loses fault its shape. Details: [round seven](benchmarks/ROUND_SEVEN.md),
+[round six](benchmarks/ROUND_SIX.md), [round five](benchmarks/ROUND_FIVE.md).
 
 ## Try it
 
