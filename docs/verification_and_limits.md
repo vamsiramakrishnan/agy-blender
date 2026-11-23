@@ -22,9 +22,9 @@ A package's `manifest.json` says `verified: true` only when all of these hold (`
 - the run was not offline and not a preview.
 
 An Antigravity session's export applies the same conditions (`export_block_reason` and `_verify_engine` in
-`harness/tools.py`). Only Godot has an engine capture adapter, so today only a Godot package can be verified. A
-missing target renderer, a stale verdict, or a simulated judge leaves `verified` false. A successful verified run
-makes the package visible under the published path.
+`harness/tools.py`). Only Godot and three.js have an engine capture adapter, so today only a Godot 4 or a `web_three`
+package can be verified. A missing target renderer, a stale verdict, or a simulated judge leaves `verified` false.
+A successful verified run makes the package visible under the published path.
 
 - **With no key** the plugin's server judges with a stand-in: a delivery is refused until the user allows an
   unverified preview with a token ceiling and an image limit (`start_preview`).
@@ -41,7 +41,9 @@ makes the package visible under the published path.
 
 Every exported package is loaded in three.js under headless Chromium as a pipeline step (`web_runtime`). The GLB
 and its LOD files must load and match the manifest (triangles, bounds, materials, textures) and the USD's
-silhouette. The step is skipped, with the reason, where no browser is installed.
+silhouette. The step is skipped, with the reason, where no browser is installed. For a package built with
+`--engine web_three` this check is the required engine check (`engine_import` and `engine_capture`), as the Godot
+import is for `godot_4`; for the other targets it is a check beside theirs, not a verification.
 
 - It does not judge the rendered look, and it says nothing about Unreal, Unity, Godot or Roblox importers; those
   have their own steps where an engine is installed.
@@ -128,7 +130,7 @@ What it contains, by what each engine's documentation describes:
 | Target | Exported as | Opened by the real engine here | Can be installed into a project | Can be verified |
 |---|---|---|---|---|
 | Godot 4 | GLB with LOD files and collider GLB, USD | yes, when Godot is installed | yes | yes |
-| three.js | the same GLB files | loaded in three.js r160 under headless Chromium | no | no (a check, not verification) |
+| three.js (`web_three`) | the same GLB files; the manifest records what a page downloads (`web_download`) | loaded in three.js r160 (vendored) under headless Chromium; `agy3d install` repeats it with the project's own three.js | yes | yes |
 | Unreal Engine 5 | GLB, USD, and FBX with a Blender worker | no: never run here or in CI | no | no |
 | Unity URP | GLB, USD, and FBX with a Blender worker | no: never run here or in CI | no | no |
 | Roblox R15 | GLB, USD, and FBX with a Blender worker | no: no headless verifier | no | no |
@@ -141,7 +143,7 @@ In more detail:
 | Unreal Engine 5 | An import check adapter that runs when `UnrealEditor-Cmd` is found; never run here or in CI | No: `install` says what to import and writes nothing |
 | Unity URP | An import check adapter that runs when the Unity editor is found; never run here or in CI. Unity staging of far LOD files is untested | No, as above |
 | Roblox R15 | No headless verifier | No, as above |
-| three.js | `web_runtime` on every package (above) | No |
+| three.js | The headless-browser check (`web_runtime`, above) on every package; for `web_three` it is the required engine check. `agy3d install` runs 11 checks in the project (12 with React Three Fiber) with the project's own three.js, run on 0.152.2, 0.160.0, 0.169.0, 0.170.0 and 0.187.0 | Yes, by `agy3d install` or the plugin's `install_into_project`, into a project with a `three` dependency (React Three Fiber included); a package built for another engine is refused |
 
 Renderers: stock Blender 5.3 supports the warm worker path over Unix IPC and shared memory. Workbench, EEVEE and CPU
 Cycles render the regression fixtures. A headless Linux renderer needs a working display or Xvfb. Use
@@ -215,6 +217,52 @@ data has calibrated:
 - A decomposition that is not known to be bounded runs in a child process with a deadline of 30 s or more. When it
   expires, or the child crashes, the body gets its convex hull and the manifest's `collider_sources` says why.
 - The child is killed by process group, which is POSIX only.
+
+### three.js installs
+
+What `agy3d install` into a three.js project does not do, and what it cannot tell you:
+
+- **Some assets ship PNG.** Compressed textures (KTX2) are written only when a rendered comparison against the
+  uncompressed files, made in the headless browser, is inside a fixed tolerance (mean difference 1.5 %, at most 1 %
+  of the asset's pixels more than 8 % off, silhouette overlap at least 0.999). Cheaper encodings are tried first;
+  when none is inside the tolerance, or `--no-check` or `--compress never` is given, or the compression packages are
+  not in the project, the textures stay PNG and the result says why.
+- **The GPU memory figures are computed from the texture format, not observed.** This machine renders in software, so
+  it has no GPU to read them from.
+- **The React component is checked only with the project's own esbuild**; without it, `react_component` is skipped
+  and the component is written unchecked.
+- **Other three.js versions are not checked.** The in-project check was run on 0.152.2, 0.160.0, 0.169.0, 0.170.0
+  and 0.187.0. Outside r152 to r187 the files are written and the result says "not checked on this version".
+- **Collision hulls are handed over as plain arrays** (`group.userData.agy3d.hulls`, points and triangle indices).
+  No physics library is wired; three.js has none, and Rapier or cannon-es takes the points.
+- **A first install with compression takes tens of seconds** (the table below: 20 to 96 s with `--compress
+  always`, 2 to 5 s with `--compress never`), because every encoding is rendered and compared in a browser.
+- **The install itself downloads nothing.** It uses only packages already in the project's `node_modules`; without the
+  compression packages it ships PNG and prints the one command that enables compression
+  (`npm install -D @gltf-transform/core @gltf-transform/extensions @gltf-transform/functions ktx2-encoder
+  meshoptimizer sharp`).
+
+Measured once: three props, two projects (Vite with three.js 0.170.0, Vite with React Three Fiber on three.js
+0.169.0), one run each. The installs, the in-project checks and the undo (`agy3d uninstall` left the project's files
+byte-identical) passed in all six cells. The goal of half the bytes of today's files was not reached: the crate's
+files came to 50.2 % and the chair's to 51.6 % of today's, and with the shared KTX2 transcoder (584,862 bytes, counted
+once per project) a page loading one asset gets 76.5 % and 95.7 %. The hydrant stayed PNG under `auto`: its cheapest
+encoding was outside the tolerance (6.01 % of pixels over the limit against 1 %), the next was outside too, and the
+one inside saved too little to pay for the transcoder. "Today's files" are the highest level's GLB as a page fetches
+it from the package (`web_download`). Seconds are for `--compress always`; sizes in bytes; GPU memory in MB
+(uncompressed, then block-compressed), computed.
+
+| three.js | Asset | Install, s (`never` / `always`) | PNG install | Compressed install | Of today's | With transcoder | `auto` | GPU MB, computed |
+|---|---|---|---|---|---|---|---|---|
+| 0.170.0 | crate | 3.0 / 38.1 | 2,421,279 | 1,117,317 (etc1s, albedo and ORM) | 50.2 % | 76.5 % | compressed | 33.6 to 5.6 |
+| 0.170.0 | hydrant | 2.4 / 89.1 | 1,995,486 | 1,498,659 (uastc, every map) | 81.6 % | 113.4 % | stayed PNG | 16.8 to 4.2 |
+| 0.170.0 | chair | 2.2 / 19.7 | 1,479,745 | 682,681 (etc1s, albedo and ORM) | 51.6 % | 95.7 % | compressed | 8.4 to 1.4 |
+| 0.169.0, React Three Fiber | crate | 5.1 / 41.9 | 2,421,279 | 1,117,317 | 50.2 % | 76.5 % | compressed | 33.6 to 5.6 |
+| 0.169.0, React Three Fiber | hydrant | 4.5 / 96.2 | 1,995,486 | 1,498,659 | 81.6 % | 113.4 % | stayed PNG | 16.8 to 4.2 |
+| 0.169.0, React Three Fiber | chair | 4.2 / 23.8 | 1,479,745 | 682,681 | 51.6 % | 95.7 % | compressed | 8.4 to 1.4 |
+
+Today's bytes: crate 2,226,168, hydrant 1,837,508, chair 1,323,976. Checks: 11 passed, 0 failed, 0 skipped in the
+first three rows, 12 in the last three.
 
 ### Judging, rendering and editing
 

@@ -42,8 +42,8 @@ What else a run can use, all optional:
 | For | Give it | Without it |
 |---|---|---|
 | Blender steps (the EEVEE render tier, the independent Blender check, the FBX) | `--blender PATH` (a stock Blender 5.3 executable), `--pool-socket PATH`, or the plugin's pool sidecar through `$AGY3D_POOL_SOCKET` | those steps are skipped with the reason |
-| The Godot import check and `agy3d install` | `$GODOT_BIN`, or `godot` on `PATH` (`agy3d install --godot PATH`) | the step is skipped with the reason |
-| The three.js check | the `web` extra and Chromium | the step is skipped with the reason |
+| The Godot import check and `agy3d install` into a Godot project | `$GODOT_BIN`, or `godot` on `PATH` (`agy3d install --godot PATH`) | the step is skipped with the reason |
+| The three.js check, and `agy3d install` into a three.js project | the `web` extra, Chromium, and the project's own `node_modules/three` (run `npm install` in it first) | the step is skipped with the reason, never counted as a pass |
 
 A headless Linux machine needs a working display or Xvfb for the renderers (for example `xvfb-run -a agy3d ...`).
 
@@ -54,7 +54,7 @@ A headless Linux machine needs a working display or Xvfb for the renderers (for 
 
 | Option | What it does |
 |---|---|
-| `--engine {unreal_5,unity_urp,godot_4,roblox_r15}` | the target engine and its rules; default `unreal_5` |
+| `--engine {unreal_5,unity_urp,godot_4,roblox_r15,web_three}` | the target engine and its rules; default `unreal_5`. `web_three` is a package for a three.js or React Three Fiber project: for it the three.js check in a headless browser is the required engine check, and the manifest records what a page downloads for the highest level (`web_download`) |
 | `--max-tris N` | triangle budget (default: the engine budget's default) |
 | `--keep-contact-faces` | ship every authored triangle, also the faces parts press together (for parts that will be moved apart in the engine; see [verification_and_limits.md](verification_and_limits.md#contact-faces)) |
 | `--surfaces {generated,flat}` | materials without an image: `generated` (the default) paints wear, dirt, grain and markings from the geometry; `flat` ships their flat colours |
@@ -99,13 +99,26 @@ step with its reason, then `publication:` and the gate result. What it writes, u
 A preview run keeps its own output directory, so a failed retry cannot replace a verified asset. A successful
 verified run makes the package visible under the published path.
 
-A live run requires a verified package by default (`--require-verified`). **Only a Godot package can be verified
-today**: no other engine has a render adapter for the engine-capture step. So a live run for `unreal_5` (the default
-engine), `unity_urp` or `roblox_r15` succeeds only with `--preview`; without it, it fails at its last step, after
-its model calls are made.
+A live run requires a verified package by default (`--require-verified`). **Only Godot 4 and three.js (`web_three`)
+packages can be verified**: no other engine has a render adapter for the engine-capture step, and each of these two
+needs its engine on the machine (Godot through `$GODOT_BIN`, three.js through Chromium with the `web` extra).
 
-For a verified Godot package you need a key with the calibrated judge, Godot, and Blender (an executable or the
-pool sidecar's socket). `--preview` asks for a candidate instead.
+A run that must be verified, for a target this machine cannot verify, is refused before any model call is made.
+Nothing is generated and nothing is paid for. The command exits with status 2 and prints, here for the default
+engine (the message is one line; the output folder in it is the one you gave):
+
+```text
+error: a verified run for unreal_5 (the default engine, as no --engine was given) cannot succeed on this machine: it has no engine capture, so the capture and parity steps a verified run needs cannot pass. It would end in a refusal after its model calls were made and paid for: nothing was generated. For an UNVERIFIED preview of unreal_5 run: agy3d prop "wooden crate" --engine unreal_5 --preview --token-ceiling N --max-images M --out out/crate; to have it verified, use a target that can be verified on this machine: --engine godot_4, --engine web_three
+```
+
+Which targets can be verified depends on what is installed: with Godot (`$GODOT_BIN`) and a Chromium browser,
+`godot_4` and `web_three`; with the browser and no Godot, only `web_three`. For a target whose engine is missing the
+refusal says so (`it can be verified, but its engine is not installed here (set $GODOT_BIN)`), and when nothing can
+be verified here it names what to install. The answer is the same for every key. `--preview` builds an unverified
+candidate instead, and `--offline` runs, which are previews, are never refused.
+
+For a verified package you need a key with the calibrated judge, the target's engine (Godot, or Chromium), and
+Blender (an executable or the pool sidecar's socket). `--preview` asks for a candidate instead.
 
 ```bash
 export GODOT_BIN=/opt/godot/godot
@@ -125,7 +138,7 @@ Options of `prop` beyond the shared ones:
 | `--no-cache`, `--new-design` | see [Running again in the same output folder](#running-again-in-the-same-output-folder) |
 | `--blender PATH` | start a warm worker with this Blender executable |
 | `--pool-socket PATH` | connect to a running Blender sidecar; reuses workers across processes |
-| `--require-verified` | require real Blender, the calibrated judge and engine verification (the default for live runs; Godot only, see above) |
+| `--require-verified` | require real Blender, the calibrated judge and engine verification (the default for live runs; Godot 4 and `web_three` only, see above) |
 | `--preview` | build a review candidate without requiring publication (the default for `--offline`) |
 | `--single-candidate` | one candidate per tournament, for a matched baseline measurement |
 | `--strict` | with an uncalibrated judge (a preview), exit 3 when its review is below target; by default it exits 0 and says so, since the review is a finding; a calibrated judge's gates decide either way |
@@ -174,7 +187,12 @@ agy3d uninstall --project GAME_DIR --dest DIR
 
 `PACKAGE_DIR` is the package folder (the one that holds `manifest.json`), not the run's `--out` folder.
 
-`install` reads the project's engine and version from its own files and refuses a package built for another engine.
+`install` reads the project's engine and version from its own files and refuses a package built for another engine:
+a Godot project takes a `godot_4` package, a three.js project (a `three` dependency in its `package.json`) a
+`web_three` one. Given a `godot_4` package for a three.js project the refusal says `the package was built for godot_4
+but <project> is a threejs project (...); deliver it for the web: agy3d prop ... --engine web_three (a script asset:
+engine="web_three" in its Asset(...) line). Nothing was written.` Build a web package with
+`agy3d prop "..." --engine web_three --out out/web` and install `out/web/runs/<id>/package`.
 
 **For a Godot 4 project** it writes, under one directory (default `agy3d/<asset>`):
 
@@ -204,20 +222,86 @@ Safety: nothing outside that directory is written; a file the tool did not write
 refuses when one of its own files was edited since (`--force` overrides); its record is `<dest>/.agy3d/install.json`.
 Running `install` again with a newer package of the same asset updates the directory in place.
 
+**For a three.js or React Three Fiber project** it writes three kinds of file (the install itself downloads nothing):
+
+- the asset's files where the dev server serves them unchanged: `public/agy3d/<asset>/` (or `static/` for SvelteKit,
+  or the `public/` or `static/` folder the project already has; the result names the rule that chose it): the level
+  GLBs, the textures, and `collision.json`;
+- in the source tree, `src/agy3d/<asset>/`: a loader module `index.js` with its types `index.d.ts`, and with React
+  Three Fiber in the project also `react.js` and `react.d.ts`. The install record is `.agy3d/install.json` beside the
+  loader, never in the served folder;
+- only for a compressed install, the KTX2 transcoder, copied from the project's own three.js into
+  `<served>/agy3d/_basis/` and shared by every asset installed there.
+
+What you write is one line, after the install (the function's name is the asset's, in camel case):
+
+```js
+import { loadMilitarySupplyCrate } from "./agy3d/military_supply_crate";
+scene.add(await loadMilitarySupplyCrate({ renderer }));
+```
+
+`renderer` is needed for compressed textures. The result is a `THREE.Group` holding one `THREE.LOD` that follows the
+live camera. `group.userData.agy3d` holds `bounds`, `hulls` (the collision hulls as plain arrays of points and
+triangle indices, for Rapier or cannon-es; no physics library is wired), `levels` and `dispose()`, which frees what
+the loader made. Options: `baseUrl`, `transcoderPath`, `collision: false` (do not fetch the collision data).
+With React Three Fiber: `<MilitarySupplyCrate position={[0, 0, 0]} />` in a `<Canvas>`, imported from
+`./agy3d/military_supply_crate/react`.
+
+Checks, run in a headless browser with the project's own three.js on a copy of what was written, each passed, failed
+or skipped with the reason: `import`, `loader`, `scene`, `scale`, `levels`, `materials`, `outline`, `collision` (every
+hull point against the package's colliders file), `level_switching`, `shared_textures`, `loader_vs_package` (replaced
+by `compression` when the files are compressed) and, with React Three Fiber, `react_component`. That is 11 checks, 12
+with React Three Fiber. Without a browser, or without `node_modules/three`, they are skipped, never passed.
+A run printed:
+
+```text
+agy3d install: installed military_supply_crate: loader in src/agy3d/military_supply_crate, files in public/agy3d/military_supply_crate
+  project: threejs 0.170.0
+  check import           passed   5 check(s): no loader/console/page errors; no console warnings; shaders compile and link; ...
+  check loader           passed   military_supply_crate: a Group with one THREE.LOD of 4 level(s) in three r170
+  check collision        passed   8 hull(s) as plain arrays: every point within 1e-5 m of the package's colliders file, and the same triangle indices
+  ...
+  install_threejs  installed  src/agy3d/military_supply_crate  checks: 11 passed, 0 failed, 0 skipped
+```
+
+**Compression.** KTX2 textures and meshopt geometry are written only with six packages already in the project's
+`node_modules`: `@gltf-transform/core`, `@gltf-transform/extensions`, `@gltf-transform/functions`, `ktx2-encoder`,
+`meshoptimizer` and `sharp`. Without them the install ships PNG textures and prints the one command that enables
+compression: `npm install -D @gltf-transform/core @gltf-transform/extensions @gltf-transform/functions ktx2-encoder
+meshoptimizer sharp` (the install itself never runs it). Nothing compressed is written without a measurement: each
+encoding is rendered in the headless browser against the package's own frame, and the first one inside the tolerance
+is written, so some assets ship PNG (see [the web limits](verification_and_limits.md#three-js-installs)). A native
+`gltfpack` or `ktx` binary is not used.
+
+**three.js versions.** The checks were run on three.js 0.152.2, 0.160.0, 0.169.0, 0.170.0 and 0.187.0. Between r152
+and r187 the files are written and checked; outside that range they are written and the result says `not checked on
+this version`, and the loader may need changes.
+
+**Refused**, with the reason in the message and nothing written: a package built for another engine (above); a
+`--assets` folder that is absolute, outside the project, hidden, `node_modules`, not inside a served folder, or the
+served folder itself; `--dest` and `--assets` that contain one another or an install of another asset; a loader
+folder that exists with files this tool did not write; a project where the served folder cannot be told (no `vite`,
+`next`, `react-scripts`, `astro` or `@sveltejs/kit` dependency and no `public/` or `static/` folder: pass `--assets`).
+
 **For Unity, Unreal Engine and Roblox projects** it says what to import and writes nothing.
 
 | Option | What it does |
 |---|---|
 | `--project DIR` | the game project's root directory (required) |
-| `--dest DIR` | directory inside the project (default `agy3d/<asset>`) |
+| `--dest DIR` | directory inside the project (Godot: default `agy3d/<asset>`; three.js: where the loader and the install record go, default `src/agy3d/<asset>`) |
+| `--assets DIR` | three.js only: the folder for the asset's files, inside the project's served folder (default `<served>/agy3d/<asset>`) |
+| `--compress {auto,always,never}` | three.js only, and only with the compression packages in the project. `auto` (the default) writes compressed files only when the page then downloads no more than before (the transcoder is counted unless the project already has it); `always` compresses for the GPU memory whatever the size; `never` installs the PNG textures |
 | `--dry-run` | print what would be written; write nothing |
 | `--force` | replace this tool's own files even where they were edited since |
-| `--no-check` | do not import and load the installed scene in the engine |
+| `--no-check` | do not run the in-project check (Godot: no import and load of the installed scene; three.js: no browser check, and so no compression, which is only written after a measured frame comparison) |
 | `--camera-fov DEG` | vertical field of view the level switch distances are computed for (default 60, the levels' own; Godot's Camera3D default is 75, where they switch later than needed, never sooner) |
 | `--godot PATH` | Godot binary for the check (default `$GODOT_BIN`, then `PATH`) |
 | `--json` | print the machine-readable result |
 
-`uninstall` removes exactly what `install` wrote. It takes `--project`, `--dest` (both required), `--dry-run`,
+`uninstall` removes exactly what `install` wrote, in a Godot or a three.js project (for three.js, `--dest` is the
+loader folder, `src/agy3d/<asset>`; the record there lists the files, and the shared transcoder folder is kept while
+another install needs it). It keeps any file you added there and refuses when one of its own files was edited since,
+unless you pass `--force`. It takes `--project`, `--dest` (both required), `--dry-run`,
 `--force` (remove this tool's files even where they were edited since) and `--json`.
 
 ## `agy3d edit`: change an asset later
@@ -294,7 +378,8 @@ Every path below was read from the code and seen in a run. `OUT` is the `--out` 
 | `edit` | `OUT/runs/edit-<id>/attempt-<n>/package/` | the edited package |
 | `edit` | `OUT/history/NNN/` (beside a bare package, `<name>.history/NNN/`) | the package each edit replaced; `--undo` restores it and keeps the record as `history/undone-NNN-<time>` |
 | `edit` | `OUT/history/ledger/spend_tokens.sqlite3` (`spend.sqlite3` without a token ceiling) | the edits' own ledger |
-| `install` | `<project>/agy3d/<asset>/` and its `.agy3d/install.json`, `.agy3d/check/` | the installed files, the install record and the check's report and screenshot |
+| `install` (Godot) | `<project>/agy3d/<asset>/` and its `.agy3d/install.json`, `.agy3d/check/` | the installed files, the install record and the check's report and screenshot |
+| `install` (three.js) | `<project>/public/agy3d/<asset>/`, `<project>/src/agy3d/<asset>/` and its `.agy3d/install.json`, `.agy3d/check/` | the served files, the loader, the install record and the check's report and screenshots |
 
 ## Running again in the same output folder
 

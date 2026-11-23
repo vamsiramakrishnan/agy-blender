@@ -11,7 +11,7 @@ and its messages call it the native Decisions API; these pages say "calibrated j
 
 | Your key | What you get |
 |---|---|
-| Serves the calibrated judge | A verified package is possible for Godot 4 only, with Blender and Godot present ([what verified means](verification_and_limits.md#what-verified-means)). For Unreal, Unity and Roblox a run can only be a preview. |
+| Serves the calibrated judge | A verified package is possible for Godot 4 (with Blender and Godot present) and for three.js, `--engine web_three` (with Blender and a Chromium browser) ([what verified means](verification_and_limits.md#what-verified-means)). For Unreal, Unity and Roblox a run can only be a preview. |
 | `decisions.create` answers 404 (no calibrated judge) | Only an **unverified preview**, judged by a generative fallback. Spend is bounded by limits you give (below). |
 | `--offline` on the command line | Stand-ins for the judge and the images, and a built-in template instead of your design. |
 | No key, in an Antigravity session | Stand-ins for the judge and the images; delivery is refused until you allow an unverified preview with your two limits. |

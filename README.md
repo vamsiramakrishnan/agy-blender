@@ -8,7 +8,7 @@
 
 antigravity-3d is a plugin for the Antigravity coding agent, with a command line beside it. It builds the model, its
 textures, lower-detail versions for distance and collision shapes. It checks the result in real engines and installs
-it into your Godot project.
+it into your Godot or three.js project.
 
 [How it compares with a stock agent](#how-it-compares) · [What is checked](#what-is-checked-and-what-is-not) ·
 [All commands](docs/commands.md)
@@ -18,7 +18,7 @@ it into your Godot project.
 | You want to | Say to Antigravity | You get |
 |---|---|---|
 | Make a prop | "Make a military supply crate for Godot" | A package your engine imports: the model, one texture atlas, lower-detail versions, collision shapes, and a record of every check it passed |
-| Put it in your game | "Install the crate into this project" | One scene in your Godot project, imported and checked by your own Godot. One command takes it out again |
+| Put it in your game | "Install the crate into this project" | Godot: one scene, imported and checked by your own Godot. three.js or React Three Fiber: the files where your dev server serves them and one function to import, checked in a browser with your own three.js. One command takes it out again |
 | Change it later | "Make the two side handles 30 % larger" | A new version in which only what you named changed. The old one is kept |
 | Clean up a mesh you have | "Make chair.obj ready for Unity" | Your mesh repaired, unwrapped, with lower-detail versions and collision shapes |
 
@@ -31,10 +31,11 @@ agy3d edit out/crate "make the two side handles 30 % larger" --token-ceiling 250
 agy3d sanitize chair.obj --engine unity_urp --out out/clean
 ```
 
-`prop` and `edit` need a Gemini API key; "Try it" shows how to run without one.
+`prop` and `edit` need a Gemini API key; "Try it" shows how to run without one. For three.js, build with
+`--engine web_three` and use the same `install` command.
 
-`install` takes the package folder the run prints, writes one folder with a scene to drag into a level, then checks
-it in a copy of your project with your own Godot:
+`install` takes the package folder the run prints. In a Godot project it writes one folder with a scene to drag
+into a level, then checks it with your own Godot:
 
 ```text
   check import           passed   headless import and scene load logged no error or warning naming the asset
@@ -42,6 +43,16 @@ it in a copy of your project with your own Godot:
   check level_switching  passed   rendered: the expected level alone at every stop, ...
   install_godot  installed  agy3d/WoodenCrateIron  checks: 7 passed, 0 failed, 0 skipped
 ```
+
+In a three.js project it writes the files to `public/agy3d/<asset>/` and a loader to `src/agy3d/<asset>/`, then
+runs eleven checks in a browser with your own three.js (twelve with React Three Fiber). What is left for you:
+
+```js
+import { loadMilitarySupplyCrate } from "./agy3d/military_supply_crate";
+scene.add(await loadMilitarySupplyCrate({ renderer }));
+```
+
+With React Three Fiber: `<MilitarySupplyCrate />` in a `<Canvas>`, from `./agy3d/military_supply_crate/react`.
 
 `edit` changes only the parts you name; `--undo` puts the old version back, and `install` again updates your game.
 
@@ -86,7 +97,9 @@ spent 0.37 to 0.45 million tokens, an edit 62 to 86 thousand ([keys and cost](do
 ## What is checked and what is not
 
 - **Godot 4**: a real Godot imports every package when installed; the seven checks above run in your project.
-- **three.js**: every package is loaded in headless Chromium and compared with its manifest.
+- **three.js**: every package is loaded in headless Chromium and compared with its manifest. Installed in a
+  three.js project it is rechecked with the project's own three.js (run here on r152 to r187). Textures are
+  compressed only when a rendered comparison stays inside a fixed tolerance, so some assets ship as PNG.
 - **Blender**: with a worker attached, a script this project did not write checks the GLB.
 - **Unreal, Unity, Roblox**: packages and FBX files follow each engine's documented rules; none of these engines
   has opened them here or in CI.

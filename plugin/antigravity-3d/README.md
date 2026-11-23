@@ -1,7 +1,7 @@
 # antigravity-3d: the Antigravity plugin
 
 This plugin lets you ask the Antigravity agent for a game prop in your own words and get back a checked engine
-package, installed into your Godot project if you want it there. It also changes an asset you made earlier and
+package, installed into your Godot or three.js project if you want it there. It also changes an asset you made earlier and
 cleans up meshes you already have. What the whole project does, and how it compares with a stock agent driving
 Blender, is on the [front page](../../README.md).
 
@@ -79,14 +79,14 @@ dashboard. Following the docs, the plugin never turns itself on.
 | `plugin.json` | Manifest. Uses only fields the docs allow, because the loader silently drops unknown ones. |
 | `rules/AGENTS.md` | Always-on studio rules: USD is the source of truth; edit only through Scene IR, with raw bpy only through the linter-gated escape hatch; metres and Z-up, with axis conversion only at export; PBR ranges, ORM packing and normal-map convention; the QA gate; renders always go through the QA tools. |
 | `rules/blender-5-3-api.md` | Rule scoped by `trigger: glob` to `**/*.py, **/*.blend`: Blender 5.3 API rules: `gpu.init()` before any `gpu` call, Geometry Nodes inputs through `properties.inputs`, `BLENDER_EEVEE`, solver `FLOAT`, and the other names removed in 5.x with their replacements. The linter enforces them too. |
-| `rules/engine-budgets.md` | Rule scoped by `trigger: glob` to USD files and `*_exports/` folders: budgets and conventions for UE5, Unity URP, Godot 4 and Roblox R15. |
+| `rules/engine-budgets.md` | Rule scoped by `trigger: glob` to USD files and `*_exports/` folders: budgets and conventions for UE5, Unity URP, Godot 4, Roblox R15 and three.js (web). |
 | `skills/art-direction` | Picks and applies a named art direction (low-poly, retro-lowres, stylized, realistic, voxel, isometric, anime, hand-painted): a lower triangle budget where the look needs one, the shipped maps' size, palette and filtering, the shading crease, and short briefs for the models. Eight style files in `styles/`. |
 | `skills/concept-to-blueprint` | Optional concept art: a Best-of-4 orthographic-view tournament that picks one blueprint (a prop from a text brief needs none). |
 | `skills/parametric-kitbash` | The prop's model built from Scene IR patches (a finished prop, not a blockout: bevels, inset panels, lathe and extrude parts, mirror and repeat), plus a loop that locks the silhouette. |
 | `skills/pbr-material-forge` | Albedo Best-of-6, de-lighting, ORM and normal derivation, then a policy gate. |
 | `skills/game-ready-sanitizer` | Makes existing files game-ready: UVs, LODs, colliders, validator. |
 | `skills/engine-truth-verify` | Export, headless engine import, a parity check against the stage, and the manifest's provenance record of what made each file. |
-| `skills/install-into-project` | Installs a package into the user's game project (`install_into_project`; Godot 4 automatically: one scene with levels, collision and materials wired) and checks it there with the project's engine. |
+| `skills/install-into-project` | Installs a package into the user's game project (`install_into_project`) and checks it there with the project's engine. Godot 4: one scene with levels, collision and materials wired. three.js or React Three Fiber (a package built with `engine="web_three"`): the asset's files where the dev server serves them and a loader module to import, with a component for React Three Fiber, checked in a headless browser with the project's own three.js. |
 | `agents/usd_verifier.md` | Isolated, read-only subagent that runs the Tier-1 structural check (`run_usd_validator`) and returns a two-line verdict. |
 | `agents/lookdev_critic.md` | Isolated visual critic that returns a two-line audit delta. |
 | `mcp_config.json` | Registers the stdio MCP server `studio` (`python -m antigravity3d.runtime.mcp_server`, launched with `uv run --project ${PLUGIN_ROOT}`). The harness namespaces plugin servers `<plugin>_<server>`, so it appears as `antigravity-3d_studio`. See "MCP server" below. |
@@ -150,7 +150,7 @@ instead:
 | `set_stage` | switch the active stage's tool set |
 | `session_status` | stage, budget, QA verdict and newest audit lines |
 | `list_sessions` | the open sessions |
-| `install_into_project` | put a package into the user's game project and check it there; a dry run by default |
+| `install_into_project` | put a package into the user's game project and check it there; a dry run by default. Takes `package_dir`, `project_dir`, `dest`, `force` and, for three.js, `assets` and `compress` (`auto`, `always`, `never`) |
 
 - **Enforcement.** There is no SDK hook runner on this path, so the server calls `InvariantAndSafetyGate.decide`
   (the gate's decision logic, shared with the SDK hook) before every dispatch.

@@ -3,7 +3,9 @@
 Where the code for each step lives, for when you want to change it or find out why it did something. What a run
 does, end to end: a design is written as a scene description, compiled into an OpenUSD stage, checked, unwrapped
 into one texture atlas, given lower-detail versions and collision shapes, textured, packaged as GLB and USD (and FBX
-for some engines) and verified. Blender 5.3 is used only as a worker process, and only for the steps that need it.
+for some engines) and verified. The target is one of five: Unreal 5, Unity URP, Godot 4, Roblox R15 or `web_three`
+(a three.js or React Three Fiber project). Blender 5.3 is used only as a worker process, and only for the steps that
+need it.
 
 The project is built on the Google Antigravity agent SDK, the Gemini API and OpenUSD, with an optional warm Blender
 5.3 worker pool.
@@ -33,7 +35,7 @@ Also in the package:
 
 | What | Where |
 |---|---|
-| Installing into a game project (`agy3d install`, `install_into_project`) | `deliver/`: `install.py` (install and check), `detect.py` (which engine and version a project is), `godot.py` (the files written into a Godot project and the check in its engine), `glb.py`, `paths.py` |
+| Installing into a game project (`agy3d install`, `install_into_project`) | `deliver/`: `install.py` (install and check), `detect.py` (which engine and version a project is), `godot.py` (the files written into a Godot project and the check in its engine), `web.py`, `web_install.py` and `web_check.py` (a three.js or React Three Fiber project: the files, the loader, the optional compression, and the check in a headless browser with the project's own three.js), `web_compress.mjs` and `web_templates/` (the compressor and the loader files written into the project), `glb.py`, `paths.py` |
 | Changing a shipped asset (`agy3d edit`) | `dags/edit_asset.py` |
 | Script mode (`from agy3d import Asset`, `run_build`) | `build/`: `asset.py` (the `Asset` object), `shapes.py` (free-form parts), `blender_part.py` (Blender snippets), `guard.py` (the read of a script before it runs), `runner.py` (runs it in a bare process), `handoff.py`; the script-mode texts in `build/plugin_script_mode/` |
 | A prop, a kit, a batch of meshes, look variants | `dags/prop_to_engine.py`, `dags/environment_kit.py`, `dags/batch_sanitize.py`, `dags/variant_factory.py` |
@@ -50,7 +52,7 @@ From the module docstrings.
 - `adapters/blender_5_3/linter.py`: AST compatibility and safety gate for scripts sent to `run_script`.
 - `adapters/blender_5_3/shim_5_3.py`: normalises pre-5.3 Blender API usage in legacy scripts.
 - `adapters/blender_5_3/viewport_bridge.py`: live-viewport bridge for artists. Written to spec and not exercised.
-- `adapters/engines/validators.py`: headless engine import smoke tests behind one interface.
+- `adapters/engines/validators.py`: headless engine import smoke tests behind one interface (Godot 4, Unreal, Unity, and `web_three`, whose check runs in a headless browser: `adapters/engines/web_three.py`).
 
 ### Layer 1: kernel
 
@@ -61,7 +63,7 @@ From the module docstrings.
 - `kernel/settle.py`: deterministic vertical contact settling.
 - `kernel/separate.py`: moves apart the flush (coplanar, same-facing) faces of different parts, without a model call.
 - `kernel/lod_diff.py`: LOD pop diffing at the switch distance.
-- `kernel/validator.py`: USD validation and per-engine compliance rules.
+- `kernel/validator.py`: USD validation and per-engine compliance rules (`ENGINE_RULES`: Unreal 5, Unity URP, Godot 4, Roblox R15 and `web_three`).
 - `kernel/package.py`: engine package writer, shared by the harness and the DAGs.
 - `kernel/raster.py`: software clay rasteriser for the preview tier.
 - `kernel/som.py`: set-of-mark numbered badges on renders.
