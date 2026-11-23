@@ -64,7 +64,7 @@ for i in range(8):
 
 # outlet port on the +x side: a recessed rectangular opening 0.16 (y) x 0.07 (z), centred z = 1.30, y = 0,
 # in a short aluminium lip that stands out to x = 0.58
-a.box("outlet_lip", size=(0.58 - (UW - E), 0.20, 0.11), bevel=0.002, inset_faces=("+x",), inset_margin=0.02, inset_depth=0.07,
+a.box("outlet_lip", size=(0.58 - (UW - E), 0.20, 0.11), bevel=0.002, inset_faces=("+x",), inset_margin=0.018, inset_depth=0.07,
       at=((0.58 + UW - E) / 2, 0.0, 1.30), material=alu)
 
 a.save()

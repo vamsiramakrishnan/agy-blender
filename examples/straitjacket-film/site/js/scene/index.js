@@ -31,7 +31,7 @@ function makeFloor() {
     float l = 1.0 - min(min(d.x, d.y), 1.0);
     // fade with distance (and where the cells get too small to draw cleanly)
     float dist = length(vSjW - cameraPosition);
-    float fade = 0.8 * (1.0 - smoothstep(9.0, 26.0, dist)) * (1.0 - smoothstep(0.18, 0.45, max(fw.x, fw.y)));
+    float fade = 0.55 * (1.0 - smoothstep(10.0, 30.0, dist)) * (1.0 - smoothstep(0.18, 0.45, max(fw.x, fw.y)));
     diffuseColor.rgb = mix(diffuseColor.rgb, uGrid, l * fade * uGridAmt);
   }`);
   };
@@ -101,7 +101,7 @@ export async function createFilm({ canvas, labels: labelRoot, data, lines: bytes
     key.intensity = theme === 'light' ? 3.6 : 3.4;
     hemi.intensity = theme === 'light' ? 1.5 : 1.35;
     hemi.color.set(0xffffff); hemi.groundColor.set(theme === 'light' ? pal.surface2 : '#30343a');
-    rim.intensity = theme === 'light' ? 1.0 : 1.8;
+    rim.intensity = theme === 'light' ? 1.2 : 3.0;
     scene.environmentIntensity = theme === 'light' ? 0.3 : 0.22;
     lines.setPalette(pal); props.setPalette(pal); extras.setPalette(pal);
     dirty = true;
