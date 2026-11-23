@@ -44,7 +44,8 @@
 <main id="film">
 
   <section class="ch ch--hero" id="top" data-ch="hero">
-    <div class="panel panel--hero">
+    <div class="pin"><div class="stick">
+<div class="panel panel--hero">
       <p class="eyebrow">Straitjacket · how it works</p>
       <h1 class="claim claim--hero">Capture once. Retrieve the line that matters.</h1>
       <p class="lede">Straitjacket captures a command's output on disk and gives the coding agent a short digest, with an address for what it left out. Scroll to follow the log from its own benchmark through it: <span data-fact="log.lines">20,001</span> lines, one of which matters.</p>
@@ -54,11 +55,13 @@
       </p>
       <p class="meta">Python 3.11+ · ctx-harness v0.5.0 · Apache-2.0</p>
     </div>
+    </div></div>
     <p class="cue" aria-hidden="true">Scroll</p>
   </section>
 
   <section class="ch" id="flood" data-ch="flood">
-    <div class="panel">
+    <div class="pin"><div class="stick">
+<div class="panel">
       <p class="eyebrow">01 / The flood</p>
       <h2 class="claim">One command puts <span data-fact="log.lines">20,001</span> lines in the prompt</h2>
       <p>An agent reads an integration log to find out what went wrong. The log is <span data-fact="log.lines">20,001</span> lines and <span data-fact="log.raw_tokens">302,628</span> tokens. One line matters: line <span data-fact="log.needle_line">14,238</span>, where a checkout request fell back to the legacy gateway. It is logged at INFO. Nothing about it says error.</p>
@@ -70,42 +73,50 @@ INFO worker-6 request req-00002 accepted in 87ms
       <p class="legend"><span class="key key--line"></span>one slab is one line of the log <span class="key key--needle"></span>line <span data-fact="log.needle_line">14,238</span></p>
       <p class="receipt">Receipt <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/evals/field-needle-record.json">evals/field-needle-record.json</a></p>
     </div>
-    <figure class="fallback"><picture><source media="(max-width: 640px)" srcset="assets/diagrams/ae-evidence-fates-mobile.svg"><img src="assets/diagrams/ae-evidence-fates.svg" alt="Three treatments of the same 20,001-line log: keeping all 302,628 tokens preserves the quiet line but floods the prompt; head-and-tail truncation emits 1,219 and loses it; Straitjacket emits 531, keeps the line at 14,238 and emits a retrieval address." loading="lazy"></picture></figure>
+    </div></div>
+    <figure class="fallback"><picture class="fb fb--dark"><source media="(max-width: 640px)" srcset="assets/diagrams/ae-evidence-fates-mobile.svg"><img src="assets/diagrams/ae-evidence-fates.svg" alt="Three treatments of the same 20,001-line log: keeping all 302,628 tokens preserves the quiet line but floods the prompt; head-and-tail truncation emits 1,219 and loses it; Straitjacket emits 531, keeps the line at 14,238 and emits a retrieval address." loading="lazy"></picture><picture class="fb fb--light"><source media="(max-width: 640px)" srcset="assets/diagrams/ae-evidence-fates-mobile-light.svg"><img src="assets/diagrams/ae-evidence-fates-light.svg" alt="Three treatments of the same 20,001-line log: keeping all 302,628 tokens preserves the quiet line but floods the prompt; head-and-tail truncation emits 1,219 and loses it; Straitjacket emits 531, keeps the line at 14,238 and emits a retrieval address." loading="lazy"></picture></figure>
   </section>
 
   <section class="ch" id="residency" data-ch="residency">
-    <div class="panel">
+    <div class="pin"><div class="stick">
+<div class="panel">
       <p class="eyebrow">02 / Residency</p>
       <h2 class="claim">The expensive byte is the one that survives</h2>
       <p>The command ran once. Its output goes back to the model with every later request, until the host compacts the conversation. Over the next six turns the same <span data-fact="log.raw_tokens">302,628</span> tokens are sent six more times.</p>
       <p class="measure"><strong data-fact="residency.token_turns">1,815,768</strong><span>token-turns, modelled · <span data-fact="log.raw_tokens">302,628</span> × 6 resident turns</span></p>
       <p class="receipt">Illustrative seven-turn trace. Payload size from <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/evals/field-needle-record.json">evals/field-needle-record.json</a></p>
     </div>
-    <figure class="fallback"><picture><source media="(max-width: 640px)" srcset="assets/diagrams/ae-residency-mobile.svg"><img src="assets/diagrams/ae-residency.svg" alt="Illustrative seven-turn trace. The native path keeps the 302,628-token log resident for six turns. The contained path keeps a 531-token digest and retrieves 21 lines only when needed." loading="lazy"></picture></figure>
+    </div></div>
+    <figure class="fallback"><picture class="fb fb--dark"><source media="(max-width: 640px)" srcset="assets/diagrams/ae-residency-mobile.svg"><img src="assets/diagrams/ae-residency.svg" alt="Illustrative seven-turn trace. The native path keeps the 302,628-token log resident for six turns. The contained path keeps a 531-token digest and retrieves 21 lines only when needed." loading="lazy"></picture><picture class="fb fb--light"><source media="(max-width: 640px)" srcset="assets/diagrams/ae-residency-mobile-light.svg"><img src="assets/diagrams/ae-residency-light.svg" alt="Illustrative seven-turn trace. The native path keeps the 302,628-token log resident for six turns. The contained path keeps a 531-token digest and retrieves 21 lines only when needed." loading="lazy"></picture></figure>
   </section>
 
   <section class="ch" id="fates" data-ch="fates">
-    <div class="panel">
+    <div class="pin"><div class="stick">
+<div class="panel">
       <p class="eyebrow">03 / The fixes that did not hold</p>
       <h2 class="claim">Cut the middle and the line goes with it</h2>
       <p>Keeping only the first and last <span data-fact="fates.head_and_tail.head_lines">40</span> lines brings the output down to <span data-fact="fates.head_and_tail.tokens">1,219</span> tokens. Line <span data-fact="log.needle_line">14,238</span> is not among them. A filter for ERROR keeps the two loud lines and misses this one, because it is an INFO line. Both results are small. Neither can give the line back.</p>
       <p class="measure measure--loss"><strong data-fact="fates.head_and_tail.tokens">1,219</strong><span>visible tokens · the quiet line is lost</span></p>
       <p class="receipt">Receipt <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/evals/field-needle-record.json">evals/field-needle-record.json</a></p>
     </div>
+    </div></div>
   </section>
 
   <section class="ch" id="insight" data-ch="insight">
-    <div class="panel">
+    <div class="pin"><div class="stick">
+<div class="panel">
       <p class="eyebrow">04 / The insight</p>
       <h2 class="claim">Evidence and prompt need different lifetimes</h2>
       <p>Evidence should remain complete for as long as policy retains it. The prompt should contain only the facts needed for the current decision. An address connects the two.</p>
       <pre class="specimen specimen--rule"><code>active context + addresses → complete evidence on demand</code></pre>
       <p class="receipt">From <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/docs/WHY-STRAITJACKET.md">docs/WHY-STRAITJACKET.md</a> and <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/docs/CONCEPTS.md">docs/CONCEPTS.md</a></p>
     </div>
+    </div></div>
   </section>
 
   <section class="ch" id="capture" data-ch="capture">
-    <div class="panel">
+    <div class="pin"><div class="stick">
+<div class="panel">
       <p class="eyebrow">05 / Capture</p>
       <h2 class="claim">Captured once, before it reaches the model</h2>
       <p>Run the same command through <code>ctx</code>. It executes with your permissions and writes stdout and stderr to a local store. A profile that knows the format sorts what it captured: <span data-fact="digest.templates">11</span> templates cover all <span data-fact="digest.covered">20,001</span> lines. By default the digest is computed locally, with no model call.</p>
@@ -115,10 +126,12 @@ stdout: 20,001 lines · 979.1 KiB</code></pre>
       <p class="measure measure--bound"><strong><span data-fact="digest.templates">11</span> templates</strong><span><span data-fact="digest.covered">20,001</span> of <span data-fact="log.lines">20,001</span> lines parsed and stored</span></p>
       <p class="receipt">Receipt <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/tests/fixtures/field_needle_main_digest.txt">tests/fixtures/field_needle_main_digest.txt</a></p>
     </div>
+    </div></div>
   </section>
 
   <section class="ch" id="digest" data-ch="digest">
-    <div class="panel panel--wide">
+    <div class="pin"><div class="stick">
+<div class="panel panel--wide">
       <p class="eyebrow">06 / The digest</p>
       <h2 class="claim">This is an index, not a summary</h2>
       <p>The agent receives <span data-fact="fates.digest.tokens">531</span> tokens. They state what ran, count the lines under each template, quote the three exceptional lines, say what was left out, and print the commands that fetch it. Line <span data-fact="log.needle_line">14,238</span> is one of the three.</p>
@@ -159,11 +172,13 @@ stdout: 20,001 lines · 979.1 KiB</code></pre>
       <p class="measure measure--bound"><strong data-fact="fates.digest.tokens">531</strong><span>visible tokens · same evidence, same contract, same plan: byte-identical digest</span></p>
       <p class="receipt">Receipt <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/tests/fixtures/field_needle_main_digest.txt">tests/fixtures/field_needle_main_digest.txt</a></p>
     </div>
-    <figure class="fallback"><picture><source media="(max-width: 640px)" srcset="assets/diagrams/ae-digest-anatomy-mobile.svg"><img src="assets/diagrams/ae-digest-anatomy.svg" alt="Annotated anatomy of the digest: immutable run identity, outcome, template census, quiet line, coverage receipt, and the exact continuation command." loading="lazy"></picture></figure>
+    </div></div>
+    <figure class="fallback"><picture class="fb fb--dark"><source media="(max-width: 640px)" srcset="assets/diagrams/ae-digest-anatomy-mobile.svg"><img src="assets/diagrams/ae-digest-anatomy.svg" alt="Annotated anatomy of the digest: immutable run identity, outcome, template census, quiet line, coverage receipt, and the exact continuation command." loading="lazy"></picture><picture class="fb fb--light"><source media="(max-width: 640px)" srcset="assets/diagrams/ae-digest-anatomy-mobile-light.svg"><img src="assets/diagrams/ae-digest-anatomy-light.svg" alt="Annotated anatomy of the digest: immutable run identity, outcome, template census, quiet line, coverage receipt, and the exact continuation command." loading="lazy"></picture></figure>
   </section>
 
   <section class="ch" id="retrieve" data-ch="retrieve">
-    <div class="panel">
+    <div class="pin"><div class="stick">
+<div class="panel">
       <p class="eyebrow">07 / Retrieval</p>
       <h2 class="claim">The omission has an address</h2>
       <p><span data-fact="digest.lines_omitted">19,988</span> lines stayed out of the prompt. They are still in the store. The handle names the run and a selector names the lines, so the agent can ask for exactly what the next decision needs. A read that would be too large comes back as a narrower view with a continuation.</p>
@@ -172,19 +187,23 @@ stdout: 20,001 lines · 979.1 KiB</code></pre>
       <p class="measure measure--ok"><strong>1 line</strong><span>asked for by address when the decision needs it</span></p>
       <p class="receipt">The example on the documentation's home page. The receipt checks that the address is emitted; it does not run the round trip. See <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/docs/CONCEPTS.md">docs/CONCEPTS.md</a></p>
     </div>
+    </div></div>
   </section>
 
   <section class="ch" id="contained" data-ch="contained">
-    <div class="panel">
+    <div class="pin"><div class="stick">
+<div class="panel">
       <p class="eyebrow">08 / Residency, contained</p>
       <h2 class="claim">Keep the conclusion resident. Page in evidence when a decision needs it.</h2>
       <p>The same seven turns now carry the <span data-fact="fates.digest.tokens">531</span>-token digest. When turn four needs the surrounding lines, it fetches 21 of them. The log itself never becomes part of the conversation.</p>
       <p class="receipt">Illustrative seven-turn trace, as drawn in <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/docs/HOW-IT-WORKS.md">docs/HOW-IT-WORKS.md</a></p>
     </div>
+    </div></div>
   </section>
 
   <section class="ch" id="anchors" data-ch="anchors">
-    <div class="panel">
+    <div class="pin"><div class="stick">
+<div class="panel">
       <p class="eyebrow">09 / Anchors</p>
       <h2 class="claim">An address should name content, not a position</h2>
       <p>Agents edit the files they cite. After an edit, a line number points at whatever now sits there. An anchored address carries a short hash of the content it names. Resolving it verifies the text, follows it if it moved, or refuses.</p>
@@ -201,21 +220,25 @@ moved → L46:58  <span class="sp-ok">@07407f1c ✓</span></code></pre>
       <p>Without an anchor, <span data-fact="anchors.unanchored_silently_wrong">1,918</span> of the same lookups return the wrong lines without saying so.</p>
       <p class="receipt">Receipt <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/evals/anchor-drift-2026-08-20.json">evals/anchor-drift-2026-08-20.json</a></p>
     </div>
-    <figure class="fallback"><picture><source media="(max-width: 640px)" srcset="assets/diagrams/ae-anchor-drift-mobile.svg"><img src="assets/diagrams/ae-anchor-drift.svg" alt="An anchored address recorded at lines 40 to 52 follows its content to lines 46 to 58 after six lines are inserted above. Across 1,920 cases: 2 verified, 1,452 relocated, 466 refused, 0 wrong." loading="lazy"></picture></figure>
+    </div></div>
+    <figure class="fallback"><picture class="fb fb--dark"><source media="(max-width: 640px)" srcset="assets/diagrams/ae-anchor-drift-mobile.svg"><img src="assets/diagrams/ae-anchor-drift.svg" alt="An anchored address recorded at lines 40 to 52 follows its content to lines 46 to 58 after six lines are inserted above. Across 1,920 cases: 2 verified, 1,452 relocated, 466 refused, 0 wrong." loading="lazy"></picture><picture class="fb fb--light"><source media="(max-width: 640px)" srcset="assets/diagrams/ae-anchor-drift-mobile-light.svg"><img src="assets/diagrams/ae-anchor-drift-light.svg" alt="An anchored address recorded at lines 40 to 52 follows its content to lines 46 to 58 after six lines are inserted above. Across 1,920 cases: 2 verified, 1,452 relocated, 466 refused, 0 wrong." loading="lazy"></picture></figure>
   </section>
 
   <section class="ch" id="handoff" data-ch="handoff">
-    <div class="panel">
+    <div class="pin"><div class="stick">
+<div class="panel">
       <p class="eyebrow">10 / Handoff</p>
       <h2 class="claim">Hand over the address, not the conversation</h2>
       <p>One worker finds the failing line. The next one needs that fact, not the transcript that led to it. A worker passes a failing test, a source location, or a verified patch as an address, and the task ledger records each attempt and handoff so a resumed route can reuse finished work. Your harness still runs the model, authenticates the user, and controls its tools.</p>
       <p class="hosts">Works alongside Claude Code, Codex, Antigravity, Hermes, Oh My Pi, OpenCode and DeepSeek Harness.</p>
       <p class="receipt">Guides <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/docs/TASK-LEDGER.md">Task ledger</a> · <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/docs/RELAY.md">Relay</a> · <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/docs/ROUTING.md">Worker routing</a></p>
     </div>
+    </div></div>
   </section>
 
   <section class="ch" id="gates" data-ch="gates">
-    <div class="panel">
+    <div class="pin"><div class="stick">
+<div class="panel">
       <p class="eyebrow">11 / The four gates</p>
       <h2 class="claim">Four moments in a byte's life</h2>
       <dl class="gates">
@@ -227,10 +250,12 @@ moved → L46:58  <span class="sp-ok">@07407f1c ✓</span></code></pre>
       <p>One artifact store serves all four.</p>
       <p class="receipt">From <a href="https://github.com/vamsiramakrishnan/straitjacket/blob/main/docs/CONCEPTS.md">docs/CONCEPTS.md</a></p>
     </div>
+    </div></div>
   </section>
 
   <section class="ch ch--doc" id="receipts" data-ch="receipts">
-    <div class="panel panel--doc">
+    <div class="pin"><div class="stick">
+<div class="panel panel--doc">
       <p class="eyebrow">12 / Receipts</p>
       <h2 class="claim">Receipts before spectacle</h2>
       <p>Every measured figure on this page comes from a receipt checked into the repository, and the seven-turn trace is marked as illustrative. Some of the results are not flattering. Small, complete native results may be cheaper and easier to use. Straitjacket is for when access to what was left out matters.</p>
@@ -247,10 +272,12 @@ moved → L46:58  <span class="sp-ok">@07407f1c ✓</span></code></pre>
         </table>
       </div>
     </div>
+    </div></div>
   </section>
 
   <section class="ch ch--doc" id="start" data-ch="start">
-    <div class="panel panel--doc">
+    <div class="pin"><div class="stick">
+<div class="panel panel--doc">
       <p class="eyebrow">13 / Try it</p>
       <h2 class="claim">Try it on a failing test</h2>
       <p>In a repository with a pytest suite, run:</p>
@@ -266,6 +293,7 @@ ctx run -- pytest -q</code></pre>
         <a class="btn" href="https://github.com/vamsiramakrishnan/straitjacket">GitHub</a>
       </p>
     </div>
+    </div></div>
   </section>
 
 </main>
