@@ -6,12 +6,12 @@ from pathlib import Path
 
 site = Path(__file__).resolve().parent.parent / "site"
 TYPES = {".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml",
-         ".glb": "model/gltf-binary", ".bin": "application/octet-stream", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp"}
+         ".glb": "model/gltf-binary", ".bin": "application/octet-stream", ".png": "image/png", ".jpg": "image/jpeg", ".webp": "image/webp", ".LICENSE": "text/plain"}
 SKIP = {"index.html", "film.html"}
 files = {}
 for path in sorted(p for p in site.rglob("*") if p.is_file()):
     rel = path.relative_to(site).as_posix()
-    if rel in SKIP or path.suffix == ".LICENSE":
+    if rel in SKIP:
         continue
     files[rel] = {"from": rel, "contentType": TYPES[path.suffix]}
 print(json.dumps(files, indent=1))
