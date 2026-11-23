@@ -461,7 +461,7 @@ class StudioHost:
             t1 = time.perf_counter()
             try:
                 tid, rep, _n, nodes, note = await T.apply_design(s, {"nodes": built.nodes, "materials": built.materials}, before,
-                                                                attach=True)
+                                                                attach=True, handoff=True)
             except ir_schema.IRArgumentError as e:
                 return self._notice(sid, f"NOT BUILT: the design is malformed: {str(e).removeprefix('invalid IR: ')[:400]}. Fix the script and run_build again; {kept}.")
             except (ValueError, LookupError, RuntimeError, OSError) as e:

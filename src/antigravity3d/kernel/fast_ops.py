@@ -27,7 +27,7 @@ import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from collections.abc import Collection, Iterable, Mapping
-from typing import Literal, Sequence
+from typing import Any, Literal, Sequence
 
 import numpy as np
 
@@ -652,7 +652,8 @@ def shipped_masks(meshes: list[MeshData], budget: EngineBudget, only: set[int] |
             near |= np.all((lo <= hi[k] + pad) & (hi >= lo[k] - pad), axis=1)
         keep = np.flatnonzero(near).tolist()
     sub = hidden_contact_faces([(meshes[k].node_id, meshes[k].points, meshes[k].triangles,
-                                 meshes[k].material_id if meshes[k].opaque else None) for k in keep], opaque)
+                                 meshes[k].material_id if meshes[k].opaque else None) for k in keep], opaque,
+                               [getattr(meshes[k], "run", None) for k in keep])
     out = [np.zeros(len(m.triangles), bool) for m in meshes]
     for k, mask in zip(keep, sub):
         out[k] = mask
@@ -4055,7 +4056,7 @@ def _untextured(material):
 
 
 def gltf_mesh(name: str, points: np.ndarray, triangles: np.ndarray, uvs: np.ndarray | None, material=None, *,
-              shade: bool, y_up: bool = True, crease_deg: float | None = None):
+              shade: bool, y_up: bool = True, crease_deg: float | None = None, round_dirs: np.ndarray | None = None):
     """One kernel mesh (world space, Z-up, UVs with a bottom-left origin) as a ``gltf_writer.GltfMesh``.
 
     The single conversion behind every GLB this package writes: the package GLBs (:func:`write_gltf`) and the
@@ -4074,7 +4075,8 @@ def gltf_mesh(name: str, points: np.ndarray, triangles: np.ndarray, uvs: np.ndar
     normals = None
     if shade:
         crease = CREASE_DEG if crease_deg is None else crease_deg
-        p, tris, uvs, normals = gw.split_by_corner_normals(p, tris, uvs, crease_normals(p, tris, crease))
+        # ``round_dirs``: per triangle its round part's run there (surface_frame.round_dirs; compile_ir.round_soft)
+        p, tris, uvs, normals = gw.split_by_corner_normals(p, tris, uvs, crease_normals(p, tris, crease, dirs=round_dirs))
         if y_up:
             normals = gw.z_up_to_y_up(normals)
     if y_up:
@@ -4096,6 +4098,7 @@ def write_gltf(
     materials: Sequence | None = None,
     image_uris: Mapping[str, str] | None = None,
     crease_deg: float | None = None,
+    round_dirs: Sequence[np.ndarray | None] | None = None,
 ) -> Path:
     """Writes a GLB. Our world is Z-up; glTF is Y-up, so (x,y,z) -> (x,z,-y) unless y_up=False.
 
@@ -4113,7 +4116,8 @@ def write_gltf(
         uv = getattr(it, "uvs", None)
         name = names[i] if names else getattr(it, "name", None) or getattr(it, "node_id", None) or f"mesh_{i}"
         material = materials[i] if uv is not None and materials else None
-        meshes.append(gltf_mesh(name, it.points, it.triangles, uv, material, shade=uv is not None, y_up=y_up, crease_deg=crease_deg))
+        meshes.append(gltf_mesh(name, it.points, it.triangles, uv, material, shade=uv is not None, y_up=y_up, crease_deg=crease_deg,
+                                round_dirs=round_dirs[i] if round_dirs else None))
     return gw.write_glb(path, meshes, image_uris=image_uris)
 
 
@@ -4181,20 +4185,21 @@ def _solid(points: np.ndarray, tris: np.ndarray) -> bool:
     return t.closed and t.volume > 0
 
 
-def _crease_safe(points: np.ndarray, tris: np.ndarray, mask: np.ndarray) -> np.ndarray:
+def _crease_safe(points: np.ndarray, tris: np.ndarray, mask: np.ndarray, run: Any = None) -> np.ndarray:
     """``mask`` without the triangles whose removal would change a shipped corner normal: crease normals smooth
     across faces within 40 degrees, so a hidden face next to a shallow visible one shades it. Box and cylinder
-    contacts meet their neighbours at 90 degrees and lose nothing here."""
+    contacts meet their neighbours at 90 degrees and lose nothing here. ``run``: the part's run, so the comparison is
+    with the normals that ship (a round part's sides smooth with each other: compile_ir.crease_normals)."""
     from antigravity3d.kernel.compile_ir import crease_normals
 
     if not mask.any():
         return mask
     mask = mask.copy()
-    full = crease_normals(points, tris).reshape(-1, 3, 3)
+    full = crease_normals(points, tris, run=run).reshape(-1, 3, 3)
     wid = _canon(np.asarray(points, np.float64))[np.asarray(tris)]
     while mask.any():
         kept = np.flatnonzero(~mask)
-        now = crease_normals(points, tris[kept]).reshape(-1, 3, 3)
+        now = crease_normals(points, tris[kept], run=run).reshape(-1, 3, 3)
         bad = np.abs(now - full[kept]).max(axis=2) > 1e-6  # (kept, 3) corners whose normal moved
         if not bad.any():
             break
@@ -4217,20 +4222,23 @@ def contact_faces_removable(budget: EngineBudget, opaque_materials) -> bool:
             and not budget.keep_contact_faces)
 
 
-def hidden_contact_faces(parts: Sequence[tuple[str, np.ndarray, np.ndarray, str | None]], opaque_materials) -> list[np.ndarray]:
+def hidden_contact_faces(parts: Sequence[tuple[str, np.ndarray, np.ndarray, str | None]], opaque_materials,
+                         runs: Sequence[Any] | None = None) -> list[np.ndarray]:
     """Per part (node id, points, triangles, material id) the triangles hidden by coplanar contact with other
-    parts of the same asset (``coplanar.hidden_triangles``), restricted so no shipped corner normal changes."""
+    parts of the same asset (``coplanar.hidden_triangles``), restricted so no shipped corner normal changes
+    (``runs``: per part its ``MeshData.run`` or None, as the shipped normals use it)."""
     from antigravity3d.kernel import coplanar
 
     items = [coplanar.Part(n, np.asarray(p, np.float64), np.asarray(t)) for n, p, t, _ in parts]
     solid = [_solid(it.points, it.triangles) for it in items]
     opaque = [mat in opaque_materials for *_, mat in parts]
     masks = coplanar.hidden_triangles(items, solid, opaque)
-    return [_crease_safe(it.points, it.triangles, m) for it, m in zip(items, masks)]
+    runs = list(runs) if runs is not None else [None] * len(items)
+    return [_crease_safe(it.points, it.triangles, m, r) for it, m, r in zip(items, masks, runs)]
 
 
 def _ship_levels(closed: list[UVResult], lods: dict[str, list[LOD]], materials: dict[str, str | None],
-                 opaque_materials, hidden0: dict[str, np.ndarray]) -> tuple[dict[str, list[LOD]], dict[str, np.ndarray]]:
+                 opaque_materials, hidden0: dict[str, np.ndarray], runs: Mapping[str, Any] | None = None) -> tuple[dict[str, list[LOD]], dict[str, np.ndarray]]:
     """LOD chains with each level's hidden triangles marked (decided on that level's own meshes: a part absent
     at a level covers nothing there, and a simplified part only hides what it still covers exactly). A level
     whose shipped triangle count no longer pays for itself against the previous kept level (LOD_MIN_REDUCTION)
@@ -4251,7 +4259,7 @@ def _ship_levels(closed: list[UVResult], lods: dict[str, list[LOD]], materials: 
     for k in range(levels):
         level = [lods[n][k] for n in names]
         masks = hidden_contact_faces([(n, lv.points, lv.triangles, materials.get(n)) for n, lv in zip(names, level)],
-                                     opaque_materials)
+                                     opaque_materials, [(runs or {}).get(n) for n in names])
         marked = [replace(lv, hidden=m if m.any() else None) for lv, m in zip(level, masks)]
         tris = sum(shipped(lv).tri_count for lv in marked)
         if prev is not None and tris > (1.0 - ld.LOD_MIN_REDUCTION) * prev:
@@ -4360,7 +4368,8 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
     keep = next((m.keep_layout for m in meshes if getattr(m, "keep_layout", None) is not None), None) if shared is not None else None
     hidden = None
     if contact_faces_removable(budget, opaque_materials):
-        hidden = hidden_contact_faces([(m.node_id, m.points, m.triangles, m.material_id) for m in meshes], opaque_materials)
+        hidden = hidden_contact_faces([(m.node_id, m.points, m.triangles, m.material_id) for m in meshes], opaque_materials,
+                                      [getattr(m, "run", None) for m in meshes])
         if not any(h.any() for h in hidden):
             hidden = None
     th = time.perf_counter()
@@ -4383,7 +4392,8 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
         t1 = time.perf_counter()
         lods_closed = generate_asset_lods(closed)
         hidden0 = {u.node_id: h for u, h in zip(closed, hidden)}
-        marked, exposed = _ship_levels(closed, lods_closed, materials, opaque_materials, hidden0)
+        marked, exposed = _ship_levels(closed, lods_closed, materials, opaque_materials, hidden0,
+                                       {m.node_id: m.run for m in meshes if getattr(m, "run", None) is not None})
         pack = [h & ~_chart_of(u.triangles, exposed[u.node_id]) if u.node_id in exposed else h for u, h in zip(closed, hidden)]
         uvs = unwrap_scene(meshes, budget, 2048, hidden=pack, cache=cache, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail,
                            keep=keep)

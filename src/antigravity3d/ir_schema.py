@@ -224,7 +224,7 @@ def as_written(scene: ir.SceneIR) -> dict[str, Any]:
     """``scene`` as a model reads it (and would write it): the dump a request shows (``exclude_defaults``), every
     material colour in the written form of the rule. ``parse_scene(json.dumps(as_written(s)))`` is ``s`` again
     (tests/test_colour.py). Under "as_written" the dump itself, as requests always showed it."""
-    doc = scene.model_dump(mode="json", exclude_defaults=True)
+    doc = scene.model_dump(mode="json", exclude_defaults=True, exclude={"nodes": {"__all__": set(HANDOFF_ONLY)}})
     if not told():
         return doc
     if "materials" in doc:  # left out, as a default, when there are none: the dump is the one requests always showed
@@ -236,7 +236,7 @@ def written_json(scene: ir.SceneIR) -> str:
     """``as_written`` as the compact JSON a request carries (the "Scene: ..." of a repair or improvement request); under
     "as_written" exactly the text it always was (pydantic's own JSON)."""
     if not told():
-        return scene.model_dump_json(exclude_defaults=True)
+        return scene.model_dump_json(exclude_defaults=True, exclude={"nodes": {"__all__": set(HANDOFF_ONLY)}})
     return json.dumps(as_written(scene), separators=(",", ":"))
 
 
@@ -319,11 +319,18 @@ class _WireNode(_Wire):
         return self
 
 
+#: NodeIR fields no model is asked to write and no model-facing schema shows: the script hand-off writes them and the
+#: stage carries them (``parse_tool_scene(..., handoff=True)`` reads them back).
+HANDOFF_ONLY = ("run", "grain")
+
+
 def _node_model(kind: str) -> type[_Wire]:
     params = ir.NODE_PARAMS[kind]
     needs = any(f.is_required() for f in params.model_fields.values())
     fields: dict[str, Any] = {}
     for fname, info in ir.NodeIR.model_fields.items():
+        if fname in HANDOFF_ONLY:
+            continue
         fields[fname] = _field(ir.NodeIR, fname, info, {ir.Transform: WireTransform}.get(info.annotation, info.annotation))
     fields["kind"] = (Literal[kind], ...)
     fields["params"] = (params, ... if needs else Field(default_factory=params))
@@ -1247,8 +1254,30 @@ def parse_ops(ops: Any) -> ir.IRPatch:
         raise  # unreachable
 
 
-def parse_tool_scene(asset_name: str, nodes: Any, materials: Any) -> ir.SceneIR:
-    """Strict parse of a full scene given as tool arguments (``materials`` may be omitted)."""
+def parse_tool_scene(asset_name: str, nodes: Any, materials: Any, *, handoff: bool = False) -> ir.SceneIR:
+    """Strict parse of a full scene given as tool arguments (``materials`` may be omitted). ``handoff``: the nodes come
+    from a script's hand-off folder, which may also carry the ``HANDOFF_ONLY`` fields (a part's run); a tool call never
+    does."""
+    extra: dict[str, dict[str, Any]] = {}
+    if handoff and isinstance(nodes, list):
+        out = []
+        for n in nodes:
+            if isinstance(n, dict) and any(k in n for k in HANDOFF_ONLY):
+                n = dict(n)
+                extra[str(n.get("id"))] = {k: n.pop(k) for k in HANDOFF_ONLY if k in n}
+            out.append(n)
+        nodes = out
+    scene = _parse_tool_scene(asset_name, nodes, materials)
+    if not extra:
+        return scene
+    try:
+        return ir.SceneIR.model_validate({**scene.model_dump(), "nodes": [{**n.model_dump(), **extra.get(n.id, {})} for n in scene.nodes]})
+    except ValueError as e:
+        _raise(_explain("hand-off", e))
+        raise  # unreachable
+
+
+def _parse_tool_scene(asset_name: str, nodes: Any, materials: Any) -> ir.SceneIR:
     errors, parsed = [], []
     for i, n in enumerate(nodes if isinstance(nodes, list) else []):
         model, errs = _parse_node(f"nodes[{i}]", n) if isinstance(n, dict) else (None, [f"nodes[{i}]: expected an object"])

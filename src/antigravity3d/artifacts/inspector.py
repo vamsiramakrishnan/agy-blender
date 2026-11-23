@@ -236,7 +236,7 @@ def inspector_payload(
             uv = np.asarray(uv)
             if uv.shape != (len(pts), 2):
                 raise ValueError(f"uvs[{m.node_id!r}] must be ({len(pts)}, 2), got {uv.shape}")
-        lod0.append(ReviewPart(m.node_id, pts, tri, uv, materials.get(m.node_id)))
+        lod0.append(ReviewPart(m.node_id, pts, tri, uv, materials.get(m.node_id), getattr(m, "run", None)))
         nodes.append({"id": m.node_id, "prim": m.prim_path, "mat": m.material_id or "", "color": color,
                       "tris": int(len(tri))})
 
@@ -250,7 +250,8 @@ def inspector_payload(
             for nid in ids:
                 item = lods[nid][k]
                 pts, tri = _check_mesh(item.points, item.triangles, f"lod {k} of {nid}")
-                parts.append(ReviewPart(nid, pts, tri, getattr(item, "uvs", None), materials.get(nid)))
+                parts.append(ReviewPart(nid, pts, tri, getattr(item, "uvs", None), materials.get(nid),
+                                        getattr(lod0[ids.index(nid)], "run", None)))
             levels.append((f"LOD{k}", parts))
     else:
         for lod in (InspectorLod(*x) if isinstance(x, tuple) else x for x in (lods or [])):

@@ -486,7 +486,8 @@ def test_offline_prop_without_art_direction_runs_no_style_code(tmp_path: Path, m
         monkeypatch.setattr(A.ArtDirection, name, forbidden)
     creases: set[float] = set()
     real = ci.crease_normals
-    monkeypatch.setattr(ci, "crease_normals", lambda p, t, crease_deg=CREASE_DEG: creases.add(crease_deg) or real(p, t, crease_deg))
+    # crease_normals also takes a part's run (round seven: round parts ship smooth); the crease angle is what is recorded
+    monkeypatch.setattr(ci, "crease_normals", lambda p, t, crease_deg=CREASE_DEG, *a, **k: creases.add(crease_deg) or real(p, t, crease_deg, *a, **k))
     out = tmp_path / "o"
     assert main(["prop", "wooden crate with iron brackets", "--offline", "--engine", "unreal_5", "--out", str(out), "--no-cache"]) == 0
     report = json.loads((out / "report.json").read_text())

@@ -125,7 +125,7 @@ def _render(meshes: list[MeshData], view: View, size: int, style: str, normals: 
 
 def shipped_normals(meshes: list[MeshData], crease_deg: float = CREASE_DEG) -> dict[str, np.ndarray]:
     """node id -> the per-corner normals the package writes for that part (``compile_ir.crease_normals``)."""
-    return {m.node_id: crease_normals(np.asarray(m.points, np.float64), np.asarray(m.triangles), crease_deg)
+    return {m.node_id: crease_normals(np.asarray(m.points, np.float64), np.asarray(m.triangles), crease_deg, m.run)
             for m in meshes if len(m.triangles)}
 
 

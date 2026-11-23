@@ -9,13 +9,13 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 import numpy as np
 from pxr import Kind, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, Vt
 
 from antigravity3d.ir import MaterialIR
-from antigravity3d.kernel.compile_ir import _author_material, crease_normals, sync_double_sided
+from antigravity3d.kernel.compile_ir import CREASE_DEG, _author_material, crease_normals, sync_double_sided
 from antigravity3d.kernel.fast_ops import ExportBundle, Hull, UVResult, shipped, write_gltf
 from antigravity3d.kernel.validator import ENGINE_RULES
 
@@ -46,11 +46,14 @@ def _define_mesh(stage: Usd.Stage, path: str, pts: np.ndarray, tris: np.ndarray,
 def write_package_usd(
     path: Path, asset_name: str, uvs: Sequence[UVResult], mat_of: dict[str, str | None], materials: Sequence[MaterialIR],
     hulls: Sequence[Hull], engine: str, *, textures_from: Path | None = None, crease_deg: float | None = None,
+    round_dirs: Mapping[str, np.ndarray] | None = None,
 ) -> Path:
     """Writes the baked package. ``textures_from``: directory whose ``textures/`` folder is copied next to the file.
 
     ``crease_deg``: an art direction's shading crease. The render meshes then get faceVarying normals smoothed within
-    that angle (``compile_ir.crease_normals``); None authors no normals, as before art directions existed."""
+    that angle (``compile_ir.crease_normals``); None authors no normals, as before art directions existed.
+    ``round_dirs``: per uv node id, each triangle's round-run direction (``surface_frame.round_dirs``): a mesh with
+    round parts ships with normals (the project's crease unless one is given) in which their facets are smooth."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     stage = Usd.Stage.CreateNew(str(path))
@@ -69,9 +72,20 @@ def write_package_usd(
         s = shipped(u)  # without hidden contact faces (fast_ops.UVResult.hidden); all of it otherwise
         pts = _to_native(s.points, engine)
         prim = _define_mesh(stage, f"/{asset_name}/{u.node_id}", pts, s.triangles, s.uvs)
-        if crease_deg is not None:
+        d = (round_dirs or {}).get(u.node_id)
+        if d is not None and u.hidden is not None:
+            d = np.asarray(d)[~np.asarray(u.hidden, bool)]   # as shipped (hidden contact faces left out)
+        if d is not None and (len(d) != len(s.triangles) or not np.any(d)):
+            d = None
+        if d is not None:   # directions into the same native axes as the points (a turn and a unit scale: angles kept)
+            d = _to_native(np.asarray(d, np.float64), engine) - _to_native(np.zeros((1, 3)), engine)
+            d = d / np.maximum(np.linalg.norm(d, axis=1, keepdims=True), 1e-30) * (np.linalg.norm(d, axis=1, keepdims=True) > 1e-12)
+        if crease_deg is not None or d is not None:
+            # decided on the world points the GLB is written from, as every shipped normal (compile_ir.prim_normals);
+            # _to_native only changes axes and units here, which keep every angle
             mesh = UsdGeom.Mesh(prim)
-            mesh.CreateNormalsAttr().Set(Vt.Vec3fArray.FromNumpy(crease_normals(np.asarray(pts, np.float32), s.triangles, crease_deg)))
+            mesh.CreateNormalsAttr().Set(Vt.Vec3fArray.FromNumpy(crease_normals(
+                np.asarray(pts, np.float32), s.triangles, CREASE_DEG if crease_deg is None else crease_deg, dirs=d)))
             mesh.SetNormalsInterpolation(UsdGeom.Tokens.faceVarying)
         if mat_of.get(u.node_id):
             UsdShade.MaterialBindingAPI.Apply(prim).Bind(UsdShade.Material(stage.GetPrimAtPath(f"/{asset_name}/Looks/{mat_of[u.node_id]}")))
@@ -102,21 +116,33 @@ def write_glb_package(path: Path, bundle: ExportBundle) -> Path:
     return write_gltf(path, [shipped(u) for u in bundle.uvs], [u.node_id for u in bundle.uvs])
 
 
-def merged_lods(bundle: ExportBundle) -> list[SimpleNamespace]:
+def merged_lods(bundle: ExportBundle, runs: Mapping[str, Any] | None = None,
+                crease_deg: float = CREASE_DEG) -> list[SimpleNamespace]:
     """One merged mesh per LOD level across all nodes (levels shared by every node), carrying the level's
     ``screen_fraction`` (the largest screen size it is shown at; LOD0 1.0) so the pop check renders each switch
-    where the generator placed it. Each level is what ships (hidden contact faces left out, ``fast_ops.shipped``)."""
+    where the generator placed it. Each level is what ships (hidden contact faces left out, ``fast_ops.shipped``).
+    With ``runs`` (node id -> ``MeshData.run``) or an art direction's ``crease_deg``, each level also carries the
+    ``normals`` it ships with (``compile_ir.crease_normals``: a round part's sides smooth at every level, since the
+    flag comes from the part, not from the level), which ``lod_diff.shipped_normals`` uses."""
+    from antigravity3d.kernel.surface_frame import round_dirs
+
     levels = min((len(v) for v in bundle.lods.values()), default=0)
+    runs = runs or {}
     out = []
     for k in range(levels):
-        pts, tris, base = [], [], 0
-        for lods in bundle.lods.values():
+        pts, tris, dirs, base = [], [], [], 0
+        for node, lods in bundle.lods.items():
             s = shipped(lods[k])  # what ships at this level, as the package's LOD files hold it
             pts.append(s.points)
             tris.append(s.triangles + base)
+            dirs.append(round_dirs(s.points, s.triangles, runs.get(node)))
             base += len(s.points)
         fr = min(float(getattr(lods[k], "screen_fraction", 1.0)) for lods in bundle.lods.values())
-        out.append(SimpleNamespace(points=np.vstack(pts), triangles=np.vstack(tris), screen_fraction=fr if k else 1.0))
+        lv = SimpleNamespace(points=np.vstack(pts), triangles=np.vstack(tris), screen_fraction=fr if k else 1.0)
+        d = np.concatenate(dirs) if dirs else np.zeros((0, 3))
+        if d.any() or crease_deg != CREASE_DEG:
+            lv.normals = crease_normals(np.asarray(lv.points, np.float64), np.asarray(lv.triangles), crease_deg, dirs=d)
+        out.append(lv)
     return out
 
 

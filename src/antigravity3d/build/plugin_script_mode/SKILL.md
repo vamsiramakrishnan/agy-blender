@@ -104,7 +104,7 @@ position, an orientation, `mirror=`, and returns the part:
 | `a.lathe(id, profile=[(r, z), ...], segments=24, closed=False)` | an outline turned about its axis, listed top to bottom: bottles, knobs, bells, wheels. Start and end on the axis (`r = 0`) for a solid; `closed=True` when the outline is a loop that never touches the axis (a ring, a tyre) |
 | `a.extrude(id, outline=[(x, y), ...], depth)` | a flat outline (counter-clockwise) given thickness along its axis: brackets, plates, arches |
 | `a.tube(id, path=[p0, p1, ...], radius, sides=10, closed=False, smooth=False)` | a rod along any 3D path: legs, rails, pipes, handles, hoops, cables. `radius` is a number, or a list spread evenly along the length (a taper, a turned leg). `closed=True` joins the ends (a ring, a chain link). `smooth=True` rounds the path through its points. Cost: `2 x sides` triangles per step of the path (`smooth` makes 8 steps between two points) |
-| `a.loft(id, sections=[[p, ...], ...])` | a skin through cross-sections, each a ring of 3D points with the same count, in order; a section of one point is a tip: seats, hulls, blades, funnels, tapered or twisted bodies. List every section in the same direction round. For a hollow shape go up the outside and back down the inside, as the tray above does |
+| `a.loft(id, sections=[[p, ...], ...])` | a skin through cross-sections, each a ring of 3D points with the same count, in order; a section of one point is a tip: seats, hulls, blades, funnels, tapered or twisted bodies. List every section in the same direction round. For a hollow shape go up the outside and back down the inside, as the tray above does. A loft is not shaded round: a round rail is a `tube` |
 | `a.mesh(id, vertices, faces)` | any mesh you compute (numpy arrays or lists; a `trimesh.Trimesh` works too); a face of more than three points must be convex |
 | `a.blender(id, code)` | everything the mesh objects of a Blender Python snippet add up to, run in an empty scene with modifiers applied: booleans, subdivision, bevel modifiers, curves, text. Hidden objects (a boolean's cutter) are left out |
 | `a.load(id, path)` | a mesh file that already exists (glb, gltf, obj, ply, stl) |
@@ -123,6 +123,9 @@ extrusion's outline then stands upright, its y pointing up) or
 `mirror="x" | "y" | "z"` also makes the reflected copy on the other side of the
 origin, named `<id>__mx` (`__my`, `__mz` on the other axes; `p.mirrored` is that
 copy). The part must lie on one side of that plane.
+
+`grain="x" | "y" | "z"` or a vector: the way the wood runs in a part (default: its
+longest side; a tube's grain follows its path).
 
 A part knows where it is: `p.min`, `p.max`, `p.center`, `p.size` (its bounding
 box), `p.top`, `p.bottom` (heights), and for a tube `p.along(t)`, the point at

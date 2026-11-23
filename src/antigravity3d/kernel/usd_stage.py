@@ -47,7 +47,7 @@ from pxr import Gf, Kind, Sdf, Tf, Usd, UsdGeom, UsdShade, UsdUtils
 from antigravity3d import ir
 from antigravity3d.ir import IRPatch, SceneIR
 from antigravity3d.kernel import usd_boot
-from antigravity3d.kernel.compile_ir import COLLIDER_PROXY_KEY, CREASE_DEG, IR_KEY, facing, UV_CHART_KEY, UV_WELD_KEY, author_mesh_data, author_scene, node_paths, read_ir, read_material, resolve_anchor
+from antigravity3d.kernel.compile_ir import COLLIDER_PROXY_KEY, CREASE_DEG, IR_KEY, read_grain, read_run, facing, UV_CHART_KEY, UV_WELD_KEY, author_mesh_data, author_scene, node_paths, read_ir, read_material, resolve_anchor
 from antigravity3d.kernel.fast_ops import UVResult
 from antigravity3d.kernel.spatial import PrimInfo, SpatialIndex
 from antigravity3d.kernel.types import MeshData
@@ -488,6 +488,8 @@ class StageManager:
                 opaque=None if opaque is None else (mat.GetPrim().GetName() if mat else None) in opaque,
                 material=params.get(mat.GetPath()) if mat else None,
                 keep_layout=self.keep_layout,
+                run=read_run(prim, m),  # the part's run, carried as its collider proxy is (compile_ir._author_run)
+                grain=read_grain(prim, m),
             )
             out.append(_MeshRead(prim, md, local, m[:3, :3]))
         return out

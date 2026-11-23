@@ -629,7 +629,17 @@ def _feature_edge_list(meshes, pts, tris, crease_deg: float) -> np.ndarray:
     two = count == 2
     fa, fb = face[order[starts[two]]], face[order[starts[two] + 1]]
     hard = np.ones(len(count), bool)
-    hard[two] = (unit[fa] * unit[fb]).sum(axis=1) < np.cos(np.radians(crease_deg)) - 1e-9
+    dots = (unit[fa] * unit[fb]).sum(axis=1)
+    hard[two] = dots < np.cos(np.radians(crease_deg)) - 1e-9
+    if any(getattr(m, "run", None) is not None and m.run.round for m in meshes):
+        # the facets along a round part ship smooth (compile_ir.round_soft, the shipped normals' own rule): no line there
+        from antigravity3d.kernel.compile_ir import round_soft
+        from antigravity3d.kernel.surface_frame import round_dirs
+
+        d = np.concatenate([round_dirs(m.points, m.triangles, getattr(m, "run", None)) for m in meshes if len(m.triangles)])
+        if len(d) == len(tris):
+            soft = round_soft(unit[fa], unit[fb], d[fa], d[fb], crease_deg)
+            hard[np.flatnonzero(two)[soft]] = False
     return E[first[hard]]
 
 

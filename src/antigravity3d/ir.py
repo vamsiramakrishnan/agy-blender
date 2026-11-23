@@ -208,6 +208,25 @@ NODE_PARAMS: dict[str, type[_Model]] = {
 ParamValue = Union[bool, int, float, str, Vec3, list[Vec2], list[str]]
 
 
+class RunIR(_Model):
+    """A script tube's centre line in the node's own frame (metres): the author's own path, with its radius at each
+    point (empty: unknown), ``round`` (a tube is round about its path by construction, so it ships smooth around it
+    whatever its side count: ``compile_ir.crease_normals``) and ``closed`` (a ring). Only what the author wrote is stored
+    here; a ready shape's axis is derived from its parameters when the stage is authored (``compile_ir.node_run``), so
+    an edit of a parameter can never leave it stale. Not in the model-facing schema (``ir_schema.HANDOFF_ONLY``)."""
+
+    path: list[Vec3] = Field(min_length=2)
+    radius: list[Annotated[float, Field(ge=0.0, allow_inf_nan=False)]] = Field(default_factory=list)
+    round: bool = False
+    closed: bool = False
+
+    @model_validator(mode="after")
+    def _sizes(self) -> "RunIR":
+        if self.radius and len(self.radius) != len(self.path):
+            raise ValueError(f"run: {len(self.radius)} radii for {len(self.path)} points (one per point, or none)")
+        return self
+
+
 class NodeIR(_Model):
     """One scene node. Primitives are centred on their local origin.
 
@@ -231,6 +250,12 @@ class NodeIR(_Model):
     parent: NodeId | None = None
     material_id: NodeId | None = None
     collider: bool = True  # include in collision hull generation
+    # A script tube's path (RunIR); absent from every dump when None, so a document written before the field existed
+    # reads and writes the same bytes. Ready shapes get their axis from compile_ir.node_run.
+    run: RunIR | None = Field(None, exclude_if=lambda v: v is None)
+    # The way the wood runs, as the author said it (``grain=``): a direction in the node's own frame. Only a
+    # direction: it never moves the axis a round part is judged round about (compile_ir.node_run).
+    grain: Vec3 | None = Field(None, exclude_if=lambda v: v is None)
 
 
 class SceneIR(_Model):
@@ -333,7 +358,14 @@ def apply_patch(
     mats = {m.id: m for m in scene.materials}
     for op in patch.ops:
         if isinstance(op, UpsertNode):
-            nodes[op.node.id] = op.node
+            node, old = op.node, nodes.get(op.node.id)
+            # what only the script hand-off writes (a tube's path, the author's grain) no model can write back: an upsert
+            # of the same shape (same kind; for a free-form part the same mesh file) keeps it
+            if old is not None and old.kind == node.kind and (node.kind != "mesh_ref" or old.params.get("path") == node.params.get("path")):
+                keep = {k: getattr(old, k) for k in ("run", "grain") if getattr(node, k) is None and getattr(old, k) is not None}
+                if keep:
+                    node = node.model_copy(update=keep)
+            nodes[op.node.id] = node
         elif isinstance(op, UpsertMaterial):
             mats[op.material.id] = op.material
         elif isinstance(op, RemoveNode):

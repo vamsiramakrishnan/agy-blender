@@ -19,7 +19,7 @@ from typing import Any
 import numpy as np
 from pxr import Gf, Kind, Sdf, Usd, UsdGeom, UsdShade, Vt
 
-from antigravity3d.ir import MaterialIR, NodeIR, PlaceRelative, SceneIR, Transform
+from antigravity3d.ir import MaterialIR, NodeIR, PlaceRelative, RunIR, SceneIR, Transform
 from antigravity3d.kernel import shapes
 from antigravity3d.kernel.mesh_io import triangle_parts
 
@@ -325,6 +325,136 @@ COLLIDER_PROXY_KEY = "agy:colliderProxy"  # point3f[] local: the convex collisio
 UV_WELD_KEY = "agy:uvWeldMap"  # int[] per authored vertex: id of the pre-unwrap vertex it was split from
 UV_CHART_KEY = "agy:uvChart"  # int[] per triangle of a primitive: exact developable chart (see primitive_charts)
 CREASE_DEG = 40.0
+#: On a round part (``is_round``) two faces on its sides smooth with each other when the line where they meet runs
+#: along the part (within ROUND_ALONG_DEG of its run there) and they turn by at most ROUND_TURN_DEG: a tube of 5 sides
+#: or more (72 degrees per facet) ships round, a 3- or 4-sided one stays the prism it is. A crease ACROSS the run (a
+#: turned bead, a kink in a rod, a cap) is a real edge and stays hard whatever its angle. One rule
+#: (``round_soft``) for the shipped normals (``crease_normals``), the wear masks (``mesh_masks.mesh_edges``) and the
+#: drawn edges of the design views (``raster._feature_edge_list``).
+ROUND_TURN_DEG = 75.0
+ROUND_ALONG_DEG = 20.0
+RUN_POINTS_KEY = "agy:runPoints"  # point3f[] local: the axis or path a part is round about (node_run)
+RUN_RADII_KEY = "agy:runRadii"  # float[] per run point (empty: unknown)
+RUN_ROUND_KEY = "agy:runRound"  # bool: round about the run (is_round)
+RUN_CLOSED_KEY = "agy:runClosed"  # bool: the run's last point joins its first
+GRAIN_KEY = "agy:grain"  # vector3f local: the way the wood runs, as the author said it (NodeIR.grain)
+#: Ready shapes that are round by construction get the round flag from this many segments. Their segment count is a
+#: triangle budget (the authoring pages tell agents to lower it, and tactics.authoring._shrink takes curved parts down
+#: to 8), so 7- and 8-segment legs and posts are round parts that shipped as prisms under the 40-degree crease and were
+#: painted as edge all round. Five and six segments stay prisms: that is how pentagonal nuts and hex bolts are written
+#: (round six's hydrant: cylinder segments=5 and 6). Checked 2026-11-23: every 7- to 9-segment round part in round six's
+#: scripts (the crate's latch pivot and handle axle, 8) is a pin or an axle, and the offline templates use 12 to 24.
+#: A prism of any side count (an octagonal column) is an extrusion of its outline, which is never round: its corners
+#: ship hard and wear (tests/test_surface_review.py). A decision for the owner: one number to change.
+ROUND_MIN_SEGMENTS = 7
+ROUND_KINDS = frozenset({"cylinder", "cone", "capsule", "lathe"})
+
+
+def is_round(node: NodeIR) -> bool:
+    """Whether the part ships smooth around its run whatever its side count: a script's tube (its run says so), or a
+    cylinder, cone, capsule or lathe with at least ``ROUND_MIN_SEGMENTS`` segments. Not a loft (a tray's sections are
+    rectangles on purpose), an extrusion (a prism), a box or a sphere (its own crease smooths it from 10 segments up).
+    ``grain=`` has no part in it."""
+    if node.run is not None and node.run.round:
+        return True
+    if node.kind in ROUND_KINDS:
+        default = 16 if node.kind in ("capsule", "lathe") else 24
+        return _int(node, "segments", default, 3) >= ROUND_MIN_SEGMENTS
+    return False
+
+
+def node_run(node: NodeIR) -> RunIR | None:
+    """The line a part is round about, in its own frame: a script tube's path (``NodeIR.run``, the author's input), else
+    for a cylinder, cone, capsule or lathe its axis (local Z) and radius, derived from its parameters now (so an edit
+    of a parameter re-derives it). None for every other part. The way the wood runs is another thing
+    (``NodeIR.grain``, the painter's ``surface_frame.part_grain``) and never moves this line."""
+    if node.run is not None:
+        return node.run
+    if node.kind not in ROUND_KINDS:
+        return None
+    if node.kind == "lathe":
+        rows, _, _ = _lathe_rows(node)
+        zs = [z for _, z in rows]
+        r = max(rr for rr, _ in rows)
+        z0, z1 = min(zs), max(zs)
+    else:
+        r = _num(node, "radius")
+        h = _num(node, "height", allow_zero=node.kind == "capsule")
+        z0, z1 = (-h / 2 - r, h / 2 + r) if node.kind == "capsule" else (-h / 2, h / 2)
+    if z1 - z0 < 1e-9:
+        return None
+    return RunIR(path=[(0.0, 0.0, z0), (0.0, 0.0, z1)], radius=[r, r], round=is_round(node))
+
+
+def read_run(prim: Usd.Prim, to_world: np.ndarray | None = None) -> Any:
+    """The ``types.Run`` authored on a mesh prim (``RUN_*_KEY``), in the prim's local frame, or through ``to_world``
+    (a 4 x 4 row-vector matrix: radii scale by its mean axis scale). None when the prim has none."""
+    from antigravity3d.kernel.types import Run
+
+    if not prim.HasAttribute(RUN_POINTS_KEY):
+        return None
+    pts = prim.GetAttribute(RUN_POINTS_KEY).Get()
+    if pts is None or len(pts) < 2:
+        return None
+    p = np.asarray(pts, np.float64)
+    rr = prim.GetAttribute(RUN_RADII_KEY).Get() if prim.HasAttribute(RUN_RADII_KEY) else None
+    r = np.asarray(rr, np.float64) if rr is not None and len(rr) == len(p) else np.zeros(len(p))
+    rnd = bool(prim.GetAttribute(RUN_ROUND_KEY).Get()) if prim.HasAttribute(RUN_ROUND_KEY) else False
+    closed = bool(prim.GetAttribute(RUN_CLOSED_KEY).Get()) if prim.HasAttribute(RUN_CLOSED_KEY) else False
+    if to_world is not None:
+        m = np.asarray(to_world, np.float64)
+        p = p @ m[:3, :3] + m[3, :3]
+        r = r * float(np.mean(np.linalg.norm(m[:3, :3], axis=1)))
+    return Run(p, r, rnd, closed)
+
+
+def read_grain(prim: Usd.Prim, to_world: np.ndarray | None = None) -> np.ndarray | None:
+    """The author's grain direction on a mesh prim (``GRAIN_KEY``), unit, local or through ``to_world``; else None."""
+    if not prim.HasAttribute(GRAIN_KEY):
+        return None
+    g = prim.GetAttribute(GRAIN_KEY).Get()
+    if g is None:
+        return None
+    v = np.asarray(g, np.float64)
+    if to_world is not None:
+        v = v @ np.asarray(to_world, np.float64)[:3, :3]
+    n = float(np.linalg.norm(v))
+    return v / n if n > 1e-12 else None
+
+
+def _author_run(prim: Usd.Prim, node: NodeIR) -> None:
+    run = node_run(node)
+    if run is None:
+        _block_authored(prim, [RUN_POINTS_KEY, RUN_RADII_KEY, RUN_ROUND_KEY, RUN_CLOSED_KEY])
+    else:
+        prim.CreateAttribute(RUN_POINTS_KEY, Sdf.ValueTypeNames.Point3fArray, custom=True).Set(
+            Vt.Vec3fArray.FromNumpy(np.asarray(run.path, np.float32)))
+        prim.CreateAttribute(RUN_RADII_KEY, Sdf.ValueTypeNames.FloatArray, custom=True).Set(
+            Vt.FloatArray.FromNumpy(np.asarray(run.radius, np.float32)))
+        prim.CreateAttribute(RUN_ROUND_KEY, Sdf.ValueTypeNames.Bool, custom=True).Set(bool(run.round))
+        prim.CreateAttribute(RUN_CLOSED_KEY, Sdf.ValueTypeNames.Bool, custom=True).Set(bool(run.closed))
+    if node.grain is None:
+        _block_authored(prim, [GRAIN_KEY])
+    else:
+        prim.CreateAttribute(GRAIN_KEY, Sdf.ValueTypeNames.Vector3f, custom=True).Set(Gf.Vec3f(*map(float, node.grain)))
+
+
+def round_soft(n1: np.ndarray, n2: np.ndarray, d1: np.ndarray, d2: np.ndarray, crease_deg: float = CREASE_DEG) -> np.ndarray:
+    """Whether faces with unit normals ``n1``, ``n2`` and round-run directions ``d1``, ``d2`` (``surface_frame.round_dirs``:
+    zero where a face is not on a round part's side) smooth with each other although they turn by more than the crease:
+    both on a round part's sides, turning by at most ROUND_TURN_DEG, and the line where they meet (n1 x n2) running
+    along the run (within ROUND_ALONG_DEG). Never below the project's crease: an art direction that asks for harder
+    creases (low-poly, retro: 0 degrees) wants the facets seen, the side count is then the look. Broadcasts."""
+    if crease_deg < CREASE_DEG:
+        return np.zeros(np.broadcast_shapes(n1.shape[:-1], n2.shape[:-1]), bool)
+    dsum = d1 + d2
+    has = ((d1 * d1).sum(-1) > 0.25) & ((d2 * d2).sum(-1) > 0.25)
+    dots = (n1 * n2).sum(-1)
+    c = np.cross(n1, n2)
+    cl = np.sqrt((c * c).sum(-1))
+    dl = np.sqrt((dsum * dsum).sum(-1))
+    along = np.abs((c * dsum).sum(-1)) >= math.cos(math.radians(ROUND_ALONG_DEG)) * cl * dl - 1e-12
+    return has & (dots >= math.cos(math.radians(ROUND_TURN_DEG)) - 1e-9) & along
 
 
 def facing(tris: np.ndarray, linear: np.ndarray) -> np.ndarray:
@@ -338,11 +468,16 @@ def facing(tris: np.ndarray, linear: np.ndarray) -> np.ndarray:
     return t[:, [0, 2, 1]] if np.linalg.det(np.asarray(linear, np.float64)[:3, :3]) < 0 else t
 
 
-def crease_normals(points: np.ndarray, tris: np.ndarray, crease_deg: float = CREASE_DEG) -> np.ndarray:
+def crease_normals(points: np.ndarray, tris: np.ndarray, crease_deg: float = CREASE_DEG, run: Any = None,
+                   dirs: np.ndarray | None = None) -> np.ndarray:
     """Per-corner (faceVarying, 3 per triangle) normals, smoothed across faces within ``crease_deg``.
 
     Smoothing is done over position-welded vertices, so seam-split vertices (UV seams) shade
     continuously while real hard edges (box corners) stay crisp.
+
+    ``run``: the part's ``types.Run`` (same space as ``points``); on a round part the facets along it also smooth
+    (``round_soft``). ``dirs``: instead, each face's round-run direction (``surface_frame.round_dirs``), for a batch of
+    several parts each with its own run. Every shipped normal comes from here.
     """
     from antigravity3d.kernel.fast_ops import _canon
 
@@ -351,6 +486,12 @@ def crease_normals(points: np.ndarray, tris: np.ndarray, crease_deg: float = CRE
     fn = np.cross(p[t[:, 1]] - p[t[:, 0]], p[t[:, 2]] - p[t[:, 0]])  # area-weighted
     ln = np.linalg.norm(fn, axis=1, keepdims=True)
     unit = np.divide(fn, ln, out=np.zeros_like(fn), where=ln > 1e-20)
+    if dirs is None and run is not None and getattr(run, "round", False) and len(t):
+        from antigravity3d.kernel.surface_frame import round_dirs
+
+        dirs = round_dirs(p, t, run)
+    if dirs is not None and (crease_deg < CREASE_DEG or not np.any(dirs)):
+        dirs = None
     wid = _canon(p)[t].ravel()
     order = np.argsort(wid, kind="stable")
     cuts = np.flatnonzero(np.diff(wid[order])) + 1
@@ -358,12 +499,39 @@ def crease_normals(points: np.ndarray, tris: np.ndarray, crease_deg: float = CRE
     out = np.zeros((len(t) * 3, 3))
     for grp in np.split(order, cuts):
         faces = grp // 3
-        same = (unit[faces] @ unit[faces].T) >= cos_t - 1e-9
+        dots = unit[faces] @ unit[faces].T
+        same = dots >= cos_t - 1e-9
+        if dirs is not None:
+            d = dirs[faces]
+            if d.any():
+                u = unit[faces]
+                same |= round_soft(u[:, None], u[None, :], d[:, None], d[None, :], crease_deg)
         out[grp] = same.astype(np.float64) @ fn[faces]
     n = np.linalg.norm(out, axis=1, keepdims=True)
     fallback = np.repeat(unit, 3, axis=0)
     out = np.where(n > 1e-20, out / np.maximum(n, 1e-20), fallback)
     return out.astype(np.float32)
+
+
+def prim_normals(prim: Usd.Prim, pts: np.ndarray, tri: np.ndarray, crease_deg: float) -> np.ndarray:
+    """The shipped normals of a mesh prim's local points, decided where the GLB decides them: in world space. Angles
+    between faces are the same in both spaces under a rotation, a mirror or a uniform scale, so those stay local; under a
+    non-uniform scale they are not (an 8-segment cylinder scaled (3, 1, 1): local 45 degrees per facet, world up to 72),
+    and the USD then shaded other edges than the GLB. Measured before this: 12 corners differing by up to 74 degrees."""
+    m = np.array(UsdGeom.XformCache().GetLocalToWorldTransform(prim), np.float64)
+    L = m[:3, :3]
+    sv = np.linalg.svd(L, compute_uv=False)
+    if sv.min() <= 0 or sv.max() - sv.min() <= 1e-6 * sv.max():
+        return crease_normals(pts, tri, crease_deg, read_run(prim))
+    world = np.asarray(pts, np.float64) @ L + m[3, :3]
+    flip = np.linalg.det(L) < 0
+    wt = tri[:, [0, 2, 1]] if flip else tri
+    n = crease_normals(world, wt, crease_deg, read_run(prim, m)).reshape(-1, 3, 3)
+    if flip:
+        n = n[:, [0, 2, 1]]
+    local = n.reshape(-1, 3) @ L.T                       # a normal goes back through the transpose of the map
+    local /= np.maximum(np.linalg.norm(local, axis=1, keepdims=True), 1e-20)
+    return local.astype(np.float32)
 
 
 def author_mesh_data(
@@ -413,7 +581,7 @@ def author_mesh_data(
         _block_authored(prim, [UV_WELD_KEY])
     _block_authored(prim, ["primvars:normals", "primvars:normals:indices"])
     if normals:
-        mesh.CreateNormalsAttr().Set(Vt.Vec3fArray.FromNumpy(crease_normals(pts, tri, crease_deg)))
+        mesh.CreateNormalsAttr().Set(Vt.Vec3fArray.FromNumpy(prim_normals(prim, pts, tri, crease_deg)))
         mesh.SetNormalsInterpolation(UsdGeom.Tokens.faceVarying)
     else:
         _block_authored(prim, ["normals"])
@@ -806,6 +974,8 @@ def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path)
     else:
         _block_authored(prim, _MESH_ATTRS)
 
+    if is_prim or imported:
+        _author_run(prim, node)
     if imported:
         prim.CreateAttribute("agy:meshRef", Sdf.ValueTypeNames.String, custom=True).Set(node.params["path"])
     else:
@@ -904,7 +1074,7 @@ def author_scene(
         if old is not None and prev_paths[node.id] == path and not needs_import and not stale(path):
             if old == node:
                 continue
-            if old.kind == node.kind and old.params == node.params:
+            if old.kind == node.kind and old.params == node.params and old.run == node.run:
                 prim = stage.GetPrimAtPath(path)
                 if old.transform != node.transform:
                     _author_transform(prim, node.transform, old.transform)

@@ -670,13 +670,14 @@ async def _auto_fix(s: Session, action: Action) -> str:
     return f"{action.fixer} applied to {len(ops)} material(s) tx={tid}; re-run QA"
 
 
-def _edit(s: Session, ops: Any) -> tuple[Callable[[], str], int, Callable[[list], Callable[[], str]]]:
+def _edit(s: Session, ops: Any, handoff: bool = False) -> tuple[Callable[[], str], int, Callable[[list], Callable[[], str]]]:
     """``ops`` (a list of op objects) -> (apply callable, op count, extend), ``extend(more_ops)`` being the callable
     that applies the edit and ``more_ops`` after it as one transaction. The legacy string form may also carry a patch
     object ``{"ops": [...]}`` or a full scene ``{"nodes": [...], "materials": [...]}`` (replaces the scene)."""
     payload = _decoded(ops, "ops")
     if isinstance(payload, dict) and "nodes" in payload:
-        scene = ir_schema.parse_tool_scene(s.stage.asset_prim.GetName(), payload["nodes"], payload.get("materials"))
+        # handoff: a script's design (run_build), which may carry each part's run (ir_schema.HANDOFF_ONLY)
+        scene = ir_schema.parse_tool_scene(s.stage.asset_prim.GetName(), payload["nodes"], payload.get("materials"), handoff=handoff)
         return ((lambda: s.stage.apply_ir(scene)), len(scene.nodes) + len(scene.materials),
                 lambda more: (lambda: s.stage.apply_ir(ir.apply_patch(scene, IRPatch(ops=more)))))
     if isinstance(payload, dict) and set(payload) == {"ops"}:
@@ -730,15 +731,15 @@ def image_refs(name: str, args: dict[str, Any]) -> list[str]:
 # --------------------------------------------------------------------------- BLOCKOUT
 
 
-async def apply_design(s: Session, ops: Any, before: Callable[[], Any] | None = None, *, attach: bool = False
-                       ) -> tuple[str | None, Tier1Report, int, int, list[str]]:
+async def apply_design(s: Session, ops: Any, before: Callable[[], Any] | None = None, *, attach: bool = False,
+                       handoff: bool = False) -> tuple[str | None, Tier1Report, int, int, list[str]]:
     """The edit path of apply_scene_ir (and of run_build, whose design is a full scene): parse ``ops``, then under the
     session lock apply it as one transaction with the separation of coplanar faces, Tier-1 checked and rolled back on a
     critical issue. ``before``: called under the lock just before the apply (run_build updates the session's budget
     there); returns its undo, called if the edit is rolled back or raises. ``attach`` (run_build's full scenes): detached
     parts are attached in the same transaction (``_attached``). Returns (tx id or None when rolled back, the Tier-1
     report, op count, node count, separation and attach notes)."""
-    apply, n, extend = _edit(s, ops)
+    apply, n, extend = _edit(s, ops, handoff)
     note: list[str] = []
     async with s.registry.locked(s.sid):
         undo = before() if before is not None else None

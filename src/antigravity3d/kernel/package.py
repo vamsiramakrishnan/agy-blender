@@ -965,13 +965,16 @@ def _relativise_embedded_ir(stage: Usd.Stage, records: list[dict[str, Any]]) -> 
 
 def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict[str, list[str]],
                      materials: dict[str, GltfMaterial], suffix: str, image_uris: Mapping[str, str] | None = None,
-                     crease_deg: float | None = None) -> dict[str, list[list[Any]]]:
+                     crease_deg: float | None = None, runs: Mapping[str, Any] | None = None) -> dict[str, list[list[Any]]]:
     """Writes one level's GLB, one mesh per batch. Returns, per mesh, where each part's triangles are in its index
     buffer: [[node id, first triangle, triangle count], ...] in order (the writer keeps the triangle order of the parts
     it concatenates: ``gltf_writer.split_by_corner_normals`` renumbers vertices, never triangles)."""
+    from antigravity3d.kernel.surface_frame import round_dirs
+
     items = []
     bound = []
     names = []
+    dirs: list[np.ndarray | None] = []
     ranges: dict[str, list[list[Any]]] = {}
     for name, nodes in batches.items():
         group = [parts[node] for node in nodes if len(parts[node].triangles)]  # a part absent at this LOD is omitted
@@ -981,6 +984,9 @@ def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict
         nodes = [node for node in nodes if len(parts[node].triangles)]
         firsts = np.cumsum([0] + [len(p.triangles) for p in group[:-1]])
         ranges[name + suffix] = [[node, int(f), int(len(p.triangles))] for node, f, p in zip(nodes, firsts, group)]
+        # each round part's facets along its run (its own run, ``MeshData.run``) ship smooth, at every level of detail
+        d = [round_dirs(p.points, p.triangles, (runs or {}).get(node)) for node, p in zip(nodes, group)]
+        dirs.append(np.concatenate(d) if any(x.any() for x in d) else None)
         if len(group) == 1:
             items.append(group[0])
         else:
@@ -989,7 +995,8 @@ def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict
             items.append(LOD(1., np.vstack([p.points for p in group]), indices,
                              np.vstack([p.uvs for p in group]), 0., 0.))
         bound.append(materials.get(nodes[0]))
-    write_gltf(path, items, [name + suffix for name in names], materials=bound, image_uris=image_uris, crease_deg=crease_deg)
+    write_gltf(path, items, [name + suffix for name in names], materials=bound, image_uris=image_uris, crease_deg=crease_deg,
+               round_dirs=dirs)
     return ranges
 
 
@@ -1327,6 +1334,17 @@ def _contact_record(budget: EngineBudget, uvs: Sequence[UVResult], lods: Mapping
     }
 
 
+def shipped_runs(meshes: Sequence[MeshData], crease_deg: float) -> list[MeshData]:
+    """``meshes`` as the package's maps and GLB see them: below the project's crease (an art direction that wants facets
+    seen: low-poly, retro) no part ships round (``compile_ir.round_soft``), so its facet lines are edges for the wear
+    masks too, as the USD's normals say."""
+    if crease_deg >= CREASE_DEG:
+        return list(meshes)
+    from dataclasses import replace as _replace
+
+    return [_replace(m, run=_replace(m.run, round=False)) if m.run is not None and m.run.round else m for m in meshes]
+
+
 def write_engine_package(
     stage_manager,
     bundle_or_parts: ExportBundle | Mapping[str, Any],
@@ -1366,7 +1384,7 @@ def write_engine_package(
     notes: list[str] = []
 
     stage_manager.ensure_export_uvs(uvs, crease_deg=crease)
-    meshes = stage_manager.extract_meshes()
+    meshes = shipped_runs(stage_manager.extract_meshes(), crease)
     xc = UsdGeom.XformCache()
     src_stage = stage_manager.stage
 
@@ -1460,7 +1478,8 @@ def write_engine_package(
     texture_of: dict[str, str] = {}
     for rel, digest in texture_hashes.items():
         texture_of.setdefault(digest, rel)  # identical files: the first one, in manifest order
-    part_ranges = _write_glb_level(out / f"{asset_name}.glb", ship, batches, materials, "", crease_deg=crease)
+    runs = {m.node_id: m.run for m in meshes if m.run is not None}
+    part_ranges = _write_glb_level(out / f"{asset_name}.glb", ship, batches, materials, "", crease_deg=crease, runs=runs)
     files.append(f"{asset_name}.glb")
     glb_levels = levels
     # A material image whose bytes no package file holds (a map transcoded to PNG because glTF allows only PNG and
@@ -1469,7 +1488,7 @@ def write_engine_package(
     for i in range(1, glb_levels):
         suffix = f"_LOD{i}"
         _write_glb_level(out / f"{asset_name}{suffix}.glb", {n: chain[i] for n, chain in ship_lods.items()},
-                         batches, materials, suffix, image_uris=lod_uris, crease_deg=crease)
+                         batches, materials, suffix, image_uris=lod_uris, crease_deg=crease, runs=runs)
         files.append(f"{asset_name}{suffix}.glb")
     if hulls:
         write_gltf(out / f"{asset_name}_colliders.glb", hulls, [collider_name(engine, asset_name, i, usd=False) for i in range(len(hulls))])
@@ -1490,7 +1509,7 @@ def write_engine_package(
 
     # The inspector renders a GLB built by the same writer from the same seam-split vertices and the same
     # GltfMaterial objects as the package GLB, so what is reviewed is what ships.
-    inspector_meshes = [MeshData(m.node_id, m.prim_path, ship[u.node_id].points, ship[u.node_id].triangles, m.material_id)
+    inspector_meshes = [MeshData(m.node_id, m.prim_path, ship[u.node_id].points, ship[u.node_id].triangles, m.material_id, run=m.run)
                         for m, u in zip(meshes, uvs, strict=True)]
     viewer = build_inspector(inspector_meshes, asset_name=asset_name, budget=budget, materials=materials,
                              uvs={n: s.uvs for n, s in ship.items()},

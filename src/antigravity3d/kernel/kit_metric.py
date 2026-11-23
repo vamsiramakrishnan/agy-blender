@@ -508,7 +508,8 @@ class Placement:
 def place(meshes: Sequence[MeshData], rot: int, t: Sequence[float]) -> list[MeshData]:
     R = _ROT[rot]
     move = lambda p: np.asarray(p, float) @ R.T + np.asarray(t, float)  # noqa: E731
-    return [replace(m, points=move(m.points), collider_points=None if m.collider_points is None else move(m.collider_points))
+    return [replace(m, points=move(m.points), collider_points=None if m.collider_points is None else move(m.collider_points),
+                    run=None if m.run is None else m.run.moved(move), grain=None if m.grain is None else m.grain @ R.T)
             for m in meshes]
 
 

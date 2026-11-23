@@ -38,7 +38,7 @@ from antigravity3d.ir import (
     AssignMaterial, IRPatch, MaterialIR, RemoveNode, SceneIR, SetParam, SetTransform, UpsertMaterial, UpsertNode, apply_patch,
 )
 from antigravity3d.art_direction import texture_brief
-from antigravity3d.kernel.compile_ir import CREASE_DEG, crease_normals
+from antigravity3d.kernel.compile_ir import CREASE_DEG
 from antigravity3d.kernel.coplanar import opaque_materials
 from antigravity3d.kernel.fast_ops import (
     CAPPED_MARK, ExportBundle, describe_collider_sources, describe_texel_density, run_export_pipeline, shipped, texel_density_report,
@@ -2224,10 +2224,9 @@ class _Run:
             return ("failed", f"{len(crit)} critical: {crit[0].code} {crit[0].detail[:80]}") if crit else ("passed", f"write_engine_package ok; {len(m.issues)} non-critical message(s); files={len(m.files)}")
 
         async def pop() -> tuple[str, str]:
-            lods = merged_lods(bundle)
-            if self.crease != CREASE_DEG:  # judge the levels with the normals they ship with (lod_diff.shipped_normals)
-                for lod in lods:
-                    lod.normals = crease_normals(np.asarray(lod.points, np.float64), np.asarray(lod.triangles), self.crease)
+            # judge the levels with the normals they ship with (lod_diff.shipped_normals): the art direction's crease,
+            # round parts smooth
+            lods = merged_lods(bundle, {m.node_id: m.run for m in meshes if m.run is not None}, self.crease)
             if len(lods) < 2:
                 return "skipped", "LOD0 only: no coarser level within the screen-space error budget saves enough triangles"
             rep = await to_thread_drained(lod_pop_report, lods)

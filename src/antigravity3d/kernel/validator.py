@@ -971,7 +971,7 @@ def _check_art_direction(out: Path, man: dict, root: Usd.Prim, hull_re: re.Patte
                 got = (smp.get("magFilter"), smp.get("minFilter"))
                 if got != want:
                     add("art_texture_filter", "critical", name, f"{tag}: texture {i} filters {got}, expected {want}")
-        from antigravity3d.kernel.compile_ir import crease_normals
+        from antigravity3d.kernel.compile_ir import prim_normals
 
         crease = float(eff["shading_crease_deg"])
         for prim in Usd.PrimRange(root):
@@ -984,7 +984,7 @@ def _check_art_direction(out: Path, man: dict, root: Usd.Prim, hull_re: re.Patte
             if not len(tri) or normals is None:
                 continue
             have = np.asarray(normals, dtype=np.float64).reshape(-1, 3)
-            expect = crease_normals(pts, tri, crease)
+            expect = prim_normals(prim, pts, tri, crease)  # as the package authored them (the part's run, world-space decision)
             if have.shape != expect.shape or np.abs(have - expect).max() > 1e-4:
                 add("art_crease", "critical", prim.GetName(), f"{tag}: normals are not the {crease:g} deg crease normals")
         limit_px = eff["texture_px"]
