@@ -54,13 +54,14 @@ a.box("label_slot", size=(0.26, 0.004, 0.026), bevel=0.001, at=(-0.93, -IY - 0.0
 TW, TP = 0.012, 0.004
 ty = -IY - TP / 2 + 0.001
 for nm, sz, at in (
-    ("trim_out_top", (2 * OX, TP + 0.002, TW), (0, ty, ZT1 - TW / 2)),
-    ("trim_out_bot", (2 * OX, TP + 0.002, TW), (0, ty, ZB0 + TW / 2)),
-    ("trim_in_top", (2 * IX, TP + 0.002, TW), (0, ty, IZ1 + TW / 2)),
-    ("trim_in_bot", (2 * IX, TP + 0.002, TW), (0, ty, IZ0 - TW / 2)),
+    ("trim_out_top", (2 * OX - 0.002, TP + 0.002, TW), (0, ty, ZT1 - TW / 2 - 0.001)),
+    ("trim_out_bot", (2 * OX - 0.002, TP + 0.002, TW), (0, ty, ZB0 + TW / 2 + 0.001)),
+    ("trim_in_top", (2 * IX, TP + 0.002, TW), (0, ty, IZ1 + TW / 2 + 0.001)),
+    ("trim_in_bot", (2 * IX, TP + 0.002, TW), (0, ty, IZ0 - TW / 2 - 0.001)),
 ):
     a.box(nm, size=sz, bevel=0.001, at=at, material=alu)
-a.box("trim_out_side", size=(TW, TP + 0.002, ZT1 - ZB0), bevel=0.001, at=(OX - TW / 2, ty, (ZT1 + ZB0) / 2), material=alu, mirror="x")
-a.box("trim_in_side", size=(TW, TP + 0.002, IZ1 - IZ0 + 2 * TW), bevel=0.001, at=(IX + TW / 2, ty, (IZ0 + IZ1) / 2), material=alu, mirror="x")
+tys = ty + 0.0005   # vertical strips 0.5 mm less proud, so no two front faces share a plane
+a.box("trim_out_side", size=(TW, TP + 0.001, ZT1 - ZB0 - 0.002 - 2 * TW), bevel=0.001, at=(OX - TW / 2 - 0.001, tys, (ZT1 + ZB0) / 2), material=alu, mirror="x")
+a.box("trim_in_side", size=(TW, TP + 0.001, IZ1 - IZ0), bevel=0.001, at=(IX + TW / 2 + 0.001, tys, (IZ0 + IZ1) / 2), material=alu, mirror="x")
 
 a.save()

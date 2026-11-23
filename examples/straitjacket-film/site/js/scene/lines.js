@@ -137,12 +137,12 @@ const BODY = /* glsl */`
     c = sjRoute(tc, aS, 1.0, off, scl);
     float home = smoothstep(0.92, 1.0, tc);
     // Depth in the bay: the back layers sit in the shade of the ones in front.
-    ao = mix(1.0, mix(0.62, 1.0, clamp((aS.z + 3.775) / 0.35, 0.0, 1.0)), home * (1.0 - step(7.5, fam)));
+    ao = mix(1.0, mix(0.45, 1.0, pow(clamp((aS.z + 3.775) / 0.35, 0.0, 1.0), 1.5)), home * (1.0 - step(7.5, fam)));
   } else {
     c = sjRoute(tf, aF, 0.0, off, scl);
     float land = smoothstep(0.9, 1.0, tf);
     red = 0.65 * land * (1.0 - isNeedle);
-    ao = mix(1.0, mix(0.6, 1.0, clamp((aF.z + 0.245) / 0.49, 0.0, 1.0)), land);
+    ao = mix(1.0, mix(0.42, 1.0, pow(clamp((aF.z + 0.245) / 0.49, 0.0, 1.0), 1.5)), land);
     if (uTrunc > 0.0 && tf >= 1.0) {
       if (isNeedle > 0.5) {
         // The quiet line falls out of the front of the frame and lies on the floor.

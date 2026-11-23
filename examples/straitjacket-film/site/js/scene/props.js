@@ -67,8 +67,10 @@ export const PLACES = {
 };
 
 export function createProps({ palette, onLoad }) {
-  const material = new THREE.MeshStandardMaterial({ roughness: 0.78, metalness: 0.0 });
-  material.color.set(palette.surface2);
+  const material = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.0 });
+  // Charcoal clearly lighter than the ground in the dark theme (the rim needs something to catch); surface2 in light.
+  const standinColor = (pal) => (new THREE.Color(pal.bg).getHSL({}).l > 0.5 ? pal.surface2 : '#2B3038');
+  material.color.set(standinColor(palette));
   const groups = {};
   for (const [name, places] of Object.entries(PLACES)) {
     const geo = STANDINS[name]();
@@ -81,26 +83,69 @@ export function createProps({ palette, onLoad }) {
   }
   let loaded = 0;
   const loader = new GLTFLoader();
-  // Swap a stand-in for the real prop when assets/<name>.glb exists. A HEAD request first, so a missing file is quiet.
-  const tryLoad = async (name) => {
-    const url = new URL(`../../assets/${name}.glb`, import.meta.url).href;
+  const texLoader = new THREE.TextureLoader();
+  const assetURL = (f) => new URL('assets/' + f, document.baseURI).href;
+
+  // Contact shadow: a flat quad on the floor, the baked grey image multiplied onto whatever is below it, faded to
+  // white over the last 12 % of each side so no edge shows. One per prop instance; a child of the instance's group,
+  // so it is visible exactly when the instance is (placeContacts keeps it on the floor while the group rises).
+  const contacts = [];
+  const contactMaterial = (tex) => {
+    const m = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, fog: false, toneMapped: false, blending: THREE.MultiplyBlending, premultipliedAlpha: true });
+    m.userData.fade = { value: 1 };
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uFade = m.userData.fade;
+      sh.fragmentShader = 'uniform float uFade;\n' + sh.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
+  { vec2 e = min(vMapUv, 1.0 - vMapUv) / 0.12; float f = clamp(min(e.x, e.y), 0.0, 1.0); f = f * f * (3.0 - 2.0 * f);
+    diffuseColor.rgb = mix(vec3(1.0), diffuseColor.rgb, f * uFade); diffuseColor.a = 1.0; }`);
+    };
+    m.customProgramCacheKey = () => 'sj-contact';
+    return m;
+  };
+  const addContact = async (name, c) => {
+    const tex = await texLoader.loadAsync(assetURL(c.file));
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    const geo = new THREE.PlaneGeometry(c.size_x, c.size_z); geo.rotateX(-Math.PI / 2);
+    for (const g of groups[name]) {
+      const mat = contactMaterial(tex);
+      const q = new THREE.Mesh(geo, mat);
+      q.position.set(c.centre_x || 0, 0.004, c.centre_z || 0);
+      q.renderOrder = 1; q.name = 'contact';
+      g.add(q);
+      contacts.push({ g, q, mat });
+    }
+  };
+
+  // Swap a stand-in for the real prop when assets/manifest.json lists it (the manifest always exists, so a missing
+  // prop costs no request and logs nothing).
+  const tryLoad = async (name, entry) => {
+    if (!entry || !entry.file) return;
     try {
-      const head = await fetch(url, { method: 'HEAD', cache: 'no-store' });
-      if (!head.ok) return;
-      const gltf = await loader.loadAsync(url);
+      const gltf = await loader.loadAsync(assetURL(entry.file));
       gltf.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
       groups[name].forEach((g, i) => {
-        g.clear();
+        for (const ch of [...g.children]) if (ch.name !== 'contact') g.remove(ch);
         g.add(i === 0 ? gltf.scene : gltf.scene.clone(true));
       });
       loaded++;
       if (onLoad) onLoad(name);
     } catch (e) { /* stay with the stand-in */ }
+    if (entry.contact) { try { await addContact(name, entry.contact); if (onLoad) onLoad(name); } catch (e) { /* no contact shadow */ } }
   };
-  const ready = Promise.all(Object.keys(PLACES).map(tryLoad));
+  const ready = fetch(assetURL('manifest.json'), { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : {})).catch(() => ({}))
+    .then((m) => Promise.all(Object.keys(PLACES).map((n) => tryLoad(n, (m.props || {})[n]))));
   return {
     groups, material, ready,
     loaded: () => loaded,
-    setPalette: (pal) => material.color.set(pal.surface2),
+    // Keep each contact quad on the floor while its group is lowered below the table, fading it in as it rises.
+    placeContacts() {
+      for (const { g, q, mat } of contacts) {
+        q.position.y = 0.004 - g.position.y;
+        mat.userData.fade.value = Math.max(0, Math.min(1, 1 + g.position.y / 0.6));
+      }
+    },
+    setPalette: (pal) => material.color.set(standinColor(pal)),
   };
 }
