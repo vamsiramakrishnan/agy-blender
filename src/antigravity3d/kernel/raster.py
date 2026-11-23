@@ -450,10 +450,11 @@ def _corner_weights(tri_img, tris, sxy, ys, xs) -> tuple[np.ndarray, np.ndarray,
     return 1 - w1 - w2, w1, w2
 
 
-def _shade_with_normals(img, hit, tri_img, tris, sxy, tri_mesh, tri_start, meshes, normals, toward_cam, facing, key) -> None:
+def _shade_with_normals(img, hit, tri_img, tris, sxy, tri_mesh, tri_start, meshes, normals, toward_cam, facing, key,
+                        base=None) -> None:
     """Overwrite the flat shade of the meshes that come with shading normals by a per-pixel one: the corner
     normals interpolated across the triangle, lit by the same two lights. A triangle seen from behind is lit from
-    the side that is seen, as in the flat shade."""
+    the side that is seen, as in the flat shade. ``base``: (meshes, 3) colour per mesh (None: clay)."""
     ys, xs = np.nonzero(hit)
     t = tri_img[ys, xs]
     sel = np.array([m.node_id in normals for m in meshes])[tri_mesh[t]]
@@ -470,7 +471,7 @@ def _shade_with_normals(img, hit, tri_img, tris, sxy, tri_mesh, tri_start, meshe
     n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
     n *= facing[t][:, None]
     shade = 0.22 + 0.60 * np.maximum(n @ key, 0) + 0.28 * np.maximum(n @ toward_cam, 0)
-    img[ys, xs] = np.clip(CLAY[None] * shade[:, None], 0, 255).astype(np.uint8)
+    img[ys, xs] = np.clip((CLAY[None] if base is None else base[mi]) * shade[:, None], 0, 255).astype(np.uint8)
 
 
 def _vert_base(meshes) -> list[int]:
@@ -493,6 +494,7 @@ def render_buffers(
     normals: dict[str, np.ndarray] | None = None,
     feature_edges: bool = False,
     crease_deg: float = 40.0,
+    colours: dict[str, Sequence[float]] | None = None,
 ) -> RenderBuffers:
     """Single rasterisation path: clay colour plus ID/depth buffers.
 
@@ -507,6 +509,9 @@ def render_buffers(
     the interpolated normal, the way a renderer lights a mesh that ships with normals; every other mesh keeps
     one normal per triangle (the clay preview: it shows the triangles, which is what a preview is for).
     camera: explicit camera (e.g. shared between two LODs); default auto-frames the meshes.
+    colours: node_id -> base colour as displayed (sRGB, 0-255): those meshes are shaded in their colour instead of
+    clay, with the same lights (the script path's colour views, ``harness.tools._render_views(colour=True)``). None:
+    clay for every mesh, exactly as before.
     """
     nid = tuple(m.node_id for m in meshes)
     img = np.empty((size, size, 3), np.uint8)
@@ -537,11 +542,14 @@ def render_buffers(
     n *= facing[:, None]
     key_dir = key_light(cam.view)
     shade = 0.22 + 0.60 * np.maximum(n @ key_dir, 0) + 0.28 * np.maximum(n @ toward_cam, 0)
-    col = np.clip(CLAY[None] * shade[:, None], 0, 255).astype(np.uint8)
+    base = None
+    if colours:
+        base = np.array([colours.get(m.node_id, CLAY) for m in meshes], np.float32).reshape(-1, 3)
+    col = np.clip((CLAY[None] if base is None else base[tri_mesh]) * shade[:, None], 0, 255).astype(np.uint8)
     hit = tri_img >= 0
     img[hit] = col[tri_img[hit]]
     if normals:
-        _shade_with_normals(img, hit, tri_img, tris, sxy, tri_mesh, tri_start, meshes, normals, toward_cam, facing, key_dir)
+        _shade_with_normals(img, hit, tri_img, tris, sxy, tri_mesh, tri_start, meshes, normals, toward_cam, facing, key_dir, base)
     if uvs:
         _uv_checker(img, hit, tri_img, tris, sxy, tri_mesh, meshes, uvs, size)
     prim[hit] = tri_mesh[tri_img[hit]]

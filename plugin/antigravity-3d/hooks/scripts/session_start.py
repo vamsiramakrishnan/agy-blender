@@ -43,8 +43,10 @@ def build_message(payload: dict[str, Any]) -> str:
              + (f"target {engine}: " if engine else "no target engine set (budget.json); defaults: ")
              + f"<= {b['max_tris']} tris, <= {b['max_draw_calls']} draw calls, "
                f"{b['texel_density_px_per_m']} px/m, <= {b['max_collision_hulls']} hulls."]
+    script = c.authoring() == "script"
     if c.conv_id(payload):
-        lines.append(f"Use conversation_id={c.conv_id(payload)} when opening a native asset session and its session_id on export.")
+        lines.append(f"Pass conversation_id={c.conv_id(payload)} to run_build." if script else
+                     f"Use conversation_id={c.conv_id(payload)} when opening a native asset session and its session_id on export.")
     if engine in ENGINE_NOTES:
         lines.append(ENGINE_NOTES[engine] + ".")
     if cfg.get("stage"):
@@ -56,9 +58,14 @@ def build_message(payload: dict[str, Any]) -> str:
                      f"{'ok' if qa.get('tier1_ok') else 'FAILED'}, Tier-1.5 {float(qa.get('tier15_score', 0)):.2f}.")
     else:
         lines.append("No QA verdict recorded yet.")
-    lines.append("Edit via Scene IR tools; render_preview shows you the design (look and improve), run_visual_qa judges it; "
-                 "export needs Tier-1 ok and Tier-1.5 >= 3.4 (hook-enforced); in an uncalibrated preview a "
-                 "lookdev review of the current scene, whatever it scored (its findings ship with the package).")
+    if script:
+        lines.append("Build an asset as one Python script (from agy3d import Asset; the skill parametric-kitbash is its "
+                     "reference) and run it with run_build, which checks it and shows five colour views; to change an "
+                     "asset, edit its script and run_build again; deliver_package reviews and exports it.")
+    else:
+        lines.append("Edit via Scene IR tools; render_preview shows you the design (look and improve), run_visual_qa judges it; "
+                     "export needs Tier-1 ok and Tier-1.5 >= 3.4 (hook-enforced); in an uncalibrated preview a "
+                     "lookdev review of the current scene, whatever it scored (its findings ship with the package).")
     return " ".join(lines)
 
 

@@ -127,20 +127,57 @@ def _personalize(dest: Path, workspace: Path | None, depot: Path | None) -> None
         sc.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
 
 
+AUTHORING = ("ir", "script")
+# Script mode's texts (S/r6/CONTRACT.md section 5), shipped as package data and not inside the default bundle: an
+# installed bundle in script mode has them in place of rules/AGENTS.md and the parametric-kitbash skill.
+SCRIPT_MODE_DIR = Path(__file__).with_name("build") / "plugin_script_mode"
+AUTHORING_FILE = "authoring"  # one line, "script", read by the hook scripts (hooks/scripts/_common.authoring)
+# Skills whose steps are tools script mode does not serve (forge_pbr_material, apply_shader_diff, run_paintover_loop,
+# render_lookdev; set_stage, export_engine_package, run_usd_validator; open_asset_session, run_visual_qa): an agent that
+# read one would be sent to tools that do not exist. The script-mode kitbash page covers materials (a.material),
+# export (deliver_package) and a mesh file the user already has (a.load; the sanitizer skill's per-file steps are
+# apply_scene_ir, set_stage and generate_lods_and_colliders).
+SCRIPT_MODE_DROPPED_SKILLS = ("pbr-material-forge", "engine-truth-verify", "concept-to-blueprint", "game-ready-sanitizer")
+
+
+def _script_mode(dest: Path) -> None:
+    """Turn a copied bundle into script mode: the server's env, the two texts the agent reads, the hooks' marker."""
+    mcp_file = dest / "mcp_config.json"
+    config = json.loads(mcp_file.read_text())
+    config["mcpServers"]["studio"].setdefault("env", {})["AGY3D_AUTHORING"] = "script"
+    mcp_file.write_text(json.dumps(config, indent=2) + "\n")
+    shutil.copyfile(SCRIPT_MODE_DIR / "AGENTS.md", dest / "rules" / "AGENTS.md")
+    shutil.copyfile(SCRIPT_MODE_DIR / "SKILL.md", dest / "skills" / "parametric-kitbash" / "SKILL.md")
+    for name in SCRIPT_MODE_DROPPED_SKILLS:
+        shutil.rmtree(dest / "skills" / name, ignore_errors=True)
+    # The two sub-agents (usd_verifier, lookdev_critic) call inspect_manifest, run_usd_validator and qa_probe, which
+    # script mode does not serve; the harness globs agents/*.md, so an absent folder is no error.
+    shutil.rmtree(dest / "agents", ignore_errors=True)
+    # The glob-scoped rule on budgets named export_engine_package, open_asset_session, engine-truth-verify and
+    # generate_lods_and_colliders: the script-mode copy says the same for a script (the Asset line, deliver_package).
+    shutil.copyfile(SCRIPT_MODE_DIR / "engine-budgets.md", dest / "rules" / "engine-budgets.md")
+    (dest / AUTHORING_FILE).write_text("script\n", encoding="utf-8")
+
+
 def install(target_root: Path | None = None, *, symlink: bool = False,
-            workspace: Path | None = None, depot: Path | None = None) -> Path:
+            workspace: Path | None = None, depot: Path | None = None, authoring: str = "ir") -> Path:
     """Copies (or symlinks) the bundle to ``<target_root>/plugins/antigravity-3d`` and returns that path.
 
     ``target_root`` is a customization root; default ``<cwd>/.agents`` (workspace scope).
     Use ``Path.home() / ".gemini/config"`` for a global install. ``workspace`` / ``depot``
     write absolute ``workspace_uris`` and the depot ``read_file`` grant into the copied
-    sidecars (copy mode only; a symlinked bundle is the repo itself).
+    sidecars (copy mode only; a symlinked bundle is the repo itself). ``authoring="script"``: script mode (an asset is a
+    Python script run by ``run_build``; copy mode only); "ir" (the default) installs the bundle as it is.
     """
     src = bundle_dir()
     root = Path(target_root) if target_root is not None else Path.cwd() / ".agents"
     dest = root / "plugins" / PLUGIN_NAME
     if symlink and (workspace is not None or depot is not None):
         raise ValueError("workspace/depot personalisation needs a copy install, not symlink=True")
+    if authoring not in AUTHORING:
+        raise ValueError(f"authoring must be one of {', '.join(AUTHORING)}")
+    if symlink and authoring != "ir":
+        raise ValueError("script authoring changes files of the bundle: it needs a copy install, not symlink=True")
     if dest.is_symlink():
         dest.unlink()
     elif dest.exists():
@@ -154,6 +191,8 @@ def install(target_root: Path | None = None, *, symlink: bool = False,
         shutil.copytree(src, dest, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"))
         _bind_python_launchers(dest)
         _personalize(dest, workspace, depot)
+        if authoring == "script":
+            _script_mode(dest)
     return dest
 
 
@@ -503,6 +542,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--symlink", action="store_true")
     ap.add_argument("--workspace", type=Path, default=None)
     ap.add_argument("--depot", type=Path, default=None)
+    ap.add_argument("--authoring", choices=AUTHORING, default="ir",
+                    help="script: an asset is a Python script run by run_build (default ir: today's scene tools)")
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["install"]:  # `agy3d-plugin install ...` reads as the plain command
+        argv = argv[1:]
     ns = ap.parse_args(argv)
     if ns.validate:
         problems = validate(ns.validate)
@@ -510,7 +554,7 @@ def main(argv: list[str] | None = None) -> int:
             print(p)
         print("OK" if not problems else f"{len(problems)} problem(s)")
         return 1 if problems else 0
-    dest = install(ns.target, symlink=ns.symlink, workspace=ns.workspace, depot=ns.depot)
+    dest = install(ns.target, symlink=ns.symlink, workspace=ns.workspace, depot=ns.depot, authoring=ns.authoring)
     problems = validate(dest)
     print(dest)
     for p in problems:

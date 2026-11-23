@@ -75,7 +75,7 @@ jobs:
       - name: Test native workers, engine imports, rendered frames and inspector channels
         id: tests
         run: |
-          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_fbx_export.py tests/test_fbx_package.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py tests/test_blender_verification_steps.py tests/test_shapes_engines.py tests/test_deliver.py tests/test_shared_atlas.py tests/test_generated_surfaces_e2e.py
+          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_fbx_export.py tests/test_fbx_package.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py tests/test_blender_verification_steps.py tests/test_shapes_engines.py tests/test_deliver.py tests/test_shared_atlas.py tests/test_generated_surfaces_e2e.py tests/test_build_blender.py tests/test_run_build.py
           python - <<'PYTHON'
           import xml.etree.ElementTree as ET
           required = {"test_three_worker_mixed_asset_soak", "test_reviewed_upstream_primitives",
@@ -94,6 +94,10 @@ jobs:
                       "test_real_compat_helpers", "test_real_pass_name_map_names_sockets_that_exist",
                       "test_linter_tables_match_blender", "test_the_cross_check_catches_a_name_that_still_works",
                       "test_gpu_calls_without_init_do_not_work_in_background", "test_the_specular_bsdf_node_still_has_a_specular_input",
+                      # a build script's a.blender part with a real Blender (tests/test_build_blender.py)
+                      "test_real_blender_subdivided_cube_curve_error_and_cache",
+                      # the script path end to end: run_build, then deliver_package past the package's Blender check and Godot
+                      "test_a_script_with_free_form_parts_is_delivered_past_the_real_blender_check",
                       "test_kit_pipeline_imports_the_splat_with_a_real_worker", "test_kit_cli_imports_the_splat_with_a_real_blender",
                       *(f"test_structural_rules_match_what_blender_does[{k}]" for k in ("AG016", "AG022", "AG022b")),
                       "test_upstream_primitives_on_a_package_match_the_fake_shape_and_weld_closes_seams",

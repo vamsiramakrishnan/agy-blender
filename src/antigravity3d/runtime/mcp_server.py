@@ -37,6 +37,7 @@ stdout carries protocol frames only; all logging goes to stderr.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import itertools
 import logging
@@ -89,6 +90,34 @@ INSTRUCTIONS = (
     "Use the returned session_id for native export. Replies are one line." + ir_schema.colour_note())
 # The tools whose input carries a colour: their descriptions say what a colour means (ir_schema.colour_note).
 COLOUR_TOOLS = ("apply_scene_ir", "apply_shader_diff")
+
+# Script mode (plugin_install.install(authoring="script") puts AGY3D_AUTHORING=script in the server's env): an asset is
+# one Python script (antigravity3d.build; the skill parametric-kitbash is its reference), run_build runs, checks and shows
+# it, deliver_package delivers it. Without the variable nothing here changes and run_build is not served. Today's
+# session (the default) is the baseline the script path is measured against (S/r6/CONTRACT.md section 5).
+AUTHORING_ENV = "AGY3D_AUTHORING"
+SCRIPT_INSTRUCTIONS = (
+    "antigravity-3d asset studio. An asset is one Python script (`from agy3d import Asset`; the skill parametric-kitbash is "
+    "its reference). run_build(path) runs the script, checks the design and shows it: findings that name each part and its "
+    "fix, and five colour views; edit the script and run it again. deliver_package(dest) reviews, builds levels of detail "
+    "and collision shapes, validates and exports; its answer starts with \"DELIVERED\" (finished: reply to the user with "
+    "the package path and the findings, and do not inspect it again), \"NOT DELIVERED: a person must decide\" (reply to the "
+    "user with the reason and stop) or \"NOT DELIVERED\" (fix what it names in the script, run_build, then deliver_package "
+    "again). To change an asset that already exists, edit its script (the workspace's <asset_name>.py, or source/build.py "
+    "in its package) and run it again; never write it anew. Without the native Decisions API only an UNVERIFIED preview "
+    "can be delivered: run_build's reply says whether this session already is one; only if the reply asks for it, ask the "
+    "user for a token ceiling and an image limit and call start_preview. Replies are short." + ir_schema.colour_note())
+# What script mode lists: run_build instead of open_asset_session and the stage tools; deliver_package is the one
+# harness tool (the inspector MCP App's tools are added as in the default mode).
+SCRIPT_MANAGEMENT_TOOLS = ("run_build", "open_existing_asset", "start_preview", "session_status", "list_sessions",
+                           "install_into_project")
+SCRIPT_HARNESS_TOOLS = ("deliver_package",)
+BUILD_TIMEOUT_S = 180.0
+NEXT_STEP = "NEXT: edit the script and run_build again to fix or improve; when it reads as the request, deliver_package(dest=...)."
+
+
+def script_mode() -> bool:
+    return os.environ.get(AUTHORING_ENV, "").strip().lower() == "script"
 
 
 class McpToolContext:
@@ -172,7 +201,11 @@ def _slug(text: str, fallback: str) -> str:
 class StudioHost:
     """Holds sessions for one server process and dispatches tool calls through the shared gate."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, script: bool | None = None) -> None:
+        self.script = script_mode() if script is None else script
+        # sessions run_build opened: session id -> (asset, engine, art direction), the key a later run_build reuses it by
+        self.built: dict[str, tuple[str, str, str]] = {}
+        self.last_timings: dict[str, float] = {}  # the last run_build's phases in seconds (measurement; logged too)
         self.registry = SceneSessionRegistry()
         self.backends = Backends()
         self.gates: dict[str, InvariantAndSafetyGate] = {}
@@ -195,6 +228,8 @@ class StudioHost:
                 return f"ERROR {compress_exception(e)}"
 
     def visible_tools(self) -> set[str]:
+        if self.script:  # no stages to scope by: the same list before and after a session opens
+            return set(SCRIPT_MANAGEMENT_TOOLS) | set(inspector_app.TOOL_NAMES) | set(SCRIPT_HARNESS_TOOLS)
         names = set(MANAGEMENT_TOOLS) | set(inspector_app.TOOL_NAMES) | {fn.__name__ for fn in T.SHORT_PATH_TOOLS}
         if self.active is not None:
             stage = session(self.registry, self.active).toolset
@@ -217,7 +252,7 @@ class StudioHost:
     def pick(self, session_id: str = "") -> str:
         sid = session_id or self.active
         if not sid:
-            raise LookupError("no asset session: call open_asset_session first")
+            raise LookupError("no asset session: call run_build first" if self.script else "no asset session: call open_asset_session first")
         if sid not in self.registry:
             raise LookupError(f"unknown session {sid!r}; list_sessions shows the open ones")
         return sid
@@ -227,20 +262,34 @@ class StudioHost:
         line = (f"SESSION {sid} asset={s.stage.asset_prim.GetName()} engine={s.state.budget.target_engine} "
                 f"stage={s.toolset} tris<={s.state.budget.max_tris}"
                 + (f" art={s.state.art_direction}" if s.state.art_direction else "") + f" workdir={s.workdir}")
+        return line + self._judge_note(sid)
+
+    def _judge_note(self, sid: str) -> str:
+        """" | PREVIEW ..." or " | WARNING ..." (the judge this session has and what it means), or ""."""
+        s = session(self.registry, sid)
         if s.state.preview:
             note = T.surfaces_note(s, opening=True)
-            return line + (f" | PREVIEW (UNVERIFIED: judged by {s.plane.judge_label if s.plane else 'none'}; never verified)"
-                           f" limits: {s.governor.summary()}") + (f" | {note}" if note else "")
+            return (f" | PREVIEW (UNVERIFIED: judged by {s.plane.judge_label if s.plane else 'none'}; never verified)"
+                    f" limits: {s.governor.summary()}") + (f" | {note}" if note else "")
         if s.plane is not None and not s.plane.calibrated:  # fail early: say now what will be refused, not at export
-            return line + (" | WARNING: the native Decisions API is not available on this key, so run_visual_qa and "
-                           f"export_engine_package will be refused. Remedy: {T.PREVIEW_SWITCH}")
-        return line
+            return (" | WARNING: the native Decisions API is not available on this key, so run_visual_qa and "
+                    f"export_engine_package will be refused. Remedy: {T.PREVIEW_SWITCH}")
+        return ""
 
     # ---- management tools
     async def open_asset_session(self, asset_name: str, target_engine: str, max_tris: int = 15_000,
                                  workdir: str = "", workspace: str = "", conversation_id: str = "", art_direction: str = "",
                                  keep_contact_faces: bool = False, preview: bool = False, token_ceiling: int | None = None,
                                  max_images: int | None = None, brief: str = "") -> str:
+        sid = await self._open(asset_name, target_engine, max_tris, workdir, workspace, conversation_id, art_direction,
+                               keep_contact_faces, preview, token_ceiling, max_images, brief)
+        return self._line(sid) + " | " + T.SHORT_PATH
+
+    async def _open(self, asset_name: str, target_engine: str, max_tris: int, workdir: str, workspace: str,
+                    conversation_id: str, art_direction: str, keep_contact_faces: bool, preview: bool,
+                    token_ceiling: int | None, max_images: int | None, brief: str) -> str:
+        """Open a new asset session, bound to the conversation, stage BLOCKOUT, active; its id. The checks and preview
+        rules of open_asset_session (which run_build opens its sessions through as well)."""
         if target_engine not in ENGINES:
             raise ValueError(f"target_engine must be one of {', '.join(ENGINES)}")
         if int(max_tris) < 1:
@@ -264,7 +313,7 @@ class StudioHost:
         self._set_stage(sid, "BLOCKOUT")
         self.gates[sid] = InvariantAndSafetyGate(self.registry, sid)
         self.active = sid
-        return self._line(sid) + " | " + T.SHORT_PATH
+        return sid
 
     async def open_existing_asset(self, path: str, workspace: str = "", conversation_id: str = "", preview: bool = False,
                                   token_ceiling: int | None = None, max_images: int | None = None) -> str:
@@ -279,6 +328,20 @@ class StudioHost:
             shipped = load_shipped(target)
         except EditError as e:
             raise ValueError(str(e)) from e
+        script = _shipped_script(shipped.package, shipped.manifest)
+        if script is None and self.script:
+            # script mode serves no tool that edits a design in place (found by review: this answered with stage tools)
+            return (f"NOT A SCRIPT ASSET: {shipped.package} was not built by a script (it has no source/build.py), so script "
+                    "mode cannot change it: tell the user, who can change it with the plugin installed in its default mode, "
+                    "or have it made anew as a script (write one and run_build it).")
+        if script is not None and self.script:
+            # an asset a script built is changed by editing that script: no session to open here (run_build opens one)
+            same = root / f"{shipped.asset}.py"
+            alias = (f" (the workspace's {same.name} is the same script)" if same.is_file()
+                     and same.read_bytes() == script.read_bytes() else "")
+            return (f"SCRIPT {script} built this asset{alias}. To change it, edit only the lines of the parts the request "
+                    "names in that script, keep every other line, then run_build(path=...) and deliver_package(dest=...) "
+                    "to the same folder.")
         await self.backends.ensure()
         sid = f"{shipped.asset}-{uuid.uuid4().hex[:6]}"
         wd = root / "agy3d_assets" / sid
@@ -299,12 +362,206 @@ class StudioHost:
         self.active = sid
         return (self._line(sid) + f" | opened {shipped.package} as it shipped ({len(scene.nodes)} parts; materials from {origin}). "
                 "Stage TWEAK: change only what the user asks with apply_scene_ir (inspect_manifest lists the part ids); every "
-                "other part stays as it is. Then render_preview to check the change, and deliver_package.")
+                "other part stays as it is. Then render_preview to check the change, and deliver_package."
+                + (f" | built by the script {script}: editing it and running run_build rebuilds the design" if script else ""))
+
+    # ---- run_build (script mode)
+    async def run_build(self, path: str, workspace: str = "", conversation_id: str = "", preview: bool = False,
+                        token_ceiling: int | None = None, max_images: int | None = None, session_id: str = "",
+                        timeout_s: float = BUILD_TIMEOUT_S) -> str:
+        """Run an asset script (``antigravity3d.build.runner``), open or reuse its session, apply its design as one checked
+        transaction and answer with the findings and the colour views (S/r6/CONTRACT.md section 4). The first word of
+        the reply decides the agent's next step: BUILT, UNCHANGED or NOT BUILT; a failure leaves every session as it was.
+        The first reply after this call opened a session carries what the session's judge means for delivery, whatever
+        its first word (``_notice``)."""
+        import shutil
+        import time
+
+        from antigravity3d.build import handoff, runner
+
+        timings: dict[str, float] = {}
+        self.last_timings = timings
+        root = Path(workspace or os.getcwd()).resolve()
+        try:
+            script = _script_path(root, path)
+        except ValueError as e:
+            return f"NOT BUILT: {e}. Pass the script's path inside the workspace (relative to it, e.g. crate.py)."
+        rel = script.relative_to(root).as_posix()
+        cand = session_id or self.active
+        reuse_key = self.built.get(cand) if cand in self.gates else None
+        kept = (f"session {cand} is unchanged" if reuse_key else "no session was opened")
+        run_dir = root / "agy3d_assets" / f".run-{uuid.uuid4().hex[:12]}"
+        t0 = time.perf_counter()
+        res = await asyncio.to_thread(runner.run_script, script, run_dir / "out", timeout_s=timeout_s)
+        timings["script"] = time.perf_counter() - t0
+        sid: str | None = None
+        try:
+            if not res.ok:
+                return _not_built(res, kept, rel)
+            text = res.source  # the text that was checked and run: the one recorded and shipped
+            try:
+                first = handoff.read(res.out)  # read here for the asset's name and budget; the session reads its copy
+            except (ValueError, OSError) as e:
+                return f"NOT BUILT: the design {rel} saved cannot be read: {e}. Fix the script and run_build again; {kept}."
+            # Refused before anything is applied when the design's own count is over the budget: measured by review
+            # (S/r6/scratch_review_door/seq/b11.py) 31,756 triangles against 4,000 took 25.9 s and 1.0 GB in the apply
+            # and Tier-1 before the same refusal, and 240 k triangles were killed for memory.
+            if (over := _over_budget(first, rel)) is not None:
+                return f"{over}; {kept}."
+            digest = _folder_digest(res.out)
+            asset = _slug(first.name, "Asset")
+            key = (asset, first.engine, first.art_direction or "")
+            opened, why_new = False, ""
+            if reuse_key is not None and reuse_key == key:
+                sid = cand
+            elif reuse_key is not None:
+                was = dict(zip(("asset", "engine", "art direction"), reuse_key))
+                now = dict(zip(("asset", "engine", "art direction"), key))
+                why_new = ", ".join(f"{k} changed from {was[k] or 'none'} to {now[k] or 'none'}" for k in was if was[k] != now[k])
+            if sid is None:
+                try:
+                    sid = await self._open(first.name, first.engine, first.max_tris, "", str(root), conversation_id,
+                                           first.art_direction, False, preview, token_ceiling, max_images, first.brief)
+                except (ValueError, LookupError) as e:
+                    return f"NOT BUILT: the session could not be opened: {compress_exception(e)}. Fix the Asset(...) line and run_build again; {kept}."
+                self.built[sid] = key
+                # a script session from its opening on: every fix instruction names the script, even before a design
+                self.registry.attach(sid, T.R_SCRIPT_SESSION, True)
+                self.registry.attach(sid, R_NOTICE, True)
+                opened = True
+            s = session(self.registry, sid)
+            kept = f"session {sid} is unchanged" if not opened else f"session {sid} was opened and holds no design yet"
+            new_session = (f"NEW SESSION {sid}: the script's {why_new}, so this is a new session; the earlier session {cand} "
+                           "keeps its design." if why_new else "")
+            if why_new:
+                new_session += (" This session is a preview (the limits this call gave)." if s.state.preview else
+                                " This session is NOT a preview" + (" (the earlier one was)" if session(self.registry, cand).state.preview else "")
+                                + ": if deliver_package needs one, ask the user for their two limits and call start_preview.")
+            folder = s.workdir / "builds" / digest[:16]
+            if not folder.is_dir():  # the session never depends on a temporary folder: it reads its own copy
+                shutil.copytree(res.out, folder)
+            try:
+                built = handoff.read(folder)
+            except ValueError as e:
+                return self._notice(sid, f"NOT BUILT: the design {rel} saved cannot be read: {e}. Fix the script and run_build again; {kept}.")
+            record = {"path": rel, "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(), "text": text, "digest": digest,
+                      "parts": sorted(p.name for p in (folder / "parts").glob("*") if p.is_file()), "key": key}
+            last = s._res(T.R_SCRIPT)
+            if not opened and last and last["digest"] == digest and last["geom_version"] == s.geom_version:
+                s._set(T.R_SCRIPT, {**record, "geom_version": last["geom_version"]})  # a comment-only edit ships too
+                prev = s.latest_preview()
+                return self._notice(sid, f"UNCHANGED: {rel} builds exactly the design session {sid} already holds; nothing was "
+                                    "applied or rendered" + (f" (the views of #{prev.index} stand)" if prev is not None else "")
+                                    + ". Edit the script to change the design, or deliver_package(dest=...) when it reads as the request.")
+            budget_note: list[str] = []
+            before = None if opened else self._budget_update(s, built, budget_note)
+            t1 = time.perf_counter()
+            try:
+                tid, rep, _n, nodes, note = await T.apply_design(s, {"nodes": built.nodes, "materials": built.materials}, before,
+                                                                attach=True)
+            except ir_schema.IRArgumentError as e:
+                return self._notice(sid, f"NOT BUILT: the design is malformed: {str(e).removeprefix('invalid IR: ')[:400]}. Fix the script and run_build again; {kept}.")
+            except (ValueError, LookupError, RuntimeError, OSError) as e:
+                return self._notice(sid, f"NOT BUILT: the design could not be applied: {compress_exception(e)}. Fix the script and run_build again; {kept}.")
+            timings["apply_check"] = time.perf_counter() - t1
+            if tid is None:
+                faults = "; ".join(dict.fromkeys(T.script_critical(i, rep.stats) for i in rep.issues if i.severity == "critical"))
+                return self._notice(sid, f"NOT BUILT: {rel} makes a design the engine would reject: {faults}. Change those parts in "
+                                    f"the script and run_build again; {kept}" + (" (its earlier design stays)" if not opened else "") + ".")
+            s._set(T.R_SCRIPT, {**record, "geom_version": s.geom_version})
+            t2 = time.perf_counter()
+            try:
+                views = await T._render_views(s, colour=True)
+            except ValueError as e:  # an empty design: nothing to show
+                views = None
+                budget_note.append(f"no views: {e}")
+            timings["render"] = time.perf_counter() - t2
+            log.info("run_build %s: %s", rel, ", ".join(f"{k} {v:.2f} s" for k, v in timings.items()))
+            mats = len(s.stage.base_ir().materials)
+            head = (f"BUILT {rel} -> session {sid} ({s.state.budget.target_engine}, tris {rep.stats['tris']} of "
+                    f"{s.state.budget.max_tris}, {nodes} parts, {mats} materials, draws={rep.stats['draw_calls']})")
+            lines = [head, *T._detached(rep)]
+            warns = [w for i in rep.issues if i.code not in T.DETACHED and (w := T.script_warning(i)) is not None]
+            lines += warns[:12] + ([f"warning: {len(warns) - 12} more of the same kinds"] if len(warns) > 12 else [])
+            lines += [w for x in note if (w := T.script_note(x))]
+            lines += [f"builder: {x}" for x in built.notes]
+            lines += budget_note
+            printed = "\n".join(x for x in res.stdout_tail.splitlines() if not x.startswith("agy3d: wrote"))
+            if printed.strip():
+                lines.append("the script printed: " + printed.strip()[-400:])
+            if new_session:
+                lines.append(new_session)
+            if (notice := self._take_notice(sid)):
+                lines.append(notice)
+            if views is None:
+                return "\n".join([*lines, NEXT_STEP])
+            shown = T._views_reply(views, "VIEWS", colour=True)
+            return T.ToolReply("\n".join([*lines, str(shown), NEXT_STEP]), shown.images)
+        finally:
+            shutil.rmtree(run_dir, ignore_errors=True)
+
+    def _script_judge_note(self, sid: str) -> str:
+        """What the session's judge means for delivery, in a script session's words (no stage, no run_visual_qa or
+        export_engine_package: script mode serves neither)."""
+        s = session(self.registry, sid)
+        if s.state.preview:
+            return self._judge_note(sid).removeprefix(" | ")
+        if s.plane is not None and not s.plane.calibrated:
+            return ("WARNING: this key has no calibrated judge, so deliver_package will be refused until the user allows an "
+                    "unverified preview: ask the user whether they want one and for their two limits (a token ceiling and an "
+                    "image limit), then call start_preview with them; the design is kept.")
+        return ""
+
+    def _take_notice(self, sid: str) -> str:
+        """The judge notice once: the first reply after run_build opened the session carries it, whatever its first word
+        (found by review: an opening build refused for its budget opened the session silently, and the agent first
+        heard of the missing judge from deliver_package)."""
+        if not (_has(self.registry, sid, R_NOTICE) and self.registry.resource(sid, R_NOTICE)):
+            return ""
+        self.registry.attach(sid, R_NOTICE, False)
+        return self._script_judge_note(sid)
+
+    def _notice(self, sid: str, reply: str) -> str:
+        notice = self._take_notice(sid)
+        return reply + (f"\n{notice}" if notice else "")
+
+    def _budget_update(self, s: Any, built: Any, note: list[str]) -> Any:
+        """A reused session takes the script's max_tris and brief in place (plain session state: Tier-1 and the export
+        read the budget, the review the brief; both are set before the design is checked, and put back if it is not
+        applied). Returns the ``before`` callable for ``tools.apply_design`` or None when nothing changes."""
+        import dataclasses
+
+        from antigravity3d.art_direction import load as load_art
+
+        old_budget, old_brief = s.state.budget, s.state.brief
+        art = load_art(s.state.art_direction)
+        budget = dataclasses.replace(old_budget, max_tris=int(built.max_tris))
+        if art is not None:
+            budget = art.budget(budget, "prop")
+        brief = built.brief if built.brief and built.brief.strip() else None
+        if budget == old_budget and brief == old_brief:
+            return None
+        if budget.max_tris != old_budget.max_tris:
+            note.append(f"budget now {budget.max_tris:,} triangles (was {old_budget.max_tris:,})")
+        if brief != old_brief:
+            note.append("brief updated: the review checks the asset against the new words")
+
+        def before() -> Any:
+            s.state.budget, s.state.brief = budget, brief
+
+            def undo() -> None:
+                s.state.budget, s.state.brief = old_budget, old_brief
+            return undo
+        return before
 
     async def start_preview(self, token_ceiling: int, max_images: int, session_id: str = "") -> str:
         sid = self.pick(session_id)
         async with self.registry.locked(sid):
             switch_to_preview(self.registry, sid, token_ceiling, max_images)
+        if self.script:
+            note = self._judge_note(sid).removeprefix(" | ").rstrip(".")
+            return (f"SESSION {sid} is now an UNVERIFIED preview: {note}. The design is kept: deliver_package(dest=...) when "
+                    "it reads as the request, or edit the script and run_build first.")
         return self._line(sid) + " | earlier verdicts discarded: re-run visual QA"
 
     def _set_stage(self, sid: str, stage: str) -> None:
@@ -329,7 +586,7 @@ class StudioHost:
     async def list_sessions(self) -> str:
         sids = list(self.gates)
         if not sids:
-            return "no sessions: call open_asset_session"
+            return "no sessions: call run_build" if self.script else "no sessions: call open_asset_session"
         return "\n".join(("* " if sid == self.active else "  ") + self._line(sid) for sid in sids)
 
     # ---- harness tools
@@ -349,6 +606,119 @@ class StudioHost:
         except Exception as e:  # noqa: BLE001 - one compressed line, never a traceback
             log.exception("tool %s failed", name)
             return f"ERROR {compress_exception(e)}"
+
+
+def _script_path(root: Path, path: str) -> Path:
+    """The script ``path`` names, inside the workspace ``root`` (relative to it, or absolute under it), checked: an
+    existing .py file, no symbolic link on the way. Raises ValueError with one sentence."""
+    from antigravity3d import safe_paths
+
+    raw = (path or "").strip()
+    if not raw:
+        raise ValueError("no script path was given")
+    p = Path(raw)
+    if p.is_absolute():
+        try:
+            raw = p.resolve().relative_to(root).as_posix()
+        except ValueError:
+            raise ValueError(f"the script {path} is outside the workspace {root}") from None
+    try:
+        safe_paths.safe_name(raw, "script")
+        target = safe_paths.inside(root, raw, "script", write=False)
+    except safe_paths.UnsafePath as e:
+        raise ValueError(str(e)) from None
+    if not target.is_file():
+        raise ValueError(f"there is no script {raw} in the workspace")
+    if target.suffix != ".py":
+        raise ValueError(f"{raw} is not a Python script (.py)")
+    return target
+
+
+def _folder_digest(folder: Path) -> str:
+    """sha256 of a hand-off folder: every file's relative path and bytes, in sorted order."""
+    h = hashlib.sha256()
+    for f in sorted(p for p in folder.rglob("*") if p.is_file()):
+        h.update(f.relative_to(folder).as_posix().encode() + b"\0")
+        h.update(hashlib.sha256(f.read_bytes()).digest())
+    return h.hexdigest()
+
+
+R_NOTICE = "judge_notice_pending"  # set when run_build opens a session; cleared by the first reply that carries the notice
+
+
+def _has(registry: Any, sid: str, name: str) -> bool:
+    try:
+        registry.resource(sid, name)
+    except KeyError:
+        return False
+    return True
+
+
+def _ply_faces(path: Path) -> int:
+    """The face count a binary PLY's header declares (the builder's free-form parts); 0 when it cannot be read."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4096).split(b"end_header", 1)[0].decode("ascii", "replace")
+    except OSError:
+        return 0
+    m = re.search(r"element face (\d+)", head)
+    return int(m.group(1)) if m else 0
+
+
+def _over_budget(build: Any, rel: str) -> str | None:
+    """The NOT BUILT reply (without its last clause) when the design's exact count (design.json stats.triangles) is over
+    the budget the script asks for (lowered by its art direction like a session's), naming the five heaviest parts; else
+    None. A part's count: the kernel's ``triangle_count`` for a ready shape, its file's face count for a free-form one."""
+    from antigravity3d.art_direction import load as load_art
+    from antigravity3d.kernel.compile_ir import triangle_count
+    from antigravity3d.state import EngineBudget
+
+    tris = (build.stats or {}).get("triangles")
+    if not isinstance(tris, int):
+        return None
+    limit = int(build.max_tris)
+    art = load_art(build.art_direction or None)
+    if art is not None:
+        limit = art.budget(EngineBudget(build.engine, max_tris=limit), "prop").max_tris  # type: ignore[arg-type]
+    if tris <= limit:
+        return None
+    try:
+        scene = build.scene()
+        cost = {}
+        for n in scene.nodes:
+            if n.kind == "mesh_ref":
+                cost[n.id] = _ply_faces(Path(str(n.params.get("path"))))
+            elif n.kind != "group":
+                cost[n.id] = triangle_count(n)
+        heavy = ", ".join(f"{k} {v:,}" for k, v in sorted(cost.items(), key=lambda kv: (-kv[1], kv[0]))[:5])
+    except (ValueError, KeyError, TypeError):
+        heavy = ""
+    return (f"NOT BUILT: {rel} makes {tris:,} triangles and the budget is {limit:,}"
+            + (f". The heaviest parts: {heavy}" if heavy else "")
+            + ". Lower sides and segments on those parts (and smooth=False on a tube) or, if the request allows more, raise "
+              "max_tris in the script's Asset line; nothing was applied")
+
+
+def _not_built(res: Any, kept: str, rel: str = "the script") -> str:
+    """The reply for a script that did not produce a design (syntax error, guard refusal, error, time-out, no a.save())."""
+    if res.syntax:
+        return f"NOT BUILT: {rel} has a syntax error at {res.error}. Fix that line and run_build again; {kept}."
+    if res.refused:
+        return f"NOT BUILT: the script was refused before it ran: {res.error}. Change that line and run_build again; {kept}."
+    if res.timed_out:
+        return (f"NOT BUILT: {res.error}. Make it finish sooner (fewer segments or sides, no endless loop) and run_build "
+                f"again; {kept}.")
+    if res.no_save:
+        return f"NOT BUILT: {res.error}. Add a.save() as the last line and run_build again; {kept}."
+    printed = f"\nthe script printed: {res.stdout_tail[-300:]}" if res.stdout_tail.strip() else ""
+    return f"NOT BUILT: the script stopped with an error:\n{res.error}{printed}\nFix that line and run_build again; {kept}."
+
+
+def _shipped_script(package: Path, manifest: dict[str, Any]) -> Path | None:
+    """The package's ``source/build.py`` when its provenance says a script built the design (``run_build``); else None."""
+    design = ((manifest.get("provenance") or {}).get("sources") or {}).get("design") or {}
+    path = Path(package) / T.SCRIPT_FILE
+    return path if design.get("kind") == "script" and path.is_file() and not path.is_symlink() else None
 
 
 # --------------------------------------------------------------------------- schema generation
@@ -486,6 +856,21 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
     async def list_sessions() -> str:
         return await host.run_ordered(host.list_sessions)
 
+    async def run_build(
+        path: Annotated[str, Field(description="The asset's script, relative to the workspace (e.g. wheelbarrow.py)")],
+        ctx: Context,
+        conversation_id: Annotated[str, Field(description="Native conversation ID from the SessionStart header")] = "",
+        preview: Annotated[bool, Field(description=PREVIEW_DOC + " Used only when this call opens the session.")] = False,
+        token_ceiling: Annotated[int | None, Field(description=TOKEN_CEILING_DOC)] = None,
+        max_images: Annotated[int | None, Field(description=MAX_IMAGES_DOC)] = None,
+        session_id: Annotated[str, Field(description=SESSION_ID_DOC)] = "",
+    ) -> Any:
+        async def go() -> Any:
+            return await host.run_build(path, await _workspace_root(ctx), conversation_id, preview=preview,
+                                        token_ceiling=token_ceiling, max_images=max_images, session_id=session_id)
+
+        return _with_images(await host.change_catalog(ctx, go))
+
     async def install_into_project(
         package_dir: Annotated[str, Field(description="Package directory holding manifest.json (the folder export_engine_package wrote)")],
         ctx: Context,
@@ -520,10 +905,22 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         "Install a finished package into the game project this workspace is (Godot 4: a scene with levels, collision and "
         "materials wired, then imported and checked in the project's engine; Unity/Unreal/Roblox: says what to import). "
         "Run with dry_run first and show the user the plan; writing into their project needs their approval.")
+    run_build.__doc__ = (
+        "Run the asset's Python script (from agy3d import Asset), check the design it saves and show it: the first call "
+        "opens the asset's session from the script's Asset(...) line, a later one replaces the design in one checked step. "
+        "The answer starts with BUILT (findings naming each part and its fix, five colour views), UNCHANGED (the script "
+        "builds the design the session already holds) or NOT BUILT (the cause and the line to fix; nothing changed).")
     start_preview.__doc__ = ("Switch the session to an UNVERIFIED preview in place (scene kept, earlier verdicts discarded), "
                              "limited to the user's token ceiling and image limit. Ask the user for both; never choose them.")
-    return {f.__name__: (f, f.__doc__ or "") for f in (open_asset_session, open_existing_asset, start_preview, set_stage, session_status,
-                                                       list_sessions, install_into_project)}
+    if getattr(host, "script", False):  # no stage vocabulary: script mode has no stages to name
+        open_existing_asset.__doc__ = (
+            "Find the script of an asset this studio already made (its package folder): to CHANGE it ('make the handles 30 % "
+            "larger') edit only the lines of the parts named in that script and run_build it. An asset not built by a "
+            "script cannot be changed in script mode; the answer says so.")
+        session_status.__doc__ = "The asset session's budget, whether its design passed the checks, and whether it can be delivered."
+    tools = (run_build, open_existing_asset, start_preview, session_status, list_sessions, install_into_project) if getattr(host, "script", False) \
+        else (open_asset_session, open_existing_asset, start_preview, set_stage, session_status, list_sessions, install_into_project)
+    return {f.__name__: (f, f.__doc__ or "") for f in tools}
 
 
 def _install_text(r: Any) -> str:
@@ -557,7 +954,7 @@ class StudioServer(MCPServer):
     """One client per stdio process; keep discovery bound to its active session."""
     def __init__(self, host: StudioHost):
         self.host = host
-        super().__init__(SERVER_NAME, instructions=INSTRUCTIONS)
+        super().__init__(SERVER_NAME, instructions=SCRIPT_INSTRUCTIONS if host.script else INSTRUCTIONS)
 
     async def list_tools(self) -> list[Tool]:
         async with self.host._order:
@@ -571,6 +968,8 @@ def build_server(host: StudioHost | None = None) -> MCPServer:
     for name, (fn, doc) in _management(host).items():
         server.add_tool(fn, name=name, description=doc, structured_output=False)
     for name, fn in T.ALL_TOOLS.items():
+        if host.script and name not in SCRIPT_HARNESS_TOOLS:  # script mode serves no stage tool at all
+            continue
         w = _wrapper(name, fn, host)
         server.add_tool(w, name=name, description=w.__doc__, structured_output=False)
         if isinstance(fn, ToolWithSchema):  # IR-typed parameters: advertise the same declaration the SDK path sends

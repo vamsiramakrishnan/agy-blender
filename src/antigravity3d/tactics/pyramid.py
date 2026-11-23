@@ -167,23 +167,32 @@ def reach_of(meshes: list[Any]) -> float:
     return max(SETTLE_MIN_M, SETTLE_SHARE * float((pts.max(0) - pts.min(0)).max()))
 
 
-def attach_step(sm: Any, budget: EngineBudget, only: set[str] | None = None) -> list[str]:
-    """Attach the parts that touch nothing (kernel/attach.py) within ``reach_of``, as one transaction (kept only if it
-    raises no Tier-1 critical issue); ``only``: move none but these. One line per move, then one per part left."""
+def attach_plan(meshes: list[Any], scene: Any, budget: EngineBudget, only: set[str] | None = None) -> tuple[Any, list, Any] | None:
+    """The attach step's decision without applying it: None when no part is detached; else (``kernel.attach``'s result,
+    its SetTransform ops on ``scene``, the Tier-1 report before). Raises ValueError / KeyError when attaching is not
+    possible. Shared by ``attach_step`` (the command path) and run_build (``harness.tools._attached``)."""
     from antigravity3d.kernel.attach import attach
 
-    meshes = sm.extract_meshes()
     if not meshes:
-        return []
+        return None
     reach = reach_of(meshes)
     t1 = tier1_qa(meshes, budget)
     if not any(i.code in ("floating_part", "floating_group") for i in t1.issues):
-        return []
+        return None
+    r = attach(meshes, budget, reach, only=only)
+    return r, r.ops(scene), t1
+
+
+def attach_step(sm: Any, budget: EngineBudget, only: set[str] | None = None) -> list[str]:
+    """Attach the parts that touch nothing (kernel/attach.py) within ``reach_of``, as one transaction (kept only if it
+    raises no Tier-1 critical issue); ``only``: move none but these. One line per move, then one per part left."""
     try:
-        r = attach(meshes, budget, reach, only=only)
-        ops = r.ops(sm.base_ir())
+        plan = attach_plan(sm.extract_meshes(), sm.base_ir(), budget, only)
     except (ValueError, KeyError) as e:
         return [f"attach: not possible ({e})"]
+    if plan is None:
+        return []
+    r, ops, t1 = plan
     notes = []
     if ops:
         tx = sm.apply_patch(IRPatch(ops=ops))

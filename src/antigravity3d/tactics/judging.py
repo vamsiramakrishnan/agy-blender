@@ -114,12 +114,13 @@ def _label(img: Image.Image, view: str) -> Image.Image:
 
 
 def _render(meshes: list[MeshData], view: View, size: int, style: str, normals: dict[str, np.ndarray] | None,
-            crease_deg: float):
+            crease_deg: float, colours: dict[str, Any] | None = None):
     if style not in VIEW_STYLES:
         raise ValueError(f"unknown view style {style!r}; one of {VIEW_STYLES}")
     if style == "wire":
-        return render_buffers(meshes, view, size, wireframe=True)
-    return render_buffers(meshes, view, size, normals=normals, feature_edges=style == "shipped_edges", crease_deg=crease_deg)
+        return render_buffers(meshes, view, size, wireframe=True, colours=colours)
+    return render_buffers(meshes, view, size, normals=normals, feature_edges=style == "shipped_edges", crease_deg=crease_deg,
+                          colours=colours)
 
 
 def shipped_normals(meshes: list[MeshData], crease_deg: float = CREASE_DEG) -> dict[str, np.ndarray]:
@@ -129,10 +130,13 @@ def shipped_normals(meshes: list[MeshData], crease_deg: float = CREASE_DEG) -> d
 
 
 def render_design(meshes: list[MeshData], *, views: Sequence[View] = JUDGE_VIEWS, size: int = JUDGE_VIEW_PX,
-                  marked: bool = True, style: str | None = None, crease_deg: float = CREASE_DEG) -> DesignRenders:
+                  marked: bool = True, style: str | None = None, crease_deg: float = CREASE_DEG,
+                  colours: dict[str, Any] | None = None) -> DesignRenders:
     """Render each view once in ``style`` (None: ``JUDGE_VIEW_STYLE``) and, when ``marked``, draw its badged view over the
     same render. ``crease_deg``: the shading crease the package is written with (the art direction's). Badge numbers
-    follow ``som.assign_badges`` (sorted node ids), so the legend is the same in every view and for every size."""
+    follow ``som.assign_badges`` (sorted node ids), so the legend is the same in every view and for every size.
+    ``colours``: node id -> displayed base colour (sRGB 0-255) to shade each part in instead of clay (``render_buffers``);
+    None: clay, as the judge has always been shown."""
     style = style or JUDGE_VIEW_STYLE
     ids = [m.node_id for m in meshes if len(m.triangles)]
     # normals are keyed by node id (render_buffers): parts sharing an id are lit one normal per triangle instead
@@ -143,7 +147,7 @@ def render_design(meshes: list[MeshData], *, views: Sequence[View] = JUDGE_VIEWS
     visible: dict[str, list[int]] = {}
     seen: set[str] = set()
     for v in views:
-        buf = _render(meshes, v, size, style, normals, crease_deg)
+        buf = _render(meshes, v, size, style, normals, crease_deg, colours)
         plain.append((v, png_bytes(_label(Image.fromarray(buf.color), v))))
         if legend is not None:
             mv = mark_view(buf, legend, reserved=[(0, 0, 8 * len(v) + 10, 14)])
@@ -170,10 +174,10 @@ async def design_views(meshes: list[MeshData], uploader: Uploader, *, size: int 
 
 
 async def upload_design(meshes: list[MeshData], uploader: Uploader, *, style: str | None = None,
-                        crease_deg: float = CREASE_DEG) -> UploadedDesign:
+                        crease_deg: float = CREASE_DEG, colours: dict[str, Any] | None = None) -> UploadedDesign:
     """Render the design's views (off the event loop), plain and badged, and upload them. A rendering or upload failure
-    propagates."""
-    renders = await to_thread_drained(render_design, meshes, style=style, crease_deg=crease_deg)
+    propagates. ``colours``: see ``render_design``."""
+    renders = await to_thread_drained(render_design, meshes, style=style, crease_deg=crease_deg, colours=colours)
     uploaded = await _upload_all(uploader, [*renders.plain, *renders.marked])
     return UploadedDesign(renders, uploaded[:len(renders.plain)], uploaded[len(renders.plain):])
 
