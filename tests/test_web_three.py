@@ -640,7 +640,7 @@ def test_browser_capture_interface_writes_png(good, tmp_path, runtime):
 
 # --------------------------------------------------------------------------- every target engine (real exporter)
 
-ENGINES = ["unreal_5", "unity_urp", "godot_4", "roblox_r15"]
+ENGINES = ["unreal_5", "unity_urp", "godot_4", "roblox_r15", "web_three"]  # every target: a package of each is loaded by the web check
 
 
 def _export_l_block(tmp, engine: str):

@@ -125,7 +125,8 @@ def test_albedo_prompts_are_built_from_surface_words_never_from_the_brief(key, t
     assert all("low-resolution retro game texture" in p for p in albedo)  # the art direction's texture brief stays
 
 
-def test_prop_without_preview_refuses_at_start_and_generates_nothing(key, tmp_path, capsys):
+def test_prop_without_preview_refuses_at_start_and_generates_nothing(key, tmp_path, capsys, any_target_can_be_verified):
+    # about the key (no calibrated judge); the default engine's own refusal comes first otherwise (tests/test_verifiable_targets.py)
     api = key()
     for extra in ([], ["--require-verified", "--token-ceiling", "150000", "--max-images", "4"]):
         assert prop(tmp_path, *extra) == 2

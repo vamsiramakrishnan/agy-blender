@@ -38,7 +38,7 @@ from antigravity3d.ir import (
     AssignMaterial, IRPatch, MaterialIR, RemoveNode, SceneIR, SetParam, SetTransform, UpsertMaterial, UpsertNode, apply_patch,
 )
 from antigravity3d.art_direction import texture_brief
-from antigravity3d.kernel.compile_ir import CREASE_DEG, crease_normals
+from antigravity3d.kernel.compile_ir import CREASE_DEG
 from antigravity3d.kernel.coplanar import opaque_materials
 from antigravity3d.kernel.fast_ops import (
     CAPPED_MARK, ExportBundle, describe_collider_sources, describe_texel_density, run_export_pipeline, shipped, texel_density_report,
@@ -345,11 +345,11 @@ def tidy(sm: Any, budget: EngineBudget, touched: set[str]) -> list[str]:
             notes.append(f"settled {len(ops)} part(s) the patch left floating within {reach * 1e3:.0f} mm: "
                          f"{', '.join(sorted(movable - far)[:8])}")
     scene = sm.base_ir()
-    if count_tris(scene) > budget.max_tris:
-        ops = _shrink(scene, budget.max_tris, only=touched)
+    if count_tris(scene, sm.mesh_ref_file) > budget.max_tris:
+        ops = _shrink(scene, budget.max_tris, only=touched, resolve=sm.mesh_ref_file)
         if guarded(ops, "shrink"):
             notes.append(f"fewer segments on {len({o.node_id for o in ops})} part(s) the patch changed: "
-                         f"{count_tris(sm.base_ir())} of max_tris {budget.max_tris}")
+                         f"{count_tris(sm.base_ir(), sm.mesh_ref_file)} of max_tris {budget.max_tris}")
     meshes = sm.extract_meshes()
     try:
         r = separate_coplanar(sm.base_ir(), meshes, hidden=shipped_masks(meshes, budget))
@@ -777,6 +777,7 @@ class _Run:
                                  unit=getattr(self.governor, "unit", "usd"))
         self.maps: dict[str, PBRMaps] = {}
         self.render_png: bytes | None = None
+        self.engine_report: Any = None  # the engine import step's report (web_three records its web_runtime step from it)
         self.locate_noted = False
         self.bundle_revision: tuple[str, ...] | None = None
         self.export_bundle: ExportBundle | None = None
@@ -2223,10 +2224,9 @@ class _Run:
             return ("failed", f"{len(crit)} critical: {crit[0].code} {crit[0].detail[:80]}") if crit else ("passed", f"write_engine_package ok; {len(m.issues)} non-critical message(s); files={len(m.files)}")
 
         async def pop() -> tuple[str, str]:
-            lods = merged_lods(bundle)
-            if self.crease != CREASE_DEG:  # judge the levels with the normals they ship with (lod_diff.shipped_normals)
-                for lod in lods:
-                    lod.normals = crease_normals(np.asarray(lod.points, np.float64), np.asarray(lod.triangles), self.crease)
+            # judge the levels with the normals they ship with (lod_diff.shipped_normals): the art direction's crease,
+            # round parts smooth
+            lods = merged_lods(bundle, {m.node_id: m.run for m in meshes if m.run is not None}, self.crease)
             if len(lods) < 2:
                 return "skipped", "LOD0 only: no coarser level within the screen-space error budget saves enough triangles"
             rep = await to_thread_drained(lod_pop_report, lods)
@@ -2272,18 +2272,14 @@ class _Run:
 
         await self.guarded("export_glb", glb)
 
-        async def web_runtime() -> tuple[str, str]:
-            """Load the package as shipped (GLB, LOD GLBs, manifest, USD) in three.js under headless Chromium."""
-            if "glb" not in res.artifacts:
-                return "skipped", "no GLB exported"
-            with tempfile.TemporaryDirectory(prefix="web_three_", dir=self.workdir) as td:
-                rep = await WebThreeValidator().validate(pkg, out_dir=Path(td))
-                if rep.skipped:
-                    return "skipped", rep.skipped_reason or "web runtime verifier unavailable"
-                if rep.screenshot:  # evidence for review; kept beside the package, not inside it
-                    shot = self.workdir / "web_three.png"
-                    shutil.copyfile(rep.screenshot, shot)
-                    res.artifacts["web_render"] = str(shot)
+        def web_result(rep: Any) -> tuple[str, str]:
+            """The ``web_runtime`` step from a three.js report (the web check's own run, or the engine step's)."""
+            if rep.skipped:
+                return "skipped", rep.skipped_reason or "web runtime verifier unavailable"
+            if rep.frame_png:  # evidence for review; kept beside the package, not inside it
+                shot = self.workdir / "web_three.png"
+                shot.write_bytes(rep.frame_png)
+                res.artifacts["web_render"] = str(shot)
             res.objects["web_runtime"] = {"checks": [(c.name, c.status, c.detail) for c in rep.checks],
                                           "silhouette_iou": rep.silhouette_iou, "timings_s": rep.timings_s}
             if rep.silhouette_iou is not None:
@@ -2291,9 +2287,14 @@ class _Run:
             if not rep.ok:
                 why = "; ".join(f"{c.name}: {c.detail}" for c in rep.failures[:3]) or rep.log_tail[-200:].replace("\n", " ")
                 return "failed", why[:400]
-            done = sum(c.status == "pass" for c in rep.checks)
-            iou = "" if rep.silhouette_iou is None else f", silhouette IoU {rep.silhouette_iou:.4f} against the USD"
-            return "passed", f"three.js loaded and rendered the package: {done} checks passed{iou}"
+            return "passed", rep.one_line()
+
+        async def web_runtime() -> tuple[str, str]:
+            """Load the package as shipped (GLB, LOD GLBs, manifest, USD) in three.js under headless Chromium: the side check every
+            target other than web_three gets. For web_three the engine step's report is the check (``self.engine_report``)."""
+            if "glb" not in res.artifacts:
+                return "skipped", "no GLB exported"
+            return web_result(await WebThreeValidator().validate(pkg))
 
         async def blender_asset_qa() -> tuple[str, str]:
             """EL4CTEO/blender-skills' qa_check on the GLB the engines import, vertices merged part by part (upstream_checks.asset_qa)."""
@@ -2305,15 +2306,26 @@ class _Run:
             return status, detail
 
         # Both are independent of the target engine's own import, so they run while those steps wait on their engine.
-        side = {"web_runtime": asyncio.ensure_future(self.guarded_result(web_runtime)),
-                "blender_asset_qa": asyncio.ensure_future(self.guarded_result(blender_asset_qa))}
+        # For web_three the three.js check IS the engine check (engine_import, engine_capture): it runs once, in the engine
+        # steps, and web_runtime is recorded from that same run afterwards.
+        validator = validator_for(budget.target_engine)
+        own_web_run = budget.target_engine == "web_three"
+        side = {"blender_asset_qa": asyncio.ensure_future(self.guarded_result(blender_asset_qa))}
+        if not own_web_run:
+            side = {"web_runtime": asyncio.ensure_future(self.guarded_result(web_runtime)), **side}
         try:
-            await self._engine_steps(validator_for(budget.target_engine))
+            await self._engine_steps(validator)
         except BaseException:
             for task in (*side.values(), vision):
                 task.cancel()  # pass C was cancelled or crashed: stop the verification with it, and let it clean up
             await asyncio.wait({*side.values(), vision})
             raise
+        if own_web_run:  # the engine step's own report: the browser is not asked a second time (it may have crashed or timed out)
+            async def from_engine_report() -> tuple[str, str]:
+                rep = self.engine_report
+                return web_result(rep) if rep is not None else ("skipped", "no GLB exported")
+            status, detail, t0 = await self.guarded_result(from_engine_report)
+            self.step("web_runtime", status, detail, t0)
         for name, task in side.items():
             status, detail, t0 = await task
             self.step(name, status, detail, t0)
@@ -2351,13 +2363,19 @@ class _Run:
             if "glb" not in res.artifacts:
                 return "skipped", "no GLB exported"
             rep = await validator.validate(res.artifacts["glb"])
+            self.engine_report = rep  # web_three's web_runtime step is recorded from it
             if rep.ok:
                 if issue := rep.geometry_issue(res.objects["package"].data):
                     return "failed", issue
                 res.objects["engine_import"] = {"engine": rep.engine, "metrics": rep.metrics, "bounds_m": rep.bounds_m,
-                                                "engine_version": rep.engine_version}
+                                                "engine_version": rep.engine_version, **rep.extra_record()}
             if rep.skipped:
                 return "skipped", rep.skipped_reason or "engine validator skipped"
+            if hasattr(rep, "one_line"):  # the web check's tail is its console, not a summary
+                if rep.ok:
+                    return "passed", rep.one_line()
+                if rep.failures:
+                    return "failed", "; ".join(f"{c.name}: {c.detail}" for c in rep.failures[:3])[:400]
             return ("passed" if rep.ok else "failed"), rep.log_tail[-160:].replace("\n", " ")
 
         await self.guarded("engine_import", engine)
@@ -2396,8 +2414,9 @@ class _Run:
             if "engine_render" in res.artifacts:
                 iou = silhouette_iou(self.render_png, Path(res.artifacts["engine_render"]).read_bytes())
                 res.scores["engine_silhouette_iou"] = iou
-                if iou < MIN_SILHOUETTE_IOU:
-                    return "failed", f"silhouette IoU {iou:.4f} below {MIN_SILHOUETTE_IOU:.2f}"
+                least = getattr(validator, "min_silhouette_iou", MIN_SILHOUETTE_IOU)
+                if iou < least:
+                    return "failed", f"silhouette IoU {iou:.4f} below {least:.2f}"
             from antigravity3d.decisions.compose import engine_parity_ok, engine_parity_reasons
 
             r = await fn(await self.upload(self.render_png), self.engine_render_uri, governor=self.governor)

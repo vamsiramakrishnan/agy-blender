@@ -8,16 +8,24 @@ from pathlib import Path
 import numpy as np
 
 
-def triangle_parts(path: Path) -> Iterator[tuple[str, np.ndarray, np.ndarray, np.ndarray | None]]:
-    """Yield each transformed instance, preserving winding and per-vertex UVs."""
+def triangle_parts(path: Path, data: bytes | None = None) -> Iterator[tuple[str, np.ndarray, np.ndarray, np.ndarray | None]]:
+    """Yield each transformed instance, preserving winding and per-vertex UVs.
+
+    ``data``: the file's bytes, already read (``path`` then only names the format): the loader gets a buffer and no
+    resolver, so it cannot open another file, and what is read is exactly what the caller checked and will keep."""
+    import io
+
     import trimesh
 
     ext = path.suffix.lower()
     if ext not in {".glb", ".gltf", ".obj", ".ply", ".stl"}:
         raise ValueError(f"{path}: unsupported triangle asset format")
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    scene = trimesh.load_scene(path, process=False, allow_remote=False)
+    if data is None:
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        scene = trimesh.load_scene(path, process=False, allow_remote=False)
+    else:
+        scene = trimesh.load_scene(io.BytesIO(data), file_type=ext.lstrip("."), process=False, allow_remote=False)
     found = False
     for node in sorted(scene.graph.nodes_geometry):
         transform, geom_name = scene.graph[node]

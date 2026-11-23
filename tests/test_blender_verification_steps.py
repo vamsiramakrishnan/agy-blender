@@ -530,7 +530,10 @@ async def export_crate(env, monkeypatch) -> tuple[str, dict[str, Any] | None]:
     return reply, (json.loads(manifest.read_text()) if manifest.exists() else None)
 
 
-async def test_native_export_records_a_skipped_check_without_a_real_worker(tmp_path, monkeypatch):
+# any_target_can_be_verified: export_crate runs run_visual_qa on a default (unreal_5) session; for a target this machine cannot verify
+# that tool refuses (Session.unverifiable_target), and its refusal was thrown away here (record_approval stands in for the review).
+# This test is about the Blender check, not the target.
+async def test_native_export_records_a_skipped_check_without_a_real_worker(tmp_path, monkeypatch, any_target_can_be_verified):
     from test_harness_tools import make_session
 
     reply, manifest = await export_crate(make_session(tmp_path), monkeypatch)
@@ -538,7 +541,10 @@ async def test_native_export_records_a_skipped_check_without_a_real_worker(tmp_p
     assert "no Blender pool" in manifest["validation"]["blender_asset_qa"]["detail"]
 
 
-async def test_native_export_is_refused_when_the_worker_reports_errors(tmp_path, monkeypatch):
+# any_target_can_be_verified: export_crate runs run_visual_qa on a default (unreal_5) session; for a target this machine cannot verify
+# that tool refuses (Session.unverifiable_target), and its refusal was thrown away here (record_approval stands in for the review).
+# This test is about the Blender check, not the target.
+async def test_native_export_is_refused_when_the_worker_reports_errors(tmp_path, monkeypatch, any_target_can_be_verified):
     from test_harness_tools import make_session
 
     stub = Stub({"ok": True, "pass": False, "errors": ["body: floating/detached part in body"], "warnings": [], "objects": {"Batch_0": {"tris": 24}}})

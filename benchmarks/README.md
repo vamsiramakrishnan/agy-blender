@@ -26,6 +26,10 @@ Five tools and the report written from them:
 - [`ROUND_SIX.md`](ROUND_SIX.md) is the sixth round's report: an asset written as one script (the plugin's opt-in
   script mode) against the plugin's default session, under a stop rule set before the runs, which it did not meet.
   The full table, the blind verdicts and the script an agent wrote for the chair are in `results/round6/`.
+- [`ROUND_SEVEN.md`](ROUND_SEVEN.md) is the seventh round's report: three.js as a package and install target, generated
+  surfaces that know the part they are on, and the README rewritten for developers, each against a measure written
+  before the work. Two of the three measures were not met, and the report says where. The measures as written, every
+  blind verdict of both measurements and the pictures are in `results/round7/`.
 
 ## Offline benchmarks
 

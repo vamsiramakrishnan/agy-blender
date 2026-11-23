@@ -41,6 +41,7 @@ class ReviewPart:
     triangles: np.ndarray
     uvs: np.ndarray | None = None
     material: GltfMaterial | None = None
+    run: Any = None  # the part's run (types.Run): a round part's sides show smooth, as the package ships them
 
 
 def _maps(m: GltfMaterial | None, uv: bool) -> list[str]:
@@ -82,7 +83,13 @@ def build_review(
             name = f"{label}:{part.node_id or 'merged'}"
             entries.append({"node": part.node_id, "glb": len(meshes), "tris": int(len(part.triangles)),
                             "uv": part.uvs is not None, "maps": _maps(part.material, part.uvs is not None)})
-            meshes.append(gltf_mesh(name, part.points, part.triangles, part.uvs, part.material, shade=True, crease_deg=crease_deg))
+            dirs = None
+            if part.run is not None and part.run.round:
+                from antigravity3d.kernel.surface_frame import round_dirs
+
+                dirs = round_dirs(part.points, part.triangles, part.run)
+            meshes.append(gltf_mesh(name, part.points, part.triangles, part.uvs, part.material, shade=True, crease_deg=crease_deg,
+                                    round_dirs=dirs))
         out_levels.append({"label": label, "tris": sum(e["tris"] for e in entries), "parts": entries})
     colliders = []
     for name, points, triangles in hulls:

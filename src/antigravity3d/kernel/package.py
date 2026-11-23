@@ -30,7 +30,7 @@ was baked, the atlas size and why, and what forced every extra material.
 Per-engine decisions (see ``ENGINE_RULES`` for the rule table they come from):
 
 * up axis: the package USD is written in the engine's *native* up axis. Working stage is Z-up metres;
-  for Y-up engines (unity_urp, godot_4, roblox_r15) the asset root gets ``xformOp:rotateX = -90`` and
+  for Y-up engines (unity_urp, godot_4, roblox_r15, web_three) the asset root gets ``xformOp:rotateX = -90`` and
   ``upAxis = Y`` together (so (x, y, z) -> (x, z, -y), the same mapping the GLB uses). Unreal stays Z-up.
 * units: always metres (``metersPerUnit = 1.0``) with no scale baked in; every engine's rules accept
   1.0 and importers honour the metadata. Not converting to centimetres for Unreal is deliberate:
@@ -61,7 +61,7 @@ from PIL import Image
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, Vt
 
 from antigravity3d.artifacts.inspector import InspectorQA, build_inspector, bundled_three_js
-from antigravity3d.kernel import compile_ir, provenance
+from antigravity3d.kernel import compile_ir, part_files, provenance
 from antigravity3d.kernel.compile_ir import (
     CREASE_DEG, IR_KEY, MapSource, MaterialParams, author_mesh_data, read_ir, read_material, set_normal_encoding,
 )
@@ -100,7 +100,8 @@ TEXTURE_DIR = PACKAGE_TEXTURE_DIR
 COLLIDERS_SCOPE = "Colliders"
 LOD_SET = "LOD"
 # Convention the engine's importer expects for tangent-space normal maps.
-NORMAL_CONVENTION = {"unreal_5": "directx", "unity_urp": "opengl", "godot_4": "opengl", "roblox_r15": "opengl"}
+NORMAL_CONVENTION = {"unreal_5": "directx", "unity_urp": "opengl", "godot_4": "opengl", "roblox_r15": "opengl",
+                     "web_three": "opengl"}  # glTF maps a normal texture's green channel to +Y (glTF 2.0, normalTexture)
 
 
 @dataclass
@@ -468,6 +469,7 @@ ATLAS_ROLES = ("albedo", "orm", "normal", "emissive")
 #: every run (the lookdev fixers rewrite all three after derivation, tactics/pyramid.py; supplied maps were never
 #: derived). No engine file references them and no install copies them (deliver copies levels and textures/).
 SOURCES_DIR = "sources"
+PARTS_DIR = "parts"  # the files a scene's mesh_ref nodes read (free-form parts), by a path relative to the package
 _FLAT_NORMAL = (128, 128, 255)
 
 
@@ -843,6 +845,55 @@ def _ship_sources(out: Path, record: dict[str, Any] | None) -> None:
     record["sources_bytes"] = total
 
 
+def _ship_parts(stage: Usd.Stage, out: Path, resolve: Any) -> dict[str, Any] | None:
+    """Copies the file of each ``mesh_ref`` node into ``parts/<node id>-<sha256[:12]><suffix>`` and makes the embedded
+    scene and each prim's ``agy:meshRef`` name it by that path, relative to the package, in place of the absolute path
+    in the session's work folder it was built from. Why: that path put a developer's home directory and the session's
+    id in the shipped USD and USDZ, made two deliveries of one design differ between machines, and left a package that
+    could not be re-opened once the work folder was gone (the edit reads these files). The shipped mesh prim is not a
+    copy of the file (hidden triangles are dropped from it, ``_ship_lod0``), so the file is what keeps the design whole.
+    Not in the manifest's ``files``: engines neither load nor copy them (as ``sources/``). Returns the manifest record, or
+    None when the scene has no such node.
+
+    A file that is not one file (``part_files.problem``, the check the re-open makes again) or is not on disk is not shipped, and no path of this machine is
+    written for it: the scene and the prim name the bare file name, and the part is listed under ``not_portable`` with the
+    reason, which is what makes a re-open of the package refuse it by name."""
+    asset = stage.GetDefaultPrim()
+    scene = read_ir(asset)
+    held: dict[str, tuple[str, bytes]] = {}  # node id -> (shipped name, bytes), read before parts/ is cleared
+    bare: dict[str, str] = {}  # node id -> bare file name, for the parts that cannot travel
+    not_portable: dict[str, str] = {}
+    for node in scene.nodes if scene is not None else ():
+        raw = node.params.get("path") if node.kind == "mesh_ref" else None
+        if not isinstance(raw, str) or not raw:
+            continue
+        src = resolve(raw)  # the file the compiler read (compile_ir.mesh_ref_file), not the working directory's
+        data = src.read_bytes() if src.is_file() else None
+        reason = f"its file {src.name} was not found when the package was written" if data is None else part_files.problem(src.suffix, data)
+        if reason:
+            not_portable[node.id], bare[node.id] = reason, src.name
+            continue
+        held[node.id] = (f"{node.id}-{hashlib.sha256(data).hexdigest()[:12]}{src.suffix.lower()}", data)
+    shutil.rmtree(out / PARTS_DIR, ignore_errors=True)
+    if not held and not not_portable:
+        return None
+    files: dict[str, Any] = {}
+    if held:
+        (out / PARTS_DIR).mkdir(parents=True)
+    for nid, (name, data) in held.items():
+        (out / PARTS_DIR / name).write_bytes(data)
+        files[name] = {"node": nid, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+    rel = {**bare, **{nid: f"{PARTS_DIR}/{name}" for nid, (name, _) in held.items()}}
+    nodes = [n.model_copy(update={"params": {**n.params, "path": rel[n.id]}}) if n.id in rel else n for n in scene.nodes]
+    asset.SetCustomDataByKey(IR_KEY, scene.model_copy(update={"nodes": nodes}).model_dump_json())
+    for prim in Usd.PrimRange(asset):
+        attr = prim.GetAttribute("agy:meshRef")
+        node_id = prim.GetAttribute("agy:nodeId")
+        if attr and node_id and node_id.Get() in rel:
+            attr.Set(rel[node_id.Get()])
+    return {"dir": PARTS_DIR, "files": files, **({"not_portable": not_portable} if not_portable else {})}
+
+
 def _split_reasons(materials: Mapping[str, GltfMaterial]) -> list[dict[str, Any]]:
     """Shipped glTF materials that bind the same images but stay apart, and the per-material fields that keep them apart."""
     from dataclasses import fields as _fields
@@ -964,13 +1015,16 @@ def _relativise_embedded_ir(stage: Usd.Stage, records: list[dict[str, Any]]) -> 
 
 def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict[str, list[str]],
                      materials: dict[str, GltfMaterial], suffix: str, image_uris: Mapping[str, str] | None = None,
-                     crease_deg: float | None = None) -> dict[str, list[list[Any]]]:
+                     crease_deg: float | None = None, runs: Mapping[str, Any] | None = None) -> dict[str, list[list[Any]]]:
     """Writes one level's GLB, one mesh per batch. Returns, per mesh, where each part's triangles are in its index
     buffer: [[node id, first triangle, triangle count], ...] in order (the writer keeps the triangle order of the parts
     it concatenates: ``gltf_writer.split_by_corner_normals`` renumbers vertices, never triangles)."""
+    from antigravity3d.kernel.surface_frame import round_dirs
+
     items = []
     bound = []
     names = []
+    dirs: list[np.ndarray | None] = []
     ranges: dict[str, list[list[Any]]] = {}
     for name, nodes in batches.items():
         group = [parts[node] for node in nodes if len(parts[node].triangles)]  # a part absent at this LOD is omitted
@@ -980,6 +1034,9 @@ def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict
         nodes = [node for node in nodes if len(parts[node].triangles)]
         firsts = np.cumsum([0] + [len(p.triangles) for p in group[:-1]])
         ranges[name + suffix] = [[node, int(f), int(len(p.triangles))] for node, f, p in zip(nodes, firsts, group)]
+        # each round part's facets along its run (its own run, ``MeshData.run``) ship smooth, at every level of detail
+        d = [round_dirs(p.points, p.triangles, (runs or {}).get(node)) for node, p in zip(nodes, group)]
+        dirs.append(np.concatenate(d) if any(x.any() for x in d) else None)
         if len(group) == 1:
             items.append(group[0])
         else:
@@ -988,7 +1045,8 @@ def _write_glb_level(path: Path, parts: dict[str, UVResult | LOD], batches: dict
             items.append(LOD(1., np.vstack([p.points for p in group]), indices,
                              np.vstack([p.uvs for p in group]), 0., 0.))
         bound.append(materials.get(nodes[0]))
-    write_gltf(path, items, [name + suffix for name in names], materials=bound, image_uris=image_uris, crease_deg=crease_deg)
+    write_gltf(path, items, [name + suffix for name in names], materials=bound, image_uris=image_uris, crease_deg=crease_deg,
+               round_dirs=dirs)
     return ranges
 
 
@@ -1005,6 +1063,18 @@ def _glb_image_records(path: Path, texture_of: Mapping[str, str], hashes: Mappin
             rec = {**rec, "texture": texture_of.get(rec["sha256"])}
         out.append(rec)
     return out
+
+
+def web_download_record(out: Path, glb: str, images: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """What a page downloads to show the highest level: the GLB and every file it references by URI, with their sizes.
+
+    The record is a fact for a web developer's budget, not a gate. LOD0 embeds its images, so today it is the GLB alone:
+    the PNGs in ``textures/`` serve the lower-detail levels (they reference them), and a page that fetched LOD0 and then
+    a far level as written would download those maps a second time."""
+    refs = list(dict.fromkeys(unquote(rec["uri"]) for rec in images if rec["storage"] == "uri"))
+    files = {rel: (out / rel).stat().st_size for rel in [glb, *refs]}
+    return {"level": "LOD0", "bytes": sum(files.values()), "files": files,
+            "note": "LOD0 embeds its images; the files in textures/ serve the lower-detail levels and are not fetched with LOD0"}
 
 
 def _flip_green_png(image: EncodedImage) -> EncodedImage:
@@ -1314,6 +1384,17 @@ def _contact_record(budget: EngineBudget, uvs: Sequence[UVResult], lods: Mapping
     }
 
 
+def shipped_runs(meshes: Sequence[MeshData], crease_deg: float) -> list[MeshData]:
+    """``meshes`` as the package's maps and GLB see them: below the project's crease (an art direction that wants facets
+    seen: low-poly, retro) no part ships round (``compile_ir.round_soft``), so its facet lines are edges for the wear
+    masks too, as the USD's normals say."""
+    if crease_deg >= CREASE_DEG:
+        return list(meshes)
+    from dataclasses import replace as _replace
+
+    return [_replace(m, run=_replace(m.run, round=False)) if m.run is not None and m.run.round else m for m in meshes]
+
+
 def write_engine_package(
     stage_manager,
     bundle_or_parts: ExportBundle | Mapping[str, Any],
@@ -1353,7 +1434,7 @@ def write_engine_package(
     notes: list[str] = []
 
     stage_manager.ensure_export_uvs(uvs, crease_deg=crease)
-    meshes = stage_manager.extract_meshes()
+    meshes = shipped_runs(stage_manager.extract_meshes(), crease)
     xc = UsdGeom.XformCache()
     src_stage = stage_manager.stage
 
@@ -1374,6 +1455,7 @@ def write_engine_package(
                             if atlas_tmp is not None else None)
         textures, unresolved = _package_textures(stage, out, engine, art)  # copies the baked files into textures/
         _ship_sources(out, atlas_record)
+        parts_record = _ship_parts(stage, out, stage_manager.mesh_ref_file)
         laid = next((u.layout for u in uvs if u.shared_atlas and u.layout), None)
         if atlas_record is not None and laid:  # an edit's export: whether the shipped layout was kept (fast_ops._pack_kept)
             atlas_record["layout"] = {"result": laid.split(":", 1)[0], "detail": laid}
@@ -1447,7 +1529,8 @@ def write_engine_package(
     texture_of: dict[str, str] = {}
     for rel, digest in texture_hashes.items():
         texture_of.setdefault(digest, rel)  # identical files: the first one, in manifest order
-    part_ranges = _write_glb_level(out / f"{asset_name}.glb", ship, batches, materials, "", crease_deg=crease)
+    runs = {m.node_id: m.run for m in meshes if m.run is not None}
+    part_ranges = _write_glb_level(out / f"{asset_name}.glb", ship, batches, materials, "", crease_deg=crease, runs=runs)
     files.append(f"{asset_name}.glb")
     glb_levels = levels
     # A material image whose bytes no package file holds (a map transcoded to PNG because glTF allows only PNG and
@@ -1456,7 +1539,7 @@ def write_engine_package(
     for i in range(1, glb_levels):
         suffix = f"_LOD{i}"
         _write_glb_level(out / f"{asset_name}{suffix}.glb", {n: chain[i] for n, chain in ship_lods.items()},
-                         batches, materials, suffix, image_uris=lod_uris, crease_deg=crease)
+                         batches, materials, suffix, image_uris=lod_uris, crease_deg=crease, runs=runs)
         files.append(f"{asset_name}{suffix}.glb")
     if hulls:
         write_gltf(out / f"{asset_name}_colliders.glb", hulls, [collider_name(engine, asset_name, i, usd=False) for i in range(len(hulls))])
@@ -1477,7 +1560,7 @@ def write_engine_package(
 
     # The inspector renders a GLB built by the same writer from the same seam-split vertices and the same
     # GltfMaterial objects as the package GLB, so what is reviewed is what ships.
-    inspector_meshes = [MeshData(m.node_id, m.prim_path, ship[u.node_id].points, ship[u.node_id].triangles, m.material_id)
+    inspector_meshes = [MeshData(m.node_id, m.prim_path, ship[u.node_id].points, ship[u.node_id].triangles, m.material_id, run=m.run)
                         for m, u in zip(meshes, uvs, strict=True)]
     viewer = build_inspector(inspector_meshes, asset_name=asset_name, budget=budget, materials=materials,
                              uvs={n: s.uvs for n, s in ship.items()},
@@ -1569,6 +1652,8 @@ def write_engine_package(
     }
     if roblox_record is not None:
         data["roblox_surface_appearance"] = roblox_record
+    if parts_record:
+        data["parts"] = parts_record
     if atlas_record is not None or merged:
         data["texture_atlas"] = {**(atlas_record or {"status": "not_baked"}), "gltf_materials": merged,
                                  "split_properties": list(SPLIT_PROPERTIES), "splits": _split_reasons(materials),
@@ -1587,8 +1672,10 @@ def write_engine_package(
         data["schema_version"] = max(data["schema_version"], ART_SCHEMA_VERSION)
         data["art_direction"] = _art_record(art, budget, textures, out, dens, uvs)
     data["file_hashes"] = {f: {"sha256": texture_hashes.get(f) or _sha256(out / f), "bytes": (out / f).stat().st_size} for f in files}
+    if engine == "web_three":  # a number only a web page has: written for this target only, so no other manifest changes
+        data["web_download"] = web_download_record(out, f"{asset_name}.glb", data["glb_images"][f"{asset_name}.glb"])
     try:
-        supplied = provenance.supplied_meshes(stage_manager.base_ir())
+        supplied = provenance.supplied_meshes(stage_manager.base_ir(), stage_manager.mesh_ref_file)
     except Exception:  # noqa: BLE001 - a stage without a readable scene IR has no supplied files to name
         supplied = {}
     data["provenance"] = provenance.finalize(provenance.build(data, supplied=supplied, styled=art is not None, asset=asset_name))

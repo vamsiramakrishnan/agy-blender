@@ -188,8 +188,9 @@ def _build_view(s: Session, key: tuple) -> _View:
     colliders = None
     if bundle is not None:
         by_id = {u.node_id: shipped(u) for u in bundle.uvs}  # what ships: hidden contact faces left out
+        # the part's run goes with it: the live inspector shades a round part as the package ships it
         meshes = [MeshData(m.node_id, m.prim_path, by_id[m.node_id].points, by_id[m.node_id].triangles,
-                           m.material_id, m.collider) if m.node_id in by_id else m for m in meshes]
+                           m.material_id, m.collider, run=m.run, grain=m.grain) if m.node_id in by_id else m for m in meshes]
         uvs = {n: s.uvs for n, s in by_id.items()}
         if bundle.lods and set(bundle.lods) == {m.node_id for m in meshes}:
             # {node_id: [LOD0, LOD1, ...]}, as the package's *_LODn.glb are written

@@ -36,7 +36,7 @@ class Build:
         """The design as ``ir.SceneIR`` (``ir_schema.parse_tool_scene``: the same parse a tool's full scene gets)."""
         from antigravity3d import ir_schema
 
-        return ir_schema.parse_tool_scene(self.name, self.nodes, self.materials)
+        return ir_schema.parse_tool_scene(self.name, self.nodes, self.materials, handoff=True)
 
     def part_files(self) -> dict[str, Path]:
         """Node id -> its PLY, for every free-form part."""

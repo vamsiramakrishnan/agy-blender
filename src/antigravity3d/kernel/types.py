@@ -31,6 +31,32 @@ class MeshData:
     # The layout the asset shipped with (fast_ops.KeepLayout), when this design is an edit of a shipped package
     # (StageManager.keep_layout): the export keeps every chart that is still there unchanged where it was.
     keep_layout: Any = None
+    # The line the part is round about (``Run``, world space): a script tube's path, a cylinder's, cone's, capsule's or
+    # lathe's axis (compile_ir.node_run, read by the stage). None for every other part. Whoever moves ``points`` moves
+    # this too.
+    run: "Run | None" = None
+    # The way the part's wood runs as its author said it (``grain=``), a unit vector in world space; None: the painter
+    # chooses (surface_frame.part_grain). Whoever turns ``points`` turns this too.
+    grain: np.ndarray | None = None
+
+
+@dataclass(frozen=True)
+class Run:
+    """A part's run: the centre line its material follows and how thick the part is along it.
+
+    ``points`` (K >= 2, world metres) in order along the part; ``radii`` (K,) the distance from the line to the
+    surface at each point (a rod's radius, a board's half-thickness), 0 where unknown; ``round``: the part is round
+    about the line by construction (a script's tube), so the facet lines along it are not edges, in the shading the
+    package ships or in the wear the painter draws; ``closed``: the last point joins the first (a ring)."""
+
+    points: np.ndarray
+    radii: np.ndarray
+    round: bool = False
+    closed: bool = False
+
+    def moved(self, f) -> "Run":
+        """The run with ``f`` applied to its points (a translation or any affine map of the part's points)."""
+        return Run(np.asarray(f(np.asarray(self.points, np.float64)), np.float64), self.radii, self.round, self.closed)
 
 def gltf_world_bounds(points: Iterable[np.ndarray], *, z_up: bool) -> list[list[float]]:
     """Tight world-space bounds of visual vertices in glTF's right-handed Y-up metres."""

@@ -109,6 +109,24 @@ async def make_collaborators(offline: bool, *, need_plane: bool = True, workdir:
     return plane, forge, author, notes
 
 
+def _web_lines(manifest_path: Any) -> list[str]:
+    """What a web_three delivery says about the three.js check and the page download (nothing for other targets)."""
+    from antigravity3d.adapters.engines.web_three import reply_lines
+
+    try:
+        return reply_lines(json.loads(Path(manifest_path).read_text())) if manifest_path else []
+    except (OSError, ValueError):
+        return []
+
+
+class _EngineGiven(argparse.Action):
+    """``--engine``, also recording that it was typed (``namespace.engine_given``): a refusal for the default engine says it is the default."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+        namespace.engine_given = True
+
+
 def _print_skips(skipped: list[dict[str, Any]]) -> None:
     print("skipped:" if skipped else "skipped: none")
     for s in skipped:
@@ -179,6 +197,25 @@ def _bound_author(author: Any, a: argparse.Namespace) -> Any:
     return author.bind(Governor(plan_for(1), token_ceiling=a.token_ceiling), _budget(a), {})
 
 
+def _refuse_unverifiable_target(a: argparse.Namespace, quoted: str) -> None:
+    """A run that must be verified, for a target it can never verify on this machine, is refused here: it would make and pay
+    for its authoring, judge and image calls and end in "publication requires ... captured engine parity" because the
+    target has no engine capture (or its engine is not installed). Same answer for every key (``verification_gap``)."""
+    from antigravity3d.adapters.engines.validators import verifiable_targets, verification_gap
+
+    if (gap := verification_gap(a.engine)) is None:
+        return
+    which = (f"{a.engine} (the default engine, as no --engine was given)" if not getattr(a, "engine_given", False) else a.engine)
+    ok = verifiable_targets()
+    instead = (f"; to have it verified, use a target that can be verified on this machine: {', '.join(f'--engine {t}' for t in ok)}"
+               if ok else "; no target can be verified on this machine (it needs Godot 4, set $GODOT_BIN, or a Chromium browser "
+                          "with the Python 'playwright' package, set $CHROMIUM_BIN)")
+    raise CliError(f"a verified run for {which} cannot succeed on this machine: {gap}. It would end in a refusal after "
+                   "its model calls were made and paid for: nothing was generated. For an UNVERIFIED preview of "
+                   f"{a.engine} run: agy3d prop {quoted} --engine {a.engine} --preview --token-ceiling N --max-images M --out {a.out}"
+                   + instead)
+
+
 def preflight_prop(a: argparse.Namespace, plane: Any, author: Any, strict: bool) -> Any:
     """Refuse at start, with what is missing and what to run instead, every live run that would be refused later
     anyway; return the plane the run uses (the preview copy when an uncalibrated judge will judge a preview)."""
@@ -235,6 +272,8 @@ async def cmd_prop(a: argparse.Namespace) -> int:
         raise CliError("--max-images applies to a token-limited run: pass --token-ceiling N with it")
     if not a.offline and not os.environ.get("GEMINI_API_KEY"):
         raise CliError("GEMINI_API_KEY is not set (use --offline to run on the fakes)")
+    if strict and not a.offline:  # the same answer for every key: decided before the Decisions probe, the first model call
+        _refuse_unverifiable_target(a, json.dumps(a.prompt))
     async with AsyncExitStack() as stack:
         # The backend probe and the start-up checks come first: a run that would be refused does not start Blender.
         plane, forge, author, notes = await make_collaborators(a.offline, workdir=out / "agent")
@@ -290,6 +329,8 @@ async def cmd_prop(a: argparse.Namespace) -> int:
     for k, v in x["outputs"].items():
         print(f"  {k}: {v}")
     print(f"  report: {x['report_path']}")
+    for line in _web_lines(x["outputs"].get("manifest")):
+        print(line)
     _print_skips(x["skipped"])
     warned = [s for s in res.get("steps", []) if s["status"] == "warned"]
     if warned:
@@ -419,6 +460,8 @@ async def cmd_edit(a: argparse.Namespace) -> int:
         print(f"edit: NOT MADE, the asset is unchanged: {r.why}")
         return 1
     print(f"edit {r.number}: made; package {r.package}; the replaced package is kept in {r.history} (agy3d edit {a.target} --undo)")
+    for line in _web_lines(Path(r.package) / "manifest.json"):  # the same lines as `prop`: one function says them
+        print(line)
     print(f"note: {r.note}")
     from antigravity3d import delivery as D
 
@@ -659,7 +702,7 @@ def cmd_install(a: argparse.Namespace) -> int:
     from antigravity3d.deliver import install_package
 
     r = install_package(a.package, a.project, a.dest, dry_run=a.dry_run, force=a.force, check=not a.no_check,
-                        fov_deg=a.camera_fov, godot_bin=a.godot)
+                        fov_deg=a.camera_fov, godot_bin=a.godot, assets=a.assets, compress=a.compress)
     return _print_install(r, a.json)
 
 
@@ -694,7 +737,7 @@ def build_parser() -> argparse.ArgumentParser:
                             "request is unchanged, and the new design replaces the recorded one")
 
     def common(p: argparse.ArgumentParser, out: bool = True) -> None:
-        p.add_argument("--engine", choices=ENGINES, default="unreal_5")
+        p.add_argument("--engine", choices=ENGINES, default="unreal_5", action=_EngineGiven)
         p.add_argument("--max-tris", type=int, default=None, help="triangle budget (default: engine budget default)")
         p.add_argument("--keep-contact-faces", action="store_true",
                        help="ship every authored triangle, also the faces parts press together (for parts that will be moved apart)")
@@ -787,13 +830,21 @@ def build_parser() -> argparse.ArgumentParser:
     pv.add_argument("path", nargs="?", default=None)
     p.set_defaults(fn=cmd_plugin)
 
-    p = sub.add_parser("install", help="install a package into a game project (Godot 4) and check it there")
+    p = sub.add_parser("install", help="install a package into a game project (Godot 4, three.js / React Three Fiber) and check it there")
     p.add_argument("package", help="package directory (holds manifest.json)")
     p.add_argument("--project", required=True, help="the game project's root directory")
-    p.add_argument("--dest", default=None, help="directory inside the project (default agy3d/<asset>)")
+    p.add_argument("--dest", default=None, help="directory inside the project (Godot: agy3d/<asset>; three.js: where the loader "
+                   "and the install record go, src/agy3d/<asset>)")
+    p.add_argument("--assets", default=None, metavar="DIR",
+                   help="three.js only: the folder, inside the project's served folder (public/ or static/), for the asset's files "
+                        "(default <served>/agy3d/<asset>)")
+    p.add_argument("--compress", choices=("auto", "always", "never"), default="auto",
+                   help="three.js only, with the compression packages in the project: auto (default) compresses only when the "
+                        "files do not grow (the transcoder counted unless the project has it), always compresses for the GPU "
+                        "memory whatever the size, never installs the PNG textures")
     p.add_argument("--dry-run", action="store_true", help="print what would be written; write nothing")
     p.add_argument("--force", action="store_true", help="replace this tool's own files even where they were edited since")
-    p.add_argument("--no-check", action="store_true", help="do not import and load the installed scene in the engine")
+    p.add_argument("--no-check", action="store_true", help="do not run the in-project check (Godot: no import and load of the installed scene; three.js: no browser check, and so no compression, which is only written after a measured frame comparison)")
     p.add_argument("--camera-fov", type=float, default=None, metavar="DEG",
                    help="vertical field of view the level switch distances are computed for (default 60, the levels' own)")
     p.add_argument("--godot", default=None, metavar="PATH", help="Godot binary for the check (default $GODOT_BIN, then PATH)")

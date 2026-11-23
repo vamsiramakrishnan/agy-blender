@@ -92,7 +92,9 @@ def test_atomic_exchange_preserves_old_generation_for_reader(tmp_path):
     assert (dest / "new").is_file() and (src / "old").is_file()
 
 
-async def test_full_qa_receipt_and_failed_validator(tmp_path, monkeypatch):
+# any_target_can_be_verified: this test is about the QA receipt and the validator's effect on export, not the target; a session that must be verified for unreal_5 (the default) refuses
+# run_visual_qa on this machine (Session.unverifiable_target), which tests/test_verifiable_targets.py covers on its own.
+async def test_full_qa_receipt_and_failed_validator(tmp_path, monkeypatch, any_target_can_be_verified):
     from antigravity3d.kernel.fast_ops import Issue
 
     env = make_session(tmp_path, stage="LOOKDEV")
@@ -135,7 +137,9 @@ async def test_export_rechecks_gate_after_waiting_for_session_lock(tmp_path):
     assert (await queued).startswith("REFUSED") and not (env.sess().export_dir / "pkg").exists()
 
 
-async def test_external_texture_change_requires_new_render(tmp_path):
+# any_target_can_be_verified: this test is about a texture changed after QA, not the target; a session that must be verified for unreal_5 (the default) refuses
+# run_visual_qa on this machine (Session.unverifiable_target), which tests/test_verifiable_targets.py covers on its own.
+async def test_external_texture_change_requires_new_render(tmp_path, any_target_can_be_verified):
     env = make_session(tmp_path, stage="LOOKDEV")
     albedo = masked_fixture(tmp_path / "albedo.png")
     await T.apply_scene_ir(json.dumps(CRATE), env.ctx)

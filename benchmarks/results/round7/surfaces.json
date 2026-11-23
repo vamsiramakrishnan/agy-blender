@@ -1,0 +1,883 @@
+{
+ "what": "Layer 1 of step 2: the three round-six scripts delivered again with the old code and the new (identical meshes, only the surface differs); blind judge gemini-4-carbon, low thinking, the rubric of benchmarks/compare_eval.py, both orders, three times: six verdicts a pair. 'new' is round seven's code.",
+ "attempts": {
+  "attempt1": {
+   "code": "first version of the surfaces (integration state 99d9d88)",
+   "verdicts": {
+    "chair_OLD_vs_NEW": {
+     "brief": "chair",
+     "against": "old",
+     "new_preferred": 6,
+     "verdicts": 6,
+     "errors": 0,
+     "first_image_preferred": 3,
+     "sequence": [
+      "new",
+      "new",
+      "new",
+      "new",
+      "new",
+      "new"
+     ],
+     "criteria": {
+      "reads_as_brief": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      },
+      "proportion_scale": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      },
+      "surface_material": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      },
+      "defects": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      }
+     },
+     "tokens": 20510
+    },
+    "crate_OLD_vs_NEW": {
+     "brief": "crate",
+     "against": "old",
+     "new_preferred": 2,
+     "verdicts": 6,
+     "errors": 0,
+     "first_image_preferred": 5,
+     "sequence": [
+      "other",
+      "other",
+      "other",
+      "new",
+      "other",
+      "new"
+     ],
+     "criteria": {
+      "reads_as_brief": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      },
+      "proportion_scale": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      },
+      "surface_material": {
+       "new": 2,
+       "other": 4,
+       "tie": 0
+      },
+      "defects": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      }
+     },
+     "tokens": 20512
+    },
+    "hydrant_OLD_vs_NEW": {
+     "brief": "hydrant",
+     "against": "old",
+     "new_preferred": 4,
+     "verdicts": 6,
+     "errors": 0,
+     "first_image_preferred": 5,
+     "sequence": [
+      "other",
+      "new",
+      "new",
+      "new",
+      "other",
+      "new"
+     ],
+     "criteria": {
+      "reads_as_brief": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      },
+      "proportion_scale": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      },
+      "surface_material": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      },
+      "defects": {
+       "new": 1,
+       "other": 2,
+       "tie": 3
+      }
+     },
+     "tokens": 20478
+    },
+    "chair_V_vs_NEW": {
+     "brief": "chair",
+     "against": "stock",
+     "new_preferred": 5,
+     "verdicts": 6,
+     "errors": 0,
+     "first_image_preferred": 4,
+     "sequence": [
+      "new",
+      "new",
+      "new",
+      "new",
+      "other",
+      "new"
+     ],
+     "criteria": {
+      "reads_as_brief": {
+       "new": 3,
+       "other": 0,
+       "tie": 3
+      },
+      "proportion_scale": {
+       "new": 4,
+       "other": 0,
+       "tie": 2
+      },
+      "surface_material": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      },
+      "defects": {
+       "new": 1,
+       "other": 4,
+       "tie": 1
+      }
+     },
+     "tokens": 20563
+    },
+    "crate_V_vs_NEW": {
+     "brief": "crate",
+     "against": "stock",
+     "new_preferred": 6,
+     "verdicts": 6,
+     "errors": 0,
+     "first_image_preferred": 3,
+     "sequence": [
+      "new",
+      "new",
+      "new",
+      "new",
+      "new",
+      "new"
+     ],
+     "criteria": {
+      "reads_as_brief": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      },
+      "proportion_scale": {
+       "new": 3,
+       "other": 0,
+       "tie": 3
+      },
+      "surface_material": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      },
+      "defects": {
+       "new": 5,
+       "other": 0,
+       "tie": 1
+      }
+     },
+     "tokens": 20656
+    },
+    "hydrant_V_vs_NEW": {
+     "brief": "hydrant",
+     "against": "stock",
+     "new_preferred": 6,
+     "verdicts": 6,
+     "errors": 0,
+     "first_image_preferred": 3,
+     "sequence": [
+      "new",
+      "new",
+      "new",
+      "new",
+      "new",
+      "new"
+     ],
+     "criteria": {
+      "reads_as_brief": {
+       "new": 4,
+       "other": 2,
+       "tie": 0
+      },
+      "proportion_scale": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      },
+      "surface_material": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      },
+      "defects": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      }
+     },
+     "tokens": 20751
+    }
+   },
+   "delivery_seconds": {
+    "chair": {
+     "old": [
+      {
+       "round": 1,
+       "seconds": 24.2,
+       "machine_load": 0.79
+      },
+      {
+       "round": 2,
+       "seconds": 23.4,
+       "machine_load": 1.94
+      },
+      {
+       "round": 3,
+       "seconds": 28.4,
+       "machine_load": 2.65
+      },
+      {
+       "round": 4,
+       "seconds": 24.8,
+       "machine_load": 2.85
+      },
+      {
+       "round": 5,
+       "seconds": 23.5,
+       "machine_load": 2.6
+      }
+     ],
+     "new": [
+      {
+       "round": 1,
+       "seconds": 25.0,
+       "machine_load": 1.11
+      },
+      {
+       "round": 2,
+       "seconds": 26.5,
+       "machine_load": 1.57
+      },
+      {
+       "round": 3,
+       "seconds": 26.7,
+       "machine_load": 1.63
+      },
+      {
+       "round": 4,
+       "seconds": 25.4,
+       "machine_load": 3.04
+      },
+      {
+       "round": 5,
+       "seconds": 24.6,
+       "machine_load": 2.76
+      }
+     ],
+     "change_of_mean_percent": 3.1,
+     "change_of_median_percent": 5.0
+    },
+    "crate": {
+     "old": [
+      {
+       "round": 1,
+       "seconds": 48.3,
+       "machine_load": 1.03
+      },
+      {
+       "round": 2,
+       "seconds": 48.1,
+       "machine_load": 1.24
+      }
+     ],
+     "new": [
+      {
+       "round": 1,
+       "seconds": 51.8,
+       "machine_load": 1.21
+      },
+      {
+       "round": 2,
+       "seconds": 47.5,
+       "machine_load": 1.02
+      }
+     ],
+     "change_of_mean_percent": 3.0,
+     "change_of_median_percent": 3.0
+    },
+    "hydrant": {
+     "old": [
+      {
+       "round": 1,
+       "seconds": 40.2,
+       "machine_load": 1.61
+      },
+      {
+       "round": 2,
+       "seconds": 39.4,
+       "machine_load": 1.07
+      }
+     ],
+     "new": [
+      {
+       "round": 1,
+       "seconds": 40.1,
+       "machine_load": 2.05
+      },
+      {
+       "round": 2,
+       "seconds": 42.2,
+       "machine_load": 1.68
+      }
+     ],
+     "change_of_mean_percent": 3.4,
+     "change_of_median_percent": 3.4
+    }
+   },
+   "game_ready_checks": {
+    "chair:OLD": {
+     "game_ready": "11/11",
+     "all_passed": true,
+     "triangles_per_level": [
+      4072,
+      2368
+     ]
+    },
+    "chair:NEW": {
+     "game_ready": "11/11",
+     "all_passed": true,
+     "triangles_per_level": [
+      4072,
+      2368
+     ]
+    },
+    "crate:OLD": {
+     "game_ready": "11/11",
+     "all_passed": true,
+     "triangles_per_level": [
+      2784,
+      1508,
+      532,
+      208
+     ]
+    },
+    "crate:NEW": {
+     "game_ready": "11/11",
+     "all_passed": true,
+     "triangles_per_level": [
+      2784,
+      1508,
+      532,
+      208
+     ]
+    },
+    "hydrant:OLD": {
+     "game_ready": "11/11",
+     "all_passed": true,
+     "triangles_per_level": [
+      3912,
+      2012
+     ]
+    },
+    "hydrant:NEW": {
+     "game_ready": "11/11",
+     "all_passed": true,
+     "triangles_per_level": [
+      3912,
+      2012
+     ]
+    }
+   }
+  },
+  "attempt2": {
+   "code": "corrected version (integration state 8bdf0dd; the judged files are byte-identical in the final tree)",
+   "verdicts": {
+    "chair_OLD_vs_NEW": {
+     "brief": "chair",
+     "against": "old",
+     "new_preferred": 6,
+     "verdicts": 6,
+     "errors": 0,
+     "first_image_preferred": 3,
+     "sequence": [
+      "new",
+      "new",
+      "new",
+      "new",
+      "new",
+      "new"
+     ],
+     "criteria": {
+      "reads_as_brief": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      },
+      "proportion_scale": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      },
+      "surface_material": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      },
+      "defects": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      }
+     },
+     "tokens": 20371
+    },
+    "crate_OLD_vs_NEW": {
+     "brief": "crate",
+     "against": "old",
+     "new_preferred": 3,
+     "verdicts": 6,
+     "errors": 0,
+     "first_image_preferred": 6,
+     "sequence": [
+      "other",
+      "new",
+      "other",
+      "new",
+      "other",
+      "new"
+     ],
+     "criteria": {
+      "reads_as_brief": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      },
+      "proportion_scale": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      },
+      "surface_material": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      },
+      "defects": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      }
+     },
+     "tokens": 20516
+    },
+    "hydrant_OLD_vs_NEW": {
+     "brief": "hydrant",
+     "against": "old",
+     "new_preferred": 0,
+     "verdicts": 6,
+     "errors": 0,
+     "first_image_preferred": 3,
+     "sequence": [
+      "other",
+      "other",
+      "other",
+      "other",
+      "other",
+      "other"
+     ],
+     "criteria": {
+      "reads_as_brief": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      },
+      "proportion_scale": {
+       "new": 0,
+       "other": 0,
+       "tie": 6
+      },
+      "surface_material": {
+       "new": 0,
+       "other": 1,
+       "tie": 5
+      },
+      "defects": {
+       "new": 0,
+       "other": 2,
+       "tie": 4
+      }
+     },
+     "tokens": 20551
+    },
+    "chair_V_vs_NEW": {
+     "brief": "chair",
+     "against": "stock",
+     "new_preferred": 2,
+     "verdicts": 5,
+     "errors": 1,
+     "first_image_preferred": 5,
+     "sequence": [
+      "other",
+      "error",
+      "other",
+      "new",
+      "other",
+      "new"
+     ],
+     "criteria": {
+      "reads_as_brief": {
+       "new": 0,
+       "other": 0,
+       "tie": 5
+      },
+      "proportion_scale": {
+       "new": 2,
+       "other": 2,
+       "tie": 1
+      },
+      "surface_material": {
+       "new": 5,
+       "other": 0,
+       "tie": 0
+      },
+      "defects": {
+       "new": 1,
+       "other": 3,
+       "tie": 1
+      }
+     },
+     "tokens": 17103
+    },
+    "crate_V_vs_NEW": {
+     "brief": "crate",
+     "against": "stock",
+     "new_preferred": 6,
+     "verdicts": 6,
+     "errors": 0,
+     "first_image_preferred": 3,
+     "sequence": [
+      "new",
+      "new",
+      "new",
+      "new",
+      "new",
+      "new"
+     ],
+     "criteria": {
+      "reads_as_brief": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      },
+      "proportion_scale": {
+       "new": 3,
+       "other": 0,
+       "tie": 3
+      },
+      "surface_material": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      },
+      "defects": {
+       "new": 3,
+       "other": 2,
+       "tie": 1
+      }
+     },
+     "tokens": 20639
+    },
+    "hydrant_V_vs_NEW": {
+     "brief": "hydrant",
+     "against": "stock",
+     "new_preferred": 6,
+     "verdicts": 6,
+     "errors": 0,
+     "first_image_preferred": 3,
+     "sequence": [
+      "new",
+      "new",
+      "new",
+      "new",
+      "new",
+      "new"
+     ],
+     "criteria": {
+      "reads_as_brief": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      },
+      "proportion_scale": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      },
+      "surface_material": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      },
+      "defects": {
+       "new": 6,
+       "other": 0,
+       "tie": 0
+      }
+     },
+     "tokens": 20834
+    }
+   },
+   "delivery_seconds": {
+    "chair": {
+     "old": [
+      {
+       "round": 1,
+       "seconds": 27.4,
+       "machine_load": 4.86
+      },
+      {
+       "round": 2,
+       "seconds": 22.8,
+       "machine_load": 3.28
+      },
+      {
+       "round": 3,
+       "seconds": 23.7,
+       "machine_load": 2.29
+      },
+      {
+       "round": 4,
+       "seconds": 25.5,
+       "machine_load": 1.08
+      },
+      {
+       "round": 5,
+       "seconds": 24.7,
+       "machine_load": 1.57
+      }
+     ],
+     "new": [
+      {
+       "round": 1,
+       "seconds": 29.9,
+       "machine_load": 5.19
+      },
+      {
+       "round": 2,
+       "seconds": 26.4,
+       "machine_load": 3.58
+      },
+      {
+       "round": 3,
+       "seconds": 25.7,
+       "machine_load": 1.85
+      },
+      {
+       "round": 4,
+       "seconds": 25.1,
+       "machine_load": 1.14
+      },
+      {
+       "round": 5,
+       "seconds": 24.8,
+       "machine_load": 1.35
+      }
+     ],
+     "change_of_mean_percent": 6.3,
+     "change_of_median_percent": 4.0
+    },
+    "crate": {
+     "old": [
+      {
+       "round": 1,
+       "seconds": 58.9,
+       "machine_load": 6.43
+      },
+      {
+       "round": 2,
+       "seconds": 49.3,
+       "machine_load": 2.33
+      },
+      {
+       "round": 3,
+       "seconds": 50.6,
+       "machine_load": 1.44
+      },
+      {
+       "round": 4,
+       "seconds": 48.3,
+       "machine_load": 1.01
+      },
+      {
+       "round": 5,
+       "seconds": 47.7,
+       "machine_load": 1.15
+      }
+     ],
+     "new": [
+      {
+       "round": 1,
+       "seconds": 55.4,
+       "machine_load": 4.78
+      },
+      {
+       "round": 2,
+       "seconds": 48.5,
+       "machine_load": 3.03
+      },
+      {
+       "round": 3,
+       "seconds": 52.6,
+       "machine_load": 1.09
+      },
+      {
+       "round": 4,
+       "seconds": 51.6,
+       "machine_load": 1.03
+      },
+      {
+       "round": 5,
+       "seconds": 51.0,
+       "machine_load": 1.28
+      }
+     ],
+     "change_of_mean_percent": 1.7,
+     "change_of_median_percent": 4.7
+    },
+    "hydrant": {
+     "old": [
+      {
+       "round": 1,
+       "seconds": 44.0,
+       "machine_load": 3.45
+      },
+      {
+       "round": 2,
+       "seconds": 42.0,
+       "machine_load": 1.26
+      },
+      {
+       "round": 3,
+       "seconds": 44.3,
+       "machine_load": 1.43
+      },
+      {
+       "round": 4,
+       "seconds": 40.1,
+       "machine_load": 1.14
+      },
+      {
+       "round": 5,
+       "seconds": 40.7,
+       "machine_load": 1.19
+      }
+     ],
+     "new": [
+      {
+       "round": 1,
+       "seconds": 45.2,
+       "machine_load": 3.67
+      },
+      {
+       "round": 2,
+       "seconds": 42.0,
+       "machine_load": 1.6
+      },
+      {
+       "round": 3,
+       "seconds": 43.4,
+       "machine_load": 1.21
+      },
+      {
+       "round": 4,
+       "seconds": 41.8,
+       "machine_load": 1.06
+      },
+      {
+       "round": 5,
+       "seconds": 43.4,
+       "machine_load": 1.09
+      }
+     ],
+     "change_of_mean_percent": 2.2,
+     "change_of_median_percent": 3.3
+    }
+   },
+   "game_ready_checks": {
+    "chair:OLD": {
+     "game_ready": "11/11",
+     "all_passed": true,
+     "triangles_per_level": [
+      4072,
+      2368
+     ]
+    },
+    "chair:NEW": {
+     "game_ready": "11/11",
+     "all_passed": true,
+     "triangles_per_level": [
+      4072,
+      2368
+     ]
+    },
+    "crate:OLD": {
+     "game_ready": "11/11",
+     "all_passed": true,
+     "triangles_per_level": [
+      2784,
+      1508,
+      532,
+      208
+     ]
+    },
+    "crate:NEW": {
+     "game_ready": "11/11",
+     "all_passed": true,
+     "triangles_per_level": [
+      2784,
+      1508,
+      532,
+      208
+     ]
+    },
+    "hydrant:OLD": {
+     "game_ready": "11/11",
+     "all_passed": true,
+     "triangles_per_level": [
+      3912,
+      2012
+     ]
+    },
+    "hydrant:NEW": {
+     "game_ready": "11/11",
+     "all_passed": true,
+     "triangles_per_level": [
+      3912,
+      2012
+     ]
+    }
+   }
+  }
+ }
+}

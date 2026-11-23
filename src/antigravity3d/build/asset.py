@@ -34,7 +34,7 @@ from antigravity3d.build.shapes import BuildError
 from antigravity3d.kernel import compile_ir
 
 OUT_ENV = "AGY3D_BUILD_OUT"
-ENGINES = ("unreal_5", "unity_urp", "godot_4", "roblox_r15")  # state.TargetEngine (tests/test_build_asset.py pins it)
+ENGINES = ("unreal_5", "unity_urp", "godot_4", "roblox_r15", "web_three")  # state.TargetEngine (tests/test_build_asset.py pins it)
 ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 ID_MAX = ir_shortcuts.ID_MAX
 SHOWN_DIGITS = 6  # bounds read back to 1 um: the kernel's meshes are float32 (0.19 is 0.18999999 there)
@@ -168,66 +168,76 @@ class Asset:
 
     def box(self, id: str, size, bevel: float = 0, bevel_segments: int = 1, inset_faces=(), inset_margin: float = 0,
             inset_depth: float = 0, *, material: str | None = None, at=None, bottom=None, top=None, axis=None, rot=None,
-            mirror: str | None = None) -> Part:
+            mirror: str | None = None, grain=None) -> Part:
         return self._ready("box", id, {"size": size, "bevel": bevel, "bevel_segments": bevel_segments,
                                        "inset_faces": inset_faces, "inset_margin": inset_margin, "inset_depth": inset_depth},
-                           material, at, bottom, top, axis, rot, mirror)
+                           material, at, bottom, top, axis, rot, mirror, grain)
 
     def cylinder(self, id: str, radius: float, height: float, segments: int = 24, bevel: float = 0,
                  bevel_segments: int = 1, *,
                  material: str | None = None, at=None, bottom=None, top=None, axis=None, rot=None,
-                 mirror: str | None = None) -> Part:
+                 mirror: str | None = None, grain=None) -> Part:
         return self._ready("cylinder", id, {"radius": radius, "height": height, "segments": segments, "bevel": bevel,
-                                            "bevel_segments": bevel_segments}, material, at, bottom, top, axis, rot, mirror)
+                                            "bevel_segments": bevel_segments}, material, at, bottom, top, axis, rot, mirror, grain)
 
     def cone(self, id: str, radius: float, height: float, segments: int = 24, *, material: str | None = None, at=None,
-             bottom=None, top=None, axis=None, rot=None, mirror: str | None = None) -> Part:
+             bottom=None, top=None, axis=None, rot=None, mirror: str | None = None, grain=None) -> Part:
         return self._ready("cone", id, {"radius": radius, "height": height, "segments": segments},
-                           material, at, bottom, top, axis, rot, mirror)
+                           material, at, bottom, top, axis, rot, mirror, grain)
 
     def sphere(self, id: str, radius: float, segments: int = 24, rings: int = 12, *, material: str | None = None,
-               at=None, bottom=None, top=None, axis=None, rot=None, mirror: str | None = None) -> Part:
+               at=None, bottom=None, top=None, axis=None, rot=None, mirror: str | None = None, grain=None) -> Part:
         return self._ready("sphere", id, {"radius": radius, "segments": segments, "rings": rings},
-                           material, at, bottom, top, axis, rot, mirror)
+                           material, at, bottom, top, axis, rot, mirror, grain)
 
     def capsule(self, id: str, radius: float, height: float, segments: int = 16, *, material: str | None = None,
-                at=None, bottom=None, top=None, axis=None, rot=None, mirror: str | None = None) -> Part:
+                at=None, bottom=None, top=None, axis=None, rot=None, mirror: str | None = None, grain=None) -> Part:
         return self._ready("capsule", id, {"radius": radius, "height": height, "segments": segments},
-                           material, at, bottom, top, axis, rot, mirror)
+                           material, at, bottom, top, axis, rot, mirror, grain)
 
     def lathe(self, id: str, profile, segments: int = 24, closed: bool = False, *, material: str | None = None, at=None,
-              bottom=None, top=None, axis=None, rot=None, mirror: str | None = None) -> Part:
+              bottom=None, top=None, axis=None, rot=None, mirror: str | None = None, grain=None) -> Part:
         return self._ready("lathe", id, {"profile": profile, "segments": segments, "closed": closed},
-                           material, at, bottom, top, axis, rot, mirror)
+                           material, at, bottom, top, axis, rot, mirror, grain)
 
     def extrude(self, id: str, outline, depth: float, *, material: str | None = None, at=None, bottom=None, top=None,
-                axis=None, rot=None, mirror: str | None = None) -> Part:
+                axis=None, rot=None, mirror: str | None = None, grain=None) -> Part:
         return self._ready("extrude", id, {"outline": outline, "depth": depth},
-                           material, at, bottom, top, axis, rot, mirror)
+                           material, at, bottom, top, axis, rot, mirror, grain)
 
     # --- free-form parts ------------------------------------------------------------------------------------------
 
     def tube(self, id: str, path, radius, sides: int = 10, closed: bool = False, smooth: bool = False, *,
              material: str | None = None, at=None, bottom=None, top=None, axis=None, rot=None,
-             mirror: str | None = None) -> Part:
+             mirror: str | None = None, grain=None) -> Part:
         """A rod along ``path`` (see ``shapes.tube``: mitred corners, no twist; smooth=True adds 8 rings per span)."""
         self._check_id(id, "tube")
         for flag, v in (("closed", closed), ("smooth", smooth)):
             if not isinstance(v, bool):
                 raise BuildError(f"tube {id}: {flag} must be True or False, got {v!r}")
+        if grain is not None:
+            raise BuildError(f"tube {id}: a tube's grain follows its path; grain= is for the other shapes")
         t = shapes.tube(id, _py(path), _py(radius), _py(sides), closed, smooth)
-        return self._free("tube", id, t.points, t.tris, material, at, bottom, top, axis, rot, mirror, centre=t.centre)
+        seg = np.linalg.norm(np.diff(t.centre, axis=0), axis=1)
+        arc = np.concatenate([[0.0], np.cumsum(seg)])
+        radii = shapes._radii(f"tube {id}", _py(radius))
+        r = np.interp(arc / max(arc[-1], 1e-12), np.linspace(0.0, 1.0, len(radii)), radii) if len(radii) > 1 else np.full(len(arc), radii[0])
+        return self._free("tube", id, t.points, t.tris, material, at, bottom, top, axis, rot, mirror, centre=t.centre,
+                          run=(t.centre, r, True))
 
     def loft(self, id: str, sections, *, material: str | None = None, at=None, bottom=None, top=None, axis=None,
-             rot=None, mirror: str | None = None) -> Part:
+             rot=None, mirror: str | None = None, grain=None) -> Part:
         """A skin through ``sections`` (see ``shapes.loft``)."""
         self._check_id(id, "loft")
         pts, tris, flipped = shapes.loft(id, _py(sections))
         notes = [f"loft {id}: faces flipped outward (the sections run clockwise seen along the skin)"] if flipped else []
-        return self._free("loft", id, pts, tris, material, at, bottom, top, axis, rot, mirror, notes=notes)
+        # the way the part runs: its sections' centres, as the author wrote them (not round: a loft keeps its corners);
+        # None when they make no usable line (_loft_line), and then the painter takes the part's longest direction
+        return self._free("loft", id, pts, tris, material, at, bottom, top, axis, rot, mirror, notes=notes, grain=grain,
+                          run=_loft_line(_py(sections)))
 
     def mesh(self, id: str, vertices, faces=None, *, material: str | None = None, at=None, bottom=None, top=None,
-             axis=None, rot=None, mirror: str | None = None) -> Part:
+             axis=None, rot=None, mirror: str | None = None, grain=None) -> Part:
         """Any mesh: ``vertices`` (N x 3) and ``faces`` (lists of vertex indices: triangles, or polygons of any size,
         which are split as fans from their first corner, so a polygon must be convex); or a ``trimesh.Trimesh`` as
         ``vertices`` alone. Coincident points are welded, degenerate and duplicate faces dropped and the winding made
@@ -270,10 +280,10 @@ class Asset:
             if c.get(key):
                 notes.append(f"mesh {id}: {c[key]} {text}")
         return self._free("mesh", id, fixed.points, fixed.triangles, material, at, bottom, top, axis, rot, mirror,
-                          notes=notes)
+                          notes=notes, grain=grain)
 
     def blender(self, id: str, code: str, *, material: str | None = None, at=None, bottom=None, top=None, axis=None,
-                rot=None, mirror: str | None = None) -> Part:
+                rot=None, mirror: str | None = None, grain=None) -> Part:
         """Every mesh-like object a Blender Python snippet leaves in an empty scene, modifiers applied, joined
         (``build.blender_part``: linted, run headless, cached)."""
         self._check_id(id, "blender")
@@ -286,10 +296,11 @@ class Asset:
                              + (f" ({left})" if left else ""))
         note = (f"blender {id}: {objects} object{'s' if objects != 1 else ''} joined, {len(tris):,} triangles"
                 + (f"; {left}" if left else ""))
-        return self._free("blender", id, pts, tris, material, at, bottom, top, axis, rot, mirror, notes=[note])
+        return self._free("blender", id, pts, tris, material, at, bottom, top, axis, rot, mirror, notes=[note],
+                          grain=grain)
 
     def load(self, id: str, path: str, *, material: str | None = None, at=None, bottom=None, top=None, axis=None,
-             rot=None, mirror: str | None = None) -> Part:
+             rot=None, mirror: str | None = None, grain=None) -> Part:
         """A mesh file (glb, gltf, obj, ply, stl) read as the kernel reads one (``kernel.mesh_io.triangle_parts``),
         relative to the script's folder, and written again as this part's own file."""
         self._check_id(id, "load")
@@ -310,7 +321,7 @@ class Asset:
         except ValueError as e:
             raise BuildError(f"{where}: {str(e).replace(str(p), repr(str(path)))}; glb, gltf, obj, ply or stl") from None
         return self._free("load", id, np.concatenate(pts), np.concatenate(tris), material, at, bottom, top, axis, rot,
-                          mirror)
+                          mirror, grain=grain)
 
     # --- save -----------------------------------------------------------------------------------------------------
 
@@ -322,7 +333,7 @@ class Asset:
         out = Path(os.environ.get(OUT_ENV) or Path("agy3d_build") / self.name)
         doc = self.design()
         try:
-            ir_schema.parse_tool_scene(self.name, doc["nodes"], doc["materials"])  # what the session will parse
+            ir_schema.parse_tool_scene(self.name, doc["nodes"], doc["materials"], handoff=True)  # what the session will parse
         except ValueError as e:
             raise BuildError(f"Asset {self.name}: the design does not read as a scene: {e}") from None
         out.mkdir(parents=True, exist_ok=True)
@@ -377,7 +388,7 @@ class Asset:
                              f"(defined: {', '.join(known) or 'none'})")
         return material
 
-    def _ready(self, kind: str, pid: str, params: dict[str, Any], material, at, bottom, top, axis, rot, mirror) -> Part:
+    def _ready(self, kind: str, pid: str, params: dict[str, Any], material, at, bottom, top, axis, rot, mirror, grain) -> Part:
         self._check_id(pid, kind)
         where = f"{kind} {pid}"
         mat = self._material(kind, pid, material)
@@ -391,12 +402,15 @@ class Asset:
             written[k] = v
         euler, rmat = _orientation(where, axis, rot, upright=kind == "extrude")
         mirror = _mirror_axis(where, mirror)
+        gdir = _grain(where, grain)
         node: dict[str, Any] = {"id": pid, "kind": kind, "params": written, "transform": {"translate": [0.0, 0.0, 0.0]}}
         if euler != (0.0, 0.0, 0.0):
             node["transform"]["rotate_euler_deg"] = list(euler)
         if mat is not None:
             node["material_id"] = mat
         local = self._kernel_points(where, node)
+        if gdir is not None:  # the author's direction, in the node's own frame (NodeIR.grain): a direction only
+            node["grain"] = [_num0(round(float(x), 6)) for x in rmat.T @ gdir]
         world = local @ rmat.T
         node["transform"]["translate"] = [_num0(x) for x in _place(where, world, at, bottom, top)]
         lo, hi = world.min(0) + node["transform"]["translate"], world.max(0) + node["transform"]["translate"]
@@ -423,7 +437,7 @@ class Asset:
     def _kernel_points(where: str, node: dict[str, Any]) -> np.ndarray:
         """The node's mesh in its own frame, from the kernel, after the wire model and the kernel's checks pass."""
         try:
-            wire = ir_schema.NODE_BY_KIND[node["kind"]].model_validate(node)
+            wire = ir_schema.NODE_BY_KIND[node["kind"]].model_validate({k: v for k, v in node.items() if k not in ir_schema.HANDOFF_ONLY})
             n = ir.NodeIR.model_validate(ir_schema._node_dump(wire))
             compile_ir.check_node(n)
             pts, _ = compile_ir.primitive_mesh(n)
@@ -435,8 +449,9 @@ class Asset:
         return np.asarray(pts, np.float64)
 
     def _free(self, kind: str, pid: str, pts: np.ndarray, tris: np.ndarray, material, at, bottom, top, axis, rot, mirror,
-              *, centre: np.ndarray | None = None, notes: list[str] | None = None) -> Part:
+              *, centre: np.ndarray | None = None, notes: list[str] | None = None, run=None, grain=None) -> Part:
         where = f"{kind} {pid}"
+        gdir = _grain(where, grain)
         mat = self._material(kind, pid, material)
         _, rmat = _orientation(where, axis, rot)
         mirror = _mirror_axis(where, mirror)
@@ -445,6 +460,8 @@ class Asset:
         world = world + off
         line = None if centre is None else centre @ rmat.T + off
         tris = np.asarray(tris, np.int32)
+        if run is not None:
+            run = (np.asarray(run[0], np.float64) @ rmat.T + off, run[1], run[2])
         if mirror:
             a = AXES.index(mirror)
             cid = f"{pid}__m{mirror}"
@@ -458,7 +475,7 @@ class Asset:
                 ir_shortcuts._one_side([box], a, pid)
             except ir_shortcuts.ShortcutError as e:
                 raise BuildError(f"{kind} {e}") from None
-        part = self._mesh_part(kind, pid, world, tris, mat, line)
+        part = self._mesh_part(kind, pid, world, tris, mat, line, run, gdir)
         self._notes += notes or []
         if mirror:
             flip = np.ones(3)
@@ -468,11 +485,13 @@ class Asset:
                 self._drop(pid)
                 raise BuildError(f"{where}: the mirror copy's id {cid!r} is already used by another part")
             part.mirrored = self._mesh_part(kind, cid, world * flip, tris[:, ::-1], mat,
-                                            None if line is None else line * flip)
+                                            None if line is None else line * flip,
+                                            None if run is None else (run[0] * flip, run[1], run[2]),
+                                            None if gdir is None else gdir * flip)
         return part
 
     def _mesh_part(self, kind: str, pid: str, world: np.ndarray, tris: np.ndarray, mat: str | None,
-                   line: np.ndarray | None) -> Part:
+                   line: np.ndarray | None, run=None, grain: np.ndarray | None = None) -> Part:
         data = shapes.ply_bytes(world, tris)
         exact = world.astype(np.float32).astype(np.float64)  # what the file holds
         name = f"parts/{pid}-{hashlib.sha256(data).hexdigest()[:12]}.ply"
@@ -480,6 +499,10 @@ class Asset:
                                 "transform": {"translate": [0.0, 0.0, 0.0]}}
         if mat is not None:
             node["material_id"] = mat
+        if run is not None:  # NodeIR.run: a tube's path as built (the node's frame is the world here)
+            node["run"] = _run_wire(run)
+        if grain is not None:  # NodeIR.grain: the author's direction, world = the node's frame here
+            node["grain"] = [_num0(round(float(x), 6)) for x in grain]
         part = Part(pid, kind, exact.min(0), exact.max(0), line)
         self._files[pid] = data
         self._add(node, part, len(tris))
@@ -495,6 +518,79 @@ class Asset:
         self._parts.pop(pid, None)
         self._tris.pop(pid, None)
         self._files.pop(pid, None)
+
+
+#: A loft's centres are a usable line when they run at least this many times its largest section's size and never turn
+#: back by more than LOFT_MAX_TURN_DEG between two steps: a bent arm rail (1.2 m through 5 cm sections) is one; the
+#: script page's wheelbarrow tray (up the outside to the rim, back down the inside: a 180-degree turn) and a short wide
+#: skin (a cushion, a funnel, whose centres barely move) are not. Steps under 1 % of the largest section are one point.
+LOFT_MIN_LENGTH = 1.5
+LOFT_MAX_TURN_DEG = 90.0
+
+
+def _loft_line(sections) -> tuple[np.ndarray, np.ndarray, bool] | None:
+    """(centres, radius at each: half the section's smaller extent across itself, the part's thickness there; False)
+    of a loft's sections, or None when they make no usable line (see LOFT_MIN_LENGTH)."""
+    secs = [np.asarray(x, np.float64).reshape(-1, 3) for x in sections]
+    rings = [x for x in secs if len(x) >= 3]
+    if not rings:
+        return None
+    size = max(float(np.ptp(x, axis=0).max()) for x in rings)
+    centres, radii = [], []
+    for x in secs:
+        c = x.mean(0)
+        if len(x) >= 3:
+            q = x - c
+            w, v = np.linalg.eigh(q.T @ q)
+            ext = sorted(float(np.ptp(q @ v[:, k])) for k in (1, 2))   # the two in-plane directions
+            r = ext[0] / 2
+        else:
+            r = 0.0                                                    # a tip: its neighbour's, below
+        if centres and np.linalg.norm(c - centres[-1]) < 0.01 * size:
+            radii[-1] = max(radii[-1], r)
+            continue
+        centres.append(c)
+        radii.append(r)
+    if len(centres) < 2:
+        return None
+    radii = np.asarray(radii)
+    for i in np.flatnonzero(radii <= 0):
+        nz = np.flatnonzero(radii > 0)
+        radii[i] = radii[nz[np.argmin(np.abs(nz - i))]] if len(nz) else 0.0
+    c = np.asarray(centres)
+    seg = np.diff(c, axis=0)
+    length = float(np.linalg.norm(seg, axis=1).sum())
+    d = seg / np.linalg.norm(seg, axis=1, keepdims=True)
+    if length < LOFT_MIN_LENGTH * size or ((d[1:] * d[:-1]).sum(1) < math.cos(math.radians(LOFT_MAX_TURN_DEG))).any():
+        return None
+    return c, radii, False
+
+
+def _grain(where: str, grain) -> np.ndarray | None:
+    """The unit direction ``grain=`` names ("x", "y", "z" or a vector), or None."""
+    if grain is None:
+        return None
+    if isinstance(grain, str):
+        if grain not in AXES:
+            raise BuildError(f"{where}: grain must be \"x\", \"y\", \"z\" or a vector (x, y, z), got {grain!r}")
+        return np.eye(3)[AXES.index(grain)]
+    d = np.asarray(_vec(where, "grain", grain))
+    n = float(np.linalg.norm(d))
+    if n < 1e-12:
+        raise BuildError(f"{where}: grain is a zero vector; give the direction the wood runs")
+    return d / n
+
+
+def _run_wire(run) -> dict[str, Any]:
+    """A run (points, radii, round) as the design's ``run`` field (``ir.RunIR``), rounded as the part file is."""
+    pts, radii, rnd = run
+    out: dict[str, Any] = {"path": [[_num0(round(float(x), 6)) for x in p] for p in np.asarray(pts, np.float64)]}
+    r = [round(float(x), 6) for x in np.asarray(radii, np.float64)]
+    if any(r):
+        out["radius"] = r
+    if rnd:
+        out["round"] = True
+    return out
 
 
 # --- wording ----------------------------------------------------------------------------------------------------

@@ -61,7 +61,8 @@ def test_every_kind_and_node_field_is_on_the_wire():
     assert set(S.NODE_MODELS) == set(kinds) == set(ir.NODE_PARAMS)
     for kind, model in S.NODE_MODELS.items():
         # the wire node is NodeIR plus the mirror / repeat shortcuts, which scene_from_wire expands away
-        assert set(model.model_fields) == set(ir.NodeIR.model_fields) | set(S.SHORTCUT_FIELDS), kind
+        # ... less the fields only the script hand-off writes (a part's run, round seven): no model is asked for them
+        assert set(model.model_fields) == (set(ir.NodeIR.model_fields) - set(S.HANDOFF_ONLY)) | set(S.SHORTCUT_FIELDS), kind
         assert model.model_fields["params"].annotation is ir.NODE_PARAMS[kind]
         assert model.model_fields["collider"].annotation is bool
 

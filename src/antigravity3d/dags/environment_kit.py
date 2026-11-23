@@ -180,7 +180,8 @@ def ship_masks(meshes: list[MeshData], budget: EngineBudget | None = None) -> li
     opaque = frozenset({SHEET_MATERIAL})  # every part of a piece ships with the kit's one trim material, which is opaque
     if budget is None or not contact_faces_removable(budget, opaque):
         return [np.ones(len(m.triangles), bool) for m in meshes]
-    hidden = hidden_contact_faces([(m.node_id, m.points, m.triangles, SHEET_MATERIAL) for m in meshes], opaque)
+    hidden = hidden_contact_faces([(m.node_id, m.points, m.triangles, SHEET_MATERIAL) for m in meshes], opaque,
+                                  [getattr(m, "run", None) for m in meshes])
     return _kept_closed(meshes, [~np.asarray(h, bool) for h in hidden])
 
 
@@ -236,6 +237,18 @@ def _one_mesh(name: str, results: list[TrimResult], ship: list[np.ndarray] | Non
                             first.stretch_max, first.resolution, first.atlas_id, first.fitted, first.chart_source, first.angle_distortion),
                    node_id=name, points=np.vstack(pts), triangles=np.vstack(tris).astype(np.int32), uvs=np.vstack(uvs),
                    vmapping=np.arange(base), fitted=all(r.fitted for r in results))
+
+
+def _round_dirs(meshes: list[MeshData], results: list[TrimResult], ship: list[np.ndarray] | None) -> np.ndarray:
+    """Each triangle of a piece's one mesh (``_one_mesh``, same order) with its round part's run direction
+    (``surface_frame.round_dirs``): a kit's 8-segment pillar ships round like a prop's (``compile_ir.round_soft``)."""
+    from antigravity3d.kernel.surface_frame import round_dirs
+
+    out = []
+    for k, (m, r) in enumerate(zip(meshes, results)):
+        tris = np.asarray(r.triangles) if ship is None else np.asarray(r.triangles)[ship[k]]
+        out.append(round_dirs(r.points, tris, m.run))
+    return np.concatenate(out) if out else np.zeros((0, 3))
 
 
 def _merge(name: str, meshes: list[MeshData]) -> MeshData:
@@ -451,7 +464,8 @@ class EnvironmentKitDAG:
                 removed[p.name] = int(sum(len(k) - int(k.sum()) for k in ship))
                 path = write_package_usd(out / "pieces" / f"{p.name}.usda", p.name, [_one_mesh(p.name, mp.results, ship)], {p.name: SHEET_MATERIAL}, [mat], hulls,
                                          self.budget.target_engine,
-                                         crease_deg=self.art.crease_deg() if self.art is not None and self.art.shading_crease_deg is not None else None)
+                                         crease_deg=self.art.crease_deg() if self.art is not None and self.art.shading_crease_deg is not None else None,
+                                         round_dirs={p.name: _round_dirs(p.meshes, mp.results, ship)})
                 paths[p.name] = str(path)
             ctx.data(contact_faces_removed=removed)
             return paths

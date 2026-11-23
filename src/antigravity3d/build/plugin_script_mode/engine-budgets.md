@@ -16,18 +16,22 @@ max_tris=...)` line; a project
 Entries marked "hint" are conservative studio hints, not documented engine
 hard limits.
 
-| | Unreal Engine 5 | Unity URP | Godot 4 | Roblox R15 |
-| --- | --- | --- | --- | --- |
-| Up axis at export | Z (native) | Y | Y | Y |
-| Units at export | m (metersPerUnit 1.0; not scaled to cm) | m | m | m (1 stud is about 0.28 m, hint) |
-| Collision naming | `UCX_<Mesh>_NN` hulls | collider components, no named hulls | `-col` / `-convcol` / `-colonly` suffixes | engine-generated or simplified parts |
-| Per-mesh triangle cap | none enforced; keep to budget | 65,535 vertices per 16-bit index mesh | none enforced; keep to budget | 10,000 tris per MeshPart |
-| Max texture side | 8192 (hint; larger needs VT) | 8192 (importer default, hint) | 16384 (GPU-dependent, hint) | 1024 (Creator Hub: "up to 1024x1024 pixel spaces for texture maps"; maps are generated at 1024) |
-| Textures per material | ORM + albedo + normal | ORM + albedo + normal (URP Lit) | ORM + albedo + normal | 4 SurfaceAppearance maps: Color, Normal, Metalness, Roughness; the package also writes separate metalness and roughness PNGs (manifest key roblox_surface_appearance) beside the packed ORM map |
-| Power-of-two textures | required (mip streaming) | recommended | recommended | recommended |
-| Normal map convention | DirectX (green flipped at export) | OpenGL | OpenGL | OpenGL |
-| Node and prim names | `[A-Za-z0-9_]+` | `[A-Za-z0-9_]+` (studio convention) | no `. : @ / " %` | `[A-Za-z0-9_]+` |
-| Headless import check | yes (deliver_package imports it) | yes | yes | none; validator only |
+| | Unreal Engine 5 | Unity URP | Godot 4 | Roblox R15 | three.js (web) |
+| --- | --- | --- | --- | --- | --- |
+| Up axis at export | Z (native) | Y | Y | Y | Y (glTF rule) |
+| Units at export | m (metersPerUnit 1.0; not scaled to cm) | m | m | m (1 stud is about 0.28 m, hint) | m (glTF rule) |
+| Collision naming | `UCX_<Mesh>_NN` hulls | collider components, no named hulls | `-col` / `-convcol` / `-colonly` suffixes | engine-generated or simplified parts | `UCX_<asset>_NN` hulls in `<asset>_colliders.glb`; three.js reads none |
+| Per-mesh triangle cap | none enforced; keep to budget | 65,535 vertices per 16-bit index mesh | none enforced; keep to budget | 10,000 tris per MeshPart | none enforced; keep to budget |
+| Max texture side | 8192 (hint; larger needs VT) | 8192 (importer default, hint) | 16384 (GPU-dependent, hint) | 1024 (Creator Hub: "up to 1024x1024 pixel spaces for texture maps"; maps are generated at 1024) | 4096 (hint) |
+| Textures per material | ORM + albedo + normal | ORM + albedo + normal (URP Lit) | ORM + albedo + normal | 4 SurfaceAppearance maps: Color, Normal, Metalness, Roughness; the package also writes separate metalness and roughness PNGs (manifest key roblox_surface_appearance) beside the packed ORM map | ORM + albedo + normal |
+| Power-of-two textures | required (mip streaming) | recommended | recommended | recommended | not needed |
+| Normal map convention | DirectX (green flipped at export) | OpenGL | OpenGL | OpenGL | OpenGL |
+| Node and prim names | `[A-Za-z0-9_]+` | `[A-Za-z0-9_]+` (studio convention) | no `. : @ / " %` | `[A-Za-z0-9_]+` | no `. : / [ ]` or spaces (three.js renames such nodes) |
+| Headless import check | yes (deliver_package imports it) | yes | yes | none; validator only | yes, required: a failure blocks delivery; not run is reported as not run |
+
+For a three.js (web) package the manifest also records web_download: the bytes a page
+fetches for the highest level (the GLB and what it references, per file). LOD0
+embeds its images; the `textures/` files serve the lower-detail levels.
 
 LODs are not fixed triangle ratios. `deliver_package` builds the levels and
 the collision shapes: it emits a level

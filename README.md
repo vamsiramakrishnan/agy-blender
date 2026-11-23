@@ -1,305 +1,121 @@
 # antigravity-3d
 
-antigravity-3d turns a text prompt, or existing mesh files, into game-engine-ready 3D assets: a reviewed OpenUSD stage and glTF/USD packages checked against per-engine rules for Unreal 5, Unity URP, Godot 4 and Roblox R15. It is built on the Google Antigravity agent SDK, the Gemini API and OpenUSD, with an optional warm Blender 5.3 worker pool for the steps that need Blender.
+**Ask for a game prop in one sentence. Get a package your engine can use as it is, already checked.**
 
-## Status
+![A crate, a fire hydrant and a Windsor chair](docs/img/three_props.jpg)
 
-- An offline run exercises the USD compiler, geometry kernels, material packaging and inspector with deterministic image and judge fixtures. It produces a preview candidate.
-- Every exported package is loaded in three.js under headless Chromium as a pipeline step (`web_runtime`): the GLB and its LOD files must load, match the manifest (triangles, bounds, materials, textures) and match the USD's silhouette. The step is skipped, with the reason, where no browser is installed.
-- When a real Blender worker is attached (`--blender`, `--pool-socket`, or the plugin's pool sidecar through `$AGY3D_POOL_SOCKET`), the exported GLB is also checked by a script the project did not write: `qa_check` of EL4CTEO/blender-skills (pinned commit, vendored by hash), run by the worker on the GLB with each part's coincident vertices merged (parts in contact stay separate parts) and the target engine's profile (`roblox` for Roblox, `game` otherwise). It is the pipeline step `blender_asset_qa` (and a record under `validation.blender_asset_qa` in `manifest.json`). An error from it (a floating or inverted part, z-fighting, missing UVs or materials, a Roblox mesh over 20,000 triangles) fails the step, so the run is not `ok` and not `verified`, as a failed engine import is; its warnings are kept in the manifest. Without a real worker the step is skipped with the reason and changes nothing: a fake worker's result is never counted. It runs in `agy3d prop` and in a native session's `export_engine_package`. `agy3d kit --blender PATH` (or `--pool-socket`) likewise runs that repository's `kit_check` on every piece file with the kit's grid, pivot and sheet size (node `blender_kit_check`; an error fails the kit's gates).
-- When a real Blender worker is attached, a package for `unreal_5`, `unity_urp` or `roblox_r15` also gets an FBX, `<asset>.fbx`, written into the package by the worker with EL4CTEO/blender-skills' `export_asset` script (pinned commit, vendored by hash; its `unity`, `unreal` and `roblox` presets) from the package's own GLB files. Godot gets none (it imports the glTF). It is the pipeline step `export_fbx`, after every other step, and the manifest lists the file with its real hash and an `fbx` record. What it contains, by what each engine's documentation describes: **Unity**: one mesh per LOD level named `<asset>_LOD0`, `_LOD1`, ... (Unity builds an LOD Group from that suffix), no collision hulls (Unity documents no FBX naming for them); **Unreal Engine**: the LOD0 mesh `<asset>` and the convex hulls as `UCX_<asset>_<nn>` (Epic's FBX pipeline page names the `UCX_` rule; it documents "Import LODs" but no LOD naming inside one FBX, so the LOD levels stay in the GLB and USD files), and its normal map is the DirectX one the package ships for Unreal; **Roblox**: one mesh, with its textures embedded (Roblox's export page asks for Copy and Embed Textures), the same bytes as the package's `roblox_surface_appearance` colour and normal maps. For Unity and Unreal the FBX refers to the package's `textures/` files by relative path and copies nothing, so the package can be moved with the FBX in it. An FBX carries geometry, UVs, LODs where the engine documents them, collision for Unreal, and the texture links Blender's FBX exporter writes (base colour and normal): roughness, metallic, occlusion and emission maps are not in it (`fbx.maps.lost` lists them), and the GLB and USD stay the full-fidelity files. **What was checked: the written file was re-imported in Blender and compared with the package's GLB files (object, material and triangle counts, UV layers, bounding box in metres, image bytes) and its header was parsed from the file (unit scale, axes, per-model rotation and scale). It was not opened in Unity, Unreal Engine or Roblox Studio, none of which runs in CI or on the machines this was built on.** The FBX's hash is not reproducible (Blender writes the time of export into its header and offers no option to fix it; `fbx.reproducibility`). The FBX is an extra output, not a check: if it cannot be made the package ships without it, the manifest says `fbx.status: failed` with the reason, the step reads `output_failed` (printed as `FAILED OUTPUT export_fbx`), and `verified`, `preview` and `ok` are unchanged. Without a real worker the step is skipped with the reason and nothing pretends an FBX exists.
-- Stock Blender 5.3 supports the warm worker path over Unix IPC and shared memory. Workbench, EEVEE and CPU Cycles render regression fixtures. Godot 4 is the first target with a rendered verification path. Unreal and Unity adapters currently cover import checks. Roblox lacks a headless verifier.
-- Native Decisions access depends on the project. A verified run needs a native Decisions deployment. On a key without it, the only live output is an unverified preview. It is judged by an uncalibrated generative fallback and bounded by your own token and image limits (see "Keys without the native Decisions API" below). The credentialed canaries in the test suite exercise native Decisions and Nano Banana independently.
-- The structured CLI author, Decisions and GenMedia report usage with provenance. Monetary estimates depend on the configured deployment rates. Studio acceptance and reconciled billing are separate inputs to the cohort benchmark.
-- Antigravity plugin installation, stage-tool registration and hook behavior have automated tests. Interactive host discovery and studio first-pass acceptance require their respective environments.
+*Each of these was asked for in one sentence. Real output of the plugin in script mode, no image model, rendered in Blender.*
 
-## Install
+antigravity-3d is a plugin for the Antigravity coding agent, with a command line beside it. It builds the model, its
+textures, lower-detail versions for distance and collision shapes. It checks the result in real engines and installs
+it into your Godot or three.js project.
 
-Python 3.11 or newer is required.
+[How it compares with a stock agent](#how-it-compares) · [What is checked](#what-is-checked-and-what-is-not) ·
+[All commands](docs/commands.md)
 
-```bash
-pip install -e ".[dev]"
-```
+## What you can do
 
-Add the `web` extra (`pip install -e ".[dev,web]"`) for the three.js package verifier; it also needs a Chromium or Chrome binary (`$CHROMIUM_BIN`, or one on `PATH`).
+| You want to | Say to Antigravity | You get |
+|---|---|---|
+| Make a prop | "Make a military supply crate for Godot" | A package your engine imports: the model, one texture atlas, lower-detail versions, collision shapes, and a record of every check it passed |
+| Put it in your game | "Install the crate into this project" | Godot: one scene, imported and checked by your own Godot. three.js or React Three Fiber: the files where your dev server serves them and one function to import, checked in a browser with your own three.js. One command takes it out again |
+| Change it later | "Make the two side handles 30 % larger" | A new version in which only what you named changed. The old one is kept |
+| Clean up a mesh you have | "Make chair.obj ready for Unity" | Your mesh repaired, unwrapped, with lower-detail versions and collision shapes |
 
-Live runs (any command without `--offline`) need a Gemini API key:
-
-```bash
-export GEMINI_API_KEY=...
-```
-
-## Quick start
-
-Build an offline prop. This needs no API key and no Blender:
+On the command line:
 
 ```bash
-agy3d prop "wooden crate with iron brackets" --offline --engine unreal_5 --out out/crate
+agy3d prop "military supply crate" --preview --token-ceiling 600000 --max-images 0 --engine godot_4 --out out/crate
+agy3d install out/crate/runs/<id>/package --project path/to/your/game
+agy3d edit out/crate "make the two side handles 30 % larger" --token-ceiling 250000
+agy3d sanitize chair.obj --engine unity_urp --out out/clean
 ```
 
-Read `out/crate/report.json` for the candidate paths, skipped steps, provider usage and gate results. `outputs.inspector` opens the asset with PBR channels, LODs and budget gauges. The package contains the USD, USDZ, GLBs, textures and a manifest. Preview runs keep their own output directory so a failed retry cannot replace a verified asset.
+`prop` and `edit` need a Gemini API key; "Try it" shows how to run without one. For three.js, build with
+`--engine web_three` and use the same `install` command.
 
-For a verified Godot publication, configure Gemini access, install Godot and pass a stock Blender executable or the managed sidecar's socket. The live command requires publication by default. Use `--preview` to request a candidate.
+`install` takes the package folder the run prints. In a Godot project it writes one folder with a scene to drag
+into a level, then checks it with your own Godot:
 
-```bash
-export GODOT_BIN=/opt/godot/godot
-agy3d prop "wooden crate with iron brackets" --engine godot_4 --out out/live-crate \
-  --blender /opt/blender/blender --require-verified
+```text
+  check import           passed   headless import and scene load logged no error or warning naming the asset
+  check collision        passed   one StaticBody3D with 8 convex shape(s), each within 256 points ...
+  check level_switching  passed   rendered: the expected level alone at every stop, ...
+  install_godot  installed  agy3d/WoodenCrateIron  checks: 7 passed, 0 failed, 0 skipped
 ```
 
-Set `AGY3D_TEXT_RATES_JSON` to a JSON object mapping each configured text-model ID to its contracted `[input USD per million tokens, output USD per million tokens]` pair. The metered author checks the configured rate before dispatch. Standard tiers use the worker role and hero assets use the director role. Model overrides need matching rates.
+In a three.js project it writes the files to `public/agy3d/<asset>/` and a loader to `src/agy3d/<asset>/`, then
+runs eleven checks in a browser with your own three.js (twelve with React Three Fiber). What is left for you:
 
-### Keys without the native Decisions API or text prices
-
-A key whose `decisions.create` answers 404 cannot produce a verified package. It can produce an unverified preview, judged by a generative fallback. That judge is uncalibrated: it may route, rank candidates, drive the repair rounds and fail a gate, but it never verifies, publishes or clears anything. Without configured prices, spend is bounded by two limits you state: a token ceiling, which is input plus output tokens with no price applied, and a hard image count.
-
-```bash
-agy3d prop "wooden crate with iron brackets" --preview --token-ceiling 150000 --max-images 4 --single-candidate --out out/preview-crate
-agy3d kit "ruined stone temple" --pieces 4 --token-ceiling 400000 --max-images 1 --out out/preview-kit
+```js
+import { loadMilitarySupplyCrate } from "./agy3d/military_supply_crate";
+scene.add(await loadMilitarySupplyCrate({ renderer }));
 ```
 
-- `--token-ceiling` is the most the whole command may use. For a kit, every piece and the trim sheet draw from it. Every call reserves its worst case, in tokens, before it is sent, and books the provider's reported usage afterwards. Receipts say `"unit": "tokens", "price_applied": false`.
-- `--max-images` is required with `--token-ceiling` whenever the command can generate an image. Without `--single-candidate`, a prop's plan needs several images per material.
-- Texture images are generated for the winning design's materials only, largest surface first, from each material's own surface words. When the image limit does not cover every material, the ones left untextured are named in the run's warnings and in the manifest.
-- The fallback judge can take minutes for one call: on 2026-11-21 the same texture ranking took 30 s, 176 s and more than 240 s. A call with no answer within 600 s is not sent again, and what it reserved stays counted.
-- The preview's `manifest.json` says `verified: false`, `preview: true`, who judged it and what that means. The command ends with `publication: UNVERIFIED PREVIEW` and `review: required`. Exit status 0 means every other gate passed; a hard policy flag, an escalation to a person or a failed gate exits 1.
-- Without `--preview`, or with `--require-verified`, such a key is refused at start with the command to run instead. A ceiling too small for one judge call and one authoring call is also refused at start, with the smallest ceiling that can work. In both cases nothing is generated.
-- In an Antigravity session the same switch is `open_asset_session(preview=true, token_ceiling=N, max_images=M)`, or `start_preview` on an open session. The plugin asks you to approve both numbers.
+With React Three Fiber: `<MilitarySupplyCrate />` in a `<Canvas>`, from `./agy3d/military_supply_crate/react`.
 
-### Rerunning in the same output directory
+`edit` changes only the parts you name; `--undo` puts the old version back, and `install` again updates your game.
 
-`prop` and `kit` keep a cache folder, `OUT/.agy3d-cache`. It holds every generated image, keyed by its request, and every answered authoring request (each design and each repair), keyed by the whole request: model, thinking level, output cap, rules text, budget, art direction, references (by the bytes uploaded) and the task with its brief, plus the candidate's number. A run that ends early, whether stopped, refused by a ceiling or ended by a service error, keeps what it paid for. Running the same command again with the same `--out` continues from the recorded design: no authoring call is made, its images come from the cache, and the run summary says `design record: N design(s) ... reused, no call made (originally ...)`. The ledger gets a receipt with `"source": "record"` that books nothing and names what the original call cost. Any change to the request misses: a different brief, budget, tier, art direction, or a new version of the rules text or schema.
+## How it compares
 
-- `--new-design` asks the author for a new design instead and keeps every cached image whose request is unchanged. The new design replaces the recorded one, so the next rerun continues from it.
-- `--no-cache` uses no cache folder: nothing is read or written there.
-- The cache folder holds your brief's designs (the scenes authored for it, named after it) as well as the images. Delete the folder to remove them; the run's `report.json` beside it also holds the brief.
-- The spend ledger is the asset's own and covers every run in this `--out` together. A rerun says at start how much is already used and how much is left, and its summary adds `this run: ...`. Raise `--token-ceiling` or `--max-images` to give it more. A rerun is refused before any call when what is left of the ceiling cannot admit its largest single call; the refusal names what was already used, what remains, and the smallest ceiling that lets it continue. A rerun that is short of images continues only when it can continue from a recorded design: images already generated for that design count none, and a material beyond the limit ships untextured and is named. Without a recorded design, a rerun short of images is refused before any authoring call, as a first run is. So is a rerun with `--new-design`.
-- Best-of-N: on a rerun with less left in the ledger, the router may plan fewer candidates. Their requests then say "design 1/3" instead of "1/4", so those designs are asked for again.
-- An albedo or other image call answered without an image (finish `MAX_TOKENS`, `STOP` or `NO_IMAGE`, with no image part) is asked again once. Both attempts are booked as billed, and the one without an image counts no image. A refusal (a safety or prohibited-content stop, a blocked prompt) is never asked again. If the second answer has no image either, the material is left untextured and both attempts are named.
+| | This plugin, default | This plugin, script mode | Stock agent with a Blender tool |
+|---|---|---|---|
+| Game-ready checks passed, of 33 | 32 | 33 | 28 |
+| Time to a package, minutes | 4 to 5 | 4 to 5 | 6 to 10 |
+| Blind verdicts won against the stock agent: crate / hydrant / chair | 6 of 6 / 6 of 6 / 0 of 6 | 6 of 6 / 5 of 5 / 0 of 6 | |
+| A change request finished on its own | 2 of 3 | 3 of 3 | 1 of 3; 2 stopped at their limit |
+| Installed into a Godot or three.js project and checked there by one command | yes | yes | not offered |
 
-A headless Linux renderer needs a working display or Xvfb. A missing target renderer, a stale verdict, or a simulated judge leaves `verified` false. A successful verified run makes the package visible under the published path. Use `--pool-socket PATH` to reuse workers across CLI processes.
+Three briefs; our runs are from round six, the stock agent's from round five, one or two runs each. Looks were
+judged blind by a general model, six times per pair. Both of our chairs lost every verdict then, because of the
+surface this project painted on them.
 
-Other subcommands:
+Round seven repainted the script-mode props without touching their meshes. The crate and the hydrant still win
+(12 of 12 each). The chair is now about even with the stock agent's (7 of 11): every verdict prefers its wood, and
+the ones it loses fault its shape. Details: [round seven](benchmarks/ROUND_SEVEN.md),
+[round six](benchmarks/ROUND_SIX.md), [round five](benchmarks/ROUND_FIVE.md).
 
-```bash
-agy3d sanitize FILES... --engine godot_4 --out out/clean [--jobs N]   # batch-repair GLB, OBJ, PLY, STL or USD meshes
-agy3d kit "ruined stone temple" --pieces 4 --offline --out out/kit [--splat bg.ply] [--blender PATH]   # modular kit on one shared trim sheet; a worker adds the upstream kit_check node
-agy3d variants ASSET.usda... --offline --out out/looks   # look variants as a USD variant set
-agy3d calibrate LABELS.json --out studio_policy.yaml [--offline]   # fit studio thresholds from labelled history
-agy3d models                                         # print the model tier table
-agy3d plugin install [--target DIR] | agy3d plugin validate [PATH]   # install or check the Antigravity plugin
-agy3d install PACKAGE_DIR --project GAME_DIR [--dest DIR] [--dry-run] [--force]   # put a package into a game project and check it there
-agy3d uninstall --project GAME_DIR --dest DIR        # remove exactly what install wrote
-agy3d edit OUT "make the two side handles 30 % larger" --token-ceiling N   # change a made asset: one patch, the rest kept
-agy3d edit OUT --patch ops.json | agy3d edit OUT --undo                   # a patch you wrote (no model call); put the last edit back
-```
+## Try it
 
-`agy3d edit` opens the asset as it shipped (the design embedded in its package; OUT is the prop's `--out` folder or a
-package folder) and applies the instruction as one patch to the parts it names. The author is shown the five badged
-views of the design and the instruction; the edit is kept only when the judge sees it carried out and nothing else
-changed, no part ends up floating and no new defect appears, and is otherwise asked for once more and then left
-undone with the reason. Every other part keeps its geometry exactly and every material its source maps; no image is
-generated. A part the edit does not change also keeps its place in the texture atlas: the same UVs and the same texels
-under them while the atlas keeps its size; when the atlas has to grow, its UVs are rescaled and its texels stay where
-they were. That holds for image maps and flat colours. When the change cannot fit in the space the other parts leave
-free, the atlas is laid out again: the manifest's edit record says `repacked` and why, and each untouched part's base
-colour is checked against the shipped one (mean within 4/255, spread within 8/255; a part outside it is named in the
-result). A surface generated from the geometry is held to that bound too, since a changed neighbour may change it. A
-package keeps the maps its atlas was baked from in `sources/` (no engine file uses them and an install does not copy
-them), so a bare package can be edited months later without its run folder. The replaced package is kept in `OUT/history/NNN/` (beside a bare package, `<name>.history/`) and
-`--undo` puts it back. The new manifest lists the edit under `edits` and its provenance names it. An edited package is
-never verified: no lookdev pass runs on it.
+1. From a clone of this repository, with Python 3.11 or newer: `pip install -e ".[dev]"`.
+2. In your game's folder, run `agy3d-plugin`. It puts the plugin in `.agents/plugins/antigravity-3d`.
+3. Open that folder in Antigravity and ask for a prop. Expect a first build to take four to five minutes.
 
-`agy3d install` reads the project's engine and version from its own files and refuses a package built for another
-engine. For a Godot 4 project it writes, under one directory (default `agy3d/<asset>`), the package's level GLBs and
-`textures/` with explicit import settings (no Godot-generated LODs; maps VRAM-compressed with mipmaps, normal maps as
-normal maps; every level binds the one copy of each map, and one material per glTF material, which Godot extracts to `materials/` and every level shares, so a material edit is made once) and `<asset>.tscn`: the levels switched by distance (from the
-package's `lod_screen_fractions` and bounds, with hysteresis) and one StaticBody3D with the package's convex hulls.
-Drag that scene into a level. It then imports an isolated copy of the project with the project's Godot binary, loads
-the scene and reports each check (import log, scale, levels, materials, collision, rendered level switching) as
-passed, failed or skipped with the reason. Nothing outside that directory is written; a file the tool did not write
-is never replaced; an update refuses when one of its own files was edited (`--force` overrides); its record is
-`<dest>/.agy3d/install.json`. For Unity, Unreal Engine and Roblox projects it says what to import and writes nothing.
+Without a Gemini API key the plugin judges with a stand-in, so delivery waits until you allow an unverified preview
+and give it a token and an image limit.
 
-`prop`, `sanitize`, `kit` and `variants` take `--engine` (`unreal_5`, `unity_urp`, `godot_4` or `roblox_r15`; default `unreal_5`) and an optional `--max-tris N`. `calibrate`, `models`, `plugin`, `install` and `uninstall` do not. Exit status 0 means the requested mode passed its gates. Status 1 signals a failed gate and 2 a usage or environment error.
+On a key without the calibrated judge, a run is a preview and you set its two limits: tokens and images. With
+`--max-images 0` the textures are generated from the geometry and no image model is used. In round five such a prop
+spent 0.37 to 0.45 million tokens, an edit 62 to 86 thousand ([keys and cost](docs/keys_and_cost.md)).
 
-### Measure the cost per accepted asset
+`--offline` needs no key and takes about 15 seconds, but builds a built-in template, not your sentence.
 
-For each brief, run the same prompt and engine budget twice in separate output directories under the same cache policy. Add `--single-candidate` to the baseline only. Record studio first-pass and final acceptance, rework minutes, reconciled spend and input/output tokens across the entire run, including rejected attempts. Use independent human labels. The benchmark rejects reused reports, mismatched budgets, fixture-backed verdicts and first-pass labels without a verified asset.
+## What Antigravity gives it
 
-```json
-{"ceiling_usd": 2.2, "pairs": [
-  {"brief_id": "crate-01",
-   "single": {"report": "baseline/report.json", "first_pass": false, "accepted": true,
-              "rework_minutes": 12, "billed_usd": 0.41, "input_tokens": 9800, "output_tokens": 3200},
-   "governed": {"report": "governed/report.json", "first_pass": true, "accepted": true,
-                "rework_minutes": 0, "billed_usd": 0.70, "input_tokens": 16000, "output_tokens": 5400}}
-]}
-```
+- You ask in your own words; the right playbook (a skill) loads by itself.
+- Your export is held until the checks pass; the agent is sent back if it stops before.
+- You are asked before anything is written into your project or a preview spends tokens.
+- You review the asset in a 3D panel beside the conversation; your notes reach the agent.
+- At install you choose: the agent drives scene tools, or writes each asset as a Python file.
 
-These numbers illustrate the input format. `agy3d benchmark cohort.json` reports spend per accepted asset, total tokens, wall p50/p95 and paired quality deltas. The rollout gate needs at least 50 pairs, every governed run within the studio ceiling, and either a 10-point first-pass gain or a 20% reduction in rework minutes.
+## What is checked and what is not
 
-## Architecture
+- **Godot 4**: a real Godot imports every package when installed; the seven checks above run in your project.
+- **three.js**: every package is loaded in headless Chromium and compared with its manifest. Installed in a
+  three.js project it is rechecked with the project's own three.js (run here on r152 to r187). Textures are
+  compressed only when a rendered comparison stays inside a fixed tolerance, so some assets ship as PNG.
+- **Blender**: with a worker attached, a script this project did not write checks the GLB.
+- **Unreal, Unity, Roblox**: packages and FBX files follow each engine's documented rules; none of these engines
+  has opened them here or in CI.
+- **Looks** are judged by a model; without the calibrated judge, look yourself.
+- **The review panel** is tested against the MCP Apps host bridge, not inside a running Antigravity.
 
-| Layer | Folder | What it does |
-| --- | --- | --- |
-| 0. Adapters | `src/antigravity3d/adapters/` | Connects to external tools: the Blender 5.3 worker pool (`blender_5_3/`) and headless engine import checks (`engines/`). |
-| 1. Kernel | `src/antigravity3d/kernel/` | Deterministic geometry and OpenUSD code: the stage manager, Scene IR compiler, UVs, LODs, colliders, validation and export. |
-| 2. Harness | `src/antigravity3d/harness/` | Wraps the Antigravity SDK: stage agent factories, lifecycle hooks, the tools the model calls, and session state. |
-| 3. Decisions and image generation | `src/antigravity3d/decisions/`, `src/antigravity3d/genmedia/` | Routes questions to the Decisions API under calibrated thresholds; generates images and derives PBR maps. |
-| 4. Tactics and pipelines | `src/antigravity3d/tactics/`, `src/antigravity3d/dags/` | Refinement, tournaments, caching and budgets, plus the DAGs that run whole pipelines. |
+## Reference
 
-Also in the package: `runtime/` holds the entrypoints for the plugin (MCP server and its inspector MCP App, depot watcher, weekly distillation, Blender pool daemon). `artifacts/` builds the inspector HTML. `ir.py` defines the Scene/Asset IR and `state.py` the session state shared by tools and hooks. `models.py` holds the model tier table, `cli.py` the `agy3d` command, and `plugin_install.py` the plugin installer.
-
-Main modules, from the module docstrings:
-
-**Layer 0: adapters**
-- `adapters/blender_5_3/pool.py`: warm pool of Blender daemons.
-- `adapters/blender_5_3/daemon.py`: Blender worker daemon.
-- `adapters/blender_5_3/protocol.py`: wire protocol between the pool and a daemon.
-- `adapters/blender_5_3/linter.py`: AST compatibility and safety gate for scripts sent to `run_script`.
-- `adapters/blender_5_3/shim_5_3.py`: normalises pre-5.3 Blender API usage in legacy scripts.
-- `adapters/blender_5_3/viewport_bridge.py`: live-viewport bridge for artists. Written to spec and not exercised.
-- `adapters/engines/validators.py`: headless engine import smoke tests behind one interface.
-
-**Layer 1: kernel**
-- `kernel/usd_stage.py`: OpenUSD stage manager with transactional sublayers and variant-set branches.
-- `kernel/compile_ir.py`: compiles a Scene IR into USD opinions on the edit target.
-- `kernel/fast_ops.py`: deterministic in-process mesh kernels for Tier-1 QA, UVs, LODs, colliders and export.
-- `kernel/trim_atlas.py`: trim-sheet-first UVs, with one shared texture per kit.
-- `kernel/settle.py`: deterministic vertical contact settling.
-- `kernel/separate.py`: moves apart the flush (coplanar, same-facing) faces of different parts, without a model call.
-- `kernel/lod_diff.py`: LOD pop diffing at the switch distance.
-- `kernel/validator.py`: USD validation and per-engine compliance rules.
-- `kernel/package.py`: engine package writer, shared by the harness and the DAGs.
-- `kernel/raster.py`: software clay rasteriser for the preview tier.
-- `kernel/som.py`: set-of-mark numbered badges on renders.
-- `kernel/spatial.py`: octree index over prim bounding boxes.
-- `kernel/cache.py`: content-addressed Merkle build cache.
-
-**Layer 2: harness**
-- `harness/agents.py`: stage-scoped agent factories, the Turn-0 director and `run_stage`.
-- `harness/hooks.py`: lifecycle hooks for stage agents.
-- `harness/tools.py`: model-facing tools.
-- `harness/session.py`: session wiring shared by tools and hooks.
-- `harness/traceback_compressor.py`: squeezes an exception into one line for tool results.
-
-**Layer 3: decisions and image generation**
-- `decisions/engine.py`: `DecisionControlPlane`, the single choke point for Decisions API calls.
-- `decisions/factory.py`: builds the control plane on whichever backend the key can use.
-- `decisions/questions.py`: typed question builders and the studio question banks.
-- `decisions/compose.py`: deterministic composition of answers (pure functions).
-- `decisions/fallback.py`: generative fallback for the Decisions API.
-- `decisions/calibration.py`: ROC/AUC, ECE and threshold selection from labelled history.
-- `decisions/fakes.py`: `FakeDecisionsClient`, a stand-in that enforces the wire format.
-- `decisions/models.py`: SDK-independent result types.
-- `genmedia/nano_banana.py`: `ImageForge` for blueprints, textures, trim sheets, decals and paint-overs.
-- `genmedia/pbr_deriver.py`: deterministic PBR map synthesis and auto-fixers (no model calls).
-
-**Layer 4: tactics and pipelines**
-- `tactics/authoring.py`: the Scene IR authoring interfaces, the non-deterministic seam. A prop's authoring request (and the native BLOCKOUT stage prompt) carries craft guidance: build the parts a real object has, add the secondary forms that change the silhouette, aim for 50 to 90 parts within the triangle budget, and attach parts by exact contact, not overlap. A modular-kit piece is authored to its metric and does not get it (`PROP_CRAFT_GUIDANCE` in `tactics/metered_author.py`, `CRAFT_RULES` in `harness/agents.py`).
-- `tactics/pyramid.py`: multi-resolution refinement: silhouette lock, lookdev, final verification.
-- `tactics/tournament.py`: speculative Best-of-N.
-- `tactics/governor.py`: cost and quality budget governor.
-- `tactics/cached.py`: Merkle-cache wrappers for the expensive pure steps, and the design record (`DesignRecord`) of answered authoring requests.
-- `tactics/package.py`: engine-ready export artefacts (UV-split meshes, LODs, hulls).
-- `tactics/distill.py` collects observed repairs. Run `python -m antigravity3d.runtime.distill_job --workspace . --holdout examples/distill-seating-holdout.json` to replay a box-seating fix against two authored examples. Supply independent studio labels for a studio review. An eligible report can be promoted by repeating the command with `--promote seat-floating-box-v1 --evidence DIGEST --reviewed-by NAME`. The scheduled job only writes reports.
-- `dags/prop_to_engine.py`: prompt to engine-ready, reviewed prop package.
-- `dags/environment_kit.py`: modular pieces sharing one trim sheet, assembled into one USD stage.
-- `dags/batch_sanitize.py`: many meshes to safe repairs, UVs, LODs and colliders, then validated export.
-- `dags/variant_factory.py`: look variants as a USD variant set of material overrides.
-- `dags/runner.py`: small async DAG runner.
-
-## Model tiers
-
-Defined in `src/antigravity3d/models.py`:
-
-| Role | Model id | Thinking | Used for |
-| --- | --- | --- | --- |
-| `director` | `gemini-4-argon` | HIGH | Plan, hard maths, ambiguous escalations. Slow; give it a generous timeout. |
-| `builder` | `gemini-4-carbon` | MEDIUM | Stage agents: blockout, lookdev, export. |
-| `worker` | `gemini-4-hydrogen` | LOW | Ephemeral critics, swarm prop builders. |
-| `bulk` | `gemini-4-neon` | LOW | Batch sanitise, trivial IR edits. |
-| `decision` | `gemini-decision-1` | - | Routing, Best-of-N ranking, visual QA, policy. |
-| `image` | `gemini-nano-banana-2.1` | - | 2K blueprints, texture maps, trim sheets, decals and paint-overs. |
-
-The prop DAG writes `ledgers/<asset-key>/spend.sqlite3` under the output directory. The key includes the prompt, engine budget, style content, judge backend and candidate mode. Retries reuse the original route and ledger. Pending reservations count against the ceiling across restarts. Image receipts retain model, provider response ID, token counts by modality, estimated USD and artifact SHA-256. Replays have zero generation cost. When a dispatched request times out or the provider omits modality counts, the ledger retains the reserved amount. For a custom image deployment, set `AGY3D_MODEL_IMAGE` and all three per-million-token rates: `AGY3D_IMAGE_INPUT_USD_PER_M`, `AGY3D_IMAGE_TEXT_OUTPUT_USD_PER_M`, and `AGY3D_IMAGE_IMAGE_OUTPUT_USD_PER_M`. The legacy `AGY3D_IMAGE_MODEL` override takes precedence.
-
-
-The verification notes in `models.py`: `gemini-4-hydrogen`, `gemini-4-carbon` and `gemini-4-neon` answered live against the Gemini API; `gemini-4-argon` exists but is slow. The harness bundled with google-antigravity 0.1.24 names hydrogen, carbon and argon but not neon. The live API rejects `ThinkingLevel.MINIMAL` for neon and hydrogen, so LOW is the floor.
-
-Overrides:
-
-- `AGY3D_MODEL_DIRECTOR`, `AGY3D_MODEL_BUILDER`, `AGY3D_MODEL_WORKER`, `AGY3D_MODEL_BULK`, `AGY3D_MODEL_DECISION`, `AGY3D_MODEL_IMAGE`: replace the model id for one role.
-- `AGY3D_NEON_AVAILABLE=0`: routes the `bulk` tier to hydrogen if a harness build rejects neon.
-
-Run `agy3d models` to print the effective table after overrides.
-
-## Antigravity plugin
-
-`plugin/antigravity-3d/` is the Antigravity plugin bundle. It contains:
-
-- **Rules:** `rules/AGENTS.md` (always on), `rules/blender-5-3-api.md` (Python and .blend files) and `rules/engine-budgets.md` (USD files and `*_exports/` folders).
-- **Skills:** `concept-to-blueprint`, `parametric-kitbash`, `pbr-material-forge`, `game-ready-sanitizer`, `engine-truth-verify` and `install-into-project`.
-- **Subagents:** `agents/usd_verifier.md` (read-only QA gate) and `agents/lookdev_critic.md` (visual critic).
-- **Hooks:** `hooks.json` with four scripts in `hooks/scripts/`. They block export until Tier-1 QA passes, record tool telemetry, add a session-start budget message, and stop the agent from finishing while QA is unmet.
-- **Sidecars:** `blender_pool`, `depot_watcher` and two scheduled automations: `nightly_variant_factory` (daily at 02:17 UTC) and `weekly_distill` (Sundays at 03:43 UTC).
-- **Workflow script:** `workflows/batch_sanitize.py`, run with `run_workflow`.
-- **MCP server:** `mcp_config.json` registers the stdio server `studio` (`antigravity3d.runtime.mcp_server`). The harness exposes it as `antigravity-3d_studio`.
-- **MCP App:** the same server serves the 3D review inspector as an MCP App (`open_inspector`; inline or from the side pane "+" menu). Review notes are saved with the asset session, reach the agent through `updateModelContext` and the `review_notes` tool, and are marked stale, not dropped, after an edit. The front end lives in `apps/inspector` (rebuild with `npm ci && npm run build`; the built document is committed and a test fails when it is stale). The standalone `inspector.html` in each package is the same front end.
-
-Install and validate:
-
-```bash
-agy3d plugin install [--target DIR]     # copies the bundle to the customization root (default ./.agents) and validates it
-agy3d plugin validate [PATH]            # validates the bundled bundle, or the directory given
-```
-
-`agy3d-plugin` is the same installer as `python -m antigravity3d.plugin_install`. That entry point also takes `--symlink`, `--workspace` and `--depot`. The scheduled automations do not start themselves; turn them on in the Automations dashboard.
-
-**Script mode (opt-in).** `agy3d-plugin install --authoring script` installs the bundle in a second mode in which the agent writes an asset as one Python file (`from agy3d import Asset`: the scene format's shapes plus rods along any path, skins through cross-sections, computed meshes and Blender snippets) and one tool, `run_build`, runs the file, checks the design and returns findings and colour views; `deliver_package` is unchanged, and the script travels with the package as `source/build.py`. It is not the default. Measured against the default on three briefs it was no faster and no cheaper for a first build; its assets were preferred in blind comparisons and a change request became an edit of the file. See `benchmarks/ROUND_SIX.md` for the numbers and for what it does not do yet (no image-model textures; the check before a script runs is not a sandbox).
-
-`plugin/antigravity-3d/README.md` has a table of which plugin formats the Antigravity harness documentation confirms and which it does not. Read it before relying on any plugin behaviour.
-
-## Testing
-
-CI (`.github/workflows/ci.yml`) runs this on Python 3.12 and 3.13:
-
-```bash
-python -m pytest -q -m "not live and not blender"
-```
-
-Integration markers include:
-
-- `live`: real model calls and image generations (a stage-agent session, a judge call, a 2K image). They run only when
-  asked for, with `--run-live` or `AGY3D_RUN_LIVE=1`, and need `GEMINI_API_KEY`. A key in the environment alone does
-  not run them, so a plain `pytest` never spends quota.
-- `blender`: needs a Blender 5.3 or newer binary on `PATH` or in `$BLENDER_BIN`. Set `AGY3D_BLENDER_SOAK=1` to run the 300-render isolation test.
-- `browser`: needs Playwright and Chromium. The inspector tests also need `AGY3D_THREE_JS` pointing to Three.js 0.160.0; the package verifier uses the copy vendored in the wheel. The qualification workflow supplies all of it on a Linux software-rendering runner.
-
-
-## Known limitations
-
-- Without the native Decisions API nothing is verified. A preview's judge reports probabilities that are not calibrated, and a token ceiling bounds tokens, not money: image tokens cost far more than text tokens, which is why the image count is a separate limit.
-- Contact settling is vertical only (no tilting).
-- Trim-sheet mapping distorts smooth, round shapes.
-- The preview renderer is a software rasteriser, not a PBR render.
-- UV stretch and LOD pop are gates, not warnings. Their thresholds are engineering defaults that no studio acceptance data has calibrated: stretch within the engine budget; LOD levels generated within one pixel of LOD0 on a 1080 px frame; and a pop check per level (silhouette IoU at least 0.90, shading difference at most 0.06, edge drift at most 2.5 px), with each level lit by the normals it ships. The generator bounds geometry only, so nothing guarantees a level passes the shading part of the check; on the 30 stress subjects measured, all do.
-- LOD levels are produced only where the asset gets at least 25% cheaper within that error budget, so some assets ship LOD0 only. A part hidden inside another (a barrel hoop's inner faces) is never dropped at distance, because the measure is surface distance, not visibility.
-- LOD generation measures the deviation of every simplification attempt and costs more than plain simplification on dense meshes (about 0.7 s at 50,000 triangles); see `benchmarks/RESULTS.md`. The deviation recorded for a level is a bound on it, not the largest distance sampled.
-- Each LOD level gets its shading normals from its own geometry (smooth across faces within 40 degrees), so a curved mesh can turn faceted at a far level. The pop check sees that; LOD0's normals are not carried through simplification.
-- The material model covers the glTF 2.0 PBR set (emission, alpha modes, double-sided, clearcoat, transmission, index of refraction, sheen, specular). Transmission is thin-surface only: there is no volume (thickness, attenuation). Only the emissive map and the albedo alpha channel were added as textures; the other new parameters are factors.
-- `blender_asset_qa` and `blender_kit_check` are a second opinion from one upstream script each; they are not a full QA of the asset. Merged, the scripts agree with this project's own counts on the props surveyed (`benchmarks/README.md`, "Upstream checks survey"), but two things differ in kind. Its "hidden back-to-back faces" warning is a proximity test (faces within 1 mm facing each other), the export's rule is exact coplanar full coverage: the crate and barrel each still carry one such warning (16 pairs between the wooden and the iron batch: parts whose faces overlap only partly, and the barrel's hoops, which lie on a curved body without coplanar faces), and it stays a warning. And upstream's Roblox limit of 20,000 triangles counts a mesh of the GLB, where parts of one material are submitted as one batch once the asset has more nodes than `max_draw_calls`: the package writer therefore splits a material's batch at 20,000 triangles (parts kept whole; `glb_batches` and the Roblox note count the split meshes), `validate_package` counts the triangles of every mesh of the shipped GLB, and the authored-part rule still rejects a single part over the limit, which no split can fix. The step costs about 0.1 s per file on a warm worker (about 0.4 s for the four pieces of a kit, beside the other nodes); a run that has no other use for Blender would pay about 0.7 s to start one, so a worker is never started for this step alone.
-- The three.js verifier compares what the runtime loaded with the manifest and the USD silhouette. It does not judge the rendered look, and it says nothing about Unreal, Unity, Godot or Roblox importers; those have their own steps where an engine is installed.
-- Faces that two parts press together (a lid's underside on a box, a strap against a side) are left out of the shipped render meshes in every LOD level when another opaque part covers them completely: they cannot be seen from outside, and they cost triangles and atlas space. The working stage, Tier-1 and the colliders keep the closed parts, and `manifest.json` lists what was removed per part (`contact_faces`). Each part stays its own USD prim, so a part moved away from where it was authored (a lid opened in the engine) shows an opening where it touched another part: export with `--keep-contact-faces` (the `keep_contact_faces` field of the budget, or of `open_asset_session`) to ship the closed parts. Roblox requires closed meshes, so nothing is removed for `roblox_r15`.
-- In a far LOD level a part can be absent. In USD that part is inactive inside the LOD variant; no importer was run here to confirm how each engine treats it.
-- The inspector's MCP App is tested against the MCP Apps SDK's own host bridge in Chromium, not inside a running Antigravity app.
-- Rolling back a rejected 50-node speculative edit takes 0.17 ms at the median on the development machine, and an undo that keeps history 0.65 ms (2.0 ms at 200 nodes). The first read after a rollback costs about 4 ms more at 50 nodes. Sub-millisecond worst-case rollback remains unqualified.
-- Collider generation on concave meshes can exceed the 250 ms pipeline target. A solid made of flat faces is decomposed as that solid, not as its triangles (about 150 ms for a 2,000-triangle prism); a curved concave solid still costs CoACD about 1 ms per triangle (about 2 s for a 1,600-triangle torus), and an open surface 2.5 to 12 s.
-- A collider input that is not one closed solid (a hole, a non-manifold edge, duplicate or flipped faces, bodies that only touch) is repaired on a private copy before decomposition. A decomposition that is not known to be bounded runs in a child process with a deadline of 30 s or more; when it expires, or the child crashes, the body gets its convex hull and the manifest's `collider_sources` says why. The child is killed by process group, which is POSIX only.
-- A mesh that needs computed charts gets them from xatlas, re-flattened and packed here. Chart computation dominates on dense meshes (about 2.3 s at 50,000 triangles), and a curved mesh does not always reach the requested texel density (a sphere reaches about 890 to 930 px/m of 1,024). Primitives get exact charts.
-- The three.js verification takes about 0.7 s per package once a browser is running in the process, 1.5 s with six 1,024 px maps, and several seconds with 2,048 px maps (software GL). The first verification of a process also starts the browser. For the length of one verification the page directory is served from 127.0.0.1 under a random path; every other request the page makes is blocked and fails the check.
-- In a package only `<asset>.glb` (LOD0) is self-contained. `<asset>_LOD<n>.glb` reference the maps in the package's `textures/`, so a package is copied or imported as a directory. A map in a format glTF cannot reference (anything but PNG or JPEG) is still embedded in every LOD file. Unity staging of far LOD files is untested: no Unity runs in CI.
+- [Commands](docs/commands.md), [keys and cost](docs/keys_and_cost.md), [how it works](docs/how_it_works.md),
+  [what is verified and known limits](docs/verification_and_limits.md),
+  [package provenance](docs/package_provenance.md).
+- [The plugin](plugin/antigravity-3d/README.md) and [the measurements](benchmarks/).
 
 ## License
 

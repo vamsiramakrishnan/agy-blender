@@ -1,0 +1,217 @@
+{
+ "model": "gemini-4-carbon",
+ "thinking": "low",
+ "brief_id": "hydrant",
+ "brief": "a cast-iron fire hydrant with bolted caps and a chained nozzle cap",
+ "sheets": {
+  "A": "the stock agent's package of round five (plain Blender MCP), results/round5",
+  "C": "the same script delivered by round seven's code: first version of the surfaces (integration state 99d9d88)"
+ },
+ "calls": [
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3247,
+    "output": 194,
+    "thinking": null,
+    "total": 3441
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Model 1 includes bolted nozzle caps and a clearly readable dangling chained cap, whereas Model 2 uses standard screw-on caps."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Model 2 has more authentic hydrant proportions with a rounded bonnet and properly sized operating nut, while Model 1 is overly pointy."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Model 2 displays realistic cast-iron surface bumpiness, chipped paint exposing bare grey metal, and distinct brass accents."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Model 2 has clean chain attachment points, whereas Model 1's chain clips directly into the upper flange geometry."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Model 2 wins overall due to superior material definition, realistic proportions, and cleaner geometry without clipping issues."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3247,
+    "output": 209,
+    "thinking": null,
+    "total": 3456
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Prop 1 features realistic threaded nozzle caps with a properly mounted chain, whereas Prop 2 uses inaccurate bolted flange caps and hangs its chain from the top bonnet."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Both models have plausible overall scale, but Prop 1 has much more authentic hydrant proportions compared to Prop 2's overly conical top."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Prop 1 displays convincing painted cast-iron, brass, and chipped metal materials, while Prop 2 has overly uniform black edge wear."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Prop 1 shows clean geometry and attachments, whereas Prop 2's hanging chain clips directly through the lower flange."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Prop 1 wins across all categories due to its accurate mechanical construction, superior material definition, and lack of mesh intersections."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3247,
+    "output": 225,
+    "thinking": null,
+    "total": 3472
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Prop 2 features authentic threaded nozzle caps with central operating nuts and a properly attached chain, whereas Prop 1 uses flat bolted flanges as caps."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both have believable overall height against the 1.8 m reference, but Prop 2 has much more accurate dome and cap proportions than Prop 1's overly pointy top."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Prop 2 displays realistic cast-iron bumpiness, metallic edge chipping, and distinct brass fittings, while Prop 1 has harsh black edge wear."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Prop 1's hanging chain attaches awkwardly to the upper bonnet flange, whereas Prop 2's chain connects cleanly and logically to the body and cap."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Prop 2 wins overall due to its realistic hydrant anatomy, superior cast-iron and brass materials, and cleaner mechanical assembly."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3247,
+    "output": 222,
+    "thinking": null,
+    "total": 3469
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Prop 1 uses realistic threaded caps and properly attached chains, whereas Prop 2 features implausible bolted flanges over the nozzles and a strangely dangling cap."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Both have believable real-world height next to the 1.8m block, though Prop 1 has much more authentic hydrant proportions than Prop 2's overly conical dome."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Prop 1 displays convincing painted cast-iron bump, bare metal chipping, and distinct brass accents, while Prop 2 has overly uniform black procedural edge wear."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Prop 1 has clean construction, whereas Prop 2's chain awkwardly intersects the upper flange and dangles stiffly in mid-air."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Prop 1 is far more accurate in mechanical design, proportions, and material execution than Prop 2."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3247,
+    "output": 207,
+    "thinking": null,
+    "total": 3454
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Model 1 clearly displays bolted nozzle caps and a distinct hanging chained cap, whereas Model 2 uses standard screw-on caps."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Both have realistic scale relative to the reference block, but Model 2 has more authentic fire hydrant proportions and dome shape."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Model 2 features more natural metallic edge chipping, bumpy cast-iron surface relief, and distinct brass accents compared to the harsh black wear on Model 1."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Model 1 has minor intersections where the hanging chain attaches to the upper flange, while Model 2's chain drapes cleanly."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Model 2 wins overall due to superior fire hydrant proportions, cleaner chain placement, and much more convincing cast-iron material definition."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3247,
+    "output": 212,
+    "thinking": null,
+    "total": 3459
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Prop 1 uses realistic threaded caps and properly attached chains, whereas Prop 2 features implausible flanged caps and an awkward dangling chain."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Prop 1 has authentic fire hydrant proportions with a rounded bonnet, while Prop 2 has a weirdly pointed dome and oversized flat nozzle flanges."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Prop 1 exhibits believable painted cast-iron, brass, and steel materials with subtle edge wear, whereas Prop 2 relies on heavy, uniform black procedural grunge."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Prop 1 has clean geometry and natural chain drape, while Prop 2's chain links clip awkwardly into the upper flange and hang unnaturally."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Prop 1 is far more accurate in mechanical design, proportions, and material execution than Prop 2."
+    }
+   }
+  }
+ ],
+ "total_tokens": 20751
+}

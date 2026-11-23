@@ -203,6 +203,21 @@ class Session:
         report to the user with "iterate lookdev/blockout and re-run QA"."""
         if self.plane is not None and not self.plane.calibrated and not self.state.preview:
             return NO_JUDGE
+        return self.unverifiable_target()
+
+    def unverifiable_target(self) -> str:
+        """The sentence for a session that must be verified (not a preview) for a target this machine cannot verify
+        (``validators.verification_gap``), else "". Same answer for every key. Told when the session opens, and every tool that
+        calls the judge or the image service refuses on it, so nothing is paid for before ``deliver_package`` would refuse."""
+        if self.state.preview:
+            return ""
+        from antigravity3d.adapters.engines.validators import verifiable_targets, verification_gap
+
+        if gap := verification_gap(self.state.budget.target_engine):
+            ok = verifiable_targets()
+            return (f"{self.state.budget.target_engine} cannot be verified on this machine ({gap}), and this session is not a "
+                    "preview, so it can never be delivered"
+                    + (f"; a session for {' or '.join(ok)} can be verified here" if ok else ""))
         return ""
 
     def persist_qa(self, *, strict: bool = False) -> None:

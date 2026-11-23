@@ -1,0 +1,1279 @@
+[
+ {
+  "project": "fx_vite",
+  "asset": "military_supply_crate",
+  "package": "measure/ws/crate/agy3d_assets/military_supply_crate-c9e3ec/export/military_supply_crate",
+  "today_highest_level_bytes": 2199072,
+  "never": {
+   "seconds": 4.8,
+   "status": "installed",
+   "checks": {
+    "import": "passed",
+    "loader": "passed",
+    "scene": "passed",
+    "scale": "passed",
+    "levels": "passed",
+    "materials": "passed",
+    "outline": "passed",
+    "collision": "passed",
+    "level_switching": "passed",
+    "shared_textures": "passed",
+    "loader_vs_package": "passed"
+   },
+   "wire": {
+    "asset_bytes": 2398154,
+    "transcoder_bytes": 0,
+    "total_bytes": 2398154,
+    "requests": 14
+   }
+  },
+  "always": {
+   "status": "installed",
+   "seconds": 39.2,
+   "dest": "src/agy3d/military_supply_crate",
+   "assets": "public/agy3d/military_supply_crate",
+   "rule": "the project depends on vite, which serves public/",
+   "three": {
+    "version": "0.170.0",
+    "revision": 170,
+    "supported": true
+   },
+   "state": "compressed",
+   "tier": "etc1s_albedo_and_orm",
+   "tolerance_measured": true,
+   "tiers_tried": [
+    {
+     "tier": "etc1s_albedo_and_orm",
+     "asset_bytes": 1108978,
+     "passed": true,
+     "mean_abs": 0.00781,
+     "pixel_share": 0.00858,
+     "outline": 0.99997
+    }
+   ],
+   "tools": {
+    "@gltf-transform/core": "4.5.1",
+    "@gltf-transform/extensions": "4.5.1",
+    "@gltf-transform/functions": "4.5.1",
+    "ktx2-encoder": "0.6.0",
+    "meshoptimizer": "1.2.0",
+    "sharp": "0.35.5"
+   },
+   "checks": [
+    {
+     "name": "import",
+     "status": "passed",
+     "detail": "5 check(s): no loader/console/page errors; no console warnings; shaders compile and link; no blocked/failed network requests; WebGL context healthy"
+    },
+    {
+     "name": "loader",
+     "status": "passed",
+     "detail": "military_supply_crate: a Group with one THREE.LOD of 4 level(s) in three r170"
+    },
+    {
+     "name": "scene",
+     "status": "passed",
+     "detail": "2 check(s): scene has triangle geometry; meshes carry NORMAL when the manifest declares vertex normals"
+    },
+    {
+     "name": "scale",
+     "status": "passed",
+     "detail": "1 check(s): loaded bounds == manifest glb_bounds_m (Y-up)"
+    },
+    {
+     "name": "levels",
+     "status": "passed",
+     "detail": "7 check(s): triangles == manifest tris; LOD0 triangles == manifest lod_tris[0]; LOD1 triangles == manifest lod_tris[1]; LOD2 triangles == manifest lod_tris[2]; LOD3 triangles == manifest lod_tris[3]; mesh count == manifest glb_batches; ..."
+    },
+    {
+     "name": "materials",
+     "status": "passed",
+     "detail": "8 check(s): LOD1 materials == LOD0 materials (parameters and texture content); LOD2 materials == LOD0 materials (parameters and texture content); LOD3 materials == LOD0 materials (parameters and texture content); no material fell back to a "
+    },
+    {
+     "name": "outline",
+     "status": "passed",
+     "detail": "4 check(s): frame has foreground; asset framed (does not touch frame edge); asset is lit (not black); silhouette IoU vs reference"
+    },
+    {
+     "name": "collision",
+     "status": "passed",
+     "detail": "8 hull(s) as plain arrays: every point within 1e-5 m of the package's colliders file, and the same triangle indices"
+    },
+    {
+     "name": "level_switching",
+     "status": "passed",
+     "detail": "rendered: the expected level alone (its triangle count in renderer.info) at every stop, moving out past each switch and back in, including the middle of each hysteresis band from both sides (switch at 9.21, 18.42, 36.85 m, hysteresis 2.5%),"
+    },
+    {
+     "name": "shared_textures",
+     "status": "passed",
+     "detail": "every level draws the highest level's materials; 3 map(s) fetched once each and 3 texture(s) on the GPU after all levels were drawn"
+    },
+    {
+     "name": "compression",
+     "status": "passed",
+     "detail": "compressed files against the package's own GLB, same camera and light: mean difference 0.781% (limit 1.5%), 0.858% of 88656 asset pixels over 8% (limit 1%), outline 0.99997 (limit 0.999)"
+    }
+   ],
+   "passed": 11,
+   "failed": [],
+   "skipped": [],
+   "warnings": [],
+   "hand_steps": 1,
+   "load_ms": 398.19999999925494,
+   "browser": "153.0.8010.12",
+   "frames": {
+    "mean_abs": 0.00781,
+    "pixel_share": 0.00858,
+    "mean_abs_whole_frame": 0.00264,
+    "outline": 0.99997,
+    "asset_pixels": 88656,
+    "limits": {
+     "mean_abs": 0.015,
+     "pixel_share_over": 0.08,
+     "pixel_share": 0.01,
+     "outline": 0.999
+    }
+   },
+   "bytes": {
+    "today": 2199072,
+    "uncompressed_install": 2398154,
+    "asset": 1108978,
+    "transcoder": 584862,
+    "one_asset_page": 1693840,
+    "asset_over_today": 0.504,
+    "one_asset_page_over_today": 0.77,
+    "half_reached": false
+   },
+   "gpu_memory_computed": {
+    "uncompressed": 33554430,
+    "block_compressed": 5592404
+   }
+  },
+  "reinstall": {
+   "status": "unchanged",
+   "seconds": 0.0,
+   "kept": 12,
+   "files": 12,
+   "note": "kept the compressed files of the earlier install (same inputs, tool versions and settings) at tier etc1s_albedo_and_orm "
+  },
+  "recheck": {
+   "seconds": 3.4,
+   "failed": []
+  },
+  "auto": {
+   "status": "installed",
+   "seconds": 38.9,
+   "state": "compressed",
+   "tier": "etc1s_albedo_and_orm",
+   "reason": null,
+   "compressed_bytes": 1108978,
+   "uncompressed_bytes": null,
+   "transcoder_bytes_counted": null,
+   "checks": {
+    "import": "passed",
+    "loader": "passed",
+    "scene": "passed",
+    "scale": "passed",
+    "levels": "passed",
+    "materials": "passed",
+    "outline": "passed",
+    "collision": "passed",
+    "level_switching": "passed",
+    "shared_textures": "passed",
+    "compression": "passed"
+   },
+   "wire": {
+    "asset_bytes": 1108978,
+    "transcoder_bytes": 584862,
+    "total_bytes": 1693840,
+    "requests": 23
+   }
+  },
+  "undo": {
+   "identical": true,
+   "differences": []
+  },
+  "conditions": {
+   "1_one_command_all_checks": true,
+   "3_inside_tolerance": true,
+   "3_half_the_bytes": false,
+   "3_one_asset_page_not_larger_than_today": true,
+   "4_undo_byte_for_byte": true
+  }
+ },
+ {
+  "project": "fx_vite",
+  "asset": "fire_hydrant",
+  "package": "measure/ws/hydrant/agy3d_assets/fire_hydrant-7d2f7d/export/fire_hydrant",
+  "today_highest_level_bytes": 1836004,
+  "never": {
+   "seconds": 2.3,
+   "status": "installed",
+   "checks": {
+    "import": "passed",
+    "loader": "passed",
+    "scene": "passed",
+    "scale": "passed",
+    "levels": "passed",
+    "materials": "passed",
+    "outline": "passed",
+    "collision": "passed",
+    "level_switching": "passed",
+    "shared_textures": "passed",
+    "loader_vs_package": "passed"
+   },
+   "wire": {
+    "asset_bytes": 1998172,
+    "transcoder_bytes": 0,
+    "total_bytes": 1998172,
+    "requests": 13
+   }
+  },
+  "always": {
+   "status": "installed",
+   "seconds": 102.4,
+   "dest": "src/agy3d/fire_hydrant",
+   "assets": "public/agy3d/fire_hydrant",
+   "rule": "the project depends on vite, which serves public/",
+   "three": {
+    "version": "0.170.0",
+    "revision": 170,
+    "supported": true
+   },
+   "state": "compressed",
+   "tier": "uastc_everything",
+   "tolerance_measured": true,
+   "tiers_tried": [
+    {
+     "tier": "etc1s_albedo_and_orm",
+     "asset_bytes": 934556,
+     "passed": false,
+     "mean_abs": 0.01236,
+     "pixel_share": 0.05619,
+     "outline": 0.99994
+    },
+    {
+     "tier": "uastc_orm",
+     "asset_bytes": 1303480,
+     "passed": false,
+     "mean_abs": 0.01007,
+     "pixel_share": 0.03013,
+     "outline": 0.99994
+    },
+    {
+     "tier": "uastc_everything",
+     "asset_bytes": 1498985,
+     "passed": true,
+     "mean_abs": 0.0051,
+     "pixel_share": 0.00141,
+     "outline": 0.99994
+    }
+   ],
+   "tools": {
+    "@gltf-transform/core": "4.5.1",
+    "@gltf-transform/extensions": "4.5.1",
+    "@gltf-transform/functions": "4.5.1",
+    "ktx2-encoder": "0.6.0",
+    "meshoptimizer": "1.2.0",
+    "sharp": "0.35.5"
+   },
+   "checks": [
+    {
+     "name": "import",
+     "status": "passed",
+     "detail": "5 check(s): no loader/console/page errors; no console warnings; shaders compile and link; no blocked/failed network requests; WebGL context healthy"
+    },
+    {
+     "name": "loader",
+     "status": "passed",
+     "detail": "fire_hydrant: a Group with one THREE.LOD of 2 level(s) in three r170"
+    },
+    {
+     "name": "scene",
+     "status": "passed",
+     "detail": "2 check(s): scene has triangle geometry; meshes carry NORMAL when the manifest declares vertex normals"
+    },
+    {
+     "name": "scale",
+     "status": "passed",
+     "detail": "1 check(s): loaded bounds == manifest glb_bounds_m (Y-up)"
+    },
+    {
+     "name": "levels",
+     "status": "passed",
+     "detail": "5 check(s): triangles == manifest tris; LOD0 triangles == manifest lod_tris[0]; LOD1 triangles == manifest lod_tris[1]; mesh count == manifest glb_batches; rendered draw calls == manifest draw_calls"
+    },
+    {
+     "name": "materials",
+     "status": "passed",
+     "detail": "6 check(s): LOD1 materials == LOD0 materials (parameters and texture content); no material fell back to a loader default; every declared texture slot is bound to a decoded image; loaded materials == manifest material inventory (parameters a"
+    },
+    {
+     "name": "outline",
+     "status": "passed",
+     "detail": "4 check(s): frame has foreground; asset framed (does not touch frame edge); asset is lit (not black); silhouette IoU vs reference"
+    },
+    {
+     "name": "collision",
+     "status": "passed",
+     "detail": "8 hull(s) as plain arrays: every point within 1e-5 m of the package's colliders file, and the same triangle indices"
+    },
+    {
+     "name": "level_switching",
+     "status": "passed",
+     "detail": "rendered: the expected level alone (its triangle count in renderer.info) at every stop, moving out past each switch and back in, including the middle of each hysteresis band from both sides (switch at 17.62 m, hysteresis 2.5%), at the recor"
+    },
+    {
+     "name": "shared_textures",
+     "status": "passed",
+     "detail": "every level draws the highest level's materials; 3 map(s) fetched once each and 3 texture(s) on the GPU after all levels were drawn"
+    },
+    {
+     "name": "compression",
+     "status": "passed",
+     "detail": "compressed files against the package's own GLB, same camera and light: mean difference 0.510% (limit 1.5%), 0.141% of 47425 asset pixels over 8% (limit 1%), outline 0.99994 (limit 0.999)"
+    }
+   ],
+   "passed": 11,
+   "failed": [],
+   "skipped": [],
+   "warnings": [],
+   "hand_steps": 1,
+   "load_ms": 604.8000000007451,
+   "browser": "153.0.8010.12",
+   "frames": {
+    "mean_abs": 0.0051,
+    "pixel_share": 0.00141,
+    "mean_abs_whole_frame": 0.00093,
+    "outline": 0.99994,
+    "asset_pixels": 47425,
+    "limits": {
+     "mean_abs": 0.015,
+     "pixel_share_over": 0.08,
+     "pixel_share": 0.01,
+     "outline": 0.999
+    }
+   },
+   "bytes": {
+    "today": 1836004,
+    "uncompressed_install": 1998172,
+    "asset": 1498985,
+    "transcoder": 584862,
+    "one_asset_page": 2083847,
+    "asset_over_today": 0.816,
+    "one_asset_page_over_today": 1.135,
+    "half_reached": false
+   },
+   "gpu_memory_computed": {
+    "uncompressed": 16777215,
+    "block_compressed": 4194303
+   }
+  },
+  "reinstall": {
+   "status": "unchanged",
+   "seconds": 0.0,
+   "kept": 10,
+   "files": 10,
+   "note": "kept the compressed files of the earlier install (same inputs, tool versions and settings) at tier uastc_everything (KTX"
+  },
+  "recheck": {
+   "seconds": 3.1,
+   "failed": []
+  },
+  "auto": {
+   "status": "installed",
+   "seconds": 105.0,
+   "state": "declined",
+   "tier": "uastc_everything",
+   "reason": "at uastc_everything (the first tier measured inside the frame tolerance) the asset's files are 1,498,985 bytes against 1,998,172 uncompressed, plus 584,862 for the KTX2 transcoder this project does not have yet",
+   "compressed_bytes": 1498985,
+   "uncompressed_bytes": 1998172,
+   "transcoder_bytes_counted": 584862,
+   "checks": {
+    "import": "passed",
+    "loader": "passed",
+    "scene": "passed",
+    "scale": "passed",
+    "levels": "passed",
+    "materials": "passed",
+    "outline": "passed",
+    "collision": "passed",
+    "level_switching": "passed",
+    "shared_textures": "passed",
+    "loader_vs_package": "passed"
+   },
+   "wire": {
+    "asset_bytes": 1998172,
+    "transcoder_bytes": 0,
+    "total_bytes": 1998172,
+    "requests": 13
+   }
+  },
+  "undo": {
+   "identical": true,
+   "differences": []
+  },
+  "conditions": {
+   "1_one_command_all_checks": true,
+   "3_inside_tolerance": true,
+   "3_half_the_bytes": false,
+   "3_one_asset_page_not_larger_than_today": false,
+   "4_undo_byte_for_byte": true
+  }
+ },
+ {
+  "project": "fx_vite",
+  "asset": "windsor_chair",
+  "package": "measure/ws/chair/agy3d_assets/windsor_chair-4ec7ab/export/windsor_chair",
+  "today_highest_level_bytes": 1039268,
+  "never": {
+   "seconds": 2.5,
+   "status": "installed",
+   "checks": {
+    "import": "passed",
+    "loader": "passed",
+    "scene": "passed",
+    "scale": "passed",
+    "levels": "passed",
+    "materials": "passed",
+    "outline": "passed",
+    "collision": "passed",
+    "level_switching": "passed",
+    "shared_textures": "passed",
+    "loader_vs_package": "passed"
+   },
+   "wire": {
+    "asset_bytes": 1178713,
+    "transcoder_bytes": 0,
+    "total_bytes": 1178713,
+    "requests": 13
+   }
+  },
+  "always": {
+   "status": "installed",
+   "seconds": 20.5,
+   "dest": "src/agy3d/windsor_chair",
+   "assets": "public/agy3d/windsor_chair",
+   "rule": "the project depends on vite, which serves public/",
+   "three": {
+    "version": "0.170.0",
+    "revision": 170,
+    "supported": true
+   },
+   "state": "compressed",
+   "tier": "etc1s_albedo_and_orm",
+   "tolerance_measured": true,
+   "tiers_tried": [
+    {
+     "tier": "etc1s_albedo_and_orm",
+     "asset_bytes": 564915,
+     "passed": true,
+     "mean_abs": 0.0058,
+     "pixel_share": 0.00104,
+     "outline": 0.99924
+    }
+   ],
+   "tools": {
+    "@gltf-transform/core": "4.5.1",
+    "@gltf-transform/extensions": "4.5.1",
+    "@gltf-transform/functions": "4.5.1",
+    "ktx2-encoder": "0.6.0",
+    "meshoptimizer": "1.2.0",
+    "sharp": "0.35.5"
+   },
+   "checks": [
+    {
+     "name": "import",
+     "status": "passed",
+     "detail": "5 check(s): no loader/console/page errors; no console warnings; shaders compile and link; no blocked/failed network requests; WebGL context healthy"
+    },
+    {
+     "name": "loader",
+     "status": "passed",
+     "detail": "windsor_chair: a Group with one THREE.LOD of 2 level(s) in three r170"
+    },
+    {
+     "name": "scene",
+     "status": "passed",
+     "detail": "2 check(s): scene has triangle geometry; meshes carry NORMAL when the manifest declares vertex normals"
+    },
+    {
+     "name": "scale",
+     "status": "passed",
+     "detail": "1 check(s): loaded bounds == manifest glb_bounds_m (Y-up)"
+    },
+    {
+     "name": "levels",
+     "status": "passed",
+     "detail": "5 check(s): triangles == manifest tris; LOD0 triangles == manifest lod_tris[0]; LOD1 triangles == manifest lod_tris[1]; mesh count == manifest glb_batches; rendered draw calls == manifest draw_calls"
+    },
+    {
+     "name": "materials",
+     "status": "passed",
+     "detail": "6 check(s): LOD1 materials == LOD0 materials (parameters and texture content); no material fell back to a loader default; every declared texture slot is bound to a decoded image; loaded materials == manifest material inventory (parameters a"
+    },
+    {
+     "name": "outline",
+     "status": "passed",
+     "detail": "4 check(s): frame has foreground; asset framed (does not touch frame edge); asset is lit (not black); silhouette IoU vs reference"
+    },
+    {
+     "name": "collision",
+     "status": "passed",
+     "detail": "8 hull(s) as plain arrays: every point within 1e-5 m of the package's colliders file, and the same triangle indices"
+    },
+    {
+     "name": "level_switching",
+     "status": "passed",
+     "detail": "rendered: the expected level alone (its triangle count in renderer.info) at every stop, moving out past each switch and back in, including the middle of each hysteresis band from both sides (switch at 2.06 m, hysteresis 2.5%), at the record"
+    },
+    {
+     "name": "shared_textures",
+     "status": "passed",
+     "detail": "every level draws the highest level's materials; 3 map(s) fetched once each and 3 texture(s) on the GPU after all levels were drawn"
+    },
+    {
+     "name": "compression",
+     "status": "passed",
+     "detail": "compressed files against the package's own GLB, same camera and light: mean difference 0.580% (limit 1.5%), 0.104% of 32833 asset pixels over 8% (limit 1%), outline 0.99924 (limit 0.999)"
+    }
+   ],
+   "passed": 11,
+   "failed": [],
+   "skipped": [],
+   "warnings": [],
+   "hand_steps": 1,
+   "load_ms": 560.8999999985099,
+   "browser": "153.0.8010.12",
+   "frames": {
+    "mean_abs": 0.0058,
+    "pixel_share": 0.00104,
+    "mean_abs_whole_frame": 0.00074,
+    "outline": 0.99924,
+    "asset_pixels": 32833,
+    "limits": {
+     "mean_abs": 0.015,
+     "pixel_share_over": 0.08,
+     "pixel_share": 0.01,
+     "outline": 0.999
+    }
+   },
+   "bytes": {
+    "today": 1039268,
+    "uncompressed_install": 1178713,
+    "asset": 564915,
+    "transcoder": 584862,
+    "one_asset_page": 1149777,
+    "asset_over_today": 0.544,
+    "one_asset_page_over_today": 1.106,
+    "half_reached": false
+   },
+   "gpu_memory_computed": {
+    "uncompressed": 8388606,
+    "block_compressed": 1398100
+   }
+  },
+  "reinstall": {
+   "status": "unchanged",
+   "seconds": 0.0,
+   "kept": 10,
+   "files": 10,
+   "note": "kept the compressed files of the earlier install (same inputs, tool versions and settings) at tier etc1s_albedo_and_orm "
+  },
+  "recheck": {
+   "seconds": 3.5,
+   "failed": []
+  },
+  "auto": {
+   "status": "installed",
+   "seconds": 21.8,
+   "state": "compressed",
+   "tier": "etc1s_albedo_and_orm",
+   "reason": null,
+   "compressed_bytes": 564915,
+   "uncompressed_bytes": null,
+   "transcoder_bytes_counted": null,
+   "checks": {
+    "import": "passed",
+    "loader": "passed",
+    "scene": "passed",
+    "scale": "passed",
+    "levels": "passed",
+    "materials": "passed",
+    "outline": "passed",
+    "collision": "passed",
+    "level_switching": "passed",
+    "shared_textures": "passed",
+    "compression": "passed"
+   },
+   "wire": {
+    "asset_bytes": 564915,
+    "transcoder_bytes": 584862,
+    "total_bytes": 1149777,
+    "requests": 21
+   }
+  },
+  "undo": {
+   "identical": true,
+   "differences": []
+  },
+  "conditions": {
+   "1_one_command_all_checks": true,
+   "3_inside_tolerance": true,
+   "3_half_the_bytes": false,
+   "3_one_asset_page_not_larger_than_today": false,
+   "4_undo_byte_for_byte": true
+  }
+ },
+ {
+  "project": "fx_r3f",
+  "asset": "military_supply_crate",
+  "package": "measure/ws/crate/agy3d_assets/military_supply_crate-c9e3ec/export/military_supply_crate",
+  "today_highest_level_bytes": 2199072,
+  "never": {
+   "seconds": 7.7,
+   "status": "installed",
+   "checks": {
+    "import": "passed",
+    "loader": "passed",
+    "scene": "passed",
+    "scale": "passed",
+    "levels": "passed",
+    "materials": "passed",
+    "outline": "passed",
+    "collision": "passed",
+    "level_switching": "passed",
+    "shared_textures": "passed",
+    "loader_vs_package": "passed",
+    "react_component": "passed"
+   },
+   "wire": {
+    "asset_bytes": 2398154,
+    "transcoder_bytes": 0,
+    "total_bytes": 2398154,
+    "requests": 15
+   }
+  },
+  "always": {
+   "status": "installed",
+   "seconds": 42.5,
+   "dest": "src/agy3d/military_supply_crate",
+   "assets": "public/agy3d/military_supply_crate",
+   "rule": "the project depends on vite, which serves public/",
+   "three": {
+    "version": "0.169.0",
+    "revision": 169,
+    "supported": true
+   },
+   "state": "compressed",
+   "tier": "etc1s_albedo_and_orm",
+   "tolerance_measured": true,
+   "tiers_tried": [
+    {
+     "tier": "etc1s_albedo_and_orm",
+     "asset_bytes": 1108978,
+     "passed": true,
+     "mean_abs": 0.00781,
+     "pixel_share": 0.00858,
+     "outline": 0.99997
+    }
+   ],
+   "tools": {
+    "@gltf-transform/core": "4.5.1",
+    "@gltf-transform/extensions": "4.5.1",
+    "@gltf-transform/functions": "4.5.1",
+    "ktx2-encoder": "0.6.0",
+    "meshoptimizer": "1.2.0",
+    "sharp": "0.35.5"
+   },
+   "checks": [
+    {
+     "name": "import",
+     "status": "passed",
+     "detail": "5 check(s): no loader/console/page errors; no console warnings; shaders compile and link; no blocked/failed network requests; WebGL context healthy"
+    },
+    {
+     "name": "loader",
+     "status": "passed",
+     "detail": "military_supply_crate: a Group with one THREE.LOD of 4 level(s) in three r169"
+    },
+    {
+     "name": "scene",
+     "status": "passed",
+     "detail": "2 check(s): scene has triangle geometry; meshes carry NORMAL when the manifest declares vertex normals"
+    },
+    {
+     "name": "scale",
+     "status": "passed",
+     "detail": "1 check(s): loaded bounds == manifest glb_bounds_m (Y-up)"
+    },
+    {
+     "name": "levels",
+     "status": "passed",
+     "detail": "7 check(s): triangles == manifest tris; LOD0 triangles == manifest lod_tris[0]; LOD1 triangles == manifest lod_tris[1]; LOD2 triangles == manifest lod_tris[2]; LOD3 triangles == manifest lod_tris[3]; mesh count == manifest glb_batches; ..."
+    },
+    {
+     "name": "materials",
+     "status": "passed",
+     "detail": "8 check(s): LOD1 materials == LOD0 materials (parameters and texture content); LOD2 materials == LOD0 materials (parameters and texture content); LOD3 materials == LOD0 materials (parameters and texture content); no material fell back to a "
+    },
+    {
+     "name": "outline",
+     "status": "passed",
+     "detail": "4 check(s): frame has foreground; asset framed (does not touch frame edge); asset is lit (not black); silhouette IoU vs reference"
+    },
+    {
+     "name": "collision",
+     "status": "passed",
+     "detail": "8 hull(s) as plain arrays: every point within 1e-5 m of the package's colliders file, and the same triangle indices"
+    },
+    {
+     "name": "level_switching",
+     "status": "passed",
+     "detail": "rendered: the expected level alone (its triangle count in renderer.info) at every stop, moving out past each switch and back in, including the middle of each hysteresis band from both sides (switch at 9.21, 18.42, 36.85 m, hysteresis 2.5%),"
+    },
+    {
+     "name": "shared_textures",
+     "status": "passed",
+     "detail": "every level draws the highest level's materials; 3 map(s) fetched once each and 3 texture(s) on the GPU after all levels were drawn"
+    },
+    {
+     "name": "compression",
+     "status": "passed",
+     "detail": "compressed files against the package's own GLB, same camera and light: mean difference 0.781% (limit 1.5%), 0.858% of 88656 asset pixels over 8% (limit 1%), outline 0.99997 (limit 0.999)"
+    },
+    {
+     "name": "react_component",
+     "status": "passed",
+     "detail": "<MilitarySupplyCrate /> mounted in a React Three Fiber Canvas bundled with the project's esbuild: a THREE.LOD of 4 level(s), 2784 triangles in 1 draw call(s), 10.5% of the frame drawn, no console error or warning"
+    }
+   ],
+   "passed": 12,
+   "failed": [],
+   "skipped": [],
+   "warnings": [],
+   "hand_steps": 1,
+   "load_ms": 443.5,
+   "browser": "153.0.8010.12",
+   "frames": {
+    "mean_abs": 0.00781,
+    "pixel_share": 0.00858,
+    "mean_abs_whole_frame": 0.00264,
+    "outline": 0.99997,
+    "asset_pixels": 88656,
+    "limits": {
+     "mean_abs": 0.015,
+     "pixel_share_over": 0.08,
+     "pixel_share": 0.01,
+     "outline": 0.999
+    }
+   },
+   "bytes": {
+    "today": 2199072,
+    "uncompressed_install": 2398154,
+    "asset": 1108978,
+    "transcoder": 584862,
+    "one_asset_page": 1693840,
+    "asset_over_today": 0.504,
+    "one_asset_page_over_today": 0.77,
+    "half_reached": false
+   },
+   "gpu_memory_computed": {
+    "uncompressed": 33554430,
+    "block_compressed": 5592404
+   }
+  },
+  "reinstall": {
+   "status": "unchanged",
+   "seconds": 0.0,
+   "kept": 14,
+   "files": 14,
+   "note": "kept the compressed files of the earlier install (same inputs, tool versions and settings) at tier etc1s_albedo_and_orm "
+  },
+  "recheck": {
+   "seconds": 5.9,
+   "failed": []
+  },
+  "auto": {
+   "status": "installed",
+   "seconds": 45.4,
+   "state": "compressed",
+   "tier": "etc1s_albedo_and_orm",
+   "reason": null,
+   "compressed_bytes": 1108978,
+   "uncompressed_bytes": null,
+   "transcoder_bytes_counted": null,
+   "checks": {
+    "import": "passed",
+    "loader": "passed",
+    "scene": "passed",
+    "scale": "passed",
+    "levels": "passed",
+    "materials": "passed",
+    "outline": "passed",
+    "collision": "passed",
+    "level_switching": "passed",
+    "shared_textures": "passed",
+    "compression": "passed",
+    "react_component": "passed"
+   },
+   "wire": {
+    "asset_bytes": 1108978,
+    "transcoder_bytes": 584862,
+    "total_bytes": 1693840,
+    "requests": 22
+   }
+  },
+  "undo": {
+   "identical": true,
+   "differences": []
+  },
+  "conditions": {
+   "1_one_command_all_checks": true,
+   "3_inside_tolerance": true,
+   "3_half_the_bytes": false,
+   "3_one_asset_page_not_larger_than_today": true,
+   "4_undo_byte_for_byte": true
+  }
+ },
+ {
+  "project": "fx_r3f",
+  "asset": "fire_hydrant",
+  "package": "measure/ws/hydrant/agy3d_assets/fire_hydrant-7d2f7d/export/fire_hydrant",
+  "today_highest_level_bytes": 1836004,
+  "never": {
+   "seconds": 5.9,
+   "status": "installed",
+   "checks": {
+    "import": "passed",
+    "loader": "passed",
+    "scene": "passed",
+    "scale": "passed",
+    "levels": "passed",
+    "materials": "passed",
+    "outline": "passed",
+    "collision": "passed",
+    "level_switching": "passed",
+    "shared_textures": "passed",
+    "loader_vs_package": "passed",
+    "react_component": "passed"
+   },
+   "wire": {
+    "asset_bytes": 1998172,
+    "transcoder_bytes": 0,
+    "total_bytes": 1998172,
+    "requests": 13
+   }
+  },
+  "always": {
+   "status": "installed",
+   "seconds": 102.7,
+   "dest": "src/agy3d/fire_hydrant",
+   "assets": "public/agy3d/fire_hydrant",
+   "rule": "the project depends on vite, which serves public/",
+   "three": {
+    "version": "0.169.0",
+    "revision": 169,
+    "supported": true
+   },
+   "state": "compressed",
+   "tier": "uastc_everything",
+   "tolerance_measured": true,
+   "tiers_tried": [
+    {
+     "tier": "etc1s_albedo_and_orm",
+     "asset_bytes": 934556,
+     "passed": false,
+     "mean_abs": 0.01236,
+     "pixel_share": 0.05619,
+     "outline": 0.99994
+    },
+    {
+     "tier": "uastc_orm",
+     "asset_bytes": 1303480,
+     "passed": false,
+     "mean_abs": 0.01007,
+     "pixel_share": 0.03013,
+     "outline": 0.99994
+    },
+    {
+     "tier": "uastc_everything",
+     "asset_bytes": 1498985,
+     "passed": true,
+     "mean_abs": 0.0051,
+     "pixel_share": 0.00141,
+     "outline": 0.99994
+    }
+   ],
+   "tools": {
+    "@gltf-transform/core": "4.5.1",
+    "@gltf-transform/extensions": "4.5.1",
+    "@gltf-transform/functions": "4.5.1",
+    "ktx2-encoder": "0.6.0",
+    "meshoptimizer": "1.2.0",
+    "sharp": "0.35.5"
+   },
+   "checks": [
+    {
+     "name": "import",
+     "status": "passed",
+     "detail": "5 check(s): no loader/console/page errors; no console warnings; shaders compile and link; no blocked/failed network requests; WebGL context healthy"
+    },
+    {
+     "name": "loader",
+     "status": "passed",
+     "detail": "fire_hydrant: a Group with one THREE.LOD of 2 level(s) in three r169"
+    },
+    {
+     "name": "scene",
+     "status": "passed",
+     "detail": "2 check(s): scene has triangle geometry; meshes carry NORMAL when the manifest declares vertex normals"
+    },
+    {
+     "name": "scale",
+     "status": "passed",
+     "detail": "1 check(s): loaded bounds == manifest glb_bounds_m (Y-up)"
+    },
+    {
+     "name": "levels",
+     "status": "passed",
+     "detail": "5 check(s): triangles == manifest tris; LOD0 triangles == manifest lod_tris[0]; LOD1 triangles == manifest lod_tris[1]; mesh count == manifest glb_batches; rendered draw calls == manifest draw_calls"
+    },
+    {
+     "name": "materials",
+     "status": "passed",
+     "detail": "6 check(s): LOD1 materials == LOD0 materials (parameters and texture content); no material fell back to a loader default; every declared texture slot is bound to a decoded image; loaded materials == manifest material inventory (parameters a"
+    },
+    {
+     "name": "outline",
+     "status": "passed",
+     "detail": "4 check(s): frame has foreground; asset framed (does not touch frame edge); asset is lit (not black); silhouette IoU vs reference"
+    },
+    {
+     "name": "collision",
+     "status": "passed",
+     "detail": "8 hull(s) as plain arrays: every point within 1e-5 m of the package's colliders file, and the same triangle indices"
+    },
+    {
+     "name": "level_switching",
+     "status": "passed",
+     "detail": "rendered: the expected level alone (its triangle count in renderer.info) at every stop, moving out past each switch and back in, including the middle of each hysteresis band from both sides (switch at 17.62 m, hysteresis 2.5%), at the recor"
+    },
+    {
+     "name": "shared_textures",
+     "status": "passed",
+     "detail": "every level draws the highest level's materials; 3 map(s) fetched once each and 3 texture(s) on the GPU after all levels were drawn"
+    },
+    {
+     "name": "compression",
+     "status": "passed",
+     "detail": "compressed files against the package's own GLB, same camera and light: mean difference 0.510% (limit 1.5%), 0.141% of 47425 asset pixels over 8% (limit 1%), outline 0.99994 (limit 0.999)"
+    },
+    {
+     "name": "react_component",
+     "status": "passed",
+     "detail": "<FireHydrant /> mounted in a React Three Fiber Canvas bundled with the project's esbuild: a THREE.LOD of 2 level(s), 3912 triangles in 1 draw call(s), 5.8% of the frame drawn, no console error or warning"
+    }
+   ],
+   "passed": 12,
+   "failed": [],
+   "skipped": [],
+   "warnings": [],
+   "hand_steps": 1,
+   "load_ms": 548,
+   "browser": "153.0.8010.12",
+   "frames": {
+    "mean_abs": 0.0051,
+    "pixel_share": 0.00141,
+    "mean_abs_whole_frame": 0.00093,
+    "outline": 0.99994,
+    "asset_pixels": 47425,
+    "limits": {
+     "mean_abs": 0.015,
+     "pixel_share_over": 0.08,
+     "pixel_share": 0.01,
+     "outline": 0.999
+    }
+   },
+   "bytes": {
+    "today": 1836004,
+    "uncompressed_install": 1998172,
+    "asset": 1498985,
+    "transcoder": 584862,
+    "one_asset_page": 2083847,
+    "asset_over_today": 0.816,
+    "one_asset_page_over_today": 1.135,
+    "half_reached": false
+   },
+   "gpu_memory_computed": {
+    "uncompressed": 16777215,
+    "block_compressed": 4194303
+   }
+  },
+  "reinstall": {
+   "status": "unchanged",
+   "seconds": 0.0,
+   "kept": 12,
+   "files": 12,
+   "note": "kept the compressed files of the earlier install (same inputs, tool versions and settings) at tier uastc_everything (KTX"
+  },
+  "recheck": {
+   "seconds": 6.2,
+   "failed": []
+  },
+  "auto": {
+   "status": "installed",
+   "seconds": 102.8,
+   "state": "declined",
+   "tier": "uastc_everything",
+   "reason": "at uastc_everything (the first tier measured inside the frame tolerance) the asset's files are 1,498,985 bytes against 1,998,172 uncompressed, plus 584,862 for the KTX2 transcoder this project does not have yet",
+   "compressed_bytes": 1498985,
+   "uncompressed_bytes": 1998172,
+   "transcoder_bytes_counted": 584862,
+   "checks": {
+    "import": "passed",
+    "loader": "passed",
+    "scene": "passed",
+    "scale": "passed",
+    "levels": "passed",
+    "materials": "passed",
+    "outline": "passed",
+    "collision": "passed",
+    "level_switching": "passed",
+    "shared_textures": "passed",
+    "loader_vs_package": "passed",
+    "react_component": "passed"
+   },
+   "wire": {
+    "asset_bytes": 1998172,
+    "transcoder_bytes": 0,
+    "total_bytes": 1998172,
+    "requests": 13
+   }
+  },
+  "undo": {
+   "identical": true,
+   "differences": []
+  },
+  "conditions": {
+   "1_one_command_all_checks": true,
+   "3_inside_tolerance": true,
+   "3_half_the_bytes": false,
+   "3_one_asset_page_not_larger_than_today": false,
+   "4_undo_byte_for_byte": true
+  }
+ },
+ {
+  "project": "fx_r3f",
+  "asset": "windsor_chair",
+  "package": "measure/ws/chair/agy3d_assets/windsor_chair-4ec7ab/export/windsor_chair",
+  "today_highest_level_bytes": 1039268,
+  "never": {
+   "seconds": 4.4,
+   "status": "installed",
+   "checks": {
+    "import": "passed",
+    "loader": "passed",
+    "scene": "passed",
+    "scale": "passed",
+    "levels": "passed",
+    "materials": "passed",
+    "outline": "passed",
+    "collision": "passed",
+    "level_switching": "passed",
+    "shared_textures": "passed",
+    "loader_vs_package": "passed",
+    "react_component": "passed"
+   },
+   "wire": {
+    "asset_bytes": 1178713,
+    "transcoder_bytes": 0,
+    "total_bytes": 1178713,
+    "requests": 13
+   }
+  },
+  "always": {
+   "status": "installed",
+   "seconds": 23.7,
+   "dest": "src/agy3d/windsor_chair",
+   "assets": "public/agy3d/windsor_chair",
+   "rule": "the project depends on vite, which serves public/",
+   "three": {
+    "version": "0.169.0",
+    "revision": 169,
+    "supported": true
+   },
+   "state": "compressed",
+   "tier": "etc1s_albedo_and_orm",
+   "tolerance_measured": true,
+   "tiers_tried": [
+    {
+     "tier": "etc1s_albedo_and_orm",
+     "asset_bytes": 564915,
+     "passed": true,
+     "mean_abs": 0.0058,
+     "pixel_share": 0.00104,
+     "outline": 0.99924
+    }
+   ],
+   "tools": {
+    "@gltf-transform/core": "4.5.1",
+    "@gltf-transform/extensions": "4.5.1",
+    "@gltf-transform/functions": "4.5.1",
+    "ktx2-encoder": "0.6.0",
+    "meshoptimizer": "1.2.0",
+    "sharp": "0.35.5"
+   },
+   "checks": [
+    {
+     "name": "import",
+     "status": "passed",
+     "detail": "5 check(s): no loader/console/page errors; no console warnings; shaders compile and link; no blocked/failed network requests; WebGL context healthy"
+    },
+    {
+     "name": "loader",
+     "status": "passed",
+     "detail": "windsor_chair: a Group with one THREE.LOD of 2 level(s) in three r169"
+    },
+    {
+     "name": "scene",
+     "status": "passed",
+     "detail": "2 check(s): scene has triangle geometry; meshes carry NORMAL when the manifest declares vertex normals"
+    },
+    {
+     "name": "scale",
+     "status": "passed",
+     "detail": "1 check(s): loaded bounds == manifest glb_bounds_m (Y-up)"
+    },
+    {
+     "name": "levels",
+     "status": "passed",
+     "detail": "5 check(s): triangles == manifest tris; LOD0 triangles == manifest lod_tris[0]; LOD1 triangles == manifest lod_tris[1]; mesh count == manifest glb_batches; rendered draw calls == manifest draw_calls"
+    },
+    {
+     "name": "materials",
+     "status": "passed",
+     "detail": "6 check(s): LOD1 materials == LOD0 materials (parameters and texture content); no material fell back to a loader default; every declared texture slot is bound to a decoded image; loaded materials == manifest material inventory (parameters a"
+    },
+    {
+     "name": "outline",
+     "status": "passed",
+     "detail": "4 check(s): frame has foreground; asset framed (does not touch frame edge); asset is lit (not black); silhouette IoU vs reference"
+    },
+    {
+     "name": "collision",
+     "status": "passed",
+     "detail": "8 hull(s) as plain arrays: every point within 1e-5 m of the package's colliders file, and the same triangle indices"
+    },
+    {
+     "name": "level_switching",
+     "status": "passed",
+     "detail": "rendered: the expected level alone (its triangle count in renderer.info) at every stop, moving out past each switch and back in, including the middle of each hysteresis band from both sides (switch at 2.06 m, hysteresis 2.5%), at the record"
+    },
+    {
+     "name": "shared_textures",
+     "status": "passed",
+     "detail": "every level draws the highest level's materials; 3 map(s) fetched once each and 3 texture(s) on the GPU after all levels were drawn"
+    },
+    {
+     "name": "compression",
+     "status": "passed",
+     "detail": "compressed files against the package's own GLB, same camera and light: mean difference 0.580% (limit 1.5%), 0.104% of 32833 asset pixels over 8% (limit 1%), outline 0.99924 (limit 0.999)"
+    },
+    {
+     "name": "react_component",
+     "status": "passed",
+     "detail": "<WindsorChair /> mounted in a React Three Fiber Canvas bundled with the project's esbuild: a THREE.LOD of 2 level(s), 4072 triangles in 1 draw call(s), 3.8% of the frame drawn, no console error or warning"
+    }
+   ],
+   "passed": 12,
+   "failed": [],
+   "skipped": [],
+   "warnings": [],
+   "hand_steps": 1,
+   "load_ms": 676.6999999992549,
+   "browser": "153.0.8010.12",
+   "frames": {
+    "mean_abs": 0.0058,
+    "pixel_share": 0.00104,
+    "mean_abs_whole_frame": 0.00074,
+    "outline": 0.99924,
+    "asset_pixels": 32833,
+    "limits": {
+     "mean_abs": 0.015,
+     "pixel_share_over": 0.08,
+     "pixel_share": 0.01,
+     "outline": 0.999
+    }
+   },
+   "bytes": {
+    "today": 1039268,
+    "uncompressed_install": 1178713,
+    "asset": 564915,
+    "transcoder": 584862,
+    "one_asset_page": 1149777,
+    "asset_over_today": 0.544,
+    "one_asset_page_over_today": 1.106,
+    "half_reached": false
+   },
+   "gpu_memory_computed": {
+    "uncompressed": 8388606,
+    "block_compressed": 1398100
+   }
+  },
+  "reinstall": {
+   "status": "unchanged",
+   "seconds": 0.0,
+   "kept": 12,
+   "files": 12,
+   "note": "kept the compressed files of the earlier install (same inputs, tool versions and settings) at tier etc1s_albedo_and_orm "
+  },
+  "recheck": {
+   "seconds": 5.7,
+   "failed": []
+  },
+  "auto": {
+   "status": "installed",
+   "seconds": 25.3,
+   "state": "compressed",
+   "tier": "etc1s_albedo_and_orm",
+   "reason": null,
+   "compressed_bytes": 564915,
+   "uncompressed_bytes": null,
+   "transcoder_bytes_counted": null,
+   "checks": {
+    "import": "passed",
+    "loader": "passed",
+    "scene": "passed",
+    "scale": "passed",
+    "levels": "passed",
+    "materials": "passed",
+    "outline": "passed",
+    "collision": "passed",
+    "level_switching": "passed",
+    "shared_textures": "passed",
+    "compression": "passed",
+    "react_component": "passed"
+   },
+   "wire": {
+    "asset_bytes": 564915,
+    "transcoder_bytes": 584862,
+    "total_bytes": 1149777,
+    "requests": 20
+   }
+  },
+  "undo": {
+   "identical": true,
+   "differences": []
+  },
+  "conditions": {
+   "1_one_command_all_checks": true,
+   "3_inside_tolerance": true,
+   "3_half_the_bytes": false,
+   "3_one_asset_page_not_larger_than_today": false,
+   "4_undo_byte_for_byte": true
+  }
+ }
+]

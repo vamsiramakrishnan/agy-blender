@@ -15,6 +15,7 @@ import random
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
@@ -107,8 +108,20 @@ def _move(scene: SceneIR, node_id: str, delta: np.ndarray) -> SetTransform:
         translate=tuple(float(x) for x in np.array(t.translate) + d), rotate_euler_deg=t.rotate_euler_deg, scale=t.scale))
 
 
-def count_tris(scene: SceneIR) -> int:
-    return sum(triangle_count(n) for n in scene.nodes)  # the kernel's cost function, the one source
+def _file_tris(path: str, resolve: Callable[[str], Path] | None = None) -> int:
+    """Triangles a mesh_ref's file holds (what the kernel's cost function leaves to the file: 'its cost is in its file')."""
+    from antigravity3d.kernel.compile_ir import mesh_ref_file
+    from antigravity3d.kernel.mesh_io import triangle_parts
+
+    f = resolve(path) if resolve is not None else mesh_ref_file(path, None)
+    return sum(len(faces) for _, _, faces, _ in triangle_parts(f))
+
+
+def count_tris(scene: SceneIR, resolve: Callable[[str], Path] | None = None) -> int:
+    """The scene's triangles: the kernel's cost function for a ready shape (the one source), the file's for a free-form
+    part. Without the second, ``agy3d edit`` of any package holding a free-form part stopped at its first budget check
+    with 'kind mesh_ref has no triangle cost' (measured on the round-seven crate with the work folder still there)."""
+    return sum(_file_tris(str(n.params["path"]), resolve) if n.kind == "mesh_ref" else triangle_count(n) for n in scene.nodes)
 
 
 # --------------------------------------------------------------------------- mechanical repairs
@@ -150,13 +163,13 @@ def _lift_all(scene: SceneIR) -> list[IROp]:
     return [_move(scene, n.id, np.array([0.0, 0.0, dz])) for n in scene.nodes if n.parent is None] if abs(dz) > 1e-6 else []
 
 
-def _shrink(scene: SceneIR, max_tris: int, only: set[str] | None = None) -> list[IROp]:
+def _shrink(scene: SceneIR, max_tris: int, only: set[str] | None = None, resolve: Callable[[str], Path] | None = None) -> list[IROp]:
     """Reduce segments/rings of curved nodes until the analytic tri count fits 90% of the budget. ``only``: change no
     node outside this set (a patch's clean-up touches only what the patch changed; tactics.pyramid.tidy)."""
     target, cur = int(max_tris * 0.9), scene
     ops: list[IROp] = []
     for _ in range(6):
-        tris = count_tris(cur)
+        tris = count_tris(cur, resolve)
         if tris <= target:
             break
         k = max(0.25, math.sqrt(target / tris))

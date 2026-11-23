@@ -47,7 +47,7 @@ from pxr import Gf, Kind, Sdf, Tf, Usd, UsdGeom, UsdShade, UsdUtils
 from antigravity3d import ir
 from antigravity3d.ir import IRPatch, SceneIR
 from antigravity3d.kernel import usd_boot
-from antigravity3d.kernel.compile_ir import COLLIDER_PROXY_KEY, CREASE_DEG, IR_KEY, facing, UV_CHART_KEY, UV_WELD_KEY, author_mesh_data, author_scene, node_paths, read_ir, read_material, resolve_anchor
+from antigravity3d.kernel.compile_ir import mesh_ref_file, COLLIDER_PROXY_KEY, CREASE_DEG, IR_KEY, read_grain, read_run, facing, UV_CHART_KEY, UV_WELD_KEY, author_mesh_data, author_scene, node_paths, read_ir, read_material, resolve_anchor
 from antigravity3d.kernel.fast_ops import UVResult
 from antigravity3d.kernel.spatial import PrimInfo, SpatialIndex
 from antigravity3d.kernel.types import MeshData
@@ -208,6 +208,10 @@ class StageManager:
     @property
     def asset_prim(self) -> Usd.Prim:
         return self._stage.GetDefaultPrim()
+
+    def mesh_ref_file(self, uri: str) -> Path:
+        """The file a mesh_ref of this stage's scene names (``compile_ir.mesh_ref_file``)."""
+        return mesh_ref_file(uri, self._stage.GetRootLayer().realPath)
 
     def scene_ir(self) -> SceneIR:
         """IR of the composed scene (including the selected variants)."""
@@ -488,6 +492,8 @@ class StageManager:
                 opaque=None if opaque is None else (mat.GetPrim().GetName() if mat else None) in opaque,
                 material=params.get(mat.GetPath()) if mat else None,
                 keep_layout=self.keep_layout,
+                run=read_run(prim, m),  # the part's run, carried as its collider proxy is (compile_ir._author_run)
+                grain=read_grain(prim, m),
             )
             out.append(_MeshRead(prim, md, local, m[:3, :3]))
         return out
@@ -643,6 +649,21 @@ class StageManager:
         edit.Add(BASE, Sdf.Path.emptyPath)  # the base class is an authoring detail
         if not flat.Apply(edit):
             raise RuntimeError("failed to strip base class from export")
+
+        def clear_redundant(spec: Sdf.PrimSpec) -> None:
+            if spec.HasInfo("active") and spec.active:
+                spec.ClearActive()
+            if spec.nameChildrenOrder:  # Flatten writes the children in their composed order and keeps the statement too
+                spec.nameChildrenOrder = []
+            for child in spec.nameChildren:
+                clear_redundant(child)
+
+        # What only the builds that preceded this design left in the one-layer file, and no reader needs: a part a
+        # later design dropped is deactivated and, when brought back, activated again (`active = true`), and a design
+        # that put a part between existing ones carries the children reorder that did it (see
+        # compile_ir._order_children). Both made the USD and USDZ of one design differ with the session's history.
+        for top in flat.rootPrims:
+            clear_redundant(top)
         return flat
 
     def export(self, path: Path) -> None:

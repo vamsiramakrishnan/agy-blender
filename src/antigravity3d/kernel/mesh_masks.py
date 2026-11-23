@@ -212,6 +212,23 @@ def rasterize_atlas(layout: AtlasLayout, ring_px: int = 3) -> AtlasTexels:
                        {"rasterize": round((time.perf_counter() - t0) * 1e3, 1)})
 
 
+def part_texel_m(layout: AtlasLayout) -> np.ndarray:
+    """(P,) the world size of one texel (m) on each part of ``layout``: its 3D area over its texel area. The atlas's
+    median (``AtlasTexels.texel_m``) is right only where every material is packed at one density; a plain or glass
+    material is packed at half (``smart_source.PLAIN_PX_PER_M``), and a slope taken over two texels of it divided by
+    the median doubles."""
+    out = np.zeros(len(layout.parts))
+    for i, p in enumerate(layout.parts):
+        T, P, UV = p.triangles, p.points, p.uvs * [layout.width, layout.height]
+        if not len(T):
+            continue
+        a3 = np.linalg.norm(np.cross(P[T[:, 1]] - P[T[:, 0]], P[T[:, 2]] - P[T[:, 0]]), axis=1).sum() / 2
+        e1, e2 = UV[T[:, 1]] - UV[T[:, 0]], UV[T[:, 2]] - UV[T[:, 0]]
+        a2 = np.abs(e1[:, 0] * e2[:, 1] - e1[:, 1] * e2[:, 0]).sum() / 2
+        out[i] = np.sqrt(a3 / a2) if a2 > 1e-12 else 0.0
+    return out
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # Edges: dihedral turns of each mesh, from its own topology
 
@@ -224,11 +241,21 @@ class MeshEdges:
     turn: np.ndarray
 
 
-def mesh_edges(points: np.ndarray, triangles: np.ndarray, *, weld_m: float = 1e-6, min_turn_deg: float = MIN_TURN_DEG) -> MeshEdges:
+def mesh_edges(points: np.ndarray, triangles: np.ndarray, *, weld_m: float = 1e-6, min_turn_deg: float = MIN_TURN_DEG,
+               run=None, crease_deg: float | None = None) -> MeshEdges:
     """Every edge of the welded mesh whose two faces turn by at least ``min_turn_deg``, with the signed turn.
 
     An edge with one face (an open border: the rim of a sheet or of an open lathe) is a convex 90 degree edge: it is
-    a thin edge that gets knocked. An edge with more than two faces is skipped (non-manifold: no single turn)."""
+    a thin edge that gets knocked. An edge with more than two faces is skipped (non-manifold: no single turn).
+
+    ``run``: the part's ``types.Run``. The lines between a round part's facets that ship smooth
+    (``compile_ir.round_soft``, the one rule the shipped normals use, at ``crease_deg``, the project's by default) are
+    not edges; a crease across the run (a bead, a kink, a cap) still is. Measured on round six's chair: without this a
+    6-sided spindle read 102-110 degrees of convex turn everywhere, edge on every texel, a 0.9 mm edge roll all round
+    a 7 mm rod."""
+    from antigravity3d.kernel.compile_ir import CREASE_DEG, round_soft
+    from antigravity3d.kernel.surface_frame import round_dirs
+
     p = np.asarray(points, np.float64)
     t = np.asarray(triangles, np.int64)
     if not len(t):
@@ -262,6 +289,9 @@ def mesh_edges(points: np.ndarray, triangles: np.ndarray, *, weld_m: float = 1e-
         below = ((wp[opp[two + 1]] - wp[e[two, 0]]) * fn[f1]).sum(axis=1) < 0
         sgn = np.where(below, 1.0, -1.0)
         sel = ang >= np.radians(min_turn_deg)
+        if run is not None and getattr(run, "round", False):
+            d = round_dirs(wp, wt, run)
+            sel &= ~round_soft(fn[f1], fn[f2], d[f1], d[f2], CREASE_DEG if crease_deg is None else crease_deg)
         segs.append(wp[e[two[sel]]])
         turns.append((ang * sgn)[sel])
     one = start[count == 1]
@@ -326,10 +356,29 @@ def turn_field(pos: np.ndarray, edges: MeshEdges, radius: float, sign: float, ma
     return out
 
 
+#: The band an edge wears in is at most this share of the part's size across (``surface_frame.part_across_m``: a rod's
+#: diameter, a plate's width): EDGE_RADIUS_M (12 mm) is a crate panel's; on a 5 mm bolt or a 14 mm spindle a 12 mm band
+#: covered the whole part (round six). Not below 3 mm, where chips stop reading at the scorecard's sheet size. Keyed on
+#: the thickness instead (round seven's first pass), an 8 mm corner cap 68 mm wide wore in a 6 mm band and the crate's
+#: plates lost three quarters of their worn-steel edges (blind judge: round six's crate preferred, "crisper edge wear").
+EDGE_PER_THICKNESS = 0.75
+EDGE_MIN_M = 0.003
+
+
+def edge_band_m(mesh: MeshData | None, edge_radius: float = EDGE_RADIUS_M) -> float:
+    """The radius (m) a part's convex edges wear within: ``edge_radius``, narrowed on a part thin across."""
+    from antigravity3d.kernel.surface_frame import part_across_m
+
+    if mesh is None or not len(mesh.points):
+        return edge_radius
+    return min(edge_radius, max(EDGE_MIN_M, EDGE_PER_THICKNESS * part_across_m(mesh)))
+
+
 def edge_fields(tex: AtlasTexels, meshes: Mapping[str, MeshData], *, edge_radius: float = EDGE_RADIUS_M,
                 crease_radius: float = CREASE_RADIUS_M) -> tuple[np.ndarray, np.ndarray]:
     """(convex, concave) turn sums in degrees per texel (H, W), from each part's own mesh (``meshes`` by node id; the
-    closed working mesh, hidden contact faces included: those are where the part's real edges are)."""
+    closed working mesh, hidden contact faces included: those are where the part's real edges are). The convex band of
+    a part thin across is narrower (``edge_band_m``): wear in proportion to the part."""
     t0 = time.perf_counter()
     H, W = tex.shape
     cvx = np.zeros((H, W), np.float32)
@@ -337,12 +386,12 @@ def edge_fields(tex: AtlasTexels, meshes: Mapping[str, MeshData], *, edge_radius
     for i, lp in enumerate(tex.layout.parts):
         m = meshes.get(lp.node_id)
         src = (m.points, m.triangles) if m is not None else (lp.points, lp.triangles)
-        edges = mesh_edges(*src)
+        edges = mesh_edges(*src, run=getattr(m, "run", None))
         sel = tex.valid & (tex.part == i)
         if not sel.any() or not len(edges.turn):
             continue
         q = tex.pos[sel].astype(np.float64)
-        cvx[sel] = np.degrees(turn_field(q, edges, edge_radius, +1.0))
+        cvx[sel] = np.degrees(turn_field(q, edges, edge_band_m(m, edge_radius), +1.0))
         ccv[sel] = np.degrees(turn_field(q, edges, crease_radius, -1.0))
     tex.timings_ms["edges"] = round((time.perf_counter() - t0) * 1e3, 1)
     return cvx, ccv

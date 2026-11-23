@@ -74,7 +74,7 @@ from antigravity3d.tactics.stream_call import CURRENT_SINK
 log = logging.getLogger("antigravity3d.mcp")
 
 SERVER_NAME = "antigravity-3d"
-ENGINES = ("unreal_5", "unity_urp", "godot_4", "roblox_r15")
+ENGINES = ("unreal_5", "unity_urp", "godot_4", "roblox_r15", "web_three")
 MANAGEMENT_TOOLS = ("open_asset_session", "open_existing_asset", "start_preview", "set_stage", "session_status", "list_sessions",
                     "install_into_project")
 SESSION_ID_DOC = "Asset session to act on; omit to use the active (most recently opened or selected) one."
@@ -274,6 +274,9 @@ class StudioHost:
         if s.plane is not None and not s.plane.calibrated:  # fail early: say now what will be refused, not at export
             return (" | WARNING: the native Decisions API is not available on this key, so run_visual_qa and "
                     f"export_engine_package will be refused. Remedy: {T.PREVIEW_SWITCH}")
+        if why := s.unverifiable_target():  # the same, for a target no key can verify here
+            return (f" | WARNING: {why}. run_visual_qa, forge_pbr_material and run_paintover_loop are refused and "
+                    f"export_engine_package cannot deliver it. Remedy: {T.PREVIEW_SWITCH}")
         return ""
 
     # ---- management tools
@@ -458,7 +461,7 @@ class StudioHost:
             t1 = time.perf_counter()
             try:
                 tid, rep, _n, nodes, note = await T.apply_design(s, {"nodes": built.nodes, "materials": built.materials}, before,
-                                                                attach=True)
+                                                                attach=True, handoff=True)
             except ir_schema.IRArgumentError as e:
                 return self._notice(sid, f"NOT BUILT: the design is malformed: {str(e).removeprefix('invalid IR: ')[:400]}. Fix the script and run_build again; {kept}.")
             except (ValueError, LookupError, RuntimeError, OSError) as e:
@@ -510,6 +513,11 @@ class StudioHost:
             return ("WARNING: this key has no calibrated judge, so deliver_package will be refused until the user allows an "
                     "unverified preview: ask the user whether they want one and for their two limits (a token ceiling and an "
                     "image limit), then call start_preview with them; the design is kept.")
+        if why := s.unverifiable_target():
+            return (f"WARNING: {why}. deliver_package will be refused until the user allows an unverified preview: ask the user "
+                    "whether they want one and for their two limits (a token ceiling and an image limit), then call "
+                    "start_preview with them; the design is kept. Or change engine= in the script to a target that can be "
+                    "verified here.")
         return ""
 
     def _take_notice(self, sid: str) -> str:
@@ -670,7 +678,7 @@ def _over_budget(build: Any, rel: str) -> str | None:
     the budget the script asks for (lowered by its art direction like a session's), naming the five heaviest parts; else
     None. A part's count: the kernel's ``triangle_count`` for a ready shape, its file's face count for a free-form one."""
     from antigravity3d.art_direction import load as load_art
-    from antigravity3d.kernel.compile_ir import triangle_count
+    from antigravity3d.kernel.compile_ir import mesh_ref_file, triangle_count
     from antigravity3d.state import EngineBudget
 
     tris = (build.stats or {}).get("triangles")
@@ -687,7 +695,7 @@ def _over_budget(build: Any, rel: str) -> str | None:
         cost = {}
         for n in scene.nodes:
             if n.kind == "mesh_ref":
-                cost[n.id] = _ply_faces(Path(str(n.params.get("path"))))
+                cost[n.id] = _ply_faces(mesh_ref_file(str(n.params.get("path")), None))  # absolute from the hand-off (build.handoff)
             elif n.kind != "group":
                 cost[n.id] = triangle_count(n)
         heavy = ", ".join(f"{k} {v:,}" for k, v in sorted(cost.items(), key=lambda kv: (-kv[1], kv[0]))[:5])
@@ -806,7 +814,7 @@ ART_DIRECTION_DOC = ("Named art direction (skills/art-direction): " + " | ".join
 def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
     async def open_asset_session(
         asset_name: str,
-        target_engine: Annotated[str, Field(description="unreal_5 | unity_urp | godot_4 | roblox_r15")],
+        target_engine: Annotated[str, Field(description="unreal_5 | unity_urp | godot_4 | roblox_r15 | web_three")],
         ctx: Context,
         conversation_id: Annotated[str, Field(description="Native conversation ID from the SessionStart header")] = "",
         max_tris: int = 15_000,
@@ -875,17 +883,23 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         package_dir: Annotated[str, Field(description="Package directory holding manifest.json (the folder export_engine_package wrote)")],
         ctx: Context,
         project_dir: Annotated[str, Field(description="Game project root; default: this workspace")] = "",
-        dest: Annotated[str, Field(description="Directory inside the project; default agy3d/<asset>")] = "",
+        dest: Annotated[str, Field(description="Directory inside the project; default agy3d/<asset> (three.js: src/agy3d/<asset>, "
+                                                "where the loader and the install record go)")] = "",
+        assets: Annotated[str, Field(description="three.js only: folder inside the project's served folder (public/ or static/) for "
+                                                 "the asset's files; default <served>/agy3d/<asset>")] = "",
         dry_run: Annotated[bool, Field(description="True (default): only report what would be written. Show that plan to the user "
                                                    "and call again with false once they agree")] = True,
         force: Annotated[bool, Field(description="Replace this tool's own files the developer edited since the last install")] = False,
+        compress: Annotated[str, Field(description="three.js only, when the project has the compression packages: auto (default: "
+                                                   "compress only when the files do not grow), always (for GPU memory), never")] = "auto",
     ) -> str:
         from antigravity3d.deliver import install_package
 
         project = project_dir or await _workspace_root(ctx)
 
         async def go() -> str:
-            r = await asyncio.to_thread(install_package, package_dir, project, dest or None, dry_run, force, not dry_run)
+            r = await asyncio.to_thread(install_package, package_dir, project, dest or None, dry_run, force, True,
+                                        assets=assets or None, compress=compress)
             return _install_text(r)
 
         return await host.run_ordered(go)
@@ -903,7 +917,9 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
     list_sessions.__doc__ = "Open asset sessions; the active one is marked with *."
     install_into_project.__doc__ = (
         "Install a finished package into the game project this workspace is (Godot 4: a scene with levels, collision and "
-        "materials wired, then imported and checked in the project's engine; Unity/Unreal/Roblox: says what to import). "
+        "materials wired, then imported and checked in the project's engine; three.js / React Three Fiber: the files where "
+        "the dev server serves them, a loader module (and a component) to import, compressed for the web when the project "
+        "has the tools, then checked in a browser with the project's own three.js; Unity/Unreal/Roblox: says what to import). "
         "Run with dry_run first and show the user the plan; writing into their project needs their approval.")
     run_build.__doc__ = (
         "Run the asset's Python script (from agy3d import Asset), check the design it saves and show it: the first call "

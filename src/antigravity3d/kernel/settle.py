@@ -166,7 +166,8 @@ class SettleResult:
             else:
                 dz = np.array([0.0, 0.0, ns.dz])
                 out.append(replace(m, points=m.points + dz,
-                                   collider_points=None if m.collider_points is None else m.collider_points + dz))
+                                   collider_points=None if m.collider_points is None else m.collider_points + dz,
+                                   run=None if m.run is None else m.run.moved(lambda p: p + dz)))
         return out
 
     def to_ir_ops(self, scene: SceneIR) -> list[SetTransform]:

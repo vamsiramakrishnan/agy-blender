@@ -43,7 +43,12 @@ ROLES = {"albedo", "orm", "normal"}
 #: stroke stops reading, so they are dropped) and the end text. 512 makes a 2048 x 1024 atlas where 1024 made 4096 x
 #: 2048 (a quarter of the texels: 2.0 MB of PNG against 6.4 MB) and the package 24 s where 1024 took 99 s, under load.
 DETAIL_PX_PER_M = 512.0
-PLAIN_PX_PER_M = 256.0
+#: Plain and glass at 1.8 times coarser, not 2: the scorecard's texel-evenness check (largest over smallest island
+#: density within one shipped object, at most 2) reads a shared-atlas batch that mixes the two classes, and a layout
+#: designed at exactly its limit fails it on measurement alone (round six: a lantern with a glass chimney read 2.02;
+#: measured 2026-11-23 on S/r6/probe/texel/two_boxes.py, the shipped islands are 724 and 1448 px/m, exactly the 2.0 the
+#: layout was asked for). The design ratio was the error, not the check: it now keeps a tenth below the limit.
+PLAIN_PX_PER_M = DETAIL_PX_PER_M / 1.8
 
 
 _ON: contextvars.ContextVar[bool] = contextvars.ContextVar("agy3d_generated_surfaces", default=False)

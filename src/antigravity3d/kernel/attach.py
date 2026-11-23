@@ -252,7 +252,8 @@ def attach(meshes: list[Any], budget: Any, reach: float, *, only: set[str] | Non
             if shift > reach + INTO:
                 continue
             trial = [replace(m, points=np.asarray(m.points, np.float64) + delta,
-                             collider_points=None if m.collider_points is None else m.collider_points + delta)
+                             collider_points=None if m.collider_points is None else m.collider_points + delta,
+                             run=None if m.run is None else m.run.moved(lambda p: p + delta))
                      if m.node_id in comp else m for m in cur]
             t2 = tier1_qa(trial, budget)
             pen2, crit2 = _key(t2)

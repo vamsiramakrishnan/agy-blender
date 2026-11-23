@@ -35,3 +35,13 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     for item in items:
         if item.get_closest_marker("live") is not None:
             item.add_marker(skip)
+
+
+@pytest.fixture
+def any_target_can_be_verified(monkeypatch):
+    """For a test of a gate that has nothing to do with the target (QA scores, the hook's state record, the stop hook's bound):
+    its session's target (unreal_5 by default) is treated as one this machine can verify. Without it a session that must be
+    verified waits for the user at once for such a target (``validators.verification_gap``)."""
+    from antigravity3d.adapters.engines import validators
+
+    monkeypatch.setattr(validators, "verification_gap", lambda _target: None)
