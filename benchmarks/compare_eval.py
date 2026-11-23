@@ -1207,7 +1207,10 @@ SCORE_ROWS: tuple[tuple[str, str, str, str, str], ...] = (
      "The cell's first session ended 'finished' with a main GLB, without a continuation session.", "check"),
     ("wall_s", "Finishing", "Time to a delivered package (s)", "Wall seconds of every session of the cell, summed.", "value"),
     ("spend", "Finishing", "Model calls / tokens / images",
-     "The relay's ledger for the cell's accounts: model calls, tokens (input + output + thinking), generated images.", "value"),
+     "The relay's ledger for the cell's accounts: model calls, tokens (input + output + thinking), generated images; "
+     "fresh tokens (input not served from cache + output + thinking) with the input, cached, output and thinking they come "
+     "from; cache_misses (agent calls after the first that got under 5 % of their input from cache) and cache_miss_input, "
+     "to tell a design difference from a cache that expired.", "value"),
     ("godot_import", "Game-ready", "Loads in Godot 4",
      "Stock Godot 4.7 imports the bare GLB (GLB and its referenced files only) without error (GodotValidator).", "check"),
     ("three_js", "Game-ready", "Loads in three.js", "The three.js check on the bare GLB reports no failed check.", "check"),
@@ -1346,6 +1349,11 @@ def hand_steps(e: dict[str, Any], checks: dict[str, bool | None]) -> dict[str, A
             "note": "Godot generates levels of detail on import; delivered LOD files are used only when wired"}
 
 
+# The token figures of a record's ``tokens`` that the spend row carries next to the ledger total (see
+# compare_agents.token_breakdown for what each one is).
+SPEND_TOKEN_KEYS = ("fresh", "input", "cached", "output", "thinking", "cache_misses", "cache_miss_input")
+
+
 def scorecard(root: Path, results: dict[str, Any], briefs: dict[str, Any], round_: str = "") -> dict[str, Any]:
     """Fill every row of SCORE_ROWS for every cell from the evaluation, records, judgements and change requests, and
     write ``scorecard_<round>.json``."""
@@ -1365,7 +1373,8 @@ def scorecard(root: Path, results: dict[str, Any], briefs: dict[str, Any], round
                           "value": rec.get("status") + (f" after {len(sessions)} sessions" if len(sessions) > 1 else "")},
             "wall_s": {"value": rec.get("wall_s")},
             "spend": {"value": {"model_calls": rec.get("model_calls"), "tokens": (rec.get("tokens") or {}).get("total"),
-                                "images": rec.get("images")}},
+                                "images": rec.get("images"),
+                                **{k: (rec.get("tokens") or {}).get(k) for k in SPEND_TOKEN_KEYS}}},
         }
         for k in GAME_READY:
             row[k] = {"pass": checks.get(k)}
@@ -1389,7 +1398,8 @@ def scorecard(root: Path, results: dict[str, Any], briefs: dict[str, Any], round
         if ch:
             d = (ch.get("pipeline") or {}).get("diff") or {}
             row["change"] = {"value": {"status": ch.get("status"), "wall_s": ch.get("wall_s"), "model_calls": ch.get("model_calls"),
-                                       "tokens": (ch.get("tokens") or {}).get("total"), "images": ch.get("images"),
+                                       "tokens": (ch.get("tokens") or {}).get("total"),
+                                       "fresh": (ch.get("tokens") or {}).get("fresh"), "images": ch.get("images"),
                                        "mode": (ch.get("pipeline") or {}).get("change_mode")}}
             row["change_scope"] = {"pass": (bool(d.get("on_target")) and d.get("collateral") == 0) if "changed" in d else False,
                                    "value": {k: d.get(k) for k in ("parts", "unchanged", "on_target", "collateral", "added",
@@ -1453,6 +1463,10 @@ def _row_facts(e: dict[str, Any], rec: dict[str, Any]) -> list[tuple[str, str]]:
         ("Upstream qa_check", ("pass" if (up.get("qa_check") or {}).get("pass") else "fail") if up.get("available") else f"not run: {up.get('reason', '')[:80]}"),
         ("Tokens (in / out / thinking)", f"{_fmt((rec.get('tokens') or {}).get('input_tokens'))} / {_fmt((rec.get('tokens') or {}).get('output_tokens'))} / {_fmt((rec.get('tokens') or {}).get('thinking_tokens'))}"),
         ("Input tokens served from cache", (rec.get("tokens") or {}).get("cached_tokens")),
+        ("Fresh tokens (input not from cache + output + thinking)", (rec.get("tokens") or {}).get("fresh")),
+        ("Agent calls that missed the cache (count / their input tokens)",
+         f"{_fmt((rec.get('tokens') or {}).get('cache_misses'))} / {_fmt((rec.get('tokens') or {}).get('cache_miss_input'))}"
+         if (rec.get("tokens") or {}).get("cache_misses") is not None else None),
         ("Images generated", rec.get("images")), ("Model calls", rec.get("model_calls")), ("Tool calls", rec.get("tool_calls")),
         ("Blender invocations", rec.get("blender_invocations")), ("Wall time (s)", rec.get("wall_s")),
     ]
@@ -1528,7 +1542,7 @@ def write_gallery(root: Path, results: dict[str, Any], briefs: dict[str, Any], l
             if sess:
                 rows_ = "".join(f"<tr><td>{'attempt' if rec.get('arm') == 'C' else 'session'} {x['session']}"
                                 f"{(' (' + html.escape(str(x.get('mode'))) + ')') if x.get('mode') else ''}</td><td>{html.escape(str(x['status']))}</td><td>{_fmt(x['tokens'])} "
-                                f"({_fmt(x.get('cached_tokens'))} of the input from cache)</td><td>{_fmt(x['model_calls'])} calls</td>"
+                                f"({_fmt(x.get('cached_tokens'))} of the input from cache; {_fmt(x.get('fresh'))} fresh)</td><td>{_fmt(x['model_calls'])} calls</td>"
                                 f"<td>{_fmt(x['wall_s'])} s</td></tr>" for x in sess)
                 parts.append(("<p><b>Attempts</b> (the second ran after the fix of the first's failure, in a fresh output folder)</p><table>"
                               if rec.get("arm") == "C" else

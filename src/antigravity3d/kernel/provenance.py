@@ -5,7 +5,7 @@ what?") and a reviewer has to trust a file, so the manifest says, for every file
 from and which deterministic steps got it there, and for every source who made it:
 
 * ``sources``: the roots. ``design`` (the scene: authored by a model, a deterministic template, an agent in a native
-  session, or supplied by the user), ``albedo:<material>`` (a generated image), ``ortho`` (a generated blueprint),
+  session, an asset script, or supplied by the user), ``albedo:<material>`` (a generated image), ``ortho`` (a generated blueprint),
   ``supplied:<name>`` (a file the user gave, by hash), ``style_anchor`` (a reference image the user gave).
 * ``files``: per shipped file ``derived_from`` (source ids and other shipped files), ``steps`` (deterministic code
   that transformed them) and, resolved through the graph, ``generated_content`` (True: a model made part of it;
@@ -34,8 +34,10 @@ from typing import Any
 VERSION = 1
 SCHEMA_VERSION = 4  # the manifest schema_version whose contract has this record
 
-#: source kinds that count as content a model generated
-MODEL_KINDS = frozenset({"model_authored", "model_authored_in_session", "model_generated_image"})
+#: source kinds that count as content a model generated. ``script``: the design was built by an asset script
+#: (``run_build``), which the conversation's agent wrote, so it counts as that agent's work exactly as a design it edited
+#: through apply_scene_ir does; ``script_output``: a mesh file that script made (not a file the user supplied).
+MODEL_KINDS = frozenset({"model_authored", "model_authored_in_session", "model_generated_image", "script", "script_output"})
 #: source kinds that are known not to be model-generated (a stand-in, a template, a file the user gave)
 NON_MODEL_KINDS = frozenset({"template", "offline_fake_image", "user_supplied"})
 

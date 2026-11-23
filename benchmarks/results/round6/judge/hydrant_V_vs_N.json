@@ -1,0 +1,217 @@
+{
+ "model": "gemini-4-carbon",
+ "thinking": "low",
+ "brief_id": "hydrant",
+ "brief": "a cast-iron fire hydrant with bolted caps and a chained nozzle cap",
+ "sheets": {
+  "A": "round5:live_scorecard/eval/r5/hydrant/V/sheet.png",
+  "C": "live_N_p1/eval/r5/hydrant/N/sheet.png"
+ },
+ "calls": [
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3247,
+    "output": 222,
+    "thinking": null,
+    "total": 3469
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 clearly displays a distinct link chain holding a dangling nozzle cap, whereas Image 2 uses a solid wire-like rod instead of a chain."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Image 2 has sturdier, more realistic cast-iron hydrant proportions and cap geometry compared to the slightly elongated dome of Image 1."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 features much more natural paint chipping, subtle cast-iron texture, and realistic brass accents compared to the harsh, uniform black edge wear on Image 1."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 1's hanging cap intersects with the lower body flange, whereas Image 2 avoids noticeable mesh intersections."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Despite substituting a wire tether for a true link chain, Image 2 wins overall due to significantly better material definition, believable proportions, and cleaner geometry without intersections."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3247,
+    "output": 204,
+    "thinking": null,
+    "total": 3451
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Model 2 features actual chain links holding a distinct nozzle cap, whereas Model 1 uses a solid curved tube instead of a chain."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Model 1 has sturdier, more accurate real-world fire hydrant proportions compared to the overly pointy bonnet of Model 2."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Model 1 displays more realistic painted metal and brass materials with subtle edge wear, whereas Model 2 has harsh, stylized black edge wear."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Model 1 has clean geometry, while Model 2's hanging chain links intersect awkwardly with the side nozzle and lower flange."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Model 1 is the stronger game asset due to its believable proportions, superior material definition, and cleaner mesh execution."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3077,
+    "output": 263,
+    "thinking": null,
+    "total": 3340
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 features a clearly recognizable linked chain attached to a dangling nozzle cap, whereas Image 2 uses a solid wire-like cable instead of an actual chain."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "While both are realistic in overall height, Image 2 has sturdier, more authentic proportions for a cast-iron hydrant, whereas Image 1 has an overly tall, pointy bonnet and operating nut."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 displays much more realistic cast-iron surface bumpiness, natural grey metal edge wear, and distinct brass fittings compared to the harsh, stylized black edge-wear in Image 1."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 1 has clean, distinct geometry for its chain links and caps, while Image 2's chain is modeled as a solid bent tube rather than links and shows minor clipping near the attachments."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Despite substituting a cable for the chain links, Image 2 wins overall due to its far superior material realism, natural edge wear, brass accents, and more authentic cast-iron proportions."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3247,
+    "output": 213,
+    "thinking": null,
+    "total": 3460
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Prop 2 clearly features an actual link chain holding a dangling nozzle cap, whereas Prop 1 uses a solid curved tube instead of a chain."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Prop 1 has sturdier, more realistic cast-iron proportions, whereas Prop 2 has an overly conical bonnet and slender top nut."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Prop 1 displays natural edge chipping and distinct brass hardware, while Prop 2 relies on heavy, uniform black grime masks."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Prop 1 has clean, cohesive geometry, whereas Prop 2's hanging chain links intersect the upper flange and look stiffly posed."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Prop 1 is a higher-quality game asset with superior proportions, material definition, and cleaner geometry despite simplifying the chain into a solid cable."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3247,
+    "output": 207,
+    "thinking": null,
+    "total": 3454
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 features a distinct link chain and hanging nozzle cap, whereas Image 2 uses a solid cable instead of a chain."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Image 2 has sturdier, more realistic hydrant proportions, while Image 1 has an overly pointed bonnet and elongated top nut."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 shows more believable painted cast iron, subtle edge chipping, and distinct brass fittings compared to the harsh black wear in Image 1."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 1 has rigid, gravity-defying chain links and intersecting cap geometry, while Image 2 is more cleanly assembled."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Image 2 wins overall due to superior material definition, realistic proportions, and cleaner geometry despite replacing the link chain with a cable."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3247,
+    "output": 203,
+    "thinking": null,
+    "total": 3450
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "2",
+      "reason": "Model 2 features actual chain links holding a dangling cap, whereas Model 1 uses a solid wire-like cable instead of a chain."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Model 1 has sturdy, realistic cast-iron proportions and dome shape, whereas Model 2 has an overly conical top and slender profile."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Model 1 offers believable painted metal wear and distinct brass hardware, while Model 2 relies on heavy, uniform black edge wear."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Model 1 has clean geometry and intersections, while Model 2's dangling cap clips into the lower flange."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Model 1 is a more convincing game asset overall due to superior proportions, realistic material definition, and clean geometry without clipping."
+    }
+   }
+  }
+ ],
+ "total_tokens": 20624
+}

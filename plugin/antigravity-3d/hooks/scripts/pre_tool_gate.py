@@ -108,9 +108,18 @@ def decide(payload: dict[str, Any]) -> dict[str, Any]:
         if not c.conv_id(payload) or c.tool_args(tool_call).get("conversation_id") != c.conv_id(payload):
             return {"decision": "deny", "reason": "pass this conversation's ID from the session header to open_asset_session"}
 
+    # run_build opens the session on its first call of a conversation (script mode): the conversation ID is asked for
+    # as for open_asset_session. Once a session is bound to this conversation (its QA record) a call may leave it out,
+    # since only an opening call uses it; one that passes it must pass this conversation's.
+    if c.is_tool(names, ("run_build",)) and c.is_studio_mcp_call(tool_call, names):
+        given = c.tool_args(tool_call).get("conversation_id")
+        bound = bool(c.conv_id(payload)) and c.read_qa(c.state_root(payload), c.conv_id(payload)) is not None
+        if not c.conv_id(payload) or (given or not bound) and given != c.conv_id(payload):
+            return {"decision": "deny", "reason": "pass this conversation's ID from the session header to run_build"}
+
     # The limits of an unverified preview are the user's, not the model's: the user sees both numbers and decides.
     preview_call = c.is_tool(names, ("start_preview",)) or (
-        c.is_tool(names, ("open_asset_session",)) and c.tool_args(tool_call).get("preview") in (True, "true", "True", 1))
+        c.is_tool(names, ("open_asset_session", "run_build")) and c.tool_args(tool_call).get("preview") in (True, "true", "True", 1))
     if preview_call and c.is_studio_mcp_call(tool_call, names):
         return preview_decision(c.tool_args(tool_call))
 

@@ -30,7 +30,7 @@ QA_TOOLS = ("run_visual_qa", "run_usd_validator")
 # current scene, so running it between QA and export must not invalidate the QA verdict.
 MUTATING_TOOLS = (
     "apply_scene_ir", "apply_shader_diff", "forge_pbr_material", "run_paintover_loop", "undo_last_edit",
-    "propose_variants", "select_variant", "promote_variant",
+    "propose_variants", "select_variant", "promote_variant", "run_build",
 ) + SCRIPT_TOOLS
 # Every tool the plugin's MCP server (antigravity3d.runtime.mcp_server) serves. The server applies the same
 # gate decisions itself before dispatch; tests/test_mcp_server.py keeps this list equal to its tools/list.
@@ -44,10 +44,22 @@ STUDIO_TOOLS = (
     "open_inspector", "review_notes",
     "inspector_payload", "inspector_qa_state", "inspector_list_notes", "inspector_save_note",
 )
+# Served only in script mode (AGY3D_AUTHORING=script; plugin_install.install(authoring="script")): kept apart from
+# STUDIO_TOOLS, which equals the default server's list.
+SCRIPT_MODE_TOOLS = ("run_build",)
+AUTHORING_FILE = Path(__file__).resolve().parents[2] / "authoring"  # written by the installer in script mode
 MCP_STEP_NAME = "mcp_tool"  # docs: tool name = lower-cased step type without the CORTEX_STEP_TYPE_ prefix
 MCP_SERVER_PREFIX = "antigravity-3d"  # plugin MCP servers are namespaced <plugin>_<server>
 SCRIPT_ARG_KEYS = ("source", "script", "code", "Source", "Script", "Code")
 _SAFE = re.compile(r"[^A-Za-z0-9_.-]")
+
+
+def authoring() -> str:
+    """"script" when this bundle was installed in script mode (its ``authoring`` file), else "ir"."""
+    try:
+        return "script" if AUTHORING_FILE.read_text(encoding="utf-8").strip() == "script" else "ir"
+    except OSError:
+        return "ir"
 
 
 def read_payload() -> dict[str, Any]:
@@ -237,4 +249,4 @@ def is_studio_mcp_call(tool_call: dict[str, Any], names: list[str]) -> bool:
         return False
     args = tool_call.get("args") if isinstance(tool_call.get("args"), dict) else {}
     server = next((str(args[k]) for k in ("ServerName", "serverName", "server_name") if args.get(k)), "")
-    return server.lower().startswith(MCP_SERVER_PREFIX) or bool(is_tool(names, STUDIO_TOOLS))
+    return server.lower().startswith(MCP_SERVER_PREFIX) or bool(is_tool(names, STUDIO_TOOLS + SCRIPT_MODE_TOOLS))

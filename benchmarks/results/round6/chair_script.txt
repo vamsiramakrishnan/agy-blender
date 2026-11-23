@@ -1,0 +1,371 @@
+import math
+from agy3d import Asset
+
+a = Asset(
+    "windsor_chair",
+    engine="godot_4",
+    max_tris=5000,
+    brief="a game-ready wooden Windsor chair with a spindle back",
+)
+
+# Two classic contrasting Windsor hardwoods
+oak = a.material(
+    "aged_oak",
+    "#6e4224",
+    surface="aged oiled oak wood grain, warm satin sheen, subtle wear along edges",
+    metallic=0.0,
+    roughness=0.44,
+)
+ash = a.material(
+    "ash_wood",
+    "#966136",
+    surface="turned ash hardwood, fine straight grain, smooth satin lacquer",
+    metallic=0.0,
+    roughness=0.46,
+)
+
+# Centering offset in Y so overall bounding box is centered near (0, 0)
+Y_OFF = -0.015
+
+
+def build_saddle_seat(y_off=Y_OFF):
+    """Build a watertight sculpted Windsor saddle seat with undercut chamfer and thigh scoops."""
+    n_ang = 32
+    # Radial profile parameters: (u, z_base, is_top)
+    # Goes from top center (u=0) -> top rim -> outer edge -> bottom rim -> bottom center (u=0)
+    verts = []
+    faces = []
+
+    def seat_xy(u, theta):
+        cx = math.cos(theta)
+        sy = math.sin(theta)
+        # Blend squircle on front (-y) with circular D-back (+y)
+        front_blend = max(0.0, -sy)
+        p = 2.0 + 1.3 * (front_blend ** 1.2)
+        r_shape = (abs(cx) ** p + abs(sy) ** p) ** (-1.0 / p)
+        # Slightly narrower toward the rear
+        half_w = 0.236 - 0.042 * max(0.0, sy)
+        half_d = 0.205
+        x = u * cx * r_shape * half_w
+        y = u * sy * r_shape * half_d + y_off
+        return x, y, cx, sy
+
+    def top_z(u, cx, sy):
+        # Outer rim height ~0.442, dropping slightly at very front edge for thigh relief
+        rim_z = 0.442 - 0.005 * max(0.0, -sy) * (u ** 2)
+        # Saddle pocket scoop centered slightly toward the back (sy ~ +0.15)
+        # Plus twin thigh depressions at front (cx ~ +/-0.45, sy < 0) leaving a subtle pommel
+        pocket = math.exp(-((u * cx / 0.65) ** 2 + ((u * sy - 0.12) / 0.55) ** 2))
+        thigh_l = math.exp(-(((u * cx + 0.45) / 0.35) ** 2 + ((u * sy + 0.45) / 0.40) ** 2))
+        thigh_r = math.exp(-(((u * cx - 0.45) / 0.35) ** 2 + ((u * sy + 0.45) / 0.40) ** 2))
+        scoop = 0.012 * pocket + 0.006 * (thigh_l + thigh_r)
+        # Taper scoop smoothly to zero at rim u=0.92..1.0
+        rim_fade = max(0.0, 1.0 - max(0.0, (u - 0.25) / 0.68) ** 2)
+        return rim_z - scoop * rim_fade
+
+    def bot_z(u):
+        # Flat underside up to u=0.76, then classic Windsor undercut chamfer to rim
+        if u <= 0.76:
+            return 0.402
+        t = (u - 0.76) / 0.24
+        return 0.402 + 0.022 * (t ** 1.4)
+
+    # Top center vertex (index 0)
+    verts.append((0.0, y_off, top_z(0.0, 0.0, 0.0)))
+
+    # Rings from top-inner to bottom-outer
+    # Top rings: u = 0.28, 0.58, 0.84, 0.95, 1.00(top-bevel)
+    top_us = [0.28, 0.58, 0.84, 0.95, 1.00]
+    rings = []
+    for idx_r, u in enumerate(top_us):
+        ring = []
+        for i in range(n_ang):
+            theta = 2.0 * math.pi * i / n_ang
+            x, y, cx, sy = seat_xy(u, theta)
+            z = top_z(u, cx, sy)
+            if idx_r == len(top_us) - 1:
+                z -= 0.007  # rounded top-edge bevel
+            ring.append(len(verts))
+            verts.append((x, y, z))
+        rings.append(ring)
+
+    # Bottom-edge bevel ring (u=1.00) and bottom rings (u=0.92, 0.76)
+    bot_rings_spec = [(1.00, 0.427), (0.93, None), (0.76, None)]
+    for u, z_override in bot_rings_spec:
+        ring = []
+        for i in range(n_ang):
+            theta = 2.0 * math.pi * i / n_ang
+            x, y, _, _ = seat_xy(u, theta)
+            z = z_override if z_override is not None else bot_z(u)
+            ring.append(len(verts))
+            verts.append((x, y, z))
+        rings.append(ring)
+
+    # Bottom center vertex
+    bot_center = len(verts)
+    verts.append((0.0, y_off, 0.402))
+
+    # Top fan (CCW looking from +Z -> outward normal +Z)
+    r0 = rings[0]
+    for i in range(n_ang):
+        ni = (i + 1) % n_ang
+        faces.append((0, r0[i], r0[ni]))
+
+    # Side quads between consecutive rings (split to tris)
+    for r_idx in range(len(rings) - 1):
+        ra = rings[r_idx]
+        rb = rings[r_idx + 1]
+        for i in range(n_ang):
+            ni = (i + 1) % n_ang
+            faces.append((ra[i], rb[i], rb[ni]))
+            faces.append((ra[i], rb[ni], ra[ni]))
+
+    # Bottom fan (outward normal -Z)
+    rlast = rings[-1]
+    for i in range(n_ang):
+        ni = (i + 1) % n_ang
+        faces.append((bot_center, rlast[ni], rlast[i]))
+
+    return a.mesh("seat", vertices=verts, faces=faces, material=oak)
+
+
+seat = build_saddle_seat()
+
+
+def turned_points(p_start, p_end, fracs):
+    """Interpolate 3D points along a straight segment for given parameter fractions."""
+    return [
+        (
+            p_start[0] + (p_end[0] - p_start[0]) * t,
+            p_start[1] + (p_end[1] - p_start[1]) * t,
+            p_start[2] + (p_end[2] - p_start[2]) * t,
+        )
+        for t in fracs
+    ]
+
+
+# --- Splayed Turned Legs (mirrored X) ---
+# Front leg: socket inside seat -> flat foot on z=0
+f_top = (0.175, -0.130 + Y_OFF, 0.418)
+f_ankle = (0.242, -0.205 + Y_OFF, 0.012)
+f_foot = (0.242, -0.205 + Y_OFF, 0.000)
+# Baluster turning profile along front leg
+f_fracs = [0.0, 0.14, 0.26, 0.38, 0.50, 0.62, 0.76, 0.88, 1.0]
+f_path = turned_points(f_top, f_ankle, f_fracs) + [f_foot]
+f_radii = [0.0155, 0.0165, 0.0215, 0.0150, 0.0185, 0.0170, 0.0145, 0.0125, 0.0140, 0.0125]
+leg_front = a.tube("leg_front", path=f_path, radius=f_radii, sides=8, material=ash, mirror="x")
+
+# Rear leg: socket inside seat -> flat foot on z=0
+r_top = (0.155, 0.120 + Y_OFF, 0.418)
+r_ankle = (0.222, 0.215 + Y_OFF, 0.012)
+r_foot = (0.222, 0.215 + Y_OFF, 0.000)
+r_path = turned_points(r_top, r_ankle, f_fracs) + [r_foot]
+leg_rear = a.tube("leg_rear", path=r_path, radius=f_radii, sides=8, material=ash, mirror="x")
+
+# --- H-Stretcher ---
+# Side stretcher connects front leg and rear leg at ~58% down (z ~ 0.18m)
+sf = leg_front.along(0.56)
+sr = leg_rear.along(0.56)
+s_fracs = [0.0, 0.18, 0.35, 0.50, 0.65, 0.82, 1.0]
+s_radii = [0.0105, 0.0110, 0.0145, 0.0115, 0.0145, 0.0110, 0.0105]
+stretcher_side = a.tube(
+    "stretcher_side",
+    path=turned_points(sf, sr, s_fracs),
+    radius=s_radii,
+    sides=6,
+    material=ash,
+    mirror="x",
+)
+
+# Cross stretcher between left and right side stretchers
+sm = stretcher_side.along(0.50)
+stretcher_cross = a.tube(
+    "stretcher_cross",
+    path=turned_points((-sm[0], sm[1], sm[2]), sm, s_fracs),
+    radius=s_radii,
+    sides=6,
+    material=ash,
+)
+
+# --- Front Turned Arm Posts (stumps) ---
+# Helper for horseshoe arm rail centerline so arm_post aligns exactly under the paddle
+def arm_rail_centerline(t):
+    """Parameter t in [0, 1] from left paddle (-x), around rear (+y), to right paddle (+x)."""
+    # Smooth horseshoe: rear circular arc for t in [0.18, 0.82], gentle forward arm sweep at ends
+    if t < 0.18:
+        u = (0.18 - t) / 0.18  # 0 at side, 1 at front tip
+        phi = -0.32 * math.pi * 2.0  # -1.97 rad? No, let's keep continuous C1!
+    # Continuous smooth horseshoe using angle phi in [-1.95, +1.95] plus forward paddle extension
+    phi_max = 1.92
+    phi = (t - 0.5) * 2.0 * phi_max
+    rx = 0.252
+    ry = 0.205
+    x = rx * math.sin(phi)
+    y = ry * math.cos(phi) + Y_OFF
+    # Add smooth forward extension on the front 20% of each arm so paddles point forward (-y)
+    end_t = max(0.0, 0.22 - min(t, 1.0 - t)) / 0.22
+    y -= 0.068 * (end_t ** 1.6)
+    # Slight flare inward/outward stays ergonomic
+    if t < 0.5:
+        x -= 0.008 * (end_t ** 1.5)
+    else:
+        x += 0.008 * (end_t ** 1.5)
+    z = 0.670 + 0.006 * (end_t ** 1.4)
+    return (x, y, z)
+
+
+_ap_r = arm_rail_centerline(0.925)
+arm_post_bot = (0.206, -0.105 + Y_OFF, 0.422)
+arm_post_top = (_ap_r[0], _ap_r[1], _ap_r[2] - 0.002)
+ap_fracs = [0.0, 0.18, 0.36, 0.54, 0.72, 0.88, 1.0]
+ap_radii = [0.0135, 0.0140, 0.0190, 0.0125, 0.0165, 0.0130, 0.0145]
+arm_post = a.tube(
+    "arm_post",
+    path=turned_points(arm_post_bot, arm_post_top, ap_fracs),
+    radius=ap_radii,
+    sides=8,
+    material=ash,
+    mirror="x",
+)
+
+
+def build_arm_rail():
+    n_steps = 22
+    sections = []
+
+    def section_ring(pos, tangent, w, h):
+        tx, ty, _ = tangent
+        tlen = math.hypot(tx, ty) or 1.0
+        tx, ty = tx / tlen, ty / tlen
+        nx, ny = -ty, tx
+        hw, hh = w * 0.5, h * 0.5
+        cw, ch = hw * 0.62, hh * 0.62
+        pts_nz = [
+            (cw, hh),
+            (-cw, hh),
+            (-hw, ch),
+            (-hw, -ch),
+            (-cw, -hh),
+            (cw, -hh),
+            (hw, -ch),
+            (hw, ch),
+        ]
+        return [(pos[0] + nx * dn, pos[1] + ny * dn, pos[2] + dz) for dn, dz in pts_nz]
+
+    centers = [arm_rail_centerline(i / n_steps) for i in range(n_steps + 1)]
+    # Rounded front-left paddle end (intermediate shrunk ring + cap tip)
+    p0, p1 = centers[0], centers[1]
+    t0 = (p1[0] - p0[0], p1[1] - p0[1], 0.0)
+    t0_len = math.hypot(t0[0], t0[1]) or 1.0
+    u0x, u0y = t0[0] / t0_len, t0[1] / t0_len
+    sections.append([(p0[0] - 0.018 * u0x, p0[1] - 0.018 * u0y, p0[2])])
+    sections.append(section_ring((p0[0] - 0.011 * u0x, p0[1] - 0.011 * u0y, p0[2]), t0, 0.036, 0.014))
+
+    for i, pos in enumerate(centers):
+        t = i / n_steps
+        if i == 0:
+            tang = (centers[1][0] - centers[0][0], centers[1][1] - centers[0][1], 0.0)
+        elif i == n_steps:
+            tang = (centers[-1][0] - centers[-2][0], centers[-1][1] - centers[-2][1], 0.0)
+        else:
+            tang = (centers[i + 1][0] - centers[i - 1][0], centers[i + 1][1] - centers[i - 1][1], 0.0)
+        # Flared paddle handrest near ends (t < 0.16 or t > 0.84)
+        end_dist = min(t, 1.0 - t)
+        flare = max(0.0, (0.16 - end_dist) / 0.16)
+        w = 0.036 + 0.018 * (flare ** 1.1)
+        h = 0.022 - 0.003 * flare
+        sections.append(section_ring(pos, tang, w, h))
+
+    # Rounded front-right paddle end
+    pe, pp = centers[-1], centers[-2]
+    te = (pe[0] - pp[0], pe[1] - pp[1], 0.0)
+    te_len = math.hypot(te[0], te[1]) or 1.0
+    uex, uey = te[0] / te_len, te[1] / te_len
+    sections.append(section_ring((pe[0] + 0.011 * uex, pe[1] + 0.011 * uey, pe[2]), te, 0.036, 0.014))
+    sections.append([(pe[0] + 0.018 * uex, pe[1] + 0.018 * uey, pe[2])])
+
+    return a.loft("arm_rail", sections=sections, material=oak)
+
+
+arm_rail = build_arm_rail()
+
+# --- Upper Steam-Bent Bow / Hoop ---
+# Anchors into the horseshoe arm rail at t=0.22 and t=0.78
+# and arches up to z = 0.925 at center back (x=0, y = 0.242 + Y_OFF)
+def bow_centerline(s):
+    """Parameter s in [0, 1] from left anchor in arm rail, over top crest, to right anchor."""
+    t_left = 0.22
+    t_right = 0.78
+    p_l = arm_rail_centerline(t_left)
+    p_r = arm_rail_centerline(t_right)
+    alpha = (s - 0.5) * math.pi
+    ca = math.cos(alpha)
+    x = p_r[0] * math.sin(alpha)
+    crest_y = 0.242 + Y_OFF
+    y = p_l[1] + (crest_y - p_l[1]) * ca
+    z = 0.662 + (0.925 - 0.662) * ca
+    return (x, y, z)
+
+
+bow_steps = 16
+bow_path = [bow_centerline(i / bow_steps) for i in range(bow_steps + 1)]
+bow_radii = [0.0115 + 0.0020 * math.sin(math.pi * i / bow_steps) for i in range(bow_steps + 1)]
+upper_bow = a.tube("upper_bow", path=bow_path, radius=bow_radii, sides=8, material=oak)
+
+# --- 7 Main Back Spindles (pierce arm rail into upper bow) ---
+for idx in range(7):
+    frac = idx / 6.0  # 0 to 1
+    s_bow = 0.14 + 0.72 * frac
+    t_arm = 0.22 + (0.78 - 0.22) * s_bow
+    p_top = bow_centerline(s_bow)
+    p_mid = arm_rail_centerline(t_arm)
+    # Seat anchor tucked cleanly inside rear seat rim
+    phi_seat = (t_arm - 0.5) * 2.0 * 1.92
+    p_bot = (
+        0.156 * math.sin(phi_seat),
+        0.158 * math.cos(phi_seat) + Y_OFF,
+        0.422,
+    )
+    p_low = (
+        p_bot[0] + (p_mid[0] - p_bot[0]) * 0.45,
+        p_bot[1] + (p_mid[1] - p_bot[1]) * 0.45,
+        p_bot[2] + (p_mid[2] - p_bot[2]) * 0.45,
+    )
+    p_hi = (
+        p_mid[0] + (p_top[0] - p_mid[0]) * 0.55,
+        p_mid[1] + (p_top[1] - p_mid[1]) * 0.55,
+        p_mid[2] + (p_top[2] - p_mid[2]) * 0.55,
+    )
+    spindle_radii = [0.0068, 0.0085, 0.0074, 0.0066, 0.0058]
+    a.tube(
+        f"spindle_back_{idx + 1}",
+        path=[p_bot, p_low, p_mid, p_hi, p_top],
+        radius=spindle_radii,
+        sides=6,
+        material=ash,
+    )
+
+# --- 4 Short Side Spindles (2 per side, mirrored X, under arm rail forward of bow) ---
+for side_idx, t_arm in enumerate([0.840, 0.885]):
+    p_top = arm_rail_centerline(t_arm)
+    phi_seat = (t_arm - 0.5) * 2.0 * 1.92
+    p_bot = (
+        0.188 * math.sin(phi_seat),
+        0.155 * math.cos(phi_seat) + Y_OFF,
+        0.422,
+    )
+    p_mid = (
+        0.5 * (p_bot[0] + p_top[0]),
+        0.5 * (p_bot[1] + p_top[1]),
+        0.5 * (p_bot[2] + p_top[2]),
+    )
+    a.tube(
+        f"spindle_side_{side_idx + 1}",
+        path=[p_bot, p_mid, p_top],
+        radius=[0.0068, 0.0082, 0.0065],
+        sides=6,
+        material=ash,
+        mirror="x",
+    )
+
+a.save()

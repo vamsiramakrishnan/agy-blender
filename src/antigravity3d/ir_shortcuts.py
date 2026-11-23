@@ -296,6 +296,31 @@ def _matrix(node: dict[str, Any]) -> np.ndarray:
     return m
 
 
+def _local_points(n: dict[str, Any]) -> np.ndarray | None:
+    """Points whose extent is the node's geometry in its own frame: the kernel's own mesh of a primitive
+    (``compile_ir.primitive_mesh``, a few hundred points at most), else the corners of ``local_bounds``; None for a
+    group, a mesh_ref, or params the IR validation will refuse. The mesh, not its box: the corners of a rotated
+    cylinder's box stand up to (sqrt(2) - 1) * radius outside it, and a part wholly on one side was refused for
+    them (review 2026-11-22, r5: a cylinder 2 mm clear of x = 0 reported as spanning x -0.015 to 0.205)."""
+    from antigravity3d import ir
+    from antigravity3d.kernel import compile_ir
+
+    kind, params = n["kind"], n.get("params") or {}
+    if kind in compile_ir.PRIMITIVES:
+        try:
+            pts, _ = compile_ir.primitive_mesh(ir.NodeIR.model_validate({"id": n["id"], "kind": kind, "params": params}))
+            return np.asarray(pts, np.float64)
+        except (KeyError, TypeError, ValueError):
+            return None  # malformed params: the IR validation names them
+    try:
+        box = local_bounds(kind, params)
+    except (KeyError, TypeError, ValueError):
+        return None
+    if box is None:
+        return None
+    return np.array([[x, y, z] for x in (box[0][0], box[1][0]) for y in (box[0][1], box[1][1]) for z in (box[0][2], box[1][2])])
+
+
 def _one_side(inst: list[dict[str, Any]], a: int, nid: str) -> None:
     """A mirrored part must lie on one side of the plane: one that straddles it would be copied onto itself. Live
     (2026-11-22, worker tier) one crate in five mirrored a hinge pin that sat on its group's plane, making a coincident
@@ -312,15 +337,10 @@ def _one_side(inst: list[dict[str, Any]], a: int, nid: str) -> None:
 
     lo, hi = math.inf, -math.inf
     for n in inst:
-        try:
-            box = local_bounds(n["kind"], n.get("params") or {})
-        except (KeyError, TypeError, ValueError):
-            box = None  # malformed params: the IR validation names them
-        if box is None:
+        pts = _local_points(n)
+        if pts is None:
             continue
-        corners = np.array([[x, y, z, 1.0] for x in (box[0][0], box[1][0]) for y in (box[0][1], box[1][1])
-                            for z in (box[0][2], box[1][2])])
-        w = (frame(n) @ corners.T)[a]
+        w = (frame(n) @ np.c_[pts, np.ones(len(pts))].T)[a]
         lo, hi = min(lo, float(w.min())), max(hi, float(w.max()))
     if lo < -STRADDLE_TOL and hi > STRADDLE_TOL:
         where = "its parent's" if inst[0].get("parent") else "the asset's"

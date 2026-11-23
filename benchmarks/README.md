@@ -23,6 +23,9 @@ Five tools and the report written from them:
 - [`ROUND_FIVE.md`](ROUND_FIVE.md) is the fifth round's report: this project's command and its plugin in a session
   against two stock agents on three briefs, row by row, and what was changed where it was worse. Its records,
   scorecards and blind verdicts are in `results/round5/`.
+- [`ROUND_SIX.md`](ROUND_SIX.md) is the sixth round's report: an asset written as one script (the plugin's opt-in
+  script mode) against the plugin's default session, under a stop rule set before the runs, which it did not meet.
+  The full table, the blind verdicts and the script an agent wrote for the chair are in `results/round6/`.
 
 ## Offline benchmarks
 

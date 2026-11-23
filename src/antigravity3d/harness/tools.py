@@ -125,17 +125,26 @@ SURFACES = ("SURFACES: every material without map files gets a surface generated
             "the generated surfaces, reviews them and exports.")
 
 
+# The same fact for a session a build script made (run_build): it has no LOOKDEV stage, inspect_manifest or
+# apply_shader_diff to point at; a material is changed in the script.
+SURFACES_SCRIPT = ("SURFACES: every material's maps (base colour, normal, occlusion-roughness-metallic) are generated from "
+                   "the geometry and the material's surface words when the package is written, and recorded in the manifest. "
+                   "Do not paint or generate texture files yourself: to change a surface, change its colour or surface words "
+                   "in the script. deliver_package renders the surfaces, reviews them and exports.")
+
+
 def surfaces_note(s: Session, *, opening: bool = False) -> str:
     """The SURFACES line for this session ('' when generated surfaces are off). ``opening``: only when the session can
-    generate no image (said at open; LOOKDEV says it always)."""
+    generate no image (said at open; LOOKDEV says it always). A session built by a script gets the script's wording."""
     if not s.state.budget.generated_surfaces:
         return ""
+    text = SURFACES_SCRIPT if script_session(s) else SURFACES
     if opening:
         limit = getattr(s.governor, "max_images", None)
         if limit is None or s.governor.images_used < limit:
             return ""
-        return f"NO IMAGES in this session (image limit {limit}). " + SURFACES
-    return SURFACES
+        return f"NO IMAGES in this session (image limit {limit}). " + text
+    return text
 
 
 def _no_images(s: Session) -> str | None:
@@ -322,6 +331,48 @@ def _separated(s: Session, apply: Callable[[], str], extend: Callable[[list], Ca
     return run
 
 
+def _attached(s: Session, run: Callable[[], str], note: list[str]) -> Callable[[], str]:
+    """``run`` (a full scene applied, coplanar faces separated: ``_separated``) followed, in the same transaction, by the
+    command path's attach step (``tactics.pyramid.attach_plan``, ``kernel/attach.py``): a part that touches nothing by
+    the engine check's rule (one of its own vertices within 2 mm of another part's shipped surface) is moved onto, or a
+    millimetre into, its nearest part within reach. Found driving the script API (S/r6/probe/attach_probe.py): a lathe
+    stacked exactly flush with ``bottom=(0, 0, collar.top)``, the idiom the reference page teaches, came back
+    floating_part, which delivery refuses. The moves are kept only if they raise no Tier-1 critical issue; each is one
+    line of ``note``. For run_build's full scenes only (it re-applies the scene with the moves): apply_scene_ir does not
+    call it. Caller holds the lock."""
+    def go() -> str:
+        from antigravity3d.tactics.pyramid import attach_plan
+
+        tid = run()
+        budget = s.state.budget
+        try:
+            plan = attach_plan(s.stage.extract_meshes(), s.stage.base_ir(), budget)
+        except (ValueError, KeyError) as e:
+            note.append(f"attach: not possible ({e})")
+            return tid
+        if plan is None or not plan[1]:
+            return tid
+        r, ops, before = plan
+        current = s.stage.base_ir()
+        s.stage.rollback(tid, discard=True)
+        tid = s.stage.apply_ir(ir.apply_patch(current, IRPatch(ops=ops)))
+        crit = lambda t: sum(i.severity == "critical" for i in t.issues)  # noqa: E731
+        if crit(tier1_qa(s.stage.extract_meshes(), budget)) > crit(before):
+            s.stage.rollback(tid, discard=True)
+            note.append("attach: not applied (it would raise a Tier-1 critical issue)")
+            return s.stage.apply_ir(current)
+        note.extend([_joined(a) for a in r.attached])
+        return tid
+    return go
+
+
+def _joined(line: str) -> str:
+    """One attach move in the author's words, short (the line stays in the conversation): "gallery moved 1.0 mm onto
+    collar (+0.0, +0.0, -1.0 mm)" -> "joined: gallery set 1.0 mm into collar (it lay flush)"."""
+    m = re.match(r"(\S+) moved ([\d.]+) mm onto (\S+)", line)
+    return f"joined: {m.group(1)} set {m.group(2)} mm into {m.group(3)} (it lay flush)" if m else f"joined: {line}"
+
+
 def _stats(r: Tier1Report) -> str:
     return f"tris={r.stats['tris']} draws={r.stats['draw_calls']}"
 
@@ -370,12 +421,26 @@ async def _render(s: Session, wireframe: bool = True) -> Preview:
         raise
 
 
-async def _render_views(s: Session) -> Preview:
+def display_colours(s: Session, meshes: list[Any]) -> dict[str, tuple[float, float, float]]:
+    """node id -> its material's base colour as the author wrote it (sRGB 0-255; the scene stores linear, converted back
+    with ``ir_schema.written_colour``). Parts without a material are left out (clay)."""
+    by_id = {m.id: m for m in s.stage.base_ir().materials}
+    out = {}
+    for m in meshes:
+        mat = by_id.get(m.material_id or "")
+        if mat is not None:
+            out[m.node_id] = tuple(min(255.0, max(0.0, 255.0 * c)) for c in ir_schema.written_colour(mat.base_color))
+    return out
+
+
+async def _render_views(s: Session, *, colour: bool = False) -> Preview:
     """The design's separate views (``tactics.judging``: five 512 px renders shaded as shipped with their feature edges),
-    plain for the judge and badged for the agent, uploaded and recorded as a preview of kind "views"."""
+    plain for the judge and badged for the agent, uploaded and recorded as a preview of kind "views". ``colour``: each
+    part shaded in its material's base colour instead of clay (``run_build``'s views); render_preview stays clay."""
     async with s.registry.locked(s.sid):
         meshes = s.stage.extract_meshes()
         version = s.geom_version
+        colours = display_colours(s, meshes) if colour else None
     if not meshes:
         raise ValueError("nothing to render: the scene has no meshes")
     art = s.art
@@ -391,7 +456,9 @@ async def _render_views(s: Session) -> Preview:
         return path.as_uri()
 
     try:
-        design = await judging.upload_design(meshes, upload, crease_deg=art.crease_deg() if art is not None else CREASE_DEG)
+        crease = art.crease_deg() if art is not None else CREASE_DEG
+        design = await (judging.upload_design(meshes, upload, crease_deg=crease) if colours is None else
+                        judging.upload_design(meshes, upload, crease_deg=crease, colours=colours))
         paths = []
         for name, png in design.renders.marked:  # the badged views on disk, as the agent is shown them (see INLINE_IMAGE_BYTES)
             data, ext = await asyncio.to_thread(_agent_image, png)
@@ -445,20 +512,49 @@ def _agent_image(png: bytes) -> tuple[bytes, str]:
     return png, "png"  # none fits: the agent opens it with view_file, which sends any size, so it gets every colour
 
 
-def _views_reply(p: Preview, head: str) -> ToolReply:
+def _views_reply(p: Preview, head: str, *, colour: bool = False) -> ToolReply:
     """The reply that shows the agent its design: one line per image (its file; whether the client shows it inline),
-    the badge legend, the images attached."""
+    the badge legend, the images attached. ``colour``: the views were shaded in the materials' base colours."""
     names = [name for name, _ in p.design.badged]
+    shading = ("each part in its material's base colour, shaded as the package ships with part outlines drawn" if colour
+               else "shaded as the package ships with part outlines drawn")
     lines = [f"{head} #{p.index}: {len(names)} renders of the current design, one per view, {judging.JUDGE_VIEW_PX} px, "
-             "shaded as the package ships with part outlines drawn; each part carries a numbered badge [NN], the same "
+             f"{shading}; each part carries a numbered badge [NN], the same "
              "number in every view. LOOK at every view before your next edit: compare it with the request, find what is "
              "missing, plain or wrong, and name parts by their badge."]
+    if colour:  # run_build's reply, which stays in the conversation for every later call: see _compact_views
+        return ToolReply("\n".join(lines + _compact_views(p, names)), tuple(zip(names, p.view_paths)))
     for name, path in zip(names, p.view_paths):
         big = path.stat().st_size > INLINE_IMAGE_BYTES
         lines.append(f"  {name} ({VIEW_WORDS.get(name, name)}): {path}" + (
             "  <- too large to show inline: open it with view_file" if big else "  (attached)"))
     lines += ["Legend (badge, node id, views it is seen in):", p.design.renders.legend_text]
     return ToolReply("\n".join(lines), tuple(zip(names, p.view_paths)))
+
+
+def _compact_views(p: Preview, names: list[str]) -> list[str]:
+    """run_build's view lines: the attached views on one line, without their paths (about 170 characters a view); a view
+    too large to attach on its own line with its path; the legend as badge and id, several to a line, without the views
+    each part is seen in (about 2,000 characters at 40 parts, found by review). render_preview keeps its lines."""
+    shown = [n for n, path in zip(names, p.view_paths) if path.stat().st_size <= INLINE_IMAGE_BYTES]
+    lines = [f"attached, in this order: {', '.join(f'{n} ({VIEW_WORDS.get(n, n)})' for n in shown)}"] if shown else []
+    lines += [f"  {n} ({VIEW_WORDS.get(n, n)}): {path}  <- too large to show inline: open it with view_file"
+              for n, path in zip(names, p.view_paths) if n not in shown]
+    legend = p.design.legend
+    seen = {legend[b] for nums in (p.design.renders.visible or {}).values() for b in nums if b in legend}
+    entries = [f"[{num:02d}] {nid}" for num, nid in sorted(legend.items())]
+    lines.append("Legend (badge, part):")
+    row = ""
+    for e in entries:
+        if row and len(row) + 2 + len(e) > 110:
+            lines.append(row)
+            row = ""
+        row = f"{row}  {e}" if row else e
+    if row:
+        lines.append(row)
+    if unseen := sorted(set(legend.values()) - seen):
+        lines.append("not seen in any view (too small or hidden): " + ", ".join(unseen))
+    return lines
 
 
 async def _visual_qa(s: Session, *, read_only: bool = False):
@@ -621,16 +717,37 @@ def image_refs(name: str, args: dict[str, Any]) -> list[str]:
 # --------------------------------------------------------------------------- BLOCKOUT
 
 
+async def apply_design(s: Session, ops: Any, before: Callable[[], Any] | None = None, *, attach: bool = False
+                       ) -> tuple[str | None, Tier1Report, int, int, list[str]]:
+    """The edit path of apply_scene_ir (and of run_build, whose design is a full scene): parse ``ops``, then under the
+    session lock apply it as one transaction with the separation of coplanar faces, Tier-1 checked and rolled back on a
+    critical issue. ``before``: called under the lock just before the apply (run_build updates the session's budget
+    there); returns its undo, called if the edit is rolled back or raises. ``attach`` (run_build's full scenes): detached
+    parts are attached in the same transaction (``_attached``). Returns (tx id or None when rolled back, the Tier-1
+    report, op count, node count, separation and attach notes)."""
+    apply, n, extend = _edit(s, ops)
+    note: list[str] = []
+    async with s.registry.locked(s.sid):
+        undo = before() if before is not None else None
+        try:
+            edit = _separated(s, apply, extend, note)
+            tid, rep = await _commit(s, _attached(s, edit, note) if attach else edit)
+        except BaseException:
+            if undo is not None:
+                undo()
+            raise
+        if tid is None and undo is not None:
+            undo()
+        nodes = len(s.stage.base_ir().nodes)
+    return tid, rep, n, nodes, note
+
+
 @_typed(ir_schema.apply_scene_ir_parameters)
 @_guard
 async def apply_scene_ir(ops: list[dict[str, Any]] | dict[str, Any] | str, ctx: ToolContext) -> str:
     """Atomically apply a Scene IR patch; rolled back if Tier-1 QA fails."""
     s = resolve(ctx)
-    apply, n, extend = _edit(s, ops)
-    note: list[str] = []
-    async with s.registry.locked(s.sid):
-        tid, rep = await _commit(s, _separated(s, apply, extend, note))
-        nodes = len(s.stage.base_ir().nodes)
+    tid, rep, n, nodes, note = await apply_design(s, ops)
     if tid is None:
         return f"ROLLED BACK {rep.one_line(200)}"
     return f"OK tx={tid} ops={n} nodes={nodes}{_copies(ops)} {_stats(rep)}{_warn(rep)}" + "".join(f" | {x}" for x in note)
@@ -1192,6 +1309,7 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
             # manifest says so, and so does the answer below); it never refuses the package and never sets or clears
             # `verified` or `preview`. Placed after the verified / preview branches above, beside the Blender asset check.
             fbx_note = await _export_fbx(s, pkg)
+            _add_script(s, pkg.data, candidate)
             _session_provenance(s, pkg.data)
             (candidate / "manifest.json").write_text(json.dumps(pkg.data, indent=1), encoding="utf-8")
             if "fbx" in pkg.data:
@@ -1223,15 +1341,51 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
             + "".join(f"\n{x}" for x in lines))
 
 
+SCRIPT_FILE = "source/build.py"
+
+
+def _add_script(s: Session, data: dict[str, Any], package: Path) -> None:
+    """A session built by run_build ships its script: ``source/build.py`` in the package, listed and hashed like every
+    other file, so a change request edits it instead of modelling the asset again."""
+    script = s._res(R_SCRIPT)
+    if not script:
+        return
+    raw = script["text"].encode("utf-8")
+    (package / "source").mkdir(exist_ok=True)
+    (package / SCRIPT_FILE).write_bytes(raw)
+    if SCRIPT_FILE not in data["files"]:
+        data["files"].append(SCRIPT_FILE)
+    data.setdefault("file_hashes", {})[SCRIPT_FILE] = {"sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw)}
+
+
 def _session_provenance(s: Session, data: dict[str, Any]) -> None:
     """The manifest's ``provenance`` facts of a native session (``kernel/provenance.py``): the scene was edited by the
     conversation's agent, whose model the studio does not see (a scene that only places the user's files is theirs);
-    an albedo is credited to the image model only while the material still uses the maps ``forge_pbr_material`` wrote."""
+    an albedo is credited to the image model only while the material still uses the maps ``forge_pbr_material`` wrote.
+    A session built by run_build: the design was built by its script (kind ``script``: path, sha256), the mesh files
+    the script made are its outputs, not files the user supplied, and ``source/build.py`` is that script."""
     prov = data.get("provenance")
     if prov is None:
         return
     scene = s.stage.base_ir()
-    if {n.kind for n in scene.nodes} <= {"mesh_ref", "group"}:
+    script = s._res(R_SCRIPT)
+    if isinstance(script, dict) and "sha256" in script:
+        changed = script.get("geom_version") != s.geom_version
+        provenance.set_design(prov, {"kind": "script", "model": None, "path": script["path"], "sha256": script["sha256"],
+                                     "note": "built by this script, written in the conversation by its agent (the studio "
+                                             "does not see which model that is)"
+                                             + ("; changed after the script ran by a deterministic fix" if changed else "")})
+        made = set(script.get("parts") or ())
+        for key in [k for k in prov["sources"] if k.startswith("supplied:") and k.removeprefix("supplied:") in made]:
+            new = "script_output:" + key.removeprefix("supplied:")
+            old = prov["sources"].pop(key)
+            prov["sources"][new] = {"kind": "script_output", "made_by": "design", "sha256": old.get("sha256"),
+                                    "bytes": old.get("bytes")}
+            for entry in prov["files"].values():
+                entry["derived_from"] = [new if d == key else d for d in entry.get("derived_from", [])]
+        if SCRIPT_FILE in data.get("files", []):
+            provenance.add_file(prov, SCRIPT_FILE, ["design"], [])
+    elif {n.kind for n in scene.nodes} <= {"mesh_ref", "group"}:
         provenance.set_design(prov, {"kind": "user_supplied", "note": "the scene only places the supplied file(s)"})
     else:
         provenance.set_design(prov, {"kind": "model_authored_in_session", "model": None,
@@ -1333,6 +1487,82 @@ async def run_bpy_script(source: str, ctx: ToolContext) -> str:
 # --------------------------------------------------------------------------- the short path
 
 
+# The session resource a session built by run_build keeps its script in (runtime/mcp_server.StudioHost.run_build):
+# {"path": relative to the workspace, "sha256", "text", "digest" (of the hand-off folder applied), "geom_version" (after
+# that apply), "parts" (file names of the PLYs the script made), "key"}. Its fix instructions name the script.
+R_SCRIPT = "build_script"
+# In a design a script builds, parts are joined by setting one into the other (a rod ends inside what it joins), so
+# Tier-1's interpenetration warning, raised by any crossing at all, is no finding there. Measured 2026-11-22 on a
+# lantern of 10 parts written from the reference page: 7 of the reply's 8 finding lines were such joints (1 to 34 % of
+# one part's probe points inside the other). At 0.5 the line still cost a live agent two edit rounds on ordinary joints
+# (2026-11-23, S/r6/live_smoke1: "fount and filler_neck ... about 53 %", a neck set into a tank; "fount and strut_boss
+# ... about 71 %", a boss set into a wall). From this share up a part is buried, which is a fact worth one line.
+BURIED_SHARE = 0.9
+
+
+def script_warning(issue: Any) -> str | None:
+    """One Tier-1 warning as run_build words it for a script's author; None when it is no finding there (a joint)."""
+    if issue.code == "interpenetration":
+        m = re.match(r"(\S+)/(\S+): ~(\d+)%", issue.detail or "")
+        if not m or int(m.group(3)) < BURIED_SHARE * 100:
+            return None
+        return f"warning: {m.group(1)} lies almost entirely inside {m.group(2)} (about {m.group(3)} %): it will not be seen"
+    return f"warning: {issue.code}" + (f" on {issue.node_id}" if issue.node_id else "") + (f": {issue.detail}" if issue.detail else "")
+
+
+# Set when run_build opens a session: a script session from its opening on, before any design is applied (R_SCRIPT is
+# set only by an applied design). Found by review: deliver_package on such a session that held nothing yet said
+# "build it with apply_scene_ir".
+R_SCRIPT_SESSION = "script_session"
+
+
+def script_session(s: Session) -> bool:
+    """Whether run_build opened this session (or built a design in it)."""
+    return bool(s._res(R_SCRIPT_SESSION) or s._res(R_SCRIPT))
+
+
+# Tier-1's critical codes as a script's author reads them: what the engine check would do, never the check's own names.
+_CRITICAL_WORDS = {
+    "empty_mesh": "has no triangles", "non_finite": "has points that are not numbers", "bad_indices": "refers to points it has not got",
+    "degenerate_tris": "has triangles of zero area", "inconsistent_winding": "has faces that point both ways",
+    "inverted_normals": "is inside out (its faces point inward)",
+}
+
+
+def script_critical(issue: Any, stats: dict[str, Any]) -> str:
+    """One critical Tier-1 issue in a script author's words."""
+    if issue.code == "tri_budget":
+        return f"it makes {stats.get('tris', '?'):,} triangles and the budget is {stats.get('max_tris', '?'):,} (max_tris in the Asset line)"
+    if issue.code == "draw_call_budget":
+        return (f"it needs {stats.get('draw_calls')} draw calls and the engine allows {stats.get('max_draw_calls')}: use "
+                "fewer materials")
+    what = _CRITICAL_WORDS.get(issue.code, issue.code.replace("_", " "))
+    return (f"{issue.node_id} {what}" if issue.node_id else what) + (f" ({issue.detail})" if issue.detail else "")
+
+
+def script_note(line: str) -> str | None:
+    """A separation or attach note as run_build words it for a script's author; None when there is nothing to say
+    (no flush faces, hidden contact pairs: nothing for the author to act on)."""
+    if not line.startswith("separate: "):
+        return line
+    out = []
+    for seg in line.removeprefix("separate: ").split("; "):
+        if m := re.match(r"moved (\d+) face\(s\) of (\d+) part\(s\) ([\d.]+) mm apart", seg):
+            out.append(f"set apart: {m.group(1)} flush face(s) of {m.group(2)} part(s) moved {m.group(3)} mm so they do not "
+                       "flicker in the engine")
+        elif m := re.match(r"lifted (\d+) part\(s\) ([\d.]+) mm off the ground plane", seg):
+            out.append(f"lifted {m.group(1)} part(s) {m.group(2)} mm off the ground so their bottoms do not flicker")
+        elif m := re.match(r"\d+ left \((.*)\)", seg):
+            out.append(f"flush faces left as they are (they may flicker in the engine): {m.group(1)}")
+    return "; ".join(out) if out else None
+
+
+def fix_with(s: Session) -> str:
+    """How this session's agent fixes the design: "with apply_scene_ir", or in a session built by run_build "in the
+    script, then run_build"."""
+    return "in the script, then run_build" if script_session(s) else "with apply_scene_ir"
+
+
 def _enter(s: Session, stage: str) -> None:
     s.state.active_stage = TOOLSET_STAGE[stage]  # type: ignore[assignment]
     set_toolset(s.registry, s.sid, stage)
@@ -1359,8 +1589,12 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
         tier1_ok = s.state.last_tier1_ok
         asset = s.stage.asset_prim.GetName()
     if not nodes:
-        raise ValueError("nothing to deliver: the scene is empty (build it with apply_scene_ir)")
+        raise ValueError("nothing to deliver: the scene is empty (build it with apply_scene_ir)" if not script_session(s) else
+                         "nothing to deliver: the scene is empty (write the script and run_build it)")
     if not tier1_ok:
+        if script_session(s):
+            return ("REFUSED the current design has not passed the checks: fix what run_build reported in the script, "
+                    "run_build, then deliver_package")
         return "REFUSED Tier-1 has not passed on the current scene: fix what apply_scene_ir reported, then deliver_package"
     # The reply leads with the outcome (r5/live_native5: a first reply that led with the review as the gates word it,
     # "agent_repair ... gates win", and ended with the refusal sent the agent back to repair; after a delivered package
@@ -1376,7 +1610,7 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
             # before anything is rendered or the judge is asked.
             refusal, steps = await _preflight(ctx, s, asset)
             if refusal:
-                return "\n".join([f"NOT DELIVERED: {refusal}. Fix what it names with apply_scene_ir and call "
+                return "\n".join([f"NOT DELIVERED: {refusal}. Fix what it names {fix_with(s)} and call "
                                   "deliver_package again.", *steps])
             task = _review_task(s)  # one an earlier call left running (or finished) for this scene
             v = s.state.verdict
@@ -1432,7 +1666,7 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
         out = [f"{NEEDS_A_PERSON} ({why}). Reply to the user with this reason and stop: changing the surfaces or the "
                "design to get past it is not wanted.", *shown, *steps, head]
     else:
-        out = [f"NOT DELIVERED: {head.removeprefix('REFUSED ')}. Fix what it names with apply_scene_ir and call "
+        out = [f"NOT DELIVERED: {head.removeprefix('REFUSED ')}. Fix what it names {fix_with(s)} and call "
                "deliver_package again.", *shown, *steps]
     return "\n".join(out)
 
@@ -1571,7 +1805,9 @@ def _dest_folder(s: Session, dest: str) -> Path:
 
 def _place(s: Session, package: Path, dest: str) -> list[str]:
     """Copy the package's engine files and manifest into ``dest`` (other files there are left as they are; a file of the
-    same name is replaced and listed); the lines that say which files the request named and which are the rest."""
+    same name is replaced and listed); the lines that say which files the request named and which are the rest. An asset
+    a script built takes its script along (``SCRIPT_FILE``): whoever keeps only the folder they asked for can still
+    change the asset."""
     import shutil
 
     from antigravity3d import safe_paths
@@ -1581,7 +1817,8 @@ def _place(s: Session, package: Path, dest: str) -> list[str]:
     _dest_folder(s, rel_dest)
     files = sorted(p.relative_to(package).as_posix() for p in package.rglob("*")
                    if p.is_file() and not p.is_symlink()
-                   and (p.suffix.lower() in PLACED_SUFFIXES or p.name == "manifest.json" or p.parent.name == "textures"))
+                   and (p.suffix.lower() in PLACED_SUFFIXES or p.name == "manifest.json" or p.parent.name == "textures"
+                        or p.relative_to(package).as_posix() == SCRIPT_FILE))
     replaced = []
     for rel in files:
         target = safe_paths.inside(root, f"{rel_dest}/{safe_paths.safe_name(rel, 'package file')}", "destination", write=True)

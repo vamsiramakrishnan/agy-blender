@@ -1,0 +1,188 @@
+{
+ "model": "gemini-4-carbon",
+ "thinking": "low",
+ "brief_id": "hydrant",
+ "brief": "a cast-iron fire hydrant with bolted caps and a chained nozzle cap",
+ "sheets": {
+  "A": "round5:live_scorecard/eval/r5/hydrant/V/sheet.png",
+  "C": "live_S_p1/eval/r5/hydrant/S/sheet.png"
+ },
+ "calls": [
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3247,
+    "output": 210,
+    "thinking": null,
+    "total": 3457
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 literally features bolted caps, whereas Image 2 uses standard screw-on caps with central wrench nuts."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Image 2 has much more authentic, recognizable fire hydrant proportions compared to the overly pointy bonnet and flat bolted plates of Image 1."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 shows more believable painted cast-iron wear with silver metal chipping and brass fittings, while Image 1 relies on stark black procedural edge masks."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 1 has an unnatural, stiffly floating chain hanging off an open nozzle, whereas Image 2's chain drapes cleanly between attachment points."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Image 2 is a far more realistic and well-crafted game asset with superior proportions, material definition, and natural chain placement."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "error": "ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3247,
+    "output": 206,
+    "thinking": null,
+    "total": 3453
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 literally includes bolted nozzle caps, whereas Image 2 uses standard screw-on caps and only bolts the body flanges."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Image 2 has much more authentic, sturdy fire hydrant proportions, whereas Image 1 has an overly pointy bonnet and flat, oversized flange caps."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 displays more realistic cast-iron surface bump, varied metal materials with brass and steel accents, and natural edge wear."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 2 has clean, properly connected geometry, whereas Image 1's hanging cap awkwardly intersects the lower body flange."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Image 2 is a far more realistic and polished game asset with superior materials, proportions, and clean construction despite lacking bolted nozzle caps."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3247,
+    "output": 206,
+    "thinking": null,
+    "total": 3453
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 has a properly attached chained nozzle cap, whereas Image 2 features an uncapped nozzle with a floating cap connected weirdly to the top flange."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Image 1 has authentic fire hydrant proportions and realistic height, while Image 2 has an overly conical top dome and thin nozzles."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 exhibits realistic painted cast-iron with distinct metallic bolts and brass accents, whereas Image 2 uses harsh black edge wear."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 1 has clean geometry and chain placement, while Image 2's hanging chain and cap defy gravity by floating outward stiffly."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 wins overall due to realistic fire hydrant proportions, believable material wear, and natural chain physics."
+    }
+   }
+  },
+  {
+   "first": "A",
+   "second": "C",
+   "usage": {
+    "input": 3247,
+    "output": 234,
+    "thinking": null,
+    "total": 3481
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 clearly features bolted nozzle caps alongside a hanging chained cap, whereas Image 2 uses standard screw-on caps with central nuts rather than bolted flanges."
+     },
+     "proportion_scale": {
+      "winner": "2",
+      "reason": "Image 2 displays more authentic hydrant proportions with a classic rounded bonnet and realistic cap sizing, while Image 1 has an overly pointed top and flat flange-like caps."
+     },
+     "surface_material": {
+      "winner": "2",
+      "reason": "Image 2 exhibits superior material separation with distinct brass fittings, realistic silver edge chipping, and subtle cast-iron surface bump compared to Image 1's heavy black wear."
+     },
+     "defects": {
+      "winner": "2",
+      "reason": "Image 2 shows clean geometry and natural chain drape, whereas Image 1's hanging cap awkwardly clips and rests directly against the lower flange."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Despite missing bolted nozzle caps, Image 2 is a much more convincing and well-crafted game asset with superior proportions, material definition, and mesh execution."
+    }
+   }
+  },
+  {
+   "first": "C",
+   "second": "A",
+   "usage": {
+    "input": 3247,
+    "output": 207,
+    "thinking": null,
+    "total": 3454
+   },
+   "verdict": {
+    "criteria": {
+     "reads_as_brief": {
+      "winner": "1",
+      "reason": "Image 1 features a properly attached chained nozzle cap, whereas Image 2 has an open nozzle with the cap hanging unusually from the upper flange."
+     },
+     "proportion_scale": {
+      "winner": "1",
+      "reason": "Image 1 has a realistic rounded bonnet and standard fire hydrant proportions compared to the overly pointy top of Image 2."
+     },
+     "surface_material": {
+      "winner": "1",
+      "reason": "Image 1 shows believable painted cast-iron wear, metallic chipping, and distinct brass fittings, while Image 2 uses harsh black edge wear."
+     },
+     "defects": {
+      "winner": "1",
+      "reason": "Image 1 has clean geometry and natural chain drape, whereas Image 2 exhibits rigid, unnatural hanging physics on the detached cap chain."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Image 1 is superior across all areas with authentic hydrant proportions, realistic material definition, and proper assembly of the chained cap."
+    }
+   }
+  }
+ ],
+ "total_tokens": 17298
+}
