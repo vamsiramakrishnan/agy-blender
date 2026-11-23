@@ -232,7 +232,7 @@ def build_stage_agent(
 
 class PartPlan(pydantic.BaseModel):
     name: str
-    primitive: Literal["box", "cylinder", "cone", "sphere", "capsule", "lathe", "extrude", "group", "mesh_ref"]
+    primitive: Literal["box", "cylinder", "cone", "sphere", "capsule", "lathe", "extrude", "sweep", "group", "mesh_ref"]
     approx_size_m: tuple[float, float, float]
     notes: str = ""
 

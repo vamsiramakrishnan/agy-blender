@@ -235,10 +235,11 @@ def test_delegated_subagents_exist(doc: Path) -> None:
 
 
 def test_checker_flags_names_that_do_not_exist() -> None:
-    bad = ("Run `run_visual_qa` with rubric `ortho_blueprint`. Use `sweep` as a primitive. "
+    bad = ("Run `run_visual_qa` with rubric `ortho_blueprint`. Use `torus` as a primitive. "
            "Add booleans as further patches. Delegate the check to the `ghost_checker` subagent.")
     assert name_problems(bad) and primitive_problems(bad) and unsupported_op_problems(bad)
     assert delegation_problems(bad)
+    assert not primitive_problems("Use `sweep` as a primitive for a bent rod.")
     assert not name_problems("Call `apply_scene_ir` with `ops`, then `inspect_manifest`.")
     assert not unsupported_op_problems("Scene IR has no boolean or mirror ops.")
     assert operation_word_problems("No bevel modifier: hard edges.") and not operation_word_problems("Hard edges, no rounded corners.")

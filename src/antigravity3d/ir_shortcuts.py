@@ -43,6 +43,8 @@ kind's exact symmetry planes (``SYMMETRY``), the local axis most aligned with th
 * group: any axis (no geometry); its children are reflected about its own plane b, recursively;
 * mesh_ref: a referenced file has no reflection without a negative scale, so mirroring one (or a subtree holding
   one) is an error.
+* sweep: reflected transported frames can change the diagonals of non-planar side quads, so the positive-scale
+  mirror shortcut is not supported. Author the other path explicitly; row and ring repeats preserve the mesh.
 """
 
 from __future__ import annotations
@@ -61,7 +63,7 @@ MAX_EXPANDED_NODES = 512
 ID_MAX = 64
 # Local symmetry planes per kind, in preference order when two are equally aligned (see the module docstring).
 SYMMETRY: dict[str, str] = {"box": "xyz", "extrude": "xyz", "cylinder": "yz", "sphere": "yz", "capsule": "yz",
-                            "cone": "y", "lathe": "y", "group": "xyz", "mesh_ref": ""}
+                            "cone": "y", "lathe": "y", "group": "xyz", "mesh_ref": "", "sweep": ""}
 _SRC = "\0source"  # internal key: the input node a copy was made from (never a field name)
 _DIGITS = 9  # rotations are recomputed through a matrix: 1e-9 degrees / metres is far below float32 in USD
 
@@ -86,6 +88,9 @@ def check(node: dict[str, Any]) -> None:
     if node.get("mirror") is not None and kind == "mesh_ref":
         raise ShortcutError(f"{nid}: a mesh_ref cannot be mirrored (a referenced file has no reflection without a negative "
                             "scale); add the mirrored copy as its own node")
+    if node.get("mirror") is not None and kind == "sweep":
+        raise ShortcutError(f"{nid}: a sweep cannot be mirrored by the shortcut; author the other path explicitly "
+                            "as its own node, or use repeat for a translated or rotated copy")
 
 
 # --- transforms ------------------------------------------------------------------------------------------------
@@ -164,6 +169,9 @@ def _mirror_one(node: dict[str, Any], a: int) -> tuple[dict[str, Any], int]:
     if kind == "mesh_ref":
         raise ShortcutError(f"{node.get(_SRC, node['id'])}: a mesh_ref cannot be mirrored (a referenced file has no reflection without a "
                             "negative scale); add the mirrored copy as its own node")
+    if kind == "sweep":
+        raise ShortcutError(f"{node.get(_SRC, node['id'])}: a sweep cannot be mirrored by the shortcut; author the other path "
+                            "explicitly as its own node, or use repeat for a translated or rotated copy")
     t = _transform(node)
     rot = _rot(t["rotate_euler_deg"])
     allowed = [AXES.index(c) for c in SYMMETRY[kind]]
@@ -285,6 +293,10 @@ def local_bounds(kind: str, p: dict[str, Any]) -> tuple[np.ndarray, np.ndarray] 
         xy = np.asarray(p["outline"], float)
         d = float(p["depth"]) / 2
         return np.array([*xy.min(0), -d]), np.array([*xy.max(0), d])
+    elif kind == "sweep":
+        path = np.asarray(p["path"], float)
+        r = float(p["radius"])
+        return path.min(0) - r, path.max(0) + r  # conservative envelope of the circular rings
     return None if h is None else (-h, h)
 
 

@@ -20,14 +20,14 @@ import numpy as np
 from pxr import Gf, Kind, Sdf, Usd, UsdGeom, UsdShade, Vt
 
 from antigravity3d.ir import MaterialIR, NodeIR, PlaceRelative, SceneIR, Transform
-from antigravity3d.kernel import shapes
+from antigravity3d.kernel import shapes, sweep
 from antigravity3d.kernel.mesh_io import triangle_parts
 
 IR_KEY = "agy:sceneIR"  # customData key path (USD stores it as dict agy -> sceneIR)
 LOOKS = "Looks"
 REF_CHILD = "ref"  # child prim of a mesh_ref node that carries the USD reference
 # Kinds compiled to a mesh from their parameters (the rest: mesh_ref reads a file, group has no geometry).
-PRIMITIVES = frozenset({"box", "cylinder", "cone", "sphere", "capsule", "lathe", "extrude"})
+PRIMITIVES = frozenset({"box", "cylinder", "cone", "sphere", "capsule", "lathe", "extrude", "sweep"})
 USD_EXTS = frozenset({".usd", ".usda", ".usdc", ".usdz"})
 _MESH_ATTRS = ("points", "faceVertexCounts", "faceVertexIndices", "extent")
 
@@ -174,7 +174,7 @@ def _box_size(node: NodeIR) -> tuple[float, float, float]:
 
 
 def _shaped(node: NodeIR) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
-    """(points, triangles, charts) of a node built by kernel/shapes.py, None for the plain primitives."""
+    """(points, triangles, charts) of a shaped primitive, None for the plain primitives."""
     if node.kind == "box":
         if (spec := _box_shape(node)) is None:
             return None
@@ -184,6 +184,8 @@ def _shaped(node: NodeIR) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
             raise ValueError(f"{node.id}: {e}") from None
     if node.kind == "extrude":
         return shapes.extrude(node.params.get("outline"), _num(node, "depth"), node.id)
+    if node.kind == "sweep":
+        return sweep.build(node.params.get("path"), _num(node, "radius"), _int(node, "segments", 12, 3, 64), node.id)
     return None
 
 
@@ -220,6 +222,8 @@ def check_node(node: NodeIR) -> None:
     elif k == "extrude":
         shapes.extrude_outline(node.params.get("outline"), node.id)
         _num(node, "depth")
+    elif k == "sweep":
+        sweep.validate(node.params.get("path"), _num(node, "radius"), _int(node, "segments", 12, 3, 64), node.id)
     elif k in PRIMITIVES:
         _profile(node)
     else:
@@ -253,6 +257,7 @@ def triangle_count(node: NodeIR) -> int:
       cone      2 n;  sphere 2 n (rings - 1);  capsule 4 n c when height > 0, else 4 n c - 2 n, with c = max(2, n // 4)
       lathe     open: n per band touching a pole (the two ends) and 2 n per other band; closed: 2 n per profile point
       extrude   4 k - 4 for k outline points
+      sweep     2 n k for k path samples, including the two end caps
       group     0
     mesh_ref raises: its cost is in its file.
     """
@@ -266,6 +271,8 @@ def triangle_count(node: NodeIR) -> int:
         return shapes.extrude_tris(p["outline"])
     if k == "lathe":
         return shapes.lathe_tris(p["profile"], bool(p.get("closed", False)), int(p.get("segments", 16)))
+    if k == "sweep":
+        return 2 * int(p.get("segments", 12)) * len(p["path"])
     if k == "cylinder":
         s = int(p.get("bevel_segments", 1)) if float(p.get("bevel", 0) or 0) > 0 else 0
         return int(p.get("segments", 24)) * (4 * s + 4)
@@ -294,6 +301,7 @@ def primitive_charts(node: NodeIR) -> np.ndarray:
         a non-isometric map, so a seam per latitude ring is the price of zero distortion.
       * lathe / bevelled cylinder: one chart per band, as the sphere (two per band at an odd segment count);
       * bevelled / inset box, extrude: see kernel/shapes.py (open strips and flat pieces, all exact).
+      * sweep: one open ribbon per radial side and separate caps (kernel/sweep.py); no interior chart vertices.
     ``fast_ops.unwrap_scene`` unfolds each chart from the *world-space* positions, so a non-uniformly
     scaled node still gets an exact layout at the requested texel density.
     """

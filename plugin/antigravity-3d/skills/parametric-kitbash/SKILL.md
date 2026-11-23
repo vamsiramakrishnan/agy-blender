@@ -3,7 +3,7 @@ name: parametric-kitbash
 description: >-
   Builds the 3D model of a prop in the USD stage as Scene IR patches: a finished
   game prop, not a blockout, from boxes, cylinders, cones, spheres, capsules,
-  turned (lathe) and extruded parts, with rounded edges, recessed panels and
+  turned (lathe), extruded and swept parts, with rounded edges, recessed panels and
   mirrored or repeated parts; then loops on a render and visual QA until the
   silhouette matches, and fixes floating parts, flicker (z-fighting) and
   triangle budget. Also builds modular kit pieces (wall, doorway, floor tile,
@@ -41,8 +41,13 @@ not a handful of blocks.
    roll back. Use the shape that matches how the part is made: box, cylinder,
    cone, sphere, capsule; lathe for anything turned (a barrel, post, knob,
    lamp: one profile of 6 to 16 points, not a stack of cylinders); extrude for
-   a constant section (a bracket, arch, ramp, L or U section); group for a
-   transform-only parent; mesh_ref for an existing mesh file.
+   a flat section pushed straight (a bracket, arch, ramp, L or U section).
+   Use sweep for a bent round rail, handle, rod or cable: 2 to 128 explicit
+   local XYZ centreline samples, constant positive radius, 3 to 64 radial
+   segments (default 12), open path with capped ends. Add samples for bends;
+   no spline is fitted or path recentered. Two samples join arbitrary
+   endpoints, including an inclined spindle. Use group for a transform-only
+   parent; mesh_ref for an existing mesh file.
 3. **Secondary forms.** Add detail as further patches. Nothing manufactured has
    a razor edge: round box and cylinder edges with a bevel of 3 to 5 % of the
    part's smallest size, on parts thicker than about 1 cm (1 segment for metal
@@ -194,7 +199,8 @@ exterior metric: a 1 m grid, 4 m modules, walls 4 m high and 0.5 m thick, a
 4. The triangle budget holds with the new shapes counted at what they cost: a
    box is 12 triangles, bevelled 44 (1 segment) or 108 (2), plus 16 per inset
    face; a cylinder 4 per segment, more when bevelled; a lathe 2 per segment
-   per profile step; an extrude 4 x corners - 4; a sphere or capsule hundreds.
+   per profile step; an extrude 4 x corners - 4; a capped sweep 2 x segments x
+   path points; a sphere or capsule hundreds.
 
 A pass is all three at once. If the session has no `brief`, step 3 only checks
 shape and contact, never that the object is what was asked for.
@@ -256,11 +262,16 @@ shape and contact, never that the object is what was asked for.
   extent, an inset face keeps a frame and a depth above zero.
 - **Symptom:** a mirror or repeat is refused. **Cause:** the part must lie on
   one side of the mirror plane (one that straddles it would be copied onto
-  itself), a mesh_ref cannot be mirrored, and a repeat counts 2 to 32 with
+  itself), mesh_ref and sweep cannot use the mirror shortcut, and a repeat counts 2 to 32 with
   the original, as a row (offset) or a ring (around), never both. **Remedy:**
-  move the part to one side, or write the two halves by hand. After the
+  move the part to one side, or write the two halves by hand; for a sweep,
+  write the reflected path explicitly. After the
   shortcut is expanded the copies are plain nodes (ids such as id__r1 and
   id__mx): a later patch edits one copy only.
+- **Symptom:** a sweep is refused at a path point or bend. **Cause:** repeated
+  points, a reversal, an excessive radius or self-contact would collapse or
+  intersect the rod. **Remedy:** remove duplicate points, widen the bend or
+  reduce the radius as the node-specific message says; do not relax QA.
 - **Symptom:** a candidate design was lost or rescued in the run report.
   **Cause:** its answer failed to read; it is corrected once (the report says
   "rescued" or "failed" with the messages), never for a truncated or empty
@@ -288,10 +299,11 @@ shape and contact, never that the object is what was asked for.
 
 Last verified 2026-11-22 against commit af568e0 (shapes, authoring and
 install merged; the design loop and the judge views of round five not yet).
+Geometry contract verified 2026-11-23 on main 0edb0ff with native sweep support.
 
-- Node kinds: box, cylinder, cone, sphere, capsule, lathe, extrude, group and
+- Node kinds: box, cylinder, cone, sphere, capsule, lathe, extrude, sweep, group and
   mesh_ref. Box bevel and inset faces, cylinder bevel, lathe and extrude are
-  built by `kernel/shapes.py`; `compile_ir.triangle_count` is the one source
+  built by `kernel/shapes.py`; sweep by `kernel/sweep.py`. `compile_ir.triangle_count` is the one source
   of a part's triangle cost.
 - The part count follows the triangle budget: 50 to 90 parts when max_tris
   allows (50 plain boxes are 600 triangles), as many as fit when it is smaller

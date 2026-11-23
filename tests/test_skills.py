@@ -171,8 +171,8 @@ def test_node_kinds_and_stage_ids_named_in_skills_exist() -> None:
 
     kinds = set(typing.get_args(ir.NodeIR.model_fields["kind"].annotation))
     # the kitbash skill lists every kind the schema has, and no other: a kind added to the format must reach the skill
-    listed = set(re.findall(r"\b(box|cylinder|cone|sphere|capsule|lathe|extrude|group|mesh_ref)\b",
-                            re.search(r"## Version notes.*?Node kinds: ([^.]*)\.", TEXT["parametric-kitbash"], re.S).group(1)))
+    declaration = re.search(r"## Version notes.*?Node kinds: ([^.]*)\.", TEXT["parametric-kitbash"], re.S).group(1)
+    listed = set(re.findall(r"[a-z][a-z0-9_]*", declaration)) - {"and"}
     assert listed == kinds, (sorted(kinds ^ listed))
     from antigravity3d.harness import tools as T
     for stage in set(re.findall(r"\b(BLOCKOUT|VARIANTS|LOOKDEV|EXPORT)\b", _all_text())):
@@ -186,6 +186,9 @@ def test_shape_costs_and_refusals_quoted_by_the_kitbash_skill_are_the_kernels() 
     assert "a box is 12 triangles, bevelled 44 (1 segment) or 108 (2), plus 16 per inset face" in flat
     assert triangle_count(box(inset_faces=["+x"], inset_margin=0.1, inset_depth=0.01)) == 12 + 16
     assert triangle_count(NodeIR(id="e", kind="extrude", params={"outline": [(0, 0), (1, 0), (1, 1), (0, 1)], "depth": 0.1})) == 4 * 4 - 4
+    assert "a capped sweep 2 x segments x path points" in flat
+    assert triangle_count(NodeIR(id="s", kind="sweep", params={"path": [(0, 0, 0), (0, 0, 0.2), (0.1, 0, 0.4)],
+                                                              "radius": 0.02, "segments": 12})) == 2 * 12 * 3
     for params, quoted in [({"size": (0.2, 0.2, 0.2), "bevel": 0.5}, "bevel 0.5 must be below half the smallest extent (0.1)"),
                            ({"size": (1, 1, 1), "inset_faces": ["+x"], "inset_margin": 0.0, "inset_depth": 0.01},
                             "inset_margin must be > 0 when inset_faces is set (without a frame the recess cuts the edge away)"),
