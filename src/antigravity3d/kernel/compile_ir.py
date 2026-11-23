@@ -932,6 +932,14 @@ def _author_transform(prim: Usd.Prim, t: Transform, prev: Transform | None = Non
         )
 
 
+def mesh_ref_file(uri: str, root_file: str | None) -> Path:
+    """The file a mesh_ref's ``params.path`` names, by the compiler's one rule: an absolute path as it is, a relative one
+    against the folder of the stage's root layer (the working directory when the layer is anonymous). Every reader of that
+    path (the compiler, the package writer, the triangle count, the provenance of supplied files) asks here: three sites
+    that each did their own ``Path(raw)`` read a relative path against the working directory and shipped another file."""
+    return ((Path(root_file).parent if root_file else Path.cwd()) / uri).resolve()
+
+
 def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path) -> None:
     is_prim = node.kind in PRIMITIVES
     ref_path = None
@@ -939,8 +947,7 @@ def _author_node(stage: Usd.Stage, path: Sdf.Path, node: NodeIR, root: Sdf.Path)
         uri = node.params.get("path")
         if not isinstance(uri, str) or not uri:
             raise ValueError(f"{node.id}: mesh_ref requires string param 'path'")
-        root_file = stage.GetRootLayer().realPath
-        ref_path = ((Path(root_file).parent if root_file else Path.cwd()) / uri).resolve()
+        ref_path = mesh_ref_file(uri, stage.GetRootLayer().realPath)
     imported = ref_path is not None and ref_path.suffix.lower() not in USD_EXTS
     prim = stage.DefinePrim(path, "Mesh" if is_prim or imported else "Xform")
     if not prim.IsActive():

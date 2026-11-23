@@ -61,7 +61,7 @@ from PIL import Image
 from pxr import Sdf, Usd, UsdGeom, UsdPhysics, UsdShade, Vt
 
 from antigravity3d.artifacts.inspector import InspectorQA, build_inspector, bundled_three_js
-from antigravity3d.kernel import compile_ir, provenance
+from antigravity3d.kernel import compile_ir, part_files, provenance
 from antigravity3d.kernel.compile_ir import (
     CREASE_DEG, IR_KEY, MapSource, MaterialParams, author_mesh_data, read_ir, read_material, set_normal_encoding,
 )
@@ -469,6 +469,7 @@ ATLAS_ROLES = ("albedo", "orm", "normal", "emissive")
 #: every run (the lookdev fixers rewrite all three after derivation, tactics/pyramid.py; supplied maps were never
 #: derived). No engine file references them and no install copies them (deliver copies levels and textures/).
 SOURCES_DIR = "sources"
+PARTS_DIR = "parts"  # the files a scene's mesh_ref nodes read (free-form parts), by a path relative to the package
 _FLAT_NORMAL = (128, 128, 255)
 
 
@@ -842,6 +843,55 @@ def _ship_sources(out: Path, record: dict[str, Any] | None) -> None:
             src["sha256"], src["bytes"] = _sha256(dest), dest.stat().st_size
     record["sources_dir"] = SOURCES_DIR
     record["sources_bytes"] = total
+
+
+def _ship_parts(stage: Usd.Stage, out: Path, resolve: Any) -> dict[str, Any] | None:
+    """Copies the file of each ``mesh_ref`` node into ``parts/<node id>-<sha256[:12]><suffix>`` and makes the embedded
+    scene and each prim's ``agy:meshRef`` name it by that path, relative to the package, in place of the absolute path
+    in the session's work folder it was built from. Why: that path put a developer's home directory and the session's
+    id in the shipped USD and USDZ, made two deliveries of one design differ between machines, and left a package that
+    could not be re-opened once the work folder was gone (the edit reads these files). The shipped mesh prim is not a
+    copy of the file (hidden triangles are dropped from it, ``_ship_lod0``), so the file is what keeps the design whole.
+    Not in the manifest's ``files``: engines neither load nor copy them (as ``sources/``). Returns the manifest record, or
+    None when the scene has no such node.
+
+    A file that is not one file (``part_files.problem``, the check the re-open makes again) or is not on disk is not shipped, and no path of this machine is
+    written for it: the scene and the prim name the bare file name, and the part is listed under ``not_portable`` with the
+    reason, which is what makes a re-open of the package refuse it by name."""
+    asset = stage.GetDefaultPrim()
+    scene = read_ir(asset)
+    held: dict[str, tuple[str, bytes]] = {}  # node id -> (shipped name, bytes), read before parts/ is cleared
+    bare: dict[str, str] = {}  # node id -> bare file name, for the parts that cannot travel
+    not_portable: dict[str, str] = {}
+    for node in scene.nodes if scene is not None else ():
+        raw = node.params.get("path") if node.kind == "mesh_ref" else None
+        if not isinstance(raw, str) or not raw:
+            continue
+        src = resolve(raw)  # the file the compiler read (compile_ir.mesh_ref_file), not the working directory's
+        data = src.read_bytes() if src.is_file() else None
+        reason = f"its file {src.name} was not found when the package was written" if data is None else part_files.problem(src.suffix, data)
+        if reason:
+            not_portable[node.id], bare[node.id] = reason, src.name
+            continue
+        held[node.id] = (f"{node.id}-{hashlib.sha256(data).hexdigest()[:12]}{src.suffix.lower()}", data)
+    shutil.rmtree(out / PARTS_DIR, ignore_errors=True)
+    if not held and not not_portable:
+        return None
+    files: dict[str, Any] = {}
+    if held:
+        (out / PARTS_DIR).mkdir(parents=True)
+    for nid, (name, data) in held.items():
+        (out / PARTS_DIR / name).write_bytes(data)
+        files[name] = {"node": nid, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+    rel = {**bare, **{nid: f"{PARTS_DIR}/{name}" for nid, (name, _) in held.items()}}
+    nodes = [n.model_copy(update={"params": {**n.params, "path": rel[n.id]}}) if n.id in rel else n for n in scene.nodes]
+    asset.SetCustomDataByKey(IR_KEY, scene.model_copy(update={"nodes": nodes}).model_dump_json())
+    for prim in Usd.PrimRange(asset):
+        attr = prim.GetAttribute("agy:meshRef")
+        node_id = prim.GetAttribute("agy:nodeId")
+        if attr and node_id and node_id.Get() in rel:
+            attr.Set(rel[node_id.Get()])
+    return {"dir": PARTS_DIR, "files": files, **({"not_portable": not_portable} if not_portable else {})}
 
 
 def _split_reasons(materials: Mapping[str, GltfMaterial]) -> list[dict[str, Any]]:
@@ -1405,6 +1455,7 @@ def write_engine_package(
                             if atlas_tmp is not None else None)
         textures, unresolved = _package_textures(stage, out, engine, art)  # copies the baked files into textures/
         _ship_sources(out, atlas_record)
+        parts_record = _ship_parts(stage, out, stage_manager.mesh_ref_file)
         laid = next((u.layout for u in uvs if u.shared_atlas and u.layout), None)
         if atlas_record is not None and laid:  # an edit's export: whether the shipped layout was kept (fast_ops._pack_kept)
             atlas_record["layout"] = {"result": laid.split(":", 1)[0], "detail": laid}
@@ -1601,6 +1652,8 @@ def write_engine_package(
     }
     if roblox_record is not None:
         data["roblox_surface_appearance"] = roblox_record
+    if parts_record:
+        data["parts"] = parts_record
     if atlas_record is not None or merged:
         data["texture_atlas"] = {**(atlas_record or {"status": "not_baked"}), "gltf_materials": merged,
                                  "split_properties": list(SPLIT_PROPERTIES), "splits": _split_reasons(materials),
@@ -1622,7 +1675,7 @@ def write_engine_package(
     if engine == "web_three":  # a number only a web page has: written for this target only, so no other manifest changes
         data["web_download"] = web_download_record(out, f"{asset_name}.glb", data["glb_images"][f"{asset_name}.glb"])
     try:
-        supplied = provenance.supplied_meshes(stage_manager.base_ir())
+        supplied = provenance.supplied_meshes(stage_manager.base_ir(), stage_manager.mesh_ref_file)
     except Exception:  # noqa: BLE001 - a stage without a readable scene IR has no supplied files to name
         supplied = {}
     data["provenance"] = provenance.finalize(provenance.build(data, supplied=supplied, styled=art is not None, asset=asset_name))

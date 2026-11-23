@@ -94,6 +94,7 @@ step with its reason, then `publication:` and the gate result. What it writes, u
 | `package/manifest.json` | budgets, LODs, colliders, materials, every check's result and where every file came from ([package_provenance.md](package_provenance.md)) |
 | `package/inspector.html` | a standalone viewer with PBR channels, LODs and budget gauges; notes are kept in the page and exported as JSON |
 | `package/sources/` | the maps the atlas was baked from, so the package can be edited later without its run folder; no engine file uses them and `agy3d install` does not copy them |
+| `package/parts/` | the mesh file of each free-form part (a script's tubes, lofts and meshes, or a mesh file you supplied), named by its content, so the package can be opened and edited on another machine; no engine file uses them and `agy3d install` does not copy them. Only a part that is one file travels (`.ply`, `.stl`, `.glb`, `.obj`); a `.gltf` with separate buffers or a USD file is not carried, and the manifest says so (`parts.not_portable`) |
 | `report.json` | candidate paths, skipped steps, provider usage and gate results (`outputs.inspector` names the viewer) |
 
 A preview run keeps its own output directory, so a failed retry cannot replace a verified asset. A successful
@@ -220,6 +221,8 @@ with the reason. A run into a fresh Godot 4.7 project printed:
 
 Safety: nothing outside that directory is written; a file the tool did not write is never replaced; an update
 refuses when one of its own files was edited since (`--force` overrides); its record is `<dest>/.agy3d/install.json`.
+The record names the package by a path relative to the project, or only by its folder's name when a relative path
+would cross a home directory; nothing an install writes into your project holds a path of your machine.
 Running `install` again with a newer package of the same asset updates the directory in place.
 
 **For a three.js or React Three Fiber project** it writes three kinds of file (the install itself downloads nothing):
@@ -328,8 +331,12 @@ its package) and applies the instruction as one patch to the parts it names.
 - **Then each untouched part's base colour is checked** against the shipped one: mean within 4/255, spread within
   8/255; a part outside it is named in the result. A surface generated from the geometry is held to that bound too,
   since a changed neighbour may change it.
-- **Months later.** A package keeps the maps its atlas was baked from in `sources/`, so a bare package can be edited
-  without its run folder.
+- **Months later.** A package keeps the maps its atlas was baked from in `sources/` and the mesh files of its
+  free-form parts in `parts/`, so a bare package can be edited without its run folder, on another machine too. A
+  package written before parts travelled with it is refused with the way out (build it again from
+  `source/build.py`, or export it again from the workspace that made it). An edit reads no file outside the
+  package: a part must be one file that names no other, its bytes must match the hash in its name, and the
+  package's USD must be the flat single file this project writes.
 - **Undo.** The replaced package is kept in `OUT/history/NNN/` (beside a bare package, `<name>.history/`), and
   `--undo` puts it back. The new manifest lists the edit under `edits` and its provenance names it.
 - **Not verified.** An edited package is never verified: no lookdev pass runs on it.

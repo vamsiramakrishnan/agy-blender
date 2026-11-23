@@ -678,7 +678,7 @@ def _over_budget(build: Any, rel: str) -> str | None:
     the budget the script asks for (lowered by its art direction like a session's), naming the five heaviest parts; else
     None. A part's count: the kernel's ``triangle_count`` for a ready shape, its file's face count for a free-form one."""
     from antigravity3d.art_direction import load as load_art
-    from antigravity3d.kernel.compile_ir import triangle_count
+    from antigravity3d.kernel.compile_ir import mesh_ref_file, triangle_count
     from antigravity3d.state import EngineBudget
 
     tris = (build.stats or {}).get("triangles")
@@ -695,7 +695,7 @@ def _over_budget(build: Any, rel: str) -> str | None:
         cost = {}
         for n in scene.nodes:
             if n.kind == "mesh_ref":
-                cost[n.id] = _ply_faces(Path(str(n.params.get("path"))))
+                cost[n.id] = _ply_faces(mesh_ref_file(str(n.params.get("path")), None))  # absolute from the hand-off (build.handoff)
             elif n.kind != "group":
                 cost[n.id] = triangle_count(n)
         heavy = ", ".join(f"{k} {v:,}" for k, v in sorted(cost.items(), key=lambda kv: (-kv[1], kv[0]))[:5])

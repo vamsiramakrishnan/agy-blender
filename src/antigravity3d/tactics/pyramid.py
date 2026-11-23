@@ -345,11 +345,11 @@ def tidy(sm: Any, budget: EngineBudget, touched: set[str]) -> list[str]:
             notes.append(f"settled {len(ops)} part(s) the patch left floating within {reach * 1e3:.0f} mm: "
                          f"{', '.join(sorted(movable - far)[:8])}")
     scene = sm.base_ir()
-    if count_tris(scene) > budget.max_tris:
-        ops = _shrink(scene, budget.max_tris, only=touched)
+    if count_tris(scene, sm.mesh_ref_file) > budget.max_tris:
+        ops = _shrink(scene, budget.max_tris, only=touched, resolve=sm.mesh_ref_file)
         if guarded(ops, "shrink"):
             notes.append(f"fewer segments on {len({o.node_id for o in ops})} part(s) the patch changed: "
-                         f"{count_tris(sm.base_ir())} of max_tris {budget.max_tris}")
+                         f"{count_tris(sm.base_ir(), sm.mesh_ref_file)} of max_tris {budget.max_tris}")
     meshes = sm.extract_meshes()
     try:
         r = separate_coplanar(sm.base_ir(), meshes, hidden=shipped_masks(meshes, budget))

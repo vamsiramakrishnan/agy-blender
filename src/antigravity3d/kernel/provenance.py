@@ -57,15 +57,18 @@ def sha256_json(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
 
-def supplied_meshes(scene: Any) -> dict[str, dict[str, Any]]:
+def supplied_meshes(scene: Any, resolve: Any = None) -> dict[str, dict[str, Any]]:
     """``{"supplied:<file name>": {...}}`` for each ``mesh_ref`` node of ``scene`` whose file exists: the user's file,
-    by hash. The file's name, never its directory."""
+    by hash. The file's name, never its directory. ``resolve``: the stage's rule for a relative path (``StageManager.mesh_ref_file``);
+    without it, the compiler's rule for a stage with no folder."""
+    from antigravity3d.kernel.compile_ir import mesh_ref_file
+
     out: dict[str, dict[str, Any]] = {}
     for node in getattr(scene, "nodes", ()) or ():
         if getattr(node, "kind", None) != "mesh_ref":
             continue
         raw = (getattr(node, "params", None) or {}).get("path")
-        path = Path(str(raw)) if raw else None
+        path = (resolve(str(raw)) if resolve is not None else mesh_ref_file(str(raw), None)) if raw else None
         if path is not None and path.is_file():
             out[f"supplied:{path.name}"] = {"kind": "user_supplied", "sha256": sha256_file(path), "bytes": path.stat().st_size}
     return out

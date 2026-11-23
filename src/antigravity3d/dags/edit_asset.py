@@ -37,6 +37,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import re
 import shutil
 import tempfile
 import time
@@ -49,6 +50,8 @@ import numpy as np
 from antigravity3d.ir import (
     AssignMaterial, IRPatch, RemoveNode, SceneIR, SetParam, SetTransform, UpsertMaterial, UpsertNode,
 )
+from antigravity3d.kernel.part_files import PART_SUFFIXES
+from antigravity3d.kernel import part_files
 from antigravity3d.safe_paths import UnsafePath, copy_without_links, inside, no_links, safe_name
 from antigravity3d.state import EngineBudget
 
@@ -126,6 +129,8 @@ class Shipped:
     # where each material's source maps are read from (see ``source_materials``)
     materials_from: str = ""
     authoring: SceneIR | None = None  # the run's working design: the same nodes, materials with their source maps
+    # node id -> (name, bytes) of each free-form part, as load_shipped read and checked them (once); what the edit copies
+    parts: dict[str, tuple[str, bytes]] = field(default_factory=dict)
 
     @property
     def asset(self) -> str:
@@ -186,16 +191,59 @@ def find_package(target: Path) -> tuple[Path, Path | None, dict[str, Any] | None
                     "report.json names one")
 
 
+def _declared_files(layer: Any) -> list[str]:
+    """The files opening ``layer`` would open: its sublayers and the asset paths of every reference and payload on any
+    prim, in variants too. Read from the layer's own lists; nothing is composed or opened. An internal reference (no asset
+    path: the working stage's ``__agy_base``) names no file."""
+    found = list(layer.subLayerPaths)
+
+    def walk(spec: Any) -> None:
+        for item in (*spec.referenceList.GetAddedOrExplicitItems(), *spec.payloadList.GetAddedOrExplicitItems()):
+            if item.assetPath:
+                found.append(item.assetPath)
+        for child in spec.nameChildren:
+            walk(child)
+        for vset in spec.variantSets.values():
+            for variant in vset.variants.values():
+                walk(variant.primSpec)
+
+    for top in layer.rootPrims:
+        walk(top)
+    return found
+
+
+def _flat_layer(usd: Path, what: str) -> Any:
+    """The root layer of a USD file of a package or a run folder, opened alone (``Sdf.Layer``, never a stage), and refused,
+    naming what it declares, when opening it would open another file. A USD this project ships is flat
+    (``StageManager.export_layer``): a layer with a sublayer, a reference or a payload to a path is not one of ours, and
+    composing it would read whatever that path names. Every USD of a package or a run folder opened on the way into an
+    edit goes through here (``_scene_from_usd``, the run folder's authoring USD)."""
+    from pxr import Sdf
+
+    try:
+        layer = Sdf.Layer.FindOrOpen(str(usd))
+    except Exception as e:  # noqa: BLE001 - a Tf error for a file that is not USD
+        raise EditError(f"{what}: {usd.name} cannot be read as USD ({str(e)[:100]}): {REFUSAL}") from e
+    if layer is None:
+        raise EditError(f"{what}: {usd.name} cannot be read as USD: {REFUSAL}")
+    declared = _declared_files(layer)
+    if declared:
+        names = ", ".join(sorted({Path(str(d)).name or str(d) for d in declared})[:4])
+        raise EditError(f"{what}: {usd.name} declares other files to open ({names}); a USD this project ships is one flat file, "
+                        f"so this is not one: {REFUSAL}")
+    return layer
+
+
 def _scene_from_usd(usd: Path) -> SceneIR:
-    from pxr import Usd
-
-    from antigravity3d.kernel.compile_ir import read_ir
-
-    stage = Usd.Stage.Open(str(usd))
-    scene = read_ir(stage.GetDefaultPrim()) if stage else None
-    if scene is None:
+    layer = _flat_layer(usd, "the package's USD")
+    spec = layer.GetPrimAtPath(f"/{layer.defaultPrim}") if layer.defaultPrim else None
+    raw = (spec.customData.get("agy") or {}).get("sceneIR") if spec is not None else None
+    if not isinstance(raw, str) or not raw:
         raise EditError(f"{usd}: the package's USD carries no scene (an asset this project did not make, or an older one)")
-    return scene
+    try:
+        return SceneIR.model_validate_json(raw)
+    except ValueError as e:
+        raise EditError(f"{usd}: the scene its USD carries is not valid ({str(e)[:100]}): {REFUSAL}") from e
 
 
 def _budget(manifest: Mapping[str, Any], extras: Mapping[str, Any]) -> EngineBudget:
@@ -214,10 +262,15 @@ def load_shipped(target: Path | str) -> Shipped:
         no_links(package, f"the package {package}")  # the history and undo copies would follow one
     except UnsafePath as e:
         raise EditError(f"{e}: {REFUSAL}") from e
-    manifest = json.loads(_in(package, "manifest.json", "the package manifest").read_text())
+    try:
+        manifest = json.loads(_in(package, "manifest.json", "the package manifest").read_text())
+    except ValueError as e:
+        raise EditError(f"the package manifest is not valid JSON ({str(e)[:80]}): {REFUSAL}") from e
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("asset"), str):
+        raise EditError(f"the package manifest is not an object naming its asset: {REFUSAL}")
     usd = _in(package, str(manifest.get("usd") or f"{manifest['asset']}.usd"), "manifest usd")
     scene = _scene_from_usd(usd)
-    _check_named_files(package, manifest, scene)
+    parts = _check_named_files(package, manifest, scene)
     extras = _extras(report)
     inputs = manifest.get("design_inputs") or {}
     art = (extras.get("art_direction") or {}).get("id") if extras.get("art_direction") else inputs.get("art_direction")
@@ -234,19 +287,85 @@ def load_shipped(target: Path | str) -> Shipped:
             path = _under(run_folder, path, "report.json outputs.authoring_usd")
             from antigravity3d.kernel.usd_stage import StageManager
 
+            _flat_layer(path, "the run folder's authoring USD")  # before anything composes it
             authoring = StageManager.open(path).base_ir()
-            if authoring.nodes != scene.nodes:  # not the design that shipped (a later run left it): not a source
+            if _without_part_paths(authoring.nodes) != _without_part_paths(scene.nodes):  # not the design that shipped: not a source
                 authoring = None
     return Shipped(package, manifest, usd, scene, _budget(manifest, extras), extras.get("prompt") or inputs.get("brief"),
-                   art, run_folder, report, plan, authoring=authoring)
+                   art, run_folder, report, plan, authoring=authoring, parts=parts)
 
 
 _URI_FIELDS = ("albedo_uri", "orm_uri", "normal_uri", "emissive_uri")
 
 
-def _check_named_files(package: Path, manifest: Mapping[str, Any], scene: SceneIR) -> None:
+def _without_part_paths(nodes: Any) -> list[Any]:
+    """``nodes`` with each mesh_ref's file path blanked: a run folder's design names the file where it was made, the
+    package's scene names it inside the package (``package._ship_parts``); the design is the same."""
+    return [n.model_copy(update={"params": {**n.params, "path": ""}}) if n.kind == "mesh_ref" else n for n in nodes]
+
+
+_PART_NAME = re.compile(r"parts/([A-Za-z_][A-Za-z0-9_]*)-([0-9a-f]{12})(\.(?:" + "|".join(s[1:] for s in PART_SUFFIXES) + "))")
+
+
+def _part_file(package: Path, node: Any, manifest: Mapping[str, Any]) -> tuple[str, bytes]:
+    """(shipped name, bytes) of the file of mesh_ref ``node`` of the package's scene, held to the package like every other
+    file it names. The bytes are read once, here: the hash that names them, the check of what they refer to, the proof that
+    they are a mesh, and the copy the edit works on (``source_materials``) are all of these same bytes.
+
+    The package records ``parts`` (``package._ship_parts``) and is input from anywhere, so that record is checked for its
+    type before it is read: the path must be exactly ``parts/<node id>-<sha256[:12]>.<ply|stl|glb|obj>`` inside the package
+    (no absolute path, no "..", no link: ``_in``), the file must be there, hash to its name, name no other file
+    (``kernel.part_files``, the writer's own check) and load as a mesh from its bytes (a buffer, no resolver). A part the
+    writer could not carry whole is listed under ``parts.not_portable`` with the reason, and the edit is refused naming it.
+
+    A package from before parts travelled with it (no ``parts`` record, an absolute path) is refused whether or not that
+    file is still on this machine: opening it would make the tool read any mesh file a package names and copy it into the
+    next package's ``parts/``. The mesh prim of the package is no substitute (hidden triangles are dropped from it), so the
+    way out is the script or the workspace that made it. Every refusal is an EditError naming the part."""
+    raw = node.params.get("path")
+    raw = raw if isinstance(raw, str) else ""
+    parts = manifest.get("parts")
+    script = (package / "source" / "build.py").is_file()
+    if parts is None:
+        way = ("build it again from its script (run_build on source/build.py) and deliver again" if script
+               else "its part files are gone; export it again from the workspace that made it")
+        raise EditError(f"part {node.id}: this package names the file it was built from ({Path(raw).name or 'none'}) by a path on the "
+                        f"machine that made it, which an edit does not read: {way}")
+    if not isinstance(parts, dict) or not isinstance(parts.get("not_portable", {}), dict):
+        raise EditError(f"part {node.id}: the package manifest's parts record is not an object with an object not_portable: {REFUSAL}")
+    if reason := parts.get("not_portable", {}).get(node.id):
+        way = ("build it again from its script (run_build on source/build.py) with a single-file mesh (.glb, .ply) for this part"
+               if script else "export it again from the workspace that made it, with a single-file mesh (.glb, .ply) for this part")
+        raise EditError(f"part {node.id}: its file could not travel in the package ({str(reason)[:200]}): {way}")
+    m = _PART_NAME.fullmatch(raw)
+    if m is None or m.group(1) != node.id:
+        raise EditError(f"part {node.id}: its file {raw[:80]!r} is not parts/{node.id}-<hash>.<{'|'.join(s[1:] for s in PART_SUFFIXES)}> "
+                        f"({part_files.TRAVELS}): {REFUSAL}")
+    f = _in(package, raw, f"part {node.id} path")
+    try:
+        data = f.read_bytes()
+    except OSError as e:
+        raise EditError(f"part {node.id}: its file {raw} is not in the package ({type(e).__name__}): {REFUSAL}") from e
+    if hashlib.sha256(data).hexdigest()[:12] != m.group(2):
+        raise EditError(f"part {node.id}: {raw} is not the file its name says (changed after the package was written): {REFUSAL}")
+    # the name and the hash are the package's word; what the file refers to is read from its bytes, by the check the writer
+    # used, before anything opens it: a right name and hash on a file that names another file is a refusal
+    if why := part_files.problem(m.group(3), data):
+        raise EditError(f"part {node.id}: {raw} is not a file that travels alone ({why}): {REFUSAL}")
+    from antigravity3d.kernel.mesh_io import triangle_parts
+
+    try:
+        for _ in triangle_parts(Path(raw), data):
+            pass
+    except Exception as e:  # noqa: BLE001 - a loader's own error type (ValueError, KeyError, struct) must not reach the user bare
+        raise EditError(f"part {node.id}: {raw} cannot be read as a mesh ({type(e).__name__}: {str(e)[:100]}): {REFUSAL}") from e
+    return f"{node.id}-{m.group(2)}{m.group(3)}", data
+
+
+def _check_named_files(package: Path, manifest: Mapping[str, Any], scene: SceneIR) -> dict[str, tuple[str, bytes]]:
     """Every file the package's manifest and embedded scene name, held to the package before anything is read: the atlas
-    images, the sources a re-bake reads, and each material's ``./`` map URIs."""
+    images, the sources a re-bake reads, and each material's ``./`` map URIs. Returns each free-form part's (name, bytes) as
+    :func:`_part_file` read and checked them: the one read of them."""
     atlas = manifest.get("texture_atlas") or {}
     for role, f in (atlas.get("files") or {}).items():
         _in(package, f, f"manifest texture_atlas.files.{role}")
@@ -254,6 +373,7 @@ def _check_named_files(package: Path, manifest: Mapping[str, Any], scene: SceneI
         for role, src in (rec.get("sources") or {}).items():
             if isinstance(src, dict) and src.get("file"):
                 _in(package, src["file"], f"manifest texture_atlas.members.{name}.sources.{role}")
+    parts = {node.id: _part_file(package, node, manifest) for node in scene.nodes if node.kind == "mesh_ref"}
     for m in scene.materials:
         for field_name in _URI_FIELDS:
             uri = getattr(m, field_name, None)
@@ -261,6 +381,7 @@ def _check_named_files(package: Path, manifest: Mapping[str, Any], scene: SceneI
                 continue  # an author's absolute path: read only from a run folder's working design, held there
             if (rel := _package_uri(uri)) is not None:
                 _in(package, rel, f"material {m.id} {field_name}")
+    return parts
 
 
 def _copy_map(src: Path, dest: Path) -> str:
@@ -271,6 +392,24 @@ def _copy_map(src: Path, dest: Path) -> str:
 
 
 def source_materials(shipped: Shipped, dest: Path) -> tuple[SceneIR, str]:
+    """:func:`_source_materials`, with each free-form part's file copied under ``dest/parts`` too and the scene reading
+    those copies: the package's own files are replaced by the edit (the old package goes to the history), and the scene
+    that is applied must not point into a folder that moves."""
+    scene, origin = _source_materials(shipped, dest)
+    held = {n.id: shipped.parts.get(n.id) or _part_file(shipped.package, n, shipped.manifest) for n in scene.nodes if n.kind == "mesh_ref"}
+    nodes = []
+    for node in scene.nodes:
+        if node.id in held:
+            name, data = held[node.id]  # the bytes that were hashed and checked: written as they are, not read again
+            target = _in(dest, f"parts/{name}", f"part {node.id}", write=True)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+            node = node.model_copy(update={"params": {**node.params, "path": str(target.resolve())}})
+        nodes.append(node)
+    return scene.model_copy(update={"nodes": nodes}), origin
+
+
+def _source_materials(shipped: Shipped, dest: Path) -> tuple[SceneIR, str]:
     """The shipped scene with every material reading its SOURCE maps, copied under ``dest`` (so the edit's run folder
     stands on its own), and a sentence saying where they came from. Raises EditError when they cannot be had.
 
