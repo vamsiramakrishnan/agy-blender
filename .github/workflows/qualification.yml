@@ -118,6 +118,7 @@ jobs:
                       "test_ten_relocated_golden_packages_load_in_stock_godot",
                       # the shaped primitives (bevel, inset, lathe, extrude) through the pipeline and the engines (tests/test_shapes_engines.py)
                       *(f"test_shaped_crate_goes_through_the_pipeline_and_the_engines[{engine}]" for engine in ("godot_4", "roblox_r15")),
+                      *(f"test_swept_rail_goes_through_the_pipeline_and_the_engines[{engine}]" for engine in ("godot_4", "roblox_r15")),
                       "test_ten_relocated_golden_dcc_engine_silhouettes",
                       "test_staged_lookdev_and_export_share_one_imported_mesh_atlas",
                       "test_refinement_lookdev_fixer_and_verification_reuse_the_same_atlas",

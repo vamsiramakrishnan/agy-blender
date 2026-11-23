@@ -2,9 +2,10 @@
 
 The model's numbers have the hue and saturation of their words read as sRGB (r5/scratch_colour/EVIDENCE.txt); with the
 corrected generated surfaces the exact conversion won a blind judgement 4 of 4 on the crate and the hydrant, so the
-default rule (``ir_schema.COLOUR_RULE``) is "srgb". "as_written" is exactly the behaviour before (a process started with
-it sends what c8565a7 sent, pinned byte for byte); the metallic sentence (``ir_schema.STATE_METALLIC``) is off. Pinned
-too, under every rule:
+default rule (``ir_schema.COLOUR_RULE``) is "srgb". "as_written" preserves the previous colour interpretation and
+material request bytes; it does not remove later geometry capabilities. The original c8565a7 request fingerprints
+remain below, with a versioned delta for sweep geometry. The metallic sentence (``ir_schema.STATE_METALLIC``) is off.
+Pinned too, under every rule:
 * every path where a model's answer becomes scene data converts each written colour exactly once (counted; under
   "srgb" a second conversion would also change the value);
 * a stored or programmatic scene is never converted (SceneIR built directly, apply_patch, the stage, the design record);
@@ -59,7 +60,7 @@ def rule(request, monkeypatch):
     return request.param
 
 
-# --------------------------------------------------------------------------- the default is inert
+# --------------------------------------------------------------------------- the colour rollback preserves its contract
 
 
 # sha256 of what c8565a7 sent (r5/scratch_colour/req_hashes.py run on a checkout of c8565a7): the first design's request
@@ -79,6 +80,23 @@ C8565A7 = {
     "apply_scene_ir_tool": "4d9500e81df06a2069c8bf10f399b72f40e5234fd4decf44b163720d7d79ae4d",
     "apply_shader_diff_tool": "7e28193242bec8eb55f33248b1c29755d86007609aea080dd3d24b05b8c3a0b0",
     "rules_text": "28d4c022776fa49686504f02cfdbcbc5173735a2b56c8b497bf8dff2b1ca5df0",
+}
+
+
+# Sweep v1 intentionally changes the geometry language and its schemas, under every colour rule. Preserve the
+# historical snapshot above and override only the requests these changes touch. All remaining fingerprints still
+# equal c8565a7: improve/repair/look text, look schema and shader-diff tool. Short $defs addresses change schema bytes
+# without changing their constraints (test_sweep_wiring checks acceptance equivalence). LOOKDEV shares IR_SEMANTICS;
+# its sole change is the corrected local-coordinate sentence, checked separately in the switched process below.
+SWEEP_V1_REQUESTS = {
+    "propose_text": "143f0c47543a3ad8ed91853fd458994219911bb4332579acf4571892ddf0ffe1",  # shape rules and craft guidance
+    "propose_schema": "cfc5445b7658e5f5221eb1b22b6b8ef2e5d8fe3eef93bf3a45169325b9e80e0e",  # SweepNode and compact refs
+    "blockout_stage": "ddb3e34a0b40f5b6fbabcb5077e710165f7c2e9170f9aef8f19635298a0f7ab3",  # shared geometry rules
+    "lookdev_stage": "df489955ec5e22136887fd5642d2dbe58b67af56a8b8524112c2f02a9e583fc2",  # local coordinates, not recentering
+    "patch_schema": "3f2434f98ad6e7ebb5c16659374aadb19c1fc29453d1ea0113c8c8a7a34f1a82",  # sweep nodes and XYZ path patches
+    "correction_schema": "c237ee62dd1353f00124ddab596c176fdd4d4487731317d1380e4366f4da9d0f",  # sweep node corrections
+    "apply_scene_ir_tool": "bb9cc237c5c1663b1828a716088e1ba3f9ae2e1bfc7dafaa8de214ce26322df8",  # path is points or a filename
+    "rules_text": "90e63f0977b6e202ae1421593ef8c26a70adc6bd3e7f213ea7c7ced90e5d61b3",  # generated sweep types and semantics
 }
 
 
@@ -120,13 +138,25 @@ def _switched_env(**env: str) -> dict[str, str]:
     return base | env
 
 
-def test_as_written_sends_byte_for_byte_what_c8565a7_sent():
-    """The rule "as_written" is the behaviour before this change: a process started with it sends what c8565a7 sent."""
-    code = "import sys, json; sys.path.insert(0, 'tests'); import test_colour as T; print(json.dumps(T._sent()))"
+def test_as_written_keeps_colour_contract_with_sweep_v1_request_bytes():
+    """Pin the current geometry revision while retaining the historical colour/material request fingerprints."""
+    code = textwrap.dedent('''
+        import hashlib, json, sys
+        sys.path.insert(0, 'tests')
+        import test_colour as T
+        from antigravity3d.harness import agents as A
+        lookdev = A._system("LOOKDEV")
+        assert lookdev.count("Shapes use local coordinates") == 1
+        before_coordinates = lookdev.replace("Shapes use local coordinates", "Primitives are centred on their local origin", 1)
+        assert hashlib.sha256(before_coordinates.encode()).hexdigest() == T.C8565A7["lookdev_stage"]
+        print(json.dumps(T._sent()))
+    ''')
     run = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300,
                          cwd=Path(__file__).parent.parent, env=_switched_env(AGY3D_COLOUR_RULE="as_written"))
     assert run.returncode == 0, run.stderr[-2000:]
-    assert json.loads(run.stdout.strip().splitlines()[-1]) == C8565A7
+    sent = json.loads(run.stdout.strip().splitlines()[-1])
+    assert {key for key, value in sent.items() if value != C8565A7[key]} == set(SWEEP_V1_REQUESTS)
+    assert sent == C8565A7 | SWEEP_V1_REQUESTS
 
 
 def test_the_default_is_the_measured_rule_and_the_metallic_sentence_is_off():
@@ -134,7 +164,7 @@ def test_the_default_is_the_measured_rule_and_the_metallic_sentence_is_off():
     assert S.COLOUR_CLAUSE in S.IR_SEMANTICS and S.METAL_CLAUSE not in S.IR_SEMANTICS
     scene = S.parse_scene((DATA / "crate_p1_2026-11-22.json").read_text())
     assert next(m for m in scene.materials if m.id == "mat_crate_body").base_color == LIN([0.16, 0.21, 0.12], rule="srgb")
-    assert _sent() != C8565A7  # the request does change under it: the clause, the shown form, "#rrggbb"
+    assert _sent() != C8565A7 | SWEEP_V1_REQUESTS  # colour changes the current request: clause, shown form, "#rrggbb"
 
 
 def test_an_edit_of_a_package_made_before_shows_its_stored_colours_as_they_are_and_converts_only_what_it_writes():

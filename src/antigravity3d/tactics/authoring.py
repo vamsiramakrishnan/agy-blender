@@ -31,7 +31,7 @@ from antigravity3d.kernel.settle import beside_a_part
 from antigravity3d.state import EngineBudget
 
 GROUND_TOL = 0.01
-CURVED = ("cylinder", "cone", "sphere", "capsule", "lathe")  # kinds with a segments count (_shrink lowers it)
+CURVED = ("cylinder", "cone", "sphere", "capsule", "lathe", "sweep")  # kinds with a segments count (_shrink lowers it)
 STAGE_TIMEOUT_S = 300.0  # harness stage-agent session (a different path from the governed one-shot calls)
 
 

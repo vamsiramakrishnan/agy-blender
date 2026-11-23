@@ -588,7 +588,32 @@ _API_UNSENT = frozenset({"title", "description"})
 
 def _api(node: Any) -> Any:
     """Reduce a pydantic JSON schema to ``API_SCHEMA_KEYWORDS`` (recursively), then write it compactly."""
-    return _share(_merge_alternatives(_inline_once(_reduce(node))))
+    return _short_refs(_share(_merge_alternatives(_inline_once(_reduce(node)))))
+
+
+def _short_refs(schema: dict[str, Any]) -> dict[str, Any]:
+    """Short local definition names; field names, types and constraints stay unchanged.
+
+    Each kind repeats references to transforms, vectors and nullable strings. Keeping the definition names out of
+    those repetitions makes room for new shape parameters without growing the response-schema budget. These names
+    are internal addresses, not the names a model writes in its answer.
+    """
+    defs = schema.get("$defs")
+    if not defs:
+        return schema
+    names = {name: f"D{i}" for i, name in enumerate(defs)}
+
+    def replace(value: Any) -> Any:
+        if isinstance(value, list):
+            return [replace(v) for v in value]
+        if not isinstance(value, dict):
+            return value
+        return {k: (f"#/$defs/{names[v[8:]]}" if k == "$ref" and isinstance(v, str) and v.startswith("#/$defs/")
+                    and v[8:] in names else replace(v)) for k, v in value.items()}
+
+    out = replace(schema)
+    out["$defs"] = {names[name]: value for name, value in out["$defs"].items()}
+    return out
 
 
 def _merge_alternatives(node: Any) -> Any:
@@ -874,7 +899,7 @@ def _obj_line(schema: dict[str, Any], obj: dict[str, Any]) -> str:
 
 
 IR_SEMANTICS = (
-    "Scene IR: metres, Z-up, right-handed, rotations XYZ Euler degrees. Primitives are centred on their local origin; "
+    "Scene IR: metres, Z-up, right-handed, rotations XYZ Euler degrees. Shapes use local coordinates; "
     "cylinder/cone/capsule axis is local Z (cone base at -height/2, apex at +height/2; capsule height is the cylinder "
     "part only, the caps come on top). box params.size is the full extent along x, y, z. A group is a transform-only "
     "parent; mesh_ref params.path is a local asset path. id fields match [A-Za-z_][A-Za-z0-9_]* (at most 64 chars) "
@@ -892,19 +917,17 @@ IR_SEMANTICS = (
 # drops the params' (``_lean_params``), so this is the one place a model reads them. The limits are the kernel's
 # (kernel/compile_ir.py refuses a design outside them with a message): stating them here saves a failed candidate.
 SHAPE_SEMANTICS = (
-    "box bevel: radius (m) of the rounding on all 12 edges, below half the smallest size; bevel_segments 1 = a flat "
-    "chamfer, 2-4 = a rounded edge (cylinder bevel / bevel_segments: both cap rims). box inset_faces (\"+x\" ... \"-z\"): "
-    "each gets a recessed panel, a frame inset_margin wide (> 0) left at the face and the panel inset_depth below it; "
-    "on two neighbouring faces keep inset_depth <= bevel + inset_margin. lathe profile [[radius, z], ...]: the outline "
-    "from top to bottom, turned about local Z; an end at radius 0 closes on the axis, an end off it is capped flat, no "
-    "other point touches the axis; closed true: the points are a loop that never touches the axis (tube, ring, tyre). "
-    "extrude outline [[x, y], ...]: corners of a simple polygon in local XY, counter-clockwise, pushed depth along "
-    "local Z, centred. Shortcuts on any node, expanded into plain nodes when read: mirror \"x\"|\"y\"|\"z\" adds the "
-    "node and its children reflected through that axis's plane at the parent's origin (the part must lie on one side "
-    "of it); repeat {count: n, offset: [dx, "
-    "dy, dz]} is a row (copy k moved k offsets), {count: n, around: \"x\"|\"y\"|\"z\"} a ring of n about that axis "
-    "through the parent's origin, n 2-32 with the original; repeat comes before mirror; a mesh_ref cannot be mirrored. "
-    "Copies are named id__r1, id__mx, id__r1__mx, a copied child parent_copy__child."
+    "box bevel (m): round all 12 edges, below half min(size); cylinder bevel: both cap rims. bevel_segments "
+    "1=chamfer, 2-4=rounded. inset_faces [\"+x\"...\"-z\"]: recessed panels; inset_margin>0 frame, inset_depth "
+    "recess; adjacent faces require inset_depth<=bevel+inset_margin. lathe profile [[radius,z],...]: turn about Z, "
+    "top to bottom; only endpoints may touch axis; off-axis ends capped. closed=true joins an off-axis loop "
+    "(tube/ring). extrude outline [[x,y],...]: simple CCW XY polygon, depth centred on Z. sweep path [[x,y,z],...]: "
+    "2-128 local centreline samples, circular radius, segments=12 (3-64); open, capped, no recentering/spline. "
+    "Add samples for bends; 2 points join endpoints. No duplicates/reversals/self-contact; radius must fit bends. "
+    "mirror x|y|z reflects node+children about parent origin plane; keep whole part on one side. mesh_ref/sweep "
+    "cannot mirror (write other sweep path). repeat {count:n,offset:[dx,dy,dz]}: row; {count:n,around:x|y|z}: ring "
+    "about parent origin; n=2..32 includes original. Repeat before mirror. IDs: id__r1, id__mx, id__r1__mx; "
+    "child parent_copy__child."
 )
 # Sent with the authoring request only (``ir_rules_text``), not in IR_SEMANTICS, which every stage agent carries.
 # The pair in it is from a live run (2026-11-21): the author wrote "tarnished military brass hardware" and the image
@@ -1069,17 +1092,17 @@ def _node_schema(root: dict[str, Any]) -> dict[str, Any]:
     alts = root["$defs"]["WireUpsertNode"]["properties"]["node"]["anyOf"]
     node = _merge(root, alts, "kind", "required fields per kind")
     params = [_resolve(root, _resolve(root, a)[1]["properties"]["params"])[1] for a in alts]
-    merged: dict[str, Any] = {}
+    merged: dict[str, list[dict[str, Any]]] = {}
     per_kind = []
     for kind, p in zip([_resolve(root, a)[1]["properties"]["kind"]["const"] for a in alts], params, strict=True):
         for name, prop in p.get("properties", {}).items():
-            merged.setdefault(name, _lean_params(_lean(root, prop)))
+            merged.setdefault(name, []).append(_lean_params(_lean(root, prop)))
         req = set(p.get("required", ()))
         fields = [f if f in req else f"{f}?={json.dumps(_whole(v['default']))}" if "default" in v else f"{f}?"
                   for f, v in p.get("properties", {}).items()]
         per_kind.append(f"{kind} {{{', '.join(fields)}}}")
     node["properties"]["kind"]["description"] = "params per kind: " + "; ".join(per_kind)
-    node["properties"]["params"] = {"type": "object", "properties": merged,
+    node["properties"]["params"] = {"type": "object", "properties": {name: _union(variants) for name, variants in merged.items()},
                                     "description": "only the params of this node's kind (see kind)"}
     return node
 

@@ -133,6 +133,8 @@ class MaterialIR(_Model):
 
 PositiveFloat = Annotated[float, Field(gt=0, allow_inf_nan=False)]
 NonNegativeFloat = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
+FiniteVec3 = tuple[FiniteFloat, FiniteFloat, FiniteFloat]
 
 
 BoxFace = Literal["+x", "-x", "+y", "-y", "+z", "-z"]
@@ -188,6 +190,15 @@ class ExtrudeParams(_Model):
     depth: PositiveFloat = Field(description="extent along local Z, centred on the origin")
 
 
+class SweepParams(_Model):
+    """A capped circular rod along an explicit local-space centreline: bows, rails, handles, pipes and cables."""
+
+    path: list[FiniteVec3] = Field(
+        min_length=2, max_length=128, description="ordered (x, y, z) centreline samples in local metres; no implicit spline")
+    radius: PositiveFloat = Field(description="constant circular cross-section radius in metres")
+    segments: int = Field(12, ge=3, le=64, description="vertices around each cross-section; both ends are capped")
+
+
 class MeshRefParams(_Model):
     path: str = Field(min_length=1, description="glTF/OBJ/PLY/USD file to reference")
 
@@ -200,16 +211,17 @@ class GroupParams(_Model):
 # free-form dict for backward compatibility; the model-facing schema (``antigravity3d.ir_schema``) is built from this.
 NODE_PARAMS: dict[str, type[_Model]] = {
     "box": BoxParams, "cylinder": CylinderParams, "cone": ConeParams, "sphere": SphereParams,
-    "capsule": CapsuleParams, "lathe": LatheParams, "extrude": ExtrudeParams, "mesh_ref": MeshRefParams, "group": GroupParams,
+    "capsule": CapsuleParams, "lathe": LatheParams, "extrude": ExtrudeParams, "sweep": SweepParams,
+    "mesh_ref": MeshRefParams, "group": GroupParams,
 }
 
 # What one entry of ``NodeIR.params`` may hold: a number, a flag, a name, a vector, a list of face names
-# (``inset_faces``) or a list of 2D points (``profile``, ``outline``).
-ParamValue = Union[bool, int, float, str, Vec3, list[Vec2], list[str]]
+# (``inset_faces``), 2D points (``profile``, ``outline``), or 3D centreline points (a sweep's ``path``).
+ParamValue = Union[bool, int, float, str, Vec3, list[Vec2], list[Vec3], list[str]]
 
 
 class NodeIR(_Model):
-    """One scene node. Primitives are centred on their local origin.
+    """One scene node. Profile, outline and path coordinates are local; other primitives are centred on the origin.
 
     ``params`` by kind:
       box       size: Vec3 (full extents); bevel=0, bevel_segments=1 (all twelve edges rounded);
@@ -220,12 +232,13 @@ class NodeIR(_Model):
       capsule   radius, height (cylinder part), segments=16
       lathe     profile: [(radius, z), ...] turned about local Z, segments=16, closed=False (True: a tube or ring)
       extrude   outline: [(x, y), ...] counter-clockwise in local XY, depth along local Z (centred)
+      sweep     path: [(x, y, z), ...] explicit centreline, radius, segments=12; open path with capped ends
       mesh_ref  path: str (glTF/OBJ/PLY/USD file to reference)
       group     no params; pure transform parent
     """
 
     id: NodeId
-    kind: Literal["box", "cylinder", "cone", "sphere", "capsule", "lathe", "extrude", "mesh_ref", "group"]
+    kind: Literal["box", "cylinder", "cone", "sphere", "capsule", "lathe", "extrude", "sweep", "mesh_ref", "group"]
     params: dict[str, ParamValue] = Field(default_factory=dict)
     transform: Transform = Field(default_factory=Transform)
     parent: NodeId | None = None
