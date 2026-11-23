@@ -1098,11 +1098,37 @@ def author_scene(
             it.PruneChildren()
     for p in drop:
         p.SetActive(False)
+    _order_children(stage, scene, paths, root_prim)
 
     sided = {m.id for m in scene.materials if m.double_sided}
     if sided or any(m.double_sided for m in (prev.materials if prev else ())):  # nothing to set, nothing to clear
         sync_double_sided(stage, root_prim, sided)
     root_prim.SetCustomDataByKey(IR_KEY, scene.model_dump_json())
+
+
+def _order_children(stage: Usd.Stage, scene: SceneIR, paths: dict[str, Sdf.Path], root_prim: Usd.Prim) -> None:
+    """Puts each parent's nodes in the stage in the order ``scene.nodes`` lists them.
+
+    A prim that an earlier edit authored stays where USD composed it, and a node added in the middle of a later
+    design is composed after it, so the stage's order was the session's history: the same script gave the exported
+    meshes (hence the GLB's vertex and index order and the manifest's part list) in a different order after another
+    build than in a fresh session (measured with the round-six crate). The IR keeps the design's order; this writes
+    it into the stage, as a children reorder in the edit target, only where the composed order differs, so an edit
+    that appends a node, or changes nothing, authors nothing.
+    """
+    wanted: dict[Sdf.Path, list[str]] = {}
+    for n in scene.nodes:
+        path = paths[n.id]
+        wanted.setdefault(path.GetParentPath(), []).append(path.name)
+    for parent_path, names in wanted.items():
+        parent = root_prim if parent_path == root_prim.GetPath() else stage.GetPrimAtPath(parent_path)
+        if not parent:
+            continue
+        # all prims: the base prim is a class (abstract), which the default predicate does not traverse
+        wanted_names = set(names)
+        have = [c.GetName() for c in parent.GetFilteredChildren(Usd.PrimAllPrimsPredicate) if c.GetName() in wanted_names]
+        if have != names:
+            parent.SetChildrenReorder(names)
 
 
 def resolve_anchor(scene: SceneIR, op: PlaceRelative, *, stage: Usd.Stage | None = None) -> Transform:

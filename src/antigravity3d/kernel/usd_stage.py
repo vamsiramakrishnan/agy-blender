@@ -645,6 +645,21 @@ class StageManager:
         edit.Add(BASE, Sdf.Path.emptyPath)  # the base class is an authoring detail
         if not flat.Apply(edit):
             raise RuntimeError("failed to strip base class from export")
+
+        def clear_redundant(spec: Sdf.PrimSpec) -> None:
+            if spec.HasInfo("active") and spec.active:
+                spec.ClearActive()
+            if spec.nameChildrenOrder:  # Flatten writes the children in their composed order and keeps the statement too
+                spec.nameChildrenOrder = []
+            for child in spec.nameChildren:
+                clear_redundant(child)
+
+        # What only the builds that preceded this design left in the one-layer file, and no reader needs: a part a
+        # later design dropped is deactivated and, when brought back, activated again (`active = true`), and a design
+        # that put a part between existing ones carries the children reorder that did it (see
+        # compile_ir._order_children). Both made the USD and USDZ of one design differ with the session's history.
+        for top in flat.rootPrims:
+            clear_redundant(top)
         return flat
 
     def export(self, path: Path) -> None:
