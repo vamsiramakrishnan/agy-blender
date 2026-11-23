@@ -81,8 +81,9 @@ def test_a_bent_rods_grain_runs_along_its_path(tmp_path, monkeypatch):
 # ----------------------------------------------------------------------------------------- a board's face
 
 
-def _dark_lines(pos, lum, axis, other):
-    s = np.abs(pos[:, other] - np.median(pos[:, other])) < 0.003
+def _dark_lines(pos, lum, axis, other, at):
+    """The spacings of the dark lines met along ``axis`` in one strip of the face, 6 mm wide, at ``at`` on ``other``."""
+    s = np.abs(pos[:, other] - at) < 0.003
     x, y = pos[s, axis], lum[s]
     o = np.argsort(x)
     x, y = x[o], y[o]
@@ -91,6 +92,21 @@ def _dark_lines(pos, lum, axis, other):
     mid = np.convolve(prof, np.ones(81) / 81, "same")
     dark = prof < mid * 0.94   # a line 6 % darker than the wood around it
     return np.diff(grid[1:][dark[1:] & ~dark[:-1]])
+
+
+STRIPS = 21
+
+
+def _face_lines(pos, lum, axis, other):
+    """The spacings of the dark lines over the whole face: ``STRIPS`` strips spread across it, pooled.
+
+    One strip is not the face. It holds about ten lines, some of them at the detector's threshold, and the spread of
+    their spacing differs from strip to strip: 0.25 to 0.82 over this board, 0.35 in the middle one. The first version
+    of this test read the middle strip alone against a bar of 0.35, passed here at 0.352, and failed on another machine
+    (CI, Python 3.13) at 0.303, where eight of the same nine lines were detected. Pooled, one line more or less is one
+    in about two hundred."""
+    ats = np.linspace(pos[:, other].min() + 0.02, pos[:, other].max() - 0.02, STRIPS)
+    return np.concatenate([_dark_lines(pos, lum, axis, other, float(a)) for a in ats])
 
 
 def _board(tmp_path, px=1024):
@@ -109,10 +125,11 @@ def test_a_boards_face_shows_uneven_lines_along_it_not_a_ruler(tmp_path):
     layer, c, _, _ = _paint(meshes, scene)
     top = c.nrm[:, 2] > 0.97
     lum = layer.color @ LUM
-    across = _dark_lines(c.pos[top], lum[top], 1, 0)   # across the grain (the board runs along x, its longest side)
-    along = _dark_lines(c.pos[top], lum[top], 0, 1)
-    assert len(across) >= 4
-    assert across.std() / across.mean() > 0.35          # uneven years, not a ruler
+    across = _face_lines(c.pos[top], lum[top], 1, 0)   # across the grain (the board runs along x, its longest side)
+    along = _face_lines(c.pos[top], lum[top], 0, 1)
+    assert len(across) >= 4 * STRIPS
+    # uneven years, not a ruler. Measured over the whole face: round six's code 0.19 (a line every 12.4 mm), this code 0.63
+    assert across.std() / across.mean() > 0.35
     assert len(along) < len(across)                      # the lines run along the board
 
 
