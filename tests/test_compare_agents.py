@@ -1145,3 +1145,254 @@ def test_the_harness_answers_the_limits_question_for_a_reopened_asset_as_for_a_n
     assert refusal is None and args == {"token_ceiling": 1_250_000, "max_images": 0}  # a switch, not an open: no preview flag
     assert sb.answer_limits("apply_scene_ir", {"ops": []}, limits) == (None, None)
     assert sb.answer_limits("", {}, limits) == (None, None)  # not an MCP call
+
+
+# ----------------------------------------------------------------------------------------------- round 6: arm S, fresh tokens
+
+
+def _call(model, inp, cached, out=10, think=5, kind="generate", status=200, usage=True):
+    row = {"status": status, "kind": kind, "model": model}
+    if usage:
+        row["usage"] = {"input": inp, "cached": cached, "output": out, "thinking": think}
+    return row
+
+
+def test_fresh_tokens_are_input_not_from_cache_plus_output_plus_thinking(ca, tmp_path):
+    """Hand-written relay log: the second agent call missed the cache, the third did not; the plugin's own model counts
+    in the sum; a call without usage, a refused one and an upload are not in it; the first agent call is never a miss."""
+    agent, other = ca.DEFAULT_TEXT_MODEL, "other-model"
+    calls = [_call(agent, 1000, 0, out=100, think=50),            # first call: nothing to serve from, not a miss
+             _call(agent, 2000, 40, out=10, think=5),              # 2 % cached: a miss
+             _call(agent, 3000, 2500, out=20, think=10),           # served from cache
+             _call(other, 800, 100, out=7, think=3),               # the plugin's own call: summed, not a miss candidate
+             _call(agent, 0, 0, usage=False),                      # no usage: excluded
+             _call(agent, 9999, 0, status=404),                    # refused
+             {"status": 200, "kind": "upload_data"}]
+    t = ca.token_breakdown(calls)
+    assert (t["input"], t["cached"], t["output"], t["thinking"]) == (6800, 2640, 137, 68)
+    assert t["fresh"] == (6800 - 2640) + 137 + 68 == 4365
+    assert (t["cache_misses"], t["cache_miss_input"]) == (1, 2000)
+    # a record without the figures gets them from its relay log; with no log, from its own totals
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "relay_calls.jsonl").write_text("\n".join(json.dumps(c) for c in calls) + "\n")
+    rec = ca.RunRecord("crate", "N", tokens={"input_tokens": 1, "cached_tokens": 0, "output_tokens": 0, "thinking_tokens": 0})
+    assert ca.backfill_tokens(rec, run).tokens["fresh"] == 4365
+    bare = ca.RunRecord("crate", "N", tokens={"input_tokens": 500, "cached_tokens": 300, "output_tokens": 20, "thinking_tokens": 30})
+    got = ca.backfill_tokens(bare, tmp_path / "nowhere").tokens
+    assert got["fresh"] == 250 and "cache_misses" not in got
+    assert ca.backfill_tokens(ca.RunRecord("crate", "A"), run).tokens == {}  # a record with no tokens stays as it was
+
+
+def test_fresh_tokens_of_a_merged_cell_add_up(ca):
+    a = ca.RunRecord("crate", "S", tokens={"fresh": 10, "cache_misses": 1, "share_tokens": 5, "total": 20}, session=1)
+    b = ca.RunRecord("crate", "S", tokens={"fresh": 7, "cache_misses": 0, "share_tokens": 5, "total": 9}, session=2)
+    m = ca.merge_sessions([a, b])
+    assert m.tokens["fresh"] == 17 and m.tokens["cache_misses"] == 1 and m.pipeline["sessions"][0]["fresh"] == 10
+
+
+def test_the_real_crate_record_gives_173_thousand_fresh_tokens(ca):
+    """The integrator's hand count for r5/live_rerun_N4 (554,555 input, 410,205 of it cached, 7,779 out, 20,768
+    thinking); one call without usage (the plugin's second model) is not in it. Skipped when the record is not here."""
+    run = next((p for p in Path(__file__).resolve().parents[3].glob("r5/live_rerun_N4/runs/r5_crate_N")), None)
+    if run is None or not (run / "relay_calls.jsonl").is_file():
+        pytest.skip("the round 5 record is not on this machine")
+    t = ca.load_record(run / "record.json").tokens
+    assert t["fresh"] == 172_897 and (t["cache_misses"], t["cache_miss_input"]) == (1, 67_673)
+
+
+def test_arm_s_is_arm_n_with_the_plugin_installed_in_script_mode(ca):
+    assert "S" in ca.ARMS and "S" in ca.STOCK_ARMS and "S" in ca.PLUGIN_ARMS and ca.SCRIPT_ARMS == ("S",)
+    assert ca.ARM_LABEL["S"] == "stock agent + this project's plugin, script mode"
+    for table in (ca.BUDGET["run_tokens"], ca.BUDGET["run_images"], ca.BUDGET["change_images"], ca.CALL_MODEL, ca.ARM_TIMEOUT_S):
+        assert table["S"] == table["N"]
+    assert ca.change_share("S") == ca.change_share("N") and ca.calls_allowed("S") == ca.calls_allowed("N")
+    b = ca.BRIEF_BY_ID["crate"]
+    assert ca.task_text(b, 19, "S") == ca.task_text(b, 19, "N")  # the same words for every arm
+    assert ca.main(["plan", "--arms", "S", "--run-tokens", "S=2500000", "--ceiling-tokens", "40000000"]) == 0
+    assert ca.BUDGET["run_tokens"]["S"] == 2_500_000 and ("crate", "S") in ca.order()
+
+
+def test_the_plan_for_the_old_arms_is_unchanged_by_the_new_one(ca):
+    """Adding S adds its own rows only: with S not in --arms the totals are the ones the existing arms had."""
+    assert ca.plan_totals() == {"tokens": 6 * 1_200_000 + 6 * 600_000 + 3 * 2 * 12_500 + 3 * 2 * 10_000, "images": 0}
+    assert "S" not in ca.BUDGET["arms_planned"]
+
+
+def test_script_mode_is_asked_of_the_installer_for_arm_s_only(ca, tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(ca.subprocess, "run", lambda argv, **kw: seen.append(argv) or
+                        type("R", (), {"stdout": f"{argv[4]}/plugins/antigravity-3d\n"})())
+    ca.install_project_plugin(tmp_path / "n", "/ws")
+    ca.install_project_plugin(tmp_path / "s", "/ws", "script")
+    assert seen[0][-2:] == [str(tmp_path / "n"), "/ws"] and seen[1][-3:] == [str(tmp_path / "s"), "/ws", "script"]
+    assert "authoring" in seen[0][2]  # the one-liner passes the option on only when it is given an argument
+
+
+def test_run_build_limits_are_answered_until_a_build_has_answered_and_the_other_openers_every_time(ca):
+    sb = _load("compare_sandbox")
+    limits, answered = {"tokens": 1_250_000, "images": 0}, set()
+    want = {"preview": True, "token_ceiling": 1_250_000, "max_images": 0}
+    args, refusal = sb.answer_limits("run_build", {"path": "crate.py", "conversation_id": "c"}, limits, answered)
+    assert refusal is None and args == {"path": "crate.py", "conversation_id": "c", **want}
+    # a reply that opened no session (a guard refusal, a script error) leaves the answer unspent, wrapped or not
+    for reply in ("NOT BUILT: crate.py line 1: `import os`: imports are limited. Use agy3d.", ["NOT BUILT: x"],
+                  {"content": [{"type": "text", "text": "NOT BUILT: time-out"}]}, "", None):
+        sb.note_reply("run_build", reply, answered)
+        assert answered == set(), reply
+        assert sb.answer_limits("run_build", {"path": "crate.py"}, limits, answered)[0] is not None
+    sb.note_reply("open_asset_session", "BUILT x", answered)  # only run_build is tracked
+    assert answered == set()
+    sb.note_reply("run_build", {"content": [{"type": "text", "text": "BUILT crate.py -> session c1 (godot_4, tris 9 of 9)\nattached: ..."}]},
+                  answered)
+    assert answered == {"run_build"}
+    assert sb.answer_limits("run_build", {"path": "crate.py"}, limits, answered) == (None, None)  # left alone from now on
+    answered2 = set()
+    sb.note_reply("run_build", "UNCHANGED crate.py -> session c1: the script built the design the session holds", answered2)
+    assert answered2 == {"run_build"}
+    for tool in ("open_asset_session", "open_existing_asset", "start_preview"):  # as today: every time
+        for _ in range(2):
+            assert sb.answer_limits(tool, {}, limits, answered)[0] is not None, tool
+    # other limits than the run's are refused, and a refusal does not use up the answer
+    bad, why = sb.answer_limits("run_build", {"path": "x.py", "token_ceiling": 5, "max_images": 1}, limits, set())
+    assert bad is None and "use exactly those" in why
+    assert sb.answer_limits("run_build", {}, limits)[0] is not None  # no memory kept: every call answered
+
+
+def test_a_development_brief_is_reachable_but_changes_no_default_plan_or_table(ca):
+    """The lantern is for trying the script path without spending a first attempt on a measured brief: it can be named
+    (--briefs lantern, --only lantern:S), and it is in no default plan, table, budget or judge plan."""
+    assert [d.id for d in ca.DEV_BRIEFS] == ["lantern"] and ca.BRIEF_BY_ID["lantern"] is ca.DEV_BRIEFS[0]
+    assert "lantern" not in [b.id for b in ca.BRIEFS] and ca.BUDGET["briefs"] == ["crate", "hydrant", "chair"]
+    assert all(b != "lantern" for b, _ in ca.order()) and "lantern" not in ca.plan_table()
+    assert not any("lantern" in k for k in ca.planned_accounts()) and "lantern" not in ca.CHANGES
+    assert ca.plan_totals() == {"tokens": 6 * 1_200_000 + 6 * 600_000 + 3 * 2 * 12_500 + 3 * 2 * 10_000, "images": 0}
+    # named, it plans (no change request, so no change row or change account) and the old plan stays what it was
+    assert ca.main(["plan", "--briefs", "lantern", "--arms", "S", "--ceiling-tokens", "40000000"]) == 0
+    assert ca.order() == [("lantern", "S")] and not any(k.endswith(".change") for k in ca.planned_accounts())
+    assert "change lantern" not in ca.plan_table()
+    assert ca.task_text(ca.BRIEF_BY_ID["lantern"], 20, "S").count("oil lantern") == 1
+
+
+def test_the_scorecard_spend_row_and_the_gallery_carry_fresh_tokens_and_the_cache_misses(ca, ce, tmp_path):
+    tok = {"total": 600, "input": 500, "cached": 300, "output": 60, "thinking": 40, "fresh": 300, "cache_misses": 1,
+           "cache_miss_input": 120, "input_tokens": 500, "cached_tokens": 300}
+    rec = {"brief": "crate", "arm": "S", "status": "finished", "glb": "/x.glb", "wall_s": 10, "model_calls": 5, "tokens": tok,
+           "images": 0, "pipeline": {}}
+    old = {**rec, "arm": "N", "tokens": {"total": 100}}  # a record of an earlier round: no fresh figures
+    sc = ce.scorecard(tmp_path, {"records": [rec, old], "evaluation": {}, "changes": [
+        {"brief": "crate", "arm": "S", "status": "finished", "tokens": {"total": 9, "fresh": 4}, "pipeline": {}}]},
+        ca.BRIEF_BY_ID, "r6")
+    spend = sc["cells"]["crate:S"]["spend"]["value"]
+    assert spend["fresh"] == 300 and spend["cache_misses"] == 1 and spend["cache_miss_input"] == 120 and spend["tokens"] == 600
+    assert (spend["input"], spend["cached"], spend["output"], spend["thinking"]) == (500, 300, 60, 40)
+    assert sc["cells"]["crate:S"]["change"]["value"]["fresh"] == 4
+    assert sc["cells"]["crate:N"]["spend"]["value"]["fresh"] is None  # loads and evaluates: the field is optional
+    rows = dict(ce._row_facts({}, rec))
+    assert rows["Fresh tokens (input not from cache + output + thinking)"] == "300"
+    assert rows["Agent calls that missed the cache (count / their input tokens)"] == "1 / 120"
+
+
+def _tool_replies(run: Path) -> list[str]:
+    """What the model was sent as each tool's output, without the stock harness's two timestamp lines
+    ("Created At: ...", "Completed At: ..."), in order."""
+    out = []
+    for line in (run / "transcript.jsonl").read_text().splitlines():
+        for part in json.loads(line)["sent_last"].get("parts", []):
+            text = ((part.get("functionResponse") or {}).get("response") or {}).get("output", "")
+            if text:
+                lines = text.split("\n")
+                while lines and (lines[0].startswith(("Created At:", "Completed At:")) or not lines[0].strip()):
+                    lines.pop(0)  # an MCP reply has no blank line after them, a command's has one
+                out.append("\n".join(lines))
+    return out
+
+
+@pytest.mark.blender
+def test_arm_s_dry_run_builds_with_a_script_and_delivers_through_run_build(ca, tmp_path, monkeypatch):
+    """Arm S against a scripted agent and the stand-in API: the agent writes crate.py with the file tool, run_build is the
+    first call of the conversation so the harness fills in the limits, deliver_package follows. Needs the plugin's script
+    mode (door), the build API (sdk) and a real Blender for the delivery."""
+    if (why := _can_sandbox()) is not None:
+        pytest.skip(why)
+    if not os.environ.get("BLENDER_BIN"):
+        pytest.skip("needs BLENDER_BIN: deliver_package builds levels of detail and exports with a real Blender")
+    os.chmod(tmp_path, 0o755)
+    root = tmp_path / "pilot"
+    fake = ca.FakeUpstream({ca.cell_name("crate", "S"): ca.scripted_script_agent()})
+    try:
+        relay = ca.Relay(ca.Ledger(root / "ledger.json", ceiling_tokens=2_000_000, ceiling_images=4), fake.url, None, fake=True)
+        rec = ca.run_stock(relay, root, ca.BRIEF_BY_ID["crate"], "S", wall_s=900, share_tokens=600_000, share_images=0)
+    finally:
+        fake.close()
+    run = root / "runs" / ca.cell_name("crate", "S").replace(":", "_")
+    events = [json.loads(x) for x in (run / "events.jsonl").read_text().splitlines()]
+    installed = run / "plugin_root" / "plugins" / "antigravity-3d"
+    assert (installed / "authoring").read_text().strip() == "script"  # installed in script mode
+    cfg = json.loads((installed / "mcp_config.json").read_text())["mcpServers"]["studio"]["env"]
+    assert cfg["AGY3D_AUTHORING"] == "script"
+    limits = [e for e in events if e["kind"] == "limits_injected"]
+    assert [e["tool"] for e in limits] == ["run_build"] and limits[0]["arguments"]["token_ceiling"] == 600_000
+    replies = _tool_replies(run)
+    assert any(r.startswith("BUILT crate.py -> session") for r in replies), replies
+    assert any(r.startswith("DELIVERED") for r in replies), replies
+    assert rec.status == "finished" and rec.glb and Path(rec.glb).is_file()
+    assert rec.pipeline["mcp_tools"] == {"run_build": 1, "deliver_package": 1}
+    assert (Path(rec.pipeline["workspace"]) / "crate.py").is_file()  # the script stays in the workspace: a change edits it
+    # the script travels with the asset: it is in the session's package and in the folder the request named, so whoever
+    # keeps only output/ can still change the asset
+    pkgs = sorted(Path(rec.pipeline["workspace"]).glob("agy3d_assets/*/export/*/source/build.py"))
+    assert len(pkgs) == 1 and pkgs[0].read_text() == ca._crate_build_script()
+    assert (Path(rec.pipeline["workspace"]) / "output" / "source" / "build.py").read_text() == ca._crate_build_script()
+    assert "source/build.py" in json.loads((pkgs[0].parents[1] / "manifest.json").read_text())["file_hashes"]
+    assert rec.tokens["fresh"] > 0 and "cache_misses" in rec.tokens
+    probes = None
+    for r in replies:
+        if "PLUGIN_PROBES {" in r:
+            probes = json.loads(r.split("PLUGIN_PROBES ", 1)[1].splitlines()[0])
+    assert probes["mcp_server_authoring"] == "script" and probes["mcp_server_blender_bin"].endswith("/blender")
+
+
+def test_a_failed_first_script_does_not_spend_the_limits_and_the_next_run_build_is_answered(ca, tmp_path, monkeypatch):
+    """Arm S, first script refused by the guard (NOT BUILT, no session): the harness fills in the run's limits again on
+    the next run_build; once a build answered (BUILT), the third call (UNCHANGED) is left alone."""
+    if (why := _can_sandbox()) is not None:
+        pytest.skip(why)
+    if not os.environ.get("BLENDER_BIN"):
+        stand_in = tmp_path / "no-blender"
+        stand_in.mkdir()
+        (stand_in / "blender").write_text("#!/bin/sh\nexit 1\n")
+        monkeypatch.setenv("BLENDER_BIN", str(stand_in / "blender"))
+    os.chmod(tmp_path, 0o755)
+    root = tmp_path / "pilot"
+    fake = ca.FakeUpstream({ca.cell_name("crate", "S"): ca.scripted_script_agent(first_script_fails=True, probe=False)})
+    try:
+        relay = ca.Relay(ca.Ledger(root / "ledger.json", ceiling_tokens=2_000_000, ceiling_images=4), fake.url, None, fake=True)
+        ca.run_stock(relay, root, ca.BRIEF_BY_ID["crate"], "S", wall_s=600, share_tokens=600_000, share_images=0)
+    finally:
+        fake.close()
+    run = root / "runs" / ca.cell_name("crate", "S").replace(":", "_")
+    events = [json.loads(x) for x in (run / "events.jsonl").read_text().splitlines()]
+    assert [e["tool"] for e in events if e["kind"] == "limits_injected"] == ["run_build", "run_build"]  # not the third
+    first_words = [next(w for w in ("NOT BUILT", "UNCHANGED", "BUILT") if r.startswith(w)) for r in _tool_replies(run)
+                   if r.startswith(("BUILT", "NOT BUILT", "UNCHANGED"))]
+    assert first_words == ["NOT BUILT", "BUILT", "UNCHANGED"], first_words
+
+
+def test_an_arm_s_change_workspace_carries_the_script_and_the_task_lists_it(ca, tmp_path):
+    """The change session's workspace is a copy of the first session's (minus the harness's .agents): the build script
+    the agent wrote in the workspace root is in it, and the change task's file list names it."""
+    src = tmp_path / "first"
+    (src / ".agents" / "plugins").mkdir(parents=True)
+    (src / ".agents" / "plugins" / "x").write_text("bundle")
+    (src / "output").mkdir()
+    (src / "output" / "crate.glb").write_bytes(b"glb")
+    (src / "crate.py").write_text(ca._crate_build_script())
+    work = tmp_path / "second"
+    left_out = ca.copy_without_links(src, work, ignore=lambda d, names: [
+        n for n in names if Path(d) == src and n == ".agents" and "S" in ca.PLUGIN_ARMS])
+    assert (work / "crate.py").read_text() == ca._crate_build_script() and not (work / ".agents").exists()
+    files = ca.workspace_listing(work)
+    assert "crate.py" in files and "output/crate.glb" in files
+    task = ca.change_task(ca.BRIEF_BY_ID["crate"], files, 20, "S")
+    assert "crate.py" in task and "make the two side handles 30 % larger" in task

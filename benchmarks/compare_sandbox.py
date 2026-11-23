@@ -344,18 +344,57 @@ class HookScripts:
 
 # The calls that open an asset session. On a key without the calibrated judge a session has to be a preview to deliver,
 # and a preview needs the user's two limits; nobody can be asked in a headless run.
-OPENERS = ("open_asset_session", "open_existing_asset")
+OPENERS = ("open_asset_session", "open_existing_asset", "run_build")
+# run_build (script mode) opens a session the first time it builds and reuses it afterwards, so its limits are answered
+# until a build has been answered; the other openers are answered on every call, as before.
+ONCE_PER_CONVERSATION = ("run_build",)
+# A run_build reply that starts with one of these words (first line of the reply, after the harness's own timestamp
+# lines) came from a call that had a session: BUILT opened or updated one, UNCHANGED found the design already held.
+# NOT BUILT (a guard refusal, a script error, a time-out, a critical finding) opened none.
+OPENED_BY_REPLY = ("BUILT", "UNCHANGED")
 
 
-def answer_limits(tool: str, args: dict, limits: dict) -> tuple[dict | None, str | None]:
+def reply_text(result: object) -> str:
+    """The text of an MCP tool result: the string itself, or the ``text`` of each content part of a dict or list."""
+    if isinstance(result, str):
+        return result
+    if isinstance(result, dict):
+        return "\n".join(reply_text(v) for k, v in result.items() if k in ("text", "content", "result", "output"))
+    if isinstance(result, (list, tuple)):
+        return "\n".join(reply_text(v) for v in result)
+    return str(getattr(result, "text", "") or "")
+
+
+def opened_a_session(result: object) -> bool:
+    """Whether a run_build reply says the call had a session: a line of it starts with BUILT or UNCHANGED (not NOT BUILT)."""
+    return any(ln.lstrip().startswith(OPENED_BY_REPLY) for ln in reply_text(result).splitlines())
+
+
+def note_reply(tool: str, result: object, answered: set[str]) -> None:
+    """Record that a once-per-conversation opener has had its limits used: only when its reply shows a session was
+    opened. A script error or a guard refusal must not spend the user's limits, so the next run_build is answered again."""
+    if tool in ONCE_PER_CONVERSATION and opened_a_session(result):
+        answered.add(tool)
+
+
+def answer_limits(tool: str, args: dict, limits: dict,
+                  answered: set[str] | None = None) -> tuple[dict | None, str | None]:
     """What the person running this pilot would answer when the agent opens a session or switches one to a preview:
     this run's share, and nothing else. Returns (the arguments to send, None); (None, the refusal) when the agent
     chose limits other than the run's; (None, None) for any other tool.
 
     ``open_existing_asset`` (a change request's first call) was not answered until 2026-11-22: the reopened session
     was not a preview, its delivery was refused for lack of the calibrated judge, the agent rightly would not choose
-    limits itself, and arm N's change request ran to its token share with nothing delivered (r5/live_rerun_N)."""
+    limits itself, and arm N's change request ran to its token share with nothing delivered (r5/live_rerun_N).
+
+    ``run_build`` is answered until one build has answered: ``answered`` is the set the caller keeps for the conversation
+    and fills with ``note_reply`` from the tool's reply. A later ``run_build`` is left alone: it reuses the session the
+    first one opened, and the limits mean something only to the call that opens it. A call that opened none (its reply is
+    NOT BUILT: a guard refusal, a script error) does not use them up, so a user's limits are not spent by a typo.
+    Without ``answered`` every call is answered."""
     if tool not in (*OPENERS, "start_preview"):
+        return None, None
+    if answered is not None and tool in ONCE_PER_CONVERSATION and tool in answered:
         return None, None
     args = dict(args)
     given = (args.get("token_ceiling"), args.get("max_images"))
@@ -387,6 +426,10 @@ def plugin_attachment(cfg: dict, url: str, emit: Events, conversation_id: str) -
     plugin = pc["dir"]
     env = dict(os.environ) | {"PYTHONPATH": f"{PROJECT_SRC}:{PYDEPS}", "GEMINI_API_KEY": "via-relay",
                               "GOOGLE_GEMINI_BASE_URL": url, "DISPLAY": ":99"}
+    if pc.get("authoring") == "script":
+        # A build script's Blender parts run in a subprocess with a bare environment that keeps BLENDER_BIN but not
+        # BLENDER_EXE (this sandbox's name for the same binary, see scrubbed_env).
+        env["BLENDER_BIN"] = f"{BLENDER_DIR}/blender"
     procs = []
     if os.path.exists("/usr/bin/Xvfb"):  # the engines' renderers need a display; the host's X socket is not in here
         procs.append(subprocess.Popen(["/usr/bin/Xvfb", ":99", "-screen", "0", "1280x1024x24", "-nolisten", "tcp"],
@@ -410,6 +453,7 @@ def plugin_attachment(cfg: dict, url: str, emit: Events, conversation_id: str) -
                                               system_instructions=body, model=model))
     scripts = HookScripts(plugin, conversation_id, env, emit)
     limits = pc["limits"]
+    answered: set[str] = set()  # the once-per-conversation openers whose limits were already filled in
 
     def mcp_tool(tc) -> str:  # noqa: ANN001
         a = tc.args or {}
@@ -428,14 +472,14 @@ def plugin_attachment(cfg: dict, url: str, emit: Events, conversation_id: str) -
             modified = None
             # Spending is not the agent's choice: answer_limits fills this run's share and refuses any other.
             asked = dict((data.args or {}).get("Arguments") or {})
-            answered, refusal = answer_limits(tool, asked, limits)
+            answered_args, refusal = answer_limits(tool, asked, limits, answered)
             if refusal:
                 emit("ask_answered", tool=tool, asked=(asked.get("token_ceiling"), asked.get("max_images")),
                      answer="refused: not this run's limits")
                 return hooks.HookResult(allow=False, message=refusal)
-            if answered is not None:
-                emit("limits_injected", tool=tool, arguments=answered)
-                modified = {"Arguments": answered}
+            if answered_args is not None:
+                emit("limits_injected", tool=tool, arguments=answered_args)
+                modified = {"Arguments": answered_args}
                 data = data.model_copy(update={"args": {**data.args, **modified}})
             call, matched = hook_call(data)
             outs = scripts.run("PreToolUse", {"toolCall": call}, tool_name=matched)
@@ -459,6 +503,8 @@ def plugin_attachment(cfg: dict, url: str, emit: Events, conversation_id: str) -
             mcp = bool(data.server_name)
             call = ({"id": data.id, "name": "mcp_tool", "args": {"ServerName": data.server_name, "ToolName": str(data.name)}}
                     if mcp else {"id": data.id, "name": str(data.name), "args": {}})
+            if mcp and not data.error:
+                note_reply(str(data.name), data.result, answered)
             scripts.run("PostToolUse", {"toolCall": call, "error": data.error}, tool_name=call["name"])
 
     class PluginStop(hooks.StopHook):

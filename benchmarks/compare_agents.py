@@ -26,6 +26,9 @@ Arms
      ``.agents/skills`` by itself: measured, see ``tests/test_compare_agents.py``).
   N  the same stock agent with this project's plugin attached (``compare_sandbox.plugin_attachment``), driving it tool
      by tool: what a developer gets who installs the plugin in Antigravity.
+  S  arm N with the plugin installed in script mode (``plugin_install.install(..., authoring="script")``): the agent
+     writes one Python script per asset and a single tool, ``run_build``, runs, checks and shows it. Same task text,
+     limits, accounts and shares as N; the only difference is how the plugin is installed (SCRIPT_ARMS).
   C  this project: ``agy3d prop "<brief>" --engine godot_4 --max-tris N --preview --blender $BLENDER_BIN``.
 
 Change requests (``--change BRIEF:ARM``): after a cell has delivered, one follow-up in a new session over a copy of
@@ -105,8 +108,8 @@ BUDGET: dict[str, Any] = {
     "briefs": ["crate", "hydrant", "chair"],
     "arms_now": ["V", "A"],  # the advisor's order: crate across V and A first; read; then hydrant and chair
     "arms_planned": ["V", "A"],
-    "run_tokens": {"V": 1_200_000, "A": 1_200_000, "B": 195_000, "N": 1_500_000, "C": 500_000},
-    "run_images": {"V": 0, "A": 0, "B": 0, "N": 0, "C": 0},
+    "run_tokens": {"V": 1_200_000, "A": 1_200_000, "B": 195_000, "N": 1_500_000, "S": 1_500_000, "C": 500_000},
+    "run_images": {"V": 0, "A": 0, "B": 0, "N": 0, "S": 0, "C": 0},
     "judge_tokens_per_call": 12_500,  # <= ~4k input (two 1024 px sheets + rubric) + 8,192 output
     "small_judge_tokens_per_call": 10_000,  # the game-size judge: two 512x256 sheets + rubric + 8,192 output
     "smoke_tokens": 0,
@@ -116,7 +119,7 @@ BUDGET: dict[str, Any] = {
     "change_share": 0.5,
     # None: the arm's run_images. N's change is a new plugin session (a new stage and cache: it re-textures) and C's a
     # new design (cached images are reused only where their request is unchanged), so both may need their run's images.
-    "change_images": {"V": 0, "A": 0, "B": 0, "N": None, "C": None},
+    "change_images": {"V": 0, "A": 0, "B": 0, "N": None, "S": None, "C": None},
 }
 # Round 2's design, kept as the record of what produced the results in UPSTREAM_SKILLS.md and AFTER_THE_COMPARISON.md
 # (cells named r2:<brief>:<arm>; arm C then was the command line, its native form was sized, not run).
@@ -155,6 +158,9 @@ ROUND2_BUDGET: dict[str, Any] = {
 CALL_MODEL = {"A": {"first": 12_400, "growth": 4_500, "out": 3_000}, "B": {"first": 14_700, "growth": 8_000, "out": 3_000},
               "V": {"first": 13_400, "growth": 4_500, "out": 3_000},
               "N": {"first": 16_400, "growth": 1_500, "out": 3_500, "plugin_calls_tokens": 26_000},
+              # S: N's figures until a script-mode run is measured (its tools are fewer and its replies shorter, so
+              # this errs on the side of allowing too many calls, not too few)
+              "S": {"first": 16_400, "growth": 1_500, "out": 3_500, "plugin_calls_tokens": 26_000},
               "C": {"first": 16_400, "growth": 1_500, "out": 3_500, "plugin_calls_tokens": 26_000}}
 
 
@@ -181,6 +187,8 @@ def harness_budget(arm: str, share: int) -> dict[str, int]:
 NOT_RUN = {"arm B": "not run in round 5: its two round-1 runs are reported as a finding (what it read, what it cost)"}
 PENDING = {"N": "arm N (the stock agent driving this project's plugin) needs images for its textures; it waits for the "
                 "owner's image allowance (29 of 30 used)",
+           "S": "arm S (the stock agent driving this project's plugin in script mode) needs images for its textures, like N; it "
+                "waits for the owner's image allowance (29 of 30 used)",
            "C": "arm C (this project's command line, preview mode) needs images for its textures; it waits for the owner's "
                 "image allowance (29 of 30 used)"}
 JUDGE_MODEL = "gemini-4-carbon"
@@ -191,7 +199,7 @@ STOCK_BUDGET = {"max_model_calls": 40, "max_tool_calls": 120}  # floor of harnes
 STOCK_TIMEOUT_S = 40 * 60
 # A share of 1.2M tokens is about 18 calls at round 2's growth, and a native plugin run makes 24+ calls with Blender
 # renders between them: 40 minutes stopped nothing in round 2 (A's sessions took 6 and 10 minutes) and stays the floor.
-ARM_TIMEOUT_S = {"V": 60 * 60, "A": 60 * 60, "B": 40 * 60, "N": 90 * 60}
+ARM_TIMEOUT_S = {"V": 60 * 60, "A": 60 * 60, "B": 40 * 60, "N": 90 * 60, "S": 90 * 60}
 C_TIMEOUT_S = 75 * 60
 DEFAULT_OUT_TOKENS = 65_536  # reservation when a request names no maxOutputTokens
 IMAGE_INPUT_TOKENS = 1_800  # reservation per inline image in a request
@@ -216,13 +224,22 @@ BRIEFS = (
     Brief("chair", "a wooden Windsor chair with a spindle back",
           5_000, (0.7, 1.3), True, "thin and many parts: legs, stretchers, a dozen spindles; proportions and budget"),
 )
-BRIEF_BY_ID = {b.id: b for b in BRIEFS}
-ARMS = ("V", "A", "B", "N", "C")
+# Development briefs: for trying the plumbing and an agent's reading of a reference page without spending a first
+# attempt on a measured brief. They are reachable by id (``--briefs lantern``, ``--only lantern:S``) and are in no
+# default: not in BRIEFS, so not in BUDGET["briefs"], the plan tables, the judge plan or any scorecard unless named.
+DEV_BRIEFS = (
+    Brief("lantern", "an old brass oil lantern with a glass chimney and a wire carrying handle", 4_000, (0.2, 0.7), True,
+          "development brief: never part of the measured set"),
+)
+BRIEF_BY_ID = {b.id: b for b in (*BRIEFS, *DEV_BRIEFS)}
+ARMS = ("V", "A", "B", "N", "S", "C")
 ARM_LABEL = {"V": "stock agent + plain Blender MCP server", "A": "stock agent + scriptable Blender",
              "B": "stock agent + upstream skills", "N": "stock agent + this project's plugin",
+             "S": "stock agent + this project's plugin, script mode",
              "C": "this project's pipeline (command line, preview mode)"}
-STOCK_ARMS = ("V", "A", "B", "N")  # arms run as the stock agent in the sandbox
-PLUGIN_ARMS = ("N",)  # arms with this project's plugin attached (compare_sandbox.plugin_attachment, src bound read-only)
+STOCK_ARMS = ("V", "A", "B", "N", "S")  # arms run as the stock agent in the sandbox
+PLUGIN_ARMS = ("N", "S")  # arms with this project's plugin attached (compare_sandbox.plugin_attachment, src bound read-only)
+SCRIPT_ARMS = ("S",)  # plugin arms whose bundle is installed with authoring="script" (a subset of PLUGIN_ARMS)
 
 # The change request each cell gets after its first delivery (brief.md item 4): one named part group made larger, the
 # rest left alone. "ratio" is the size factor the request asks for, which package_diff looks for in the changed parts.
@@ -278,7 +295,7 @@ def planned_accounts() -> dict[str, tuple[int, int]]:
     out = {cell_name(b, a): (BUDGET["run_tokens"][a], BUDGET["run_images"][a])
            for b, a in order(BUDGET["briefs"], BUDGET["arms_planned"])}
     if BUDGET.get("changes"):
-        out |= {change_name(b, a): change_share(a) for b, a in order(BUDGET["briefs"], BUDGET["arms_planned"])}
+        out |= {change_name(b, a): change_share(a) for b, a in order(BUDGET["briefs"], BUDGET["arms_planned"]) if b in CHANGES}
     # the repeat asks for no new image: it should read every image from the first run's cache
     if not BUDGET.get("paired"):
         out |= {repeat_name(b, "C"): (change_share("C")[0], 0) for b in BUDGET["briefs"] if "C" in BUDGET["arms_planned"]}
@@ -1493,6 +1510,48 @@ def scripted_plugin_agent() -> list[dict[str, Any]]:
             {"parts": [{"text": "Scripted plugin-arm dry run finished."}]}]
 
 
+def _crate_build_script(handle_scale: float = 1.0) -> str:
+    """A small crate as a build script (the API of the plugin's script-mode skill): a bevelled body, a lid, two
+    handles that end inside the body so they touch it. ``handle_scale`` stands in for "make the handles larger"."""
+    h = 0.12 * handle_scale
+    return (
+        "from agy3d import Asset\n\n"
+        "a = Asset(\"crate\", engine=\"godot_4\", max_tris=3000,\n"
+        "          brief=\"a rugged military supply crate kit-bashed from panels, corner guards, latches and two side handles\")\n"
+        "olive = a.material(\"paint\", \"#5a6b3a\", surface=\"olive-drab painted plywood, scuffed at the edges\", roughness=0.7)\n"
+        "steel = a.material(\"steel\", \"#3a3d40\", surface=\"black steel, worn\", metallic=1, roughness=0.5)\n"
+        "body = a.box(\"body\", size=(1.0, 0.6, 0.45), bevel=0.02, bottom=(0, 0, 0), material=olive)\n"
+        "a.box(\"lid\", size=(1.02, 0.62, 0.05), bevel=0.01, bottom=(0, 0, body.top), material=olive)\n"
+        f"a.tube(\"handle\", path=[(0.48, -{h}, 0.25), (0.57, -{h}, 0.25), (0.57, {h}, 0.25), (0.48, {h}, 0.25)],\n"
+        "       radius=0.014, sides=8, material=steel, mirror=\"x\")\n"
+        "a.save()\n")
+
+
+def scripted_script_agent(handle_scale: float = 1.0, probe: bool = True, first_script_fails: bool = False,
+                          deliver: bool = True) -> list[dict[str, Any]]:
+    """The scripted model for arm S in a dry run: probe the plugin's server, write the asset's build script with the
+    stock agent's file tool, ``run_build`` it (the first call of the conversation, so the harness fills in the limits),
+    then ``deliver_package`` into ``output/``. ``handle_scale`` is the change session's stand-in for an edit."""
+    def mcp(tool: str, **args: Any) -> dict[str, Any]:
+        return _fc("call_mcp_tool", ServerName="antigravity-3d_studio", ToolName=tool, Arguments=args,
+                   toolSummary="Studio call", toolAction="Calling studio")
+
+    write = _fc("write_to_file", TargetFile="/home/agent/project/crate.py", CodeContent=_crate_build_script(handle_scale),
+                Overwrite=True, Description="The crate as a build script", toolSummary="Writing", toolAction="Writing the script")
+    probes = [_fc("run_command", CommandLine=PROBE_COMMAND + "\n" + PLUGIN_PROBE_COMMAND, Cwd="/home/agent/project")] if probe else []
+    build = mcp("run_build", path="crate.py", conversation_id="{conversation_id}")
+    if first_script_fails:
+        # a script the guard refuses (it imports os), then the corrected one, then a third run of the same script: the
+        # first run_build opens no session, the second builds, the third finds the design unchanged
+        bad = _fc("write_to_file", TargetFile="/home/agent/project/crate.py", Overwrite=True, toolSummary="Writing",
+                  toolAction="Writing the script", Description="First try",
+                  CodeContent="import os\n" + _crate_build_script(handle_scale))
+        return [*probes, bad, build, write, build, build,
+                {"parts": [{"text": "Scripted script-mode dry run: a failed first script, then a build."}]}]
+    return [*probes, write, build, *([mcp("deliver_package", dest="output")] if deliver else []),
+            {"parts": [{"text": "Scripted script-mode dry run finished: output/ holds the package."}]}]
+
+
 def scripted_continuation() -> list[dict[str, Any]]:
     """The scripted continuation for a dry run: look at the workspace, run the earlier session's own export script."""
     return [_fc("run_command", CommandLine="ls -R . | head -50", Cwd="/home/agent/project"),
@@ -1610,6 +1669,8 @@ def scripted_change(arm: str, use_blender: bool = True) -> list[dict[str, Any]]:
     look = _fc("run_command", CommandLine="ls -R . | grep -v '^\\.' | head -40", Cwd="/home/agent/project")
     if arm == "V":
         return [look, *scripted_vanilla_agent(size=1.04, probe=False)]
+    if arm in SCRIPT_ARMS:
+        return [look, *scripted_script_agent(1.3, probe=False)]
     if arm in PLUGIN_ARMS:
         return [look, *scripted_plugin_agent()[1:]]
     if use_blender:
@@ -1636,6 +1697,8 @@ if srv:
     env = dict(x.split(b"=", 1) for x in open(f"/proc/{p}/environ", "rb").read().split(b"\0") if b"=" in x)
     r["mcp_server_key"] = env.get(b"GEMINI_" + b"API_KEY", b"").decode()  # split: the policy's string test is not what is measured
     r["mcp_server_base_url_is_local"] = env.get(b"GOOGLE_GEMINI_BASE_URL", b"").startswith(b"http://127.0.0.1:")
+    r["mcp_server_authoring"] = env.get(b"AGY3D_AUTHORING", b"").decode()
+    r["mcp_server_blender_bin"] = env.get(b"BLENDER_BIN", b"").decode()
     r["mcp_server_secret_env"] = sorted(k.decode() for k in env if any(s in k for s in (b"TOKEN", b"SECRET", b"PROXY", b"AWS", b"GH_")))
 r["interfaces"] = sorted(l.split(":")[0].strip() for l in open("/proc/self/net/dev").read().splitlines()[2:])
 try:
@@ -1822,10 +1885,71 @@ class RunRecord:
     phase: str = "first"  # "first" (the cell's delivery, its sessions merged) or "change" (the change request)
 
 
-def _account_tokens(ledger: Ledger, name: str) -> dict[str, int]:
+# A call "missed the cache" when less than this share of its input was served from cache.
+CACHE_MISS_SHARE = 0.05
+
+
+def fresh_tokens(input_: int, cached: int, output: int, thinking: int) -> int:
+    """Tokens a run paid for in full: input not served from cache, plus output, plus thinking. ``input_`` includes
+    ``cached`` (the relay books the provider's prompt count, which counts cached tokens)."""
+    return max(input_ - cached, 0) + output + thinking
+
+
+def token_breakdown(calls: list[dict[str, Any]]) -> dict[str, int]:
+    """Input, cached, output, thinking, fresh, and the cache misses of the agent model, from a run's relay log rows.
+
+    Only generate calls that came back with usage count (a call the provider did not itemise is booked by the ledger as
+    an unknown reservation and has no fresh share to report), every model of the run included: the agent's and the
+    plugin's own (the preview judge). ``cache_misses`` counts the agent-model calls after the conversation's first
+    whose cached share is below CACHE_MISS_SHARE of their input, and ``cache_miss_input`` is those calls' input: a
+    call whose cache expired (it happens at about one call in ten, and mostly on the reply after a tool call longer
+    than a minute) re-sends the whole conversation at full price, which is a property of the service's timing, not of
+    the design under test. The first call is excluded because it has nothing to be served from."""
+    gen = [c for c in calls if c.get("status") == 200 and c.get("kind", "generate") == "generate" and c.get("usage")]
+    t = {k: sum(int(c["usage"].get(k, 0)) for c in gen) for k in ("input", "cached", "output", "thinking")}
+    agent = [c["usage"] for c in gen if c.get("model") == DEFAULT_TEXT_MODEL][1:]
+    miss = [u for u in agent if int(u.get("cached", 0)) < CACHE_MISS_SHARE * int(u.get("input", 0))]
+    return t | {"fresh": fresh_tokens(t["input"], t["cached"], t["output"], t["thinking"]),
+                "cache_misses": len(miss), "cache_miss_input": sum(int(u.get("input", 0)) for u in miss)}
+
+
+def read_relay_log(run_dir: Path) -> list[dict[str, Any]] | None:
+    log = run_dir / "relay_calls.jsonl"
+    return [json.loads(x) for x in log.read_text().splitlines() if x.strip()] if log.is_file() else None
+
+
+def backfill_tokens(rec: RunRecord, run_dir: Path) -> RunRecord:
+    """Give a record written before these fields existed its ``fresh`` and cache-miss figures, from the run's
+    relay_calls.jsonl when it is there. Without the log, ``fresh`` is derived from the totals the record holds (the same
+    sum) and the cache-miss counts are left out: they need the calls one by one."""
+    t = rec.tokens
+    if not t or "fresh" in t:
+        return rec
+    calls = read_relay_log(run_dir)
+    if calls is not None:
+        t.update(token_breakdown(calls))
+    elif "input_tokens" in t:
+        t.update(input=t["input_tokens"], cached=t.get("cached_tokens", 0), output=t.get("output_tokens", 0),
+                 thinking=t.get("thinking_tokens", 0))
+        t["fresh"] = fresh_tokens(t["input"], t["cached"], t["output"], t["thinking"])
+    return rec
+
+
+def load_record(path: Path) -> RunRecord:
+    """A record.json as a RunRecord (fields of earlier rounds are optional), with the fresh-token figures filled in."""
+    return backfill_tokens(RunRecord(**json.loads(path.read_text())), path.parent)
+
+
+def _account_tokens(ledger: Ledger, name: str, run_dir: Path | None = None) -> dict[str, int]:
     a = ledger.data["accounts"][name]
-    return {k: a[k] for k in ("input_tokens", "output_tokens", "thinking_tokens", "cached_tokens", "unknown_reserved_tokens",
-                              "share_tokens")} | {"total": Ledger.used_tokens(a), "images": a["images"], "share_images": a["share_images"]}
+    t = {k: a[k] for k in ("input_tokens", "output_tokens", "thinking_tokens", "cached_tokens", "unknown_reserved_tokens",
+                           "share_tokens")} | {"total": Ledger.used_tokens(a), "images": a["images"], "share_images": a["share_images"]}
+    calls = read_relay_log(run_dir) if run_dir is not None else None
+    if calls is not None:
+        return t | token_breakdown(calls)
+    return t | {"input": a["input_tokens"], "cached": a["cached_tokens"], "output": a["output_tokens"],
+                "thinking": a["thinking_tokens"],
+                "fresh": fresh_tokens(a["input_tokens"], a["cached_tokens"], a["output_tokens"], a["thinking_tokens"])}
 
 
 def host_blender_dir() -> Path:
@@ -1874,14 +1998,16 @@ def _imported_project_src() -> Path:
 PROJECT_SRC = _imported_project_src()  # the tree arm C attaches (``--project-src`` points it at another worktree)
 
 
-def install_project_plugin(dest_root: Path, workspace: str) -> Path:
+def install_project_plugin(dest_root: Path, workspace: str, authoring: str | None = None) -> Path:
     """The plugin bundle of PROJECT_SRC's tree, installed by that tree's own installer (copy mode, workspace scope)
-    into ``dest_root/plugins/antigravity-3d``. Run as a subprocess so the installer is the tested tree's, not ours."""
+    into ``dest_root/plugins/antigravity-3d``. Run as a subprocess so the installer is the tested tree's, not ours.
+    ``authoring="script"`` is passed on to the installer (arm S); otherwise the call is exactly arm N's."""
     code = ("import sys; from pathlib import Path; from antigravity3d import plugin_install as p; "
-            "print(p.install(Path(sys.argv[1]), workspace=Path(sys.argv[2])))")
+            "kw = {'authoring': sys.argv[3]} if len(sys.argv) > 3 else {}; "
+            "print(p.install(Path(sys.argv[1]), workspace=Path(sys.argv[2]), **kw))")
     env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "LANG")} | {"PYTHONPATH": str(PROJECT_SRC)}
-    out = subprocess.run([sys.executable, "-c", code, str(dest_root), workspace], env=env, capture_output=True, text=True,
-                         check=True)
+    out = subprocess.run([sys.executable, "-c", code, str(dest_root), workspace, *([authoring] if authoring else [])],
+                         env=env, capture_output=True, text=True, check=True)
     return Path(out.stdout.strip().splitlines()[-1])
 
 
@@ -1911,7 +2037,8 @@ def stock_spec(run_dir: Path, arm: str, brief: Brief, *, plugin: bool = False, s
     if task is not None:
         cfg["task"] = task
     if plugin:
-        installed = install_project_plugin(run_dir / "plugin_root", sb.WORKSPACE)
+        authoring = "script" if arm in SCRIPT_ARMS else None
+        installed = install_project_plugin(run_dir / "plugin_root", sb.WORKSPACE, authoring)
         (work / ".agents" / "plugins").mkdir(parents=True, exist_ok=True)  # the mount point (inside the workspace)
         host = cfg["host"]
         host.update(project_src=str(PROJECT_SRC), project_plugin=str(PROJECT_SRC.parent / "plugin"), plugins=str(installed.parent),
@@ -1928,6 +2055,7 @@ def stock_spec(run_dir: Path, arm: str, brief: Brief, *, plugin: bool = False, s
             extra["AGY3D_THREE_JS"] = f"{sb.THREE_DIR}/{Path(os.environ['AGY3D_THREE_JS']).name}"
         cfg["extra_env"] = extra
         cfg["plugin"] = {"dir": f"{sb.PLUGINS_DIR}/{installed.name}", "limits": {"tokens": share_tokens, "images": share_images},
+                         "authoring": authoring,
                          "project_src_host": str(PROJECT_SRC)}
     if arm == "V":  # the plain Blender MCP server: this file only, nothing of the project
         shutil.copyfile(HERE / "compare_vanilla_mcp.py", run_dir / "ctl" / "compare_vanilla_mcp.py")
@@ -2075,7 +2203,7 @@ def run_continuation(relay: Relay, root: Path, brief: Brief, arm: str, *, wall_s
     del run_dir_done
     run_dir = root / "runs" / name.replace(":", "_")
     if (run_dir / "record.json").exists():
-        return RunRecord(**json.loads((run_dir / "record.json").read_text()))
+        return load_record(run_dir / "record.json")
     calls = calls_allowed(arm, c["tokens"])
     task = continuation_task(brief, workspace_listing(work), calls)
     rec = run_stock(relay, root, brief, arm, share_tokens=c["tokens"], share_images=c["images"], account=name,
@@ -2105,7 +2233,7 @@ def merge_sessions(records: list[RunRecord]) -> RunRecord:
     m.pipeline = {**last.pipeline, "sessions": [
         {"session": r.session, "account": r.account, "status": r.status, "tokens": r.tokens.get("total"),
          "mode": (r.pipeline or {}).get("mode") or ("default" if r.arm == "C" else None), "images_used": r.images,
-         "cached_tokens": r.tokens.get("cached_tokens"), "model_calls": r.model_calls, "tool_calls": r.tool_calls,
+         "cached_tokens": r.tokens.get("cached_tokens"), "fresh": r.tokens.get("fresh"), "model_calls": r.model_calls, "tool_calls": r.tool_calls,
          "wall_s": r.wall_s, "images": r.images, "glb": r.glb, "final_text": (r.final_text or "")[:1500]} for r in records]}
     return m
 
@@ -2141,7 +2269,7 @@ def run_change(relay: Relay, root: Path, brief: Brief, arm: str, *, offline: boo
     name = change_name(brief.id, arm)
     run_dir = root / "runs" / name.replace(":", "_")
     if (run_dir / "record.json").exists():
-        return RunRecord(**json.loads((run_dir / "record.json").read_text()))
+        return load_record(run_dir / "record.json")
     first = first_record(root, brief.id, arm)
     if first is None or not first.glb or not Path(first.glb).is_file():
         raise RuntimeError(f"{brief.id}:{arm} has no delivered GLB: nothing to change")
@@ -2207,7 +2335,7 @@ def run_repeat(relay: Relay, root: Path, brief: Brief, *, offline: bool = True) 
     name = repeat_name(brief.id, "C")
     run_dir = root / "runs" / name.replace(":", "_")
     if (run_dir / "record.json").exists():
-        return RunRecord(**json.loads((run_dir / "record.json").read_text()))
+        return load_record(run_dir / "record.json")
     first = first_record(root, brief.id, "C")
     if first is None or not first.glb or not Path(first.glb).is_file():
         raise RuntimeError(f"{brief.id}:C has no delivered GLB: nothing to repeat")
@@ -2235,7 +2363,7 @@ def collect_changes(root: Path, phase: str = "change") -> list[RunRecord]:
     for p in sorted((root / "runs").glob("*/record.json")):
         if prefix and not p.parent.name.startswith(prefix):
             continue
-        r = RunRecord(**json.loads(p.read_text()))
+        r = load_record(p)
         if r.phase == phase:
             out.append(r)
     return out
@@ -2266,7 +2394,7 @@ def run_stock(relay: Relay, root: Path, brief: Brief, arm: str, *, wall_s: float
     wall_s = (ARM_TIMEOUT_S.get(arm, STOCK_TIMEOUT_S) + 300) if wall_s is None else wall_s
     rec = RunRecord(brief.id, arm, session=session, account=name, phase=phase)
     if (run_dir / "record.json").exists():
-        return RunRecord(**json.loads((run_dir / "record.json").read_text()))
+        return load_record(run_dir / "record.json")
     acct = relay.ledger.data["accounts"].get(name)
     if acct is not None and (Ledger.used_tokens(acct) or acct["calls"] or acct["free_calls"] or acct.get("closed")):
         raise RuntimeError(f"refusing to start {name}: its account already shows spending (or is closed) and the run "
@@ -2335,7 +2463,7 @@ def run_stock(relay: Relay, root: Path, brief: Brief, arm: str, *, wall_s: float
     rec.model_calls = acc.calls
     rec.models = acc.models
     rec.refused = list(acc.refused)
-    rec.tokens = _account_tokens(relay.ledger, name)
+    rec.tokens = _account_tokens(relay.ledger, name, run_dir)
     rec.images = rec.tokens["images"]
     glb = find_main_glb(work / "output") or find_main_glb(work)
     rec.glb = str(glb) if glb else None
@@ -2495,7 +2623,7 @@ def _run_c_edit(relay: Relay | None, acc: Any, rec: RunRecord, run_dir: Path, ou
     if acc:
         relay.close(rec.account)
         rec.model_calls, rec.models, rec.refused = acc.calls, acc.models, list(acc.refused)
-        rec.tokens = _account_tokens(relay.ledger, rec.account)
+        rec.tokens = _account_tokens(relay.ledger, rec.account, run_dir)
         rec.images = rec.tokens["images"]
         rec.pipeline["conditions"] = run_conditions(run_dir)
     (run_dir / "record.json").write_text(json.dumps(asdict(rec), indent=1))
@@ -2515,7 +2643,7 @@ def run_c(relay: Relay | None, root: Path, brief: Brief, *, offline: bool, wall_
     name = account or cell_name(brief.id, "C")
     run_dir = root / "runs" / name.replace(":", "_")
     if (run_dir / "record.json").exists():
-        return RunRecord(**json.loads((run_dir / "record.json").read_text()))
+        return load_record(run_dir / "record.json")
     if relay is not None:
         acct = relay.ledger.data["accounts"].get(name)
         if acct is not None and (Ledger.used_tokens(acct) or acct["calls"] or acct["free_calls"] or acct.get("closed")):
@@ -2637,7 +2765,7 @@ def run_c(relay: Relay | None, root: Path, brief: Brief, *, offline: bool, wall_
         relay.close(name)
         rec.model_calls, rec.models, rec.refused = acc.calls, acc.models, list(acc.refused)
         rec.tool_calls = None
-        rec.tokens = _account_tokens(relay.ledger, name)
+        rec.tokens = _account_tokens(relay.ledger, name, run_dir)
         rec.images = rec.tokens["images"]
         rec.pipeline["conditions"] = run_conditions(run_dir)
     rec.blender_invocations = None  # a warm worker pool: one Blender process serves many operations
@@ -2690,7 +2818,7 @@ def plan_table() -> str:
         if arm == "C":
             lines.append(f"| repeat {br}:C (same request, same bytes?) | {change_share('C')[0]:,} | 0 | "
                          "after the run delivers; the same command into a copy of its folder |")
-        if b.get("changes"):
+        if b.get("changes") and br in CHANGES:  # a development brief has no change request
             ct, ci = change_share(arm)
             how = (f"C_CHANGE_MODE={C_CHANGE_MODE}" if arm == "C" else f"new session, about {calls_allowed(arm, ct)} model calls")
             lines.append(f"| change {br}:{arm} ({CHANGES[br]['text']!r}) | {ct:,} | {ci} | after the run delivers; {how} |")
@@ -2738,7 +2866,7 @@ def collect_records(root: Path) -> list[RunRecord]:
     for p in sorted((root / "runs").glob("*/record.json")):
         if p.parent.name.startswith("smoke") or (prefix and not p.parent.name.startswith(prefix)):
             continue
-        r = RunRecord(**json.loads(p.read_text()))
+        r = load_record(p)
         if r.phase != "first":
             continue
         sessions.setdefault((r.brief, r.arm), []).append(r)
@@ -2756,7 +2884,8 @@ def make_relay(root: Path, *, live: bool, allow_new_ceilings: bool = False, use_
     if scripts is None:
         scripts = {cell_name(br, a): scripted_agent(use_blender) for br in BRIEF_BY_ID for a in ("A", "B")}
         scripts |= {cell_name(br, "V"): scripted_vanilla_agent() for br in BRIEF_BY_ID}
-        scripts |= {cell_name(br, a): scripted_plugin_agent() for br in BRIEF_BY_ID for a in PLUGIN_ARMS}
+        scripts |= {cell_name(br, a): scripted_script_agent() if a in SCRIPT_ARMS else scripted_plugin_agent()
+                    for br in BRIEF_BY_ID for a in PLUGIN_ARMS}
         scripts |= {change_name(br, a): scripted_change(a, use_blender) for br in BRIEF_BY_ID for a in STOCK_ARMS}
         scripts |= {continuation_name(br, "A", 2): scripted_continuation() for br in BRIEF_BY_ID}
         scripts |= {f"smoke:{br}:{a}": scripted_agent(use_blender) for br in BRIEF_BY_ID for a in ("A", "B")}
@@ -2832,7 +2961,8 @@ def run_all(root: Path, *, live: bool, only: list[str] | None, use_blender: bool
     todo = [] if (continue_cells or change_cells or repeat_cells) and not only else order()
     if only:
         want = {tuple(x.split(":")) for x in only}
-        todo = [o for o in order(BUDGET["briefs"], BUDGET["arms_planned"]) if o in want]
+        dev = [o for o in sorted(want) if o[0] in {d.id for d in DEV_BRIEFS} and o[1] in ARMS]  # named, so run, though in no plan
+        todo = [o for o in order(BUDGET["briefs"], BUDGET["arms_planned"]) if o in want] + [o for o in dev if o[0] not in BUDGET["briefs"]]
     offline_c = not (live or c_against_fake)
     try:
         for b, arm in todo:
@@ -2859,6 +2989,8 @@ def run_all(root: Path, *, live: bool, only: list[str] | None, use_blender: bool
             print(f"[pilot]   {rec.status}; same bytes: {rec.pipeline.get('same_bytes')}; {rec.tokens.get('total', 0):,} tokens", flush=True)
         for cell in change_cells or []:
             b, arm = cell.split(":")
+            if b not in CHANGES:
+                raise SystemExit(f"--change {cell}: the brief {b!r} has no change request (CHANGES)")
             print(f"[pilot] change {cell}: {CHANGES[b]['text']!r} ...", flush=True)
             rec = run_change(relay, root, BRIEF_BY_ID[b], arm, offline=offline_c)
             d = (rec.pipeline or {}).get("diff") or {}
