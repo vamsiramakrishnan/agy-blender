@@ -323,7 +323,7 @@ def test_mcp_steps_are_routed_to_the_gate_and_identified_by_tool_name(state):
     assert run_hook("PreToolUse", foreign, state, tool="mcp_tool")["decision"] == "ask"
 
 
-async def test_python_session_is_the_single_writer_of_the_hook_qa_state(tmp_path, state):
+async def test_python_session_is_the_single_writer_of_the_hook_qa_state(tmp_path, state, any_target_can_be_verified):
     """apply_scene_ir + render_preview + run_visual_qa flips the plugin's export gate to allow; a geometry edit flips it back."""
     from antigravity3d.harness import tools as T
 
@@ -383,7 +383,7 @@ async def test_failed_qa_write_never_fails_the_tool_and_logs_once(tmp_path, stat
     assert len([r for r in caplog.records if "could not persist QA state" in r.message]) == 1
 
 
-def test_qa_state_does_not_leak_between_sessions(tmp_path, state):
+def test_qa_state_does_not_leak_between_sessions(tmp_path, state, any_target_can_be_verified):
     import asyncio
 
     from antigravity3d.harness import tools as T
@@ -494,3 +494,10 @@ def test_native_export_requires_exact_conversation_and_explicit_session(state):
                                  "Arguments": {"session_id": sid}}}}, state, tool="mcp_tool")["decision"]
     assert gate("conv-1", "crate-session") == "allow"
     assert gate("conv-2", "crate-session") == gate("conv-1", "") == gate("conv-1", "other") == "deny"
+
+
+@pytest.fixture(autouse=True)
+def _targets_can_be_verified(any_target_can_be_verified):
+    """These tests drive the QA, image and export tools of a session whose target (unreal_5 by default) is incidental. A session
+    that must be verified for a target this machine cannot verify refuses those tools (``Session.unverifiable_target``), which
+    tests/test_verifiable_targets.py covers on its own."""

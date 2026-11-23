@@ -219,7 +219,9 @@ def test_unknown_authoring_intent_is_rejected_before_session_state_changes(tmp_p
     assert env.state.active_stage == before
 
 
-async def test_intermediate_can_stop_with_deferred_prop_detail_without_export_approval(tmp_path):
+# any_target_can_be_verified: this test is about the intermediate stop gate, not the target; a session that must be verified for unreal_5 (the default) refuses
+# run_visual_qa on this machine (Session.unverifiable_target), which tests/test_verifiable_targets.py covers on its own.
+async def test_intermediate_can_stop_with_deferred_prop_detail_without_export_approval(tmp_path, any_target_can_be_verified):
     from antigravity3d.decisions.fakes import FakeDecisionsClient
     from antigravity3d.harness import session as S
     from antigravity3d.harness.hooks import unmet_gate

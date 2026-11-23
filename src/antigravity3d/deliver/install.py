@@ -15,6 +15,10 @@ Rules that hold for every engine:
   each ``.import`` file, which the project's scenes may reference) survive an update.
 * A failed install or update is rolled back: created files and directories are removed, replaced ones restored.
 * ``dry_run`` computes the same plan and writes nothing.
+
+A three.js / React Three Fiber project goes through the same machinery (``_file_actions``, ``_Transaction``, the record,
+``check_install``, ``uninstall``) in ``deliver/web_install.py``: its files are in two folders of the project (the served one
+and the source one), so its record names are project-relative and the record sits with the loader, never in the served folder.
 """
 
 from __future__ import annotations
@@ -477,8 +481,13 @@ def _not_built(engine: str, manifest: dict[str, Any], pkg: Path, info: ProjectIn
 
 def install_package(pkg: str | Path, project: str | Path, dest: str | None = None, dry_run: bool = False,
                     force: bool = False, check: bool = True, *, fov_deg: float | None = None,
-                    godot_bin: str | None = None, render: bool = True) -> InstallResult:
-    """Install the package at ``pkg`` into the game project at ``project`` (see the module docstring)."""
+                    godot_bin: str | None = None, render: bool = True, assets: str | None = None,
+                    compress: str | bool = "auto") -> InstallResult:
+    """Install the package at ``pkg`` into the game project at ``project`` (see the module docstring). ``assets``
+    and ``compress`` are for three.js projects: the served folder for the asset's files, and ``auto`` (compress when
+    the files do not grow), ``always`` or ``never`` (``True`` and ``False`` mean auto and never)."""
+    if isinstance(compress, bool):
+        compress = "auto" if compress else "never"
     pkg, project = Path(pkg), Path(project)
     info = detect_project(project)
     try:
@@ -494,10 +503,20 @@ def install_package(pkg: str | Path, project: str | Path, dest: str | None = Non
         if target is None:
             why = f"{info.engine} has no package target; the package's {manifest['asset']}.glb loads there as a plain glTF"
         else:
-            why = f"re-export it for this project: agy3d prop ... --engine {target}"
+            why = (f"re-export it for this project: agy3d prop ... --engine {target}" if target != "web_three" else
+                   "deliver it for the web: agy3d prop ... --engine web_three (a script asset: engine=\"web_three\" in its "
+                   "Asset(...) line)")
         return InstallResult("refused", f"the package was built for {manifest['target_engine']} but {project} is a "
                              f"{info.engine} project ({', '.join(info.evidence)}); {why}. Nothing was written.",
                              info.engine, info.to_dict(), package)
+    if info.engine == "threejs":
+        from antigravity3d.deliver.web_install import install_web
+
+        try:
+            return install_web(pkg, project, manifest, info, package, dest, assets, dry_run, force, check,
+                               fov_deg=fov_deg, compress=compress)
+        except Refused as e:
+            return InstallResult("refused", str(e), info.engine, info.to_dict(), package)
     if info.engine != "godot":
         return _not_built(info.engine, manifest, pkg, info)
     if info.version and (v := version_tuple(info.version)) and v[0] != 4:
@@ -508,6 +527,47 @@ def install_package(pkg: str | Path, project: str | Path, dest: str | None = Non
                               fov_deg=fov_deg, godot_bin=godot_bin, render=render)
     except Refused as e:
         return InstallResult("refused", str(e), info.engine, info.to_dict(), package)
+
+
+def _file_actions(root: Path, tracked: dict[str, dict[str, Any]], old_files: dict[str, dict[str, Any]],
+                  shared: frozenset[str] = frozenset(), held: frozenset[str] = frozenset()
+                  ) -> tuple[dict[str, str], list[str], list[str]]:
+    """What each file of an install needs (keep / replace / create / remove), the files that stand in the way (they exist
+    and no record of this tool says it wrote them) and the earlier install's files that were edited since. ``root`` is
+    the folder the names are relative to. ``shared``: names other installs of the project may also write (one copy
+    serves them all): never "edited" (whoever installed last wrote it), replaced when different, and not in the way
+    when ``held`` (another record lists it)."""
+    actions: dict[str, str] = {}
+    blocked, edits = [], []
+    for f, rec in tracked.items():
+        p = inside(root, f, "install file", write=True) if root.is_dir() else root / f
+        if f in shared:
+            if p.is_file() and (f in old_files or f in held):
+                actions[f] = "keep" if _sha_file(p) == rec["sha256"] else "replace"
+            elif p.exists():
+                blocked.append(f)
+            else:
+                actions[f] = "create"
+        elif f in old_files:
+            why = edited(root, f, old_files[f])
+            if why:
+                edits.append(f"{f}: {why}")
+            unchanged = why is None and old_files[f].get("sha256") == rec["sha256"] and old_files[f].get("params") == rec.get("params")
+            actions[f] = "keep" if unchanged else "replace"
+        elif p.exists():
+            blocked.append(f)
+        else:
+            actions[f] = "create"
+    for f in old_files:
+        if f not in tracked:
+            if f in shared:  # a name the caller derived itself (never the record's own say-so)
+                actions[f] = "remove"
+                continue
+            why = edited(root, f, old_files[f])
+            if why and why != "deleted":
+                edits.append(f"{f}: {why}")
+            actions[f] = "remove"
+    return actions, blocked, edits
 
 
 def _install_godot(pkg: Path, project: Path, manifest: dict[str, Any], info: ProjectInfo, package: dict[str, Any],
@@ -556,27 +616,7 @@ def _install_godot(pkg: Path, project: Path, manifest: dict[str, Any], info: Pro
     }
 
     # what each file needs, and what stands in the way
-    actions: dict[str, str] = {}
-    blocked, edits = [], []
-    old_files = (old or {}).get("files", {})
-    for f, rec in tracked.items():
-        p = inside(dest_dir, f, "install file", write=True) if dest_dir.is_dir() else dest_dir / f
-        if f in old_files:
-            why = edited(dest_dir, f, old_files[f])
-            if why:
-                edits.append(f"{f}: {why}")
-            unchanged = why is None and old_files[f].get("sha256") == rec["sha256"] and old_files[f].get("params") == rec.get("params")
-            actions[f] = "keep" if unchanged else "replace"
-        elif p.exists():
-            blocked.append(f)
-        else:
-            actions[f] = "create"
-    for f in old_files:
-        if f not in tracked:
-            why = edited(dest_dir, f, old_files[f])
-            if why and why != "deleted":
-                edits.append(f"{f}: {why}")
-            actions[f] = "remove"
+    actions, blocked, edits = _file_actions(dest_dir, tracked, (old or {}).get("files", {}))
     if blocked:
         raise Refused(f"file(s) {blocked[:5]} exist in {rel} and were not written by this tool; nothing was changed")
     if edits and not force:
@@ -670,6 +710,12 @@ def check_install(project: str | Path, dest: str, *, godot_bin: str | None = Non
     try:
         no_links(project / rel, f"the destination {rel}")
         record = read_record(project / rel)
+        if record is not None and record.get("engine") == "threejs":
+            from antigravity3d.deliver.web_install import _check_record_names as check_web_names
+            from antigravity3d.deliver.web_install import check_web
+
+            check_web_names(project, record, rel)
+            return check_web(project, rel, record)
         if record is not None:
             _check_record_names(record)
     except (UnsafePath, Refused) as e:
@@ -695,6 +741,10 @@ def uninstall(project: str | Path, dest: str, *, dry_run: bool = False, force: b
         record = read_record(dest_dir) if dest_dir.is_dir() else None
         if record is None:
             raise Refused(f"{rel} has no {RECORD}: nothing installed there by this tool")
+        if record.get("engine") == "threejs":
+            from antigravity3d.deliver.web_install import uninstall_web
+
+            return uninstall_web(project, rel, dest_dir, record, dry_run, force)
         _check_record_names(record)
         edits = [f"{f}: {why}" for f, rec in record["files"].items() if (why := edited(dest_dir, f, rec)) and why != "deleted"]
         if edits and not force:

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-TargetEngine = Literal["unreal_5", "unity_urp", "godot_4", "roblox_r15"]
+TargetEngine = Literal["unreal_5", "unity_urp", "godot_4", "roblox_r15", "web_three"]
 PipelineStage = Literal["ROUTE", "BLOCKOUT", "LOOKDEV", "EXPORT", "DONE"]
 
 MAX_AUDIT_DELTAS = 8

@@ -92,6 +92,10 @@ class EngineReport:
     def skipped(self) -> bool:
         return self.skipped_reason is not None
 
+    def extra_record(self) -> dict:
+        """Fields a target's report adds to the manifest's ``validation.engine_import`` (none for the others)."""
+        return {}
+
 
 class EngineValidator(ABC):
     engine: str
@@ -99,6 +103,12 @@ class EngineValidator(ABC):
     binary_names: tuple[str, ...]
     error_markers: tuple[str, ...] = ()
     success_marker = "AGY_IMPORT_OK"
+    #: the least silhouette agreement between the DCC frame and this engine's capture that the parity step accepts
+    min_silhouette_iou = MIN_SILHOUETTE_IOU
+    #: whether ``capture`` renders a frame. A target whose validator cannot is never "verified" (the engine_capture and
+    #: engine_parity steps cannot pass), so a run that must be verified is refused for it before any model call
+    #: (``verification_gap``). Set on the classes that override ``capture``.
+    captures = False
 
     def binary(self) -> str | None:
         override = os.environ.get(self.env_var)
@@ -273,6 +283,7 @@ func check_asset():
 
 class GodotValidator(EngineValidator):
     engine, env_var, binary_names = "godot_4", "GODOT_BIN", ("godot", "godot4", "Godot")
+    captures = True
     success_marker = "AGY_IMPORT_OK {"
     error_markers = ("SCRIPT ERROR", "ERROR: Failed to load", "glTF load failed")
 
@@ -408,6 +419,27 @@ class NoValidator(EngineValidator):
         raise NotImplementedError
 
 
+def verification_gap(target_engine: str) -> str | None:
+    """None when a run for ``target_engine`` that must be verified can succeed on this machine; else the reason it cannot.
+
+    A target can be verified when its validator renders a frame (``captures``) and its engine or browser is installed. The
+    answer is the same for every key: it is asked before a verified run starts, where the model calls that would be paid
+    for and thrown away are still unmade."""
+    v = validator_for(target_engine)  # type: ignore[arg-type]
+    if not v.captures:
+        return "it has no engine capture, so the capture and parity steps a verified run needs cannot pass"
+    if not v.available():
+        return f"it can be verified, but its engine is not installed here (set ${v.env_var})"
+    return None
+
+
+def verifiable_targets() -> list[str]:
+    """The targets a verified run can succeed for on this machine, in the order ``TargetEngine`` lists them."""
+    from typing import get_args
+
+    return [t for t in get_args(TargetEngine) if verification_gap(t) is None]
+
+
 def validator_for(target_engine: TargetEngine) -> EngineValidator:
     match target_engine:
         case "godot_4":
@@ -418,4 +450,8 @@ def validator_for(target_engine: TargetEngine) -> EngineValidator:
             return UnityValidator()
         case "roblox_r15":
             return NoValidator("roblox_r15", "roblox has no headless import validator")
+        case "web_three":
+            from antigravity3d.adapters.engines.web_three import WebThreeValidator  # imports this module: not at the top
+
+            return WebThreeValidator(engine_check=True)
     raise ValueError(f"unknown target engine {target_engine!r}")

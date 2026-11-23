@@ -72,10 +72,12 @@ jobs:
           else
             playwright install --with-deps chromium
           fi
+      - name: Restore the three.js fixture project (the web install's browser tests install into it)
+        run: npm ci --no-audit --no-fund --prefix tests/fixtures/web_project
       - name: Test native workers, engine imports, rendered frames and inspector channels
         id: tests
         run: |
-          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_fbx_export.py tests/test_fbx_package.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py tests/test_blender_verification_steps.py tests/test_shapes_engines.py tests/test_deliver.py tests/test_shared_atlas.py tests/test_generated_surfaces_e2e.py tests/test_build_blender.py tests/test_run_build.py
+          xvfb-run -a python -m pytest -q --junitxml=/tmp/engine-qualification.xml tests/test_blender_pool.py tests/test_fbx_export.py tests/test_fbx_package.py tests/test_blender_shim.py tests/test_blender_api_53.py tests/test_engine_validators.py tests/test_package.py tests/test_inspector.py tests/test_export_uv_layout.py tests/test_web_three.py tests/test_art_direction.py tests/test_blender_verification_steps.py tests/test_shapes_engines.py tests/test_deliver.py tests/test_shared_atlas.py tests/test_generated_surfaces_e2e.py tests/test_build_blender.py tests/test_run_build.py tests/test_web_install.py tests/test_web_target.py
           python - <<'PYTHON'
           import xml.etree.ElementTree as ET
           required = {"test_three_worker_mixed_asset_soak", "test_reviewed_upstream_primitives",
@@ -154,8 +156,16 @@ jobs:
                       "test_author_part_names_survive_the_godot_import",
                       "test_default_package_node_names_meet_no_godot_import_suffix",
                       "test_the_comparison_harness_reads_the_install_result",
+                      # agy3d install into a three.js project, checked with the project's own three.js (tests/test_web_install.py)
+                      "test_browser_uncompressed_install_renders_in_the_projects_own_three_and_is_the_packages_picture",
+                      "test_browser_compressed_install_is_inside_the_tolerance_and_kept_on_an_unchanged_reinstall",
+                      "test_browser_noise_textures_are_refused_compression_by_the_tolerance_and_install_uncompressed",
+                      "test_browser_the_check_fails_when_the_install_is_wrong",
+                      # a script asset built for the web passes the three.js check, its required engine check, in a real
+                      # browser (tests/test_web_target.py)
+                      "test_browser_a_script_asset_for_the_web_passes_the_three_js_check_once",
                       *(f"test_browser_asymmetric_block_passes_for_every_target_engine[{engine}]"
-                        for engine in ("unreal_5", "unity_urp", "godot_4", "roblox_r15"))}
+                        for engine in ("unreal_5", "unity_urp", "godot_4", "roblox_r15", "web_three"))}
           passed = {c.get("name") for c in ET.parse("/tmp/engine-qualification.xml").iter("testcase")
                     if not any(c.find(tag) is not None for tag in ("skipped", "error", "failure"))}
           if missing := required - passed:

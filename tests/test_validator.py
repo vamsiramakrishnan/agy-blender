@@ -49,7 +49,8 @@ def test_validate_usd_clean_and_broken(tmp_path):
 
 
 def test_rule_table_covers_all_engines():
-    assert set(ENGINE_RULES) == {"unreal_5", "unity_urp", "godot_4", "roblox_r15"}
+    # web_three (three.js projects) is the fifth target: its row and where each value comes from are in tests/test_web_target.py
+    assert set(ENGINE_RULES) == {"unreal_5", "unity_urp", "godot_4", "roblox_r15", "web_three"}
 
 
 def test_unreal_rules():

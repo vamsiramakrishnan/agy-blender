@@ -34,7 +34,7 @@ from antigravity3d.build.shapes import BuildError
 from antigravity3d.kernel import compile_ir
 
 OUT_ENV = "AGY3D_BUILD_OUT"
-ENGINES = ("unreal_5", "unity_urp", "godot_4", "roblox_r15")  # state.TargetEngine (tests/test_build_asset.py pins it)
+ENGINES = ("unreal_5", "unity_urp", "godot_4", "roblox_r15", "web_three")  # state.TargetEngine (tests/test_build_asset.py pins it)
 ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 ID_MAX = ir_shortcuts.ID_MAX
 SHOWN_DIGITS = 6  # bounds read back to 1 um: the kernel's meshes are float32 (0.19 is 0.18999999 there)

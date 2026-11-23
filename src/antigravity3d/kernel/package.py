@@ -30,7 +30,7 @@ was baked, the atlas size and why, and what forced every extra material.
 Per-engine decisions (see ``ENGINE_RULES`` for the rule table they come from):
 
 * up axis: the package USD is written in the engine's *native* up axis. Working stage is Z-up metres;
-  for Y-up engines (unity_urp, godot_4, roblox_r15) the asset root gets ``xformOp:rotateX = -90`` and
+  for Y-up engines (unity_urp, godot_4, roblox_r15, web_three) the asset root gets ``xformOp:rotateX = -90`` and
   ``upAxis = Y`` together (so (x, y, z) -> (x, z, -y), the same mapping the GLB uses). Unreal stays Z-up.
 * units: always metres (``metersPerUnit = 1.0``) with no scale baked in; every engine's rules accept
   1.0 and importers honour the metadata. Not converting to centimetres for Unreal is deliberate:
@@ -100,7 +100,8 @@ TEXTURE_DIR = PACKAGE_TEXTURE_DIR
 COLLIDERS_SCOPE = "Colliders"
 LOD_SET = "LOD"
 # Convention the engine's importer expects for tangent-space normal maps.
-NORMAL_CONVENTION = {"unreal_5": "directx", "unity_urp": "opengl", "godot_4": "opengl", "roblox_r15": "opengl"}
+NORMAL_CONVENTION = {"unreal_5": "directx", "unity_urp": "opengl", "godot_4": "opengl", "roblox_r15": "opengl",
+                     "web_three": "opengl"}  # glTF maps a normal texture's green channel to +Y (glTF 2.0, normalTexture)
 
 
 @dataclass
@@ -1007,6 +1008,18 @@ def _glb_image_records(path: Path, texture_of: Mapping[str, str], hashes: Mappin
     return out
 
 
+def web_download_record(out: Path, glb: str, images: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """What a page downloads to show the highest level: the GLB and every file it references by URI, with their sizes.
+
+    The record is a fact for a web developer's budget, not a gate. LOD0 embeds its images, so today it is the GLB alone:
+    the PNGs in ``textures/`` serve the lower-detail levels (they reference them), and a page that fetched LOD0 and then
+    a far level as written would download those maps a second time."""
+    refs = list(dict.fromkeys(unquote(rec["uri"]) for rec in images if rec["storage"] == "uri"))
+    files = {rel: (out / rel).stat().st_size for rel in [glb, *refs]}
+    return {"level": "LOD0", "bytes": sum(files.values()), "files": files,
+            "note": "LOD0 embeds its images; the files in textures/ serve the lower-detail levels and are not fetched with LOD0"}
+
+
 def _flip_green_png(image: EncodedImage) -> EncodedImage:
     """OpenGL <-> DirectX normal map in memory (what ``flip_normal_green`` does to a file); alpha is kept."""
     with Image.open(io.BytesIO(image.data)) as im:
@@ -1587,6 +1600,8 @@ def write_engine_package(
         data["schema_version"] = max(data["schema_version"], ART_SCHEMA_VERSION)
         data["art_direction"] = _art_record(art, budget, textures, out, dens, uvs)
     data["file_hashes"] = {f: {"sha256": texture_hashes.get(f) or _sha256(out / f), "bytes": (out / f).stat().st_size} for f in files}
+    if engine == "web_three":  # a number only a web page has: written for this target only, so no other manifest changes
+        data["web_download"] = web_download_record(out, f"{asset_name}.glb", data["glb_images"][f"{asset_name}.glb"])
     try:
         supplied = provenance.supplied_meshes(stage_manager.base_ir())
     except Exception:  # noqa: BLE001 - a stage without a readable scene IR has no supplied files to name

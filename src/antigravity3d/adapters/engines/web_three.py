@@ -43,7 +43,7 @@ import tempfile
 import threading
 import time
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from importlib import resources
 from pathlib import Path
 from urllib.parse import unquote
@@ -62,6 +62,7 @@ from antigravity3d.adapters.engines.validators import (
 from antigravity3d.kernel.types import MeshData, bounds_issue
 
 ENGINE = "web_three"
+NOT_RUN = "three.js check NOT run"
 
 # --------------------------------------------------------------------------- vendored runtime
 
@@ -81,6 +82,11 @@ def _vendor_dir():
 
 def provenance() -> dict:
     return json.loads(_vendor_dir().joinpath(PROVENANCE_FILE).read_text("utf-8"))
+
+
+def vendored_version() -> str:
+    """The three.js that does the check, as the manifest records it (``validation.engine_import.engine_version``)."""
+    return f"{provenance()['package'].partition('@')[2]} (vendored three.js)"
 
 
 def vendor_source(gz_name: str) -> bytes:
@@ -251,9 +257,22 @@ class WebThreeReport(EngineReport):
     checks: tuple[Check, ...] = ()
     silhouette_iou: float | None = None
     timings_s: dict | None = None
+    #: the beauty frame (512 px PNG, transparent where nothing is drawn) of the run: the engine capture of this target
+    frame_png: bytes | None = field(default=None, repr=False, compare=False)
 
     def geometry_issue(self, manifest: dict) -> str | None:
         return super().geometry_issue(manifest) or bounds_issue(manifest.get("glb_bounds_m"), self.bounds_m)
+
+    def one_line(self) -> str:
+        """The step line of a run that ran: what was loaded and how many checks passed."""
+        done = sum(c.status == "pass" for c in self.checks)
+        iou = "" if self.silhouette_iou is None else f", silhouette IoU {self.silhouette_iou:.4f} against the USD"
+        return f"three.js loaded and rendered the package: {done} checks passed{iou}"
+
+    def extra_record(self) -> dict:
+        """What the manifest's ``validation.engine_import`` records beyond the generic fields."""
+        return {"ok": self.ok, "checks_passed": sum(c.status == "pass" for c in self.checks), "checks": len(self.checks),
+                "silhouette_iou": None if self.silhouette_iou is None else round(self.silhouette_iou, 4)}
 
     @property
     def failures(self) -> list[Check]:
@@ -311,6 +330,7 @@ THREE.ImageBitmapLoader.prototype.load = function (url, onLoad, onProgress, onEr
 };
 const load = (url) => new THREE.FileLoader().setResponseType('arraybuffer').loadAsync(url);
 const parse = (buf) => new Promise((ok, bad) => new GLTFLoader().parse(buf, '', ok, (e) => bad(e)));
+// @helpers-begin (shared with the install check's page, deliver/web_check._PAGE)
 const SLOT_KEYS = { map: ['pbr', 'baseColorTexture'], metalnessMap: ['pbr', 'metallicRoughnessTexture'], roughnessMap: ['pbr', 'metallicRoughnessTexture'],
                     normalMap: [null, 'normalTexture'], aoMap: [null, 'occlusionTexture'], emissiveMap: [null, 'emissiveTexture'] };
 const c3 = (c) => (c ? [c.r, c.g, c.b] : null), num = (v) => (typeof v === 'number' ? v : null);
@@ -323,6 +343,8 @@ const fpCanvas = document.createElement('canvas'), fpCtx = fpCanvas.getContext('
 function content(t) {
   const [w, h] = imgSize(t);
   if (!w || !h) return null;
+  // a GPU-compressed texture (KTX2) has no image to draw: its identity is its format and mip chain
+  if (t.isCompressedTexture) return 'compressed:' + t.format + ':' + (t.mipmaps ? t.mipmaps.length : 0);
   const key = t.image && typeof t.image === 'object' ? t.image : null;
   if (key && fpCache.has(key)) return fpCache.get(key);
   fpCanvas.width = w; fpCanvas.height = h; fpCtx.clearRect(0, 0, w, h); fpCtx.drawImage(t.image, 0, 0);
@@ -379,6 +401,7 @@ function describe(gltf) {
            extensions_used: json.extensionsUsed || [] };
 }
 
+// @helpers-end
 __ENV_JS__
 // job.env.mode 'page': PMREMGenerator renders the environment here. 'shared': it was rendered once in this process and
 // is loaded from ENV_FILE beside the page into the same texture (identical half floats).
@@ -881,9 +904,12 @@ def _frame_checks(add, shot_png: bytes, mask_png: bytes | None, reference: bytes
 # --------------------------------------------------------------------------- driving the browser
 
 CHROMIUM_NAMES = ("google-chrome", "chromium", "chromium-browser", "chrome")
-CHROMIUM_ARGS = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"]
+CHROMIUM_ARGS = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist",
+                 "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+                 "--disable-crash-reporter"]  # crashpad would write into HOME after the browser is gone
 _MIME = {".html": "text/html", ".js": "text/javascript", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-         ".glb": "model/gltf-binary"}
+         ".glb": "model/gltf-binary", ".wasm": "application/wasm", ".json": "application/json", ".ktx2": "image/ktx2",
+         ".mjs": "text/javascript", ".webp": "image/webp"}
 
 
 # The environment map is the same for every package. The first verification of a process renders it in its page, as
@@ -936,17 +962,37 @@ def prestart() -> web_browser.Lease:
     return web_browser.SHARED.lease(started, exe=v.binary(), args=_launch_args())
 
 
-def page_file(page_dir: Path, request_path: str) -> Path | None:
+def page_file(page_dir: Path, request_path: str, *, allow_hidden: bool = True) -> Path | None:
     """The file of ``page_dir`` a page-relative request path names, or None. The path is percent-decoded (glTF URIs are
     written encoded, so ``textures/a%20b.png`` is the file ``textures/a b.png``); nothing outside ``page_dir`` is a
-    file of the page, however the path is spelled."""
+    file of the page, however the path is spelled. ``allow_hidden=False`` (a project's mounted folders): nothing with a
+    dot-folder or dot-file in its path is served either (the install record folder ``.agy3d`` is one)."""
     root = page_dir.resolve()
-    f = (root / unquote(request_path.split("?")[0].split("#")[0])).resolve()
+    rel = unquote(request_path.split("?")[0].split("#")[0])
+    if not allow_hidden and any(part.startswith(".") for part in rel.split("/") if part not in ("", ".")):
+        return None
+    f = (root / rel).resolve()
     return f if f.is_file() and f.is_relative_to(root) else None
 
 
 class PageServerUnavailable(RuntimeError):
     """This machine cannot open a local port for the page, so the verifier cannot run here."""
+
+
+#: sent with every page: the page may connect to its own server and to data / blob URLs, nothing else (a frame to another
+#: origin is a connection too: Chromium opens the socket before the request interception can abort it). The browser's
+#: request interception sees fetches, images and scripts but not a WebSocket; this covers it (``connect-src`` is the
+#: directive for WebSocket, EventSource, XHR and fetch), and a blocked attempt is reported as a securitypolicyviolation.
+CONTENT_SECURITY_POLICY = "connect-src 'self' blob: data:; frame-src 'self' blob: data:; form-action 'self'"
+#: A violation raised in a worker is reported on the worker (the page's own event never sees it, and Playwright shows no
+#: worker console). The browser also posts every violation, whichever context raised it, to this path of the page server.
+CSP_REPORT_PATH = "_csp"
+_CSP_PROBE = ("window.__csp = []; document.addEventListener('securitypolicyviolation', "
+              "(e) => window.__csp.push(e.blockedURI + ' (' + e.violatedDirective + ')'));"
+              # WebRTC sends UDP (STUN) to any address a page names, outside the request interception and the policy above:
+              # the page has no use for it, so it does not get it (the launch flag below is the second lock)
+              "for (const k of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'RTCDataChannel']) "
+              "{ try { Object.defineProperty(window, k, { value: undefined, configurable: false, writable: false }); } catch (e) {} }")
 
 
 class _PageServer:
@@ -956,48 +1002,99 @@ class _PageServer:
     through the DevTools pipe as base64; for a package with 2K textures that was most of the verification (a 40 MB
     GLB took 17 to 22 s). Interception still sees every request: one for this server is let through to it, anything
     else is aborted and recorded as blocked, and the server records any request it cannot answer from the page
-    directory the same way."""
+    directory the same way.
 
-    def __init__(self, page_dir: Path, blocked: list[str]) -> None:
+    ``mounts`` ({name: directory}) serve a project's own folders under the random path too (``<token>/_m/<name>/...``),
+    read-only, with nothing hidden (no dot-folder, so no install record): the rest of the project is not reachable. A
+    mount whose name starts with ``/`` is also where a developer's page finds it, at the origin's root
+    (``/agy3d/crate/crate.glb``): the browser's interception rewrites such a request to the mount under the random path
+    (:meth:`rewrite`), so the server answers nothing outside it. ``served`` gets (URL path as the page asked it, bytes
+    sent) for every answered request."""
+
+    def __init__(self, page_dir: Path, blocked: list[str], mounts: dict[str, Path] | None = None) -> None:
         import http.server
         import secrets
 
         token = secrets.token_hex(16)
         server_self = self
+        self.mounts = {k.strip("/"): Path(v) for k, v in (mounts or {}).items()}
+        self.site = [f"/{k.strip('/')}/" for k in (mounts or {}) if k.startswith("/")]
+        self.served: list[tuple[str, int]] = []
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self) -> None:  # the method name http.server dispatches a GET to
                 prefix = f"/{token}/"
-                f = page_file(page_dir, self.path[len(prefix):]) if self.path.startswith(prefix) else None
+                if not self.path.startswith(prefix):
+                    self.send_error(404)
+                    return
+                rest = self.path[len(prefix):]
+                f, logged = None, "/" + rest.split("?")[0]
+                if rest.startswith("_m/"):
+                    name = next((m for m in sorted(server_self.mounts, key=len, reverse=True) if rest[3:].startswith(m + "/")), None)
+                    if name is not None:
+                        f = page_file(server_self.mounts[name], rest[3 + len(name) + 1:], allow_hidden=False)
+                        logged = "/" + rest[3:].split("?")[0]
+                else:
+                    f = page_file(page_dir, rest)
                 if f is None:
-                    if self.path.startswith(prefix):
-                        blocked.append(server_self.base + self.path[len(prefix):][:200])
+                    blocked.append(server_self.origin + self.path[:200])
                     self.send_error(404)
                     return
                 data = f.read_bytes()
+                server_self.served.append((logged, len(data)))
                 self.send_response(200)
                 self.send_header("Content-Type", _MIME.get(f.suffix.lower(), "application/octet-stream"))
                 self.send_header("Content-Length", str(len(data)))
                 self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Security-Policy", f"{CONTENT_SECURITY_POLICY}; report-uri /{token}/{CSP_REPORT_PATH}")
                 self.end_headers()
                 with contextlib.suppress(ConnectionError):
                     self.wfile.write(data)
+
+            def do_POST(self) -> None:  # the one POST: the browser's content security policy report
+                if self.path != f"/{token}/{CSP_REPORT_PATH}":
+                    self.send_error(405)
+                    return
+                try:
+                    body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 65536)) or b"{}")
+                    r = body.get("csp-report") or {}
+                    blocked.append(f"connection refused by the page's content security policy (report): {r.get('blocked-uri')} "
+                                   f"({r.get('violated-directive')})"[:200])
+                except ValueError:
+                    pass
+                self.send_response(204)
+                self.end_headers()
 
             def log_message(self, *args) -> None:
                 pass
 
         self._httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self._httpd.daemon_threads = True
-        self.base = f"http://127.0.0.1:{self._httpd.server_address[1]}/{token}/"
+        self.origin = f"http://127.0.0.1:{self._httpd.server_address[1]}"
+        self.base = f"{self.origin}/{token}/"
         self._thread = threading.Thread(target=self._httpd.serve_forever, name="agy3d-web-page", daemon=True)
         self._thread.start()
+
+    def owns(self, url: str) -> bool:
+        """True for a URL under this server's random path."""
+        return url.startswith(self.base)
+
+    def rewrite(self, url: str) -> str | None:
+        """The URL under the random path that answers a request for a site-root mount, or None."""
+        if not url.startswith(self.origin + "/"):
+            return None
+        path = url[len(self.origin):]
+        return self.base + "_m/" + path.lstrip("/") if any(path.startswith(p) for p in self.site) else None
 
     def close(self) -> None:
         self._httpd.shutdown()
         self._httpd.server_close()
 
 
-async def run_page(page_dir: Path, exe: str | None, timeout: float, *, export_env: bool = False) -> dict:
+async def run_page(page_dir: Path, exe: str | None, timeout: float, *, export_env: bool = False,
+                   mounts: dict[str, Path] | None = None, page_name: str = "page.html",
+                   ready: str = "window.__agy && window.__agy.done", result: str = "window.__agy",
+                   viewport: int | None = None, env: dict[str, str] | None = None, keep_browser: bool = True) -> dict:
     """Open ``page_dir/page.html`` in a fresh context of the process's headless Chromium and collect everything.
     Requests outside the page directory are aborted and reported, so a page that tried to reach the network cannot
     pass silently. The context is the verification's own: its routes, console, page errors and blocked requests.
@@ -1010,28 +1107,33 @@ async def run_page(page_dir: Path, exe: str | None, timeout: float, *, export_en
 
     async def verify(session, ctx) -> dict:
         try:
-            server = await asyncio.to_thread(_PageServer, page_dir, blocked)
+            server = await asyncio.to_thread(_PageServer, page_dir, blocked, mounts)
         except OSError as e:
             raise PageServerUnavailable(f"cannot serve the page on 127.0.0.1 ({e})") from e
         try:
             async def gate(route):
                 url = route.request.url
-                if url.startswith(server.base):
+                if server.owns(url):
                     await route.continue_()  # the body goes from the server to the browser, not through this process
+                elif (moved := server.rewrite(url)) is not None:
+                    await route.continue_(url=moved)  # a site-root mount: answered from under the random path
                 else:
                     blocked.append(url[:200])
                     await route.abort()
 
             await ctx.route("**/*", gate)
             page = await ctx.new_page()
+            await page.add_init_script(_CSP_PROBE)
             page.on("console", lambda m: console.append({"type": m.type, "text": m.text}))
             page.on("pageerror", lambda e: page_errors.append(str(e)))
-            await page.goto(server.base + "page.html", wait_until="load", timeout=timeout * 1000)
-            await page.wait_for_function("window.__agy && window.__agy.done", timeout=timeout * 1000)
-            raw = await page.evaluate("window.__agy")
+            await page.goto(server.base + page_name, wait_until="load", timeout=timeout * 1000)
+            await page.wait_for_function(ready, timeout=timeout * 1000)
+            raw = await page.evaluate(result)
+            blocked.extend(f"connection refused by the page's content security policy: {v}"[:200]
+                           for v in await page.evaluate("window.__csp || []"))
             # what the verdict is made of is taken now: nothing the export below logs can reach it
-            result = {"raw": raw, "console": list(console), "page_errors": list(page_errors), "blocked": list(blocked),
-                      "browser": session.browser.version}
+            result_ = {"raw": raw, "console": list(console), "page_errors": list(page_errors), "blocked": list(blocked),
+                       "browser": session.browser.version, "served": list(server.served)}
             if export_env and raw.get("render") and not raw.get("errors") and not raw.get("shader_errors") and not page_errors:
                 seen = len(console)
                 with contextlib.suppress(Exception):  # on any trouble a later verification renders its own map instead
@@ -1040,12 +1142,12 @@ async def run_page(page_dir: Path, exe: str | None, timeout: float, *, export_en
                             and not any(i in c["text"] for i in PASS_RULE.ignored_console)] and not page_errors:
                         with _env_lock:
                             _env_cache.setdefault(_env_key(exe), data)
-            return result
+            return result_
         finally:
             await asyncio.to_thread(server.close)
 
-    return await web_browser.SHARED.run(verify, exe=exe, args=_launch_args(),
-                                        context_options={"viewport": {"width": FRAME_PX, "height": FRAME_PX}})
+    return await web_browser.SHARED.run(verify, exe=exe, args=_launch_args(), env=env, keep=keep_browser,
+                                        context_options={"viewport": {"width": viewport or FRAME_PX, "height": viewport or FRAME_PX}})
 
 
 # --------------------------------------------------------------------------- the validator
@@ -1114,6 +1216,19 @@ class WebThreeValidator(EngineValidator):
     """
 
     engine, env_var, binary_names = ENGINE, "CHROMIUM_BIN", CHROMIUM_NAMES
+    captures = True  # the check's frame is the engine capture (``capture`` below)
+
+    def __init__(self, engine_check: bool = False) -> None:
+        """``engine_check``: this validator is the web_three target's own engine check (``validator_for``). Only then does a
+        skipped run say "three.js check NOT run": every other target gets the same check as a side step, whose skip
+        text is its own and unchanged."""
+        self.engine_check = engine_check
+        self._last: tuple[str, WebThreeReport] | None = None
+
+    @property
+    def min_silhouette_iou(self) -> float:  # type: ignore[override]
+        """The parity step's threshold for this target: the stricter of the generic one and this check's own."""
+        return max(MIN_SILHOUETTE_IOU, PASS_RULE.min_silhouette_iou)
 
     def binary(self) -> str | None:
         override = os.environ.get(self.env_var)
@@ -1148,9 +1263,46 @@ class WebThreeValidator(EngineValidator):
     def command(self, exe, package, workdir):  # the browser is driven through Playwright, not a command line
         raise NotImplementedError
 
+    @staticmethod
+    def _run_key(package_path: Path) -> str | None:
+        """A hash of the bytes a run reads: the GLB, its level files, the package textures, the manifest and the USD
+        the reference picture is made from. A timestamp is not evidence (``cp -p`` and ``rsync -a`` keep it)."""
+        try:
+            glb_path, man_path, pkg_dir = _find_package(package_path)
+            glb = glb_path.read_bytes()
+            lods = {f"LOD{i}": f.read_bytes() for i in range(1, 8) if (f := glb_path.with_name(f"{glb_path.stem}_LOD{i}.glb")).is_file()}
+            parts = {"glb": glb, **lods, "manifest": man_path.read_bytes() if man_path else b"",
+                     # every file under textures/, not only the referenced ones: what a level file may fetch is theirs to say, and a
+                     # texture that was changed must never be answered from an earlier run
+                     **{f"texture:{f.relative_to(glb_path.parent)}": f.read_bytes()
+                        for f in sorted((glb_path.parent / STAGED_DIR).rglob("*")) if f.is_file()}}
+            usd = next(iter(sorted(pkg_dir.glob("*.usd"))), None)
+            parts["usd"] = usd.read_bytes() if usd else b""
+        except (OSError, ValueError):
+            return None
+        h = hashlib.sha256()
+        for name in sorted(parts):
+            h.update(name.encode() + b"\0" + hashlib.sha256(parts[name]).digest())
+        return h.hexdigest()
+
     async def validate(self, package_path: str | Path, timeout: float = DEFAULT_TIMEOUT, *,
                        reference: bytes | Path | None = None, out_dir: Path | None = None,
                        rule: PassRule = PASS_RULE) -> WebThreeReport:
+        """One browser run per package state: ``validate`` then ``capture`` of the same bytes share a run. A hit needs the
+        default pass rule and reference and no ``out_dir`` (a run that writes files is always a real one), is keyed on the
+        content hash of everything the run reads, holds only a run that produced checks, and returns a copy that carries no
+        file paths. Otherwise as ``_validate``."""
+        key = self._run_key(Path(package_path)) if reference is None and rule is PASS_RULE else None
+        if key is not None and out_dir is None and self._last is not None and self._last[0] == key:
+            return replace(self._last[1])
+        rep = await self._validate(package_path, timeout, reference=reference, out_dir=out_dir, rule=rule)
+        if key is not None and rep.checks and not rep.skipped:
+            self._last = (key, replace(rep, screenshot=None, page=None))
+        return rep
+
+    async def _validate(self, package_path: str | Path, timeout: float = DEFAULT_TIMEOUT, *,
+                        reference: bytes | Path | None = None, out_dir: Path | None = None,
+                        rule: PassRule = PASS_RULE) -> WebThreeReport:
         """``package_path``: a package directory or its ``.glb``. ``reference``: PNG (bytes or path) rendered
         with ``web_camera`` / ``reference_png``; default is derived from the package USD. ``out_dir`` keeps the
         page, vendored files and ``web_three.png``; by default they live in a temp dir that is removed."""
@@ -1242,11 +1394,11 @@ class WebThreeValidator(EngineValidator):
             tail = "\n".join(str(c) for c in checks if c.status != "pass")
             tail += "\n--- console ---\n" + "\n".join(f"{c['type']}: {c['text']}" for c in run["console"])
             return WebThreeReport(
-                ok, ENGINE, tail[-TAIL_CHARS:],
+                ok, ENGINE, tail[-TAIL_CHARS:], engine_version=vendored_version(),
                 metrics={"triangles": int(main["triangles"]), "meshes": main["mesh_count"],
                          "materials": len(main["materials"]), "textures": main["texture_count"]} if main else None,
                 bounds_m=main["bounds_m"] if main else None,
-                screenshot=shot_path, page=str(page) if out_dir is not None else None,
+                screenshot=shot_path, page=str(page) if out_dir is not None else None, frame_png=shot,
                 diagnostics={"errors": raw.get("errors"), "shader_errors": raw.get("shader_errors"), "programs": raw.get("programs"),
                              "console": run["console"], "page_errors": run["page_errors"], "blocked_requests": run["blocked"],
                              "render": raw.get("render"), "browser": run["browser"]},
@@ -1264,16 +1416,44 @@ class WebThreeValidator(EngineValidator):
                 shutil.rmtree(work, ignore_errors=True)
 
     def _skipped_report(self, reason: str) -> WebThreeReport:
+        # As the target's own engine check, a skip says in these words that the check did not run (the delivery reply, the
+        # manifest and the pipeline's steps carry it); as the side check of another target its text is unchanged.
+        if self.engine_check and not reason.startswith(NOT_RUN):
+            reason = f"{NOT_RUN}: {reason}"
         return WebThreeReport(False, ENGINE, "", reason)
 
     async def capture(self, package_path: str | Path, png: Path, timeout: float = DEFAULT_TIMEOUT) -> EngineReport:
-        """Interface parity with ``GodotValidator.capture``: run the verification and copy the frame to ``png``."""
-        with tempfile.TemporaryDirectory(prefix="agy3d-web-three-out-") as td:
-            rep = await self.validate(package_path, timeout, out_dir=Path(td))
-            if rep.screenshot:
-                png.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(rep.screenshot, png)
-            return rep
+        """Interface parity with ``GodotValidator.capture``: the verification's frame, written to ``png``. The run is the
+        ``validate`` run of the same bytes when there was one."""
+        rep = await self.validate(package_path, timeout)
+        if rep.frame_png:
+            png.parent.mkdir(parents=True, exist_ok=True)
+            png.write_bytes(rep.frame_png)
+        return rep
+
+
+# --------------------------------------------------------------------------- what a delivery says
+
+
+def reply_lines(manifest: dict) -> list[str]:
+    """The two facts a web_three delivery states beside the other steps: whether the three.js check ran (a check that
+    could not run says so in plain words and is never reported as passed) and what a page downloads for the highest
+    level (``web_download``, a fact, not a gate). Nothing for the other targets."""
+    if manifest.get("target_engine") != ENGINE:
+        return []
+    rec = (manifest.get("validation") or {}).get("engine_import") or {}
+    step = next((x for x in (manifest.get("evidence") or {}).get("steps", []) if x.get("name") == "engine_import"), {})
+    if rec.get("ok") is True:  # only a record that says it passed is a pass
+        out = [f"three.js check passed: {rec.get('checks_passed')} of {rec.get('checks')} checks, silhouette IoU {rec.get('silhouette_iou')}"]
+    elif step.get("status") == "failed":  # the pipeline writes no record for a failed run: its step has the reason
+        out = [f"three.js check FAILED: {step.get('detail')}"]
+    elif rec.get("skipped") or step.get("status") == "skipped":
+        out = [str(rec.get("skipped") or step.get("detail"))]
+    else:
+        out = [f"{NOT_RUN}: no result is recorded"]
+    if dl := manifest.get("web_download"):
+        out.append(f"page download for {dl['level']}: {dl['bytes']:,} bytes ({', '.join(f'{k} {v:,}' for k, v in dl['files'].items())})")
+    return out
 
 
 # --------------------------------------------------------------------------- command line

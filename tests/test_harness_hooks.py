@@ -127,7 +127,10 @@ async def test_traceback_compression(tmp_path):
     assert "\n" not in msg and "box size" in msg
 
 
-async def test_stop_hook_continuation_is_bounded(tmp_path):
+async def test_stop_hook_continuation_is_bounded(tmp_path, any_target_can_be_verified):
+    # The session targets unreal_5, which cannot be verified (no engine capture): a session that must be verified for it waits
+    # for the user at once (Session.waits_for_user) and the hook lets the agent stop. This test is about the continuation
+    # bound of a session that can proceed.
     env = make_session(tmp_path)
     runner, by = runner_for(env)
     tctx = await turn(runner, env)
@@ -346,3 +349,10 @@ async def test_lookdev_header_lists_the_nodes_by_material(tmp_path):
     assert len(long) <= H.BINDINGS_CAP + 40 and long.endswith("more node(s)")
     shown = long.count("plank_")
     assert 0 < shown < 400 and f"+{400 - shown} more node(s)" in long
+
+
+@pytest.fixture(autouse=True)
+def _targets_can_be_verified(any_target_can_be_verified):
+    """These tests drive the QA, image and export tools of a session whose target (unreal_5 by default) is incidental. A session
+    that must be verified for a target this machine cannot verify refuses those tools (``Session.unverifiable_target``), which
+    tests/test_verifiable_targets.py covers on its own."""

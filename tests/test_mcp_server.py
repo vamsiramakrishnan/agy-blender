@@ -140,10 +140,12 @@ def test_hook_script_tool_list_matches_the_server():
 
 
 async def test_session_stage_scoping_export_gate_and_linter(tmp_path):
-    async with client(tmp_path) as s:
+    # godot_4 with a stand-in binary: a session that must be verified is refused its QA and export for a target this machine cannot
+    # verify (unreal_5 here), which is not what this test is about
+    async with client(tmp_path, env={"GODOT_BIN": sys.executable}) as s:
         r = await call(s, "apply_scene_ir", ops="{}")
         assert r.startswith("ERROR") and "no asset session" in r
-        line = await call(s, "open_asset_session", asset_name="Crate", target_engine="unreal_5", max_tris=9000)
+        line = await call(s, "open_asset_session", asset_name="Crate", target_engine="godot_4", max_tris=9000)
         assert line.startswith("SESSION Crate-") and "stage=BLOCKOUT" in line and "tris<=9000" in line
         assert (await call(s, "list_sessions")).startswith("* SESSION Crate-")
 

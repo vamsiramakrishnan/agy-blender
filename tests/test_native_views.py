@@ -61,7 +61,9 @@ def test_agent_image_keeps_the_badge_colours_and_fits_the_inline_limit_when_it_c
         assert _yellow(Image.open(io.BytesIO(png))) == _yellow(Image.open(io.BytesIO(data)))
 
 
-async def test_blockout_review_is_the_commands_and_names_the_parts(tmp_path):
+# any_target_can_be_verified: this test is about what the review asks and names, not the target; a session that must be verified for unreal_5 (the default) refuses
+# run_visual_qa and qa_probe on this machine (Session.unverifiable_target), which tests/test_verifiable_targets.py covers on its own.
+async def test_blockout_review_is_the_commands_and_names_the_parts(tmp_path, any_target_can_be_verified):
     env = make_session(tmp_path, client=FakeDecisionsClient({"defect_clipping": 0.9, "defect_clipping__2": 0.85}))
     await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
     r = await T.run_visual_qa(env.ctx)
@@ -326,7 +328,9 @@ async def test_a_refused_delivery_says_so_first_and_what_to_fix(tmp_path, monkey
     assert "FINISHED" not in r and "agent_repair" not in r and "a person must decide" not in r
 
 
-async def test_a_review_of_a_render_with_placed_stencils_states_them_and_a_clay_one_does_not(tmp_path):
+# any_target_can_be_verified: this test is about what the review is told about the render, not the target; a session that must be verified for unreal_5 (the default) refuses
+# run_visual_qa on this machine (Session.unverifiable_target), which tests/test_verifiable_targets.py covers on its own.
+async def test_a_review_of_a_render_with_placed_stencils_states_them_and_a_clay_one_does_not(tmp_path, any_target_can_be_verified):
     """r5/live_native6: the lookdev render showed the generated surfaces' stencils, the review (not told they were painted
     on purpose) escalated to a person for IP/text risk and the export was refused."""
     env = make_session(tmp_path, stage="LOOKDEV")

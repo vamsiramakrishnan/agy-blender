@@ -23,8 +23,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-# engine id -> the package target_engine that installs into it (None: no package target exists for it)
-TARGET_OF = {"godot": "godot_4", "unity": "unity_urp", "unreal": "unreal_5", "roblox": "roblox_r15", "threejs": None}
+# engine id -> the package target_engine that installs into it (None: no package target exists for it; none is None today)
+TARGET_OF = {"godot": "godot_4", "unity": "unity_urp", "unreal": "unreal_5", "roblox": "roblox_r15", "threejs": "web_three"}
 
 
 @dataclass

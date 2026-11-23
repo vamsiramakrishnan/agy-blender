@@ -80,8 +80,8 @@ front faces -y.
 ## Reference
 
 `Asset(name, engine, max_tris=15000, brief="", art_direction="")`: `engine` is
-`unreal_5`, `unity_urp`, `godot_4` or `roblox_r15`; `brief` is the user's
-request in their words (the review checks the asset against it);
+`unreal_5`, `unity_urp`, `godot_4`, `roblox_r15` or `web_three` (three.js); `brief`
+is the user's request in their words (the review checks the asset against it);
 `art_direction` is a named style, only when the user asks for one (skill
 art-direction).
 

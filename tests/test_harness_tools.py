@@ -79,7 +79,10 @@ def simulate_engine_import(monkeypatch, *, ok=True):
         return SimpleNamespace(result=SimpleNamespace(calibrated=True, source="decisions"),
                                scores={"score_engine_parity": 4.0}, defects={})
     monkeypatch.setattr(DecisionControlPlane, "evaluate_engine_parity", parity)
-    monkeypatch.setattr(validators, "validator_for", lambda _target: SimpleNamespace(validate=validate, capture=capture))
+    # a validator that can capture and is installed: a session for a target that could not be verified is refused before any work
+    # (validators.verification_gap), so the stand-in says what a verifiable engine says
+    monkeypatch.setattr(validators, "validator_for", lambda _target: SimpleNamespace(
+        validate=validate, capture=capture, captures=True, available=lambda: True, env_var="TEST_ENGINE"))
 
 
 def composed(env) -> str:
@@ -422,3 +425,10 @@ async def test_session_lock_serialises_concurrent_edits(env):
     assert all(r.startswith("OK") for r in results)
     assert len(env.state.tx_stack) == 5 == len(env.sess().stage.tx_stack)
     assert np.isclose(min(m.points[:, 2].min() for m in env.sess().stage.extract_meshes()), 0.0)
+
+
+@pytest.fixture(autouse=True)
+def _targets_can_be_verified(any_target_can_be_verified):
+    """These tests drive the QA, image and export tools of a session whose target (unreal_5 by default) is incidental. A session
+    that must be verified for a target this machine cannot verify refuses those tools (``Session.unverifiable_target``), which
+    tests/test_verifiable_targets.py covers on its own."""

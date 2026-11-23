@@ -29,6 +29,7 @@ ENGINE_NOTES = {
     "unity_urp": "Unity URP: Y-up m, colliders as components, <=65535 verts per 16-bit mesh",
     "godot_4": "Godot 4: Y-up m, -col/-convcol hull suffixes, node names without . : @ / \" %",
     "roblox_r15": "Roblox R15: Y-up, <=10k tris per MeshPart, <=1024 px textures, 4 SurfaceAppearance maps",
+    "web_three": "three.js (web): glTF Y-up m, OpenGL normals, 4096 px textures advised, node names without . : / [ ] or spaces, three.js check required",
 }
 DEFAULT_BUDGET = {"max_tris": 15000, "max_draw_calls": 4, "texel_density_px_per_m": 1024, "max_collision_hulls": 8}
 

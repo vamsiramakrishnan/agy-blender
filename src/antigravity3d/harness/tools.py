@@ -250,6 +250,19 @@ def export_block_reason(state: AssetSessionState, plane: Any = None) -> str | No
 # --------------------------------------------------------------------------- shared helpers
 
 
+def _unverifiable_reply(s: Session) -> str | None:
+    """The reply of a tool that would call the judge or the image service in a session that can never be delivered
+    (``Session.unverifiable_target``): nothing is asked, and the reply says what to do. None for any other session."""
+    if not s.unverifiable_target() or (s.plane is not None and not s.plane.calibrated):
+        return None  # (a key without the calibrated judge is refused by the plane itself, in its own words, before any call)
+    from antigravity3d.adapters.engines.validators import verifiable_targets
+
+    ok = verifiable_targets()
+    return (f"REFUSED nothing was asked of the judge or the image service: a session for {s.state.budget.target_engine} cannot be "
+            f"verified on this machine, so it can never be delivered. {PREVIEW_SWITCH}"
+            + (f"; or open a session for {' or '.join(ok)}, which can be verified here" if ok else ""))
+
+
 async def _tier1(s: Session) -> Tier1Report:
     # Copy mesh arrays under the session lock. A cancelled QA worker cannot touch the live USD stage.
     return await asyncio.to_thread(tier1_qa, s.stage.extract_meshes(), s.state.budget)
@@ -796,6 +809,8 @@ async def render_preview(ctx: ToolContext) -> str:
 async def run_visual_qa(ctx: ToolContext) -> str:
     """Visual QA of the current renders; stores tier15, logs the audit delta, applies safe auto-fixes."""
     s = resolve(ctx)
+    if refused := _unverifiable_reply(s):
+        return refused
     attempt = uuid.uuid4().hex
     async with s.registry.locked(s.sid):
         s.revoke_approval()
@@ -834,6 +849,8 @@ async def run_visual_qa(ctx: ToolContext) -> str:
 async def qa_probe(ctx: ToolContext) -> str:
     """Read-only visual QA: verdict line, stores nothing."""
     s = resolve(ctx)
+    if refused := _unverifiable_reply(s):
+        return refused
     prev, res, _t15, action = await _visual_qa(s, read_only=True)
     if s.geom_version != prev.geom_version:
         return "STALE: scene changed during visual review"
@@ -926,6 +943,8 @@ async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, ca
     """Generate a tileable PBR material (albedo + ORM + normal) and bind its maps to material_id. prompt: the
     material's surface words (kept as its surface)."""
     s = resolve(ctx)
+    if refused := _unverifiable_reply(s):
+        return refused
     if (none_left := _no_images(s)) is not None:
         return none_left
     if s.forge is None:
@@ -1025,6 +1044,8 @@ async def apply_shader_diff(material_id: str, diff: dict[str, Any] | str | None 
 async def run_paintover_loop(direction: str, ctx: ToolContext) -> str:
     """Paint-over of the latest render following an art direction; stored as the reference image."""
     s = resolve(ctx)
+    if refused := _unverifiable_reply(s):
+        return refused
     if (none_left := _no_images(s)) is not None:
         return none_left
     if s.forge is None:
@@ -1189,7 +1210,7 @@ async def _validate_snapshot(s: Session, path: Path) -> str:
     from pxr import Usd
 
     usd = await _stage_worker(validate_usd, path)
-    eng = await _stage_worker(check_engine_compliance, Usd.Stage.Open(str(path)), meshes, budget)
+    eng = await _stage_worker(check_engine_compliance, Usd.Stage.Open(str(path)), meshes, budget, working_stage=True)
     async with s.registry.locked(s.sid):
         if revision != s.state.revision or budget != s.state.budget:
             return "STALE: scene changed during USD validation"
@@ -1225,8 +1246,10 @@ async def _blender_asset_qa(s: Session, pkg: Any, glb: Path) -> str | None:
 
 
 async def _verify_engine(s: Session, pkg: Any, asset: str) -> str | None:
-    from antigravity3d.adapters.engines.validators import validator_for
+    from antigravity3d.adapters.engines.validators import validator_for, verification_gap
 
+    if gap := verification_gap(s.state.budget.target_engine):  # deliver_package asks this first (Session.waits_for_user): the last guard
+        return f"{s.state.budget.target_engine} cannot be verified on this machine ({gap})"
     preview = s._res("graded_preview")
     if not preview or not preview.path.is_file() or not s.plane or not s.forge:
         return "missing graded DCC frame or calibrated parity backend"
@@ -1248,8 +1271,9 @@ async def _verify_engine(s: Session, pkg: Any, asset: str) -> str | None:
         return f"{capture.engine} capture: {' '.join((capture.skipped_reason or capture.log_tail).split())[-160:]}"
     engine_image = image_path.read_bytes()
     overlap = silhouette_iou(dcc, engine_image)
-    if overlap < MIN_SILHOUETTE_IOU:
-        return f"target silhouette IoU {overlap:.4f} below {MIN_SILHOUETTE_IOU}"
+    least = getattr(validator, "min_silhouette_iou", MIN_SILHOUETTE_IOU)  # the validator says how strict its target's parity is
+    if overlap < least:
+        return f"target silhouette IoU {overlap:.4f} below {least}"
     parity = await s.plane.evaluate_engine_parity(preview.uri, await s.forge.upload(engine_image), governor=s.governor)
     reasons = engine_parity_reasons(parity, s.thresholds)
     if parity.result.source != "decisions" or not parity.result.calibrated or reasons:
@@ -1259,7 +1283,7 @@ async def _verify_engine(s: Session, pkg: Any, asset: str) -> str | None:
         pkg.data["files"].append(name)
         pkg.data["file_hashes"][name] = {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
     pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": True, "metrics": smoke.metrics, "bounds_m": smoke.bounds_m,
-                                               "engine_version": smoke.engine_version}
+                                               "engine_version": smoke.engine_version, **smoke.extra_record()}
     pkg.data["validation"]["engine_parity"] = {"ok": True, "silhouette_iou": overlap, "scores": parity.scores}
     return None
 
@@ -1463,7 +1487,7 @@ async def _preview_engine_import(s: Session, pkg: Any, asset: str) -> str | None
     if issue := smoke.geometry_issue(pkg.data):
         return issue
     pkg.data["validation"]["engine_import"] = {"engine": smoke.engine, "ok": True, "metrics": smoke.metrics, "bounds_m": smoke.bounds_m,
-                                               "engine_version": smoke.engine_version}
+                                               "engine_version": smoke.engine_version, **smoke.extra_record()}
     pkg.data["validation"]["engine_parity"] = {"ok": None, "skipped": "preview: parity needs the native Decisions API"}
     return None
 
@@ -1655,8 +1679,10 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
     if head.startswith("EXPORTED"):
         where = s.last_export
         placed = _place(s, where, dest) if dest and where else []
-        out = [f"DELIVERED: {head}" + (f" | placed in {dest}/" if dest else ""), *placed, *(found or shown), *steps,
-               f"FINISHED: the package{f' at {where}' if where else ''} was validated, imported and checked by this tool"
+        web = _web_lines(where)
+        checked = _checked_words(where)
+        out = [f"DELIVERED: {head}" + (f" | placed in {dest}/" if dest else ""), *placed, *(found or shown), *steps, *web,
+               f"FINISHED: the package{f' at {where}' if where else ''} was {checked} by this tool"
                + (f", and its engine files are in {dest}/: nothing is left to copy" if dest else "")
                + ". Reply to the user with its path and the findings above; do not inspect, re-check or copy it."]
     elif _needs_a_person(s):
@@ -1695,6 +1721,29 @@ def _review_task(s: Session) -> asyncio.Task | None:
     task.cancel()
     s._set(R_REVIEW, None)
     return None
+
+
+def _checked_words(package: Path | None) -> str:
+    """What the FINISHED line says was done to a delivered package: "imported" only when the target engine's import passed
+    (``validation.engine_import.ok``). An engine with no importer (Roblox), or one that was not available (no Godot binary,
+    no browser), is said not to have run."""
+    try:
+        rec = (json.loads((Path(package) / "manifest.json").read_text()).get("validation") or {}).get("engine_import") or {} if package else {}
+    except (OSError, ValueError):
+        rec = {}
+    if rec.get("ok") is True:
+        return "validated, imported and checked"
+    return f"validated and checked (the engine import was not run: {rec.get('skipped') or 'no result is recorded'})"
+
+
+def _web_lines(package: Path | None) -> list[str]:
+    """``web_three.reply_lines`` of a delivered package's manifest (nothing for other targets or an unreadable manifest)."""
+    from antigravity3d.adapters.engines.web_three import reply_lines
+
+    try:
+        return reply_lines(json.loads((Path(package) / "manifest.json").read_text())) if package else []
+    except (OSError, ValueError):
+        return []
 
 
 def _start_review(ctx: ToolContext, s: Session) -> asyncio.Task:

@@ -482,3 +482,84 @@ async def test_settle_leaves_a_part_beside_another_instead_of_dropping_it_to_the
     assert "left to the author" in res.stopped["A"], res.stopped
     assert sm.base_ir().nodes[1].transform.translate == (0.6, 0.6, 0.5)   # not moved
     assert author.calls["repair"] == 0
+
+
+def _canned_web(monkeypatch, calls: list, frame: bytes = b"", report=None):
+    """The three.js check stood in for: it counts its runs and answers from the package's own manifest."""
+    from antigravity3d.adapters.engines import web_three
+
+    async def _validate(self, package_path, timeout=0, **kw):
+        calls.append(str(package_path))
+        if report is not None:
+            return report
+        _, man_path, _ = web_three._find_package(Path(package_path))
+        man = json.loads(man_path.read_text())
+        return web_three.WebThreeReport(True, web_three.ENGINE, "", metrics={"triangles": man["tris"]}, bounds_m=man["glb_bounds_m"],
+                                        checks=(web_three.Check("c", "pass", ""),), silhouette_iou=0.999, frame_png=frame)
+
+    monkeypatch.setattr(web_three.WebThreeValidator, "_validate", _validate)
+    monkeypatch.setattr(web_three.WebThreeValidator, "_unavailable", lambda self: None)
+    # Saying the browser is available makes ``web_three.prestart`` (the run's start of web verification) take a real lease, whose first
+    # act is ``import playwright.async_api``: with the package absent (CI's unit job) these tests died there, not in what they prove.
+    # The lease is stood in for at the shared pool, so nothing is imported or launched with or without the package.
+    monkeypatch.setattr(web_three.web_browser.SHARED, "lease", lambda *_a, **_k: web_three.web_browser.Lease(None))
+
+
+async def _refine_web(tmp_path: Path, engine: str, plan=None):
+    sm, plane = setup(tmp_path, Script(), sound_scene())
+    return await refine(sm, plane=plane, author=CallableAuthor(lambda *a, **k: []), governor=Governor(plan or plan_for(2)),
+                        budget=EngineBudget(engine), uploader=up, workdir=tmp_path / "wd", forge=ImageForge(FakeImageBackend()),
+                        settle_first=False)
+
+
+async def test_the_three_js_check_is_the_engine_check_of_web_three_and_runs_once(tmp_path: Path, monkeypatch) -> None:
+    """For web_three the engine_import step IS the three.js check; web_runtime is recorded from that report (one page load)."""
+    calls: list[str] = []
+    _canned_web(monkeypatch, calls)
+    res = await _refine_web(tmp_path, "web_three")
+    status = {s.name: (s.status, s.detail) for s in res.steps}
+    assert len(calls) == 1, calls
+    assert status["engine_import"][0] == status["web_runtime"][0] == "passed" and status["engine_import"][1] == status["web_runtime"][1]
+    assert res.objects["engine_import"]["checks_passed"] == 1 and res.objects["engine_import"]["ok"] is True
+    assert res.scores["web_silhouette_iou"] == 0.999
+
+
+async def test_a_crashed_three_js_run_is_not_repeated_for_the_web_runtime_step(tmp_path: Path, monkeypatch) -> None:
+    from antigravity3d.adapters.engines import web_three
+
+    calls: list[str] = []
+    _canned_web(monkeypatch, calls, report=web_three.WebThreeReport(False, web_three.ENGINE, "browser run failed: TimeoutError: 60 s"))
+    res = await _refine_web(tmp_path, "web_three")
+    failed = dict(res.failed)
+    assert len(calls) == 1, "the browser was launched again for web_runtime"
+    assert "TimeoutError" in failed["engine_import"] and "TimeoutError" in failed["web_runtime"] and not res.ok
+
+
+async def test_the_web_frame_is_the_engine_capture_of_web_three(tmp_path: Path, monkeypatch) -> None:
+    """With engine truth on, engine_capture passes from the frame the check already rendered (no second run) and writes it as
+    engine.png; engine_parity then waits only for the DCC render (none offline), not for a capture this target cannot make."""
+    from dataclasses import replace as dc_replace
+
+    calls: list[str] = []
+    frame = Image.new("RGBA", (8, 8), (1, 2, 3, 255))
+    import io
+
+    buf = io.BytesIO()
+    frame.save(buf, "PNG")
+    _canned_web(monkeypatch, calls, frame=buf.getvalue())
+    res = await _refine_web(tmp_path, "web_three", dc_replace(plan_for(2), engine_truth=True))
+    status = {s.name: s.status for s in res.steps}
+    assert status["engine_import"] == status["engine_capture"] == "passed", status
+    assert len(calls) == 1 and (tmp_path / "wd" / "package" / "engine.png").read_bytes() == buf.getvalue()
+    assert "DCC render" in dict(res.skipped)["engine_parity"]
+
+
+async def test_another_targets_web_side_check_keeps_its_own_skip_text(tmp_path: Path, monkeypatch) -> None:
+    """godot_4 also gets the web check as a side step. Where no browser exists its text is the verifier's own, with nothing
+    about "three.js check NOT run" in the run's steps, report or evidence (only web_three's own engine check says that)."""
+    from antigravity3d.adapters.engines import web_three
+
+    monkeypatch.setattr(web_three.WebThreeValidator, "_unavailable", lambda self: "web_three browser not found (set $CHROMIUM_BIN)")
+    res = await _refine_web(tmp_path, "godot_4")
+    assert dict(res.skipped)["web_runtime"] == "web_three browser not found (set $CHROMIUM_BIN)"
+    assert "NOT run" not in json.dumps(res.to_dict(), default=str)

@@ -171,6 +171,48 @@ ENGINE_RULES: dict[TargetEngine, EngineRules] = {
         closed_render_meshes=True,
         one_material_per_part=True,
     ),
+    "web_three": EngineRules(
+        # The asset a web page loads is the GLB (three.js GLTFLoader); the USD in the package is never loaded by a page. The
+        # glTF 2.0 specification fixes the GLB's axis and unit: "glTF defines +Y as up", "The units for all linear distances
+        # are meters" (https://registry.khronos.org/glTF/specs/2.0/glTF-2.0.html), and the package writes every GLB that way.
+        # For the USD the rows below are therefore the PROJECT'S CONVENTION (native Y, metres, as the other Y-up targets), not a
+        # web rule. The Z-up working stage is not judged by this row (check_engine_compliance, working_stage).
+        native_up_axis="Y",
+        allowed_up_axes=("Y",),
+        meters_per_unit=(1.0,),
+        # PROJECT RULE, from a three.js behaviour: PropertyBinding.sanitizeNodeName(name) is name.replace(/\s/g, "_")
+        # .replace(/[\[\].:\/]/g, "") and GLTFLoader applies it to every node name (three.js src/animation/PropertyBinding.js,
+        # src/loaders/GLTFLoader.js), so a node called "a.b" or "a b" is loaded as "ab" / "a_b" and getObjectByName("a.b") finds
+        # nothing. The web install finds parts by name, so a name three.js would rewrite is refused. The glTF specification
+        # has no such rule.
+        name_regex=r"^[^\s.:/\[\]]+$",
+        # PROJECT CHOICE, not a web rule: three.js has no collision naming. The colliders GLB's nodes keep the package's
+        # UCX_<asset>_NN names (package.collider_name), which this regex recognises in the USD.
+        hull_prim_regex=r"^UCX_[A-Za-z0-9_]+_\d{2}$",
+        # No documented per-mesh cap: WebGL 2 has 32-bit indices in core and glTF allows uint32 indices (accessor
+        # componentType 5125): no rule. The triangle budget is the studio's (EngineBudget.max_tris), not a web number.
+        max_tris_per_mesh=None,
+        # ADVICE, not a limit. MDN's WebGL best practices list MAX_TEXTURE_SIZE 4096 among what effectively all systems
+        # support and warn that "Your desktop may support 16k textures but lower-end systems may not"
+        # (https://developer.mozilla.org/en-US/docs/Web/API/WebGL_API/WebGL_best_practices); web3dsurvey.com's WebGL 2
+        # MAX_TEXTURE_SIZE page shows 100 % of reporting devices at 4096 or more, but only 85 % at 16384 (Android: 81 % at
+        # 8191 or more, 8 % at 16384; the page carries no date).
+        max_texture_px=4096,
+        # No rule needed. WebGL 2 guarantees 16 fragment texture units (OpenGL ES 3.0 MAX_TEXTURE_IMAGE_UNITS minimum); a package
+        # material binds 3 (albedo, ORM, normal).
+        max_textures_per_material=None,
+        # No rule. WebGL 2 samples non-power-of-two textures with mipmaps; only WebGL 1 needs powers of two (MDN, same page). glTF
+        # asks clients only to resize them "when running on platforms that have limited support" (glTF 2.0, Non-power-of-two
+        # Textures). Block-compressed formats need sides that are multiples of 4; every atlas size here is a power of two.
+        require_pow2_textures=False,
+        # No rule. three.js has no physics engine. The physics libraries it is paired with take points: Rapier's
+        # ColliderDesc.convexHull(points) "will automatically compute the convex hull of the given set of points" and
+        # states no limit (https://rapier.rs/docs/user_guides/javascript/colliders/). No cap is invented; the hulls are
+        # left as computed, as for Roblox.
+        hull_limit=None,
+        notes="Collision hulls ship in <asset>_colliders.glb as plain geometry for a web physics library; three.js reads "
+              "none of them. What a page downloads is recorded in the manifest (web_download).",
+    ),
 }
 
 
@@ -293,7 +335,15 @@ def scale_issue(meshes: list[MeshData]) -> str:
     return f"{head}{tail}. Not rescaled: check the source unit."
 
 
-def check_engine_compliance(stage: Usd.Stage | None, meshes: list[MeshData], budget: EngineBudget) -> list[Issue]:
+def check_engine_compliance(stage: Usd.Stage | None, meshes: list[MeshData], budget: EngineBudget, *,
+                            working_stage: bool = False) -> list[Issue]:
+    """Issues of ``meshes`` and the USD ``stage`` against the target engine's rules (``ENGINE_RULES``).
+
+    ``working_stage``: ``stage`` is the session's authoring stage, which is Z-up by design (``usd_stage.py``), before the
+    package writer re-orients what ships to the engine's native axis. The rows' ``allowed_up_axes`` and ``native_up_axis``
+    describe a delivered file, so they are not applied to it (an authored axis is still required); the package writer
+    applies them to the stage it ships (``write_engine_package``). Before this, a target whose row does not list Z
+    (Roblox) could not be delivered through a session, and the rows that listed Z did so only to pass this check."""
     rules = ENGINE_RULES[budget.target_engine]
     eng = budget.target_engine
     out: list[Issue] = []
@@ -327,7 +377,9 @@ def check_engine_compliance(stage: Usd.Stage | None, meshes: list[MeshData], bud
     # stage metadata
     if stage.HasAuthoredMetadata("upAxis"):
         axis = str(UsdGeom.GetStageUpAxis(stage))
-        if axis not in rules.allowed_up_axes:
+        if working_stage:
+            pass  # judged on the shipped stage (see above)
+        elif axis not in rules.allowed_up_axes:
             add("up_axis", "critical", None, f"upAxis {axis} not accepted (allowed {rules.allowed_up_axes})")
         elif axis != rules.native_up_axis:
             add("up_axis_reorient", "warning", None, f"upAxis {axis}; engine native {rules.native_up_axis}, importer must rotate")

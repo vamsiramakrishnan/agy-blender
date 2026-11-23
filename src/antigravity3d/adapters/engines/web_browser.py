@@ -85,6 +85,7 @@ class Session:
 
     exe: str | None
     args: tuple[str, ...]
+    env: tuple[tuple[str, str], ...] | None
     stop: Callable[[], Awaitable[None]]
     browser: Any
     driver: Any  # asyncio.subprocess.Process of the Playwright driver, when it can be found
@@ -203,18 +204,18 @@ class SharedChromium:
     # ------------------------------------------------------------------ the browser (pool loop only)
 
     async def _prestart(self, exe: str | None, args: tuple[str, ...], warm: Callable[[Session], Awaitable[Any]]) -> None:
-        await warm(await self._get(exe, args))
+        await warm(await self._get(exe, args, None))
 
-    async def _get(self, exe: str | None, args: tuple[str, ...]) -> Session:
+    async def _get(self, exe: str | None, args: tuple[str, ...], env: tuple[tuple[str, str], ...] | None) -> Session:
         async with self._lock():
             s = self._session
-            if s is not None and s.alive() and (s.exe, s.args) == (exe, args):
+            if s is not None and s.alive() and (s.exe, s.args, s.env) == (exe, args, env):
                 return s
             await self._discard()
-            self._session = await self._launch(exe, args)
+            self._session = await self._launch(exe, args, env)
             return self._session
 
-    async def _launch(self, exe: str | None, args: tuple[str, ...]) -> Session:
+    async def _launch(self, exe: str | None, args: tuple[str, ...], env: tuple[tuple[str, str], ...] | None) -> Session:
         from playwright.async_api import (
             async_playwright,  # already imported by _ensure_loop
         )
@@ -226,12 +227,12 @@ class SharedChromium:
         if driver is not None:
             self._drivers.add(driver)
         try:
-            browser = await pw.chromium.launch(executable_path=exe, args=list(args))
+            browser = await pw.chromium.launch(executable_path=exe, args=list(args), **({} if env is None else {"env": dict(env)}))
         except BaseException:
             await self._stop_or_kill(pw.stop, driver)
             raise
         self.launches += 1
-        s = Session(exe, args, pw.stop, browser, driver, self.launches)
+        s = Session(exe, args, env, pw.stop, browser, driver, self.launches)
         browser.on("disconnected", lambda _b: setattr(s, "broken", True))
         return s
 
@@ -255,9 +256,9 @@ class SharedChromium:
             self._drivers.discard(driver)
 
     async def _in_context(self, exe: str | None, args: tuple[str, ...], context_options: dict,
-                          fn: Callable[[Session, Any], Awaitable[Any]]) -> Any:
+                          fn: Callable[[Session, Any], Awaitable[Any]], env: tuple[tuple[str, str], ...] | None = None) -> Any:
         for attempt in (1, 2):
-            s = await self._get(exe, args)
+            s = await self._get(exe, args, env)
             try:
                 ctx = await asyncio.wait_for(s.browser.new_context(**context_options), CONTEXT_TIMEOUT_S)
             except Exception:
@@ -279,18 +280,24 @@ class SharedChromium:
     # ------------------------------------------------------------------ public (any loop or thread)
 
     async def run(self, fn: Callable[[Session, Any], Awaitable[Any]], *, exe: str | None, args: tuple[str, ...] = (),
-                  context_options: dict | None = None) -> Any:
-        """``await fn(session, context)`` on the browser's loop, with a fresh context that is closed afterwards."""
+                  context_options: dict | None = None, env: dict[str, str] | None = None, keep: bool = True) -> Any:
+        """``await fn(session, context)`` on the browser's loop, with a fresh context that is closed afterwards. ``env``:
+        the browser process's whole environment (default: this process's); a browser with another environment is another
+        browser."""
         lease = self.lease()
         try:
-            out = await self._on_pool(self._in_context(exe, tuple(args), dict(context_options or {}), fn))
+            out = await self._on_pool(self._in_context(exe, tuple(args), dict(context_options or {}), fn,
+                                                       None if env is None else tuple(sorted(env.items()))))
         except asyncio.CancelledError:
             lease.release(keep=False)  # a cancelled verification belongs to a run that is ending: leave nothing behind
             raise
         except BaseException:
             lease.release(keep=True)
             raise
-        lease.release(keep=True)
+        if keep:
+            lease.release(keep=True)
+        else:
+            await lease.aclose(keep=False)
         return out
 
     def shutdown(self, timeout: float = 2 * CLOSE_TIMEOUT_S + 5) -> None:

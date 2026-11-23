@@ -4,8 +4,10 @@ description: >-
   Installs a finished antigravity-3d package into the user's own game project
   as one scene to drag into a level (Godot 4 automatically: textures once with
   VRAM compression and mipmaps, levels of detail switched by distance, one
-  collision body) and checks it there with the project's own engine; also
-  removes an installed asset. Use when the user asks to put, add, install or
+  collision body) and checks it there with the project's own engine; installs
+  into a three.js or React Three Fiber project too (files where the dev server
+  serves them, a loader and a component to import, checked in a browser with
+  the project's own three.js); also removes an installed asset. Use when the user asks to put, add, install or
   drop an exported asset into their game, project or this workspace, says the
   import is a mess (duplicate textures, wrong LODs, many collision bodies), or
   wants an installed asset removed. Not for exporting or verifying a package on
@@ -55,6 +57,39 @@ into a level is the whole job, and proves it there.
    warning. For Unity, Unreal Engine and Roblox projects the tool writes
    nothing and says which file to import: pass that on and say plainly that
    automatic installation for that engine is not built yet.
+
+## three.js and React Three Fiber
+
+A project with `three` in its package.json takes a package built for the web
+(`agy3d prop --engine web_three`; a script asset says `engine="web_three"` in its
+`Asset(...)` line). The tool writes the asset's files to the served folder
+(`public/agy3d/<asset>/`, or `static/`; the result names the rule that chose it),
+a loader to `src/agy3d/<asset>/` (`index.js`, `index.d.ts`, plus `react.js` with
+@react-three/fiber) and the record beside the loader, never in the served
+folder. The developer's one step: `scene.add(await load<Asset>({ renderer }))`
+imported from `./agy3d/<asset>`, or `<Asset />` in a Canvas. The result is a Group
+holding a THREE.LOD that follows the live camera, with `userData.agy3d`: the
+bounds, the collision hulls as plain arrays (for Rapier or cannon-es) and a
+function that frees what the loader made.
+
+Compression (KTX2 textures, meshopt geometry) uses packages the project already
+has; without them the install ships PNG textures and prints the one command
+(`npm install -D @gltf-transform/core @gltf-transform/extensions
+@gltf-transform/functions ktx2-encoder meshoptimizer sharp`). Nothing compressed
+is written without a measurement: each encoding is rendered in the headless
+browser against the package's own frame, and the first one inside the tolerance
+is written. With `--no-check`, with no browser, or when no encoding is inside the
+tolerance, the textures stay PNG and the result says which. `--compress auto`
+(default) then writes compressed files only if the page downloads no more than
+before, `always` takes the GPU memory whatever the size, `never` skips it. For
+procedurally painted textures PNG is already small: the gain is GPU memory
+(computed from the format, not observed here), not download; say so.
+
+Checks, in a headless browser with the project's own three.js: import, loader,
+scene, scale, levels, materials, outline, collision (every hull point against the
+package's colliders file), level_switching, shared_textures, loader_vs_package
+(compression when compressed) and react_component. No browser or no
+`node_modules/three`: skipped, never a pass.
 
 ## Removing it
 
@@ -115,6 +150,9 @@ answers `unchanged` and writes nothing.
 
 Last verified 2026-11-22 at the commit that added `agy3d install`.
 
+- three.js: r152 to r187, the range the check was run on (0.152.2, 0.160.0,
+  0.169.0, 0.170.0, 0.187.0); outside it the files are written and the result
+  says "not checked on this version".
 - Godot 4.7.2 is the version the install and its seven checks were measured
   and tested against, with a real Godot in the project's test set. Other 4.x
   versions are accepted with a warning that names the difference.

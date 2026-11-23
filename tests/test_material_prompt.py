@@ -180,7 +180,9 @@ async def test_template_materials_carry_surface_words(prompt):
 # ---------------------------------------------------------------------------------------------- native tool
 
 
-async def test_native_forge_prompts_from_the_surface_and_keeps_it(tmp_path, monkeypatch):
+# any_target_can_be_verified: this test is about the forge prompt, not the target; a session that must be verified for unreal_5 (the default) refuses
+# forge_pbr_material on this machine (Session.unverifiable_target), which tests/test_verifiable_targets.py covers on its own.
+async def test_native_forge_prompts_from_the_surface_and_keeps_it(tmp_path, monkeypatch, any_target_can_be_verified):
     from test_harness_tools import CRATE, check_line, make_session
 
     from antigravity3d.harness import tools as T
