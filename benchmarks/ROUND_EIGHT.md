@@ -9,14 +9,16 @@ agent back. None of them depends on taste, so this round did not wait for the co
 the same request again (`results/site_run2_plugin/`). An independent review of that site's three.js found fourteen
 faults, half of them taught by this round's own skill. Those were corrected, and the request was run a third time
 (`results/site_run3_plugin/`). Each run exposed faults of the plugin that no review had found; they are fixed too.
-The owner's own corrections have not been given yet. When they are, they go into the website skill and the run is
+A second review, of the third site, again traced its two worst faults to the starter and the skill, and those are
+corrected as well. The owner's own corrections have not been given yet. When they are, they go into the website skill and the run is
 repeated.
 
 **Two measurements are not in yet.** The blind comparison of the three sites and the same request without the
-plugin (a stock agent, as a baseline). Both were started as soon as run 3 was analysed; the model service has
-refused all but one of their requests since then for high demand (HTTP 503), and they are being asked again. Until they are
-in, nothing below says how any of these sites compares with a stock agent's, and the only judgement of how run 3's
-site looks is mine.
+plugin (a stock agent, as a baseline). Both were started as soon as run 3 was analysed. The model service refused
+their requests for an hour and a half (HTTP 503, high demand); it has answered again since 14:45 UTC, and both are
+running as this is written. Until they are in, nothing below says how any of these sites compares with a stock
+agent's, and the only judgement of how run 3's site looks is mine. A fourth run, with the corrections that the review
+of run 3 led to, follows the baseline.
 
 ## The short answer
 
@@ -291,6 +293,61 @@ Three faults of the plugin came out of this run. All three are fixed in the bran
 What run 3 did not need any more: no script for the stills, no second look for the loader file (the install's
 answer names it), no waiting for an install (18 s at the longest).
 
+## What an independent review of run 3's three.js found, and what was done
+
+As after run 2, a reviewer with no part in the plugin or the site read the third site's source, the skill it was
+taught from and the frames (`results/round8/threejs_review_run3.md`; it started no browser, and one sentence of it
+about the check is corrected and marked). All fourteen findings of the second review are fixed in run 3. It found
+eleven new ones:
+
+| cause | findings |
+|---|---|
+| the starter, the skill or the installer caused it | 5: on a phone the starter fitted the named prop to one size at every frame, so the hold was cancelled and the slabs a chapter was about fell out of the frame; the skill taught one shot ("holds, with a slow push-in"), and five of six shots stood 5 to 6 m off, 13 to 14 degrees up, on one lens; the installer's loader fetched every level of detail up front (856 kB of 1.56 MB of models, never shown); the guide's progress-bar example made the page write its progress twice; the stills kept the desktop's panel offset |
+| the skill says nothing about it | 3, and part of 2 more: the 570 times of the text shown as 96 slabs against 6; a rail held at a blend of two palette colours; slabs passing through each other; no check of a rendered colour against the design's; no lower limit for a label that is shown |
+| the skill says it and the agent did not do it | 1, and part of 3 more: no ambient occlusion though the packages were installed; two lights added to the starter's one, which washed out the design's amber and lit the floor at 2.5 times its colour; the last picture framed as a small row over empty floor |
+
+So the two worst things about the third site (every chapter the same shot; on a phone a picture that does not move)
+were again taught by this round's own starter and skill. Three helpers corrected the three places side by side;
+their work is merged and tested together.
+
+- **The starter and the skill.** A shot vocabulary (wide, medium, close, top, low) with the numbers that make each,
+  and the rule that a chapter's shot differs from the one before in scale or by 30 degrees of angle. A hold now
+  travels: it closes in by 12 % and turns 6 degrees round its subject, as a function of the scroll position alone.
+  The starter's own placeholder shots are three scales and a low group shot to end on. On a phone the subject is
+  fitted once per shot, at the size it has beside the desktop's panel, so the travel and the change of scale show
+  there too. A shot can be about a layer (an instanced set of slabs, generated geometry), which is fitted and
+  reported as a prop is. A 3D label under 16 px is hidden until a closer shot makes it readable. The lights are
+  inside a measured budget (an upward face is lit at about 1, so a colour shows as its hex value), and the guide
+  says what more light does under the tone mapping. Ambient occlusion is a module of the starter that switches
+  itself on where the project has the packages and the visitor a GPU. A recipe shows a number as thousands of
+  instances, each with its own delay and lane. Each behaviour is run in a browser by a test that reads boxes or
+  pixels: the subject's box grows by more than 5 % through every hold on a desktop and a phone; the three scales
+  step up by at least 1.3 and 1.25 times; with occlusion forced on, the foot of the prop darkens and the rest of
+  the frame stays within 1.5 levels.
+- **The site check.** Where a page says what each shot is about, the check now says three more things. Under "A
+  visitor would notice": the picture does not travel (the subject keeps its box, every edge within 2 % of the window,
+  over at least three steps and a quarter of the scroll), and a label of the shot's subject is under 16 px where it
+  is shown. Under "Measures": one scale throughout (three quarters of the steps within a factor 1.25 of the median
+  size). Run on the third site, whose own check said "0 things": 7 things. On the phone the gate keeps its place and
+  size from step 1 to step 5, half the scroll; the three labels of the last step are 11 to 15 px on a desktop and 5
+  to 7 px on a phone; and on the desktop the subject fills 49 to 64 % of the window at all eight steps that name one.
+- **The web loader.** The generated loader fetches the nearest level of detail and resolves; a farther level is
+  fetched the first time the camera comes within 80 % of the distance where it appears. On the third site's three
+  props a default load is 1,532,065 bytes where it was 2,388,265, a third less, and nothing a visitor sees changes.
+  The installer's check verifies every level as before and has a new one that counts, from the requests its page
+  server answered, that only the nearest level is fetched until the camera goes out.
+- **Fitted together.** The starter's label limit is the check's. The check's browser draws in software, where the
+  starter leaves occlusion off, so its frames lack something most visitors see: the page says so and the check's
+  answer passes it on. The skill now says when to install with `compress: "always"`: the third site's nine 1024 px
+  maps took 51.6 MB of graphics memory, about 6 compressed, for a third of a megabyte more download; the agent had
+  the parameter and the numbers, and nothing told it when to use them.
+
+Not taken from the review: a check that compares a rendered colour with the design's (the guide has an example that
+reads the canvas instead); a measure of how alike the camera angles are (the one-scale measure covers size only);
+anything about how the props are modelled, which the review left out as well.
+
+None of this is shown to make a better site yet. The fourth run is what will show it.
+
 ## What was not equal between the runs
 
 - **The seed.** Run 1's project had three 0.170, gsap, lenis and vite installed. Run 2's had three 0.187 and
@@ -316,9 +373,10 @@ answer names it), no waiting for an install (18 s at the longest).
   by any run yet.
 - **Once the check says "0 things a visitor would notice", the agent finishes.** In run 2 that was one round of
   changes from the contact sheets; in run 3 three rounds, each for what the check named. The check finds faults:
-  errors, empty frames, hidden or cut subjects, weight, wrong facts. It has no opinion on whether a frame is good,
-  whether the camera travels, or whether the last picture is worth ending on. This is probably the largest gap
-  between these sites and the "world-class" the request asks for, and nothing built this round closes it.
+  errors, empty frames, hidden or cut subjects, weight, wrong facts, and since the review of run 3 a picture that
+  does not travel and labels too small to read. It still has no opinion on whether a frame is good or whether the
+  last picture is worth ending on. This is probably the largest gap between these sites and the "world-class" the
+  request asks for, and the corrections after run 3 narrow it without closing it.
 - **Run 3 cost more than run 2**: 10.4 M tokens against 8.0 M, and 38 MB more texture memory in the page.
 - **A long first stretch without a build.** Run 3's agent read for 20 minutes (six model calls at this service's
   speed) and wrote for 15 before it built once. Nothing broke because of it.
