@@ -1072,14 +1072,39 @@ def _manifest_digest(project: str, package_dir: str) -> str:
 
 
 def _install_text(r: Any) -> str:
-    """One status line, the checks, then the machine-readable result."""
-    import json
+    """The install's answer, short enough for the host to show it: the outcome, what to import, the checks as one count
+    with a line for each that did not pass, warnings and notes cut to a sentence or two, and where the whole record is.
 
-    head = f"{r.status.upper()} {r.message}"
-    lines = [head, *(f"check {c.name}: {c.status} {c.detail}" for c in r.checks), *(f"warning: {w}" for w in r.warnings)]
-    body = r.to_dict()
-    body["files"] = [f for f in body["files"] if f["action"] != "keep"][:60]
-    return "\n".join(lines) + "\n" + json.dumps(body)
+    Run 2 of the website task (2026-11-24): the answer carried every check's detail and then the whole result as JSON,
+    10,292 characters for one prop. Antigravity saved it to a file and gave the agent a pointer to go and read. A dry
+    run still lists the files, because that list is the plan a person approves."""
+    from collections import Counter
+
+    word = r.status.replace("_", " ")
+    msg = r.message[len(word) + 1:] if r.message.lower().startswith(word + " ") else r.message  # not "INSTALLED installed ..."
+    lines = [f"{r.status.upper()} {msg}"]
+    asset = (r.package or {}).get("asset")
+    if r.engine == "threejs" and r.dest and asset and r.status in ("installed", "updated", "unchanged"):
+        from antigravity3d.deliver.web import pascal
+
+        lines.append(f"use it: {r.dest}/index.js exports load{pascal(asset)}({{ renderer }}); it returns a Group with every "
+                     "level of detail wired")
+    changed = [f for f in r.files if f.get("action") != "keep"]
+    if r.status == "dry_run":
+        lines += [f"would {f['action']} {f['path']}" + (f" ({f['bytes']:,} bytes)" if f.get("bytes") else "") for f in changed[:40]]
+        if len(changed) > 40:
+            lines.append(f"... and {len(changed) - 40} more file(s)")
+    elif changed:
+        lines.append(f"files: {len(changed)} written or removed, {sum(f.get('bytes') or 0 for f in changed):,} bytes")
+    if r.checks:
+        n = Counter(c.status for c in r.checks)
+        lines.append(f"checks: {n['passed']} passed, {n['failed']} failed, {n['skipped']} skipped")
+        lines += [f"check {c.name}: {c.status} {c.detail[:400]}" for c in r.checks if c.status != "passed"]
+    lines += [f"warning: {w[:300]}" for w in r.warnings]
+    lines += [f"note: {x[:300]}" for x in r.notes]
+    if r.report_path:
+        lines.append(f"every check in full: {r.report_path}")
+    return "\n".join(lines)
 
 
 async def _workspace_root(ctx: Any) -> str:

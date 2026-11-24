@@ -500,10 +500,33 @@ async def test_mcp_tool_dry_runs_by_default_and_installs_when_told(crate, tmp_pa
     before = _tree(project)
     text = await tool(package_dir=str(crate), ctx=None, project_dir=str(project))
     assert text.startswith("DRY_RUN ") and _tree(project) == before
-    body = json.loads(text.splitlines()[-1])
-    assert body["status"] == "dry_run" and body["dest"] == "agy3d/WoodenCrateIron" and body["files"]
+    # the plan a person approves: every file it would write, one per line, and no machine-readable dump after it
+    assert text.splitlines()[0].startswith("DRY_RUN dry run: would write agy3d/WoodenCrateIron: ")
+    assert "\nwould create WoodenCrateIron.tscn" in text and not text.splitlines()[-1].startswith("{")
     text = await tool(package_dir=str(crate), ctx=None, project_dir=str(project), dry_run=False)
     assert text.startswith("INSTALLED ") and (project / "agy3d/WoodenCrateIron/WoodenCrateIron.tscn").is_file()
+    assert not text.startswith("INSTALLED installed") and "\nfiles: " in text
+
+
+def test_the_install_answer_is_short_enough_to_be_shown():
+    """Run 2 of the website task: 10,292 characters for one web prop, which the host put in a file. Passed checks are a
+    count, a failed or skipped one keeps its line, notes are cut, and the record's path stands for the rest."""
+    from antigravity3d.deliver.install import Check, InstallResult
+    from antigravity3d.runtime.mcp_server import _install_text
+
+    r = InstallResult("installed", "installed capture_gate: loader in src/agy3d/capture_gate, files in public/agy3d/capture_gate",
+                      engine="threejs", package={"asset": "capture_gate"}, dest="src/agy3d/capture_gate",
+                      files=[{"path": f"public/agy3d/capture_gate/f{i}", "action": "create", "bytes": 50_000} for i in range(14)],
+                      checks=[Check(f"c{i}", "passed", "x" * 600) for i in range(11)]
+                      + [Check("react_component", "skipped", "no esbuild in the project's node_modules/.bin")],
+                      notes=["compression not used: " + "tier " * 400, "a page loading this asset received 776,203 bytes for it"],
+                      report_path="src/agy3d/capture_gate/.agy3d/check/report.json")
+    text = _install_text(r)
+    assert len(text) < 2_000, len(text)
+    assert text.splitlines()[0] == "INSTALLED capture_gate: loader in src/agy3d/capture_gate, files in public/agy3d/capture_gate"
+    assert "use it: src/agy3d/capture_gate/index.js exports loadCaptureGate({ renderer })" in text
+    assert "checks: 11 passed, 0 failed, 1 skipped" in text and "check react_component: skipped no esbuild" in text
+    assert "check c0" not in text and "776,203 bytes" in text and "every check in full: src/agy3d/capture_gate/.agy3d/check/report.json" in text
 
 
 @pytest.fixture(scope="module")

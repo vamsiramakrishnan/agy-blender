@@ -181,13 +181,7 @@ async def test_install_into_project_is_kept_too(tmp_path, monkeypatch):
     def slow_install(package_dir, project, *a, **k):
         runs.append(package_dir)
         time.sleep(0.8)
-
-        class R:
-            status, message, checks, warnings = "installed", "stand-in", [], []
-
-            def to_dict(self):
-                return {"files": []}
-        return R()
+        return deliver.install.InstallResult("installed", "stand-in")  # the real record: the answer reads its fields
 
     monkeypatch.setattr(deliver, "install_package", slow_install)
     monkeypatch.setattr(keeper, "ANSWER_S", 0.2)
