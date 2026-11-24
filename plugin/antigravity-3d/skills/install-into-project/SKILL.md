@@ -87,7 +87,8 @@ and the measured difference); the install serves those, and keeps the PNG maps
 out of the served folder. Compression (KTX2 textures, meshopt geometry) uses
 packages the project already has and encodes from the package's PNG maps, never
 from the WebP copies; without the packages the install ships the web GLB and the
-loader with every level of detail all the same, and prints the one command
+loader with every level of detail all the same (the nearest level is fetched at
+once, a farther one when the camera first comes near it), and prints the one command
 (`npm install -D @gltf-transform/core @gltf-transform/extensions
 @gltf-transform/functions ktx2-encoder meshoptimizer sharp`). Nothing compressed
 is written without a measurement: each encoding is rendered in the headless

@@ -1850,8 +1850,9 @@ def _install_step(package: Path | None) -> list[str]:
             "dry_run=true first and show them the plan. Do not copy the files by hand.")
     if engine == "web_three":
         return [f"{NEXT_INSTALL} to use it in a three.js project, {call} gives a loader module to import (src/agy3d/{asset}/index.js: "
-                f"load{pascal}() returns a Group holding a THREE.LOD with every level of detail wired), the files where the dev "
-                f"server serves them, and KTX2 / meshopt compression when the project has the packages" + when]
+                f"load{pascal}() returns a Group holding a THREE.LOD: the nearest level at once, a farther one fetched when the "
+                f"camera comes near it), the files where the dev server serves them, and KTX2 / meshopt compression when the "
+                f"project has the packages" + when]
     if engine == "godot_4":
         return [f"{NEXT_INSTALL} to use it in a Godot project, {call} gives a scene agy3d/{asset}/{asset}.tscn with the levels of "
                 "detail, collision and materials wired, imported and checked in the project's own Godot" + when]
