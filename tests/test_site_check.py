@@ -25,6 +25,25 @@ from antigravity3d.deliver import site_check as sc
 FIX = Path(__file__).parent / "fixtures" / "site_check"
 
 
+@pytest.fixture(autouse=True)
+def _a_browser_test_runs_only_where_there_is_a_browser(request):
+    """The marker alone skips nothing: CI's first job runs every test not marked live or blender, and has no Playwright."""
+    if request.node.get_closest_marker("browser"):
+        from antigravity3d.adapters.engines.web_three import WebThreeValidator
+
+        if (why := WebThreeValidator()._unavailable()) is not None:
+            pytest.skip(why)
+
+
+def test_without_a_browser_the_answer_says_not_checked_and_nothing_about_the_site(tmp_path, monkeypatch):
+    from antigravity3d.adapters.engines.web_three import WebThreeValidator
+
+    monkeypatch.setattr(WebThreeValidator, "_unavailable", lambda self: "web_three needs the Python 'playwright' package")
+    text = sc.check_site(str(site(tmp_path, "careful")), out_dir=tmp_path / "out").text()
+    assert text.startswith("NOT CHECKED: No browser to look with: web_three needs the Python 'playwright' package.")
+    assert "broken" not in text and "SITE CHECKED" not in text
+
+
 def site(tmp_path: Path, name: str) -> Path:
     """A fixture copied into its own folder with the shared gl.js, as a built site would be."""
     dest = tmp_path / "sites" / name

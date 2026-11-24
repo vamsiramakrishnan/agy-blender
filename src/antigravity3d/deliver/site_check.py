@@ -431,6 +431,11 @@ class SiteReport:
     # ------------------------------------------------------------------ the answer
 
     def text(self) -> str:
+        if self.error and not self.visits:
+            # Nothing was looked at (no browser on this machine): that is not a finding about the site. CI's first job
+            # has no Playwright, and the answer there read "SITE CHECKED in 0 s: 1 thing broken".
+            return (f"NOT CHECKED: {self.error} Nothing of the site was opened, so nothing is known about it; the "
+                    "check needs a Chromium that Playwright can start.")
         broken, noticed = self.broken(), self.noticed()
         head = (f"SITE CHECKED in {self.seconds:.0f} s: "
                 + (f"{len(broken)} thing{_s(broken)} broken" if broken else "nothing broken")
