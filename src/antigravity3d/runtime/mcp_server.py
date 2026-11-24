@@ -1028,7 +1028,9 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         "directly with dry_run=false; this is how a package gets into it, never by copying its files by hand. A project the "
         "user already had: call with dry_run=true first, show the user the plan, and install once they agree. Without the "
         "compression packages in the project the install still writes the web GLB (WebP maps where the package has them) and "
-        "the loader with every level of detail wired; compression is added where the packages are.")
+        "the loader with every level of detail wired (it resolves with the nearest level and fetches each farther one "
+        "when the camera first comes near it; levels: \"all\" fetches every level first); compression is added where "
+        "the packages are.")
     run_build.__doc__ = (
         "Run the asset's Python script (from agy3d import Asset), check the design it saves and show it: the first call "
         "opens the asset's session from the script's Asset(...) line, a later one replaces the design in one checked step. "

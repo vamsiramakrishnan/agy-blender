@@ -9,7 +9,8 @@ folders and ``node_modules/three``, nothing else.
 
 Checks, in the shape of the Godot install's (``install.godot_checks``): import, scene, scale, levels, materials,
 collision, level_switching, shared_textures, outline, and compression (or loader_vs_package without compression: the
-same frame through the loader and straight from the package, which must be the same picture).
+same frame through the loader and straight from the package, which must be the same picture). These load every level
+(``levels: "all"``); levels_on_demand then loads the asset again with default options and counts what is fetched.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from antigravity3d.adapters.engines import web_three as w3
 from antigravity3d.deliver import glb as glbtool
 from antigravity3d.deliver.godot import HYSTERESIS, switch_probes
 from antigravity3d.deliver.paths import asset_name
-from antigravity3d.deliver.web import ChildError, pascal, run_child, search_dirs
+from antigravity3d.deliver.web import ON_DEMAND_REACH, ChildError, pascal, run_child, search_dirs
 
 # The compression tolerance, fixed in the contract before the first compressed file existed (CONTRACT_WEB.md section 4):
 # on the web check's 512 px beauty frame, same camera and light, compressed against uncompressed.
@@ -174,6 +175,45 @@ async function main() {
   }
   out.shared.textures_after = renderer.info.memory.textures;
 
+  // 3b. the developer's call with default options, in a scene of its own: what it fetches is counted by the page
+  // server, between the marks this page fetches (MARKS). First the load alone, then a camera beyond the reach of the
+  // next level, the LOD updating itself on every frame until that level has arrived (or failed), and a few frames more.
+  if (job.on_demand) {
+    const od = out.on_demand = {};
+    let g2 = null;
+    try {
+      await fetch('./' + job.marks[0]);
+      const mod = await import(job.loader_url);
+      g2 = await mod[job.export]({ renderer });
+      const a2 = g2.userData.agy3d, lod2 = a2.lod;
+      od.after_load = { lod_levels: lod2.levels.length, loaded: a2.levels.map((l) => l.loaded) };
+      await fetch('./' + job.marks[1]);
+      const s2 = new THREE.Scene();
+      s2.add(g2); g2.updateMatrixWorld(true);
+      const c2 = new THREE.PerspectiveCamera(job.on_demand.fov, 1, 0.01, 1000), d2 = job.on_demand.distance;
+      c2.near = Math.max(d2 - 2 * r, 0.001); c2.far = d2 + 2 * r; c2.updateProjectionMatrix();
+      c2.position.copy(cw).addScaledVector(dir, d2); c2.up.set(0, 1, 0); c2.lookAt(cw); c2.updateMatrixWorld(true);
+      const want = job.on_demand.requested, t1 = performance.now();
+      const settledAll = () => want.every((i) => a2.levels[i].loaded || a2.levels[i].failed);
+      let frames = 0;
+      while (frames < 600) {
+        renderer.render(s2, c2); frames++;
+        if (settledAll()) break;
+        await new Promise((ok) => requestAnimationFrame(ok));
+      }
+      od.frames_to_arrive = frames; od.ms_to_arrive = performance.now() - t1;
+      for (let i = 0; i < 3; i++) { await new Promise((ok) => requestAnimationFrame(ok)); renderer.render(s2, c2); }
+      renderer.info.reset();
+      renderer.render(s2, c2);
+      od.triangles = renderer.info.render.triangles;
+      od.visible = lod2.levels.filter((l) => l.object.visible).map((l) => l.object.name);
+      od.loaded = a2.levels.map((l) => l.loaded); od.failed = a2.levels.map((l) => l.failed);
+      od.lod_levels = lod2.levels.length;
+      await fetch('./' + job.marks[2]);
+    } catch (e) { od.error = String((e && e.stack) || e); }
+    if (g2) { g2.removeFromParent(); g2.userData.agy3d.dispose(); }
+  }
+
   // 4. the package as it is (embedded textures, no compression), through the project's own GLTFLoader, same frame
   if (job.ref_url) {
     scene.remove(root);
@@ -200,12 +240,20 @@ def _helpers_js() -> str:
     return s[a:b]
 
 
+#: Files the page fetches between the steps of the default-load check (3b), so that the requests the page server
+#: records can be told apart: before the first, the load with every level; then the default load; then the camera.
+MARKS = ("_mark_default_load.txt", "_mark_camera.txt", "_mark_end.txt")
+
+
 def build_page(out_dir: Path, job: dict[str, Any], env: bytes | None, ref_glb: bytes | None) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
+    for m in MARKS:
+        (out_dir / m).write_text(m)
     if env is not None:
         (out_dir / w3.ENV_FILE).parent.mkdir(parents=True, exist_ok=True)
         (out_dir / w3.ENV_FILE).write_bytes(env)
-    job = {**job, "env": {"mode": "page"} if env is None else {"mode": "shared", "file": w3.ENV_FILE}}
+    job = {**job, "marks": list(MARKS),
+           "env": {"mode": "page"} if env is None else {"mode": "shared", "file": w3.ENV_FILE}}
     if ref_glb is not None:
         (out_dir / "ref.glb").write_bytes(ref_glb)
         job["ref_url"] = "./ref.glb"
@@ -441,7 +489,7 @@ def install_checks(raw: dict[str, Any], run: dict[str, Any], record: dict[str, A
         problems.append("a far level has its own material objects")
     if extra != sh.get("distinct_maps"):
         problems.append(f"{extra} texture(s) uploaded to the GPU for {sh.get('distinct_maps')} distinct map(s)")
-    served = [p for p, _n in run.get("served", [])]
+    served = [p for p, _n in segments(run.get("served", []))[0]]  # the load with every level; 3b loads the asset again
     texture_requests = {p: served.count(p) for p in set(served) if "/textures/" in p}
     twice = sorted(p for p, n in texture_requests.items() if n > 1)
     if twice:
@@ -450,6 +498,7 @@ def install_checks(raw: dict[str, Any], run: dict[str, Any], record: dict[str, A
                         f"every level draws the highest level's materials; {sh.get('distinct_maps')} map(s) fetched once each "
                         f"and {extra} texture(s) on the GPU after all levels were drawn",
                         {"texture_requests": texture_requests}))
+    checks.append(on_demand_check(raw, run.get("served", []), record, manifest, Check))
     # the picture against the package's own
     if raw.get("ref_png") and raw.get("ref_mask_png") and shot and mask:
         ref_shot = base64.b64decode(raw["ref_png"].split(",", 1)[1])
@@ -475,12 +524,102 @@ def install_checks(raw: dict[str, Any], run: dict[str, Any], record: dict[str, A
     return checks, measured
 
 
-def wire_bytes(served: list[tuple[str, int]], record: dict[str, Any]) -> dict[str, int]:
-    """Bytes the page received, from what its server sent: the asset's own files, and the transcoder."""
+def segments(served: list[tuple[str, int]]) -> list[list[tuple[str, int]]]:
+    """The page server's requests cut at the MARKS: [the load with every level and the checks on it, the default
+    load, the camera moved out, what came after]. A run whose page did not reach a mark has fewer parts."""
+    out: list[list[tuple[str, int]]] = [[]]
+    for p, n in served:
+        if p.lstrip("/") in MARKS:
+            out.append([])
+        else:
+            out[-1].append((p, n))
+    return out
+
+
+def on_demand_plan(record: dict[str, Any]) -> dict[str, Any] | None:
+    """Where step 3b puts the camera, and what must follow: 3 % past where the first far level appears going out (the
+    distance switch_probes also uses past a switch), at the recorded lens. Every far level whose reach that distance is
+    must be requested (the first, and a farther one only if its reach is that close), and the farthest level that has
+    appeared by then must be drawn."""
+    levels = record["levels"]
+    if len(levels) < 2:
+        return None
+    d = levels[1]["distance"] * 1.03
+    return {"distance": d, "fov": record["fov_deg"],
+            "requested": [lv["index"] for lv in levels[1:] if ON_DEMAND_REACH * lv["distance"] <= d],
+            "shown": max(lv["index"] for lv in levels if lv["distance"] <= d)}
+
+
+def on_demand_check(raw: dict[str, Any], served: list[tuple[str, int]], record: dict[str, Any],
+                    manifest: dict[str, Any], Check: type) -> Any:
+    """The loader with default options fetches what it shows, measured from the requests the page server answered:
+    the load alone requests the nearest level's file and no other level's; a camera beyond the reach of the next level
+    makes it requested once, and the LOD then draws it."""
+    plan = on_demand_plan(record)
+    if plan is None:
+        return Check("levels_on_demand", "skipped", "the package has one level: nothing is fetched later")
+    od = raw.get("on_demand")
+    if not od or od.get("error"):
+        why = (od or {}).get("error") or "no result"
+        return Check("levels_on_demand", "failed", f"the default load did not run: {why}"[:400])
+    prefix = "/" + record["assets_url"].strip("/") + "/"
+    files = {prefix + lv["file"]: lv["index"] for lv in record["levels"]}
+    segs = segments(served)
+    if len(segs) < 4:
+        return Check("levels_on_demand", "failed", f"the page reached {len(segs) - 1} of its {len(MARKS)} marks")
+
+    def asked(seg: list[tuple[str, int]]) -> dict[int, int]:
+        out: dict[int, int] = {}
+        for p, _n in seg:
+            if p in files:
+                out[files[p]] = out.get(files[p], 0) + 1
+        return out
+
+    at_load, at_camera = asked(segs[1]), asked(segs[2])
+    problems = []
+    if at_load != {0: 1}:
+        problems.append(f"the load requested level files {at_load} (level: times), expected only the nearest, once")
+    after = od.get("after_load") or {}
+    if after.get("lod_levels") != 1:
+        problems.append(f"the LOD held {after.get('lod_levels')} level(s) when the loader resolved, expected 1")
+    want = {i: 1 for i in plan["requested"]}
+    if at_camera != want:
+        problems.append(f"with the camera at {plan['distance']:.2f} m the level files requested were {at_camera} "
+                        f"(level: times), expected {want}")
+    failed = [i for i, f in enumerate(od.get("failed") or []) if f]
+    if failed:
+        problems.append(f"level(s) {failed} failed to load")
+    lod_tris = manifest.get("lod_tris") or [manifest["tris"]]
+    shown = plan["shown"]
+    if od.get("visible") != [f"LOD{shown}"] or int(od.get("triangles") or 0) != int(lod_tris[shown]):
+        problems.append(f"drawn {od.get('visible')} with {od.get('triangles')} triangles, "
+                        f"expected LOD{shown} ({lod_tris[shown]})")
+    later = sum(n for p, n in segs[2] if p in files)
+    return Check("levels_on_demand", "failed" if problems else "passed", "; ".join(problems) or
+                 f"with default options the loader resolved after requesting {record['levels'][0]['file']} alone; with "
+                 f"the camera at {plan['distance']:.2f} m (LOD1 appears at {record['levels'][1]['distance']:.2f} m and "
+                 f"is requested from {ON_DEMAND_REACH:.0%} of that) level(s) {plan['requested']} were requested once each "
+                 f"({later:,} bytes, arrived in {od.get('frames_to_arrive')} frame(s)) and the LOD drew LOD{shown} "
+                 f"({lod_tris[shown]} triangles)",
+                 {"requests_at_load": at_load, "requests_at_camera": at_camera, "camera_m": plan["distance"]})
+
+
+def wire_bytes(served: list[tuple[str, int]], record: dict[str, Any]) -> dict[str, Any]:
+    """Bytes the page received, from what its server sent: the asset's own files and the transcoder, for the load
+    with default options (the nearest level, its textures, the collision data); ``all_levels_bytes`` is the load with
+    every level, and ``far_level_bytes`` what the far levels add, each fetched when the camera first comes near."""
     assets, basis = "/" + record["assets_url"].strip("/") + "/", "/" + record["basis_url"].strip("/") + "/"
-    a = sum(n for p, n in served if p.startswith(assets))
-    b = sum(n for p, n in served if p.startswith(basis))
-    return {"asset_bytes": a, "transcoder_bytes": b, "total_bytes": a + b, "requests": len(served)}
+    segs = segments(served)
+    every = segs[0]
+    near = assets + record["levels"][0]["file"]
+    default = segs[1] if len(segs) > 1 and any(p == near for p, _n in segs[1]) else every
+    far = {assets + lv["file"] for lv in record["levels"][1:]}
+    a = sum(n for p, n in default if p.startswith(assets))
+    b = sum(n for p, n in default if p.startswith(basis))
+    return {"asset_bytes": a, "transcoder_bytes": b, "total_bytes": a + b, "requests": len(served),
+            "default_load_measured": default is not every,
+            "all_levels_bytes": sum(n for p, n in every if p.startswith(assets)),
+            "far_level_bytes": sum(n for p, n in every if p in far)}
 
 
 async def run(project: Path, record: dict[str, Any], manifest: dict[str, Any], pkg: Path | None, three_path: str | None,
@@ -518,7 +657,9 @@ async def run(project: Path, record: dict[str, Any], manifest: dict[str, Any], p
         usd = next(iter(sorted(pkg.glob("*.usd"))), None)
         reference, ref_note, ref_issue = await asyncio.to_thread(w3._usd_reference, usd, bounds)
     probes, _ = probe_plan(record)
+    # every level for the checks that read lod.levels, probe the switches and compare frames; the default load is 3b's
     job = {"loader_url": "./_m/__code/index.js", "export": f"load{pascal(record['asset'])}", "probes": probes,
+           "options": {"levels": "all"}, "on_demand": on_demand_plan(record),
            "camera": w3.web_camera(bounds),
            "rig": {"lights": [[list(p), i] for p, i in w3.LIGHTS], "env_sky": w3.ENV_SKY, "env_ground": w3.ENV_GROUND}}
     own = out_dir is None
@@ -584,7 +725,8 @@ createRoot(document.getElementById("root")).render(
   createElement(Canvas, { gl: { preserveDrawingBuffer: true, antialias: false, alpha: true }, dpr: 1,
       camera: { position: job.camera, fov: 50, near: 0.01, far: 1000 },
       onCreated: (s) => { s.camera.lookAt(...job.target); state = s; maybe(); } },
-    createElement(%(comp)s, { onLoad: (g) => { group = g; maybe(); }, onError: (e) => { out.errors.push(String((e && e.stack) || e)); out.done = true; } })));
+    createElement(%(comp)s, { levels: "all",
+      onLoad: (g) => { group = g; maybe(); }, onError: (e) => { out.errors.push(String((e && e.stack) || e)); out.done = true; } })));
 setTimeout(() => { if (!out.done) { out.errors.push("the component did not load within 60 s"); out.done = true; } }, 60000);
 """
 
@@ -725,4 +867,4 @@ async def run_react(project: Path, record: dict[str, Any], manifest: dict[str, A
         shutil.rmtree(home_dir, ignore_errors=True)
 
 
-__all__ = ["run", "run_react", "install_checks", "compare_frames", "probe_plan", "wire_bytes"]
+__all__ = ["run", "run_react", "install_checks", "compare_frames", "probe_plan", "wire_bytes", "on_demand_check"]

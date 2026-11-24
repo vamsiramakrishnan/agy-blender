@@ -441,7 +441,8 @@ def _compression_note(comp: dict[str, Any], plan: web.WebPlan) -> str:
         g = comp.get("gpu_memory_computed") or {}
         return (f"not compressed (--compress auto): {comp['reason']}. A page must not download more than before; the gain would be "
                 f"GPU memory only, {g.get('uncompressed', 0) / 1e6:.1f} MB -> {g.get('block_compressed', 0) / 1e6:.1f} MB (computed from "
-                f"the block format, not observed). --compress always takes it. Tiers tried: {_tiers_text(comp.get('tiers_tried'))}")
+                f"the block format, not observed). --compress always on the command line, compress=\"always\" through "
+                f"the install_into_project tool, takes it. Tiers tried: {_tiers_text(comp.get('tiers_tried'))}")
     if s == "rejected":
         tried = _tiers_text(comp.get("tiers_tried"))
         return f"not compressed: {comp.get('reason')}" + (f". Tiers tried: {tried}" if tried else "")
@@ -508,10 +509,26 @@ def check_into(result: InstallResult, project: Path, record: dict[str, Any], man
         result.screenshot = str(out / "web_three.png")
     if measured.get("wire"):
         w = measured["wire"]
-        result.notes.append(f"a page loading this asset received {w['asset_bytes']:,} bytes for it (all levels, textures once, collision "
-                            f"data) and {w['transcoder_bytes']:,} for the shared KTX2 transcoder")
+        result.notes.append(_wire_note(w, record))
     write_report(project, out, result, record, measured)
     result.report_path = str(out / "report.json")
+
+
+def _wire_note(w: dict[str, Any], record: dict[str, Any]) -> str:
+    """What a page downloads for the asset, as the check's page server counted it."""
+    shared = f" and {w['transcoder_bytes']:,} for the shared KTX2 transcoder" if w.get("transcoder_bytes") else ""
+    if len(record.get("levels") or []) < 2:
+        return (f"a page loading this asset received {w['asset_bytes']:,} bytes for it (its one level, textures once, "
+                f"collision data){shared}")
+    if not w.get("default_load_measured"):
+        return (f"a page loading this asset with every level received {w['all_levels_bytes']:,} bytes for it{shared}; "
+                f"the load with default options could not be measured, and fetches {w['far_level_bytes']:,} bytes "
+                "of far levels less")
+    return (f"a page loading this asset as the loader does by default received {w['asset_bytes']:,} bytes for it (the "
+            f"nearest level, textures once, collision data){shared}; the {len(record['levels']) - 1} far level(s), "
+            f"{w['far_level_bytes']:,} bytes, are each fetched the first time the camera comes within "
+            f"{web.ON_DEMAND_REACH:.0%} of the distance where it appears, and never on a page whose camera stays "
+            f'nearer (levels: "all" fetches them before the loader resolves: {w["all_levels_bytes"]:,} bytes)')
 
 
 def check_web(project: Path, dest: str, record: dict[str, Any]) -> InstallResult:

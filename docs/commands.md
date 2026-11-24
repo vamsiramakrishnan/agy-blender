@@ -246,18 +246,28 @@ scene.add(await loadMilitarySupplyCrate({ renderer }));
 ```
 
 `renderer` is needed for compressed textures. The result is a `THREE.Group` holding one `THREE.LOD` that follows the
-live camera. `group.userData.agy3d` holds `bounds`, `hulls` (the collision hulls as plain arrays of points and
-triangle indices, for Rapier or cannon-es; no physics library is wired), `levels` and `dispose()`, which frees what
-the loader made. Options: `baseUrl`, `transcoderPath`, `collision: false` (do not fetch the collision data).
+live camera. The promise resolves once the nearest level (with its textures) and the collision data are loaded; each
+farther level is fetched the first time the camera comes within 80 % of the distance where it appears, and until it
+has arrived the nearest loaded level is drawn. A far level that fails to load leaves the nearer one drawn, with one
+console warning naming the file. `group.userData.agy3d` holds `bounds`, `hulls` (the collision hulls as plain arrays
+of points and triangle indices, for Rapier or cannon-es; no physics library is wired), `levels` (every level, each
+with `loaded`), `loadLevels()` (a promise that every level is loaded, to fetch them ahead) and `dispose()`, which
+frees what the loader made, also a level that arrives afterwards. Options: `baseUrl`, `transcoderPath`,
+`collision: false` (do not fetch the collision data), `levels: "all"` (fetch every level before resolving; the
+promise then rejects if one fails).
 With React Three Fiber: `<MilitarySupplyCrate position={[0, 0, 0]} />` in a `<Canvas>`, imported from
-`./agy3d/military_supply_crate/react`.
+`./agy3d/military_supply_crate/react`; it takes the same options as props (`levels="all"` among them).
 
 Checks, run in a headless browser with the project's own three.js on a copy of what was written, each passed, failed
 or skipped with the reason: `import`, `loader`, `scene`, `scale`, `levels`, `materials`, `outline`, `collision` (every
-hull point against the package's colliders file), `level_switching`, `shared_textures`, `loader_vs_package` (replaced
-by `compression` when the files are compressed) and, with React Three Fiber, `react_component`. That is 11 checks, 12
-with React Three Fiber. Without a browser, or without `node_modules/three`, they are skipped, never passed.
-A run printed:
+hull point against the package's colliders file), `level_switching`, `shared_textures`, `levels_on_demand` (with
+default options only the nearest level's file is requested, and a camera beyond the next level's reach requests that
+file once and the LOD then draws it, counted from the requests the check's page server answered),
+`loader_vs_package` (replaced by `compression` when the files are compressed) and, with React Three Fiber,
+`react_component`. The other checks load every level (`levels: "all"`). That is 12 checks, 13 with React Three
+Fiber. Without a browser, or without `node_modules/three`, they are skipped, never passed. The result's notes say how
+many bytes a page receives for the asset with default options, and how many the far levels add when they are
+fetched. A run from before `levels_on_demand` existed printed:
 
 ```text
 agy3d install: installed military_supply_crate: loader in src/agy3d/military_supply_crate, files in public/agy3d/military_supply_crate

@@ -143,7 +143,7 @@ In more detail:
 | Unreal Engine 5 | An import check adapter that runs when `UnrealEditor-Cmd` is found; never run here or in CI | No: `install` says what to import and writes nothing |
 | Unity URP | An import check adapter that runs when the Unity editor is found; never run here or in CI. Unity staging of far LOD files is untested | No, as above |
 | Roblox R15 | No headless verifier | No, as above |
-| three.js | The headless-browser check (`web_runtime`, above) on every package; for `web_three` it is the required engine check. `agy3d install` runs 11 checks in the project (12 with React Three Fiber) with the project's own three.js, run on 0.152.2, 0.160.0, 0.169.0, 0.170.0 and 0.187.0 | Yes, by `agy3d install` or the plugin's `install_into_project`, into a project with a `three` dependency (React Three Fiber included); a package built for another engine is refused |
+| three.js | The headless-browser check (`web_runtime`, above) on every package; for `web_three` it is the required engine check. `agy3d install` runs 12 checks in the project (13 with React Three Fiber) with the project's own three.js, run on 0.152.2, 0.160.0, 0.169.0, 0.170.0 and 0.187.0 | Yes, by `agy3d install` or the plugin's `install_into_project`, into a project with a `three` dependency (React Three Fiber included); a package built for another engine is refused |
 
 Renderers: stock Blender 5.3 supports the warm worker path over Unix IPC and shared memory. Workbench, EEVEE and CPU
 Cycles render the regression fixtures. A headless Linux renderer needs a working display or Xvfb. Use
@@ -236,6 +236,14 @@ What `agy3d install` into a three.js project does not do, and what it cannot tel
   or Rolldown (Vite 8 ships it instead). With neither, `react_component` is skipped and the component is written
   unchecked. For Rolldown the entry file is written for a moment under the project's `node_modules/.cache`, because
   Rolldown takes no entry from standard input and looks for `react` from the folder of the importing file.
+- **A far level is fetched when the camera first comes near it, so it can arrive late.** The loader resolves with
+  the nearest level (its textures and the collision data); a farther level is requested the first time the camera
+  comes within 80 % of the distance where that level appears, and until it has arrived three.js draws the nearest
+  loaded level. A camera that jumps far away in one frame sees the near level for as long as the file takes.
+  `levels: "all"` fetches every level before the loader resolves, and `group.userData.agy3d.loadLevels()` fetches
+  them afterwards. On the third website's three props (round eight, uncompressed, measured by the check's page
+  server) the default load is 1,532,065 bytes against 2,388,265 for every level: the far levels' 856,200 bytes, which
+  that site's camera never reached, are no longer fetched by a page that does not show them.
 - **Other three.js versions are not checked.** The in-project check was run on 0.152.2, 0.160.0, 0.169.0, 0.170.0
   and 0.187.0. Outside r152 to r187 the files are written and the result says "not checked on this version".
 - **Collision hulls are handed over as plain arrays** (`group.userData.agy3d.hulls`, points and triangle indices).

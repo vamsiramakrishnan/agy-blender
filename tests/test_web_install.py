@@ -944,7 +944,7 @@ def test_node_modules_are_searched_in_the_project_and_up_to_its_workspace_or_rep
 # --------------------------------------------------------------------------- the loader text
 
 
-def test_the_loader_ends_the_ktx2_pool_frees_only_what_it_made_loads_levels_together_and_types_for_react_18_and_19(crate, tmp_path, monkeypatch):
+def test_the_loader_ends_the_ktx2_pool_frees_only_what_it_made_fetches_far_levels_on_demand_and_types_for_react_18_and_19(crate, tmp_path, monkeypatch):
     monkeypatch.setattr(web, "node_executable", lambda: "/usr/bin/node")
     project = _project(tmp_path / "game", {"three": THREE, "vite": "6", "react": "18", "@react-three/fiber": "8"})
     _fake_node_modules(project)
@@ -954,7 +954,13 @@ def test_the_loader_ends_the_ktx2_pool_frees_only_what_it_made_loads_levels_toge
     js = (project / r.dest / "index.js").read_text()
     assert "function leaseKtx2" in js and "entry.loader.dispose()" in js and "ktx2.release()" in js  # the pool's life ends
     assert "options.ktx2Loader" in js  # ... unless the project passes its own, which is never disposed
-    assert "DATA.levels.map((level) => loader.loadAsync" in js  # every level at once
+    # the nearest level through the KTX2 loader; a far level (no image) through a loader without one, on demand
+    assert "loader.loadAsync(join(base, DATA.levels[0].file))" in js and "DATA.levels.map((level) => loader.loadAsync" not in js
+    assert "farLoader.setMeshoptDecoder(MeshoptDecoder)" in js and "farLoader.setKTX2Loader" not in js
+    assert f"const REACH = {web.ON_DEMAND_REACH:g};" in js and "levels?: \"all\"" in (project / r.dest / "index.d.ts").read_text()
+    assert "loadLevels(): Promise<" in (project / r.dest / "index.d.ts").read_text()
+    react = (project / r.dest / "react.js").read_text()
+    assert "collision, levels, onLoad" in react and "collision, levels })" in react and "collision, levels]" in react
     assert "made.textures" in js and "root.traverse" not in js.split("dispose()")[1]  # only what the loader made
     assert "ReactElement" in (project / r.dest / "react.d.ts").read_text() and "JSX.Element" not in (project / r.dest / "react.d.ts").read_text()
 
@@ -1334,7 +1340,7 @@ def test_the_page_runner_removes_webrtc_and_collects_policy_reports(tmp_path):
     assert "report-uri" in w3.CONTENT_SECURITY_POLICY or w3.CSP_REPORT_PATH
 
 
-def test_the_ktx2_pool_and_all_levels_are_settled_before_release_and_a_failure_frees_what_loaded(crate, tmp_path, monkeypatch):
+def test_the_ktx2_pool_is_released_after_the_nearest_level_and_a_failure_frees_what_loaded(crate, tmp_path, monkeypatch):
     monkeypatch.setattr(web, "node_executable", lambda: "/usr/bin/node")
     project = _project(tmp_path / "game")
     _fake_node_modules(project)
@@ -1343,7 +1349,10 @@ def test_the_ktx2_pool_and_all_levels_are_settled_before_release_and_a_failure_f
     r = install_package(crate, project)
     js = (project / r.dest / "index.js").read_text()
     assert "Promise.allSettled" in js and js.index("ktx2.release()") > js.index("Promise.allSettled")
-    assert "throw failed.reason" in js and "freeScene(r.value.scene)" in js
+    assert "throw failed.reason" in js and "freeScene(settled[0].value.scene)" in js
+    # levels: "all" requested beside the nearest level and freed when it fails; a far level after dispose() is freed
+    assert "early.forEach((p) => p && p.then((gltf) => freeScene(gltf.scene)" in js
+    assert "if (disposed) { freeScene(gltf.scene); return; }" in js
 
 
 def _smooth_package(pkg: Path, dst: Path) -> Path:
@@ -1426,7 +1435,11 @@ def test_browser_uncompressed_install_renders_in_the_projects_own_three_and_is_t
     c = _by_name(r)
     assert r.status == "installed" and r.ok, [(x.name, x.status, x.detail[:200]) for x in r.checks]
     assert {"import", "loader", "scene", "scale", "levels", "materials", "collision", "level_switching", "shared_textures",
-            "loader_vs_package", "react_component"} <= set(c)
+            "levels_on_demand", "loader_vs_package", "react_component"} <= set(c)
+    wire = json.loads(Path(r.report_path).read_text())["measured"]["wire"]
+    assert wire["default_load_measured"] and 0 < wire["far_level_bytes"] == wire["all_levels_bytes"] - wire["asset_bytes"]
+    assert any(n.startswith(f"a page loading this asset as the loader does by default received {wire['asset_bytes']:,} bytes")
+               for n in r.notes), r.notes
     assert not [x for x in r.checks if x.status != "passed" and x.name != "outline"], [(x.name, x.status, x.detail) for x in r.checks]
     # the same files through the loader and straight from the package: the same picture
     assert c["loader_vs_package"].data["mean_abs"] == 0 and c["loader_vs_package"].data["outline"] == 1.0
@@ -1697,6 +1710,11 @@ def test_browser_the_check_fails_when_the_install_is_wrong(crate, tmp_path, brow
     assert "if (shared) { o.material.dispose(); o.material = shared; }" in text
     loader.write_text(text.replace("if (shared) { o.material.dispose(); o.material = shared; }", ""))
     assert _by_name(check_install(project, r.dest))["shared_textures"].status == "failed"
+    # a loader that fetches every level whatever the options (as the template did before round eight's review)
+    assert 'const all = options.levels === "all";' in text
+    loader.write_text(text.replace('const all = options.levels === "all";', "const all = true;"))
+    eager = _by_name(check_install(project, r.dest))["levels_on_demand"]
+    assert eager.status == "failed" and "expected only the nearest" in eager.detail, eager.detail
     loader.write_text(text)
     comp = project / r.dest / "react.js"
     keep = comp.read_text()
@@ -1714,5 +1732,259 @@ def test_the_loader_template_names_every_placeholder_it_uses():
         text = f.read_text()
         left = set(re.findall(r"%%[A-Z0-9_]+%%", text))
         known = {"%%ASSET%%", "%%LOAD%%", "%%COMPONENT%%", "%%ASSETS_URL%%", "%%BASIS_URL%%", "%%IMPORTS%%", "%%KTX2%%",
-                 "%%LOADER_SETUP%%", "%%DATA%%", "%%KTX2_TYPE_IMPORT%%", "%%KTX2_OPTION%%"}
+                 "%%LOADER_SETUP%%", "%%DATA%%", "%%KTX2_TYPE_IMPORT%%", "%%KTX2_OPTION%%", "%%REACH%%"}
         assert left <= known, (f.name, left - known)
+
+
+# --------------------------------------------------------------------------- far levels fetched on demand
+
+
+def test_the_bytes_note_says_what_a_default_load_fetches_and_when_the_far_levels_come(crate, tmp_path):
+    """The page server's requests are cut at the check page's marks: the note's number is the default load's, not the
+    load with every level that the other checks need (run 3 of the website task: 856 kB of far levels out of 1.56 MB
+    were counted as what a page receives, and fetched by a page that never showed them)."""
+    project = _project(tmp_path / "game")
+    r = _install(crate, project)
+    rec = json.loads((project / r.dest / RECORD).read_text())
+    a = "/" + rec["assets_url"].strip("/") + "/"
+    near, far = rec["levels"][0]["file"], rec["levels"][1]["file"]
+    served = [("/page.html", 900), (a + near, 1000), (a + far, 300), (a + "collision.json", 50), (a + "textures/x.png", 700),
+              ("/_mark_default_load.txt", 1), (a + near, 1000), (a + "collision.json", 50), (a + "textures/x.png", 700),
+              ("/_mark_camera.txt", 1), (a + far, 300), ("/_mark_end.txt", 1), ("/ref.glb", 5000)]
+    w = WC.wire_bytes(served, rec)
+    assert (w["asset_bytes"], w["all_levels_bytes"], w["far_level_bytes"], w["default_load_measured"]) == (1750, 2050, 300, True)
+    note = WI._wire_note(w, rec)
+    assert "by default received 1,750 bytes" in note and "1 far level(s), 300 bytes" in note and "80%" in note
+    assert "2,050 bytes" in note and "transcoder" not in note
+    # a page that never reached its marks: the load with every level, said as such
+    w = WC.wire_bytes(served[:5], rec)
+    assert not w["default_load_measured"] and "with every level received 2,050 bytes" in WI._wire_note(w, rec)
+    # and the check reads the same cut: only the nearest level at load, the far one once after the camera moved
+    m = json.loads((crate / "manifest.json").read_text())
+    plan = WC.on_demand_plan(rec)
+    raw = {"on_demand": {"after_load": {"lod_levels": 1}, "visible": [f"LOD{plan['shown']}"], "failed": [False, False],
+                         "triangles": m["lod_tris"][plan["shown"]], "frames_to_arrive": 2}}
+    assert WC.on_demand_check(raw, served, rec, m, WI.Check).status == "passed"
+    twice = served[:10] + [(a + far, 300)] + served[10:]
+    assert "expected {1: 1}" in WC.on_demand_check(raw, twice, rec, m, WI.Check).detail
+    eager = served[:7] + [(a + far, 300)] + served[7:]
+    assert "expected only the nearest" in WC.on_demand_check(raw, eager, rec, m, WI.Check).detail
+
+
+def test_the_declined_compression_note_names_the_tool_parameter_and_the_flag():
+    plan = web.WebPlan({}, set(), None, [], {}, [0, 0, 0], 1.0, 60.0, False, {})  # type: ignore[arg-type]
+    note = WI._compression_note({"state": "declined", "reason": "too large", "tiers_tried": []}, plan)
+    assert "--compress always" in note and 'compress="always"' in note and "install_into_project" in note
+
+
+@pytest.fixture()
+def installed(crate, tmp_path):
+    """The crate installed (uncompressed, unchecked) into a copy of the fixture project: (project, record)."""
+    project = _fixture_project(tmp_path)
+    r = install_package(crate, project, compress=False, check=False)
+    assert r.ok, r.message
+    return project, json.loads((project / r.dest / RECORD).read_text())
+
+
+_LOADER_PAGE = """<!doctype html><html><head><meta charset="utf-8">
+<script type="importmap">{"imports":{"three":"./_m/__three/build/three.module.js","three/examples/jsm/":"./_m/__three/examples/jsm/"}}</script>
+</head><body><canvas id="c" width="128" height="128"></canvas><script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+const t = { done: false }; window.__t = t;
+const job = __JOB__;
+// what the page sees of the loader's files: every glTF it parsed, and every geometry disposed
+const freed = new Set(), arrived = [];
+const dispose = THREE.BufferGeometry.prototype.dispose;
+THREE.BufferGeometry.prototype.dispose = function () { freed.add(this.uuid); return dispose.call(this); };
+const loadAsync = GLTFLoader.prototype.loadAsync;
+GLTFLoader.prototype.loadAsync = function (url, p) { const r = loadAsync.call(this, url, p); r.then((g) => arrived.push({ url, g }), () => {}); return r; };
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('c') });
+renderer.setSize(128, 128, false);
+const mark = (name) => fetch('./mark_' + name + '.txt');
+const frame = () => new Promise((ok) => requestAnimationFrame(ok));
+// a camera at `distance` metres from the bounding sphere's centre, as the recorded distances measure it
+const cameraAt = (group, fov, distance) => {
+  const c = new THREE.PerspectiveCamera(fov, 1, 0.01, 10000), o = new THREE.Vector3(...group.userData.agy3d.bounds.center);
+  c.position.copy(o).add(new THREE.Vector3(0.3, 0.4, 1).normalize().multiplyScalar(distance)); c.lookAt(o); c.updateMatrixWorld(true);
+  return c;
+};
+const draw = async (scene, camera, n, until) => {
+  for (let i = 0; i < n; i++) { renderer.info.reset(); renderer.render(scene, camera); if (until && until()) return i + 1; await frame(); }
+  return n;
+};
+const shown = (group) => group.userData.agy3d.lod.levels.filter((l) => l.object.visible).map((l) => l.object.name);
+const state = (group, scene, camera) => {
+  renderer.info.reset(); renderer.render(scene, camera);
+  return { shown: shown(group), triangles: renderer.info.render.triangles, lod_levels: group.userData.agy3d.lod.levels.length,
+           loaded: group.userData.agy3d.levels.map((l) => l.loaded), failed: group.userData.agy3d.levels.map((l) => l.failed) };
+};
+const load = (await import('./_m/__code/index.js'))[job.export];
+try {
+__BODY__
+} catch (e) { t.error = String((e && e.stack) || e); }
+t.done = true;
+</script></body></html>"""
+
+
+def _run_loader_page(tmp_path: Path, project: Path, rec: dict, body: str, marks: list[str], assets: Path | None = None) -> dict:
+    """Run ``body`` (page script) against the installed loader, its files served where the developer's page finds them.
+    Returns run_page's result with ``segments``: the asset requests (level index, or the file name) between the marks."""
+    import asyncio
+
+    from antigravity3d.adapters.engines import web_three as w3
+
+    page = tmp_path / "loader_page"
+    page.mkdir()
+    for m in marks:
+        (page / f"mark_{m}.txt").write_text(m)
+    job = {"export": "load" + web.pascal(rec["asset"]), "fov": rec["fov_deg"], "levels": rec["levels"]}
+    (page / "page.html").write_text(_LOADER_PAGE.replace("__JOB__", json.dumps(job)).replace("__BODY__", body))
+    prefix = "/" + rec["assets_url"].strip("/") + "/"
+    mounts = {prefix: assets or project / rec["assets"], "__code": project / rec["dest"],
+              "__three": project / "node_modules" / "three"}
+    run = asyncio.run(w3.run_page(page, w3.WebThreeValidator().binary(), 60, mounts=mounts, ready="window.__t && window.__t.done",
+                                  result="window.__t", env=WC.browser_env(tmp_path), keep_browser=False))
+    files = {prefix + lv["file"]: lv["index"] for lv in rec["levels"]}
+    segs: list[list] = [[]]
+    for p, _n in run["served"]:
+        if p.startswith("/mark_"):
+            segs.append([])
+        elif p.startswith(prefix):
+            segs[-1].append(files.get(p, p[len(prefix):]))
+    run["segments"] = segs
+    assert not run["raw"].get("error"), run["raw"]["error"]
+    return run
+
+
+def _ours(run: dict, kinds: tuple[str, ...] = ("warning", "error")) -> list[str]:
+    """The console's warnings and errors, without the browser's own (a driver's performance hint, a 404 line)."""
+    from antigravity3d.adapters.engines.web_three import PASS_RULE
+
+    return [c["text"] for c in run["console"] if c["type"] in kinds and "Failed to load resource" not in c["text"]
+            and not any(i in c["text"] for i in PASS_RULE.ignored_console)]
+
+
+@pytest.mark.browser
+def test_browser_the_default_load_fetches_the_nearest_level_and_a_far_one_when_the_camera_comes_within_reach(installed, tmp_path, browser_ready):
+    """With a 30 degree lens (the levels were recorded for 60) the reach is the same picture size: a camera at 75 % of
+    the reach in recorded terms is much farther in metres and must not fetch; 85 % fetches while the near level is
+    still drawn, and past the switch the LOD draws the far level, which arrived once."""
+    project, rec = installed
+    body = """
+  const group = await load({ renderer });
+  const scene = new THREE.Scene(); scene.add(group);
+  t.at_load = state(group, scene, cameraAt(group, 60, 1));
+  await mark('load');
+  const k = Math.tan(THREE.MathUtils.degToRad(15)) / Math.tan(THREE.MathUtils.degToRad(job.fov / 2));
+  const d1 = job.levels[1].distance;
+  const far = cameraAt(group, 30, 0.75 * __REACH__ * d1 / k);
+  await draw(scene, far, 10);
+  t.outside_reach = state(group, scene, far);
+  await mark('outside');
+  const inside = cameraAt(group, 30, 1.0625 * __REACH__ * d1 / k);
+  t.frames = await draw(scene, inside, 300, () => group.userData.agy3d.levels[1].loaded);
+  await draw(scene, inside, 3);
+  t.inside_reach = state(group, scene, inside);
+  const beyond = cameraAt(group, 30, 1.03 * d1 / k);
+  await draw(scene, beyond, 3);
+  t.beyond_switch = state(group, scene, beyond);
+  await mark('beyond');
+""".replace("__REACH__", f"{web.ON_DEMAND_REACH:g}")
+    run = _run_loader_page(tmp_path, project, rec, body, ["load", "outside", "beyond"])
+    raw, segs = run["raw"], run["segments"]
+    m = json.loads((project / rec["dest"] / ".agy3d" / "package_manifest.json").read_text())
+    assert 0 in segs[0] and 1 not in segs[0], segs  # the load: the nearest level (and its textures, the collision data)
+    assert raw["at_load"]["lod_levels"] == 1 and raw["at_load"]["loaded"] == [True, False], raw["at_load"]
+    assert segs[1] == [] and raw["outside_reach"]["loaded"] == [True, False], (segs, raw["outside_reach"])
+    assert segs[2] == [1], segs  # within reach: the far level, once, and nothing else
+    assert raw["inside_reach"]["lod_levels"] == 2 and raw["inside_reach"]["shown"] == ["LOD0"], raw["inside_reach"]
+    assert raw["inside_reach"]["triangles"] == m["lod_tris"][0]
+    assert raw["beyond_switch"]["shown"] == ["LOD1"] and raw["beyond_switch"]["triangles"] == m["lod_tris"][1], raw["beyond_switch"]
+    assert segs[3] == [] and not _ours(run) and not run["page_errors"], (segs, _ours(run))
+
+
+@pytest.mark.browser
+def test_browser_levels_all_and_load_levels_fetch_every_level_before_they_resolve(installed, tmp_path, browser_ready):
+    project, rec = installed
+    body = """
+  const all = await load({ renderer, levels: 'all' });
+  t.all = { lod_levels: all.userData.agy3d.lod.levels.length, loaded: all.userData.agy3d.levels.map((l) => l.loaded) };
+  all.userData.agy3d.dispose();
+  await mark('all');
+  const group = await load({ renderer });
+  t.before = group.userData.agy3d.lod.levels.length;
+  await mark('default');
+  const same = await group.userData.agy3d.loadLevels();
+  t.after = { same: same === group, lod_levels: group.userData.agy3d.lod.levels.length, loaded: group.userData.agy3d.levels.map((l) => l.loaded) };
+  await group.userData.agy3d.loadLevels();
+  const scene = new THREE.Scene(); scene.add(group);
+  await draw(scene, cameraAt(group, 60, 2 * job.levels[1].distance), 5);
+  t.far_shown = shown(group);
+  await mark('again');
+  try { await load({ renderer, levels: 2 }); } catch (e) { t.bad_option = String(e.message); }
+"""
+    run = _run_loader_page(tmp_path, project, rec, body, ["all", "default", "again"])
+    raw, segs = run["raw"], run["segments"]
+    assert {0, 1} <= set(segs[0]) and raw["all"] == {"lod_levels": 2, "loaded": [True, True]}, (segs, raw["all"])
+    assert 0 in segs[1] and 1 not in segs[1] and raw["before"] == 1, segs
+    # loadLevels(): the far level once, though it was called twice and the camera then went past its switch
+    assert segs[2] == [1] and segs[3] == [], segs
+    assert raw["after"] == {"same": True, "lod_levels": 2, "loaded": [True, True]} and raw["far_shown"] == ["LOD1"]
+    assert 'levels is "all" or left out' in raw["bad_option"]
+
+
+@pytest.mark.browser
+def test_browser_a_far_level_that_fails_leaves_the_near_level_and_warns_once(installed, tmp_path, browser_ready):
+    project, rec = installed
+    assets = tmp_path / "assets_copy"
+    shutil.copytree(project / rec["assets"], assets)
+    far = rec["levels"][1]["file"]
+    (assets / far).unlink()  # the page server answers 404 for it
+    body = """
+  const group = await load({ renderer });
+  const scene = new THREE.Scene(); scene.add(group);
+  const beyond = cameraAt(group, 60, 2 * job.levels[1].distance);
+  t.frames = await draw(scene, beyond, 300, () => group.userData.agy3d.levels[1].failed);
+  await draw(scene, beyond, 30);
+  t.state = state(group, scene, beyond);
+  try { await group.userData.agy3d.loadLevels(); t.load_levels = 'resolved'; } catch (e) { t.load_levels = 'rejected'; }
+  await draw(scene, beyond, 5);
+  try { await load({ renderer, levels: 'all' }); t.all = 'resolved'; } catch (e) { t.all = 'rejected'; }
+"""
+    run = _run_loader_page(tmp_path, project, rec, body, [], assets=assets)
+    raw = run["raw"]
+    m = json.loads((project / rec["dest"] / ".agy3d" / "package_manifest.json").read_text())
+    assert raw["state"]["shown"] == ["LOD0"] and raw["state"]["triangles"] == m["lod_tris"][0], raw["state"]
+    assert raw["state"]["loaded"] == [True, False] and raw["state"]["failed"] == [False, True] and raw["state"]["lod_levels"] == 1
+    # requested twice in all: once by the camera (then never again, over 30 more frames and a loadLevels() call), once
+    # by the separate load with levels: "all", which rejects
+    assert sum(far in b for b in run["blocked"]) == 2, run["blocked"]
+    assert raw["load_levels"] == "rejected" and raw["all"] == "rejected"
+    warned = _ours(run, ("warning",))
+    assert len(warned) == 1 and far in warned[0] and "404" in warned[0], warned
+
+
+@pytest.mark.browser
+def test_browser_a_far_level_that_arrives_after_dispose_is_freed_and_not_added(installed, tmp_path, browser_ready):
+    project, rec = installed
+    body = """
+  const group = await load({ renderer });
+  const scene = new THREE.Scene(); scene.add(group);
+  const a = group.userData.agy3d;
+  renderer.render(scene, cameraAt(group, 60, 2 * job.levels[1].distance));  // the update requests the far level ...
+  a.dispose();                                                            // ... which cannot have arrived yet
+  const url = job.levels[1].file;
+  for (let i = 0; i < 300 && !arrived.some((x) => x.url.endsWith(url)); i++) await frame();
+  for (let i = 0; i < 5; i++) await frame();
+  const late = arrived.find((x) => x.url.endsWith(url));
+  const geometries = []; if (late) late.g.scene.traverse((o) => { if (o.isMesh) geometries.push(o.geometry.uuid); });
+  t.late = { arrived: !!late, geometries: geometries.length, freed: geometries.every((u) => freed.has(u)),
+             lod_levels: a.lod.levels.length, loaded: a.levels.map((l) => l.loaded) };
+  try { await a.loadLevels(); t.load_levels = 'resolved'; } catch (e) { t.load_levels = String(e.message); }
+"""
+    run = _run_loader_page(tmp_path, project, rec, body, [])
+    late = run["raw"]["late"]
+    assert late["arrived"] and late["geometries"] > 0 and late["freed"], late
+    assert late["lod_levels"] == 1 and late["loaded"] == [True, False], late
+    assert "after dispose()" in run["raw"]["load_levels"] and not _ours(run)

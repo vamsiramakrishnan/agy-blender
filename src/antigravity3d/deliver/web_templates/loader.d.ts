@@ -23,7 +23,12 @@ export interface Agy3dData {
   /** Empty when loaded with `collision: false`. */
   hulls: Record<string, Agy3dHull>;
   lod: LOD;
-  levels: { file: string; triangles: number; distance: number }[];
+  /** Every level, nearest first. `distance`: where it appears, for the recorded field of view. `loaded`: in the LOD
+   * now. `failed`: its file did not load (the nearer level stays shown; it is not requested again). */
+  levels: { file: string; triangles: number; distance: number; loaded: boolean; failed: boolean }[];
+  /** Fetches every level not loaded yet; resolves with the group once all are in the LOD, rejects if one failed. */
+  loadLevels(): Promise<Group & { userData: { agy3d: Agy3dData } }>;
+  /** Frees what the loader made; a level that arrives later is freed and not added. */
   dispose(): void;
 }
 
@@ -36,6 +41,10 @@ export interface LoadOptions {
   transcoderPath?: string;
 %%KTX2_OPTION%%  /** false: do not fetch the collision data (a page without physics). */
   collision?: boolean;
+  /** Left out: the loader resolves with the nearest level, and each farther level is fetched the first time the camera
+   * comes within 80 % of the distance where it appears. "all": every level is fetched before the loader resolves, and
+   * it rejects if one fails. */
+  levels?: "all";
 }
 
 export const bounds: Agy3dBounds;
