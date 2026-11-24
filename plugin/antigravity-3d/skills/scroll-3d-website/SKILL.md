@@ -56,18 +56,25 @@ run 1 the three props took 45 of 69 minutes and the site itself 20: one pass and
 
 ### 1. Storyboard
 
-One row per chapter, five to eight chapters. Each chapter says one thing.
+First name the one thing a visitor follows down the whole page: what the project works on (a log, a request, a part).
+Then one row per chapter, five to eight chapters, each saying one thing, and its 3D written as what happens to that
+thing there: what goes in, what is done to it, what comes out.
 
-| id | the visitor reads (one idea, at most 60 words) | the 3D shows (subject, shot, what changes) | facts and their source |
+| id | the visitor reads (one idea, at most 60 words) | the 3D shows (what happens to the followed thing, the subject, the shot) | facts and their source |
 |---|---|---|---|
-| intro | what the project is, in one line | the main prop and its place, wide, slow orbit | none |
-| how | ... | ... | each number, with the file and place it is copied from |
+| intro | what the project is, in one line | the whole place and the thing arriving, wide | none |
+| how | what the first station does | the thing going in, the working part closing on it, what leaves; medium | each number, with the file and place it is copied from |
 
-Then list the props: the objects that appear in more than one chapter or carry the story. A chapter that needs something
-small and repeated (tokens, lines, rows) draws it in the page's own code as one `InstancedMesh`, a layer, not as a prop;
-when the text gives a number, the layer shows that number as a count of instances ([recipes.md](recipes.md)). Why: run
-3's text said 570 times and its picture showed 96 slabs against 6. Everything else is a shot of the same world: the site
-is one place the camera travels through, not a slideshow of scenes.
+Then list the props: the stations, the objects that appear in more than one chapter or carry the story. Describe each
+open where its work happens (a press with its platen over the stack, a cabinet with one drawer out, a gate with its
+lanes showing): that description is what you model from in step 3, and a closed case with a label explains nothing.
+What the stations work on is small and repeated (tokens, lines, rows): draw it in the page's own code as one
+`InstancedMesh`, a layer, not as a prop; when the text gives a number, the layer shows that number as a count of
+instances ([recipes.md](recipes.md)). Everything else is a shot of the same world: the site is one place the camera
+travels through, not a slideshow of scenes. Why: judged blind against run 2, run 3 was the better composed in all six
+verdicts and the worse explanation in four. Run 2's press stood open over the log, its rollers carried the lines and
+seven lanes stood for seven hosts, where run 3 "hides the digestion inside a closed box"; and run 3's text said 570
+times while its picture showed 96 slabs against 6.
 
 ### 2. Page and scene
 
@@ -152,8 +159,10 @@ away, which needs neither fine parts nor large maps.
 Build the site and run `check_site` with `target` the built folder and `sources` the folder of the project the site is
 about, so the facts on the page are compared with that project's files. Open both contact sheets (desktop and phone) and look at every step, not
 only the chapter stops. Then fix in this order and look again after each round: what is broken (errors, failed
-files, a fallback where the scene should be), dead frames, framing (subject behind text, cut off, too small),
-light and grounding, then polish.
+files, a fallback where the scene should be), dead frames, framing (subject behind text, cut off, too small), what
+the picture explains, light and grounding, then polish. For what the picture explains, cover the panel of each frame
+and ask what a visitor would say happens in it: the followed thing, the part that acts on it and the result must be
+in the picture. A frame that needs its text to be understood goes back to the storyboard row, not to the camera.
 
 ## What makes a site scroll beautifully
 
@@ -227,7 +236,8 @@ The site is done when `check_site` on the built folder reports, at both sizes:
 - draw calls, triangles, texture memory and bytes you can state and defend (each prop through the installer, no
   model above a few MB).
 
-Look at the contact sheets yourself as well: the measures find broken frames, not ugly ones. Between looks, the page's
+Look at the contact sheets yourself as well: the measures find broken frames, not ugly ones, and not a frame that
+is well composed and shows a closed box. Between looks, the page's
 own hook answers quickly: `window.__site.setProgress(T)` draws story time T, and `window.__site.info()` gives the draw
 calls and `onScreen`: for each prop, layer and label (`kind`) on screen, its share of the window, its centre, its whole
 box (`box`, fractions of the window, below 0 or above 1 where it runs out of the frame) and, when the shot names one,
