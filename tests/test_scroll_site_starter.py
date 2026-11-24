@@ -315,16 +315,18 @@ def test_every_panel_is_readable_in_order_when_the_main_script_does_not_load(bro
         p.close()
 
 
+# The free area of the stacked (portrait phone) layout: the window above the highest panel of the fixed panel layer.
+_FREE_BOTTOM = "Math.min(...[...document.querySelectorAll('.panel')].map((el) => el.getBoundingClientRect().top)) / innerHeight"
+
+
 @pytest.mark.browser
-@pytest.mark.parametrize("size", ["desktop", "phone", "landscape phone"])
-def test_every_prop_on_stage_is_in_frame_and_clear_of_the_panel_at_each_chapters_rest(browser, bare, size) -> None:
-    """Run 2 widened a phone's view by a fixed factor and cut its props at both side edges; the starter's own shots
-    must hold at every window shape: each prop that is on stage inside the window, beside the panel (desktop, landscape)
-    or above it (portrait phone)."""
+@pytest.mark.parametrize("size", ["desktop", "landscape phone"])
+def test_every_prop_on_stage_is_in_frame_and_beside_the_panel_at_each_chapters_rest(browser, bare, size) -> None:
+    """Run 2 widened a phone's view by a fixed factor and cut its props at both side edges. Side by side, the starter
+    holds each shot's horizontal coverage: every prop on stage is inside the window and right of the panel."""
     p = Page(browser, bare, **SIZES[size])
     try:
         ids = p.open()["chapters"]
-        portrait = SIZES[size]["viewport"]["width"] < SIZES[size]["viewport"]["height"]
         for i, chapter in enumerate(ids):
             T = i + REST
             p.page.evaluate(f"__site.setProgress({T})")
@@ -337,10 +339,70 @@ def test_every_prop_on_stage_is_in_frame_and_clear_of_the_panel_at_each_chapters
                 assert name in on and on[name]["kind"] == "prop", (chapter, name, on)
                 x0, y0, x1, y1 = on[name]["box"]
                 assert -0.002 <= x0 and x1 <= 1.002 and -0.002 <= y0 and y1 <= 1.002, (size, chapter, name, on[name])
-                if portrait:
-                    assert y1 <= panel[1], (size, chapter, name, on[name]["box"], "panel", panel)
-                else:
-                    assert x0 >= panel[2], (size, chapter, name, on[name]["box"], "panel", panel)
+                assert x0 >= panel[2], (size, chapter, name, on[name]["box"], "panel", panel)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+# In the stacked layout a subject must fill at least this share of the free area's width or of its height, whichever
+# it reaches: the merged starter held the desktop's coverage there and its hero was 22 % of the width, a speck above a
+# tall band of empty floor. stage.js aims at 62 % / 60 % for a named subject, 38 % / 35 % for an establishing shot.
+SUBJECT_MIN, WIDE_MIN = 0.5, 0.3
+
+
+@pytest.mark.browser
+def test_the_stacked_phone_layout_fits_each_shots_subject_into_the_space_above_the_panel(browser, bare) -> None:
+    p = Page(browser, bare, **SIZES["phone"])
+    try:
+        ids = p.open()["chapters"]
+        bottom = p.page.evaluate(_FREE_BOTTOM)
+        assert 0.5 < bottom < 0.9, bottom
+        for i, chapter in enumerate(ids):
+            T = i + REST
+            p.page.evaluate(f"__site.setProgress({T})")
+            on = p.page.evaluate("__site.info().onScreen")
+            named = p.page.evaluate(f"__site.evaluate({T}).subject")
+            # a shot that names no subject is an establishing shot of the props on stage in its chapter
+            subjects = named or [n for n, v in p.page.evaluate(f"__site.evaluate({T}).show").items() if v > 0.99]
+            assert subjects, chapter
+            boxes = []
+            for name in subjects:
+                assert name in on and on[name].get("subject", True), (chapter, name, on)
+                boxes.append(on[name]["box"])
+            x0, y0 = min(b[0] for b in boxes), min(b[1] for b in boxes)
+            x1, y1 = max(b[2] for b in boxes), max(b[3] for b in boxes)
+            assert -0.002 <= x0 and x1 <= 1.002 and -0.002 <= y0 and y1 <= bottom + 0.002, (chapter, (x0, y0, x1, y1), bottom)
+            least = SUBJECT_MIN if named else WIDE_MIN
+            assert max((x1 - x0), (y1 - y0) / bottom) >= least, (chapter, "a speck", (x0, y0, x1, y1), bottom)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+def test_the_stacked_framing_is_continuous_through_a_chapter_change_and_a_function_of_story_time(browser, bare) -> None:
+    """The subject changes from one shot to the next during the move (how: hero and part; detail: part): the framing
+    blends on the camera's curve, so the picture moves on without a jump, and it is the same however T was reached."""
+    p = Page(browser, bare, **SIZES["phone"])
+    try:
+        ids = p.open()["chapters"]
+        start = ids.index("detail") - 0.1
+        boxes = lambda t0, dt, n: np.array(p.page.evaluate(
+            f"[...Array({n}).keys()].map((k) => {{ __site.setProgress({t0} + k * {dt}); return __site.info().onScreen.hero.box; }})"))
+        coarse = np.abs(np.diff(boxes(start, 0.005, 121), axis=0)).max(axis=1)
+        k = int(coarse.argmax())
+        assert coarse[k] < 0.1, coarse.round(3).tolist()
+        # where it changes fastest, a step ten times smaller changes it about ten times less: a slope, not a jump
+        fine = np.abs(np.diff(boxes(start + k * 0.005, 0.0005, 11), axis=0)).max()
+        assert fine < 0.25 * coarse[k], (fine, coarse[k])
+        at_change = boxes(ids.index("detail") - 1e-4, 2e-4, 2)
+        assert np.abs(at_change[1] - at_change[0]).max() < 0.005, at_change
+        p.page.evaluate("__site.setProgress(0)")
+        forward = boxes(start + 0.25, 0, 1)
+        p.page.evaluate(f"__site.setProgress({len(ids)})")
+        backward = boxes(start + 0.25, 0, 1)
+        assert np.abs(forward - backward).max() < 1e-6, (forward, backward)
         assert p.messages == [], p.messages
     finally:
         p.close()

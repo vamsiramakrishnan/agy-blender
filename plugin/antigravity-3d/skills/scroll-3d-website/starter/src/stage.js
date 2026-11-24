@@ -107,21 +107,68 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
 
   // Size: from the canvas's own box, which CSS sets (100lvh tall), not from innerHeight, which a phone's address bar
   // changes as it slides: run 2 drew at innerHeight and the browser stretched that to the taller box.
-  let W = 1, H = 1, frame = { x: 0, y: 0, fit: 1 };
+  let W = 1, H = 1, frame = { x: 0, y: 0, fit: 1 }, free = null;
   function resize() {
     W = Math.max(1, canvas.clientWidth); H = Math.max(1, canvas.clientHeight);
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
     renderer.setSize(W, H, false);
     frame = { x: parseFloat(css('--frame-x', '0')) || 0, y: parseFloat(css('--frame-y', '0')) || 0, fit: parseFloat(css('--frame-fit', '1')) || 1 };
+    // The stacked layout's free area: below any fixed bar marked data-bar, above the highest panel of the panel layer
+    // (all panels, so it does not change from chapter to chapter and the picture does not jump when the text does).
+    free = null;
+    if (css('--frame-stack', '0') === '1') {
+      const panels = [...document.querySelectorAll('.panel')].map((el) => el.getBoundingClientRect().top);
+      const bars = [...document.querySelectorAll('[data-bar]')].map((el) => el.getBoundingClientRect().bottom);
+      free = { top: Math.max(0, ...bars), bottom: Math.min(H, ...panels) };
+      if (free.bottom - free.top < 40) free = null;
+    }
     onChange();
   }
   resize();
   new ResizeObserver(resize).observe(canvas);
+  if (document.fonts) document.fonts.ready.then(resize); // the panels' heights, and so the free area, wait for fonts
 
   // Framing: CSS decides where the text sits (style.css, --frame-x / --frame-y / --frame-fit), the camera moves the
   // picture's centre into the free part of the window and widens the view by --frame-fit so the shot still fits there.
   // Below the shots' design shape (DESIGN_ASPECT) the view widens further, to hold the horizontal coverage the shot
-  // was designed for: a portrait phone sees as much across as a desktop, and the extra height goes above and below.
+  // was designed for. That is right beside a panel, where the free area keeps most of the window's width; in the
+  // stacked layout (portrait phone, panel below: --frame-stack: 1) it left the subject a speck in a landscape picture
+  // letterboxed into a portrait window. There the camera keeps the shot's position and direction and only the view
+  // (its width and offset) is fitted: the subject's box fills FILL of the free area's width or height, whichever binds,
+  // centred in it. A shot that names no subject is an establishing shot: its chapter's props fill LOOSE, so it still
+  // reads as wide. The shares are what looked right on the starter's stand-ins in check_site's phone sheet: 80 % left
+  // a box-shaped prop wall to wall (a box's projected corners overstate the prop) and a wide shot read as a close-up.
+  const FILL = { w: 0.62, h: 0.6 }, LOOSE = { w: 0.38, h: 0.35 };
+  const rest = new THREE.Box3(), corner2 = new THREE.Vector3();
+  function restBox(names) {
+    box.makeEmpty();
+    for (const name of names) {
+      const p = props[name];
+      if (!p) continue;
+      // the box at full height, so the framing does not follow a prop as it rises or sinks
+      const y = p.object.position.y;
+      p.object.position.y = 0;
+      p.object.updateWorldMatrix(true, true);
+      box.union(rest.setFromObject(p.object));
+      p.object.position.y = y;
+    }
+    return box;
+  }
+  // The view, as pixels per unit of tangent (s) and the window point (cx, cy) the camera's axis passes through.
+  function fitted({ props: names, loose }) {
+    const b = restBox(names);
+    if (b.isEmpty()) return null;
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (let k = 0; k < 8; k++) {
+      corner2.set(k & 1 ? b.max.x : b.min.x, k & 2 ? b.max.y : b.min.y, k & 4 ? b.max.z : b.min.z).applyMatrix4(camera.matrixWorldInverse);
+      if (corner2.z > -0.05) return null; // part of it behind the camera: no sensible fit
+      const u = corner2.x / -corner2.z, v = corner2.y / -corner2.z;
+      u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+    }
+    const share = loose ? LOOSE : FILL, fh = free.bottom - free.top;
+    const sc = Math.min((share.w * W) / (u1 - u0), (share.h * fh) / (v1 - v0));
+    return { s: sc, cx: W / 2 - (sc * (u0 + u1)) / 2, cy: (free.top + free.bottom) / 2 + (sc * (v0 + v1)) / 2 };
+  }
 
   const target = new THREE.Vector3(), focus = new THREE.Vector3(), lx = new THREE.Vector3(), ly = new THREE.Vector3();
   const UP = new THREE.Vector3(0, 1, 0);
@@ -135,6 +182,14 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
     camera.position.fromArray(cam.pos);
     camera.lookAt(target.fromArray(cam.target));
     camera.setViewOffset(W, H, -frame.x * W, frame.y * H, W, H);
+    camera.updateMatrixWorld();
+    const from = free && state.frame && fitted(state.frame.from), to = free && state.frame && fitted(state.frame.to);
+    if (from || to) {
+      const m = from && to ? state.frame.mix : from ? 0 : 1, A = from || to, B = to || from;
+      const sc = A.s + (B.s - A.s) * m, cx = A.cx + (B.cx - A.cx) * m, cy = A.cy + (B.cy - A.cy) * m;
+      camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(H / (2 * sc)));
+      camera.setViewOffset(W, H, W / 2 - cx, H / 2 - cy, W, H);
+    }
     camera.updateProjectionMatrix();
 
     // The key light's shadow box follows the shot, snapped to whole texels so shadow edges do not crawl as it moves.

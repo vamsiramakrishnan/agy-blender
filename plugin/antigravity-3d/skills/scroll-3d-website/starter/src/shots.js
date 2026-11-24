@@ -2,7 +2,7 @@
 // a screenshot tool can all call it, and any scroll position can be drawn, reversed or photographed alone.
 //
 //   evaluate(T, ids) -> { T, chapter, index, local, cam: { pos, target, fov }, focus: { at, span }, show: { prop: 0..1 },
-//                         subject: [prop names] or null }
+//                         subject: [prop names] or null, frame: { from, to, mix } }
 //   timeline(ids) -> at(id, local): the story time of a moment inside a chapter
 //
 // Everything is data: a shot per chapter and the chapters each prop is on stage. Tune by editing the two tables.
@@ -90,12 +90,13 @@ function keysFor(ids) {
   const keys = [];
   ids.forEach((id, i) => {
     const s = SHOTS[id];
-    if (i === 0) keys.push([0, s]);
+    // the third value: which shot the camera is on, i - 1 to i during the move into chapter i (see `frame` below)
+    if (i === 0) keys.push([0, s, 0]);
     else {
-      if (s.via) keys.push([i + MOVE / 2, { ...s, ...s.via }]);
-      keys.push([i + MOVE, s]);
+      if (s.via) keys.push([i + MOVE / 2, { ...s, ...s.via }, i - 0.5]);
+      keys.push([i + MOVE, s, i]);
     }
-    keys.push([i + 1, pushed(s)]);
+    keys.push([i + 1, pushed(s), i]);
   });
   return keys;
 }
@@ -112,6 +113,7 @@ function curves(ids) {
     target: [0, 1, 2].map((j) => chan((k) => k[1].target[j])),
     fov: chan((k) => k[1].fov),
     span: chan((k) => k[1].span),
+    shot: chan((k) => k[2]),
     show: Object.fromEntries(Object.entries(SHOW).map(([name, on]) => {
       const here = ids.filter((id) => on.includes(id)); // in page order
       return [name, here.length ? [here[0], here[here.length - 1]] : null];
@@ -151,6 +153,13 @@ export function evaluate(T, ids) {
     show[name] = rise * (1 - sink);
   }
   const target = c.target.map((f) => f(T));
+  // What the stacked (phone) layout fits into the space above the panel: the shot's subject, or, for a shot that names
+  // none, the props on stage in its chapter, framed loosely (stage.js). During a move it blends the last shot's
+  // framing into the next one's on the camera's own curve, so the picture never jumps.
+  const k = c.shot(T), lo = Math.floor(k + 1e-9), hi = Math.min(n - 1, Math.ceil(k - 1e-9));
+  const about = (j) => (SHOTS[known[j]].subject
+    ? { props: [].concat(SHOTS[known[j]].subject), loose: false }
+    : { props: Object.keys(SHOW).filter((name) => SHOW[name].includes(known[j])), loose: true });
   return {
     T,
     chapter: known[index],
@@ -160,6 +169,7 @@ export function evaluate(T, ids) {
     focus: { at: [target[0], 0, target[2]], span: c.span(T) },
     show,
     subject: SHOTS[known[index]].subject ? [].concat(SHOTS[known[index]].subject) : null,
+    frame: { from: about(lo), to: about(hi), mix: hi > lo ? k - lo : 0 },
   };
 }
 

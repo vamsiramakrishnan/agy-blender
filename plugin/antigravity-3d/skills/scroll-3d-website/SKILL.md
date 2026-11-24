@@ -80,9 +80,10 @@ package.json; the starter needs only `three` and `vite`). Then, each a local edi
 - a stand-in per prop in `src/props.js` (`PROPS`: where it stands and its rough size in metres);
 - the project's colours and type in `src/style.css`; its three frame properties (shift right, shift up, widen) decide
   where the 3D subject sits beside the text. A shot is designed for a horizontal coverage, what it shows across a
-  1440 x 900 window (`DESIGN_ASPECT` in `src/shots.js`): a narrower window, a phone's, is widened to keep it, so frame
-  and judge shots at that shape ([recipes.md](recipes.md)). Why: run 2 widened its phone view by a fixed factor and cut
-  its props at both side edges;
+  1440 x 900 window (`DESIGN_ASPECT` in `src/shots.js`): beside the panel a narrower window is widened to keep it; on a
+  portrait phone, text below, the starter fits the shot's `subject` into the space above the panel. So frame and judge
+  shots at that shape and name each subject ([recipes.md](recipes.md)). Why: run 2 widened its phone view by a fixed
+  factor and cut its props at both edges, and holding the coverage on a portrait phone left the subject a speck;
 - links to a chapter (`<a href="#how">`) and any jump use `jumpTo(id)`, which lands where the chapter rests, and every
   timing of a layer is named by chapter with `at`, as in `t = at('how', 0.5)`, in `evaluate` (`src/shots.js`). Why:
   at a chapter's top the camera still shows the previous picture, where run 2's links landed, and its

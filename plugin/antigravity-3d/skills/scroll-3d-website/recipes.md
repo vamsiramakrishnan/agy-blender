@@ -30,10 +30,15 @@ console.log(JSON.stringify(frame({ center: [0, 0.4, 0], radius: 0.75 })));
 <!-- check: node out.pos[2] > 2 && out.pos[1] > 0.4 && out.fov === 30 -->
 
 A shot is designed for a horizontal coverage: what it shows across a window of the design shape (`DESIGN_ASPECT` in
-`src/shots.js`, 1.6, a 1440 x 900 window). In a narrower window the starter widens the view to keep that coverage (a
-portrait phone sees as much across as the desktop, and more above and below), so frame each shot at the design shape
-only. Why: a shot fitted by its vertical view alone is cut at the sides on a phone; run 2 widened its phone view by a
-fixed 1.36 and showed about 20 degrees across instead of 51.
+`src/shots.js`, 1.6, a 1440 x 900 window). Side by side with the panel (desktop, landscape phone), a narrower window
+gets a wider view that keeps that coverage. In the stacked layout (portrait phone, panel below) the free area is a
+different shape, so the starter keeps the camera's position and direction and fits only the view: the shot's
+`subject` fills 62 % of the free width or 60 % of the free height above the panel, whichever binds, centred; a shot
+that names no subject is an establishing shot, and the props on stage in its chapter fill 38 % or 35 %. The framing
+blends from one shot's subject to the next on the camera's own curve. So frame each shot at the design shape only,
+and name its subject. Why: run 2 widened its phone view by a fixed 1.36 and showed about 20 degrees across instead of
+51, cutting its props; holding the desktop's coverage on a portrait phone instead left the subject 22 % of the width,
+a speck above a band of empty floor.
 
 The free part of the window is narrower than the window when the text takes a side: pass the free part's aspect at
 the design shape (about 0.6 of 1.6 with the starter's desktop layout, so about 1) and keep `fill` at or under 0.6, so

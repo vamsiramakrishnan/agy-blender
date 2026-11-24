@@ -49,7 +49,8 @@ a { color: inherit; }
 /* Phone (portrait; main.js uses the same query): the 3D takes the upper part of the window, the panel the lower part.
    A landscape phone keeps the side-by-side layout: text below would leave the scene a strip a third of the window high. */
 @media (max-width: 899px) and (orientation: portrait) {
-  :root { --frame-x: 0; --frame-y: 0.15; --frame-fit: 1; }
+  /* stacked: stage.js fits each shot's subject into the space above the panels; --frame-x/y/fit are its fallback */
+  :root { --frame-x: 0; --frame-y: 0.15; --frame-fit: 1; --frame-stack: 1; }
   .webgl-on .panel { top: auto; left: 16px; right: 16px; bottom: 16px; width: auto; max-height: 40vh; padding: 1rem 1.25rem; }
 }
 
