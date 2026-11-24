@@ -28,8 +28,9 @@ calls and 5.0 M tokens; the plugin's runs 2 to 4 needed 64 to 73 calls and 8.0 t
 
 **Every run has shown a fault of the plugin's own that no review found.** In the judge's eyes run 2 is better than
 run 1, run 3 level with run 2, and run 4 better than all three. After run 4 the faults are a check that photographed
-a heavy page before it had arrived, and a paragraph of the skill with a number nobody had measured. Both are corrected. What is not yet corrected is listed
-under "What is still worse".
+a heavy page before it had arrived, a paragraph of the skill with a number nobody had measured, a check with no
+word for a dark scene, and a check that took a camera on its way for a fault. All four are corrected and tested; no
+site has been built with those corrections yet. What is not corrected is listed under "What is still worse".
 
 ## The short answer
 
@@ -53,7 +54,7 @@ stock agent had the task text, project copy and packages of runs 2 to 4, Blender
 | texture memory on the graphics card | 454 MB | 52 MB | 89 MB (38 of it render targets) | 147 MB (133 of it render targets: the occlusion pass, which the check now draws and counts) | 32 MB, all of it render targets, and 36 MB of render buffers |
 | draw calls in the heaviest frame, on a desktop | 33 | 14 | 18 | 119, the occlusion pass's own among them | 132 |
 | 3D canvas showing something, nine scroll steps on a desktop | 0 to 50 %; four steps under 20 % | 36 to 81 %; one step under 60 % | 66 to 81 % | 4 to 34 %; six steps under 10 %: a dark scene | 50 to 79 % |
-| props and 3D labels hidden by text or cut by the window's edge | not measured (the page does not say where they are) | 18 | 0 | 6 at two of nine steps; the agent's own checks took twelve steps and saw none | not measured (the page does not say where they are); the judge names text over the 3D in four of nine frames |
+| props and 3D labels hidden by text or cut by the window's edge | not measured (the page does not say where they are) | 18 | 0 | none while a shot is held; the check named 6 at two of nine steps, each the camera on its way (see "Run 4") | not measured (the page does not say where they are); the judge names text over the 3D in four of nine frames |
 | draws while nothing moves | every frame | none | none | none | every frame |
 | a visitor who asked for reduced motion | not handled | handled | handled | handled | not handled: the picture keeps changing |
 | a browser without WebGL | most of the text, a script error, no picture | the whole text and seven stills | the whole text and six stills | the whole text and six stills | an empty page: no text, a script error |
@@ -514,7 +515,25 @@ Three faults of the plugin showed in this run.
   button laid out with flex, the spaces around such an element are dropped, and the first button reads "FOLLOW
   ONE20,001-LINE LOG". The recipe now says how to write it.
 
-Three more are found and not corrected yet (see "What is still worse").
+Three more were corrected after those.
+
+- **The check had no word for a dark scene.** It now measures the shot's subject against its ground: on the
+  canvas alone, three quarters of what stands in the subject's box lie within some share of the background's
+  colour, and under a tenth the subject reads as a hole. Run 3's frames measure 25 to 32 % on a desktop and the
+  starter's stand-ins 19 to 36 %; run 4's measure 5 to 9 % at seven of nine steps. The check says so on run 4's
+  site at both sizes. On the page's side the skill and the guide now say what a prop on a dark page is made of,
+  with two readings a test holds: under the starter's light run 4's steel, `#242931` at three quarters metal,
+  comes out `#0B1420`, thirteen levels from the floor at most, and a steel of `#B0B4B8` comes out `#9CA0A5`.
+- **The check called a camera on its way a fault.** A chapter's text is up from its first pixel and the camera
+  takes a third of the chapter to arrive. Both positions at which the check found run 4's subjects out of the
+  frame (38 % and 75 % of the scroll) are such moves; I first took the second for a close shot larger than its
+  frame, and a helper's finer reading showed it was not. The starter's page now says when its camera is between
+  two shots, and the check judges no subject there.
+- **What the check found depended on its number of steps.** It now reads the subjects at four times as many
+  positions as it photographs, for at most twenty seconds a size, gives a fault the stretch of the scroll it
+  covers, and takes a frame where a fault is at its worst between two steps.
+
+What is still not corrected is under "What is still worse".
 
 For the hosted copy the three props were installed again without compression and the site rebuilt, because the
 page host does not serve the compressed textures. Nothing the agent wrote was changed, and at most 0.2 % of the
@@ -550,17 +569,10 @@ pixels of any desktop frame differ from the agent's build.
 
 ## What is still worse, or not done
 
-- **The scene is dark, and the plugin's own light made it so.** After run 3 the starter's light was set so that a
-  plain colour shows as its hex value, and the skill told the agent not to add lights. A dark metal under that
-  light is nearly black on a dark page. The check sees it (under a tenth of the canvas differs from the background
-  at six of nine steps, where the subject fills half the window) and says nothing, because it has no measure of a
-  subject against its ground. Neither the skill nor the modelling guide says what a prop's main material should
-  be on a dark page.
-- **The text names a subject the camera has not reached.** A chapter's panel changes at its first pixel and the
-  camera takes the chapter's first third to arrive, so for that third the text is about one thing and the picture
-  about another. The check calls that "runs out of the frame" when a step happens to fall there.
-- **What the check finds depends on how many steps it takes.** It reads where the subjects are only at the steps it
-  photographs. Reading them at many more positions costs no picture, and was not built.
+- **Whether the corrections made after run 4 give a better site is not shown.** They are tested one by one; no
+  site has been built with them.
+- **A dark prop is still the agent's to avoid.** The check now names it and the skill says why, and nothing stops
+  an agent from choosing dark steel again and lighting it more, which the light budget warns against.
 - **The plugin's runs cost twice what the stock agent's did**, for a site that is judged better. Part of it was
   waste that is removed now (16 minutes on the check's pictures). Part is how the plugin models a prop: call by
   call, a model turn for each. No change of this round touches that. Round six built the other way (one script per
@@ -695,11 +707,16 @@ pixels of any desktop frame differ from the agent's build.
   answer. The test page found the fault in 12 of 12 rounds without the GPU path and in none of 12 with it.
 - **The look-first line and the Rolldown check**: each with tests; the second also on run 3's real project.
 - **Run 4's site.** Checked from a copy of the built folder with the check as corrected after the run: nothing
-  broken, seven things (six subjects out of the frame at two positions, and the size of the download). The hosted
+  broken, and ten things: the subject hard to tell from its ground at seven of nine desktop steps and five phone
+  steps, the size of the download, and subjects out of the frame at three positions that are all the camera on its
+  way (that build's page does not say when it is moving). The hosted
   copy was checked the same way against the agent's build.
 - **The corrections made after run 4**: the check's wait with a test that fails on the check as it was; the
-  compression figures by installing run 3's three props with compression forced; the site check's tests, the
-  documentation audit and the skills' tests pass (190).
-- **Not verified:** whether a site built with the corrections made after run 4 is better (no fifth run), the stock
+  compression figures by installing run 3's three props with compression forced; the measure of a subject against
+  its ground on the stored frames of runs 3 and 4 and on the starter; the starter built and checked with all of it
+  (nothing broken, 0 things, 52 s); the site check's tests, the documentation audit and the skills' tests pass
+  (198), and the starter's test of its new flag.
+- **Not verified:** whether a site built with the corrections made after run 4 is better (a fifth run is the
+  next thing), the stock
   page's numbers beyond the eleven looked up, and anything about how these sites look on a real graphics card: every
   picture in this report was drawn in software.

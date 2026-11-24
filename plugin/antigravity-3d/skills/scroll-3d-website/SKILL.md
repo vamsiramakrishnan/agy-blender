@@ -238,11 +238,15 @@ The site is done when `check_site` on the built folder reports, at both sizes:
 - reduced motion: the scene rests per chapter; no WebGL: the page reads as an article;
 - no sideways overflow on the phone; no fact that disagrees with its source, and nothing shown without a source that
   looks like a fact;
-- no subject or label hidden by the text panel or cut by the frame's edge at any step, no label of the subject too
-  small to read, and no stretch of the scroll over which the picture does not travel (the subject in one place at one
-  size); `check_site` reports these when the page keeps the starter's `window.__site.info().onScreen` hook, so keep
-  it, name each shot's `subject` and register labels and layers with it. Its line "one scale throughout" under
-  Measures is not a fault to clear but a reading of the storyboard: if it is there, the shots are all one kind;
+- no subject or label hidden by the text panel or cut by the frame's edge while a shot is held, no label of the
+  subject too small to read, no stretch of the scroll over which the picture does not travel (the subject in one place
+  at one size), and no shot whose subject is hard to tell from the page; `check_site` reports these when the page
+  keeps the starter's `window.__site.info().onScreen` hook, so keep it, name each shot's `subject` and register labels
+  and layers with it. The check reads the subjects between the steps it photographs as well, and it does not judge a
+  subject while the page says its camera is between two shots (`info().moving`, which the starter sets). Why: run 4's
+  agent checked at twelve steps and was told of no subject out of the frame, a check at nine named six, and all six
+  were the camera on its way into a chapter. Its line "one scale throughout" under Measures is not a fault to clear
+  but a reading of the storyboard: if it is there, the shots are all one kind;
 - draw calls, triangles, texture memory and bytes you can state and defend (each prop through the installer, no
   model above a few MB; with the starter's occlusion, which the check draws, about 95 MB of the desktop's texture
   memory is that pass).
@@ -250,9 +254,9 @@ The site is done when `check_site` on the built folder reports, at both sizes:
 Look at the contact sheets yourself as well: the measures find broken frames, not ugly ones, and not a frame that
 is well composed and shows a closed box. Between looks, the page's
 own hook answers quickly: `window.__site.setProgress(T)` draws story time T, and `window.__site.info()` gives the draw
-calls and `onScreen`: for each prop, layer and label (`kind`) on screen, its share of the window, its centre, its whole
-box (`box`, fractions of the window, below 0 or above 1 where it runs out of the frame) and, when the shot names one,
-whether it is the shot's `subject`.
+calls, `moving` (the camera is between two shots) and `onScreen`: for each prop, layer and label (`kind`) on screen,
+its share of the window, its centre, its whole box (`box`, fractions of the window, below 0 or above 1 where it runs
+out of the frame) and, when the shot names one, whether it is the shot's `subject`.
 
 ## Gotchas
 
