@@ -7,73 +7,147 @@
 // JOB.json: { "levels": [{"in": path, "out": path}], "textures": {"albedo": {...}, ...}, "meshopt": {...}, "report": path }
 //   "textures": ktx2-encoder options per role (albedo | normal | orm), applied to the images embedded in "in".
 //   The report lists, per distinct source image, the role, the settings, the byte counts and the KTX2 file's sha256.
+//
+// The maps that are not in the cache are encoded in worker threads (this file is its own worker), at most
+// min(maps, availableParallelism - 1, 4) at a time; AGY3D_KTX2_WORKERS=N sets the number, and 1 encodes in this thread
+// with no worker. The bytes do not depend on the number: each map is encoded alone, with the same options.
 import fs from "node:fs";
 import crypto from "node:crypto";
+import os from "node:os";
 import path from "node:path";
-
-const job = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-// read from the linked node_modules directly: some of these packages do not export their package.json
-const versionOf = (name) => JSON.parse(fs.readFileSync(new URL(`./node_modules/${name}/package.json`, import.meta.url), "utf8")).version;
-
-const { NodeIO } = await import("@gltf-transform/core");
-const { ALL_EXTENSIONS, KHRTextureBasisu } = await import("@gltf-transform/extensions");
-const { meshopt } = await import("@gltf-transform/functions");
-const { MeshoptEncoder, MeshoptDecoder } = await import("meshoptimizer");
-const { encodeToKTX2 } = await import("ktx2-encoder");
-const sharp = (await import("sharp")).default;
-
-await MeshoptEncoder.ready;
-await MeshoptDecoder.ready;
-const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
-  .registerDependencies({ "meshopt.encoder": MeshoptEncoder, "meshopt.decoder": MeshoptDecoder });
+import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
 
 const imageDecoder = async (buf) => {
+  const sharp = (await import("sharp")).default;
   const { data, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   return { data: new Uint8Array(data), width: info.width, height: info.height };
 };
+const encodeMap = async (src, settings) => {
+  const { encodeToKTX2 } = await import("ktx2-encoder");
+  return encodeToKTX2(src, { imageDecoder, generateMipmap: true, ...settings });
+};
 const sha = (b) => crypto.createHash("sha256").update(b).digest("hex");
 
-// Every level of a package shares the same pictures: each distinct (image, role) is encoded once.
-const encoded = new Map();
-const images = [];
-
-for (const level of job.levels) {
-  const doc = await io.read(level.in);
-  const roles = new Map();
-  for (const m of doc.getRoot().listMaterials()) {
-    const set = (t, r) => { if (t && !roles.has(t)) roles.set(t, r); };
-    set(m.getNormalTexture(), "normal");
-    set(m.getMetallicRoughnessTexture(), "orm");
-    set(m.getOcclusionTexture(), "orm");
-    set(m.getBaseColorTexture(), "albedo");
-    set(m.getEmissiveTexture(), "albedo");
+if (!isMainThread) {
+  // one map per worker, so that the encoder's WebAssembly memory goes back to the system when the worker ends
+  const t0 = Date.now();
+  const out = await encodeMap(workerData.src, workerData.settings);
+  parentPort.postMessage({ out, seconds: (Date.now() - t0) / 1000 }, [out.buffer]);
+} else {
+  try { await main(); } catch (e) {
+    process.stderr.write(`web_compress failed: ${e?.message ?? e}\n`);
+    process.exit(1);
   }
-  let any = false;
-  for (const t of doc.getRoot().listTextures()) {
-    const src = t.getImage();
-    const role = roles.get(t) ?? "albedo";
-    const key = sha(src) + role;
-    if (!encoded.has(key)) {
-      const t0 = Date.now();
-      // one encoding per (image, role, settings), kept across the installer's tiers
-      const cached = path.join(job.cache, sha(key + JSON.stringify(job.textures[role])) + ".ktx2");
-      let out;
-      if (fs.existsSync(cached)) out = new Uint8Array(fs.readFileSync(cached));
-      else { out = await encodeToKTX2(src, { imageDecoder, generateMipmap: true, ...job.textures[role] }); fs.writeFileSync(cached, out); }
-      encoded.set(key, out);
-      images.push({ role, source_sha256: sha(src), source_bytes: src.byteLength, ktx2_sha256: sha(out),
-                    ktx2_bytes: out.byteLength, seconds: (Date.now() - t0) / 1000, settings: job.textures[role] });
-    }
-    t.setImage(encoded.get(key)).setMimeType("image/ktx2");
-    any = true;
-  }
-  if (any) doc.createExtension(KHRTextureBasisu).setRequired(true);
-  if (job.meshopt !== null) await doc.transform(meshopt({ encoder: MeshoptEncoder, level: "high", ...job.meshopt }));
-  await io.write(level.out, doc);
 }
 
-fs.writeFileSync(job.report, JSON.stringify({
-  images,
-  versions: Object.fromEntries(["@gltf-transform/core", "@gltf-transform/extensions", "@gltf-transform/functions",
-                                 "ktx2-encoder", "meshoptimizer", "sharp"].map((n) => [n, versionOf(n)])),
-}));
+function encodeInWorker(src, settings) {
+  return new Promise((resolve, reject) => {
+    const w = new Worker(new URL(import.meta.url), { workerData: { src, settings } });
+    w.once("message", resolve);
+    w.once("error", (e) => reject(new Error(`a texture worker failed: ${e?.message ?? e}`)));
+    w.once("exit", (code) => reject(new Error(`a texture worker ended with exit code ${code} and no result`)));
+  });
+}
+
+function workerCount(maps) {
+  const set = process.env.AGY3D_KTX2_WORKERS;
+  if (set !== undefined) {
+    if (!/^[1-9][0-9]*$/.test(set)) throw new Error(`AGY3D_KTX2_WORKERS must be an integer >= 1, got ${JSON.stringify(set)}`);
+    return Math.min(maps, Number(set));
+  }
+  return Math.min(maps, Math.max(1, os.availableParallelism() - 1), 4);
+}
+
+async function main() {
+  const job = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+  // read from the linked node_modules directly: some of these packages do not export their package.json
+  const versionOf = (name) => JSON.parse(fs.readFileSync(new URL(`./node_modules/${name}/package.json`, import.meta.url), "utf8")).version;
+
+  const { NodeIO } = await import("@gltf-transform/core");
+  const { ALL_EXTENSIONS, KHRTextureBasisu } = await import("@gltf-transform/extensions");
+  const { meshopt } = await import("@gltf-transform/functions");
+  const { MeshoptEncoder, MeshoptDecoder } = await import("meshoptimizer");
+
+  await MeshoptEncoder.ready;
+  await MeshoptDecoder.ready;
+  const io = new NodeIO().registerExtensions(ALL_EXTENSIONS)
+    .registerDependencies({ "meshopt.encoder": MeshoptEncoder, "meshopt.decoder": MeshoptDecoder });
+
+  const rolesOf = (doc) => {
+    const roles = new Map();
+    for (const m of doc.getRoot().listMaterials()) {
+      const set = (t, r) => { if (t && !roles.has(t)) roles.set(t, r); };
+      set(m.getNormalTexture(), "normal");
+      set(m.getMetallicRoughnessTexture(), "orm");
+      set(m.getOcclusionTexture(), "orm");
+      set(m.getBaseColorTexture(), "albedo");
+      set(m.getEmissiveTexture(), "albedo");
+    }
+    return (t) => roles.get(t) ?? "albedo";
+  };
+
+  // Every level of a package shares the same pictures: each distinct (image, role) is encoded once. All of them are
+  // found before any is encoded, so that the ones missing from the cache can be encoded side by side.
+  const docs = [];
+  const maps = new Map();  // key -> {role, src, cached}, in the order the levels meet them
+  for (const level of job.levels) {
+    const doc = await io.read(level.in);
+    docs.push(doc);
+    const roleOf = rolesOf(doc);
+    for (const t of doc.getRoot().listTextures()) {
+      const src = t.getImage(), role = roleOf(t), key = sha(src) + role;
+      // one encoding per (image, role, settings), kept across the installer's tiers
+      if (!maps.has(key)) maps.set(key, { role, src, cached: path.join(job.cache, sha(key + JSON.stringify(job.textures[role])) + ".ktx2") });
+    }
+  }
+
+  const done = new Map();  // key -> {out, seconds}
+  const missing = [];
+  for (const [key, m] of maps) {
+    const t0 = Date.now();
+    if (fs.existsSync(m.cached)) done.set(key, { out: new Uint8Array(fs.readFileSync(m.cached)), seconds: (Date.now() - t0) / 1000 });
+    else missing.push([key, m]);
+  }
+  const workers = workerCount(missing.length);
+  const queue = missing.slice();
+  const lane = async () => {
+    for (let item; (item = queue.shift());) {
+      const [key, m] = item;
+      let r;
+      if (workers === 1) {
+        const t0 = Date.now();
+        r = { out: await encodeMap(m.src, job.textures[m.role]), seconds: (Date.now() - t0) / 1000 };
+      } else r = await encodeInWorker(m.src, job.textures[m.role]);
+      fs.writeFileSync(m.cached, r.out);
+      done.set(key, r);
+    }
+  };
+  await Promise.all(Array.from({ length: workers }, lane));
+
+  const images = [];
+  for (const [key, { role, src }] of maps) {
+    const { out, seconds } = done.get(key);
+    images.push({ role, source_sha256: sha(src), source_bytes: src.byteLength, ktx2_sha256: sha(out),
+                  ktx2_bytes: out.byteLength, seconds, settings: job.textures[role] });
+  }
+
+  for (const [i, level] of job.levels.entries()) {
+    const doc = docs[i];
+    const roleOf = rolesOf(doc);
+    let any = false;
+    for (const t of doc.getRoot().listTextures()) {
+      const src = t.getImage();
+      t.setImage(done.get(sha(src) + roleOf(t)).out).setMimeType("image/ktx2");
+      any = true;
+    }
+    if (any) doc.createExtension(KHRTextureBasisu).setRequired(true);
+    if (job.meshopt !== null) await doc.transform(meshopt({ encoder: MeshoptEncoder, level: "high", ...job.meshopt }));
+    await io.write(level.out, doc);
+  }
+
+  fs.writeFileSync(job.report, JSON.stringify({
+    images,
+    versions: Object.fromEntries(["@gltf-transform/core", "@gltf-transform/extensions", "@gltf-transform/functions",
+                                   "ktx2-encoder", "meshoptimizer", "sharp"].map((n) => [n, versionOf(n)])),
+  }));
+}
