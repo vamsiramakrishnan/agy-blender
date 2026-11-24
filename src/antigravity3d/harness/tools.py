@@ -1765,11 +1765,13 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
         placed = _place(s, where, dest) if dest and where else []
         web = _web_lines(where)
         checked = _checked_words(where)
+        look = _look_first(s)
         out = [f"DELIVERED: {head}" + (f" | placed in {dest}/" if dest else ""), *placed, *(found or shown), *steps, *web,
                f"FINISHED: the package{f' at {where}' if where else ''} was {checked} by this tool"
                + (f", and its engine files are in {dest}/: nothing is left to copy" if dest else "")
-               + ". Reply to the user with its path and the findings above; do not inspect, re-check or copy it.",
-               *_install_step(where)]
+               + (". Its files need no further check and no copying." if look else
+                  ". Reply to the user with its path and the findings above; do not inspect, re-check or copy it."),
+               *look, *_install_step(where)]
     elif _needs_a_person(s):
         # Live on 2026-11-22 (r5/live_native6): refused for a person's decision, the agent went back to LOOKDEV and
         # painted its own maps by script until its token share ran out. This refusal ends the agent's work.
@@ -1804,6 +1806,32 @@ def _checked_words(package: Path | None) -> str:
 
 
 NEXT_INSTALL = "NEXT:"
+LOOK_FIRST = "LOOK FIRST"
+LOOK_FIRST_SHORT_BY = 1.0  # an uncalibrated review puts the asset this far under one of its targets, or further
+R_LOOK_FIRST = "look_first_said"
+
+
+def _look_first(s: Session) -> list[str]:
+    """One line, once in a session, between a delivery and what is done with it: look at the render, and when it is
+    plain give it one more round.
+
+    Run 3 of the website task: three props were delivered at 2.07 to 2.31 against a target of 3.4. The skill said to
+    open each render and to give a plain prop one more round; this tool's own answer said "do not inspect" and
+    "NEXT: install", and the agent opened each render in the same turn in which it installed the prop, so what it saw
+    could change nothing. The order is said here, where the next step is said. Once: run 1 spent 45 of its 69 minutes
+    on props, and an uncalibrated judge's score will not reach a target however often it is asked."""
+    found = _review_findings(s)
+    if found is None or s._res(R_LOOK_FIRST):
+        return []
+    short = max((t["short_by"] for t in found[0].get("targets") or [] if not t["met"]), default=0.0)
+    if short < LOOK_FIRST_SHORT_BY:
+        return []
+    s._set(R_LOOK_FIRST, True)
+    render = ", ".join(found[0].get("where") or []) or "the render named under 'where to look'"
+    return [f"{LOOK_FIRST} (said once for this asset): the review puts it {short:.2f} under a target, and its judge is "
+            f"uncalibrated, so look yourself before you use it. Open {render}: it is the asset as it ships, lit. If it reads "
+            "as plain boxes with coloured parts, give it one more round: rounded edges, a recessed panel or two, a second "
+            f"scale of detail where a camera comes close ({fix_with(s)}, then deliver_package again). If it reads well, go on."]
 
 
 def _install_step(package: Path | None) -> list[str]:

@@ -109,12 +109,14 @@ For each prop, in this order:
 - `deliver_package`. If its answer starts with `STILL WORKING`, nothing failed and nothing needs fixing: the work
   goes on by itself. Work on the page meanwhile and make the call the answer spells out (the same tool, the same
   arguments) to collect the result. A delivery that runs while you write the page costs no time.
-- Open the render the delivery's answer names under `where to look`: it is the prop as it ships, lit. If it reads
-  as plain boxes with coloured parts, or the answer's `finding:` lines put it a point or more under its targets,
-  give it one more round, once: rounded edges, a recessed panel or two, a second scale of detail where the camera
-  comes close; then deliver again. Why: run 2 delivered three props its review scored 1.8 of 4 without opening one of
-  their renders, and they are the plainest thing on its page. One round, not a loop: run 1 spent 45 of 69 minutes
-  on props.
+- Open the render the delivery's answer names under `where to look`, and decide before you install: it is the prop
+  as it ships, lit. If it reads as plain boxes with coloured parts, or the answer has a `LOOK FIRST` line (its
+  `finding:` lines put it a point or more under a target), give it one more round, once: rounded edges, a recessed
+  panel or two, a second scale of detail where the camera comes close; then deliver again and install that. Do not
+  open the render and install in the same turn: what you see must be able to change what you do. Why: run 2
+  delivered three props its review scored 1.8 of 4 without opening one of their renders, run 3 opened each while
+  already installing it, and the props are the plainest thing on both pages. One round, not a loop: run 1 spent 45
+  of 69 minutes on props.
 - `install_into_project` into the site's project. The site is a project you are building in this session because the
   user asked for it, so call `install_into_project` with `dry_run` false at once, and never copy GLB files by hand
   (Antigravity asks the user to approve each install: that is expected, wait for it). It writes the files where the
