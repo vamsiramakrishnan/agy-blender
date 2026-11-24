@@ -604,6 +604,17 @@ def test_a_measured_subject_is_checked_again_when_it_comes_back_from_the_page():
 
 
 @pytest.mark.browser
+def test_a_lost_context_counts_only_on_a_canvas_the_visitor_can_see(tmp_path):
+    """The starter releases the context of the canvas it tests WebGL with (never in the document); the check called
+    that broken. The scene's own canvas losing its context is the fault it means."""
+    released = run(site(tmp_path, "test_context"), tmp_path, steps=2)
+    assert released.visits["desktop"].probe["lost"] == 0 and "context was lost" not in released.text()
+    lost = sc.check_site(str(site(tmp_path, "context_lost")), out_dir=tmp_path / "out2", steps=2, sizes=("desktop",), variants=())
+    assert lost.visits["desktop"].probe["lost"] == 1
+    assert any("the WebGL context was lost 1 time" in b for b in lost.broken()), lost.broken()
+
+
+@pytest.mark.browser
 def test_subjects_under_opaque_html_or_cut_by_the_edge_are_reported(tmp_path):
     r = run(site(tmp_path, "subjects"), tmp_path, steps=2)
     d = r.visits["desktop"]

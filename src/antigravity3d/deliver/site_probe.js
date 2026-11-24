@@ -288,8 +288,10 @@
     const ctx = getContext.call(this, type, ...rest);
     if (ctx && isGL(type) && !S.contexts.includes(ctx)) {
       S.contexts.push(ctx); S.canvases.push(this); this.setAttribute('data-agy3d-gl', String(S.contexts.length));
-      // a lost context draws nothing until the page restores it: seen on run 1's page, whose textures take 454 MB
-      this.addEventListener('webglcontextlost', () => { S.lost = (S.lost || 0) + 1; });
+      // a lost context draws nothing until the page restores it: seen on run 1's page, whose textures take 454 MB.
+      // Only a canvas in the document counts: the skill's starter asks a canvas it never shows whether WebGL 2 is
+      // there and releases that context at once, which is tidy and was reported as "the WebGL context was lost".
+      this.addEventListener('webglcontextlost', () => { if (this.isConnected) S.lost = (S.lost || 0) + 1; });
     }
     return ctx;
   };
