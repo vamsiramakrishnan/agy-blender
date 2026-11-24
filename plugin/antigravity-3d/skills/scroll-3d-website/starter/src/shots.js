@@ -1,7 +1,9 @@
 // shots.js: the whole scene as a pure function of story time T. No three.js and no DOM here, so the page, a test and
 // a screenshot tool can all call it, and any scroll position can be drawn, reversed or photographed alone.
 //
-//   evaluate(T, ids) -> { chapter, index, local, cam: { pos, target, fov }, focus: { at, span }, show: { prop: 0..1 } }
+//   evaluate(T, ids) -> { T, chapter, index, local, cam: { pos, target, fov }, focus: { at, span }, show: { prop: 0..1 },
+//                         subject: [prop names] or null }
+//   timeline(ids) -> at(id, local): the story time of a moment inside a chapter
 //
 // Everything is data: a shot per chapter and the chapters each prop is on stage. Tune by editing the two tables.
 // Lifted from examples/straitjacket-film/site/js/scene/tracks.js (monotone curves through camera keys, so a hold is a
@@ -13,15 +15,25 @@ export const MOVE = 0.35;
 // Where a chapter rests when the visitor asked for reduced motion: the scene shows only resting pictures.
 export const REST = 0.7;
 
-// One shot per chapter id of the page (index.html). pos and target in metres (+Y up), fov in degrees (vertical),
+// The window shape the shots are designed for: a shot's fov is its vertical view in a window this wide for its height
+// (1440 x 900). A narrower window (a phone) gets a wider view that keeps the shot's horizontal coverage, so what was in
+// frame at the design shape stays in frame (stage.js); a fixed widening factor cut run 2's props at both phone edges.
+export const DESIGN_ASPECT = 1.6;
+
+// One shot per chapter id of the page (index.html). pos and target in metres (+Y up), fov in degrees (vertical, at
+// DESIGN_ASPECT),
 // span: metres across the key light's shadow box at this shot, push: share of the distance the camera closes during
-// the hold, via: an optional pose halfway through the move (to swing round a prop instead of through it).
+// the hold, via: an optional pose halfway through the move (to swing round a prop instead of through it), subject:
+// the prop or props (names from SHOW) the shot is about. With a subject named, onScreen() marks each entry
+// subject: true or false, and check_site reports a subject under the panel or cut by the frame without calling a prop
+// that is only in the background a fault; without one, every prop counts as a subject.
 // These are the starter's placeholder shots: replace them with the storyboard's.
 export const SHOTS = {
-  intro: { pos: [5.5, 3.0, 7.5], target: [0, 0.8, 0], fov: 30, span: 8 },
-  how: { pos: [-4.5, 2.2, 4.5], target: [0, 0.9, 0], fov: 32, span: 7, via: { pos: [0.5, 3.4, 8.5], target: [0, 0.8, 0] } },
-  detail: { pos: [3.9, 1.3, 3.4], target: [1.5, 0.35, 0.6], fov: 28, span: 4 },
-  outro: { pos: [7.0, 6.0, 9.0], target: [0, 0.4, 0], fov: 30, span: 12, push: 0 },
+  intro: { pos: [5.5, 3.0, 7.5], target: [0, 0.8, 0], fov: 30, span: 8, subject: 'hero' },
+  how: { pos: [-4.5, 2.2, 4.5], target: [0.3, 0.8, 0.3], fov: 32, span: 7, via: { pos: [0.5, 3.4, 8.5], target: [0, 0.8, 0] },
+    subject: ['hero', 'part'] },
+  detail: { pos: [4.6, 2.0, 4.2], target: [1.1, 0.55, 0.4], fov: 30, span: 5, subject: 'part' },
+  outro: { pos: [7.0, 6.0, 9.0], target: [0, 0.4, 0], fov: 30, span: 12, push: 0 }, // the whole scene: no one subject
 };
 
 // Which chapters each prop is on stage for (a prop rises in during the move into its first chapter and sinks out
@@ -33,6 +45,17 @@ export const SHOW = {
 
 const DEFAULT_PUSH = 0.05;
 const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x);
+// A moment of the story named by chapter: at('how', 0.5) is halfway through "how" wherever the page puts it. Key every
+// timing of a layer of your own on this (ramp(T, at('how', 0.2), at('how', 0.6))) and a share of the whole story on
+// T / ids.length: run 2 wrote ramp(T, 2.0, 2.85) and T / 7, which go wrong as soon as a chapter is added or moved.
+export function timeline(ids) {
+  return (id, local = 0) => {
+    const i = ids.indexOf(id);
+    if (i < 0) throw new Error(`at("${id}"): no chapter of the page has that id`);
+    return i + local;
+  };
+}
+
 // Smootherstep from a to b: 0 before a, 1 after b, no jerk at either end.
 export const ramp = (T, a, b) => { const t = clamp01((T - a) / (b - a)); return t * t * t * (t * (t * 6 - 15) + 10); };
 
@@ -90,8 +113,8 @@ function curves(ids) {
     fov: chan((k) => k[1].fov),
     span: chan((k) => k[1].span),
     show: Object.fromEntries(Object.entries(SHOW).map(([name, on]) => {
-      const idx = on.map((id) => ids.indexOf(id)).filter((i) => i >= 0);
-      return [name, idx.length ? [Math.min(...idx), Math.max(...idx)] : null];
+      const here = ids.filter((id) => on.includes(id)); // in page order
+      return [name, here.length ? [here[0], here[here.length - 1]] : null];
     })),
   };
   return cached;
@@ -104,6 +127,11 @@ export function problems(ids) {
   for (const [name, on] of Object.entries(SHOW)) {
     for (const id of on) if (!ids.includes(id)) out.push(`SHOW.${name} names "${id}", which is no chapter of the page`);
   }
+  for (const id of ids) {
+    for (const name of [].concat(SHOTS[id]?.subject ?? [])) {
+      if (!SHOW[name]) out.push(`SHOTS.${id}.subject names "${name}", which is no prop in SHOW`);
+    }
+  }
   return out;
 }
 
@@ -112,23 +140,26 @@ export function evaluate(T, ids) {
   const n = known.length;
   T = Math.max(0, Math.min(n, Number(T) || 0));
   const c = curves(known);
+  const at = timeline(known);
   const index = Math.min(n - 1, Math.floor(T));
   const show = {};
   for (const [name, range] of Object.entries(c.show)) {
     if (!range) { show[name] = 0; continue; }
-    const [a, b] = range;
-    const rise = a === 0 ? 1 : ramp(T, a, a + MOVE);
-    const sink = b === n - 1 ? 0 : ramp(T, b + 1, b + 1 + MOVE);
+    const [first, last] = range;
+    const rise = first === known[0] ? 1 : ramp(T, at(first), at(first, MOVE));
+    const sink = last === known[n - 1] ? 0 : ramp(T, at(last, 1), at(last, 1 + MOVE));
     show[name] = rise * (1 - sink);
   }
   const target = c.target.map((f) => f(T));
   return {
+    T,
     chapter: known[index],
     index,
     local: T - index,
     cam: { pos: c.pos.map((f) => f(T)), target, fov: c.fov(T) },
     focus: { at: [target[0], 0, target[2]], span: c.span(T) },
     show,
+    subject: SHOTS[known[index]].subject ? [].concat(SHOTS[known[index]].subject) : null,
   };
 }
 

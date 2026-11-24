@@ -11,7 +11,13 @@ sub-path, and ``public/`` at the site's root as Vite serves it, from a routed fa
 What is checked, each the reason a starter exists: the page boots with no error or warning (three warns on removed
 APIs); the installed prop loads through the installer's loader; every scroll position draws a composed frame; a
 position draws the same frame whichever way it was reached; the camera holds inside a chapter; nothing is drawn while
-nothing moves; reduced motion rests; without WebGL the page is an article; a phone has no sideways scroll.
+nothing moves; reduced motion rests; without WebGL the page is an article; a phone has no sideways scroll. And what
+round eight's review of run 2 found the starter got wrong or left out: panels readable when the main script does not
+load; every prop inside the frame, and beside or above the panel, at every chapter's rest for a desktop, a portrait
+and a landscape phone; the phone's panel fixed in the lower part of the window; the renderer sized from the canvas's
+box and no re-measure on an address-bar resize; a lost context redrawn when restored and turned into the article when
+not; chapter links and jumpTo landing on a chapter's rest, at() keyed on chapter ids; onScreen() reporting boxes and
+labels in the contract check_site reads.
 """
 
 from __future__ import annotations
@@ -96,6 +102,18 @@ def site(tmp_path_factory) -> Path:
     line = "  hero: { at: [0, 0, 0], turn: 0, size: [1.4, 1.5, 0.9] },"
     assert line in text
     props.write_text(text.replace(line, line[:-3] + f", asset: '{asset}', module: () => import('./agy3d/{asset}/index.js') }},"))
+    html = (project / "index.html").read_text()
+    (project / "index.html").write_text(html.replace("<head>", f'<head>\n<script type="importmap">{json.dumps({"imports": IMPORTS})}</script>', 1))
+    return project
+
+
+@pytest.fixture(scope="module")
+def bare(tmp_path_factory) -> Path:
+    """The starter exactly as shipped: stand-ins only, the shots and layout an agent starts from."""
+    project = tmp_path_factory.mktemp("bare") / "project"
+    shutil.copytree(STARTER, project)
+    if NODE_MODULES.is_dir():
+        (project / "node_modules").symlink_to(NODE_MODULES, target_is_directory=True)
     html = (project / "index.html").read_text()
     (project / "index.html").write_text(html.replace("<head>", f'<head>\n<script type="importmap">{json.dumps({"imports": IMPORTS})}</script>', 1))
     return project
@@ -248,6 +266,262 @@ def test_a_phone_gets_the_scene_above_the_text_and_no_sideways_scroll(browser, s
             hero = p.page.evaluate("__site.info().onScreen").get("hero")
             # the text takes the lower 45 % of a phone's window (style.css): the subject belongs above it
             assert hero and hero["share"] > 0.01 and hero["y"] < 0.55, (T, hero)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+# --------------------------------------------------------------------------- round eight: what the review of run 2 found
+
+REST = 0.7  # shots.js: where a chapter rests, its move done and its text up
+SIZES = {
+    "desktop": {"viewport": {"width": 1440, "height": 900}},
+    "phone": {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 2, "is_mobile": True, "has_touch": True},
+    "landscape phone": {"viewport": {"width": 844, "height": 390}, "device_scale_factor": 2, "is_mobile": True, "has_touch": True},
+}
+_PANEL = """(i) => { const el = document.querySelectorAll('.panel')[i], r = el.getBoundingClientRect();
+  return { box: [r.left / innerWidth, r.top / innerHeight, r.right / innerWidth, r.bottom / innerHeight],
+           opacity: +getComputedStyle(el).opacity }; }"""
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("size", ["desktop", "phone"])
+def test_every_panel_is_readable_in_order_when_the_main_script_does_not_load(browser, bare, size) -> None:
+    """Run 2 dimmed its panels under .js, a class the page sets before any script: with main.js blocked, no text."""
+    p = Page(browser, bare, **SIZES[size])
+    try:
+        p.page.route("**/src/main.js", lambda route: route.abort())
+        p.page.goto(ORIGIN + SUB)
+        state = p.page.evaluate("""() => ({
+          classes: document.documentElement.className,
+          panels: [...document.querySelectorAll('.panel')].map((el) => {
+            el.scrollIntoView({ block: 'center' });
+            const r = el.getBoundingClientRect();
+            const hit = document.elementFromPoint(r.left + r.width / 2, r.top + Math.min(r.height / 2, 40));
+            let opacity = 1;
+            for (let e = el; e; e = e.parentElement) opacity *= +getComputedStyle(e).opacity;
+            return { top: r.top + scrollY, opacity, visibility: getComputedStyle(el).visibility,
+                     onTop: el.contains(hit), words: el.innerText.trim().split(/\\s+/).length };
+          }),
+        })""")
+        assert "webgl-on" not in state["classes"], state
+        panels = state["panels"]
+        assert len(panels) == len(re.findall(r'data-chapter="', (bare / "index.html").read_text()))
+        assert [q["top"] for q in panels] == sorted(q["top"] for q in panels), "the article is not in document order"
+        for i, q in enumerate(panels):
+            assert q["opacity"] == 1 and q["visibility"] == "visible" and q["onTop"] and q["words"] >= 5, (i, q)
+        assert [m for m in p.messages if "main.js" not in m and "ERR_FAILED" not in m] == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("size", ["desktop", "phone", "landscape phone"])
+def test_every_prop_on_stage_is_in_frame_and_clear_of_the_panel_at_each_chapters_rest(browser, bare, size) -> None:
+    """Run 2 widened a phone's view by a fixed factor and cut its props at both side edges; the starter's own shots
+    must hold at every window shape: each prop that is on stage inside the window, beside the panel (desktop, landscape)
+    or above it (portrait phone)."""
+    p = Page(browser, bare, **SIZES[size])
+    try:
+        ids = p.open()["chapters"]
+        portrait = SIZES[size]["viewport"]["width"] < SIZES[size]["viewport"]["height"]
+        for i, chapter in enumerate(ids):
+            T = i + REST
+            p.page.evaluate(f"__site.setProgress({T})")
+            on = p.page.evaluate("__site.info().onScreen")
+            staged = [n for n, v in p.page.evaluate(f"__site.evaluate({T}).show").items() if v > 0.99]
+            panel = p.page.evaluate(_PANEL, i)["box"]
+            assert p.page.evaluate("document.querySelector('.is-current').dataset.chapter") == chapter
+            assert staged, chapter
+            for name in staged:
+                assert name in on and on[name]["kind"] == "prop", (chapter, name, on)
+                x0, y0, x1, y1 = on[name]["box"]
+                assert -0.002 <= x0 and x1 <= 1.002 and -0.002 <= y0 and y1 <= 1.002, (size, chapter, name, on[name])
+                if portrait:
+                    assert y1 <= panel[1], (size, chapter, name, on[name]["box"], "panel", panel)
+                else:
+                    assert x0 >= panel[2], (size, chapter, name, on[name]["box"], "panel", panel)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+def test_the_phone_panel_stays_in_the_lower_part_of_the_window_through_each_chapter(browser, bare) -> None:
+    """Run 2's phone panel was sticky inside its section and slid up across the 3D for a fifth of every chapter."""
+    p = Page(browser, bare, **SIZES["phone"])
+    try:
+        ids = p.open()["chapters"]
+        for i, chapter in enumerate(ids):
+            places = []
+            for local in (0.15, 0.5, 0.95):
+                p.page.evaluate(f"__site.setProgress({i + local})")
+                p.page.wait_for_function("""(i) => [...document.querySelectorAll('.panel')].every((el, k) =>
+                    +getComputedStyle(el).opacity === (k === i ? 1 : 0))""", arg=i, timeout=5000)
+                places.append(p.page.evaluate(_PANEL, i)["box"])
+            for box in places:
+                assert box[1] >= 0.6 and box[3] <= 1.0, (chapter, places)
+            assert all(b == pytest.approx(places[0], abs=1e-3) for b in places), (chapter, "the panel moves", places)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+_CANVAS = """() => { const c = document.getElementById('stage'), r = Math.min(devicePixelRatio, 2);
+  return c.width === Math.floor(c.clientWidth * r) && c.height === Math.floor(c.clientHeight * r); }"""
+
+
+@pytest.mark.browser
+def test_the_renderer_follows_the_canvas_box_and_an_address_bar_does_not_remeasure(browser, bare) -> None:
+    """Run 2 drew at innerHeight into a 100lvh canvas and re-measured the page on every address-bar resize."""
+    p = Page(browser, bare, **SIZES["phone"])
+    try:
+        p.open()
+        assert p.page.evaluate(_CANVAS)
+        before = p.page.evaluate("__site.info().measures")
+        # the address bar slides in: 54 px less height, same width
+        p.page.set_viewport_size({"width": 390, "height": 790})
+        p.page.wait_for_function(_CANVAS, timeout=5000)
+        p.page.evaluate("new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))")
+        assert p.page.evaluate("__site.info().measures") == before, "a height-only resize re-measured the chapters"
+        # a rotation or a split screen: a new width is a new layout
+        p.page.set_viewport_size({"width": 430, "height": 790})
+        p.page.wait_for_function(f"__site.info().measures > {before}", timeout=5000)
+        p.page.wait_for_function(_CANVAS, timeout=5000)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+    p = Page(browser, bare, **SIZES["desktop"])
+    try:
+        p.open()
+        before = p.page.evaluate("__site.info().measures")
+        # on a desktop a window made shorter changes every chapter's height (they are in vh)
+        p.page.set_viewport_size({"width": 1440, "height": 800})
+        p.page.wait_for_function(f"__site.info().measures > {before}", timeout=5000)
+        p.page.wait_for_function(_CANVAS, timeout=5000)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+def _canvas_now(p: Page) -> np.ndarray:
+    """The canvas as it is (no new story time set, so nothing is drawn by the test), as an RGB array."""
+    from PIL import Image
+
+    p.page.add_style_tag(content="#story{visibility:hidden}")
+    png = p.page.locator("#stage").screenshot()
+    p.page.add_style_tag(content="#story{visibility:visible}")
+    return np.asarray(Image.open(io.BytesIO(png)).convert("RGB")).astype(np.int16)
+
+
+_LOSE = "document.getElementById('stage').getContext('webgl2').getExtension('WEBGL_lose_context')"
+
+
+@pytest.mark.browser
+def test_a_lost_context_is_redrawn_when_restored_and_becomes_the_article_when_not(browser, bare) -> None:
+    p = Page(browser, bare)
+    try:
+        p.open()
+        if not p.page.evaluate(f"!!{_LOSE}"):
+            pytest.skip("this browser's WebGL has no WEBGL_lose_context: context loss cannot be caused here")
+        # the support test gave its own context back: only the renderer's is alive
+        before = p.at(1.7)
+        frames = p.page.evaluate("__site.info().frames")
+        p.page.evaluate(f"window.__lose = {_LOSE}; __lose.loseContext()")
+        p.page.wait_for_function("document.getElementById('stage').getContext('webgl2').isContextLost()")
+        p.page.evaluate("__lose.restoreContext()")
+        # nothing scrolls: the page must notice by itself that the picture is gone and draw it again (three starts its
+        # frame count again on a restored context, so any change of it is a frame drawn since)
+        p.page.wait_for_function(f"!document.getElementById('stage').getContext('webgl2').isContextLost() && __site.info().frames !== {frames}", timeout=5000)
+        p.page.evaluate("new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))")
+        after = _canvas_now(p)
+        # the environment map is rebuilt: without it the props come back darker by tens of levels
+        assert int(np.abs(after - before).max()) <= 3, int(np.abs(after - before).max())
+        assert p.page.evaluate("__site.mode") == "webgl"
+
+        p.page.evaluate("__lose.loseContext()")
+        p.page.wait_for_function("__site.mode === 'no-webgl'", timeout=8000)
+        assert p.page.evaluate("getComputedStyle(document.getElementById('stage')).display") == "none"
+        assert p.page.evaluate("[...document.querySelectorAll('.panel')].every((el) => +getComputedStyle(el).opacity === 1)")
+        assert [m for m in p.messages if "CONTEXT_LOST" not in m] == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+def test_chapter_links_and_jump_to_land_on_the_chapters_rest_and_at_names_moments_by_chapter(browser, bare) -> None:
+    p = Page(browser, bare)
+    try:
+        ids = p.open()["chapters"]
+        how = ids.index("how")
+        assert p.page.evaluate("__site.at('how', 0.5)") == how + 0.5
+        with pytest.raises(Exception, match="no chapter of the page has that id"):
+            p.page.evaluate("__site.at('no-such-chapter')")
+        # the starter's own prop timings are keyed on chapter ids: the part rises during the move into "how"
+        rise = p.page.evaluate("[0, 0.175, 0.35].map((f) => __site.evaluate(__site.at('how', f)).show.part)")
+        assert rise[0] == 0 and 0 < rise[1] < 1 and rise[2] == 1, rise
+        # the link at the end of the page lands where "how" rests, not at its top (the previous chapter's picture)
+        p.page.evaluate(f"__site.setProgress({len(ids) - 0.3})")
+        p.page.click('a[href="#how"]')
+        p.page.wait_for_function(f"Math.abs(__site.progress() - {how + REST}) < 0.01", timeout=8000)
+        assert p.page.evaluate("location.hash") == "#how"
+        p.page.evaluate("__site.jumpTo('detail')")
+        p.page.wait_for_function(f"Math.abs(__site.progress() - {ids.index('detail') + REST}) < 0.01", timeout=8000)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+    p = Page(browser, bare)
+    try:
+        p.page.goto(ORIGIN + SUB + "#detail")
+        p.page.evaluate("window.__site.ready")
+        assert p.page.evaluate("__site.progress()") == pytest.approx(ids.index("detail") + REST, abs=0.01)
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+def test_on_screen_reports_each_props_and_labels_box_in_the_contract_check_site_reads(browser, bare) -> None:
+    p = Page(browser, bare)
+    try:
+        p.open()
+        # labels as a page registers them: one in the scene, one that belongs to the prop "part" (on stage from "how")
+        p.page.evaluate("""async () => {
+          const THREE = await import('three');
+          const plane = (w, h) => new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
+          const wide = plane(12, 0.3);
+          wide.position.set(0, 2.2, 0);
+          window.__site.label('wide', wide);
+          const tag = plane(0.4, 0.15);
+          tag.position.set(0, 0.8, 0.3);
+          window.__site.label('tag', tag, 'part');
+        }""")
+        p.page.evaluate("__site.setProgress(0.7)")
+        intro = p.page.evaluate("__site.info().onScreen")
+        assert "tag" not in intro, "a label of a prop that is off stage is reported"
+        p.page.evaluate("__site.setProgress(1.7)")
+        how = p.page.evaluate("__site.info().onScreen")
+        assert {how[n]["kind"] for n in ("wide", "tag")} == {"label"} and how["hero"]["kind"] == "prop", how
+        for name, v in {**intro, **how}.items():
+            assert set(v) - {"subject"} == {"share", "x", "y", "box", "kind"}, (name, v)
+            x0, y0, x1, y1 = v["box"]
+            cx0, cy0, cx1, cy1 = max(x0, 0), max(y0, 0), min(x1, 1), min(y1, 1)
+            # share, x and y describe the part inside the window; box is the whole of it
+            assert v["share"] == pytest.approx((cx1 - cx0) * (cy1 - cy0), abs=1e-6), (name, v)
+            assert v["x"] == pytest.approx((cx0 + cx1) / 2, abs=1e-6) and v["y"] == pytest.approx((cy0 + cy1) / 2, abs=1e-6), (name, v)
+        x0, _, x1, _ = how["wide"]["box"]
+        assert x0 < 0 and x1 > 1, ("the box is clamped to the window", how["wide"])
+        # the subject flag follows the chapter drawn: shots.js names hero for intro, hero and part for how, part for
+        # detail, and nothing for outro (then the field is left out and every prop counts)
+        flags = {}
+        for T in (0.7, 1.2, 1.7, 2.7, 3.7):
+            p.page.evaluate(f"__site.setProgress({T})")
+            on = p.page.evaluate("__site.info().onScreen")
+            flags[T] = {n: v.get("subject") for n, v in on.items() if v["kind"] == "prop"}
+        assert flags[0.7] == {"hero": True}, flags
+        assert flags[1.2] == flags[1.7] == {"hero": True, "part": True}, flags
+        assert flags[2.7] == {"hero": False, "part": True}, flags
+        assert flags[3.7] == {"hero": None}, flags
+        assert "subject" not in p.page.evaluate("__site.info().onScreen")["hero"]
         assert p.messages == [], p.messages
     finally:
         p.close()

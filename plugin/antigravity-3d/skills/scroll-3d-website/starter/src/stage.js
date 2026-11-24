@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { PROPS, loadProp, standIn } from './props.js';
+import { DESIGN_ASPECT } from './shots.js';
 
 // From the upper left and in front: the shadows fall back and to the right, away from the reader.
 const KEY_DIR = new THREE.Vector3(-0.45, 1.0, 0.55).normalize();
@@ -29,7 +30,7 @@ function contactShadow() {
   return mesh;
 }
 
-export function createStage(canvas, { phone = false, onChange = () => {} } = {}) {
+export function createStage(canvas, { phone = false, onChange = () => {}, onLost = () => {} } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.toneMapping = THREE.NeutralToneMapping;
   renderer.shadowMap.enabled = true;
@@ -41,10 +42,14 @@ export function createStage(canvas, { phone = false, onChange = () => {} } = {})
   scene.fog = new THREE.Fog(bg, 14, 40); // the ground fades into the page colour: no horizon line, no grid to the edge
 
   // Light: an environment for reflections and soft fill, one key light that casts the shadow, nothing else.
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  function environment() {
+    if (scene.environment) scene.environment.dispose();
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+  }
+  environment();
   scene.environmentIntensity = 0.55;
-  pmrem.dispose();
   const key = new THREE.DirectionalLight(0xffffff, 2.4);
   key.castShadow = true;
   key.shadow.mapSize.set(phone ? 1024 : 2048, phone ? 1024 : 2048);
@@ -93,22 +98,39 @@ export function createStage(canvas, { phone = false, onChange = () => {} } = {})
       console.error(`prop ${name} did not load, its stand-in stays:`, e && e.message ? e.message : e);
     })));
 
-  // Framing: CSS decides where the text sits (style.css, --frame-x / --frame-y / --frame-fit), the camera moves the
-  // picture's centre into the free part of the window and widens the view so the shot still fits there.
+  // A lost context (a phone reclaiming GPU memory, a driver reset) is restored by the browser because three calls
+  // preventDefault; three then re-creates what it holds in JavaScript, but not the environment map, which was rendered
+  // on the GPU and comes back black, and nothing redraws a page that draws on demand. If it does not come back, the
+  // page tells main.js, which turns it into the article.
+  canvas.addEventListener('webglcontextlost', () => onLost(true));
+  canvas.addEventListener('webglcontextrestored', () => { environment(); onLost(false); onChange(); });
+
+  // Size: from the canvas's own box, which CSS sets (100lvh tall), not from innerHeight, which a phone's address bar
+  // changes as it slides: run 2 drew at innerHeight and the browser stretched that to the taller box.
   let W = 1, H = 1, frame = { x: 0, y: 0, fit: 1 };
-  function resize(w, h, dpr) {
-    W = Math.max(1, w); H = Math.max(1, h);
-    renderer.setPixelRatio(Math.min(dpr || 1, 2));
+  function resize() {
+    W = Math.max(1, canvas.clientWidth); H = Math.max(1, canvas.clientHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
     renderer.setSize(W, H, false);
     frame = { x: parseFloat(css('--frame-x', '0')) || 0, y: parseFloat(css('--frame-y', '0')) || 0, fit: parseFloat(css('--frame-fit', '1')) || 1 };
+    onChange();
   }
+  resize();
+  new ResizeObserver(resize).observe(canvas);
+
+  // Framing: CSS decides where the text sits (style.css, --frame-x / --frame-y / --frame-fit), the camera moves the
+  // picture's centre into the free part of the window and widens the view by --frame-fit so the shot still fits there.
+  // Below the shots' design shape (DESIGN_ASPECT) the view widens further, to hold the horizontal coverage the shot
+  // was designed for: a portrait phone sees as much across as a desktop, and the extra height goes above and below.
 
   const target = new THREE.Vector3(), focus = new THREE.Vector3(), lx = new THREE.Vector3(), ly = new THREE.Vector3();
   const UP = new THREE.Vector3(0, 1, 0);
+  let subject = null; // the drawn chapter's subject (shots.js), for onScreen()
   function render(state) {
     const { cam } = state;
+    subject = state.subject || null;
     const t0 = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
-    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(t0 * frame.fit));
+    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(t0 * frame.fit * Math.max(1, DESIGN_ASPECT / (W / H))));
     camera.aspect = W / H;
     camera.position.fromArray(cam.pos);
     camera.lookAt(target.fromArray(cam.target));
@@ -137,31 +159,60 @@ export function createStage(canvas, { phone = false, onChange = () => {} } = {})
     renderer.render(scene, camera);
   }
 
-  // What the last frame showed of each prop above ground: the share of the window its box covers and the box's
-  // centre (0..1 from the window's top left). A step where no prop covers anything is a dead frame; a centre behind
-  // the text panel is a framing to fix.
+  // Labels: text or marks in the scene (a troika Text, a sprite) that the reader must be able to read. Register each
+  // with label(name, object, prop): it is added to that prop's holder (so it is shown only while the prop is on stage)
+  // or to the scene, and onScreen() reports it like a prop, with kind "label". Run 2's labels lay cut by the frame edge
+  // and under the panel, and nothing measured them.
+  const labels = {};
+  function label(name, object, prop) {
+    if (prop && !props[prop]) throw new Error(`label ${name}: no prop "${prop}" in props.js`);
+    (prop ? props[prop].holder : scene).add(object);
+    labels[name] = object;
+    if (typeof object.sync === 'function') object.sync(onChange); // a troika Text: its glyphs arrive later
+    onChange();
+    return object;
+  }
+
+  // What the last frame showed of each prop above ground and each label: { share, x, y, box, kind }. share: the part
+  // of the window the visible part of its box covers; x, y: that visible part's centre; box: [x0, y0, x1, y1], the
+  // whole projected box, not clamped, so a value below 0 or above 1 says how far it runs out of the frame. All are
+  // fractions of the window from its top left. When the drawn chapter's shot names a subject, each entry also has
+  // subject: true or false. A step where no prop covers anything is a dead frame; a subject's box under the text
+  // panel or past an edge is a framing to fix. check_site reads this hook.
   const corner = new THREE.Vector3();
+  const visible = (o) => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
+  function measured(object, kind) {
+    box.setFromObject(object);
+    if (box.isEmpty()) return null; // a troika Text before its glyphs are ready
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (let k = 0; k < 8; k++) {
+      corner.set(k & 1 ? box.max.x : box.min.x, k & 2 ? box.max.y : box.min.y, k & 4 ? box.max.z : box.min.z).project(camera);
+      if (corner.z > 1) continue; // behind the camera
+      x0 = Math.min(x0, corner.x); x1 = Math.max(x1, corner.x); y0 = Math.min(y0, corner.y); y1 = Math.max(y1, corner.y);
+    }
+    const cx0 = Math.max(x0, -1), cx1 = Math.min(x1, 1), cy0 = Math.max(y0, -1), cy1 = Math.min(y1, 1);
+    if (cx1 <= cx0 || cy1 <= cy0) return null;
+    return { share: ((cx1 - cx0) * (cy1 - cy0)) / 4, x: (cx0 + cx1 + 2) / 4, y: 1 - (cy0 + cy1 + 2) / 4,
+      box: [(x0 + 1) / 2, (1 - y1) / 2, (x1 + 1) / 2, (1 - y0) / 2], kind };
+  }
   function onScreen() {
     const out = {};
     for (const [name, p] of Object.entries(props)) {
       if (!p.holder.visible || p.object.position.y < -0.5 * p.height) continue;
-      box.setFromObject(p.object);
-      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-      for (let k = 0; k < 8; k++) {
-        corner.set(k & 1 ? box.max.x : box.min.x, k & 2 ? box.max.y : box.min.y, k & 4 ? box.max.z : box.min.z).project(camera);
-        if (corner.z > 1) continue; // behind the camera
-        x0 = Math.min(x0, corner.x); x1 = Math.max(x1, corner.x); y0 = Math.min(y0, corner.y); y1 = Math.max(y1, corner.y);
-      }
-      const cx0 = Math.max(x0, -1), cx1 = Math.min(x1, 1), cy0 = Math.max(y0, -1), cy1 = Math.min(y1, 1);
-      if (cx1 <= cx0 || cy1 <= cy0) continue;
-      out[name] = { share: ((cx1 - cx0) * (cy1 - cy0)) / 4, x: (cx0 + cx1 + 2) / 4, y: 1 - (cy0 + cy1 + 2) / 4 };
+      const m = measured(p.object, 'prop');
+      if (m) out[name] = m;
     }
+    for (const [name, object] of Object.entries(labels)) {
+      const m = visible(object) && measured(object, 'label');
+      if (m) out[name] = m;
+    }
+    if (subject) for (const [name, m] of Object.entries(out)) m.subject = subject.includes(name);
     return out;
   }
 
   return {
     render,
-    resize,
+    label,
     ready,
     info: () => ({ frames: renderer.info.render.frame, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
       textures: renderer.info.memory.textures, geometries: renderer.info.memory.geometries, loaded: [...loaded], failed: [...failed],
