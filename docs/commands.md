@@ -418,7 +418,7 @@ machine without a GPU whose browser was started without `--use-angle=swiftshader
 container images wrap the browser in a script that removes such switches) draws a WebGL canvas wrongly in a screenshot
 wherever an opaque box lies over it: the part opposite the box, mirrored top to bottom, is left black. Run 2's 48 px
 top bar left a 48 px black band at the bottom of every frame; in run 3 the text panel's code block left a black box
-over the 3D label on the phone, and the agent spent 17 of its 105 minutes on it and changed the site's styles twice.
+over the 3D label on the phone, and the agent spent 16 of its 105 minutes on it and changed the site's styles twice.
 No visitor's browser does this. So before the visits the check photographs a page of its own (a canvas of one colour
 under an opaque bar), once per browser:
 

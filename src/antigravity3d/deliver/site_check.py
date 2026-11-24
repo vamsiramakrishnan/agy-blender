@@ -1507,8 +1507,8 @@ def _probe_script(no_webgl: bool, canvas_layer: bool = False) -> str:
 # graphics switches a wrapper script removed, or one with --disable-gpu) draws a WebGL canvas wrongly wherever an
 # opaque box lies over it: the part of the canvas that is covered is drawn, and the part opposite it, mirrored top to
 # bottom, is left black. A visitor's browser does not do this. In run 3 (benchmarks/results/site_run3_plugin) every
-# phone frame with the text panel open had such a black box over the 3D picture; the agent spent 17 of its 105 minutes
-# on it, wrote seven screenshot scripts of its own (which, started the same way, showed the same box) and changed the
+# phone frame with the text panel open had such a black box over the 3D picture; the agent spent 16 of its 105 minutes
+# on it, wrote six screenshot scripts of its own (which, started the same way, showed the same box) and changed the
 # site's styles twice for a fault no visitor would ever see.
 #
 # So the check tests its camera before it believes it: a page with a WebGL canvas of one colour under an opaque bar,

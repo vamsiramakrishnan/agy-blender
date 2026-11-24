@@ -667,7 +667,7 @@ def _is_the_canvas(px) -> bool:
 @pytest.mark.browser
 def test_the_frames_show_a_canvas_that_lies_under_an_opaque_box(tmp_path):
     """Run 3: a Chromium that puts pages together without the GPU path left a black box in every frame, opposite the
-    text panel, and the agent spent 17 minutes on a fault no visitor sees. Whatever this machine's browser does, the
+    text panel, and the agent spent 16 minutes on a fault no visitor sees. Whatever this machine's browser does, the
     frame shows the canvas, and the answer speaks of the camera only where it had to work around it."""
     r = sc.check_site(str(site(tmp_path, "under_a_bar")), out_dir=tmp_path / "out", steps=2, sizes=("desktop",), variants=())
     assert r.camera in ("true", "layer"), r.camera
