@@ -19,11 +19,14 @@ Given a folder that holds a built site (``index.html``) or a localhost URL it:
 5. reads what the scene costs from WebGL calls wrapped before the page's scripts run (``site_probe.js`` says how);
 6. loads the page once with "reduce motion" set and once with WebGL unavailable;
 7. checks every element that names its source with ``data-src`` against that source, and lists numbers and code shown
-   with no source.
+   with no source;
 8. at each step, where the page says where its subjects are (``window.__site.info().onScreen``, each with a projected
    ``box``), measures how much of each is cut by the frame's edge and how much lies under HTML a visitor cannot see
    through, and names the ones a visitor would notice. Run 2 (benchmarks/results/site_run2_plugin) is why: the check
-   came back clean while the gate sat under the text panel and labels ran off the frame at several steps.
+   came back clean while the gate sat under the text panel and labels ran off the frame at several steps;
+9. where the page names its chapters and where each rests (``window.__site.chapters()``, ``setProgress``), writes one
+   still per chapter for the page without WebGL, the 3D canvas alone, as ``stills/<chapter id>.webp``. Run 2's agent
+   wrote a screenshot script for those twice (the first set had a scrollbar in every picture).
 
 Everything is bounded: the whole check answers within ``ANSWER_S`` (the host ends a tool call at 180 s), with what it
 has when time runs out, and says which parts are missing.
@@ -133,6 +136,22 @@ IN_FRAME_MIN = 0.2
 #: subjects named one per line, per size, props first, each in the order the scroll meets it; the rest are named together
 #: in one line (run 2's site had 9 such subjects on desktop and 11 on the phone)
 SUBJECT_LINES = 8
+#: Stills for the page without WebGL (one per chapter, its resting picture, the 3D canvas alone), when the page gives
+#: window.__site.chapters() -> [{ id, rest }] and setProgress(T). Width: the article layout shows a still at most as
+#: wide as its text column, 40rem (640 CSS px) in the skill's starter, about 590 px inside the panel's padding; 1280 px
+#: covers that on a screen of 2 device pixels per CSS pixel, and a 3x phone's column of about 360 px needs 1080. Run 2's
+#: agent shipped 1280 px stills too. A canvas narrower than that is kept at its own width, never enlarged.
+STILL_WIDTH = 1280
+#: WebP quality (Pillow, libwebp, method as web_textures.WEBP_METHOD).
+STILL_QUALITY = 80
+STILL_METHOD = 4
+#: at most this many chapters are read from the page, and all stills together take at most STILLS_S, each at most
+#: STILL_WAIT_S, inside the answer's limit
+STILLS_READ = 24
+STILLS_S = 25.0
+STILL_WAIT_S = 8.0
+#: a still's file name: letters, digits, '-' and '_' of the chapter id, at most this long
+STILL_NAME_CHARS = 60
 #: how many unsourced numbers and code specimens are listed (the total is always given)
 UNSOURCED_LISTED = 6
 
@@ -232,6 +251,9 @@ class SiteReport:
     error: str = ""
     steps: int = 9
     budget_s: float = ANSWER_S
+    # stills for the page without WebGL: {"dir", "made": [{id, file, rest, width, height, bytes, content, how}],
+    # "skipped": [{id, why}]}, or {"note": why there are none} (no hook: nothing is said in the answer)
+    stills: dict = field(default_factory=dict)
 
     # ------------------------------------------------------------------ verdicts
 
@@ -588,8 +610,28 @@ class SiteReport:
             frames = [s.frame for s in v.steps if s.frame]
             lines.append(f"- {name} contact sheet: {sheet}" + (f" (frames {_rel(frames[0], self.out_dir)} to "
                                                              f"{_rel(frames[-1], self.out_dir)})" if frames else ""))
+        if line := self.stills_line():
+            lines.append(f"- {line}")
         lines.append(f"- all frames, the canvas-only frames and the full record (report.json) are in {self.out_dir}")
         return "\n".join(lines)
+
+    def stills_line(self) -> str:
+        st = self.stills
+        made, skipped = st.get("made") or [], st.get("skipped") or []
+        if not made and not skipped:
+            return ""
+        notmade = ("; not made: " + "; ".join(f"{_q(x['id'], 40)} ({x['why']})" for x in skipped[:3])
+                   + (f" and {len(skipped) - 3} more" if len(skipped) > 3 else "")) if skipped else ""
+        if not made:
+            return "no stills for the page without WebGL" + notmade + "."
+        w, h = made[0]["width"], made[0]["height"]
+        blank = [x["file"] for x in made if x["content"] < EMPTY_CONTENT]
+        return ("stills for the page without WebGL, one per chapter at the picture it rests on, the 3D canvas alone "
+                f"({len(made)}, {w} x {h} px WebP, {_mb(sum(x['bytes'] for x in made) / len(made))} each on average): "
+                f"{st['dir']} (" + _names([x["file"] for x in made], 4) + "). Copy them beside the page "
+                "(stills/<chapter id>.webp) and give each an alt text that says what it shows"
+                + (f"; {_names(blank, 3)} show{'s' if len(blank) == 1 else ''} nothing but the background" if blank else "")
+                + notmade + ".")
 
     def to_dict(self) -> dict:
         def visit(v: Visit) -> dict:
@@ -602,7 +644,7 @@ class SiteReport:
             return out
 
         return {"target": self.target, "seconds": round(self.seconds, 1), "broken": self.broken(), "noticed": self.noticed(),
-                "unfinished": self.unfinished, "sheets": self.sheets, "facts": self.facts,
+                "unfinished": self.unfinished, "sheets": self.sheets, "facts": self.facts, "stills": self.stills,
                 "visits": {k: visit(v) for k, v in self.visits.items()}, "total_bytes": self.total_bytes()}
 
 
@@ -1240,6 +1282,57 @@ class _Visitor:
         note = f"{len(out)} subject{_s(out)} with a box" + (", more not read" if got.get("more") else "")
         return (out or None), note
 
+    async def stills(self, page) -> dict:
+        """One still per chapter the page names (``site_probe.js``, ``chapterList`` and ``stillAt``), written as
+        ``stills/<name>.webp`` in the output folder. Bounded in count, in time per chapter and in all; the ids become
+        file names that cannot leave the folder or overwrite one another."""
+        t0 = time.monotonic()
+        try:
+            got = await asyncio.wait_for(page.evaluate("window.__agySite.chapterList()"), SUBJECTS_WAIT_S)
+        except Exception as e:  # noqa: BLE001  a hook that hangs or a page that navigated: no stills, and why
+            return {"note": f"chapters not read ({type(e).__name__})"}
+        if not isinstance(got, dict) or not isinstance(got.get("list"), list):
+            return {"note": str(got.get("why") or "")[:200] if isinstance(got, dict) else "chapters not read"}
+        chapters = [c for c in got["list"][:STILLS_READ] if isinstance(c, dict) and isinstance(c.get("id"), str)
+                    and isinstance(c.get("rest"), (int, float)) and not isinstance(c.get("rest"), bool) and math.isfinite(c["rest"])]
+        if not chapters:
+            return {"note": "chapters() gave no { id, rest }"}
+        folder = (self.out / "stills").resolve()
+        folder.mkdir(exist_ok=True)
+        made, skipped = [], []
+        for c, name in zip(chapters, still_names([c["id"] for c in chapters])):
+            left = min(STILLS_S - (time.monotonic() - t0), self.clock.left() - WRAP_UP_S - 2.0)
+            if left < 1.0:
+                skipped.append({"id": c["id"], "why": "no time left"})
+                continue
+            try:
+                r = await asyncio.wait_for(page.evaluate("(T) => window.__agySite.stillAt(T)", c["rest"]), min(STILL_WAIT_S, left))
+            except Exception as e:  # noqa: BLE001
+                skipped.append({"id": c["id"], "why": f"not drawn in time ({type(e).__name__})"})
+                continue
+            data = r.get("data") if isinstance(r, dict) else None
+            if not isinstance(data, str) or not data.startswith("data:image/") or len(data) > 64_000_000:
+                skipped.append({"id": c["id"], "why": str(r.get("why") if isinstance(r, dict) else "no picture")[:160]})
+                continue
+            f = folder / f"{name}.webp"
+            if f.resolve().parent != folder:  # still_names makes this impossible; the folder is the one place written
+                skipped.append({"id": c["id"], "why": "no safe file name"})
+                continue
+            try:
+                webp, size = await asyncio.to_thread(still_webp, data)
+            except Exception as e:  # noqa: BLE001  a picture Pillow cannot read
+                skipped.append({"id": c["id"], "why": f"unreadable picture ({type(e).__name__})"})
+                continue
+            f.write_bytes(webp)
+            made.append({"id": c["id"], "file": f.name, "rest": c["rest"], "width": size[0], "height": size[1],
+                         "bytes": len(webp), "content": round(canvas_content(webp), 4), "how": str(r.get("how", ""))[:40]})
+        if got.get("more"):
+            skipped.append({"id": f"chapters after the first {STILLS_READ}", "why": "not read"})
+        if not made:
+            with contextlib.suppress(OSError):
+                folder.rmdir()
+        return {"dir": str(folder), "made": made, "skipped": skipped}
+
     async def canvas_alone(self, page, rect: dict) -> bytes:
         """The largest WebGL canvas in view without the page's HTML: read from its drawing buffer after the page's next
         frame (``site_probe.js``, ``grabCanvas``), or, for a page that draws only on change, photographed with every
@@ -1292,6 +1385,41 @@ class _Visitor:
         for a_, b_ in zip(self.v.steps, self.v.steps[1:]):
             if b_.index == a_.index + 1:
                 b_.unchanged = _diff(_grey(Path(a_.frame).read_bytes(), 4), _grey(Path(b_.frame).read_bytes(), 4)) < UNCHANGED
+
+
+_RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(10)), *(f"lpt{i}" for i in range(10))}
+
+
+def still_names(ids: list[str]) -> list[str]:
+    """A file name (without .webp) per chapter id: its letters, digits, '-' and '_' (anything else becomes '-'), at most
+    STILL_NAME_CHARS long, never empty, never a name Windows reserves, and distinct even where the file system ignores
+    case ('Intro' and 'intro', or 'a/b' and 'a-b', get 'intro' and 'intro-2')."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for i, raw in enumerate(ids):
+        n = re.sub(r"[^A-Za-z0-9_-]+", "-", str(raw)).strip("-_")[:STILL_NAME_CHARS].strip("-_") or f"chapter-{i + 1}"
+        if n.lower() in _RESERVED:
+            n = f"chapter-{n}"
+        base, k = n, 2
+        while n.lower() in seen:
+            n, k = f"{base}-{k}", k + 1
+        seen.add(n.lower())
+        out.append(n)
+    return out
+
+
+def still_webp(data_url: str) -> tuple[bytes, tuple[int, int]]:
+    """A canvas read back as a data URL, made at most STILL_WIDTH wide (never wider than it was), as WebP."""
+    import base64
+
+    from PIL import Image
+
+    im = Image.open(io.BytesIO(base64.b64decode(data_url.split(",", 1)[1]))).convert("RGB")
+    if im.width > STILL_WIDTH:
+        im = im.resize((STILL_WIDTH, round(im.height * STILL_WIDTH / im.width)), Image.LANCZOS)
+    buf = io.BytesIO()
+    im.save(buf, "WEBP", quality=STILL_QUALITY, method=STILL_METHOD)
+    return buf.getvalue(), im.size
 
 
 def _subject(r: Any) -> dict | None:
@@ -1410,8 +1538,10 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
         raise ValueError(f"the pictures would go into {out}, inside the site, where the next check would weigh them and "
                          f"the site would publish them; give an output folder outside {folder}")
     out.mkdir(parents=True, exist_ok=True)
-    for old in out.glob("*.jpg"):
+    for old in [*out.glob("*.jpg"), *out.glob("stills/*.webp")]:
         old.unlink()
+    with contextlib.suppress(OSError):
+        (out / "stills").rmdir()  # a still from an earlier check would pass for one of this page's
     src_dir = Path(sources).expanduser().resolve() if sources else folder
     rep = SiteReport(str(target), out, steps=steps, budget_s=budget_s)
     rep.facts["other_hosts_mode"] = other_hosts
@@ -1429,7 +1559,8 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
     own = server.origin if server else f"{urlsplit(url).scheme}://{urlsplit(url).netloc}"
 
     async def visit(name: str, ctx_opts: dict, *, no_webgl: bool = False, do_steps: int = 0, canvas: bool = False,
-                    sideways: bool = False, facts: bool = False, idle: bool = False, one_step: float | None = None) -> None:
+                    sideways: bool = False, facts: bool = False, idle: bool = False, one_step: float | None = None,
+                    stills: bool = False) -> None:
         vis = _Visitor(name, page_url, own, out, clock, other_hosts)
         rep.visits[name] = vis.v
 
@@ -1463,6 +1594,9 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
                     vis.v.frame = str(f)
                 info = await vis.info(page)
                 vis.v.probe, vis.v.memory, vis.v.text_chars = info, info.get("memory"), info.get("textChars")
+                if stills:
+                    # last: drawing each chapter's rest moves the page, and nothing measured after would be the visit's
+                    rep.stills = await vis.stills(page)
             finally:
                 await vis.flush()
                 if server is not None and name in ("desktop", "phone"):
@@ -1481,7 +1615,9 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
 
     plan = {}
     if "desktop" in sizes:
-        plan["desktop"] = visit("desktop", {}, do_steps=steps, canvas=True, facts=True, idle=True)
+        # Stills once, at desktop size: the article layout is the same page at every size, and its column is narrower than
+        # a desktop canvas, so one set serves all
+        plan["desktop"] = visit("desktop", {}, do_steps=steps, canvas=True, facts=True, idle=True, stills=True)
     if "phone" in sizes:
         plan["phone"] = visit("phone", {}, do_steps=steps, canvas=True, sideways=True)
     # the variants after the sizes (the lanes start them in this order); the reduced-motion visit's one step, at 50 %,

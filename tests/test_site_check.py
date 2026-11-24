@@ -678,3 +678,67 @@ def test_a_page_without_the_hook_says_nothing_about_subjects(tmp_path):
     r = run(site(tmp_path, "frozen"), tmp_path, steps=2)
     assert all(s.subjects is None and s.subjects_note == "no window.__site.info()" for s in r.visits["desktop"].steps)
     assert "the prop" not in r.text() and "3D label" not in r.text()
+
+
+# --------------------------------------------------------------------------- stills for the page without WebGL
+
+
+def test_chapter_ids_become_safe_distinct_file_names():
+    names = sc.still_names(["intro", "Intro", "../../etc/passwd", "...", "", "a/b", "a-b", "con", "x" * 300, "été 2"])
+    assert names == ["intro", "Intro-2", "etc-passwd", "chapter-4", "chapter-5", "a-b", "a-b-2", "chapter-con", "x" * 60,
+                     "t-2"]
+    assert len({n.lower() for n in names}) == len(names) and all("/" not in n and "." not in n for n in names)
+
+
+def test_the_stills_line_says_where_they_are_and_what_they_are_for(tmp_path):
+    rep = sc.SiteReport("site", tmp_path, steps=2)
+    assert rep.stills_line() == "" and "page without WebGL" not in rep.text()
+    rep.stills = {"note": "no window.__site.chapters() and setProgress()"}
+    assert rep.stills_line() == ""
+    made = [{"id": i, "file": f"{i}.webp", "rest": 0.7, "width": 1280, "height": 800, "bytes": 40_000, "content": 0.3,
+             "how": ""} for i in ("intro", "how")]
+    made[1]["content"] = 0.0
+    rep.stills = {"dir": str(tmp_path / "stills"), "made": made, "skipped": [{"id": "outro", "why": "not drawn in time (TimeoutError)"}]}
+    assert rep.stills_line() == (
+        f"stills for the page without WebGL, one per chapter at the picture it rests on, the 3D canvas alone (2, 1280 x 800 "
+        f"px WebP, 40 kB each on average): {tmp_path / 'stills'} (intro.webp, how.webp). Copy them beside the page "
+        "(stills/<chapter id>.webp) and give each an alt text that says what it shows; how.webp shows nothing but the "
+        "background; not made: 'outro' (not drawn in time (TimeoutError)).")
+
+
+def _pixel(p: Path) -> tuple[int, int, int]:
+    im = Image.open(p).convert("RGB")
+    return im.getpixel((im.width // 2, im.height - 5))  # the bottom rows: where headless Chromium's band would be
+
+
+@pytest.mark.browser
+def test_one_still_per_chapter_shows_that_chapter_and_stays_in_its_folder(tmp_path):
+    r = run(site(tmp_path, "stills"), tmp_path, steps=2)
+    stills = tmp_path / "out" / "stills"
+    made = {x["id"]: x for x in r.stills["made"]}
+    assert sorted(p.name for p in stills.iterdir()) == sorted(
+        ["intro.webp", "how.webp", "escape.webp", "Intro-2.webp", "chapter-5.webp", "a-b.webp", "a-b-2.webp"]), r.stills
+    assert not any(p.name == "escape.webp" for p in tmp_path.rglob("*.webp") if p.parent != stills)
+    want = {"intro": (255, 0, 0), "how": (0, 255, 0), "../../escape": (0, 0, 255), "Intro": (255, 255, 0),
+            "...": (255, 0, 0), "a/b": (0, 255, 0), "a-b": (0, 0, 255)}
+    for cid, rgb in want.items():
+        got = _pixel(stills / made[cid]["file"])
+        assert all(abs(a - b) <= 12 for a, b in zip(got, rgb)), (cid, got)
+        assert (made[cid]["width"], made[cid]["height"]) == (1280, 800)
+    assert {made[c]["how"] for c in ("intro", "how")} == {"drawn by setProgress", "drawn on the next frame"}
+    record = json.loads((tmp_path / "out" / "report.json").read_text())
+    assert len(record["stills"]["made"]) == 7 and "stills for the page without WebGL" in r.text()
+
+
+@pytest.mark.browser
+def test_a_chapters_hook_that_throws_or_is_missing_writes_no_stills(tmp_path):
+    root = site(tmp_path, "frozen")
+    r = run(root, tmp_path, steps=2)
+    assert not (tmp_path / "out" / "stills").exists() and "page without WebGL" not in r.text()
+    assert r.stills == {"note": "no window.__site.chapters() and setProgress()"}
+    page = (root / "index.html").read_text().replace(
+        "</script>", "window.__site = { setProgress() {}, chapters() { throw new Error('fixture chapters boom'); } };</script>")
+    (root / "index.html").write_text(page)
+    r = run(root, tmp_path / "again", steps=2)
+    assert not (tmp_path / "again" / "out" / "stills").exists() and "page without WebGL" not in r.text()
+    assert "threw: fixture chapters boom" in r.stills["note"]

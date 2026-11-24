@@ -366,6 +366,17 @@ The answer gives one line per subject and size, with the steps, the worst share,
 and the frame to look at; at most 8 subjects per size, props first, then one line naming the rest. Every subject at
 every step is in `report.json`. The contact sheet marks such steps `subject hidden` or `subject cut`.
 
+Stills for the page without WebGL. When the page also gives `window.__site.chapters()`, a list of `{ id, rest }` (the
+chapter's id, and the story time at which it rests), and `window.__site.setProgress(T)`, as the skill's starter does,
+the desktop visit ends by drawing each chapter's rest and writing the 3D canvas alone as `stills/<chapter id>.webp`
+in the output folder: read from the canvas's drawing buffer right after the page drew it, so no HTML, no scrollbar
+and no headless band is in it; at most 1280 px wide (the article's text column is 40rem, about 590 CSS px of image,
+so 1280 covers a screen of two device pixels per CSS pixel), WebP at quality 80: 41 to 65 kB each on run 2's site
+(quality 70 saves a fifth for 1 dB less, 90 costs 60 % more for 1.5 dB). At most 24
+chapters and 25 s in all; ids become file names of letters, digits, `-` and `_`, made distinct. The answer names the
+folder under "Pictures"; `report.json` lists every still (`stills`) and why any was not made. A page without the hook
+gets no `stills` folder and nothing said.
+
 How each finding is decided (the only thresholds; everything else is reported as a number):
 
 | Finding | Rule | Why |

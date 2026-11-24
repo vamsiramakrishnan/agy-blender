@@ -204,7 +204,7 @@ window.__site.scrollWith = (y) => lenis.scrollTo(y);
 <!-- check: picture -->
 <!-- check: js document.documentElement.classList.contains('lenis') && window.__site.mode === 'webgl' -->
 <!-- check: js (() => { const wheel = (el) => { const e = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true }); el.dispatchEvent(e); return e.defaultPrevented; }; const box = document.createElement('div'); box.style.cssText = 'height: 60px; overflow: auto'; box.innerHTML = '<div style="height: 400px">long</div>'; document.querySelector('.panel').append(box); return wheel(document.querySelector('.panel h1')) === true && wheel(box.firstChild) === false; })() -->
-<!-- check: js (async () => { await window.__site.ready; window.__site.jumpTo('detail'); await new Promise((r) => setTimeout(r, 3000)); return Math.abs(window.__site.progress() - (window.__site.chapters.indexOf('detail') + 0.7)) < 0.01; })() -->
+<!-- check: js (async () => { await window.__site.ready; window.__site.jumpTo('detail'); await new Promise((r) => setTimeout(r, 3000)); return Math.abs(window.__site.progress() - window.__site.chapters().find((c) => c.id === 'detail').rest) < 0.01; })() -->
 
 ## pmndrs postprocessing 6.39 and n8ao 2.1: effects, used sparingly and measured
 

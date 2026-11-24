@@ -215,6 +215,76 @@
     return { list: measured, seen: got.seen, boxless: got.boxless, more: got.more };
   };
 
+  // ---- stills for the page without WebGL: window.__site.chapters() -> [{ id, rest }], drawn with setProgress(rest)
+  // Untrusted like onScreen: at most CHAPTERS entries, ids as strings cut to NAME_CHARS, rest a finite number.
+  const CHAPTERS = 24;
+  const late = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r({ __late: true }), ms))]);
+  S.chapterList = async () => {
+    let got;
+    try {
+      const site = window.__site;
+      if (!site || typeof site.chapters !== 'function' || typeof site.setProgress !== 'function') {
+        return { why: 'no window.__site.chapters() and setProgress()' };
+      }
+      got = site.chapters();
+      if (got && typeof got.then === 'function') got = await late(got, 500);
+      if (got && got.__late) return { why: 'window.__site.chapters() did not resolve within 0.5 s' };
+    } catch (e) { return { why: 'window.__site.chapters() threw: ' + String((e && e.message) || e).slice(0, 120) }; }
+    const list = [];
+    let more = false;
+    try {
+      if (!got || typeof got.length !== 'number') return { why: 'chapters() did not return a list' };
+      const n = Math.min(Number(got.length) || 0, CHAPTERS + 1);
+      for (let i = 0; i < n; i++) {
+        if (list.length >= CHAPTERS) { more = true; break; }
+        try {
+          const c = got[i], id = c && c.id, rest = c && c.rest;
+          if ((typeof id !== 'string' && typeof id !== 'number') || !finite(rest)) continue;
+          list.push({ id: String(id).slice(0, NAME_CHARS), rest });
+        } catch (e) { /* one bad entry: the others still count */ }
+      }
+    } catch (e) { return { why: 'reading chapters() threw: ' + String((e && e.message) || e).slice(0, 120) }; }
+    return list.length ? { list, more } : { why: 'chapters() gave no { id, rest } with a finite rest' };
+  };
+  // The largest WebGL canvas in view, read from its drawing buffer as a PNG data URL. Only right after a draw: a canvas
+  // without preserveDrawingBuffer is blank to read once its frame is shown. The drawing buffer holds the scene alone, at
+  // full size, without the page's HTML, a scrollbar, or the rows headless Chromium's compositor leaves out of a WebGL
+  // canvas under an opaque full-width fixed bar (the band in every full-window frame of run 2's site).
+  const readCanvas = () => {
+    let best = null;
+    for (const c of S.canvases) {
+      const r = c.getBoundingClientRect();
+      const a = Math.max(0, Math.min(innerWidth, r.right) - Math.max(0, r.left)) * Math.max(0, Math.min(innerHeight, r.bottom) - Math.max(0, r.top));
+      if (a > 64 && c.width > 0 && c.height > 0 && (!best || a > best.a)) best = { c, a };
+    }
+    if (!best) return null;
+    try { return best.c.toDataURL('image/png'); } catch (e) { return null; }
+  };
+  const progress = (T) => { try { window.__site.setProgress(T); return null; } catch (e) { return String((e && e.message) || e).slice(0, 120); } };
+  // Draw the moment T and read it as soon as it is drawn. The page draws on demand: setProgress draws at once (the
+  // starter's does) or on its next frame; textures that arrive meanwhile ask for a redraw. So: draw, let frames pass
+  // until the page has stopped drawing, then draw again and read in the same task, or catch its next frame (grab).
+  // A page that redraws only when T changes is moved off T and back.
+  S.stillAt = async (T) => {
+    let why = progress(T);
+    if (why) return { why: 'setProgress threw: ' + why };
+    for (let i = 0; i < 20; i++) {
+      const before = S.frames, drawnBefore = S.win.drawn;
+      await late(S.afterFrames(3), 2000);
+      if (S.win.drawn === drawnBefore || S.frames === before) break;
+    }
+    for (const nudge of [false, true]) {
+      if (nudge) { progress(T - 1e-3); await late(S.afterFrames(2), 2000); }
+      const d0 = S.cur.draws;
+      why = progress(T);
+      if (why) return { why: 'setProgress threw: ' + why };
+      if (S.cur.draws > d0) { const data = readCanvas(); if (data) return { data, how: 'drawn by setProgress' }; }
+      const data = await late(S.grabCanvas(4, 'image/png'), 3000);
+      if (typeof data === 'string') return { data, how: 'drawn on the next frame' };
+    }
+    return { why: 'the page drew nothing after setProgress(' + T + ')' };
+  };
+
   let hider = null;
   // After a step's frame: the frame counts, where the page is, and (hide) the WebGL canvas alone on screen, two frames on.
   S.stepEnd = (hide) => new Promise((done) => {
@@ -241,11 +311,11 @@
       const a = Math.max(0, Math.min(innerWidth, r.right) - Math.max(0, r.left)) * Math.max(0, Math.min(innerHeight, r.bottom) - Math.max(0, r.top));
       if (a > 64 && (!best || a > best.a)) best = { c, a };
     }
-    if (best) { try { want.data = best.c.toDataURL('image/jpeg', 0.8); } catch (e) {} }
+    if (best) { try { want.data = best.c.toDataURL(want.type || 'image/jpeg', 0.8); } catch (e) {} }
   };
   // Resolves with the canvas as a data URL once a frame has drawn into it, or null after `frames` frames without one
   // (a page that draws only when something changes): check_site then hides the HTML and photographs the screen.
-  S.grabCanvas = (frames) => new Promise((done) => { want = { draws: -1, data: null, left: frames, done }; });
+  S.grabCanvas = (frames, type) => new Promise((done) => { want = { draws: -1, data: null, left: frames, done, type }; });
   // Resolves once `n` more animation frames have run: two screenshots with no frame between them are the same
   // compositor frame, and would read as a picture that stopped changing while the page had not drawn yet.
   const waiting = [];

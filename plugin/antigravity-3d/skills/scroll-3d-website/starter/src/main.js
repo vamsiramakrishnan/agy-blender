@@ -15,12 +15,13 @@ const touchOnly = matchMedia('(hover: none), (pointer: coarse)');
 const RESTORE_WAIT_MS = 3000;
 
 // A hook for quick looks from the browser's console or a script of your own: wait for `ready`, then ask for any
-// moment by story time. check_site scrolls the page the way a visitor does and reads info().onScreen at each step.
+// moment by story time. check_site scrolls the page the way a visitor does and reads info().onScreen at each step,
+// and draws every chapter's rest (chapters(), setProgress) for the article's stills (recipes.md).
 let resolveReady;
 const site = {
   ready: new Promise((r) => { resolveReady = r; }),
   mode: 'starting',          // 'webgl', or 'no-webgl' with the reason in `why`
-  chapters: [],
+  chapters: () => [],         // [{ id, rest }]: the page's chapters, and the story time at which each rests
   setProgress() {},          // setProgress(T): scroll to story time T (0 .. chapters.length) and draw it now
   progress: () => 0,         // the story time drawn last
   jumpTo() {},               // jumpTo(id): go to where chapter `id` rests; the chapter links use it
@@ -64,7 +65,7 @@ function articleOnly(why) {
   site.mode = 'no-webgl';
   site.why = why;
   let boxes = measure();
-  site.chapters = boxes.map((b) => b.id);
+  site.chapters = () => boxes.map((b, i) => ({ id: b.id, rest: i + REST }));
   site.setProgress = (T) => { boxes = measure(); scrollTo(0, scrollFor(boxes, T)); };
   site.progress = () => timeAt(boxes, scrollY);
   site.jumpTo = (id) => document.getElementById(id)?.scrollIntoView(); // the sections' ids, as a link without script
@@ -140,7 +141,7 @@ async function boot() {
 
   Object.assign(site, {
     mode: 'webgl',
-    chapters: ids,
+    chapters: () => ids.map((id) => ({ id, rest: at(id, REST) })),
     setProgress(T) {
       if (needMeasure) { needMeasure = false; remeasure(); }
       scrollTo(0, scrollFor(boxes, T));

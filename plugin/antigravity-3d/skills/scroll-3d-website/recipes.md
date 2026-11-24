@@ -77,9 +77,11 @@ not a real log line"). Do not invent identifiers, hashes, line numbers or log li
 ## Stills for the page without WebGL
 
 Without WebGL (or with JavaScript off) the starter's page is an article; each chapter can show a still of its shot.
-Make them from the finished site: `check_site` writes a frame per step, or open the built page in a browser, call
-`window.__site.setProgress(i + 0.7)` for chapter `i` (0.7 is where reduced motion rests) and take a screenshot of the
-window with the text hidden. Save them as WebP beside the page and add one per panel:
+`check_site` makes them: on a page that keeps the starter's `window.__site.chapters()` and `setProgress`, it draws each
+chapter where it rests and writes the 3D canvas alone, 1280 px wide, as `stills/<chapter id>.webp` in its output folder
+(the answer's "Pictures" says where). Copy that folder beside `index.html` after the last change to the shots, and add
+one still per panel. Without the hook, call `window.__site.setProgress(T)` at each chapter's rest yourself and save
+the canvas's own pixels (`canvas.toDataURL()` right after it draws), not a screenshot of the window:
 
 ```html
 <img class="still" src="stills/how.webp" alt="The gate from the front, the stream of lines entering it" width="1280" height="800" loading="lazy">

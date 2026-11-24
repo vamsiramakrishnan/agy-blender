@@ -17,7 +17,8 @@ load; every prop inside the frame, and beside or above the panel, at every chapt
 and a landscape phone; the phone's panel fixed in the lower part of the window; the renderer sized from the canvas's
 box and no re-measure on an address-bar resize; a lost context redrawn when restored and turned into the article when
 not; chapter links and jumpTo landing on a chapter's rest, at() keyed on chapter ids; onScreen() reporting boxes and
-labels in the contract check_site reads.
+labels in the contract check_site reads; chapters() naming where each chapter rests, from which check_site writes the
+article's stills (run 2's agent wrote a screenshot script for them twice).
 """
 
 from __future__ import annotations
@@ -160,7 +161,7 @@ class Page:
             self.ctx.add_init_script(init)
         self.page.goto(ORIGIN + SUB)
         self.page.evaluate("window.__site.ready")
-        return self.page.evaluate("({mode: __site.mode, why: __site.why || null, chapters: __site.chapters, info: __site.info()})")
+        return self.page.evaluate("({mode: __site.mode, why: __site.why || null, chapters: __site.chapters().map((c) => c.id), info: __site.info()})")
 
     def at(self, T: float) -> np.ndarray:
         """The canvas alone at story time T (the page's text hidden), as an RGB array."""
@@ -587,3 +588,93 @@ def test_on_screen_reports_each_props_and_labels_box_in_the_contract_check_site_
         assert p.messages == [], p.messages
     finally:
         p.close()
+
+
+@pytest.mark.browser
+def test_chapters_names_each_chapter_and_the_story_time_it_rests_at(browser, bare) -> None:
+    """check_site draws each chapter's rest from this for the article's stills (recipes.md), knowing nothing else of
+    the starter: chapters() in document order, rest the story time setProgress takes for the resting picture."""
+    p = Page(browser, bare)
+    try:
+        p.open()
+        chapters = p.page.evaluate("__site.chapters()")
+        ids = re.findall(r'data-chapter="([a-z0-9-]+)"', (bare / "index.html").read_text())
+        assert [c["id"] for c in chapters] == ids
+        for i, c in enumerate(chapters):
+            assert c["rest"] == pytest.approx(i + REST) == p.page.evaluate(f"__site.at({json.dumps(c['id'])}, {REST})")
+            p.page.evaluate(f"__site.setProgress({c['rest']})")
+            assert p.page.evaluate("__site.progress()") == pytest.approx(c["rest"], abs=1e-3)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+def _http(project: Path):
+    """The routing of _serve as a loopback HTTP server, for check_site, which opens a URL in a browser of its own."""
+    import http.server
+    import threading
+
+    three = (project / "node_modules" / "three").resolve()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802  the method name http.server dispatches a GET to
+            path = self.path.split("?")[0]
+            f = None
+            if path.startswith("/_three/"):
+                f = three / path[len("/_three/"):]
+            elif path.startswith(SUB):
+                rel = path[len(SUB):] or "index.html"
+                f = project / rel if (project / rel).exists() else project / "public" / rel
+            if f is None or ".." in path or not f.is_file():
+                self.send_error(404)
+                return
+            body = f.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", {".js": "text/javascript", ".css": "text/css", ".html": "text/html"}.get(
+                f.suffix) or mimetypes.guess_type(f.name)[0] or "application/octet-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a) -> None:
+            pass
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    srv.daemon_threads = True
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+@pytest.mark.browser
+def test_check_site_writes_one_still_per_chapter_of_the_starter(site, tmp_path) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from PIL import Image
+
+    from antigravity3d.deliver import site_check as sc
+
+    if not (NODE_MODULES / "three" / "package.json").is_file():
+        pytest.skip(f"{NODE_MODULES} has no three.js (npm ci --prefix tests/fixtures/web_project)")
+    srv = _http(site)
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}{SUB}"
+        # its own thread: check_site runs an event loop, which must not meet the module's synchronous Playwright
+        with ThreadPoolExecutor(1) as pool:
+            r = pool.submit(sc.check_site, url, out_dir=tmp_path / "check", steps=2, sizes=("desktop",), variants=()).result(240)
+    finally:
+        srv.shutdown()
+    if r.error:
+        pytest.skip(r.error)
+    ids = re.findall(r'data-chapter="([a-z0-9-]+)"', (site / "index.html").read_text())
+    made = r.stills["made"]
+    assert [x["id"] for x in made] == ids and not r.stills["skipped"], r.stills
+    pictures = []
+    for x in made:
+        f = tmp_path / "check" / "stills" / x["file"]
+        assert f.name == f"{x['id']}.webp" and x["content"] > sc.EMPTY_CONTENT, x
+        im = Image.open(f)
+        assert im.format == "WEBP" and im.width <= sc.STILL_WIDTH, (x, im.size)
+        pictures.append(np.asarray(im.convert("L").reduce(8), dtype=np.float32))
+    # each chapter has its own shot: no two stills are the same picture
+    assert all(np.abs(a - b).mean() > 2 for i, a in enumerate(pictures) for b in pictures[i + 1:])
+    assert "stills for the page without WebGL" in r.text()
