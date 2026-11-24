@@ -149,7 +149,7 @@ why). The installer's fixture project and loader are checked against three 0.187
 
 ## What run 2 exposed in the plugin, fixed after it
 
-Run 2 ran from a fixed tree, so these four fixes are in the branch but not in run 2.
+Run 2 ran from a fixed tree, so these five fixes are in the branch but not in run 2.
 
 - **The site check refused a correct quote, and the site lost its best receipt.** The agent showed the first five
   lines of Straitjacket's real digest output, copied exactly from `evals/field-needle-record.json`. The check
@@ -166,6 +166,43 @@ Run 2 ran from a fixed tree, so these four fixes are in the branch but not in ru
   and the agent saw a title. It is now a few lines: the outcome, the import to write, the checks as a count.
 - **The collected results were incomplete.** The agent's final report was cut at 8,000 characters, and the check's
   own pictures were counted among the agent's source files. Both are fixed, and run 2's folder was collected again.
+- **A package's manifest carried a path of the machine that made it.** The review of a preview package names the
+  render it judged, and it did so by absolute path. The installer copies the manifest into the developer's
+  project, so their local path would be committed with their site. The manifest now names the render relative to
+  the session's folder; the tool's answer keeps the full path.
+
+## What an independent review of run 2's three.js found
+
+The owner's corrections were to be about how well the site uses three.js and current libraries. Before they came, a
+reviewer that had no part in this round read the site's source, the skill and the starter, looked at the frames
+and ran the built site. Its fourteen findings, each with evidence and a fix, are in
+`results/round8/threejs_review.md`. By cause:
+
+| cause | findings |
+|---|---|
+| the skill or its starter caused it | 7: a shader example that types sRGB colour values as plain numbers, so run 2's near-black floor renders light grey and the picture looks washed out; text panels invisible when the script fails to load; props cropped at the sides on a phone; the phone's text panel sliding over the 3D while the camera holds; the canvas sized from the wrong height and re-measured at every address-bar change; smooth scrolling switched off over every panel; two WebGL contexts created and never released |
+| the skill says nothing about it | 6: labels lying flat on the floor, cut by the frame or hidden; chapter links landing on the previous chapter's picture; a "bevel" that is a constant darkening, and hard edges without anti-aliasing; a lost WebGL context never handled; loading in sequence instead of side by side; timings tied to raw numbers and a fixed chapter count |
+| the skill says it and the agent did not do it | 1: subjects under the text panel or off the edge of the frame |
+
+Half of what is wrong with run 2's use of three.js was taught to the agent by this round's own skill. The first
+row's first item is the most visible: it is the reason the scene reads as flat and grey.
+
+What has been done about it so far:
+
+- **The site check now sees hidden and cut subjects.** When a page says where its 3D subjects are (the starter's
+  `window.__site.info().onScreen`, one projected box per prop and label), `check_site` measures at every step how
+  much of each lies outside the window and how much lies under HTML a visitor cannot see through, and names the
+  ones a visitor would notice. Run on run 2's site with that report added, it names the gate under the digest
+  chapter's panel, the clamp cut by the right edge in the last two shots, and seven labels cut or hidden: seven of
+  the reviewer's nine examples. It does not judge a label that is merely too small to read. Where a page says
+  which prop a shot is about, props in the background are not reported.
+- **The skill, its library guide and the starter are being corrected** for the seven faults they caused and the six
+  they were silent on. Not in this report yet.
+
+One thing the review turned up about the check itself: headless Chromium blanks a band of a WebGL canvas as tall
+as an opaque, full-width fixed bar, at the mirrored position. A 48 px top bar leaves the bottom 48 px of every
+full-window frame empty. A browser with a window does not do this. It is in every frame of both sites, including
+the ones the blind judge saw, and the documentation now says so.
 
 ## What was not equal between the runs
 
@@ -230,6 +267,9 @@ Run 2 ran from a fixed tree, so these four fixes are in the branch but not in ru
   this round built the tooling for, is not in this report.
 - **Two reviews did not find what one run found.** An independent code review and a separate audit of every
   agent-facing text both passed the site check's quote rule. Neither tried a faithful excerpt against it.
+- **The skill's examples were run, not looked at.** Every example in the library guide was executed against the
+  versions it names, and the test asked whether it ran without error. The shader example ran, and drew the wrong
+  colour. A reviewer who looked at the picture found it; a test that reads back a pixel would have.
 - **Red CI twice after the first push.** My local stand-in for CI's first job still had the browser library
   installed, so 13 tests that need it ran here and failed there. The second failure was a race in a test of the
   run tooling that this machine's timing hid.
