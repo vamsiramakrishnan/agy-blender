@@ -104,12 +104,13 @@ def _font() -> Path:
     pytest.skip("no TrueType font on this machine for the troika example")
 
 
-def _build(seed: Path, example: dict, root: Path) -> Path:
-    """A project: the starter's page and modules, the example as its script, the workspace's node_modules linked."""
+def _build(seed: Path, example: dict, root: Path, append: str = "") -> Path:
+    """A project: the starter's page and modules, the example as its script, the workspace's node_modules linked.
+    ``append`` is code a test adds at the end of the example's module, where the example's own names are in scope."""
     project = root / example["name"]
     shutil.copytree(SKILL / "starter", project)
     script = f"example.{example['lang']}"
-    (project / script).write_text(example["code"], encoding="utf-8")
+    (project / script).write_text(example["code"] + append, encoding="utf-8")
     html = (project / "index.html").read_text()
     (project / "index.html").write_text(html.replace('src="./src/main.js"', f'src="./{script}"'))
     (project / "node_modules").symlink_to(seed / "node_modules", target_is_directory=True)
@@ -153,11 +154,7 @@ def _picture(page) -> float:
     return float((np.abs(frame - colours[counts.argmax()] * 4).max(axis=1) > 24).mean())
 
 
-@pytest.mark.browser
-@pytest.mark.parametrize("example", [e for e in EXAMPLES if not e["node"]], ids=lambda e: e["name"])
-def test_browser_example_runs_against_the_seed(example, seed, browser, tmp_path) -> None:
-    dist = _build(seed, example, tmp_path)
-
+def _server(dist: Path):
     def serve(route):
         path = route.request.url[len(ORIGIN):].split("?")[0]
         f = dist / (path[len(SUB):] or "index.html") if path.startswith(SUB) else None
@@ -167,6 +164,13 @@ def test_browser_example_runs_against_the_seed(example, seed, browser, tmp_path)
                 ".ttf": "font/ttf"}.get(f.suffix, "application/octet-stream")
         route.fulfill(status=200, body=f.read_bytes(), headers={"content-type": kind})
 
+    return serve
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("example", [e for e in EXAMPLES if not e["node"]], ids=lambda e: e["name"])
+def test_browser_example_runs_against_the_seed(example, seed, browser, tmp_path) -> None:
+    serve = _server(_build(seed, example, tmp_path))
     ctx = browser.new_context(viewport={"width": 1280, "height": 800})
     problems: list[str] = []
     ctx.route("**/*", lambda route: serve(route) if route.request.url.startswith(ORIGIN) else
@@ -210,3 +214,62 @@ def test_node_example_runs_against_the_seed(example, seed, tmp_path) -> None:
         expr = check[5:]
         verdict = subprocess.run(["node", "-e", f"const out = {json.dumps(out)}; process.exit(({expr}) ? 0 : 1)"])
         assert verdict.returncode == 0, (expr, out)
+
+
+# Appended to the custom shader material example: the same blob drawn with the colour handed to three's own `color`
+# (which three converts from sRGB) instead of the example's uniform, and the blob's centre on screen.
+_TWIN = """
+window.__twin = (progress, colour) => {
+  uniforms.uProgress.value = progress;
+  blob.material = colour === null ? material
+    : new CustomShaderMaterial({ baseMaterial: THREE.MeshStandardMaterial, vertexShader: wave, uniforms, color: colour, roughness: 0.4 });
+  renderer.render(scene, camera);
+  const c = blob.position.clone().project(camera);
+  return [(c.x + 1) / 2, (1 - c.y) / 2];
+};
+"""
+
+
+@pytest.mark.browser
+def test_a_colour_in_the_shader_example_reaches_the_screen_as_chosen(seed, browser, tmp_path) -> None:
+    """Run 2 typed sRGB hex values into its shader as vec3, following this guide's own example, and its near-black floor
+    came out light grey. The example passes THREE.Color uniforms: the blob in each of its colours must look exactly
+    like the same blob given that colour the ordinary way, and the line between the colours must be soft."""
+    from PIL import Image
+
+    (example,) = [e for e in EXAMPLES if e["name"] == "custom-shader-material"]
+    colours = dict(re.findall(r"(uCold|uWarm): \{ value: new THREE\.Color\('(#[0-9a-f]{6})'\) \}", example["code"]))
+    assert set(colours) == {"uCold", "uWarm"}, "the example no longer passes its colours as THREE.Color uniforms"
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.route("**/*", _server(_build(seed, example, tmp_path, append=_TWIN)))
+    page = ctx.new_page()
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+
+    def shot(progress: float, colour: str | None) -> tuple[np.ndarray, int, int]:
+        x, y = page.evaluate(f"__twin({progress}, {json.dumps(colour)})")
+        frame = np.asarray(Image.open(io.BytesIO(page.screenshot())).convert("RGB")).astype(np.int16)
+        return frame, round(x * frame.shape[1]), round(y * frame.shape[0])
+
+    try:
+        page.goto(ORIGIN + SUB, wait_until="networkidle")
+        page.wait_for_function("typeof window.__twin === 'function'")
+        for progress, name in ((0.0, "uCold"), (1.0, "uWarm")):
+            mine, x, y = shot(progress, None)
+            theirs, _, _ = shot(progress, colours[name])
+            patch = (slice(y - 30, y + 31), slice(x - 30, x + 31))
+            a, b = mine[patch].reshape(-1, 3).mean(axis=0), theirs[patch].reshape(-1, 3).mean(axis=0)
+            assert np.abs(a - b).max() <= 2.0, (name, colours[name], a.round(1).tolist(), b.round(1).tolist())
+            assert np.abs(a - b).max() <= 2.0 and a.std() > 10, (name, a)  # a lit colour, not grey or black
+        # halfway the line between the colours runs round the blob's equator. Smoothed over a pixel either side, the
+        # step from cold to warm down the column through the centre takes two or three pixels, so no single pixel
+        # makes more than about three quarters of it; a hard step() makes all of it in one.
+        mine, x, y = shot(0.5, None)
+        column = mine[y - 100:y + 150, x, 0]
+        k = int(np.abs(np.diff(column)).argmax())
+        whole = abs(int(column[min(k + 4, len(column) - 1)]) - int(column[max(k - 3, 0)]))
+        biggest = abs(int(column[k + 1]) - int(column[k]))
+        assert whole > 60 and biggest < 0.85 * whole, " ".join(map(str, column[max(k - 6, 0):k + 8].tolist()))
+        assert errors == [], errors
+    finally:
+        ctx.close()

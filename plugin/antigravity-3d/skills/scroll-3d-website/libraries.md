@@ -36,6 +36,11 @@ helpers) is written for it. What moved since 0.170, the version many examples on
 - WebGL 1 is gone (since 0.163): check for `webgl2`, not `webgl`, before loading the scene.
 - Add-ons are imported from `three/addons/...` (the same files as `three/examples/jsm/...`).
 
+The examples here size the renderer once from the window, to stay short. In the page, size it from the canvas's own
+box and follow that box with a `ResizeObserver`, as the starter's `stage.js` does. Why: the starter's canvas is
+`100lvh` tall, which a phone's address bar does not change, while `innerHeight` does; run 2 drew at `innerHeight` and
+the browser stretched the picture to the taller box.
+
 Many small things (slabs, tokens, rows, particles) are one `InstancedMesh`: one geometry, one material, a matrix per
 copy, one draw call. Two thousand separate meshes are two thousand draw calls and a slow phone.
 
@@ -134,7 +139,11 @@ For the HTML: a panel that fades in as its chapter arrives, a section pinned whi
 the 3D scene with GSAP tweens of its own (`gsap.to(camera.position, ...)` started by a trigger): such a tween depends
 on when it started, so the scene stops being a function of scroll and cannot be scrubbed or photographed at a given
 position. Let the scene read the same scroll position (the starter does); with Lenis, tell ScrollTrigger on every
-Lenis scroll and drive Lenis from GSAP's ticker so both move on the same frame.
+Lenis scroll and drive Lenis from GSAP's ticker so both move on the same frame. Do not call `ScrollTrigger.refresh()`
+from a resize handler of your own: ScrollTrigger refreshes on resize by itself, and on a touch-only device it skips a
+resize that keeps the width and changes the height by less than a quarter, which is the address bar sliding (gsap
+3.15.1, `_onResize` in `ScrollTrigger.js`). Run 2 refreshed on every resize and undid that. Call it only after a
+layout change it cannot see, such as content your script added.
 
 ```js
 // example: gsap-scrolltrigger
@@ -168,22 +177,34 @@ ScrollTrigger.create({
 Lenis smooths the scroll position itself, so a page that reads `scrollY` every frame (the starter) gets smooth motion
 without easing its own state. Add it on top of the starter as below and change nothing else. In 1.3.28
 `respectReducedMotion` is on by default (no smoothing under reduced motion) and touch scrolls natively unless
-`syncTouch` is set; leave both so. A panel that scrolls inside itself needs `data-lenis-prevent`, or Lenis takes its
-wheel events. Do not add Lenis to a page whose scroll is already smoothed by another library (locomotive-scroll 5 is
-Lenis inside).
+`syncTouch` is set; leave both so. Do not add Lenis to a page whose scroll is already smoothed by another library
+(locomotive-scroll 5 is Lenis inside).
+
+Two settings matter for the starter's page:
+
+- `allowNestedScroll: true`, and no `data-lenis-prevent` on the panels. Why: Lenis lets the browser have every wheel
+  event over an element with that attribute, scrollable or not, so run 2's desktop panels, which cover a third of the
+  window and never scroll, turned the wheel back to native steps there. With `allowNestedScroll` Lenis gives the
+  wheel to an element only while it can still scroll that way (overflow `auto` or `scroll` and more content than
+  room), and smooths everything else. Keep the attribute for a widget that must always scroll itself (a code block,
+  a map).
+- Chapter links go through the starter's `jumpTo`, and `jumpTo` through Lenis: set `window.__site.scrollWith`. Not
+  `anchors: true`: Lenis then scrolls a link to the top of its section, where the camera is still on the previous
+  chapter's picture (run 2's chapter links landed there), and it does so as well as the starter's own handler.
 
 ```js
 // example: lenis
 import Lenis from 'lenis';
 
-const lenis = new Lenis({ autoRaf: true, anchors: true });
-// panels that scroll inside themselves (the starter's phone layout) keep their own wheel
-for (const panel of document.querySelectorAll('.panel')) panel.setAttribute('data-lenis-prevent', '');
-// a chapter link scrolls smoothly too: lenis.scrollTo('#how')
+const lenis = new Lenis({ autoRaf: true, allowNestedScroll: true });
 await import('./src/main.js'); // the starter, unchanged: it reads scrollY, which Lenis now moves smoothly
+// chapter links and __site.jumpTo(id) glide through Lenis to where the chapter rests
+window.__site.scrollWith = (y) => lenis.scrollTo(y);
 ```
 <!-- check: picture -->
 <!-- check: js document.documentElement.classList.contains('lenis') && window.__site.mode === 'webgl' -->
+<!-- check: js (() => { const wheel = (el) => { const e = new WheelEvent('wheel', { deltaY: 120, bubbles: true, cancelable: true }); el.dispatchEvent(e); return e.defaultPrevented; }; const box = document.createElement('div'); box.style.cssText = 'height: 60px; overflow: auto'; box.innerHTML = '<div style="height: 400px">long</div>'; document.querySelector('.panel').append(box); return wheel(document.querySelector('.panel h1')) === true && wheel(box.firstChild) === false; })() -->
+<!-- check: js (async () => { await window.__site.ready; window.__site.jumpTo('detail'); await new Promise((r) => setTimeout(r, 3000)); return Math.abs(window.__site.progress() - (window.__site.chapters.indexOf('detail') + 0.7)) < 0.01; })() -->
 
 ## pmndrs postprocessing 6.39 and n8ao 2.1: effects, used sparingly and measured
 
@@ -270,12 +291,51 @@ label.sync(() => renderer.render(scene, camera)); // draw once the glyphs are re
 ```
 <!-- check: picture -->
 
+To label a prop in the starter's page, register the label with the stage: its `label` function inside
+`stage.js`, or `window.__site.label(name, text, prop)` from a module of your own. It is added to that prop's holder (shown while the
+prop is on stage), the page draws again when troika has its glyphs, and `__site.info().onScreen` reports its box with
+`kind: "label"`, so `check_site` can tell when it is cut by the frame or lies under the panel. Stand a label upright
+at about its prop's height, facing the shots that show it. Why: run 2 laid its labels flat on the floor, and at the
+low angles of its shots they were slivers, cut at the frame's bottom edge or hidden by the panel.
+
+```js
+// example: troika-label
+import { Text } from 'troika-three-text';
+
+await import('./src/main.js'); // the starter's page, with its stand-in props
+await window.__site.ready;
+const label = new Text();
+label.text = 'part, 0.5 m';
+label.font = './fonts/label.ttf';
+label.fontSize = 0.12;
+label.anchorX = 'center';
+label.anchorY = 'bottom';
+label.color = '#e9e7e2';
+label.position.set(0, 0.55, 0); // in the prop's own space: upright, just above the 0.45 m stand-in
+window.__site.label('part-label', label, 'part');
+```
+<!-- check: picture -->
+<!-- check: js (async () => { window.__site.setProgress(window.__site.at('how', 0.7)); await new Promise((r) => setTimeout(r, 1500)); const v = window.__site.info().onScreen['part-label']; return !!v && v.kind === 'label' && v.box[0] >= 0 && v.box[2] <= 1 && v.box[1] >= 0 && v.box[3] <= 1 && v.share > 0; })() -->
+
 ## three-custom-shader-material 6.4: a standard material with a shader inside
 
 To change how a `MeshStandardMaterial` moves or colours its surface (a wave, a reveal, a heat colour) and keep its
 lighting, environment and shadows: write only the part that changes, into `csm_Position`, `csm_DiffuseColor`,
 `csm_Roughness` and the like. Import the plain three.js build from `three-custom-shader-material/vanilla`. A surface
 that moves needs the same change in its depth material, or its shadow stays where the undisplaced surface was.
+
+Two rules for any GLSL you write for a three.js material, this one or a `ShaderMaterial`:
+
+- **Colours reach a shader as uniforms made from `THREE.Color`, never as typed numbers.** Why: inside the shader
+  colours are linear, and three converts a `THREE.Color` from the sRGB hex you know to linear when it uploads it;
+  `base = vec3(0.055, 0.064, 0.078)`, the bytes of `#0e1014` over 255, is taken as linear and shows as `#42474f`. Run 2's
+  floor, meant to be near black, came out light grey that way (`csm_DiffuseColor` replaces three's diffuse colour
+  after its own conversion, so nothing converts it for you). A colour that is computed in the shader is fine; a colour
+  someone chose is a uniform.
+- **A procedural edge (a stripe, a grid line, a reveal) is smoothed over one pixel with `fwidth`.** Why: `step`
+  gives a hard edge that the renderer's antialiasing does not touch (it smooths only the edges of triangles), so it
+  crawls and flickers as the camera moves. Write `edge = smoothstep(-w, w, d)` with `w = fwidth(d)`, `d` the signed distance
+  to the edge in any unit.
 
 ```js
 // example: custom-shader-material
@@ -298,16 +358,33 @@ ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
 
-const uniforms = { uProgress: { value: 0.4 } }; // set from scroll
+// The page's colours as THREE.Color uniforms (three hands them to the shader in linear values), and the scroll.
+const uniforms = {
+  uProgress: { value: 0.4 },
+  uCold: { value: new THREE.Color('#2b6cb0') },
+  uWarm: { value: new THREE.Color('#e0a33a') },
+};
 const wave = /* glsl */ `
   uniform float uProgress;
-  void main() { csm_Position = position + normal * 0.08 * sin(position.y * 10.0 + uProgress * 6.2832); }`;
+  varying float vHeight;
+  void main() {
+    vHeight = position.y;
+    csm_Position = position + normal * 0.08 * sin(position.y * 10.0 + uProgress * 6.2832);
+  }`;
 const material = new CustomShaderMaterial({
   baseMaterial: THREE.MeshStandardMaterial,
   vertexShader: wave,
+  // warm rises from below as the page scrolls; the line between the two is one pixel soft (fwidth)
   fragmentShader: /* glsl */ `
     uniform float uProgress;
-    void main() { csm_DiffuseColor = vec4(mix(vec3(0.17, 0.42, 0.69), vec3(0.88, 0.64, 0.23), uProgress), 1.0); }`,
+    uniform vec3 uCold;
+    uniform vec3 uWarm;
+    varying float vHeight;
+    void main() {
+      float d = mix(-0.9, 0.9, uProgress) - vHeight;
+      float w = fwidth(d);
+      csm_DiffuseColor = vec4(mix(uCold, uWarm, smoothstep(-w, w, d)), 1.0);
+    }`,
   uniforms,
   roughness: 0.4,
 });
@@ -326,6 +403,9 @@ camera.lookAt(0, 0.8, 0);
 renderer.render(scene, camera);
 ```
 <!-- check: picture -->
+
+The repository's test of this example also draws the blob with each colour given to three's own `color` instead and
+compares the pixels: the two agree within a few levels, so the colour on screen is the one chosen.
 
 ## three-mesh-bvh 0.9: picking on dense models
 
@@ -373,25 +453,45 @@ addEventListener('pointermove', (e) => {
 
 ## detect-gpu 5.0: choosing a quality level
 
-Read the tier before the first frame and pick the pixel ratio, the shadow map size and the passes from it. Two
+Read the tier before the first frame and pick the pixel ratio, the shadow map size and the passes from it. Three
 rules. Serve its benchmark files yourself (copy `node_modules/detect-gpu/dist/benchmarks` into the served folder and
-pass `benchmarksURL`): by default it fetches them from unpkg.com. And never switch the 3D off at a low tier: a
-software renderer is in none of its benchmarks, so the headless Chromium that every check uses (SwiftShader) gets
-tier 1 with type `FALLBACK`, and a renderer on its block list gets tier 0. A page that hides the scene at a low tier
-shows its checks the fallback and not the site. A low tier means a lower quality, not no scene.
+pass `benchmarksURL`): by default it fetches them from unpkg.com. Pass the renderer's context as `glContext`: without
+it detect-gpu 5.0.70 makes a WebGL 1 context of its own and never releases it, and a browser keeps only a few live
+contexts per page. And never switch the 3D off at a low tier: a software renderer is in none of its benchmarks, so the
+headless Chromium that every check uses (SwiftShader) gets tier 1 with type `FALLBACK`, and a renderer on its block
+list gets tier 0. A page that hides the scene at a low tier shows its checks the fallback and not the site. A low tier
+means a lower quality, not no scene.
+
+Start every wait that does not need another at the same moment and await them together: the tier lookup, the models
+(the starter starts their downloads as soon as the stage exists), a font. Why: run 2 awaited the tier, then imported
+its 0.7 MB scene module, then loaded its models, three waits in a row before the first frame. Give the lookup a time
+limit too: it fetches a file, and a slow one must not hold the page back.
 
 ```js
 // example: detect-gpu
+import * as THREE from 'three';
 import { getGPUTier } from 'detect-gpu';
 
-const gpu = await getGPUTier({ benchmarksURL: './detect-gpu' }); // the copied benchmarks folder, beside index.html
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('stage'), antialias: true });
+const tier = Promise.race([
+  getGPUTier({ glContext: renderer.getContext(), benchmarksURL: './detect-gpu' }), // the copied folder, beside index.html
+  new Promise((resolve) => setTimeout(() => resolve({ tier: 1, type: 'TIMEOUT' }), 1500)),
+]);
+// in parallel with the lookup: whatever else the first frame waits for (here the page's font)
+const font = new FontFace('Label', 'url(./fonts/label.ttf)').load().then((face) => document.fonts.add(face));
+const [gpu] = await Promise.all([tier, font]);
+
 const QUALITY = { 0: { dpr: 1, shadow: 1024, passes: 0 }, 1: { dpr: 1.5, shadow: 1024, passes: 1 },
   2: { dpr: 2, shadow: 2048, passes: 2 }, 3: { dpr: 2, shadow: 2048, passes: 2 } };
 const quality = QUALITY[gpu.tier] ?? QUALITY[0];
+renderer.setPixelRatio(Math.min(devicePixelRatio, quality.dpr));
+renderer.setSize(innerWidth, innerHeight, false);
 document.documentElement.dataset.gpuTier = String(gpu.tier);
+document.documentElement.dataset.gpuType = gpu.type;
 document.documentElement.dataset.maxDpr = String(quality.dpr);
 ```
-<!-- check: js document.documentElement.dataset.gpuTier === '1' && document.documentElement.dataset.maxDpr === '1.5' -->
+<!-- check: js document.documentElement.dataset.gpuTier === '1' && document.documentElement.dataset.gpuType === 'FALLBACK' && document.documentElement.dataset.maxDpr === '1.5' -->
+<!-- check: js document.fonts.check('16px Label') -->
 
 ## React Three Fiber 9.8 and drei 10.7: when the project is React
 

@@ -74,12 +74,22 @@ Copy `starter/index.html`, `starter/src/` and `starter/vite.config.js` into the 
 package.json; the starter needs only `three` and `vite`). Then, each a local edit:
 
 - a `<section class="chapter" data-chapter="id">` per storyboard row in `index.html`, its text in its panel;
-- a shot per chapter in `src/shots.js` (`SHOTS`), and which chapters each prop is on stage for (`SHOW`);
+- a shot per chapter in `src/shots.js` (`SHOTS`), and which chapters each prop is on stage for (`SHOW`); name what each
+  shot is about (`subject: 'hero'`, or a list): then `check_site` reports a chapter's subject under the panel or cut
+  by the frame, and does not count a prop that is only in the background of that shot;
 - a stand-in per prop in `src/props.js` (`PROPS`: where it stands and its rough size in metres);
 - the project's colours and type in `src/style.css`; its three frame properties (shift right, shift up, widen) decide
-  where the 3D subject sits beside the text;
+  where the 3D subject sits beside the text. A shot is designed for a horizontal coverage, what it shows across a
+  1440 x 900 window (`DESIGN_ASPECT` in `src/shots.js`): a narrower window, a phone's, is widened to keep it, so frame
+  and judge shots at that shape ([recipes.md](recipes.md)). Why: run 2 widened its phone view by a fixed factor and cut
+  its props at both side edges;
+- links to a chapter (`<a href="#how">`) and any jump use `jumpTo(id)`, which lands where the chapter rests, and every
+  timing of a layer is named by chapter with `at`, as in `t = at('how', 0.5)`, in `evaluate` (`src/shots.js`). Why:
+  at a chapter's top the camera still shows the previous picture, where run 2's links landed, and its
+  `fade = ramp(T, 2.0, 2.85)` and `T / 7` broke the rule that chapters come from the HTML;
 - the layers the design asks for, from [libraries.md](libraries.md): Lenis for smooth wheel scrolling, GSAP
   ScrollTrigger for page effects, postprocessing for ambient occlusion and a little bloom, troika for text in the scene.
+  Before writing a shader read its two rules there (colours as `THREE.Color` uniforms, edges smoothed with `fwidth`).
 
 `npx vite` serves it; `npx vite build` writes the site to `dist/` with relative paths, so it works from any folder of a
 host (`npx vite build --outDir site` when the task names another folder for the result). Look at it with `check_site`
@@ -146,8 +156,10 @@ Each is one instruction and its reason. The starter already does the ones marked
 - **Effects are used sparingly and measured.** Add a pass (ambient occlusion, bloom, depth of field) only when a
   frame is better with it, and keep it only when `check_site`'s draw calls and the phone frame stay acceptable. Why:
   every pass is a full-screen draw at device resolution, and a weak scene does not get better under glow.
-- **Type and layout leave the 3D room.** (starter) One panel at a time, on one side (desktop) or below (phone); the
-  camera frames the subject in the free part. Why: run 1's six panels covered the scene they described.
+- **Type and layout leave the 3D room.** (starter) One panel at a time, in a fixed layer cross-faded by chapter, on one
+  side (desktop) or below (portrait phone); the camera frames the subject in the free part. Only `.webgl-on`, set once
+  the 3D runs, may dim, hide or move a panel. Why: run 1's six panels covered the scene they described; run 2's phone
+  panels slid up over it, and its panels, hidden under a class set before any script, vanished when the script did.
 - **Something shows at once.** (starter) The text is HTML and readable before any script; the scene draws its stand-ins
   on the first frame and swaps each model in when it has loaded. Why: a blank canvas while 20 MB load reads as broken.
 - **Reduced motion, no WebGL and a phone are designed, not an afterthought.** (starter) Reduced motion: no camera
@@ -173,12 +185,17 @@ The site is done when `check_site` on the built folder reports, at both sizes:
 - reduced motion: the scene rests per chapter; no WebGL: the page reads as an article;
 - no sideways overflow on the phone; no fact that disagrees with its source, and nothing shown without a source that
   looks like a fact;
+- no subject or label hidden by the text panel or cut by the frame's edge at any step; `check_site` reports both
+  when the page keeps the starter's `window.__site.info().onScreen` hook, so keep it, name each shot's `subject` and
+  register labels with it;
 - draw calls, triangles, texture memory and bytes you can state and defend (each prop through the installer, no
   model above a few MB).
 
 Look at the contact sheets yourself as well: the measures find broken frames, not ugly ones. Between looks, the
-page's own hook answers quickly: `window.__site.setProgress(T)` draws story time T, and `window.__site.info()` says
-which props are on screen, how much of the window each covers and where (`onScreen`), and the draw calls.
+page's own hook answers quickly: `window.__site.setProgress(T)` draws story time T, and `window.__site.info()` gives
+the draw calls and `onScreen`: for each prop and label (`kind`) on screen, its share of the window, its centre, its
+whole box (`box`, fractions of the window, below 0 or above 1 where it runs out of the frame) and, when the shot names
+one, whether it is the shot's `subject`.
 
 ## Gotchas
 
@@ -218,6 +235,6 @@ which props are on screen, how much of the window each covers and where (`onScre
 Last verified 2026-11-24 against three 0.187.0, gsap 3.15.1, lenis 1.3.28, postprocessing 6.39.6, n8ao 2.1.0,
 troika-three-text 0.53.1, three-custom-shader-material 6.4.0, three-mesh-bvh 0.9.18, detect-gpu 5.0.70, React 19.3.1
 with @react-three/fiber 9.8.2 and drei 10.7.9, glTF-Transform 4.5.1 and Vite 8.3.8 (each example in libraries.md ran
-against these), and three 0.170.0 for the starter's repository test. postprocessing 6.39.6 declares three below
+against these), and three 0.187.0 for the starter's repository test. postprocessing 6.39.6 declares three below
 0.188: check its range before moving three on. Run 1 (the evidence for the gotchas) is recorded in the repository's
 `benchmarks/results/site_run1/`.

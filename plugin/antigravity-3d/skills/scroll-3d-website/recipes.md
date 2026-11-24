@@ -29,9 +29,27 @@ console.log(JSON.stringify(frame({ center: [0, 0.4, 0], radius: 0.75 })));
 ```
 <!-- check: node out.pos[2] > 2 && out.pos[1] > 0.4 && out.fov === 30 -->
 
-The free part of the window is narrower than the window when the text takes a side: pass the free part's aspect
-(about 0.6 of the window's on a desktop with the starter's layout) and keep `fill` at or under 0.6, so the subject
-breathes.
+A shot is designed for a horizontal coverage: what it shows across a window of the design shape (`DESIGN_ASPECT` in
+`src/shots.js`, 1.6, a 1440 x 900 window). In a narrower window the starter widens the view to keep that coverage (a
+portrait phone sees as much across as the desktop, and more above and below), so frame each shot at the design shape
+only. Why: a shot fitted by its vertical view alone is cut at the sides on a phone; run 2 widened its phone view by a
+fixed 1.36 and showed about 20 degrees across instead of 51.
+
+The free part of the window is narrower than the window when the text takes a side: pass the free part's aspect at
+the design shape (about 0.6 of 1.6 with the starter's desktop layout, so about 1) and keep `fill` at or under 0.6, so
+the subject breathes. Fit the prop the shot names as its `subject`, and give the shot that name. Then check every
+chapter's rest with `window.__site.info().onScreen`: each subject's `box` lies inside 0..1 and clear of the panel (on
+the starter's desktop layout `box[0]` at least 0.42; on a portrait phone `box[3]` less than the panel's top).
+
+## Time a layer by chapter
+
+Everything that changes with the story is computed in `evaluate` in `src/shots.js`, which makes `at` from the page's
+chapter ids (`timeline` in the same file): name each moment by its chapter,
+`fade = ramp(T, at('flood', 0.2), at('flood', 0.6))`, return the value beside `show`, and let `stage.js` read it from
+the state. A share of the whole story is `T / ids.length`. Why: the chapters come from the HTML, so a raw story time
+(`fade = ramp(T, 2.0, 2.85)`) or a fixed count (`T / 7`), as run 2 wrote, points at the wrong chapter as soon as one
+is added or moved. The same goes for links: the starter's `jumpTo(id)` lands on `T = at(id, REST)`, where the
+chapter's move is done and its text is up.
 
 ## Facts with their source
 
