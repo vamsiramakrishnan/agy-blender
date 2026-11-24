@@ -248,8 +248,9 @@ the ones the blind judge saw, and the documentation now says so.
 
 - **The baseline and the third run**, as said at the top. The run tooling is in the branch and tested offline.
 - **The props' look.** The plugin's review scored each of run 2's props about 1.8 of 4 (an uncalibrated judge;
-  the targets are 3.3 to 3.4). The delivery reports this as findings for a person, and the agent went on. Nothing
-  in the skill asks for a second round on a prop that reads as a box.
+  the targets are 3.3 to 3.4). The delivery reports this as findings for a person, and the agent went on without
+  opening the render of any of the three. The skill now asks it to look, and to give a plain prop one further
+  round (see the decisions); whether that helps is for the third run to show.
 - **Once the check said "nothing broken", the agent stopped improving the picture.** After the props were in, it
   made one round of changes from the contact sheets (minute 39.6) and one small change an hour later. The check
   finds faults: errors, empty frames, weight, wrong facts. It has no opinion on whether a frame is good, and the
@@ -280,8 +281,11 @@ the ones the blind judge saw, and the documentation now says so.
    every visitor and is preferred by the blind judge; it has lost the digest specimen to the check's fault
    described above. A draft pull request can put it there; merging is yours.
 3. **Your corrections on three.js and library use.** They go into the skill, and the run is repeated with them.
-4. **Should a prop that the review scores under its target get one more round before it is installed?** It would
-   cost a few minutes per prop. Run 1 spent too long on props; run 2 may have spent too little.
+4. **A plain prop gets one more round.** The skill now tells the agent to open the render of each delivered prop,
+   and to give one that reads as plain boxes, or that its review puts a point or more under its targets, a single
+   further round before it is installed. It costs a few minutes and some model calls per prop. Run 1 spent too
+   long on props and run 2 too little; where the line sits is my call, untested until the third run, and it is
+   one paragraph of the skill to take out. Yours to reverse.
 5. **A critic for the site, not only a checker.** The props have one: a model looks at renders and says what is
    weak. The site has none. The same could be done for a built site: a model looks at the contact sheets against
    a fixed set of questions (is the subject in frame and not cut by the text, does the picture explain the
