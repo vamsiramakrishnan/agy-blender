@@ -98,8 +98,9 @@ the ones it loses fault its shape. Details: [round seven](benchmarks/ROUND_SEVEN
 
 A whole website was asked for twice, in one sentence each time, before and after the plugin was changed for what
 the first run's logs showed. The second site downloads 5.3 MB instead of 22.8 MB, holds 52 MB of textures instead
-of 454 MB, shows a source for every number, and was built with no tool call cut off (the first run lost six). How
-either compares with a stock agent's site is not measured yet. Details: [round eight](benchmarks/ROUND_EIGHT.md).
+of 454 MB, shows a source for every number, and was built with no tool call cut off (the first run lost six). A
+blind judge preferred it six times of six. How either compares with a stock agent's site is not measured yet.
+Details: [round eight](benchmarks/ROUND_EIGHT.md).
 
 ## Try it
 

@@ -1,0 +1,245 @@
+{
+ "criteria": [
+  "every_position_composed",
+  "explains_the_project",
+  "craft_of_the_3d",
+  "type_and_layout"
+ ],
+ "size": "desktop",
+ "repeats_per_order": 3,
+ "sites": {
+  "run1": "1dbf5384ddb1ff35",
+  "plugin": "7a0fe9c48d4ea8f1"
+ },
+ "calls": [
+  {
+   "first": "run1",
+   "second": "plugin",
+   "rep": 2,
+   "frames": [
+    "1dbf5384ddb1ff35",
+    "7a0fe9c48d4ea8f1"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "2",
+      "reason": "Site 2 keeps its 3D pipeline clearly framed across frames 1\u20139, whereas Site 1 obscures models with text in frames 2\u20133 and leaves frame 6 nearly empty."
+     },
+     "explains_the_project": {
+      "winner": "2",
+      "reason": "Site 2 concretely visualizes data compression, needle preservation, and routing with labeled physical blocks in frames 3\u20138, outperforming Site 1's more abstract particle chambers in frames 1\u20134."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "Site 2 grounds its textured industrial machines with contact shadows on a clear floor grid across frames 1\u20139, while Site 1's metallic assets float in dark space in frames 5\u20138."
+     },
+     "type_and_layout": {
+      "winner": "2",
+      "reason": "Site 2 anchors concise, readable cards consistently on the left in frames 1\u20139, whereas Site 1's oversized scrolling panels crowd the viewport and clip headings in frames 3, 6, and 8\u20139."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Site 2 delivers a cohesive, smoothly composed scroll journey across frames 1\u20139 whose grounded 3D assembly line clearly visualizes how Straitjacket processes and routes agent evidence."
+    }
+   }
+  },
+  {
+   "first": "run1",
+   "second": "plugin",
+   "rep": 0,
+   "frames": [
+    "1dbf5384ddb1ff35",
+    "7a0fe9c48d4ea8f1"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "2",
+      "reason": "Site 2 keeps its 3D subjects clearly framed across frames 1\u20139 with steady camera travel, whereas Site 1 obscures its model behind UI cards in frames 2\u20133 and leaves an empty gap in frame 6."
+     },
+     "explains_the_project": {
+      "winner": "2",
+      "reason": "Site 2 concretely visualizes data compression, needle preservation, and harness gates as physical blocks moving along an assembly line in frames 3\u20138, making the mechanics clearer than Site 1's abstract sci-fi props in frames 1\u20137."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "Site 2 grounds its machines on a lit floor plane with contact shadows and cohesive industrial materials across frames 1\u20139, while Site 1's objects float in dark space with harsh specular highlights in frames 1\u20137."
+     },
+     "type_and_layout": {
+      "winner": "2",
+      "reason": "Site 2 anchors concise, readable cards consistently on the left in frames 1\u20139 to give the 3D scene breathing room, whereas Site 1's tall scrolling panels clip at viewport edges in frames 3, 6, 7, and 8."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Site 2 better fulfills the request with smooth, well-composed scroll choreography and grounded 3D machinery that visually explains how Straitjacket bounds context and routes work."
+    }
+   }
+  },
+  {
+   "first": "plugin",
+   "second": "run1",
+   "rep": 2,
+   "frames": [
+    "7a0fe9c48d4ea8f1",
+    "1dbf5384ddb1ff35"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "1",
+      "reason": "Site 1 maintains a well-framed 3D subject alongside pinned cards across frames 1-9, whereas Site 2 leaves an empty 3D void in frame 6 and obscures or drops the 3D scene behind text in frames 3, 8, and 9."
+     },
+     "explains_the_project": {
+      "winner": "1",
+      "reason": "Site 1 uses spatial assembly-line diagrams with labeled blocks (like the yellow needle in frame 3 and harness lanes in frame 8) to concretely illustrate data flow, whereas Site 2 relies mostly on abstract sci-fi machinery in frames 1-4 and 7."
+     },
+     "craft_of_the_3d": {
+      "winner": "1",
+      "reason": "Site 1 grounds its tactile machinery with contact shadows on a continuous blueprint floor across frames 1-9, whereas Site 2's metallic props float ungrounded in dark space in frames 5 and 7."
+     },
+     "type_and_layout": {
+      "winner": "1",
+      "reason": "Site 1 keeps concise, readable cards consistently anchored on the left across frames 1-9, while Site 2's scrolling panels get clipped at viewport edges in frames 3, 6, and 7 and crowd out the 3D view in frames 8-9."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Site 1 delivers a cohesive, grounded scroll journey that clearly visualizes how Straitjacket processes logs and routes tasks without breaking composition."
+    }
+   }
+  },
+  {
+   "first": "run1",
+   "second": "plugin",
+   "rep": 1,
+   "frames": [
+    "1dbf5384ddb1ff35",
+    "7a0fe9c48d4ea8f1"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "2",
+      "reason": "Site 2 keeps its machines cleanly framed across all 9 steps, whereas Site 1 leaves frame 6 empty of any 3D subject and covers its central chamber with text panels in frames 2, 3, and 9."
+     },
+     "explains_the_project": {
+      "winner": "2",
+      "reason": "Site 2 physically traces a yellow needle block from a raw red flood through compression, storage, and routing across frames 1 to 8, making the workflow much clearer than Site 1's isolated props in frames 1, 5, and 7."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "Site 2 grounds its machines on a lit floor grid with contact shadows and tactile edge wear (frames 1-9), while Site 1's metallic models float in dark space with harsh specular highlights (frames 1, 5, 7)."
+     },
+     "type_and_layout": {
+      "winner": "2",
+      "reason": "Site 2 anchors concise, readable cards consistently on the left across frames 1 to 9 to leave room for the 3D scene, whereas Site 1's oversized scrolling cards clip at viewport edges and crowd the canvas in frames 2, 3, 6, and 8."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "Site 2 delivers a cohesive, continuous 3D scroll narrative that clearly visualizes how Straitjacket processes and routes agent context without obscuring the scene."
+    }
+   }
+  },
+  {
+   "first": "plugin",
+   "second": "run1",
+   "rep": 0,
+   "frames": [
+    "7a0fe9c48d4ea8f1",
+    "1dbf5384ddb1ff35"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "1",
+      "reason": "Site 1 maintains a well-framed 3D subject across frames 1\u20139 with continuous camera travel along an assembly line, whereas Site 2 leaves frame 6 nearly empty and obscures its 3D models behind UI cards in frames 2, 3, and 8."
+     },
+     "explains_the_project": {
+      "winner": "1",
+      "reason": "Site 1 concretely visualizes log compression, line retrieval, and multi-harness routing via discrete blocks moving through labeled machines in frames 3\u20138, while Site 2 relies on more abstract sci-fi props and particles in frames 1\u20134 and 7."
+     },
+     "craft_of_the_3d": {
+      "winner": "1",
+      "reason": "Site 1 grounds its tactile, matte-textured machines with contact shadows on a shared floor grid across frames 1\u20139, whereas Site 2's specular metallic objects float in dark space with less spatial cohesion in frames 5\u20138."
+     },
+     "type_and_layout": {
+      "winner": "1",
+      "reason": "Site 1 keeps text inside a consistent, compact left-hand card across frames 1\u20139 that leaves the right two-thirds open for the 3D scene, while Site 2's sprawling panels clip at viewport edges in frames 3, 6, and 7 and crowd out the 3D in frames 8\u20139."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Site 1 delivers a cohesive scroll-driven 3D assembly line with disciplined layout and clear visual metaphors that directly explain how Straitjacket processes logs and routes work across coding agents."
+    }
+   }
+  },
+  {
+   "first": "plugin",
+   "second": "run1",
+   "rep": 1,
+   "frames": [
+    "7a0fe9c48d4ea8f1",
+    "1dbf5384ddb1ff35"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "1",
+      "reason": "Site 1 keeps the text card docked cleanly on the left while panning seamlessly across a connected 3D assembly line across frames 1 to 9, whereas Site 2 has empty 3D space in frame 6, overlapping text and 3D in frame 3, and hides the 3D scene completely in frame 9."
+     },
+     "explains_the_project": {
+      "winner": "1",
+      "reason": "Site 1 uses clear, tangible visual metaphors\u2014like the yellow 'quiet needle' block surviving compression from red stacks into small blue digest blocks across frames 3 and 4\u2014whereas Site 2's sci-fi chambers and particle clouds in frames 1 to 4 feel more abstract."
+     },
+     "craft_of_the_3d": {
+      "winner": "1",
+      "reason": "Site 1's machinery sits grounded with contact shadows and subtle metallic wear on a cohesive blueprint floor from frame 1 to 9, while Site 2's objects float disconnected in dark space with harsh specular highlights in frames 1, 5, and 7."
+     },
+     "type_and_layout": {
+      "winner": "1",
+      "reason": "Site 1 maintains a consistent, scannable left-hand card throughout frames 1 to 9 that leaves generous breathing room for the 3D stage, whereas Site 2's scrolling panels clip at viewport edges in frames 2, 3, 6, and 7 and crowd out the canvas in frames 8 and 9."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Site 1 delivers a true scroll-driven 3D visualization where every step along a grounded assembly line clearly illustrates how Straitjacket compresses logs, anchors spans, and routes work without cluttering the viewport."
+    }
+   }
+  }
+ ],
+ "aggregate": {
+  "plugin vs run1": {
+   "votes": {
+    "every_position_composed": {
+     "plugin": 6
+    },
+    "explains_the_project": {
+     "plugin": 6
+    },
+    "craft_of_the_3d": {
+     "plugin": 6
+    },
+    "type_and_layout": {
+     "plugin": 6
+    },
+    "overall": {
+     "plugin": 6
+    }
+   },
+   "calls": 6,
+   "result": {
+    "every_position_composed": "plugin",
+    "explains_the_project": "plugin",
+    "craft_of_the_3d": "plugin",
+    "type_and_layout": "plugin",
+    "overall": "plugin"
+   }
+  }
+ },
+ "model": "gemini-4-carbon",
+ "thinking": "low"
+}

@@ -9,11 +9,10 @@ agent back. None of them depends on taste, so this round did not wait for the co
 the same request again from the fixed plugin (`results/site_run2_plugin/`), and compared the two sites. The owner's
 own corrections have not been given yet. When they are, they go into the new website skill and the run is repeated.
 
-**Two parts of the planned measurement are missing.** The same request without the plugin (a stock agent, as a
-baseline) and the blind comparison of the sites both need the model service, which stopped answering on the day
-after run 2 finished (three first requests of the baseline run were each dropped after five minutes; the judge
-model gave no answer in 90 s). Everything below that compares "run 1" and "run 2" is measured. Nothing below says
-how either compares with a stock agent, and nothing says which site a blind judge prefers.
+**One part of the planned measurement is missing.** The same request without the plugin (a stock agent, as a
+baseline) needs the model service, which stopped answering just after run 2 finished: the baseline's first three
+requests were each dropped after five minutes. Everything below that compares "run 1" and "run 2" is measured,
+including a blind comparison of the two sites. Nothing below says how either compares with a stock agent's site.
 
 ## The short answer
 
@@ -38,13 +37,26 @@ same model, same sandbox; run 2 had more web packages installed in its seed (see
 | a browser without WebGL | most of the text, a script error, no picture | the whole text and seven stills |
 | numbers and code on the page that name their source | none; 43 numbers and 1 code specimen without one, several invented | 31, all equal to their source |
 | other hosts the page asks | 1 (a font service) | none |
+| blind verdicts, six on the pair, three in each order | 0 | 6, overall and on each of four criteria |
 
 Wall time is not in the table because it measured the model service, not the work. Run 1 took 69 and 36 minutes.
 Run 2 took 103 minutes, of which 87 were spent waiting for the model: a call took 44 s at the median against 12 s
 in run 1, and four calls were dropped after five minutes each (19 minutes).
 
-What the table cannot say is how the sites look. My own reading of the frames, as the one who integrated this
-round and so not a blind one:
+**How the sites look, judged blind.** A general model (not the one that built them) was shown nine desktop
+frames of each site as "the first site" and "the second site", with the owner's request, six times, three in each
+order. All six verdicts prefer run 2, overall and on each criterion: every scroll position composed, the 3D
+explains the project, the craft of the 3D, type and layout. Its reasons name frames; they are in
+`results/round8/site_compare/verdicts.md`. Two things to hold against that result:
+
+- **The frames favour a pinned layout.** They are taken at even steps of the scroll. Run 2 pins its text panel, so
+  every step is a composed picture. Run 1's text scrolls freely, so at most steps a panel is cut by the edge of
+  the window, as scrolling text always is, and the judge counted that against it in two of the four criteria.
+  The other two (the 3D explains the project; the craft of the 3D) do not depend on it.
+- **One uncalibrated judge, six calls.** It is the same kind of judge the props have had since round five. It is
+  consistent here, and it is not a person.
+
+My own reading before the verdicts, as the one who integrated this round, was closer:
 
 - Run 2 is one continuous scene: a bench that the camera travels along, with the text panel in the same place at
   every step, on a desktop and on a phone. Each chapter shows the part of Straitjacket it talks about. Run 1 has a
@@ -52,7 +64,8 @@ round and so not a blind one:
 - Run 2's objects are plainer than run 1's. Run 1's first object is a chrome and gold chamber with reflections.
   Run 2's three machines are dark painted boxes with blue and amber parts, evenly lit; they read as diagrams more
   than as objects one wants to look at. The plugin's own review scored each about 1.8 of 4 and the agent
-  delivered them as they were.
+  delivered them as they were. The blind judge did not share this: it preferred run 2's 3D every time, for
+  standing on a floor with shadows where run 1's objects float in the dark.
 - Run 2 follows Straitjacket's design page (flat colours, no glow, no gradients). Run 1 did not. That makes run 2
   correct and also less showy.
 
@@ -169,8 +182,7 @@ Run 2 ran from a fixed tree, so these four fixes are in the branch but not in ru
 
 ## What is still worse, or not done
 
-- **The baseline and the blind comparison**, as said at the top. The run tooling for both is in the branch and
-  tested offline.
+- **The baseline**, as said at the top. The run tooling for it is in the branch and tested offline.
 - **The props' look.** The plugin's review scored each of run 2's props about 1.8 of 4 (an uncalibrated judge;
   the targets are 3.3 to 3.4). The delivery reports this as findings for a person, and the agent went on. Nothing
   in the skill asks for a second round on a prop that reads as a box.
@@ -198,8 +210,9 @@ Run 2 ran from a fixed tree, so these four fixes are in the branch but not in ru
 1. **A web atlas stops at 2048 px unless a size is named** (`EngineRules.default_texture_px`). A browser holds
    every map uncompressed: four 4096 px maps are 341 MiB of graphics memory for one prop. 4096 is one parameter
    away and the delivery's answer says what it would give. Other engines are unchanged. Yours to reverse.
-2. **Which site is Straitjacket's front page.** Run 1's is live now. Run 2's is lighter, sourced and works for
-   every visitor, and its objects are plainer. A draft pull request can put it there; merging is yours.
+2. **Which site is Straitjacket's front page.** Run 1's is live now. Run 2's is lighter, sourced, works for
+   every visitor and is preferred by the blind judge; it has lost the digest specimen to the check's fault
+   described above. A draft pull request can put it there; merging is yours.
 3. **Your corrections on three.js and library use.** They go into the skill, and the run is repeated with them.
 4. **Should a prop that the review scores under its target get one more round before it is installed?** It would
    cost a few minutes per prop. Run 1 spent too long on props; run 2 may have spent too little.
@@ -240,4 +253,6 @@ Run 2 ran from a fixed tree, so these four fixes are in the branch but not in ru
   files. Encoding side by side gives the same bytes as one by one (a test compares them).
 - **Run 2's site.** Checked by `check_site` after the run, from a copy of the built folder: nothing broken,
   nothing a visitor would notice. Its answer is `results/site_run2_plugin/site_check.txt`.
-- **Not verified:** how either site compares with a stock agent's, and which site a blind judge prefers.
+- **The blind comparison.** Six calls through `benchmarks/site_compare.py`, each kept with its reasons
+  (`results/round8/site_compare/`). One call was refused by a busy service and asked again.
+- **Not verified:** how either site compares with a stock agent's.
