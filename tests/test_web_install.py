@@ -1507,6 +1507,49 @@ def test_browser_a_page_cannot_open_a_websocket_and_the_attempt_is_recorded(tmp_
     assert any("content security policy" in b and str(port) in b for b in run["blocked"]), run["blocked"]
 
 
+def test_the_component_check_finds_the_bundler_the_projects_vite_ships(tmp_path):
+    """Runs 2 and 3 of the website task: a project on Vite 8 has Rolldown and no esbuild, and the component of every
+    installed prop went unchecked ("skipped no esbuild ... (Vite ships one)")."""
+    project = _project(tmp_path / "game")
+    assert WC.find_bundler(project) is None
+    bin_ = project / "node_modules" / ".bin"
+    bin_.mkdir(parents=True)
+    (bin_ / "rolldown").write_text("#!/bin/sh\n")
+    assert WC.find_bundler(project) == ("rolldown", bin_ / "rolldown")
+    (bin_ / "esbuild").write_text("#!/bin/sh\n")
+    assert WC.find_bundler(project) == ("esbuild", bin_ / "esbuild")  # as before, where a project has both
+
+
+def _vite8_project(tmp_path: Path) -> Path:
+    """A project whose packages are the website task's (Vite 8 with Rolldown, React 19, React Three Fiber 9): the
+    folder ``AGY3D_SITE_SEED`` names, linked. Nothing here installs packages."""
+    seed = os.environ.get("AGY3D_SITE_SEED")
+    if not seed or not (Path(seed) / "node_modules" / ".bin" / "rolldown").exists():
+        pytest.skip("AGY3D_SITE_SEED does not name a workspace with Vite 8's rolldown: no project to bundle with it")
+    if (Path(seed) / "node_modules" / ".bin" / "esbuild").exists():
+        pytest.skip("the workspace AGY3D_SITE_SEED names has esbuild as well: the check would use that")
+    dst = tmp_path / "web_project"
+    (dst / "src").mkdir(parents=True)
+    (dst / "public").mkdir()
+    shutil.copy(Path(seed) / "package.json", dst / "package.json")
+    (dst / "index.html").write_text('<!doctype html><div id="app"></div><script type="module" src="/src/main.js"></script>')
+    (dst / "src" / "main.js").write_text("import * as THREE from 'three';\n")
+    (dst / "node_modules").symlink_to(Path(seed) / "node_modules", target_is_directory=True)
+    return dst
+
+
+@pytest.mark.browser
+def test_browser_the_react_component_is_checked_in_a_vite_8_project_with_its_rolldown(crate, tmp_path, browser_ready):
+    project = _vite8_project(tmp_path)
+    cache = project / "node_modules" / ".cache"
+    before = set(cache.iterdir()) if cache.exists() else None
+    r = install_package(crate, project, compress="never")
+    c = _by_name(r)["react_component"]
+    assert c.status == "passed" and "bundled with the project's rolldown" in c.detail, c.detail
+    # the entry was a file beside the project's packages: nothing of it is left there
+    assert (set(cache.iterdir()) if cache.exists() else None) == before
+
+
 @pytest.mark.browser
 def test_browser_the_react_check_works_from_a_relative_project_path_and_leaves_no_private_folder_behind(crate, tmp_path, browser_ready, monkeypatch):
     import glob

@@ -232,8 +232,10 @@ What `agy3d install` into a three.js project does not do, and what it cannot tel
   not in the project, the textures stay PNG and the result says why.
 - **The GPU memory figures are computed from the texture format, not observed.** This machine renders in software, so
   it has no GPU to read them from.
-- **The React component is checked only with the project's own esbuild**; without it, `react_component` is skipped
-  and the component is written unchecked.
+- **The React component is checked only with the project's own bundler**: esbuild (Vite up to version 7 ships it)
+  or Rolldown (Vite 8 ships it instead). With neither, `react_component` is skipped and the component is written
+  unchecked. For Rolldown the entry file is written for a moment under the project's `node_modules/.cache`, because
+  Rolldown takes no entry from standard input and looks for `react` from the folder of the importing file.
 - **Other three.js versions are not checked.** The in-project check was run on 0.152.2, 0.160.0, 0.169.0, 0.170.0
   and 0.187.0. Outside r152 to r187 the files are written and the result says "not checked on this version".
 - **Collision hulls are handed over as plain arrays** (`group.userData.agy3d.hulls`, points and triangle indices).

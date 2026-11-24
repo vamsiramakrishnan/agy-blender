@@ -44,8 +44,9 @@ The same request as `../site_run1/`, run again after the plugin was changed for 
 - The built site is not in the repository (7.2 MB). It is published as a hosted page.
 
 Three objects were made through the plugin, all for `web_three` at a 1024 px atlas: `capture_gate`,
-`artifact_vault` and `anchor_clamp`. Each was delivered and then installed by `install_into_project`, which
-passed 12 of 12 checks in a browser with the project's three.js. The site is one fixed three.js canvas and a
+`artifact_vault` and `anchor_clamp`. Each was delivered and then installed by `install_into_project`: 11 checks
+passed in a browser with the project's three.js and one was skipped (the React component is bundled with the
+project's esbuild, and a project on Vite 8 has none; an earlier version of this note said 12 of 12). The site is one fixed three.js canvas and a
 camera that travels along a bench with seven chapters, the text panel pinned beside it.
 
 ## What was changed for hosting, and by whom

@@ -589,14 +589,51 @@ setTimeout(() => { if (!out.done) { out.errors.push("the component did not load 
 """
 
 
-def find_esbuild(project: Path) -> Path | None:
-    """The project's own esbuild (Vite ships one), searched where the project's packages are searched: its own folder and,
-    above it, only up to its workspace or repository root."""
-    for d in search_dirs(project):
-        p = d / "node_modules" / ".bin" / "esbuild"
-        if p.exists():
-            return p
+#: the bundlers the component check can use, in the order they are looked for
+BUNDLERS = ("esbuild", "rolldown")
+
+
+def find_bundler(project: Path) -> tuple[str, Path] | None:
+    """(name, executable) of the project's own bundler, searched where the project's packages are searched: its own
+    folder and, above it, only up to its workspace or repository root. esbuild is what Vite ships up to version 7;
+    Vite 8 ships Rolldown instead. Runs 2 and 3 of the website task (Vite 8.3.8) each installed three props whose
+    component check read "skipped no esbuild in the project's node_modules/.bin (Vite ships one)"."""
+    for name in BUNDLERS:
+        for d in search_dirs(project):
+            p = d / "node_modules" / ".bin" / name
+            if p.exists():
+                return name, p
     return None
+
+
+def _bundle(bundler: str, exe: Path, project: Path, entry: str, out: Path) -> tuple[int, str]:
+    """Bundle ``entry`` (module source that imports from the project's packages) to ``out``. Returns (exit code, the
+    bundler's error text); raises ChildError when it does not start or finish."""
+    define = 'process.env.NODE_ENV'
+    if bundler == "esbuild":
+        code, _out, err = run_child(
+            [str(exe), "--bundle", "--format=esm", "--platform=browser", "--target=es2020", f'--define:{define}="production"',
+             f"--outfile={out}", "--sourcefile=entry.jsx", "--loader=jsx"],
+            cwd=project, timeout=120, input=entry)  # stdin is resolved from the cwd; a bare environment, its own session
+        return code, err
+    # Rolldown reads no entry from stdin, and a bare import ("react") is looked for from the folder of the file that
+    # imports it. So the entry is a file inside the node_modules that holds the bundler, in a folder of its own under
+    # the conventional .cache, removed afterwards (with .cache, if this made it and nothing else is in it).
+    cache = exe.parent.parent / ".cache"
+    made_cache = not cache.exists()
+    cache.mkdir(exist_ok=True)
+    folder = Path(tempfile.mkdtemp(prefix="agy3d-react-check-", dir=cache))
+    try:
+        (folder / "entry.js").write_text(entry, encoding="utf-8")
+        code, _out, err = run_child(
+            [str(exe), str(folder / "entry.js"), "--file", str(out), "--format", "esm", "--platform", "browser",
+             "--transform.define", f'{define}:"production"'], cwd=project, timeout=120)
+        return code, err
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+        if made_cache:
+            with contextlib.suppress(OSError):
+                cache.rmdir()
 
 
 # Warnings the project's own libraries print whatever the installed component does: not the install's to fail on. React
@@ -608,16 +645,17 @@ LIBRARY_NOTICES = ("THREE.Clock: This module has been deprecated",)
 
 async def run_react(project: Path, record: dict[str, Any], manifest: dict[str, Any], three_path: str | None, Check: type,
                     *, timeout: float = 120.0) -> list[Any]:
-    """Mount the installed component in a React Three Fiber Canvas (bundled with the project's own esbuild, the one Vite
-    ships) and look at what it drew. Skipped, with the reason, where it cannot run."""
+    """Mount the installed component in a React Three Fiber Canvas (bundled with the project's own bundler, the one its
+    Vite ships: ``find_bundler``) and look at what it drew. Skipped, with the reason, where it cannot run."""
     v = w3.WebThreeValidator()
     if (why := v._unavailable()) is not None:
         return [Check("react_component", "skipped", why)]
     project = project.resolve()  # the generated import of react.js is an absolute path, whatever --project was
-    esbuild = find_esbuild(project)
-    if esbuild is None:
-        return [Check("react_component", "skipped", "no esbuild in the project's node_modules/.bin (Vite ships one): the component "
-                                                      "needs a bundler to be checked")]
+    found = find_bundler(project)
+    if found is None:
+        return [Check("react_component", "skipped", "no esbuild and no rolldown in the project's node_modules/.bin (Vite ships "
+                                                      "one of them): the component needs a bundler to be checked")]
+    bundler, exe = found
     if three_path is None:
         return [Check("react_component", "skipped", "node_modules/three was not found")]
     comp = pascal(asset_name(record["asset"]))
@@ -630,15 +668,14 @@ async def run_react(project: Path, record: dict[str, Any], manifest: dict[str, A
     home_dir = private_home()
     try:
         try:
-            code, _out, err = await asyncio.to_thread(
-                run_child, [str(esbuild), "--bundle", "--format=esm", "--platform=browser", "--target=es2020",
-                            "--define:process.env.NODE_ENV=\"production\"", f"--outfile={work / 'bundle.js'}",
-                            "--sourcefile=entry.jsx", "--loader=jsx"],
-                cwd=project, timeout=120, input=entry)  # stdin is resolved from the cwd; a bare environment, its own session
+            code, err = await asyncio.to_thread(_bundle, bundler, exe, project, entry, work / "bundle.js")
         except ChildError as e:
-            return [Check("react_component", "failed", f"the project's esbuild did not finish: {e}")]
+            return [Check("react_component", "failed", f"the project's {bundler} did not finish: {e}")]
+        except OSError as e:  # the entry file could not be written beside the project's packages
+            return [Check("react_component", "skipped", f"the project's {bundler} needs its entry inside node_modules/.cache, "
+                                                          f"which could not be written ({type(e).__name__})")]
         if code != 0:
-            return [Check("react_component", "failed", f"the project's esbuild could not bundle the component: {err[-500:]}")]
+            return [Check("react_component", "failed", f"the project's {bundler} could not bundle the component: {err[-500:]}")]
         (work / "react.html").write_text('<!doctype html><meta charset="utf-8"><div id="root" style="width:512px;height:512px"></div>'
                                          '<script type="module" src="./bundle.js"></script>')
         mounts = {"/" + record["assets_url"].strip("/") + "/": project / record["assets"]}
@@ -665,7 +702,7 @@ async def run_react(project: Path, record: dict[str, Any], manifest: dict[str, A
         if (raw.get("drawn_share") or 0) < 0.01:
             problems.append(f"the Canvas drew almost nothing ({(raw.get('drawn_share') or 0):.3%} of its pixels)")
         return [Check("react_component", "failed" if problems else "passed", "; ".join(problems) or
-                      f"<{comp} /> mounted in a React Three Fiber Canvas bundled with the project's esbuild: a THREE.LOD of "
+                      f"<{comp} /> mounted in a React Three Fiber Canvas bundled with the project's {bundler}: a THREE.LOD of "
                       f"{want_levels} level(s), {raw.get('triangles'):.0f} triangles in {raw.get('draw_calls')} draw call(s), "
                       f"{raw.get('drawn_share'):.1%} of the frame drawn, no console error or warning"
                       + (f" from it (the project's own libraries said: {'; '.join(dict.fromkeys(library))})" if library else ""),
