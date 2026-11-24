@@ -69,8 +69,10 @@ script, as below.
   is not applied; the reply says what to change in the script.
 - `deliver_package` refuses what the engine would reject, and says exactly what
   to fix. Its answer starts with `DELIVERED`, `NOT DELIVERED: a person must
-  decide` (reply to the user with the reason and stop) or `NOT DELIVERED` (fix
-  the script, `run_build`, deliver again).
+  decide` (reply to the user with the reason and stop), `NOT DELIVERED` (fix
+  the script, `run_build`, deliver again) or `STILL WORKING` (nothing failed:
+  the work goes on; call it again at once with the same arguments for the
+  result; any long call answers so).
 - A verified export needs an approval from the native Decisions API. When the
   key has no access to it, `run_build` says so. Do not work around that. Ask
   the user whether they want an UNVERIFIED preview, and ask for their two

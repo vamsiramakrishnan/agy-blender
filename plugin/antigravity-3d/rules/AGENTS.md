@@ -56,7 +56,7 @@ is what a session costs. For a new asset:
    colliders, validates and exports, and says what the review found. When the
    request names a folder for the result, pass it as `dest`; the tool places the
    engine files there, so do not copy files by hand afterwards. Its
-   answer starts with one of three:
+   answer starts with one of four:
    - `DELIVERED`: the run is finished; the package was validated, imported and
      checked by the tool. Reply to the user with its path and the findings,
      and do not inspect it again.
@@ -64,6 +64,11 @@ is what a session costs. For a new asset:
      and stop; changing the surfaces or the design to get past it is not wanted.
    - `NOT DELIVERED` otherwise: fix what it names with `apply_scene_ir` and
      call `deliver_package` again.
+   - `STILL WORKING`: nothing failed and nothing needs fixing; the work goes on
+     by itself. Call `deliver_package` again at once with the same arguments:
+     it answers with the result and does no step twice. Any tool call that
+     takes more than about two and a half minutes answers this way, and
+     `session_status` shows which step it is at.
 
 Build the design with `apply_scene_ir`, not by scripting Blender: only a
 design in the session's stage can be edited, checked and packaged by these

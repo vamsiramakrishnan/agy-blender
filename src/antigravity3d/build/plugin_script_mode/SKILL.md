@@ -31,8 +31,12 @@ An asset is one Python file. Three steps, and nothing else is required:
    engine. `dest` is the folder the request names for the result. Its answer
    starts with `DELIVERED` (finished: reply to the user with the path and the
    findings, do not inspect or copy anything), `NOT DELIVERED: a person must
-   decide` (reply with the reason and stop) or `NOT DELIVERED` (fix what it names
-   in the script, `run_build`, deliver again).
+   decide` (reply with the reason and stop), `NOT DELIVERED` (fix what it names
+   in the script, `run_build`, deliver again) or `STILL WORKING` (nothing failed
+   and nothing needs fixing: the work goes on; call `deliver_package` again at
+   once with the same arguments and it answers with the result). Any call that
+   takes more than about two and a half minutes, `run_build` included, answers
+   `STILL WORKING` the same way.
 
 Every model call sends the whole conversation again, so do not explore folders,
 do not read other skills for a build, and do not run the script yourself: only

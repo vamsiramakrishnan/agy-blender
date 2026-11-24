@@ -63,8 +63,9 @@ not a handful of blocks.
    call (pass the folder the request names for the result as `dest`; do not copy
    files by hand afterwards); its answer `DELIVERED` ends the run (reply with the path and the
    findings), `NOT DELIVERED: a person must decide` means reply with the reason
-   and stop, and any other `NOT DELIVERED` names what to fix before calling it
-   again. `render_preview` shows you the design: five 512 px
+   and stop, any other `NOT DELIVERED` names what to fix before calling it
+   again, and `STILL WORKING` means nothing failed and the work goes on: call it
+   again at once with the same arguments for the result. `render_preview` shows you the design: five 512 px
    views (front, right, top, two perspectives from opposite corners), shaded
    as the package ships with part outlines drawn, a numbered badge on every
    part and a legend from badge to node id. Small views arrive inline; open a
