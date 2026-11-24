@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A canvas in the normal flow under a header written before it</title>
+<!-- The header is positioned and comes first in the document; the canvas is in the normal flow. A visitor sees the
+     header over the top of the canvas. A filter on the canvas would make it a stacking context that is painted with
+     the positioned content, after the header: over it. -->
+<style>html,body{margin:0;background:#101418;color:#eee;font:20px sans-serif}
+header{position:absolute;left:0;top:0;width:100vw;height:40vh;background:#203040}
+canvas{display:block;width:100vw;height:100vh}</style></head>
+<body><header>The header is opaque and comes first.</header><canvas id="c"></canvas>
+<div style="height:20vh"></div><!-- a short scroll: the canvas stays in the window at every step -->
+<script type="module">
+import { setup } from './gl.js';
+const { gl } = setup(document.getElementById('c'));
+const draw = () => { gl.clearColor(1, 0, 1, 1); gl.clear(gl.COLOR_BUFFER_BIT); requestAnimationFrame(draw); };
+draw();
+</script></body></html>

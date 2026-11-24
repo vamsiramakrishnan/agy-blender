@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A canvas in the normal flow inside a positioned box, its overlay written after it</title>
+<!-- As React Three Fiber lays a canvas out: in the normal flow inside a box with position: relative. The opaque bar
+     comes after the canvas in the document, so a layer for the canvas changes nothing a visitor sees. -->
+<style>html,body{margin:0;background:#101418;color:#eee;font:20px sans-serif}
+#stage{position:relative;width:100vw;height:100vh;overflow:hidden}
+canvas{display:block;width:100%;height:100%}
+#bar{position:absolute;left:0;top:0;width:100%;height:40%;background:#203040}</style></head>
+<body><div id="stage"><canvas id="c"></canvas><div id="bar">The bar is opaque and comes after the canvas.</div></div>
+<div style="height:20vh"></div><!-- a short scroll: the canvas stays in the window at every step -->
+<script type="module">
+import { setup } from './gl.js';
+const { gl } = setup(document.getElementById('c'));
+const draw = () => { gl.clearColor(1, 0, 1, 1); gl.clear(gl.COLOR_BUFFER_BIT); requestAnimationFrame(draw); };
+draw();
+</script></body></html>

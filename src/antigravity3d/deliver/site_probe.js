@@ -31,15 +31,62 @@
   S.mark = () => { const w = S.win; S.win = newWin(); return w; };
 
   // ---- the canvas layer (site_check.py, "the camera"): where this browser's screenshots would leave a black box in a
-  // WebGL canvas, every canvas is given a layer of its own. First in the head and without specificity, so a rule of the
-  // page's own wins; added as soon as the document has a head, which is before the page can draw anything.
+  // WebGL canvas, a canvas is given a layer of its own: a rule that is first in the head and without specificity, so
+  // any rule of the page's own wins, for canvases this script marks (S.layerCanvases, before every screenshot).
+  // The layer is a filter, and a filter makes its element a stacking context, painted with the positioned content.
+  // For a positioned canvas (fixed, absolute, relative, sticky) nothing changes. A canvas in the normal flow would be
+  // painted over positioned content that comes before it in the document, a header written above the canvas for one.
+  // So such a canvas is tried: what is painted over it at a grid of points is read without the mark and with it, and
+  // where anything that was over the canvas is no longer over it, the canvas stays as it is and is counted.
   if (cfg.canvasLayerCss) {
+    const MARK = cfg.canvasLayerAttr || 'data-agy3d-layer';
     const add = () => {
       const st = document.createElement('style'); st.dataset.agySite = 'canvas-layer'; st.textContent = cfg.canvasLayerCss;
       document.head.prepend(st);
     };
     if (document.head) add();
-    else new MutationObserver((_, o) => { if (document.head) { o.disconnect(); add(); } }).observe(document, { childList: true, subtree: true });
+    else {
+      const seen = new MutationObserver((_, o) => { if (document.head) { o.disconnect(); add(); } });
+      seen.observe(document, { childList: true, subtree: true });
+      // a document that never gets a head (an SVG in a frame): nothing to add to, and nothing left watching
+      document.addEventListener('DOMContentLoaded', () => seen.disconnect(), { once: true });
+    }
+    const over = (c) => {
+      const r = c.getBoundingClientRect(), out = [];
+      const x0 = Math.max(0, r.left), x1 = Math.min(innerWidth, r.right), y0 = Math.max(0, r.top), y1 = Math.min(innerHeight, r.bottom);
+      if (x1 - x0 < 2 || y1 - y0 < 2) return out;
+      for (let j = 0; j < 6; j++) for (let i = 0; i < 6; i++) {
+        const stack = document.elementsFromPoint(x0 + (i + 0.5) * (x1 - x0) / 6, y0 + (j + 0.5) * (y1 - y0) / 6);
+        const at = stack.indexOf(c);
+        out.push(at < 0 ? null : stack.slice(0, at));
+      }
+      return out;
+    };
+    S.layer = { given: 0, left: 0 };
+    S.layerLeft = 0;
+    S.layerCanvases = () => {
+      let given = 0, left = 0, force = null;
+      try {
+        for (const c of S.canvases) {
+          if (!c.isConnected) continue;
+          if (getComputedStyle(c).position !== 'static') { c.setAttribute(MARK, ''); given++; continue; }
+          if (!force) {  // as in measureSubjects: elementsFromPoint skips what has pointer-events: none
+            force = document.createElement('style'); force.textContent = '*{pointer-events:auto!important}';
+            (document.head || document.documentElement).appendChild(force);
+          }
+          c.removeAttribute(MARK);
+          const before = over(c);
+          if (!before.length) continue;  // not in the window now: nothing of it is photographed, and nothing can be compared
+          c.setAttribute(MARK, '');
+          const after = over(c);
+          const same = before.length === after.length && before.every((b, k) => b === null || (after[k] !== null && b.every((el) => after[k].includes(el))));
+          if (same) given++; else { c.removeAttribute(MARK); left++; }
+        }
+      } finally { if (force) force.remove(); }
+      S.layer = { given, left };
+      S.layerLeft = Math.max(S.layerLeft, left);
+      return S.layer;
+    };
   }
 
   // ---- the clock
@@ -331,7 +378,10 @@
   // Resolves once `n` more animation frames have run: two screenshots with no frame between them are the same
   // compositor frame, and would read as a picture that stopped changing while the page had not drawn yet.
   const waiting = [];
-  S.afterFrames = (n) => new Promise((done) => waiting.push({ at: S.frames + n, done }));
+  S.afterFrames = (n) => {
+    if (S.layerCanvases) { try { S.layerCanvases(); } catch (e) {} }  // before the frames, so that the screenshot after them has it
+    return new Promise((done) => waiting.push({ at: S.frames + n, done }));
+  };
   const raf = window.requestAnimationFrame.bind(window);
   window.requestAnimationFrame = (cb) => raf((ts) => { cb(cap ? ts - S.held_ms : ts); grab(); });
   const tick = () => {

@@ -654,14 +654,23 @@ def test_a_lost_context_counts_only_on_a_canvas_the_visitor_can_see(tmp_path):
     assert any("the WebGL context was lost 1 time" in b for b in lost.broken()), lost.broken()
 
 
-def _opposite_the_bar(report) -> tuple[int, int, int]:
-    """The colour of the first desktop frame at 80 % of its height: the fixture's canvas shows there, opposite its bar."""
+def _frame_at(report, y: float) -> tuple[int, int, int]:
+    """The colour of the first desktop frame at mid width and ``y`` of its height."""
     im = Image.open(report.visits["desktop"].steps[0].frame).convert("RGB")
-    return im.getpixel((im.width // 2, round(im.height * 0.8)))
+    return im.getpixel((im.width // 2, round(im.height * y)))
+
+
+def _opposite_the_bar(report) -> tuple[int, int, int]:
+    """At 80 % of the height the fixtures' canvas shows, opposite their bar."""
+    return _frame_at(report, 0.8)
 
 
 def _is_the_canvas(px) -> bool:
     return px[0] > 200 and px[1] < 60 and px[2] > 200
+
+
+def _is_the_bar(px) -> bool:  # #203040, through a JPEG
+    return abs(px[0] - 32) < 24 and abs(px[1] - 48) < 24 and abs(px[2] - 64) < 24
 
 
 @pytest.mark.browser
@@ -683,6 +692,14 @@ def test_a_browser_without_the_gpu_path_is_found_out_and_worked_around(tmp_path,
     truth; with the layer taken away it says that the frames have the fault. Each browser is tested once."""
     from antigravity3d.adapters.engines import web_browser, web_three
 
+    tests_made = []
+    real_test = sc._camera_test
+
+    async def counted(ctx):
+        tests_made.append(1)
+        return await real_test(ctx)
+
+    monkeypatch.setattr(sc, "_camera_test", counted)
     monkeypatch.setattr(web_three, "CHROMIUM_ARGS", [a for a in web_three.CHROMIUM_ARGS if not a.startswith("--use-angle")])
     try:
         folder = site(tmp_path, "under_a_bar")
@@ -691,9 +708,12 @@ def test_a_browser_without_the_gpu_path_is_found_out_and_worked_around(tmp_path,
         if r.camera != "layer":
             pytest.skip(f"this machine's browser shows the canvas without help (camera: {r.camera!r}): nothing to work around")
         assert "photographed each canvas on a layer of its own" in r.text()
-        assert web_browser.SHARED._session.notes == {"site_camera": "layer"}
+        assert r.visits["desktop"].probe["layer"] == {"given": 1, "left": 0}
+        browser = web_browser.SHARED._session
+        assert browser.notes == {"site_camera": "layer"} and len(tests_made) == 1
         again = sc.check_site(str(folder), out_dir=tmp_path / "out", steps=2, sizes=("desktop",), variants=())
-        assert again.camera == "layer" and web_browser.SHARED._session.generation == web_browser.SHARED.launches
+        # the same browser, and its camera was not tested a second time
+        assert again.camera == "layer" and web_browser.SHARED._session is browser and len(tests_made) == 1
         # without the layer: the fault is in the frame, and the answer says whose it is
         web_browser.SHARED.shutdown()
         monkeypatch.setattr(sc, "CANVAS_LAYER_CSS", ":where(canvas){}")
@@ -705,10 +725,65 @@ def test_a_browser_without_the_gpu_path_is_found_out_and_worked_around(tmp_path,
         web_browser.SHARED.shutdown()  # the next test starts the browser as the product does
 
 
+@pytest.mark.browser
+def test_a_camera_test_that_hangs_costs_its_wait_and_not_the_browser(tmp_path, monkeypatch):
+    """The wait is for the test, not for the browser's start: bounded from outside, a slow start cancelled the run,
+    which closes the browser that had just come up, and the check went on without knowing its camera."""
+    import asyncio
+
+    from antigravity3d.adapters.engines import web_browser
+
+    web_browser.SHARED.shutdown()
+    real_test = sc._camera_test
+
+    async def hangs(ctx):
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(sc, "_camera_test", hangs)
+    monkeypatch.setattr(sc, "CAMERA_WAIT_S", 0.3)
+    folder = site(tmp_path, "under_a_bar")
+    r = sc.check_site(str(folder), out_dir=tmp_path / "out", steps=2, sizes=("desktop",), variants=())
+    assert r.camera == "" and r.visits["desktop"].loaded and "about these pictures" not in r.text()
+    browser = web_browser.SHARED._session
+    assert browser is not None and browser.alive() and web_browser.SHARED.launches == browser.generation
+    assert "site_camera" not in browser.notes  # not known is not a result: the next check asks again
+    monkeypatch.setattr(sc, "_camera_test", real_test)
+    monkeypatch.setattr(sc, "CAMERA_WAIT_S", 10.0)
+    again = sc.check_site(str(folder), out_dir=tmp_path / "out", steps=2, sizes=("desktop",), variants=())
+    assert again.camera in ("true", "layer") and web_browser.SHARED._session is browser
+
+
+async def _camera_says_layer(session, ctx) -> str:
+    return "layer"
+
+
+@pytest.mark.browser
+def test_a_canvas_in_the_normal_flow_gets_a_layer_only_where_nothing_changes_for_a_visitor(tmp_path, monkeypatch):
+    """The layer is a filter, and a filter moves a canvas that is not positioned in with the positioned content, over
+    what was written before it. With the layer asked for whatever this browser needs: a canvas under a header that
+    comes first in the document is left as it is and counted; one whose overlay comes after it gets the layer."""
+    monkeypatch.setattr(sc, "camera", _camera_says_layer)
+    covered = sc.check_site(str(site(tmp_path, "layer_in_flow_covered")), out_dir=tmp_path / "out1", steps=2,
+                            sizes=("desktop",), variants=())
+    assert covered.visits["desktop"].probe["layer"] == {"given": 0, "left": 1} and covered.visits["desktop"].probe["layerLeft"] == 1
+    assert _is_the_bar(_frame_at(covered, 0.2)), _frame_at(covered, 0.2)  # the header is still over the canvas
+    text = covered.text()
+    assert "1 canvas in the page's normal flow could not be given one" in text and "Do not change the site for it" in text
+    free = sc.check_site(str(site(tmp_path, "layer_in_flow_free")), out_dir=tmp_path / "out2", steps=2,
+                         sizes=("desktop",), variants=())
+    assert free.visits["desktop"].probe["layer"] == {"given": 1, "left": 0}
+    assert _is_the_bar(_frame_at(free, 0.2)) and _is_the_canvas(_opposite_the_bar(free)), (_frame_at(free, 0.2), _opposite_the_bar(free))
+    assert "photographed each canvas on a layer of its own" in free.text()
+    fixed = sc.check_site(str(site(tmp_path, "under_a_bar")), out_dir=tmp_path / "out3", steps=2, sizes=("desktop",), variants=())
+    assert fixed.visits["desktop"].probe["layer"] == {"given": 1, "left": 0} and _is_the_canvas(_opposite_the_bar(fixed))
+
+
 def test_the_answer_speaks_of_the_camera_only_when_it_was_at_fault(tmp_path):
     for cam, said in (("", False), ("true", False), ("layer", True), ("faulty", True)):
         text = sc.SiteReport("site", tmp_path, camera=cam).text()
         assert ("about these pictures" in text) == said, (cam, text)
+    assert "2 canvases in the page's normal flow could not be given one" in sc.camera_line("layer", 2)
+    assert sc.camera_line("true", 3) == "" and "canvases" not in sc.camera_line("faulty", 3)
 
 
 @pytest.mark.browser

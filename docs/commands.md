@@ -423,11 +423,15 @@ No visitor's browser does this. So before the visits the check photographs a pag
 under an opaque bar), once per browser:
 
 - the canvas shows opposite the bar: nothing is done and nothing is said;
-- it does not: every visit gives each canvas a layer of its own (`:where(canvas){filter:blur(0px)}`, first in the
-  head and without specificity, so any rule of the page's own wins), which was measured to give the canvas back: on
-  run 3's site the frames taken this way differ from those of the same browser on its GPU path in at most 0.06 % of
-  their pixels, against 1.7 to 8.2 % before. The answer says so under `about these pictures`, and that a screenshot
-  script of the agent's own on that machine will show the boxes;
+- it does not: the visits give a WebGL canvas a layer of its own (a filter that moves no pixel, `blur(0px)`, in a
+  rule that is first in the head and without specificity, so any rule of the page's own wins), which was measured to
+  give the canvas back: on run 3's site the frames taken this way differ from those of the same browser on its GPU
+  path in at most 0.06 % of their pixels, against 1.7 to 8.2 % before. The answer says so under `about these
+  pictures`, and that a screenshot script of the agent's own on that machine will show the boxes. A filter makes its
+  element a stacking context, so the layer is given canvas by canvas: always to a positioned canvas (fixed, absolute,
+  relative, sticky), where it changes nothing; to a canvas in the normal flow only where what is painted over it
+  stays over it (read at a grid of points before every picture). A canvas that would have been painted over a
+  header written before it is left as it is, and the answer counts it;
 - not even then: the answer says that the frames have the fault and that the site is not to be changed for it.
 
 `report.json` carries the result as `camera` (`true`, `layer`, `faulty`, or empty when the machine has no WebGL). The

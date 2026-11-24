@@ -615,8 +615,9 @@ class SiteReport:
         if line := self.stills_line():
             lines.append(f"- {line}")
         lines.append(f"- all frames, the canvas-only frames and the full record (report.json) are in {self.out_dir}")
-        if self.camera in CAMERA_LINES:
-            lines.append(f"- about these pictures: {CAMERA_LINES[self.camera]}.")
+        left = max((int((v.probe or {}).get("layerLeft") or 0) for v in self.visits.values()), default=0)
+        if line := camera_line(self.camera, left):
+            lines.append(f"- about these pictures: {line}.")
         return "\n".join(lines)
 
     def stills_line(self) -> str:
@@ -1078,6 +1079,7 @@ _PAGE_INFO_JS = r"""() => {
   return { contexts: (S.contexts || []).length, lost: S.lost || 0, webgl2: (S.contexts || []).some((c) => window.WebGL2RenderingContext && c instanceof WebGL2RenderingContext),
            webgpu: !!S.webgpu, offscreen: !!S.offscreen, reducedMotionQueried: !!S.reducedMotionQueried, reducedMotionCss: css,
            memory: S.memory ? S.memory() : null, textChars: (document.body && document.body.innerText || '').length,
+           layer: S.layer || null, layerLeft: S.layerLeft || 0,
            notices, images, base: location.href.replace(/[^/]*([?#].*)?$/, '') };
 }"""
 
@@ -1497,7 +1499,8 @@ async def _record(v: Visit, r, own: bool, base: str) -> None:
 
 
 def _probe_script(no_webgl: bool, canvas_layer: bool = False) -> str:
-    cfg = json.dumps({"noWebGL": no_webgl, "frameCapMs": FRAME_CAP_MS, "canvasLayerCss": CANVAS_LAYER_CSS if canvas_layer else ""})
+    cfg = json.dumps({"noWebGL": no_webgl, "frameCapMs": FRAME_CAP_MS, "canvasLayerCss": CANVAS_LAYER_CSS if canvas_layer else "",
+                      "canvasLayerAttr": CANVAS_LAYER_ATTR})
     return f"window.__agySiteConfig = {cfg};\n" + (_HERE / "site_probe.js").read_text(encoding="utf-8")
 
 
@@ -1518,7 +1521,13 @@ def _probe_script(no_webgl: bool, canvas_layer: bool = False) -> str:
 
 #: the layer: zero specificity and first in the document, so any rule of the page's own wins. Filters that only change
 #: colour (opacity(1), brightness(1)) did not give the canvas back on the test page; blur(0px) and a zero drop-shadow did.
-CANVAS_LAYER_CSS = ":where(canvas){filter:blur(0px)}"
+#: A filter makes its element a stacking context, painted with the positioned content. For a positioned canvas that
+#: changes nothing. A canvas in the normal flow would then be painted over positioned content that comes before it in
+#: the document (a header written above the canvas), so the probe marks canvas by canvas (``site_probe.js``,
+#: ``layerCanvases``): a positioned one always, another only where what lies over it stays over it, and it counts the
+#: ones it left as they are.
+CANVAS_LAYER_ATTR = "data-agy3d-layer"
+CANVAS_LAYER_CSS = f":where(canvas[{CANVAS_LAYER_ATTR}]){{filter:blur(0px)}}"
 CAMERA_BAR = 0.4            # the opaque bar covers this share of the window, from the top (under a half: see ``camera``)
 CAMERA_WAIT_S = 10.0
 _CAMERA_PAGE = """<!doctype html><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#000}
@@ -1531,27 +1540,53 @@ window.__gl = !!g;
 if (g) { const draw = () => { g.clearColor(1, 0, 1, 1); g.clear(g.COLOR_BUFFER_BIT); requestAnimationFrame(draw); }; draw(); }
 window.__frames = (n) => new Promise((ok) => { const f = () => (n-- > 0 ? requestAnimationFrame(f) : ok(true)); f(); });
 </script>""".replace("%BAR%", f"{CAMERA_BAR * 100:.0f}")
-#: what the answer says for each result that is worth a line
-CAMERA_LINES = {
-    "layer": ("this browser puts pages together without the GPU path, and its screenshots then leave a black box in a "
-              "WebGL canvas opposite every opaque panel (mirrored top to bottom). No visitor's browser does. The check "
-              "tested for it and photographed each canvas on a layer of its own, which gives the true picture: the "
-              "frames here are what a visitor sees. A screenshot script of your own on this machine will show those "
-              "boxes; they are not the site's"),
-    "faulty": ("this browser puts pages together without the GPU path, and its screenshots leave a black box in a WebGL "
-               "canvas opposite every opaque panel (mirrored top to bottom). No visitor's browser does, and the frames "
-               "here have it: a black box in the 3D picture where the canvas-only frame (*_canvas.jpg) shows the "
-               "scene is the browser's, not the site's. Do not change the site for it"),
-}
+_CAMERA_WHAT = ("this browser puts pages together without the GPU path, and its screenshots then leave a black box in a "
+                "WebGL canvas opposite every opaque panel (mirrored top to bottom). No visitor's browser does")
+
+
+def camera_line(result: str, left: int = 0) -> str:
+    """What the answer says about its pictures for a camera result that is worth a line ('' otherwise). ``left``: the
+    canvases the probe could not give a layer without changing what the page paints."""
+    if result == "layer":
+        if left:
+            n = f"{left} canvas{'es' if left != 1 else ''}"
+            return (f"{_CAMERA_WHAT}. The check tested for it and photographs a canvas on a layer of its own, which "
+                    f"gives the true picture. {n} in the page's normal flow could not be given one without being "
+                    "painted over content that lies above it: in its frames a black box in the 3D picture, where the "
+                    "canvas-only frame (*_canvas.jpg) shows the scene, is the browser's, not the site's. Do not "
+                    "change the site for it")
+        return (f"{_CAMERA_WHAT}. The check tested for it and photographed each canvas on a layer of its own, which "
+                "gives the true picture: the frames here are what a visitor sees. A screenshot script of your own on "
+                "this machine will show those boxes; they are not the site's")
+    if result == "faulty":
+        return (f"{_CAMERA_WHAT}, and the frames here have it: a black box in the 3D picture where the canvas-only "
+                "frame (*_canvas.jpg) shows the scene is the browser's, not the site's. Do not change the site for it")
+    return ""
 
 
 async def camera(session, ctx) -> str:
     """Does a screenshot of this browser show a WebGL canvas that lies under an opaque box?
 
     'true' (it does), 'layer' (only with the canvas on a layer of its own, ``CANVAS_LAYER_CSS``), 'faulty' (not even
-    then) or '' (not known: no WebGL here, or the test page did not draw). Kept on the browser's session."""
+    then) or '' (not known: no WebGL here, the test page did not draw, or the test did not finish in ``CAMERA_WAIT_S``).
+    A result is kept on the browser's session; a test that did not finish is made again by the next check.
+
+    The wait covers the test alone. Bounded from outside it would also cover the browser's start, and a start slower
+    than the wait (a loaded machine, software rendering: where this fault lives) would cancel the run, which closes the
+    browser that had just come up and leaves the check without a camera test."""
     if "site_camera" in session.notes:
         return session.notes["site_camera"]
+    try:
+        got = await asyncio.wait_for(_camera_test(ctx), CAMERA_WAIT_S)
+    except Exception as e:  # noqa: BLE001  a test that hangs or fails leaves the frames as they were before it existed
+        _log.debug("check_site: camera test not finished (%s)", type(e).__name__)
+        return ""
+    session.notes["site_camera"] = got
+    _log.debug("check_site: camera test of this browser: %r", got)
+    return got
+
+
+async def _camera_test(ctx) -> str:
     import base64
 
     from PIL import Image
@@ -1573,20 +1608,16 @@ async def camera(session, ctx) -> str:
 
     await page.set_content(_CAMERA_PAGE)
     if not await page.evaluate("window.__gl"):
-        got = ""
-    else:
-        middle, opposite = await shows()
-        if not middle:
-            got = ""
-        elif opposite:
-            got = "true"
-        else:
-            await page.add_style_tag(content=CANVAS_LAYER_CSS)
-            middle, opposite = await shows()
-            got = "layer" if middle and opposite else "faulty"
-    session.notes["site_camera"] = got
-    _log.debug("check_site: camera test of this browser: %r", got)
-    return got
+        return ""
+    middle, opposite = await shows()
+    if not middle:
+        return ""
+    if opposite:
+        return "true"
+    await page.add_style_tag(content=CANVAS_LAYER_CSS)
+    await page.evaluate(f"document.getElementById('c').setAttribute({json.dumps(CANVAS_LAYER_ATTR)}, '')")
+    middle, opposite = await shows()
+    return "layer" if middle and opposite else "faulty"
 
 
 # --------------------------------------------------------------------------- the check
@@ -1714,11 +1745,11 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
     lanes = asyncio.Semaphore(LANES)
     opened: list = []
 
-    try:  # the camera first (see ``camera``); a test that fails or hangs leaves the frames as they were before it existed
-        rep.camera = await asyncio.wait_for(web_browser.SHARED.run(
-            camera, exe=exe, args=_launch_args(), context_options={"viewport": {"width": 200, "height": 200}}), CAMERA_WAIT_S)
+    try:  # the camera first (see ``camera``); a browser that does not start is reported by the visits, as before
+        rep.camera = await web_browser.SHARED.run(camera, exe=exe, args=_launch_args(),
+                                                  context_options={"viewport": {"width": 200, "height": 200}})
     except Exception as e:  # noqa: BLE001
-        _log.debug("check_site: camera test not finished (%s)", type(e).__name__)
+        _log.debug("check_site: no camera test (%s)", type(e).__name__)
 
     plan = {}
     if "desktop" in sizes:
