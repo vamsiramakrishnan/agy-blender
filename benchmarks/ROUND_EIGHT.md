@@ -9,10 +9,13 @@ agent back. None of them depends on taste, so this round did not wait for the co
 the same request again from the fixed plugin (`results/site_run2_plugin/`), and compared the two sites. The owner's
 own corrections have not been given yet. When they are, they go into the new website skill and the run is repeated.
 
-**One part of the planned measurement is missing.** The same request without the plugin (a stock agent, as a
-baseline) needs the model service, which stopped answering just after run 2 finished: the baseline's first three
-requests were each dropped after five minutes. Everything below that compares "run 1" and "run 2" is measured,
-including a blind comparison of the two sites. Nothing below says how either compares with a stock agent's site.
+**Two runs are missing.** The same request without the plugin (a stock agent, as a baseline), and a third run with
+the corrections that an independent review of run 2 led to. Both need the model service, which stopped serving the
+agent's requests just after run 2 finished: over two hours and three attempts the baseline's requests were dropped
+after five minutes each, apart from one that was answered, and a medium-sized test request got no first byte in
+four minutes while one-word requests were answered in seconds. Everything below that compares "run 1" and "run 2"
+is measured, including a blind comparison of the two sites. Nothing below says how either compares with a stock
+agent's site, or how good a site the corrected skill produces.
 
 ## The short answer
 
@@ -198,8 +201,26 @@ What has been done about it so far:
   the gate under the digest chapter's panel, the clamp cut by the right edge in the last two shots, labels cut or
   hidden on the desktop and on the phone, one label too small to read. That covers eight of the reviewer's nine
   examples. Where a page says which prop a shot is about, props in the background are not reported.
-- **The skill, its library guide and the starter are being corrected** for the seven faults they caused and the six
-  they were silent on. Not in this report yet.
+- **The skill, its library guide and the starter are corrected** for the seven faults they caused and the six they
+  were silent on. Each has a test that runs in a real browser:
+  - shader colours are passed as colour objects, and a test reads a pixel back to see that the intended colour
+    reaches the screen (the old example fails it by about 50 levels of 255);
+  - with the script blocked, every text panel is visible and in order;
+  - the view fits the window's shape: side by side it keeps what the shot shows across, and on a portrait phone it
+    fits what the shot is about into the space above the panel. Before this the subject was either cropped (run 2)
+    or, after a first correction, a fifth of the phone's width; it is now about three fifths;
+  - the text panel is one fixed layer, so it no longer slides over the 3D;
+  - the canvas is sized from its own box, and an address bar sliding in or out no longer re-measures the page;
+  - smooth scrolling stays on over the panels; chapter links land where a chapter rests;
+  - a lost WebGL context is redrawn with its lighting rebuilt, or the page becomes the article;
+  - a shot can name what it is about, labels are registered, and the page reports where each is on screen, which
+    is what the site check above reads.
+
+  Left as it is in the starter and known: the article layout shows for a moment before the 3D takes over; a label
+  tied to a prop appears and disappears with it instead of rising with it; once a lost context has turned the page
+  into the article it stays one.
+- **Run 2's site itself is unchanged.** It was built before all of this. The third run is what will show whether
+  these corrections make a better site, and it has not been possible yet (see the top).
 
 One thing the review turned up about the check itself: headless Chromium blanks a band of a WebGL canvas as tall
 as an opaque, full-width fixed bar, at the mirrored position. A 48 px top bar leaves the bottom 48 px of every
@@ -221,7 +242,7 @@ the ones the blind judge saw, and the documentation now says so.
 
 ## What is still worse, or not done
 
-- **The baseline**, as said at the top. The run tooling for it is in the branch and tested offline.
+- **The baseline and the third run**, as said at the top. The run tooling is in the branch and tested offline.
 - **The props' look.** The plugin's review scored each of run 2's props about 1.8 of 4 (an uncalibrated judge;
   the targets are 3.3 to 3.4). The delivery reports this as findings for a person, and the agent went on. Nothing
   in the skill asks for a second round on a prop that reads as a box.
