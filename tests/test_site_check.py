@@ -898,3 +898,259 @@ def test_a_chapters_hook_that_throws_or_is_missing_writes_no_stills(tmp_path):
     r = run(root, tmp_path / "again", steps=2)
     assert not (tmp_path / "again" / "out" / "stills").exists() and "page without WebGL" not in r.text()
     assert "threw: fixture chapters boom" in r.stills["note"]
+
+
+# --------------------------------------------------------------------------- run 3: a picture that does not travel,
+# one scale throughout, labels too small where the shot is about them, layers
+
+
+def _box(name: str, box: list[float], kind: str = "prop", subject: bool | None = True, cut: float = 0.0,
+         hidden: float | None = 0.0, px: tuple[int, int] | None = None, size: tuple[int, int] = (1440, 900)) -> dict:
+    """One measured subject with its own box (``px`` from the box at ``size`` unless given)."""
+    px = px or (round((box[2] - box[0]) * size[0]), round((box[3] - box[1]) * size[1]))
+    return {"name": name, "kind": kind, "subject": subject, "box": box, "px": list(px), "cut": cut, "edges": {},
+            "hidden": hidden, "under": ""}
+
+
+def _visit(name: str, rows: list[list[dict] | None], tmp_path: Path, n: int | None = None) -> sc.Visit:
+    n = n or len(rows)
+    v = sc.Visit(name, loaded=True, load_s=1.0)
+    v.steps = [sc.Step(i, i / max(n - 1, 1), 0, frame=str(tmp_path / f"{name}_{i:02d}.jpg"), subjects=r)
+               for i, r in enumerate(rows) if r != "missing"]
+    return v
+
+
+# The shot's subject at each step of run 3 (benchmarks/results/site_run3_plugin), as its record (round 8's
+# frames3/run3/report.json) has it: on the phone the gate fitted into one place above the panel for steps 1 to 5; on
+# the desktop the subject moved between every two steps. The last step, a wide shot of all three props, names none.
+RUN3_PHONE = [("gate", [0.1852, 0.1724, 0.8148, 0.4663]), ("gate", [0.1847, 0.1724, 0.8153, 0.4663]),
+              ("gate", [0.1897, 0.1724, 0.8103, 0.4663]), ("gate", [0.1919, 0.1724, 0.8081, 0.4663]),
+              ("gate", [0.18, 0.1737, 0.82, 0.465]), ("vault", [0.2143, 0.1724, 0.7857, 0.4663]),
+              ("anchor", [0.2327, 0.1724, 0.7673, 0.4663]), ("anchor", [0.2063, 0.1724, 0.7937, 0.4663])]
+RUN3_DESKTOP = [("gate", [0.5379, 0.2748, 0.8844, 0.835]), ("gate", [0.519, 0.2507, 0.9044, 0.8728]),
+                ("gate", [0.607, 0.2643, 0.9368, 0.8051]), ("gate", [0.5308, 0.302, 0.8273, 0.7918]),
+                ("gate", [0.4411, 0.2709, 0.7941, 0.8273]), ("vault", [0.5357, 0.2517, 0.8719, 0.8505]),
+                ("anchor", [0.7092, 0.3014, 0.9988, 0.8528]), ("anchor", [0.5221, 0.2455, 0.8905, 0.8837])]
+RUN3_LAST = {"desktop": [("gate", [0.4595, 0.43, 0.5808, 0.6154]), ("gate-label", [0.4834, 0.4067, 0.5502, 0.4236], 15),
+                         ("vault-label", [0.6851, 0.4057, 0.7413, 0.4184], 11),
+                         ("anchor-label", [0.8756, 0.4247, 0.9348, 0.4415], 15)],
+             "phone": [("gate", [0.0966, 0.2753, 0.2948, 0.3628]), ("gate-label", [0.1357, 0.2643, 0.2449, 0.2723], 7),
+                       ("vault-label", [0.4653, 0.2638, 0.5571, 0.2698], 5),
+                       ("anchor-label", [0.7765, 0.2728, 0.8732, 0.2807], 7)]}
+
+
+def _run3(name: str, tmp_path: Path) -> sc.Visit:
+    rows: list = []
+    for prop, box in RUN3_PHONE if name == "phone" else RUN3_DESKTOP:
+        label = [box[0] + 0.1, box[1] - 0.05, box[2] - 0.1, box[1] - 0.01]
+        rows.append([_box(prop, box), _box(prop + "-label", label, "label", px=(130, 22 if name == "phone" else 46))])
+    last = RUN3_LAST[name]
+    rows.append([_box(last[0][0], last[0][1], subject=None)]
+                + [_box(n, b, "label", subject=None, px=(80, h)) for n, b, h in last[1:]])
+    return _visit(name, rows, tmp_path)
+
+
+def test_run3_record_the_phone_picture_does_not_travel_the_desktop_does(tmp_path):
+    """Run 3: on the phone the gate kept its box (edges within 0.7 % of the window) over steps 1 to 5 while the page
+    scrolled half its length; the frames still differed in small things, so the pixel comparison said nothing. On the
+    desktop the subject moved by 3.8 % or more between any two steps, and nothing is said."""
+    rep = sc.SiteReport("site", tmp_path, steps=9)
+    rep.visits = {"desktop": _run3("desktop", tmp_path), "phone": _run3("phone", tmp_path)}
+    runs = sc.held_runs(rep.visits["phone"].steps)
+    assert [(r["name"], [s.index for s in r["steps"]]) for r in runs] == [("gate", [0, 1, 2, 3, 4])]
+    assert 0.006 < runs[0]["moved"] < 0.007 and sc.held_runs(rep.visits["desktop"].steps) == []
+    held = [n for n in rep.noticed() if "does not travel" in n]
+    assert held == [
+        "Phone: the picture does not travel: the prop 'gate', the shot's subject, keeps its place and size on screen "
+        "at steps 1 to 5 of 9 (0% to 50%, 50% of the scroll): its box moves by at most 1% of the window while the "
+        "page scrolls on. Let the camera move through those chapters (a push in, a turn round the subject, a new "
+        "angle per chapter) instead of framing the subject the same way at every step. Look at phone_00.jpg to "
+        "phone_04.jpg."], held
+    # the closing wide shot names no subject, and its three labels are 5 to 15 px tall: each is named, per size
+    small = [n for n in rep.noticed() if "too small to read at" in n]
+    assert len(small) == 6 and all("step 9 of 9 (100%)" in n for n in small)
+    assert ("Desktop: the 3D label 'vault-label' is in the frame where the shot is about it, but too small to read at "
+            "step 9 of 9 (100%) (at worst 11 px tall, under 16): make it larger there or frame it closer. Look at "
+            "desktop_08.jpg.") in small
+    text = rep.text()
+    measures = text[text.index("Measures:"):]
+    assert ("- Desktop: one scale throughout: the shot's subject fills 49% to 64% of the window (its height or width, "
+            "whichever it fills more) at the 8 steps whose subject the page names, 8 of them within a quarter of the "
+            "median (56%): every picture is the same kind of shot. A story usually changes scale between chapters "
+            "(wide to set the scene, close for a detail).") in measures
+    assert "does not travel" not in measures and len(text.splitlines()) <= 60
+
+
+def test_a_held_subject_is_named_only_over_a_real_stretch_of_the_scroll(tmp_path):
+    still = [0.3, 0.2, 0.7, 0.8]
+    near = [0.31, 0.21, 0.71, 0.79]                       # within 2 % of the window: the same box
+    away = [0.33, 0.2, 0.73, 0.8]                         # 3 %: a camera that moves, if slowly
+
+    def held(rows, n=None):
+        runs = sc.held_runs(_visit("phone", rows, tmp_path, n).steps)
+        return [(r["name"], [s.index for s in r["steps"]]) for r in runs]
+
+    # two steps at the top of the page: a page may rest there for a step
+    assert held([[_box("hero", still)], [_box("hero", still)], [_box("hero", away)], [_box("hero", still)]]) == []
+    # three steps over half the scroll: named; a slow drift counts from the run's first box, not step by step
+    assert held([[_box("hero", still)], [_box("hero", near)], [_box("hero", still)], [_box("hero", away)], None]) == [
+        ("hero", [0, 1, 2])]
+    drift = [[_box("hero", [0.3 + 0.015 * i, 0.2, 0.7 + 0.015 * i, 0.8])] for i in range(5)]
+    assert held(drift) == []
+    # three neighbouring steps of 25 cover 8 % of the scroll: one chapter's rest, not named; seven are
+    rows = [[_box("hero", still)]] * 3 + [[_box("hero", [0.1 * (i % 2), 0.1, 0.5, 0.5])] for i in range(22)]
+    assert held(rows) == []
+    assert held([[_box("hero", still)]] * 7 + rows[7:]) == [("hero", [0, 1, 2, 3, 4, 5, 6])]
+    # a step missing (the check ran out of time) breaks the run; so does another subject in the same place
+    assert held([[_box("hero", still)], "missing", [_box("hero", still)], [_box("hero", still)]], 4) == []
+    assert held([[_box("hero", still)], [_box("other", still)], [_box("hero", still)], [_box("hero", still)]]) == []
+    # only what the page names as the shot's subject: a prop in the background or a page that names nothing
+    moving = [[_box("hero", still, subject=False), _box("x", [0.1 * i, 0.2, 0.3 + 0.1 * i, 0.5])] for i in range(3)]
+    assert held(moving) == []
+    assert held([[_box("hero", still, subject=None)]] * 5) == []
+    assert held([[_box("HERO", still, "label")]] * 5) == []
+    # a layer is a subject like a prop, and is called a layer
+    rep = sc.SiteReport("site", tmp_path, steps=3)
+    rep.visits = {"phone": _visit("phone", [[_box("slabs", still, "layer")]] * 3, tmp_path)}
+    assert any(n.startswith("Phone: the picture does not travel: the layer 'slabs', the shot's subject")
+               for n in rep.noticed())
+    # a page without the hook says nothing
+    rep.visits = {"phone": _visit("phone", [None] * 3, tmp_path)}
+    assert not [n for n in rep.noticed() if "travel" in n]
+
+
+def test_one_scale_is_a_measure_said_only_when_most_steps_share_it(tmp_path):
+    def line(sizes, subject=True):
+        rows = [[_box("hero", [0.5 - s / 2, 0.5 - s / 2, 0.5 + s / 2, 0.5 + s / 2], subject=subject)] for s in sizes]
+        rep = sc.SiteReport("site", tmp_path, steps=len(rows))
+        rep.visits = {"desktop": _visit("desktop", rows, tmp_path)}
+        return rep.scale_line(rep.visits["desktop"]), rep
+
+    said, rep = line([0.5, 0.55, 0.6, 0.5, 0.45, 0.2])            # 5 of 6 within a quarter of the median
+    assert "fills 20% to 60% of the window" in said and "at the 6 steps whose subject the page names, 5 of them" in said
+    assert said in rep.text() and not [n for n in rep.noticed() if "one scale" in n]   # a measure, not a fault
+    assert line([0.8, 0.5, 0.25, 0.5, 0.12, 0.6])[0] == ""        # a story that changes scale
+    assert line([0.5, 0.5, 0.5])[0] == ""                         # too few steps to say
+    assert line([0.5] * 6, subject=None)[0] == ""                  # no subject named: nothing guessed
+    # two subjects of one shot are one picture: the box around both
+    rows = [[_box("a", [0.1, 0.4, 0.3, 0.5]), _box("b", [0.6, 0.4, 0.8, 0.5]),
+             _box("c", [0, 0, 1, 1], subject=False)]] * 4
+    assert list(sc.subject_scale(_visit("desktop", rows, tmp_path).steps).values()) == [pytest.approx(0.7)] * 4
+
+
+def test_a_label_too_small_where_the_shot_is_about_it_is_named_and_one_in_the_background_is_not(tmp_path):
+    rep = sc.SiteReport("site", tmp_path, steps=4)
+    big, small = (300, 40), (60, 9)
+    rows = [[_box("hero", [0.3, 0.3, 0.6, 0.6]), _box("HERO", [0.3, 0.2, 0.5, 0.25], "label", px=big),
+             _box("FAR", [0.8, 0.2, 0.9, 0.21], "label", subject=False, px=small),           # background: not named
+             _box("WIDE", [0.3, 0.2, 0.5, 0.25], "label", subject=False, px=big)],
+            [_box("hero", [0.3, 0.3, 0.6, 0.6]), _box("HERO", [0.3, 0.2, 0.5, 0.25], "label", px=small),
+             _box("FAR", [0.8, 0.2, 0.9, 0.3], "label", subject=False, px=big)],
+            [_box("hero", [0.3, 0.3, 0.6, 0.6]), _box("HERO", [0.3, 0.2, 0.5, 0.25], "label", px=(60, 12)),
+             _box("CUT", [0.9, 0.2, 1.1, 0.21], "label", cut=0.5, px=small)],                # cut: that line says so
+            [_box("hero", [0.3, 0.3, 0.6, 0.6], subject=None),                               # a wide shot names none
+             _box("WIDE", [0.3, 0.2, 0.5, 0.21], "label", subject=None, px=(60, 14)),
+             _box("HERO", [0.3, 0.2, 0.5, 0.25], "label", subject=None, px=big)]]
+    rep.visits = {"desktop": _visit("desktop", rows, tmp_path)}
+    lines = [n for n in rep.noticed() if "3D label" in n]
+    assert lines == [
+        "Desktop: the 3D label 'HERO' is in the frame where the shot is about it, but too small to read at steps 2 "
+        "(33%) and 3 (67%) of 4 (at worst 9 px tall, under 16): make it larger there or frame it closer. Look at "
+        "desktop_01.jpg.",
+        "Desktop: the 3D label 'CUT' runs out of the frame at the frame's edge at step 3 of 4 (67%) (at worst 50% of "
+        "it outside); it is never taller than 9 px at any step (its largest is at step 3 of 4 (67%)), too small to "
+        "read. Look at desktop_02.jpg.",
+        "Desktop: the 3D label 'WIDE' is in the frame where the shot is about it, but too small to read at step 4 of "
+        "4 (100%) (at worst 14 px tall, under 16): make it larger there or frame it closer. Look at desktop_03.jpg."
+    ], lines
+    # a page that never names a subject: only the old rule (never readable at any step), as before
+    plain = [[{**s, "subject": None} for s in r] for r in rows]
+    rep.visits = {"desktop": _visit("desktop", plain, tmp_path)}
+    assert [n[:30] for n in rep.noticed() if "3D label" in n] == ["Desktop: the 3D label 'CUT' ru"]
+    assert sc.small_labels(rep.visits["desktop"].steps) == {}
+
+
+def test_a_layer_is_measured_and_named_as_a_prop_is():
+    row = {"name": "slabs", "kind": "layer", "box": [0.5, 0.2, 1.3, 0.6], "px": [1152, 360], "cut": 0.375,
+           "edges": {"right": 0.375}, "hidden": 0.2, "under": "div#panel", "subject": True}
+    s = sc._subject(row)
+    assert s["kind"] == "layer" and sc.subject_faults(s) == (True, True)          # a prop's thresholds, 30 % and 15 %
+    assert sc.subject_faults({**s, "cut": 0.25, "hidden": 0.12}) == (False, False)
+    import asyncio
+
+    class Page:
+        async def evaluate(self, _):
+            return {"list": [row, {**row, "name": "hero", "kind": "prop", "subject": False}]}
+
+    got, _ = asyncio.run(sc._Visitor.subjects(None, Page()))
+    assert [(x["name"], x["kind"], x["background"]) for x in got] == [("slabs", "layer", False), ("hero", "prop", True)]
+    rep = sc.SiteReport("site", Path("."), steps=2)
+    v = sc.Visit("desktop", loaded=True, load_s=1.0)
+    v.steps = [sc.Step(0, 0.0, 0, frame="desktop_00.jpg", subjects=got), sc.Step(1, 1.0, 0, frame="desktop_01.jpg")]
+    rep.visits = {"desktop": v}
+    assert [n for n in rep.noticed() if "slabs" in n] == [
+        "Desktop: the layer 'slabs' lies under div#panel at step 1 of 2 (0%) (at worst 20% of what is in the frame); "
+        "it runs out of the frame at the right edge at step 1 of 2 (0%) (at worst 38% of it outside). Look at "
+        "desktop_00.jpg."]
+
+
+@pytest.mark.browser
+def test_a_pinned_subject_a_small_label_and_layers_through_the_page_hook(tmp_path):
+    r = run(site(tmp_path, "subjects_pinned"), tmp_path, steps=5)
+    d = r.visits["desktop"]
+    kinds = {s["name"]: s["kind"] for st in d.steps for s in st.subjects}
+    assert kinds == {"hero": "prop", "HERO LABEL": "label", "slabs": "layer", "deck": "layer"}, kinds
+    assert d.steps[0].subjects[2]["hidden"] == 1.0  # the slabs lie under the panel, measured
+    noticed = r.noticed()
+    held = [n for n in noticed if "does not travel" in n]
+    assert len(held) == 1 and ("the prop 'hero', the shot's subject, keeps its place and size on screen at steps 1 "
+                               "to 3 of 5 (0% to 50%, 50% of the scroll): its box moves by at most 0% of the window"
+                               in held[0]), held
+    assert [n.split(":")[1].strip() for n in noticed if "too small to read" in n] == [
+        "the 3D label 'HERO LABEL' is in the frame where the shot is about it, but too small to read at step 5 of 5 "
+        "(100%) (at worst 9 px tall, under 16)"]
+    assert any(n.startswith("Desktop: the layer 'deck' runs out of the frame at the right edge at step 5 of 5 (100%)")
+               for n in noticed), noticed
+    assert "slabs" not in r.text()                   # a layer in the background, under the panel: not named
+    assert "Desktop: one scale throughout: the shot's subject fills 40% to 55% of the window" in r.text()
+    assert "5 steps whose subject the page names, 4 of them" in r.text()
+
+
+@pytest.mark.browser
+def test_the_page_knows_it_is_drawing_stills_and_only_then(tmp_path):
+    """The contract of round 8: data-agy3d-still is on <html> from before the first still until after the last, also
+    when a still fails, so a page may frame its subject for the whole canvas there; it is gone afterwards."""
+    import asyncio
+
+    from playwright.async_api import async_playwright
+
+    from antigravity3d.adapters.engines.web_three import WebThreeValidator, _launch_args
+
+    root = site(tmp_path, "still_mode")
+    out = tmp_path / "out"
+    out.mkdir()
+
+    async def go():
+        srv = sc._SiteServer(root)
+        try:
+            async with async_playwright() as pw:
+                b = await pw.chromium.launch(executable_path=WebThreeValidator().binary(), args=list(_launch_args()))
+                page = await b.new_page(viewport={"width": 640, "height": 400})
+                await page.add_init_script(sc._probe_script(False))
+                await page.goto(srv.url)
+                before = await page.evaluate("document.documentElement.hasAttribute('data-agy3d-still')")
+                vis = sc._Visitor("desktop", srv.url, srv.origin, out, sc._Clock(time.monotonic(), 120.0), "block")
+                stills = await vis.stills(page)
+                after = await page.evaluate("[document.documentElement.hasAttribute('data-agy3d-still'), "
+                                            "window.__seen, window.__changes]")
+                await b.close()
+                return before, stills, after
+        finally:
+            srv.close()
+
+    before, stills, (after, seen, changes) = asyncio.run(go())
+    assert before is False and after is False and changes == [True, False]
+    assert {t for t, _ in seen} == {1, 2, 3} and all(on for _, on in seen), seen   # the third, after the failed second
+    assert [x["id"] for x in stills["made"]] == ["one", "three"] and "fixture still boom" in stills["skipped"][0]["why"]
+    for x in stills["made"]:
+        assert all(abs(a - b) <= 12 for a, b in zip(_pixel(out / "stills" / x["file"]), (0, 255, 0))), x

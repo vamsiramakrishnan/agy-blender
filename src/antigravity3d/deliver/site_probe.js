@@ -169,8 +169,11 @@
           if (!b || typeof b !== 'object') { boxless++; continue; }
           const box = [b[0], b[1], b[2], b[3]];
           if (!box.every(finite) || !(box[2] > box[0]) || !(box[3] > box[1])) { boxless++; continue; }
-          // subject: whether the current shot is about this prop, where the page says (true or false; absent: unknown)
-          list.push({ name: String(k).slice(0, NAME_CHARS), kind: v.kind === 'label' ? 'label' : 'prop', box,
+          // kind: a 3D label, a layer (an instanced layer or generated geometry a shot is about, measured as a prop
+          // is) or a prop. subject: whether the current shot is about it, where the page says (true or false; absent:
+          // unknown)
+          const kind = v.kind === 'label' || v.kind === 'layer' ? v.kind : 'prop';
+          list.push({ name: String(k).slice(0, NAME_CHARS), kind, box,
                       subject: v.subject === true ? true : v.subject === false ? false : null });
         } catch (e) { boxless++; }
       }

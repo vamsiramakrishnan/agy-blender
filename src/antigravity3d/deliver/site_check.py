@@ -23,7 +23,10 @@ Given a folder that holds a built site (``index.html``) or a localhost URL it:
 8. at each step, where the page says where its subjects are (``window.__site.info().onScreen``, each with a projected
    ``box``), measures how much of each is cut by the frame's edge and how much lies under HTML a visitor cannot see
    through, and names the ones a visitor would notice. Run 2 (benchmarks/results/site_run2_plugin) is why: the check
-   came back clean while the gate sat under the text panel and labels ran off the frame at several steps;
+   came back clean while the gate sat under the text panel and labels ran off the frame at several steps. Where the
+   page also flags the shot's subject, it says whether the picture travels with the scroll, whether every picture is
+   the same kind of shot, and which labels are too small where the shot is about them: run 3's phone layout held the
+   gate in one place for half the scroll, and nothing in the answer said so;
 9. where the page names its chapters and where each rests (``window.__site.chapters()``, ``setProgress``), writes one
    still per chapter for the page without WebGL, the 3D canvas alone, as ``stills/<chapter id>.webp``. Run 2's agent
    wrote a screenshot script for those twice (the first set had a scrollbar in every picture).
@@ -128,7 +131,9 @@ LABEL_CUT = 0.10
 LABEL_HIDDEN = 0.10
 #: A 3D label whose box is never taller than this many CSS pixels at any step cannot be read anywhere: run 2's
 #: 'STRAITJACKET · EVIDENCE BENCH', flat on the floor in the last wide shot, had a 15 px box and letters of a few pixels.
-#: A label that is small at some steps and readable at others is in the background there and is not named.
+#: A label that is small at some steps and readable at others is in the background there and is not named, unless the
+#: page says the shot is about it at such a step (``small_labels``): run 3's last step, a wide shot of the three props
+#: its labels name, showed the labels at 11 to 15 px on the desktop and 5 to 7 px on the phone.
 LABEL_MIN_PX = 16
 PROP_CUT = 0.30
 PROP_HIDDEN = 0.15
@@ -136,6 +141,32 @@ IN_FRAME_MIN = 0.2
 #: subjects named one per line, per size, props first, each in the order the scroll meets it; the rest are named together
 #: in one line (run 2's site had 9 such subjects on desktop and 11 on the phone)
 SUBJECT_LINES = 8
+#: The picture does not travel: the shot's subject (an entry the page flags ``subject: true``) keeps its box over a run
+#: of neighbouring steps, every edge within HELD_MOVE of the window of where it was at the run's first step. Run 3's
+#: phone layout (benchmarks/results/site_run3_plugin; its record in round 8's frames3/run3/report.json) fitted the gate
+#: into the same place above the panel at steps 1 to 5 of 9: its edges stayed within 0.7 % of the window of step 1
+#: while the page scrolled half its length, and the pixel comparison said nothing, because small things around it
+#: changed. On the desktop, which was not pinned, the subject's box moved by 3.8 % (the intro's push, the smallest) to
+#: 19 % of the window between neighbouring steps. 2 % lies three times above the first and half way to the second.
+HELD_MOVE = 0.02
+#: A run counts from HELD_STEPS steps that together cover HELD_SHARE of the scroll. Two steps are not enough: a page
+#: may rest at its very top or bottom for a step (run 3 at 9 steps: two steps are an eighth of the scroll, which a
+#: chapter's hold can take). A quarter of the scroll is more than one chapter of run 3's six; at 25 steps it keeps a
+#: run of three steps that lie inside one chapter's rest from being named. Run 3's phone run of five steps (half the
+#: scroll) is named; its desktop has no two neighbouring steps with the same box.
+HELD_STEPS = 3
+HELD_SHARE = 0.25
+#: One scale throughout: the shot's subject (the union of the entries flagged ``subject: true``, labels aside) fills
+#: about the same share of the window at most steps. Its size is the larger of its share of the window's height and
+#: width (whichever it fills more; clamped to the window). The steps within a factor SCALE_BAND of the median are
+#: counted, and the line is said when they are at least SCALE_MOST of the steps that name a subject, and at least
+#: SCALE_STEPS of them. Shot sizes in film (wide, medium, close) differ by about a factor of two in how much of the
+#: frame the subject fills; a quarter either way stays within one. Run 3's desktop: 49 to 64 % of the window's height
+#: at all 8 steps that name a subject (median 56 %), every picture the same kind of shot; the starter's closing wide
+#: shot, or run 3's own last step at 19 %, is outside the band.
+SCALE_BAND = 1.25
+SCALE_MOST = 0.75
+SCALE_STEPS = 4
 #: Stills for the page without WebGL (one per chapter, its resting picture, the 3D canvas alone), when the page gives
 #: window.__site.chapters() -> [{ id, rest }] and setProgress(T). Width: the article layout shows a still at most as
 #: wide as its text column, 40rem (640 CSS px) in the skill's starter, about 590 px inside the panel's padding; 1280 px
@@ -152,6 +183,8 @@ STILLS_S = 25.0
 STILL_WAIT_S = 8.0
 #: a still's file name: letters, digits, '-' and '_' of the chapter id, at most this long
 STILL_NAME_CHARS = 60
+#: set (empty) on the page's <html> while the stills are drawn, and removed after the last, also when a still fails
+STILL_ATTR = "data-agy3d-still"
 #: how many unsourced numbers and code specimens are listed (the total is always given)
 UNSOURCED_LISTED = 6
 
@@ -318,6 +351,8 @@ class SiteReport:
             if same:
                 out.append(f"{name.capitalize()}: the picture did not change at all from the step before at "
                            + _steps_list(same, self.steps) + ".")
+            if held := self.held_line(v):
+                out.append(held)
             out += self.subject_lines(v)
         p = self.visits.get("phone")
         if p and p.steps:
@@ -362,17 +397,22 @@ class SiteReport:
         for name, (st, s) in tallest.items():
             if s["px"][1] < LABEL_MIN_PX:
                 found.setdefault(name, {"kind": "label", "cut": [], "hidden": []})["small"] = (st, s)
+        for name, seen in small_labels(v.steps).items():
+            f = found.setdefault(name, {"kind": "label", "cut": [], "hidden": []})
+            if "small" not in f:  # never readable anywhere says more than "too small where the shot is about it"
+                f["small_at"] = seen
         if not found:
             return []
 
         def first(f: dict) -> int:
-            return min(st.index for st, _ in f["cut"] + f["hidden"] + ([f["small"]] if "small" in f else []))
+            return min(st.index for st, _ in f["cut"] + f["hidden"] + ([f["small"]] if "small" in f else [])
+                       + f.get("small_at", []))
 
-        order = sorted(found.items(), key=lambda kv: (kv[1]["kind"] != "prop", first(kv[1]), kv[0]))
+        order = sorted(found.items(), key=lambda kv: (kv[1]["kind"] == "label", first(kv[1]), kv[0]))
         size = v.name.capitalize()
         out = []
         for name, f in order[:SUBJECT_LINES]:
-            what = f"the 3D label {_q(name, 60)}" if f["kind"] == "label" else f"the prop {_q(name, 60)}"
+            what = _what(f["kind"], name, 60)
             parts, frames = [], []
             if f["hidden"]:
                 st, s = max(f["hidden"], key=lambda t: t[1]["hidden"])
@@ -396,15 +436,59 @@ class SiteReport:
                 parts.append(f"is never taller than {s['px'][1]} px at any step (its largest is at "
                              + _steps_short([st], self.steps) + "), too small to read")
                 frames.append((0.0, st))
+            if f.get("small_at"):
+                st, px = min(f["small_at"], key=lambda t: t[1])
+                at = _steps_short([t[0] for t in f["small_at"]], self.steps)
+                parts.append(f"is in the frame where the shot is about it, but too small to read at {at} (at worst "
+                             f"{px} px tall, under {LABEL_MIN_PX}): make it larger there or frame it closer")
+                frames.append((0.0, st))
             look = max(frames, key=lambda t: t[0])[1]
             out.append(f"{size}: {what} " + "; it ".join(parts) + f". Look at {_rel(look.frame, self.out_dir)}.")
         rest = order[SUBJECT_LINES:]
         if rest:
             out.append(f"{size}: also cut, hidden or too small at some step: "
-                       + _names([("the 3D label " if f["kind"] == "label" else "the prop ") + _q(n, 40) for n, f in rest],
-                                SUBJECT_LINES)
+                       + _names([_what(f["kind"], n, 40) for n, f in rest], SUBJECT_LINES)
                        + " (every subject at every step is in report.json).")
         return out
+
+    def held_line(self, v: Visit) -> str:
+        """'The picture does not travel' (``held_runs``): one line per size, naming the subject, the steps, the share of
+        the scroll and what to do; '' when no run is long enough."""
+        runs = held_runs(v.steps)
+        if not runs:
+            return ""
+        runs.sort(key=lambda r: (-(r["steps"][-1].share - r["steps"][0].share), r["steps"][0].index))
+
+        def where(r: dict) -> str:
+            a, b = r["steps"][0], r["steps"][-1]
+            return (f"steps {a.index + 1} to {b.index + 1} of {self.steps} ({a.share:.0%} to {b.share:.0%}, "
+                    f"{b.share - a.share:.0%} of the scroll)")
+
+        r = runs[0]
+        also = "".join(f"; so does {_what(x['kind'], x['name'], 40)} at {where(x)}" for x in runs[1:3])
+        a, b = r["steps"][0], r["steps"][-1]
+        return (f"{v.name.capitalize()}: the picture does not travel: {_what(r['kind'], r['name'], 60)}, the shot's "
+                f"subject, keeps its place and size on screen at {where(r)}: its box moves by at most "
+                f"{r['moved']:.0%} of the window while the page scrolls on{also}. "
+                "Let the camera move through those chapters (a push in, a turn round the subject, a new angle per "
+                f"chapter) instead of framing the subject the same way at every step. Look at "
+                f"{_rel(a.frame, self.out_dir)} to {_rel(b.frame, self.out_dir)}.")
+
+    def scale_line(self, v: Visit) -> str:
+        """'One scale throughout' (``subject_scale``): a measure, not a fault; '' unless most steps share one scale."""
+        sizes = subject_scale(v.steps)
+        if len(sizes) < SCALE_STEPS:
+            return ""
+        vals = sorted(sizes.values())
+        med = vals[len(vals) // 2] if len(vals) % 2 else (vals[len(vals) // 2 - 1] + vals[len(vals) // 2]) / 2
+        near = [x for x in vals if med / SCALE_BAND <= x <= med * SCALE_BAND]
+        if len(near) < SCALE_MOST * len(vals):
+            return ""
+        return (f"{v.name.capitalize()}: one scale throughout: the shot's subject fills {vals[0]:.0%} to "
+                f"{vals[-1]:.0%} of the window (its height or width, whichever it fills more) at the {len(vals)} steps "
+                f"whose subject the page names, {len(near)} of them within a quarter of the median ({med:.0%}): every "
+                "picture is the same kind of shot. A story usually changes scale between chapters (wide to set the "
+                "scene, close for a detail).")
 
     def _other_host_note(self) -> str:
         tried = {}
@@ -598,6 +682,8 @@ class SiteReport:
                              + (f" Still changing {SETTLE_CAP_S:.0f} s after the scroll at {_steps_list(moving, self.steps)}: "
                                 "those frames may show the scene on its way (software WebGL draws a heavy frame in about a "
                                 "second; a visitor's GPU in a few milliseconds)." if moving else ""))
+                if scale := self.scale_line(v):
+                    lines.append(f"- {scale}")
         for line in [self.bytes_line(), *self.scene_line()]:
             if line:
                 lines.append(f"- {line}")
@@ -694,6 +780,94 @@ def _and(words: list[str]) -> str:
 
 def _names(names: list[str], n: int = 2) -> str:
     return ", ".join(names[:n]) + (f" and {len(names) - n} more" if len(names) > n else "")
+
+
+def _what(kind: str, name: str, n: int) -> str:
+    """How a line names a subject: the 3D label, the layer (an instanced layer or a group of generated geometry that a
+    shot is about, reported and measured as a prop is) or the prop."""
+    return {"label": "the 3D label", "layer": "the layer"}.get(kind, "the prop") + f" {_q(name, n)}"
+
+
+def _flags_subjects(steps: list[Step]) -> bool:
+    """Whether the page says, at any step, which subjects the shot is about."""
+    return any(x.get("subject") is not None for st in steps for x in st.subjects or [])
+
+
+def _about(st: Step) -> list[dict]:
+    """The props and layers the page flags as the shot's subject at this step."""
+    return [x for x in st.subjects or [] if x.get("subject") is True and x["kind"] != "label"]
+
+
+def held_runs(steps: list[Step]) -> list[dict]:
+    """Runs of neighbouring steps in which one subject of the shot keeps its box (``HELD_MOVE``), long enough to name
+    (``HELD_STEPS``, ``HELD_SHARE``): [{name, kind, steps, moved}], moved being the largest distance, as a share of the
+    window, of any edge of the box from where it was at the run's first step. Only entries the page flags
+    ``subject: true`` count: without the flag the check cannot tell the subject from a prop standing in the
+    background, and says nothing rather than guess."""
+    out: list[dict] = []
+    open_: dict[str, dict] = {}
+    prev_index = None
+    for st in sorted(steps, key=lambda s: s.index):
+        if prev_index is None or st.index != prev_index + 1:
+            out += open_.values()
+            open_ = {}
+        prev_index = st.index
+        now = {x["name"]: x for x in _about(st)}
+        for name in list(open_):
+            r = open_[name]
+            x = now.get(name)
+            moved = max(abs(a - b) for a, b in zip(x["box"], r["box"])) if x else None
+            if moved is None or moved > HELD_MOVE:
+                out.append(open_.pop(name))
+            else:
+                r["steps"].append(st)
+                r["moved"] = max(r["moved"], moved)
+        for name, x in now.items():
+            if name not in open_:
+                open_[name] = {"name": name, "kind": x["kind"], "box": x["box"], "steps": [st], "moved": 0.0}
+    out += open_.values()
+    return [{k: r[k] for k in ("name", "kind", "steps", "moved")} for r in out
+            if len(r["steps"]) >= HELD_STEPS and r["steps"][-1].share - r["steps"][0].share >= HELD_SHARE - 1e-9]
+
+
+def subject_scale(steps: list[Step]) -> dict[int, float]:
+    """Step index -> how much of the window the shot's subject fills there: the union of the boxes the page flags
+    ``subject: true`` (labels aside), clamped to the window, the larger of its share of the height and of the width.
+    Steps that flag no subject are left out (an establishing shot names none, and the check does not guess)."""
+    out = {}
+    for st in steps:
+        boxes = [x["box"] for x in _about(st)]
+        if not boxes:
+            continue
+        x0, y0 = max(0.0, min(b[0] for b in boxes)), max(0.0, min(b[1] for b in boxes))
+        x1, y1 = min(1.0, max(b[2] for b in boxes)), min(1.0, max(b[3] for b in boxes))
+        if x1 > x0 and y1 > y0:
+            out[st.index] = max(x1 - x0, y1 - y0)
+    return out
+
+
+def small_labels(steps: list[Step]) -> dict[str, list[tuple[Step, int]]]:
+    """Labels too small to read at a step where the shot is about them: name -> [(step, height in px)]. A label counts
+    at a step where it is in the frame and not cut or hidden enough to be named for that (``LABEL_CUT``,
+    ``LABEL_HIDDEN``: those lines say so already), is under ``LABEL_MIN_PX`` tall, and is the shot's: flagged
+    ``subject: true``, or shown at a step that names no subject at all on a page that names one at other steps. The
+    skill's starter says so of such a shot ("without one, every prop counts as a subject"): an establishing shot of
+    the whole scene, which run 3 ended with, its three labels shown on purpose at 11 to 15 px. A label of a prop the
+    shot is not about is its background there and is not named; on a page that never names a subject only the rule
+    of ``LABEL_MIN_PX`` (never readable anywhere) applies, as before."""
+    if not _flags_subjects(steps):
+        return {}
+    out: dict[str, list[tuple[Step, int]]] = {}
+    for st in steps:
+        subs = st.subjects or []
+        names_none = all(x.get("subject") is None for x in subs)
+        for s in subs:
+            if s["kind"] != "label" or not (s.get("subject") is True or names_none):
+                continue
+            hidden = s.get("hidden")
+            if s["cut"] < LABEL_CUT and (hidden is None or hidden < LABEL_HIDDEN) and s["px"][1] < LABEL_MIN_PX:
+                out.setdefault(s["name"], []).append((st, s["px"][1]))
+    return out
 
 
 def subject_faults(s: dict) -> tuple[bool, bool]:
@@ -1315,32 +1489,44 @@ class _Visitor:
         folder = (self.out / "stills").resolve()
         folder.mkdir(exist_ok=True)
         made, skipped = [], []
-        for c, name in zip(chapters, still_names([c["id"] for c in chapters])):
-            left = min(STILLS_S - (time.monotonic() - t0), self.clock.left() - WRAP_UP_S - 2.0)
-            if left < 1.0:
-                skipped.append({"id": c["id"], "why": "no time left"})
-                continue
-            try:
-                r = await asyncio.wait_for(page.evaluate("(T) => window.__agySite.stillAt(T)", c["rest"]), min(STILL_WAIT_S, left))
-            except Exception as e:  # noqa: BLE001
-                skipped.append({"id": c["id"], "why": f"not drawn in time ({type(e).__name__})"})
-                continue
-            data = r.get("data") if isinstance(r, dict) else None
-            if not isinstance(data, str) or not data.startswith("data:image/") or len(data) > 64_000_000:
-                skipped.append({"id": c["id"], "why": str(r.get("why") if isinstance(r, dict) else "no picture")[:160]})
-                continue
-            f = folder / f"{name}.webp"
-            if f.resolve().parent != folder:  # still_names makes this impossible; the folder is the one place written
-                skipped.append({"id": c["id"], "why": "no safe file name"})
-                continue
-            try:
-                webp, size = await asyncio.to_thread(still_webp, data)
-            except Exception as e:  # noqa: BLE001  a picture Pillow cannot read
-                skipped.append({"id": c["id"], "why": f"unreadable picture ({type(e).__name__})"})
-                continue
-            f.write_bytes(webp)
-            made.append({"id": c["id"], "file": f.name, "rest": c["rest"], "width": size[0], "height": size[1],
-                         "bytes": len(webp), "content": round(canvas_content(webp), 4), "how": str(r.get("how", ""))[:40]})
+        # The page is told it is drawing stills from before the first until after the last, also when one fails: a
+        # page may then frame the shot's subject in the middle of the whole canvas instead of beside its text panel
+        # (the shared contract of round 8; the starter does). The visit ends with the stills, so nothing measured
+        # after them could see the attribute, and it is taken away all the same.
+        await _still_mode(page, True)
+        try:
+            for c, name in zip(chapters, still_names([c["id"] for c in chapters])):
+                left = min(STILLS_S - (time.monotonic() - t0), self.clock.left() - WRAP_UP_S - 2.0)
+                if left < 1.0:
+                    skipped.append({"id": c["id"], "why": "no time left"})
+                    continue
+                try:
+                    r = await asyncio.wait_for(page.evaluate("(T) => window.__agySite.stillAt(T)", c["rest"]),
+                                               min(STILL_WAIT_S, left))
+                except Exception as e:  # noqa: BLE001
+                    skipped.append({"id": c["id"], "why": f"not drawn in time ({type(e).__name__})"})
+                    continue
+                data = r.get("data") if isinstance(r, dict) else None
+                if not isinstance(data, str) or not data.startswith("data:image/") or len(data) > 64_000_000:
+                    why = r.get("why") if isinstance(r, dict) else "no picture"
+                    skipped.append({"id": c["id"], "why": str(why)[:160]})
+                    continue
+                f = folder / f"{name}.webp"
+                # still_names makes this impossible; the folder is the one place written
+                if f.resolve().parent != folder:
+                    skipped.append({"id": c["id"], "why": "no safe file name"})
+                    continue
+                try:
+                    webp, size = await asyncio.to_thread(still_webp, data)
+                except Exception as e:  # noqa: BLE001  a picture Pillow cannot read
+                    skipped.append({"id": c["id"], "why": f"unreadable picture ({type(e).__name__})"})
+                    continue
+                f.write_bytes(webp)
+                made.append({"id": c["id"], "file": f.name, "rest": c["rest"], "width": size[0], "height": size[1],
+                             "bytes": len(webp), "content": round(canvas_content(webp), 4),
+                             "how": str(r.get("how", ""))[:40]})
+        finally:
+            await _still_mode(page, False)
         if got.get("more"):
             skipped.append({"id": f"chapters after the first {STILLS_READ}", "why": "not read"})
         if not made:
@@ -1405,6 +1591,16 @@ class _Visitor:
 _RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(10)), *(f"lpt{i}" for i in range(10))}
 
 
+async def _still_mode(page, on: bool) -> None:
+    """Set or remove ``STILL_ATTR`` on the page's <html>, bounded in time (a page stuck in its own code cannot answer,
+    and the stills that follow are then skipped for want of time anyway)."""
+    name = json.dumps(STILL_ATTR)
+    js = (f"document.documentElement.setAttribute({name}, '')" if on
+          else f"document.documentElement.removeAttribute({name})")
+    with contextlib.suppress(Exception):
+        await asyncio.wait_for(page.evaluate(js), SUBJECTS_WAIT_S)
+
+
 def still_names(ids: list[str]) -> list[str]:
     """A file name (without .webp) per chapter id: its letters, digits, '-' and '_' (anything else becomes '-'), at most
     STILL_NAME_CHARS long, never empty, never a name Windows reserves, and distinct even where the file system ignores
@@ -1450,7 +1646,7 @@ def _subject(r: Any) -> dict | None:
         return None
     edges = r.get("edges") if isinstance(r.get("edges"), dict) else {}
     px = r.get("px") if isinstance(r.get("px"), list) and len(r.get("px")) == 2 else [0, 0]
-    return {"name": r["name"][:80], "kind": "label" if r.get("kind") == "label" else "prop",
+    return {"name": r["name"][:80], "kind": r["kind"] if r.get("kind") in ("label", "layer") else "prop",
             "subject": r.get("subject") if isinstance(r.get("subject"), bool) else None, "box": [float(b) for b in box],
             "px": [int(num(p, 0, 1e6) or 0) for p in px], "cut": cut,
             "edges": {k: v for k in ("left", "right", "top", "bottom") if (v := num(edges.get(k), 0, 1))},
@@ -1797,12 +1993,15 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
         v = rep.visits.get(name)
         if v and v.steps:
             frames = []
+            held = {st.index for r in held_runs(v.steps) for st in r["steps"]}
+            small = {st.index for seen in small_labels(v.steps).values() for st, _ in seen}
             for s in v.steps:
                 faults = [subject_faults(x) for x in s.subjects or []]
                 flags = [f for f, on in (("3D empty", s.canvas_content is not None and s.canvas_content < EMPTY_CONTENT),
                                          ("unchanged", s.unchanged), ("still moving", s.motion == "moving"),
                                          ("sideways", s.sideways_px > 1), ("subject hidden", any(h for _, h in faults)),
-                                         ("subject cut", any(c for c, _ in faults))) if on]
+                                         ("subject cut", any(c for c, _ in faults)), ("subject held", s.index in held),
+                                         ("label small", s.index in small)) if on]
                 frames.append((s.frame, f"{s.index + 1}/{steps}  {s.share:.0%}" + (f"  {', '.join(flags)}" if flags else ""), bool(flags)))
             sheet = out / f"sheet_{name}.jpg"
             contact_sheet(frames, sheet, 480 if name == "desktop" else 200, 3 if name == "desktop" else min(len(frames), 5))

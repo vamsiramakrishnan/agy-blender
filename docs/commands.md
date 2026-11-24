@@ -346,9 +346,16 @@ What it does:
 Where the subjects are. A page may expose `window.__site.info()`, whose result holds `onScreen`: one entry per subject
 on screen, keyed by its name, each `{ share, x, y, box: [x0, y0, x1, y1], kind }`. `box` is the subject's projected box
 as fractions of the window from its top left, not clamped (below 0 or above 1 it runs out of the frame); `kind` is
-`"prop"` or `"label"` (a 3D label; absent means prop). A page may also say which props the current shot is about, with
-`subject: true` or `false` on each: where any prop is marked so, the others are the shot's background, measured and
-kept in the record but not named in the answer. Labels always count. The skill's starter project writes all of it. A page without `box` (only
+`"prop"`, `"layer"` (an instanced layer or a group of generated geometry a shot is about; measured and reported exactly
+as a prop, and called "the layer") or `"label"` (a 3D label; absent means prop). A page may also say which props the
+current shot is about, with `subject: true` or `false` on each: where any prop is marked so, the others are the shot's
+background, measured and kept in the record but not named in the answer. Labels always count for being cut or hidden.
+The same flags let the check say three things about the shot itself, and only where the page gives them (a page that
+flags nothing gets none of them, rather than a guess): whether the shot's subject keeps the same place and size over
+a stretch of the scroll ("the picture does not travel"), whether it is the same size on screen at most steps ("one
+scale throughout", a measure), and which labels are too small to read at a step where the shot is about them. A label
+counts as the shot's where it is flagged `subject: true`, or at a step that flags nothing on a page that flags other
+steps: the starter's establishing shot, which names no subject because the whole scene is its subject. The skill's starter project writes all of it. A page without `box` (only
 `share`, `x`, `y`, as pages built before it have) or without the hook gets nothing measured and nothing said about its
 subjects. The hook is the page's code and is not trusted: at most 64 subjects are read, names are cut to 80
 characters, every number is checked, and a hook that throws or does not answer within 0.5 s leaves the step without
@@ -363,8 +370,10 @@ the measure. For each subject with a box, at the moment the step's frame is take
   the facts are (`section#digest > div.panel`).
 
 The answer gives one line per subject and size, with the steps, the worst share, what covers it or which edges cut it,
-and the frame to look at; at most 8 subjects per size, props first, then one line naming the rest. Every subject at
-every step is in `report.json`. The contact sheet marks such steps `subject hidden` or `subject cut`.
+and the frame to look at; at most 8 subjects per size, props and layers first, then one line naming the rest. A
+subject that does not travel gets one line per size, naming the subject, the steps, the share of the scroll and what to
+do. Every subject at every step is in `report.json`. The contact sheet marks such steps `subject hidden`, `subject cut`,
+`subject held` or `label small`.
 
 Stills for the page without WebGL. When the page also gives `window.__site.chapters()`, a list of `{ id, rest }` (the
 chapter's id, and the story time at which it rests), and `window.__site.setProgress(T)`, as the skill's starter does,
@@ -373,7 +382,10 @@ in the output folder: read from the canvas's drawing buffer right after the page
 is in it; at most 1280 px wide (the article's text column is 40rem, about 590 CSS px of image,
 so 1280 covers a screen of two device pixels per CSS pixel), WebP at quality 80: 41 to 65 kB each on run 2's site
 (quality 70 saves a fifth for 1 dB less, 90 costs 60 % more for 1.5 dB). At most 24
-chapters and 25 s in all; ids become file names of letters, digits, `-` and `_`, made distinct. The answer names the
+chapters and 25 s in all; ids become file names of letters, digits, `-` and `_`, made distinct. While it draws them,
+from before the first until after the last (also when one fails), `<html>` carries the attribute `data-agy3d-still`
+(empty), so a page may frame the shot's subject in the middle of the whole canvas instead of beside its text panel; a
+page that ignores it gets the stills it would get anyway. The answer names the
 folder under "Pictures"; `report.json` lists every still (`stills`) and why any was not made. A page without the hook
 gets no `stills` folder and nothing said.
 
@@ -387,6 +399,9 @@ How each finding is decided (the only thresholds; everything else is reported as
 | sideways scroll on a phone | the page is wider than the viewport by more than 1 px | a visitor's thumb finds it |
 | a 3D label cut or hidden | 10 % of its box outside the window, or 10 % of its part in the window under opaque HTML | a label 15 % cut loses the ends or feet of its letters and no longer reads (run 2: a floor label 21 % below the bottom edge and one 56 % under the text panel, both called out by the reviewer) |
 | a 3D label too small to read | its box is never taller than 16 px at any step where it is in the frame | a label that is small at some steps and readable at others is in the background there; one that is never larger cannot be read anywhere (run 2: a floor label in the last wide shot, a 15 px box and letters of a few pixels) |
+| a 3D label too small where the shot is about it | under 16 px tall at a step where it is in the frame, not cut or hidden by 10 %, and the shot's (flagged `subject: true`, or the step flags nothing on a page that flags others) | run 3's closing wide shot of its three props showed their labels at 11 to 15 px on the desktop and 5 to 7 px on the phone, readable at every other step, so the rule above said nothing. A label of a prop the shot is not about stays its background |
+| the picture does not travel | the shot's subject (flagged `subject: true`) keeps its box, every edge within 2 % of the window of where it was at the run's first step, over at least 3 neighbouring steps that cover at least 25 % of the scroll | run 3's phone layout fitted the gate into one place above the panel at steps 1 to 5 of 9: within 0.7 % of the window while the page scrolled half its length; small changes around it kept the frames from being "unchanged". On the desktop, not pinned, the subject moved 3.8 to 19 % of the window between neighbouring steps. Two steps are not enough (a page may rest at its top or bottom for a step), and a quarter of the scroll is more than one of run 3's six chapters, so a run inside one chapter's rest at 25 steps is not named |
+| one scale throughout (a measure) | at least 4 steps flag a subject, and at least three quarters of them have the subject (the box around what is flagged, clamped to the window, the larger of its share of the height and the width) within a factor 1.25 of the median | shot sizes (wide, medium, close) differ by about a factor two in how much of the frame the subject fills. Run 3's desktop: 49 to 64 % of the window at all 8 such steps; a wide shot at 19 % is outside the band |
 | a prop cut | 30 % of its box outside the window | a close shot often runs a prop a little out of frame on purpose: run 2's props at 11 to 22 % out read as framed close, the clamp at 42 % and 62 % out as cut off |
 | a prop hidden | 15 % of its part in the window under opaque HTML | the box is the projection of the prop's 3D bounding box, whose corners stand off the silhouette: 12 % under run 2's top bar was only the empty corner above the gate, 20 % under the digest chapter's panel covered the gate's whole left column |
 | (neither) | less than a fifth of the box in the window | the subject is entering or leaving the shot (run 2: the vault as a sliver at the right edge, 84 to 93 % out) |
