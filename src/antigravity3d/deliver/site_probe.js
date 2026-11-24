@@ -110,7 +110,9 @@
           if (!b || typeof b !== 'object') { boxless++; continue; }
           const box = [b[0], b[1], b[2], b[3]];
           if (!box.every(finite) || !(box[2] > box[0]) || !(box[3] > box[1])) { boxless++; continue; }
-          list.push({ name: String(k).slice(0, NAME_CHARS), kind: v.kind === 'label' ? 'label' : 'prop', box });
+          // subject: whether the current shot is about this prop, where the page says (true or false; absent: unknown)
+          list.push({ name: String(k).slice(0, NAME_CHARS), kind: v.kind === 'label' ? 'label' : 'prop', box,
+                      subject: v.subject === true ? true : v.subject === false ? false : null });
         } catch (e) { boxless++; }
       }
     } catch (e) { return { why: 'reading onScreen threw: ' + String((e && e.message) || e).slice(0, 120) }; }
@@ -179,7 +181,7 @@
         if (y0 < 0) edges.top = r4(Math.min(-y0, h) / h);
         if (y1 > 1) edges.bottom = r4(Math.min(y1 - 1, h) / h);
         const ix = Math.max(0, Math.min(x1, 1) - Math.max(x0, 0)), iy = Math.max(0, Math.min(y1, 1) - Math.max(y0, 0));
-        const out = { name: s.name, kind: s.kind, box: s.box.map(r4), px: [Math.round(w * W), Math.round(h * H)],
+        const out = { name: s.name, kind: s.kind, subject: s.subject, box: s.box.map(r4), px: [Math.round(w * W), Math.round(h * H)],
                       cut: r4(1 - (ix * iy) / (w * h)), edges, hidden: null, under: '' };
         const vw = ix * W, vh = iy * H;
         if (!canvas || vw < 2 || vh < 2) return out;

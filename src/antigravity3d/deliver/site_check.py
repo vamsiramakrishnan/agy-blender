@@ -633,7 +633,7 @@ def _names(names: list[str], n: int = 2) -> str:
 
 def subject_faults(s: dict) -> tuple[bool, bool]:
     """(cut by the frame's edge, hidden under the page's HTML) for one measured subject at one step."""
-    if s["cut"] > 1 - IN_FRAME_MIN:
+    if s["cut"] > 1 - IN_FRAME_MIN or s.get("background"):
         return False, False
     label = s["kind"] == "label"
     hidden = s.get("hidden")
@@ -1214,6 +1214,12 @@ class _Visitor:
         if not isinstance(got.get("list"), list):
             return None, str(got.get("why") or "")[:200]
         out = [x for x in (_subject(r) for r in got["list"][:SUBJECTS_READ]) if x]
+        # Where the page says which props the shot is about, the others are its background and are measured but not
+        # named: on run 2's site a prop of an earlier chapter, left standing behind the next chapter's panel, was
+        # reported at five steps, which a person looking at those frames would not call a fault. Labels always count.
+        if any(x["subject"] is True for x in out):
+            for x in out:
+                x["background"] = x["kind"] != "label" and x["subject"] is not True
         note = f"{len(out)} subject{_s(out)} with a box" + (", more not read" if got.get("more") else "")
         return (out or None), note
 
@@ -1284,7 +1290,8 @@ def _subject(r: Any) -> dict | None:
         return None
     edges = r.get("edges") if isinstance(r.get("edges"), dict) else {}
     px = r.get("px") if isinstance(r.get("px"), list) and len(r.get("px")) == 2 else [0, 0]
-    return {"name": r["name"][:80], "kind": "label" if r.get("kind") == "label" else "prop", "box": [float(b) for b in box],
+    return {"name": r["name"][:80], "kind": "label" if r.get("kind") == "label" else "prop",
+            "subject": r.get("subject") if isinstance(r.get("subject"), bool) else None, "box": [float(b) for b in box],
             "px": [int(num(p, 0, 1e6) or 0) for p in px], "cut": cut,
             "edges": {k: v for k in ("left", "right", "top", "bottom") if (v := num(edges.get(k), 0, 1))},
             "hidden": hidden, "under": str(r.get("under") or "")[:120]}

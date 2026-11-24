@@ -346,7 +346,9 @@ What it does:
 Where the subjects are. A page may expose `window.__site.info()`, whose result holds `onScreen`: one entry per subject
 on screen, keyed by its name, each `{ share, x, y, box: [x0, y0, x1, y1], kind }`. `box` is the subject's projected box
 as fractions of the window from its top left, not clamped (below 0 or above 1 it runs out of the frame); `kind` is
-`"prop"` or `"label"` (a 3D label; absent means prop). The skill's starter project writes it. A page without `box` (only
+`"prop"` or `"label"` (a 3D label; absent means prop). A page may also say which props the current shot is about, with
+`subject: true` or `false` on each: where any prop is marked so, the others are the shot's background, measured and
+kept in the record but not named in the answer. Labels always count. The skill's starter project writes all of it. A page without `box` (only
 `share`, `x`, `y`, as pages built before it have) or without the hook gets nothing measured and nothing said about its
 subjects. The hook is the page's code and is not trusted: at most 64 subjects are read, names are cut to 80
 characters, every number is checked, and a hook that throws or does not answer within 0.5 s leaves the step without

@@ -551,6 +551,36 @@ def test_subjects_cut_or_hidden_are_named_once_each_with_their_steps(tmp_path):
     assert rep.text().count("the 3D label") == 2
 
 
+def test_where_the_page_names_the_shots_subject_the_props_behind_it_are_not_reported(tmp_path):
+    """Run 2's site rebuilt with boxes: the gate, left standing behind later chapters' panels, was named at five steps."""
+    marked = [{"name": "gate", "kind": "prop", "subject": False, "box": [0.0, 0.2, 0.3, 0.6], "px": [400, 300], "cut": 0.0,
+               "edges": {}, "hidden": 0.7, "under": "div#panel"},
+              {"name": "vault", "kind": "prop", "subject": True, "box": [0.1, 0.2, 0.4, 0.6], "px": [400, 300], "cut": 0.0,
+               "edges": {}, "hidden": 0.4, "under": "div#panel"},
+              {"name": "A LABEL", "kind": "label", "subject": None, "box": [0.1, 0.2, 0.4, 0.3], "px": [400, 90], "cut": 0.0,
+               "edges": {}, "hidden": 0.5, "under": "div#panel"}]
+
+    class Page:
+        def __init__(self, rows):
+            self.rows = rows
+
+        async def evaluate(self, _):
+            return {"list": self.rows}
+
+    import asyncio
+
+    read = lambda rows: asyncio.run(sc._Visitor.subjects(None, Page(rows)))  # noqa: E731  (the method uses no state)
+    got, note = read(marked)
+    by = {s["name"]: s for s in got}
+    assert by["gate"]["background"] is True and by["vault"]["background"] is False and by["A LABEL"]["background"] is False
+    assert sc.subject_faults(by["gate"]) == (False, False) and sc.subject_faults(by["vault"]) == (False, True)
+    assert sc.subject_faults(by["A LABEL"]) == (False, True) and note.startswith("3 subjects")
+    # a page that marks nothing: every prop counts, as before
+    unmarked = [{**m, "subject": None} for m in marked]
+    got, _ = read(unmarked)
+    assert all("background" not in s for s in got) and sc.subject_faults(got[0]) == (False, True)
+
+
 def test_many_subjects_keep_the_answer_short(tmp_path):
     rep = sc.SiteReport("site", tmp_path, steps=2)
     v = sc.Visit("phone", loaded=True, load_s=1.0)
