@@ -1,0 +1,52 @@
+/* style.css: layout plumbing, not a design. Replace the colours and type with the project's own design rules. */
+:root {
+  --bg: #101215;            /* also the scene's background and fog colour (stage.js reads it) */
+  --ground: #1a1d22;        /* the ground the props stand on */
+  --ink: #e9e7e2;
+  --muted: #a3a29c;
+  --panel: rgba(16, 18, 21, 0.82);
+  /* Where the 3D subject sits (stage.js reads these on resize): the picture's centre moves right by --frame-x of the
+     window's width and up by --frame-y of its height, and the view widens by --frame-fit, so the shot lands in the
+     part of the window the text leaves free. */
+  --frame-x: 0.2;
+  --frame-y: 0;
+  --frame-fit: 1.1;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body { font: 17px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; overflow-x: clip; }
+h1, h2 { line-height: 1.15; margin: 0 0 0.6em; }
+h1 { font-size: clamp(2rem, 4vw, 3.2rem); }
+h2 { font-size: clamp(1.5rem, 2.6vw, 2.2rem); }
+.kicker { color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.8rem; margin: 0 0 1em; }
+
+#stage { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100lvh; display: block; z-index: 0; }
+
+/* Film layout (JavaScript and WebGL on): tall chapters, one sticky panel on the left third, the 3D on the rest. */
+.webgl-on .chapter, .js:not(.webgl-off) .chapter { position: relative; z-index: 1; min-height: 220vh; }
+.webgl-on .panel, .js:not(.webgl-off) .panel {
+  position: sticky; top: 18vh; width: min(30rem, 34vw); margin-left: 5vw; padding: 1.5rem 1.75rem;
+  background: var(--panel); border-radius: 10px;
+  opacity: 0.25; transition: opacity 0.4s ease;
+}
+.webgl-on .chapter.is-current .panel { opacity: 1; }
+.webgl-on .chapter:first-child { min-height: 180vh; }
+
+/* Phone: the text takes the lower part of the window, the 3D the upper part. */
+@media (max-width: 899px) {
+  :root { --frame-x: 0; --frame-y: 0.2; --frame-fit: 1.35; }
+  .webgl-on .panel, .js:not(.webgl-off) .panel { top: 56vh; width: auto; margin: 0 16px; max-height: 40vh; overflow: auto; }
+}
+
+/* Article layout: no JavaScript, no WebGL, or the scene failed. The page must read on its own; a chapter's still
+   (an <img class="still"> in its panel, see the skill's recipes.md) stands in for the scene. */
+.still { display: none; }
+.no-js .still, .webgl-off .still { display: block; width: 100%; height: auto; margin-top: 1rem; border-radius: 6px; }
+.no-js #stage, .webgl-off #stage { display: none; }
+.no-js .chapter, .webgl-off .chapter { min-height: 0; padding: 3rem 16px; }
+.no-js .panel, .webgl-off .panel { max-width: 40rem; margin: 0 auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  .webgl-on .panel { transition: none; }
+}

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Project name: how it works</title>
+  <meta name="description" content="One sentence that says what the project is.">
+  <!-- Before the first paint: with JavaScript the page starts in the film layout; without it, it stays an article. -->
+  <script>document.documentElement.classList.replace('no-js', 'js');</script>
+  <link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+  <!-- The 3D stage: fixed behind the text, decorative for assistive technology (the text says everything). -->
+  <canvas id="stage" aria-hidden="true"></canvas>
+
+  <main id="story">
+    <!-- One section per chapter, in story order. data-chapter is the id shots.js keys its shot on. A chapter is as
+         tall as the time it needs on screen: its panel's reading time plus the camera's move. -->
+    <section class="chapter" data-chapter="intro">
+      <div class="panel">
+        <p class="kicker">Project name</p>
+        <h1>What it is, in one line</h1>
+        <p>Two or three sentences a visitor reads while the first shot holds.</p>
+      </div>
+    </section>
+
+    <section class="chapter" data-chapter="how">
+      <div class="panel">
+        <h2>How it works</h2>
+        <p>One idea per chapter. The scene shows it; the text names it.</p>
+        <!-- A fact on the page names where it comes from (check_site compares the two):
+             <span data-src="data/facts.json#/total_tokens">302,628</span> -->
+      </div>
+    </section>
+
+    <section class="chapter" data-chapter="detail">
+      <div class="panel">
+        <h2>A closer look</h2>
+        <p>A detail is a closer shot of the same world, not a new scene.</p>
+      </div>
+    </section>
+
+    <section class="chapter" data-chapter="outro">
+      <div class="panel">
+        <h2>Start here</h2>
+        <p>What the visitor does next, with the real command or link.</p>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
