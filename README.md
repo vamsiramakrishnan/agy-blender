@@ -99,10 +99,12 @@ Round seven repainted the script-mode props without touching their meshes. The c
 the ones it loses fault its shape. Details: [round seven](benchmarks/ROUND_SEVEN.md),
 [round six](benchmarks/ROUND_SIX.md), [round five](benchmarks/ROUND_FIVE.md).
 
-A whole website was asked for twice, in one sentence each time, before and after the plugin was changed for what
-the first run's logs showed. The second site downloads 5.3 MB instead of 22.8 MB, holds 52 MB of textures instead
-of 454 MB, shows a source for every number, and was built with no tool call cut off (the first run lost six). A
-blind judge preferred it six times of six. How either compares with a stock agent's site is not measured yet.
+A whole website was asked for three times, in one sentence each time: before the plugin was changed for what the
+first run's logs showed, after, and again after a review of the second site's three.js. The third site downloads
+3.6 MB where the first downloaded 22.8, holds 89 MB of textures instead of 454, shows a source for every number,
+has no prop or label hidden by its text at any scroll step on a desktop or a phone, and was built with no tool
+call cut off (the first run lost six). Its objects are still plain, and each run found faults of the plugin that
+no review had. How any of the three compares with a stock agent's site is not measured yet.
 Details: [round eight](benchmarks/ROUND_EIGHT.md).
 
 ## Try it
@@ -137,7 +139,9 @@ spent 0.37 to 0.45 million tokens, an edit 62 to 86 thousand ([keys and cost](do
   three.js project it is rechecked with the project's own three.js (run here on r152 to r187). Textures are
   compressed only when a rendered comparison stays inside a fixed tolerance, so some assets ship uncompressed.
 - **A website**: `check-site` loads the built site in headless Chromium with software rendering. It finds errors,
-  empty stretches, weight and facts that disagree with their source. It does not judge how the site looks.
+  empty stretches, subjects hidden or cut, weight and facts that disagree with their source, and it tests its own
+  screenshots first (a browser without its GPU path draws a WebGL canvas wrongly in them). It does not judge how
+  the site looks.
 - **Blender**: with a worker attached, a script this project did not write checks the GLB.
 - **Unreal, Unity, Roblox**: packages and FBX files follow each engine's documented rules; none of these engines
   has opened them here or in CI.

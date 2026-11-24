@@ -5,77 +5,90 @@ the Neon model with this plugin, and said: "when I see the website I will make c
 threejs and other contemporary libraries, else it must be added to the plugin."
 
 The first run (`results/site_run1/`) delivered a working site. Its logs show five places where the plugin held the
-agent back. None of them depends on taste, so this round did not wait for the corrections: it fixed the five, ran
-the same request again from the fixed plugin (`results/site_run2_plugin/`), and compared the two sites. The owner's
-own corrections have not been given yet. When they are, they go into the new website skill and the run is repeated.
+agent back. None of them depends on taste, so this round did not wait for the corrections: it fixed the five and ran
+the same request again (`results/site_run2_plugin/`). An independent review of that site's three.js found fourteen
+faults, half of them taught by this round's own skill. Those were corrected, and the request was run a third time
+(`results/site_run3_plugin/`). Each run exposed faults of the plugin that no review had found; they are fixed too.
+The owner's own corrections have not been given yet. When they are, they go into the website skill and the run is
+repeated.
 
-**Two runs are missing.** The same request without the plugin (a stock agent, as a baseline), and a third run with
-the corrections that an independent review of run 2 led to. Both need the model service, which stopped serving the
-agent's requests just after run 2 finished: over two hours and three attempts the baseline's requests were dropped
-after five minutes each, apart from one that was answered, and a medium-sized test request got no first byte in
-four minutes while one-word requests were answered in seconds. Everything below that compares "run 1" and "run 2"
-is measured, including a blind comparison of the two sites. Nothing below says how either compares with a stock
-agent's site, or how good a site the corrected skill produces.
+**Two measurements are not in yet.** The blind comparison of the three sites and the same request without the
+plugin (a stock agent, as a baseline). Both were started as soon as run 3 was analysed; the model service has
+refused all but one of their requests since then for high demand (HTTP 503), and they are being asked again. Until they are
+in, nothing below says how any of these sites compares with a stock agent's, and the only judgement of how run 3's
+site looks is mine.
 
 ## The short answer
 
-Run 1 used the plugin as it was after round seven. Run 2 used this branch at commit 5e3c0a8. Same owner's sentence,
-same model, same sandbox; run 2 had more web packages installed in its seed (see "What was not equal").
+Run 1 used the plugin as it was after round seven, run 2 this round at commit 5e3c0a8, run 3 at f3b2266 (run 2's
+tree and everything that was corrected after it). Same owner's sentence, same model, same sandbox. Runs 2 and 3 had
+the same task text and the same installed packages, file for file; run 1 had fewer (see "What was not equal").
 
-| | run 1 | run 2 |
-|---|---|---|
-| sessions needed | 2: the second repaired a 17.4 MB model the host refused | 1 |
-| time inside tool calls | 40.5 min (33.6 of it in the plugin's tools) | 15.8 min (15.3 in the plugin's tools) |
-| plugin calls the host cut off at 3 minutes | 6, their work lost | 0 |
-| first build of the site | minute 53 | minute 9 |
-| props installed by the plugin's installer | 0 of 3 (files copied by hand) | 3 of 3, each 12 of 12 checks |
-| how the agent looked at its site | 9 screenshot scripts of its own | `check_site` 4 times; 2 scripts, for the stills of the no-WebGL page |
-| model calls / tool calls | 199 / 274 | 64 / 128 |
-| tokens, all / not served from cache | 21.7 M / 10.4 M | 8.0 M / 6.4 M |
-| the page downloads | 22.8 MB | 5.3 MB |
-| texture memory on the graphics card | 454 MB | 52 MB |
-| 3D canvas showing something, nine scroll steps on a desktop | 10 to 52 %; five steps under 20 % | 36 to 81 %; one step under 60 % |
-| draws while nothing moves | every frame | none |
-| a visitor who asked for reduced motion | not handled | handled |
-| a browser without WebGL | most of the text, a script error, no picture | the whole text and seven stills |
-| numbers and code on the page that name their source | none; 43 numbers and 1 code specimen without one, several invented | 31, all equal to their source |
-| other hosts the page asks | 1 (a font service) | none |
-| blind verdicts, six on the pair, three in each order | 0 | 6, overall and on each of four criteria |
+| | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| sessions needed | 2: the second repaired a 17.4 MB model the host refused | 1 | 1 |
+| time inside tool calls | 40.5 min (33.6 in the plugin's tools) | 15.8 min (15.3) | 8.3 min (8.2) |
+| plugin calls the host cut off at 3 minutes | 6, their work lost | 0 | 0 |
+| the three props: deliveries and installs, in all | not comparable (cut off, copied by hand) | 13.2 min | 5.2 min |
+| props installed by the plugin's installer | 0 of 3 (files copied by hand) | 3 of 3 | 3 of 3 |
+| how the agent looked at its site | 9 screenshot scripts of its own | `check_site` 4 times; 2 scripts, for the stills of the no-WebGL page | `check_site` 4 times; 6 scripts, all spent on a fault in the check's own pictures (below) |
+| model calls / tool calls | 199 / 274 | 64 / 128 | 73 / 132 |
+| tokens, all / not served from cache | 21.7 M / 10.4 M | 8.0 M / 6.4 M | 10.4 M / 9.0 M |
+| the page downloads | 22.8 MB | 5.3 MB | 3.6 MB |
+| texture memory on the graphics card | 454 MB | 52 MB | 89 MB (38 of it render targets) |
+| 3D canvas showing something, nine scroll steps on a desktop | 0 to 50 %; four steps under 20 % | 36 to 81 %; one step under 60 % | 66 to 81 % |
+| props and 3D labels hidden by text or cut by the window's edge | not measured (the page does not say where they are) | 18 | 0 |
+| draws while nothing moves | every frame | none | none |
+| a visitor who asked for reduced motion | not handled | handled | handled |
+| a browser without WebGL | most of the text, a script error, no picture | the whole text and seven stills | the whole text and six stills |
+| numbers and code on the page that name their source | none; 43 numbers and 1 code specimen without one, several invented | 31, all equal to their source | 22, all equal to their source, the real digest output among them |
+| other hosts the page asks | 1 (a font service) | none | none |
 
-Wall time is not in the table because it measured the model service, not the work. Run 1 took 69 and 36 minutes.
-Run 2 took 103 minutes, of which 87 were spent waiting for the model: a call took 44 s at the median against 12 s
-in run 1, and four calls were dropped after five minutes each (19 minutes).
+Wall time is not in the table because it measured the model service, not the work. Run 1 took 69 and 36 minutes,
+at 12 s per model call. Run 2 took 103 minutes and run 3 took 105, and a model call was in flight for 88 and 98 of
+them: 44 and 45 s per call at the median, with four and three calls lost after up to five minutes each.
 
-**How the sites look, judged blind.** A general model (not the one that built them) was shown nine desktop
-frames of each site as "the first site" and "the second site", with the owner's request, six times, three in each
-order. All six verdicts prefer run 2, overall and on each criterion: every scroll position composed, the 3D
-explains the project, the craft of the 3D, type and layout. Its reasons name frames; they are in
-`results/round8/site_compare/verdicts.md`. Two things to hold against that result:
+**What run 3 shows about the corrections.**
 
-- **The frames favour a pinned layout.** They are taken at even steps of the scroll. Run 2 pins its text panel, so
-  every step is a composed picture. Run 1's text scrolls freely, so at most steps a panel is cut by the edge of
-  the window, as scrolling text always is, and the judge counted that against it in two of the four criteria.
-  The other two (the 3D explains the project; the craft of the 3D) do not depend on it.
-- **One uncalibrated judge, six calls.** It is the same kind of judge the props have had since round five. It is
-  consistent here, and it is not a person.
+- **They did what they were for.** The dark floor is dark (run 2's rendered light grey from a colour fault in the
+  skill's own example). No prop or label lies under the text or runs out of the window at any of the nine steps,
+  on a desktop or a phone, where run 2 had 18 such faults and its check saw none. The real digest output is on the
+  page with its source (run 2 lost it to a fault of the check). The stills for the page without WebGL came from the
+  check, not from scripts of the agent's own. The three installs took 50 s together, where run 2's took 5.7
+  minutes.
+- **The page is lighter and uses more memory.** 3.6 MB against 5.3, and 89 MB of textures against 52: the scene
+  keeps 38 MB of render targets (shadows and its lighting environment) where run 2's kept 13.
+- **It cost more tokens than run 2**, 10.4 M against 8.0 M. The agent read the skill, both guides and all eight
+  files of the starter before it wrote anything, and built first at minute 45 (run 2 copied the starter and built
+  it at minute 9). The first check of that first build already said "nothing broken".
+- **16 of the 105 minutes went on a fault of the plugin's own pictures**, and the props were again installed
+  without their review being acted on. Both are fixed now and described below.
 
-My own reading before the verdicts, as the one who integrated this round, was closer:
+**How the sites look.** The blind verdicts on the three are not in yet (see the top). The six of this round's
+first comparison, all for run 2 over run 1, were given on frames that had the fault in the check's pictures: a
+48 px black band along the bottom of every frame of both sites. They are kept in `results/round8/site_compare/`
+as what was asked then, and the comparison is being asked again on corrected frames.
 
-- Run 2 is one continuous scene: a bench that the camera travels along, with the text panel in the same place at
-  every step, on a desktop and on a phone. Each chapter shows the part of Straitjacket it talks about. Run 1 has a
-  striking first screen and then long stretches where the 3D is a small object or nothing.
-- Run 2's objects are plainer than run 1's. Run 1's first object is a chrome and gold chamber with reflections.
-  Run 2's three machines are dark painted boxes with blue and amber parts, evenly lit; they read as diagrams more
-  than as objects one wants to look at. The plugin's own review scored each about 1.8 of 4 and the agent
-  delivered them as they were. The blind judge did not share this: it preferred run 2's 3D every time, for
-  standing on a floor with shadows where run 1's objects float in the dark.
-- Run 2 follows Straitjacket's design page (flat colours, no glow, no gradients). Run 1 did not. That makes run 2
-  correct and also less showy.
+My own reading of run 3's frames, as the one who integrated this round:
+
+- Run 3 is the tidiest of the three. Every step is a composed picture: the instrument the chapter is about stands
+  to the right of the text on a desktop and above it on a phone, with its name over it, readable. Its three
+  instruments look more made than run 2's: a gate strapped with crossed amber bands, a cabinet of drawers, a
+  press. The plugin's uncalibrated review put them at 2.1 to 2.3 of 4, against 1.8 for run 2's.
+- It travels less than run 2. Five of its nine steps show the same gate from nearly the same place, while the
+  evidence around it changes. Run 2 moves along a bench and comes closer to its objects. Run 3's last step is a
+  wide view in which the three instruments are small.
+- Neither is what the request calls world-class. The objects are careful assemblies of boxes and cylinders with
+  surfaces generated from their geometry, evenly lit. This key has no image model and no calibrated judge, and
+  after a check that says "0 things a visitor would notice" the agent finishes: it has no critic for the picture
+  as a whole (see the decisions).
+
+![Run 3, nine scroll steps on a desktop](results/round8/run3_desktop.jpg)
+
+*Run 3. Below, run 2 and run 1 at the same nine steps. All three were photographed again with the corrected check.
+"Still moving" marks a frame the check photographed while the page had not come to rest.*
 
 ![Run 2, nine scroll steps on a desktop](results/round8/run2_desktop.jpg)
-
-*Run 2. Below, run 1 at the same nine steps. "Still moving" marks a frame the check photographed while the page had
-not come to rest.*
 
 ![Run 1, nine scroll steps on a desktop](results/round8/run1_desktop.jpg)
 
@@ -223,13 +236,60 @@ What has been done about it so far:
   Left as it is in the starter and known: the article layout shows for a moment before the 3D takes over; a label
   tied to a prop appears and disappears with it instead of rising with it; once a lost context has turned the page
   into the article it stays one.
-- **Run 2's site itself is unchanged.** It was built before all of this. The third run is what will show whether
-  these corrections make a better site, and it has not been possible yet (see the top).
+- **Run 2's site itself is unchanged.** It was built before all of this. Run 3 is the site built with these
+  corrections.
 
-One thing the review turned up about the check itself: headless Chromium blanks a band of a WebGL canvas as tall
-as an opaque, full-width fixed bar, at the mirrored position. A 48 px top bar leaves the bottom 48 px of every
-full-window frame empty. A browser with a window does not do this. It is in every frame of both sites, including
-the ones the blind judge saw, and the documentation now says so.
+## Run 3: what the corrected plugin did, and what it exposed
+
+| minute | what the agent did |
+|---|---|
+| 0 to 5 | waited: its first model call was dropped after 300 s |
+| 5 to 26 | read the skill, its two guides and all eight files of the starter, the project's documents and the reference pictures (six model calls of 141 to 276 s each) |
+| 28 to 43 | wrote a storyboard and the whole site: page, styles, camera shots, the scene with a shader floor and instanced evidence slabs, stand-in shapes where the props would go |
+| 45.4 | first build |
+| 46.6 | first `check_site`: nothing broken, 8 things a visitor would notice (props and labels under the text or cut by the edge, a phone step showing almost nothing) |
+| 51 to 61 | compared the phone frames with the canvas-only frames and wrote two screenshot scripts: a black box lay over the 3D label (the check's fault, below) |
+| 61.4 to 83.3 | three props: for each, a session, two to six modelling calls, one preview, the delivery, the install. Every delivery answered with the finished package in one call |
+| 87.6 | wired the props in; framed the shots again from their real sizes |
+| 89.2 | `check_site`: 5 things |
+| 93 to 99 | four more scripts on the black box; then the panel's colour set to 0.99 opacity to make it go away, and the camera fixes for the 5 things |
+| 100.4 | `check_site`: 0 things |
+| 101.7 | copied the six stills the check had written into the page for visitors without WebGL |
+| 103.0 | last `check_site`: nothing broken, 0 things; final report |
+
+Three faults of the plugin came out of this run. All three are fixed in the branch, after the run.
+
+- **The check's pictures had a fault that no visitor sees, and the agent spent 16 minutes on it.** A Chromium that
+  puts pages together without its GPU path leaves a WebGL canvas black opposite every opaque box that lies over
+  it, mirrored top to bottom, in screenshots only. The plugin starts its browser on SwiftShader, which avoids this.
+  The container these runs happen in wraps the browser in a script that removes that switch from every headless
+  start, so the check's frames had the fault in all three runs: a 48 px black band along the bottom of every
+  desktop frame, and on the phone a black box over the 3D label whenever the text panel showed a code block. Run
+  2's review noticed the band and I wrote it into the documentation as the browser's, without looking for the
+  cause. In run 3 the agent compared the frames with the canvas-only frames, wrote six screenshot scripts of its
+  own (started the same way, they showed the same box), concluded it was a browser fault on phones and changed
+  the site's styles twice to get rid of it.
+  `check_site` now tests its camera before it believes it: once per browser it photographs a page of its own, a
+  canvas of one colour under an opaque bar. Where the canvas does not show opposite the bar, every visit gives
+  each canvas a layer of its own, and the answer says so and warns that a script of the agent's own will show the
+  boxes. Where even that does not help, the answer says the frames have the fault and that the site is not to be
+  changed for it. Measured on run 3's site: frames taken with the layer differ from those of the same browser on
+  its GPU path in at most 0.06 % of their pixels; before, in 1.7 to 8.2 % on the phone and 5.3 % on every desktop
+  frame.
+- **The delivery's answer told the agent not to look.** The three props were delivered at 2.31, 2.14 and 2.07
+  against a target of 3.4. The skill says to open each render and to give a plain prop one more round. The
+  delivery's own answer said "do not inspect, re-check or copy it" and "NEXT: install", and the agent opened each
+  render in the same turn in which it installed the prop, so what it saw could change nothing. When an
+  uncalibrated review puts an asset a point or more under a target, the answer now has one `LOOK FIRST` line
+  between its last two: it names the render and what one more round consists of. It is said once in a session.
+- **The React component of an installed prop was never checked in a current Vite project.** The installer bundles
+  it with the project's esbuild before mounting it in a browser. Vite 8, which runs 2 and 3 were built on, ships
+  Rolldown instead, so each install said "11 passed, 1 skipped". These sites do not use the component; a React
+  Three Fiber project would have got it unchecked. The check now uses whichever of the two the project has. On run
+  3's project it mounts the gate's component and finds its three levels of detail in 6 s.
+
+What run 3 did not need any more: no script for the stills, no second look for the loader file (the install's
+answer names it), no waiting for an install (18 s at the longest).
 
 ## What was not equal between the runs
 
@@ -240,22 +300,28 @@ the ones the blind judge saw, and the documentation now says so.
 - **The task text.** Run 2's says where the site will live (under `/straitjacket/`, with the documentation at
   `./docs/`) and that nothing may be loaded from another host. Run 1's first task said neither; its second session
   added the host's rules.
-- **The model service.** Four times slower per call in run 2.
+- **The model service.** Four times slower per call in runs 2 and 3 than in run 1.
+- **Runs 2 and 3 differ in the plugin only.** Same task text, same copy of the project, same installed packages
+  (`run.json` of each holds the same digests).
 - **One run each.** The same request run twice gives two different sites. Differences of a few percent between
-  two single runs mean nothing; the differences in the table are not of that size.
+  two single runs mean nothing; the differences in the table are not of that size. How far run 3's calmer camera
+  or its later first build come from the corrected skill, and how far from chance, one run cannot say.
 
 ## What is still worse, or not done
 
-- **The baseline and the third run**, as said at the top. The run tooling is in the branch and tested offline.
-- **The props' look.** The plugin's review scored each of run 2's props about 1.8 of 4 (an uncalibrated judge;
-  the targets are 3.3 to 3.4). The delivery reports this as findings for a person, and the agent went on without
-  opening the render of any of the three. The skill now asks it to look, and to give a plain prop one further
-  round (see the decisions); whether that helps is for the third run to show.
-- **Once the check said "nothing broken", the agent stopped improving the picture.** After the props were in, it
-  made one round of changes from the contact sheets (minute 39.6) and one small change an hour later. The check
-  finds faults: errors, empty frames, weight, wrong facts. It has no opinion on whether a frame is good, and the
-  agent treated a clean check as a finished site. This is probably the largest gap between run 2 and the
-  "world-class" the request asks for, and nothing built this round closes it.
+- **The baseline and the blind comparison of the three sites**, as said at the top.
+- **The props' look.** The plugin's review put run 3's props at 2.1 to 2.3 of 4 and run 2's at 1.8 (an
+  uncalibrated judge; the targets are 3.3 to 3.4). They were installed as first delivered in both runs. The
+  delivery's answer now says to look first; whether a second round makes a better prop on this task is not shown
+  by any run yet.
+- **Once the check says "0 things a visitor would notice", the agent finishes.** In run 2 that was one round of
+  changes from the contact sheets; in run 3 three rounds, each for what the check named. The check finds faults:
+  errors, empty frames, hidden or cut subjects, weight, wrong facts. It has no opinion on whether a frame is good,
+  whether the camera travels, or whether the last picture is worth ending on. This is probably the largest gap
+  between these sites and the "world-class" the request asks for, and nothing built this round closes it.
+- **Run 3 cost more than run 2**: 10.4 M tokens against 8.0 M, and 38 MB more texture memory in the page.
+- **A long first stretch without a build.** Run 3's agent read for 20 minutes (six model calls at this service's
+  speed) and wrote for 15 before it built once. Nothing broke because of it.
 - **No image model and no calibrated judge on this key.** Every prop in both runs is an unverified preview with
   surfaces generated from geometry.
 - **A delivery still takes about two and a half minutes for a 66-part prop.** A profile of one delivery shows
@@ -277,21 +343,23 @@ the ones the blind judge saw, and the documentation now says so.
 1. **A web atlas stops at 2048 px unless a size is named** (`EngineRules.default_texture_px`). A browser holds
    every map uncompressed: four 4096 px maps are 341 MiB of graphics memory for one prop. 4096 is one parameter
    away and the delivery's answer says what it would give. Other engines are unchanged. Yours to reverse.
-2. **Which site is Straitjacket's front page.** Run 1's is live now. Run 2's is lighter, sourced, works for
-   every visitor and is preferred by the blind judge; it has lost the digest specimen to the check's fault
-   described above. A draft pull request can put it there; merging is yours.
+2. **Which site is Straitjacket's front page.** Run 1's is live now. Run 3's is the lightest, sourced, composed at
+   every step on a desktop and a phone, and has the real digest output back; run 2's travels more. A draft pull
+   request can put either there; merging is yours.
 3. **Your corrections on three.js and library use.** They go into the skill, and the run is repeated with them.
-4. **A plain prop gets one more round.** The skill now tells the agent to open the render of each delivered prop,
-   and to give one that reads as plain boxes, or that its review puts a point or more under its targets, a single
-   further round before it is installed. It costs a few minutes and some model calls per prop. Run 1 spent too
-   long on props and run 2 too little; where the line sits is my call, untested until the third run, and it is
-   one paragraph of the skill to take out. Yours to reverse.
+4. **A plain prop gets one more round.** The skill tells the agent to open the render of each delivered prop and
+   to give one that reads as plain boxes, or that its review puts a point or more under a target, a single further
+   round before it is installed. Run 3 showed that the skill alone does not do it, so the delivery's answer now
+   says it too, once per prop. It costs a few minutes and some model calls per prop. Run 1 spent too long on props
+   and runs 2 and 3 one pass each; where the line sits is my call, and no run has tested the second round yet.
+   Yours to reverse: one constant (`LOOK_FIRST_SHORT_BY`) and one paragraph of the skill.
 5. **A critic for the site, not only a checker.** The props have one: a model looks at renders and says what is
    weak. The site has none. The same could be done for a built site: a model looks at the contact sheets against
    a fixed set of questions (is the subject in frame and not cut by the text, does the picture explain the
    chapter, do the objects look made and lit) and answers with findings that name frames. It costs model calls,
    which the user allows as they do for the props. I would build this next, after your corrections, because they
-   will say what the questions should be.
+   will say what the questions should be. Run 3 makes the case for it: its check ended at "0 things" and five of
+   its nine frames show the same object from the same place.
 
 ## Mistakes in this round's process
 
@@ -306,6 +374,14 @@ the ones the blind judge saw, and the documentation now says so.
 - **Red CI twice after the first push.** My local stand-in for CI's first job still had the browser library
   installed, so 13 tests that need it ran here and failed there. The second failure was a race in a test of the
   run tooling that this machine's timing hid.
+- **I wrote a fault of my own tooling into the documentation as the browser's.** Run 2's review noticed a blank
+  band in every frame. I confirmed that a browser with a window did not have it, documented it as "headless
+  Chromium's" and left the check alone. The browser with a window differed in one thing: the container's wrapper
+  script had not removed the plugin's graphics switch from its start. Reading that script took a minute, a run
+  later, after the fault had cost the agent 16 minutes. The frames of the first blind comparison had it too.
+- **Counts written from memory, twice more.** The commit that fixed the check's pictures says "17 minutes" and
+  "seven scripts" where the log has 16 and six; run 2's notes said "12 of 12 checks" where 11 passed and one was
+  skipped. Both are corrected where they can be; the commit message stays as pushed.
 - **Run 1's harness refused the agent's install** (the stand-in for the user answered "refused" to every
   question). That is one reason run 1 has no installed prop, and it was the tooling's fault, not the agent's.
 - **Helpers' commits carried their own attribution lines.** They were rewritten before anything was pushed.
@@ -328,4 +404,14 @@ the ones the blind judge saw, and the documentation now says so.
   nothing a visitor would notice. Its answer is `results/site_run2_plugin/site_check.txt`.
 - **The blind comparison.** Six calls through `benchmarks/site_compare.py`, each kept with its reasons
   (`results/round8/site_compare/`). One call was refused by a busy service and asked again.
-- **Not verified:** how either site compares with a stock agent's.
+- **Run 3's site.** Checked by the corrected `check_site` from a copy of the built folder: nothing broken, nothing
+  a visitor would notice. Its answer is `results/site_run3_plugin/site_check.txt`. The copy published as a hosted
+  page was checked the same way against the agent's build: the same draw calls and triangles, no failed request.
+- **The check's camera.** `tests/test_site_check.py`, 46 tests, passes in this container, whose browser is the
+  faulty kind, so every browser test of the check ran with the layer; the three new tests also pass with the
+  browser's GPU path kept. One of them starts the browser without its SwiftShader switch, finds the fault,
+  photographs the truth, then takes the layer away and shows that the fault is in the frame and named in the
+  answer. The test page found the fault in 12 of 12 rounds without the GPU path and in none of 12 with it.
+- **The look-first line and the Rolldown check**: each with tests; the second also on run 3's real project.
+- **Not verified:** how any of these sites compares with a stock agent's, and how run 3's compares with the first
+  two in a blind judgement. Both are being measured.
