@@ -1246,6 +1246,14 @@ async def _blender_asset_qa(s: Session, pkg: Any, glb: Path) -> str | None:
     return None
 
 
+async def _web_format(pkg: Any) -> None:
+    """A web_three package's maps as WebP in its GLBs when the frames show no difference (adapters/engines/web_textures.py;
+    run 1 of the website task shipped a 17 MB GLB of PNG maps). Nothing for another target."""
+    from antigravity3d.adapters.engines.web_textures import web_format
+
+    await web_format(pkg.out_dir, pkg.data)
+
+
 async def _verify_engine(s: Session, pkg: Any, asset: str) -> str | None:
     from antigravity3d.adapters.engines.validators import validator_for, verification_gap
 
@@ -1317,6 +1325,7 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
             if not pkg.ok:
                 crit = [i.code for i in pkg.issues if i.severity == "critical"]
                 return f"REFUSED package validation failed: {', '.join(dict.fromkeys(crit))[:140]}"
+            await _web_format(pkg)  # the same bytes as deliver_package's checked package: its decision, not measured again
             if st.preview:
                 checked, glb_sha = _preflight_package(s), _sha256(candidate / f"{asset}.glb")
                 if checked is not None and glb_sha and checked["glb_sha256"] == glb_sha:
@@ -1363,7 +1372,7 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
     return (f"{head}: usd+glb, {pkg.n_lod_files} LOD glbs, {len(b.colliders)} UCX hulls, "
             f"{len(pkg.data['textures'])} maps, manifest.json | pkg ok | delivered: yes, package validation passed and no "
             f"engine check refused it (manifest lists what ran) | {review} | {fbx_note}" + (f" | spend {s.governor.summary()}" if st.preview else "")
-            + "".join(f"\n{x}" for x in lines))
+            + "".join(f"\n{x}" for x in [*lines, *_install_step(out)]))
 
 
 SCRIPT_FILE = "source/build.py"
@@ -1670,6 +1679,7 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
         if not kept:
             _drop_preflight(s)
     head, *found = exported.split("\n")
+    found = [x for x in found if not x.startswith(NEXT_INSTALL)]  # export's own next step: said once, last
     findings_rule = s.state.verdict is not None and s.state.verdict.delivers_on_review
     # Under the delivery rule (an uncalibrated preview) the review is a set of findings for the person: its verdict
     # lines (the action the gates would take) are left out, the findings, brief and scores kept. Otherwise the review is
@@ -1685,7 +1695,8 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
         out = [f"DELIVERED: {head}" + (f" | placed in {dest}/" if dest else ""), *placed, *(found or shown), *steps, *web,
                f"FINISHED: the package{f' at {where}' if where else ''} was {checked} by this tool"
                + (f", and its engine files are in {dest}/: nothing is left to copy" if dest else "")
-               + ". Reply to the user with its path and the findings above; do not inspect, re-check or copy it."]
+               + ". Reply to the user with its path and the findings above; do not inspect, re-check or copy it.",
+               *_install_step(where)]
     elif _needs_a_person(s):
         # Live on 2026-11-22 (r5/live_native6): refused for a person's decision, the agent went back to LOOKDEV and
         # painted its own maps by script until its token share ran out. This refusal ends the agent's work.
@@ -1735,6 +1746,33 @@ def _checked_words(package: Path | None) -> str:
     if rec.get("ok") is True:
         return "validated, imported and checked"
     return f"validated and checked (the engine import was not run: {rec.get('skipped') or 'no result is recorded'})"
+
+
+NEXT_INSTALL = "NEXT:"
+
+
+def _install_step(package: Path | None) -> list[str]:
+    """The one line that ends the answer for a package that goes into a three.js or Godot project: the exact
+    install_into_project call and what it gives. Run 1 of the website task: the answer named no next step, the agent
+    read the tool's description ("writing into their project needs their approval"), copied the GLBs by hand and wrote
+    its own GLTFLoader code (no levels of detail, no compression). Nothing for the other targets."""
+    try:
+        man = json.loads((Path(package) / "manifest.json").read_text()) if package else {}
+    except (OSError, ValueError):
+        return []
+    engine, asset = man.get("target_engine"), str(man.get("asset") or "")
+    pascal = "".join(p[:1].upper() + p[1:] for p in asset.split("_") if p) or "Asset"
+    call = f'install_into_project(package_dir="{package}", dry_run=false)'
+    when = ("; pass project_dir when the project is not the workspace; for a project the user already had, call it with "
+            "dry_run=true first and show them the plan. Do not copy the files by hand.")
+    if engine == "web_three":
+        return [f"{NEXT_INSTALL} to use it in a three.js project, {call} gives a loader module to import (src/agy3d/{asset}/index.js: "
+                f"load{pascal}() returns a Group holding a THREE.LOD with every level of detail wired), the files where the dev "
+                f"server serves them, and KTX2 / meshopt compression when the project has the packages" + when]
+    if engine == "godot_4":
+        return [f"{NEXT_INSTALL} to use it in a Godot project, {call} gives a scene agy3d/{asset}/{asset}.tscn with the levels of "
+                "detail, collision and materials wired, imported and checked in the project's own Godot" + when]
+    return []
 
 
 def _web_lines(package: Path | None) -> list[str]:
@@ -1787,6 +1825,7 @@ async def _preflight(ctx: ToolContext, s: Session, asset: str) -> tuple[str | No
         shutil.rmtree(directory, ignore_errors=True)
         crit = [i.code for i in pkg.issues if i.severity == "critical"]
         return f"package validation failed: {', '.join(dict.fromkeys(crit))[:140]}", steps
+    await _web_format(pkg)  # before the checks, which then check the GLB that ships
     if reason := await _preview_engine_import(s, pkg, asset):
         shutil.rmtree(directory, ignore_errors=True)
         return reason, steps

@@ -27,7 +27,13 @@ into a level is the whole job, and proves it there.
    `export_engine_package` returned, or that the user names. `inspect_manifest`
    on the session shows the asset; the package's own `manifest.json` names the
    engine it was built for.
-2. **Dry run.** Call `install_into_project` with `package_dir` and
+2. **Which case.** A project you are building in this session because the
+   user asked for it (a website, a prototype): install directly, step 3 with
+   `dry_run: false`; `deliver_package` ends its answer with that exact call.
+   Never copy a package's files into a project by hand: in run 1 of the
+   website task the agent did, and its page got no levels of detail and no
+   compression. A project the user already had: dry run first.
+   **Dry run.** Call `install_into_project` with `package_dir` and
    `dry_run: true` (the default); `install_into_project` takes `project_dir`
    from this workspace when it is not given. It detects the engine and version
    from the project's own files and refuses when they do not match the engine
@@ -37,7 +43,8 @@ into a level is the whole job, and proves it there.
    the destination (default `agy3d/<asset>` inside the project) and the files
    it would create, replace or remove, and the warnings (an engine version that
    differs from the one the package was checked against).
-3. **Install, with the user's approval.** Call again with `dry_run: false`.
+3. **Install** (for a project the user already had, once they approve the
+   plan). Call with `dry_run: false`.
    The plugin asks the user before anything is written. Pass `force: true`
    only when the user has said to replace files of an earlier install that
    they edited; the refusal names those files.
@@ -72,8 +79,13 @@ holding a THREE.LOD that follows the live camera, with `userData.agy3d`: the
 bounds, the collision hulls as plain arrays (for Rapier or cannon-es) and a
 function that frees what the loader made.
 
-Compression (KTX2 textures, meshopt geometry) uses packages the project already
-has; without them the install ships PNG textures and prints the one command
+A web package's GLB already carries its maps as WebP where that does not
+change the picture (the manifest's web_textures record says which, with the bytes
+and the measured difference); the install serves those, and keeps the PNG maps
+out of the served folder. Compression (KTX2 textures, meshopt geometry) uses
+packages the project already has and encodes from the package's PNG maps, never
+from the WebP copies; without the packages the install ships the web GLB and the
+loader with every level of detail all the same, and prints the one command
 (`npm install -D @gltf-transform/core @gltf-transform/extensions
 @gltf-transform/functions ktx2-encoder meshoptimizer sharp`). Nothing compressed
 is written without a measurement: each encoding is rendered in the headless

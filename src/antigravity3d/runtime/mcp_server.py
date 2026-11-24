@@ -68,7 +68,7 @@ from antigravity3d.harness.session import (
 )
 from antigravity3d.harness.traceback_compressor import compress_exception
 from antigravity3d.runtime import inspector_server as inspector_app
-from antigravity3d.state import EngineBudget, SceneSessionRegistry
+from antigravity3d.state import EngineBudget, SceneSessionRegistry, texture_px_choice
 from antigravity3d.tactics.stream_call import CURRENT_SINK
 
 log = logging.getLogger("antigravity3d.mcp")
@@ -261,6 +261,7 @@ class StudioHost:
         s = session(self.registry, sid)
         line = (f"SESSION {sid} asset={s.stage.asset_prim.GetName()} engine={s.state.budget.target_engine} "
                 f"stage={s.toolset} tris<={s.state.budget.max_tris}"
+                + (f" textures<={s.state.budget.max_texture_px}px" if s.state.budget.max_texture_px else "")
                 + (f" art={s.state.art_direction}" if s.state.art_direction else "") + f" workdir={s.workdir}")
         return line + self._judge_note(sid)
 
@@ -283,20 +284,21 @@ class StudioHost:
     async def open_asset_session(self, asset_name: str, target_engine: str, max_tris: int = 15_000,
                                  workdir: str = "", workspace: str = "", conversation_id: str = "", art_direction: str = "",
                                  keep_contact_faces: bool = False, preview: bool = False, token_ceiling: int | None = None,
-                                 max_images: int | None = None, brief: str = "") -> str:
+                                 max_images: int | None = None, brief: str = "", max_texture_px: int | None = None) -> str:
         sid = await self._open(asset_name, target_engine, max_tris, workdir, workspace, conversation_id, art_direction,
-                               keep_contact_faces, preview, token_ceiling, max_images, brief)
+                               keep_contact_faces, preview, token_ceiling, max_images, brief, max_texture_px)
         return self._line(sid) + " | " + T.SHORT_PATH
 
     async def _open(self, asset_name: str, target_engine: str, max_tris: int, workdir: str, workspace: str,
                     conversation_id: str, art_direction: str, keep_contact_faces: bool, preview: bool,
-                    token_ceiling: int | None, max_images: int | None, brief: str) -> str:
+                    token_ceiling: int | None, max_images: int | None, brief: str, max_texture_px: int | None = None) -> str:
         """Open a new asset session, bound to the conversation, stage BLOCKOUT, active; its id. The checks and preview
         rules of open_asset_session (which run_build opens its sessions through as well)."""
         if target_engine not in ENGINES:
             raise ValueError(f"target_engine must be one of {', '.join(ENGINES)}")
         if int(max_tris) < 1:
             raise ValueError("max_tris must be >= 1")
+        texture_px = texture_px_choice(max_texture_px)
         art_direction_load(art_direction)  # an unknown id fails here, listing the valid ones, before anything is created
         asset = _slug(asset_name, "Asset")
         if delay := float(os.environ.get("AGY3D_TEST_OPEN_DELAY_S", "0") or 0):  # test hook: widens the race window
@@ -307,7 +309,8 @@ class StudioHost:
         wd = Path(workdir) if workdir else root / "agy3d_assets" / sid
         open_session(
             self.registry, sid, wd, asset,
-            EngineBudget(target_engine, max_tris=int(max_tris), keep_contact_faces=bool(keep_contact_faces)),  # type: ignore[arg-type]
+            EngineBudget(target_engine, max_tris=int(max_tris), keep_contact_faces=bool(keep_contact_faces),  # type: ignore[arg-type]
+                         max_texture_px=texture_px),
             plane=self.backends.plane, forge=self.backends.forge, pool=self.backends.pool,
             state_workspace=root, art_direction=art_direction or None, preview=bool(preview),
             token_ceiling=token_ceiling, max_images=max_images, brief=brief or None)
@@ -424,7 +427,8 @@ class StudioHost:
             if sid is None:
                 try:
                     sid = await self._open(first.name, first.engine, first.max_tris, "", str(root), conversation_id,
-                                           first.art_direction, False, preview, token_ceiling, max_images, first.brief)
+                                           first.art_direction, False, preview, token_ceiling, max_images, first.brief,
+                                           first.max_texture_px)
                 except (ValueError, LookupError) as e:
                     return f"NOT BUILT: the session could not be opened: {compress_exception(e)}. Fix the Asset(...) line and run_build again; {kept}."
                 self.built[sid] = key
@@ -543,7 +547,7 @@ class StudioHost:
 
         old_budget, old_brief = s.state.budget, s.state.brief
         art = load_art(s.state.art_direction)
-        budget = dataclasses.replace(old_budget, max_tris=int(built.max_tris))
+        budget = dataclasses.replace(old_budget, max_tris=int(built.max_tris), max_texture_px=built.max_texture_px)
         if art is not None:
             budget = art.budget(budget, "prop")
         brief = built.brief if built.brief and built.brief.strip() else None
@@ -551,6 +555,9 @@ class StudioHost:
             return None
         if budget.max_tris != old_budget.max_tris:
             note.append(f"budget now {budget.max_tris:,} triangles (was {old_budget.max_tris:,})")
+        if budget.max_texture_px != old_budget.max_texture_px:
+            note.append(f"texture atlas now at most {budget.max_texture_px or 'the engine default'} px "
+                        f"(was {old_budget.max_texture_px or 'the engine default'})")
         if brief != old_brief:
             note.append("brief updated: the review checks the asset against the new words")
 
@@ -807,6 +814,11 @@ MAX_IMAGES_DOC = "The USER's limit on generated images for this preview. Ask the
 BRIEF_DOC = ("The user's request for this asset, in their words (for example 'a rugged supply crate with corner guards, "
              "latches and two side handles'). Visual QA shows it to the judge and asks whether every part it names is there "
              "and how fully the asset depicts it. Empty: QA does not ask.")
+MAX_TEXTURE_PX_DOC = ("Largest side of the texture atlas in pixels: 256, 512, 1024, 2048 or 4096; empty for the size the "
+                      "parts need (at most 4096). The answer after delivery says up to how many pixels on screen the textures "
+                      "stay sharp; each step down halves that and quarters the texture memory. Choose it from the largest "
+                      "size the model is shown at (for a web page, a phone's screen too).")
+
 ART_DIRECTION_DOC = ("Named art direction (skills/art-direction): " + " | ".join(style_ids())
                      + "; empty for none. Lowers the budget where the look needs it and styles maps, shading and prompts.")
 
@@ -825,11 +837,13 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         token_ceiling: Annotated[int | None, Field(description=TOKEN_CEILING_DOC)] = None,
         max_images: Annotated[int | None, Field(description=MAX_IMAGES_DOC)] = None,
         brief: Annotated[str, Field(description=BRIEF_DOC)] = "",
+        max_texture_px: Annotated[int | None, Field(description=MAX_TEXTURE_PX_DOC)] = None,
     ) -> str:
         async def go() -> str:
             return await host.open_asset_session(asset_name, target_engine, max_tris, workdir, await _workspace_root(ctx), conversation_id,
                                                  art_direction=art_direction, keep_contact_faces=keep_contact_faces,
-                                                 preview=preview, token_ceiling=token_ceiling, max_images=max_images, brief=brief)
+                                                 preview=preview, token_ceiling=token_ceiling, max_images=max_images, brief=brief,
+                                                 max_texture_px=max_texture_px)
 
         return await host.change_catalog(ctx, go)
 
@@ -887,8 +901,9 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
                                                 "where the loader and the install record go)")] = "",
         assets: Annotated[str, Field(description="three.js only: folder inside the project's served folder (public/ or static/) for "
                                                  "the asset's files; default <served>/agy3d/<asset>")] = "",
-        dry_run: Annotated[bool, Field(description="True (default): only report what would be written. Show that plan to the user "
-                                                   "and call again with false once they agree")] = True,
+        dry_run: Annotated[bool, Field(description="True (default): only report what would be written. A project the user already "
+                                                   "had: show them that plan and call again with false once they agree. A project "
+                                                   "you are building in this session because the user asked for it: pass false")] = True,
         force: Annotated[bool, Field(description="Replace this tool's own files the developer edited since the last install")] = False,
         compress: Annotated[str, Field(description="three.js only, when the project has the compression packages: auto (default: "
                                                    "compress only when the files do not grow), always (for GPU memory), never")] = "auto",
@@ -920,7 +935,11 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         "materials wired, then imported and checked in the project's engine; three.js / React Three Fiber: the files where "
         "the dev server serves them, a loader module (and a component) to import, compressed for the web when the project "
         "has the tools, then checked in a browser with the project's own three.js; Unity/Unreal/Roblox: says what to import). "
-        "Run with dry_run first and show the user the plan; writing into their project needs their approval.")
+        "Two cases. A project you are building in this session because the user asked for it (a site, a prototype): install "
+        "directly with dry_run=false; this is how a package gets into it, never by copying its files by hand. A project the "
+        "user already had: call with dry_run=true first, show the user the plan, and install once they agree. Without the "
+        "compression packages in the project the install still writes the web GLB (WebP maps where the package has them) and "
+        "the loader with every level of detail wired; compression is added where the packages are.")
     run_build.__doc__ = (
         "Run the asset's Python script (from agy3d import Asset), check the design it saves and show it: the first call "
         "opens the asset's session from the script's Asset(...) line, a later one replaces the design in one checked step. "
