@@ -123,7 +123,8 @@ def node_executable() -> str | None:
 
 def bare_env(home: Path) -> dict[str, str]:
     """The environment of a process that runs the project's own npm code (node with its packages, its esbuild): PATH, a
-    HOME and TMPDIR that are a throwaway folder, LANG, SYSTEMROOT on Windows, and nothing else. A key in this process's
+    HOME and TMPDIR that are a throwaway folder, LANG, SYSTEMROOT on Windows, the worker count for texture encoding when
+    it is set, and nothing else. A key in this process's
     environment is not for third-party code (build/runner.py does the same for asset scripts). The real node's folder
     leads PATH, so a script that starts ``env node`` (the project's esbuild shim) finds the real one before any version
     manager's shim."""
@@ -132,7 +133,9 @@ def bare_env(home: Path) -> dict[str, str]:
     if node:
         path = os.pathsep.join([str(Path(node).parent), path])
     env = {"PATH": path, "HOME": str(home), "TMPDIR": str(home), "LANG": "C.UTF-8"}
-    for k in ("SYSTEMROOT", "COMSPEC", "PATHEXT"):
+    # AGY3D_KTX2_WORKERS is this tool's own setting, read by web_compress.mjs: how many texture maps it encodes at once
+    # (each holds one encoder: measured 810 MiB for three 2048 px maps side by side, 424 MiB one at a time).
+    for k in ("SYSTEMROOT", "COMSPEC", "PATHEXT", "AGY3D_KTX2_WORKERS"):
         if os.environ.get(k):
             env[k] = os.environ[k]
     return env

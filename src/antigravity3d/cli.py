@@ -858,7 +858,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--compress", choices=("auto", "always", "never"), default="auto",
                    help="three.js only, with the compression packages in the project: auto (default) compresses only when the "
                         "files do not grow (the transcoder counted unless the project has it), always compresses for the GPU "
-                        "memory whatever the size, never installs the PNG textures")
+                        "memory whatever the size, never installs the package's own files as they are")
     p.add_argument("--dry-run", action="store_true", help="print what would be written; write nothing")
     p.add_argument("--force", action="store_true", help="replace this tool's own files even where they were edited since")
     p.add_argument("--no-check", action="store_true", help="do not run the in-project check (Godot: no import and load of the installed scene; three.js: no browser check, and so no compression, which is only written after a measured frame comparison)")

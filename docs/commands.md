@@ -271,12 +271,17 @@ agy3d install: installed military_supply_crate: loader in src/agy3d/military_sup
 
 **Compression.** KTX2 textures and meshopt geometry are written only with six packages already in the project's
 `node_modules`: `@gltf-transform/core`, `@gltf-transform/extensions`, `@gltf-transform/functions`, `ktx2-encoder`,
-`meshoptimizer` and `sharp`. Without them the install ships PNG textures and prints the one command that enables
-compression: `npm install -D @gltf-transform/core @gltf-transform/extensions @gltf-transform/functions ktx2-encoder
-meshoptimizer sharp` (the install itself never runs it). Nothing compressed is written without a measurement: each
-encoding is rendered in the headless browser against the package's own frame, and the first one inside the tolerance
-is written, so some assets ship PNG (see [the web limits](verification_and_limits.md#three-js-installs)). A native
-`gltfpack` or `ktx` binary is not used.
+`meshoptimizer` and `sharp`. Without them the install ships the package's own web files (WebP textures where the
+package has them, PNG otherwise) and prints the one command that enables compression: `npm install -D
+@gltf-transform/core @gltf-transform/extensions @gltf-transform/functions ktx2-encoder meshoptimizer sharp` (the
+install itself never runs it). Nothing compressed is written without a measurement: each encoding is rendered in the
+headless browser against the package's own frame, and the first one inside the tolerance is written, so some assets
+ship uncompressed (see [the web limits](verification_and_limits.md#three-js-installs)). With `--compress auto` an
+encoding that is already larger than the files it would replace ends the search, and its frames are not compared:
+the encodings after it are larger. That is the usual outcome for a package with WebP textures, which download
+smaller than KTX2; `--compress always` trades the download for graphics memory. The texture maps are encoded side by
+side, up to four at a time; `AGY3D_KTX2_WORKERS=1` encodes one at a time and needs about half the memory (three
+2048 px maps: 810 MiB side by side, 424 MiB one by one). A native `gltfpack` or `ktx` binary is not used.
 
 **three.js versions.** The checks were run on three.js 0.152.2, 0.160.0, 0.169.0, 0.170.0 and 0.187.0. Between r152
 and r187 the files are written and checked; outside that range they are written and the result says `not checked on
@@ -295,7 +300,7 @@ folder that exists with files this tool did not write; a project where the serve
 | `--project DIR` | the game project's root directory (required) |
 | `--dest DIR` | directory inside the project (Godot: default `agy3d/<asset>`; three.js: where the loader and the install record go, default `src/agy3d/<asset>`) |
 | `--assets DIR` | three.js only: the folder for the asset's files, inside the project's served folder (default `<served>/agy3d/<asset>`) |
-| `--compress {auto,always,never}` | three.js only, and only with the compression packages in the project. `auto` (the default) writes compressed files only when the page then downloads no more than before (the transcoder is counted unless the project already has it); `always` compresses for the GPU memory whatever the size; `never` installs the PNG textures |
+| `--compress {auto,always,never}` | three.js only, and only with the compression packages in the project. `auto` (the default) writes compressed files only when the page then downloads no more than before (the transcoder is counted unless the project already has it); `always` compresses for the GPU memory whatever the size; `never` installs the package's own files as they are |
 | `--dry-run` | print what would be written; write nothing |
 | `--force` | replace this tool's own files even where they were edited since |
 | `--no-check` | do not run the in-project check (Godot: no import and load of the installed scene; three.js: no browser check, and so no compression, which is only written after a measured frame comparison) |

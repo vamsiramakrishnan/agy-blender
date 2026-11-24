@@ -846,6 +846,11 @@ def test_the_compressor_and_the_bundler_get_a_bare_environment_and_the_parents_s
     assert not {"GEMINI_API_KEY", "AWS_SECRET_ACCESS_KEY", "GITHUB_TOKEN", "SESSION_INGRESS_TOKEN"} & set(seen)
     assert set(seen) <= {"PATH", "HOME", "TMPDIR", "LANG", "PWD", "SHLVL", "_", "OLDPWD"}, sorted(seen)
     assert seen["HOME"] == seen["TMPDIR"] and seen["HOME"].startswith(tempfile.gettempdir())
+    # the one setting of this tool that the compressor reads is passed on when it is set
+    monkeypatch.setenv("AGY3D_KTX2_WORKERS", "2")
+    assert web.bare_env(tmp_path)["AGY3D_KTX2_WORKERS"] == "2"
+    monkeypatch.delenv("AGY3D_KTX2_WORKERS")
+    assert "AGY3D_KTX2_WORKERS" not in web.bare_env(tmp_path)
     # the project's esbuild is run the same way
     log2 = tmp_path / "env2.log"
     code, _out, _err = web.run_child(["sh", "-c", f"env > {log2}"], cwd=tmp_path, timeout=10)
