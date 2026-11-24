@@ -69,6 +69,7 @@ class Kept:
     sink: Callable[[Any], None] | None = None  # the progress sink of the call waiting on it now, if any
     transaction: bool = False  # a quick edit of the design: another edit waits for it instead of stopping it
     version: Any = None  # the design's version when the call finished: its answer holds only for that design
+    stopped: bool = False  # this keeper cancelled it because the design changed (``stop``); any other cancel is not ours
 
     def where(self) -> str:
         secs = time.monotonic() - self.started
@@ -182,6 +183,7 @@ class Keeper:
             del self.calls[key]
             if not k.task.done():
                 stopped.append(k.name)
+                k.stopped = True
                 k.task.cancel()
                 tasks.append(k.task)
         for t in tasks:
@@ -292,6 +294,11 @@ class Keeper:
         if self.calls.get(key) is k:
             del self.calls[key]
         if k.task.cancelled():
+            if not k.stopped:
+                # Cancelled, and not by an edit: the work itself was cancelled (the server is shutting down, or a step
+                # raised it). That is not "the design changed", and the caller is told what it was told before calls
+                # were kept: the cancel (tests/test_revision_gate.py holds an edit to rolling back on exactly this).
+                raise asyncio.CancelledError()
             return (f"STOPPED: {k.name} was stopped because the design changed while it ran (its work was for the design "
                     f"before). Call {k.shown} again for the design as it is now.")
         return k.task.result()

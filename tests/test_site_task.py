@@ -181,10 +181,15 @@ def test_the_sandbox_puts_node_and_the_browser_on_the_path_only_when_the_run_dec
 
 
 @pytest.mark.skipif(os.geteuid() != 0, reason="the run folder is handed to the sandbox's user")
-def test_a_stock_arm_gets_the_same_machine_as_the_plugin_arm_and_nothing_of_the_plugin(mods, tmp_path):
+def test_a_stock_arm_gets_the_same_machine_as_the_plugin_arm_and_nothing_of_the_plugin(mods, tmp_path, monkeypatch):
     ca, st, sb = mods
     if not Path("/opt/pw-browsers").is_dir() or not Path("/opt/node22/bin/node").exists():
         pytest.skip("needs /opt/pw-browsers and /opt/node22")
+    if not os.environ.get("BLENDER_BIN"):  # the spec names a Blender to bind; this test reads the spec and runs nothing
+        stand_in = tmp_path / "no-blender"
+        stand_in.mkdir()
+        (stand_in / "blender").write_text("#!/bin/sh\nexit 1\n")
+        monkeypatch.setenv("BLENDER_BIN", str(stand_in / "blender"))
     os.chmod(tmp_path, 0o755)
     brief = ca.Brief("site", "a site", 0, (0.0, 0.0), False, "x")
     opts = ca.RunOptions(model="m-1", sdk_output_cap=True, limits={"max_model_calls": 7, "max_tool_calls": 9}, node_dir="/opt/node22",
@@ -246,7 +251,8 @@ def test_both_arms_run_the_same_seed_offline_with_the_same_tools_and_a_result_fo
     if (why := _can_sandbox()) is not None:
         pytest.skip(why)
     ca, st, _ = mods
-    if not os.environ.get("BLENDER_BIN"):
+    real_blender = bool(os.environ.get("BLENDER_BIN"))
+    if not real_blender:
         stand_in = tmp_path / "no-blender"
         stand_in.mkdir()
         (stand_in / "blender").write_text("#!/bin/sh\nexit 1\n")
@@ -282,7 +288,8 @@ def test_both_arms_run_the_same_seed_offline_with_the_same_tools_and_a_result_fo
     sp = _probes(results["stock"][1] / "runs" / "site_stock")
     pp = _probes(results["plugin"][1] / "runs" / "site_plugin")
     for p in (sp, pp):  # the same machine
-        assert p["node"].startswith("v22") and p["which_node"] and p["which_npm"] and p["which_blender"] and p["which_chromium"]
+        assert p["node"].startswith("v22") and p["which_node"] and p["which_npm"] and p["which_chromium"]
+        assert p["which_blender"] or not real_blender, "with a Blender on this machine, both arms have it on their PATH"
         assert p["three"] == "0.187.0" and "Chrome" in p["chromium_runs"] or "Chromium" in p["chromium_runs"]
         assert p["chromium_bin"] == "/opt/pw-browsers/chromium" and p["secret_env"] == []
         assert {"package.json", "package-lock.json", "node_modules", "reference", "demo"} <= set(p["workspace"])
