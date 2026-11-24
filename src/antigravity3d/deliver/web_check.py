@@ -617,20 +617,33 @@ def _bundle(bundler: str, exe: Path, project: Path, entry: str, out: Path) -> tu
             cwd=project, timeout=120, input=entry)  # stdin is resolved from the cwd; a bare environment, its own session
         return code, err
     # Rolldown reads no entry from stdin, and a bare import ("react") is looked for from the folder of the file that
-    # imports it. So the entry is a file inside the node_modules that holds the bundler, in a folder of its own under
-    # the conventional .cache, removed afterwards (with .cache, if this made it and nothing else is in it).
-    cache = exe.parent.parent / ".cache"
+    # imports it. So the entry is a file under the project's own node_modules (where the installed component finds its
+    # react; in a workspace the bundler may sit in the root's node_modules, which can hold another react or none), in a
+    # folder of its own under the conventional .cache, removed afterwards. A project with no node_modules of its own
+    # has its packages where the bundler is. An empty .cache that this made is removed too; one install may remove it
+    # between another's two steps, so the folder is made in two tries.
+    own = project / "node_modules"
+    cache = (own if own.is_dir() else exe.parent.parent) / ".cache"
     made_cache = not cache.exists()
-    cache.mkdir(exist_ok=True)
-    folder = Path(tempfile.mkdtemp(prefix="agy3d-react-check-", dir=cache))
+    folder: Path | None = None
     try:
+        for attempt in (1, 2):
+            cache.mkdir(exist_ok=True)
+            try:
+                folder = Path(tempfile.mkdtemp(prefix="agy3d-react-check-", dir=cache))
+                break
+            except FileNotFoundError:
+                if attempt == 2:
+                    raise
+        assert folder is not None
         (folder / "entry.js").write_text(entry, encoding="utf-8")
         code, _out, err = run_child(
             [str(exe), str(folder / "entry.js"), "--file", str(out), "--format", "esm", "--platform", "browser",
              "--transform.define", f'{define}:"production"'], cwd=project, timeout=120)
         return code, err
     finally:
-        shutil.rmtree(folder, ignore_errors=True)
+        if folder is not None:
+            shutil.rmtree(folder, ignore_errors=True)
         if made_cache:
             with contextlib.suppress(OSError):
                 cache.rmdir()

@@ -1520,34 +1520,79 @@ def test_the_component_check_finds_the_bundler_the_projects_vite_ships(tmp_path)
     assert WC.find_bundler(project) == ("esbuild", bin_ / "esbuild")  # as before, where a project has both
 
 
-def _vite8_project(tmp_path: Path) -> Path:
-    """A project whose packages are the website task's (Vite 8 with Rolldown, React 19, React Three Fiber 9): the
-    folder ``AGY3D_SITE_SEED`` names, linked. Nothing here installs packages."""
-    seed = os.environ.get("AGY3D_SITE_SEED")
-    if not seed or not (Path(seed) / "node_modules" / ".bin" / "rolldown").exists():
-        pytest.skip("AGY3D_SITE_SEED does not name a workspace with Vite 8's rolldown: no project to bundle with it")
-    if (Path(seed) / "node_modules" / ".bin" / "esbuild").exists():
-        pytest.skip("the workspace AGY3D_SITE_SEED names has esbuild as well: the check would use that")
+def test_the_rolldown_entry_is_written_beside_the_projects_own_packages(tmp_path):
+    """In a workspace the bundler can sit in the root's node_modules while react is the package's own: the entry has to
+    find the react the installed component finds, so it goes under the project's node_modules. A stand-in for Rolldown
+    writes where its entry was and what it held."""
+    root = tmp_path / "repo"
+    (root / ".git").mkdir(parents=True)
+    project = root / "apps" / "site"
+    (project / "node_modules").mkdir(parents=True)
+    bin_ = root / "node_modules" / ".bin"
+    bin_.mkdir(parents=True)
+    fake = bin_ / "rolldown"
+    fake.write_text('#!/bin/sh\nentry="$1"; shift\nwhile [ $# -gt 0 ]; do [ "$1" = "--file" ] && out="$2"; shift; done\n'
+                    '{ echo "$entry"; cat "$entry"; } > "$out"\n')
+    fake.chmod(0o755)
+    assert WC.find_bundler(project) == ("rolldown", fake)
+    out = tmp_path / "bundle.js"
+
+    def entry_folder() -> Path:
+        code, err = WC._bundle("rolldown", fake, project, "import 'react';\n", out)
+        assert code == 0, err
+        where, text = out.read_text().split("\n", 1)
+        assert text == "import 'react';\n" and Path(where).name == "entry.js" and not Path(where).parent.exists()
+        return Path(where).parent.parent
+
+    assert entry_folder() == project / "node_modules" / ".cache"
+    assert not (project / "node_modules" / ".cache").exists() and not (root / "node_modules" / ".cache").exists()
+    # a .cache that was there before stays, with what it held
+    (project / "node_modules" / ".cache" / "other").mkdir(parents=True)
+    assert entry_folder() == project / "node_modules" / ".cache"
+    assert [p.name for p in (project / "node_modules" / ".cache").iterdir()] == ["other"]
+    # a project with no node_modules of its own has its packages where the bundler is
+    shutil.rmtree(project / "node_modules")
+    assert entry_folder() == root / "node_modules" / ".cache" and not (root / "node_modules" / ".cache").exists()
+
+
+def _without_esbuild(tmp_path: Path, packages: Path, package_json: Path) -> Path:
+    """A project on ``packages`` (a node_modules folder) whose .bin holds Rolldown and no esbuild, as a Vite 8 project's
+    does. Its node_modules is a folder of its own with every package linked, so what the check writes under
+    node_modules/.cache stays in ``tmp_path``."""
+    if not (packages / ".bin" / "rolldown").exists():
+        pytest.skip(f"{packages} has no rolldown (npm ci --prefix tests/fixtures/web_project)")
     dst = tmp_path / "web_project"
     (dst / "src").mkdir(parents=True)
     (dst / "public").mkdir()
-    shutil.copy(Path(seed) / "package.json", dst / "package.json")
+    shutil.copy(package_json, dst / "package.json")
     (dst / "index.html").write_text('<!doctype html><div id="app"></div><script type="module" src="/src/main.js"></script>')
     (dst / "src" / "main.js").write_text("import * as THREE from 'three';\n")
-    (dst / "node_modules").symlink_to(Path(seed) / "node_modules", target_is_directory=True)
+    mods = dst / "node_modules"
+    (mods / ".bin").mkdir(parents=True)
+    for entry in packages.iterdir():
+        if entry.name not in (".bin", ".cache"):
+            (mods / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
+    (mods / ".bin" / "rolldown").symlink_to((packages / ".bin" / "rolldown").resolve())
     return dst
 
 
 @pytest.mark.browser
-def test_browser_the_react_component_is_checked_in_a_vite_8_project_with_its_rolldown(crate, tmp_path, browser_ready):
-    project = _vite8_project(tmp_path)
-    cache = project / "node_modules" / ".cache"
-    before = set(cache.iterdir()) if cache.exists() else None
+@pytest.mark.parametrize("which", ["the fixture project", "the website task's workspace (Vite 8, React 19)"])
+def test_browser_the_react_component_is_checked_with_rolldown_where_a_project_has_no_esbuild(which, crate, tmp_path, browser_ready):
+    """Runs 2 and 3 of the website task (Vite 8.3.8): the component of every installed prop went unchecked."""
+    if which == "the fixture project":
+        project = _without_esbuild(tmp_path, FIXTURE / "node_modules", FIXTURE / "package.json")
+    else:
+        seed = os.environ.get("AGY3D_SITE_SEED")
+        if not seed:
+            pytest.skip("AGY3D_SITE_SEED is not set: no workspace on Vite 8 to check against")
+        project = _without_esbuild(tmp_path, Path(seed) / "node_modules", Path(seed) / "package.json")
+    assert WC.find_bundler(project)[0] == "rolldown"
     r = install_package(crate, project, compress="never")
     c = _by_name(r)["react_component"]
     assert c.status == "passed" and "bundled with the project's rolldown" in c.detail, c.detail
     # the entry was a file beside the project's packages: nothing of it is left there
-    assert (set(cache.iterdir()) if cache.exists() else None) == before
+    assert not (project / "node_modules" / ".cache").exists()
 
 
 @pytest.mark.browser
