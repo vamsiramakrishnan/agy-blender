@@ -1,5 +1,5 @@
 {
- "what": "The attempts at the baseline run (the same request, a stock agent, no plugin) on 2026-11-24. No site was built and no model output was used in any of them. A medium-sized test request (about 7,000 tokens in) also got no first byte in 150 to 240 s at 09:07, 09:33 and 09:41 UTC, while one-word requests were answered in 3 to 25 s.",
+ "what": "The attempts at the baseline run (the same request, a stock agent, no plugin) on 2026-11-24. No site was built and no model output was used in any of them. A medium-sized test request (about 7,000 tokens in) also got no first byte in 150 to 240 s at 09:07, 09:33 and 09:41 UTC, while one-word requests were answered in 3 to 25 s. Attempt 4 was made after the third site run, at 13:42 UTC: by then the service refused requests outright (HTTP 503, high demand) instead of dropping them, for the build model and for the judge model alike.",
  "attempts": [
   {
    "attempt": 1,
@@ -86,6 +86,58 @@
     }
    ],
    "ended": "nine requests dropped; the agent's own executor gave up after 55 minutes"
+  },
+  {
+   "attempt": 4,
+   "started_utc": "13:42",
+   "requests": [
+    {
+     "status": 503,
+     "seconds": 0.5,
+     "error": "503 UNAVAILABLE: This model is currently experiencing high demand"
+    },
+    {
+     "status": 503,
+     "seconds": 0.3,
+     "error": "503 UNAVAILABLE: This model is currently experiencing high demand"
+    },
+    {
+     "status": 503,
+     "seconds": 0.3,
+     "error": "503 UNAVAILABLE: This model is currently experiencing high demand"
+    },
+    {
+     "status": 503,
+     "seconds": 1.1,
+     "error": "503 UNAVAILABLE: This model is currently experiencing high demand"
+    },
+    {
+     "status": 503,
+     "seconds": 0.7,
+     "error": "503 UNAVAILABLE: This model is currently experiencing high demand"
+    },
+    {
+     "status": 503,
+     "seconds": 0.5,
+     "error": "503 UNAVAILABLE: This model is currently experiencing high demand"
+    },
+    {
+     "status": 503,
+     "seconds": 0.5,
+     "error": "503 UNAVAILABLE: This model is currently experiencing high demand"
+    },
+    {
+     "status": 503,
+     "seconds": 1.0,
+     "error": "503 UNAVAILABLE: This model is currently experiencing high demand"
+    },
+    {
+     "status": 503,
+     "seconds": 0.6,
+     "error": "503 UNAVAILABLE: This model is currently experiencing high demand"
+    }
+   ],
+   "ended": "ended by the harness after nine refusals in 11 minutes (its record: stopped by the service; no model call answered, no tool call, no tokens used)"
   }
  ]
 }
