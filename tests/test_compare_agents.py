@@ -262,11 +262,14 @@ def test_relay_passes_a_streamed_answer_through_as_it_arrives_and_meters_it_as_b
         conn.sock.close()
         conn.close()
         deadline = time.monotonic() + 10
-        while led.data["accounts"]["r"]["calls"] < 2 and time.monotonic() < deadline:
+        log = tmp_path / "relay_calls.jsonl"
+        # The relay settles the ledger first and writes the call's record after it: wait for both. Waiting for the ledger
+        # alone read the log one record short on CI (2026-11-24, Python 3.12 job), a race of this test, not of the relay.
+        while (led.data["accounts"]["r"]["calls"] < 2 or len(log.read_text().splitlines()) < 2) and time.monotonic() < deadline:
             time.sleep(0.05)
         a = led.data["accounts"]["r"]
         assert a["calls"] == 2 and a["inflight_tokens"] == 0  # metered from the last event the client never read
-        lines = [json.loads(x) for x in (tmp_path / "relay_calls.jsonl").read_text().splitlines()]
+        lines = [json.loads(x) for x in log.read_text().splitlines()]
         assert [x.get("streamed") for x in lines] == [True, True] and lines[0]["client_gone"] is False
         time.sleep(0.2)
         assert "Traceback" not in capfd.readouterr().err
