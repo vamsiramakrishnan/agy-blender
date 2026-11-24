@@ -742,7 +742,7 @@ def _json_pointer(doc: Any, pointer: str) -> Any:
 
 # A passage of a longer text counts as that text from this many characters on. Run 2 of the website task (2026-11-24):
 # the page quoted the first five lines of a 400-character digest, 130 characters and exact; the rule then wanted half
-# of the value, the check said "broken" twice, and the agent took Straitjacket's real digest off the page.
+# of the value, the check said "broken", and the agent took Straitjacket's real digest off the page.
 QUOTE_MIN = 20
 
 

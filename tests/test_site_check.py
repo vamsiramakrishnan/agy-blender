@@ -82,7 +82,7 @@ def test_a_fact_is_checked_against_its_source(tmp_path):
     assert "holds '302628'" in check("eval/run.json#/runs/0/tokens", "302,629")
     assert check("eval/run.json#/name", "the field needle run") is None
     # a string value: all of it, or one unbroken passage long enough not to be there by chance (run 2: the first five
-    # lines of a 400-character digest, exact, were called broken twice and the agent took the digest off the page)
+    # lines of a 400-character digest, exact, were called broken and the agent took the digest off the page)
     digest = ("[ctx run:8956c843e556 profile=logtemplate/v1]\ncwd: .\ncommand: cat corpus.log\nexit: 0\n"
               "stdout: 20,001 lines · 979.1 KiB · est 250,648 tokens\nstderr: 0 lines · 0 B\n" + "templates: 11 cover 20,001 lines\n" * 8)
     (src / "eval" / "record.json").write_text(json.dumps({"arms": [{"output_excerpt": digest}]}))
