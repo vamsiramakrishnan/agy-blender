@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Careless</title>
+<style>html,body{margin:0;background:#101418;color:#eee;font:20px sans-serif}canvas{position:fixed;inset:0;width:100vw;height:100vh}
+main{position:relative;padding:2rem;max-width:30rem}</style></head>
+<body><canvas id="c"></canvas><main><h1>Careless</h1><p>It pulses for ever, whatever the visitor asked for, and
+without WebGL it throws.</p></main><div style="height:300vh"></div>
+<script type="module">
+import { setup, QUAD } from './gl.js';
+const s = setup(document.getElementById('c'));
+s.gl.clearColor(0, 0, 0, 1);  // throws without WebGL: s is null
+s.quad(QUAD);
+function frame(t) {
+  s.gl.clear(s.gl.COLOR_BUFFER_BIT);
+  const k = 0.5 + 0.5 * Math.sin(t / 150);
+  s.color(k, 0.3, 1 - k); s.gl.drawArrays(s.gl.TRIANGLES, 0, 6);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script></body></html>

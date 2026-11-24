@@ -141,7 +141,7 @@ instead:
 
 - every tool in `harness/tools.py`, with its name, docstring and a schema generated from its signature (no `ctx`;
   an optional `session_id` is added);
-- seven session management tools:
+- eight session management tools:
 
 | Tool | What it does |
 |---|---|
@@ -152,6 +152,7 @@ instead:
 | `session_status` | stage, budget, QA verdict and newest audit lines |
 | `list_sessions` | the open sessions |
 | `install_into_project` | put a package into the user's game project and check it there; a dry run by default. Takes `package_dir`, `project_dir`, `dest`, `force` and, for three.js, `assets` and `compress` (`auto`, `always`, `never`) |
+| `check_site` | look at a built website as a visitor does: photographs at even scroll steps at desktop and phone size (contact sheets), errors, failed requests, weight, what the 3D scene costs, reduce motion, no WebGL, and `data-src` facts against their source. Takes `target` (the built folder or a localhost URL), `sources`, `steps`, `sizes`, `other_hosts` |
 
 - **Enforcement.** There is no SDK hook runner on this path, so the server calls `InvariantAndSafetyGate.decide`
   (the gate's decision logic, shared with the SDK hook) before every dispatch.
@@ -159,7 +160,7 @@ instead:
   is one `REFUSED ...` line.
 - The hook scripts in this plugin check export and raw scripts again when the call is an `mcp_tool` step; both read
   the same QA file.
-- **Stages.** A new connection lists the seven session management tools, the inspector's `open_inspector` and
+- **Stages.** A new connection lists the eight session management tools, the inspector's `open_inspector` and
   `review_notes`, and the six tools of the short path (`apply_scene_ir`, `render_preview`, `run_visual_qa`,
   `deliver_package`, `inspect_manifest`, `undo_last_edit`).
 - Once an asset is open, discovery adds the active stage's tools. Clients receive a list-change notification when
@@ -194,7 +195,7 @@ in a process without the key, applies the design and answers with findings and f
 What the install changes in the copied bundle (`plugin_install._script_mode`):
 
 - `mcp_config.json`: the server gets `AGY3D_AUTHORING=script`. It then lists `run_build`, `open_existing_asset`,
-  `start_preview`, `session_status`, `list_sessions`, `install_into_project`, `deliver_package` and the inspector's
+  `start_preview`, `session_status`, `list_sessions`, `install_into_project`, `check_site`, `deliver_package` and the inspector's
   tools, the same list before and after a session opens; no stage tools.
 - `rules/AGENTS.md`, `rules/engine-budgets.md` and `skills/parametric-kitbash/SKILL.md` are replaced by the
   script-mode texts in `src/antigravity3d/build/plugin_script_mode/`.

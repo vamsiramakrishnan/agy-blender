@@ -92,9 +92,32 @@
   S.unhide = () => { if (hider) { hider.remove(); hider = null; } };
 
   // ---- frames
+  // The canvas alone: read from the drawing buffer right after the page's own frame callback drew into it (a canvas
+  // without preserveDrawingBuffer is only readable in that task). One readback instead of hiding the page's HTML and
+  // waiting two more frames for the compositor, which on a page that takes a second a frame was most of a step.
+  let want = null;
+  const grab = () => {
+    if (!want || S.cur.draws === 0 || S.cur.draws === want.draws) return;
+    want.draws = S.cur.draws;
+    let best = null;
+    for (const c of S.canvases) {
+      const r = c.getBoundingClientRect();
+      const a = Math.max(0, Math.min(innerWidth, r.right) - Math.max(0, r.left)) * Math.max(0, Math.min(innerHeight, r.bottom) - Math.max(0, r.top));
+      if (a > 64 && (!best || a > best.a)) best = { c, a };
+    }
+    if (best) { try { want.data = best.c.toDataURL('image/jpeg', 0.8); } catch (e) {} }
+  };
+  // Resolves with the canvas as a data URL once a frame has drawn into it, or null after `frames` frames without one
+  // (a page that draws only when something changes): check_site then hides the HTML and photographs the screen.
+  S.grabCanvas = (frames) => new Promise((done) => { want = { draws: -1, data: null, left: frames, done }; });
   const raf = window.requestAnimationFrame.bind(window);
-  if (cap) window.requestAnimationFrame = (cb) => raf((ts) => cb(ts - S.held_ms));
+  window.requestAnimationFrame = (cb) => raf((ts) => { cb(cap ? ts - S.held_ms : ts); grab(); });
   const tick = () => {
+    if (want) {  // the frame before this one is complete: hand over what it drew, if anything
+      if (want.data) { want.done(want.data); want = null; }
+      else if (--want.left < 0) { want.done(null); want = null; }
+      else want.draws = -1;
+    }
     const real = pnow();
     if (cap && lastReal !== null && real - lastReal > cap) S.held_ms += real - lastReal - cap;
     lastReal = real;

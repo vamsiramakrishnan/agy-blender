@@ -714,6 +714,18 @@ def cmd_uninstall(a: argparse.Namespace) -> int:
     return _print_install(uninstall(a.project, a.dest, dry_run=a.dry_run, force=a.force), a.json, "uninstall")
 
 
+def cmd_check_site(a: argparse.Namespace) -> int:
+    from antigravity3d.deliver.site_check import check_site
+
+    try:
+        r = check_site(a.target, sources=a.sources, steps=a.steps, sizes=a.sizes, other_hosts=a.other_hosts,
+                       out_dir=a.out, variants=() if a.no_variants else ("reduced", "nowebgl"))
+    except ValueError as e:
+        raise CliError(str(e)) from e
+    print(json.dumps(r.to_dict(), indent=1, default=str) if a.json else r.text())
+    return 1 if r.broken() else 0
+
+
 # --------------------------------------------------------------------------- parser
 
 
@@ -855,6 +867,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--godot", default=None, metavar="PATH", help="Godot binary for the check (default $GODOT_BIN, then PATH)")
     p.add_argument("--json", action="store_true", help="print the machine-readable result")
     p.set_defaults(fn=cmd_install)
+
+    p = sub.add_parser("check-site", help="look at a built website as a visitor does: frames at even scroll steps, errors, "
+                                          "weight, what the 3D scene costs, reduce motion, no WebGL, data-src facts")
+    p.add_argument("target", help="the built site's folder (holds index.html) or a localhost URL")
+    p.add_argument("--sources", default=None, metavar="DIR",
+                   help="folder that data-src paths are relative to (default: the site folder)")
+    p.add_argument("--steps", type=int, default=9, help="scroll positions photographed, evenly from top to bottom (default 9)")
+    p.add_argument("--sizes", default="desktop,phone", help="desktop, phone or both, comma-separated (default both)")
+    p.add_argument("--other-hosts", choices=("block", "try"), default="block",
+                   help="block (default): list requests to other hosts without making them; try: make them")
+    p.add_argument("--no-variants", action="store_true", help="skip the visits with reduce motion set and without WebGL")
+    p.add_argument("--out", default=None, metavar="DIR", help="where the frames go (default ./agy3d_site_check/<site>)")
+    p.add_argument("--json", action="store_true", help="print the machine-readable record instead of the text")
+    p.set_defaults(fn=cmd_check_site)
 
     p = sub.add_parser("edit", help="change an asset this project made: one patch, everything else kept, the old package kept")
     p.add_argument("target", help="a prop --out folder, or a package folder (holds manifest.json)")

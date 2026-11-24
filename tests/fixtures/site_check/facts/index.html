@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Facts</title><style>html,body{margin:0;background:#fff;font:18px sans-serif;padding:1rem}</style></head>
+<body>
+<h1>Facts that name their source, and some that do not</h1>
+<p>Tokens in the first run: <span id="ok-num" data-src="sources/data.json#/runs/0/tokens">1,234</span>.</p>
+<p>Lines in the first run: <span id="bad-num" data-src="sources/data.json#/runs/0/lines">19,999</span>.</p>
+<p>Share kept: <span id="ok-pct" data-src="sources/data.json#/ratio">37 %</span>.</p>
+<pre id="ok-code" data-src="sources/code.py#L2-L3">def add(a, b):
+    return a + b</pre>
+<pre id="bad-code" data-src="sources/code.py#L2-L3">def add(a, b):
+    return a - b</pre>
+<blockquote id="ok-quote" data-src="sources/notes.md">Capture once, retrieve the line that matters.</blockquote>
+<blockquote id="bad-quote" data-src="sources/notes.md">Capture everything, forget nothing.</blockquote>
+<p>Without a source: we saved 4,321 tokens in 12 ms.</p>
+<pre>$ invented --command
+result 42</pre>
+<footer>© 2026</footer>
+</body></html>

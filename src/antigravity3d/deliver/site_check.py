@@ -76,7 +76,7 @@ AMBIENT = 0.03
 #: screen did, which a visitor reads as a frozen page.
 UNCHANGED = 0.002
 #: The 3D canvas "shows nothing but its background" when less than this share of it differs from its most common colour
-#: by more than 8 % of full scale, measured on the 1/4-size frame (thin lines of a helper grid average out at that size,
+#: by more than 8 % of full scale, measured on the 1/8-size frame (1 px lines of a helper grid average out at that size,
 #: an object does not). 1 % of a 1440 x 900 canvas is a 120 x 108 px patch.
 EMPTY_CONTENT = 0.01
 #: Download weight is reported as the wait on a 10 Mbit/s connection (a fair mobile link); it is called out when that
@@ -179,6 +179,7 @@ class SiteReport:
     unfinished: list[str] = field(default_factory=list)
     error: str = ""
     steps: int = 9
+    budget_s: float = ANSWER_S
 
     # ------------------------------------------------------------------ verdicts
 
@@ -222,10 +223,6 @@ class SiteReport:
             if same:
                 out.append(f"{name.capitalize()}: the picture did not change at all from the step before at "
                            + _steps_list(same, self.steps) + ".")
-            moving = [s for s in v.steps if s.motion == "moving"]
-            if moving:
-                out.append(f"{name.capitalize()}: still moving {SETTLE_CAP_S:.0f} s after the scroll stopped at "
-                           + _steps_list(moving, self.steps) + " (photographed as it was).")
         p = self.visits.get("phone")
         if p and p.steps:
             wide = [s for s in p.steps if s.sideways_px > 1]
@@ -284,7 +281,7 @@ class SiteReport:
         kinds = ", ".join(f"{k} {_mb(b)}" for k, b in sorted(by.items(), key=lambda kv: -kv[1]) if b)
         top = sorted(d.requests.items(), key=lambda kv: -kv[1]["bytes"])[:5]
         tops = ", ".join(f"{_short(u, d)} {_mb(r['bytes'])}" for u, r in top)
-        return (f"Downloaded (desktop, whole scroll): {_mb(self.total_bytes())} in {len(d.requests)} files: {kinds}. "
+        return (f"Downloaded (desktop, whole scroll): {_mb(self.total_bytes())} in {len(d.requests)} file{_s(d.requests)}: {kinds}. "
                 f"Largest: {tops}.")
 
     def scene_line(self) -> list[str]:
@@ -301,7 +298,7 @@ class SiteReport:
         mt = max((s.triangles for s in steps), default=0)
         at = max(steps, key=lambda s: s.triangles) if steps else None
         m = d.memory or {}
-        lines = [f"Scene (desktop, the largest over the steps): {md:,} draw calls and {mt:,} triangles in one frame"
+        lines = [f"Scene (desktop, the largest over the steps): {md:,} draw call{_s(md)} and {mt:,} triangle{_s(mt)} in one frame"
                  + (f" (most triangles at {at.share:.0%})" if at and mt else "")
                  + f"; textures {_mb(m.get('texture_bytes', 0))} on the graphics card in {m.get('textures', 0)} textures"
                  + (f" ({_mb(m.get('texture_bytes', 0) - m.get('uploaded_bytes', 0))} of it render targets)"
@@ -336,9 +333,11 @@ class SiteReport:
         if r_step and d and d.steps:
             d_step = min(d.steps, key=lambda s: abs(s.share - r_step.share))
         glide = ""
-        if r_step and d_step:
-            glide = (f"; after a scroll the picture settles in {r_step.settle_s:.1f} s (without the setting "
-                     f"{d_step.settle_s:.1f} s)")
+        # a scroll that still glides to a stop under the setting (smooth scrolling left on) is reported; the times of a
+        # page that never holds still say nothing
+        if r_step and d_step and r_step.motion == "still" and r_step.settle_s >= 1.0:
+            glide = (f"; after a scroll the picture still takes {r_step.settle_s:.1f} s to come to rest (without the "
+                     f"setting {d_step.settle_s:.1f} s)")
         how = []
         if r.probe and r.probe.get("reducedMotionQueried"):
             how.append("asks matchMedia")
@@ -360,15 +359,18 @@ class SiteReport:
         if not w.loaded:
             return (f"Without WebGL: the page did not load ({w.load_error}).", False)
         errs = _merged([w.page_errors])
-        said = bool(w.probe and w.probe.get("fallbackMessage"))
+        seen = set((d.probe or {}).get("notices", [])) if d else set()
+        said = next((t for t in (w.probe or {}).get("notices", []) if t not in seen), None)
         chars = w.text_chars or 0
         dchars = (d.text_chars if d else None) or 0
-        text = (f"shows {chars:,} characters of text" + (f" (with WebGL {dchars:,})" if dchars else ""))
-        ok = said and not errs and chars > 0.5 * max(dchars, 1)
-        return (f"Without WebGL: {len(errs)} uncaught error{_s(errs)}" + (f" ({_q(errs[0])})" if errs else "")
-                + f"; the page {text}, and "
-                + (f"a visible message says so ({_q(w.probe['fallbackMessage'])})" if said else
-                   "nothing visible tells the visitor the 3D is missing")
+        images = (w.probe or {}).get("images", 0)
+        # Handled: nothing thrown and the reading survives (at least half the text the page shows with WebGL). A message
+        # about the missing 3D is reported, not required: a page that turns into a good document needs none.
+        ok = not errs and chars > 0.5 * max(dchars, 1) and chars > 0
+        return ((f"Without WebGL: {len(errs)} uncaught error{_s(errs)} ({_q(errs[0])}); " if errs else "Without WebGL: no errors; ")
+                + f"the page shows {chars:,} characters of text" + (f" (with WebGL {dchars:,})" if dchars else "")
+                + f" and {images} image{_s(images)}, "
+                + (f"and says so on screen ({_q(said, 60)})" if said else "and no message about the missing 3D")
                 + f". Picture: {_rel(w.frame, self.out_dir)}.", ok)
 
     def facts_lines(self) -> list[str]:
@@ -405,8 +407,9 @@ class SiteReport:
                    if self.sheets else ""))
         lines = [head]
         if self.unfinished:
-            lines.append("Not finished within the time limit (call again to see the rest; nothing needs fixing because of "
-                         "it): " + "; ".join(self.unfinished) + ".")
+            lines.append(f"The check stopped at its {self.budget_s:.0f} s limit before it was done ("
+                         + "; ".join(self.unfinished) + "). Nothing needs fixing because of that: a heavy page on software "
+                         "WebGL is slow here. For a quicker look call again with steps=5 or sizes=\"desktop\".")
         if broken:
             lines.append("")
             lines.append("Broken:")
@@ -421,14 +424,19 @@ class SiteReport:
             v = self.visits.get(name)
             if v and v.loaded:
                 vp = SIZES[name]["viewport"]
+                moving = [s for s in v.steps if s.motion == "moving"]
                 lines.append(f"- {name.capitalize()} {vp['width']}x{vp['height']}: settled {v.load_s:.1f} s after the page was "
-                             f"asked for; {len(v.steps)} of {self.steps} steps photographed; 3D content per step "
-                             + " ".join("-" if s.canvas_content is None else f"{s.canvas_content:.0%}" for s in v.steps) + ".")
+                             f"asked for; {len(v.steps)} of {self.steps} steps photographed; share of the 3D canvas showing "
+                             "something, per step: "
+                             + " ".join("-" if s.canvas_content is None else f"{s.canvas_content:.0%}" for s in v.steps) + "."
+                             + (f" Still changing {SETTLE_CAP_S:.0f} s after the scroll at {_steps_list(moving, self.steps)}: "
+                                "those frames may show the scene on its way (software WebGL draws a heavy frame in about a "
+                                "second; a visitor's GPU in a few milliseconds)." if moving else ""))
         for line in [self.bytes_line(), *self.scene_line()]:
             if line:
                 lines.append(f"- {line}")
         for r in (self.reduced_line(), self.nowebgl_line()):
-            if r:
+            if r and r[1]:  # an unhandled case is already listed above
                 lines.append(f"- {r[0]}")
         lines += [f"- {x}" for x in self.facts_lines()]
         lines.append("")
@@ -493,7 +501,8 @@ def _rel(p: str, base: Path) -> str:
 
 def _short(url: str, v: Visit) -> str:
     base = (v.probe or {}).get("base") or ""
-    return url[len(base):] if base and url.startswith(base) else urlsplit(url).path.rsplit("/", 1)[-1] or url
+    name = url[len(base):] if base and url.startswith(base) else urlsplit(url).path.rsplit("/", 1)[-1]
+    return name or "the page itself"
 
 
 # --------------------------------------------------------------------------- serving a folder
@@ -578,13 +587,13 @@ def _diff(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def canvas_content(jpeg: bytes) -> float:
-    """Share of a canvas-only frame that shows something other than its background: pixels of the 1/4-size image that
+    """Share of a canvas-only frame that shows something other than its background: pixels of the 1/8-size image that
     differ from the frame's most common colour (quantised to 16 levels per channel) by more than 8 % of full scale in
-    any channel. Averaging to 1/4 size first lets a 1 px helper grid fade into the background; an object stays."""
+    any channel. Averaging to 1/8 size first lets a 1 px helper grid fade into the background; an object stays."""
     from PIL import Image
 
     im = Image.open(io.BytesIO(jpeg)).convert("RGB")
-    im = im.reduce(4) if min(im.size) >= 64 else im
+    im = im.reduce(8) if min(im.size) >= 128 else im
     a = np.asarray(im, dtype=np.int16)
     q = (a // 16).reshape(-1, 3)
     keys = q[:, 0] * 256 + q[:, 1] * 16 + q[:, 2]
@@ -797,16 +806,20 @@ _PAGE_INFO_JS = r"""() => {
   let css = false;
   for (const sh of document.styleSheets) { try { for (const r of sh.cssRules) { if (/prefers-reduced-motion/.test(r.conditionText || (r.media && r.media.mediaText) || '')) { css = true; break; } } } catch (e) {} if (css) break; }
   const vis = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none' && parseFloat(cs.opacity) > 0.05; };
-  let fallback = null;
+  // short visible texts that speak of WebGL, a fallback, or 3D / graphics being unavailable (the no-WebGL visit's
+  // message is one of them that the page with WebGL does not show)
+  const notices = [];
   for (const el of document.querySelectorAll('body *')) {
     if (el.children.length || !vis(el)) continue;
-    const t = el.textContent.trim();
-    if (t.length < 200 && /webgl|3d|graphics|hardware acceleration|your browser/i.test(t)) { fallback = t; break; }
+    const t = el.textContent.trim().replace(/\s+/g, ' ');
+    if (t.length < 200 && /webgl|fallback|\b3d\b.{0,30}\b(unavailable|not available|off|disabled|not supported)|graphics (card|acceleration)|hardware acceleration/i.test(t)) notices.push(t);
+    if (notices.length >= 20) break;
   }
+  const images = [...document.querySelectorAll('img, svg, picture, video')].filter((el) => vis(el) && el.getBoundingClientRect().width > 48 && !el.closest('svg svg')).length;
   return { contexts: (S.contexts || []).length, webgl2: (S.contexts || []).some((c) => window.WebGL2RenderingContext && c instanceof WebGL2RenderingContext),
            webgpu: !!S.webgpu, offscreen: !!S.offscreen, reducedMotionQueried: !!S.reducedMotionQueried, reducedMotionCss: css,
            memory: S.memory ? S.memory() : null, textChars: (document.body && document.body.innerText || '').length,
-           fallbackMessage: fallback, base: location.href.replace(/[^/]*([?#].*)?$/, '') };
+           notices, images, base: location.href.replace(/[^/]*([?#].*)?$/, '') };
 }"""
 
 
@@ -987,6 +1000,21 @@ class _Visitor:
             await asyncio.wait_for(page.mouse.wheel(0, target - y), 5.0)
         return "wheel"
 
+    async def canvas_alone(self, page, rect: dict) -> bytes:
+        """The largest WebGL canvas in view without the page's HTML: read from its drawing buffer after the page's next
+        frame (``site_probe.js``, ``grabCanvas``), or, for a page that draws only on change, photographed with every
+        other element hidden."""
+        import base64
+
+        url = await page.evaluate("window.__agySite.grabCanvas(3)")
+        if url:
+            return base64.b64decode(url.split(",", 1)[1])
+        await page.evaluate("window.__agySite.stepEnd(true)")
+        try:
+            return await self.shot(rect)
+        finally:
+            await page.evaluate("window.__agySite.unhide()")
+
     async def steps(self, page, n: int, canvas: bool, sideways: bool) -> None:
         geo = await page.evaluate("window.__agySite.geometry()")
         if geo["inner"]:
@@ -997,7 +1025,7 @@ class _Visitor:
             share = i / max(n - 1, 1)
             how = await self.scroll_to(page, round(geo["max"] * share))
             shot, secs, motion = await self.settle(SETTLE_CAP_S)
-            end = await page.evaluate("(hide) => window.__agySite.stepEnd(hide)", canvas)
+            end = await page.evaluate("window.__agySite.stepEnd(false)")
             w = end["win"]
             step = Step(i, share, round(end["y"]), settle_s=round(secs, 2), motion=motion, reached_by=how,
                         draws=int(w.get("maxDraws", 0)), triangles=int(w.get("maxTris", 0)))
@@ -1005,10 +1033,7 @@ class _Visitor:
             f.write_bytes(shot)
             step.frame = str(f)
             if canvas and end["rect"]:
-                try:
-                    cshot = await self.shot(end["rect"])
-                finally:
-                    await page.evaluate("window.__agySite.unhide()")
+                cshot = await self.canvas_alone(page, end["rect"])
                 cf = self.out / f"{self.v.name}_{i:02d}_canvas.jpg"
                 cf.write_bytes(cshot)
                 step.canvas_frame = str(cf)
@@ -1093,10 +1118,23 @@ def _resolve_target(target: str) -> tuple[Path | None, str]:
 
 
 async def acheck_site(target: str, *, sources: str | Path | None = None, steps: int = 9, out_dir: str | Path | None = None,
-                      sizes: tuple[str, ...] = ("desktop", "phone"), other_hosts: str = "block",
-                      budget_s: float = ANSWER_S, exe: str | None = None) -> SiteReport:
-    """Check a built site; see the module docstring. ``other_hosts``: 'block' (default: requests to other hosts are
-    recorded and not made, so the check sees the page as a visitor does when they are unreachable) or 'try'."""
+                      sizes: tuple[str, ...] = ("desktop", "phone"), variants: tuple[str, ...] = ("reduced", "nowebgl"),
+                      other_hosts: str = "block", budget_s: float = ANSWER_S, exe: str | None = None) -> SiteReport:
+    """Check a built site; see the module docstring.
+
+    ``sources``: the folder ``data-src`` paths resolve against (default: the site folder). ``sizes``: of ``SIZES``.
+    ``variants``: the extra visits, 'reduced' (reduce motion set) and 'nowebgl'. ``other_hosts``: 'block' (default:
+    requests to other hosts are recorded and not made, so the check sees the page as a visitor does when they are
+    unreachable, and no answer depends on this machine's network) or 'try'."""
+    if isinstance(sizes, str):
+        sizes = tuple(x.strip() for x in sizes.split(",") if x.strip())
+    if isinstance(variants, str):
+        variants = tuple(x.strip() for x in variants.split(",") if x.strip())
+    unknown = [x for x in sizes if x not in SIZES] + [x for x in variants if x not in VISIT_LABEL]
+    if unknown or not sizes:
+        raise ValueError(f"unknown size or variant {unknown}: sizes are {', '.join(SIZES)}; variants are {', '.join(VISIT_LABEL)}")
+    if other_hosts not in ("block", "try"):
+        raise ValueError("other_hosts is 'block' or 'try'")
     from antigravity3d.adapters.engines import web_browser
     from antigravity3d.adapters.engines.web_three import WebThreeValidator, _launch_args
 
@@ -1104,12 +1142,12 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
     clock = _Clock(t_start, budget_s)
     steps = max(2, min(int(steps), 25))
     folder, url = _resolve_target(str(target))
-    out = Path(out_dir) if out_dir else Path.cwd() / "agy3d_site_check" / time.strftime("%Y%m%d-%H%M%S")
+    out = Path(out_dir) if out_dir else out_dir_for(Path.cwd(), str(folder or url))
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.jpg"):
         old.unlink()
     src_dir = Path(sources).expanduser().resolve() if sources else folder
-    rep = SiteReport(str(target), out, steps=steps)
+    rep = SiteReport(str(target), out, steps=steps, budget_s=budget_s)
     rep.facts["other_hosts_mode"] = other_hosts
 
     validator = WebThreeValidator()
@@ -1161,10 +1199,10 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
             finally:
                 await vis.flush()
                 if server is not None and name in ("desktop", "phone"):
-                    for m in server.missing:
-                        line = f"{m}"
-                        if line not in vis.v.failed and not any(line.split(" (")[0] in f for f in vis.v.failed):
-                            vis.v.failed.append(line)
+                    # the server knows why a file was missing; the browser only that the request failed
+                    why = {m.split(" (")[0].lstrip("/"): m for m in server.missing}
+                    vis.v.failed = list(dict.fromkeys(why.get(f.split(" (")[0].lstrip("/"), f) for f in vis.v.failed))
+                    vis.v.failed += [m for m in why.values() if m not in vis.v.failed]
 
         opts = dict(SIZES["desktop"] if name not in SIZES else SIZES[name])
         opts.update(ctx_opts)
@@ -1180,8 +1218,10 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
         plan["phone"] = visit("phone", {}, do_steps=steps, canvas=True, sideways=True)
     # the variants after the sizes (the lanes start them in this order); the reduced-motion visit's one step, at 50 %,
     # is compared with the desktop step nearest it
-    plan["nowebgl"] = visit("nowebgl", {}, no_webgl=True)
-    plan["reduced"] = visit("reduced", {"reduced_motion": "reduce"}, one_step=0.5)
+    if "nowebgl" in variants:
+        plan["nowebgl"] = visit("nowebgl", {}, no_webgl=True)
+    if "reduced" in variants:
+        plan["reduced"] = visit("reduced", {"reduced_motion": "reduce"}, one_step=0.5)
     tasks = [asyncio.ensure_future(p) for p in plan.values()]
     try:
         done, pending = await asyncio.wait(tasks, timeout=max(1.0, clock.left() - 4.0))
@@ -1225,6 +1265,18 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
     rep.seconds = time.monotonic() - t_start
     (out / "report.json").write_text(json.dumps(rep.to_dict(), indent=1, default=str))
     return rep
+
+
+def out_dir_for(root: Path, target: str) -> Path:
+    """Where the pictures of ``target`` go: ``<root>/agy3d_site_check/<name>``, one folder per site, replaced on every
+    check (the agent checks often; old frames would only be mistaken for new ones). Never inside the site folder, which
+    gets published."""
+    if re.match(r"^https?://", target, re.I):
+        u = urlsplit(target)
+        name = f"{u.hostname}-{u.port or 80}"
+    else:
+        name = Path(target).name or "site"
+    return Path(root) / "agy3d_site_check" / re.sub(r"[^A-Za-z0-9_.-]", "_", name)
 
 
 def check_site(target: str, **kw) -> SiteReport:

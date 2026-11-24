@@ -77,7 +77,7 @@ log = logging.getLogger("antigravity3d.mcp")
 SERVER_NAME = "antigravity-3d"
 ENGINES = ("unreal_5", "unity_urp", "godot_4", "roblox_r15", "web_three")
 MANAGEMENT_TOOLS = ("open_asset_session", "open_existing_asset", "start_preview", "set_stage", "session_status", "list_sessions",
-                    "install_into_project")
+                    "install_into_project", "check_site")
 SESSION_ID_DOC = "Asset session to act on; omit to use the active (most recently opened or selected) one."
 INSTRUCTIONS = (
     "antigravity-3d asset studio. To change an asset that already exists (a package or a prop folder in the workspace), "
@@ -112,7 +112,7 @@ SCRIPT_INSTRUCTIONS = (
 # What script mode lists: run_build instead of open_asset_session and the stage tools; deliver_package is the one
 # harness tool (the inspector MCP App's tools are added as in the default mode).
 SCRIPT_MANAGEMENT_TOOLS = ("run_build", "open_existing_asset", "start_preview", "session_status", "list_sessions",
-                           "install_into_project")
+                           "install_into_project", "check_site")
 SCRIPT_HARNESS_TOOLS = ("deliver_package",)
 BUILD_TIMEOUT_S = 180.0
 NEXT_STEP = "NEXT: edit the script and run_build again to fix or improve; when it reads as the request, deliver_package(dest=...)."
@@ -955,6 +955,29 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
 
         return await host.run_ordered(go)
 
+    async def check_site(
+        target: Annotated[str, Field(description="The built site: its folder (holds index.html; for Vite, dist/ after the build), "
+                                                 "absolute or relative to the workspace, or a localhost URL of a running server")],
+        ctx: Context,
+        sources: Annotated[str, Field(description="Folder that data-src paths are relative to (the project the site is about); "
+                                                  "default: the site folder")] = "",
+        steps: Annotated[int, Field(description="Scroll positions photographed, evenly from top to bottom (2 to 25)")] = 9,
+        sizes: Annotated[str, Field(description="desktop (1440 x 900), phone (390 x 844), or both, comma-separated")] = "desktop,phone",
+        other_hosts: Annotated[str, Field(description="block (default): requests to other hosts are listed, not made; "
+                                                      "try: make them")] = "block",
+    ) -> str:
+        from antigravity3d.deliver.site_check import acheck_site, out_dir_for
+
+        root = Path(await _workspace_root(ctx))
+        where = target if target.startswith(("http://", "https://")) else str((root / target).resolve())
+        src = str((root / sources).resolve()) if sources else None
+        try:
+            rep = await acheck_site(where, sources=src, steps=steps, sizes=sizes, other_hosts=other_hosts,
+                                    out_dir=out_dir_for(root, where))
+        except ValueError as e:
+            return f"NOT CHECKED: {e}"
+        return rep.text()
+
     open_asset_session.__doc__ = (
         "Open an asset session (new USD stage) and make it active, stage BLOCKOUT. Call this first for a NEW asset; returns the "
         "session line.")
@@ -989,8 +1012,20 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
             "larger') edit only the lines of the parts named in that script and run_build it. An asset not built by a "
             "script cannot be changed in script mode; the answer says so.")
         session_status.__doc__ = "The asset session's budget, whether its design passed the checks, and whether it can be delivered."
-    tools = (run_build, open_existing_asset, start_preview, session_status, list_sessions, install_into_project) if getattr(host, "script", False) \
-        else (open_asset_session, open_existing_asset, start_preview, set_stage, session_status, list_sessions, install_into_project)
+    check_site.__doc__ = (
+        "Look at a built website the way a visitor does, and measure it. Give the site's folder (holds index.html) or a "
+        "localhost URL. It serves the folder under a sub-path, opens it at desktop and phone size, scrolls through it in "
+        "even steps and photographs each one, then answers in plain text: what is broken (errors, failed requests, facts "
+        "that disagree with their source), what a visitor would notice (steps where the 3D canvas is empty or nothing "
+        "changed, sideways scroll on a phone, download weight, other hosts, reduce motion and no-WebGL handling), what the "
+        "scene costs (draw calls, triangles, texture memory) and where the contact sheets are: open them with your file "
+        "viewer. Mark every number and code specimen the page shows with its source, data-src=\"file#/json/pointer\", "
+        "\"file#L10-L14\" or \"file\" (relative to sources), and it is checked against that file. Writes only its "
+        "pictures, under agy3d_site_check/. Answers within 150 s; use it after every change you want to see.")
+    tools = (run_build, open_existing_asset, start_preview, session_status, list_sessions, install_into_project, check_site) \
+        if getattr(host, "script", False) \
+        else (open_asset_session, open_existing_asset, start_preview, set_stage, session_status, list_sessions, install_into_project,
+              check_site)
     return {f.__name__: (f, f.__doc__ or "") for f in tools}
 
 

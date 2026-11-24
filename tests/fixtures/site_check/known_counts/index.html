@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Known counts</title>
+<style>html,body{margin:0;background:#202020}canvas{position:fixed;inset:0;width:100vw;height:100vh}</style></head>
+<body><canvas id="c"></canvas><div style="height:300vh"></div>
+<script type="module">
+// Every frame: 4 draw calls and 118 triangles (10 + 100 + 2 x 4 instances; the LINES call is a draw and no triangle).
+// Textures: 256 x 256 RGBA8 with data and mipmaps (262,144 + 87,381 bytes), 128 x 128 RGBA16F allocated with no data
+// (131,072 bytes, a render target); one 64 x 64 DEPTH_COMPONENT16 render buffer (8,192 bytes).
+// It draws the same picture in every frame, also while nothing moves.
+import { setup, QUAD } from './gl.js';
+const { gl, quad, color } = setup(document.getElementById('c'));
+const pts = [];
+for (let i = 0; i < 30; i++) pts.push(...QUAD.slice((i % 6) * 2, (i % 6) * 2 + 2));
+quad(pts.concat(QUAD));
+const idx = new Uint16Array(300).map((_, i) => i % 30);
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
+gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+const t1 = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t1);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 256, 256, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(256 * 256 * 4));
+gl.generateMipmap(gl.TEXTURE_2D);
+const t2 = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t2);
+gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA16F, 128, 128);
+const rb = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
+gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, 64, 64);
+function counted() {
+  gl.clearColor(0.12, 0.12, 0.12, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  color(0.9, 0.5, 0.1);
+  gl.drawArrays(gl.TRIANGLES, 0, 30);                       // 10 triangles
+  gl.drawElements(gl.TRIANGLES, 300, gl.UNSIGNED_SHORT, 0); // 100 triangles
+  gl.drawArraysInstanced(gl.TRIANGLES, 30, 6, 4);           // 2 triangles x 4 instances
+  gl.drawArrays(gl.LINES, 0, 10);                           // a draw call, no triangles
+  requestAnimationFrame(counted);
+}
+requestAnimationFrame(counted);
+</script></body></html>

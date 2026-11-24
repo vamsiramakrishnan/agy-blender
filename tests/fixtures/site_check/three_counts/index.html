@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>three.js counts</title>
+<script type="importmap">{"imports":{"three":"./three.module.js"}}</script>
+<style>html,body{margin:0;background:#000}canvas{position:fixed;inset:0}</style></head>
+<body><div style="height:300vh"></div>
+<script type="module">
+// three.js's own count of what it drew is put in window.__info after every frame; check_site's count, taken from the
+// WebGL calls, must agree with it. (three.module.js is copied in by the test from $AGY3D_THREE_JS.)
+import * as THREE from 'three';
+const renderer = new THREE.WebGLRenderer({ antialias: false });
+renderer.setPixelRatio(1); renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 100); camera.position.set(0, 0, 12);
+const tex = new THREE.DataTexture(new Uint8Array(64 * 64 * 4).fill(200), 64, 64); tex.needsUpdate = true;
+const mat = new THREE.MeshBasicMaterial({ map: tex });
+for (let i = 0; i < 5; i++) { const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat); m.position.x = i * 1.5 - 3; scene.add(m); }
+const inst = new THREE.InstancedMesh(new THREE.SphereGeometry(0.4, 8, 6), new THREE.MeshBasicMaterial({ color: 0x44aaff }), 7);
+for (let i = 0; i < 7; i++) inst.setMatrixAt(i, new THREE.Matrix4().makeTranslation(i - 3, -2, 0));
+scene.add(inst);
+const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([0, 1, 2, 3, 4, 5].map((i) => new THREE.Vector3(i - 3, 2, 0))), new THREE.LineBasicMaterial());
+scene.add(lines);
+renderer.setAnimationLoop(() => {
+  renderer.render(scene, camera);
+  window.__info = { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles, textures: renderer.info.memory.textures };
+});
+</script></body></html>
