@@ -13,12 +13,15 @@ A second review, of the third site, again traced its two worst faults to the sta
 corrected as well. The owner's own corrections have not been given yet. When they are, they go into the website skill and the run is
 repeated.
 
-**Two measurements are not in yet.** The blind comparison of the three sites and the same request without the
-plugin (a stock agent, as a baseline). Both were started as soon as run 3 was analysed. The model service refused
-their requests for an hour and a half (HTTP 503, high demand); it has answered again since 14:45 UTC, and both are
-running as this is written. Until they are in, nothing below says how any of these sites compares with a stock
-agent's, and the only judgement of how run 3's site looks is mine. A fourth run, with the corrections that the review
-of run 3 led to, follows the baseline.
+**One measurement is not in yet:** the same request without the plugin (a stock agent, as a baseline). The model
+service refused its requests for an hour and a half (HTTP 503, high demand); the fifth attempt has been running since
+14:57 UTC. Until it is in, nothing below says how any of these sites compares with a stock agent's. A fourth run,
+with the corrections that the review of run 3 led to, follows it.
+
+**The blind comparison of the three sites is in** (`results/round8/site_compare_corrected/`), and it does not put
+run 3 above run 2. Both beat run 1 in all six verdicts. Between the two, run 3 is better composed and better laid
+out (six of six each), run 2's 3D looks better made (four of six, two ties) and run 2 explains the project better
+in four of six; the overall verdict is three each, and in all six calls it went to the site shown second.
 
 ## The short answer
 
@@ -66,10 +69,34 @@ them: 44 and 45 s per call at the median, with four and three calls lost after u
 - **16 of the 105 minutes went on a fault of the plugin's own pictures**, and the props were again installed
   without their review being acted on. Both are fixed now and described below.
 
-**How the sites look.** The blind verdicts on the three are not in yet (see the top). The six of this round's
-first comparison, all for run 2 over run 1, were given on frames that had the fault in the check's pictures: a
-48 px black band along the bottom of every frame of both sites. They are kept in `results/round8/site_compare/`
-as what was asked then, and the comparison is being asked again on corrected frames.
+**How the sites look.** A general model judged the three blind, on nine desktop frames of each taken with the
+corrected check: every pair six times, three in each order, never told which run made which
+(`results/round8/site_compare_corrected/verdicts.md` has every verdict with its reasons).
+
+| | every position composed | explains the project | craft of the 3D | type and layout | overall |
+|---|---|---|---|---|---|
+| run 2 against run 1 | run 2, 6 of 6 | run 2, 6 of 6 | run 2, 6 of 6 | run 2, 6 of 6 | run 2, 6 of 6 |
+| run 3 against run 1 | run 3, 6 of 6 | run 3, 6 of 6 | run 3, 4 of 6 | run 3, 6 of 6 | run 3, 6 of 6 |
+| run 3 against run 2 | run 3, 6 of 6 | run 2, 4 of 6 | run 2, 4 of 6, 2 ties | run 3, 6 of 6 | 3 each |
+
+- **Run 3 did not beat run 2.** Its corrections did what they aimed at: no text over the 3D, compact panels, every
+  frame composed. The judge's reasons for run 2 are about what the 3D shows: run 2's machines are open and show
+  their working (a press over the log, rollers that fetch lines, seven lanes for seven hosts), where run 3 "hides
+  the digestion inside a closed box" and shows "closed cabinets"; and run 2's objects have "richer mechanical
+  detail".
+- **The overall verdict between the two followed the order they were shown in.** All three calls with run 2 first
+  chose run 3, and all three with run 3 first chose run 2. For a pair this close, this judge prefers what it saw
+  last; asking both orders is what makes that visible. "Explains the project" leaned the same way (five of its six
+  verdicts went to the site shown second). The other three did not move with the order: composition and layout
+  went to run 3 in every call, and the craft of the 3D to run 2 or to a tie in every call.
+- **The judge sees desktop frames only.** What the review of run 3 found on a phone, and whether a picture travels
+  between two frames, is not in these verdicts.
+- The six verdicts of this round's first comparison, all for run 2 over run 1, were given on frames that had the
+  fault in the check's pictures (a 48 px black band along the bottom of every frame of both sites). They are kept
+  in `results/round8/site_compare/` as what was asked then; the comparison above replaces them.
+
+The judge disagrees with one line of my own reading, which was written before its verdicts and is left as it was: I
+found run 3's instruments more made than run 2's.
 
 My own reading of run 3's frames, as the one who integrated this round:
 
@@ -366,7 +393,11 @@ None of this is shown to make a better site yet. The fourth run is what will sho
 
 ## What is still worse, or not done
 
-- **The baseline and the blind comparison of the three sites**, as said at the top.
+- **The baseline**, as said at the top.
+- **Run 3 is not a better site than run 2 in the blind judgement**, only a tidier one. What it lost is what the 3D
+  shows of the mechanism and how made its objects look. The corrections after run 3 aim at the camera, the travel,
+  the light and numbers shown as counts; only the last of these is about what the 3D explains, and nothing in them
+  is about how a prop is modelled. Whether run 4 closes this is open.
 - **The props' look.** The plugin's review put run 3's props at 2.1 to 2.3 of 4 and run 2's at 1.8 (an
   uncalibrated judge; the targets are 3.3 to 3.4). They were installed as first delivered in both runs. The
   delivery's answer now says to look first; whether a second round makes a better prop on this task is not shown
@@ -402,7 +433,8 @@ None of this is shown to make a better site yet. The fourth run is what will sho
    every map uncompressed: four 4096 px maps are 341 MiB of graphics memory for one prop. 4096 is one parameter
    away and the delivery's answer says what it would give. Other engines are unchanged. Yours to reverse.
 2. **Which site is Straitjacket's front page.** Run 1's is live now. Run 3's is the lightest, sourced, composed at
-   every step on a desktop and a phone, and has the real digest output back; run 2's travels more. A draft pull
+   every step on a desktop and a phone, and has the real digest output back; run 2's travels more, and the blind
+   judge finds that it explains the project better (overall the two are level). A draft pull
    request can put either there; merging is yours.
 3. **Your corrections on three.js and library use.** They go into the skill, and the run is repeated with them.
 4. **A plain prop gets one more round.** The skill tells the agent to open the render of each delivered prop and
@@ -460,8 +492,10 @@ None of this is shown to make a better site yet. The fourth run is what will sho
   files. Encoding side by side gives the same bytes as one by one (a test compares them).
 - **Run 2's site.** Checked by `check_site` after the run, from a copy of the built folder: nothing broken,
   nothing a visitor would notice. Its answer is `results/site_run2_plugin/site_check.txt`.
-- **The blind comparison.** Six calls through `benchmarks/site_compare.py`, each kept with its reasons
-  (`results/round8/site_compare/`). One call was refused by a busy service and asked again.
+- **The blind comparison.** Six calls through `benchmarks/site_compare.py` on the first frames, each kept with its
+  reasons (`results/round8/site_compare/`), and eighteen on the corrected frames of all three sites
+  (`results/round8/site_compare_corrected/`). Seventeen of the eighteen were refused at least once by a busy
+  service and asked again; a kept verdict was never asked twice.
 - **Run 3's site.** Checked by the corrected `check_site` from a copy of the built folder: nothing broken, nothing
   a visitor would notice. Its answer is `results/site_run3_plugin/site_check.txt`. The copy published as a hosted
   page was checked the same way against the agent's build: the same draw calls and triangles, no failed request.
@@ -471,5 +505,5 @@ None of this is shown to make a better site yet. The fourth run is what will sho
   photographs the truth, then takes the layer away and shows that the fault is in the frame and named in the
   answer. The test page found the fault in 12 of 12 rounds without the GPU path and in none of 12 with it.
 - **The look-first line and the Rolldown check**: each with tests; the second also on run 3's real project.
-- **Not verified:** how any of these sites compares with a stock agent's, and how run 3's compares with the first
-  two in a blind judgement. Both are being measured.
+- **Not verified:** how any of these sites compares with a stock agent's (being measured), and whether the
+  corrections made after run 3 give a better site (the fourth run).

@@ -1,0 +1,33 @@
+{
+ "first": "run3",
+ "second": "run2",
+ "rep": 2,
+ "frames": [
+  "1dcbc54532dd39ad",
+  "16663fbe6c17af2f"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 keeps the active 3D machines cleanly separated from the left card across frames 1\u20139, whereas Site 2's text box overlaps the red stacks in frames 1\u20132 and clips at the bottom in frame 7."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2's 3D scene more clearly visualizes the mechanics, showing the yellow needle isolated in frame 3, fetched on rollers in frames 5\u20136, and mapped to seven harness gates in frame 8."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Both sites feature comparable industrial 3D machinery with worn metallic edges, soft ground shadows, and depth fog across all frames (e.g., Site 1 frame 6 and Site 2 frame 4)."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Site 1 keeps its left-aligned cards compact and legible with descriptive top-nav labels in frames 1\u20139, while Site 2's taller card gets cut off at the bottom edge in frame 7."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Despite minor text-card overlap in early frames, Site 2 better fulfills the core request by turning every step\u2014including the quiet needle and multi-harness routing\u2014into an intelligible 3D visualization."
+  }
+ }
+}
