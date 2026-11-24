@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Hangs</title>
+<style>html,body{margin:0;background:#101418}canvas{position:fixed;inset:0;width:100vw;height:100vh}</style></head>
+<body><canvas id="c"></canvas><div style="height:300vh"></div>
+<script type="module">
+// Draws for a second, then a frame callback never returns: every later evaluate and screenshot of this page waits for
+// ever. check_site must still answer, and leave no page of its own running in the shared browser.
+import { setup, QUAD } from './gl.js';
+const { gl, quad, color } = setup(document.getElementById('c'));
+quad(QUAD);
+const t0 = performance.now();
+function frame() {
+  gl.clearColor(0.1, 0.1, 0.1, 1); gl.clear(gl.COLOR_BUFFER_BIT); color(0.9, 0.4, 0.2); gl.drawArrays(gl.TRIANGLES, 0, 6);
+  if (performance.now() - t0 > 1000) { for (;;) {} }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script></body></html>

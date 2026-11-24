@@ -175,7 +175,7 @@ def test_the_answer_leads_with_the_outcome_and_keeps_its_order(tmp_path):
     assert heads == sorted(heads)
     assert len(lines) <= 60
     assert "step 6 of 9 (62%)" in text                                  # the empty canvas
-    assert "nearly vanishes" not in text                                 # every other step shows 30 %
+    assert "shows little" not in text                                    # every other step shows 30 %
     assert "scrolls sideways by up to 40 px; widest: div#wide" in text
     assert "about 7 s on a 10 Mbit/s connection" in text                 # 9 MB, over the stated threshold
     assert "keeps drawing an unchanging picture" in text
@@ -381,9 +381,100 @@ async def test_the_tool_checks_a_folder_of_the_workspace(tmp_path, monkeypatch):
 def test_a_step_where_the_scene_all_but_leaves_the_frame_is_named(tmp_path):
     rep = sc.SiteReport("site", tmp_path, steps=5)
     v = sc.Visit("desktop", loaded=True, load_s=1.0)
-    v.steps = [sc.Step(i, i / 4, 0, canvas_content=c) for i, c in enumerate((0.29, 0.19, 0.03, 0.15, 0.0))]
+    v.steps = [sc.Step(i, i / 4, 0, canvas_content=c, shape=0.5) for i, c in enumerate((0.29, 0.19, 0.03, 0.15, 0.0))]
     rep.visits = {"desktop": v}
     noticed = rep.noticed()
-    assert any("nearly vanishes at step 3 of 5 (50%) (3% of the canvas shows something, against 15% at a typical step)" in n
+    assert any("shows little at step 3 of 5 (50%) (3% of it shows something, against 15% at a typical step; one solid "
+               "shape is 50% of that)" in n
                for n in noticed), noticed
     assert any("nothing but its background at step 5 of 5 (100%)" in n for n in noticed)
+
+
+def _contexts_alive() -> int:
+    """Browser contexts open in the process's shared browser (0 when it is not running)."""
+    from antigravity3d.adapters.engines import web_browser
+
+    async def count() -> int:
+        s = web_browser.SHARED._session
+        return len(s.browser.contexts) if s is not None and s.alive() else 0
+
+    return web_browser.SHARED.submit(count()).result(30)
+
+
+@pytest.mark.browser
+def test_a_page_that_hangs_is_left_behind_closed_and_the_next_check_works(tmp_path):
+    """At the bound a visit stuck in its page is cancelled; web_browser.SHARED.run closes the cancelled visit's context
+    (or discards the browser), and the answer waits for that, so nothing of the check is left running."""
+    from antigravity3d.adapters.engines import web_browser
+
+    # another user of the shared browser (an asset verification in the same server) keeps it running: so its contexts
+    # are what is counted, not a browser closed because the check was its last user
+    other = web_browser.SHARED.lease()
+    try:
+        budget = sc.WRAP_UP_S + 12
+        t0 = time.monotonic()
+        r = run(site(tmp_path, "hangs"), tmp_path, steps=5, budget_s=budget)
+        assert time.monotonic() - t0 < budget + 3
+        assert r.unfinished and "stopped at its" in r.text()
+        assert _contexts_alive() == 0
+    finally:
+        other.release(keep=False)
+    again = run(site(tmp_path, "known_counts"), tmp_path / "again", steps=2)
+    assert {(s.draws, s.triangles) for s in again.visits["desktop"].steps} == {(4, 118)}
+
+
+@pytest.mark.browser
+def test_a_page_that_never_finishes_loading_is_reported_and_closed(tmp_path):
+    import http.server
+    import threading
+
+    class Hanging(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802  the method name http.server dispatches a GET to
+            if self.path.startswith("/hang"):
+                time.sleep(120)  # never within the check's time
+                return
+            body = b"<!doctype html><title>Never loads</title><p>waiting</p><img src='/hang.png'>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Hanging)
+    srv.daemon_threads = True
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        budget = sc.WRAP_UP_S + 12
+        t0 = time.monotonic()
+        r = sc.check_site(f"http://localhost:{srv.server_address[1]}/", out_dir=tmp_path / "out", steps=3,
+                          sizes=("desktop",), variants=(), budget_s=budget)
+        assert time.monotonic() - t0 < budget + 3
+        assert not r.visits["desktop"].loaded and "did not load at desktop size" in r.text()
+        assert _contexts_alive() == 0
+    finally:
+        srv.shutdown()
+
+
+def test_the_pictures_never_go_inside_the_site(tmp_path):
+    (tmp_path / "index.html").write_text("<p>a site built at the workspace root</p>")
+    out = sc.out_dir_for(tmp_path, str(tmp_path))
+    assert not out.is_relative_to(tmp_path.resolve()) and out.is_absolute()
+    with pytest.raises(ValueError, match="inside the site"):
+        sc.check_site(str(tmp_path), out_dir=tmp_path / "shots")
+
+
+def test_one_solid_shape_scores_high_and_scattered_lines_low():
+    bg = np.full((400, 640, 3), 20)
+    prop = bg.copy()
+    prop[180:240, 300:360] = (200, 150, 90)      # a small prop, framed wide on purpose
+    prop[244:250, 290:370] = (60, 60, 60)        # its shadow, a little apart
+    assert sc.largest_shape(jpeg(prop)) > 0.7
+    left = bg.copy()
+    for x in range(0, 640, 80):
+        left[:, x:x + 3] = 90                    # grid lines and an arc: what is left when the subject has gone
+    left[300:304, 50:600] = 120
+    assert sc.largest_shape(jpeg(left)) < 0.5
+    assert sc.largest_shape(jpeg(bg)) == 0.0

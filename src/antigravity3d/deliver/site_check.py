@@ -29,12 +29,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import io
 import json
 import logging
 import math
 import os
 import re
+import tempfile
 import textwrap
 import threading
 import time
@@ -48,9 +50,14 @@ import numpy as np
 #: the whole check answers within this many seconds. Antigravity ends a tool call after 180 s (run 1, transcript rows 12
 #: and 32); 150 s is the bound every long tool of this plugin answers within (``DELIVER_ANSWER_S``).
 ANSWER_S = 150.0
-#: the visits stop taking new pictures this long before ``ANSWER_S``: closing the contexts, the contact sheets and the
-#: facts need the rest.
-WRAP_UP_S = 12.0
+#: the visits stop taking new pictures this long before ``ANSWER_S``: a step under way may take 8 s more, then closing
+#: the contexts, the contact sheets and the facts need the rest.
+WRAP_UP_S = 20.0
+#: A visit still running this long before the answer is stuck in its page (a frame callback that never returns, a
+#: screenshot that never comes): it is cancelled, and the answer waits this long for its browser context to close, so
+#: no page of this check is left running in the shared browser. web_browser closes a cancelled visit's context within
+#: CLOSE_TIMEOUT_S, or discards the browser.
+STUCK_S = 11.0
 
 #: The two sizes: a common laptop viewport, and a common phone's CSS viewport (390 x 844, iPhone 12 to 15). Both at a
 #: device pixel ratio of 1: software WebGL draws every pixel on the CPU, and three times the pixels would cost three
@@ -141,9 +148,11 @@ class Step:
     settle_s: float = 0.0
     motion: str = "still"   # how the picture settled: still | ambient | moving (see _Visitor.settle)
     canvas_content: float | None = None  # share of the canvas showing something other than its background
+    shape: float | None = None  # share of that which is one solid shape (largest_shape)
     unchanged: bool = False
     draws: int = 0
     triangles: int = 0
+    shown_triangles: int = 0  # triangles of the latest frame that drew: the picture the step's frame shows
     sideways_px: int = 0
     reached_by: str = "scroll"
 
@@ -236,9 +245,12 @@ class SiteReport:
                 thin = [s for s in v.steps if s.canvas_content is not None and EMPTY_CONTENT <= s.canvas_content
                         < NEARLY_EMPTY * median]
                 if thin:
-                    out.append(f"{name.capitalize()}: the 3D nearly vanishes at " + _steps_list(thin, self.steps)
-                               + " (" + ", ".join(f"{s.canvas_content:.0%}" for s in thin) + f" of the canvas shows "
-                               f"something, against {median:.0%} at a typical step).")
+                    out.append(f"{name.capitalize()}: the 3D canvas shows little at " + _steps_list(thin, self.steps)
+                               + " (" + ", ".join(f"{s.canvas_content:.0%}" for s in thin) + " of it shows something, "
+                               f"against {median:.0%} at a typical step; one solid shape is "
+                               + ", ".join("-" if s.shape is None else f"{s.shape:.0%}" for s in thin)
+                               + " of that). Look at those frames: a small subject framed on purpose is usually one "
+                               "solid shape; what is left when the subject has gone (grid lines, arcs) is scattered.")
             same = [s for s in v.steps if s.unchanged]
             if same:
                 out.append(f"{name.capitalize()}: the picture did not change at all from the step before at "
@@ -621,6 +633,29 @@ def canvas_content(jpeg: bytes) -> float:
     bg = a.reshape(-1, 3)[keys == mode].mean(axis=0)
     far = (np.abs(a.reshape(-1, 3) - bg) > 0.08 * 255).any(axis=1)
     return float(far.mean())
+
+
+def largest_shape(jpeg: bytes) -> float:
+    """Share of what a canvas-only frame shows that is one solid shape: the largest connected region of the content mask
+    (1/4 size, same rule as ``canvas_content``) after an opening of two pixels, over the whole mask. A subject composed small is one
+    shape and scores high (the skill's starter, its wide closing shot: 0.90 to 0.98); what is left when the subject has
+    gone, grid lines and an arc, scores lower (run 1 at 62 %: 0.53 to 0.63 over three checks). It is no verdict: the
+    film's opening frame, composed on purpose of many small things, scores 0.26. So it is given as a number beside the
+    finding and the agent looks at the frame."""
+    from PIL import Image
+    from scipy import ndimage
+
+    im = Image.open(io.BytesIO(jpeg)).convert("RGB")
+    im = im.reduce(4) if min(im.size) >= 64 else im
+    a = np.asarray(im, dtype=np.int16)
+    q = (a // 16).reshape(-1, 3)
+    keys = q[:, 0] * 256 + q[:, 1] * 16 + q[:, 2]
+    bg = a.reshape(-1, 3)[keys == np.bincount(keys).argmax()].mean(axis=0)
+    far = (np.abs(a - bg) > 0.08 * 255).any(axis=2)
+    if not far.any():
+        return 0.0
+    labels, n = ndimage.label(ndimage.binary_opening(far, iterations=2))  # thin lines go, a shape keeps its size
+    return float(np.bincount(labels.ravel())[1:].max() / far.sum()) if n else 0.0
 
 
 def contact_sheet(frames: list[tuple[str, str, bool]], out: Path, thumb_w: int, cols: int) -> None:
@@ -1053,7 +1088,8 @@ class _Visitor:
             end = await page.evaluate("window.__agySite.stepEnd(false)")
             w = end["win"]
             step = Step(i, share, round(end["y"]), settle_s=round(secs, 2), motion=motion, reached_by=how,
-                        draws=int(w.get("maxDraws", 0)), triangles=int(w.get("maxTris", 0)))
+                        draws=int(w.get("maxDraws", 0)), triangles=int(w.get("maxTris", 0)),
+                        shown_triangles=int((end.get("last") or {}).get("tris", 0)))
             f = self.out / f"{self.v.name}_{i:02d}.jpg"
             f.write_bytes(shot)
             step.frame = str(f)
@@ -1063,6 +1099,7 @@ class _Visitor:
                 cf.write_bytes(cshot)
                 step.canvas_frame = str(cf)
                 step.canvas_content = round(canvas_content(cshot), 4)
+                step.shape = round(largest_shape(cshot), 3)
             if sideways:
                 step.sideways_px = int(end["sideways"]["over"])
                 for c in end["sideways"]["culprits"]:
@@ -1167,7 +1204,10 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
     clock = _Clock(t_start, budget_s)
     steps = max(2, min(int(steps), 25))
     folder, url = _resolve_target(str(target))
-    out = Path(out_dir) if out_dir else out_dir_for(Path.cwd(), str(folder or url))
+    out = Path(out_dir).resolve() if out_dir else out_dir_for(Path.cwd(), str(folder or url))
+    if folder is not None and out.is_relative_to(folder.resolve()):
+        raise ValueError(f"the pictures would go into {out}, inside the site, where the next check would weigh them and "
+                         f"the site would publish them; give an output folder outside {folder}")
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.jpg"):
         old.unlink()
@@ -1193,6 +1233,7 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
         rep.visits[name] = vis.v
 
         async def run(_session, ctx) -> None:
+            opened.append((_session, ctx))
             await ctx.route("**/*", vis.gate)
             page = await ctx.new_page()
             await vis.attach(ctx, page)
@@ -1235,6 +1276,7 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
             await web_browser.SHARED.run(run, exe=exe, args=_launch_args(), context_options=opts)
 
     lanes = asyncio.Semaphore(LANES)
+    opened: list = []
 
     plan = {}
     if "desktop" in sizes:
@@ -1249,11 +1291,14 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
         plan["reduced"] = visit("reduced", {"reduced_motion": "reduce"}, one_step=0.5)
     tasks = [asyncio.ensure_future(p) for p in plan.values()]
     try:
-        done, pending = await asyncio.wait(tasks, timeout=max(1.0, clock.left() - 4.0))
+        done, pending = await asyncio.wait(tasks, timeout=max(1.0, clock.left() - STUCK_S))
         for t in pending:
             t.cancel()
         if pending:
-            await asyncio.wait(pending, timeout=5.0)
+            await asyncio.wait(pending, timeout=2.0)
+            # A cancelled visit's own task ends at once; its context is closed on the browser's thread
+            # (web_browser.SharedChromium._in_context). The answer waits for that, so no page of this check outlives it.
+            await _closed(opened, STUCK_S - 3.0)
         for name, t in zip(plan, tasks):
             if t in pending and name not in ("desktop", "phone"):
                 rep.unfinished.append(VISIT_LABEL[name])
@@ -1292,6 +1337,25 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
     return rep
 
 
+async def _closed(opened: list, timeout: float) -> None:
+    """Wait until no context of ``opened`` (session, context) is open; one still open after ``timeout`` has its browser
+    discarded, as web_browser does with a context that will not close."""
+    from antigravity3d.adapters.engines import web_browser
+
+    async def alive() -> list:
+        return [(s, c) for s, c in opened if s.alive() and c in s.browser.contexts]
+
+    t0 = time.monotonic()
+    while left := await asyncio.wrap_future(web_browser.SHARED.submit(alive())):
+        if time.monotonic() - t0 > timeout:
+            for s in {id(s): s for s, _ in left}.values():
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(asyncio.wrap_future(web_browser.SHARED.submit(web_browser.SHARED._discard(s))), 15)
+            _log.warning("check_site: %d browser context(s) would not close; the browser was discarded", len(left))
+            return
+        await asyncio.sleep(0.2)
+
+
 def out_dir_for(root: Path, target: str) -> Path:
     """Where the pictures of ``target`` go: ``<root>/agy3d_site_check/<name>``, one folder per site, replaced on every
     check (the agent checks often; old frames would only be mistaken for new ones). Never inside the site folder, which
@@ -1299,9 +1363,17 @@ def out_dir_for(root: Path, target: str) -> Path:
     if re.match(r"^https?://", target, re.I):
         u = urlsplit(target)
         name = f"{u.hostname}-{u.port or 80}"
-    else:
-        name = Path(target).name or "site"
-    return Path(root) / "agy3d_site_check" / re.sub(r"[^A-Za-z0-9_.-]", "_", name)
+        return Path(root) / "agy3d_site_check" / re.sub(r"[^A-Za-z0-9_.-]", "_", name)
+    site = Path(target).resolve()
+    name = re.sub(r"[^A-Za-z0-9_.-]", "_", site.name or "site")
+    out = Path(root).resolve() / "agy3d_site_check" / name
+    if out.is_relative_to(site):
+        # The site is the workspace itself (built at its root, or target="."): any folder of the workspace would be
+        # served, weighed and photographed by the next check, and published with the site. The system's temporary
+        # folder is outside it; the answer names the absolute path.
+        digest = hashlib.sha256(str(site).encode()).hexdigest()[:8]
+        out = Path(tempfile.gettempdir()) / "agy3d_site_check" / f"{name}-{digest}"
+    return out
 
 
 def check_site(target: str, **kw) -> SiteReport:

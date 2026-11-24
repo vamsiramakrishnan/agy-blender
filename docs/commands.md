@@ -341,7 +341,7 @@ How each finding is decided (the only thresholds; everything else is reported as
 | Finding | Rule | Why |
 |---|---|---|
 | the 3D canvas shows nothing | under 1 % of the canvas (at 1/8 size) differs from its most common colour by more than 8 % | at 1/8 size the 1 px lines of a helper grid average away; an object does not. 1 % of a desktop canvas is a 120 x 108 px patch |
-| the 3D nearly vanishes | the canvas shows something on under a quarter of the share it shows at the page's median step | the scene has all but left the frame between chapters (run 1 at 62 %: a grid and one arc, 4 % against 19 %) |
+| the 3D canvas shows little | the canvas shows something on under a quarter of the share it shows at the page's median step; the answer adds how much of that is one solid shape (the largest region after an opening of two pixels at 1/4 size) | the scene may have left the frame between chapters (run 1 at 62 %: a grid and one arc, 4 % against 19 %, one shape 53 to 63 % of it), or a small subject is framed on purpose (the skill's starter, its wide closing shot: 3 to 5 %, one shape 90 to 98 %). The shape share is a hint, not a rule: the film's opening, many small things composed on purpose, scores 26 %. The frames tell which |
 | the picture did not change | mean difference to the step before under 0.2 % (1/4-size grey frame) | the scroll moved and nothing on screen did |
 | sideways scroll on a phone | the page is wider than the viewport by more than 1 px | a visitor's thumb finds it |
 | the download is heavy | the bytes take more than 5 s on a 10 Mbit/s connection | the first impression is over by then |

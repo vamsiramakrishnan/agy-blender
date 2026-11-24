@@ -82,7 +82,7 @@
   let hider = null;
   // After a step's frame: the frame counts, where the page is, and (hide) the WebGL canvas alone on screen, two frames on.
   S.stepEnd = (hide) => new Promise((done) => {
-    const out = { win: S.mark(), y: S.y(), sideways: sideways(), rect: canvasRect() };
+    const out = { win: S.mark(), last: S.lastDrawn || null, y: S.y(), sideways: sideways(), rect: canvasRect() };
     if (!hide || !out.rect) { done(out); return; }
     hider = document.createElement('style');
     hider.textContent = '*{visibility:hidden!important;transition:none!important}canvas[data-agy3d-gl]{visibility:visible!important}';
@@ -130,6 +130,7 @@
     if (c.draws > 0) w.drawn++;
     if (c.draws > w.maxDraws) w.maxDraws = c.draws;
     if (c.tris > w.maxTris) w.maxTris = c.tris;
+    if (c.draws > 0) S.lastDrawn = c;  // the latest frame that drew: what is on screen now
     S.cur = { draws: 0, tris: 0 };
     for (let i = waiting.length - 1; i >= 0; i--) if (waiting[i].at <= S.frames) waiting.splice(i, 1)[0].done(S.frames);
     raf(tick);
