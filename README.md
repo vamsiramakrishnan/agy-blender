@@ -62,8 +62,9 @@ With React Three Fiber: `<MilitarySupplyCrate />` in a `<Canvas>`, from `./agy3d
 broken, what a visitor would notice, what the page weighs and what its 3D costs, with a contact sheet of every
 scroll step. A number or a code sample on the page that names its source file (`data-src`) is compared with that
 file. Where the page says where its 3D subjects are, as a site built from the skill's starter does, the check also
-names the props and labels that sit under the text panel or are cut by the frame's edge. The agent has the same
-check as a tool and uses it after every change:
+names the props and labels that sit under the text panel or are cut by the frame's edge, and saves a still of
+each chapter for the page a visitor gets without WebGL. The agent has the same check as a tool and uses it after
+every change:
 
 ```text
 SITE CHECKED in 23 s: nothing broken, 0 things a visitor would notice. ...

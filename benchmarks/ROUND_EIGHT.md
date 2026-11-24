@@ -215,6 +215,10 @@ What has been done about it so far:
   - a lost WebGL context is redrawn with its lighting rebuilt, or the page becomes the article;
   - a shot can name what it is about, labels are registered, and the page reports where each is on screen, which
     is what the site check above reads.
+- **The check writes the stills for the page without WebGL.** Run 2's agent wrote its own screenshot script for
+  them, twice, because the first set had a scrollbar in every picture. Where a page lists its chapters, the check
+  now saves each chapter's resting picture, the 3D canvas alone, as a 1280 px WebP (41 to 64 kB each on run 2's
+  scenes), and the skill's recipe says to copy them.
 
   Left as it is in the starter and known: the article layout shows for a moment before the 3D takes over; a label
   tied to a prop appears and disappears with it instead of rising with it; once a lost context has turned the page
@@ -262,8 +266,10 @@ the ones the blind judge saw, and the documentation now says so.
 - **A quick call made together with a slow one waits for it.** The server runs tool calls in the order they
   arrive. In run 2 the agent twice opened the next prop's session in the same turn as a delivery or an install,
   and that call waited up to 117 s. It cost no time there, because the host returns a turn's answers together.
-- **The check's measures move a little between visits** on a page that never comes to rest, and one of its browser
-  tests failed once while two other jobs were using the machine's four cores.
+- **The check's measures move a little between visits** on a page that never comes to rest. One of them was wrong
+  on a loaded machine: "the picture stays still while nothing is touched" compared two pictures a second and a
+  half apart, and a motion that repeats can show the same picture at both. It failed its own test twice this round
+  and now takes three pictures at uneven intervals.
 
 ## Decisions for you
 
