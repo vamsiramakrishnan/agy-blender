@@ -148,7 +148,8 @@ def finding_lines(review: Mapping[str, Any], not_delivered: Iterable[str] = ()) 
     if review.get("escalated"):
         lines.append(f"blocked: {judge} escalated this design to a person")
     if review.get("where") and any(ln.startswith(("finding:", "blocked:")) for ln in lines):
-        lines.append("where to look: " + ", ".join(review["where"]))
+        base = f" (in {review['where_relative_to']})" if review.get("where_relative_to") else ""
+        lines.append("where to look: " + ", ".join(review["where"]) + base)
     return lines
 
 

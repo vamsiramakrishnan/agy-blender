@@ -1382,6 +1382,7 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
             s.revoke_approval()
             return "REFUSED material files changed after visual QA; render and evaluate again"
         b = await _bundle(s)
+        review_lines: list[str] = []  # the review's findings as the answer says them (the manifest's copy names no machine path)
         qa = {"tier1_ok": st.last_tier1_ok, "tier15": round(st.last_tier15_score, 3),
               "action": st.verdict.action, "revision": st.revision, "target": st.budget.target_engine,
               "renderer": st.verdict.renderer, "backend": st.verdict.backend, "audit": st.audit_deltas[-2:]}
@@ -1400,7 +1401,8 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
                     return f"REFUSED {reason}"
                 pkg.data.update(preview_label(s))
                 if findings := _review_findings(s):  # the review of an uncalibrated judge: what it found ships with it
-                    pkg.data["review"] = findings[0]
+                    pkg.data["review"] = _shipped_review(s, findings[0])
+                    review_lines = findings[1]
             elif reason := await _verify_engine(s, pkg, asset):
                 return f"REFUSED {reason}"
             # Last step before the manifest: the FBX is written into this private directory, after every other step has
@@ -1434,7 +1436,7 @@ async def export_engine_package(ctx: ToolContext, out_name: str) -> str:
     judge = pkg.data["judge"]["label"] if st.preview else "Decisions"
     review = (f"review: {st.verdict.action} by {judge} at tier15 {st.last_tier15_score:.2f} on revision {st.revision}"
               + ("; the judge is uncalibrated: a person must look at it before it ships" if st.preview else ""))
-    lines = pkg.data.get("review", {}).get("findings") or []  # one sentence per finding, for the agent and the person
+    lines = review_lines  # one sentence per finding, for the agent and the person
     return (f"{head}: usd+glb, {pkg.n_lod_files} LOD glbs, {len(b.colliders)} UCX hulls, "
             f"{len(pkg.data['textures'])} maps, manifest.json | pkg ok | delivered: yes, package validation passed and no "
             f"engine check refused it (manifest lists what ran) | {review} | {fbx_note}" + (f" | spend {s.governor.summary()}" if st.preview else "")
@@ -1530,6 +1532,24 @@ def _review_findings(s: Session) -> tuple[dict[str, Any], list[str]] | None:
     review = delivery.review_record(res, s.thresholds, s.plane, where=[str(p) for p in last.get("views", [])])
     review["findings"] = delivery.finding_lines(review)
     return review, review["findings"]
+
+
+def _shipped_review(s: Session, review: dict[str, Any]) -> dict[str, Any]:
+    """The review as the manifest carries it: the renders it points at are named relative to the session's folder, never
+    by this machine's path. The manifest travels with the package and the installer copies it into the developer's
+    project: after run 2 of the website task three manifests in the built project held the absolute path of the
+    session's lookdev render (``review.where`` and the "where to look" line). The tool's answer keeps the full path."""
+    from antigravity3d import delivery
+
+    where = []
+    for w in review.get("where") or []:
+        try:
+            where.append(Path(w).resolve().relative_to(s.workdir.resolve()).as_posix())
+        except (ValueError, OSError):
+            where.append(Path(w).name)
+    out = {**review, "where": where, "where_relative_to": "the session folder of the run that made this package"}
+    out["findings"] = delivery.finding_lines(out)
+    return out
 
 
 def preview_label(s: Session) -> dict[str, Any]:

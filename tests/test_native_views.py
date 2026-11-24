@@ -164,6 +164,35 @@ async def test_uncalibrated_preview_exports_with_its_findings(tmp_path):
     assert manifest["review"]["status"] == "below_target" and manifest["review"]["findings"] and manifest["verified"] is False
 
 
+async def test_the_manifest_names_the_reviewed_render_without_this_machines_path_and_the_answer_keeps_it(tmp_path):
+    """Run 2 of the website task: the installer copied three manifests into the built project, each holding the
+    absolute path of its session's lookdev render (``review.where`` and the "where to look" line)."""
+    env = make_session(tmp_path, client=FakeDecisionsClient(uncalibrated=True, default_score=2.6), stage="BLOCKOUT")
+    S.switch_to_preview(env.reg, env.sid, 400_000, 0)
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    S.set_toolset(env.reg, env.sid, "LOOKDEV")
+    env.state.active_stage = "LOOKDEV"
+    assert (await T.run_visual_qa(env.ctx)).startswith("QA[lookdev]")
+    s = env.sess()
+    render = s.artifacts_dir / "lookdev_eevee_0123.png"
+    render.parent.mkdir(parents=True, exist_ok=True)
+    render.write_bytes(b"png")
+    elsewhere = tmp_path / "private" / "other.png"
+    s._set("last_review", {**s._res("last_review"), "views": [render, elsewhere]})  # as a lookdev render leaves them
+    S.set_toolset(env.reg, env.sid, "EXPORT")
+    env.state.active_stage = "EXPORT"
+    r = await T.export_engine_package(env.ctx, "crate")
+    if r.startswith("REFUSED"):
+        assert "export blocked" not in r, r
+        return
+    assert f"where to look: {render}" in r  # the agent and the person are told where the file is
+    text = (s.export_dir / "crate" / "manifest.json").read_text()
+    review = json.loads(text)["review"]
+    assert review["where"] == ["artifacts/lookdev_eevee_0123.png", "other.png"] and "session folder" in review["where_relative_to"]
+    assert review["findings"][-1].startswith("where to look: artifacts/lookdev_eevee_0123.png, other.png (in the session folder")
+    assert str(tmp_path) not in text and str(Path.home()) not in text
+
+
 # ---- surfaces are said at the moment they matter; a call's maps are screened together --------------------------
 
 async def test_a_session_without_images_and_lookdev_say_what_happens_to_surfaces(tmp_path):
