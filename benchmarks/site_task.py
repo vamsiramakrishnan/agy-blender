@@ -286,7 +286,8 @@ def stage_tree(src: Path, dst: Path, work: Path, links: list[str], skip: tuple[s
 # Never the agent's source: installed packages, caches, the plugin's own folders (its packages and sessions are the
 # plugin's output, kept in the raw run) and the build output that ``dist`` and the built site duplicate.
 NOT_SOURCE_DIRS = ("node_modules", ".git", ".vite", ".cache", ".parcel-cache", ".turbo", ".next", "__pycache__", ".npm")
-NOT_SOURCE_TOP = (".agents", ".agy3d", "agy3d_assets", "dist")
+# ``agy3d_site_check`` holds the pictures the plugin's site check took for the agent: looked at, not written.
+NOT_SOURCE_TOP = (".agents", ".agy3d", "agy3d_assets", "agy3d_site_check", "dist")
 # The plugin's installer also writes its skills into the workspace's ``skills/`` before the session starts (seen in the
 # offline plugin run); for the stock arm a ``skills/`` folder can only be the agent's own.
 PLUGIN_TOP = ("skills",)
@@ -330,6 +331,27 @@ def copy_site_src(files: list[tuple[Path, Path]], dst: Path, scrub: Scrubber) ->
     return omitted
 
 
+CLIPPED = re.compile(r"(.*)\.\.\.\[(\d+) more chars\]", re.S)  # how the run's event log ends a text it cut
+
+
+def whole_final_text(final: str, transcript: Path) -> str:
+    """The agent's final report, whole. The event log of a run keeps the start of a long text and says how many
+    characters it left out; the relay's transcript holds the model's last reply. Where that reply continues the kept
+    start exactly, the report is put together from the two; where it does not, the cut text is returned as it is."""
+    m = CLIPPED.fullmatch(final or "")
+    if not m or not transcript.is_file():
+        return final
+    kept, more = m.group(1), int(m.group(2))
+    last = ""
+    for line in transcript.read_text().splitlines():
+        try:
+            last = json.loads(line).get("reply_text") or last
+        except ValueError:
+            continue
+    head = last[:len(last) - more] if 0 < more < len(last) else None
+    return kept + last[len(last) - more:] if head and kept.endswith(head) else final
+
+
 def collect(work_root: Path, out: Path) -> dict[str, Any]:
     """Write the result folder ``out`` from the run in ``work_root``. Safe to run again. The workspace is what the agent
     left on a host folder: nothing here follows a link out of it (see ``resolve_in_workspace``), and what is named
@@ -355,7 +377,7 @@ def collect(work_root: Path, out: Path) -> dict[str, Any]:
     put("record.json", json.dumps(asdict(rec), indent=1, default=str))
     events = run_dir / "events.jsonl"
     put("events.jsonl", events.read_text() if events.exists() else "")
-    put("report.md", rec.final_text or "(the agent wrote no final report)\n")
+    put("report.md", whole_final_text(rec.final_text, run_dir / "transcript.jsonl") or "(the agent wrote no final report)\n")
     narrow = None
     if meta.get("site_src"):
         narrow = ca.resolve_in_workspace(work, meta["site_src"], links)

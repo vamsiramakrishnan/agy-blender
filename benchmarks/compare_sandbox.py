@@ -739,7 +739,9 @@ async def run_agent(cfg: dict, emit: Events) -> None:
                     emit("history_error", error=repr(e)[:300])
     except Exception as e:  # noqa: BLE001
         status, err = "crashed", f"{type(e).__name__}: {e}"[:2000]
-    emit("end", status=status, text=_short(text, 8000), stop_reason=stop, error=err,
+    # The final report is what the run hands over in words, so it is kept whole: a site's ran to 10,900 characters and
+    # was cut at 8,000 (site_task's collect puts such a one together again from the relay's transcript).
+    emit("end", status=status, text=_short(text, 60000), stop_reason=stop, error=err,
          usage=usage.model_dump(mode="json", exclude_none=True) if usage is not None else None,
          wall_s=round(time.monotonic() - t0, 2))
 

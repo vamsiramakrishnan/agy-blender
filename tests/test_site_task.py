@@ -438,6 +438,44 @@ def test_the_agents_source_is_what_it_made_or_changed_wherever_it_put_it(mods, t
     assert "binary" in omitted[0] and "614400 bytes" in omitted[1]
 
 
+def test_the_pictures_the_site_check_took_for_the_agent_are_not_its_source(mods, tmp_path):
+    """Run 2's result folder listed 92 frames of ``agy3d_site_check/`` among the site's source files."""
+    st = mods[1]
+    wr, work, meta = fake_run(mods, tmp_path)
+    manifest = json.loads((wr / "seed_manifest.json").read_text())
+    for rel in ("src/main.js", "agy3d_site_check/site/desktop_00.jpg", "agy3d_site_check/site/report.json"):
+        (work / rel).parent.mkdir(parents=True, exist_ok=True)
+        (work / rel).write_text("x")
+    assert sorted(str(r) for _, r in st.agent_files(work, manifest, "site", None, [])) == ["src/main.js"]
+
+
+def test_a_final_report_the_event_log_cut_is_whole_in_the_result_folder(mods, tmp_path):
+    """Run 2's report was 10,881 characters; the event log kept 8,000 and the result folder's report.md ended mid-word."""
+    ca, st, _ = mods
+    wr, work, meta = fake_run(mods, tmp_path)
+    run = wr / "runs" / "site_stock"
+    said_before, reply = "One more build first.", "Built the site. " + "It has seven chapters. " * 500 + "THE END"
+    whole = said_before + reply
+    cut = whole[:8000] + f"...[{len(whole) - 8000} more chars]"
+    transcript = run / "transcript.jsonl"
+    transcript.write_text(json.dumps({"reply_text": "an earlier turn"}) + "\n" + json.dumps({"reply_text": ""}) + "\n"
+                          + json.dumps({"reply_text": reply}) + "\n")
+    assert st.whole_final_text(cut, transcript) == whole
+    assert st.whole_final_text("short and whole", transcript) == "short and whole"
+    assert st.whole_final_text(cut, run / "missing.jsonl") == cut
+    # a transcript whose last reply is some other text (or was itself cut) proves nothing: the cut text stays as it is
+    transcript.write_text(json.dumps({"reply_text": "x" * 9000}) + "\n")
+    assert st.whole_final_text(cut, transcript) == cut
+    transcript.write_text(json.dumps({"reply_text": reply[:len(reply) - 50]}) + "\n")
+    assert st.whole_final_text(cut, transcript) == cut
+    # through collect: the record holds the cut text, report.md the whole one
+    transcript.write_text(json.dumps({"reply_text": reply}) + "\n")
+    rec = ca.RunRecord("site", "A", status="finished", account="site:stock", final_text=cut)
+    (run / "record.json").write_text(json.dumps(__import__("dataclasses").asdict(rec)))
+    st.collect(wr, tmp_path / "out")
+    assert (tmp_path / "out" / "report.md").read_text() == whole
+
+
 def test_source_text_that_still_holds_a_path_of_this_machine_is_left_out_and_named(mods, tmp_path):
     st = mods[1]
     work = tmp_path / "w"
