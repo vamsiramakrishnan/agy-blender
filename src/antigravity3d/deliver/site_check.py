@@ -26,7 +26,11 @@ Given a folder that holds a built site (``index.html``) or a localhost URL it:
    came back clean while the gate sat under the text panel and labels ran off the frame at several steps. Where the
    page also flags the shot's subject, it says whether the picture travels with the scroll, whether every picture is
    the same kind of shot, and which labels are too small where the shot is about them: run 3's phone layout held the
-   gate in one place for half the scroll, and nothing in the answer said so;
+   gate in one place for half the scroll, and nothing in the answer said so. After the steps it reads the subjects at
+   four times as many positions between them (no picture), since what the steps alone find depends on where they stop
+   (run 4: twelve steps named no subject out of the frame, nine named six), and it names nothing as cut or hidden
+   where the page says its camera is between two shots (``info().moving``). It also measures how far the shot's
+   subject stands from its ground: run 4's dark steel on a dark floor read as holes in the picture, and nothing said so;
 9. where the page names its chapters and where each rests (``window.__site.chapters()``, ``setProgress``), writes one
    still per chapter for the page without WebGL, the 3D canvas alone, as ``stills/<chapter id>.webp``. Run 2's agent
    wrote a screenshot script for those twice (the first set had a scrollbar in every picture).
@@ -107,6 +111,21 @@ EMPTY_CONTENT = 0.01
 #: left the frame between chapters (run 1 at 62 %: a grid and one arc, 4 % of the canvas, against 19 % elsewhere; the
 #: film's quietest step is 9 % against 21 %).
 NEARLY_EMPTY = 0.25
+#: The shot's subject against its ground (``subject_contrast``): three quarters of the pixels where the subject stands
+#: within this share of full scale of the background's colour read as a hole in the picture. Run 4's site
+#: (benchmarks/results/site_run4_plugin: dark steel on a dark floor; the blind judge said "dark machinery blends into
+#: the dark floor" in every verdict on craft that went against it) measured 5 to 9 % at seven of nine steps on the
+#: desktop and five on the phone (round 8's frames3/run4: desktop 6 6 8 5 7 36 29 9 6, phone 7 7 10 5 9 31 33 16 6);
+#: run 3 (frames3/run3) 25 to 32 % on the desktop and 13 to 20 % on the phone. 10 % lies between.
+CONTRAST_LOW = 0.10
+#: The line is said when the measure is under the limit at this share of the steps that have one, and at
+#: CONTRAST_STEPS of them at least: one dark step is a moment (a chapter set at night), a third of the scroll is the
+#: site's look.
+CONTRAST_SHARE = 1 / 3
+CONTRAST_STEPS = 2
+#: No measure where the subject's box, clipped to the frame, is under this share of the frame either way: at 1/8 size
+#: that is a few pixels, and their percentile says nothing.
+CONTRAST_MIN_BOX = 0.02
 #: Download weight is reported as the wait on a 10 Mbit/s connection (a fair mobile link); it is called out when that
 #: wait passes 5 s, the point where the page has had the visitor's whole attention span for a first impression.
 LINK_BPS = 10e6 / 8
@@ -174,6 +193,17 @@ HELD_SHARE = 0.25
 SCALE_BAND = 1.25
 SCALE_MOST = 0.75
 SCALE_STEPS = 4
+#: Subjects between the photographed steps (``_Visitor.between``): read at BETWEEN_PER_STEP times as many positions
+#: as the steps, for at most BETWEEN_S per visit, and a frame taken at the worst position of at most BETWEEN_FRAMES
+#: findings found only there. A position is read once the page has drawn two frames there and its CSS transitions
+#: have ended, for at most BETWEEN_TRANSITION_MS (the starter's panels cross-fade in 0.4 s). Measured at 9 steps (24
+#: positions between them): the starter with stand-ins read all 24 in 8 to 10 s per size, and its whole check went from
+#: 19 to 31 s; run 4's site (188,000 triangles and an occlusion pass, drawn in software) takes 1.2 to 1.8 s a position
+#: and read 12 to 16 in 20 s, its whole check from 68 to 78 s of the 150 s it has.
+BETWEEN_PER_STEP = 4
+BETWEEN_S = 20.0
+BETWEEN_FRAMES = 3
+BETWEEN_TRANSITION_MS = 600
 #: Stills for the page without WebGL (one per chapter, its resting picture, the 3D canvas alone), when the page gives
 #: window.__site.chapters() -> [{ id, rest }] and setProgress(T). Width: the article layout shows a still at most as
 #: wide as its text column, 40rem (640 CSS px) in the skill's starter, about 590 px inside the panel's padding; 1280 px
@@ -262,6 +292,14 @@ class Step:
     # with a box: name, kind, box, px, cut, edges, hidden, under. None when the page gives no box; subjects_note says why.
     subjects: list[dict] | None = None
     subjects_note: str = ""
+    # the page said its camera is between two shots here (``window.__site.info().moving``): no subject is named as cut,
+    # hidden or too small at this position
+    moving: bool = False
+    # how far what stands where the shot's subject is lies from the background (``subject_contrast``); None: no measure
+    contrast: float | None = None
+    # a position read between the photographed steps (``_Visitor.between``): subjects only, and a frame only where a
+    # finding's worst position is here (``extra frames``)
+    between: bool = False
 
 
 @dataclass
@@ -286,6 +324,11 @@ class Visit:
     frame: str = ""
     notes: list[str] = field(default_factory=list)
     reached_steps: int = 0
+    # the positions read between the photographed steps (``_Visitor.between``), how many were planned and the seconds
+    # the pass took; planned 0: the pass did not run (no page hook, or no time)
+    between: list[Step] = field(default_factory=list)
+    between_planned: int = 0
+    between_s: float = 0.0
 
 
 @dataclass
@@ -369,6 +412,8 @@ class SiteReport:
                            + _steps_list(same, self.steps) + ".")
             if held := self.held_line(v):
                 out.append(held)
+            if faint := self.contrast_line(v):
+                out.append(faint)
             out += self.subject_lines(v)
         p = self.visits.get("phone")
         if p and p.steps:
@@ -393,79 +438,86 @@ class SiteReport:
         return out
 
     def subject_lines(self, v: Visit) -> list[str]:
-        """One line per subject of the page that is cut by the frame's edge or hidden under the page's HTML at some step
-        (the thresholds above), with the steps, the worst share, what covers it or which edge cuts it, and the frame."""
-        found: dict[str, dict] = {}
-        for st in v.steps:
-            for s in st.subjects or []:
-                cut, hidden = subject_faults(s)
-                if cut or hidden:
-                    f = found.setdefault(s["name"], {"kind": s["kind"], "cut": [], "hidden": []})
-                    if cut:
-                        f["cut"].append((st, s))
-                    if hidden:
-                        f["hidden"].append((st, s))
-        tallest: dict[str, tuple[Step, dict]] = {}
-        for st in v.steps:
-            for s in st.subjects or []:
-                if s["kind"] == "label" and s["cut"] <= 1 - IN_FRAME_MIN and s["px"][1] > tallest.get(s["name"], (None, {"px": [0, 0]}))[1]["px"][1]:
-                    tallest[s["name"]] = (st, s)
-        for name, (st, s) in tallest.items():
-            if s["px"][1] < LABEL_MIN_PX:
-                found.setdefault(name, {"kind": "label", "cut": [], "hidden": []})["small"] = (st, s)
-        for name, seen in small_labels(v.steps).items():
-            f = found.setdefault(name, {"kind": "label", "cut": [], "hidden": []})
-            if "small" not in f:  # never readable anywhere says more than "too small where the shot is about it"
-                f["small_at"] = seen
+        """One line per subject of the page that is cut by the frame's edge or hidden under the page's HTML at some
+        position read (the thresholds above), with where, the worst share, what covers it or which edge cuts it, and the
+        frame to look at (``subject_findings``)."""
+        found = subject_findings(v)
         if not found:
             return []
-
-        def first(f: dict) -> int:
-            return min(st.index for st, _ in f["cut"] + f["hidden"] + ([f["small"]] if "small" in f else [])
-                       + f.get("small_at", []))
-
-        order = sorted(found.items(), key=lambda kv: (kv[1]["kind"] == "label", first(kv[1]), kv[0]))
+        positions = _positions(v)
         size = v.name.capitalize()
         out = []
-        for name, f in order[:SUBJECT_LINES]:
-            what = _what(f["kind"], name, 60)
-            parts, frames = [], []
+        for f in found[:SUBJECT_LINES]:
+            what = _what(f["kind"], f["name"], 60)
+            parts = []
             if f["hidden"]:
-                st, s = max(f["hidden"], key=lambda t: t[1]["hidden"])
+                p, s = max(f["hidden"], key=lambda t: t[1]["hidden"])
                 covers = list(dict.fromkeys([s["under"]] + [x["under"] for _, x in f["hidden"]]))
                 covers = [c for c in covers if c] or ["the page's HTML"]
-                parts.append(f"lies under {_names(covers)} at " + _steps_short([t[0] for t in f["hidden"]], self.steps)
-                             + f" (at worst {s['hidden']:.0%} of what is in the frame)")
-                frames.append((s["hidden"], st))
+                worst = f"{s['hidden']:.0%} of what is in the frame"
+                parts.append(f"lies under {_names(covers)} " + self._where(f["hidden"], positions, worst, p))
             if f["cut"]:
-                st, s = max(f["cut"], key=lambda t: t[1]["cut"])
+                p, s = max(f["cut"], key=lambda t: t[1]["cut"])
                 edges: dict[str, float] = {}
                 for _, x in f["cut"]:
                     for e, share in x["edges"].items():
                         edges[e] = max(edges.get(e, 0.0), share)
                 named = [e for e, share in sorted(edges.items(), key=lambda kv: -kv[1]) if share >= 0.02] or ["frame's"]
-                parts.append(f"runs out of the frame at the {_and(named)} edge{'s' if len(named) > 1 else ''} at "
-                             + _steps_short([t[0] for t in f["cut"]], self.steps) + f" (at worst {s['cut']:.0%} of it outside)")
-                frames.append((s["cut"], st))
+                parts.append(f"runs out of the frame at the {_and(named)} edge{'s' if len(named) > 1 else ''} "
+                             + self._where(f["cut"], positions, f"{s['cut']:.0%} of it outside", p))
             if "small" in f:
                 st, s = f["small"]
                 parts.append(f"is never taller than {s['px'][1]} px at any step (its largest is at "
                              + _steps_short([st], self.steps) + "), too small to read")
-                frames.append((0.0, st))
             if f.get("small_at"):
-                st, px = min(f["small_at"], key=lambda t: t[1])
-                at = _steps_short([t[0] for t in f["small_at"]], self.steps)
-                parts.append(f"is in the frame where the shot is about it, but too small to read at {at} (at worst "
-                             f"{px} px tall, under {LABEL_MIN_PX}): make it larger there or frame it closer")
-                frames.append((0.0, st))
-            look = max(frames, key=lambda t: t[0])[1]
-            out.append(f"{size}: {what} " + "; it ".join(parts) + f". Look at {_rel(look.frame, self.out_dir)}.")
-        rest = order[SUBJECT_LINES:]
+                p, px = min(f["small_at"], key=lambda t: t[1])
+                at = self._where([(q, {}) for q, _ in f["small_at"]], positions,
+                                 f"{px} px tall, under {LABEL_MIN_PX}", p)
+                parts.append(f"is in the frame where the shot is about it, but too small to read {at}: make it "
+                             "larger there or frame it closer")
+            look = _rel(_look_frame(f["look"], v), self.out_dir)
+            out.append(f"{size}: {what} " + "; it ".join(parts) + f". Look at {look}.")
+        rest = found[SUBJECT_LINES:]
         if rest:
             out.append(f"{size}: also cut, hidden or too small at some step: "
-                       + _names([_what(f["kind"], n, 40) for n, f in rest], SUBJECT_LINES)
+                       + _names([_what(f["kind"], f["name"], 40) for f in rest], SUBJECT_LINES)
                        + " (every subject at every step is in report.json).")
         return out
+
+    def _where(self, hits: list[tuple[Step, dict]], positions: list[Step], worst: str, at: Step) -> str:
+        """Where a fault was found and how bad it was at worst. Found at photographed steps only, the steps, as before
+        the positions between them were read: 'at steps 4 (38%) and 5 (50%) of 9 (at worst 40% of it outside)'. Found
+        between them too, the stretches of the scroll it covers, neighbouring positions read with the same fault
+        merged into one: 'from 70% to 78% of the scroll, between the photographed steps (at worst 45% of it outside,
+        at 74%)', or 'from 0% to 100% of the scroll (at steps 1 (0%) and 2 (100%) of 2 and between them; ...)'."""
+        if not any(p.between for p, _ in hits):
+            return f"at {_steps_short([p for p, _ in hits], self.steps)} (at worst {worst})"
+        spans = []
+        for r in _runs(hits, positions):
+            a, b = r[0][0].share, r[-1][0].share
+            spans.append(f"at {a:.0%}" if len(r) == 1 or f"{a:.0%}" == f"{b:.0%}" else f"from {a:.0%} to {b:.0%}")
+        steps_in = [p for p, _ in hits if not p.between]
+        if steps_in:
+            return (_and(spans) + f" of the scroll (at {_steps_short(steps_in, self.steps)} and between them; at worst "
+                    f"{worst}, at {at.share:.0%})")
+        return _and(spans) + f" of the scroll, between the photographed steps (at worst {worst}, at {at.share:.0%})"
+
+    def contrast_line(self, v: Visit) -> str:
+        """The shot's subject against its ground (``subject_contrast``): said when it is under ``CONTRAST_LOW`` at
+        ``CONTRAST_SHARE`` of the steps that have a measure, and at ``CONTRAST_STEPS`` at least; '' otherwise."""
+        measured = [s for s in v.steps if s.contrast is not None]
+        low = [s for s in measured if s.contrast < CONTRAST_LOW]
+        if len(low) < max(CONTRAST_STEPS, CONTRAST_SHARE * len(measured)):
+            return ""
+        worst = min(low, key=lambda s: s.contrast)
+        return (f"{v.name.capitalize()}: the shot's subject hardly stands out from its ground at "
+                + _steps_short(low, self.steps) + f" ({len(low)} of the {len(measured)} steps whose subject the page "
+                "names): three quarters of what stands where the subject is lies within "
+                + ", ".join(f"{s.contrast:.0%}" for s in low) + f" of the background's colour, at worst "
+                f"{worst.contrast:.0%} (under {CONTRAST_LOW:.0%} the subject reads as a hole in the picture). A dark "
+                "material on a dark ground does, and a light one on a light ground: give the prop's main material a "
+                "value well away from the background's, or bring light to it. Look at "
+                f"{_rel(worst.canvas_frame, self.out_dir)}.")
 
     def held_line(self, v: Visit) -> str:
         """'The picture does not travel' (``held_runs``): one line per size, naming the subject, the steps, the share of
@@ -697,7 +749,9 @@ class SiteReport:
                              + " ".join("-" if s.canvas_content is None else f"{s.canvas_content:.0%}" for s in v.steps) + "."
                              + (f" Still changing {SETTLE_CAP_S:.0f} s after the page drew there at {_steps_list(moving, self.steps)}: "
                                 "those frames may show the scene on its way (software WebGL draws a heavy frame in about a "
-                                "second; a visitor's GPU in a few milliseconds)." if moving else ""))
+                                "second; a visitor's GPU in a few milliseconds)." if moving else "")
+                             + (f" The page's subjects read at {len(v.between)} of {v.between_planned} positions "
+                                f"between the steps as well ({v.between_s:.0f} s)." if v.between_planned else ""))
                 if scale := self.scale_line(v):
                     lines.append(f"- {scale}")
         for line in [self.bytes_line(), *self.scene_line()]:
@@ -764,6 +818,8 @@ class SiteReport:
                                               "other_hosts", "other_failed", "idle", "memory", "overflow", "text_chars", "frame",
                                               "notes")}
             out["steps"] = [s.__dict__ for s in v.steps]
+            out["between"] = [s.__dict__ for s in v.between]
+            out["between_planned"], out["between_s"] = v.between_planned, v.between_s
             out["requests"] = v.requests
             out["probe"] = v.probe
             return out
@@ -832,6 +888,132 @@ def _about(st: Step) -> list[dict]:
     return [x for x in st.subjects or [] if x.get("subject") is True and x["kind"] != "label"]
 
 
+def _positions(v: Visit) -> list[Step]:
+    """Every position of a visit whose subjects were read, photographed steps and the positions between them, in the
+    order of the scroll."""
+    return sorted([*v.steps, *v.between], key=lambda st: st.share)
+
+
+def _runs(hits: list[tuple[Step, Any]], positions: list[Step]) -> list[list[tuple[Step, Any]]]:
+    """``hits`` grouped into runs of neighbouring positions (neighbours in ``positions``: a position whose subjects
+    could not be read, or where the subject has no fault, ends a run)."""
+    at = {id(p): i for i, p in enumerate(positions)}
+    runs: list[list[tuple[Step, Any]]] = []
+    prev = None
+    for p, x in sorted(hits, key=lambda t: at[id(t[0])]):
+        i = at[id(p)]
+        if runs and prev == i - 1:
+            runs[-1].append((p, x))
+        else:
+            runs.append([(p, x)])
+        prev = i
+    return runs
+
+
+def subject_findings(v: Visit) -> list[dict]:
+    """The subjects a visitor would notice cut by the frame's edge, hidden under the page's HTML or too small, at every
+    position read (``subject_faults``, ``small_labels``; a position where the page says its camera is moving has none),
+    in the order the answer names them: props and layers first, each in the order the scroll meets it. One dict per
+    subject: name, kind, the hits per fault ('hidden', 'cut', 'small_at': [(position, entry or px)], 'small': (step,
+    entry) for a label never readable at any step) and 'look', the position whose frame shows the worst of it."""
+    positions = _positions(v)
+    found: dict[str, dict] = {}
+    for st in positions:
+        for s in st.subjects or []:
+            cut, hidden = subject_faults(s)
+            if cut or hidden:
+                f = found.setdefault(s["name"], {"name": s["name"], "kind": s["kind"], "cut": [], "hidden": []})
+                if cut:
+                    f["cut"].append((st, s))
+                if hidden:
+                    f["hidden"].append((st, s))
+    # never readable anywhere: decided on the photographed steps, which span the scroll; a label that is readable at
+    # some step is readable, whatever the positions between show
+    tallest: dict[str, tuple[Step, dict]] = {}
+    for st in v.steps:
+        for s in st.subjects or []:
+            best = tallest.get(s["name"], (None, {"px": [0, 0]}))[1]["px"][1]
+            if s["kind"] == "label" and s["cut"] <= 1 - IN_FRAME_MIN and s["px"][1] > best:
+                tallest[s["name"]] = (st, s)
+    for name, (st, s) in tallest.items():
+        if s["px"][1] < LABEL_MIN_PX:
+            found.setdefault(name, {"name": name, "kind": "label", "cut": [], "hidden": []})["small"] = (st, s)
+    for name, seen in small_labels(positions).items():
+        f = found.setdefault(name, {"name": name, "kind": "label", "cut": [], "hidden": []})
+        if "small" not in f:  # never readable anywhere says more than "too small where the shot is about it"
+            f["small_at"] = seen
+    for f in found.values():
+        looks = []
+        if f["hidden"]:
+            looks.append(max(((s["hidden"], p) for p, s in f["hidden"]), key=lambda t: t[0]))
+        if f["cut"]:
+            looks.append(max(((s["cut"], p) for p, s in f["cut"]), key=lambda t: t[0]))
+        if "small" in f:
+            looks.append((0.0, f["small"][0]))
+        if f.get("small_at"):
+            looks.append((0.0, min(f["small_at"], key=lambda t: t[1])[0]))
+        f["look"] = max(looks, key=lambda t: t[0])[1]
+        f["first"] = min(p.share for p, _ in f["cut"] + f["hidden"] + ([f["small"]] if "small" in f else [])
+                         + f.get("small_at", []))
+    return sorted(found.values(), key=lambda f: (f["kind"] == "label", f["first"], f["name"]))
+
+
+def extra_frames(v: Visit) -> list[Step]:
+    """The positions between the steps where a finding the answer names is at its worst and that have no frame yet, in
+    the order the answer names the findings."""
+    out: list[Step] = []
+    for f in subject_findings(v)[:SUBJECT_LINES]:
+        p = f["look"]
+        if p.between and not p.frame and all(p is not q for q in out):
+            out.append(p)
+    return out
+
+
+def _look_frame(p: Step, v: Visit) -> str:
+    """The frame of position ``p``; for a position between the steps that has none (more findings than
+    ``BETWEEN_FRAMES``, or no time left), the frame of the photographed step nearest it."""
+    if p.frame or not v.steps:
+        return p.frame
+    return min(v.steps, key=lambda st: abs(st.share - p.share)).frame
+
+
+def between_levels(n: int) -> list[list[float]]:
+    """The positions read between ``n`` photographed steps: the scroll cut into BETWEEN_PER_STEP times as many even
+    parts as the steps cut it into, the steps' own positions left out (they are read already), in levels coarse to fine
+    (the middles between two steps, then the quarters): a pass cut short by its time allowance has read the whole
+    scroll at an even spacing."""
+    parts = BETWEEN_PER_STEP * max(n - 1, 1)
+    levels: list[list[float]] = []
+    seen: set[int] = set()
+    stride = BETWEEN_PER_STEP
+    while stride > 1:
+        half = stride // 2
+        level = [k for k in range(half, parts, stride) if k % BETWEEN_PER_STEP and k not in seen]
+        seen.update(level)
+        levels.append([k / parts for k in level])
+        stride = half
+    rest = [k / parts for k in range(1, parts) if k % BETWEEN_PER_STEP and k not in seen]
+    return [lv for lv in levels + [rest] if lv]
+
+
+def _near_fault(share: float, positions: list[Step]) -> bool:
+    """Whether the position read last before ``share`` or first after it has a subject cut or hidden: within a level the
+    pass reads those first, so a fault the steps found gets its stretch of the scroll before a stretch without one
+    gets a finer reading."""
+    before = [p for p in positions if p.share < share]
+    after = [p for p in positions if p.share > share]
+    near = (([max(before, key=lambda p: p.share)] if before else [])
+            + ([min(after, key=lambda p: p.share)] if after else []))
+    return any(any(subject_faults(x)) for p in near for x in p.subjects or [])
+
+
+async def _bounded(page, js: str, default: Any) -> Any:
+    try:
+        return await asyncio.wait_for(page.evaluate(js), SUBJECTS_WAIT_S)
+    except Exception:  # noqa: BLE001  a page stuck in its own code or one that navigated
+        return default
+
+
 def held_runs(steps: list[Step]) -> list[dict]:
     """Runs of neighbouring steps in which one subject of the shot keeps its box (``HELD_MOVE``), long enough to name
     (``HELD_STEPS``, ``HELD_SHARE``): [{name, kind, steps, moved}], moved being the largest distance, as a share of the
@@ -888,7 +1070,8 @@ def small_labels(steps: list[Step]) -> dict[str, list[tuple[Step, int]]]:
     skill's starter says so of such a shot ("without one, every prop counts as a subject"): an establishing shot of
     the whole scene, which run 3 ended with, its three labels shown on purpose at 11 to 15 px. A label of a prop the
     shot is not about is its background there and is not named; on a page that never names a subject only the rule
-    of ``LABEL_MIN_PX`` (never readable anywhere) applies, as before."""
+    of ``LABEL_MIN_PX`` (never readable anywhere) applies, as before. Nor is one where the page says its camera is
+    between two shots (``subject_faults``)."""
     if not _flags_subjects(steps):
         return {}
     out: dict[str, list[tuple[Step, int]]] = {}
@@ -896,7 +1079,7 @@ def small_labels(steps: list[Step]) -> dict[str, list[tuple[Step, int]]]:
         subs = st.subjects or []
         names_none = all(x.get("subject") is None for x in subs)
         for s in subs:
-            if s["kind"] != "label" or not (s.get("subject") is True or names_none):
+            if s["kind"] != "label" or s.get("moving") or not (s.get("subject") is True or names_none):
                 continue
             hidden = s.get("hidden")
             if s["cut"] < LABEL_CUT and (hidden is None or hidden < LABEL_HIDDEN) and s["px"][1] < LABEL_MIN_PX:
@@ -905,8 +1088,11 @@ def small_labels(steps: list[Step]) -> dict[str, list[tuple[Step, int]]]:
 
 
 def subject_faults(s: dict) -> tuple[bool, bool]:
-    """(cut by the frame's edge, hidden under the page's HTML) for one measured subject at one step."""
-    if s["cut"] > 1 - IN_FRAME_MIN or s.get("background"):
+    """(cut by the frame's edge, hidden under the page's HTML) for one measured subject at one step. Neither where the
+    page says its camera is between two shots (``moving``): run 4's site at 38 % of the scroll had the new chapter's
+    text up while the camera was still on its way to that chapter's subject, and the check called the subject out of
+    the frame. No visitor sees a fault in a camera that is travelling."""
+    if s["cut"] > 1 - IN_FRAME_MIN or s.get("background") or s.get("moving"):
         return False, False
     label = s["kind"] == "label"
     hidden = s.get("hidden")
@@ -1018,12 +1204,52 @@ def canvas_content(jpeg: bytes) -> float:
     im = Image.open(io.BytesIO(jpeg)).convert("RGB")
     im = im.reduce(8) if min(im.size) >= 128 else im
     a = np.asarray(im, dtype=np.int16)
+    far = (np.abs(a.reshape(-1, 3) - _background(a)) > 0.08 * 255).any(axis=1)
+    return float(far.mean())
+
+
+def _background(a: np.ndarray) -> np.ndarray:
+    """The most common colour of an RGB array (quantised to 16 levels per channel; the mean of the pixels in that bin),
+    as ``canvas_content`` finds it."""
     q = (a // 16).reshape(-1, 3)
     keys = q[:, 0] * 256 + q[:, 1] * 16 + q[:, 2]
-    mode = np.bincount(keys).argmax()
-    bg = a.reshape(-1, 3)[keys == mode].mean(axis=0)
-    far = (np.abs(a.reshape(-1, 3) - bg) > 0.08 * 255).any(axis=1)
-    return float(far.mean())
+    return a.reshape(-1, 3)[keys == np.bincount(keys).argmax()].mean(axis=0)
+
+
+def subject_contrast(jpeg: bytes, boxes: list[list[float]], rect: dict | None = None,
+                     window: tuple[int, int] | None = None) -> float | None:
+    """How far what stands where the shot's subject is lies from the canvas's background: on the 1/8-size canvas-only
+    frame, each pixel's largest difference to the background over the three channels (share of full scale), and of
+    the pixels inside the subject's box the 75th percentile. Three quarters of what stands there is within this much
+    of the background's colour. None without boxes, or when the box, clipped to the frame, is under
+    ``CONTRAST_MIN_BOX`` of it either way.
+
+    The subject's box is the one box round all of ``boxes`` (fractions of the window), as ``subject_scale`` takes it:
+    a shot about a prop and the layer beside it is about the ground between them too. Taking only the boxes
+    themselves measured run 4's phone 3 to 4 points higher at four steps (a prop's box hugs its lit faces), and the
+    line, which the judge's verdicts bear out on both sizes, would not have been said on the phone.
+
+    ``rect`` is where the canvas-only frame lies in the window (viewport px, as ``stepEnd`` gives it) and ``window`` the
+    window's size; without them the frame is taken to fill the window, as a fixed full-screen canvas does."""
+    from PIL import Image
+
+    if not boxes:
+        return None
+    x0, y0 = min(b[0] for b in boxes), min(b[1] for b in boxes)
+    x1, y1 = max(b[2] for b in boxes), max(b[3] for b in boxes)
+    if rect and window and rect.get("width") and rect.get("height"):
+        x0, x1 = ((x * window[0] - rect["x"]) / rect["width"] for x in (x0, x1))
+        y0, y1 = ((y * window[1] - rect["y"]) / rect["height"] for y in (y0, y1))
+    x0, y0, x1, y1 = max(0.0, x0), max(0.0, y0), min(1.0, x1), min(1.0, y1)
+    if x1 - x0 < CONTRAST_MIN_BOX or y1 - y0 < CONTRAST_MIN_BOX:
+        return None
+    im = Image.open(io.BytesIO(jpeg)).convert("RGB")
+    im = im.reduce(8) if min(im.size) >= 128 else im
+    a = np.asarray(im, dtype=np.int16)
+    h, w = a.shape[:2]
+    inside = a[int(y0 * h):max(int(y0 * h) + 1, round(y1 * h)), int(x0 * w):max(int(x0 * w) + 1, round(x1 * w))]
+    dist = np.abs(inside - _background(a)).max(axis=2) / 255.0
+    return float(np.percentile(dist, 75))
 
 
 def largest_shape(jpeg: bytes) -> float:
@@ -1489,12 +1715,14 @@ class _Visitor:
             await asyncio.wait_for(page.mouse.wheel(0, target - y), 5.0)
         return "wheel"
 
-    async def subjects(self, page) -> tuple[list[dict] | None, str]:
+    async def subjects(self, page, js: str = "window.__agySite.subjects()",
+                       wait: float = SUBJECTS_WAIT_S) -> tuple[list[dict] | None, str]:
         """The page's subjects as it shows them now, measured in the page (``site_probe.js``, ``S.subjects``), and why
         not when they cannot be. The page's hook runs inside this call: it is bounded in time here and in what it returns
-        there, and whatever comes back is checked again, since the page can replace anything it is given."""
+        there, and whatever comes back is checked again, since the page can replace anything it is given. Where the page
+        says its camera is between two shots (``moving``), every entry carries ``moving: True``."""
         try:
-            got = await asyncio.wait_for(page.evaluate("window.__agySite.subjects()"), SUBJECTS_WAIT_S)
+            got = await asyncio.wait_for(page.evaluate(js), wait)
         except Exception as e:  # noqa: BLE001  a hook that hangs or a page that navigated: the step is kept without it
             return None, f"not read ({type(e).__name__})"
         if not isinstance(got, dict):
@@ -1508,7 +1736,11 @@ class _Visitor:
         if any(x["subject"] is True for x in out):
             for x in out:
                 x["background"] = x["kind"] != "label" and x["subject"] is not True
-        note = f"{len(out)} subject{_s(out)} with a box" + (", more not read" if got.get("more") else "")
+        if got.get("moving") is True:
+            for x in out:
+                x["moving"] = True
+        note = (f"{len(out)} subject{_s(out)} with a box" + (", more not read" if got.get("more") else "")
+                + ("; the camera is between two shots" if got.get("moving") is True else ""))
         return (out or None), note
 
     async def stills(self, page) -> dict:
@@ -1605,6 +1837,7 @@ class _Visitor:
                         draws=int(w.get("maxDraws", 0)), triangles=int(w.get("maxTris", 0)),
                         shown_triangles=int((end.get("last") or {}).get("tris", 0)))
             step.subjects, step.subjects_note = await self.subjects(page)
+            step.moving = any(x.get("moving") for x in step.subjects or [])
             f = self.out / f"{self.v.name}_{i:02d}.jpg"
             f.write_bytes(shot)
             step.frame = str(f)
@@ -1615,6 +1848,11 @@ class _Visitor:
                 step.canvas_frame = str(cf)
                 step.canvas_content = round(canvas_content(cshot), 4)
                 step.shape = round(largest_shape(cshot), 3)
+                if about := _about(step):
+                    vp = page.viewport_size or {}
+                    c = subject_contrast(cshot, [x["box"] for x in about], end["rect"],
+                                         (vp.get("width", 0), vp.get("height", 0)))
+                    step.contrast = None if c is None else round(c, 4)
             if sideways:
                 step.sideways_px = int(end["sideways"]["over"])
                 for c in end["sideways"]["culprits"]:
@@ -1626,6 +1864,49 @@ class _Visitor:
         for a_, b_ in zip(self.v.steps, self.v.steps[1:]):
             if b_.index == a_.index + 1:
                 b_.unchanged = _diff(_grey(Path(a_.frame).read_bytes(), 4), _grey(Path(b_.frame).read_bytes(), 4)) < UNCHANGED
+
+    async def between(self, page, n: int) -> None:
+        """Read the page's subjects between the photographed steps (``BETWEEN_PER_STEP``): the scroll is read at
+        ``between_levels(n)``, coarse to fine (within a level next to a known fault first, ``_near_fault``), without a
+        screenshot or a wait for the picture to settle, until ``BETWEEN_S`` is used up. Run 4's agent checked with
+        twelve steps and was told of no subject out of the frame; nine steps named six at two positions: what the check
+        found depended on where it happened to stop. A page without the hook has no subjects and is not read. Then one
+        frame at each of at most ``BETWEEN_FRAMES`` positions where a finding is at its worst between the steps
+        (``extra_frames``)."""
+        if not any(st.subjects for st in self.v.steps):
+            return
+        geo = await _bounded(page, "window.__agySite.geometry()", None)
+        if not isinstance(geo, dict):
+            return
+        levels = between_levels(n)
+        self.v.between_planned = sum(len(lv) for lv in levels)
+        t0 = time.monotonic()
+        for level in levels:
+            for share in sorted(level, key=lambda sh: (not _near_fault(sh, _positions(self.v)), sh)):
+                left = min(BETWEEN_S - (time.monotonic() - t0), self.clock.left() - WRAP_UP_S - 2.0)
+                if left < 0.5:
+                    break
+                await self.scroll_to(page, round(geo["max"] * share))
+                subs, note = await self.subjects(page, f"window.__agySite.readBetween({BETWEEN_TRANSITION_MS})",
+                                                 min(left, SETTLE_HARD_S))
+                if subs is None and (time.monotonic() - t0 >= BETWEEN_S - 0.1
+                                     or self.clock.left() < WRAP_UP_S + 2.1):
+                    break  # cut off by the allowance, not a position the page could not answer at
+                y = await _bounded(page, "window.__agySite.y()", 0)
+                self.v.between.append(Step(-1, share, round(y or 0), subjects=subs, subjects_note=note, between=True,
+                                           moving=any(x.get("moving") for x in subs or [])))
+        self.v.between.sort(key=lambda st: st.share)
+        self.v.between_s = round(time.monotonic() - t0, 2)
+        self.log(f"read {len(self.v.between)} of {self.v.between_planned} positions between the steps "
+                 f"in {self.v.between_s:.1f} s")
+        for k, st in enumerate(extra_frames(self.v)[:BETWEEN_FRAMES], 1):
+            if self.clock.left() < WRAP_UP_S + 6.0:
+                break
+            await self.scroll_to(page, round(geo["max"] * st.share))
+            shot, _, _ = await self.settle(page, SETTLE_CAP_S)
+            f = self.out / f"{self.v.name}_x{k}.jpg"
+            f.write_bytes(shot)
+            st.frame = str(f)
 
 
 _RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(10)), *(f"lpt{i}" for i in range(10))}
@@ -1948,6 +2229,7 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
                         vis.v.facts_raw = await page.evaluate(_FACTS_JS)
                 if do_steps:
                     await vis.steps(page, do_steps, canvas, sideways)
+                    await vis.between(page, do_steps)
                 if one_step is not None:
                     geo = await page.evaluate("window.__agySite.geometry()")
                     await vis.scroll_to(page, round(geo["max"] * one_step))
@@ -2041,7 +2323,8 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
                                          ("unchanged", s.unchanged), ("still moving", s.motion == "moving"),
                                          ("sideways", s.sideways_px > 1), ("subject hidden", any(h for _, h in faults)),
                                          ("subject cut", any(c for c, _ in faults)), ("subject held", s.index in held),
-                                         ("label small", s.index in small)) if on]
+                                         ("label small", s.index in small),
+                                         ("blends in", s.contrast is not None and s.contrast < CONTRAST_LOW)) if on]
                 frames.append((s.frame, f"{s.index + 1}/{steps}  {s.share:.0%}" + (f"  {', '.join(flags)}" if flags else ""), bool(flags)))
             sheet = out / f"sheet_{name}.jpg"
             contact_sheet(frames, sheet, 480 if name == "desktop" else 200, 3 if name == "desktop" else min(len(frames), 5))

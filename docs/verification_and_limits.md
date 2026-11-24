@@ -283,6 +283,19 @@ PNG install, every level and the transcoder included (1,149,777 against 1,178,71
 Today's bytes: crate 2,199,072, hydrant 1,836,004, chair 1,039,268. Checks: 11 passed, 0 failed, 0 skipped in the
 first three rows, 12 in the last three.
 
+### The website check (`check_site`)
+
+- **Between the steps it reads where the subjects are, not what the picture shows.** The positions read between the
+  photographed steps get no frame and no wait for the picture to settle, and on a heavy page the 20 s allowance per
+  size runs out before all of them are read (run 4's site: 12 to 16 of 24). A fault narrower than the spacing that
+  was read can still pass unseen: on run 4's site the subject at 75 % of the scroll is cut from about 74 % to 77 %,
+  and no position between the steps is that close.
+- **A camera on its way is known only from the page.** Without `info().moving` a subject the camera is still
+  travelling towards is named as cut or hidden; the skill's starter says it, a page of its own may not.
+- **The subject against its ground is a distance in value, not in colour or texture.** It is measured on the 1/8-size
+  canvas, so fine detail averages away, and over the one box round the subject, which takes in some of the ground
+  between and around its parts.
+
 ### Judging, rendering and editing
 
 - Without the calibrated judge nothing is verified. A preview's judge reports probabilities that are not

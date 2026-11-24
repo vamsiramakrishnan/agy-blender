@@ -195,7 +195,11 @@
       }
     } catch (e) { return { why: 'reading onScreen threw: ' + String((e && e.message) || e).slice(0, 120) }; }
     if (!list.length) return { why: seen ? 'onScreen gives no box' : 'onScreen is empty', seen };
-    return { list, seen, boxless, more };
+    // moving: the page's camera is between two shots (the shared contract of round 8). Only true counts; anything else,
+    // or a getter that throws, is a page that holds its shot, as before the flag existed.
+    let moving = false;
+    try { moving = info.moving === true; } catch (e) {}
+    return { list, seen, boxless, more, moving };
   };
   const sel = (el) => { const p = []; for (let e = el; e && e !== document.body && p.length < 3; e = e.parentElement) {
     let s = e.tagName.toLowerCase(); if (e.id) { p.unshift(s + '#' + e.id); break; }
@@ -290,7 +294,22 @@
     if (!got.list) return got;
     let measured;
     try { measured = measureSubjects(got.list); } catch (e) { return { why: 'the measure failed: ' + String((e && e.message) || e).slice(0, 120) }; }
-    return { list: measured, seen: got.seen, boxless: got.boxless, more: got.more };
+    return { list: measured, seen: got.seen, boxless: got.boxless, more: got.more, moving: got.moving };
+  };
+  // The subjects between the photographed steps (site_check.py, _Visitor.between): no screenshot and no wait for
+  // the picture to settle, only the page's next two frames, and then, for at most capMs, until no CSS transition is
+  // still running. The starter's text panels cross-fade in 0.4 s; on a page that draws quickly two frames are 33 ms,
+  // and the panel of the chapter just left would still be measured over the subject at nearly full opacity. A
+  // transition that is still running after capMs is measured as it is.
+  const transitioning = () => {
+    try { return document.getAnimations().some((a) => a instanceof CSSTransition && a.playState === 'running'); }
+    catch (e) { return false; }
+  };
+  S.readBetween = async (capMs) => {
+    await S.afterFrames(2);
+    const t0 = pnow();
+    while (transitioning() && pnow() - t0 < capMs) await new Promise((r) => setTimeout(r, 30));
+    return S.subjects();
   };
 
   // ---- stills for the page without WebGL: window.__site.chapters() -> [{ id, rest }], drawn with setProgress(rest)

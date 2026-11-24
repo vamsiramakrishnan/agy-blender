@@ -857,7 +857,9 @@ def test_subjects_under_opaque_html_or_cut_by_the_edge_are_reported(tmp_path):
         assert 0.08 < got["edge_prop"]["cut"] < 0.1
     noticed = [n for n in r.noticed() if "the prop" in n or "the 3D label" in n]
     assert len(noticed) == 3, noticed
-    assert any("the prop 'under_panel' lies under div#panel at steps 1 (0%) and 2 (100%) of 2 (at worst 100%" in n for n in noticed)
+    # read between the two steps as well, and the same there: one stretch of the scroll
+    assert any("the prop 'under_panel' lies under div#panel from 0% to 100% of the scroll (at steps 1 (0%) and 2 "
+               "(100%) of 2 and between them; at worst 100% of what is in the frame, at 0%)" in n for n in noticed)
     assert any("the prop 'under_veil' lies under div#veil" in n for n in noticed)
     assert any("the 3D label 'CUT LABEL' runs out of the frame at the right edge" in n and "at worst 40% of it outside" in n
                for n in noticed)
@@ -1210,3 +1212,167 @@ def test_the_page_knows_it_is_drawing_stills_and_only_then(tmp_path):
     assert [x["id"] for x in stills["made"]] == ["one", "three"] and "fixture still boom" in stills["skipped"][0]["why"]
     for x in stills["made"]:
         assert all(abs(a - b) <= 12 for a, b in zip(_pixel(out / "stills" / x["file"]), (0, 255, 0))), x
+
+
+# --------------------------------------------------------------------------- the subject against its ground
+
+
+def _ground(colour: tuple[int, int, int], size: tuple[int, int] = (1440, 900)) -> np.ndarray:
+    """A canvas-only frame of run 4's dark ground with a quad of ``colour`` in its middle 60 % each way."""
+    w, h = size
+    a = np.empty((h, w, 3)); a[:] = (16, 20, 26)
+    a[int(0.2 * h):int(0.8 * h), int(0.2 * w):int(0.8 * w)] = colour
+    return a
+
+
+def test_the_subject_against_its_ground_is_measured_where_its_box_is():
+    """Three quarters of what stands in the subject's box within this much of the background's colour: dark steel on
+    a dark ground (run 4's look) under the limit, the same prop lit far above it."""
+    box = [[0.2, 0.2, 0.8, 0.8]]
+    dark = sc.subject_contrast(jpeg(_ground((22, 26, 34))), box)
+    lit = sc.subject_contrast(jpeg(_ground((200, 140, 60))), box)
+    assert dark < sc.CONTRAST_LOW < 0.5 < lit, (dark, lit)
+    # the box of two subjects is the one box round both; a box out of the frame is clipped to it
+    assert sc.subject_contrast(jpeg(_ground((200, 140, 60))), [[0.2, 0.2, 0.5, 0.8], [0.5, 0.2, 0.8, 1.6]]) > 0.5
+    # no measure for nothing to measure or a box too small to say anything
+    assert sc.subject_contrast(jpeg(_ground((200, 140, 60))), []) is None
+    assert sc.subject_contrast(jpeg(_ground((200, 140, 60))), [[0.5, 0.5, 0.51, 0.9]]) is None
+    assert sc.subject_contrast(jpeg(_ground((200, 140, 60))), [[1.2, 0.2, 1.5, 0.8]]) is None
+    # a canvas that fills only the window's right half: the box is in the window's terms
+    half = jpeg(_ground((200, 140, 60), (720, 900)))
+    rect, window = {"x": 720, "y": 0, "width": 720, "height": 900}, (1440, 900)
+    assert sc.subject_contrast(half, [[0.6, 0.2, 0.9, 0.8]], rect, window) > 0.5
+    assert sc.subject_contrast(half, [[0.0, 0.2, 0.3, 0.8]], rect, window) is None   # left of the canvas
+
+
+def test_the_dark_subject_is_named_when_it_is_the_look_and_not_for_one_dark_step(tmp_path):
+    def rep_with(values: list[float | None]) -> sc.SiteReport:
+        rep = sc.SiteReport("site", tmp_path, steps=len(values))
+        v = sc.Visit("desktop", loaded=True, load_s=1.0)
+        v.steps = [sc.Step(i, i / (len(values) - 1), 0, frame=str(tmp_path / f"desktop_{i:02d}.jpg"),
+                           canvas_frame=str(tmp_path / f"desktop_{i:02d}_canvas.jpg"), contrast=c)
+                   for i, c in enumerate(values)]
+        rep.visits = {"desktop": v}
+        return rep
+
+    # run 4's desktop, as frames3/run4 measures it
+    lines = [n for n in rep_with([0.06, 0.06, 0.08, 0.05, 0.07, 0.36, 0.29, 0.09, 0.06]).noticed() if "ground" in n]
+    assert lines == ["Desktop: the shot's subject hardly stands out from its ground at steps 1 (0%), 2 (12%), 3 (25%), "
+                     "4 (38%), 5 (50%), 8 (88%) and 9 (100%) of 9 (7 of the 9 steps whose subject the page names): "
+                     "three quarters of what stands where the subject is lies within 6%, 6%, 8%, 5%, 7%, 9%, 6% of the "
+                     "background's colour, at worst 5% (under 10% the subject reads as a hole in the picture). A dark "
+                     "material on a dark ground does, and a light one on a light ground: give the prop's main material "
+                     "a value well away from the background's, or bring light to it. Look at desktop_03_canvas.jpg."]
+    # one dark step of nine (a chapter at night), or run 3's desktop: nothing
+    assert not [n for n in rep_with([0.3, 0.05, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, None]).noticed() if "ground" in n]
+    assert not [n for n in rep_with([0.28, 0.28, 0.29, 0.30, 0.28, 0.25, 0.32, 0.29, None]).noticed() if "ground" in n]
+    # two of six steps that have a measure: a third
+    assert [n for n in rep_with([0.05, 0.05, 0.3, 0.3, 0.3, 0.3, None, None]).noticed() if "ground" in n]
+
+
+@pytest.mark.browser
+def test_a_dark_subject_on_a_dark_ground_is_named_and_a_lit_one_is_not(tmp_path):
+    root = site(tmp_path, "ground")
+    r = run(root, tmp_path)
+    d = r.visits["desktop"]
+    assert all(s.contrast is not None and s.contrast < sc.CONTRAST_LOW for s in d.steps), [s.contrast for s in d.steps]
+    lines = [n for n in r.noticed() if "hardly stands out from its ground" in n]
+    assert len(lines) == 1 and lines[0].startswith("Desktop: the shot's subject hardly stands out from its ground at "
+                                                   "steps 1 (0%), 2 (50%) and 3 (100%) of 3 (3 of the 3 steps"), lines
+    record = json.loads((tmp_path / "out" / "report.json").read_text())
+    assert [s["contrast"] for s in record["visits"]["desktop"]["steps"]] == [s.contrast for s in d.steps]
+
+    page = root / "index.html"
+    page.write_text(page.read_text().replace("const LIT = false;", "const LIT = true;"))
+    r = run(root, tmp_path)
+    assert all(s.contrast > 0.5 for s in r.visits["desktop"].steps) and "from its ground" not in r.text()
+
+
+# --------------------------------------------------------------------------- between the steps; the camera on its way
+
+
+def test_the_positions_between_the_steps_go_coarse_to_fine_and_leave_the_steps_out():
+    levels = sc.between_levels(9)
+    flat = [x for lv in levels for x in lv]
+    assert [len(lv) for lv in levels] == [8, 16] and len(set(flat)) == len(flat) == 24
+    assert levels[0][:2] == [1 / 16, 3 / 16] and not set(flat) & {i / 8 for i in range(9)}
+    assert sc.between_levels(2) == [[0.5], [0.25, 0.75]]
+
+
+def test_a_fault_found_between_the_steps_is_one_finding_with_its_stretch_of_the_scroll(tmp_path):
+    rep = sc.SiteReport("site", tmp_path, steps=3)
+    v = sc.Visit("desktop", loaded=True, load_s=1.0)
+    def clear() -> list[dict]:
+        return [_box("press", [0.3, 0.3, 0.7, 0.7])]
+
+    def cut(x0: float) -> list[dict]:  # the box's right part beyond the right edge
+        out = round((x0 + 0.4 - 1) / 0.4, 4)
+        return [{**_box("press", [x0, 0.3, x0 + 0.4, 0.7], cut=out), "edges": {"right": out}}]
+
+    v.steps = [sc.Step(i, i / 2, 0, frame=str(tmp_path / f"desktop_{i:02d}.jpg"), subjects=clear()) for i in range(3)]
+    shares = [0.125, 0.25, 0.375, 0.625, 0.75, 0.875]
+    rows = {0.625: cut(0.75), 0.75: cut(0.8)}
+    v.between = [sc.Step(-1, s, 0, subjects=rows.get(s, clear()), between=True) for s in shares]
+    rep.visits = {"desktop": v}
+    assert sc.extra_frames(v) == [v.between[4]]
+    v.between[4].frame = str(tmp_path / "desktop_x1.jpg")
+    assert [n for n in rep.noticed() if "'press' runs out" in n] == [
+        "Desktop: the prop 'press' runs out of the frame at the right edge from 62% to 75% of the scroll, between "
+        "the photographed steps (at worst 50% of it outside, at 75%). Look at desktop_x1.jpg."]
+    # where the page says its camera is moving there, nothing
+    for st in v.between:
+        for x in st.subjects:
+            x["moving"] = st.share in rows
+    assert not [n for n in rep.noticed() if "'press' runs out" in n] and sc.extra_frames(v) == []
+
+
+def _travel(tmp_path: Path, mode: str) -> sc.SiteReport:
+    root = site(tmp_path / mode, "travel")
+    page = root / "index.html"
+    page.write_text(page.read_text().replace("const MODE = 'between';", f"const MODE = '{mode}';"))
+    return sc.check_site(str(root), out_dir=tmp_path / mode / "out", steps=3, sizes=("desktop",), variants=())
+
+
+@pytest.mark.browser
+def test_a_subject_out_of_the_frame_only_between_the_steps_is_found_with_its_stretch_and_a_frame(tmp_path):
+    r = _travel(tmp_path, "between")
+    d = r.visits["desktop"]
+    assert d.between_planned == 6 and len(d.between) == 6, d.between_planned
+    lines = [n for n in r.noticed() if "'press' runs out" in n]
+    assert lines == ["Desktop: the prop 'press' runs out of the frame at the right edge from 62% to 75% of the scroll, "
+                     "between the photographed steps (at worst 56% of it outside, at 75%). Look at "
+                     "desktop_x1.jpg."], lines
+    assert (tmp_path / "between" / "out" / "desktop_x1.jpg").is_file()
+    assert "read at 6 of 6 positions between the steps" in r.text()
+    record = json.loads((tmp_path / "between" / "out" / "report.json").read_text())
+    shares = [round(s["share"], 3) for s in record["visits"]["desktop"]["between"]]
+    assert shares == [0.125, 0.25, 0.375, 0.625, 0.75, 0.875]
+
+    r = _travel(tmp_path, "between-moving")
+    assert not [n for n in r.noticed() if "'press' runs out" in n]
+    assert not (tmp_path / "between-moving" / "out" / "desktop_x1.jpg").exists()
+    assert [s.moving for s in r.visits["desktop"].between] == [False, False, False, True, True, False]
+
+
+@pytest.mark.browser
+def test_a_subject_out_of_the_frame_at_a_step_is_no_fault_while_the_camera_is_on_its_way(tmp_path):
+    r = _travel(tmp_path, "step")
+    lines = [n for n in r.noticed() if "'press' runs out" in n]
+    assert lines == ["Desktop: the prop 'press' runs out of the frame at the right edge at step 2 of 3 (50%) (at worst "
+                     "50% of it outside). Look at desktop_01.jpg."], lines
+    r = _travel(tmp_path, "step-moving")
+    d = r.visits["desktop"]
+    assert d.steps[1].moving and "camera is between two shots" in d.steps[1].subjects_note
+    assert not [n for n in r.noticed() if "'press' runs out" in n]
+
+
+@pytest.mark.browser
+def test_the_pass_between_the_steps_keeps_to_its_allowance_on_a_slow_page(tmp_path, monkeypatch):
+    """Every frame of the page takes half a second; a reading waits for two of them."""
+    monkeypatch.setattr(sc, "BETWEEN_S", 3.0)
+    r = run(site(tmp_path, "slow_frames"), tmp_path, steps=3)
+    d = r.visits["desktop"]
+    assert len(d.steps) == 3 and d.between_planned == 6
+    assert 1 <= len(d.between) < 6 and d.between_s <= sc.BETWEEN_S + 1.0, (len(d.between), d.between_s)
+    assert all(s.subjects for s in d.between)   # a reading cut off by the allowance is not kept as a failed one
+    assert f"read at {len(d.between)} of 6 positions between the steps" in r.text()

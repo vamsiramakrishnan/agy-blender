@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A subject that leaves the frame</title>
+<!-- The shot's subject 'press' runs out of the frame at the right edge over one stretch of the scroll and is framed
+     whole everywhere else. The test sets MODE:
+     'between': the stretch is 60 % to 80 % of the scroll, which three photographed steps (0, 50, 100 %) never see,
+                in a hold (the page does not say moving);
+     'between-moving': the same, while the page says its camera is moving there;
+     'step': the stretch is 45 % to 55 %, which holds the photographed step at 50 %, in a hold;
+     'step-moving': the same, while the page says its camera is moving there. -->
+<style>html,body{margin:0;background:#101418;color:#eee;font:16px sans-serif}
+canvas{position:fixed;inset:0;width:100vw;height:100vh;z-index:0}</style></head>
+<body><canvas id="c"></canvas><div style="height:400vh"></div>
+<script type="module">
+import { setup, QUAD } from './gl.js';
+const MODE = 'between';
+const { gl, quad, color } = setup(document.getElementById('c'));
+quad(QUAD);
+gl.clearColor(0.06, 0.08, 0.1, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+color(0.85, 0.55, 0.25); gl.drawArrays(gl.TRIANGLES, 0, 6);
+const [a, b] = MODE.startsWith('between') ? [0.6, 0.8] : [0.45, 0.55];
+const share = () => scrollY / Math.max(1, document.documentElement.scrollHeight - innerHeight);
+window.__site = {
+  info() {
+    const t = share(), out = t >= a - 1e-3 && t <= b + 1e-3;
+    // out of the frame: the box's right half beyond the right edge, a little more the further into the stretch
+    const x0 = out ? 0.75 + 0.1 * (t - a) / (b - a) : 0.3;
+    return { moving: out && MODE.endsWith('moving'),
+             onScreen: { press: { share: 0.1, x: x0 + 0.2, y: 0.5, box: [x0, 0.3, x0 + 0.4, 0.7], kind: 'prop', subject: true } } };
+  },
+};
+</script></body></html>
