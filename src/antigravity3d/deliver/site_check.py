@@ -740,6 +740,25 @@ def _json_pointer(doc: Any, pointer: str) -> Any:
     return cur
 
 
+# A passage of a longer text counts as that text from this many characters on. Run 2 of the website task (2026-11-24):
+# the page quoted the first five lines of a 400-character digest, 130 characters and exact; the rule then wanted half
+# of the value, the check said "broken" twice, and the agent took Straitjacket's real digest off the page.
+QUOTE_MIN = 20
+
+
+def _passage_mismatch(shown: str, want: str, where: str) -> str:
+    """Why ``shown`` is not the text at ``where`` (``want``), in the words that say what to change: too short a passage
+    to tell, a quote that leaves the text part-way (and where), or another text altogether."""
+    if shown and shown in want:
+        return (f"the page shows only {_q(shown, 60)}, {len(shown)} of the {len(want)} characters at {where}: too little to "
+                f"tell that it is this value. Show an unbroken passage of at least {QUOTE_MIN} characters")
+    same = len(os.path.commonprefix([shown, want]))
+    if same >= 12:
+        return (f"the page agrees with {where} for {same} characters, then goes on {_q(shown[same:], 40)} where the file has "
+                f"{_q(want[same:], 40)}. A quote is one unbroken passage of the value: nothing left out in the middle")
+    return f"the page shows {_q(shown, 60)} where {where} holds {_q(want, 60)}"
+
+
 def check_fact(src: str, shown: str, sources: Path | None) -> str | None:
     """None when the element agrees with its source, else why not (one sentence)."""
     if sources is None:
@@ -768,7 +787,11 @@ def check_fact(src: str, shown: str, sources: Path | None) -> str | None:
             elif isinstance(value, (int, float)):
                 ok = _number_matches(float(value), _numbers(shown))
             elif isinstance(value, str):
-                ok = _norm(value) in shown_n or shown_n in _norm(value) and len(shown_n) >= 0.5 * len(_norm(value))
+                want = _norm(value)
+                # The whole value, or one unbroken passage of it long enough not to be there by chance.
+                if want in shown_n or (shown_n in want and len(shown_n) >= min(QUOTE_MIN, 0.5 * len(want))):
+                    return None
+                return _passage_mismatch(shown_n, want, f"{path}#{frag}")
             else:
                 return f"data-src=\"{src}\" points at a {type(value).__name__} in {path}; point at the one value the element shows"
             if not ok:

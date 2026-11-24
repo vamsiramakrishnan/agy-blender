@@ -372,7 +372,7 @@ folder):
 
 | `data-src=` | the element must show |
 |---|---|
-| `"eval/run.json#/runs/0/tokens"` | the value at that JSON pointer. A number is compared as a number at the precision shown: for 302628, `302,628` and `302.6k` match; for 0.37, `37 %` does. A string must be contained |
+| `"eval/run.json#/runs/0/tokens"` | the value at that JSON pointer. A number is compared as a number at the precision shown: for 302628, `302,628` and `302.6k` match; for 0.37, `37 %` does. A string: all of it, or one unbroken passage of it of at least 20 characters (half of it, for a shorter value), whitespace aside; nothing left out in the middle |
 | `"tests/fixtures/digest.txt#L10-L14"` (or `#L10`) | those lines (indentation they share aside); one shown line may be part of them |
 | `"README.md"` | text that occurs in the file, whitespace aside |
 

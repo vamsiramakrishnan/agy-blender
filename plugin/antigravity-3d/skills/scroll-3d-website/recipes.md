@@ -42,6 +42,8 @@ which file, so `check_site` can compare the two. Give the path relative to the s
 ```html
 <!-- the names below are placeholders: use the project's real files -->
 <p>Tokens kept out: <span data-src="RESULTS.json#/path/to/the/number">the number, as that file holds it</span>.</p>
+<pre data-src="RESULTS.json#/path/to/a/text"><code>that text, or one unbroken passage of it (20 characters or more):
+its first lines, say, with nothing left out in the middle</code></pre>
 <pre data-src="src/MODULE.py#L40-L52"><code>lines 40 to 52 of that file, exactly as they are</code></pre>
 <blockquote data-src="README.md">a sentence that occurs in the README, word for word</blockquote>
 ```

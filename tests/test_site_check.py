@@ -81,6 +81,22 @@ def test_a_fact_is_checked_against_its_source(tmp_path):
     assert check("eval/run.json#/runs/0/tokens", "302,628") is None
     assert "holds '302628'" in check("eval/run.json#/runs/0/tokens", "302,629")
     assert check("eval/run.json#/name", "the field needle run") is None
+    # a string value: all of it, or one unbroken passage long enough not to be there by chance (run 2: the first five
+    # lines of a 400-character digest, exact, were called broken twice and the agent took the digest off the page)
+    digest = ("[ctx run:8956c843e556 profile=logtemplate/v1]\ncwd: .\ncommand: cat corpus.log\nexit: 0\n"
+              "stdout: 20,001 lines · 979.1 KiB · est 250,648 tokens\nstderr: 0 lines · 0 B\n" + "templates: 11 cover 20,001 lines\n" * 8)
+    (src / "eval" / "record.json").write_text(json.dumps({"arms": [{"output_excerpt": digest}]}))
+    at = "eval/record.json#/arms/0/output_excerpt"
+    first_five = "\n".join(digest.split("\n")[:5])
+    assert len(first_five) < 0.5 * len(digest) and check(at, first_five) is None
+    assert check(at, "exit: 0\nstdout: 20,001 lines") is None  # from the middle, whitespace aside
+    left_out = check(at, "[ctx run:8956c843e556 profile=logtemplate/v1]\nstdout: 20,001 lines · 979.1 KiB")
+    assert "agrees with eval/record.json#/arms/0/output_excerpt for 46 characters" in left_out and "'cwd: . command" in left_out
+    assert "one unbroken passage" in left_out and '\\n' not in left_out and '"[' not in left_out  # the text, not its JSON spelling
+    short = check(at, "exit: 0")
+    assert "shows only 'exit: 0', 7 of the" in short and "at least 20 characters" in short
+    assert "holds '[ctx run:8956c843e556" in check(at, "something else entirely")
+    assert check("eval/run.json#/name", "needle") is None and "shows only 'ne'" in check("eval/run.json#/name", "ne")  # a short value: half of it
     assert check("eval/run.json#/ok", "true") is None
     assert "nothing at /runs/3" in check("eval/run.json#/runs/3/tokens", "1")
     assert "point at the one value" in check("eval/run.json#/runs", "1")
