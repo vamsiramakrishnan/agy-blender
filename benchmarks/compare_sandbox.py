@@ -389,6 +389,28 @@ def note_reply(tool: str, result: object, answered: set[str]) -> None:
         answered.add(tool)
 
 
+def install_into_workspace(args: dict) -> bool:
+    """Would the owner of a site task approve this ``install_into_project``? The owner asked for a site to be built in
+    this workspace, so a real (not dry) install into it is theirs to approve (run 1's second session was refused one
+    and copied the files by hand, with no levels of detail). Only that: the project is the workspace (empty, or a
+    path inside it), ``dest`` and ``assets`` are relative and stay inside it, and nothing is forced over an edited file."""
+    def inside(path: str, base: str) -> bool:
+        full = os.path.normpath(path if path.startswith("/") else os.path.join(base, path))
+        return full == WORKSPACE or full.startswith(WORKSPACE + "/")
+
+    project = str(args.get("project_dir") or "")
+    if project and not inside(project, WORKSPACE):
+        return False
+    if args.get("force") in (True, "true", "True", 1):
+        return False
+    base = os.path.normpath(os.path.join(WORKSPACE, project)) if project else WORKSPACE
+    for key in ("dest", "assets"):
+        v = str(args.get(key) or "")
+        if v and (v.startswith("/") or not inside(v, base)):
+            return False
+    return True
+
+
 def answer_limits(tool: str, args: dict, limits: dict,
                   answered: set[str] | None = None) -> tuple[dict | None, str | None]:
     """What the person running this pilot would answer when the agent opens a session or switches one to a preview:
@@ -502,9 +524,13 @@ def plugin_attachment(cfg: dict, url: str, emit: Events, conversation_id: str) -
                     a_ = (data.args.get("Arguments") or {})
                     ok = tool in (*OPENERS, "start_preview") and \
                         (_int(a_.get("token_ceiling")), _int(a_.get("max_images"))) == (limits["tokens"], limits["images"])
+                    # The site task's owner approves an install into the run's own workspace (a declared run option).
+                    install_ok = bool(cfg.get("approve_installs")) and tool == "install_into_project" and install_into_workspace(a_)
+                    ok = ok or install_ok
                     # A person would be asked here. Nobody can answer a headless run, so the harness does, and approves
                     # only the run's own share.
-                    emit("ask_answered", tool=tool or str(data.name), question=o.get("reason"), answer="approved" if ok else "refused")
+                    emit("ask_answered", tool=tool or str(data.name), question=o.get("reason"), answer="approved" if ok else "refused",
+                         **({"why": "install into the run's own workspace (option approve_installs)"} if install_ok else {}))
                     if not ok:
                         return hooks.HookResult(allow=False, message=(o.get("reason") or "") +
                                                 " [asked the user: refused]")

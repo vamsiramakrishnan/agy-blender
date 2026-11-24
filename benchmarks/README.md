@@ -425,9 +425,15 @@ for the production/kit/blockout distinction, regression evidence, proposed pilot
 without the plugin. `prepare` builds the workspace from a copy of the project's checkout, a folder of reference notes,
 a `package.json` with its lockfile (installed, and checked against the lockfile, before the sandbox starts) and the task
 text (`site_task_seed/task.md`; `<!-- plugin -->` and `<!-- stock -->` blocks are the only difference between what the arms are told; the `script`
-arm reads the plugin's text and differs in the plugin's authoring mode).
+arm reads the plugin's text and differs in the plugin's authoring mode). The text is the next run's: it says where the
+site will live and that nothing is loaded from another host, and names no source folder. Run 1's wording stays in
+`results/site_run1/task_session1.md`.
 `run --arm plugin|script|stock` then runs one session with its own token share, no images, a wall-clock limit, and
-Node and the headless browser bound into the sandbox for every arm (`RunOptions` in `compare_agents.py`); `collect`
-writes the result folder (task, record, events, report, site source, `run.json`, and the site check's answer when this
-tree has one) with every local path replaced by a label. A real run needs `--live` and `GEMINI_API_KEY`; `--offline`
+Node and the headless browser bound into the sandbox for every arm, and the stand-in for the user approving an
+`install_into_project` that writes into the run's own workspace and nothing else (`RunOptions` in `compare_agents.py`);
+`collect` writes the result folder (task, record, events, report, `run.json`, the site check's answer when this tree
+has one, and `site_src/`: every file the agent made or changed, found by comparing the workspace with the seed's
+manifest, wherever it put them) with every local path replaced by a label. The workspace is a folder the agent
+wrote, so nothing is read through a link that leaves it: a link to the sandbox's own `/home/agent/project/...` is
+translated, any other is left alone and named in `run.json` (`links_not_followed`). A real run needs `--live` and `GEMINI_API_KEY`; `--offline`
 runs the same wiring against the harness's stand-in model and costs nothing. `tests/test_site_task.py` covers it.

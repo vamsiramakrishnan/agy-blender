@@ -14,8 +14,10 @@ What that means here:
    Build the 3D objects the site needs yourself: Blender 5.3 is installed (`blender` is on the PATH; run it headless, for example `blender -b --python script.py`), and glTF/GLB files are what three.js loads.
 <!-- /stock -->
 
-Deliverable: the finished website in ./site/ with ./site/index.html as its entry. Keep the source you write (and any build configuration) in ./src_site/. It will be published on a static host with these rules, so follow them:
-- Everything the page loads (scripts, styles, 3D models, images, fonts, data) is a file inside ./site/ referenced by a relative URL. Two exceptions: JavaScript libraries may be loaded by exact-version URL from cdnjs.cloudflare.com, cdn.jsdelivr.net/npm or unpkg.com, and font stylesheets from fonts.googleapis.com.
+Where it will live: the site becomes the front page of Straitjacket's documentation site, a static site served under the path /straitjacket/. The documentation's own landing page is at ./docs/ relative to the front page.
+
+Deliverable: the finished website in ./site/ with ./site/index.html as its entry.
+- Everything the page loads (scripts, styles, 3D models, images, fonts, data) is a file inside ./site/ referenced by a relative URL. Nothing is loaded from another host.
 - No server code. If you use a build tool, ./site/ must hold the built output and work from any path (relative base).
 - It must work on a phone-width screen as well as on a desktop.
 

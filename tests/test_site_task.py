@@ -156,7 +156,7 @@ def test_a_workspace_refuses_a_link_out_of_the_seed_and_packages_that_do_not_mat
 
 def test_the_scrubber_labels_this_machines_paths_and_keeps_the_sandboxs(mods, tmp_path):
     st = mods[1]
-    scrub = st.Scrubber({str(tmp_path / "ws"): "<workspace>", str(tmp_path): "<run>", "/usr/local": "<never>"}, secrets=("sk-abcdefghijkl",))
+    scrub = st.Scrubber({str(tmp_path / "ws"): "<workspace>", str(tmp_path): "<run>"}, secrets=("sk-abcdefghijkl",))
     raw = (f'{{"cwd": "/home/agent/project", "p": "{tmp_path}/ws/site/index.html", "q": "{tmp_path}/x", "py": "/usr/local/bin/python3", '
            '"r": "/root/.cache/x", "h": "/home/someone/proj/a.py", "t": "/tmp/claude-0/-home-user/scratch", "k": "sk-abcdefghijkl", '
            '"o": "/opt/blender/blender"}')
@@ -265,13 +265,15 @@ def test_both_arms_run_the_same_seed_offline_with_the_same_tools_and_a_result_fo
         results[arm] = (out, wr)
     assert st.tree_digest(s["project"]) == digest
     for arm, (out, wr) in results.items():
-        assert {p.name for p in out.iterdir()} == {"task.md", "record.json", "events.jsonl", "report.md", "site_src", "run.json"}
+        assert {p.name for p in out.iterdir()} == {"task.md", "record.json", "events.jsonl", "report.md", "site_src", "run.json", "site_check.txt"}
         run = json.loads((out / "run.json").read_text())
         assert run["status"] == "finished" and run["model"] == "gemini-4-neon" and run["share_tokens"] == 30_000_000
         assert run["command"][:3] == ["site_task.py", "run", "--arm"] and run["command"][3] == arm
         assert run["share_images"] == 0 and run["seed"]["packages_installed"] == 2 and run["site"]["files"] == 1
-        assert run["site_check"].startswith("this tree has no site check") or run["site_check"] == "ok"  # eyes' tool: not in every tree
-        assert (out / "site_src" / "index.html").is_file() and "offline stand-in model" in (out / "report.md").read_text()
+        assert run["site_check"] == "ok" and (out / "site_check.txt").read_text().strip()  # the tree's own site check ran on the staged copy
+        assert sorted(str(p.relative_to(out / "site_src")) for p in (out / "site_src").rglob("*") if p.is_file()) == ["index.html", "src/main.js"]
+        assert run["links_not_followed"] == [] and run["site_src_files"] == 2 and run["options"]["approve_installs"] is True
+        assert "offline stand-in model" in (out / "report.md").read_text()
         text = "".join(p.read_text() for p in out.rglob("*") if p.is_file())
         assert str(tmp_path) not in text and "/tmp/pytest" not in text and "<workspace>" in text
         ledger = json.loads((wr / "ledger.json").read_text())["accounts"][f"site:{arm}"]
@@ -314,3 +316,162 @@ def test_collect_can_be_run_again_and_status_reads_a_run(mods, tmp_path, monkeyp
     capsys.readouterr()
     assert st.main(["status", "--work-root", str(tmp_path / "wr")]) == 0
     assert "stock |" in capsys.readouterr().out
+
+
+# ----------------------------------------------------------------------------------------------- links the agent left
+
+
+def fake_run(mods, base: Path):
+    """A finished run's folders without a sandbox: the seed's workspace, its manifest and a record, so that what the
+    agent did to the workspace afterwards can be written by the test."""
+    ca, st, _ = mods
+    s = make_seed(base)
+    wr = base / "wr"
+    work = wr / "work"
+    wr.mkdir()
+    seed = st.prepare_workspace(work, project=s["project"], notes=s["notes"], packages=s["packages"], task="t", project_name="demo")
+    (wr / "seed_manifest.json").write_text(json.dumps(seed.pop("manifest")))
+    run = wr / "runs" / "site_stock"
+    run.mkdir(parents=True)
+    rec = ca.RunRecord("site", "A", status="finished", account="site:stock")
+    (run / "record.json").write_text(json.dumps(__import__("dataclasses").asdict(rec)))
+    meta = {"workspace": str(work), "account": "site:stock", "arm": "A", "arm_name": "stock", "model": "m", "share_tokens": 1,
+            "share_images": 0, "wall_s_limit": 1, "limits": {}, "offline": True, "seed": seed, "options": {}, "command": [],
+            "task_as_given": "t", "site_src": None, "site_built": "site", "project_name": "demo", "project_src": str(s["project"]),
+            "notes_src": str(s["notes"]), "packages_src": str(s["packages"])}
+    (wr / "site_task.json").write_text(json.dumps(meta))
+    return wr, work, meta
+
+
+def test_a_link_to_the_hosts_folders_is_never_followed_and_a_link_into_the_sandbox_workspace_is_translated(mods, tmp_path):
+    ca, st, _ = mods
+    secret = tmp_path / "hostroot"
+    secret.mkdir()
+    (secret / "history.txt").write_text("SECRET-TOKEN-1234\n")
+    wr, work, meta = fake_run(mods, tmp_path)
+    (work / "src_link").symlink_to(secret)  # the agent: ln -s /root src
+    (work / "dist").mkdir()
+    (work / "dist" / "index.html").write_text("<h1>built</h1>")
+    (work / "site").symlink_to("/home/agent/project/dist")  # the sandbox's own view of the workspace
+    (work / "src").mkdir()
+    (work / "src" / "main.js").write_text("export {}\n")
+    (work / "src" / "inner").symlink_to(secret)  # a link inside a folder
+    (work / "demo" / "docs" / "leak").symlink_to(secret)  # inside the sources folder of the facts
+    out = tmp_path / "out"
+    r = st.collect(wr, out)
+    text = "".join(p.read_text() for p in out.rglob("*") if p.is_file())
+    assert "SECRET-TOKEN" not in text
+    run = json.loads((out / "run.json").read_text())
+    assert run["site"]["files"] == 1 and r["site_check"] != "no site/index.html to check"  # the translated link was followed
+    assert "node_modules/.bin/three -> ../three/package.json" not in run["links_not_followed"]  # installed packages are not walked
+    assert any(x.startswith("src_link -> ") for x in run["links_not_followed"]) and any("src/inner -> " in x for x in run["links_not_followed"])
+    assert (out / "site_src" / "src" / "main.js").is_file() and not (out / "site_src" / "src_link").exists()
+    staged = wr / "check_in"
+    assert (staged / "site" / "index.html").is_file() and not any(p.is_symlink() for p in staged.rglob("*"))
+    assert not (staged / "sources" / "docs" / "leak").exists() and (staged / "sources" / "docs" / "a.md").is_file()
+
+
+def test_a_site_link_that_leaves_the_workspace_is_not_checked_and_is_named(mods, tmp_path):
+    ca, st, _ = mods
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / "index.html").write_text("<h1>not the agent's</h1>")
+    wr, work, meta = fake_run(mods, tmp_path)
+    (work / "site").symlink_to(outside)
+    r = st.collect(wr, tmp_path / "out")
+    run = json.loads((tmp_path / "out" / "run.json").read_text())
+    assert run["site"] is None and r["site_check"] == "no site/index.html to check" and run["site_check"] == r["site_check"]
+    assert any(x.startswith("site -> ") for x in run["links_not_followed"])
+    for climb in ("../" * 12 + "etc", "../elsewhere"):
+        (work / "up").symlink_to(climb)
+        assert ca.resolve_in_workspace(work, "up/index.html") is None
+        (work / "up").unlink()
+    (work / "a").symlink_to("b")
+    (work / "b").symlink_to("a")
+    assert ca.resolve_in_workspace(work, "a") is None  # a loop is not followed forever
+    (work / "d").mkdir()
+    (work / "e").symlink_to("d")
+    assert ca.resolve_in_workspace(work, "e/x.txt") == (work / "d" / "x.txt").resolve()
+
+
+def test_the_deliverable_of_a_run_is_found_through_the_sandbox_view_and_never_through_the_hosts(mods, tmp_path):
+    ca = mods[0]
+    work = tmp_path / "work"
+    (work / "dist").mkdir(parents=True)
+    (work / "dist" / "index.html").write_text("x")
+    (work / "site").symlink_to("/home/agent/project/dist")
+    got = ca.resolve_in_workspace(work, "site/index.html")
+    assert got == (work / "dist" / "index.html").resolve() and got.is_file()
+    (work / "site").unlink()
+    (work / "site").symlink_to(tmp_path)  # the host's folder
+    links: list[str] = []
+    assert ca.resolve_in_workspace(work, "site/index.html", links) is None and links == [f"site -> {tmp_path}"]
+
+
+def test_the_agents_source_is_what_it_made_or_changed_wherever_it_put_it(mods, tmp_path):
+    ca, st, _ = mods
+    wr, work, meta = fake_run(mods, tmp_path)
+    manifest = json.loads((wr / "seed_manifest.json").read_text())
+    for rel, text in {"index.html": "<h1>", "src/main.js": "1", "vite.config.js": "2", "crate.py": "from agy3d import Asset",
+                      "public/models/a.glb": "x" * (600 * 1024), "package.json": '{"name": "changed"}',
+                      ".agy3d/state.json": "p", "agy3d_assets/s/a.txt": "p", "dist/index.html": "b", "site/index.html": "b",
+                      "node_modules/zz/index.js": "n", ".vite/c.json": "c", ".agents/plugins/p.md": "p"}.items():
+        (work / rel).parent.mkdir(parents=True, exist_ok=True)
+        (work / rel).write_text(text)
+    (work / "public" / "icon.bin").write_bytes(b"\xff\xfe\x00\x80")
+    links: list[str] = []
+    files = sorted(str(r) for _, r in st.agent_files(work, manifest, "site", None, links))
+    assert files == ["crate.py", "index.html", "package.json", "public/icon.bin", "public/models/a.glb", "src/main.js", "vite.config.js"]
+    narrowed = sorted(str(r) for _, r in st.agent_files(work, manifest, "site", work / "src", links))
+    assert narrowed == ["src/main.js"]
+    out = tmp_path / "o"
+    out.mkdir()
+    omitted = st.copy_site_src(st.agent_files(work, manifest, "site", None, links), out, st.scrubber_for(work, wr))
+    assert [o.split(" (")[0] for o in omitted] == ["public/icon.bin", "public/models/a.glb"] and (out / "crate.py").is_file()
+    assert "binary" in omitted[0] and "614400 bytes" in omitted[1]
+
+
+def test_source_text_that_still_holds_a_path_of_this_machine_is_left_out_and_named(mods, tmp_path):
+    st = mods[1]
+    work = tmp_path / "w"
+    work.mkdir()
+    (work / "a.js").write_text("// fine\n")
+    (work / "b.js").write_text("// MARK\n")
+
+    class Strict(st.Scrubber):
+        def leaks(self, s):
+            return ["/x"] if "MARK" in s else []
+
+    out = tmp_path / "o"
+    out.mkdir()
+    omitted = st.copy_site_src([(work / "a.js", Path("a.js")), (work / "b.js", Path("b.js"))], out, Strict({}))
+    assert omitted == ["b.js (holds a path of this machine, not published)"] and (out / "a.js").is_file() and not (out / "b.js").exists()
+
+
+def test_the_paths_a_run_was_given_are_replaced_whatever_their_prefix_and_the_check_is_not_an_assert(mods, tmp_path):
+    st = mods[1]
+    work, root = Path("/var/tmp/site1/work"), Path("/var/tmp/site1")
+    scrub = st.scrubber_for(work, root, {"/opt/checkouts/straitjacket": "<project checkout>"})
+    out = scrub.text('{"w": "/var/tmp/site1/work/site", "r": "/var/tmp/site1/runs", "p": "/opt/checkouts/straitjacket/docs", '
+                     '"sandbox": "/opt/blender/blender", "py": "/usr/local/bin/python3"}')
+    assert "<workspace>/site" in out and "<run>/runs" in out and "<project checkout>/docs" in out
+    assert "/opt/blender/blender" in out and "/usr/local/bin/python3" in out and not scrub.leaks(out)
+    with pytest.raises(st.LeakError):
+        scrub.check("x", "see /var/tmp/site1/work/x")
+    assert "assert" not in __import__("inspect").getsource(st.Scrubber.check)
+
+
+# ----------------------------------------------------------------------------------------------- installs
+
+
+def test_the_stand_in_approves_an_install_into_the_runs_workspace_and_refuses_every_other_ask(mods):
+    sb = mods[2]
+    ok = sb.install_into_workspace
+    base = {"package_dir": "/home/agent/project/agy3d_assets/x/pkg", "dry_run": False}
+    assert ok(base) and ok(base | {"project_dir": "/home/agent/project"}) and ok(base | {"project_dir": "app"})
+    assert ok(base | {"dest": "src/agy3d/gate", "assets": "public/models"})
+    assert not ok(base | {"project_dir": "/home/agent"}) and not ok(base | {"project_dir": "/etc"})
+    assert not ok(base | {"project_dir": "../other"}) and not ok(base | {"project_dir": "/home/agent/project/../x"})
+    assert not ok(base | {"dest": "/home/agent/elsewhere"}) and not ok(base | {"dest": "../../x"})
+    assert not ok(base | {"assets": "/tmp/pub"}) and not ok(base | {"assets": "a/../../b"})
+    assert not ok(base | {"force": True}) and not ok(base | {"force": "true"})

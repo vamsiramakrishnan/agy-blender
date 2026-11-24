@@ -30,6 +30,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -139,6 +140,8 @@ def prepare_workspace(work: Path, *, project: Path, notes: Path, packages: Path,
         raise SystemExit("the workspace's node_modules does not match its lockfile: " + "; ".join(problems[:5]))
     if tree_digest(project) != digest_before:
         raise SystemExit(f"{project} changed while it was copied")
+    manifest = {str(p.relative_to(work)): hashlib.sha256(p.read_bytes()).hexdigest()
+                for p in sorted(work.rglob("*")) if p.is_file() and not p.is_symlink() and "node_modules" not in p.relative_to(work).parts}
     git = lambda *a: subprocess.run(["git", "-C", str(project), *a], capture_output=True, text=True).stdout.strip()  # noqa: E731
     lock = json.loads((work / "package-lock.json").read_text())
     return {"project_name": name, "project_digest": digest_before, "project_git_commit": git("rev-parse", "HEAD") or None,
@@ -147,24 +150,30 @@ def prepare_workspace(work: Path, *, project: Path, notes: Path, packages: Path,
             "package_json_sha256": hashlib.sha256((work / "package.json").read_bytes()).hexdigest(),
             "lockfile_sha256": hashlib.sha256((work / "package-lock.json").read_bytes()).hexdigest(),
             "packages_installed": sum(1 for k in (lock.get("packages") or {}) if k.startswith("node_modules/")),
-            "packages_how": how, "task_sha256": hashlib.sha256(task.encode()).hexdigest()}
+            "packages_how": how, "task_sha256": hashlib.sha256(task.encode()).hexdigest(),
+            # every file the seed put in the workspace (not the installed packages) with its digest: what ``collect``
+            # compares against to find the agent's own files, wherever it put them
+            "manifest": manifest}
 
 
 # ----------------------------------------------------------------------------------------------- local paths
 
 
+class LeakError(RuntimeError):
+    """Text about to be published still holds a path of this machine (or a key). Not an assert: ``python -O`` removes those."""
+
+
 class Scrubber:
     """Replace every path of this machine in published text with a label, as run 1's scratch step did, and then
-    refuse to publish text that still holds one. ``pairs`` are exact paths (longest first); the pattern catches the
-    rest (a path a tool printed that no option named). Paths inside the sandbox (/home/agent, /opt, /tmp/...) are not
-    the machine's and stay."""
+    refuse to publish text that still holds one. ``pairs`` are the exact paths the run was given, whatever their prefix
+    (``--work-root /var/tmp/x`` and a checkout under /opt are the machine's, not the sandbox's), longest first; the
+    pattern catches the rest (a path a tool printed that no option named) and alone leaves system prefixes
+    alone. Paths inside the sandbox (/home/agent, /opt/blender, /tmp/...) are not the machine's and stay."""
 
     HOST = re.compile(r"/(?:home/(?!agent\b)|root\b|Users/|tmp/(?:claude-|pytest-)|run/agy-pilot)[^\s\"'\\,;:)\]}>]*")
 
     def __init__(self, pairs: dict[str, str], secrets: tuple[str, ...] = ()) -> None:
-        # a system folder is never a label's path: it is the sandbox's own (/usr/local/bin/python3 in a venv-less install)
-        self.pairs = sorted(((p.rstrip("/"), label) for p, label in pairs.items()
-                             if p and len(p.rstrip("/")) > 3 and not p.startswith(("/usr", "/opt", "/bin", "/etc", "/lib", "/var"))),
+        self.pairs = sorted(((p.rstrip("/"), label) for p, label in pairs.items() if p and len(p.rstrip("/")) > 1),
                             key=lambda x: -len(x[0]))
         self.secrets = tuple(s for s in secrets if s and len(s) > 8)
 
@@ -178,10 +187,20 @@ class Scrubber:
     def leaks(self, s: str) -> list[str]:
         return self.HOST.findall(s) + [p for p, _ in self.pairs if p in s] + [x for x in self.secrets if x in s]
 
+    def check(self, name: str, s: str) -> None:
+        if found := self.leaks(s):
+            raise LeakError(f"{name} still holds {found[:3]}")
+
+
+# The paths this process happens to run from are ambient: a system folder there (a venv-less Python at /usr) is the
+# sandbox's own too, so it is not a label's path. The paths the run was given never go through this filter.
+SYSTEM_ROOTS = ("/", "/usr", "/usr/local", "/opt", "/bin", "/etc", "/lib", "/var")
+
 
 def scrubber_for(work: Path, root: Path, extra: dict[str, str] | None = None) -> Scrubber:
-    pairs = {str(work): "<workspace>", str(root): "<run>", str(ca.PROJECT_SRC.parent): "<repository>",
-             sys.prefix: "<venv>", str(Path.home()): "<home>", "/run/agy-pilot": "<socket-dir>"}
+    ambient = {sys.prefix: "<venv>", str(Path.home()): "<home>"}
+    pairs = {k: v for k, v in ambient.items() if k.rstrip("/") not in SYSTEM_ROOTS}
+    pairs |= {str(work): "<workspace>", str(root): "<run>", str(ca.PROJECT_SRC.parent): "<repository>", "/run/agy-pilot": "<socket-dir>"}
     pairs.update(extra or {})
     return Scrubber(pairs, secrets=(os.environ.get("GEMINI_API_KEY", ""), os.environ.get("GOOGLE_API_KEY", "")))
 
@@ -226,44 +245,109 @@ def run_site_check(site: Path, sources: Path, out_dir: Path, timeout_s: int = 24
 # ----------------------------------------------------------------------------------------------- the result folder
 
 
-def site_weight(site: Path) -> dict[str, Any]:
-    files = sorted(((p.stat().st_size, str(p.relative_to(site))) for p in site.rglob("*") if p.is_file()), reverse=True)
+def walk_regular(root: Path, work: Path, links: list[str], prune: tuple[str, ...] = ()):
+    """(path, path relative to the workspace) of every regular file under ``root``, without following a link: ``root`` is
+    a folder the agent wrote, and a link in it can name any file of this machine. Each link met (to a file or to a
+    folder) is appended to ``links`` and left alone."""
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        here = Path(dirpath)
+        dirnames[:] = [d for d in dirnames if d not in prune]
+        for name in list(dirnames):
+            if (here / name).is_symlink():
+                dirnames.remove(name)
+                links.append(f"{(here / name).relative_to(work)} -> {os.readlink(here / name)}")
+        dirnames.sort()
+        for name in sorted(filenames):
+            p = here / name
+            st = p.lstat()
+            if stat.S_ISLNK(st.st_mode):
+                links.append(f"{p.relative_to(work)} -> {os.readlink(p)}")
+            elif stat.S_ISREG(st.st_mode):
+                yield p, p.relative_to(work)
+
+
+def site_weight(site: Path, work: Path, links: list[str]) -> dict[str, Any]:
+    files = sorted(((p.stat().st_size, str(p.relative_to(site))) for p, _ in walk_regular(site, work, links)), reverse=True)
     return {"files": len(files), "bytes": sum(s for s, _ in files), "largest": [{"path": p, "bytes": s} for s, p in files[:5]]}
 
 
-def copy_site_src(src: Path, dst: Path, scrub: Scrubber) -> list[str]:
-    """The site's source: text files as the agent left them (paths labelled), without installed packages, build output,
-    and any file over ``SITE_SRC_FILE_LIMIT`` (a model or a picture; named in the returned list instead)."""
-    omitted = []
-    for p in sorted(src.rglob("*")):
-        rel = p.relative_to(src)
-        if not p.is_file() or p.is_symlink() or any(part in ("node_modules", "dist", ".git", ".vite") for part in rel.parts):
+def stage_tree(src: Path, dst: Path, work: Path, links: list[str], skip: tuple[str, ...] = ()) -> None:
+    """A copy of ``src`` made of its regular files only. The site check serves one folder and reads another, on this
+    machine and outside the sandbox; both are copies, so that nothing it opens is reached through a link."""
+    dst.mkdir(parents=True, exist_ok=True)
+    for p, rel in walk_regular(src, work, links):
+        inner = p.relative_to(src)
+        if any(part in skip for part in inner.parts):
             continue
-        if p.stat().st_size > SITE_SRC_FILE_LIMIT:
-            omitted.append(f"{rel} ({p.stat().st_size} bytes)")
+        (dst / inner).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(p, dst / inner)
+
+
+# Never the agent's source: installed packages, caches, the plugin's own folders (its packages and sessions are the
+# plugin's output, kept in the raw run) and the build output that ``dist`` and the built site duplicate.
+NOT_SOURCE_DIRS = ("node_modules", ".git", ".vite", ".cache", ".parcel-cache", ".turbo", ".next", "__pycache__", ".npm")
+NOT_SOURCE_TOP = (".agents", ".agy3d", "agy3d_assets", "dist")
+# The plugin's installer also writes its skills into the workspace's ``skills/`` before the session starts (seen in the
+# offline plugin run); for the stock arm a ``skills/`` folder can only be the agent's own.
+PLUGIN_TOP = ("skills",)
+
+
+def agent_files(work: Path, manifest: dict[str, str], built_rel: str, narrow: Path | None, links: list[str],
+                plugin: bool = False) -> list[tuple[Path, Path]]:
+    """The files the agent made or changed: everything in the workspace that is not in the seed's manifest (or whose
+    digest differs from it), except what ``NOT_SOURCE_*`` and the built site are. ``narrow`` limits it to one folder."""
+    top_skip = {*NOT_SOURCE_TOP, *(PLUGIN_TOP if plugin else ()), Path(built_rel).parts[0]}
+    out = []
+    for p, rel in walk_regular(narrow or work, work, links, prune=NOT_SOURCE_DIRS):
+        if rel.parts[0] in top_skip:
+            continue
+        if manifest.get(str(rel)) == hashlib.sha256(p.read_bytes()).hexdigest():
+            continue
+        out.append((p, rel))
+    return out
+
+
+def copy_site_src(files: list[tuple[Path, Path]], dst: Path, scrub: Scrubber) -> list[str]:
+    """The site's source as the agent left it, paths labelled. Named in the returned list instead of copied: a file over
+    ``SITE_SRC_FILE_LIMIT`` (a model or a picture), a binary, and a text file that still holds a path of this machine
+    after labelling (not published)."""
+    omitted = []
+    for p, rel in files:
+        size = p.stat().st_size
+        if size > SITE_SRC_FILE_LIMIT:
+            omitted.append(f"{rel} ({size} bytes)")
+            continue
+        try:
+            text = scrub.text(p.read_text())
+        except UnicodeDecodeError:
+            omitted.append(f"{rel} (binary, {size} bytes)")
+            continue
+        if scrub.leaks(text):
+            omitted.append(f"{rel} (holds a path of this machine, not published)")
             continue
         (dst / rel).parent.mkdir(parents=True, exist_ok=True)
-        try:
-            (dst / rel).write_text(scrub.text(p.read_text()))
-        except UnicodeDecodeError:
-            omitted.append(f"{rel} (binary, {p.stat().st_size} bytes)")
+        (dst / rel).write_text(text)
     return omitted
 
 
 def collect(work_root: Path, out: Path) -> dict[str, Any]:
-    """Write the result folder ``out`` from the run in ``work_root``. Safe to run again."""
+    """Write the result folder ``out`` from the run in ``work_root``. Safe to run again. The workspace is what the agent
+    left on a host folder: nothing here follows a link out of it (see ``resolve_in_workspace``), and what is named
+    in ``run.json`` as ``links_not_followed`` was left alone."""
     meta = json.loads((work_root / "site_task.json").read_text())
     work, account = Path(meta["workspace"]), meta["account"]
     run_dir = work_root / "runs" / account.replace(":", "_")
     rec = ca.load_record(run_dir / "record.json")
+    manifest = json.loads((work_root / "seed_manifest.json").read_text())
     scrub = scrubber_for(work, work_root, {meta["project_src"]: "<project checkout>", meta["notes_src"]: "<notes>",
                                            meta["packages_src"]: "<packages>"})
     out.mkdir(parents=True, exist_ok=True)
     written: dict[str, str] = {}
+    links: list[str] = []
 
     def put(name: str, text: str) -> None:
         text = scrub.text(text)
-        assert not scrub.leaks(text), (name, scrub.leaks(text)[:3])
+        scrub.check(name, text)
         (out / name).write_text(text)
         written[name] = hashlib.sha256(text.encode()).hexdigest()[:12]
 
@@ -272,22 +356,32 @@ def collect(work_root: Path, out: Path) -> dict[str, Any]:
     events = run_dir / "events.jsonl"
     put("events.jsonl", events.read_text() if events.exists() else "")
     put("report.md", rec.final_text or "(the agent wrote no final report)\n")
-    omitted: list[str] = []
-    src = work / meta["site_src"]
-    if src.is_dir():
-        shutil.rmtree(out / "site_src", ignore_errors=True)
-        (out / "site_src").mkdir()
-        omitted = copy_site_src(src, out / "site_src", scrub)
-    built = work / meta["site_built"]
-    check, why = run_site_check(built, work / meta["project_name"], work_root / "site_check", timeout_s=240)
+    narrow = None
+    if meta.get("site_src"):
+        narrow = ca.resolve_in_workspace(work, meta["site_src"], links)
+    files = [] if meta.get("site_src") and narrow is None else agent_files(work, manifest, meta["site_built"], narrow, links, plugin=meta["arm_name"] != "stock")
+    shutil.rmtree(out / "site_src", ignore_errors=True)
+    (out / "site_src").mkdir()
+    omitted = copy_site_src(files, out / "site_src", scrub)
+    built = ca.resolve_in_workspace(work, meta["site_built"], links)
+    has_site = built is not None and (built / "index.html").is_file() and not (built / "index.html").is_symlink()
+    check, why = None, "no site/index.html to check" if built is None or not has_site else "ok"
+    if has_site:
+        stage = work_root / "check_in"
+        shutil.rmtree(stage, ignore_errors=True)
+        stage_tree(built, stage / "site", work, links)
+        src_real = ca.resolve_in_workspace(work, meta["project_name"], links)
+        stage_tree(src_real, stage / "sources", work, links, skip=(".git", "node_modules")) if src_real else (stage / "sources").mkdir(parents=True)
+        check, why = run_site_check(stage / "site", stage / "sources", work_root / "site_check", timeout_s=240)
     if check is not None:
         put("site_check.txt", check)
     run = {k: meta[k] for k in ("arm_name", "arm", "model", "share_tokens", "share_images", "wall_s_limit", "limits", "offline",
                                 "seed", "options", "command")} | {
         "status": rec.status, "wall_s": rec.wall_s, "model_calls": rec.model_calls, "tool_calls": rec.tool_calls,
         "tokens": rec.tokens, "images": rec.images, "refused": rec.refused,
-        "site": site_weight(built) if (built / "index.html").is_file() else None,
-        "site_src_omitted": omitted, "site_check": why}
+        "site": site_weight(built, work, links) if has_site else None,
+        "site_src_files": len(files) - len(omitted), "site_src_omitted": omitted, "site_check": why,
+        "links_not_followed": sorted(set(links))}
     put("run.json", json.dumps(run, indent=1, default=str))
     return {"out": str(out), "files": written, "status": rec.status, "site_check": why}
 
@@ -316,17 +410,20 @@ r["secret_env"] = sorted(k for k in os.environ if any(s in k for s in ("KEY", "T
 print("SITE_PROBES " + json.dumps(r))
 EOF"""
 
-SITE_WRITE = r"""mkdir -p src_site site && node -e "
+# The source at the workspace root (index.html and src/), the way the plugin's installer and starter lay a project out,
+# and the built site in site/.
+SITE_WRITE = r"""mkdir -p src site && node -e "
 const fs = require('fs');
 const html = '<!doctype html><meta charset=utf-8><title>offline</title><h1 data-src=\"%s/README.md#L1\">site</h1>';
-fs.writeFileSync('src_site/index.html', html);
+fs.writeFileSync('index.html', html);
+fs.writeFileSync('src/main.js', 'console.log(1);');
 fs.writeFileSync('site/index.html', html);
 " && ls site"""
 
 
 def scripted_site_agent(project_name: str, plugin: bool) -> list[dict[str, Any]]:
-    """The stand-in model of an offline run: look at the machine, write a one-page site with node into src_site/ and
-    site/, and report. The plugin arms also ask the plugin's server for its status, so that the same script shows
+    """The stand-in model of an offline run: look at the machine, write a one-page site with node (source at the root, built
+    into site/), and report. The plugin arms also ask the plugin's server for its status, so that the same script shows
     whether the plugin is there."""
     turns = [ca._fc("run_command", CommandLine=SITE_PROBE, Cwd="/home/agent/project"),
              ca._fc("run_command", CommandLine=SITE_WRITE.replace("%s", project_name), Cwd="/home/agent/project")]
@@ -353,6 +450,7 @@ def cmd_prepare(a: argparse.Namespace) -> int:
     task = render_task(a.task.read_text(), plugin=a.arm != "stock")
     seed = prepare_workspace(a.workspace, project=a.project, notes=a.notes, packages=a.packages, task=task, npm=a.npm,
                              project_name=a.project_name)
+    seed.pop("manifest")
     print(json.dumps(seed, indent=1))
     return 0
 
@@ -372,10 +470,12 @@ def cmd_run(a: argparse.Namespace) -> int:
     work = work_root / "work"
     seed = prepare_workspace(work, project=a.project, notes=a.notes, packages=a.packages, task=task, npm=a.npm,
                              project_name=a.project_name)
+    (work_root / "seed_manifest.json").write_text(json.dumps(seed.pop("manifest")))
     account = f"site:{a.arm}"
     ca.BUDGET.update(ceiling_tokens=a.share_tokens + 5_000_000, ceiling_images=0, round="site")
     opts = ca.RunOptions(model=a.model, sdk_output_cap=True, limits={"max_model_calls": a.max_model_calls, "max_tool_calls": a.max_tool_calls},
-                         node_dir=str(a.node_dir), browsers=True, deliverable=f"{a.site_built}/index.html")
+                         node_dir=str(a.node_dir), browsers=True, deliverable=f"{a.site_built}/index.html",
+                         approve_installs=True)
     meta = {"workspace": str(work), "account": account, "arm": arm, "arm_name": a.arm, "model": a.model, "share_tokens": a.share_tokens,
             "share_images": 0, "wall_s_limit": a.wall_s, "limits": opts.limits, "offline": a.offline, "seed": seed,
             "options": asdict(opts), "command": ["site_task.py", *a.argv], "task_as_given": task,
@@ -444,7 +544,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--max-model-calls", type=int, default=DEFAULT_LIMITS["max_model_calls"])
     p.add_argument("--max-tool-calls", type=int, default=DEFAULT_LIMITS["max_tool_calls"])
     p.add_argument("--node-dir", type=Path, default=Path("/opt/node22"), help="a Node install, bound read-only (bin/node, bin/npm)")
-    p.add_argument("--site-src", default="src_site", help="the agent's source folder, relative to the workspace")
+    p.add_argument("--site-src", default=None,
+                   help="narrow the source to one folder of the workspace (default: every file the agent made or changed)")
     p.add_argument("--site-built", default="site", help="the built site, relative to the workspace (its index.html is the delivery)")
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--live", action="store_true")

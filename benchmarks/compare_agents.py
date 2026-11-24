@@ -2030,6 +2030,9 @@ class RunOptions:
     # run is "finished" only if it left a GLB, and a stock agent that built a whole site and no model was recorded as
     # "gave up".
     deliverable: str | None = None
+    # The stand-in for the user approves an ``install_into_project`` that writes into the run's own workspace (and nothing
+    # else it is asked). Off by default: the comparison's tasks are not about building in a project.
+    approve_installs: bool = False
 
 
 def stock_spec(run_dir: Path, arm: str, brief: Brief, *, plugin: bool = False, share_tokens: int = 0,
@@ -2064,6 +2067,8 @@ def stock_spec(run_dir: Path, arm: str, brief: Brief, *, plugin: bool = False, s
         cfg["max_output_tokens"] = None
     if opts.limits:
         cfg["budget"] = dict(opts.limits)
+    if opts.approve_installs:
+        cfg["approve_installs"] = True
     extra: dict[str, str] = {}
     if opts.node_dir:
         if not (Path(opts.node_dir) / "bin" / "node").exists():
@@ -2104,6 +2109,47 @@ def stock_spec(run_dir: Path, arm: str, brief: Brief, *, plugin: bool = False, s
     os.chmod(sock_dir, 0o777)
     return {"host_sandbox_py": str(HERE / "compare_sandbox.py"), "host_config": str(run_dir / "ctl" / "config.json"),
             "skills": skills}
+
+
+def resolve_in_workspace(work: Path, rel: str, links: list[str] | None = None) -> Path | None:
+    """The real path of ``work/rel`` on this machine, or None when it is not reachable without leaving the workspace.
+
+    The workspace is a host folder the agent wrote into, so a link it left means what it means *in the sandbox*:
+    ``ln -s /root src`` points at the host's own /root here, and ``ln -s /home/agent/project/dist site`` (the
+    sandbox's view of the workspace; agents write this) is broken on the host. A link whose target is the sandbox's
+    workspace path is translated to ``work`` and followed; every other absolute link, and any path that climbs out,
+    is not followed and is appended to ``links`` ("rel -> target") so that the record can name it."""
+    import compare_sandbox as sb
+
+    base = work.resolve()
+    cur, hops = base, 0
+    parts = [x for x in Path(rel).parts if x not in ("", ".")]
+    while parts:
+        part = parts.pop(0)
+        if part == "..":
+            cur = cur.parent
+        else:
+            nxt = cur / part
+            if not nxt.is_symlink():
+                cur = nxt
+                continue
+            hops += 1
+            target = os.readlink(nxt)
+            if hops > 40:
+                return None
+            if target.startswith("/"):
+                if target != sb.WORKSPACE and not target.startswith(sb.WORKSPACE + "/"):
+                    if links is not None:
+                        links.append(f"{nxt.relative_to(base)} -> {target}")
+                    return None
+                cur, parts = base, [x for x in Path(target[len(sb.WORKSPACE):]).parts if x not in ("/", "")] + parts
+            else:
+                parts = [x for x in Path(target).parts if x not in ("", ".")] + parts
+        if cur != base and base not in cur.parents:
+            if links is not None:
+                links.append(f"{rel} -> leaves the workspace")
+            return None
+    return cur
 
 
 def find_main_glb(folder: Path) -> Path | None:
@@ -2518,7 +2564,8 @@ def run_stock(relay: Relay, root: Path, brief: Brief, arm: str, *, wall_s: float
         rec.pipeline["self_report"] = plugin_self_report(work)
         rec.pipeline["mcp_tools"] = mcp_tool_counts(calls)
         rec.pipeline["attached"] = next((e for e in events if e.get("kind") == "plugin_attached"), None)
-    delivered = (work / opts.deliverable).is_file() if opts and opts.deliverable else bool(glb)
+    entry = resolve_in_workspace(work, opts.deliverable) if opts and opts.deliverable else None
+    delivered = (entry is not None and entry.is_file()) if opts and opts.deliverable else bool(glb)
     limit = any("spend limit" in x for x in acc.refused) or "MAX_" in str((end or {}).get("stop_reason"))
     svc = rec.pipeline["conditions"].get("last_call_service_failure")
     if limit:
