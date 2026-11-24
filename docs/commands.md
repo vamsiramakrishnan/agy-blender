@@ -369,8 +369,8 @@ every step is in `report.json`. The contact sheet marks such steps `subject hidd
 Stills for the page without WebGL. When the page also gives `window.__site.chapters()`, a list of `{ id, rest }` (the
 chapter's id, and the story time at which it rests), and `window.__site.setProgress(T)`, as the skill's starter does,
 the desktop visit ends by drawing each chapter's rest and writing the 3D canvas alone as `stills/<chapter id>.webp`
-in the output folder: read from the canvas's drawing buffer right after the page drew it, so no HTML, no scrollbar
-and no headless band is in it; at most 1280 px wide (the article's text column is 40rem, about 590 CSS px of image,
+in the output folder: read from the canvas's drawing buffer right after the page drew it, so no HTML and no scrollbar
+is in it; at most 1280 px wide (the article's text column is 40rem, about 590 CSS px of image,
 so 1280 covers a screen of two device pixels per CSS pixel), WebP at quality 80: 41 to 65 kB each on run 2's site
 (quality 70 saves a fifth for 1 dB less, 90 costs 60 % more for 1.5 dB). At most 24
 chapters and 25 s in all; ids become file names of letters, digits, `-` and `_`, made distinct. The answer names the
@@ -413,11 +413,26 @@ scrubbed animation would barely move; the page is therefore shown at most 250 ms
 (`performance.now`, `Date.now` and the animation-frame time move together). A page that draws faster sees the real
 clock. Frames still changing after 4 s are kept and named in the measures.
 
-One thing in the frames is headless Chromium's, not the page's: a WebGL canvas under an opaque, full-width fixed bar
-loses as many rows at the opposite edge (run 2's 48 px top bar left a flat 48 px band at the bottom of every
-full-window frame; a bar 300 px down blanks the rows 300 px up from the bottom). The same browser with a window draws
-them, and the canvas-only frames, read from the drawing buffer, show them. Subjects are measured from the page's
-geometry, not from the frames, so the band changes nothing that is reported.
+The check tests its camera before it believes it. A Chromium that puts pages together without the GPU path (a
+machine without a GPU whose browser was started without `--use-angle=swiftshader`, or with `--disable-gpu`; some
+container images wrap the browser in a script that removes such switches) draws a WebGL canvas wrongly in a screenshot
+wherever an opaque box lies over it: the part opposite the box, mirrored top to bottom, is left black. Run 2's 48 px
+top bar left a 48 px black band at the bottom of every frame; in run 3 the text panel's code block left a black box
+over the 3D label on the phone, and the agent spent 17 of its 105 minutes on it and changed the site's styles twice.
+No visitor's browser does this. So before the visits the check photographs a page of its own (a canvas of one colour
+under an opaque bar), once per browser:
+
+- the canvas shows opposite the bar: nothing is done and nothing is said;
+- it does not: every visit gives each canvas a layer of its own (`:where(canvas){filter:blur(0px)}`, first in the
+  head and without specificity, so any rule of the page's own wins), which was measured to give the canvas back: on
+  run 3's site the frames taken this way differ from those of the same browser on its GPU path in at most 0.06 % of
+  their pixels, against 1.7 to 8.2 % before. The answer says so under `about these pictures`, and that a screenshot
+  script of the agent's own on that machine will show the boxes;
+- not even then: the answer says that the frames have the fault and that the site is not to be changed for it.
+
+`report.json` carries the result as `camera` (`true`, `layer`, `faulty`, or empty when the machine has no WebGL). The
+canvas-only frames and the stills are read from the drawing buffer and never had the fault; subjects are measured from
+the page's geometry, not from the frames.
 
 Facts. Mark an element with the file that holds what it shows; paths are relative to `--sources` (default: the site
 folder):

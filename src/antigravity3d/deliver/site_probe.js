@@ -30,6 +30,18 @@
   S.win = newWin();
   S.mark = () => { const w = S.win; S.win = newWin(); return w; };
 
+  // ---- the canvas layer (site_check.py, "the camera"): where this browser's screenshots would leave a black box in a
+  // WebGL canvas, every canvas is given a layer of its own. First in the head and without specificity, so a rule of the
+  // page's own wins; added as soon as the document has a head, which is before the page can draw anything.
+  if (cfg.canvasLayerCss) {
+    const add = () => {
+      const st = document.createElement('style'); st.dataset.agySite = 'canvas-layer'; st.textContent = cfg.canvasLayerCss;
+      document.head.prepend(st);
+    };
+    if (document.head) add();
+    else new MutationObserver((_, o) => { if (document.head) { o.disconnect(); add(); } }).observe(document, { childList: true, subtree: true });
+  }
+
   // ---- the clock
   const cap = cfg.frameCapMs || 0;
   let lastReal = null;
@@ -248,8 +260,8 @@
   };
   // The largest WebGL canvas in view, read from its drawing buffer as a PNG data URL. Only right after a draw: a canvas
   // without preserveDrawingBuffer is blank to read once its frame is shown. The drawing buffer holds the scene alone, at
-  // full size, without the page's HTML, a scrollbar, or the rows headless Chromium's compositor leaves out of a WebGL
-  // canvas under an opaque full-width fixed bar (the band in every full-window frame of run 2's site).
+  // full size, without the page's HTML, a scrollbar, or what a browser without the GPU path leaves out of a WebGL
+  // canvas that lies under an opaque box (site_check.py, "the camera": the band in every frame of run 2's site).
   const readCanvas = () => {
     let best = null;
     for (const c of S.canvases) {

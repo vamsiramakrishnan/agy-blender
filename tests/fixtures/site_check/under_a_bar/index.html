@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A canvas under an opaque bar</title>
+<!-- A WebGL canvas of one colour fills the window; an opaque bar covers its top 40 %. A browser that puts pages together
+     without the GPU path leaves the canvas black opposite the bar (the bottom 40 %) in a screenshot. No visitor's does. -->
+<style>html,body{margin:0;background:#101418;color:#eee;font:20px sans-serif}
+canvas{position:fixed;inset:0;width:100vw;height:100vh}
+#bar{position:fixed;left:0;top:0;width:100vw;height:40vh;background:#203040}</style></head>
+<body><canvas id="c"></canvas><div id="bar">The bar is opaque.</div>
+<div style="height:300vh"></div>
+<script type="module">
+import { setup } from './gl.js';
+const { gl } = setup(document.getElementById('c'));
+const draw = () => { gl.clearColor(1, 0, 1, 1); gl.clear(gl.COLOR_BUFFER_BIT); requestAnimationFrame(draw); };
+draw();
+</script></body></html>

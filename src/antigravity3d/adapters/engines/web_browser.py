@@ -33,7 +33,7 @@ import os
 import signal
 import threading
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 #: seconds a browser with no users stays up for the next verification
@@ -91,6 +91,9 @@ class Session:
     driver: Any  # asyncio.subprocess.Process of the Playwright driver, when it can be found
     generation: int
     broken: bool = False
+    #: what a user of this browser measured about it and need not measure again while it runs (the site check's test
+    #: of its own screenshots, ``site_check.camera``)
+    notes: dict = field(default_factory=dict)
 
     def alive(self) -> bool:
         return not self.broken and self.browser.is_connected()

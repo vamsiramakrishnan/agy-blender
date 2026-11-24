@@ -654,6 +654,63 @@ def test_a_lost_context_counts_only_on_a_canvas_the_visitor_can_see(tmp_path):
     assert any("the WebGL context was lost 1 time" in b for b in lost.broken()), lost.broken()
 
 
+def _opposite_the_bar(report) -> tuple[int, int, int]:
+    """The colour of the first desktop frame at 80 % of its height: the fixture's canvas shows there, opposite its bar."""
+    im = Image.open(report.visits["desktop"].steps[0].frame).convert("RGB")
+    return im.getpixel((im.width // 2, round(im.height * 0.8)))
+
+
+def _is_the_canvas(px) -> bool:
+    return px[0] > 200 and px[1] < 60 and px[2] > 200
+
+
+@pytest.mark.browser
+def test_the_frames_show_a_canvas_that_lies_under_an_opaque_box(tmp_path):
+    """Run 3: a Chromium that puts pages together without the GPU path left a black box in every frame, opposite the
+    text panel, and the agent spent 17 minutes on a fault no visitor sees. Whatever this machine's browser does, the
+    frame shows the canvas, and the answer speaks of the camera only where it had to work around it."""
+    r = sc.check_site(str(site(tmp_path, "under_a_bar")), out_dir=tmp_path / "out", steps=2, sizes=("desktop",), variants=())
+    assert r.camera in ("true", "layer"), r.camera
+    assert _is_the_canvas(_opposite_the_bar(r)), (_opposite_the_bar(r), r.camera)
+    assert ("about these pictures" in r.text()) == (r.camera == "layer")
+    assert json.loads((tmp_path / "out" / "report.json").read_text())["camera"] == r.camera
+
+
+@pytest.mark.browser
+def test_a_browser_without_the_gpu_path_is_found_out_and_worked_around(tmp_path, monkeypatch):
+    """The same browser started without the switch that puts everything on SwiftShader: on a machine without a GPU it
+    then composites in software and has the fault. The check finds it, gives the canvas a layer and photographs the
+    truth; with the layer taken away it says that the frames have the fault. Each browser is tested once."""
+    from antigravity3d.adapters.engines import web_browser, web_three
+
+    monkeypatch.setattr(web_three, "CHROMIUM_ARGS", [a for a in web_three.CHROMIUM_ARGS if not a.startswith("--use-angle")])
+    try:
+        folder = site(tmp_path, "under_a_bar")
+        r = sc.check_site(str(folder), out_dir=tmp_path / "out", steps=2, sizes=("desktop",), variants=())
+        assert _is_the_canvas(_opposite_the_bar(r)), (_opposite_the_bar(r), r.camera)
+        if r.camera != "layer":
+            pytest.skip(f"this machine's browser shows the canvas without help (camera: {r.camera!r}): nothing to work around")
+        assert "photographed each canvas on a layer of its own" in r.text()
+        assert web_browser.SHARED._session.notes == {"site_camera": "layer"}
+        again = sc.check_site(str(folder), out_dir=tmp_path / "out", steps=2, sizes=("desktop",), variants=())
+        assert again.camera == "layer" and web_browser.SHARED._session.generation == web_browser.SHARED.launches
+        # without the layer: the fault is in the frame, and the answer says whose it is
+        web_browser.SHARED.shutdown()
+        monkeypatch.setattr(sc, "CANVAS_LAYER_CSS", ":where(canvas){}")
+        bare = sc.check_site(str(folder), out_dir=tmp_path / "out", steps=2, sizes=("desktop",), variants=())
+        assert bare.camera == "faulty" and not _is_the_canvas(_opposite_the_bar(bare)), (bare.camera, _opposite_the_bar(bare))
+        assert "the frames here have it" in bare.text() and "Do not change the site for it" in bare.text()
+        assert not bare.broken() and not [n for n in bare.noticed() if "canvas" in n.lower() and "black" in n.lower()]
+    finally:
+        web_browser.SHARED.shutdown()  # the next test starts the browser as the product does
+
+
+def test_the_answer_speaks_of_the_camera_only_when_it_was_at_fault(tmp_path):
+    for cam, said in (("", False), ("true", False), ("layer", True), ("faulty", True)):
+        text = sc.SiteReport("site", tmp_path, camera=cam).text()
+        assert ("about these pictures" in text) == said, (cam, text)
+
+
 @pytest.mark.browser
 def test_subjects_under_opaque_html_or_cut_by_the_edge_are_reported(tmp_path):
     r = run(site(tmp_path, "subjects"), tmp_path, steps=2)
@@ -732,7 +789,7 @@ def test_the_stills_line_says_where_they_are_and_what_they_are_for(tmp_path):
 
 def _pixel(p: Path) -> tuple[int, int, int]:
     im = Image.open(p).convert("RGB")
-    return im.getpixel((im.width // 2, im.height - 5))  # the bottom rows: where headless Chromium's band would be
+    return im.getpixel((im.width // 2, im.height - 5))  # the bottom rows: where a browser without the GPU path leaves a band
 
 
 @pytest.mark.browser
