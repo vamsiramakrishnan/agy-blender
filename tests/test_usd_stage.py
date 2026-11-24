@@ -272,8 +272,13 @@ def test_rollback_latency(tmp_path: Path) -> None:
         m.rollback(discard=True)
         rejected.append((time.perf_counter() - t0) * 1e3)
         assert m.scene_ir() == base
-    print(f"median discard of a rejected 50-node edit: {statistics.median(rejected):.3f} ms")
-    assert statistics.median(rejected) < 1.0
+    discard = statistics.median(rejected)
+    print(f"median discard of a rejected 50-node edit: {discard:.3f} ms")
+    # Discarding a rejected edit must cost less than rolling it back (it empties the layers in the same change block
+    # instead of leaving them to be recomposed). This and the bound below were an absolute 1.0 ms, which measured the
+    # machine: a CI runner took 1.738 ms for the rollback and 1.056 ms for the discard (2026-11-24), against 0.98 and
+    # 0.59 ms here, the same ratio. The absolute bound left is the rollback's own.
+    assert discard < median
 
     sparse = IRPatch(ops=[SetTransform(node_id="n0", transform=Transform(translate=(0, 1, 0)))])
     samples = []
@@ -283,8 +288,11 @@ def test_rollback_latency(tmp_path: Path) -> None:
         m.rollback()
         samples.append((time.perf_counter() - t0) * 1e3)
         assert m.scene_ir() == base
-    print(f"median rollback of one transform in 50 nodes: {statistics.median(samples):.3f} ms")
-    assert statistics.median(samples) < 1.0
+    one = statistics.median(samples)
+    print(f"median rollback of one transform in 50 nodes: {one:.3f} ms")
+    # Undoing one transform must not cost more than undoing an edit of all fifty nodes. Measured at 0.51 to 0.80 of
+    # it over five runs, so the bound leaves room for a noisy machine and still fails if the sparse path regresses.
+    assert one < 1.5 * median
 
 
 def test_add_variant_requires_other_sets_unselected(sm: StageManager) -> None:
