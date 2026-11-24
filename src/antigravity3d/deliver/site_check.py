@@ -123,6 +123,10 @@ SUBJECTS_READ = 64
 #:   edge for the first three steps, 84 to 93 % out); the frame is composed around what is in it, and it is not named.
 LABEL_CUT = 0.10
 LABEL_HIDDEN = 0.10
+#: A 3D label whose box is never taller than this many CSS pixels at any step cannot be read anywhere: run 2's
+#: 'STRAITJACKET · EVIDENCE BENCH', flat on the floor in the last wide shot, had a 15 px box and letters of a few pixels.
+#: A label that is small at some steps and readable at others is in the background there and is not named.
+LABEL_MIN_PX = 16
 PROP_CUT = 0.30
 PROP_HIDDEN = 0.15
 IN_FRAME_MIN = 0.2
@@ -326,11 +330,19 @@ class SiteReport:
                         f["cut"].append((st, s))
                     if hidden:
                         f["hidden"].append((st, s))
+        tallest: dict[str, tuple[Step, dict]] = {}
+        for st in v.steps:
+            for s in st.subjects or []:
+                if s["kind"] == "label" and s["cut"] <= 1 - IN_FRAME_MIN and s["px"][1] > tallest.get(s["name"], (None, {"px": [0, 0]}))[1]["px"][1]:
+                    tallest[s["name"]] = (st, s)
+        for name, (st, s) in tallest.items():
+            if s["px"][1] < LABEL_MIN_PX:
+                found.setdefault(name, {"kind": "label", "cut": [], "hidden": []})["small"] = (st, s)
         if not found:
             return []
 
         def first(f: dict) -> int:
-            return min(st.index for st, _ in f["cut"] + f["hidden"])
+            return min(st.index for st, _ in f["cut"] + f["hidden"] + ([f["small"]] if "small" in f else []))
 
         order = sorted(found.items(), key=lambda kv: (kv[1]["kind"] != "prop", first(kv[1]), kv[0]))
         size = v.name.capitalize()
@@ -355,11 +367,16 @@ class SiteReport:
                 parts.append(f"runs out of the frame at the {_and(named)} edge{'s' if len(named) > 1 else ''} at "
                              + _steps_short([t[0] for t in f["cut"]], self.steps) + f" (at worst {s['cut']:.0%} of it outside)")
                 frames.append((s["cut"], st))
+            if "small" in f:
+                st, s = f["small"]
+                parts.append(f"is never taller than {s['px'][1]} px at any step (its largest is at "
+                             + _steps_short([st], self.steps) + "), too small to read")
+                frames.append((0.0, st))
             look = max(frames, key=lambda t: t[0])[1]
             out.append(f"{size}: {what} " + "; it ".join(parts) + f". Look at {_rel(look.frame, self.out_dir)}.")
         rest = order[SUBJECT_LINES:]
         if rest:
-            out.append(f"{size}: also cut or hidden at some step: "
+            out.append(f"{size}: also cut, hidden or too small at some step: "
                        + _names([("the 3D label " if f["kind"] == "label" else "the prop ") + _q(n, 40) for n, f in rest],
                                 SUBJECT_LINES)
                        + " (every subject at every step is in report.json).")

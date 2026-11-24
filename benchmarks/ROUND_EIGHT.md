@@ -192,10 +192,12 @@ What has been done about it so far:
 - **The site check now sees hidden and cut subjects.** When a page says where its 3D subjects are (the starter's
   `window.__site.info().onScreen`, one projected box per prop and label), `check_site` measures at every step how
   much of each lies outside the window and how much lies under HTML a visitor cannot see through, and names the
-  ones a visitor would notice. Run on run 2's site with that report added, it names the gate under the digest
-  chapter's panel, the clamp cut by the right edge in the last two shots, and six labels cut or hidden on a
-  desktop, with more on the phone. That covers seven of the reviewer's nine examples. It does not judge a label that is merely too small to read. Where a page says
-  which prop a shot is about, props in the background are not reported.
+  ones a visitor would notice, and any label that is never large enough to read. Run 2's own check said "nothing
+  broken, 0 things a visitor would notice". Run again on the same site with that report added to its page, the
+  check says "nothing broken, 18 things a visitor would notice" (`results/round8/run2_site_check_extended.txt`):
+  the gate under the digest chapter's panel, the clamp cut by the right edge in the last two shots, labels cut or
+  hidden on the desktop and on the phone, one label too small to read. That covers eight of the reviewer's nine
+  examples. Where a page says which prop a shot is about, props in the background are not reported.
 - **The skill, its library guide and the starter are being corrected** for the seven faults they caused and the six
   they were silent on. Not in this report yet.
 

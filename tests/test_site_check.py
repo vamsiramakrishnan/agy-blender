@@ -519,8 +519,8 @@ def test_one_solid_shape_scores_high_and_scattered_lines_low():
 
 
 def _subj(name: str, kind: str = "prop", cut: float = 0.0, edges: dict | None = None, hidden: float | None = 0.0,
-          under: str = "") -> dict:
-    return {"name": name, "kind": kind, "box": [0.2, 0.2, 0.6, 0.6], "px": [576, 360], "cut": cut, "edges": edges or {},
+          under: str = "", px: tuple[int, int] = (576, 360)) -> dict:
+    return {"name": name, "kind": kind, "box": [0.2, 0.2, 0.6, 0.6], "px": list(px), "cut": cut, "edges": edges or {},
             "hidden": hidden, "under": under}
 
 
@@ -581,6 +581,22 @@ def test_where_the_page_names_the_shots_subject_the_props_behind_it_are_not_repo
     assert all("background" not in s for s in got) and sc.subject_faults(got[0]) == (False, True)
 
 
+def test_a_label_that_is_never_large_enough_to_read_is_named_and_one_that_is_small_only_far_away_is_not(tmp_path):
+    """Run 2: a label flat on the floor in the last wide shot had a 15 px box and letters of a few pixels."""
+    rep = sc.SiteReport("site", tmp_path, steps=3)
+    v = sc.Visit("desktop", loaded=True, load_s=1.0)
+    v.steps = [sc.Step(i, i / 2, 0, frame=str(tmp_path / f"desktop_{i:02d}.jpg")) for i in range(3)]
+    v.steps[0].subjects = [_subj("NEAR THEN FAR", "label", px=(300, 40)), _subj("ALWAYS TINY", "label", px=(90, 9))]
+    v.steps[1].subjects = [_subj("NEAR THEN FAR", "label", px=(60, 8)), _subj("ALWAYS TINY", "label", px=(140, 15)),
+                           _subj("a small prop", px=(20, 10))]
+    v.steps[2].subjects = [_subj("ALWAYS TINY", "label", px=(400, 60), cut=0.9, edges={"right": 0.9})]  # a sliver: not its size
+    rep.visits = {"desktop": v}
+    lines = [n for n in rep.noticed() if "the prop" in n or "the 3D label" in n]
+    assert lines == ["Desktop: the 3D label 'ALWAYS TINY' is never taller than 15 px at any step (its largest is at step 2 of 3 "
+                     "(50%)), too small to read. Look at desktop_01.jpg."], lines
+    assert sc.LABEL_MIN_PX == 16
+
+
 def test_many_subjects_keep_the_answer_short(tmp_path):
     rep = sc.SiteReport("site", tmp_path, steps=2)
     v = sc.Visit("phone", loaded=True, load_s=1.0)
@@ -589,7 +605,7 @@ def test_many_subjects_keep_the_answer_short(tmp_path):
     rep.visits = {"phone": v}
     lines = [n for n in rep.noticed() if n.startswith("Phone:")]
     assert len(lines) == sc.SUBJECT_LINES + 1
-    assert lines[-1].startswith("Phone: also cut or hidden at some step: the 3D label 'LABEL 16'") and "and 48 more" in lines[-1]
+    assert lines[-1].startswith("Phone: also cut, hidden or too small at some step: the 3D label 'LABEL 16'") and "and 48 more" in lines[-1]
 
 
 def test_a_measured_subject_is_checked_again_when_it_comes_back_from_the_page():
