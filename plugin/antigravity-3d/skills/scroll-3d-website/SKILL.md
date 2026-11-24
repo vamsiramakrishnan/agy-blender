@@ -28,8 +28,8 @@ scroll. This skill is the method; three files beside it hold the details, read w
   checks). It is plumbing, not a design. Its test runs it in a browser with an installed prop.
 - [libraries.md](libraries.md): what each current library is for, when not to use it, its version, and one example
   that ran against that version.
-- [recipes.md](recipes.md): framing a shot from a prop's size, facts with their source, stills for the article
-  fallback, chapter lengths.
+- [recipes.md](recipes.md): the shot vocabulary and `frame()`, the last picture, numbers shown as instances, facts
+  with their source, stills for the article fallback, chapter lengths.
 
 ## Read first, model later
 
@@ -60,13 +60,14 @@ One row per chapter, five to eight chapters. Each chapter says one thing.
 
 | id | the visitor reads (one idea, at most 60 words) | the 3D shows (subject, shot, what changes) | facts and their source |
 |---|---|---|---|
-| intro | what the project is, in one line | the main prop, three-quarter view, still | none |
+| intro | what the project is, in one line | the main prop and its place, wide, slow orbit | none |
 | how | ... | ... | each number, with the file and place it is copied from |
 
-Then list the props: the objects that appear in more than one chapter or carry the story. A chapter that needs
-something small and repeated (tokens, lines, rows) draws it in the page's own code as one `InstancedMesh`, not as a
-prop. Everything else is a shot of the same world: the site is one place the camera travels through, not a slideshow
-of scenes.
+Then list the props: the objects that appear in more than one chapter or carry the story. A chapter that needs something
+small and repeated (tokens, lines, rows) draws it in the page's own code as one `InstancedMesh`, a layer, not as a prop;
+when the text gives a number, the layer shows that number as a count of instances ([recipes.md](recipes.md)). Why: run
+3's text said 570 times and its picture showed 96 slabs against 6. Everything else is a shot of the same world: the site
+is one place the camera travels through, not a slideshow of scenes.
 
 ### 2. Page and scene
 
@@ -74,23 +75,28 @@ Copy `starter/index.html`, `starter/src/` and `starter/vite.config.js` into the 
 package.json; the starter needs only `three` and `vite`). Then, each a local edit:
 
 - a `<section class="chapter" data-chapter="id">` per storyboard row in `index.html`, its text in its panel;
-- a shot per chapter in `src/shots.js` (`SHOTS`), and which chapters each prop is on stage for (`SHOW`); name what each
-  shot is about (`subject: 'hero'`, or a list): then `check_site` reports a chapter's subject under the panel or cut
-  by the frame, and does not count a prop that is only in the background of that shot;
+- a shot per chapter in `src/shots.js` (`SHOTS`), made with `frame()` from the vocabulary there (below), and which
+  chapters each prop is on stage for (`SHOW`); name what each shot is about (`subject: 'hero'`, or a list of props
+  and of layers, registered with `layer(name, object)` and listed in `LAYERS`): then `check_site` reports a chapter's
+  subject under the panel or cut by the frame, does not count a prop that is only in the background of that shot,
+  and the phone fits the subject into its frame;
 - a stand-in per prop in `src/props.js` (`PROPS`: where it stands and its rough size in metres);
 - the project's colours and type in `src/style.css`; its three frame properties (shift right, shift up, widen) decide
   where the 3D subject sits beside the text. A shot is designed for a horizontal coverage, what it shows across a
   1440 x 900 window (`DESIGN_ASPECT` in `src/shots.js`): beside the panel a narrower window is widened to keep it; on a
-  portrait phone, text below, the starter fits the shot's `subject` into the space above the panel. So frame and judge
-  shots at that shape and name each subject ([recipes.md](recipes.md)). Why: run 2 widened its phone view by a fixed
-  factor and cut its props at both edges, and holding the coverage on a portrait phone left the subject a speck;
+  portrait phone, text below, the starter fits the shot's `subject` into the space above the panel at the scale it has
+  beside the panel. So frame and judge shots at that shape and name each subject ([recipes.md](recipes.md)). Why: run
+  2 widened its phone view by a fixed factor and cut its props at both edges; run 3's slabs, which its chapters were
+  about, fell out of the phone's frame because a subject could only be a prop;
 - links to a chapter (`<a href="#how">`) and any jump use `jumpTo(id)`, which lands where the chapter rests, and every
   timing of a layer is named by chapter with `at`, as in `t = at('how', 0.5)`, in `evaluate` (`src/shots.js`). Why:
   at a chapter's top the camera still shows the previous picture, where run 2's links landed, and its
   `fade = ramp(T, 2.0, 2.85)` and `T / 7` broke the rule that chapters come from the HTML;
 - the layers the design asks for, from [libraries.md](libraries.md): Lenis for smooth wheel scrolling, GSAP
-  ScrollTrigger for page effects, postprocessing for ambient occlusion and a little bloom, troika for text in the scene.
-  Before writing a shader read its two rules there (colours as `THREE.Color` uniforms, edges smoothed with `fwidth`).
+  ScrollTrigger for page effects the starter does not make, troika for text in the scene. Ambient occlusion is the
+  starter's (`src/occlusion.js`), on when the project has postprocessing and n8ao. Before writing a shader read its
+  three rules there (colours as `THREE.Color` uniforms, two palette colours switched and never blended, edges smoothed
+  with `fwidth`), and before adding light read the light budget there.
 
 `npx vite` serves it; `npx vite build` writes the site to `dist/` with relative paths, so it works from any folder of a
 host (`npx vite build --outDir site` when the task names another folder for the result). Look at it with `check_site`
@@ -154,17 +160,29 @@ Each is one instruction and its reason. The starter already does the ones marked
   Smooth the input (Lenis), not the state. Why: then any position can be scrubbed, reversed, linked to and
   photographed, and it looks the same however the visitor arrived; run 1 eased its progress per frame, so the
   picture at a position depended on how fast one had scrolled there.
-- **Camera moves are shots with holds.** (starter) Each chapter moves to its shot in the first third and holds (with
-  a slow push-in) while the text is read; a move that would pass through a prop gets a `via` pose. Why: a camera that
-  never stops cannot be read; run 1's camera rode one spline with no holds.
-- **Light grounds the objects.** (starter) An environment for reflections, one key light with a shadow whose box
-  follows the shot, a soft contact shadow under each prop, fog that fades the ground into the page colour. Why:
-  without a shadow an object floats; nothing cast a shadow in run 1.
+- **The camera speaks in shots, and no two neighbours are the same.** Give each chapter a shot of the vocabulary
+  (wide, medium, close, top, low: `frame()` in `src/shots.js`, [recipes.md](recipes.md)) chosen for what it says, and
+  make it differ from the one before in scale or by 30 degrees or more of angle. Each chapter moves to its shot in its
+  first third (a move that would pass through a prop gets a `via` pose), then travels slowly while the text is read:
+  the hold closes in and turns round the subject (`push`, `orbit`; the starter's defaults when a shot gives none). Why:
+  a camera that never stops cannot be read (run 1 rode one spline), and one that only stops is a slideshow: run 3's
+  six shots stood 5 to 6 m off, 13 to 14 degrees up, on one lens, closing in by 5 to 11 %, and its first two pictures
+  were nearly the same.
+- **The last picture is the strongest.** (starter) Frame the last chapter as a group from the union of its props'
+  bounds (`frame(around(min, max), ...)`), the camera low, all of them named as the subject, and never as a row in the
+  upper half of the frame over empty floor. Why: it is the picture a visitor leaves with; run 3 ended on its three
+  props across y 0.42 to 0.62 with the bottom 40 % empty grid.
+- **Light grounds the objects and keeps the design's colours.** (starter) An environment for reflections, one key
+  light with a shadow whose box follows the shot, a soft contact shadow under each prop, ambient occlusion, fog that
+  fades the ground into the page colour, all within the light budget of [libraries.md](libraries.md); a part whose
+  colour must be the design's exactly is `toneMapped: false` or emissive. Why: without a shadow an object floats
+  (nothing cast one in run 1); run 3 added two lights and raised the environment, and its amber and its floor no
+  longer matched the design.
 - **Many small things are one draw call.** Draw repeated items as one `InstancedMesh` (or one geometry). Why: draw
   calls, not triangles, are what a phone runs out of first.
-- **Effects are used sparingly and measured.** Add a pass (ambient occlusion, bloom, depth of field) only when a
-  frame is better with it, and keep it only when `check_site`'s draw calls and the phone frame stay acceptable. Why:
-  every pass is a full-screen draw at device resolution, and a weak scene does not get better under glow.
+- **Effects are used sparingly and measured.** Add a pass beyond the starter's occlusion (bloom, depth of field) only
+  when a frame is better with it, and keep it only when `check_site`'s draw calls and the phone frame stay acceptable.
+  Why: every pass is a full-screen draw at device resolution, and a weak scene does not get better under glow.
 - **Type and layout leave the 3D room.** (starter) One panel at a time, in a fixed layer cross-faded by chapter, on one
   side (desktop) or below (portrait phone); the camera frames the subject in the free part. Only `.webgl-on`, set once
   the 3D runs, may dim, hide or move a panel. Why: run 1's six panels covered the scene they described; run 2's phone
@@ -194,17 +212,17 @@ The site is done when `check_site` on the built folder reports, at both sizes:
 - reduced motion: the scene rests per chapter; no WebGL: the page reads as an article;
 - no sideways overflow on the phone; no fact that disagrees with its source, and nothing shown without a source that
   looks like a fact;
-- no subject or label hidden by the text panel or cut by the frame's edge at any step; `check_site` reports both
-  when the page keeps the starter's `window.__site.info().onScreen` hook, so keep it, name each shot's `subject` and
-  register labels with it;
+- no subject or label hidden by the text panel or cut by the frame's edge at any step, and no label of the subject
+  too small to read; `check_site` reports these when the page keeps the starter's `window.__site.info().onScreen`
+  hook, so keep it, name each shot's `subject` and register labels and layers with it;
 - draw calls, triangles, texture memory and bytes you can state and defend (each prop through the installer, no
   model above a few MB).
 
-Look at the contact sheets yourself as well: the measures find broken frames, not ugly ones. Between looks, the
-page's own hook answers quickly: `window.__site.setProgress(T)` draws story time T, and `window.__site.info()` gives
-the draw calls and `onScreen`: for each prop and label (`kind`) on screen, its share of the window, its centre, its
-whole box (`box`, fractions of the window, below 0 or above 1 where it runs out of the frame) and, when the shot names
-one, whether it is the shot's `subject`.
+Look at the contact sheets yourself as well: the measures find broken frames, not ugly ones. Between looks, the page's
+own hook answers quickly: `window.__site.setProgress(T)` draws story time T, and `window.__site.info()` gives the draw
+calls and `onScreen`: for each prop, layer and label (`kind`) on screen, its share of the window, its centre, its whole
+box (`box`, fractions of the window, below 0 or above 1 where it runs out of the frame) and, when the shot names one,
+whether it is the shot's `subject`.
 
 ## Gotchas
 

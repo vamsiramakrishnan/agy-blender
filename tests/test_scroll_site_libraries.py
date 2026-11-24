@@ -85,7 +85,22 @@ def test_every_fenced_example_of_the_guide_is_found_with_a_check() -> None:
             assert re.fullmatch(r"picture|screen-draws \d+|js .+|node .+|warning .+", c, re.S), (e["name"], c)
     # the libraries the brief asks the guide to cover each have an example
     assert {"three-webgl", "three-webgpu-tsl", "gsap-scrolltrigger", "lenis", "postprocessing-n8ao", "troika-text",
-            "custom-shader-material", "three-mesh-bvh", "detect-gpu", "r3f-drei", "gltf-transform"} <= set(names)
+            "custom-shader-material", "three-mesh-bvh", "detect-gpu", "r3f-drei", "gltf-transform", "colour-swatch",
+            "frame-a-shot", "numbers-as-instances"} <= set(names)
+
+
+def test_the_shot_table_of_the_recipes_is_the_starters_vocabulary() -> None:
+    """recipes.md gives the numbers of each shot type; frame() applies SHOT in the starter's shots.js. One table read
+    from the other would drift: they are compared here."""
+    code = (SKILL / "starter" / "src" / "shots.js").read_text(encoding="utf-8")
+    shot = {t: dict((k, float(v)) for k, v in re.findall(r"(\w+): ([\d.]+)", body))
+            for t, body in re.findall(r"^  (\w+): \{ (fill: .*?) \},", code, re.M)}
+    table = {}
+    for t, fill, el, fov, hold in re.findall(r"^\| (\w+) \| [^|]+ \| ([\d.]+) \| ([\d.]+) \| ([\d.]+) \| (.*?) \|$",
+                                             (SKILL / "recipes.md").read_text(encoding="utf-8"), re.M):
+        push, orbit = re.fullmatch(r"push ([\d.]+), orbit ([\d.]+)", hold).groups()
+        table[t] = {"fill": float(fill), "elevation": float(el), "fov": float(fov), "push": float(push), "orbit": float(orbit)}
+    assert set(shot) == {"wide", "medium", "close", "top", "low"} and table == shot, (table, shot)
 
 
 @pytest.fixture(scope="module")
@@ -202,7 +217,11 @@ def test_browser_example_runs_against_the_seed(example, seed, browser, tmp_path)
 
 @pytest.mark.parametrize("example", [e for e in EXAMPLES if e["node"]], ids=lambda e: e["name"])
 def test_node_example_runs_against_the_seed(example, seed, tmp_path) -> None:
+    """A Node example runs from a project's folder: the workspace's packages and the starter's src/ beside it (the
+    frame() recipe imports the shot vocabulary from src/shots.js)."""
     (tmp_path / "node_modules").symlink_to(seed / "node_modules", target_is_directory=True)
+    shutil.copytree(SKILL / "starter" / "src", tmp_path / "src")
+    (tmp_path / "package.json").write_text('{"type": "module"}', encoding="utf-8")
     script = tmp_path / "example.mjs"
     script.write_text(example["code"], encoding="utf-8")
     r = subprocess.run(["node", str(script), str(NODE_INPUT), str(tmp_path / "out.glb")], capture_output=True, text=True,
@@ -270,6 +289,66 @@ def test_a_colour_in_the_shader_example_reaches_the_screen_as_chosen(seed, brows
         whole = abs(int(column[min(k + 4, len(column) - 1)]) - int(column[max(k - 3, 0)]))
         biggest = abs(int(column[k + 1]) - int(column[k]))
         assert whole > 60 and biggest < 0.85 * whole, " ".join(map(str, column[max(k - 6, 0):k + 8].tolist()))
+        assert errors == [], errors
+    finally:
+        ctx.close()
+
+
+# Appended to the numbers-as-instances example: its mesh and counts, for the test below.
+_FLOOD = """
+window.__flood = { flood, N, KEEP };
+"""
+
+
+@pytest.mark.browser
+def test_the_numbers_recipe_shows_the_count_and_moves_each_instance_on_its_own(seed, browser, tmp_path) -> None:
+    """Run 3 showed a 570 to 1 claim as 96 slabs against 6, and moved its 96 slabs on one value, so they slid through
+    each other. The recipe draws one slab per 50 tokens, keeps the handful the ratio says, gives each slab its own
+    delay (some have left while others wait) and its own lane: no two drawn slabs overlap at any moment, and the
+    picture at a story time is the same however it was reached."""
+    (example,) = [e for e in EXAMPLES if e["name"] == "numbers-as-instances"]
+    ctx = browser.new_context(viewport={"width": 1280, "height": 800})
+    ctx.route("**/*", _server(_build(seed, example, tmp_path, append=_FLOOD)))
+    page = ctx.new_page()
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    # the drawn slabs at story time T: centre and half size of each instance whose scale is above zero
+    slabs = """(T) => { window.__site.setProgress(T); const { flood } = window.__flood, a = flood.instanceMatrix.array, out = [];
+      for (let i = 0; i < flood.count; i++) { const s = Math.hypot(a[16 * i], a[16 * i + 1], a[16 * i + 2]);
+        if (s > 1e-3) out.push([a[16 * i + 12], a[16 * i + 13], a[16 * i + 14], s]); } return out; }"""
+    try:
+        page.goto(ORIGIN + SUB, wait_until="networkidle")
+        page.wait_for_function("window.__flood !== undefined", timeout=20000)
+        n, keep = page.evaluate("[window.__flood.N, window.__flood.KEEP]")
+        assert n > 5000 and n / keep == pytest.approx(302628 / 531, rel=0.05), (n, keep)
+        at = lambda chapter, local: page.evaluate(f"window.__site.at('{chapter}', {local})")
+        assert len(page.evaluate(slabs, at("intro", 0.9))) == 0
+        assert len(page.evaluate(slabs, at("how", 0.99))) == n
+        assert len(page.evaluate(slabs, at("outro", 0.5))) == keep
+        landing, leaving = page.evaluate(slabs, at("how", 0.45)), page.evaluate(slabs, at("detail", 0.45))
+        assert 0.1 * n < len(landing) < n and 0.1 * n < len(leaving) < 0.9 * n, (len(landing), len(leaving))
+        half = np.array([0.04, 0.0125, 0.025])
+        for T in (at("how", 0.45), at("how", 0.7), at("detail", 0.3), at("detail", 0.45), at("detail", 0.6)):
+            drawn = np.array(page.evaluate(slabs, T))
+            centre, ext = drawn[:, :3], drawn[:, 3:] * half
+            # boxes overlap when they do on every axis; a spatial grid keeps the pairs few
+            cells = {}
+            for i, c in enumerate(np.floor(centre / 0.1).astype(int)):
+                cells.setdefault(tuple(c), []).append(i)
+            overlaps = 0
+            for (cx, cy, cz), members in cells.items():
+                near = [j for dx in (-1, 0, 1) for dy in (-1, 0, 1) for dz in (-1, 0, 1)
+                        for j in cells.get((cx + dx, cy + dy, cz + dz), [])]
+                for i in members:
+                    others = np.array([j for j in near if j > i], int)
+                    if len(others):
+                        gap = np.abs(centre[others] - centre[i]) - ext[others] - ext[i]
+                        overlaps += int((gap < -1e-4).all(axis=1).sum())
+            assert overlaps == 0, (T, overlaps)
+        mid = at("detail", 0.45)
+        page.evaluate(f"window.__site.setProgress({at('outro', 0.9)})")
+        back = page.evaluate(slabs, mid)
+        assert back == leaving, "the slabs depend on the way the story time was reached"
         assert errors == [], errors
     finally:
         ctx.close()

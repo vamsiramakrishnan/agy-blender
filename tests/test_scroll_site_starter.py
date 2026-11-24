@@ -52,11 +52,11 @@ DRIVER_NOISE = re.compile(r"GL Driver Message|GPU stall due to ReadPixels|Automa
 def test_the_starter_holds_the_files_the_skill_names() -> None:
     names = {p.relative_to(STARTER).as_posix() for p in STARTER.rglob("*") if p.is_file()}
     assert names == {"index.html", "vite.config.js", "src/main.js", "src/chapters.js", "src/shots.js", "src/stage.js",
-                     "src/props.js", "src/style.css"}
+                     "src/props.js", "src/style.css", "src/occlusion.js"}
     html = (STARTER / "index.html").read_text()
     ids = re.findall(r'data-chapter="([a-z0-9-]+)"', html)
     shots = (STARTER / "src" / "shots.js").read_text()
-    assert ids and all(re.search(rf"^\s+{i}: {{ pos:", shots, re.M) for i in ids), ids
+    assert ids and all(re.search(rf"^\s+{i}: {{ ", shots, re.M) for i in ids), ids
     assert "base: './'" in (STARTER / "vite.config.js").read_text()
 
 
@@ -264,9 +264,10 @@ def test_a_phone_gets_the_scene_above_the_text_and_no_sideways_scroll(browser, s
         assert p.page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         for T in (0.6, 1.6, 2.6):
             p.page.evaluate(f"__site.setProgress({T})")
-            hero = p.page.evaluate("__site.info().onScreen").get("hero")
+            on = p.page.evaluate("__site.info().onScreen")
             # the text takes the lower 45 % of a phone's window (style.css): the subject belongs above it
-            assert hero and hero["share"] > 0.01 and hero["y"] < 0.55, (T, hero)
+            for name in p.page.evaluate(f"__site.evaluate({T}).subject") or ["hero"]:
+                assert name in on and on[name]["share"] > 0.01 and on[name]["y"] < 0.55, (T, name, on)
         assert p.messages == [], p.messages
     finally:
         p.close()
@@ -322,9 +323,11 @@ _FREE_BOTTOM = "Math.min(...[...document.querySelectorAll('.panel')].map((el) =>
 
 @pytest.mark.browser
 @pytest.mark.parametrize("size", ["desktop", "landscape phone"])
-def test_every_prop_on_stage_is_in_frame_and_beside_the_panel_at_each_chapters_rest(browser, bare, size) -> None:
+def test_every_subject_is_in_frame_and_beside_the_panel_at_each_chapters_rest(browser, bare, size) -> None:
     """Run 2 widened a phone's view by a fixed factor and cut its props at both side edges. Side by side, the starter
-    holds each shot's horizontal coverage: every prop on stage is inside the window and right of the panel."""
+    holds each shot's horizontal coverage: every subject of the shot (every prop on stage when it names none) is inside
+    the window and right of the panel. A prop in the background may be cut since the placeholder shots differ in scale
+    (round 8c): the close shot of the part leaves the hero beside it partly out of frame, as a close shot should."""
     p = Page(browser, bare, **SIZES[size])
     try:
         ids = p.open()["chapters"]
@@ -333,6 +336,7 @@ def test_every_prop_on_stage_is_in_frame_and_beside_the_panel_at_each_chapters_r
             p.page.evaluate(f"__site.setProgress({T})")
             on = p.page.evaluate("__site.info().onScreen")
             staged = [n for n, v in p.page.evaluate(f"__site.evaluate({T}).show").items() if v > 0.99]
+            staged = p.page.evaluate(f"__site.evaluate({T}).subject") or staged
             panel = p.page.evaluate(_PANEL, i)["box"]
             assert p.page.evaluate("document.querySelector('.is-current').dataset.chapter") == chapter
             assert staged, chapter
@@ -348,7 +352,8 @@ def test_every_prop_on_stage_is_in_frame_and_beside_the_panel_at_each_chapters_r
 
 # In the stacked layout a subject must fill at least this share of the free area's width or of its height, whichever
 # it reaches: the merged starter held the desktop's coverage there and its hero was 22 % of the width, a speck above a
-# tall band of empty floor. stage.js aims at 62 % / 60 % for a named subject, 38 % / 35 % for an establishing shot.
+# tall band of empty floor. stage.js gives a subject the share it has beside the desktop's panel, at least 30 %; the
+# placeholder shots name a subject in a medium or close shot and none in the wide one.
 SUBJECT_MIN, WIDE_MIN = 0.5, 0.3
 
 
@@ -383,14 +388,15 @@ def test_the_stacked_phone_layout_fits_each_shots_subject_into_the_space_above_t
 
 @pytest.mark.browser
 def test_the_stacked_framing_is_continuous_through_a_chapter_change_and_a_function_of_story_time(browser, bare) -> None:
-    """The subject changes from one shot to the next during the move (how: hero and part; detail: part): the framing
-    blends on the camera's curve, so the picture moves on without a jump, and it is the same however T was reached."""
+    """The subject changes from one shot to the next during the move (how: the hero; detail: the part): the framing
+    blends on the camera's curve, so the picture moves on without a jump, and it is the same however T was reached.
+    It follows the part, which is in frame on both sides of the change (the hero leaves the close shot of the part)."""
     p = Page(browser, bare, **SIZES["phone"])
     try:
         ids = p.open()["chapters"]
         start = ids.index("detail") - 0.1
         boxes = lambda t0, dt, n: np.array(p.page.evaluate(
-            f"[...Array({n}).keys()].map((k) => {{ __site.setProgress({t0} + k * {dt}); return __site.info().onScreen.hero.box; }})"))
+            f"[...Array({n}).keys()].map((k) => {{ __site.setProgress({t0} + k * {dt}); return __site.info().onScreen.part.box; }})"))
         coarse = np.abs(np.diff(boxes(start, 0.005, 121), axis=0)).max(axis=1)
         k = int(coarse.argmax())
         assert coarse[k] < 0.1, coarse.round(3).tolist()
@@ -553,6 +559,7 @@ def test_on_screen_reports_each_props_and_labels_box_in_the_contract_check_site_
           const plane = (w, h) => new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
           const wide = plane(12, 0.3);
           wide.position.set(0, 2.2, 0);
+          wide.lookAt(...window.__site.evaluate(1.7).cam.pos); // square to the camera of "how", where it is measured
           window.__site.label('wide', wide);
           const tag = plane(0.4, 0.15);
           tag.position.set(0, 0.8, 0.3);
@@ -573,17 +580,18 @@ def test_on_screen_reports_each_props_and_labels_box_in_the_contract_check_site_
             assert v["x"] == pytest.approx((cx0 + cx1) / 2, abs=1e-6) and v["y"] == pytest.approx((cy0 + cy1) / 2, abs=1e-6), (name, v)
         x0, _, x1, _ = how["wide"]["box"]
         assert x0 < 0 and x1 > 1, ("the box is clamped to the window", how["wide"])
-        # the subject flag follows the chapter drawn: shots.js names hero for intro, hero and part for how, part for
-        # detail, and nothing for outro (then the field is left out and every prop counts)
+        # the subject flag follows the chapter drawn: shots.js names nothing for intro (then the field is left out and
+        # every prop counts), hero for how, part for detail, both for outro
         flags = {}
         for T in (0.7, 1.2, 1.7, 2.7, 3.7):
             p.page.evaluate(f"__site.setProgress({T})")
             on = p.page.evaluate("__site.info().onScreen")
             flags[T] = {n: v.get("subject") for n, v in on.items() if v["kind"] == "prop"}
-        assert flags[0.7] == {"hero": True}, flags
-        assert flags[1.2] == flags[1.7] == {"hero": True, "part": True}, flags
-        assert flags[2.7] == {"hero": False, "part": True}, flags
-        assert flags[3.7] == {"hero": None}, flags
+        assert flags[0.7] == {"hero": None}, flags
+        assert flags[1.2] == flags[1.7] == {"hero": True, "part": False}, flags
+        assert flags[2.7]["part"] is True and flags[2.7].get("hero", False) is False, flags
+        assert flags[3.7] == {"hero": True, "part": True}, flags
+        p.page.evaluate("__site.setProgress(0.7)")
         assert "subject" not in p.page.evaluate("__site.info().onScreen")["hero"]
         assert p.messages == [], p.messages
     finally:
@@ -678,3 +686,273 @@ def test_check_site_writes_one_still_per_chapter_of_the_starter(site, tmp_path) 
     # each chapter has its own shot: no two stills are the same picture
     assert all(np.abs(a - b).mean() > 2 for i, a in enumerate(pictures) for b in pictures[i + 1:])
     assert "stills for the page without WebGL" in r.text()
+
+
+# --------------------------------------------------------------------------- round 8c: what the review of run 3 found
+
+MOVE = 0.35  # shots.js: the share of a chapter its move takes; the rest is the hold
+
+# The union of the boxes of the drawn shot's subjects (every prop on stage when it names none), from onScreen().
+_SUBJECT_BOX = """(T) => { __site.setProgress(T); const s = __site.evaluate(T), on = __site.info().onScreen;
+  const names = s.subject || Object.keys(s.show).filter((n) => s.show[n] > 0.99), b = names.map((n) => on[n].box);
+  return [Math.min(...b.map((x) => x[0])), Math.min(...b.map((x) => x[1])), Math.max(...b.map((x) => x[2])),
+          Math.max(...b.map((x) => x[3]))]; }"""
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("size", ["desktop", "phone"])
+def test_the_hold_travels_on_a_desktop_and_in_the_stacked_layout(browser, bare, size) -> None:
+    """Run 3's holds closed in by 5 to 11 %, and its phone layout refitted the subject to one share at every frame, so
+    on the phone the gate's box stood at the same place to the third decimal for five steps. The starter's hold now
+    pushes and orbits, and the stacked fit is made once per shot: the subject's box grows and moves through the hold."""
+    p = Page(browser, bare, **SIZES[size])
+    try:
+        ids = p.open()["chapters"]
+        for i, chapter in enumerate(ids):
+            start = np.array(p.page.evaluate(_SUBJECT_BOX, i + (MOVE + 0.001 if i else 0)))
+            end = np.array(p.page.evaluate(_SUBJECT_BOX, i + 0.999))
+            grow = (end[3] - end[1]) / (start[3] - start[1])
+            assert grow > 1.05 and np.abs(end - start).max() > 0.02, (size, chapter, start.round(3), end.round(3))
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("size", ["desktop", "phone"])
+def test_the_placeholder_shots_show_three_scales(browser, bare, size) -> None:
+    """Run 3's shots stood 4.9 to 5.8 m off on one lens and its sheet read as a carousel. The starter's first three
+    shots are a wide, a medium and a close shot (shots.js, frame()), on a phone as well: the subject's size, as the
+    share of the free area its box fills where that binds, steps up from each to the next."""
+    p = Page(browser, bare, **SIZES[size])
+    try:
+        ids = p.open()["chapters"]
+        if size == "phone":
+            free_w, free_h = 1.0, p.page.evaluate(_FREE_BOTTOM)
+        else:
+            free_w, free_h = 1 - p.page.evaluate(_PANEL, 0)["box"][2], 1.0
+        scale = {}
+        for chapter in ("intro", "how", "detail"):
+            x0, y0, x1, y1 = p.page.evaluate(_SUBJECT_BOX, ids.index(chapter) + REST)
+            scale[chapter] = max((x1 - x0) / free_w, (y1 - y0) / free_h)
+        assert scale["how"] > 1.3 * scale["intro"] and scale["detail"] > 1.25 * scale["how"], (size, scale)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("size", ["desktop", "phone"])
+def test_the_still_attribute_centres_the_subject_in_the_whole_canvas(browser, bare, size) -> None:
+    """check_site sets data-agy3d-still on <html> while it draws the article's stills; run 3's stills kept the
+    desktop's panel offset and had their subject in the right 60 %, empty floor on the left."""
+    p = Page(browser, bare, **SIZES[size])
+    try:
+        ids = p.open()["chapters"]
+        rests = [i + REST for i in range(len(ids))]
+        film = [p.page.evaluate(_SUBJECT_BOX, T) for T in rests]
+        p.page.evaluate("document.documentElement.setAttribute('data-agy3d-still', '')")
+        still = [p.page.evaluate(_SUBJECT_BOX, T) for T in rests]
+        p.page.evaluate("document.documentElement.removeAttribute('data-agy3d-still')")
+        again = p.page.evaluate(_SUBJECT_BOX, rests[0])
+        for chapter, (x0, y0, x1, y1) in zip(ids, still):
+            assert abs((x0 + x1) / 2 - 0.5) < 0.02 and abs((y0 + y1) / 2 - 0.5) < 0.02, (size, chapter, (x0, y0, x1, y1))
+            assert 0 <= x0 and x1 <= 1 and 0 <= y0 and y1 <= 1, (size, chapter, (x0, y0, x1, y1))
+        if size == "desktop":
+            assert all((b[0] + b[2]) / 2 > 0.6 for b in film), film  # beside the panel without the attribute
+        else:
+            assert all((b[1] + b[3]) / 2 < 0.45 for b in film), film  # above the panel without it
+        assert again == pytest.approx(film[0], abs=1e-6), "the attribute's framing outlived the attribute"
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+# A layer as a page registers it: 400 slabs beside the part, which rise through the chapter "detail" (update), so the
+# layer is a function of story time; and a fixed box round the hero.
+_LAYER = """async () => {
+  const THREE = await import('three');
+  const slabs = new THREE.InstancedMesh(new THREE.BoxGeometry(0.08, 0.03, 0.05), new THREE.MeshStandardMaterial(), 400);
+  const m = new THREE.Matrix4();
+  const update = ({ T }) => {
+    const lift = Math.min(1, Math.max(0, T - 2)) * 0.4;
+    for (let i = 0; i < 400; i++) slabs.setMatrixAt(i, m.makeTranslation(2.2 + (i % 20) * 0.07, 0.015 + lift, -0.6 + Math.floor(i / 20) * 0.07));
+    slabs.instanceMatrix.needsUpdate = true;
+  };
+  window.__site.layer('flood', slabs, { update });
+  window.__site.layer('zone', null, { box: [[-0.8, 0, -0.5], [0.8, 1.6, 0.5]] });
+}"""
+
+
+@pytest.fixture(scope="module")
+def layered(bare, tmp_path_factory) -> Path:
+    """The bare starter with a layer named in LAYERS and made part of the detail shot's subject."""
+    project = tmp_path_factory.mktemp("layered") / "project"
+    shutil.copytree(bare, project, symlinks=True)
+    shots = project / "src" / "shots.js"
+    text = shots.read_text()
+    assert "export const LAYERS = [];" in text and "span: 4, subject: 'part' }" in text
+    shots.write_text(text.replace("export const LAYERS = [];", "export const LAYERS = ['flood'];")
+                     .replace("span: 4, subject: 'part' }", "span: 4, subject: ['part', 'flood'] }"))
+    return project
+
+
+@pytest.mark.browser
+def test_a_layer_named_as_subject_is_fitted_and_reported_as_a_layer(browser, bare, layered) -> None:
+    """Run 3's chapters were about instanced slabs, and a subject could only be a prop: on the phone the slabs were a
+    sliver cut by the edge. A layer registered with layer() and named as the subject is fitted into the free area and
+    reported with kind "layer"; the same layer that is not the subject is left where the shot puts it (here, cut)."""
+    T = 2 + REST
+    seen = {}
+    for name, project in (("named", layered), ("not named", bare)):
+        p = Page(browser, project, **SIZES["phone"])
+        try:
+            p.open()
+            p.page.evaluate(_LAYER)
+            bottom = p.page.evaluate(_FREE_BOTTOM)
+            p.page.evaluate(f"__site.setProgress({T})")
+            seen[name] = p.page.evaluate("__site.info().onScreen")
+            if name == "named":
+                low = p.page.evaluate("(__site.setProgress(2.3), __site.info().onScreen.flood.box)")
+                p.page.evaluate("__site.setProgress(4)")
+                back = p.page.evaluate(f"(__site.setProgress({T}), __site.info().onScreen.flood.box)")
+                assert back == pytest.approx(seen[name]["flood"]["box"], abs=1e-9), "the layer depends on the way there"
+            assert p.messages == [], p.messages
+        finally:
+            p.close()
+    flood, zone = seen["named"]["flood"], seen["named"]["zone"]
+    assert flood["kind"] == "layer" and flood["subject"] is True and seen["named"]["part"]["subject"] is True, seen
+    x0, y0, x1, y1 = flood["box"]
+    assert 0 <= x0 and x1 <= 1 and 0 <= y0 and y1 <= bottom + 0.002, (flood, bottom)
+    assert low[1] > flood["box"][1] + 0.01, ("update did not move the layer with story time", low, flood["box"])
+    assert zone["kind"] == "layer" and zone["subject"] is False, zone
+    other = seen["not named"]["flood"]
+    assert other["kind"] == "layer" and other["subject"] is False and (other["box"][2] > 1 or other["box"][0] < 0), other
+
+
+_LABELS = """async () => {
+  const THREE = await import('three');
+  const plane = (h, colour) => new THREE.Mesh(new THREE.PlaneGeometry(h * 4, h), new THREE.MeshBasicMaterial({ color: colour, toneMapped: false }));
+  // small: about 12 px high in the wide intro, 20 px in the medium shot of the hero; sign: readable in both
+  const small = plane(0.056, '#ff00ff'), sign = plane(0.2, '#00ff00');
+  small.position.set(0.3, 1.62, 0.46);
+  sign.position.set(-0.3, 1.7, 0.46);
+  window.__site.label('small', small, 'hero');
+  window.__site.label('sign', sign, 'hero');
+  const tag = plane(0.1, '#00ffff');
+  tag.position.set(0, 0.6, 0.3);
+  window.__site.label('tag', tag, 'part');
+}"""
+
+
+def _count(frame: np.ndarray, rgb: tuple[int, int, int]) -> int:
+    return int((np.abs(frame - np.array(rgb)).max(axis=2) < 40).sum())
+
+
+@pytest.mark.browser
+def test_a_label_under_the_minimum_size_is_not_drawn_and_follows_its_props_subject_flag(browser, bare) -> None:
+    """Run 3's finale showed its labels 5 to 7 px high on a phone. The stage hides a label whose box is under 14 CSS
+    px high on screen (and does not report it), and shows it again when a closer shot makes it readable. A label is
+    flagged subject: true while the prop it was registered for is the shot's subject (check_site names a label of the
+    subject that is too small to read), and nothing is flagged in a shot that names no subject."""
+    p = Page(browser, bare)
+    try:
+        p.open()
+        p.page.evaluate(_LABELS)
+        frame = p.at(REST)  # intro: the wide shot of the hero
+        on = p.page.evaluate("__site.info().onScreen")
+        assert "small" not in on and _count(frame, (255, 0, 255)) == 0, on.get("small")
+        assert (on["sign"]["box"][3] - on["sign"]["box"][1]) * 800 >= 14 and _count(frame, (0, 255, 0)) > 200, on["sign"]
+        assert "subject" not in on["sign"], on["sign"]  # intro names no subject
+        frame = p.at(3 + REST)  # outro: hero and part are both its subject
+        on = p.page.evaluate("__site.info().onScreen")
+        assert on["sign"]["subject"] is True and on["tag"]["subject"] is True, on
+        frame = p.at(1 + REST)  # how: the hero is the subject, the part only beside it
+        on = p.page.evaluate("__site.info().onScreen")
+        assert on["sign"]["subject"] is True and on["tag"]["subject"] is False and on["part"]["subject"] is False, on
+        # the closer shot makes the small label readable, and it is drawn again
+        assert "small" in on and _count(frame, (255, 0, 255)) > 50, on.get("small")
+        # through the whole story, a label is reported (and drawn) only at 14 px or more
+        sizes = {}
+        for T in np.linspace(0, 4, 41):
+            p.page.evaluate(f"__site.setProgress({T})")
+            box = p.page.evaluate("__site.info().onScreen.small?.box ?? null")
+            sizes[round(float(T), 2)] = None if box is None else round((box[3] - box[1]) * 800, 1)
+        shown = [h for h in sizes.values() if h is not None]
+        assert shown and min(shown) >= 14, sizes
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+def _vite_build(project: Path) -> Path:
+    import subprocess
+
+    r = subprocess.run(["node", str(project / "node_modules" / "vite" / "bin" / "vite.js"), "build", "--logLevel", "error"],
+                       cwd=project, capture_output=True, text=True, timeout=300)
+    assert r.returncode == 0, r.stdout + r.stderr
+    return project / "dist"
+
+
+@pytest.fixture(scope="module")
+def builds(tmp_path_factory) -> dict:
+    """The starter built with Vite twice: in a project whose node_modules lacks postprocessing and n8ao (every other
+    package of the test workspace linked one by one), and in one that has them."""
+    if not (NODE_MODULES / "vite" / "bin" / "vite.js").is_file():
+        pytest.skip(f"{NODE_MODULES} has no Vite to build the starter with")
+    out = {}
+    for name in ("without", "with"):
+        if name == "with" and not all((NODE_MODULES / p / "package.json").is_file() for p in ("postprocessing", "n8ao")):
+            continue
+        project = tmp_path_factory.mktemp(f"built-{name}") / "project"
+        shutil.copytree(STARTER, project)
+        modules = project.parent / "node_modules"
+        modules.mkdir()
+        for entry in NODE_MODULES.iterdir():
+            if name == "with" or entry.name not in ("postprocessing", "n8ao"):
+                (modules / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
+        (project / "node_modules").symlink_to(modules, target_is_directory=True)
+        out[name] = _vite_build(project)
+    return out
+
+
+@pytest.mark.browser
+def test_the_starter_builds_and_runs_with_and_without_the_occlusion_packages(browser, builds) -> None:
+    """Ambient occlusion is the starter's (occlusion.js), loaded with a dynamic import of postprocessing and n8ao; a
+    project with three.js alone must still build (Vite stops at an import it cannot resolve: vite.config.js turns a
+    missing package into an empty module) and run. Where the packages are, ?ao=1 turns the pass on even on the
+    software renderer: the hero's foot darkens where it meets the floor, and the page's colours stay where they were
+    (drawn through the effect pass the background first came out #010308 for #101215)."""
+    pictures = {}
+    for name, dist in builds.items():
+        for ask in ("", "?ao=0", "?ao=1"):
+            p = Page(browser, dist)
+            try:
+                p.page.goto(ORIGIN + SUB + ask)
+                p.page.evaluate("window.__site.ready")
+                state = p.page.evaluate("({ mode: __site.mode, occlusion: __site.info().occlusion })")
+                assert state["mode"] == "webgl", (name, ask, state)
+                if name == "without" or ask != "?ao=1":
+                    assert state["occlusion"].startswith("off"), (name, ask, state)
+                else:
+                    assert state["occlusion"].startswith("on"), (name, ask, state)
+                if name == "without" and ask == "?ao=1":
+                    assert "not both installed" in state["occlusion"], state
+                pictures[name, ask] = p.at(REST)
+                hero = p.page.evaluate("__site.info().onScreen.hero.box")
+                assert p.messages == [], (name, ask, p.messages)
+            finally:
+                p.close()
+        assert pictures[name, "?ao=0"].std() > 10, "the canvas shows nothing"
+    if "with" not in builds:
+        pytest.skip("the test workspace has no postprocessing and n8ao: the build with them was not made")
+    off, on = pictures["with", "?ao=0"], pictures["with", "?ao=1"]
+    h, w = off.shape[:2]
+    x0, y0, x1, y1 = (round(hero[0] * w), round(hero[1] * h), round(hero[2] * w), round(hero[3] * h))
+    darker = (off - on).sum(axis=2)
+    foot = darker[y1 - (y1 - y0) // 5:y1 + 10, x0:x1]
+    assert foot.mean() > 6 and foot.max() > 45, (foot.mean(), foot.max())
+    away = np.ones(darker.shape, bool)
+    away[max(0, y0 - 40):y1 + 60, max(0, x0 - 60):x1 + 120] = False
+    assert np.abs(darker[away]).mean() < 1.5, np.abs(darker[away]).mean()
+    assert np.abs(off[:20, :20] - on[:20, :20]).max() <= 2, (off[5, 5], on[5, 5])

@@ -151,6 +151,7 @@ async function boot() {
     jumpTo,
     at,
     label: stage.label,
+    layer: stage.layer,
     evaluate: (T) => evaluate(T, ids),
     info: () => ({ T: shown, chapter: ids[current], measures, ...stage.info() }),
   });
