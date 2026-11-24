@@ -412,9 +412,9 @@ their work is merged and tested together.
   server answered, that only the nearest level is fetched until the camera goes out.
 - **Fitted together.** The starter's label limit is the check's. The check's browser draws in software, where the
   starter left occlusion off, so its frames lacked something most visitors see; the page said so and the check's
-  answer passed it on (changed since: the next section). The skill now says when to install with `compress: "always"`: the third site's nine 1024 px
-  maps took 51.6 MB of graphics memory, about 6 compressed, for a third of a megabyte more download; the agent had
-  the parameter and the numbers, and nothing told it when to use them.
+  answer passed it on (changed since: the next section). The skill was also given a rule for when to install with `compress: "always"`, with numbers
+  taken from a helper's report and not measured again. They were wrong by a factor of ten, and run 4 paid for it
+  (below).
 
 Not taken from the review: a check that compares a rendered colour with the design's (the guide has an example that
 reads the canvas instead); a measure of how alike the camera angles are (the one-scale measure covers size only);

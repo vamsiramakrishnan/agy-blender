@@ -138,12 +138,14 @@ For each prop, in this order:
   user asked for it, so call `install_into_project` with `dry_run` false at once, and never copy GLB files by hand
   (Antigravity asks the user to approve each install: that is expected, wait for it). It writes the files where the
   dev server serves them and a loader that fetches the nearest level of detail and a farther one only when the camera
-  comes near it. With the default `compress` a page never downloads more than before, so small props stay WebP, which
-  a graphics card holds uncompressed; the install's answer gives both numbers. Where the props' textures add up to
-  more than about 32 MB of graphics memory, install them with `compress: "always"`. Why: run 3's nine 1024 px maps
-  took 51.6 MB on the card, where compressed they would have taken about 6 for a third of a megabyte more download,
-  and a phone runs out of memory before it runs out of bandwidth. The delivery answer ends with a `NEXT:` line that
-  gives this call and names the loader file.
+  comes near it. Leave `compress` at its default: a page then never downloads more than before, and props of this
+  size stay WebP, which a graphics card holds uncompressed. `compress: "always"` trades download for graphics memory,
+  and the install's answer gives both numbers. Why: measured on run 3's three props with 1024 px maps, it takes their
+  textures from 50 MB on the card to 12 and adds 2.3 MB of files and a 0.6 MB transcoder to the download. Run 4
+  followed an earlier version of this paragraph, which named a tenth of that cost, and its page downloaded 7.4 MB
+  where run 3's downloaded 3.6. Use it only where the textures are what the page cannot hold, which three props are
+  not: the occlusion pass alone holds twice as much. The delivery answer ends with a `NEXT:` line that gives this
+  call and names the loader file.
 - In `src/props.js` add two fields to the prop's entry: `asset`, the asset's name, and `module`, your own import of the
   loader file the install wrote (`() => import('./agy3d/<asset>/index.js')`; the install's answer names the folder).
   The stand-in stays as the fallback while the model loads or if it fails.
