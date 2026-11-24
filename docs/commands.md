@@ -436,7 +436,9 @@ in a worker (OffscreenCanvas) or on WebGPU is not seen; the answer says when a p
 On software WebGL a heavy page draws a frame in about a second. GSAP treats any gap over 500 ms as 33 ms, so a
 scrubbed animation would barely move; the page is therefore shown at most 250 ms passing between two of its frames
 (`performance.now`, `Date.now` and the animation-frame time move together). A page that draws faster sees the real
-clock. Frames still changing after 4 s are kept and named in the measures.
+clock. The check waits for a step's picture to stop changing for 4 s, counted from the page's first two frames at the
+new position (a heavy page can take seconds to draw them after a jump), and for at most 12 s from the scroll; frames
+still changing after that are kept and named in the measures.
 
 The check tests its camera before it believes it. A Chromium that puts pages together without the GPU path (a
 machine without a GPU whose browser was started without `--use-angle=swiftshader`, or with `--disable-gpu`; some

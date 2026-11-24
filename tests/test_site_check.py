@@ -320,6 +320,24 @@ def test_a_page_that_does_not_change_on_scroll_is_called_frozen(tmp_path):
 
 
 @pytest.mark.browser
+def test_a_slow_first_frame_after_a_jump_is_waited_for_and_the_picture_is_the_arrived_one(tmp_path):
+    """The check goes from the top of the page straight to its end. Run 4's site took 3.5 s to draw there, the check
+    counted its four seconds from the scroll, and the frame it kept showed the first chapter's panel over the last
+    one's, half a second into their cross-fade. The four seconds count from the page's first frames at the new place."""
+    t0 = time.monotonic()
+    r = run(site(tmp_path, "slow_arrival"), tmp_path)
+    steps = {round(s.share, 2): s for s in r.visits["desktop"].steps}
+    end = steps[1.0]
+    assert end.motion == "still" and 4.3 < end.settle_s < sc.SETTLE_HARD_S, (end.motion, end.settle_s)
+    px = np.asarray(Image.open(end.frame).convert("RGB")).astype(int)[140, 190]  # inside both panels' box
+    assert px[1] > px[0] + 80, f"the last frame shows the first panel still: {px.tolist()}"
+    back = np.asarray(Image.open(steps[0.5].frame).convert("RGB")).astype(int)[140, 190]
+    assert back[0] > back[1] + 80, f"and after the jump back, the second: {back.tolist()}"
+    assert "Still changing" not in r.text()
+    assert time.monotonic() - t0 < 60
+
+
+@pytest.mark.browser
 def test_errors_failed_requests_the_server_root_and_other_hosts(tmp_path):
     r = run(site(tmp_path, "broken"), tmp_path)
     broken, text = r.broken(), r.text()

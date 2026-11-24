@@ -81,8 +81,15 @@ SIZES: dict[str, dict[str, Any]] = {
 #: this (mean absolute difference of the 1/8-size grey image, share of full scale; JPEG noise of an unchanged picture is
 #: 0, a blinking caret is about 0.0002).
 STILL = 0.0015
-#: how long one step may take to settle; a page still changing after it is photographed as it is and named in the answer
+#: how long one step may take to settle once the page has drawn at the new position (its first two frames after the
+#: scroll); a page still changing after it is photographed as it is and named in the answer
 SETTLE_CAP_S = 4.0
+#: ... and the most a step may take from the scroll itself, however long those first frames take. Counting the 4 s from
+#: the scroll was wrong for a heavy page: run 4's site (188,000 triangles and an occlusion pass, drawn in software,
+#: four visits at once) took 3.5 s for its first frame after the jump from the top of the page to its end, the check
+#: gave up half a second later, in the middle of the 0.3 s cross-fade of the two chapters' panels, and its last frame
+#: showed the first chapter's text over the last one's. No visitor sees that.
+SETTLE_HARD_S = 12.0
 #: The longest time the page is shown to pass between two of its frames (``site_probe.js``, "The page's clock"): below
 #: GSAP's 500 ms lag threshold, so scrubbed animations advance by real time instead of 33 ms a frame on a slow frame.
 FRAME_CAP_MS = 250
@@ -688,7 +695,7 @@ class SiteReport:
                              f"asked for; {len(v.steps)} of {self.steps} steps photographed; share of the 3D canvas showing "
                              "something, per step: "
                              + " ".join("-" if s.canvas_content is None else f"{s.canvas_content:.0%}" for s in v.steps) + "."
-                             + (f" Still changing {SETTLE_CAP_S:.0f} s after the scroll at {_steps_list(moving, self.steps)}: "
+                             + (f" Still changing {SETTLE_CAP_S:.0f} s after the page drew there at {_steps_list(moving, self.steps)}: "
                                 "those frames may show the scene on its way (software WebGL draws a heavy frame in about a "
                                 "second; a visitor's GPU in a few milliseconds)." if moving else ""))
                 if scale := self.scale_line(v):
@@ -1394,23 +1401,26 @@ class _Visitor:
         one between them were the same compositor frame, so the picture "stopped changing" before the scene had moved,
         and the 62 % frame showed an empty grid where the scene, a moment later, showed the router."""
         t0 = time.monotonic()
-        cap = max(0.5, min(cap, self.clock.left() - WRAP_UP_S))
-        prev, last_d, shot = None, None, b""
+        left = self.clock.left() - WRAP_UP_S
+        cap, hard = max(0.5, min(cap, left)), max(0.5, min(max(cap, SETTLE_HARD_S), left))
+        prev, last_d, shot, arrived = None, None, b"", None
         while True:
             with contextlib.suppress(Exception):  # a page that navigated or never ran the probe: take the frame anyway
-                await asyncio.wait_for(page.evaluate("(n) => window.__agySite.afterFrames(n)", 2), max(0.5, cap))
+                await asyncio.wait_for(page.evaluate("(n) => window.__agySite.afterFrames(n)", 2), max(0.5, hard if arrived is None else cap))
+            if arrived is None:
+                arrived = time.monotonic() - t0  # the page has drawn here: what the scroll set off starts now
             shot = await self.shot()
             small = _grey(shot, 8)
             el = time.monotonic() - t0
             if prev is not None:
                 d = _diff(prev, small)
-                self.log(f"  frame change {d:.4f} at {el:.1f} s")
+                self.log(f"  frame change {d:.4f} at {el:.1f} s (drawn here after {arrived:.1f} s)")
                 if d < STILL:
                     return shot, el, "still"
-                if last_d is not None and el >= 1.0 and d >= 0.7 * last_d and d < AMBIENT:
+                if last_d is not None and el - arrived >= 1.0 and d >= 0.7 * last_d and d < AMBIENT:
                     return shot, el, "ambient"
                 last_d = d
-            if el > cap:
+            if el - arrived > cap or el > hard:
                 return shot, el, "moving"
             prev = small
             await asyncio.sleep(0.1)
