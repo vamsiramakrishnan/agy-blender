@@ -1,12 +1,13 @@
 # The sites, judged blind on corrected frames
 
-18 verdicts, six on each pair of sites (three in each order), by `gemini-4-carbon` (thinking low) through `benchmarks/site_compare.py`. The judge saw nine desktop frames of each site, at even scroll steps and 960 px wide, as "the first site" and "the second site", with the request in `request.txt`. It never saw which run made which. The frames are those of the corrected site check (no black band or box from the browser's software path; see `../../ROUND_EIGHT.md`).
+36 verdicts, six on each pair of sites (three in each order), by `gemini-4-carbon` (thinking low) through `benchmarks/site_compare.py`. The judge saw nine desktop frames of each site, at even scroll steps and 960 px wide, as "the first site" and "the second site", with the request in `request.txt`. It never saw which run made which. The frames are those of the corrected site check (no black band or box from the browser's software path; see `../../ROUND_EIGHT.md`).
 
 - `run1`: the first run's site (`../../site_run1/`, the plugin as it was after round seven)
 - `run2`: the second run's (`../../site_run2_plugin/`)
 - `run3`: the third run's (`../../site_run3_plugin/`)
+- `stock`: the stock agent's, the same request without the plugin (`../../site_stock/`)
 
-Seventeen of the eighteen calls were refused at least once by a busy model service (HTTP 503) and were asked again over two hours (13:25 to 15:27 UTC); a kept verdict was never asked twice.
+The model service was busy for much of the day: of the eighteen calls on the three plugin sites, seventeen were refused at least once (HTTP 503) and asked again over two hours (13:25 to 15:27 UTC); the eighteen calls that involve the stock site were asked in six passes (15:55 to 16:32 UTC). A kept verdict was never asked twice.
 
 ## Totals
 
@@ -22,11 +23,26 @@ Seventeen of the eighteen calls were refused at least once by a busy model servi
 | run1 vs run3 | craft of the 3d | run1 2, run3 4 | run3 |
 | run1 vs run3 | type and layout | run3 6 | run3 |
 | run1 vs run3 | overall | run3 6 | run3 |
+| run1 vs stock | every position composed | stock 6 | stock |
+| run1 vs stock | explains the project | run1 3, stock 3 | no majority |
+| run1 vs stock | craft of the 3d | run1 6 | run1 |
+| run1 vs stock | type and layout | run1 4, stock 2 | run1 |
+| run1 vs stock | overall | run1 4, stock 2 | run1 |
 | run2 vs run3 | every position composed | run3 6 | run3 |
 | run2 vs run3 | explains the project | run2 4, run3 2 | run2 |
 | run2 vs run3 | craft of the 3d | run2 4, tie 2 | run2 |
 | run2 vs run3 | type and layout | run3 6 | run3 |
 | run2 vs run3 | overall | run2 3, run3 3 | no majority |
+| run2 vs stock | every position composed | run2 6 | run2 |
+| run2 vs stock | explains the project | run2 6 | run2 |
+| run2 vs stock | craft of the 3d | run2 6 | run2 |
+| run2 vs stock | type and layout | run2 6 | run2 |
+| run2 vs stock | overall | run2 6 | run2 |
+| run3 vs stock | every position composed | run3 6 | run3 |
+| run3 vs stock | explains the project | run3 6 | run3 |
+| run3 vs stock | craft of the 3d | run3 6 | run3 |
+| run3 vs stock | type and layout | run3 6 | run3 |
+| run3 vs stock | overall | run3 6 | run3 |
 
 ## The overall verdict, by which site was shown first
 
@@ -38,10 +54,16 @@ A pair is asked three times in each order so that a judge who favours a position
 | run1 vs run2 | run2 | run2 3 |
 | run1 vs run3 | run1 | run3 3 |
 | run1 vs run3 | run3 | run3 3 |
+| run1 vs stock | run1 | run1 1, stock 2 |
+| run1 vs stock | stock | run1 3 |
 | run2 vs run3 | run2 | run3 3 |
 | run2 vs run3 | run3 | run2 3 |
+| run2 vs stock | run2 | run2 3 |
+| run2 vs stock | stock | run2 3 |
+| run3 vs stock | run3 | run3 3 |
+| run3 vs stock | stock | run3 3 |
 
-Over all 18 calls the overall verdict went to the site shown second 12 times.
+Over all 36 calls the overall verdict went to the site shown second 23 times.
 
 ## What the judge said, call by call
 
@@ -129,6 +151,48 @@ Over all 18 calls the overall verdict went to the site shown second 12 times.
 - craft of the 3d: run1. Site 2 displays superior metallic shaders, specular reflections, and volumetric lighting in frames 1 to 7 compared to Site 1's flatter matte models.
 - type and layout: run3. Site 1 anchors concise, readable cards consistently on the left in frames 1 to 9, avoiding the clipped panels and dense grids seen in Site 2's frames 3, 6, and 9.
 
+**Shown first: run1; second: stock (repeat 0).** Overall: run1. Site 1 delivers higher-craft, grounded 3D hardware models paired with cleaner typography and interactive controls that visualize Straitjacket's pipeline without layout collisions.
+
+- every position composed: stock. Site 2 keeps a clear 3D subject framed across frames 1-8 without empty travel gaps like Site 1's frame 6, though Site 2's hero text slightly overlaps the emblem in frame 1.
+- explains the project: stock. Site 2's 3D diagrams in frames 3, 6, and 7 directly illustrate the vault pipeline, frozen prefix, and 7-harness delegation, whereas Site 1's props in frames 1-5 feel more abstract.
+- craft of the 3d: run1. Site 1's models in frames 1-5 and 7 show richer mechanical detail, metallic surface variation, and grounded base plates compared to Site 2's simpler floating primitives in frames 3-6.
+- type and layout: run1. Site 1 keeps text cleanly contained in crisp dark cards in frames 1, 4, and 5 without colliding with the 3D subject like Site 2's hero headline in frame 1 or top bar overlap in frame 5.
+
+**Shown first: run1; second: stock (repeat 1).** Overall: stock. Site 2 delivers a more cohesive, uninterrupted scroll journey whose 3D diagrams directly visualize Straitjacket's store, gates, prefix caching, and multi-harness handoffs.
+
+- every position composed: stock. Site 2 keeps a distinct 3D subject framed at every scroll step from frame 1 through frame 8, whereas Site 1 leaves an empty 3D void in frame 6 and has cards colliding with the central chamber in frames 2 and 3.
+- explains the project: stock. Site 2 builds legible diagrams for each concept—such as the vault funnel into four rings in frame 3, the frozen prefix blocks in frame 6, and the seven harness pods passing signals in frame 7—while Site 1's machinery is more abstract.
+- craft of the 3d: run1. Site 1's mechanical assemblies in frames 1, 4, 5, and 7 have detailed multi-part modeling, worn metallic materials, and grounded bases, compared to Site 2's simpler floating primitives in frames 1 and 5.
+- type and layout: stock. Despite minor text-over-3D overlap in frame 1, Site 2 uses cleaner typographic hierarchy, calmer card spacing, and atmospheric color shifts (frames 2, 3, 7) compared to Site 1's tall, dense UI cards.
+
+**Shown first: run1; second: stock (repeat 2).** Overall: stock. Site 2 better answers the request to visualize how Straitjacket works through a cohesive scroll journey where every stop pairs clear, readable layout with a purposeful 3D diagram of the architecture.
+
+- every position composed: stock. Site 2 keeps a distinct 3D subject framed at almost every scroll step (frames 1 through 8), whereas Site 1 leaves frame 6 completely empty of 3D objects during transition and overlaps text cards directly over the 3D chamber in frames 2 and 3.
+- explains the project: stock. Site 2 builds clear visual diagrams for each system stage—such as the vault and four lifecycle gates in frame 3, frozen prefix blocks in frame 6, and seven connected harness pods in frame 7—while Site 1's machines in frames 1, 5, and 7 are more abstract mechanical props.
+- craft of the 3d: run1. Site 1's models in frames 1, 4, 5, and 7 look physically constructed and grounded on bases with worn metallic bevels, fasteners, and specular depth, whereas Site 2's objects in frames 1, 5, and 8 look like simpler geometric primitives floating against a flat grid.
+- type and layout: stock. Site 2 uses cleaner typography, crisper hierarchy, and narrower cards that leave generous breathing room around the 3D scenes in frames 2, 3, 6, and 7, although frame 1 slightly overlaps the hero headline with the logo.
+
+**Shown first: stock; second: run1 (repeat 0).** Overall: run1. Site 2 delivers higher-craft mechanical 3D assets and clearer interactive metaphors that directly visualize how Straitjacket works.
+
+- every position composed: stock. Site 1 maintains a subject in frames 1 through 8 without completely empty transitions like Site 2's frame 6.
+- explains the project: run1. Site 2's intake chamber, caliper, and router in frames 2, 5, and 7 tangibly demonstrate token filtering, line anchoring, and orchestration.
+- craft of the 3d: run1. Site 2's mechanical models in frames 1, 4, and 7 exhibit richer surface materials, specular highlights, and grounded weight than Site 1's simpler geometry in frames 3 and 5.
+- type and layout: run1. Site 2 uses clean side-docked cards in frames 1, 4, and 5 that prevent text from colliding with the 3D subject as seen in Site 1's frame 1.
+
+**Shown first: stock; second: run1 (repeat 1).** Overall: run1. Site 2 delivers crafted, grounded 3D machinery that tangibly illustrates how Straitjacket contains streams, locks anchors, and routes work across harnesses.
+
+- every position composed: stock. Site 1 maintains a subject in every shot from frames 1 to 8, whereas Site 2 loses its 3D subject completely in frame 6 and overlaps cards with the 3D chamber in frame 3.
+- explains the project: run1. Site 2's tactile mechanical devices—like the particle intake manifold in frames 2-4 and vernier caliper in frame 5—make abstract concepts concrete compared to Site 1's floating primitives in frames 4-6.
+- craft of the 3d: run1. Site 2's machined metal and gold assemblies in frames 1-5 and 7 show richer surface detail, beveled form, and specular lighting than Site 1's simple glowing tubes and rings.
+- type and layout: run1. Site 2 keeps its hero text cleanly separated on a dark panel in frame 1 while Site 1's hero headline directly collides with the bright 3D bracket in frame 1.
+
+**Shown first: stock; second: run1 (repeat 2).** Overall: run1. Site 2 better fulfills the prompt with tactile, custom-crafted 3D machinery that tangibly visualizes how Straitjacket filters logs, locks content anchors, and routes tasks across harnesses.
+
+- every position composed: stock. Site 1 keeps a clear 3D subject framed across frames 1-8, whereas Site 2 loses its 3D subject entirely in frame 6 and overlaps UI cards over the machinery in frame 3.
+- explains the project: run1. Site 2 uses mechanical metaphors like the particle intake chamber in frames 2-4 and vernier caliper in frame 5 to directly visualize log filtering and line-drift locking, outperforming Site 1's abstract rings in frames 3-6.
+- craft of the 3d: run1. Site 2's custom-modeled metallic hardware in frames 1-5 and 7 features detailed geometry, specular wear, and grounded bases compared to Site 1's simpler primitive extrusions in frames 1-6.
+- type and layout: run1. Site 2 maintains cleaner typographic hierarchy and dark-card separation in frames 1, 4, and 5, while Site 1 overlaps headline text directly onto the bright 3D logo in frame 1.
+
 **Shown first: run2; second: run3 (repeat 0).** Overall: run3. Site 2 better visualizes how Straitjacket works through clear spatial composition, labeled 3D metaphors, and an unobstructed layout across the scroll.
 
 - every position composed: run3. Site 2 keeps its subjects clearly framed on the right across frames 1-9, whereas Site 1 lets text cards collide with 3D blocks and machines in frames 1, 2, 4, and 9.
@@ -170,3 +234,87 @@ Over all 18 calls the overall verdict went to the site shown second 12 times.
 - explains the project: run2. Site 2's 3D scene more clearly visualizes the mechanics, showing the yellow needle isolated in frame 3, fetched on rollers in frames 5–6, and mapped to seven harness gates in frame 8.
 - craft of the 3d: tie. Both sites feature comparable industrial 3D machinery with worn metallic edges, soft ground shadows, and depth fog across all frames (e.g., Site 1 frame 6 and Site 2 frame 4).
 - type and layout: run3. Site 1 keeps its left-aligned cards compact and legible with descriptive top-nav labels in frames 1–9, while Site 2's taller card gets cut off at the bottom edge in frame 7.
+
+**Shown first: run2; second: stock (repeat 0).** Overall: run2. Site 1 delivers a cohesive, grounded 3D factory metaphor with smooth scroll choreography and clean layout that genuinely visualizes how Straitjacket processes, bounds, and routes evidence.
+
+- every position composed: run2. Site 1 smoothly tracks across a continuous 3D assembly line from frames 1 to 9 with clear framing, whereas Site 2 has awkward intermediate frames like frame 4 and obscures the 3D scene behind dense cards in frame 9.
+- explains the project: run2. Site 1 concretely visualizes the mechanism—such as the yellow 'quiet needle' block surviving compression from frame 3 to frame 4 and line-retrieval rollers in frames 5 and 6—while Site 2 relies more on abstract sci-fi rings and logos in frames 1, 2, and 8.
+- craft of the 3d: run2. Site 1's industrial machines in frames 1 through 9 feel grounded on a shadowed workbench with cohesive, tactile materials and bevels, whereas Site 2's objects float disconnectedly in space as seen in frames 4, 5, and 8.
+- type and layout: run2. Site 1 keeps its clean, readable cards consistently docked to the left across frames 1 to 9 so the 3D stage stays open, whereas Site 2 overlaps headline text onto the 3D logo in frame 1 andclips scrolling cards under the top bar in frames 4 and 5.
+
+**Shown first: run2; second: stock (repeat 1).** Overall: run2. Site 1 delivers a cohesive, well-composed 3D assembly-line metaphor that clearly illustrates how Straitjacket processes and routes agent context without layout glitches.
+
+- every position composed: run2. Site 1 maintains clean framing across frames 1-9 with a pinned card and panning camera, whereas Site 2 suffers from clipped cards, header collisions, and obscured 3D scenes in frames 4, 5, and 9.
+- explains the project: run2. Site 1 concretely visualizes data compression, needle preservation, and routing via physical blocks and machinery in frames 3-8, whereas Site 2 uses more abstract emblems and rings in frames 1-6.
+- craft of the 3d: run2. Site 1 features grounded industrial machinery with beveled edges, worn textures, and contact shadows on a workshop grid across frames 1-9, while Site 2's objects float weightlessly in space.
+- type and layout: run2. Site 1 keeps readable typography inside a consistent left-aligned card across frames 1-9, avoiding the text-over-3D collisions and top-bar overlaps seen in Site 2's frames 1, 4, 5, and 9.
+
+**Shown first: run2; second: stock (repeat 2).** Overall: run2. Site 1 delivers a cohesive, well-crafted 3D assembly line that clearly visualizes how Straitjacket processes and routes agent context without layout collisions.
+
+- every position composed: run2. Site 1 smoothly pans along an integrated assembly line from frames 1 to 9 with text neatly left-aligned, whereas Site 2 covers 3D subjects with UI cards in frames 5 and 9 and clips text against the header in frames 4 and 5.
+- explains the project: run2. Site 1 concretely visualizes data compression, rare needle preservation, and agent routing through sequential machinery in frames 3 through 8, while Site 2 relies mostly on abstract floating rings and emblems in frames 1, 2, 5, and 8.
+- craft of the 3d: run2. Site 1 features tactile, grounded machinery with beveled edges, subtle wear, and contact shadows on a floor plane across frames 1 to 9, whereas Site 2 uses ungrounded, glowing geometric primitives floating in space in frames 3 to 7.
+- type and layout: run2. Site 1 keeps cards consistently pinned to the left with clean typographic hierarchy across frames 1 to 9, avoiding the header collisions and full-width card clutter seen in Site 2's frames 4, 5, and 9.
+
+**Shown first: stock; second: run2 (repeat 0).** Overall: run2. Site 2 delivers a cohesive, continuous 3D mechanical journey that clearly visualizes how Straitjacket processes and hands off evidence without layout collisions.
+
+- every position composed: run2. Site 2 tracks smoothly across a continuous workbench from frames 1 to 9 with clear framing, whereas Site 1 suffers from awkward overlaps, cut-off cards, and buried 3D scenes in frames 4, 5, 8, and 9.
+- explains the project: run2. Site 2 physically diagrams the exact pipeline—tracking the yellow anomaly block from the raw flood in frame 3 through compression in frame 4 and vault retrieval in frame 5—while Site 1 relies on abstract floating rings in frames 3 to 6.
+- craft of the 3d: run2. Site 2's industrial presses in frames 1 through 7 feature grounded shadows, tactile bevels, and cohesive PBR materials on a physical grid, whereas Site 1's floating primitives in frames 4 through 6 feel ungrounded.
+- type and layout: run2. Site 2 keeps legible, consistently anchored left-hand cards across frames 1 to 9 that leave the right side open for the 3D scene, while Site 1's cards collide with the header and obscure the 3D in frames 1, 4, 5, and 9.
+
+**Shown first: stock; second: run2 (repeat 1).** Overall: run2. Site 2 delivers a cohesive, tactile 3D assembly-line journey that clearly visualizes how Straitjacket processes logs and hands off work with clean scroll composition.
+
+- every position composed: run2. Site 2 tracks smoothly along a continuous machine line across frames 1-9 without occlusion, whereas Site 1 overlaps text on the hero model in frame 1, clips cards in frames 4 and 5, and covers the scene in frame 9.
+- explains the project: run2. Site 2 concretely visualizes a yellow needle surviving compression from red log stacks to blue digests and conveyor gates in frames 3-8, while Site 1 relies on abstract rings and floating pods in frames 3-7.
+- craft of the 3d: run2. Site 2 builds grounded, tactile machinery with weathered metal materials and contact shadows on a floor plane in frames 1-9, whereas Site 1 floats basic emissive primitives in empty space across frames 1-8.
+- type and layout: run2. Site 2 keeps clean, readable cards consistently anchored to the left in frames 1-9 to leave the 3D stage clear, while Site 1 shifts cards around and clips text under the sticky header in frames 4, 5, and 8.
+
+**Shown first: stock; second: run2 (repeat 2).** Overall: run2. Site 2 delivers a cohesive, grounded 3D assembly-line tour that visually explains how Straitjacket compresses logs, preserves anomalies, and routes work without cluttering the viewport.
+
+- every position composed: run2. Site 2 tracks cleanly along a continuous bench from frames 1 to 9 with clear framing, whereas Site 1 suffers from awkward clipping, obscured 3D elements, and sparse transitions in frames 4, 5, and 9.
+- explains the project: run2. Site 2 turns the pipeline into a clear physical assembly line—compressing a red flood while preserving the yellow needle in frames 2–4 and pulling anchored slices from a vault in frames 5–6—while Site 1 relies on abstract rings and floating shapes in frames 3–6.
+- craft of the 3d: run2. Site 2's industrial machines in frames 1–9 feel tangible and grounded on a floor grid with worn metal edges, bevels, and contact shadows, whereas Site 1's glossy primitives float ungrounded in space.
+- type and layout: run2. Site 2 pins concise, well-proportioned cards to the left across frames 1–9 without colliding with the header or covering the 3D focal points, unlike Site 1 where scrolling cards clash with the top bar and obscure the scene in frames 1, 4, 5, and 9.
+
+**Shown first: run3; second: stock (repeat 0).** Overall: run3. Site 1 delivers a cohesive, well-composed 3D assembly-line visualization that clearly explains how Straitjacket processes and hands off context without layout collisions.
+
+- every position composed: run3. Site 1 keeps the 3D pipeline clearly framed on the right from frame 1 to 9, whereas Site 2 clips cards at the edges and obscures the 3D scene in frames 4, 8, and 9.
+- explains the project: run3. Site 1 concretely visualizes log truncation, digest storage, and anchor tracking as physical blocks moving along a conveyor across frames 3 to 9, outperforming Site 2's abstract floating rings in frames 3 to 6.
+- craft of the 3d: run3. Site 1's machines in frames 1 to 8 feature cohesive edge wear, grounded contact shadows, and physical weight on a floor grid, while Site 2's elements float ungrounded in space in frames 1 to 8.
+- type and layout: run3. Site 1 anchors concise, readable cards consistently on the left across frames 1 to 9, whereas Site 2's hero text collides with the 3D logo in frame 1 and scrolling cards clip under the header in frames 4 and 5.
+
+**Shown first: run3; second: stock (repeat 1).** Overall: run3. Site 1 delivers a cohesive, grounded 3D assembly line that visually explains how Straitjacket digests, stores, and anchors code outputs without any layout collisions or awkward scroll transitions.
+
+- every position composed: run3. Site 1 smoothly pans along a continuous 3D pipeline from frames 1 to 9 with clear framing, whereas Site 2 has text colliding with 3D objects in frame 1, awkward cutoffs in frame 4, and text covering the 3D scene completely in frame 9.
+- explains the project: run3. Site 1 concretely visualizes raw logs as a wall of red blocks being compressed into a compact digest with a yellow needle intact (frames 3–5) and stored in a cabinet (frame 6), making the mechanics much clearer than Site 2's abstract glowing rings in frames 3–6.
+- craft of the 3d: run3. Site 1's machinery in frames 1–8 looks tactile and grounded on a floor plane with worn metallic edges, bevels, and contact shadows, while Site 2's objects in frames 1–5 float ungrounded in space with generic primitives and bloom.
+- type and layout: run3. Site 1 keeps its clean, readable cards consistently anchored in the top-left across frames 1–9 to give the 3D stage breathing room, whereas Site 2's scrolling cards overlap the top header bar and clip off-screen in frames 2, 4, 5, and 8.
+
+**Shown first: run3; second: stock (repeat 2).** Overall: run3. Site 1 delivers a cohesive, Scrolltide-like spatial journey along a grounded 3D assembly line that visually explains Straitjacket's log digestion, local storage, and content anchoring without layout collisions.
+
+- every position composed: run3. Site 1 smoothly pans along a continuous 3D pipeline from frames 1 to 9 with clear framing, whereas Site 2 has text colliding with 3D objects in frames 1, 5, and 8 and completely covers the 3D scene with UI in frame 9.
+- explains the project: run3. Site 1's 3D conveyor of physical stations—showing a massive red log wall compressed into a small digest in frames 3–5, a filing cabinet store in frame 6, and a shifting byte-vise in frame 8—makes the mechanics immediately legible compared to Site 2's abstract glowing rings in frames 3–6.
+- craft of the 3d: run3. Site 1's machinery in frames 1–9 feels solid, grounded on a shadowed floor plane with cohesive stylized edge-worn materials, while Site 2's objects float ungrounded in space with generic primitives and harsh bloom in frames 1–5.
+- type and layout: run3. Site 1 keeps text neatly contained in a consistent top-left card across frames 1–9 so the 3D scene always breathes, whereas Site 2's scrolling cards clip awkwardly under the translucent top header in frames 2, 4, 5, and 9 and obscure the 3D.
+
+**Shown first: stock; second: run3 (repeat 0).** Overall: run3. Site 2 delivers a smoother, well-composed spatial pipeline that tangibly visualizes how Straitjacket processes and hands off evidence without layout collisions.
+
+- every position composed: run3. Site 2 keeps its subjects clearly framed on the right across frames 1-9, whereas Site 1 obscures 3D elements behind text cards in frames 4, 5, and 9.
+- explains the project: run3. Site 2 concretely visualizes log blocks compressing through a gate into a cabinet and caliper (frames 3-8), whereas Site 1 uses abstract rings and floating shapes (frames 3-7).
+- craft of the 3d: run3. Site 2 grounds tactile, textured machinery with shadows onto a floor grid (frames 1-9), while Site 1 floats simpler glossy primitives in space (frames 1-8).
+- type and layout: run3. Site 2 uses a clean, fixed top-left card across frames 1-9 that never collides with the 3D scene or header, unlike Site 1's overlapping scrolling cards in frames 4, 5, and 8.
+
+**Shown first: stock; second: run3 (repeat 1).** Overall: run3. Site 2 better fulfills the request by pairing clean, unobstructed typography with a grounded, continuous 3D pipeline that clearly illustrates how Straitjacket processes and hands off evidence.
+
+- every position composed: run3. Site 2 tracks smoothly along a grounded pipeline from frames 1 to 9 without occluding the subject, whereas Site 1 covers 3D elements with text cards in frames 1, 5, and 9.
+- explains the project: run3. Site 2 visualizes log compression, storage, and anchor clamping through literal physical machines in frames 3 to 8, while Site 1 relies on more abstract floating shapes in frames 4 to 6.
+- craft of the 3d: run3. Site 2 grounds beveled, textured machinery with contact shadows on a floor plane across frames 1 to 9, whereas Site 1 uses ungrounded primitives floating in space.
+- type and layout: run3. Site 2 anchors concise cards consistently in the top-left across frames 1 to 9, avoiding the header collisions and text-over-3D clutter seen in Site 1 frames 4, 5, and 8.
+
+**Shown first: stock; second: run3 (repeat 2).** Overall: run3. Site 2 delivers a cohesive, grounded 3D assembly line that visually explains Straitjacket's log digestion, storage, anchoring, and handoff mechanics with clean composition at every scroll step.
+
+- every position composed: run3. Site 2 keeps its subjects clearly framed on the right and travels smoothly along the conveyor line from frames 1 to 9, whereas Site 1 collides text with the 3D subject in frames 1, 5, and 8 and cuts cards off at the viewport edges in frames 4 and 5.
+- explains the project: run3. Site 2 builds a clear spatial machine where a wall of log blocks with a yellow needle in frame 3 gets compressed into a small stack in frame 5, stored in a cabinet in frame 6, and clamped by an anchor press in frame 8, making the pipeline much more legible than Site 1's abstract floating rings in frames 3 through 6.
+- craft of the 3d: run3. Site 2's machinery in frames 1, 6, and 8 feels tactile and grounded on a floor plane with contact shadows and worn metallic edges, whereas Site 1's primitives float ungrounded in space in frames 4, 5, and 6.
+- type and layout: run3. Site 2 anchors concise, readable cards consistently in the top-left across frames 1 to 9, while Site 1 suffers from hero text overlapping the 3D brace in frame 1 and scrolling cards colliding with the top navigation bar in frames 4, 5, and 9.

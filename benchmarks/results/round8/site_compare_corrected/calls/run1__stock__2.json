@@ -1,0 +1,33 @@
+{
+ "first": "run1",
+ "second": "stock",
+ "rep": 2,
+ "frames": [
+  "e074b52a7a5c36c0",
+  "57c48173e1aeb830"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 keeps a distinct 3D subject framed at almost every scroll step (frames 1 through 8), whereas Site 1 leaves frame 6 completely empty of 3D objects during transition and overlaps text cards directly over the 3D chamber in frames 2 and 3."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2 builds clear visual diagrams for each system stage\u2014such as the vault and four lifecycle gates in frame 3, frozen prefix blocks in frame 6, and seven connected harness pods in frame 7\u2014while Site 1's machines in frames 1, 5, and 7 are more abstract mechanical props."
+   },
+   "craft_of_the_3d": {
+    "winner": "1",
+    "reason": "Site 1's models in frames 1, 4, 5, and 7 look physically constructed and grounded on bases with worn metallic bevels, fasteners, and specular depth, whereas Site 2's objects in frames 1, 5, and 8 look like simpler geometric primitives floating against a flat grid."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Site 2 uses cleaner typography, crisper hierarchy, and narrower cards that leave generous breathing room around the 3D scenes in frames 2, 3, 6, and 7, although frame 1 slightly overlaps the hero headline with the logo."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 better answers the request to visualize how Straitjacket works through a cohesive scroll journey where every stop pairs clear, readable layout with a purposeful 3D diagram of the architecture."
+  }
+ }
+}

@@ -1,0 +1,33 @@
+{
+ "first": "run1",
+ "second": "stock",
+ "rep": 0,
+ "frames": [
+  "e074b52a7a5c36c0",
+  "57c48173e1aeb830"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 keeps a clear 3D subject framed across frames 1-8 without empty travel gaps like Site 1's frame 6, though Site 2's hero text slightly overlaps the emblem in frame 1."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2's 3D diagrams in frames 3, 6, and 7 directly illustrate the vault pipeline, frozen prefix, and 7-harness delegation, whereas Site 1's props in frames 1-5 feel more abstract."
+   },
+   "craft_of_the_3d": {
+    "winner": "1",
+    "reason": "Site 1's models in frames 1-5 and 7 show richer mechanical detail, metallic surface variation, and grounded base plates compared to Site 2's simpler floating primitives in frames 3-6."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Site 1 keeps text cleanly contained in crisp dark cards in frames 1, 4, and 5 without colliding with the 3D subject like Site 2's hero headline in frame 1 or top bar overlap in frame 5."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Site 1 delivers higher-craft, grounded 3D hardware models paired with cleaner typography and interactive controls that visualize Straitjacket's pipeline without layout collisions."
+  }
+ }
+}

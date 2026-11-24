@@ -1,0 +1,33 @@
+{
+ "first": "stock",
+ "second": "run1",
+ "rep": 0,
+ "frames": [
+  "57c48173e1aeb830",
+  "e074b52a7a5c36c0"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 maintains a subject in frames 1 through 8 without completely empty transitions like Site 2's frame 6."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2's intake chamber, caliper, and router in frames 2, 5, and 7 tangibly demonstrate token filtering, line anchoring, and orchestration."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2's mechanical models in frames 1, 4, and 7 exhibit richer surface materials, specular highlights, and grounded weight than Site 1's simpler geometry in frames 3 and 5."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Site 2 uses clean side-docked cards in frames 1, 4, and 5 that prevent text from colliding with the 3D subject as seen in Site 1's frame 1."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers higher-craft mechanical 3D assets and clearer interactive metaphors that directly visualize how Straitjacket works."
+  }
+ }
+}

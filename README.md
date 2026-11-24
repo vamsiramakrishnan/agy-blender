@@ -104,7 +104,10 @@ first run's logs showed, after, and again after a review of the second site's th
 3.6 MB where the first downloaded 22.8, holds 89 MB of textures instead of 454, shows a source for every number,
 has no prop or label hidden by its text at any scroll step on a desktop or a phone, and was built with no tool
 call cut off (the first run lost six). Its objects are still plain, and each run found faults of the plugin that
-no review had. How any of the three compares with a stock agent's site is not measured yet.
+no review had. The same request without the plugin gave a site in half the time and tokens (53 minutes and 5.0 M
+against 105 and 10.4 M) that a blind judge placed below the second and the third in all twelve verdicts, for
+objects that float where the plugin's stand on a floor and for text over its 3D; the site check adds that it shows
+nothing without WebGL.
 Details: [round eight](benchmarks/ROUND_EIGHT.md).
 
 ## Try it
