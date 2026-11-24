@@ -153,6 +153,13 @@ environment; a face turned to the camera 1.91; a side wall 1.0. So:
 - The toe works the other way: in a dark colour the tone mapper takes out most of the darkest channel (#15181D comes
   out about #080C13 at F = 1). Give a floor that must match the page the material colour whose swatch matches, found
   with the example below.
+- A dark material on a dark page is a hole, and a dark metal most of all: a metal's base colour is the share of
+  light it reflects. Under the starter's light a steel of #242931 at three quarters metal comes out #0B1420, thirteen
+  levels from that floor at most; a steel of #B0B4B8 at full metal comes out #9CA0A5. Give a prop's large surfaces a
+  value well away from the page's and keep the page's own dark colours for small parts. More light is not the
+  remedy (the first point). Why: run 4's three machines were that dark steel on a #0D0F12 ground; at six of nine
+  scroll steps under a tenth of the canvas differed from the background, and every blind verdict on craft that went
+  against the site said so ("dark machinery blends into the dark floor").
 
 Check a colour on screen against its hex: draw a swatch under the page's own light and read the canvas at once, as
 this example does for the starter's light and for run 3's.
@@ -191,15 +198,18 @@ function onScreen(material) {
 const floor = onScreen(new THREE.MeshStandardMaterial({ color: '#15181d', roughness: 0.95 }));
 const amberLit = onScreen(new THREE.MeshStandardMaterial({ color: '#f0b429', roughness: 0.6 }));
 const amberFlat = onScreen(new THREE.MeshBasicMaterial({ color: '#f0b429', toneMapped: false }));
+// A dark metal and a mid one under the same light: a metal's colour is the share of light it reflects.
+const steelDark = onScreen(new THREE.MeshStandardMaterial({ color: '#242931', metalness: 0.75, roughness: 0.5 }));
+const steelMid = onScreen(new THREE.MeshStandardMaterial({ color: '#b0b4b8', metalness: 1, roughness: 0.5 }));
 // Run 3's light: a key of 2.7, a rim and a fill light, the environment at 0.95.
 key.intensity = 2.7;
 scene.add(new THREE.DirectionalLight('#ffffff', 0.75), new THREE.DirectionalLight('#ffffff', 0.65));
 scene.environmentIntensity = 0.95;
 const floorRun3 = onScreen(new THREE.MeshStandardMaterial({ color: '#15181d', roughness: 0.95 }));
 const amberRun3 = onScreen(new THREE.MeshStandardMaterial({ color: '#f0b429', roughness: 0.6 }));
-document.documentElement.dataset.swatches = JSON.stringify({ floor, amberLit, amberFlat, floorRun3, amberRun3 });
+document.documentElement.dataset.swatches = JSON.stringify({ floor, amberLit, amberFlat, steelDark, steelMid, floorRun3, amberRun3 });
 ```
-<!-- check: js (() => { const s = JSON.parse(document.documentElement.dataset.swatches), c = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)); const [r, g, b] = c(s.amberLit), [, , b3] = c(s.amberRun3), [f3] = c(s.floorRun3); return s.amberFlat === '#f0b429' && b < 50 && b3 > 80 && r < 240 && f3 > 1.6 * 0x15; })() -->
+<!-- check: js (() => { const s = JSON.parse(document.documentElement.dataset.swatches), c = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)); const [r, g, b] = c(s.amberLit), [, , b3] = c(s.amberRun3), [f3] = c(s.floorRun3); return s.amberFlat === '#f0b429' && b < 50 && b3 > 80 && r < 240 && f3 > 1.6 * 0x15 && Math.max(...c(s.steelDark)) < 40 && Math.min(...c(s.steelMid)) > 120; })() -->
 
 ## GSAP 3.15 with ScrollTrigger: page effects tied to scroll
 

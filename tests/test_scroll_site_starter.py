@@ -599,6 +599,35 @@ def test_on_screen_reports_each_props_and_labels_box_in_the_contract_check_site_
 
 
 @pytest.mark.browser
+def test_the_page_says_when_its_camera_is_between_two_shots(browser, bare) -> None:
+    """check_site does not call a subject cut by the frame while the camera is on its way to it (info().moving). The
+    camera moves in the first MOVE of a chapter and holds for the rest; the first chapter has no move."""
+    p = Page(browser, bare)
+    try:
+        p.open()
+        move, rest = p.page.evaluate("import('./src/shots.js').then((m) => [m.MOVE, m.REST])")
+        said = {}
+        for T in (0, 0.5, 1 + move / 2, 1 + move + 0.01, 1 + rest, 2 + move / 4, 2 + rest, 3 + move * 0.9, 3.99):
+            p.page.evaluate(f"__site.setProgress({T})")
+            said[round(T, 3)] = p.page.evaluate("__site.info().moving")
+        on_the_way = {round(T, 3) for T in (1 + move / 2, 2 + move / 4, 3 + move * 0.9)}
+        assert {T for T, m in said.items() if m is True} == on_the_way, said
+        assert all(m is False for T, m in said.items() if T not in on_the_way), said
+        # with reduced motion the scene rests: never on the way
+        q = Page(browser, bare, reduced_motion="reduce")
+        try:
+            q.open()
+            for T in (1 + move / 2, 2 + move / 4):
+                q.page.evaluate(f"__site.setProgress({T})")
+                assert q.page.evaluate("__site.info().moving") is False
+        finally:
+            q.close()
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
 def test_chapters_names_each_chapter_and_the_story_time_it_rests_at(browser, bare) -> None:
     """check_site draws each chapter's rest from this for the article's stills (recipes.md), knowing nothing else of
     the starter: chapters() in document order, rest the story time setProgress takes for the resting picture."""

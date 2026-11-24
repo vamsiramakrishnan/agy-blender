@@ -226,9 +226,15 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
   const target = new THREE.Vector3(), focus = new THREE.Vector3(), lx = new THREE.Vector3(), ly = new THREE.Vector3();
   const UP = new THREE.Vector3(0, 1, 0);
   let subject = null; // the drawn chapter's subject (shots.js), for onScreen()
+  // Whether the camera is between two shots in the frame drawn last (info().moving). The text of a chapter is up from
+  // its first pixel and the camera takes MOVE of the chapter to arrive, so for that stretch the chapter's subject may
+  // still be coming into the frame. check_site reads this and does not call that a subject cut by the frame: run 4's
+  // check did, at the one step that fell into a move, and not at the eleven others.
+  let moving = false;
   function render(state) {
     const { cam } = state;
     subject = state.subject || null;
+    moving = !!state.frame && state.frame.mix > 0 && state.frame.mix < 1;
     // Layers follow story time first: their bounds may be part of the framing.
     for (const l of Object.values(layers)) if (l.update) l.update(state);
     // A prop rises out of the ground as it comes on stage and sinks back as it leaves: no pop, and its shadow agrees.
@@ -374,7 +380,7 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
     ready: Promise.all([ready, aoReady]),
     info: () => ({ frames: renderer.info.render.frame, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
       textures: renderer.info.memory.textures, geometries: renderer.info.memory.geometries, loaded: [...loaded], failed: [...failed],
-      occlusion: occluded, onScreen: onScreen() }),
+      occlusion: occluded, moving, onScreen: onScreen() }),
     dispose() {
       scene.traverse((o) => {
         if (o.geometry) o.geometry.dispose();

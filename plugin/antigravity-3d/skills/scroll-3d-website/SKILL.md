@@ -123,6 +123,12 @@ For each prop, in this order:
   (below); then `apply_scene_ir` and `render_preview` as usual. In script
   authoring (the rules say an asset is a Python script): `Asset(..., engine="web_three", max_texture_px=...)` in its
   script, run with run_build.
+- Give its large surfaces a material that stands away from the page: on a dark page a mid value (a bare steel about
+  `#B0B4B8` at full metal, a paint about `#7A828C`), on a light page the reverse, and the design's accents for the
+  parts that carry meaning. The page's own dark colours are for small parts. Why: a metal's base colour is the share
+  of light it reflects, and run 4's machines, steel at `#242931` on a `#0D0F12` ground, came out thirteen levels from
+  the floor ([libraries.md](libraries.md), the light budget): the blind judge preferred run 2's 3D for that in six
+  of six verdicts. `check_site` says when a shot's subject is hard to tell from the page.
 - `deliver_package`. If its answer starts with `STILL WORKING`, nothing failed and nothing needs fixing: the work
   goes on by itself. Work on the page meanwhile and make the call the answer spells out (the same tool, the same
   arguments) to collect the result. A delivery that runs while you write the page costs no time.
