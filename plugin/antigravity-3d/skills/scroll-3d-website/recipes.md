@@ -152,7 +152,7 @@ or hundreds of instances, not for thousands.
 ## Time a layer by chapter
 
 Everything that changes with the story is computed from story time: in `evaluate` in `src/shots.js` for what the
-stage draws itself, or in a layer's `update(state)` (above). Name each moment by its chapter,
+stage draws itself, or in a layer's `update`, which is called with that state (above). Name each moment by its chapter,
 `fade = ramp(T, at('flood', 0.2), at('flood', 0.6))`, with `at` from `timeline` in `src/shots.js` or
 `window.__site.at`. A share of the whole story is `T / ids.length`. Why: the chapters come from the HTML, so a raw
 story time (`fade = ramp(T, 2.0, 2.85)`) or a fixed count (`T / 7`), as run 2 wrote, points at the wrong chapter as soon

@@ -185,6 +185,9 @@ STILL_WAIT_S = 8.0
 STILL_NAME_CHARS = 60
 #: set (empty) on the page's <html> while the stills are drawn, and removed after the last, also when a still fails
 STILL_ATTR = "data-agy3d-still"
+#: how a page says that it draws no ambient occlusion in this browser because it renders in software (the start of
+#: ``window.__site.info().occlusion``; the skill's starter, ``src/occlusion.js``)
+OCCLUSION_OFF_HERE = "off: a software renderer"
 #: how many unsourced numbers and code specimens are listed (the total is always given)
 UNSOURCED_LISTED = 6
 
@@ -704,7 +707,22 @@ class SiteReport:
         left = max((int((v.probe or {}).get("layerLeft") or 0) for v in self.visits.values()), default=0)
         if line := camera_line(self.camera, left):
             lines.append(f"- about these pictures: {line}.")
+        if line := self.occlusion_line():
+            lines.append(f"- about these pictures: {line}")
         return "\n".join(lines)
+
+    def occlusion_line(self) -> str:
+        """A page built on the skill's starter draws ambient occlusion where the visitor has a GPU and leaves it off on a
+        software renderer, which this browser is: its frames are then without something most visitors see. The page
+        says so itself (``window.__site.info().occlusion``, "off: a software renderer ..."), and the answer passes it
+        on, so that nobody judges the contact of things from these frames or thinks the pass is missing."""
+        d = self.visits.get("desktop")
+        said = str((d.probe or {}).get("occlusion") or "") if d else ""
+        if not said.startswith(OCCLUSION_OFF_HERE):
+            return ""
+        return ("the page leaves its ambient occlusion off in this browser, which draws in software "
+                f"(it says: {_q(said, 140)}), so these frames are without it and a visitor with a GPU sees it. Give a "
+                "running dev server's address with ?ao=1 as the target for one look at it.")
 
     def stills_line(self) -> str:
         st = self.stills
@@ -1250,10 +1268,13 @@ _PAGE_INFO_JS = r"""() => {
     if (notices.length >= 20) break;
   }
   const images = [...document.querySelectorAll('img, svg, picture, video')].filter((el) => vis(el) && el.getBoundingClientRect().width > 48 && !el.closest('svg svg')).length;
+  // what the page says of its ambient occlusion (the skill's starter: "on ..." or "off: <why>"), where it says it
+  let occlusion = null;
+  try { const i = window.__site && typeof window.__site.info === 'function' ? window.__site.info() : null; if (i && typeof i.occlusion === 'string') occlusion = i.occlusion.slice(0, 160); } catch (e) {}
   return { contexts: (S.contexts || []).length, lost: S.lost || 0, webgl2: (S.contexts || []).some((c) => window.WebGL2RenderingContext && c instanceof WebGL2RenderingContext),
            webgpu: !!S.webgpu, offscreen: !!S.offscreen, reducedMotionQueried: !!S.reducedMotionQueried, reducedMotionCss: css,
            memory: S.memory ? S.memory() : null, textChars: (document.body && document.body.innerText || '').length,
-           layer: S.layer || null, layerLeft: S.layerLeft || 0,
+           layer: S.layer || null, layerLeft: S.layerLeft || 0, occlusion,
            notices, images, base: location.href.replace(/[^/]*([?#].*)?$/, '') };
 }"""
 

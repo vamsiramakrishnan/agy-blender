@@ -851,7 +851,7 @@ def _count(frame: np.ndarray, rgb: tuple[int, int, int]) -> int:
 
 @pytest.mark.browser
 def test_a_label_under_the_minimum_size_is_not_drawn_and_follows_its_props_subject_flag(browser, bare) -> None:
-    """Run 3's finale showed its labels 5 to 7 px high on a phone. The stage hides a label whose box is under 14 CSS
+    """Run 3's finale showed its labels 5 to 7 px high on a phone. The stage hides a label whose box is under 16 CSS
     px high on screen (and does not report it), and shows it again when a closer shot makes it readable. A label is
     flagged subject: true while the prop it was registered for is the shot's subject (check_site names a label of the
     subject that is too small to read), and nothing is flagged in a shot that names no subject."""
@@ -862,7 +862,7 @@ def test_a_label_under_the_minimum_size_is_not_drawn_and_follows_its_props_subje
         frame = p.at(REST)  # intro: the wide shot of the hero
         on = p.page.evaluate("__site.info().onScreen")
         assert "small" not in on and _count(frame, (255, 0, 255)) == 0, on.get("small")
-        assert (on["sign"]["box"][3] - on["sign"]["box"][1]) * 800 >= 14 and _count(frame, (0, 255, 0)) > 200, on["sign"]
+        assert (on["sign"]["box"][3] - on["sign"]["box"][1]) * 800 >= 16 and _count(frame, (0, 255, 0)) > 200, on["sign"]
         assert "subject" not in on["sign"], on["sign"]  # intro names no subject
         frame = p.at(3 + REST)  # outro: hero and part are both its subject
         on = p.page.evaluate("__site.info().onScreen")
@@ -872,14 +872,14 @@ def test_a_label_under_the_minimum_size_is_not_drawn_and_follows_its_props_subje
         assert on["sign"]["subject"] is True and on["tag"]["subject"] is False and on["part"]["subject"] is False, on
         # the closer shot makes the small label readable, and it is drawn again
         assert "small" in on and _count(frame, (255, 0, 255)) > 50, on.get("small")
-        # through the whole story, a label is reported (and drawn) only at 14 px or more
+        # through the whole story, a label is reported (and drawn) only at 16 px or more
         sizes = {}
         for T in np.linspace(0, 4, 41):
             p.page.evaluate(f"__site.setProgress({T})")
             box = p.page.evaluate("__site.info().onScreen.small?.box ?? null")
             sizes[round(float(T), 2)] = None if box is None else round((box[3] - box[1]) * 800, 1)
         shown = [h for h in sizes.values() if h is not None]
-        assert shown and min(shown) >= 14, sizes
+        assert shown and min(shown) >= 16, sizes
         assert p.messages == [], p.messages
     finally:
         p.close()

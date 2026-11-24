@@ -459,7 +459,11 @@ under an opaque bar), once per browser:
   header written before it is left as it is, and the answer counts it;
 - not even then: the answer says that the frames have the fault and that the site is not to be changed for it.
 
-`report.json` carries the result as `camera` (`true`, `layer`, `faulty`, or empty when the machine has no WebGL). The
+`report.json` carries the result as `camera` (`true`, `layer`, `faulty`, or empty when the machine has no WebGL). One more
+line can stand under `about these pictures`: a page built on the skill's starter draws ambient occlusion where the
+visitor has a GPU and leaves it off on a software renderer, which the check's browser is; it says so in
+`window.__site.info().occlusion` ("off: a software renderer ..."), and the answer passes that on, with how to look at
+it once (the dev server's address with `?ao=1` as the target). The
 canvas-only frames and the stills are read from the drawing buffer and never had the fault; subjects are measured from
 the page's geometry, not from the frames.
 

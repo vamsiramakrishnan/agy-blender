@@ -370,7 +370,7 @@ prop is on stage), the page draws again when troika has its glyphs, and `__site.
 `kind: "label"`, so `check_site` can tell when it is cut by the frame or lies under the panel. Stand a label upright
 at about its prop's height, facing the shots that show it. Why: run 2 laid its labels flat on the floor, and at the
 low angles of its shots they were slivers, cut at the frame's bottom edge or hidden by the panel. A label is flagged
-`subject: true` while its prop is the shot's subject, and the stage hides one whose box is under 14 CSS px high on
+`subject: true` while its prop is the shot's subject, and the stage hides one whose box is under 16 CSS px high on
 screen until a closer shot makes it readable: run 3's finale showed its labels 5 to 7 px high on a phone. So size a
 label for the shots that are about its prop (a `fontSize` of about 3 % of the camera's distance there), not for a
 wide one.
@@ -410,8 +410,8 @@ Three rules for any GLSL you write for a three.js material, this one or a `Shade
   after its own conversion, so nothing converts it for you). A colour that is computed in the shader is fine; a colour
   someone chose is a uniform.
 - **Two palette colours that stand for two states are switched, never held as a blend:**
-  `mix(a, b, smoothstep(e0, e1, t))` over a short span of story time, so every resting picture shows one of them,
-  never `mix(a, b, 0.6)`. Why: run 3 held its rail at a blend of its blue and its red, an off-palette pink
+  a `mix` driven by a `smoothstep` over a short span of story time (`color = mix(a, b, smoothstep(e0, e1, t));`), so
+  every resting picture shows one of them, never a `mix` held at a constant such as 0.6. Why: run 3 held its rail at a blend of its blue and its red, an off-palette pink
   (243,171,219) that no design rule allows.
 - **A procedural edge (a stripe, a grid line, a reveal) is smoothed over one pixel with `fwidth`.** Why: `step`
   gives a hard edge that the renderer's antialiasing does not touch (it smooths only the edges of triangles), so it

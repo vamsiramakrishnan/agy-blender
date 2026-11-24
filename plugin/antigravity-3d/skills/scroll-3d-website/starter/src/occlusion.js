@@ -22,7 +22,7 @@ export function wanted(renderer, { phone = false, tier = null } = {}) {
   const gl = renderer.getContext();
   const debug = gl.getExtension('WEBGL_debug_renderer_info');
   const name = String(gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
-  if (/SwiftShader|llvmpipe|softpipe|software|Basic Render/i.test(name)) return { on: false, why: `off: a software renderer (${name})` };
+  if (/SwiftShader|llvmpipe|softpipe|software|Basic Render/i.test(name)) return { on: false, why: `off: a software renderer (${name}); ?ao=1 in the address shows it` };
   return { on: true, why: 'on' };
 }
 

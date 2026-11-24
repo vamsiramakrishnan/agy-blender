@@ -778,6 +778,20 @@ def test_a_canvas_in_the_normal_flow_gets_a_layer_only_where_nothing_changes_for
     assert fixed.visits["desktop"].probe["layer"] == {"given": 1, "left": 0} and _is_the_canvas(_opposite_the_bar(fixed))
 
 
+def test_the_answer_passes_on_that_the_page_draws_no_occlusion_in_this_browser(tmp_path):
+    """The skill's starter draws ambient occlusion on a visitor's GPU and not on a software renderer, which the check's
+    browser is: the frames then lack something most visitors see, and the answer says so in the page's own words."""
+    rep = sc.SiteReport("site", tmp_path)
+    rep.visits["desktop"] = sc.Visit("desktop")
+    for said, line in (("off: a software renderer (SwiftShader); ?ao=1 in the address shows it", True), ("on", False),
+                       ("off: a phone", False), ("off: postprocessing and n8ao are not both installed", False), (None, False)):
+        rep.visits["desktop"].probe = {"occlusion": said}
+        text = rep.text()
+        assert ("leaves its ambient occlusion off in this browser" in text) == line, (said, text)
+        if line:
+            assert "?ao=1 in the address shows it" in text and "a visitor with a GPU sees it" in text
+
+
 def test_the_answer_speaks_of_the_camera_only_when_it_was_at_fault(tmp_path):
     for cam, said in (("", False), ("true", False), ("layer", True), ("faulty", True)):
         text = sc.SiteReport("site", tmp_path, camera=cam).text()

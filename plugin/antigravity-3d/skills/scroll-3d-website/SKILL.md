@@ -94,7 +94,9 @@ package.json; the starter needs only `three` and `vite`). Then, each a local edi
   `fade = ramp(T, 2.0, 2.85)` and `T / 7` broke the rule that chapters come from the HTML;
 - the layers the design asks for, from [libraries.md](libraries.md): Lenis for smooth wheel scrolling, GSAP
   ScrollTrigger for page effects the starter does not make, troika for text in the scene. Ambient occlusion is the
-  starter's (`src/occlusion.js`), on when the project has postprocessing and n8ao. Before writing a shader read its
+  starter's (`src/occlusion.js`), on when the project has postprocessing and n8ao and the visitor has a GPU.
+  `check_site`'s browser draws in software, so its frames are without it and its answer says so: look at it once on
+  the dev server's address with `?ao=1` added (a localhost URL is a target too). Before writing a shader read its
   three rules there (colours as `THREE.Color` uniforms, two palette colours switched and never blended, edges smoothed
   with `fwidth`), and before adding light read the light budget there.
 
@@ -126,8 +128,13 @@ For each prop, in this order:
 - `install_into_project` into the site's project. The site is a project you are building in this session because the
   user asked for it, so call `install_into_project` with `dry_run` false at once, and never copy GLB files by hand
   (Antigravity asks the user to approve each install: that is expected, wait for it). It writes the files where the
-  dev server serves them and a loader with levels of detail (and compresses for the web when the project has the
-  tools). The delivery answer ends with a `NEXT:` line that gives this call and names the loader file.
+  dev server serves them and a loader that fetches the nearest level of detail and a farther one only when the camera
+  comes near it. With the default `compress` a page never downloads more than before, so small props stay WebP, which
+  a graphics card holds uncompressed; the install's answer gives both numbers. Where the props' textures add up to
+  more than about 32 MB of graphics memory, install them with `compress: "always"`. Why: run 3's nine 1024 px maps
+  took 51.6 MB on the card, where compressed they would have taken about 6 for a third of a megabyte more download,
+  and a phone runs out of memory before it runs out of bandwidth. The delivery answer ends with a `NEXT:` line that
+  gives this call and names the loader file.
 - In `src/props.js` add two fields to the prop's entry: `asset`, the asset's name, and `module`, your own import of the
   loader file the install wrote (`() => import('./agy3d/<asset>/index.js')`; the install's answer names the folder).
   The stand-in stays as the fallback while the model loads or if it fails.
@@ -212,9 +219,11 @@ The site is done when `check_site` on the built folder reports, at both sizes:
 - reduced motion: the scene rests per chapter; no WebGL: the page reads as an article;
 - no sideways overflow on the phone; no fact that disagrees with its source, and nothing shown without a source that
   looks like a fact;
-- no subject or label hidden by the text panel or cut by the frame's edge at any step, and no label of the subject
-  too small to read; `check_site` reports these when the page keeps the starter's `window.__site.info().onScreen`
-  hook, so keep it, name each shot's `subject` and register labels and layers with it;
+- no subject or label hidden by the text panel or cut by the frame's edge at any step, no label of the subject too
+  small to read, and no stretch of the scroll over which the picture does not travel (the subject in one place at one
+  size); `check_site` reports these when the page keeps the starter's `window.__site.info().onScreen` hook, so keep
+  it, name each shot's `subject` and register labels and layers with it. Its line "one scale throughout" under
+  Measures is not a fault to clear but a reading of the storyboard: if it is there, the shots are all one kind;
 - draw calls, triangles, texture memory and bytes you can state and defend (each prop through the installer, no
   model above a few MB).
 

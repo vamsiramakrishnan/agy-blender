@@ -287,7 +287,7 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
   // screen is not drawn: run 3's finale showed its labels 5 to 7 px high on a phone, specks nobody can read. Hidden,
   // not held at a minimum size, because a label scaled up as the camera backs away grows over what it names in a wide
   // shot, where the panel's text names things anyway; it comes back when a closer shot makes it readable.
-  const MIN_LABEL_PX = 14;
+  const MIN_LABEL_PX = 16; // the height under which check_site calls a label of the subject too small to read
   const labels = {};
   // A label belongs to its prop (or a registered layer): it is flagged subject: true in onScreen() when that is the
   // shot's subject, so check_site can name a label of what the shot is about that is too small to read.
