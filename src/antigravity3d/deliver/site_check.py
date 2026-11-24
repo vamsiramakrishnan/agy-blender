@@ -185,8 +185,14 @@ STILL_WAIT_S = 8.0
 STILL_NAME_CHARS = 60
 #: set (empty) on the page's <html> while the stills are drawn, and removed after the last, also when a still fails
 STILL_ATTR = "data-agy3d-still"
+#: set (empty) on the page's <html> by the probe before any script of the page runs, in every visit: this browser
+#: stands in for a visitor's, so a page may draw what a visitor with a GPU sees although it renders in software, time
+#: does not matter. The skill's starter then turns its ambient occlusion on (src/occlusion.js): without it the frames
+#: lacked the contact shading a visitor sees, and the pass's memory (95 MB of textures at 1440 x 900 in the starter)
+#: was never measured.
+CAMERA_ATTR = "data-agy3d-camera"
 #: how a page says that it draws no ambient occlusion in this browser because it renders in software (the start of
-#: ``window.__site.info().occlusion``; the skill's starter, ``src/occlusion.js``)
+#: ``window.__site.info().occlusion``; the skill's starter before it read CAMERA_ATTR, ``src/occlusion.js``)
 OCCLUSION_OFF_HERE = "off: a software renderer"
 #: how many unsourced numbers and code specimens are listed (the total is always given)
 UNSOURCED_LISTED = 6
@@ -712,17 +718,20 @@ class SiteReport:
         return "\n".join(lines)
 
     def occlusion_line(self) -> str:
-        """A page built on the skill's starter draws ambient occlusion where the visitor has a GPU and leaves it off on a
-        software renderer, which this browser is: its frames are then without something most visitors see. The page
-        says so itself (``window.__site.info().occlusion``, "off: a software renderer ..."), and the answer passes it
-        on, so that nobody judges the contact of things from these frames or thinks the pass is missing."""
+        """A page built on the skill's starter draws ambient occlusion where the visitor has a GPU and, on a software
+        renderer, only when the check asks for a visitor's picture (``CAMERA_ATTR``). A page that does not read the
+        attribute (an older starter) leaves it off here and says so itself (``window.__site.info().occlusion``, "off: a
+        software renderer ..."); the answer passes that on, so that nobody judges the contact of things from these
+        frames or thinks the pass is missing, and says how to look at such a page once."""
         d = self.visits.get("desktop")
         said = str((d.probe or {}).get("occlusion") or "") if d else ""
         if not said.startswith(OCCLUSION_OFF_HERE):
             return ""
         return ("the page leaves its ambient occlusion off in this browser, which draws in software "
-                f"(it says: {_q(said, 140)}), so these frames are without it and a visitor with a GPU sees it. Give a "
-                "running dev server's address with ?ao=1 as the target for one look at it.")
+                f"(it says: {_q(said, 140)}), so these frames and the memory measured are without it, and a visitor "
+                f"with a GPU sees it. The skill's starter turns it on here when <html> has {CAMERA_ATTR}, which the "
+                "check sets; this page does not read it. For one look at it, give a running dev server's address with "
+                "?ao=1 as the target.")
 
     def stills_line(self) -> str:
         st = self.stills
@@ -1717,7 +1726,7 @@ async def _record(v: Visit, r, own: bool, base: str) -> None:
 
 def _probe_script(no_webgl: bool, canvas_layer: bool = False) -> str:
     cfg = json.dumps({"noWebGL": no_webgl, "frameCapMs": FRAME_CAP_MS, "canvasLayerCss": CANVAS_LAYER_CSS if canvas_layer else "",
-                      "canvasLayerAttr": CANVAS_LAYER_ATTR})
+                      "canvasLayerAttr": CANVAS_LAYER_ATTR, "cameraAttr": CAMERA_ATTR})
     return f"window.__agySiteConfig = {cfg};\n" + (_HERE / "site_probe.js").read_text(encoding="utf-8")
 
 

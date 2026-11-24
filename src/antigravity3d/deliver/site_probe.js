@@ -30,6 +30,22 @@
   S.win = newWin();
   S.mark = () => { const w = S.win; S.win = newWin(); return w; };
 
+  // ---- the stand-in (site_check.py, CAMERA_ATTR): <html> carries the attribute before any script of the page runs, so
+  // a page can draw what a visitor with a GPU would see although this browser renders in software (the skill's starter
+  // turns its ambient occlusion on). At this moment the document may have no element yet; the parser's <html> is then
+  // marked as it is inserted, and a mutation observer's callback runs before the parser runs the first script.
+  if (cfg.cameraAttr) {
+    const mark = () => {
+      if (!document.documentElement) return false;
+      document.documentElement.setAttribute(cfg.cameraAttr, '');
+      return true;
+    };
+    if (!mark()) {
+      const seen = new MutationObserver((_, o) => { if (mark()) o.disconnect(); });
+      seen.observe(document, { childList: true });
+    }
+  }
+
   // ---- the canvas layer (site_check.py, "the camera"): where this browser's screenshots would leave a black box in a
   // WebGL canvas, a canvas is given a layer of its own: a rule that is first in the head and without specificity, so
   // any rule of the page's own wins, for canvases this script marks (S.layerCanvases, before every screenshot).

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><script>
+// The first script of the page, before anything else in it: did check_site mark <html> as a visitor's stand-in yet?
+window.__camera = document.documentElement.hasAttribute('data-agy3d-camera');
+</script><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camera mode</title>
+<!-- A page that tells, in window.__site.info().occlusion as the skill's starter does, what its first script saw of
+     data-agy3d-camera, and turns its occlusion "on" for it when READS_IT is true. With READS_IT false it is a page
+     that does not read the attribute and leaves its occlusion off on a software renderer. -->
+<style>html,body{margin:0;background:#101418}canvas{position:fixed;inset:0;width:100vw;height:100vh}</style></head>
+<body><canvas id="c"></canvas><div style="height:300vh"></div>
+<script type="module">
+import { setup, QUAD } from './gl.js';
+const READS_IT = true;
+const s = setup(document.getElementById('c'));
+s.gl.clearColor(0, 0, 0, 1); s.quad(QUAD); s.color(0.2, 0.6, 0.9);
+s.gl.clear(s.gl.COLOR_BUFFER_BIT); s.gl.drawArrays(s.gl.TRIANGLES, 0, 6);
+const occlusion = READS_IT && window.__camera ? 'on: data-agy3d-camera was on <html> before the first script'
+  : `off: a software renderer (fixture; the first script saw the attribute: ${window.__camera})`;
+window.__site = { info: () => ({ occlusion }) };
+</script></body></html>

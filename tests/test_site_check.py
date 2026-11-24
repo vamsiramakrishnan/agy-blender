@@ -784,12 +784,37 @@ def test_the_answer_passes_on_that_the_page_draws_no_occlusion_in_this_browser(t
     rep = sc.SiteReport("site", tmp_path)
     rep.visits["desktop"] = sc.Visit("desktop")
     for said, line in (("off: a software renderer (SwiftShader); ?ao=1 in the address shows it", True), ("on", False),
+                       ("on: data-agy3d-camera asks for what a visitor with a GPU sees (this renderer is SwiftShader)",
+                        False),
                        ("off: a phone", False), ("off: postprocessing and n8ao are not both installed", False), (None, False)):
         rep.visits["desktop"].probe = {"occlusion": said}
         text = rep.text()
         assert ("leaves its ambient occlusion off in this browser" in text) == line, (said, text)
         if line:
             assert "?ao=1 in the address shows it" in text and "a visitor with a GPU sees it" in text
+            assert sc.CAMERA_ATTR in text and "this page does not read it" in text
+
+
+@pytest.mark.browser
+def test_the_page_is_told_it_stands_in_for_a_visitor_before_its_first_script(tmp_path):
+    """The contract of round 8c: data-agy3d-camera is on <html> before any script of the page runs, so a page (the
+    skill's starter) can draw what a visitor with a GPU sees although this browser renders in software. The fixture's
+    first script, the first thing in its head, records whether it was there, and info().occlusion reports it: the
+    record shows "on", and the answer says nothing about occlusion. A page that does not read the attribute and says
+    "off: a software renderer" still gets the line."""
+    reads = site(tmp_path, "camera_mode")
+    r = run(reads, tmp_path, steps=2)
+    said = r.visits["desktop"].probe["occlusion"]
+    assert said == "on: data-agy3d-camera was on <html> before the first script", said
+    assert "ambient occlusion" not in r.text()
+    ignores = tmp_path / "sites" / "camera_ignored"
+    shutil.copytree(reads, ignores)
+    html = (ignores / "index.html").read_text()
+    (ignores / "index.html").write_text(html.replace("const READS_IT = true;", "const READS_IT = false;"))
+    r = sc.check_site(str(ignores), out_dir=tmp_path / "out2", steps=2, sizes=("desktop",), variants=())
+    said = r.visits["desktop"].probe["occlusion"]
+    assert said == "off: a software renderer (fixture; the first script saw the attribute: true)", said
+    assert "leaves its ambient occlusion off in this browser" in r.text()
 
 
 def test_the_answer_speaks_of_the_camera_only_when_it_was_at_fault(tmp_path):

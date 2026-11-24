@@ -956,3 +956,69 @@ def test_the_starter_builds_and_runs_with_and_without_the_occlusion_packages(bro
     away[max(0, y0 - 40):y1 + 60, max(0, x0 - 60):x1 + 120] = False
     assert np.abs(darker[away]).mean() < 1.5, np.abs(darker[away]).mean()
     assert np.abs(off[:20, :20] - on[:20, :20]).max() <= 2, (off[5, 5], on[5, 5])
+
+
+@pytest.mark.browser
+def test_check_sites_stand_in_attribute_turns_the_pass_on_in_this_browser_and_caps_its_buffer(browser, builds) -> None:
+    """check_site sets data-agy3d-camera on <html> before the page's scripts run (its probe, injected as here): this
+    software browser then draws the occlusion a visitor with a GPU sees, so the check's frames and memory include it.
+    Without the attribute a software renderer keeps it off (a frame takes far longer than on a GPU), and a phone keeps
+    it off either way. While the pass is on the drawing buffer is capped (occlusion.js: at most 1.5 drawn pixels per CSS
+    pixel and 3 million pixels, about 80 bytes of graphics memory each); without it the starter draws at up to 2."""
+    from antigravity3d.deliver import site_check as sc
+
+    if "with" not in builds:
+        pytest.skip("the test workspace has no postprocessing and n8ao: the build with them was not made")
+    probe = sc._probe_script(False)
+    seen = {}
+    for name, size, init, ratio in (("on", "desktop", probe, 2), ("off", "desktop", None, 2),
+                                    ("phone", "phone", probe, 2)):
+        p = Page(browser, builds["with"], **{**SIZES[size], "device_scale_factor": ratio})
+        try:
+            if init:
+                p.ctx.add_init_script(init)
+            p.page.goto(ORIGIN + SUB)
+            p.page.evaluate("window.__site.ready")
+            seen[name] = p.page.evaluate("""() => { const c = document.getElementById('stage');
+                return { why: __site.info().occlusion, w: c.width, h: c.height }; }""")
+            assert p.messages == [], (name, p.messages)
+        finally:
+            p.close()
+    assert seen["on"]["why"].startswith("on: data-agy3d-camera"), seen
+    assert seen["off"]["why"].startswith("off: a software renderer"), seen
+    assert seen["phone"]["why"] == "off: a phone", seen
+    on, off = seen["on"], seen["off"]
+    assert on["w"] * on["h"] <= 3e6 and on["w"] <= 1440 * 1.5 and on["h"] <= 900 * 1.5, on
+    assert on["w"] * 900 == on["h"] * 1440, on  # the window's shape, not stretched
+    assert (off["w"], off["h"]) == (2880, 1800), off
+
+
+@pytest.mark.browser
+def test_check_site_measures_the_occlusion_pass_of_the_built_starter(builds, tmp_path) -> None:
+    """The check sees what a visitor with a GPU sees: on the built starter with postprocessing and n8ao it reports the
+    pass on and says nothing about occlusion being off, and its record counts the pass's buffers (measured at 1440 x
+    900: textures 38 MB without the pass, 133 MB with it). Render buffers stay small: the composer's two multisampled
+    buffers, which held 124 MB of the 131 MB of render buffers before, are gone."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from antigravity3d.deliver import site_check as sc
+
+    if "with" not in builds:
+        pytest.skip("the test workspace has no postprocessing and n8ao: the build with them was not made")
+    srv = _http(builds["with"])
+    got = {}
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}{SUB}"
+        with ThreadPoolExecutor(1) as pool:
+            for ask in ("", "?ao=0"):
+                got[ask] = pool.submit(sc.check_site, url + ask, out_dir=tmp_path / f"check{ask[1:]}", steps=2,
+                                       sizes=("desktop",), variants=()).result(240)
+    finally:
+        srv.shutdown()
+    if got[""].error:
+        pytest.skip(got[""].error)
+    on, plain = got[""].visits["desktop"], got["?ao=0"].visits["desktop"]
+    assert on.probe["occlusion"].startswith("on: data-agy3d-camera"), on.probe["occlusion"]
+    assert "ambient occlusion" not in got[""].text()
+    assert on.memory["texture_bytes"] > plain.memory["texture_bytes"] + 50e6, (on.memory, plain.memory)
+    assert on.memory["renderbuffer_bytes"] < 20e6, on.memory

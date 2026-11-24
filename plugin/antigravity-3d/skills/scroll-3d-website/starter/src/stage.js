@@ -122,7 +122,9 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
   let W = 1, H = 1, frame = { x: 0, y: 0, fit: 1 }, free = null;
   function resize() {
     W = Math.max(1, canvas.clientWidth); H = Math.max(1, canvas.clientHeight);
-    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    // At most 2 drawn pixels per CSS pixel; with the occlusion pass less (occlusion.js, maxPixelRatio: its buffers
+    // cost about 80 bytes per pixel drawn).
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2, post ? post.maxPixelRatio(W, H) : 2));
     renderer.setSize(W, H, false);
     if (post) post.setSize(W, H);
     frame = { x: parseFloat(css('--frame-x', '0')) || 0, y: parseFloat(css('--frame-y', '0')) || 0, fit: parseFloat(css('--frame-fit', '1')) || 1 };
@@ -151,9 +153,10 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
     const page = bg.clone();
     scene.background = scene.fog.color = untoned(page);
     renderer.info.autoReset = false; // several passes per frame: count the frame's draw calls, not the last pass's
-    post.setSize(W, H);
-    onChange();
-  }, (e) => { occluded = `off: it failed to start (${e && e.message ? e.message : e})`; console.error('ambient occlusion:', e); });
+    // The pass arrives after the first resize(): the drawing buffer is set again through it, at the pass's cap, and
+    // the composer's buffers with it.
+    resize();
+  },(e) => { occluded = `off: it failed to start (${e && e.message ? e.message : e})`; console.error('ambient occlusion:', e); });
 
   resize();
   new ResizeObserver(resize).observe(canvas);
