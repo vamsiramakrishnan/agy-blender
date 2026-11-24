@@ -101,9 +101,11 @@ package.json; the starter needs only `three` and `vite`). Then, each a local edi
   `fade = ramp(T, 2.0, 2.85)` and `T / 7` broke the rule that chapters come from the HTML;
 - the layers the design asks for, from [libraries.md](libraries.md): Lenis for smooth wheel scrolling, GSAP
   ScrollTrigger for page effects the starter does not make, troika for text in the scene. Ambient occlusion is the
-  starter's (`src/occlusion.js`), on when the project has postprocessing and n8ao and the visitor has a GPU.
-  `check_site`'s browser draws in software, so its frames are without it and its answer says so: look at it once on
-  the dev server's address with `?ao=1` added (a localhost URL is a target too). Before writing a shader read its
+  starter's (`src/occlusion.js`), on when the project has postprocessing and n8ao and the visitor has a GPU (not on a
+  phone), and in `check_site`'s browser, which asks for a visitor's picture, so its frames and texture memory include
+  it. It costs about 95 MB of graphics memory at 1440 x 900 on top of the plain starter's 38 MB, so it draws at a
+  pixel ratio of at most 1.5; a page that must be light leaves postprocessing and n8ao out of the project and loses
+  the contact shading between things. Before writing a shader read its
   three rules there (colours as `THREE.Color` uniforms, two palette colours switched and never blended, edges smoothed
   with `fwidth`), and before adding light read the light budget there.
 
@@ -234,7 +236,8 @@ The site is done when `check_site` on the built folder reports, at both sizes:
   it, name each shot's `subject` and register labels and layers with it. Its line "one scale throughout" under
   Measures is not a fault to clear but a reading of the storyboard: if it is there, the shots are all one kind;
 - draw calls, triangles, texture memory and bytes you can state and defend (each prop through the installer, no
-  model above a few MB).
+  model above a few MB; with the starter's occlusion, which the check draws, about 95 MB of the desktop's texture
+  memory is that pass).
 
 Look at the contact sheets yourself as well: the measures find broken frames, not ugly ones, and not a frame that
 is well composed and shows a closed box. Between looks, the page's

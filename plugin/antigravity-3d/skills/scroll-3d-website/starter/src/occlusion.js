@@ -21,24 +21,23 @@ export const CAMERA_ATTR = 'data-agy3d-camera';
 
 // On by default where the GPU can afford a full-screen pass at device resolution: not on a phone, and not on a software
 // renderer, where every frame is drawn on the CPU (the whole desktop check of the starter takes about 30 s with the
-// pass against 18 s without), unless check_site asks for it (CAMERA_ATTR): its frames and memory are then those of a
-// visitor with a GPU. ?ao=1 in the address forces it on, for a look on a slow machine; ?ao=0 forces it off. A page that
-// reads a GPU tier with detect-gpu (libraries.md) can pass it: tier 2 and up is a GPU that can.
+// pass against 18 s without), unless check_site asks for a visitor's picture (CAMERA_ATTR): then it is on whatever
+// the renderer or its GPU tier (detect-gpu gives the check's browser tier 1), so the check's frames and memory are
+// those of a visitor with a GPU. ?ao=1 in the address forces it on, for a look on a slow machine; ?ao=0 forces it off.
+// A page that reads a GPU tier with detect-gpu (libraries.md) can pass it: tier 2 and up is a GPU that can.
 export function wanted(renderer, { phone = false, tier = null } = {}) {
   const ask = new URLSearchParams(location.search).get('ao');
   if (ask === '1') return { on: true, why: 'on: forced by ?ao=1' };
   if (ask === '0') return { on: false, why: 'off: ?ao=0' };
+  if (!phone && document.documentElement.hasAttribute(CAMERA_ATTR)) {
+    return { on: true, why: `on: ${CAMERA_ATTR} asks for what a visitor with a GPU sees` };
+  }
   if (tier !== null) return tier >= 2 ? { on: true, why: `on: GPU tier ${tier}` } : { on: false, why: `off: GPU tier ${tier}` };
   if (phone) return { on: false, why: 'off: a phone' };
   const gl = renderer.getContext();
   const debug = gl.getExtension('WEBGL_debug_renderer_info');
   const name = String(gl.getParameter(debug ? debug.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
-  if (/SwiftShader|llvmpipe|softpipe|software|Basic Render/i.test(name)) {
-    if (document.documentElement.hasAttribute(CAMERA_ATTR)) {
-      return { on: true, why: `on: ${CAMERA_ATTR} asks for what a visitor with a GPU sees (this renderer is ${name})` };
-    }
-    return { on: false, why: `off: a software renderer (${name}); ?ao=1 in the address shows it` };
-  }
+  if (/SwiftShader|llvmpipe|softpipe|software|Basic Render/i.test(name)) return { on: false, why: `off: a software renderer (${name}); ?ao=1 in the address shows it` };
   return { on: true, why: 'on' };
 }
 

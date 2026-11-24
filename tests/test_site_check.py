@@ -784,8 +784,7 @@ def test_the_answer_passes_on_that_the_page_draws_no_occlusion_in_this_browser(t
     rep = sc.SiteReport("site", tmp_path)
     rep.visits["desktop"] = sc.Visit("desktop")
     for said, line in (("off: a software renderer (SwiftShader); ?ao=1 in the address shows it", True), ("on", False),
-                       ("on: data-agy3d-camera asks for what a visitor with a GPU sees (this renderer is SwiftShader)",
-                        False),
+                       ("on: data-agy3d-camera asks for what a visitor with a GPU sees", False),
                        ("off: a phone", False), ("off: postprocessing and n8ao are not both installed", False), (None, False)):
         rep.visits["desktop"].probe = {"occlusion": said}
         text = rep.text()

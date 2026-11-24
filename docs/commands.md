@@ -459,11 +459,15 @@ under an opaque bar), once per browser:
   header written before it is left as it is, and the answer counts it;
 - not even then: the answer says that the frames have the fault and that the site is not to be changed for it.
 
-`report.json` carries the result as `camera` (`true`, `layer`, `faulty`, or empty when the machine has no WebGL). One more
-line can stand under `about these pictures`: a page built on the skill's starter draws ambient occlusion where the
-visitor has a GPU and leaves it off on a software renderer, which the check's browser is; it says so in
-`window.__site.info().occlusion` ("off: a software renderer ..."), and the answer passes that on, with how to look at
-it once (the dev server's address with `?ao=1` as the target). The
+`report.json` carries the result as `camera` (`true`, `layer`, `faulty`, or empty when the machine has no WebGL).
+Before any script of the page runs, in every visit, `<html>` carries the attribute `data-agy3d-camera` (empty): this
+browser stands in for a visitor's, so a page may draw what a visitor with a GPU would see although it renders in
+software, and time does not matter. The skill's starter turns its ambient occlusion on for it (on a desktop size), so
+the frames and the texture memory include the pass (at 1440 x 900, 133 MB of textures against 38 MB
+without it); a page that ignores the attribute is checked as it is. One more line can stand under `about these
+pictures`: a page that does not read the attribute (one built on an older starter) leaves its occlusion off here and
+says so in `window.__site.info().occlusion` ("off: a software renderer ..."); the answer passes that on, with how to
+look at such a page once (a running dev server's address with `?ao=1` as the target). The
 canvas-only frames and the stills are read from the drawing buffer and never had the fault; subjects are measured from
 the page's geometry, not from the frames.
 

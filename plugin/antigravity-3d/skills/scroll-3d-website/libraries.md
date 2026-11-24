@@ -278,8 +278,13 @@ window.__site.scrollWith = (y) => lenis.scrollTo(y);
 Ambient occlusion (n8ao) gives contact and depth where a shadow map does not; a little bloom makes emissive parts
 read; tone mapping and SMAA finish the picture. Ambient occlusion is the starter's already: `src/occlusion.js` adds an
 N8AO pass through postprocessing when the project has both packages and the GPU can afford it (not on a phone or a
-software renderer; `?ao=1` in the address forces it on for a look, `?ao=0` off, and `info().occlusion` says which).
-Keep it on: run 3 had n8ao installed and drew none, and its stacked slabs read as toy blocks. Write a composer of your
+software renderer, but in `check_site`'s browser, which sets `data-agy3d-camera` on `<html>` to ask for what a visitor
+with a GPU sees; `?ao=1` in the address forces it on, `?ao=0` off, and `info().occlusion` says which). Keep it on: run
+3 had n8ao installed and drew none, and its stacked slabs read as toy blocks. It is not free: at 1440 x 900 it holds
+about 95 MB of graphics memory beyond the plain starter's 38 MB (about 80 bytes per pixel drawn), so the starter caps
+the drawing buffer at a pixel ratio of 1.5 and 3 million pixels while it is on, and `check_site` reports the total.
+Leave the composer's `multisampling` at 0 and smooth edges with SMAA after the tone mapping: four samples held 124 MB
+more in the starter for edges no smoother at 4x zoom. Write a composer of your
 own only for another pass, and keep the starter's two details: the background and fog get the colour the effect
 pass's tone mapping turns into the page's colour (tone mapped, #101215 came out #010308), and the renderer's
 `info.autoReset` is off so the draw calls are the frame's, not the last pass's. Each pass is a full-screen draw at device resolution: measure the draw
