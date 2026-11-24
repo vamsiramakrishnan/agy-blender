@@ -36,6 +36,7 @@ import copy
 import hashlib
 import io
 import json
+import os
 import shutil
 import tempfile
 import time
@@ -48,6 +49,7 @@ from urllib.parse import quote
 
 from antigravity3d.adapters.engines import web_three as w3
 from antigravity3d.deliver import glb as glbtool
+from antigravity3d.tactics.common import to_thread_drained
 
 ENGINE = "web_three"
 # Quality per map role. 90 for colour and data maps; 95 for normal maps, whose error is an angle (my probe on run 1's
@@ -344,7 +346,7 @@ async def web_format(pkg: Path, data: dict[str, Any], timeout: float = 90.0) -> 
         timings: dict[str, Any] = {"reused": True}
     else:
         try:
-            cand, maps, why = await asyncio.to_thread(encode, pkg, data)
+            cand, maps, why = await to_thread_drained(encode, pkg, data)
         except Exception as e:  # noqa: BLE001 - an image Pillow cannot read: the package keeps what it has
             cand, maps, why = None, [], f"encoding failed: {type(e).__name__}: {e}"[:300]
         timings = {"reused": False, "encode_s": round(time.perf_counter() - t0, 2)}
@@ -372,16 +374,26 @@ async def web_format(pkg: Path, data: dict[str, Any], timeout: float = 90.0) -> 
                 _DECIDED.popitem(last=False)
     record["glb_bytes"] = {"before": before, "after": before}
     if cand is not None:
-        problem = await asyncio.to_thread(_apply, pkg, data, cand)
+        # drained: a cancelled call (an edit stops a running deliver_package routinely) returns only once the thread has
+        # finished writing, so the package is whole (all WebP with its manifest, or put back to PNG), never half of each
+        problem = await to_thread_drained(_apply, pkg, data, cand)
         if problem:
             record.update(format="png", reason=f"the package with WebP maps did not validate, so it keeps PNG: {problem}")
         else:
             record["glb_bytes"]["after"] = (pkg / lod0).stat().st_size
     data["web_textures"] = record
-    (pkg / "manifest.json").write_text(json.dumps(data, indent=1))
+    _write(pkg / "manifest.json", json.dumps(data, indent=1).encode())
     # how long it took is run telemetry, not package content (the manifest is a function of the scene and the budget)
     timings["total_s"] = round(time.perf_counter() - t0, 2)
     return {**record, "timings": timings}
+
+
+def _write(path: Path, data: bytes) -> None:
+    """Write ``path`` whole or not at all (a temporary name beside it, then a rename): a GLB or manifest of the package is
+    never seen half-written, whatever stops the process or removes the folder meanwhile."""
+    tmp = path.with_name(f".{path.name}.agy3d-tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
 
 
 def _apply(pkg: Path, data: dict[str, Any], cand: Candidate) -> str:
@@ -394,7 +406,7 @@ def _apply(pkg: Path, data: dict[str, Any], cand: Candidate) -> str:
     saved = copy.deepcopy(data)
     old = {name: (pkg / name).read_bytes() for name in cand.glbs}
     for rel, b in {**cand.files, **cand.glbs}.items():
-        (pkg / rel).write_bytes(b)
+        _write(pkg / rel, b)
     data["files"] = [*data["files"], *sorted(cand.files)]
     sha = {rel: hashlib.sha256(b).hexdigest() for rel, b in {**cand.files, **cand.glbs}.items()}
     for rel, b in {**cand.files, **cand.glbs}.items():
@@ -415,12 +427,12 @@ def _apply(pkg: Path, data: dict[str, Any], cand: Candidate) -> str:
                 entry["derived_from"] = list(dict.fromkeys([*entry["derived_from"], *sorted(cand.files)]))
                 entry["steps"] = list(dict.fromkeys([*entry["steps"], "webp_encode"]))
         provenance.finalize(prov, data)
-    (pkg / "manifest.json").write_text(json.dumps(data, indent=1))
+    _write(pkg / "manifest.json", json.dumps(data, indent=1).encode())  # last: it names the files written above
     issues = validate_package(pkg)
     crit = [i for i in issues if i.severity == "critical"]
     if crit:
         for name, b in old.items():
-            (pkg / name).write_bytes(b)
+            _write(pkg / name, b)
         for rel in cand.files:
             (pkg / rel).unlink(missing_ok=True)
         data.clear()
