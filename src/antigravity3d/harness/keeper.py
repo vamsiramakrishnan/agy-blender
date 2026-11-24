@@ -20,7 +20,10 @@ session (or by the server, for calls that have no session yet):
   _stage_worker``) and removes its own folders, as a cancelled call always did;
 * any other call waits, within its own time, for a kept call of its session that is still running, so two calls never
   work on one session at once; if that call is not done by then, the answer says which call is still running and to
-  call it again first.
+  call it again first. A call the server keeps (run_build) claims the sessions it works on (``Keeper.claim``), so a
+  session's calls wait for it too;
+* an answer not yet collected is kept only while the design is the one it was made for (``version``): a change made
+  anywhere, also inside another kept call (a review's own fix), makes it stale and the next call runs anew.
 
 What an agent must do to join: call the same tool again with the same arguments, nothing else (no ticket or id to
 carry): it is the call it already made, and the answer names it.
@@ -65,6 +68,7 @@ class Kept:
     steps: list[tuple[str, float]] = field(default_factory=list)  # (step, seconds into the call it began)
     sink: Callable[[Any], None] | None = None  # the progress sink of the call waiting on it now, if any
     transaction: bool = False  # a quick edit of the design: another edit waits for it instead of stopping it
+    version: Any = None  # the design's version when the call finished: its answer holds only for that design
 
     def where(self) -> str:
         secs = time.monotonic() - self.started
@@ -81,6 +85,22 @@ def step(tool: str, i: int, n: int, what: str) -> None:
     if k is not None and k.name == tool:
         k.step = (i, n, what)
         k.steps.append((what, time.monotonic() - k.started))
+
+
+def current() -> Kept | None:
+    """The kept call this code runs in, if any."""
+    return _CURRENT.get()
+
+
+def _retrieve(task: asyncio.Task) -> None:
+    """Mark a task's exception as seen the moment it ends (the call that collects it still gets it raised): a task
+    that failed while nobody waited and was then dropped would make asyncio log "Task exception was never retrieved"."""
+    if not task.cancelled():
+        task.exception()
+
+
+def failure(task: asyncio.Task) -> BaseException | None:
+    return None if not task.done() or task.cancelled() else task.exception()
 
 
 def inside() -> bool:
@@ -118,11 +138,24 @@ class Keeper:
     """The kept calls of one session (or of the server): at most one running at a time, and the answers of finished
     ones until they are collected or made stale by an edit."""
 
-    def __init__(self) -> None:
+    def __init__(self, version: Callable[[], Any] | None = None) -> None:
         self.calls: dict[tuple[str, str], Kept] = {}
+        self.claims: list[Kept] = []  # calls kept elsewhere (the server's run_build) that work on this session now
+        self.version = version  # the design's version: an answer made for another version is not given
 
     def running(self) -> Kept | None:
-        return next((k for k in self.calls.values() if not k.task.done()), None)
+        """The kept call still at work here: one of this keeper's own, or one kept elsewhere that claimed it."""
+        self.claims = [k for k in self.claims if not k.task.done()]
+        return next((k for k in [*self.calls.values(), *self.claims] if not k.task.done()), None)
+
+    def claim(self, k: Kept | None) -> None:
+        """``k``, kept by another keeper, works on what this keeper keeps calls for until it ends: calls here wait for
+        it (an edit too: it cannot be stopped from here)."""
+        if k is not None and k not in self.claims:
+            self.claims.append(k)
+
+    def _now(self) -> Any:
+        return self.version() if self.version is not None else None
 
     def status(self) -> str:
         """One line for session_status: the call that is running and its step, or an answer waiting to be collected."""
@@ -130,7 +163,10 @@ class Keeper:
         for k in self.calls.values():
             if not k.task.done():
                 lines.append(f"RUNNING: {k.name} is at {k.where()}; call {k.shown} again to get its answer.")
-            elif not k.task.cancelled():
+            elif (err := failure(k.task)) is not None:
+                lines.append(f"FAILED: {k.shown} stopped with an error ({type(err).__name__}: {str(err)[:160]}); call it "
+                             "again to run it anew.")
+            elif not k.task.cancelled() and (k.version is None or k.version == self._now()):
                 lines.append(f"READY: {k.shown} has finished; call it again to get its answer.")
         return "\n".join(lines)
 
@@ -155,9 +191,9 @@ class Keeper:
                 pass
         return stopped
 
-    async def call(self, name: str, args: dict[str, Any], run: Callable[[], Awaitable[Any]], *, shown: dict[str, Any] | None = None,
+    async def call(self, name: str, args: dict[str, Any] | Callable[[], dict[str, Any]], run: Callable[[], Awaitable[Any]], *, shown: dict[str, Any] | None = None,
                    edit: bool = False, transaction: bool = False, read: bool = False, cancel_others: bool = True,
-                   stopped_note: Callable[[list[str]], str] | None = None) -> Any:
+                   stopped_note: Callable[[list[str]], str] | None = None, wait_for: Kept | None = None) -> Any:
         """Run ``run()`` as a kept call of ``name`` with ``args`` and answer within ``ANSWER_S``.
 
         ``edit``: the call changes what kept calls were made for: it stops them first (``cancel_others``; otherwise it
@@ -166,15 +202,29 @@ class Keeper:
         it (they run one after the other) instead of stopping it.
         ``shown``: the arguments as the agent gave them, when ``args`` (what makes two calls the same) holds more.
         ``read``: the call only reads: it starts at once, beside a running call. Any other call waits for the running
-        one within its own time."""
+        one within its own time.
+        ``wait_for``: a call kept elsewhere that this one must not run beside (an install of the package a delivery is
+        still writing): waited for first, like a running call here. ``args`` may then be a function, read once that
+        call has ended (the package it wrote is the one the call is about)."""
         if inside():  # a tool called by a tool: part of that call
             return await run()
         deadline = time.monotonic() + ANSWER_S
+        if wait_for is not None and not wait_for.task.done():
+            await asyncio.wait({wait_for.task}, timeout=max(0.0, deadline - time.monotonic()))
+            if not wait_for.task.done():
+                return busy(wait_for, name)
+        if callable(args):
+            args = args()
         key = (name, call_key(args))
         k = self.calls.get(key)
+        if k is not None and k.task.done() and (failure(k.task) is not None or
+                                                (k.version is not None and k.version != self._now())):
+            del self.calls[key]  # failed (said in status), or made for a design that has changed since: run anew
+            k = None
         if k is None:
             other = self.running()
-            if other is not None and not read and not (edit and cancel_others and not other.transaction):
+            stoppable = other is not None and other not in self.claims and not other.transaction
+            if other is not None and not read and not (edit and cancel_others and stoppable):
                 await asyncio.wait({other.task}, timeout=max(0.0, deadline - time.monotonic()))
                 if not other.task.done():
                     return busy(other, name)
@@ -208,16 +258,19 @@ class Keeper:
         ctx = contextvars.copy_context()
         ctx.run(CURRENT_SINK.set, forward)
         task = asyncio.get_running_loop().create_task(self._timed(body, holder), context=ctx)
+        task.add_done_callback(_retrieve)
         k = Kept(name, key[1], shown, task, transaction=transaction)
         holder.append(k)
         ctx.run(_CURRENT.set, k)
         self.calls[key] = k
         return k
 
-    @staticmethod
-    async def _timed(body: Callable[[], Awaitable[Any]], holder: list[Kept]) -> Any:
+    async def _timed(self, body: Callable[[], Awaitable[Any]], holder: list[Kept]) -> Any:
         try:
-            return await body()
+            result = await body()
+            if holder:
+                holder[0].version = self._now()  # the design this answer was made for (its own changes included)
+            return result
         finally:
             if holder and holder[0].steps:
                 k = holder[0]

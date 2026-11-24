@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import inspect
 import itertools
 import logging
@@ -417,6 +418,8 @@ class StudioHost:
         rel = script.relative_to(root).as_posix()
         cand = session_id or self.active
         reuse_key = self.built.get(cand) if cand in self.gates else None
+        if reuse_key is not None:  # the session this build may replace the design of: its calls wait for the build
+            T._keeper(session(self.registry, cand)).claim(keeper.current())
         kept = (f"session {cand} is unchanged" if reuse_key else "no session was opened")
         run_dir = root / "agy3d_assets" / f".run-{uuid.uuid4().hex[:12]}"
         t0 = time.perf_counter()
@@ -454,6 +457,7 @@ class StudioHost:
                 except (ValueError, LookupError) as e:
                     return f"NOT BUILT: the session could not be opened: {compress_exception(e)}. Fix the Asset(...) line and run_build again; {kept}."
                 self.built[sid] = key
+                T._keeper(session(self.registry, sid)).claim(keeper.current())  # as above, for the session it opened
                 # a script session from its opening on: every fix instruction names the script, even before a design
                 self.registry.attach(sid, T.R_SCRIPT_SESSION, True)
                 self.registry.attach(sid, R_NOTICE, True)
@@ -630,6 +634,25 @@ class StudioHost:
         if not sids:
             return "no sessions: call run_build" if self.script else "no sessions: call open_asset_session"
         return "\n".join(("* " if sid == self.active else "  ") + self._line(sid) for sid in sids)
+
+    def delivering(self, project: str, package_dir: str) -> Any:
+        """The kept deliver_package or export_engine_package still writing the package ``package_dir`` names (in its
+        session's export folder, or in the folder deliver_package(dest=...) places it in); None otherwise."""
+        target = Path(package_dir) if Path(package_dir).is_absolute() else Path(project) / package_dir
+        target = target.resolve()
+        for sid in list(self.gates):
+            s = session(self.registry, sid)
+            k = T._keeper(s).running()
+            if k is None or k.name not in {"deliver_package", "export_engine_package"}:
+                continue
+            try:
+                dest = json.loads(k.key).get("dest") or ""
+            except (ValueError, AttributeError):
+                dest = ""
+            places = [s.export_dir.resolve()] + ([(T._workspace(s) / dest).resolve()] if dest else [])
+            if any(target == p or target.is_relative_to(p) for p in places):
+                return k
+        return None
 
     # ---- harness tools
     async def call_tool(self, name: str, fn: T.ToolFn, session_id: str, kwargs: dict[str, Any]) -> str:
@@ -952,11 +975,13 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         shown = {k: v for k, v in (("package_dir", package_dir), ("project_dir", project_dir), ("dest", dest),
                                    ("assets", assets), ("dry_run", dry_run), ("force", force), ("compress", compress))
                  if v != _INSTALL_DEFAULTS.get(k)}
-        # the same call for a package delivered again in between is another call: it waits and installs that package
-        key = {**shown, "project": project, "manifest": _manifest_digest(project, package_dir)}
-
         async def go() -> str:  # kept (harness/keeper.py): a browser or Godot check can pass the host's 3 minutes
-            return await host.kept.call("install_into_project", key, install, shown=shown)
+            # A delivery still writing this package is waited for first (the install would read a package half
+            # written, or the one it replaces); the key is read after it: a package delivered again in between is
+            # another call, which installs that package.
+            return await host.kept.call(
+                "install_into_project", lambda: {**shown, "project": project, "manifest": _manifest_digest(project, package_dir)},
+                install, shown=shown, wait_for=host.delivering(project, package_dir))
 
         return await host.run_ordered(go)
 

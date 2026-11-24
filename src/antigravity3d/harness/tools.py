@@ -196,10 +196,16 @@ READ_TOOLS = frozenset({"inspect_manifest", "query_region", "qa_probe"})
 R_KEEPER = "kept_calls"
 
 
+def design_version(s: Session) -> tuple[Any, ...]:
+    """What an answer about the design holds for: its geometry, budget, material files and revision (the key the
+    review's verdict and the checked package are held by)."""
+    return (s.geom_version, s.state.budget, s.texture_digest(), s.state.revision)
+
+
 def _keeper(s: Session) -> keeper.Keeper:
     k = s._res(R_KEEPER)
     if k is None:
-        k = keeper.Keeper()
+        k = keeper.Keeper(version=lambda: design_version(s))
         s._set(R_KEEPER, k)
     return k
 
@@ -1835,26 +1841,33 @@ async def _preflight(ctx: ToolContext, s: Session, asset: str) -> tuple[str | No
     t0 = time.perf_counter()
     keeper.step("deliver_package", 2, DELIVER_STEPS, "the package written for the checks, its Blender check and engine import")
     directory = Path(tempfile.mkdtemp(dir=s.artifacts_dir, prefix=".preflight-"))
-    async with s.registry.locked(s.sid):
-        key = (s.geom_version, s.state.budget, s.texture_digest())
-        b = await _bundle(s)
-        pkg = await _stage_worker(write_engine_package, s.stage, b, s.state.budget, directory / "pkg", asset_name=asset,
-                                  qa=None, art=s.art)
-    if not pkg.ok:
-        shutil.rmtree(directory, ignore_errors=True)
-        crit = [i.code for i in pkg.issues if i.severity == "critical"]
-        return f"package validation failed: {', '.join(dict.fromkeys(crit))[:140]}", steps
-    await _web_format(pkg)  # before the checks, which then check the GLB that ships
-    if reason := await _preview_engine_import(s, pkg, asset):
-        shutil.rmtree(directory, ignore_errors=True)
-        return reason, steps
-    from antigravity3d.kernel import smart_source
+    # Removed whatever step a stop (an edit, a newer build) interrupts: it is registered as checked only at the end.
+    # Every step that writes into it drains its thread before a cancellation goes on (_stage_worker here, and
+    # web_textures.web_format), so nothing writes into it once it is removed.
+    try:
+        async with s.registry.locked(s.sid):
+            key = (s.geom_version, s.state.budget, s.texture_digest())
+            b = await _bundle(s)
+            pkg = await _stage_worker(write_engine_package, s.stage, b, s.state.budget, directory / "pkg", asset_name=asset,
+                                      qa=None, art=s.art)
+        if not pkg.ok:
+            shutil.rmtree(directory, ignore_errors=True)
+            crit = [i.code for i in pkg.issues if i.severity == "critical"]
+            return f"package validation failed: {', '.join(dict.fromkeys(crit))[:140]}", steps
+        await _web_format(pkg)  # before the checks, which then check the GLB that ships
+        if reason := await _preview_engine_import(s, pkg, asset):
+            shutil.rmtree(directory, ignore_errors=True)
+            return reason, steps
+        from antigravity3d.kernel import smart_source
 
-    s._set(R_PREFLIGHT, {"key": key, "dir": directory, "glb_sha256": _sha256(pkg.out_dir / f"{asset}.glb"),
-                         "usd": pkg.out_dir / str(pkg.data.get("usd") or f"{asset}.usd"),
-                         "placed": tuple(smart_source.placed_strings(pkg.data)),
-                         "validation": {k: v for k, v in pkg.data["validation"].items()
-                                        if k in {"blender_asset_qa", "engine_import", "engine_parity"}}})
+        s._set(R_PREFLIGHT, {"key": key, "dir": directory, "glb_sha256": _sha256(pkg.out_dir / f"{asset}.glb"),
+                             "usd": pkg.out_dir / str(pkg.data.get("usd") or f"{asset}.usd"),
+                             "placed": tuple(smart_source.placed_strings(pkg.data)),
+                             "validation": {k: v for k, v in pkg.data["validation"].items()
+                                            if k in {"blender_asset_qa", "engine_import", "engine_parity"}}})
+    except BaseException:
+        shutil.rmtree(directory, ignore_errors=True)
+        raise
     checks = pkg.data["validation"]
     ran = ", ".join(f"{k} {(v.get('status') or ('ok' if v.get('ok') else 'skipped'))}" for k, v in checks.items()
                     if k in {"blender_asset_qa", "engine_import"})

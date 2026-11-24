@@ -118,7 +118,7 @@ async def test_a_client_cancel_through_the_server_does_not_reach_the_work_and_st
         pytest.fail("the call should have been cancelled")
     status = await host.session_status(env.sid)
     assert "RUNNING: deliver_package is at step 2 of 5 (the package written for the checks" in status, status
-    assert 'call deliver_package(out_name="crate") again to get its answer' in status
+    assert f'call deliver_package(out_name="crate", session_id="{env.sid}") again to get its answer' in status
     r = await host.call_tool("deliver_package", T.deliver_package, env.sid, {"out_name": "crate"})
     assert r.startswith("DELIVERED"), r
     assert len(started) == 1 and len(pool.renders) == 1
@@ -237,6 +237,173 @@ async def test_the_keeper_itself():
         keeper.ANSWER_S = 5.0
         out = await k.call("edit", {}, edit, edit=True, stopped_note=lambda names: f"stopped {names}")
         assert out == "edited\nstopped ['slow_tool']" and k.calls == {}
+    finally:
+        keeper.ANSWER_S = old
+
+
+def _host_on(env):
+    """A server host serving the session ``env`` made (its registry, gate and active session)."""
+    from antigravity3d.harness.hooks import InvariantAndSafetyGate
+
+    host = M.StudioHost(script=False)
+    host.registry = env.reg
+    host.gates[env.sid] = InvariantAndSafetyGate(env.reg, env.sid)
+    host.active = env.sid
+    return host
+
+
+async def test_the_call_to_repeat_names_its_session_and_joins_it_after_another_session_opened(tmp_path, monkeypatch):
+    """Through the server: the answer spells out session_id, and that exact call, made after a second session was opened
+    (and so became the active one), joins the first session's delivery instead of starting one on the second."""
+    monkeypatch.setenv("AGY3D_OFFLINE", "1")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    env, pool, _ = _fail_fast_session(tmp_path, monkeypatch)
+    started = _slow_check(monkeypatch, 1.0)
+    host = _host_on(env)
+    server = M.build_server(host)
+    deliver = server._tool_manager.get_tool("deliver_package").fn
+    await host.call_tool("apply_scene_ir", T.apply_scene_ir, env.sid, {"ops": _design()})
+    monkeypatch.setattr(keeper, "ANSWER_S", 0.3)
+    first = await deliver(out_name="crate", ctx=None)
+    shown = f'deliver_package(out_name="crate", session_id="{env.sid}")'
+    assert first.startswith("STILL WORKING") and f"Call {shown} again now" in first, first
+    other = (await host.open_asset_session("Lamp", "godot_4", 4000, "", str(tmp_path), "")).split()[1]
+    assert host.active == other != env.sid
+    monkeypatch.setattr(keeper, "ANSWER_S", 30.0)
+    r = await deliver(out_name="crate", session_id=env.sid, ctx=None)  # exactly the call the answer spelled out
+    assert r.startswith("DELIVERED"), r
+    assert len(started) == 1 and len(pool.renders) == 1
+    assert T._keeper(session(env.reg, other)).calls == {} and not (session(env.reg, other).export_dir / "crate").exists()
+
+
+async def test_a_delivery_waits_for_a_build_still_running_on_its_session(ws, monkeypatch):  # noqa: F811
+    """A run_build kept by the server that answered STILL WORKING: a deliver_package on its session must not deliver the
+    design the build is about to replace."""
+    from antigravity3d.build import runner
+
+    host = M.StudioHost(script=True)
+    name = write(ws, crate())
+    assert (await host.run_build(name, str(ws))).startswith("BUILT")
+    sid = host.active
+    real, gate = runner.run_script, __import__("threading").Event()
+
+    def held(*a, **k):
+        gate.wait(10)
+        return real(*a, **k)
+
+    monkeypatch.setattr(runner, "run_script", held)
+    monkeypatch.setattr(keeper, "ANSWER_S", 0.3)
+    write(ws, crate(lid_colour="#20d040"))
+    assert (await host.run_build(name, str(ws))).startswith("STILL WORKING")
+    busy = await host.call_tool("deliver_package", T.deliver_package, sid, {"out_name": "crate"})
+    assert busy.startswith('STILL WORKING (nothing needs fixing, nothing failed): run_build(path="crate.py"), called '
+                           "earlier, is still running") and busy.endswith("then call deliver_package."), busy
+    assert not (session(host.registry, sid).export_dir / "crate").exists()
+    assert "RUNNING: run_build" in await host.session_status(sid)
+    gate.set()
+    monkeypatch.setattr(keeper, "ANSWER_S", 30.0)
+    assert (await host.run_build(name, str(ws))).startswith("BUILT")
+
+
+async def test_an_install_waits_for_the_delivery_still_writing_its_package(tmp_path, monkeypatch):
+    from antigravity3d import deliver
+
+    env, _, _ = _fail_fast_session(tmp_path, monkeypatch)
+    host = _host_on(env)
+    installs = []
+    monkeypatch.setattr(deliver, "install_package", lambda *a, **k: installs.append(a))
+    fn = M.build_server(host)._tool_manager.get_tool("install_into_project").fn
+    gate = asyncio.Event()
+
+    async def writing():
+        await gate.wait()
+        return "DELIVERED"
+
+    monkeypatch.setattr(keeper, "ANSWER_S", 0.2)
+    kept = T._keeper(env.sess())
+    assert (await kept.call("deliver_package", {"out_name": "crate", "dest": "out/crate"}, writing)).startswith("STILL")
+    r = await fn(package_dir="out/crate", project_dir=str(T._workspace(env.sess())), dry_run=False, ctx=None)
+    assert r.startswith('STILL WORKING') and "deliver_package(" in r and r.endswith("then call install_into_project."), r
+    assert installs == []
+    gate.set()
+
+
+async def test_a_delivery_stopped_in_any_step_leaves_no_folder(tmp_path, monkeypatch):
+    """Stopped while the engine import runs: the package folder was written but not yet registered as checked."""
+    from antigravity3d.adapters.engines import validators
+
+    env, pool, checks = _fail_fast_session(tmp_path, monkeypatch)
+    await T.apply_scene_ir(_design(), env.ctx)
+    entered = asyncio.Event()
+
+    class Slow:
+        engine = "godot_4"
+
+        async def validate(self, glb):
+            entered.set()
+            await asyncio.sleep(30)
+
+    monkeypatch.setattr(validators, "validator_for", lambda engine: Slow())
+    monkeypatch.setattr(keeper, "ANSWER_S", 0.2)
+    assert (await T.deliver_package(env.ctx, "crate")).startswith("STILL WORKING")
+    await asyncio.wait_for(entered.wait(), 30)
+    assert list(env.sess().artifacts_dir.glob(".preflight-*"))
+    monkeypatch.setattr(keeper, "ANSWER_S", 30.0)
+    edit = await T.apply_shader_diff("paint", {"base_color": [0.6, 0.2, 0.2]}, ctx=env.ctx)
+    assert "STOPPED the deliver_package" in edit, edit
+    assert not list(env.sess().artifacts_dir.glob(".preflight-*"))
+
+
+async def test_a_failed_call_is_said_to_have_failed_and_its_error_is_never_left_unretrieved(caplog):
+    k = keeper.Keeper()
+
+    async def boom():
+        await asyncio.sleep(0.2)
+        raise OSError("disk full")
+
+    old = keeper.ANSWER_S
+    keeper.ANSWER_S = 0.05
+    try:
+        assert (await k.call("export_engine_package", {"out_name": "x"}, boom)).startswith("STILL WORKING")
+        await asyncio.sleep(0.4)
+        assert k.status().startswith('FAILED: export_engine_package(out_name="x") stopped with an error (OSError: disk full)')
+        assert (await k.call("export_engine_package", {"out_name": "y"}, boom)).startswith("STILL WORKING")  # drops x
+        await k.stop()
+        import gc
+
+        gc.collect()
+        await asyncio.sleep(0)
+    finally:
+        keeper.ANSWER_S = old
+    assert "never retrieved" not in caplog.text
+
+
+async def test_an_answer_not_collected_goes_stale_when_the_design_changes_anywhere():
+    """A render's answer not collected, then the design changes inside another call (a review's own fix): the same call
+    renders anew instead of answering with pictures of the design before."""
+    version, renders = [1], []
+    k = keeper.Keeper(version=lambda: version[0])
+
+    async def render():
+        renders.append(version[0])
+        await asyncio.sleep(0.2)
+        return f"PREVIEW of version {version[0]}"
+
+    old = keeper.ANSWER_S
+    keeper.ANSWER_S = 0.05
+    try:
+        assert (await k.call("render_preview", {}, render)).startswith("STILL WORKING")
+        await asyncio.sleep(0.3)
+        assert k.status().startswith("READY")
+
+        async def deliver_with_fix():
+            version[0] = 2  # the review's deterministic fix, inside the delivery
+            return "DELIVERED"
+
+        keeper.ANSWER_S = 5.0
+        assert await k.call("deliver_package", {}, deliver_with_fix) == "DELIVERED"
+        assert k.status() == ""
+        assert await k.call("render_preview", {}, render) == "PREVIEW of version 2" and renders == [1, 2]
     finally:
         keeper.ANSWER_S = old
 
