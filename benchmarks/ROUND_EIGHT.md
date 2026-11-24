@@ -35,7 +35,7 @@ same model, same sandbox; run 2 had more web packages installed in its seed (see
 | 3D canvas showing something, nine scroll steps on a desktop | 10 to 52 %; five steps under 20 % | 36 to 81 %; one step under 60 % |
 | draws while nothing moves | every frame | none |
 | a visitor who asked for reduced motion | not handled | handled |
-| a browser without WebGL | a script error and no picture | the whole text and seven stills |
+| a browser without WebGL | most of the text, a script error, no picture | the whole text and seven stills |
 | numbers and code on the page that name their source | none; 43 numbers and 1 code specimen without one, several invented | 31, all equal to their source |
 | other hosts the page asks | 1 (a font service) | none |
 
@@ -117,9 +117,11 @@ why). The installer's fixture project and loader are checked against three 0.187
 | 8.6 | first `check_site`: two facts on the page did not match their source |
 | 10.7 to 35.9 | three props: for each, a session, about four modelling calls, one preview, the delivery, the install. One delivery was refused for two faces in the same plane and passed after a fix |
 | 37.5 | `check_site`: one fact still refused (see the next section: the check was wrong) |
+| 39.6 | the one round of changes made from the contact sheets: camera shots framed again for desktop and phone, a label raised clear of a stack, smooth scrolling off under reduced motion, the refused specimen replaced |
 | 44 to 49 | captured seven stills for the page without WebGL |
 | 52.8 | `check_site`: nothing broken |
-| 56 to 88 | lighting, labels in the scene, phone layout. Most of this half hour is the four dropped model calls |
+| 56 to 81 | seven model calls of three to five minutes each, four of them dropped. One change came out of them, at minute 81: where the text panel sits while it is pinned |
+| 88 to 94 | captured the stills again without a scrollbar; last build |
 | 98.9 | last `check_site`: nothing broken; final report |
 
 - No call was cut off. The longest took 150 s. Three of four deliveries answered with the finished package in one
@@ -155,7 +157,7 @@ Run 2 ran from a fixed tree, so these four fixes are in the branch but not in ru
 ## What was not equal between the runs
 
 - **The seed.** Run 1's project had three 0.170, gsap, lenis and vite installed. Run 2's had three 0.187 and
-  about twenty more packages a current site might use (post-processing, text, shader helpers, React Three Fiber,
+  27 more packages a current site might use (post-processing, text, shader helpers, React Three Fiber,
   compression tools, fonts). The sandbox has no internet, so an agent can use only what is installed. Some of run
   2's library use was not possible in run 1.
 - **The task text.** Run 2's says where the site will live (under `/straitjacket/`, with the documentation at
@@ -172,6 +174,11 @@ Run 2 ran from a fixed tree, so these four fixes are in the branch but not in ru
 - **The props' look.** The plugin's review scored each of run 2's props about 1.8 of 4 (an uncalibrated judge;
   the targets are 3.3 to 3.4). The delivery reports this as findings for a person, and the agent went on. Nothing
   in the skill asks for a second round on a prop that reads as a box.
+- **Once the check said "nothing broken", the agent stopped improving the picture.** After the props were in, it
+  made one round of changes from the contact sheets (minute 39.6) and one small change an hour later. The check
+  finds faults: errors, empty frames, weight, wrong facts. It has no opinion on whether a frame is good, and the
+  agent treated a clean check as a finished site. This is probably the largest gap between run 2 and the
+  "world-class" the request asks for, and nothing built this round closes it.
 - **No image model and no calibrated judge on this key.** Every prop in both runs is an unverified preview with
   surfaces generated from geometry.
 - **A delivery still takes about two and a half minutes for a 66-part prop.** A profile of one delivery shows
@@ -196,6 +203,12 @@ Run 2 ran from a fixed tree, so these four fixes are in the branch but not in ru
 3. **Your corrections on three.js and library use.** They go into the skill, and the run is repeated with them.
 4. **Should a prop that the review scores under its target get one more round before it is installed?** It would
    cost a few minutes per prop. Run 1 spent too long on props; run 2 may have spent too little.
+5. **A critic for the site, not only a checker.** The props have one: a model looks at renders and says what is
+   weak. The site has none. The same could be done for a built site: a model looks at the contact sheets against
+   a fixed set of questions (is the subject in frame and not cut by the text, does the picture explain the
+   chapter, do the objects look made and lit) and answers with findings that name frames. It costs model calls,
+   which the user allows as they do for the props. I would build this next, after your corrections, because they
+   will say what the questions should be.
 
 ## Mistakes in this round's process
 
