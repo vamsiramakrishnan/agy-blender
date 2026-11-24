@@ -1,0 +1,33 @@
+{
+ "first": "run3",
+ "second": "run4",
+ "rep": 2,
+ "frames": [
+  "1dcbc54532dd39ad",
+  "942e475c1cb9450d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 varies camera angles smoothly from isometric to close-up to overhead across frames 1, 6, and 8 without crowding the left text card."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2 concretely visualizes compression in frame 3, line relocation in frame 6, and the seven-harness manifold in frames 7 and 8."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 features more intricate mechanical detailing, metallic rollers, and realistic dark industrial shading in frames 3 through 8 compared to Site 1's simpler toy-like blocks."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Site 1 keeps cards slightly more compact with labeled top navigation across frames 1 to 9, avoiding minor spacing glitches like 'ONE20,001-LINE' in Site 2's frame 1."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers a more dynamic camera journey and clearer mechanical metaphors that directly illustrate how Straitjacket bounds logs, anchors code, and routes across harnesses."
+  }
+ }
+}

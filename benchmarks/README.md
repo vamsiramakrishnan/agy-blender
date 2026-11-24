@@ -32,12 +32,13 @@ Five tools and the report written from them:
   blind verdict of both measurements and the pictures are in `results/round7/`.
 - [`ROUND_EIGHT.md`](ROUND_EIGHT.md) is the eighth round's report: what an agent needs from the plugin to build a
   whole 3D website (tool calls that answer inside the host's three minutes and keep their work, web-sized packages,
-  a check that looks at the built site, a skill with a tested starter), and the same request run three times
-  with the plugin (before, after, and after a review of the second site) and once without it. A blind judge
-  prefers the plugin's second and third site to the stock agent's in all twelve verdicts; the stock agent needed
-  half the time and tokens. The runs are in `results/site_run1/`, `results/site_run2_plugin/`,
-  `results/site_run3_plugin/` and `results/site_stock/`; the helpers' brief, the two reviews, the contact sheets of
-  the four sites and the blind verdicts are in `results/round8/`.
+  a check that looks at the built site, a skill with a tested starter), and the same request run four times
+  with the plugin (before, after, and after each of two reviews) and once without it. A blind judge prefers the
+  fourth site to every other, and the plugin's second, third and fourth to the stock agent's in all eighteen
+  verdicts; the stock agent needed half the model calls and tokens. The runs are in `results/site_run1/`,
+  `results/site_run2_plugin/`, `results/site_run3_plugin/`, `results/site_run4_plugin/` and `results/site_stock/`;
+  the helpers' brief, the two reviews, the contact sheets of the five sites and the blind verdicts are in
+  `results/round8/`.
 
 ## Offline benchmarks
 

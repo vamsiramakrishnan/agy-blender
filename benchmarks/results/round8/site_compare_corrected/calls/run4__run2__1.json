@@ -1,0 +1,33 @@
+{
+ "first": "run4",
+ "second": "run2",
+ "rep": 1,
+ "frames": [
+  "942e475c1cb9450d",
+  "16663fbe6c17af2f"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 keeps the active 3D stations cleanly framed in the right viewport across frames 1-9, whereas Site 2 lets the UI panel overlap key 3D elements in frames 1, 2, 4, 7, and 9."
+   },
+   "explains_the_project": {
+    "winner": "1",
+    "reason": "Site 1 connects the stations into a continuous conveyor pipeline showing compression in frame 3, drawer storage in frame 5, line anchoring in frame 6, and seven parallel lanes in frame 8."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 features brighter studio lighting, worn metallic textures, beveled edges, and grounded contact shadows in frames 1-9, while Site 1's dark machinery blends into the dark floor in frames 4-5."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Site 1 keeps its text card compact and higher up so it avoids colliding with the 3D scene in frames 1-9, unlike Site 2's taller card in frame 7, despite a minor spacing typo on Site 1's button in frame 1."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Site 1 better fulfills the request by presenting a cohesive, unobstructed 3D assembly line across the scroll that clearly visualizes how Straitjacket processes, anchors, and routes agent evidence."
+  }
+ }
+}

@@ -1,0 +1,155 @@
+{
+ "arm_name": "plugin",
+ "arm": "N",
+ "model": "gemini-4-neon",
+ "share_tokens": 30000000,
+ "share_images": 0,
+ "wall_s_limit": 21600,
+ "limits": {
+  "max_model_calls": 450,
+  "max_tool_calls": 1400
+ },
+ "offline": false,
+ "seed": {
+  "project_name": "straitjacket",
+  "project_digest": "88eac6893f55783a10d3d1f4e938ec674832bd7669be6618fb6662dc110a99cd",
+  "project_git_commit": "50f8e60ff56e31feb34f07852968f3e733465f83",
+  "project_git_dirty": false,
+  "notes_digest": "8a603d3ca2729d75430886f75b56397443cedd1adb6f796f07c3e10765895dfb",
+  "package_json_sha256": "fee6abe19306e916b04d19dadfb07430d068be68e1dc7055e52c5dd5413811db",
+  "lockfile_sha256": "1ed2b68bcecda322e9fb75bda6ce8bdce0ba4bea20d3457c36fcb48c8f1a823b",
+  "packages_installed": 180,
+  "packages_how": "copied from <packages>/node_modules",
+  "task_sha256": "333b4a9f10fd9aab3ccc2e6f8ce28d4ea14b2afab8914eb0dde9a7a85e2c3b10"
+ },
+ "options": {
+  "model": "gemini-4-neon",
+  "sdk_output_cap": true,
+  "limits": {
+   "max_model_calls": 450,
+   "max_tool_calls": 1400
+  },
+  "node_dir": "/opt/node22",
+  "browsers": true,
+  "deliverable": "site/index.html",
+  "approve_installs": true
+ },
+ "command": [
+  "site_task.py",
+  "run",
+  "--live",
+  "--arm",
+  "plugin",
+  "--project",
+  "<project checkout>",
+  "--notes",
+  "<notes>",
+  "--packages",
+  "<packages>",
+  "--task",
+  "benchmarks/site_task_seed/task.md",
+  "--share-tokens",
+  "30000000",
+  "--wall-s",
+  "21600",
+  "--work-root",
+  "<run>",
+  "--out",
+  "<local-path>"
+ ],
+ "status": "finished",
+ "wall_s": 2331.8,
+ "model_calls": 69,
+ "tool_calls": 123,
+ "tokens": {
+  "input_tokens": 10316675,
+  "output_tokens": 101145,
+  "thinking_tokens": 42940,
+  "cached_tokens": 4222175,
+  "unknown_reserved_tokens": 0,
+  "share_tokens": 30000000,
+  "total": 10460760,
+  "images": 0,
+  "share_images": 0,
+  "input": 10316675,
+  "cached": 4222175,
+  "output": 101145,
+  "thinking": 42940,
+  "fresh": 6238585,
+  "cache_misses": 0,
+  "cache_miss_input": 0
+ },
+ "images": 0,
+ "refused": [],
+ "site": {
+  "files": 92,
+  "bytes": 9374026,
+  "largest": [
+   {
+    "path": "agy3d/containment_press/textures/containment_press_atlas_orm.ktx2",
+    "bytes": 769100
+   },
+   {
+    "path": "agy3d/evidence_vault/textures/evidence_vault_atlas_orm.ktx2",
+    "bytes": 720310
+   },
+   {
+    "path": "assets/layers-DzOfWtt2.js",
+    "bytes": 719055
+   },
+   {
+    "path": "agy3d/anchor_manifold/textures/anchor_manifold_atlas_orm.ktx2",
+    "bytes": 709731
+   },
+   {
+    "path": "agy3d/containment_press/textures/containment_press_atlas_albedo.ktx2",
+    "bytes": 664198
+   }
+  ]
+ },
+ "site_src_files": 60,
+ "site_src_omitted": [
+  "public/agy3d/_basis/basis_transcoder.wasm (527333 bytes)",
+  "public/agy3d/anchor_manifold/anchor_manifold.glb (binary, 82644 bytes)",
+  "public/agy3d/anchor_manifold/textures/anchor_manifold_atlas_albedo.ktx2 (635030 bytes)",
+  "public/agy3d/anchor_manifold/textures/anchor_manifold_atlas_normal.ktx2 (binary, 349535 bytes)",
+  "public/agy3d/anchor_manifold/textures/anchor_manifold_atlas_orm.ktx2 (709731 bytes)",
+  "public/agy3d/containment_press/containment_press.glb (binary, 105444 bytes)",
+  "public/agy3d/containment_press/containment_press_LOD1.glb (binary, 72728 bytes)",
+  "public/agy3d/containment_press/textures/containment_press_atlas_albedo.ktx2 (664198 bytes)",
+  "public/agy3d/containment_press/textures/containment_press_atlas_normal.ktx2 (binary, 365017 bytes)",
+  "public/agy3d/containment_press/textures/containment_press_atlas_orm.ktx2 (769100 bytes)",
+  "public/agy3d/evidence_vault/evidence_vault.glb (binary, 64020 bytes)",
+  "public/agy3d/evidence_vault/evidence_vault_LOD1.glb (binary, 38808 bytes)",
+  "public/agy3d/evidence_vault/textures/evidence_vault_atlas_albedo.ktx2 (binary, 138212 bytes)",
+  "public/agy3d/evidence_vault/textures/evidence_vault_atlas_normal.ktx2 (binary, 307735 bytes)",
+  "public/agy3d/evidence_vault/textures/evidence_vault_atlas_orm.ktx2 (720310 bytes)",
+  "public/fonts/jetbrains-mono.woff (binary, 28180 bytes)",
+  "public/icons/antigravity.png (binary, 71914 bytes)",
+  "public/stills/anchors.webp (binary, 40476 bytes)",
+  "public/stills/flood.webp (binary, 42650 bytes)",
+  "public/stills/harnesses.webp (binary, 47030 bytes)",
+  "public/stills/intro.webp (binary, 45024 bytes)",
+  "public/stills/start.webp (binary, 38068 bytes)",
+  "public/stills/vault.webp (binary, 50882 bytes)",
+  "src/agy3d/anchor_manifold/.agy3d/check/installed.png (binary, 139006 bytes)",
+  "src/agy3d/anchor_manifold/.agy3d/check/package.png (binary, 129640 bytes)",
+  "src/agy3d/anchor_manifold/.agy3d/check/tier_etc1s_albedo_and_orm.png (binary, 141754 bytes)",
+  "src/agy3d/anchor_manifold/.agy3d/check/tier_uastc_everything.png (binary, 139006 bytes)",
+  "src/agy3d/anchor_manifold/.agy3d/check/tier_uastc_orm.png (binary, 139435 bytes)",
+  "src/agy3d/anchor_manifold/.agy3d/check/web_three.png (binary, 139006 bytes)",
+  "src/agy3d/containment_press/.agy3d/check/installed.png (binary, 167882 bytes)",
+  "src/agy3d/containment_press/.agy3d/check/package.png (binary, 155354 bytes)",
+  "src/agy3d/containment_press/.agy3d/check/tier_etc1s_albedo_and_orm.png (binary, 167799 bytes)",
+  "src/agy3d/containment_press/.agy3d/check/tier_uastc_everything.png (binary, 167882 bytes)",
+  "src/agy3d/containment_press/.agy3d/check/tier_uastc_orm.png (binary, 167629 bytes)",
+  "src/agy3d/containment_press/.agy3d/check/web_three.png (binary, 167882 bytes)",
+  "src/agy3d/evidence_vault/.agy3d/check/installed.png (binary, 149816 bytes)",
+  "src/agy3d/evidence_vault/.agy3d/check/package.png (binary, 135870 bytes)",
+  "src/agy3d/evidence_vault/.agy3d/check/tier_etc1s_albedo_and_orm.png (binary, 151948 bytes)",
+  "src/agy3d/evidence_vault/.agy3d/check/tier_uastc_orm.png (binary, 149816 bytes)",
+  "src/agy3d/evidence_vault/.agy3d/check/web_three.png (binary, 149816 bytes)"
+ ],
+ "site_check": "ok",
+ "links_not_followed": []
+}

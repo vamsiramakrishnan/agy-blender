@@ -99,15 +99,17 @@ Round seven repainted the script-mode props without touching their meshes. The c
 the ones it loses fault its shape. Details: [round seven](benchmarks/ROUND_SEVEN.md),
 [round six](benchmarks/ROUND_SIX.md), [round five](benchmarks/ROUND_FIVE.md).
 
-A whole website was asked for three times, in one sentence each time: before the plugin was changed for what the
-first run's logs showed, after, and again after a review of the second site's three.js. The third site downloads
-3.6 MB where the first downloaded 22.8, holds 89 MB of textures instead of 454, shows a source for every number,
-has no prop or label hidden by its text at any scroll step on a desktop or a phone, and was built with no tool
-call cut off (the first run lost six). Its objects are still plain, and each run found faults of the plugin that
-no review had. The same request without the plugin gave a site in half the time and tokens (53 minutes and 5.0 M
-against 105 and 10.4 M) that a blind judge placed below the second and the third in all twelve verdicts, for
-objects that float where the plugin's stand on a floor and for text over its 3D; the site check adds that it shows
-nothing without WebGL.
+A whole website was asked for four times, in one sentence each time: before the plugin was changed for what the
+first run's logs showed, after, and again after each of two independent reviews of the site's three.js. A blind
+judge prefers the second site to the first, finds the third level with the second, and prefers the fourth to all
+three (to the second in six of six verdicts). That site shows a
+source for every number, was built with no tool call cut off (the first run lost six) and with no screenshot
+script of the agent's own, and follows one real log through three open machines. It is also dark, and it downloads
+7.4 MB where 3.8 would do, because the skill named a wrong cost for compressing textures; both are in the report
+as faults of the plugin, the second corrected. The same request without the plugin took half the model calls and
+tokens (37 and 5.0 M against 69 and 10.5 M) and gave a site the judge placed below the plugin's second, third and
+fourth in all eighteen verdicts, for objects that float where the plugin's stand on a floor and for text over its
+3D; the site check adds that it shows nothing without WebGL.
 Details: [round eight](benchmarks/ROUND_EIGHT.md).
 
 ## Try it

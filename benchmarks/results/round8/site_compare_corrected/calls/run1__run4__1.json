@@ -1,0 +1,33 @@
+{
+ "first": "run1",
+ "second": "run4",
+ "rep": 1,
+ "frames": [
+  "e074b52a7a5c36c0",
+  "942e475c1cb9450d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 keeps the 3D factory line unobstructed across frames 1-9, whereas Site 1 covers its 3D models with text cards in frames 2-3 and leaves frame 6 empty."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2 concretely visualizes log compression, storage drawers, line-anchor calipers, and 7 harness lanes across frames 3-8, whereas Site 1 uses more abstract sci-fi props."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 grounds its cohesive mechanical line on a shadowed floor grid across frames 1-9, while Site 1 floats disconnected metallic props in empty space in frames 5-7."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Site 2 maintains a clean, fixed top-left card across frames 1-9 that leaves room for the 3D scene, while Site 1 crowds the viewport with tall scrolling panels in frames 3 and 8-9."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers a cohesive, unobstructed scroll journey down a mechanical pipeline that clearly visualizes how Straitjacket compresses, stores, anchors, and routes agent evidence."
+  }
+ }
+}

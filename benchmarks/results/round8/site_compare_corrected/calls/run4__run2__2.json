@@ -1,0 +1,33 @@
+{
+ "first": "run4",
+ "second": "run2",
+ "rep": 2,
+ "frames": [
+  "942e475c1cb9450d",
+  "16663fbe6c17af2f"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 keeps the active 3D apparatus unobstructed in the right half of frames 1-9, whereas Site 2 lets the text card overlap the red log columns in frames 1-2 and cuts off the press in frame 9."
+   },
+   "explains_the_project": {
+    "winner": "1",
+    "reason": "Site 1 clearly visualizes log compression in frame 3, drawer storage in frame 5, and line-shift anchoring in frames 6-7, while Site 2 misaligns the anchor machinery with the host lanes text in frame 7."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 exhibits better lighting, beveled metallic materials, and grounded contact shadows across frames 1-9 compared to the darker, flatter shading in Site 1's frames 4-5."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Site 1 keeps its left-docked card compact and legible with superior spatial separation from the 3D scene in frames 1-9, whereas Site 2's card crowds and overlaps the 3D models in frames 1, 2, 4, and 7."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Site 1 better fulfills the request through cleaner scroll-linked framing, zero text-over-3D collisions, and a more coherent visual pipeline that accurately mirrors each stage of Straitjacket."
+  }
+ }
+}

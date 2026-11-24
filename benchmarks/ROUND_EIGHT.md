@@ -9,56 +9,61 @@ agent back. None of them depends on taste, so this round did not wait for the co
 the same request again (`results/site_run2_plugin/`). An independent review of that site's three.js found fourteen
 faults, half of them taught by this round's own skill. Those were corrected, and the request was run a third time
 (`results/site_run3_plugin/`). Each run exposed faults of the plugin that no review had found; they are fixed too.
-A second review, of the third site, again traced its two worst faults to the starter and the skill, and those are
-corrected as well. The owner's own corrections have not been given yet. When they are, they go into the website skill and the run is
-repeated.
+A second review, of the third site, again traced its two worst faults to the starter and the skill. Those were
+corrected, the same request was given once to the agent without the plugin, and it was run a fourth time with it
+(`results/site_run4_plugin/`). The owner's own corrections have not been given yet. When they are, they go into the
+website skill and the run is repeated.
 
-**The comparison with a stock agent is in.** The same request was given to the same agent without the plugin
-(`results/site_stock/`), and a general model judged the four sites blind, every pair six times
-(`results/round8/site_compare_corrected/`). It preferred the second and the third plugin site to the stock agent's
-in all twelve verdicts and on every criterion, and the first in four of six. The stock agent needed half as much:
-53 minutes, 37 model calls and 5.0 M tokens, against run 3's 105 minutes, 73 calls and 10.4 M.
+**The fourth run's site is the one a blind judge prefers** (`results/site_run4_plugin/`). A general model compared
+the five sites, every pair six times, without being told which is which (`results/round8/site_compare_corrected/`).
+Run 4 is preferred to run 2 in six of six verdicts, to run 3 in four of six, to run 1 and to the stock agent's in
+six of six, and it is the better explanation of the project in all 24. It is also dark, which the judge says in
+every verdict on craft that goes against it, and it downloads twice what it needed to, because this round's own
+skill told the agent to compress its textures and named a tenth of the cost.
 
-**Between the plugin's own runs, the comparison does not put run 3 above run 2.** Both beat run 1 in all six
-verdicts. Between the two, run 3 is better composed and better laid out (six of six each), run 2's 3D looks better
-made (four of six, two ties) and run 2 explains the project better in four of six; the overall verdict is three
-each, and in all six calls it went to the site shown second.
+**The plugin's sites are preferred to a stock agent's, and cost twice as much.** The same request was given to the
+same agent without the plugin (`results/site_stock/`). The judge preferred the second, third and fourth plugin site
+to it in all 18 verdicts and on every criterion, and the first in four of six. The stock agent needed 37 model
+calls and 5.0 M tokens; the plugin's runs 2 to 4 needed 64 to 73 calls and 8.0 to 10.5 M.
 
-**A fourth run follows**, with what the review of run 3 and these verdicts asked for. Nothing below says yet whether
-those corrections give a better site.
+**Every run has shown a fault of the plugin's own that no review found.** In the judge's eyes run 2 is better than
+run 1, run 3 level with run 2, and run 4 better than all three. After run 4 the faults are a check that photographed
+a heavy page before it had arrived, and a paragraph of the skill with a number nobody had measured. Both are corrected. What is not yet corrected is listed
+under "What is still worse".
 
 ## The short answer
 
 Run 1 used the plugin as it was after round seven, run 2 this round at commit 5e3c0a8, run 3 at f3b2266 (run 2's
 tree and everything that was corrected after it). Same owner's sentence, same model, same sandbox. Runs 2 and 3 had
 the same task text and the same installed packages, file for file; run 1 had fewer (see "What was not equal").
-The stock agent had the task text, project copy and packages of runs 2 and 3, Blender and a browser, and no plugin.
+Run 4 used the plugin at 1b81144, with the corrections made after run 3's review and the first blind verdicts. The
+stock agent had the task text, project copy and packages of runs 2 to 4, Blender and a browser, and no plugin.
 
-| | run 1 | run 2 | run 3 | stock agent |
-|---|---|---|---|---|
-| sessions needed | 2: the second repaired a 17.4 MB model the host refused | 1 | 1 | 1 |
-| time inside tool calls | 40.5 min (33.6 in the plugin's tools) | 15.8 min (15.3) | 8.3 min (8.2) | 3.3 min |
-| plugin calls the host cut off at 3 minutes | 6, their work lost | 0 | 0 | no plugin |
-| the three props: deliveries and installs, in all | not comparable (cut off, copied by hand) | 13.2 min | 5.2 min | five models from one Blender script of its own, run in 3 s |
-| props installed by the plugin's installer | 0 of 3 (files copied by hand) | 3 of 3 | 3 of 3 | no plugin: five `.glb` files, no textures, one level of detail, its own loader |
-| how the agent looked at its site | 9 screenshot scripts of its own | `check_site` 4 times; 2 scripts, for the stills of the no-WebGL page | `check_site` 4 times; 6 scripts, all spent on a fault in the check's own pictures (below) | 1 screenshot script of its own, run 3 times; 30 pictures opened |
-| model calls / tool calls | 199 / 274 | 64 / 128 | 73 / 132 | 37 / 91 |
-| tokens, all / not served from cache | 21.7 M / 10.4 M | 8.0 M / 6.4 M | 10.4 M / 9.0 M | 5.0 M / 4.3 M |
-| the page downloads | 22.8 MB | 5.3 MB | 3.6 MB | 1.9 MB |
-| texture memory on the graphics card | 454 MB | 52 MB | 89 MB (38 of it render targets) | 32 MB, all of it render targets, and 36 MB of render buffers |
-| draw calls in the heaviest frame, on a desktop | 33 | 14 | 18 | 132 |
-| 3D canvas showing something, nine scroll steps on a desktop | 0 to 50 %; four steps under 20 % | 36 to 81 %; one step under 60 % | 66 to 81 % | 50 to 79 % |
-| props and 3D labels hidden by text or cut by the window's edge | not measured (the page does not say where they are) | 18 | 0 | not measured (the page does not say where they are); the judge names text over the 3D in four of nine frames |
-| draws while nothing moves | every frame | none | none | every frame |
-| a visitor who asked for reduced motion | not handled | handled | handled | not handled: the picture keeps changing |
-| a browser without WebGL | most of the text, a script error, no picture | the whole text and seven stills | the whole text and six stills | an empty page: no text, a script error |
-| numbers and code on the page that name their source | none; 43 numbers and 1 code specimen without one, several invented | 31, all equal to their source | 22, all equal to their source, the real digest output among them | none in a form the check can compare: 35 numbers and 4 code specimens, most with a file name beside them in small type; the 11 looked up are in the project's files |
-| other hosts the page asks | 1 (a font service) | none | none | none |
+| | run 1 | run 2 | run 3 | run 4 | stock agent |
+|---|---|---|---|---|---|
+| sessions needed | 2: the second repaired a 17.4 MB model the host refused | 1 | 1 | 1 | 1 |
+| time inside tool calls | 40.5 min (33.6 in the plugin's tools) | 15.8 min (15.3) | 8.3 min (8.2) | 20.2 min (16.2), three and a half of them calls waiting behind an install made in the same turn | 3.3 min |
+| plugin calls the host cut off at 3 minutes | 6, their work lost | 0 | 0 | 0 | no plugin |
+| the three props: deliveries and installs, in all | not comparable (cut off, copied by hand) | 13.2 min | 5.2 min | 8.8 min, the installs with compression as the skill then said | five models from one Blender script of its own, run in 3 s |
+| props installed by the plugin's installer | 0 of 3 (files copied by hand) | 3 of 3 | 3 of 3 | 3 of 3 | no plugin: five `.glb` files, no textures, one level of detail, its own loader |
+| how the agent looked at its site | 9 screenshot scripts of its own | `check_site` 4 times; 2 scripts, for the stills of the no-WebGL page | `check_site` 4 times; 6 scripts, all spent on a fault in the check's own pictures (below) | `check_site` 4 times, no script of its own | 1 screenshot script of its own, run 3 times; 30 pictures opened |
+| model calls / tool calls | 199 / 274 | 64 / 128 | 73 / 132 | 69 / 123 | 37 / 91 |
+| tokens, all / not served from cache | 21.7 M / 10.4 M | 8.0 M / 6.4 M | 10.4 M / 9.0 M | 10.5 M / 6.2 M | 5.0 M / 4.3 M |
+| the page downloads | 22.8 MB | 5.3 MB | 3.6 MB | 7.4 MB (3.8 with the installer's default) | 1.9 MB |
+| texture memory on the graphics card | 454 MB | 52 MB | 89 MB (38 of it render targets) | 147 MB (133 of it render targets: the occlusion pass, which the check now draws and counts) | 32 MB, all of it render targets, and 36 MB of render buffers |
+| draw calls in the heaviest frame, on a desktop | 33 | 14 | 18 | 119, the occlusion pass's own among them | 132 |
+| 3D canvas showing something, nine scroll steps on a desktop | 0 to 50 %; four steps under 20 % | 36 to 81 %; one step under 60 % | 66 to 81 % | 4 to 34 %; six steps under 10 %: a dark scene | 50 to 79 % |
+| props and 3D labels hidden by text or cut by the window's edge | not measured (the page does not say where they are) | 18 | 0 | 6 at two of nine steps; the agent's own checks took twelve steps and saw none | not measured (the page does not say where they are); the judge names text over the 3D in four of nine frames |
+| draws while nothing moves | every frame | none | none | none | every frame |
+| a visitor who asked for reduced motion | not handled | handled | handled | handled | not handled: the picture keeps changing |
+| a browser without WebGL | most of the text, a script error, no picture | the whole text and seven stills | the whole text and six stills | the whole text and six stills | an empty page: no text, a script error |
+| numbers and code on the page that name their source | none; 43 numbers and 1 code specimen without one, several invented | 31, all equal to their source | 22, all equal to their source, the real digest output among them | 24, all equal to their source | none in a form the check can compare: 35 numbers and 4 code specimens, most with a file name beside them in small type; the 11 looked up are in the project's files |
+| other hosts the page asks | 1 (a font service) | none | none | none | none |
 
 Wall time is not in the table because it measured the model service, not the work. Run 1 took 69 and 36 minutes,
 at 12 s per model call. Run 2 took 103 minutes and run 3 took 105, and a model call was in flight for 88 and 98 of
-them: 44 and 45 s per call at the median, with four and three calls lost after up to five minutes each. The
-stock agent took 53 minutes with a call in flight for 50: 34 minutes in its 37 answered calls (33 s at the median)
+them: 44 and 45 s per call at the median, with four and three calls lost after up to five minutes each. Run 4
+took 39 minutes, in the evening, at 12 s per call and with no call lost. The stock agent took 53 minutes with a call in flight for 50: 34 minutes in its 37 answered calls (33 s at the median)
 and 16 minutes in eight calls that failed, three of them after five minutes or more.
 
 **What run 3 shows about the corrections.**
@@ -76,6 +81,25 @@ and 16 minutes in eight calls that failed, three of them after five minutes or m
   it at minute 9). The first check of that first build already said "nothing broken".
 - **16 of the 105 minutes went on a fault of the plugin's own pictures**, and the props were again installed
   without their review being acted on. Both are fixed now and described below.
+
+**What run 4 shows about the corrections made after run 3.**
+
+- **The picture now explains.** The skill asks for one thing a visitor follows and for props modelled open where
+  their work happens. The agent's three briefs begin "An open-throat", "An open-drawer" and "An open seven-lane", a
+  log of 6,053 slabs (one for every 50 tokens) goes into the press and 11 come out, and the judge finds this site
+  the better explanation in all 24 verdicts against the other four.
+- **The camera speaks in shots.** A wide opening, a low shot into the press, a medium of the vault, a close of the
+  anchored lines, a view from above of the seven lanes, a low group to end on. On a phone the picture travels and
+  changes scale, where run 3's showed one gate at one size for half the scroll.
+- **The page came first.** The starter was copied, built and checked with stand-ins at minute 7 (run 3: minute 45).
+  No screenshot script was written (run 3: six). The look-first line was shown twice and followed: each render
+  was opened in a turn of its own before the install.
+- **It is dark.** The props are steel at `#242931` and three quarters metal on a ground of `#0D0F12`. The starter's
+  light was set after run 3 so that a colour shows as its hex value, and metal that dark then shows as almost
+  black: at six of nine steps under a tenth of the canvas differs from the background. Run 2's 3D is judged better
+  made in six of six verdicts for that reason, and run 3's in three.
+- **It downloads 7.4 MB where 3.8 would do**, on this round's own advice (see "Run 4" below).
+- **It cost what run 3 cost**: 69 model calls and 10.5 M tokens. Nothing in the corrections aimed at that.
 
 **What the stock agent's run shows.**
 
@@ -99,7 +123,7 @@ and 16 minutes in eight calls that failed, three of them after five minutes or m
   the project's design page and used what that page rules out, a coloured gradient behind every act, a bloom pass
   and a glass shader (see the decisions).
 
-**How the sites look.** A general model judged the four blind, on nine desktop frames of each taken with the
+**How the sites look.** A general model judged the five blind, on nine desktop frames of each taken with the
 corrected check: every pair six times, three in each order, never told which run made which or that one had no
 plugin (`results/round8/site_compare_corrected/verdicts.md` has every verdict with its reasons).
 
@@ -108,10 +132,19 @@ plugin (`results/round8/site_compare_corrected/verdicts.md` has every verdict wi
 | run 2 against run 1 | run 2, 6 of 6 | run 2, 6 of 6 | run 2, 6 of 6 | run 2, 6 of 6 | run 2, 6 of 6 |
 | run 3 against run 1 | run 3, 6 of 6 | run 3, 6 of 6 | run 3, 4 of 6 | run 3, 6 of 6 | run 3, 6 of 6 |
 | run 3 against run 2 | run 3, 6 of 6 | run 2, 4 of 6 | run 2, 4 of 6, 2 ties | run 3, 6 of 6 | 3 each |
+| run 4 against run 1 | run 4, 6 of 6 | run 4, 6 of 6 | run 4, 4 of 6 | run 4, 6 of 6 | run 4, 6 of 6 |
+| run 4 against run 2 | run 4, 6 of 6 | run 4, 6 of 6 | run 2, 6 of 6 | run 4, 6 of 6 | run 4, 6 of 6 |
+| run 4 against run 3 | run 4, 4 of 6 | run 4, 6 of 6 | 3 each | run 3, 5 of 6, 1 tie | run 4, 4 of 6 |
 | run 1 against the stock agent's | stock, 6 of 6 | 3 each | run 1, 6 of 6 | run 1, 4 of 6 | run 1, 4 of 6 |
 | run 2 against the stock agent's | run 2, 6 of 6 | run 2, 6 of 6 | run 2, 6 of 6 | run 2, 6 of 6 | run 2, 6 of 6 |
 | run 3 against the stock agent's | run 3, 6 of 6 | run 3, 6 of 6 | run 3, 6 of 6 | run 3, 6 of 6 | run 3, 6 of 6 |
+| run 4 against the stock agent's | run 4, 6 of 6 | run 4, 6 of 6 | run 4, 6 of 6 | run 4, 6 of 6 | run 4, 6 of 6 |
 
+- **Run 4 is preferred to every other site.** Against run 2 it wins all six verdicts overall, where run 3 only
+  drew. The judge's reasons are the explanation ("a literal physical assembly line", with the press, the drawers,
+  the caliper on the shifting lines and the seven lanes each named) and the camera ("a more dynamic camera
+  journey"). Against it: "dark machinery blends into the dark floor", "denser text", a button that reads
+  "ONE20,001-LINE", and other props that run behind the text panel in two close shots.
 - **The judge prefers the plugin's sites to the stock agent's, and says why.** The stock site's objects are
   "ungrounded, glowing geometric primitives floating in space", against "grounded industrial machinery with beveled
   edges, worn textures, and contact shadows". Its 3D "relies mostly on abstract floating rings and emblems", where
@@ -154,6 +187,10 @@ My own reading of run 3's frames, as the one who integrated this round:
   surfaces generated from their geometry, evenly lit. This key has no image model and no calibrated judge, and
   after a check that says "0 things a visitor would notice" the agent finishes: it has no critic for the picture
   as a whole (see the decisions).
+
+![Run 4, nine scroll steps on a desktop](results/round8/run4_desktop.jpg)
+
+*Run 4. "Subject cut" marks a step at which the check finds what the chapter is about partly outside the frame.*
 
 ![Run 3, nine scroll steps on a desktop](results/round8/run3_desktop.jpg)
 
@@ -420,7 +457,7 @@ Not taken from the review: a check that compares a rendered colour with the desi
 reads the canvas instead); a measure of how alike the camera angles are (the one-scale measure covers size only);
 anything about how the props are modelled, which the review left out as well.
 
-None of this is shown to make a better site yet. The fourth run is what will show it.
+The fourth run was built with all of it. What it shows is under "Run 4" below.
 
 ## What the blind verdicts and one measurement added
 
@@ -443,6 +480,46 @@ Two more corrections were made after the verdicts and before the fourth run.
   (`data-agy3d-camera` on `<html>`: this browser stands in for a visitor's), the starter turns the pass on for it
   at the desktop size, and a check takes 12 s longer.
 
+## Run 4: what those corrections did, and what it exposed
+
+Run 4 ran from 21:12 to 21:51 UTC with the plugin at 1b81144 (`results/site_run4_plugin/`).
+
+- **Minutes 0 to 7.** The skill, the starter, the project. A storyboard that names the followed thing (one log of
+  20,001 lines) and what happens to it at each of three stations. The starter copied and built.
+- **Minute 7.** The first check, with stand-ins: eleven things, most of them labels under the panel or out of the
+  frame.
+- **Minutes 9 to 27.** Three props, each opened with a brief that begins "An open ...". One delivery refused (two
+  parts lying in one plane), fixed in one call. Each render opened before its install.
+- **Minutes 27 to 39.** The layers (6,053 slabs, the vault's cartridges, the lanes), three more checks (two things,
+  one, one), the stills, the report.
+
+Three faults of the plugin showed in this run.
+
+- **The check photographed a heavy page before it had arrived.** The check takes its steps coarse to fine, so the
+  end of the page comes straight after the top. This site needed 3.5 s for its first frame there: 188,000 triangles
+  and the occlusion pass, which the check has drawn since this round, in a software browser running four visits at
+  once. The four seconds a step may take were counted from the scroll, so the check stopped half a second into the
+  cross-fade of the two chapters' panels. Its last frame showed the first chapter's text over the last one's,
+  marked "still moving", in all four of the agent's checks. The agent left it alone; run 3's agent spent 16 minutes
+  on a fault of the same kind. The four seconds now count from the page's first two frames at the new position,
+  with twelve seconds as the most a step may take. A page whose first frame after a jump takes 4.3 s is the test;
+  on the check as it was it fails.
+- **A paragraph of the skill named a tenth of a cost.** After the review of run 3 the skill said to install with
+  `compress: "always"` where the props' textures pass 32 MB of graphics memory, "for a third of a megabyte more
+  download". The number came from a helper's report and I did not measure it. Measured now on run 3's three props:
+  2.3 MB more files and a 0.6 MB transcoder, for 50 MB of graphics memory brought to 12. The agent did as it was
+  told, and its page downloads 7.4 MB; installed with the default the same site downloads 3.8. The paragraph now
+  says to leave the default and gives the measured trade.
+- **A sourced number lost its spaces.** The skill has every number carry its source in an element of its own. In a
+  button laid out with flex, the spaces around such an element are dropped, and the first button reads "FOLLOW
+  ONE20,001-LINE LOG". The recipe now says how to write it.
+
+Three more are found and not corrected yet (see "What is still worse").
+
+For the hosted copy the three props were installed again without compression and the site rebuilt, because the
+page host does not serve the compressed textures. Nothing the agent wrote was changed, and at most 0.2 % of the
+pixels of any desktop frame differ from the agent's build.
+
 ## What was not equal between the runs
 
 - **The seed.** Run 1's project had three 0.170, gsap, lenis and vite installed. Run 2's had three 0.187 and
@@ -461,33 +538,46 @@ Two more corrections were made after the verdicts and before the fourth run.
 - **The machine was not quiet for it.** During its first 20 minutes a helper's browser tests and my own tests ran
   here, and at its minute 35 a file search of mine ran for two minutes. Its tools took 3.3 minutes in all, so this
   cannot have moved its result by much; the plugin's runs had the machine to themselves.
+- **Run 4 ran in the evening**, when the model service answered in 12 s at the median (45 s for run 3 in the
+  morning). Its 39 minutes against run 3's 105 say that and nothing about the plugin. Model calls and tokens are
+  the measures that compare.
+- **Run 4's frames come from a later check than the others'.** The correction made after run 4 changes what the
+  check photographs only where a page had not settled within four seconds of a scroll. Every frame of runs 2 and 3
+  had; run 1 and the stock agent's site never settle at all.
 - **One run each.** The same request run twice gives two different sites. Differences of a few percent between
   two single runs mean nothing; the differences in the table are not of that size. How far run 3's calmer camera
   or its later first build come from the corrected skill, and how far from chance, one run cannot say.
 
 ## What is still worse, or not done
 
+- **The scene is dark, and the plugin's own light made it so.** After run 3 the starter's light was set so that a
+  plain colour shows as its hex value, and the skill told the agent not to add lights. A dark metal under that
+  light is nearly black on a dark page. The check sees it (under a tenth of the canvas differs from the background
+  at six of nine steps, where the subject fills half the window) and says nothing, because it has no measure of a
+  subject against its ground. Neither the skill nor the modelling guide says what a prop's main material should
+  be on a dark page.
+- **The text names a subject the camera has not reached.** A chapter's panel changes at its first pixel and the
+  camera takes the chapter's first third to arrive, so for that third the text is about one thing and the picture
+  about another. The check calls that "runs out of the frame" when a step happens to fall there.
+- **What the check finds depends on how many steps it takes.** It reads where the subjects are only at the steps it
+  photographs. Reading them at many more positions costs no picture, and was not built.
 - **The plugin's runs cost twice what the stock agent's did**, for a site that is judged better. Part of it was
   waste that is removed now (16 minutes on the check's pictures). Part is how the plugin models a prop: call by
   call, a model turn for each. No change of this round touches that. Round six built the other way (one script per
   asset) and its stop rule left it switched off by default.
 - **None of the plugin's sites has what the stock agent's has for a visitor to do**: a control that changes the 3D.
   The skill says nothing about it.
-- **Run 3 is not a better site than run 2 in the blind judgement**, only a tidier one. What it lost is what the 3D
-  shows of the mechanism and how made its objects look. The corrections after run 3 aim at the camera, the travel,
-  the light and numbers shown as counts; only the last of these is about what the 3D explains, and nothing in them
-  is about how a prop is modelled. Whether run 4 closes this is open.
-- **The props' look.** The plugin's review put run 3's props at 2.1 to 2.3 of 4 and run 2's at 1.8 (an
-  uncalibrated judge; the targets are 3.3 to 3.4). They were installed as first delivered in both runs. The
-  delivery's answer now says to look first; whether a second round makes a better prop on this task is not shown
-  by any run yet.
-- **Once the check says "0 things a visitor would notice", the agent finishes.** In run 2 that was one round of
-  changes from the contact sheets; in run 3 three rounds, each for what the check named. The check finds faults:
+- **The props' look.** The plugin's review put run 4's props at 2.25 to 2.48 of 4, run 3's at 2.1 to 2.3 and run
+  2's at 1.8 (an uncalibrated judge; the targets are 3.3 to 3.4). They were installed as first delivered in all
+  three runs. In run 4 the delivery's answer said to look first and the agent did, and went on. Whether a second
+  round makes a better prop on this task is not shown by any run.
+- **Once the check has nothing left to name, the agent finishes.** In run 2 that was one round of changes from
+  the contact sheets; in runs 3 and 4 three rounds, each for what the check named. The check finds faults:
   errors, empty frames, hidden or cut subjects, weight, wrong facts, and since the review of run 3 a picture that
   does not travel and labels too small to read. It still has no opinion on whether a frame is good or whether the
   last picture is worth ending on. This is probably the largest gap between these sites and the "world-class" the
   request asks for, and the corrections after run 3 narrow it without closing it.
-- **Run 3 cost more than run 2**: 10.4 M tokens against 8.0 M, and 38 MB more texture memory in the page.
+- **Runs 3 and 4 cost more than run 2**: 10.4 and 10.5 M tokens against 8.0 M.
 - **A long first stretch without a build.** Run 3's agent read for 20 minutes (six model calls at this service's
   speed) and wrote for 15 before it built once. Nothing broke because of it.
 - **No image model and no calibrated judge on this key.** Every prop in both runs is an unverified preview with
@@ -511,7 +601,8 @@ Two more corrections were made after the verdicts and before the fourth run.
 1. **A web atlas stops at 2048 px unless a size is named** (`EngineRules.default_texture_px`). A browser holds
    every map uncompressed: four 4096 px maps are 341 MiB of graphics memory for one prop. 4096 is one parameter
    away and the delivery's answer says what it would give. Other engines are unchanged. Yours to reverse.
-2. **Which site is Straitjacket's front page.** Run 1's is live now. Run 3's is the lightest, sourced, composed at
+2. **Which site is Straitjacket's front page.** Run 1's is live now. Run 4's is the one the judge prefers to every
+   other; it is also dark, and one more run with the light corrected may be worth waiting for. Run 3's is the lightest, sourced, composed at
    every step on a desktop and a phone, and has the real digest output back; run 2's travels more, and the blind
    judge finds that it explains the project better (overall the two are level). A draft pull
    request can put either there; merging is yours.
@@ -541,6 +632,11 @@ Two more corrections were made after the verdicts and before the fourth run.
   published for the owner. By then the model service was failing, so it came last, after three plugin runs and two
   rounds of corrections that it could have informed. What it shows about cost was there to be seen on the first
   day.
+- **A number in the skill that I did not measure.** The cost of compressing textures, taken from a helper's
+  report into the skill. It was wrong by a factor of ten and made run 4's page twice as heavy to download.
+- **The check's pictures were wrong on a heavy page, again after a change of mine.** Drawing the occlusion pass in
+  the check made its frames slower; I measured what that cost in time and not what a slower frame does to the
+  wait before a picture is taken.
 - **A verdict reported before it was in.** With two of six verdicts on runs 2 and 3, both from calls that showed
   run 3 second, I told the owner that run 3 was ahead. The other order said the opposite.
 - **The occlusion pass was merged unmeasured.** The starter's new pass came with tests of what it draws and none of
@@ -583,7 +679,7 @@ Two more corrections were made after the verdicts and before the fourth run.
 - **Run 2's site.** Checked by `check_site` after the run, from a copy of the built folder: nothing broken,
   nothing a visitor would notice. Its answer is `results/site_run2_plugin/site_check.txt`.
 - **The blind comparison.** Six calls through `benchmarks/site_compare.py` on the first frames, each kept with its
-  reasons (`results/round8/site_compare/`), and thirty-six on the corrected frames of the four sites
+  reasons (`results/round8/site_compare/`), and sixty on the corrected frames of the five sites
   (`results/round8/site_compare_corrected/`). Many were refused at least once by a busy service and asked again; a
   kept verdict was never asked twice.
 - **The stock agent's site.** Checked three times: once by the harness as the run ended, with the check as it was
@@ -598,5 +694,12 @@ Two more corrections were made after the verdicts and before the fourth run.
   photographs the truth, then takes the layer away and shows that the fault is in the frame and named in the
   answer. The test page found the fault in 12 of 12 rounds without the GPU path and in none of 12 with it.
 - **The look-first line and the Rolldown check**: each with tests; the second also on run 3's real project.
-- **Not verified:** whether the corrections made after run 3 give a better site (the fourth run), and the stock
-  page's numbers beyond the eleven looked up.
+- **Run 4's site.** Checked from a copy of the built folder with the check as corrected after the run: nothing
+  broken, seven things (six subjects out of the frame at two positions, and the size of the download). The hosted
+  copy was checked the same way against the agent's build.
+- **The corrections made after run 4**: the check's wait with a test that fails on the check as it was; the
+  compression figures by installing run 3's three props with compression forced; the site check's tests, the
+  documentation audit and the skills' tests pass (190).
+- **Not verified:** whether a site built with the corrections made after run 4 is better (no fifth run), the stock
+  page's numbers beyond the eleven looked up, and anything about how these sites look on a real graphics card: every
+  picture in this report was drawn in software.

@@ -177,6 +177,12 @@ its first lines, say, with nothing left out in the middle</code></pre>
 When a picture or example on the page is made up to explain something, say so in its caption ("an illustration,
 not a real log line"). Do not invent identifiers, hashes, line numbers or log lines that look like receipts.
 
+A sourced number is an element of its own, and inside a flex or grid container (a button, a badge, a row of metrics)
+every element and every run of text between elements becomes an item, with the spaces at their edges dropped. Put the
+whole label in one element inside such a container, `<a class="button"><span>Follow one <span data-src="...">20,001</span>-line
+log</span></a>`. Why: run 4's first button read "FOLLOW ONE20,001-LINE LOG", and the blind judge named it in five of six
+verdicts on type and layout.
+
 ## Stills for the page without WebGL
 
 Without WebGL (or with JavaScript off) the starter's page is an article; each chapter can show a still of its shot.

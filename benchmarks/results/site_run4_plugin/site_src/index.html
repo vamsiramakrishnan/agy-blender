@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>straitjacket — Addressable Evidence for Coding Agents</title>
+  <meta name="description" content="Straitjacket captures command output once, hands coding agents a compact digest with a retrieval address, and shares verified evidence across seven harnesses.">
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <script>document.documentElement.classList.replace('no-js', 'js');</script>
+  <link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+  <canvas id="stage" aria-hidden="true"></canvas>
+
+  <header class="topbar" data-bar>
+    <div class="topbar-inner">
+      <a class="brand" href="#intro" aria-label="Straitjacket overview">
+        <img src="./icons/straitjacket-mark.svg" alt="" width="24" height="24" class="brand-mark">
+        <span class="brand-name">STRAITJACKET</span>
+        <span class="brand-ver" data-src="README.md">v0.5.0</span>
+      </a>
+      <nav class="chapter-nav" aria-label="Story chapters">
+        <a href="#intro" data-nav="intro">01</a>
+        <a href="#flood" data-nav="flood">02</a>
+        <a href="#vault" data-nav="vault">03</a>
+        <a href="#anchors" data-nav="anchors">04</a>
+        <a href="#harnesses" data-nav="harnesses">05</a>
+        <a href="#start" data-nav="start">06</a>
+      </nav>
+      <a class="docs-link" href="./docs/">DOCS &rarr;</a>
+    </div>
+    <div class="progress-rail" aria-hidden="true"><div class="progress-fill" id="progress-fill"></div></div>
+  </header>
+
+  <main id="story">
+    <section class="chapter" id="intro" data-chapter="intro">
+      <div class="panel">
+        <p class="kicker"><span class="idx">01</span> ADDRESSABLE EVIDENCE · <span data-src="README.md">ctx-harness</span></p>
+        <h1>BOUND THE FLOOD. KEEP THE RECEIPT.</h1>
+        <p data-src="docs/HOW-IT-WORKS.md">A failing test can print thousands of lines before the agent makes its first edit.</p>
+        <p>Straitjacket captures command output once locally, hands your coding agent a compact digest with a retrieval address, and lets workers hand verified evidence across harnesses without forwarding transcripts.</p>
+        <div class="legend-strip" aria-label="Semantic color legend">
+          <span class="tag tag-red">FLOOD / BOUNDARY</span>
+          <span class="tag tag-blue">BOUNDED / ADDRESSED</span>
+          <span class="tag tag-amber">RECEIPT / HANDLE</span>
+          <span class="tag tag-green">VERIFIED</span>
+        </div>
+        <div class="actions">
+          <a class="btn btn-primary" href="#flood">FOLLOW ONE <span data-src="evals/field-needle-record.json#/corpus/lines">20,001</span>-LINE LOG &darr;</a>
+          <a class="btn btn-ghost" href="./docs/">READ DOCS</a>
+        </div>
+        <img class="still" src="./stills/intro.webp" alt="Three-station Straitjacket bench: an incoming coral-red stack of 302,628 raw log tokens queued at the Containment Press, followed by the open-drawer Local Artifact Vault and the Seven-Lane Host Manifold." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="flood" data-chapter="flood">
+      <div class="panel">
+        <p class="kicker"><span class="idx">02</span> CONTAINMENT PRESS · <span class="tag-inline tag-blue">ctx run</span></p>
+        <h2><span data-src="evals/field-needle-2026-07-20.md">570×</span> SMALLER. QUIET NEEDLE INTACT.</h2>
+        <p>On a <span class="mono" data-src="evals/field-needle-record.json#/corpus/lines">20,001</span>-line integration log, naive replay floods every turn and head-and-tail truncation (<span class="mono" data-src="evals/field-needle-record.json#/arms/1/out_tokens">1,219</span> tokens) drops the quiet anomaly at line <span class="mono" data-src="evals/field-needle-record.json#/corpus/quiet_needle_line">14,238</span>. <code>ctx run</code> presses the stream down to <span class="mono" data-src="evals/field-needle-record.json#/arms/6/out_tokens">531</span> tokens while preserving the needle and emitting a retrieval address.</p>
+        <div class="metrics">
+          <div class="metric metric-red">
+            <span class="metric-label">RAW FLOOD</span>
+            <span class="metric-val" data-src="evals/field-needle-record.json#/corpus/raw_tokens_o200k">302,628</span>
+            <span class="metric-unit">o200k tokens</span>
+          </div>
+          <div class="metric metric-blue">
+            <span class="metric-label">SJ DIGEST</span>
+            <span class="metric-val" data-src="evals/field-needle-record.json#/arms/6/out_tokens">531</span>
+            <span class="metric-unit"><span data-src="evals/field-needle-2026-07-20.md">570×</span> smaller</span>
+          </div>
+          <div class="metric metric-amber">
+            <span class="metric-label">QUIET NEEDLE</span>
+            <span class="metric-val">L<span data-src="evals/field-needle-record.json#/corpus/quiet_needle_line">14,238</span></span>
+            <span class="metric-unit">survived + address</span>
+          </div>
+        </div>
+        <pre class="specimen" data-src="evals/field-needle-record.json#/arms/6/output_excerpt"><code>[ctx run:8956c843e556 profile=logtemplate/v1]
+cwd: .
+command: cat corpus.log
+exit: 0
+stdout: 20,001 lines · 979.1 KiB · est 250,648 tokens</code></pre>
+        <p class="receipt-foot">Receipt: <code>evals/field-needle-record.json</code> · 3D slab counts scale directly with o200k tokens.</p>
+        <img class="still" src="./stills/flood.webp" alt="Containment Press compressing the coral-red 302,628-token flood into a compact blue 531-token digest with the amber line-14,238 quiet needle intact on the exit tray." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="vault" data-chapter="vault">
+      <div class="panel">
+        <p class="kicker"><span class="idx">03</span> LOCAL ARTIFACT VAULT · <span class="tag-inline tag-amber">run: HANDLE</span></p>
+        <h2>CAPTURED ONCE. PULLED BY ADDRESS.</h2>
+        <p>Full stdout and stderr stay in Straitjacket's local store (<span class="mono" data-src="README.md">64 MiB</span> default per stream) instead of riding on every turn. When the agent needs a traceback, <code>ctx search</code> and <code>ctx get</code> pull only the bounded slice—leaving the earlier prompt prefix intact for cache reuse.</p>
+        <pre class="specimen" data-src="docs/HOW-IT-WORKS.md"><code>ctx search run:8d8335db6848#stdout "MissingTenantError"
+ctx get run:8d8335db6848#stdout --lines 1280:1300</code></pre>
+        <div class="metrics metrics-two">
+          <div class="metric metric-blue">
+            <span class="metric-label">STREAM LIMIT</span>
+            <span class="metric-val" data-src="README.md">64 MiB</span>
+            <span class="metric-unit">local capture store</span>
+          </div>
+          <div class="metric metric-amber">
+            <span class="metric-label">CANARY CACHE HIT</span>
+            <span class="metric-val"><span data-src="README.md">96.5%</span> &rarr; <span data-src="README.md">97.5%</span></span>
+            <span class="metric-unit">3-task canary (cost $0.67 &rarr; $0.92)</span>
+          </div>
+        </div>
+        <p class="receipt-foot">Receipt: <code>docs/HOW-IT-WORKS.md</code> · <code>evals/agentbench/RESULTS.md</code>.</p>
+        <img class="still" src="./stills/vault.webp" alt="Open-drawer Local Artifact Vault holding archived stream cartridges while its overhead gantry lifts a single blue-and-amber bounded slice onto the top of an undisturbed blue prompt-prefix column." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="anchors" data-chapter="anchors">
+      <div class="panel">
+        <p class="kicker"><span class="idx">04</span> ANCHOR RESOLVER · <span class="tag-inline tag-green">VERIFY &rarr; RELOCATE &rarr; REFUSE</span></p>
+        <h2>SOURCE RANGES THAT SURVIVE EDITS.</h2>
+        <p>A bare line number goes stale quietly when lines shift above it. Across <span class="mono" data-src="evals/anchor-drift-2026-08-20.json#/total/cases">1,920</span> post-edit lookups in <span class="mono" data-src="evals/anchor-drift-2026-08-20.json#/files">40</span> files, unanchored reads returned wrong content <span class="mono" data-src="evals/anchor-drift-2026-08-20.json#/total/unanchored_silently_wrong">1,918</span> times. Anchored <code>repo:</code> addresses relocated <span class="mono" data-src="evals/anchor-drift-2026-08-20.json#/total/relocated">1,452</span> times, verified <span class="mono" data-src="evals/anchor-drift-2026-08-20.json#/total/verified">2</span> times, refused <span class="mono" data-src="evals/anchor-drift-2026-08-20.json#/total/refused">466</span> rewrites, and returned wrong content <span class="mono" data-src="evals/anchor-drift-2026-08-20.json#/total/anchored_wrong">0</span> times.</p>
+        <div class="metrics">
+          <div class="metric metric-red">
+            <span class="metric-label">UNANCHORED WRONG</span>
+            <span class="metric-val" data-src="evals/anchor-drift-2026-08-20.json#/total/unanchored_silently_wrong">1,918</span>
+            <span class="metric-unit">silent stale reads</span>
+          </div>
+          <div class="metric metric-green">
+            <span class="metric-label">RELOCATED</span>
+            <span class="metric-val" data-src="evals/anchor-drift-2026-08-20.json#/total/relocated">1,452</span>
+            <span class="metric-unit"><span data-src="evals/anchor-drift-2026-08-20.json#/total/anchored_wrong">0</span> wrong answers</span>
+          </div>
+          <div class="metric metric-amber">
+            <span class="metric-label">REFUSED</span>
+            <span class="metric-val" data-src="evals/anchor-drift-2026-08-20.json#/total/refused">466</span>
+            <span class="metric-unit">+<span data-src="evals/anchor-drift-2026-08-20.json#/cost/overhead_pct">20.6</span>% address cost</span>
+          </div>
+        </div>
+        <p class="receipt-foot">Receipt: <code>evals/anchor-drift-2026-08-20.json</code> · 3D caliper illustrates insert-above shift.</p>
+        <img class="still" src="./stills/anchors.webp" alt="Anchor Resolver caliper: after three lines are inserted above, the unanchored left pointer stays stuck in red on stale lines while the anchored right caliper glides down in green to track the relocated span with zero wrong reads." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="harnesses" data-chapter="harnesses">
+      <div class="panel">
+        <p class="kicker"><span class="idx">05</span> SEVEN-LANE HOST MANIFOLD · <span class="tag-inline tag-blue">ACP + GATES</span></p>
+        <h2>SEVEN HARNESSES. TWO ENFORCEMENT GATES.</h2>
+        <p>Straitjacket wraps your existing coding agent at the birth gate (<code>PreToolUse</code>) or output gate (<code>PostToolUse</code>). Claude Code and Codex bound oversized results after execution; Antigravity rewrites supported calls before execution because its output hook accepts no replacement. Through <code>ctx orchestrate</code> and ACP, workers pass checkpoints and handles across lanes.</p>
+        <ul class="host-list" aria-label="Supported coding harnesses">
+          <li><img src="./icons/claude.svg" alt="" width="16" height="16"><span>Claude Code</span><em class="gate-blue">output gate</em></li>
+          <li><img src="./icons/codex.svg" alt="" width="16" height="16"><span>Codex CLI</span><em class="gate-blue">output gate</em></li>
+          <li><img src="./icons/antigravity.png" alt="" width="16" height="16"><span>Antigravity</span><em class="gate-amber">birth rewrite</em></li>
+          <li><img src="./icons/hermes.svg" alt="" width="16" height="16"><span>Hermes</span><em class="gate-blue">birth + output</em></li>
+          <li><img src="./icons/omp.svg" alt="" width="16" height="16"><span>Oh My Pi</span><em class="gate-blue">birth + output</em></li>
+          <li><img src="./icons/opencode.svg" alt="" width="16" height="16"><span>OpenCode</span><em class="gate-blue">birth + output</em></li>
+          <li><img src="./icons/dsh.svg" alt="" width="16" height="16"><span>DeepSeek Harness</span><em class="gate-amber">gate + replace</em></li>
+        </ul>
+        <p class="receipt-foot">Source: <code>docs/HOST-CAPABILITIES.md</code> · <code>docs/ACP.md</code>.</p>
+        <img class="still" src="./stills/harnesses.webp" alt="Top-down view of the Seven-Lane Host Manifold showing packets transitioning from red to blue across the amber Birth Gate and blue Output Gate, with Antigravity's unsupported output gate marked red and an amber ACP checkpoint token crossing exit lanes." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="start" data-chapter="start">
+      <div class="panel">
+        <p class="kicker"><span class="idx">06</span> START IN ONE TERMINAL · <span data-src="README.md">Python 3.11+</span></p>
+        <h2>TRY IT ON A FAILING TEST.</h2>
+        <p>Install the package, run a noisy test suite through <code>ctx run</code>, or connect your coding harness with <code>ctx setup</code> and <code>ctx doctor</code>. Your harness keeps running the model and controlling its tools.</p>
+        <pre class="specimen" data-src="README.md"><code>python -m pip install 'ctx-harness==0.5.0'
+ctx run -- pytest -q</code></pre>
+        <div class="actions">
+          <a class="btn btn-primary" href="./docs/">OPEN DOCUMENTATION &rarr;</a>
+          <a class="btn btn-ghost" href="#intro">REPLAY FROM TOP &uarr;</a>
+        </div>
+        <p class="receipt-foot">Apache-2.0 · <code>ctx setup</code> · <code>ctx doctor</code> · <a href="./docs/">Documentation index</a>.</p>
+        <img class="still" src="./stills/start.webp" alt="Low architectural panorama of the completed three-station Straitjacket bench from the Seven-Lane Host Manifold back through the Evidence Vault to the Containment Press." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
