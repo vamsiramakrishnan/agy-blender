@@ -513,3 +513,111 @@ def test_one_solid_shape_scores_high_and_scattered_lines_low():
     left[300:304, 50:600] = 120
     assert sc.largest_shape(jpeg(left)) < 0.5
     assert sc.largest_shape(jpeg(bg)) == 0.0
+
+
+# --------------------------------------------------------------------------- the page's subjects
+
+
+def _subj(name: str, kind: str = "prop", cut: float = 0.0, edges: dict | None = None, hidden: float | None = 0.0,
+          under: str = "") -> dict:
+    return {"name": name, "kind": kind, "box": [0.2, 0.2, 0.6, 0.6], "px": [576, 360], "cut": cut, "edges": edges or {},
+            "hidden": hidden, "under": under}
+
+
+def test_subjects_cut_or_hidden_are_named_once_each_with_their_steps(tmp_path):
+    """Thresholds from run 2's site: a label from 10 % cut or hidden, a prop from 30 % cut or 15 % hidden, nothing for
+    a subject less than a fifth in the frame."""
+    rep = sc.SiteReport("site", tmp_path, steps=5)
+    v = sc.Visit("desktop", loaded=True, load_s=1.0)
+    v.steps = [sc.Step(i, i / 4, 0, frame=str(tmp_path / f"desktop_{i:02d}.jpg")) for i in range(5)]
+    v.steps[0].subjects = [_subj("RAW FLOOD", "label", cut=0.15, edges={"bottom": 0.15}),
+                           _subj("gate", cut=0.11, edges={"right": 0.11}),                 # a close shot
+                           _subj("vault", cut=0.84, edges={"right": 0.84})]                 # a sliver at the edge
+    v.steps[1].subjects = [_subj("gate", hidden=0.20, under="section#digest > div.panel"),
+                           _subj("QUIET NEEDLE", "label", hidden=0.12, under="section#flood > div.panel"),
+                           _subj("clamp", hidden=0.12, under="header.topbar")]              # a box's empty corner
+    v.steps[3].subjects = [_subj("RAW FLOOD", "label", cut=0.52, edges={"left": 0.52}), _subj("gate", hidden=0.5,
+                                                                                                under="section#retrieve > div.panel")]
+    v.steps[4].subjects = None
+    rep.visits = {"desktop": v}
+    lines = [n for n in rep.noticed() if "the prop" in n or "the 3D label" in n]
+    assert lines == [
+        ("Desktop: the prop 'gate' lies under section#retrieve > div.panel, section#digest > div.panel at steps 2 (25%) "
+         "and 4 (75%) of 5 (at worst 50% of what is in the frame). Look at desktop_03.jpg."),
+        ("Desktop: the 3D label 'RAW FLOOD' runs out of the frame at the left and bottom edges at steps 1 (0%) and 4 (75%) "
+         "of 5 (at worst 52% of it outside). Look at desktop_03.jpg."),
+        ("Desktop: the 3D label 'QUIET NEEDLE' lies under section#flood > div.panel at step 2 of 5 (25%) (at worst 12% of "
+         "what is in the frame). Look at desktop_01.jpg.")], lines
+    assert rep.text().count("the 3D label") == 2
+
+
+def test_many_subjects_keep_the_answer_short(tmp_path):
+    rep = sc.SiteReport("site", tmp_path, steps=2)
+    v = sc.Visit("phone", loaded=True, load_s=1.0)
+    v.steps = [sc.Step(i, i, 0, frame=str(tmp_path / f"phone_{i:02d}.jpg")) for i in range(2)]
+    v.steps[0].subjects = [_subj(f"LABEL {i}", "label", cut=0.5, edges={"left": 0.5}) for i in range(64)]
+    rep.visits = {"phone": v}
+    lines = [n for n in rep.noticed() if n.startswith("Phone:")]
+    assert len(lines) == sc.SUBJECT_LINES + 1
+    assert lines[-1].startswith("Phone: also cut or hidden at some step: the 3D label 'LABEL 16'") and "and 48 more" in lines[-1]
+
+
+def test_a_measured_subject_is_checked_again_when_it_comes_back_from_the_page():
+    good = {"name": "n" * 300, "kind": "label", "box": [-0.1, 0.2, 0.5, 0.6], "px": [10, 20], "cut": 0.2,
+            "edges": {"left": 0.2, "bogus": 5}, "hidden": None, "under": "div#panel"}
+    s = sc._subject(good)
+    assert s["name"] == "n" * 80 and s["edges"] == {"left": 0.2} and s["hidden"] is None and s["kind"] == "label"
+    for bad in (None, "x", {"name": 1}, {**good, "box": [0, 0, 1]}, {**good, "box": [0, 0, float("nan"), 1]},
+                {**good, "cut": 2.0}, {**good, "cut": True}, {**good, "box": "abcd"}):
+        assert sc._subject(bad) is None
+    assert sc._subject({**good, "kind": "<script>"})["kind"] == "prop"
+
+
+@pytest.mark.browser
+def test_subjects_under_opaque_html_or_cut_by_the_edge_are_reported(tmp_path):
+    r = run(site(tmp_path, "subjects"), tmp_path, steps=2)
+    d = r.visits["desktop"]
+    for st in d.steps:
+        got = {s["name"]: s for s in st.subjects}
+        assert "old_style" not in got and len(got) == 8, st.subjects_note        # no box: nothing measured
+        assert got["under_panel"]["hidden"] == 1.0 and got["under_panel"]["under"] == "div#panel"
+        assert got["under_veil"]["hidden"] == 1.0 and got["under_veil"]["under"] == "div#veil"   # pointer-events: none
+        for name in ("under_glass", "under_ghost", "under_dim", "CLEAR LABEL"):  # transparent, opacity 0, faded parent
+            assert got[name]["hidden"] == 0.0, (name, got[name])
+        assert got["CUT LABEL"]["edges"] == {"right": 0.4} and abs(got["CUT LABEL"]["cut"] - 0.4) < 1e-3
+        assert 0.08 < got["edge_prop"]["cut"] < 0.1
+    noticed = [n for n in r.noticed() if "the prop" in n or "the 3D label" in n]
+    assert len(noticed) == 3, noticed
+    assert any("the prop 'under_panel' lies under div#panel at steps 1 (0%) and 2 (100%) of 2 (at worst 100%" in n for n in noticed)
+    assert any("the prop 'under_veil' lies under div#veil" in n for n in noticed)
+    assert any("the 3D label 'CUT LABEL' runs out of the frame at the right edge" in n and "at worst 40% of it outside" in n
+               for n in noticed)
+    assert "edge_prop" not in r.text() and "under_glass" not in r.text()
+    record = json.loads((tmp_path / "out" / "report.json").read_text())
+    assert record["visits"]["desktop"]["steps"][0]["subjects"][0]["name"] == "under_panel"
+
+
+@pytest.mark.browser
+def test_a_hook_that_throws_lies_hangs_or_floods_breaks_nothing(tmp_path):
+    t0 = time.monotonic()
+    r = run(site(tmp_path, "subjects_hook"), tmp_path, steps=6)
+    assert time.monotonic() - t0 < sc.ANSWER_S
+    d = r.visits["desktop"]
+    assert d.loaded and len(d.steps) == 6 and not r.unfinished and not d.page_errors
+    notes = [s.subjects_note for s in d.steps]
+    assert "threw: fixture hook boom" in notes[0]
+    assert d.steps[1].subjects is None and notes[1] == "onScreen gives no box"
+    many = d.steps[2].subjects
+    assert len(many) == 64 and all(len(s["name"]) <= 80 for s in many) and notes[2] == "64 subjects with a box, more not read"
+    assert d.steps[3].subjects is None and notes[3] == "onScreen gives no box"           # the old fields only
+    assert d.steps[4].subjects is None and "did not resolve" in notes[4]
+    assert d.steps[5].subjects is None and "proxy boom" in notes[5]
+    lines = [n for n in r.noticed() if n.startswith("Desktop:") and "3D label" in n]
+    assert len(lines) == sc.SUBJECT_LINES + 1 and len(r.text().splitlines()) <= 60
+
+
+@pytest.mark.browser
+def test_a_page_without_the_hook_says_nothing_about_subjects(tmp_path):
+    r = run(site(tmp_path, "frozen"), tmp_path, steps=2)
+    assert all(s.subjects is None and s.subjects_note == "no window.__site.info()" for s in r.visits["desktop"].steps)
+    assert "the prop" not in r.text() and "3D label" not in r.text()

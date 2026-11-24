@@ -20,6 +20,10 @@ Given a folder that holds a built site (``index.html``) or a localhost URL it:
 6. loads the page once with "reduce motion" set and once with WebGL unavailable;
 7. checks every element that names its source with ``data-src`` against that source, and lists numbers and code shown
    with no source.
+8. at each step, where the page says where its subjects are (``window.__site.info().onScreen``, each with a projected
+   ``box``), measures how much of each is cut by the frame's edge and how much lies under HTML a visitor cannot see
+   through, and names the ones a visitor would notice. Run 2 (benchmarks/results/site_run2_plugin) is why: the check
+   came back clean while the gate sat under the text panel and labels ran off the frame at several steps.
 
 Everything is bounded: the whole check answers within ``ANSWER_S`` (the host ends a tool call at 180 s), with what it
 has when time runs out, and says which parts are missing.
@@ -98,6 +102,33 @@ SLOW_WAIT_S = 5.0
 #: by side, the reduced-motion visit when a lane frees. Measured on the film: 1 lane 67 s, 2 lanes 54 s, 4 lanes 40 s.
 LANES = 3
 VISIT_LABEL = {"reduced": "the visit with reduce motion set", "nowebgl": "the visit without WebGL"}
+#: The page's subjects (``window.__site.info().onScreen``) are read for at most this long per step, and at most this
+#: many of them (site_probe.js holds the same bound).
+SUBJECTS_WAIT_S = 3.0
+SUBJECTS_READ = 64
+#: When a subject is reported as cut by the frame's edge or hidden under the page's HTML. Shares are of the subject's
+#: projected box: "cut" is the part of the box outside the window, "hidden" the part of what is inside that lies under
+#: an element a visitor cannot see through (background alpha times opacity at least site_probe.js's COVER_ALPHA, 0.6,
+#: or a backdrop blur). Calibrated on run 2's site (benchmarks/results/site_run2_plugin, 9 steps at both sizes, frames
+#: looked at one by one against the reviewer's findings):
+#: - a 3D label 15 % cut loses the ends or the feet of its letters and no longer reads, so a label counts from 10 %
+#:   either way (run 2: '302,628 TOK RAW FLOOD' 21 % below the bottom edge and 'L14,238 QUIET NEEDLE' 56 % under the
+#:   panel, both called out by the reviewer);
+#: - a prop in a close shot often runs a little out of frame on purpose: run 2's gate, vault and clamp at 11 to 22 %
+#:   out read as framed close, the clamp at 42 % and 62 % out as cut off (the reviewer's finding). Props count from 30 %;
+#: - a prop's box is the projection of its 3D bounding box, whose corners stand off the silhouette; run 2's gate
+#:   under the top bar by 12 % of its box was only the empty corner above its knobs, while the gate 20 % under the
+#:   digest chapter's panel showed its whole left column covered (the reviewer's finding). Props count from 15 % hidden;
+#: - a subject less than a fifth in the frame is entering or leaving the shot (run 2: the vault as a sliver at the right
+#:   edge for the first three steps, 84 to 93 % out); the frame is composed around what is in it, and it is not named.
+LABEL_CUT = 0.10
+LABEL_HIDDEN = 0.10
+PROP_CUT = 0.30
+PROP_HIDDEN = 0.15
+IN_FRAME_MIN = 0.2
+#: subjects named one per line, per size, props first, each in the order the scroll meets it; the rest are named together
+#: in one line (run 2's site had 9 such subjects on desktop and 11 on the phone)
+SUBJECT_LINES = 8
 #: how many unsourced numbers and code specimens are listed (the total is always given)
 UNSOURCED_LISTED = 6
 
@@ -155,6 +186,10 @@ class Step:
     shown_triangles: int = 0  # triangles of the latest frame that drew: the picture the step's frame shows
     sideways_px: int = 0
     reached_by: str = "scroll"
+    # the page's subjects at this step (window.__site.info().onScreen, measured by site_probe.js): one dict per subject
+    # with a box: name, kind, box, px, cut, edges, hidden, under. None when the page gives no box; subjects_note says why.
+    subjects: list[dict] | None = None
+    subjects_note: str = ""
 
 
 @dataclass
@@ -255,6 +290,7 @@ class SiteReport:
             if same:
                 out.append(f"{name.capitalize()}: the picture did not change at all from the step before at "
                            + _steps_list(same, self.steps) + ".")
+            out += self.subject_lines(v)
         p = self.visits.get("phone")
         if p and p.steps:
             wide = [s for s in p.steps if s.sideways_px > 1]
@@ -275,6 +311,58 @@ class SiteReport:
         w = self.nowebgl_line()
         if w and not w[1]:
             out.append(w[0])
+        return out
+
+    def subject_lines(self, v: Visit) -> list[str]:
+        """One line per subject of the page that is cut by the frame's edge or hidden under the page's HTML at some step
+        (the thresholds above), with the steps, the worst share, what covers it or which edge cuts it, and the frame."""
+        found: dict[str, dict] = {}
+        for st in v.steps:
+            for s in st.subjects or []:
+                cut, hidden = subject_faults(s)
+                if cut or hidden:
+                    f = found.setdefault(s["name"], {"kind": s["kind"], "cut": [], "hidden": []})
+                    if cut:
+                        f["cut"].append((st, s))
+                    if hidden:
+                        f["hidden"].append((st, s))
+        if not found:
+            return []
+
+        def first(f: dict) -> int:
+            return min(st.index for st, _ in f["cut"] + f["hidden"])
+
+        order = sorted(found.items(), key=lambda kv: (kv[1]["kind"] != "prop", first(kv[1]), kv[0]))
+        size = v.name.capitalize()
+        out = []
+        for name, f in order[:SUBJECT_LINES]:
+            what = f"the 3D label {_q(name, 60)}" if f["kind"] == "label" else f"the prop {_q(name, 60)}"
+            parts, frames = [], []
+            if f["hidden"]:
+                st, s = max(f["hidden"], key=lambda t: t[1]["hidden"])
+                covers = list(dict.fromkeys([s["under"]] + [x["under"] for _, x in f["hidden"]]))
+                covers = [c for c in covers if c] or ["the page's HTML"]
+                parts.append(f"lies under {_names(covers)} at " + _steps_short([t[0] for t in f["hidden"]], self.steps)
+                             + f" (at worst {s['hidden']:.0%} of what is in the frame)")
+                frames.append((s["hidden"], st))
+            if f["cut"]:
+                st, s = max(f["cut"], key=lambda t: t[1]["cut"])
+                edges: dict[str, float] = {}
+                for _, x in f["cut"]:
+                    for e, share in x["edges"].items():
+                        edges[e] = max(edges.get(e, 0.0), share)
+                named = [e for e, share in sorted(edges.items(), key=lambda kv: -kv[1]) if share >= 0.02] or ["frame's"]
+                parts.append(f"runs out of the frame at the {_and(named)} edge{'s' if len(named) > 1 else ''} at "
+                             + _steps_short([t[0] for t in f["cut"]], self.steps) + f" (at worst {s['cut']:.0%} of it outside)")
+                frames.append((s["cut"], st))
+            look = max(frames, key=lambda t: t[0])[1]
+            out.append(f"{size}: {what} " + "; it ".join(parts) + f". Look at {_rel(look.frame, self.out_dir)}.")
+        rest = order[SUBJECT_LINES:]
+        if rest:
+            out.append(f"{size}: also cut or hidden at some step: "
+                       + _names([("the 3D label " if f["kind"] == "label" else "the prop ") + _q(n, 40) for n, f in rest],
+                                SUBJECT_LINES)
+                       + " (every subject at every step is in report.json).")
         return out
 
     def _other_host_note(self) -> str:
@@ -526,6 +614,31 @@ def _merged(lists) -> list[str]:
 
 def _steps_list(steps: list[Step], n: int) -> str:
     return ", ".join(f"step {s.index + 1} of {n} ({s.share:.0%})" for s in steps)
+
+
+def _steps_short(steps: list[Step], n: int) -> str:
+    """'step 4 of 9 (38%)', or 'steps 4 (38%), 5 (50%) and 9 (100%) of 9'."""
+    if len(steps) == 1:
+        return _steps_list(steps, n)
+    return "steps " + _and([f"{s.index + 1} ({s.share:.0%})" for s in steps]) + f" of {n}"
+
+
+def _and(words: list[str]) -> str:
+    return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1]
+
+
+def _names(names: list[str], n: int = 2) -> str:
+    return ", ".join(names[:n]) + (f" and {len(names) - n} more" if len(names) > n else "")
+
+
+def subject_faults(s: dict) -> tuple[bool, bool]:
+    """(cut by the frame's edge, hidden under the page's HTML) for one measured subject at one step."""
+    if s["cut"] > 1 - IN_FRAME_MIN:
+        return False, False
+    label = s["kind"] == "label"
+    hidden = s.get("hidden")
+    return (s["cut"] >= (LABEL_CUT if label else PROP_CUT),
+            hidden is not None and hidden >= (LABEL_HIDDEN if label else PROP_HIDDEN))
 
 
 def _rel(p: str, base: Path) -> str:
@@ -1088,6 +1201,22 @@ class _Visitor:
             await asyncio.wait_for(page.mouse.wheel(0, target - y), 5.0)
         return "wheel"
 
+    async def subjects(self, page) -> tuple[list[dict] | None, str]:
+        """The page's subjects as it shows them now, measured in the page (``site_probe.js``, ``S.subjects``), and why
+        not when they cannot be. The page's hook runs inside this call: it is bounded in time here and in what it returns
+        there, and whatever comes back is checked again, since the page can replace anything it is given."""
+        try:
+            got = await asyncio.wait_for(page.evaluate("window.__agySite.subjects()"), SUBJECTS_WAIT_S)
+        except Exception as e:  # noqa: BLE001  a hook that hangs or a page that navigated: the step is kept without it
+            return None, f"not read ({type(e).__name__})"
+        if not isinstance(got, dict):
+            return None, "not read"
+        if not isinstance(got.get("list"), list):
+            return None, str(got.get("why") or "")[:200]
+        out = [x for x in (_subject(r) for r in got["list"][:SUBJECTS_READ]) if x]
+        note = f"{len(out)} subject{_s(out)} with a box" + (", more not read" if got.get("more") else "")
+        return (out or None), note
+
     async def canvas_alone(self, page, rect: dict) -> bytes:
         """The largest WebGL canvas in view without the page's HTML: read from its drawing buffer after the page's next
         frame (``site_probe.js``, ``grabCanvas``), or, for a page that draws only on change, photographed with every
@@ -1118,6 +1247,7 @@ class _Visitor:
             step = Step(i, share, round(end["y"]), settle_s=round(secs, 2), motion=motion, reached_by=how,
                         draws=int(w.get("maxDraws", 0)), triangles=int(w.get("maxTris", 0)),
                         shown_triangles=int((end.get("last") or {}).get("tris", 0)))
+            step.subjects, step.subjects_note = await self.subjects(page)
             f = self.out / f"{self.v.name}_{i:02d}.jpg"
             f.write_bytes(shot)
             step.frame = str(f)
@@ -1139,6 +1269,25 @@ class _Visitor:
         for a_, b_ in zip(self.v.steps, self.v.steps[1:]):
             if b_.index == a_.index + 1:
                 b_.unchanged = _diff(_grey(Path(a_.frame).read_bytes(), 4), _grey(Path(b_.frame).read_bytes(), 4)) < UNCHANGED
+
+
+def _subject(r: Any) -> dict | None:
+    """One measured subject, as the page handed it back, with every field checked (None when it is not one)."""
+    def num(v: Any, lo: float = -1000.0, hi: float = 1000.0) -> float | None:
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and lo <= v <= hi else None
+
+    if not isinstance(r, dict) or not isinstance(r.get("name"), str):
+        return None
+    box = r.get("box")
+    cut, hidden = num(r.get("cut"), 0, 1), num(r.get("hidden"), 0, 1)
+    if not isinstance(box, list) or len(box) != 4 or any(num(b) is None for b in box) or cut is None:
+        return None
+    edges = r.get("edges") if isinstance(r.get("edges"), dict) else {}
+    px = r.get("px") if isinstance(r.get("px"), list) and len(r.get("px")) == 2 else [0, 0]
+    return {"name": r["name"][:80], "kind": "label" if r.get("kind") == "label" else "prop", "box": [float(b) for b in box],
+            "px": [int(num(p, 0, 1e6) or 0) for p in px], "cut": cut,
+            "edges": {k: v for k in ("left", "right", "top", "bottom") if (v := num(edges.get(k), 0, 1))},
+            "hidden": hidden, "under": str(r.get("under") or "")[:120]}
 
 
 def step_order(n: int) -> list[int]:
@@ -1351,9 +1500,11 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
         if v and v.steps:
             frames = []
             for s in v.steps:
+                faults = [subject_faults(x) for x in s.subjects or []]
                 flags = [f for f, on in (("3D empty", s.canvas_content is not None and s.canvas_content < EMPTY_CONTENT),
                                          ("unchanged", s.unchanged), ("still moving", s.motion == "moving"),
-                                         ("sideways", s.sideways_px > 1)) if on]
+                                         ("sideways", s.sideways_px > 1), ("subject hidden", any(h for _, h in faults)),
+                                         ("subject cut", any(c for c, _ in faults))) if on]
                 frames.append((s.frame, f"{s.index + 1}/{steps}  {s.share:.0%}" + (f"  {', '.join(flags)}" if flags else ""), bool(flags)))
             sheet = out / f"sheet_{name}.jpg"
             contact_sheet(frames, sheet, 480 if name == "desktop" else 200, 3 if name == "desktop" else min(len(frames), 5))

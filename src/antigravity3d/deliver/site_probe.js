@@ -79,6 +79,140 @@
     found.sort((a, b) => b[0] - a[0]);
     return { over, culprits: [...new Set(found.map((o) => o[1] + ' (' + Math.round(o[0]) + ' px)'))].slice(0, 3) };
   };
+  // ---- the page's subjects (window.__site.info().onScreen), and how much of each the visitor cannot see
+  // The hook is the page's own code: it may be missing, throw, never resolve, or return anything at all. Nothing it
+  // returns is trusted: at most SUBJECTS entries are read, names are cut, every number is checked.
+  const SUBJECTS = 64, NAME_CHARS = 80, POINTS = 3000;
+  // At 0.6 what lies under shows only as a faint shadow; run 2's panels were 0.94 and its top bar 1.
+  const COVER_ALPHA = 0.6;
+  const finite = (v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 1000;
+  const readHook = async () => {
+    let info;
+    try {
+      const site = window.__site;
+      if (!site || typeof site.info !== 'function') return { why: 'no window.__site.info()' };
+      info = site.info();
+      if (info && typeof info.then === 'function') {
+        info = await Promise.race([info, new Promise((r) => setTimeout(() => r({ __late: true }), 500))]);
+        if (info && info.__late) return { why: 'window.__site.info() did not resolve within 0.5 s' };
+      }
+    } catch (e) { return { why: 'window.__site.info() threw: ' + String((e && e.message) || e).slice(0, 120) }; }
+    const list = [];
+    let seen = 0, boxless = 0, more = false;
+    try {
+      const on = info && info.onScreen;
+      if (!on || typeof on !== 'object') return { why: 'info() has no onScreen object' };
+      for (const k in on) {
+        if (seen >= SUBJECTS) { more = true; break; }
+        seen++;
+        try {
+          const v = on[k], b = v && v.box;
+          if (!b || typeof b !== 'object') { boxless++; continue; }
+          const box = [b[0], b[1], b[2], b[3]];
+          if (!box.every(finite) || !(box[2] > box[0]) || !(box[3] > box[1])) { boxless++; continue; }
+          list.push({ name: String(k).slice(0, NAME_CHARS), kind: v.kind === 'label' ? 'label' : 'prop', box });
+        } catch (e) { boxless++; }
+      }
+    } catch (e) { return { why: 'reading onScreen threw: ' + String((e && e.message) || e).slice(0, 120) }; }
+    if (!list.length) return { why: seen ? 'onScreen gives no box' : 'onScreen is empty', seen };
+    return { list, seen, boxless, more };
+  };
+  const sel = (el) => { const p = []; for (let e = el; e && e !== document.body && p.length < 3; e = e.parentElement) {
+    let s = e.tagName.toLowerCase(); if (e.id) { p.unshift(s + '#' + e.id); break; }
+    const c = [...e.classList].slice(0, 2).join('.'); if (c) s += '.' + c; p.unshift(s); } return p.join(' > '); };
+  // How much an element blocks the view of what is drawn under it: its background's alpha (or 1 with a backdrop
+  // filter, which blurs what is behind past recognising) times its own and every ancestor's opacity. Text, borders and
+  // images without a background are not counted: a heading drawn straight on the scene leaves it in view around the
+  // letters.
+  const opacityOf = new Map();
+  const chainOpacity = (el) => {
+    if (!el || el.nodeType !== 1) return 1;
+    if (opacityOf.has(el)) return opacityOf.get(el);
+    const o = (parseFloat(getComputedStyle(el).opacity) || 0) * chainOpacity(el.parentElement);
+    opacityOf.set(el, o);
+    return o;
+  };
+  const blockOf = new Map();
+  const blocking = (el) => {
+    if (blockOf.has(el)) return blockOf.get(el);
+    const cs = getComputedStyle(el);
+    // Chromium gives rgb()/rgba() for most colours, but keeps color(), oklch() and the like as written, alpha after '/'
+    const bg = (cs.backgroundColor || '').trim();
+    const alpha = (t) => (t === undefined ? 1 : parseFloat(t) * (t.endsWith('%') ? 0.01 : 1));
+    let a;
+    if (bg === '' || bg === 'transparent') a = 0;
+    else if (/^rgba?\(/.test(bg)) a = alpha(bg.slice(bg.indexOf('(') + 1, -1).split(/[\s,/]+/).filter(Boolean)[3]);
+    else a = alpha((/\/\s*([\d.]+%?)\s*\)$/.exec(bg) || [])[1]);
+    if (!Number.isFinite(a)) a = 0;
+    if (cs.backdropFilter && cs.backdropFilter !== 'none' && /blur/.test(cs.backdropFilter)) a = 1;
+    const b = a * chainOpacity(el);
+    blockOf.set(el, b);
+    return b;
+  };
+  const refCanvas = () => {
+    let best = null;
+    const pool = S.canvases.length ? S.canvases : [...document.querySelectorAll('canvas')];
+    for (const c of pool) {
+      const r = c.getBoundingClientRect();
+      const a = Math.max(0, Math.min(innerWidth, r.right) - Math.max(0, r.left)) * Math.max(0, Math.min(innerHeight, r.bottom) - Math.max(0, r.top));
+      if (a > 64 && (!best || a > best.a)) best = { c, a };
+    }
+    return best && best.c;
+  };
+  const r4 = (v) => Math.round(v * 1e4) / 1e4;
+  // The measure itself is synchronous: pointer-events is forced on only for the length of this task, so no frame is
+  // drawn and no hover state changes while it is on. elementsFromPoint gives what is drawn at a point in paint order,
+  // and skips elements with pointer-events: none, which a text panel often has while it fades (run 2's panels did).
+  const measureSubjects = (list) => {
+    const W = innerWidth, H = innerHeight, canvas = refCanvas();
+    opacityOf.clear(); blockOf.clear();
+    const force = document.createElement('style');
+    force.textContent = '*{pointer-events:auto!important}';
+    (document.head || document.documentElement).appendChild(force);
+    const per = Math.max(9, Math.floor(POINTS / list.length));
+    try {
+      return list.map((s) => {
+        const [x0, y0, x1, y1] = s.box, w = x1 - x0, h = y1 - y0;
+        const edges = {};
+        if (x0 < 0) edges.left = r4(Math.min(-x0, w) / w);
+        if (x1 > 1) edges.right = r4(Math.min(x1 - 1, w) / w);
+        if (y0 < 0) edges.top = r4(Math.min(-y0, h) / h);
+        if (y1 > 1) edges.bottom = r4(Math.min(y1 - 1, h) / h);
+        const ix = Math.max(0, Math.min(x1, 1) - Math.max(x0, 0)), iy = Math.max(0, Math.min(y1, 1) - Math.max(y0, 0));
+        const out = { name: s.name, kind: s.kind, box: s.box.map(r4), px: [Math.round(w * W), Math.round(h * H)],
+                      cut: r4(1 - (ix * iy) / (w * h)), edges, hidden: null, under: '' };
+        const vw = ix * W, vh = iy * H;
+        if (!canvas || vw < 2 || vh < 2) return out;
+        const nx = Math.max(1, Math.min(16, Math.round(Math.sqrt(per * vw / vh)), Math.ceil(vw / 4)));
+        const ny = Math.max(1, Math.min(16, Math.floor(per / nx), Math.ceil(vh / 4)));
+        const left = Math.max(x0, 0) * W, top = Math.max(y0, 0) * H;
+        let covered = 0, n = 0;
+        const by = new Map();
+        for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+          const stack = document.elementsFromPoint(left + (i + 0.5) * vw / nx, top + (j + 0.5) * vh / ny);
+          const at = stack.indexOf(canvas);
+          n++;
+          if (at < 0) continue;  // the scene is not drawn here at all: nothing of it to hide
+          for (let k = at - 1; k >= 0; k--) {
+            if (blocking(stack[k]) >= COVER_ALPHA) { covered++; by.set(stack[k], (by.get(stack[k]) || 0) + 1); break; }
+          }
+        }
+        out.hidden = n ? r4(covered / n) : null;
+        let top1 = null;
+        for (const [el, c] of by) if (!top1 || c > top1[1]) top1 = [el, c];
+        if (top1) out.under = sel(top1[0]);
+        return out;
+      });
+    } finally { force.remove(); }
+  };
+  S.subjects = async () => {
+    const got = await readHook();
+    if (!got.list) return got;
+    let measured;
+    try { measured = measureSubjects(got.list); } catch (e) { return { why: 'the measure failed: ' + String((e && e.message) || e).slice(0, 120) }; }
+    return { list: measured, seen: got.seen, boxless: got.boxless, more: got.more };
+  };
+
   let hider = null;
   // After a step's frame: the frame counts, where the page is, and (hide) the WebGL canvas alone on screen, two frames on.
   S.stepEnd = (hide) => new Promise((done) => {

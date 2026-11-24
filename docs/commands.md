@@ -340,6 +340,29 @@ What it does:
    `sheet_desktop.jpg` and `sheet_phone.jpg`; labels in red mark a finding.
 4. Loads the page once with "reduce motion" set and once with WebGL taken away, and says what a visitor then gets.
 5. Checks every element that names its source (below), and lists numbers and code shown without one.
+6. At each step, when the page says where its subjects are (below), measures how much of each is cut by the frame's
+   edge and how much lies under the page's HTML, and names those a visitor would notice.
+
+Where the subjects are. A page may expose `window.__site.info()`, whose result holds `onScreen`: one entry per subject
+on screen, keyed by its name, each `{ share, x, y, box: [x0, y0, x1, y1], kind }`. `box` is the subject's projected box
+as fractions of the window from its top left, not clamped (below 0 or above 1 it runs out of the frame); `kind` is
+`"prop"` or `"label"` (a 3D label; absent means prop). The skill's starter project writes it. A page without `box` (only
+`share`, `x`, `y`, as pages built before it have) or without the hook gets nothing measured and nothing said about its
+subjects. The hook is the page's code and is not trusted: at most 64 subjects are read, names are cut to 80
+characters, every number is checked, and a hook that throws or does not answer within 0.5 s leaves the step without
+the measure. For each subject with a box, at the moment the step's frame is taken:
+
+- cut: the share of the box outside the window, and by which edges;
+- hidden: the share of the box's part in the window that lies under an element a visitor cannot see through. That is
+  an element drawn above the 3D canvas at that point (the browser's own paint order, read with `elementsFromPoint` at
+  up to 16 x 16 points of the box while `pointer-events` is forced on, so a panel with `pointer-events: none` still
+  counts) whose background alpha times its own and its ancestors' opacity is at least 0.6, or that has a backdrop blur.
+  Text, borders and images without a background do not count: the scene shows around them. The element is named as
+  the facts are (`section#digest > div.panel`).
+
+The answer gives one line per subject and size, with the steps, the worst share, what covers it or which edges cut it,
+and the frame to look at; at most 8 subjects per size, props first, then one line naming the rest. Every subject at
+every step is in `report.json`. The contact sheet marks such steps `subject hidden` or `subject cut`.
 
 How each finding is decided (the only thresholds; everything else is reported as a number):
 
@@ -349,6 +372,10 @@ How each finding is decided (the only thresholds; everything else is reported as
 | the 3D canvas shows little | the canvas shows something on under a quarter of the share it shows at the page's median step; the answer adds how much of that is one solid shape (the largest region after an opening of two pixels at 1/4 size) | the scene may have left the frame between chapters (run 1 at 62 %: a grid and one arc, 4 % against 19 %, one shape 53 to 63 % of it), or a small subject is framed on purpose (the skill's starter, its wide closing shot: 3 to 5 %, one shape 90 to 98 %). The shape share is a hint, not a rule: the film's opening, many small things composed on purpose, scores 26 %. The frames tell which |
 | the picture did not change | mean difference to the step before under 0.2 % (1/4-size grey frame) | the scroll moved and nothing on screen did |
 | sideways scroll on a phone | the page is wider than the viewport by more than 1 px | a visitor's thumb finds it |
+| a 3D label cut or hidden | 10 % of its box outside the window, or 10 % of its part in the window under opaque HTML | a label 15 % cut loses the ends or feet of its letters and no longer reads (run 2: a floor label 21 % below the bottom edge and one 56 % under the text panel, both called out by the reviewer) |
+| a prop cut | 30 % of its box outside the window | a close shot often runs a prop a little out of frame on purpose: run 2's props at 11 to 22 % out read as framed close, the clamp at 42 % and 62 % out as cut off |
+| a prop hidden | 15 % of its part in the window under opaque HTML | the box is the projection of the prop's 3D bounding box, whose corners stand off the silhouette: 12 % under run 2's top bar was only the empty corner above the gate, 20 % under the digest chapter's panel covered the gate's whole left column |
+| (neither) | less than a fifth of the box in the window | the subject is entering or leaving the shot (run 2: the vault as a sliver at the right edge, 84 to 93 % out) |
 | the download is heavy | the bytes take more than 5 s on a 10 Mbit/s connection | the first impression is over by then |
 | an unsourced number | three or more digits, or a unit (%, ms, MB, tokens, ...); a bare year is not counted | small counts are prose; measurements are claims |
 
@@ -371,6 +398,12 @@ On software WebGL a heavy page draws a frame in about a second. GSAP treats any 
 scrubbed animation would barely move; the page is therefore shown at most 250 ms passing between two of its frames
 (`performance.now`, `Date.now` and the animation-frame time move together). A page that draws faster sees the real
 clock. Frames still changing after 4 s are kept and named in the measures.
+
+One thing in the frames is headless Chromium's, not the page's: a WebGL canvas under an opaque, full-width fixed bar
+loses as many rows at the opposite edge (run 2's 48 px top bar left a flat 48 px band at the bottom of every
+full-window frame; a bar 300 px down blanks the rows 300 px up from the bottom). The same browser with a window draws
+them, and the canvas-only frames, read from the drawing buffer, show them. Subjects are measured from the page's
+geometry, not from the frames, so the band changes nothing that is reported.
 
 Facts. Mark an element with the file that holds what it shows; paths are relative to `--sources` (default: the site
 folder):
