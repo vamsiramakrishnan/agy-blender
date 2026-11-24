@@ -30,7 +30,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Any, get_args
 
-from antigravity3d.state import EngineBudget, TargetEngine
+from antigravity3d.state import TEXTURE_PX_CHOICES, EngineBudget, TargetEngine
 
 ENGINES = list(get_args(TargetEngine))
 # The brief's questions are answered at the fake's defaults (clean, 3.6), stated here so an offline run meets the brief.
@@ -63,6 +63,8 @@ def _print_art(art: Any) -> None:
 def _budget(a: argparse.Namespace) -> EngineBudget:
     keep = bool(getattr(a, "keep_contact_faces", False))
     extra = {} if getattr(a, "surfaces", None) is None else {"generated_surfaces": a.surfaces == "generated"}
+    if getattr(a, "max_texture_px", None):
+        extra["max_texture_px"] = a.max_texture_px
     if a.max_tris is not None:
         return EngineBudget(a.engine, max_tris=a.max_tris, keep_contact_faces=keep, **extra)
     return EngineBudget(a.engine, keep_contact_faces=keep, **extra)
@@ -741,6 +743,9 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--max-tris", type=int, default=None, help="triangle budget (default: engine budget default)")
         p.add_argument("--keep-contact-faces", action="store_true",
                        help="ship every authored triangle, also the faces parts press together (for parts that will be moved apart)")
+        p.add_argument("--max-texture-px", type=int, choices=TEXTURE_PX_CHOICES, default=None, metavar="PX",
+                       help="largest side of the texture atlas: 256, 512, 1024, 2048 or 4096 (default: the size the parts need, "
+                            "at most 4096); for a web page each step down quarters the texture memory")
         p.add_argument("--surfaces", choices=("generated", "flat"), default=None,
                        help="materials without an image: 'generated' paints wear, dirt, grain and markings from the geometry "
                             "(the default), 'flat' ships their flat colours")

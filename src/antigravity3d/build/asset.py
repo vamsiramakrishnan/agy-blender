@@ -112,7 +112,8 @@ class Part:
 class Asset:
     """One asset: its materials and parts, written by ``save()`` as the hand-off folder (``build.handoff``)."""
 
-    def __init__(self, name: str, engine: str, max_tris: int = 15000, brief: str = "", art_direction: str = ""):
+    def __init__(self, name: str, engine: str, max_tris: int = 15000, brief: str = "", art_direction: str = "",
+                 max_texture_px: int | None = None):
         if not isinstance(name, str) or not ID_RE.match(name) or len(name) > ID_MAX:
             raise BuildError(f"Asset: name must be letters, digits and underscores, not starting with a digit, at most "
                              f"{ID_MAX} characters (it names the files), got {name!r}")
@@ -122,6 +123,12 @@ class Asset:
             raise BuildError(f"Asset {name}: max_tris must be a positive whole number, got {max_tris!r}")
         if not isinstance(brief, str):
             raise BuildError(f"Asset {name}: brief must be text (the user's request in their words)")
+        from antigravity3d.state import texture_px_choice
+
+        try:  # the atlas's largest side: the lever for a web page's download and texture memory (state.EngineBudget)
+            texture_px = texture_px_choice(int(max_texture_px) if isinstance(max_texture_px, np.integer) else max_texture_px)
+        except ValueError as e:
+            raise BuildError(f"Asset {name}: {e}") from None
         if not isinstance(art_direction, str):
             raise BuildError(f"Asset {name}: art_direction must be a style id (text), got {art_direction!r}")
         if art_direction:
@@ -135,6 +142,7 @@ class Asset:
                 raise BuildError(f"Asset {name}: {e}") from None
         self.name, self.engine, self.max_tris, self.brief = name, engine, int(max_tris), brief
         self.art_direction = art_direction
+        self.max_texture_px = texture_px
         self._materials: list[dict[str, Any]] = []
         self._nodes: list[dict[str, Any]] = []  # wire nodes, in the order made (a mirror copy right after its part)
         self._files: dict[str, bytes] = {}  # node id -> PLY bytes of a free-form part
@@ -357,7 +365,8 @@ class Asset:
         return {
             "version": 1,
             "asset": {"name": self.name, "engine": self.engine, "max_tris": self.max_tris, "brief": self.brief,
-                      "art_direction": self.art_direction},
+                      "art_direction": self.art_direction,
+                      **({"max_texture_px": self.max_texture_px} if self.max_texture_px else {})},
             "materials": [dict(m) for m in self._materials],
             "nodes": [json.loads(json.dumps(n)) for n in self._nodes],
             "notes": list(self._notes),

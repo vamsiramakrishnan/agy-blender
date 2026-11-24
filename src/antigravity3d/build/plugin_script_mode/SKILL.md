@@ -79,11 +79,14 @@ front faces -y.
 
 ## Reference
 
-`Asset(name, engine, max_tris=15000, brief="", art_direction="")`: `engine` is
-`unreal_5`, `unity_urp`, `godot_4`, `roblox_r15` or `web_three` (three.js); `brief`
-is the user's request in their words (the review checks the asset against it);
-`art_direction` is a named style, only when the user asks for one (skill
-art-direction).
+`Asset(name, engine, max_tris=15000, brief="", art_direction="", max_texture_px=None)`:
+`engine` is `unreal_5`, `unity_urp`, `godot_4`, `roblox_r15` or `web_three`
+(three.js); `brief` is the user's request in their words (the review checks the
+asset against it); `art_direction` is a named style, only when the user asks for
+one (skill art-direction); `max_texture_px` (256, 512, 1024, 2048 or 4096) caps
+the side of the texture atlas: the lever for a web page's download and texture
+memory (never scale the object for it). `deliver_package` says for a web asset
+up to how many pixels on screen its textures stay sharp.
 
 `a.material(id, color, surface="", metallic=0.0, roughness=0.5)`: `color` is
 `"#rrggbb"` as a colour picker shows it. `surface` names the substance and its

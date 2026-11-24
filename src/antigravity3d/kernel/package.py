@@ -1593,6 +1593,8 @@ def write_engine_package(
         rec["shipped_target_met"] = bool(side) and rec["shipped_px_per_m"] >= budget.texel_density_px_per_m * (1 - 1e-9)
         rec["needed_map_px"] = rec["needed_atlas_px"] if side else None  # side that reaches the target with this layout (the layout scales with it)
         rec["engine_max_texture_px"] = cap
+        if budget.max_texture_px:  # a size the caller chose (or an art direction's): the density it gives is the choice
+            rec["chosen_max_texture_px"] = budget.max_texture_px
     eng_issues += texel_density_issues(density, engine)
 
     dens = [u.texel_density for u in uvs if u.texel_density > 0]
@@ -1607,7 +1609,9 @@ def write_engine_package(
         "units": units,
         "normal_convention": NORMAL_CONVENTION.get(engine, "opengl"),
         "budget": {k: getattr(budget, k) for k in ("max_tris", "max_draw_calls", "max_collision_hulls", "texel_density_px_per_m",
-                                                   "generated_surfaces")},
+                                                   "generated_surfaces")}
+                  # written only when chosen, so a package without a chosen size reads exactly as before; an edit reopens with it
+                  | ({"max_texture_px": budget.max_texture_px} if budget.max_texture_px else {}),
         "tris": sum(len(s.triangles) for s in ship.values()),
         "lod_levels": max(glb_levels, len(lod_tris)),
         "lod_tris": lod_tris,
