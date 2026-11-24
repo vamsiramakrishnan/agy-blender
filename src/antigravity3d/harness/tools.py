@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import hashlib
+import inspect
 import json
 import re
 import shutil
@@ -45,6 +46,7 @@ from antigravity3d.decisions.compose import (
     tier15_score,
 )
 from antigravity3d.genmedia.pbr_deriver import delight, roughness_breakup
+from antigravity3d.harness import keeper
 from antigravity3d.harness.session import Preview, Session, resolve, set_toolset
 from antigravity3d.harness.traceback_compressor import compress_exception
 from antigravity3d.genmedia.material_prompt import texture_prompt
@@ -110,7 +112,10 @@ NO_IMAGES = ("NO IMAGES: this preview's image limit is {limit} and {used} used, 
 # call: nothing reaches a tool of ours), and it went on to script Blender in files instead. Measured on the two earlier
 # live runs: 46-133 output tokens per operation (mean about 100) and up to 5,700 thinking tokens per call, so 25
 # operations (about 2,500 tokens) leave room for any thinking seen.
-SHORT_PATH = "THE SHORT PATH (each model call costs the whole conversation so far, so put calls that can go together in one turn and do not explore folders): build the design with apply_scene_ir, not by scripting Blender, because only a design in the session's stage can be edited, checked and packaged here (Blender on the command line is for inspecting files). First call: the materials and the main body; then two or three calls of at most 25 operations each, writing anything that occurs more than once once, with mirror or repeat. A reply is cut off at 16,384 output tokens, thinking included, and an operation costs about 100: a call that was cut off is split and sent again. Then render_preview and look at the views; improve once or twice; deliver_package, which reviews, builds LODs and colliders, validates and exports (when the request names a folder for the result, pass it as dest; do not copy files by hand afterwards). Its answer starts with one of three: \"DELIVERED\" (the run is finished: reply to the user with the package path and the findings, and do not inspect it again); \"NOT DELIVERED: a person must decide\" (reply to the user with the reason and stop); \"NOT DELIVERED\" otherwise (fix what it names with apply_scene_ir and call deliver_package again). Nothing else is required."
+# "STILL WORKING" (harness/keeper.py): run 1 of the website task (2026-11-24) had two deliver_package calls cut off by
+# the host at 3 minutes; the agent then polled folders for four minutes and fell back to stage tools. The answer that
+# replaces the cut-off says in its first words that nothing failed, since a "NOT DELIVERED" sends an agent to repair.
+SHORT_PATH = "THE SHORT PATH (each model call costs the whole conversation so far, so put calls that can go together in one turn and do not explore folders): build the design with apply_scene_ir, not by scripting Blender, because only a design in the session's stage can be edited, checked and packaged here (Blender on the command line is for inspecting files). First call: the materials and the main body; then two or three calls of at most 25 operations each, writing anything that occurs more than once once, with mirror or repeat. A reply is cut off at 16,384 output tokens, thinking included, and an operation costs about 100: a call that was cut off is split and sent again. Then render_preview and look at the views; improve once or twice; deliver_package, which reviews, builds LODs and colliders, validates and exports (when the request names a folder for the result, pass it as dest; do not copy files by hand afterwards). Its answer starts with one of four: \"DELIVERED\" (the run is finished: reply to the user with the package path and the findings, and do not inspect it again); \"NOT DELIVERED: a person must decide\" (reply to the user with the reason and stop); \"NOT DELIVERED\" otherwise (fix what it names with apply_scene_ir and call deliver_package again); \"STILL WORKING\" (nothing failed and nothing needs fixing: the work goes on by itself; call deliver_package again at once with the same arguments and it answers with the result, doing no step twice; any tool that needs more than about two and a half minutes answers the same way). Nothing else is required."
 
 
 # What happens to surfaces, said by the tools at the moment it matters (opening a session without images, entering
@@ -177,15 +182,68 @@ class ToolReply(str):
         return reply
 
 
+# The tools that change the design or its materials: called while a kept call of the session runs (harness/keeper.py),
+# they stop it first, because its work was for the design before the change. READ_TOOLS only read and start at once
+# beside a running call; every other tool waits for it within its own time.
+EDIT_TOOLS = frozenset({"apply_scene_ir", "undo_last_edit", "apply_shader_diff", "forge_pbr_material", "run_paintover_loop",
+                        "propose_variants", "select_variant", "promote_variant"})
+# Of the edits, these are one quick transaction on the design as they find it: two of them run one after the other
+# (tests/test_harness_tools.py::test_session_lock_serialises_concurrent_edits); a longer edit (an image generated for
+# the current surfaces) is stopped by a later one, since its result would be stale.
+TRANSACTION_TOOLS = frozenset({"apply_scene_ir", "undo_last_edit", "apply_shader_diff", "propose_variants",
+                               "select_variant", "promote_variant"})
+READ_TOOLS = frozenset({"inspect_manifest", "query_region", "qa_probe"})
+R_KEEPER = "kept_calls"
+
+
+def _keeper(s: Session) -> keeper.Keeper:
+    k = s._res(R_KEEPER)
+    if k is None:
+        k = keeper.Keeper()
+        s._set(R_KEEPER, k)
+    return k
+
+
+async def stop_kept_work(s: Session) -> list[str]:
+    """Stop the session's kept calls and drop their answers (the design is about to change outside the tools here: a
+    script's design applied by run_build, a switch to a preview); the names of the calls that were still running."""
+    k = s._res(R_KEEPER)
+    return await k.stop() if k is not None else []
+
+
+def stopped_line(names: list[str]) -> str:
+    return (f"STOPPED the {' and '.join(dict.fromkeys(names))} that was still running: it was working on the design as it "
+            "was before this change, so its work was removed; call it again when you want it for this design.")
+
+
 def _guard(fn: ToolFn) -> ToolFn:
+    """Expected failures as one ``ERROR`` line, and every call kept by its session (``harness/keeper.py``): it answers
+    within ``keeper.ANSWER_S`` and its work goes on, for the next call with the same arguments to collect."""
+    sig = inspect.signature(fn)
+    name = fn.__name__
+
     @functools.wraps(fn)
     async def wrapper(*args: Any, **kwargs: Any) -> str:
+        async def run() -> str:
+            try:
+                return await fn(*args, **kwargs)
+            except ir_schema.IRArgumentError as e:  # already one actionable line: where, what, what was expected
+                return f"ERROR {str(e)[:400]}"
+            except (ValueError, LookupError, RuntimeError) as e:  # bad input / unknown id / refused stage edit
+                return f"ERROR {compress_exception(e)}"
+
+        if keeper.inside():
+            return await run()
         try:
-            return await fn(*args, **kwargs)
-        except ir_schema.IRArgumentError as e:  # already one actionable line: where, what, what was expected
-            return f"ERROR {str(e)[:400]}"
-        except (ValueError, LookupError, RuntimeError) as e:  # bad input / unknown id / refused stage edit
-            return f"ERROR {compress_exception(e)}"
+            bound = sig.bind(*args, **kwargs)
+            s = resolve(bound.arguments["ctx"])
+        except (TypeError, KeyError, LookupError):
+            return await run()  # no session (the tool answers so) or a call the signature refuses: nothing to keep
+        bound.apply_defaults()  # an argument left out and the same one given as its default are the same call
+        given = {k: v for k, v in bound.arguments.items() if k != "ctx" and v != sig.parameters[k].default}
+        return await _keeper(s).call(name, given, run, edit=name in EDIT_TOOLS, read=name in READ_TOOLS,
+                                     transaction=name in TRANSACTION_TOOLS,
+                                     stopped_note=stopped_line)
 
     return wrapper
 
@@ -1606,7 +1664,8 @@ def _enter(s: Session, stage: str) -> None:
 async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") -> str:
     """From a finished design to a delivered package in one call: first the checks that can refuse it (detached parts,
     LODs, colliders, validation, the package's Blender check and engine import), then the lookdev review of what ships
-    unless one exists, the export, and what the review found.
+    unless one exists, the export, and what the review found. It answers within 150 s: "STILL WORKING" means the work
+    goes on (nothing to fix): call it again with the same arguments for the result.
     dest: the folder the user named for the result, relative to the workspace; the engine files are placed there."""
     s = resolve(ctx)
     if dest:
@@ -1635,8 +1694,6 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
     # it went on checking the package itself until its token share ran out).
     review: list[str] = []
     steps: list[str] = []
-    started = time.monotonic()
-    kept = False  # the checked package and the review stay for the next call when this one stops waiting
     try:
         for _ in range(2):  # a second pass only when the review's own deterministic fix changed the scene
             # Fail fast (r5/live_native7: the detached staple was refused by the Blender check after a 77 s lookdev
@@ -1646,38 +1703,26 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
             if refusal:
                 return "\n".join([f"NOT DELIVERED: {refusal}. Fix what it names {fix_with(s)} and call "
                                   "deliver_package again.", *steps])
-            task = _review_task(s)  # one an earlier call left running (or finished) for this scene
             v = s.state.verdict
-            if task is None and v is not None and v.revision == s.state.revision and v.stage in {"lookdev", "final"}:
+            if v is not None and v.revision == s.state.revision and v.stage in {"lookdev", "final"}:
                 break
             # Not run beside the checks: the render and the review would then be made for designs the checks refuse.
             _enter(s, "LOOKDEV")
-            if task is None:  # none asked yet for this scene: render it and ask (a task that outlives this call)
-                if s.pool is not None:
-                    steps.append(await render_lookdev(ctx, "eevee"))
-                task = _start_review(ctx, s)
-            left = DELIVER_ANSWER_S - (time.monotonic() - started)
-            try:
-                answer = await asyncio.wait_for(asyncio.shield(task), timeout=max(left, 1.0))
-            except asyncio.TimeoutError:
-                kept = True
-                return "\n".join([f"NOT DELIVERED: the review has not answered in {time.monotonic() - started:.0f} s (the "
-                                  "judge is still working on it); nothing needs fixing: call deliver_package again, it "
-                                  "continues where this call stopped and does not render or ask again.", *steps])
-            except asyncio.CancelledError:
-                kept = True  # the client gave up on this call: the next one continues from here
-                raise
-            s._set(R_REVIEW, None)
-            if answer.startswith("STALE"):  # the scene changed while it was judged: render and ask again
+            if s.pool is not None:
+                keeper.step("deliver_package", 3, DELIVER_STEPS, "the lookdev render of the checked package")
+                steps.append(await render_lookdev(ctx, "eevee"))
+            keeper.step("deliver_package", 4, DELIVER_STEPS, "the lookdev review (a model call)")
+            answer = await run_visual_qa(ctx)
+            if answer.startswith("STALE"):  # the review's own fix changed the scene while it was judged: again
                 continue
             review = answer.split("\n")
             if "\nfix: " not in answer:
                 break
         _enter(s, "EXPORT")
+        keeper.step("deliver_package", 5, DELIVER_STEPS, "the export")
         exported = await export_engine_package(ctx, out_name or asset)
     finally:
-        if not kept:
-            _drop_preflight(s)
+        _drop_preflight(s)
     head, *found = exported.split("\n")
     found = [x for x in found if not x.startswith(NEXT_INSTALL)]  # export's own next step: said once, last
     findings_rule = s.state.verdict is not None and s.state.verdict.delivers_on_review
@@ -1711,28 +1756,10 @@ async def deliver_package(ctx: ToolContext, out_name: str = "", dest: str = "") 
 
 NEEDS_A_PERSON = "NOT DELIVERED: a person must decide"
 R_PREFLIGHT = "preflight_package"
-R_REVIEW = "delivery_review"
-# deliver_package answers within this many seconds of being called. Arm N's client (the stock localharness, the plugin's
-# mcp_config.json sets no timeout) abandons a tool call after 3 minutes ("timed out after 3m0s"). Live on 2026-11-22
-# (r5/live_final_N) the second delivery spent 54 s on the checks and the render and the lookdev review's one judge call
-# took 131 s (26 and 51 s for the same question later): the call was abandoned at 180 s and cancelled, and with it the
-# checked package, the render and the review. Now a review that has not answered by then is left running and kept with
-# the checked package; the reply says to call again, and the next call waits on that same review.
-DELIVER_ANSWER_S = 150.0
-
-
-def _review_task(s: Session) -> asyncio.Task | None:
-    """The delivery review still running or finished for the scene as it is now (same geometry, budget, material files
-    and revision); None otherwise (a stale one is cancelled)."""
-    held = s._res(R_REVIEW)
-    if not held:
-        return None
-    key, task = held
-    if key == (s.geom_version, s.state.budget, s.texture_digest(), s.state.revision):
-        return task
-    task.cancel()
-    s._set(R_REVIEW, None)
-    return None
+# deliver_package's steps as its answer and session_status count them while it runs (harness/keeper.py): the checks
+# with the levels of detail and colliders, the package written for the checks with its Blender check and engine import,
+# the lookdev render, the review, the export.
+DELIVER_STEPS = 5
 
 
 def _checked_words(package: Path | None) -> str:
@@ -1785,15 +1812,6 @@ def _web_lines(package: Path | None) -> list[str]:
         return []
 
 
-def _start_review(ctx: ToolContext, s: Session) -> asyncio.Task:
-    """run_visual_qa as a task of its own: when deliver_package stops waiting for it (its time is up, or the client gave
-    up on the call) it goes on, stores its verdict as run_visual_qa always does (or reports STALE if the scene changed),
-    and the next deliver_package takes its answer. Nothing is exported by it."""
-    task = asyncio.ensure_future(run_visual_qa(ctx))
-    s._set(R_REVIEW, ((s.geom_version, s.state.budget, s.texture_digest(), s.state.revision), task))
-    return task
-
-
 async def _preflight(ctx: ToolContext, s: Session, asset: str) -> tuple[str | None, list[str]]:
     """deliver_package's deterministic checks, in order, stopping at the first that refuses: the kernel's detached-part
     rule (Tier-1 itself passed before this), LODs and colliders, USD and engine-compliance validation, then the package
@@ -1804,9 +1822,8 @@ async def _preflight(ctx: ToolContext, s: Session, asset: str) -> tuple[str | No
     the same checks on the same file again."""
     from antigravity3d.kernel.package import write_engine_package
 
-    if (kept := _preflight_package(s)) is not None:  # passed for this very scene by a call that stopped waiting
-        return None, list(kept["steps"])
     _drop_preflight(s)
+    keeper.step("deliver_package", 1, DELIVER_STEPS, "the checks, levels of detail and colliders")
     async with s.registry.locked(s.sid):
         rep = await _tier1(s)
     if detached := [i for i in rep.issues if i.code in DETACHED]:
@@ -1815,6 +1832,7 @@ async def _preflight(ctx: ToolContext, s: Session, asset: str) -> tuple[str | No
     if s.state.validator_ok is False:
         return f"USD validation failed: {steps[-1]}", steps
     t0 = time.perf_counter()
+    keeper.step("deliver_package", 2, DELIVER_STEPS, "the package written for the checks, its Blender check and engine import")
     directory = Path(tempfile.mkdtemp(dir=s.artifacts_dir, prefix=".preflight-"))
     async with s.registry.locked(s.sid):
         key = (s.geom_version, s.state.budget, s.texture_digest())
@@ -1840,7 +1858,6 @@ async def _preflight(ctx: ToolContext, s: Session, asset: str) -> tuple[str | No
     ran = ", ".join(f"{k} {(v.get('status') or ('ok' if v.get('ok') else 'skipped'))}" for k, v in checks.items()
                     if k in {"blender_asset_qa", "engine_import"})
     steps.append(f"CHECKED before the review: package written and validated, {ran} ({time.perf_counter() - t0:.0f} s)")
-    s._res(R_PREFLIGHT)["steps"] = tuple(steps)
     return None, steps
 
 

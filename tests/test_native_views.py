@@ -562,6 +562,7 @@ async def test_a_delivered_package_is_the_one_that_was_checked_rendered_and_revi
 
 
 # ---- a delivery answers inside the client's time, and the next call continues ----------------------------------------
+# (harness/keeper.py; the whole call is kept now, not only its review: tests/test_keeper.py has the rest)
 
 def _slow_review(env, monkeypatch, seconds):
     """The lookdev review's judge answers after ``seconds``; returns the list of its calls."""
@@ -581,21 +582,32 @@ async def test_a_slow_review_is_waited_for_by_the_next_call_not_asked_again(tmp_
     """r5/live_final_N: the lookdev review's one judge call took 131 s, the client abandoned the 3-minute call and the
     checked package, the render and the review were lost. Now the call answers in time and the next one continues."""
     pytest.importorskip("antigravity3d.delivery")
+    from antigravity3d.harness import keeper
+
     env, pool, checks = _fail_fast_session(tmp_path, monkeypatch)
     await T.apply_scene_ir(_design(), env.ctx)
-    monkeypatch.setattr(T, "DELIVER_ANSWER_S", 0.5)
+    monkeypatch.setattr(keeper, "ANSWER_S", 0.5)
     asked = _slow_review(env, monkeypatch, 2.0)
     first = await T.deliver_package(env.ctx, "crate")
-    assert first.startswith("NOT DELIVERED: the review has not answered in") and "nothing needs fixing" in first, first
+    # changed in round 8: the answer says the work goes on, never "NOT DELIVERED" (that word sends an agent to repair)
+    assert first.startswith("STILL WORKING (nothing needs fixing") and "NOT DELIVERED" not in first, first
+    assert "deliver_package is at step " in first and 'Call deliver_package(out_name="crate") again now' in first, first
+    while not asked:
+        await asyncio.sleep(0.05)
+    again = await T.deliver_package(env.ctx, "crate")  # joins the same work: at the review now
+    assert again.startswith("STILL WORKING") and "step 4 of 5 (the lookdev review (a model call))" in again, again
     assert not (env.sess().export_dir / "crate").exists()  # nothing exported while the review is out
-    await asyncio.sleep(2.5)  # the review answers after the call returned
-    monkeypatch.setattr(T, "DELIVER_ANSWER_S", 150.0)
+    await asyncio.sleep(2.0)  # the review answers after the call returned
+    monkeypatch.setattr(keeper, "ANSWER_S", 150.0)
     second = await T.deliver_package(env.ctx, "crate")
     assert second.startswith("DELIVERED: EXPORTED PREVIEW crate"), second
     assert len(asked) == 1 and len(pool.renders) == 1 and len(checks) == 1  # nothing done twice
 
 
-async def test_an_abandoned_delivery_exports_nothing_and_the_next_call_continues(tmp_path, monkeypatch):
+async def test_an_abandoned_delivery_goes_on_and_the_next_call_answers_with_it(tmp_path, monkeypatch):
+    """Changed in round 8: run 1 of the website task (2026-11-24) lost two deliveries of containment_gate to the client's
+    cancel, the second while the package for the checks was being written. The cancel now reaches only the waiting:
+    the delivery finishes by itself and the next call answers with it."""
     pytest.importorskip("antigravity3d.delivery")
     env, pool, checks = _fail_fast_session(tmp_path, monkeypatch)
     await T.apply_scene_ir(_design(), env.ctx)
@@ -606,8 +618,11 @@ async def test_an_abandoned_delivery_exports_nothing_and_the_next_call_continues
     call.cancel()  # the client gives up on the call
     with pytest.raises(asyncio.CancelledError):
         await call
-    await asyncio.sleep(1.5)
-    assert not (env.sess().export_dir / "crate").exists()  # the review went on; nothing was exported
+    for _ in range(100):
+        if (env.sess().export_dir / "crate").exists():
+            break
+        await asyncio.sleep(0.05)
+    assert (env.sess().export_dir / "crate" / "manifest.json").is_file()  # the work went on to the end
     r = await T.deliver_package(env.ctx, "crate")
     assert r.startswith("DELIVERED: EXPORTED PREVIEW crate"), r
     assert len(asked) == 1 and len(pool.renders) == 1 and len(checks) == 1

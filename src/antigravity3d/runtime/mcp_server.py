@@ -61,6 +61,7 @@ from pydantic import Field
 
 from antigravity3d import ir_schema
 from antigravity3d.art_direction import load as art_direction_load, style_ids
+from antigravity3d.harness import keeper
 from antigravity3d.harness import tools as T
 from antigravity3d.harness.hooks import InvariantAndSafetyGate, state_header
 from antigravity3d.harness.session import (
@@ -102,8 +103,9 @@ SCRIPT_INSTRUCTIONS = (
     "fix, and five colour views; edit the script and run it again. deliver_package(dest) reviews, builds levels of detail "
     "and collision shapes, validates and exports; its answer starts with \"DELIVERED\" (finished: reply to the user with "
     "the package path and the findings, and do not inspect it again), \"NOT DELIVERED: a person must decide\" (reply to the "
-    "user with the reason and stop) or \"NOT DELIVERED\" (fix what it names in the script, run_build, then deliver_package "
-    "again). To change an asset that already exists, edit its script (the workspace's <asset_name>.py, or source/build.py "
+    "user with the reason and stop), \"NOT DELIVERED\" (fix what it names in the script, run_build, then deliver_package "
+    "again) or \"STILL WORKING\" (nothing failed: the work goes on; call the same tool again at once with the same "
+    "arguments for its result; run_build answers so too when a build takes longer). To change an asset that already exists, edit its script (the workspace's <asset_name>.py, or source/build.py "
     "in its package) and run it again; never write it anew. Without the native Decisions API only an UNVERIFIED preview "
     "can be delivered: run_build's reply says whether this session already is one; only if the reply asks for it, ask the "
     "user for a token ceiling and an image limit and call start_preview. Replies are short." + ir_schema.colour_note())
@@ -216,6 +218,9 @@ class StudioHost:
         # server process (the tools are already serialised per session by the registry lock); the price is
         # that a long QA call delays other sessions' calls.
         self._order = asyncio.Lock()
+        # Calls with no session of their own yet (run_build, install_into_project) are kept here, as a session keeps its
+        # tools' calls (harness/keeper.py): they answer inside the host's 3 minutes and their work goes on.
+        self.kept = keeper.Keeper()
 
     async def run_ordered(self, fn: Any, *args: Any) -> str:
         async with self._order:
@@ -375,6 +380,23 @@ class StudioHost:
     async def run_build(self, path: str, workspace: str = "", conversation_id: str = "", preview: bool = False,
                         token_ceiling: int | None = None, max_images: int | None = None, session_id: str = "",
                         timeout_s: float = BUILD_TIMEOUT_S) -> str:
+        """``_run_build`` as a kept call (harness/keeper.py): it answers within the host's time and a call with the same
+        arguments for the same script text joins the build that is running. A changed script is another call: it waits
+        for the earlier build, then builds anew."""
+        args = {"path": path, "preview": preview, "token_ceiling": token_ceiling, "max_images": max_images,
+                "session_id": session_id}
+        shown = {k: v for k, v in args.items() if v not in ("", None, False)}
+        try:
+            text = _script_path(Path(workspace or os.getcwd()).resolve(), path).read_bytes()
+        except (ValueError, OSError):
+            text = b""  # the build answers why
+        key = {**shown, "workspace": workspace, "script_sha256": hashlib.sha256(text).hexdigest()}
+        return await self.kept.call("run_build", key, lambda: self._run_build(
+            path, workspace, conversation_id, preview, token_ceiling, max_images, session_id, timeout_s), shown=shown)
+
+    async def _run_build(self, path: str, workspace: str = "", conversation_id: str = "", preview: bool = False,
+                         token_ceiling: int | None = None, max_images: int | None = None, session_id: str = "",
+                         timeout_s: float = BUILD_TIMEOUT_S) -> str:
         """Run an asset script (``antigravity3d.build.runner``), open or reuse its session, apply its design as one checked
         transaction and answer with the findings and the colour views (S/r6/CONTRACT.md section 4). The first word of
         the reply decides the agent's next step: BUILT, UNCHANGED or NOT BUILT; a failure leaves every session as it was.
@@ -461,6 +483,8 @@ class StudioHost:
                                     "applied or rendered" + (f" (the views of #{prev.index} stand)" if prev is not None else "")
                                     + ". Edit the script to change the design, or deliver_package(dest=...) when it reads as the request.")
             budget_note: list[str] = []
+            if stopped := await T.stop_kept_work(s):  # a delivery of the earlier design is no longer wanted
+                budget_note.append(T.stopped_line(stopped))
             before = None if opened else self._budget_update(s, built, budget_note)
             t1 = time.perf_counter()
             try:
@@ -571,6 +595,7 @@ class StudioHost:
 
     async def start_preview(self, token_ceiling: int, max_images: int, session_id: str = "") -> str:
         sid = self.pick(session_id)
+        await T.stop_kept_work(session(self.registry, sid))  # earlier verdicts are discarded: work built on them is stale
         async with self.registry.locked(sid):
             switch_to_preview(self.registry, sid, token_ceiling, max_images)
         if self.script:
@@ -596,7 +621,9 @@ class StudioHost:
         return f"STAGE {stage} callable: {names}" + (f" | {note}" if note else "")
 
     async def session_status(self, session_id: str = "") -> str:
-        return state_header(session(self.registry, self.pick(session_id)))
+        s = session(self.registry, self.pick(session_id))
+        running = [x for x in (T._keeper(s).status(), self.kept.status()) if x]  # a call still at work, and its step
+        return "\n".join([state_header(s), *running])
 
     async def list_sessions(self) -> str:
         sids = list(self.gates)
@@ -912,10 +939,19 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
 
         project = project_dir or await _workspace_root(ctx)
 
-        async def go() -> str:
+        async def install() -> str:
             r = await asyncio.to_thread(install_package, package_dir, project, dest or None, dry_run, force, True,
                                         assets=assets or None, compress=compress)
             return _install_text(r)
+
+        shown = {k: v for k, v in (("package_dir", package_dir), ("project_dir", project_dir), ("dest", dest),
+                                   ("assets", assets), ("dry_run", dry_run), ("force", force), ("compress", compress))
+                 if v != _INSTALL_DEFAULTS.get(k)}
+        # the same call for a package delivered again in between is another call: it waits and installs that package
+        key = {**shown, "project": project, "manifest": _manifest_digest(project, package_dir)}
+
+        async def go() -> str:  # kept (harness/keeper.py): a browser or Godot check can pass the host's 3 minutes
+            return await host.kept.call("install_into_project", key, install, shown=shown)
 
         return await host.run_ordered(go)
 
@@ -956,6 +992,18 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
     tools = (run_build, open_existing_asset, start_preview, session_status, list_sessions, install_into_project) if getattr(host, "script", False) \
         else (open_asset_session, open_existing_asset, start_preview, set_stage, session_status, list_sessions, install_into_project)
     return {f.__name__: (f, f.__doc__ or "") for f in tools}
+
+
+_INSTALL_DEFAULTS = {"project_dir": "", "dest": "", "assets": "", "dry_run": True, "force": False, "compress": "auto"}
+
+
+def _manifest_digest(project: str, package_dir: str) -> str:
+    """sha256 of the package's manifest.json ('' when it cannot be read): a package delivered again is a new one."""
+    p = Path(package_dir) if Path(package_dir).is_absolute() else Path(project) / package_dir
+    try:
+        return hashlib.sha256((p / "manifest.json").read_bytes()).hexdigest()
+    except OSError:
+        return ""
 
 
 def _install_text(r: Any) -> str:
