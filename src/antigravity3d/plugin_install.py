@@ -137,6 +137,8 @@ AUTHORING_FILE = "authoring"  # one line, "script", read by the hook scripts (ho
 # read one would be sent to tools that do not exist. The script-mode kitbash page covers materials (a.material),
 # export (deliver_package) and a mesh file the user already has (a.load; the sanitizer skill's per-file steps are
 # apply_scene_ir, set_stage and generate_lods_and_colliders).
+# scroll-3d-website stays: its own steps are deliver_package, install_into_project and check_site, which both modes
+# serve, and it sends the modelling to parametric-kitbash, which this mode replaces with the script page.
 SCRIPT_MODE_DROPPED_SKILLS = ("pbr-material-forge", "engine-truth-verify", "concept-to-blueprint", "game-ready-sanitizer")
 
 

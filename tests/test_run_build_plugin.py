@@ -28,7 +28,10 @@ def test_script_install_swaps_the_texts_sets_the_env_drops_three_skills_and_vali
     assert (dest / "rules" / "AGENTS.md").read_text() == (SCRIPT_TEXTS / "AGENTS.md").read_text()
     assert (dest / "skills" / "parametric-kitbash" / "SKILL.md").read_text() == (SCRIPT_TEXTS / "SKILL.md").read_text()
     assert (dest / "authoring").read_text() == "script\n"
-    assert sorted(p.name for p in (dest / "skills").iterdir()) == ["art-direction", "install-into-project", "parametric-kitbash"]
+    # scroll-3d-website stays: its steps are mode-neutral (deliver_package, install_into_project, check_site) and it sends
+    # the modelling to parametric-kitbash, which script mode replaces
+    assert sorted(p.name for p in (dest / "skills").iterdir()) == ["art-direction", "install-into-project", "parametric-kitbash",
+                                                                   "scroll-3d-website"]
     assert P.validate(dest) == []
     # the default bundle in the repo is untouched by a script install
     assert "run_build" not in (P.bundle_dir() / "rules" / "AGENTS.md").read_text()

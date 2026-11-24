@@ -1,4 +1,4 @@
-"""The plugin's six skills are valid skills, say true things and can be chosen from their descriptions.
+"""The plugin's skills are valid skills, say true things and can be chosen from their descriptions.
 
 * format: every skill passes ``skill_check.problems`` (name, description with a closing "Not for", Gotchas, Version
   notes, check section, links), and the checker itself flags a bad skill;
@@ -61,9 +61,10 @@ judge = _load("gemini_judge")
 # --------------------------------------------------------------------------- format
 
 
-def test_the_seven_skills_are_found() -> None:
+def test_the_eight_skills_are_found() -> None:
+    # scroll-3d-website (round eight): building a scroll-driven 3D site around the props, which no skill covered in run 1
     assert NAMES == {"art-direction", "concept-to-blueprint", "engine-truth-verify", "game-ready-sanitizer",
-                     "install-into-project", "parametric-kitbash", "pbr-material-forge"}
+                     "install-into-project", "parametric-kitbash", "pbr-material-forge", "scroll-3d-website"}
 
 
 @pytest.mark.parametrize("skill", SKILL_DIRS, ids=lambda p: p.name)

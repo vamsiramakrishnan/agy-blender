@@ -2,7 +2,7 @@
   "name": "antigravity-3d",
   "displayName": "antigravity-3d",
   "version": "0.2.0",
-  "description": "Agentic 3D and game-asset studio: USD-first Scene IR editing, PBR lookdev, game-ready sanitizing and engine-truth export for UE5, Unity URP, Godot 4 and Roblox, with QA-gated export enforced by hooks.",
+  "description": "Agentic 3D and game-asset studio: USD-first Scene IR editing, PBR lookdev, game-ready sanitizing and engine-truth export for UE5, Unity URP, Godot 4 and Roblox, with QA-gated export enforced by hooks, and scroll-driven three.js websites built around the props.",
   "author": "antigravity-3d",
   "suggestedPrompts": [
     "Turn this concept sheet into a finished prop and lock the silhouette",

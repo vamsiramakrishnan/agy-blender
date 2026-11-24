@@ -23,6 +23,14 @@ glob-scoped rule files add detail when matching files are in play:
   It must pass the Blender 5.3 linter: no `os`, `subprocess`, file writes,
   `eval`/`exec` or `bpy.app.handlers`.
 
+## A website is not an asset
+
+A request for a website, web page, landing page or scroll-driven 3D explainer
+(three.js, WebGL, shaders, "scrolls beautifully") goes to the skill
+`scroll-3d-website` first, before any script: it says which props the story
+needs, when to build them and how they reach the page. Each prop is then one
+script, as below.
+
 ## How the tools reach you
 
 - The studio tools are served by the plugin's MCP server (`studio`, which the

@@ -31,6 +31,14 @@ glob-scoped rule files add detail when matching files are in play:
   hook denies scripts that fail it. No `os`, `subprocess`, file writes,
   `eval`/`exec` or `bpy.app.handlers` in scripts.
 
+## A website is not an asset
+
+A request for a website, web page, landing page or scroll-driven 3D explainer
+(three.js, WebGL, shaders, "scrolls beautifully") goes to the skill
+`scroll-3d-website` first, before any modelling: it says which props the story
+needs, when to build them and how they reach the page. Its props are then built
+by the short path below.
+
 ## The short path
 
 Every model call sends the whole conversation so far, so the number of calls

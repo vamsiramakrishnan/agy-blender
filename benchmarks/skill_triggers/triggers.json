@@ -496,5 +496,58 @@
     "expected": [],
     "kind": "none",
     "notes": ""
+  },
+  {
+    "id": "scroll-3d-website.s1",
+    "prompt": "generate a world-class website for my project, it should scroll beautifully, use three.js and shaders",
+    "expected": [
+      "scroll-3d-website"
+    ],
+    "kind": "should",
+    "notes": "run 1's request, shortened"
+  },
+  {
+    "id": "scroll-3d-website.s2",
+    "prompt": "build a landing page for our cli tool where scrolling walks you through how it works in 3d",
+    "expected": [
+      "scroll-3d-website"
+    ],
+    "kind": "should",
+    "notes": "no library named"
+  },
+  {
+    "id": "scroll-3d-website.s3",
+    "prompt": "the 3d explainer page I made feels static between sections, make the scroll animation smoother and less empty",
+    "expected": [
+      "scroll-3d-website"
+    ],
+    "kind": "should",
+    "notes": "improving an existing site"
+  },
+  {
+    "id": "scroll-3d-website.nm",
+    "prompt": "export the crate for three.js so my web developer can load it, i have no project yet",
+    "expected": [
+      "engine-truth-verify"
+    ],
+    "kind": "near-miss",
+    "notes": "shares three.js and web; a package, not a site"
+  },
+  {
+    "id": "scroll-3d-website.nm.h1",
+    "prompt": "my css grid breaks on mobile, the cards overflow the screen",
+    "expected": [],
+    "kind": "near-miss",
+    "notes": "web layout with no 3D"
+  },
+  {
+    "id": "combo.05",
+    "prompt": "make a scrollytelling site for our espresso machine with a 3d model of the machine that the camera flies around",
+    "expected": [
+      "scroll-3d-website",
+      "parametric-kitbash"
+    ],
+    "kind": "combo",
+    "notes": "site plus its main prop"
   }
 ]

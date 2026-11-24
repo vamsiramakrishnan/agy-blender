@@ -11,7 +11,8 @@ description: >-
   model, build, make or kitbash an asset, to change an existing one, or to fix
   its shape, parts or gaps, or to make a mesh file they already have
   game-ready. Not for putting a package into a game project (use
-  install-into-project).
+  install-into-project) or for a website that shows the models (use
+  scroll-3d-website).
 ---
 
 # Build an asset as a script
