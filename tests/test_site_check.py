@@ -175,6 +175,7 @@ def test_the_answer_leads_with_the_outcome_and_keeps_its_order(tmp_path):
     assert heads == sorted(heads)
     assert len(lines) <= 60
     assert "step 6 of 9 (62%)" in text                                  # the empty canvas
+    assert "nearly vanishes" not in text                                 # every other step shows 30 %
     assert "scrolls sideways by up to 40 px; widest: div#wide" in text
     assert "about 7 s on a 10 Mbit/s connection" in text                 # 9 MB, over the stated threshold
     assert "keeps drawing an unchanging picture" in text
@@ -375,3 +376,14 @@ async def test_the_tool_checks_a_folder_of_the_workspace(tmp_path, monkeypatch):
     assert text.startswith("SITE CHECKED in ") and f"desktop contact sheet: {out / 'sheet_desktop.jpg'}" in text
     assert (out / "sheet_desktop.jpg").is_file() and (out / "report.json").is_file()
     assert "With reduce motion set the page asks matchMedia" in text
+
+
+def test_a_step_where_the_scene_all_but_leaves_the_frame_is_named(tmp_path):
+    rep = sc.SiteReport("site", tmp_path, steps=5)
+    v = sc.Visit("desktop", loaded=True, load_s=1.0)
+    v.steps = [sc.Step(i, i / 4, 0, canvas_content=c) for i, c in enumerate((0.29, 0.19, 0.03, 0.15, 0.0))]
+    rep.visits = {"desktop": v}
+    noticed = rep.noticed()
+    assert any("nearly vanishes at step 3 of 5 (50%) (3% of the canvas shows something, against 15% at a typical step)" in n
+               for n in noticed), noticed
+    assert any("nothing but its background at step 5 of 5 (100%)" in n for n in noticed)

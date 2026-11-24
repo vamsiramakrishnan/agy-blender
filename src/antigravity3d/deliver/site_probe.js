@@ -151,6 +151,8 @@
     const ctx = getContext.call(this, type, ...rest);
     if (ctx && isGL(type) && !S.contexts.includes(ctx)) {
       S.contexts.push(ctx); S.canvases.push(this); this.setAttribute('data-agy3d-gl', String(S.contexts.length));
+      // a lost context draws nothing until the page restores it: seen on run 1's page, whose textures take 454 MB
+      this.addEventListener('webglcontextlost', () => { S.lost = (S.lost || 0) + 1; });
     }
     return ctx;
   };

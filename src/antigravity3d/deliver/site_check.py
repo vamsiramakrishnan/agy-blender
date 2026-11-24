@@ -79,6 +79,10 @@ UNCHANGED = 0.002
 #: by more than 8 % of full scale, measured on the 1/8-size frame (1 px lines of a helper grid average out at that size,
 #: an object does not). 1 % of a 1440 x 900 canvas is a 120 x 108 px patch.
 EMPTY_CONTENT = 0.01
+#: A step where the canvas shows less than this share of what it shows at the page's median step: the scene has all but
+#: left the frame between chapters (run 1 at 62 %: a grid and one arc, 4 % of the canvas, against 19 % elsewhere; the
+#: film's quietest step is 9 % against 21 %).
+NEARLY_EMPTY = 0.25
 #: Download weight is reported as the wait on a 10 Mbit/s connection (a fair mobile link); it is called out when that
 #: wait passes 5 s, the point where the page has had the visitor's whole attention span for a first impression.
 LINK_BPS = 10e6 / 8
@@ -203,6 +207,13 @@ class SiteReport:
             out.append(f"{len(failed)} request{_s(failed)} for the site's own files failed: " + "; ".join(failed[:4]) + "."
                        + (" A path that starts with / asks the server root; served under a sub-path (as on most hosts "
                           "that publish a project page) it is missing. Use relative paths (Vite: base: './')." if root else ""))
+        for v in self.visits.values():
+            lost = (v.probe or {}).get("lost", 0)
+            if lost and v.name in ("desktop", "phone"):
+                mem = (v.memory or {}).get("texture_bytes", 0)
+                out.append(f"{v.name.capitalize()}: the WebGL context was lost {lost} time{_s(lost)}; until the page "
+                           f"restores it the canvas draws nothing (the graphics memory ran out or the driver reset; "
+                           f"the page holds {_mb(mem)} of textures).")
         if d and d.loaded and d.probe is not None and not d.probe.get("contexts") and not d.probe.get("webgpu") and not d.probe.get("offscreen"):
             out.append("The page never created a WebGL context: there is no 3D on it.")
         for m in self.facts.get("mismatches", []):
@@ -219,6 +230,15 @@ class SiteReport:
             if empty:
                 out.append(f"{name.capitalize()}: the 3D canvas shows nothing but its background at "
                            + _steps_list(empty, self.steps) + ".")
+            shares = sorted(s.canvas_content for s in v.steps if s.canvas_content is not None)
+            if len(shares) >= 4:
+                median = shares[len(shares) // 2]
+                thin = [s for s in v.steps if s.canvas_content is not None and EMPTY_CONTENT <= s.canvas_content
+                        < NEARLY_EMPTY * median]
+                if thin:
+                    out.append(f"{name.capitalize()}: the 3D nearly vanishes at " + _steps_list(thin, self.steps)
+                               + " (" + ", ".join(f"{s.canvas_content:.0%}" for s in thin) + f" of the canvas shows "
+                               f"something, against {median:.0%} at a typical step).")
             same = [s for s in v.steps if s.unchanged]
             if same:
                 out.append(f"{name.capitalize()}: the picture did not change at all from the step before at "
@@ -815,7 +835,7 @@ _PAGE_INFO_JS = r"""() => {
     if (notices.length >= 20) break;
   }
   const images = [...document.querySelectorAll('img, svg, picture, video')].filter((el) => vis(el) && el.getBoundingClientRect().width > 48 && !el.closest('svg svg')).length;
-  return { contexts: (S.contexts || []).length, webgl2: (S.contexts || []).some((c) => window.WebGL2RenderingContext && c instanceof WebGL2RenderingContext),
+  return { contexts: (S.contexts || []).length, lost: S.lost || 0, webgl2: (S.contexts || []).some((c) => window.WebGL2RenderingContext && c instanceof WebGL2RenderingContext),
            webgpu: !!S.webgpu, offscreen: !!S.offscreen, reducedMotionQueried: !!S.reducedMotionQueried, reducedMotionCss: css,
            memory: S.memory ? S.memory() : null, textChars: (document.body && document.body.innerText || '').length,
            notices, images, base: location.href.replace(/[^/]*([?#].*)?$/, '') };
