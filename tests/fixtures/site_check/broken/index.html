@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Broken</title>
+<link rel="stylesheet" href="https://fonts.example.com/css2?family=Fixture">
+<style>html,body{margin:0;background:#fff;font:18px sans-serif}</style></head>
+<body><h1>A page with every way of breaking that a visitor hits</h1>
+<p>It throws, logs an error, asks for a missing image, and loads its script from the server root (/app.js), which a
+host that publishes the site under a sub-path does not have.</p>
+<img src="missing.png" alt="missing" width="10" height="10">
+<script src="/app.js"></script>
+<script>console.error('fixture console error'); throw new Error('fixture boom');</script>
+<div style="height:200vh"></div>
+</body></html>

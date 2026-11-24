@@ -284,6 +284,10 @@ class EnvironmentKitDAG:
             budget = art_direction.budget(budget, "kit")
             if art_direction.texture_px_kit is not None:
                 sheet_resolution = art_direction.texture_px(budget.target_engine, "kit", sheet_resolution)
+        from antigravity3d.kernel.validator import chosen_texture_px
+
+        if (cap := chosen_texture_px(budget)) and cap < sheet_resolution:  # the trim sheet is a map too: a chosen size holds
+            sheet_resolution = int(cap)
         self._forge_in, self._cache = forge, cache
         self.record = DesignRecord(cache, fresh=new_design) if cache is not None else None
         self.announce = announce

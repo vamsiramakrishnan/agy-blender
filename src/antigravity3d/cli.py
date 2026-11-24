@@ -30,7 +30,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Any, get_args
 
-from antigravity3d.state import EngineBudget, TargetEngine
+from antigravity3d.state import TEXTURE_PX_CHOICES, EngineBudget, TargetEngine
 
 ENGINES = list(get_args(TargetEngine))
 # The brief's questions are answered at the fake's defaults (clean, 3.6), stated here so an offline run meets the brief.
@@ -63,6 +63,8 @@ def _print_art(art: Any) -> None:
 def _budget(a: argparse.Namespace) -> EngineBudget:
     keep = bool(getattr(a, "keep_contact_faces", False))
     extra = {} if getattr(a, "surfaces", None) is None else {"generated_surfaces": a.surfaces == "generated"}
+    if getattr(a, "max_texture_px", None):
+        extra["max_texture_px"] = a.max_texture_px
     if a.max_tris is not None:
         return EngineBudget(a.engine, max_tris=a.max_tris, keep_contact_faces=keep, **extra)
     return EngineBudget(a.engine, keep_contact_faces=keep, **extra)
@@ -712,6 +714,18 @@ def cmd_uninstall(a: argparse.Namespace) -> int:
     return _print_install(uninstall(a.project, a.dest, dry_run=a.dry_run, force=a.force), a.json, "uninstall")
 
 
+def cmd_check_site(a: argparse.Namespace) -> int:
+    from antigravity3d.deliver.site_check import check_site
+
+    try:
+        r = check_site(a.target, sources=a.sources, steps=a.steps, sizes=a.sizes, other_hosts=a.other_hosts,
+                       out_dir=a.out, variants=() if a.no_variants else ("reduced", "nowebgl"))
+    except ValueError as e:
+        raise CliError(str(e)) from e
+    print(json.dumps(r.to_dict(), indent=1, default=str) if a.json else r.text())
+    return 1 if r.broken() else 0
+
+
 # --------------------------------------------------------------------------- parser
 
 
@@ -741,6 +755,9 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--max-tris", type=int, default=None, help="triangle budget (default: engine budget default)")
         p.add_argument("--keep-contact-faces", action="store_true",
                        help="ship every authored triangle, also the faces parts press together (for parts that will be moved apart)")
+        p.add_argument("--max-texture-px", type=int, choices=TEXTURE_PX_CHOICES, default=None, metavar="PX",
+                       help="largest side of the texture atlas: 256, 512, 1024, 2048 or 4096 (default: the size the parts need, "
+                            "at most 4096); for a web page each step down quarters the texture memory")
         p.add_argument("--surfaces", choices=("generated", "flat"), default=None,
                        help="materials without an image: 'generated' paints wear, dirt, grain and markings from the geometry "
                             "(the default), 'flat' ships their flat colours")
@@ -841,7 +858,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--compress", choices=("auto", "always", "never"), default="auto",
                    help="three.js only, with the compression packages in the project: auto (default) compresses only when the "
                         "files do not grow (the transcoder counted unless the project has it), always compresses for the GPU "
-                        "memory whatever the size, never installs the PNG textures")
+                        "memory whatever the size, never installs the package's own files as they are")
     p.add_argument("--dry-run", action="store_true", help="print what would be written; write nothing")
     p.add_argument("--force", action="store_true", help="replace this tool's own files even where they were edited since")
     p.add_argument("--no-check", action="store_true", help="do not run the in-project check (Godot: no import and load of the installed scene; three.js: no browser check, and so no compression, which is only written after a measured frame comparison)")
@@ -850,6 +867,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--godot", default=None, metavar="PATH", help="Godot binary for the check (default $GODOT_BIN, then PATH)")
     p.add_argument("--json", action="store_true", help="print the machine-readable result")
     p.set_defaults(fn=cmd_install)
+
+    p = sub.add_parser("check-site", help="look at a built website as a visitor does: frames at even scroll steps, errors, "
+                                          "weight, what the 3D scene costs, reduce motion, no WebGL, data-src facts")
+    p.add_argument("target", help="the built site's folder (holds index.html) or a localhost URL")
+    p.add_argument("--sources", default=None, metavar="DIR",
+                   help="folder that data-src paths are relative to (default: the site folder)")
+    p.add_argument("--steps", type=int, default=9, help="scroll positions photographed, evenly from top to bottom (default 9)")
+    p.add_argument("--sizes", default="desktop,phone", help="desktop, phone or both, comma-separated (default both)")
+    p.add_argument("--other-hosts", choices=("block", "try"), default="block",
+                   help="block (default): list requests to other hosts without making them; try: make them")
+    p.add_argument("--no-variants", action="store_true", help="skip the visits with reduce motion set and without WebGL")
+    p.add_argument("--out", default=None, metavar="DIR", help="where the frames go (default ./agy3d_site_check/<site>)")
+    p.add_argument("--json", action="store_true", help="print the machine-readable record instead of the text")
+    p.set_defaults(fn=cmd_check_site)
 
     p = sub.add_parser("edit", help="change an asset this project made: one patch, everything else kept, the old package kept")
     p.add_argument("target", help="a prop --out folder, or a package folder (holds manifest.json)")

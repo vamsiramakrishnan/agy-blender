@@ -30,6 +30,12 @@ Five tools and the report written from them:
   surfaces that know the part they are on, and the README rewritten for developers, each against a measure written
   before the work. Two of the three measures were not met, and the report says where. The measures as written, every
   blind verdict of both measurements and the pictures are in `results/round7/`.
+- [`ROUND_EIGHT.md`](ROUND_EIGHT.md) is the eighth round's report: what an agent needs from the plugin to build a
+  whole 3D website (tool calls that answer inside the host's three minutes and keep their work, web-sized packages,
+  a check that looks at the built site, a skill with a tested starter), and the same request run before and after.
+  The comparison with a stock agent is missing, and the report says why. The two runs are in `results/site_run1/`
+  and `results/site_run2_plugin/`; the helpers' brief, the contact sheets of both sites and the blind verdicts on
+  the pair are in `results/round8/`.
 
 ## Offline benchmarks
 
@@ -418,3 +424,22 @@ Use the opt-in `--paired` profile for a new comparison with identical content re
 shares, a fixed C candidate mode and immutable source/run provenance. `plan --json` is a no-cost preflight. Historical
 round-two defaults and records remain intact. See [the authoring-contract follow-up](AUTHORING_CONTRACT_REVIEW.md)
 for the production/kit/blockout distinction, regression evidence, proposed pilot limits and execution prerequisites.
+
+## The website task (`site_task.py`)
+
+`site_task.py` runs the "build a website for a project" task of `results/site_run1/` as a repeatable command, with or
+without the plugin. `prepare` builds the workspace from a copy of the project's checkout, a folder of reference notes,
+a `package.json` with its lockfile (installed, and checked against the lockfile, before the sandbox starts) and the task
+text (`site_task_seed/task.md`; `<!-- plugin -->` and `<!-- stock -->` blocks are the only difference between what the arms are told; the `script`
+arm reads the plugin's text and differs in the plugin's authoring mode). The text is the next run's: it says where the
+site will live and that nothing is loaded from another host, and names no source folder. Run 1's wording stays in
+`results/site_run1/task_session1.md`.
+`run --arm plugin|script|stock` then runs one session with its own token share, no images, a wall-clock limit, and
+Node and the headless browser bound into the sandbox for every arm, and the stand-in for the user approving an
+`install_into_project` that writes into the run's own workspace and nothing else (`RunOptions` in `compare_agents.py`);
+`collect` writes the result folder (task, record, events, report, `run.json`, the site check's answer when this tree
+has one, and `site_src/`: every file the agent made or changed, found by comparing the workspace with the seed's
+manifest, wherever it put them) with every local path replaced by a label. The workspace is a folder the agent
+wrote, so nothing is read through a link that leaves it: a link to the sandbox's own `/home/agent/project/...` is
+translated, any other is left alone and named in `run.json` (`links_not_followed`). A real run needs `--live` and `GEMINI_API_KEY`; `--offline`
+runs the same wiring against the harness's stand-in model and costs nothing. `tests/test_site_task.py` covers it.

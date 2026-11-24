@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subjects hook</title>
+<!-- window.__site.info() misbehaves differently at each of six scroll positions (0, 20, 40, 60, 80, 100 %): it throws,
+     returns garbage, returns 10,000 subjects, returns the old fields only, never resolves, enumerates with a throw. -->
+<style>html,body{margin:0;background:#101418;color:#eee;font:16px sans-serif}
+canvas{position:fixed;inset:0;width:100vw;height:100vh}
+p{position:fixed;top:1rem;left:1rem;margin:0}</style></head>
+<body><canvas id="c"></canvas><p>A page whose hook cannot be trusted.</p><div style="height:400vh"></div>
+<script type="module">
+import { setup, QUAD } from './gl.js';
+const { gl, quad, color } = setup(document.getElementById('c'));
+quad(QUAD);
+const draw = () => { gl.clearColor(0.06, 0.08, 0.1, 1); gl.clear(gl.COLOR_BUFFER_BIT); color(0.2, 0.6, 0.9); gl.drawArrays(gl.TRIANGLES, 0, 6); };
+draw();
+const at = () => Math.round(scrollY / Math.max(1, document.documentElement.scrollHeight - innerHeight) * 5);
+const many = () => {
+  const on = {};
+  for (let i = 0; i < 10000; i++) on['LABEL ' + i + ' ' + 'x'.repeat(200)] = { share: 0.01, x: 0.1, y: 0.5, box: [-0.5, 0.1 + (i % 50) * 0.015, 0.5, 0.12 + (i % 50) * 0.015], kind: 'label' };
+  return { onScreen: on };
+};
+window.__site = {
+  info() {
+    switch (at()) {
+      case 0: throw new Error('fixture hook boom');
+      case 1: return { onScreen: { a: null, b: 'x', c: { box: 'nope' }, d: { box: [NaN, 0, 1, 1] }, e: { box: [0.5, 0.5, 0.4, 0.6] },
+                                   f: { box: [Infinity, 0, 1, 1] }, g: { box: ['0.1', '0.1', '0.2', '0.2'] }, h: { box: [0, 0, 1e9, 1] },
+                                   get i() { throw new Error('getter boom'); } } };
+      case 2: return many();
+      case 3: return { onScreen: { gate: { share: 0.4, x: 0.5, y: 0.5 } } };
+      case 4: return new Promise(() => {});
+      default: return { onScreen: new Proxy({}, { ownKeys() { throw new Error('proxy boom'); } }) };
+    }
+  },
+};
+</script></body></html>

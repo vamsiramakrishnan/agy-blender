@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frozen</title>
+<style>html,body{margin:0;background:#101418;color:#eee;font:20px sans-serif}canvas{position:fixed;inset:0;width:100vw;height:100vh}
+h1{position:fixed;top:2rem;left:2rem;margin:0}</style></head>
+<body><canvas id="c"></canvas><h1>Everything here is fixed: scrolling changes nothing on screen.</h1>
+<div style="height:400vh"></div>
+<script type="module">
+import { setup, QUAD } from './gl.js';
+const { gl, quad, color } = setup(document.getElementById('c'));
+quad(QUAD);
+gl.clearColor(0.06, 0.08, 0.1, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+color(0.9, 0.8, 0.2); gl.drawArrays(gl.TRIANGLES, 0, 6);
+</script></body></html>

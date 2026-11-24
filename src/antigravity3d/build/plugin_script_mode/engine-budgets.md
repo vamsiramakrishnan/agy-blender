@@ -33,6 +33,13 @@ For a three.js (web) package the manifest also records web_download: the bytes a
 fetches for the highest level (the GLB and what it references, per file). LOD0
 embeds its images; the `textures/` files serve the lower-detail levels.
 
+Texture size is `max_texture_px` in the `Asset(...)` line (256 to 4096): it caps
+the texture atlas. With none given a web package's atlas is at most 2048 px
+(ask for 4096 only for a model the camera comes close to). A web package's GLBs carry their maps as WebP when the
+three.js frames show no difference from PNG (the manifest's web_textures record). Put a
+delivered package into a project with `install_into_project` (the last line of
+`deliver_package`'s answer gives the call), never by copying its files.
+
 LODs are not fixed triangle ratios. `deliver_package` builds the levels and
 the collision shapes: it emits a level
 only where the asset can get at least 25% cheaper while staying within one

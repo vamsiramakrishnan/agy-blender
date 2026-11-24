@@ -1451,9 +1451,56 @@ def reply_lines(manifest: dict) -> list[str]:
         out = [str(rec.get("skipped") or step.get("detail"))]
     else:
         out = [f"{NOT_RUN}: no result is recorded"]
-    if dl := manifest.get("web_download"):
-        out.append(f"page download for {dl['level']}: {dl['bytes']:,} bytes ({', '.join(f'{k} {v:,}' for k, v in dl['files'].items())})")
-    return out
+    return out + size_lines(manifest)
+
+
+def size_lines(manifest: dict) -> list[str]:
+    """What a web developer needs to choose a texture size, in two lines: the atlas, the bytes a page downloads for the
+    full-detail model (``web_download``), the texture memory on the graphics card, and up to how many pixels on screen
+    the textures stay sharp. Run 1 of the website task: the answer gave the download alone (17,369,108 bytes), the agent
+    had no lever and no way to see what a smaller size would cost, and shrank the object instead."""
+    dl = manifest.get("web_download")
+    if not dl:
+        return []
+    files = ", ".join(f"{k} {v:,}" for k, v in dl["files"].items())
+    sizes = {t["path"]: (int(t["width"]), int(t["height"])) for t in manifest.get("textures") or [] if t.get("width")}
+    if not sizes:
+        return [f"page download for {dl['level']}: {dl['bytes']:,} bytes ({files}); the model has no texture maps"]
+    atlas = (manifest.get("texture_atlas") or {}).get("atlas_wh") or list(max(sizes.values(), key=lambda wh: wh[0] * wh[1]))
+    w, h = int(atlas[0]), int(atlas[1])
+    memory = sum(a * b * 4 * 4 // 3 for a, b in sizes.values())  # RGBA8 with a full mip chain: what a browser uploads
+    web = manifest.get("web_textures") or {}
+    fmt = (f" in WebP (with PNG the GLB was {web['glb_bytes']['before']:,} bytes)" if web.get("format") == "webp"
+           else " in PNG" + (f" (not WebP: {web['reason']})" if web.get("reason") else ""))
+    first = (f"web size: {w} x {h} px texture atlas{fmt}; a page downloads {dl['bytes']:,} bytes for the full-detail model "
+             f"({files}); {len(sizes)} map(s) take {memory / 2 ** 20:.0f} MiB of memory on the graphics card (RGBA8 with "
+             "mipmaps; the installer's KTX2 compression lowers it where the project has the tools)")
+    density = (manifest.get("texture_atlas") or {}).get("texel_density_px_per_m") \
+        or (manifest.get("texel_density") or {}).get("shipped_mean_px_per_m")
+    bounds = manifest.get("glb_bounds_m")
+    if not density or not bounds:
+        return [first]
+    longest = max(float(b) - float(a) for a, b in zip(*bounds))
+    sharp = density * longest
+    chosen = (manifest.get("budget") or {}).get("max_texture_px")
+    second = (f"the textures stay sharp up to about {sharp:,.0f} px across on screen (one texel per pixel: {density:g} texels "
+              f"per metre over the model's longest side, {longest:.2f} m); ")
+    mats = (((manifest.get("uv") or {}).get("texel_density") or {}).get("materials") or {}).values()
+    default = next((m["default_max_texture_px"] for m in mats
+                    if m.get("default_max_texture_px") and (m.get("needed_atlas_px") or 0) > m["default_max_texture_px"]), None)
+    if chosen:
+        second += f"every map is at most {chosen} px because max_texture_px={chosen} was asked for"
+    elif default and default < 4096:  # the web default capped it: say what the next size up costs, and when it is worth it
+        # the parts may need less than the doubled side (the atlas is sized from need): "up to" is what can be promised
+        second += (f"every map is at most {default} px, the default for a web page; max_texture_px={default * 2} would make "
+                   f"that up to about {sharp * 2:,.0f} px for up to 4 times the texture memory and the maps' download: ask "
+                   "for it only for a model the camera comes close to")
+    elif max(w, h) > 256:
+        cap = max(w, h) // 2  # the next atlas down is (min(w, cap), min(h, cap)): fast_ops.ATLAS_SIZES are squares and 2:1
+        share = min(w, cap) * min(h, cap) / (w * h)
+        second += (f"max_texture_px={cap} would make that about {sharp * share ** 0.5:,.0f} px with {share:.0%} of the "
+                   "texture memory and of the maps' download")
+    return [first, second.rstrip("; ")]
 
 
 # --------------------------------------------------------------------------- command line

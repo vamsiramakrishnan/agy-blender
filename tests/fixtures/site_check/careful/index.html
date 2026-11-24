@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Careful</title>
+<style>html,body{margin:0;background:#101418;color:#eee;font:20px sans-serif}canvas{position:fixed;inset:0;width:100vw;height:100vh}
+main{position:relative;padding:2rem;max-width:30rem}#nogl[hidden]{display:none}</style></head>
+<body><canvas id="c"></canvas><main><h1>Careful</h1><p>It holds still when the visitor asked for less motion, and
+without WebGL it says so and keeps its text.</p><p id="nogl" hidden>The 3D view is unavailable: WebGL is off in this
+browser. The text tells the same story.</p></main><div style="height:300vh"></div>
+<script type="module">
+import { setup, QUAD } from './gl.js';
+const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const s = setup(document.getElementById('c'));
+if (!s) { document.getElementById('nogl').hidden = false; }
+else {
+  s.gl.clearColor(0, 0, 0, 1); s.quad(QUAD);
+  const draw = (t) => { s.gl.clear(s.gl.COLOR_BUFFER_BIT); const k = 0.5 + 0.5 * Math.sin(t / 150); s.color(k, 0.3, 1 - k); s.gl.drawArrays(s.gl.TRIANGLES, 0, 6); };
+  if (still) draw(0);
+  else { const frame = (t) => { draw(t); requestAnimationFrame(frame); }; requestAnimationFrame(frame); }
+}
+</script></body></html>

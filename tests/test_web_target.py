@@ -61,7 +61,9 @@ def _sanitize_node_name(name: str) -> str:
 
 def test_the_texture_cap_reaches_the_generated_maps_and_the_atlas():
     assert validator.engine_texture_px("web_three", 8192) == 4096 and validator.engine_texture_px("web_three", 1024) == 1024
-    assert max(max(wh) for wh in fast_ops.atlas_sizes("web_three")) == 4096
+    # round eight: with no size named a web atlas stops at the web default (EngineRules.default_texture_px); 4096 is asked for
+    assert max(max(wh) for wh in fast_ops.atlas_sizes("web_three")) == 2048
+    assert max(max(wh) for wh in fast_ops.atlas_sizes("web_three", 4096)) == 4096
 
 
 def test_a_part_with_a_dotted_name_is_a_critical_compliance_issue():
@@ -263,7 +265,11 @@ async def test_a_script_asset_is_delivered_for_the_web_and_says_what_a_page_down
     assert [r["storage"] for r in man["glb_images"][glb.name]] == ["embedded"] * len(man["glb_images"][glb.name])
     rec = man["validation"]["engine_import"]
     assert rec["ok"] and rec["engine"] == "web_three" and rec["checks_passed"] == 1 and rec["silhouette_iou"] == 0.9991
-    assert "three.js check passed: 1 of 1 checks" in reply and f"page download for LOD0: {dl['bytes']:,} bytes" in reply
+    # round eight: the download is stated with what chooses a size (size_lines), and the answer ends with the install call
+    assert "three.js check passed: 1 of 1 checks" in reply and f"a page downloads {dl['bytes']:,} bytes for the full-detail model" in reply
+    assert "stay sharp up to about" in reply
+    assert reply.splitlines()[-1].startswith(f'NEXT: to use it in a three.js project, install_into_project(package_dir="{pkg}", '
+                                             'dry_run=false) gives a loader module'), reply
     assert len(calls) == 1, "the preflight's run is the delivery's run"
 
 
@@ -295,7 +301,7 @@ async def test_other_targets_are_delivered_as_before_with_no_web_facts(ws):
 
 def test_reply_lines_for_each_state():
     base = {"target_engine": "web_three", "web_download": {"level": "LOD0", "bytes": 2_200_000, "files": {"a.glb": 2_200_000}}}
-    dl = "page download for LOD0: 2,200,000 bytes (a.glb 2,200,000)"
+    dl = "page download for LOD0: 2,200,000 bytes (a.glb 2,200,000); the model has no texture maps"
 
     def step(status, detail):
         return {"evidence": {"steps": [{"name": "engine_import", "status": status, "detail": detail}]}}

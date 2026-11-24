@@ -11,7 +11,8 @@ description: >-
   model, build, make or kitbash an asset, to change an existing one, or to fix
   its shape, parts or gaps, or to make a mesh file they already have
   game-ready. Not for putting a package into a game project (use
-  install-into-project).
+  install-into-project) or for a website that shows the models (use
+  scroll-3d-website).
 ---
 
 # Build an asset as a script
@@ -30,8 +31,13 @@ An asset is one Python file. Three steps, and nothing else is required:
    engine. `dest` is the folder the request names for the result. Its answer
    starts with `DELIVERED` (finished: reply to the user with the path and the
    findings, do not inspect or copy anything), `NOT DELIVERED: a person must
-   decide` (reply with the reason and stop) or `NOT DELIVERED` (fix what it names
-   in the script, `run_build`, deliver again).
+   decide` (reply with the reason and stop), `NOT DELIVERED` (fix what it names
+   in the script, `run_build`, deliver again) or `STILL WORKING` (nothing failed
+   and nothing needs fixing: the work goes on; make the call the answer spells
+   out, with the same arguments and the session it names, and it answers with
+   the result). Any call that takes more than about two and a half minutes,
+   `run_build` included, answers `STILL WORKING` the same way (`check_site`
+   instead answers with what it has seen so far).
 
 Every model call sends the whole conversation again, so do not explore folders,
 do not read other skills for a build, and do not run the script yourself: only
@@ -79,11 +85,14 @@ front faces -y.
 
 ## Reference
 
-`Asset(name, engine, max_tris=15000, brief="", art_direction="")`: `engine` is
-`unreal_5`, `unity_urp`, `godot_4`, `roblox_r15` or `web_three` (three.js); `brief`
-is the user's request in their words (the review checks the asset against it);
-`art_direction` is a named style, only when the user asks for one (skill
-art-direction).
+`Asset(name, engine, max_tris=15000, brief="", art_direction="", max_texture_px=None)`:
+`engine` is `unreal_5`, `unity_urp`, `godot_4`, `roblox_r15` or `web_three`
+(three.js); `brief` is the user's request in their words (the review checks the
+asset against it); `art_direction` is a named style, only when the user asks for
+one (skill art-direction); `max_texture_px` (256, 512, 1024, 2048 or 4096) caps
+the side of the texture atlas: the lever for a web page's download and texture
+memory (never scale the object for it). `deliver_package` says for a web asset
+up to how many pixels on screen its textures stay sharp.
 
 `a.material(id, color, surface="", metallic=0.0, roughness=0.5)`: `color` is
 `"#rrggbb"` as a colour picker shows it. `surface` names the substance and its

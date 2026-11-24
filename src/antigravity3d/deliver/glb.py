@@ -118,11 +118,85 @@ def strip_images(data: bytes) -> bytes:
     for key in ("images", "textures", "samplers"):
         doc.pop(key, None)
     _drop_texture_refs(doc.get("materials") or [])
-    doc["extensionsUsed"] = [e for e in doc.get("extensionsUsed") or [] if e != "KHR_texture_basisu"]
-    doc["extensionsRequired"] = [e for e in doc.get("extensionsRequired") or [] if e != "KHR_texture_basisu"]
+    gone = ("KHR_texture_basisu", WEBP_EXTENSION)  # texture extensions: no texture is left to use them
+    doc["extensionsUsed"] = [e for e in doc.get("extensionsUsed") or [] if e not in gone]
+    doc["extensionsRequired"] = [e for e in doc.get("extensionsRequired") or [] if e not in gone]
     for key in ("extensionsUsed", "extensionsRequired"):
         if not doc[key]:
             del doc[key]
+    return _join(doc, blob)
+
+
+WEBP_EXTENSION = "EXT_texture_webp"
+
+
+def texture_source(texture: Mapping) -> int | None:
+    """The image a glTF texture shows: its ``EXT_texture_webp`` source when it has one (a reader that supports the
+    extension uses it, and a texture written by :func:`swap_images` has no other), else its ``source``."""
+    ext = (texture.get("extensions") or {}).get(WEBP_EXTENSION) or {}
+    return ext.get("source", texture.get("source"))
+
+
+def swap_images(data: bytes, embedded: Mapping[str, tuple[bytes, str]] | None = None,
+                uris: Mapping[str, tuple[str, str]] | None = None) -> bytes:
+    """``data`` with some images replaced, everything else as it was.
+
+    ``embedded``: {sha256 of an embedded image's bytes: (new bytes, MIME type)}; ``uris``: {URI an image references
+    exactly as written: (new URI, MIME type)}. A texture showing a replaced image is written for its new type: a WebP
+    image through ``EXT_texture_webp`` with no ``source`` fallback (a fallback would be the PNG again, in the same
+    file), any other type through ``source``. The extension is listed as used and required exactly while a texture
+    uses it. The binary chunk is laid out again, view by view in order, so image bytes of another length move the
+    views after them; a view outside buffer 0 or a meshopt-compressed one is refused (the package writer makes none)."""
+    doc, blob = _split(data)
+    views = doc.get("bufferViews") or []
+    if any(v.get("buffer", 0) != 0 or v.get("extensions") for v in views):
+        raise ValueError("swap_images handles plain views of the binary chunk only")
+    new_bytes: dict[int, bytes] = {}
+    mime_of: dict[int, str] = {}
+    for i, image in enumerate(doc.get("images") or []):
+        if "bufferView" in image and embedded:
+            v = views[image["bufferView"]]
+            start = v.get("byteOffset", 0)
+            got = embedded.get(hashlib.sha256(blob[start:start + v["byteLength"]]).hexdigest())
+            if got is not None:
+                if sum(1 for im in doc["images"] if im.get("bufferView") == image["bufferView"]) > 1:
+                    raise ValueError(f"image {i} shares its buffer view")
+                new_bytes[image["bufferView"]] = got[0]
+                image["mimeType"] = mime_of[i] = got[1]
+        elif isinstance(image.get("uri"), str) and uris and image["uri"] in uris:
+            image["uri"], mime_of[i] = uris[image["uri"]]
+            image["mimeType"] = mime_of[i]
+    if new_bytes:
+        out = bytearray()
+        for i, v in enumerate(views):
+            start = v.get("byteOffset", 0)
+            chunk = new_bytes.get(i, blob[start:start + v["byteLength"]])
+            out += b"\0" * (-len(out) % 4)  # accessors need 4-byte aligned views
+            v["byteOffset"], v["byteLength"] = len(out), len(chunk)
+            out += chunk
+        blob = bytes(out)
+        doc["buffers"][0]["byteLength"] = len(blob)
+    for texture in doc.get("textures") or []:
+        src = texture_source(texture)
+        if src not in mime_of:
+            continue
+        ext = {k: v for k, v in (texture.get("extensions") or {}).items() if k != WEBP_EXTENSION}
+        texture.pop("source", None)
+        if mime_of[src] == "image/webp":
+            ext[WEBP_EXTENSION] = {"source": src}
+        else:
+            texture["source"] = src
+        if ext:
+            texture["extensions"] = ext
+        else:
+            texture.pop("extensions", None)
+    uses = any(WEBP_EXTENSION in (t.get("extensions") or {}) for t in doc.get("textures") or [])
+    for key in ("extensionsUsed", "extensionsRequired"):
+        names = [e for e in doc.get(key) or [] if e != WEBP_EXTENSION] + ([WEBP_EXTENSION] if uses else [])
+        if names:
+            doc[key] = names
+        else:
+            doc.pop(key, None)
     return _join(doc, blob)
 
 

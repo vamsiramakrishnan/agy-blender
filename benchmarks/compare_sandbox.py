@@ -18,6 +18,8 @@ by this file in three steps (the file is self-contained: stdlib plus the SDK, be
    /opt/blender         Blender 5.3 (``blender`` on PATH, ``$BLENDER_EXE``)            ro
    /opt/pydeps          the SDK's site-packages (only the SDK process uses it)        ro
    /opt/pydeps/antigravity3d  an empty read-only tmpfs: hides this project's plugin  ro
+   /opt/node22          Node and npm, when the run was given a ``node_dir`` (PATH)   ro
+   /opt/pw-browsers     the Playwright browsers, when given (``$CHROMIUM_BIN``)     ro
    /opt/agyctl          this file and the run config                                 ro
    /run/agy             the model relay's unix socket                                rw
    /tmp                 private tmpfs                                                 rw
@@ -63,6 +65,9 @@ PLUGINS_DIR = f"{WORKSPACE}/.agents/plugins"  # the plugin's documented workspac
 GODOT_DIR = "/opt/godot"
 BROWSERS_DIR = "/opt/pw-browsers"
 THREE_DIR = "/opt/three"
+# Node for a task that builds something in the browser (the website task): bound read-only, ``node``, ``npm`` and ``npx``
+# on PATH. Run 1 of that task bound it by editing this file, so the stock arm could not have had it by the same means.
+NODE_DIR = "/opt/node22"
 POOL_SOCKET = "/tmp/agy3d/pool.sock"
 
 
@@ -117,7 +122,7 @@ def bootstrap(config_path: str) -> None:
     if h.get("venv"):  # the interpreter the plugin's installer wrote into its launchers, at the same path
         binds["venv"] = (h["venv"], h["venv"], True)
     for name, dst in (("project_src", PROJECT_SRC), ("project_plugin", PROJECT_PLUGIN), ("godot_dir", GODOT_DIR), ("browsers_dir", BROWSERS_DIR),
-                      ("three_dir", THREE_DIR), ("plugins", PLUGINS_DIR)):  # plugins: inside the workspace, so last
+                      ("three_dir", THREE_DIR), ("node_dir", NODE_DIR), ("plugins", PLUGINS_DIR)):  # plugins: inside the workspace, so last
         if h.get(name):
             binds[name] = (h[name], dst, True)
     _mount("-t", "tmpfs", "-o", "mode=0755,size=1m", "tmpfs", STAGE)
@@ -151,6 +156,13 @@ def sandbox_env(cfg: dict) -> dict[str, str]:
     """The environment of everything in the sandbox. Arm V (``cfg["vanilla"]``): Blender is not on PATH and not named
     in the environment; its MCP server is how it reaches Blender (the binary stays mounted for the server to start)."""
     env = scrubbed_env(cfg.get("extra_env"))
+    host = cfg.get("host") or {}
+    if host.get("node_dir"):  # the same PATH for every arm that was given Node, with or without the plugin
+        env["PATH"] = f"{NODE_DIR}/bin:{env['PATH']}"
+    if host.get("browsers_dir"):  # ``chromium`` resolves to the Playwright build; the variable is the documented way to it
+        env["PATH"] = f"{env['PATH']}:{BROWSERS_DIR}"
+        env.setdefault("CHROMIUM_BIN", f"{BROWSERS_DIR}/chromium")
+        env.setdefault("PLAYWRIGHT_BROWSERS_PATH", BROWSERS_DIR)
     if cfg.get("vanilla"):
         env.pop("BLENDER_EXE", None)
         env["PATH"] = ":".join(p for p in env["PATH"].split(":") if p != BLENDER_DIR)
@@ -377,6 +389,28 @@ def note_reply(tool: str, result: object, answered: set[str]) -> None:
         answered.add(tool)
 
 
+def install_into_workspace(args: dict) -> bool:
+    """Would the owner of a site task approve this ``install_into_project``? The owner asked for a site to be built in
+    this workspace, so a real (not dry) install into it is theirs to approve (run 1's second session was refused one
+    and copied the files by hand, with no levels of detail). Only that: the project is the workspace (empty, or a
+    path inside it), ``dest`` and ``assets`` are relative and stay inside it, and nothing is forced over an edited file."""
+    def inside(path: str, base: str) -> bool:
+        full = os.path.normpath(path if path.startswith("/") else os.path.join(base, path))
+        return full == WORKSPACE or full.startswith(WORKSPACE + "/")
+
+    project = str(args.get("project_dir") or "")
+    if project and not inside(project, WORKSPACE):
+        return False
+    if args.get("force") in (True, "true", "True", 1):
+        return False
+    base = os.path.normpath(os.path.join(WORKSPACE, project)) if project else WORKSPACE
+    for key in ("dest", "assets"):
+        v = str(args.get(key) or "")
+        if v and (v.startswith("/") or not inside(v, base)):
+            return False
+    return True
+
+
 def answer_limits(tool: str, args: dict, limits: dict,
                   answered: set[str] | None = None) -> tuple[dict | None, str | None]:
     """What the person running this pilot would answer when the agent opens a session or switches one to a preview:
@@ -490,9 +524,13 @@ def plugin_attachment(cfg: dict, url: str, emit: Events, conversation_id: str) -
                     a_ = (data.args.get("Arguments") or {})
                     ok = tool in (*OPENERS, "start_preview") and \
                         (_int(a_.get("token_ceiling")), _int(a_.get("max_images"))) == (limits["tokens"], limits["images"])
+                    # The site task's owner approves an install into the run's own workspace (a declared run option).
+                    install_ok = bool(cfg.get("approve_installs")) and tool == "install_into_project" and install_into_workspace(a_)
+                    ok = ok or install_ok
                     # A person would be asked here. Nobody can answer a headless run, so the harness does, and approves
                     # only the run's own share.
-                    emit("ask_answered", tool=tool or str(data.name), question=o.get("reason"), answer="approved" if ok else "refused")
+                    emit("ask_answered", tool=tool or str(data.name), question=o.get("reason"), answer="approved" if ok else "refused",
+                         **({"why": "install into the run's own workspace (option approve_installs)"} if install_ok else {}))
                     if not ok:
                         return hooks.HookResult(allow=False, message=(o.get("reason") or "") +
                                                 " [asked the user: refused]")
@@ -701,7 +739,9 @@ async def run_agent(cfg: dict, emit: Events) -> None:
                     emit("history_error", error=repr(e)[:300])
     except Exception as e:  # noqa: BLE001
         status, err = "crashed", f"{type(e).__name__}: {e}"[:2000]
-    emit("end", status=status, text=_short(text, 8000), stop_reason=stop, error=err,
+    # The final report is what the run hands over in words, so it is kept whole: a site's ran to 10,900 characters and
+    # was cut at 8,000 (site_task's collect puts such a one together again from the relay's transcript).
+    emit("end", status=status, text=_short(text, 60000), stop_reason=stop, error=err,
          usage=usage.model_dump(mode="json", exclude_none=True) if usage is not None else None,
          wall_s=round(time.monotonic() - t0, 2))
 

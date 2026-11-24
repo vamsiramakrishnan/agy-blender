@@ -24,7 +24,7 @@ Then open the folder in Antigravity and ask. The plugin suggests these first req
 
 | What happens for you | The piece |
 |---|---|
-| You ask in your own words and the right playbook loads: modelling, materials, art style, concept sheets, export, mesh cleanup, installing | seven skills |
+| You ask in your own words and the right playbook loads: modelling, materials, art style, concept sheets, export, mesh cleanup, installing, a scroll-driven 3D website around the props | eight skills |
 | The agent follows the studio's conventions (USD is the source of truth, metres and Z-up, PBR ranges, Blender 5.3 API names, engine budgets) | three rules, one always on, two scoped to files |
 | Your export is held until the checks pass and nothing changed since; the agent is sent back once if it tries to stop with the checks unmet | PreToolUse and Stop hooks |
 | You are asked before an install writes into your project, and you approve the token and image limits of an unverified preview | PreToolUse hook (`ask`) |
@@ -87,6 +87,7 @@ dashboard. Following the docs, the plugin never turns itself on.
 | `skills/game-ready-sanitizer` | Makes existing files game-ready: UVs, LODs, colliders, validator. |
 | `skills/engine-truth-verify` | Export, headless engine import, a parity check against the stage, and the manifest's provenance record of what made each file. |
 | `skills/install-into-project` | Installs a package into the user's game project (`install_into_project`) and checks it there with the project's engine. Godot 4: one scene with levels, collision and materials wired. three.js or React Three Fiber (a package built with `engine="web_three"`): the asset's files where the dev server serves them and a loader module to import, with a component for React Three Fiber, checked in a headless browser with the project's own three.js. |
+| `skills/scroll-3d-website` | A scroll-driven 3D website around the props: the order of work (storyboard, page and scene, props through the plugin and the installer, a look with `check_site`, revision), what makes a site scroll well, a guide to current web libraries whose examples ran against their versions (`libraries.md`), recipes, and `starter/`, the smallest Vite project with the plumbing right, run in a browser by `tests/test_scroll_site_starter.py`. Present in both authoring modes. |
 | `agents/usd_verifier.md` | Isolated, read-only subagent that runs the Tier-1 structural check (`run_usd_validator`) and returns a two-line verdict. |
 | `agents/lookdev_critic.md` | Isolated visual critic that returns a two-line audit delta. |
 | `mcp_config.json` | Registers the stdio MCP server `studio` (`python -m antigravity3d.runtime.mcp_server`, launched with `uv run --project ${PLUGIN_ROOT}`). The harness namespaces plugin servers `<plugin>_<server>`, so it appears as `antigravity-3d_studio`. See "MCP server" below. |
@@ -140,7 +141,7 @@ instead:
 
 - every tool in `harness/tools.py`, with its name, docstring and a schema generated from its signature (no `ctx`;
   an optional `session_id` is added);
-- seven session management tools:
+- eight session management tools:
 
 | Tool | What it does |
 |---|---|
@@ -151,6 +152,7 @@ instead:
 | `session_status` | stage, budget, QA verdict and newest audit lines |
 | `list_sessions` | the open sessions |
 | `install_into_project` | put a package into the user's game project and check it there; a dry run by default. Takes `package_dir`, `project_dir`, `dest`, `force` and, for three.js, `assets` and `compress` (`auto`, `always`, `never`) |
+| `check_site` | look at a built website as a visitor does: photographs at even scroll steps at desktop and phone size (contact sheets), errors, failed requests, weight, what the 3D scene costs, reduce motion, no WebGL, and `data-src` facts against their source. Takes `target` (the built folder or a localhost URL), `sources`, `steps`, `sizes`, `other_hosts` |
 
 - **Enforcement.** There is no SDK hook runner on this path, so the server calls `InvariantAndSafetyGate.decide`
   (the gate's decision logic, shared with the SDK hook) before every dispatch.
@@ -158,7 +160,7 @@ instead:
   is one `REFUSED ...` line.
 - The hook scripts in this plugin check export and raw scripts again when the call is an `mcp_tool` step; both read
   the same QA file.
-- **Stages.** A new connection lists the seven session management tools, the inspector's `open_inspector` and
+- **Stages.** A new connection lists the eight session management tools, the inspector's `open_inspector` and
   `review_notes`, and the six tools of the short path (`apply_scene_ir`, `render_preview`, `run_visual_qa`,
   `deliver_package`, `inspect_manifest`, `undo_last_edit`).
 - Once an asset is open, discovery adds the active stage's tools. Clients receive a list-change notification when
@@ -170,6 +172,13 @@ instead:
   first await: calls run in arrival order (a client may pipeline `open_asset_session` and `apply_scene_ir`), at the
   cost of serial execution per server process.
 - On stdin EOF the server answers every request it already received before it exits (`_DrainingStreams`).
+- **Long calls.** Antigravity ends any MCP tool call after 3 minutes, and has no setting for it. Every harness tool
+  therefore runs as a task its session keeps, and `run_build` and `install_into_project` as tasks the server keeps
+  (`harness/keeper.py`); each answers within 150 s: with its result, or with `STILL WORKING (nothing needs fixing, nothing failed)`, the step it
+  is at and the call to repeat. The work goes on after that answer and after a client cancel; the same call with the
+  same arguments joins it, so no step runs twice. A call that changes the design stops kept work of the design
+  before (its folders are removed, nothing of it is delivered); `session_status` names a call that is running and its
+  step.
 - **Sessions.** The active session is the last one opened or selected with
   `set_stage`; pass `session_id` to act on another.
 - The nightly variant factory carries explicit `mcp(antigravity-3d_studio/<tool>)`
@@ -186,7 +195,7 @@ in a process without the key, applies the design and answers with findings and f
 What the install changes in the copied bundle (`plugin_install._script_mode`):
 
 - `mcp_config.json`: the server gets `AGY3D_AUTHORING=script`. It then lists `run_build`, `open_existing_asset`,
-  `start_preview`, `session_status`, `list_sessions`, `install_into_project`, `deliver_package` and the inspector's
+  `start_preview`, `session_status`, `list_sessions`, `install_into_project`, `check_site`, `deliver_package` and the inspector's
   tools, the same list before and after a session opens; no stage tools.
 - `rules/AGENTS.md`, `rules/engine-budgets.md` and `skills/parametric-kitbash/SKILL.md` are replaced by the
   script-mode texts in `src/antigravity3d/build/plugin_script_mode/`.

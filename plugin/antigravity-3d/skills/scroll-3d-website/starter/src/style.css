@@ -1,0 +1,67 @@
+/* style.css: layout plumbing, not a design. Replace the colours and type with the project's own design rules. */
+:root {
+  --bg: #101215;            /* also the scene's background and fog colour (stage.js reads it) */
+  --ground: #1a1d22;        /* the ground the props stand on */
+  --ink: #e9e7e2;
+  --muted: #a3a29c;
+  --panel: rgba(16, 18, 21, 0.82);
+  /* Where the 3D subject sits (stage.js reads these on resize): the picture's centre moves right by --frame-x of the
+     window's width and up by --frame-y of its height, and the view widens by --frame-fit, so the shot lands in the
+     part of the window the text leaves free. A window narrower than the shots' design shape (shots.js, DESIGN_ASPECT)
+     is widened further by stage.js to keep each shot's horizontal coverage: do not use --frame-fit for that. */
+  --frame-x: 0.2;
+  --frame-y: 0;
+  --frame-fit: 1.1;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body { font: 17px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; overflow-x: clip; }
+h1, h2 { line-height: 1.15; margin: 0 0 0.6em; }
+h1 { font-size: clamp(2rem, 4vw, 3.2rem); }
+h2 { font-size: clamp(1.5rem, 2.6vw, 2.2rem); }
+a { color: inherit; }
+.kicker { color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.8rem; margin: 0 0 1em; }
+
+/* The canvas is 100lvh tall, so a phone's sliding address bar does not resize it (stage.js sizes the renderer from
+   this box). The chapters lie above it in every layout, so an empty canvas never covers the text. */
+#stage { position: fixed; inset: 0; width: 100vw; height: 100vh; height: 100lvh; display: block; z-index: 0; }
+.chapter { position: relative; z-index: 1; }
+
+/* Film layout: only under .webgl-on, which main.js sets once WebGL works. Every rule that dims, hides or moves a panel
+   hangs on it, so a page whose script failed to load, or has not run yet, is the article with every panel readable
+   (run 2 dimmed every panel to nothing under .js, a class set before any script runs, so a blocked script left a
+   page with no text). */
+.webgl-on .chapter { min-height: 220vh; }
+.webgl-on .chapter:first-child { min-height: 180vh; }
+/* The panels are one fixed layer, cross-faded by the current chapter (main.js sets .is-current from story time). A
+   sticky panel inside its section slides on once the section's end reaches it: run 2's slid up over the 3D on the
+   phone for a fifth of every chapter, and in a short window it leaves the window before its chapter's rest. The
+   panels stay in their sections in the HTML, so screen readers and the article read them in document order; a hidden
+   one is only transparent, and shows when a link in it has the keyboard's focus. */
+.webgl-on .panel {
+  position: fixed; top: 18vh; left: 5vw; width: min(30rem, 34vw); max-height: 76vh; overflow: auto;
+  padding: 1.5rem 1.75rem; background: var(--panel); border-radius: 10px;
+  opacity: 0; pointer-events: none; transition: opacity 0.4s ease;
+}
+.webgl-on .chapter.is-current .panel, .webgl-on .panel:focus-within { opacity: 1; pointer-events: auto; }
+
+/* Phone (portrait; main.js uses the same query): the 3D takes the upper part of the window, the panel the lower part.
+   A landscape phone keeps the side-by-side layout: text below would leave the scene a strip a third of the window high. */
+@media (max-width: 899px) and (orientation: portrait) {
+  /* stacked: stage.js fits each shot's subject into the space above the panels; --frame-x/y/fit are its fallback */
+  :root { --frame-x: 0; --frame-y: 0.15; --frame-fit: 1; --frame-stack: 1; }
+  .webgl-on .panel { top: auto; left: 16px; right: 16px; bottom: 16px; width: auto; max-height: 40vh; padding: 1rem 1.25rem; }
+}
+
+/* Article layout: no JavaScript, no WebGL, the scene failed, or the script did not load. The page must read on its
+   own; a chapter's still (an <img class="still"> in its panel, see the skill's recipes.md) stands in for the scene. */
+.still { display: none; }
+.no-js .still, .webgl-off .still { display: block; width: 100%; height: auto; margin-top: 1rem; border-radius: 6px; }
+.no-js #stage, .webgl-off #stage { display: none; }
+html:not(.webgl-on) .chapter { padding: 3rem 16px; }
+html:not(.webgl-on) .panel { max-width: 40rem; margin: 0 auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  .webgl-on .panel { transition: none; }
+}

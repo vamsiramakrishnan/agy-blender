@@ -1951,14 +1951,27 @@ FLAT_DETAIL_PX = 256
 
 def atlas_sizes(engine: str | None, max_px: int | None = None) -> tuple[tuple[int, int], ...]:
     """The (width, height) sizes ``unwrap_scene`` tries for an atlas sized from need for ``engine``: ``ATLAS_SIZES`` with
-    both sides within its ``max_texture_px`` and within ``max_px`` (an art direction's texture size)."""
+    both sides within its ``max_texture_px`` and within ``max_px`` (the caller's ``EngineBudget.max_texture_px`` or an art
+    direction's texture size); with no ``max_px``, within the engine's ``default_texture_px`` when it has one."""
     from antigravity3d.kernel.validator import ENGINE_RULES
 
     rule = ENGINE_RULES.get(engine) if engine else None
     cap = rule.max_texture_px if rule is not None and rule.max_texture_px else ATLAS_SIZES[-1][0]
     if max_px:
         cap = min(cap, int(max_px))
+    elif rule is not None and rule.default_texture_px:
+        cap = min(cap, rule.default_texture_px)
     return tuple(wh for wh in ATLAS_SIZES if max(wh) <= cap) or (ATLAS_SIZES[0],)
+
+
+def own_atlas_px(budget: EngineBudget) -> int:
+    """The side of a material's own atlas (a material outside the shared atlas: not known to be opaque, or every
+    material with ``shared_atlas=False``): 2048 (package.SWATCH_SPAN_PX), never above a size someone chose
+    (``validator.chosen_texture_px``). Its maps are shrunk to the same side when the package is written."""
+    from antigravity3d.kernel.validator import chosen_texture_px
+
+    cap = chosen_texture_px(budget)
+    return min(2048, int(cap)) if cap else 2048
 
 
 def shared_atlas_id(materials: Iterable[str | None]) -> str | None:
@@ -4374,7 +4387,7 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
             hidden = None
     th = time.perf_counter()
     if hidden is None:
-        uvs = unwrap_scene(meshes, budget, 2048, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail, keep=keep)
+        uvs = unwrap_scene(meshes, budget, own_atlas_px(budget), shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail, keep=keep)
         t1 = time.perf_counter()
         lods = generate_asset_lods(uvs)
     else:
@@ -4387,7 +4400,7 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
         cache: dict = {}
         # the closed packing (LODs are simplified from it) takes the shipped size when it can, but pins nothing: what ships
         # is the packing below, and every level's uvs are carried over to it (_relayout)
-        closed = unwrap_scene(meshes, budget, 2048, cache=cache, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail,
+        closed = unwrap_scene(meshes, budget, own_atlas_px(budget), cache=cache, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail,
                               keep=keep, pin=False)
         t1 = time.perf_counter()
         lods_closed = generate_asset_lods(closed)
@@ -4395,7 +4408,7 @@ def run_export_pipeline(meshes: list[MeshData], budget: EngineBudget, asset_name
         marked, exposed = _ship_levels(closed, lods_closed, materials, opaque_materials, hidden0,
                                        {m.node_id: m.run for m in meshes if getattr(m, "run", None) is not None})
         pack = [h & ~_chart_of(u.triangles, exposed[u.node_id]) if u.node_id in exposed else h for u, h in zip(closed, hidden)]
-        uvs = unwrap_scene(meshes, budget, 2048, hidden=pack, cache=cache, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail,
+        uvs = unwrap_scene(meshes, budget, own_atlas_px(budget), hidden=pack, cache=cache, shared=shared, max_px=budget.max_texture_px, detail_px_per_m=detail,
                            keep=keep)
         uvs = [replace(u, hidden=h if h.any() else None) for u, h in zip(uvs, hidden)]
         lods = _relayout(marked, closed, uvs)

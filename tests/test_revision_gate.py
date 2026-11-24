@@ -61,7 +61,9 @@ async def test_stale_render_is_discarded(tmp_path, monkeypatch):
     await asyncio.wait_for(started.wait(), 5)
     await T.apply_scene_ir(json.dumps({"ops": [box("new", (1, 1, 1), 0.5)]}), env.ctx)
     finish.set()
-    assert "changed during render" in await task
+    # Since calls are kept (harness/keeper.py) the edit stops the render it makes stale, and the render's answer says so.
+    answer = await task
+    assert answer.startswith("STOPPED: render_preview was stopped because the design changed while it ran"), answer
     assert not env.sess().previews and not list(env.sess().artifacts_dir.glob("preview_*.png"))
 
 

@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import inspect
 import itertools
 import logging
@@ -61,6 +62,7 @@ from pydantic import Field
 
 from antigravity3d import ir_schema
 from antigravity3d.art_direction import load as art_direction_load, style_ids
+from antigravity3d.harness import keeper
 from antigravity3d.harness import tools as T
 from antigravity3d.harness.hooks import InvariantAndSafetyGate, state_header
 from antigravity3d.harness.session import (
@@ -68,7 +70,7 @@ from antigravity3d.harness.session import (
 )
 from antigravity3d.harness.traceback_compressor import compress_exception
 from antigravity3d.runtime import inspector_server as inspector_app
-from antigravity3d.state import EngineBudget, SceneSessionRegistry
+from antigravity3d.state import EngineBudget, SceneSessionRegistry, texture_px_choice
 from antigravity3d.tactics.stream_call import CURRENT_SINK
 
 log = logging.getLogger("antigravity3d.mcp")
@@ -76,7 +78,7 @@ log = logging.getLogger("antigravity3d.mcp")
 SERVER_NAME = "antigravity-3d"
 ENGINES = ("unreal_5", "unity_urp", "godot_4", "roblox_r15", "web_three")
 MANAGEMENT_TOOLS = ("open_asset_session", "open_existing_asset", "start_preview", "set_stage", "session_status", "list_sessions",
-                    "install_into_project")
+                    "install_into_project", "check_site")
 SESSION_ID_DOC = "Asset session to act on; omit to use the active (most recently opened or selected) one."
 INSTRUCTIONS = (
     "antigravity-3d asset studio. To change an asset that already exists (a package or a prop folder in the workspace), "
@@ -102,15 +104,16 @@ SCRIPT_INSTRUCTIONS = (
     "fix, and five colour views; edit the script and run it again. deliver_package(dest) reviews, builds levels of detail "
     "and collision shapes, validates and exports; its answer starts with \"DELIVERED\" (finished: reply to the user with "
     "the package path and the findings, and do not inspect it again), \"NOT DELIVERED: a person must decide\" (reply to the "
-    "user with the reason and stop) or \"NOT DELIVERED\" (fix what it names in the script, run_build, then deliver_package "
-    "again). To change an asset that already exists, edit its script (the workspace's <asset_name>.py, or source/build.py "
+    "user with the reason and stop), \"NOT DELIVERED\" (fix what it names in the script, run_build, then deliver_package "
+    "again) or \"STILL WORKING\" (nothing failed: the work goes on; call the same tool again at once with the same "
+    "arguments for its result; run_build answers so too when a build takes longer). To change an asset that already exists, edit its script (the workspace's <asset_name>.py, or source/build.py "
     "in its package) and run it again; never write it anew. Without the native Decisions API only an UNVERIFIED preview "
     "can be delivered: run_build's reply says whether this session already is one; only if the reply asks for it, ask the "
     "user for a token ceiling and an image limit and call start_preview. Replies are short." + ir_schema.colour_note())
 # What script mode lists: run_build instead of open_asset_session and the stage tools; deliver_package is the one
 # harness tool (the inspector MCP App's tools are added as in the default mode).
 SCRIPT_MANAGEMENT_TOOLS = ("run_build", "open_existing_asset", "start_preview", "session_status", "list_sessions",
-                           "install_into_project")
+                           "install_into_project", "check_site")
 SCRIPT_HARNESS_TOOLS = ("deliver_package",)
 BUILD_TIMEOUT_S = 180.0
 NEXT_STEP = "NEXT: edit the script and run_build again to fix or improve; when it reads as the request, deliver_package(dest=...)."
@@ -216,6 +219,9 @@ class StudioHost:
         # server process (the tools are already serialised per session by the registry lock); the price is
         # that a long QA call delays other sessions' calls.
         self._order = asyncio.Lock()
+        # Calls with no session of their own yet (run_build, install_into_project) are kept here, as a session keeps its
+        # tools' calls (harness/keeper.py): they answer inside the host's 3 minutes and their work goes on.
+        self.kept = keeper.Keeper()
 
     async def run_ordered(self, fn: Any, *args: Any) -> str:
         async with self._order:
@@ -261,6 +267,7 @@ class StudioHost:
         s = session(self.registry, sid)
         line = (f"SESSION {sid} asset={s.stage.asset_prim.GetName()} engine={s.state.budget.target_engine} "
                 f"stage={s.toolset} tris<={s.state.budget.max_tris}"
+                + (f" textures<={s.state.budget.max_texture_px}px" if s.state.budget.max_texture_px else "")
                 + (f" art={s.state.art_direction}" if s.state.art_direction else "") + f" workdir={s.workdir}")
         return line + self._judge_note(sid)
 
@@ -283,20 +290,21 @@ class StudioHost:
     async def open_asset_session(self, asset_name: str, target_engine: str, max_tris: int = 15_000,
                                  workdir: str = "", workspace: str = "", conversation_id: str = "", art_direction: str = "",
                                  keep_contact_faces: bool = False, preview: bool = False, token_ceiling: int | None = None,
-                                 max_images: int | None = None, brief: str = "") -> str:
+                                 max_images: int | None = None, brief: str = "", max_texture_px: int | None = None) -> str:
         sid = await self._open(asset_name, target_engine, max_tris, workdir, workspace, conversation_id, art_direction,
-                               keep_contact_faces, preview, token_ceiling, max_images, brief)
+                               keep_contact_faces, preview, token_ceiling, max_images, brief, max_texture_px)
         return self._line(sid) + " | " + T.SHORT_PATH
 
     async def _open(self, asset_name: str, target_engine: str, max_tris: int, workdir: str, workspace: str,
                     conversation_id: str, art_direction: str, keep_contact_faces: bool, preview: bool,
-                    token_ceiling: int | None, max_images: int | None, brief: str) -> str:
+                    token_ceiling: int | None, max_images: int | None, brief: str, max_texture_px: int | None = None) -> str:
         """Open a new asset session, bound to the conversation, stage BLOCKOUT, active; its id. The checks and preview
         rules of open_asset_session (which run_build opens its sessions through as well)."""
         if target_engine not in ENGINES:
             raise ValueError(f"target_engine must be one of {', '.join(ENGINES)}")
         if int(max_tris) < 1:
             raise ValueError("max_tris must be >= 1")
+        texture_px = texture_px_choice(max_texture_px)
         art_direction_load(art_direction)  # an unknown id fails here, listing the valid ones, before anything is created
         asset = _slug(asset_name, "Asset")
         if delay := float(os.environ.get("AGY3D_TEST_OPEN_DELAY_S", "0") or 0):  # test hook: widens the race window
@@ -307,7 +315,8 @@ class StudioHost:
         wd = Path(workdir) if workdir else root / "agy3d_assets" / sid
         open_session(
             self.registry, sid, wd, asset,
-            EngineBudget(target_engine, max_tris=int(max_tris), keep_contact_faces=bool(keep_contact_faces)),  # type: ignore[arg-type]
+            EngineBudget(target_engine, max_tris=int(max_tris), keep_contact_faces=bool(keep_contact_faces),  # type: ignore[arg-type]
+                         max_texture_px=texture_px),
             plane=self.backends.plane, forge=self.backends.forge, pool=self.backends.pool,
             state_workspace=root, art_direction=art_direction or None, preview=bool(preview),
             token_ceiling=token_ceiling, max_images=max_images, brief=brief or None)
@@ -372,6 +381,23 @@ class StudioHost:
     async def run_build(self, path: str, workspace: str = "", conversation_id: str = "", preview: bool = False,
                         token_ceiling: int | None = None, max_images: int | None = None, session_id: str = "",
                         timeout_s: float = BUILD_TIMEOUT_S) -> str:
+        """``_run_build`` as a kept call (harness/keeper.py): it answers within the host's time and a call with the same
+        arguments for the same script text joins the build that is running. A changed script is another call: it waits
+        for the earlier build, then builds anew."""
+        args = {"path": path, "preview": preview, "token_ceiling": token_ceiling, "max_images": max_images,
+                "session_id": session_id}
+        shown = {k: v for k, v in args.items() if v not in ("", None, False)}
+        try:
+            text = _script_path(Path(workspace or os.getcwd()).resolve(), path).read_bytes()
+        except (ValueError, OSError):
+            text = b""  # the build answers why
+        key = {**shown, "workspace": workspace, "script_sha256": hashlib.sha256(text).hexdigest()}
+        return await self.kept.call("run_build", key, lambda: self._run_build(
+            path, workspace, conversation_id, preview, token_ceiling, max_images, session_id, timeout_s), shown=shown)
+
+    async def _run_build(self, path: str, workspace: str = "", conversation_id: str = "", preview: bool = False,
+                         token_ceiling: int | None = None, max_images: int | None = None, session_id: str = "",
+                         timeout_s: float = BUILD_TIMEOUT_S) -> str:
         """Run an asset script (``antigravity3d.build.runner``), open or reuse its session, apply its design as one checked
         transaction and answer with the findings and the colour views (S/r6/CONTRACT.md section 4). The first word of
         the reply decides the agent's next step: BUILT, UNCHANGED or NOT BUILT; a failure leaves every session as it was.
@@ -392,6 +418,8 @@ class StudioHost:
         rel = script.relative_to(root).as_posix()
         cand = session_id or self.active
         reuse_key = self.built.get(cand) if cand in self.gates else None
+        if reuse_key is not None:  # the session this build may replace the design of: its calls wait for the build
+            T._keeper(session(self.registry, cand)).claim(keeper.current())
         kept = (f"session {cand} is unchanged" if reuse_key else "no session was opened")
         run_dir = root / "agy3d_assets" / f".run-{uuid.uuid4().hex[:12]}"
         t0 = time.perf_counter()
@@ -424,10 +452,12 @@ class StudioHost:
             if sid is None:
                 try:
                     sid = await self._open(first.name, first.engine, first.max_tris, "", str(root), conversation_id,
-                                           first.art_direction, False, preview, token_ceiling, max_images, first.brief)
+                                           first.art_direction, False, preview, token_ceiling, max_images, first.brief,
+                                           first.max_texture_px)
                 except (ValueError, LookupError) as e:
                     return f"NOT BUILT: the session could not be opened: {compress_exception(e)}. Fix the Asset(...) line and run_build again; {kept}."
                 self.built[sid] = key
+                T._keeper(session(self.registry, sid)).claim(keeper.current())  # as above, for the session it opened
                 # a script session from its opening on: every fix instruction names the script, even before a design
                 self.registry.attach(sid, T.R_SCRIPT_SESSION, True)
                 self.registry.attach(sid, R_NOTICE, True)
@@ -457,6 +487,8 @@ class StudioHost:
                                     "applied or rendered" + (f" (the views of #{prev.index} stand)" if prev is not None else "")
                                     + ". Edit the script to change the design, or deliver_package(dest=...) when it reads as the request.")
             budget_note: list[str] = []
+            if stopped := await T.stop_kept_work(s):  # a delivery of the earlier design is no longer wanted
+                budget_note.append(T.stopped_line(stopped))
             before = None if opened else self._budget_update(s, built, budget_note)
             t1 = time.perf_counter()
             try:
@@ -543,7 +575,7 @@ class StudioHost:
 
         old_budget, old_brief = s.state.budget, s.state.brief
         art = load_art(s.state.art_direction)
-        budget = dataclasses.replace(old_budget, max_tris=int(built.max_tris))
+        budget = dataclasses.replace(old_budget, max_tris=int(built.max_tris), max_texture_px=built.max_texture_px)
         if art is not None:
             budget = art.budget(budget, "prop")
         brief = built.brief if built.brief and built.brief.strip() else None
@@ -551,6 +583,9 @@ class StudioHost:
             return None
         if budget.max_tris != old_budget.max_tris:
             note.append(f"budget now {budget.max_tris:,} triangles (was {old_budget.max_tris:,})")
+        if budget.max_texture_px != old_budget.max_texture_px:
+            note.append(f"texture atlas now at most {budget.max_texture_px or 'the engine default'} px "
+                        f"(was {old_budget.max_texture_px or 'the engine default'})")
         if brief != old_brief:
             note.append("brief updated: the review checks the asset against the new words")
 
@@ -564,6 +599,7 @@ class StudioHost:
 
     async def start_preview(self, token_ceiling: int, max_images: int, session_id: str = "") -> str:
         sid = self.pick(session_id)
+        await T.stop_kept_work(session(self.registry, sid))  # earlier verdicts are discarded: work built on them is stale
         async with self.registry.locked(sid):
             switch_to_preview(self.registry, sid, token_ceiling, max_images)
         if self.script:
@@ -589,13 +625,34 @@ class StudioHost:
         return f"STAGE {stage} callable: {names}" + (f" | {note}" if note else "")
 
     async def session_status(self, session_id: str = "") -> str:
-        return state_header(session(self.registry, self.pick(session_id)))
+        s = session(self.registry, self.pick(session_id))
+        running = [x for x in (T._keeper(s).status(), self.kept.status()) if x]  # a call still at work, and its step
+        return "\n".join([state_header(s), *running])
 
     async def list_sessions(self) -> str:
         sids = list(self.gates)
         if not sids:
             return "no sessions: call run_build" if self.script else "no sessions: call open_asset_session"
         return "\n".join(("* " if sid == self.active else "  ") + self._line(sid) for sid in sids)
+
+    def delivering(self, project: str, package_dir: str) -> Any:
+        """The kept deliver_package or export_engine_package still writing the package ``package_dir`` names (in its
+        session's export folder, or in the folder deliver_package(dest=...) places it in); None otherwise."""
+        target = Path(package_dir) if Path(package_dir).is_absolute() else Path(project) / package_dir
+        target = target.resolve()
+        for sid in list(self.gates):
+            s = session(self.registry, sid)
+            k = T._keeper(s).running()
+            if k is None or k.name not in {"deliver_package", "export_engine_package"}:
+                continue
+            try:
+                dest = json.loads(k.key).get("dest") or ""
+            except (ValueError, AttributeError):
+                dest = ""
+            places = [s.export_dir.resolve()] + ([(T._workspace(s) / dest).resolve()] if dest else [])
+            if any(target == p or target.is_relative_to(p) for p in places):
+                return k
+        return None
 
     # ---- harness tools
     async def call_tool(self, name: str, fn: T.ToolFn, session_id: str, kwargs: dict[str, Any]) -> str:
@@ -608,7 +665,11 @@ class StudioHost:
             verdict = await self.gates[sid].decide(name, kwargs)
             if not verdict.allow:
                 return f"REFUSED {verdict.message}"
-            return await fn(ctx=McpToolContext(self.registry, sid), **kwargs)  # type: ignore[call-arg]
+            names = keeper.NAMES_SESSION.set(True)  # every tool here takes session_id: a call to repeat names it
+            try:
+                return await fn(ctx=McpToolContext(self.registry, sid), **kwargs)  # type: ignore[call-arg]
+            finally:
+                keeper.NAMES_SESSION.reset(names)
         except (LookupError, ValueError, RuntimeError) as e:  # expected: no/unknown session, bad input
             return f"ERROR {compress_exception(e)}"
         except Exception as e:  # noqa: BLE001 - one compressed line, never a traceback
@@ -807,6 +868,12 @@ MAX_IMAGES_DOC = "The USER's limit on generated images for this preview. Ask the
 BRIEF_DOC = ("The user's request for this asset, in their words (for example 'a rugged supply crate with corner guards, "
              "latches and two side handles'). Visual QA shows it to the judge and asks whether every part it names is there "
              "and how fully the asset depicts it. Empty: QA does not ask.")
+MAX_TEXTURE_PX_DOC = ("Largest side of the texture atlas in pixels: 256, 512, 1024, 2048 or 4096; empty for the size the "
+                      "parts need (at most 4096; at most 2048 for web_three, where 4096 has to be asked for). The answer "
+                      "after delivery says up to how many pixels on screen the textures stay sharp; each step down halves "
+                      "that and quarters the texture memory. Choose it from the largest size the model is shown at (for a "
+                      "web page, a phone's screen too).")
+
 ART_DIRECTION_DOC = ("Named art direction (skills/art-direction): " + " | ".join(style_ids())
                      + "; empty for none. Lowers the budget where the look needs it and styles maps, shading and prompts.")
 
@@ -825,11 +892,13 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         token_ceiling: Annotated[int | None, Field(description=TOKEN_CEILING_DOC)] = None,
         max_images: Annotated[int | None, Field(description=MAX_IMAGES_DOC)] = None,
         brief: Annotated[str, Field(description=BRIEF_DOC)] = "",
+        max_texture_px: Annotated[int | None, Field(description=MAX_TEXTURE_PX_DOC)] = None,
     ) -> str:
         async def go() -> str:
             return await host.open_asset_session(asset_name, target_engine, max_tris, workdir, await _workspace_root(ctx), conversation_id,
                                                  art_direction=art_direction, keep_contact_faces=keep_contact_faces,
-                                                 preview=preview, token_ceiling=token_ceiling, max_images=max_images, brief=brief)
+                                                 preview=preview, token_ceiling=token_ceiling, max_images=max_images, brief=brief,
+                                                 max_texture_px=max_texture_px)
 
         return await host.change_catalog(ctx, go)
 
@@ -887,8 +956,9 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
                                                 "where the loader and the install record go)")] = "",
         assets: Annotated[str, Field(description="three.js only: folder inside the project's served folder (public/ or static/) for "
                                                  "the asset's files; default <served>/agy3d/<asset>")] = "",
-        dry_run: Annotated[bool, Field(description="True (default): only report what would be written. Show that plan to the user "
-                                                   "and call again with false once they agree")] = True,
+        dry_run: Annotated[bool, Field(description="True (default): only report what would be written. A project the user already "
+                                                   "had: show them that plan and call again with false once they agree. A project "
+                                                   "you are building in this session because the user asked for it: pass false")] = True,
         force: Annotated[bool, Field(description="Replace this tool's own files the developer edited since the last install")] = False,
         compress: Annotated[str, Field(description="three.js only, when the project has the compression packages: auto (default: "
                                                    "compress only when the files do not grow), always (for GPU memory), never")] = "auto",
@@ -897,12 +967,46 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
 
         project = project_dir or await _workspace_root(ctx)
 
-        async def go() -> str:
+        async def install() -> str:
             r = await asyncio.to_thread(install_package, package_dir, project, dest or None, dry_run, force, True,
                                         assets=assets or None, compress=compress)
             return _install_text(r)
 
+        shown = {k: v for k, v in (("package_dir", package_dir), ("project_dir", project_dir), ("dest", dest),
+                                   ("assets", assets), ("dry_run", dry_run), ("force", force), ("compress", compress))
+                 if v != _INSTALL_DEFAULTS.get(k)}
+        async def go() -> str:  # kept (harness/keeper.py): a browser or Godot check can pass the host's 3 minutes
+            # A delivery still writing this package is waited for first (the install would read a package half
+            # written, or the one it replaces); the key is read after it: a package delivered again in between is
+            # another call, which installs that package.
+            return await host.kept.call(
+                "install_into_project", lambda: {**shown, "project": project, "manifest": _manifest_digest(project, package_dir)},
+                install, shown=shown, wait_for=host.delivering(project, package_dir))
+
         return await host.run_ordered(go)
+
+    async def check_site(
+        target: Annotated[str, Field(description="The built site: its folder (holds index.html; for Vite, dist/ after the build), "
+                                                 "absolute or relative to the workspace, or a localhost URL of a running server")],
+        ctx: Context,
+        sources: Annotated[str, Field(description="Folder that data-src paths are relative to (the project the site is about); "
+                                                  "default: the site folder")] = "",
+        steps: Annotated[int, Field(description="Scroll positions photographed, evenly from top to bottom (2 to 25)")] = 9,
+        sizes: Annotated[str, Field(description="desktop (1440 x 900), phone (390 x 844), or both, comma-separated")] = "desktop,phone",
+        other_hosts: Annotated[str, Field(description="block (default): requests to other hosts are listed, not made; "
+                                                      "try: make them")] = "block",
+    ) -> str:
+        from antigravity3d.deliver.site_check import acheck_site, out_dir_for
+
+        root = Path(await _workspace_root(ctx))
+        where = target if target.startswith(("http://", "https://")) else str((root / target).resolve())
+        src = str((root / sources).resolve()) if sources else None
+        try:
+            rep = await acheck_site(where, sources=src, steps=steps, sizes=sizes, other_hosts=other_hosts,
+                                    out_dir=out_dir_for(root, where))
+        except ValueError as e:
+            return f"NOT CHECKED: {e}"
+        return rep.text()
 
     open_asset_session.__doc__ = (
         "Open an asset session (new USD stage) and make it active, stage BLOCKOUT. Call this first for a NEW asset; returns the "
@@ -920,7 +1024,11 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
         "materials wired, then imported and checked in the project's engine; three.js / React Three Fiber: the files where "
         "the dev server serves them, a loader module (and a component) to import, compressed for the web when the project "
         "has the tools, then checked in a browser with the project's own three.js; Unity/Unreal/Roblox: says what to import). "
-        "Run with dry_run first and show the user the plan; writing into their project needs their approval.")
+        "Two cases. A project you are building in this session because the user asked for it (a site, a prototype): install "
+        "directly with dry_run=false; this is how a package gets into it, never by copying its files by hand. A project the "
+        "user already had: call with dry_run=true first, show the user the plan, and install once they agree. Without the "
+        "compression packages in the project the install still writes the web GLB (WebP maps where the package has them) and "
+        "the loader with every level of detail wired; compression is added where the packages are.")
     run_build.__doc__ = (
         "Run the asset's Python script (from agy3d import Asset), check the design it saves and show it: the first call "
         "opens the asset's session from the script's Asset(...) line, a later one replaces the design in one checked step. "
@@ -934,20 +1042,70 @@ def _management(host: StudioHost) -> dict[str, tuple[Any, str]]:
             "larger') edit only the lines of the parts named in that script and run_build it. An asset not built by a "
             "script cannot be changed in script mode; the answer says so.")
         session_status.__doc__ = "The asset session's budget, whether its design passed the checks, and whether it can be delivered."
-    tools = (run_build, open_existing_asset, start_preview, session_status, list_sessions, install_into_project) if getattr(host, "script", False) \
-        else (open_asset_session, open_existing_asset, start_preview, set_stage, session_status, list_sessions, install_into_project)
+    check_site.__doc__ = (
+        "Look at a built website the way a visitor does, and measure it. Give the site's folder (holds index.html) or a "
+        "localhost URL. It serves the folder under a sub-path, opens it at desktop and phone size, scrolls through it in "
+        "even steps and photographs each one, then answers in plain text: what is broken (errors, failed requests, facts "
+        "that disagree with their source), what a visitor would notice (steps where the 3D canvas is empty or nothing "
+        "changed, subjects the page lists in window.__site.info().onScreen cut by the frame's edge or hidden under its HTML, "
+        "sideways scroll on a phone, download weight, other hosts, reduce motion and no-WebGL handling), what the "
+        "scene costs (draw calls, triangles, texture memory) and where the contact sheets are: open them with your file "
+        "viewer. Mark every number and code specimen the page shows with its source, data-src=\"file#/json/pointer\", "
+        "\"file#L10-L14\" or \"file\" (relative to sources), and it is checked against that file. Writes only its "
+        "pictures, under agy3d_site_check/. Answers within 150 s; use it after every change you want to see.")
+    tools = (run_build, open_existing_asset, start_preview, session_status, list_sessions, install_into_project, check_site) \
+        if getattr(host, "script", False) \
+        else (open_asset_session, open_existing_asset, start_preview, set_stage, session_status, list_sessions, install_into_project,
+              check_site)
     return {f.__name__: (f, f.__doc__ or "") for f in tools}
 
 
-def _install_text(r: Any) -> str:
-    """One status line, the checks, then the machine-readable result."""
-    import json
+_INSTALL_DEFAULTS = {"project_dir": "", "dest": "", "assets": "", "dry_run": True, "force": False, "compress": "auto"}
 
-    head = f"{r.status.upper()} {r.message}"
-    lines = [head, *(f"check {c.name}: {c.status} {c.detail}" for c in r.checks), *(f"warning: {w}" for w in r.warnings)]
-    body = r.to_dict()
-    body["files"] = [f for f in body["files"] if f["action"] != "keep"][:60]
-    return "\n".join(lines) + "\n" + json.dumps(body)
+
+def _manifest_digest(project: str, package_dir: str) -> str:
+    """sha256 of the package's manifest.json ('' when it cannot be read): a package delivered again is a new one."""
+    p = Path(package_dir) if Path(package_dir).is_absolute() else Path(project) / package_dir
+    try:
+        return hashlib.sha256((p / "manifest.json").read_bytes()).hexdigest()
+    except OSError:
+        return ""
+
+
+def _install_text(r: Any) -> str:
+    """The install's answer, short enough for the host to show it: the outcome, what to import, the checks as one count
+    with a line for each that did not pass, warnings and notes cut to a sentence or two, and where the whole record is.
+
+    Run 2 of the website task (2026-11-24): the answer carried every check's detail and then the whole result as JSON,
+    10,292 characters for one prop. Antigravity saved it to a file and gave the agent a pointer to go and read. A dry
+    run still lists the files, because that list is the plan a person approves."""
+    from collections import Counter
+
+    word = r.status.replace("_", " ")
+    msg = r.message[len(word) + 1:] if r.message.lower().startswith(word + " ") else r.message  # not "INSTALLED installed ..."
+    lines = [f"{r.status.upper()} {msg}"]
+    asset = (r.package or {}).get("asset")
+    if r.engine == "threejs" and r.dest and asset and r.status in ("installed", "updated", "unchanged"):
+        from antigravity3d.deliver.web import pascal
+
+        lines.append(f"use it: {r.dest}/index.js exports load{pascal(asset)}({{ renderer }}); it returns a Group with every "
+                     "level of detail wired")
+    changed = [f for f in r.files if f.get("action") != "keep"]
+    if r.status == "dry_run":
+        lines += [f"would {f['action']} {f['path']}" + (f" ({f['bytes']:,} bytes)" if f.get("bytes") else "") for f in changed[:40]]
+        if len(changed) > 40:
+            lines.append(f"... and {len(changed) - 40} more file(s)")
+    elif changed:
+        lines.append(f"files: {len(changed)} written or removed, {sum(f.get('bytes') or 0 for f in changed):,} bytes")
+    if r.checks:
+        n = Counter(c.status for c in r.checks)
+        lines.append(f"checks: {n['passed']} passed, {n['failed']} failed, {n['skipped']} skipped")
+        lines += [f"check {c.name}: {c.status} {c.detail[:400]}" for c in r.checks if c.status != "passed"]
+    lines += [f"warning: {w[:300]}" for w in r.warnings]
+    lines += [f"note: {x[:300]}" for x in r.notes]
+    if r.report_path:
+        lines.append(f"every check in full: {r.report_path}")
+    return "\n".join(lines)
 
 
 async def _workspace_root(ctx: Any) -> str:

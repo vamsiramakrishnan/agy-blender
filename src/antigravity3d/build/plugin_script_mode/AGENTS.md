@@ -23,6 +23,14 @@ glob-scoped rule files add detail when matching files are in play:
   It must pass the Blender 5.3 linter: no `os`, `subprocess`, file writes,
   `eval`/`exec` or `bpy.app.handlers`.
 
+## A website is not an asset
+
+A request for a website, web page, landing page or scroll-driven 3D explainer
+(three.js, WebGL, shaders, "scrolls beautifully") goes to the skill
+`scroll-3d-website` first, before any script: it says which props the story
+needs, when to build them and how they reach the page. Each prop is then one
+script, as below.
+
 ## How the tools reach you
 
 - The studio tools are served by the plugin's MCP server (`studio`, which the
@@ -61,8 +69,11 @@ glob-scoped rule files add detail when matching files are in play:
   is not applied; the reply says what to change in the script.
 - `deliver_package` refuses what the engine would reject, and says exactly what
   to fix. Its answer starts with `DELIVERED`, `NOT DELIVERED: a person must
-  decide` (reply to the user with the reason and stop) or `NOT DELIVERED` (fix
-  the script, `run_build`, deliver again).
+  decide` (reply to the user with the reason and stop), `NOT DELIVERED` (fix
+  the script, `run_build`, deliver again) or `STILL WORKING` (nothing failed:
+  the work goes on; make the call the answer spells out, with the same
+  arguments and the session it names, for the result; `run_build` and
+  `install_into_project` answer so too when they take long).
 - A verified export needs an approval from the native Decisions API. When the
   key has no access to it, `run_build` says so. Do not work around that. Ask
   the user whether they want an UNVERIFIED preview, and ask for their two

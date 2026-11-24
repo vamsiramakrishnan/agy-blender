@@ -70,6 +70,11 @@ COMPRESS_MODES = ("auto", "always", "never")
 # Why per role: an ETC1S block stores one colour pair and assumes the channels are correlated (albedo mostly is; ORM is
 # three unrelated data channels: 26 dB against 49 dB as UASTC on the crate); normals are UASTC always (ETC1S: mean 0.85
 # degrees but 99th percentile 7 degrees, which shades as noise; UASTC 0.13 and 1.7; RDO 1 0.26 and 2.7).
+# The ladder is also in order of size, and ``auto`` relies on it: a tier whose files are already larger than the
+# uncompressed ones ends the search (``_choose_tier``). Since round eight a web package carries WebP maps, which every
+# tier here exceeds: run 2 of the website task (1024 px atlas, 766,200 bytes of WebP files) measured 916,515, 1,466,961,
+# 1,861,869 and 2,767,056 bytes in 25, 25, 63 and 25 s of encoding, and each of its installs encoded three of them and
+# compared two in the browser (114 of 130 s) to keep none.
 _UASTC = {"isUASTC": True, "uastcLDRQualityLevel": 2, "needSupercompression": True}
 _ETC1S = {"isUASTC": False, "qualityLevel": 255, "compressionLevel": 2}
 _COLOUR = {"isPerceptual": True, "isSetKTX2SRGBTransferFunc": True}
@@ -118,7 +123,8 @@ def node_executable() -> str | None:
 
 def bare_env(home: Path) -> dict[str, str]:
     """The environment of a process that runs the project's own npm code (node with its packages, its esbuild): PATH, a
-    HOME and TMPDIR that are a throwaway folder, LANG, SYSTEMROOT on Windows, and nothing else. A key in this process's
+    HOME and TMPDIR that are a throwaway folder, LANG, SYSTEMROOT on Windows, the worker count for texture encoding when
+    it is set, and nothing else. A key in this process's
     environment is not for third-party code (build/runner.py does the same for asset scripts). The real node's folder
     leads PATH, so a script that starts ``env node`` (the project's esbuild shim) finds the real one before any version
     manager's shim."""
@@ -127,7 +133,9 @@ def bare_env(home: Path) -> dict[str, str]:
     if node:
         path = os.pathsep.join([str(Path(node).parent), path])
     env = {"PATH": path, "HOME": str(home), "TMPDIR": str(home), "LANG": "C.UTF-8"}
-    for k in ("SYSTEMROOT", "COMSPEC", "PATHEXT"):
+    # AGY3D_KTX2_WORKERS is this tool's own setting, read by web_compress.mjs: how many texture maps it encodes at once
+    # (each holds one encoder: measured 810 MiB for three 2048 px maps side by side, 424 MiB one at a time).
+    for k in ("SYSTEMROOT", "COMSPEC", "PATHEXT", "AGY3D_KTX2_WORKERS"):
         if os.environ.get(k):
             env[k] = os.environ[k]
     return env
@@ -396,6 +404,9 @@ class Parts:
     bounds: np.ndarray
     fractions: list[float]
     lod_tris: list[int]
+    # LOD0 with the package's PNG maps where it ships WebP ones (manifest ``web_textures``; adapters/engines/web_textures.py):
+    # what the KTX2 encoding starts from, never a lossy copy. The package's LOD0 when it ships PNG.
+    lossless_first: bytes = b""
 
 
 def read_parts(pkg: Path, manifest: dict[str, Any]) -> Parts:
@@ -431,7 +442,24 @@ def read_parts(pkg: Path, manifest: dict[str, Any]) -> Parts:
     if len(fractions) < len(lv):
         raise ValueError(f"manifest lod_screen_fractions has {len(fractions)} entries for {len(lv)} level files")
     return Parts(asset, textures, roles, lv, levels, hulls, np.asarray(manifest["glb_bounds_m"], np.float64), fractions,
-                 list(manifest.get("lod_tris") or [manifest["tris"]]))
+                 list(manifest.get("lod_tris") or [manifest["tris"]]), lossless_level0(levels[lv[0]], textures, manifest))
+
+
+def lossless_level0(first: bytes, textures: dict[str, bytes], manifest: dict[str, Any]) -> bytes:
+    """``first`` (the package's LOD0) with every WebP map it embeds replaced by the package's PNG of the same map
+    (manifest ``web_textures.maps``: ``webp`` -> ``texture``). Raises when a WebP map has no PNG in the package."""
+    maps = [m for m in (manifest.get("web_textures") or {}).get("maps") or [] if m.get("webp")]
+    if (manifest.get("web_textures") or {}).get("format") != "webp" or not maps:
+        return first
+    swap = {}
+    for m in maps:
+        if m["webp"] not in textures or m["texture"] not in textures:
+            raise ValueError(f"web_textures names {m['webp']} and {m['texture']}, which the package does not both hold")
+        swap[sha(textures[m["webp"]])] = (textures[m["texture"]], "image/png")
+    out = glbtool.swap_images(first, embedded=swap)
+    if any(mime == "image/webp" for _b, mime in glbtool.embedded_images(out)):
+        raise ValueError("the package's LOD0 embeds a WebP map whose PNG the manifest does not name")
+    return out
 
 
 def sha(data: bytes) -> str:
@@ -444,11 +472,14 @@ def uncompressed_asset_files(parts: Parts) -> dict[str, bytes]:
     uri_of = {}
     for rel, data in parts.textures.items():
         uri_of.setdefault(sha(data), rel)
-    files = dict(parts.textures)
     first, report = glbtool.reference_images_bytes(parts.levels[parts.level_files[0]], uri_of, parts.level_files[0])
     left = [r["image"] for r in report if r["storage"] == "embedded"]
     if left:
         raise ValueError(f"{parts.level_files[0]}: image(s) {left} have no file in the package's textures/ with the same bytes")
+    # the maps LOD0 shows, and only those: with WebP maps the package's PNG copies (the USD's, the KTX2 encoder's source)
+    # would be dead weight in the served folder
+    shown = {r["uri"] for r in report if r["storage"] == "uri"}
+    files = {rel: data for rel, data in parts.textures.items() if rel in shown}
     files[parts.level_files[0]] = first
     for f in parts.level_files[1:]:
         files[f] = glbtool.strip_images(parts.levels[f])
@@ -489,7 +520,7 @@ def compress(parts: Parts, versions: dict[str, str], node_modules: Path, tier: t
         (work / "out").mkdir()
         job_levels = []
         for f in parts.level_files:
-            data = parts.levels[f] if f == parts.level_files[0] else glbtool.strip_images(parts.levels[f])
+            data = (parts.lossless_first or parts.levels[f]) if f == parts.level_files[0] else glbtool.strip_images(parts.levels[f])
             (work / "in" / f).write_bytes(data)
             job_levels.append({"in": str(work / "in" / f), "out": str(work / "out" / f)})
         (work / "job.json").write_text(json.dumps({"levels": job_levels, "textures": tier[1],
@@ -671,7 +702,8 @@ def build_plan(pkg: Path, manifest: dict[str, Any], layout: Layout, *, fov_deg: 
 
     ``mode``: ``never`` installs the uncompressed files; ``always`` takes the first tier inside the tolerance whatever
     the size; ``auto`` does that only when the compressed files are no larger than the uncompressed ones, the transcoder
-    counted only if the project does not have it yet (a page must not download more than before).
+    counted only if the project does not have it yet (a page must not download more than before), and stops at the
+    first tier that is larger without comparing its frames.
     ``reuse``: compressed files an earlier install of the same inputs, tool versions and settings wrote (asset-folder
     names, measured then); then nothing is encoded again."""
     parts = read_parts(pkg, manifest)
@@ -727,19 +759,24 @@ def build_plan(pkg: Path, manifest: dict[str, Any], layout: Layout, *, fov_deg: 
         elif reuse_meta and reuse_meta.get("state") in ("declined", "rejected") and reuse_meta.get("key") == decline_key:
             plan = assemble(plain_files, dict(reuse_meta))  # decided before for these inputs: not encoded again
         else:
-            plan = _choose_tier(parts, versions, node_modules, key, assemble, plain_files, probe)  # type: ignore[arg-type]
+            extra = 0 if mode != "auto" or have_transcoder else transcoder_bytes(three)
+            plan = _choose_tier(parts, versions, node_modules, key, assemble, plain_files, probe,  # type: ignore[arg-type]
+                                keep_bytes=uncompressed_bytes - extra if mode == "auto" else None)
             plan.compression["mode"] = mode
             if mode == "auto" and plan.compression["state"] == "compressed":
-                extra = 0 if have_transcoder else transcoder_bytes(three)
                 if plan.asset_bytes + extra > uncompressed_bytes:
                     tier = next(t for t in TEXTURE_TIERS if t[0] == plan.compression["tier"])
+                    tried = plan.compression.get("tiers_tried") or []
+                    which = ("the next tier after those outside the frame tolerance" if len(tried) > 1
+                             else "the smallest tier there is")
                     plan = assemble(plain_files, {
-                        "state": "declined", "mode": mode, "tier": tier[0], "tiers_tried": plan.compression.get("tiers_tried"),
+                        "state": "declined", "mode": mode, "tier": tier[0], "tiers_tried": tried,
                         "compressed_bytes": plan.asset_bytes, "uncompressed_bytes": uncompressed_bytes,
                         "transcoder_bytes_counted": extra, "gpu_memory_computed": gpu_memory(manifest, tier[1]),
-                        "reason": f"at {tier[0]} (the first tier measured inside the frame tolerance) the asset's files are "
-                                  f"{plan.asset_bytes:,} bytes against {uncompressed_bytes:,} uncompressed"
-                                  + (f", plus {extra:,} for the KTX2 transcoder this project does not have yet" if extra else "")})
+                        "reason": f"at {tier[0]} ({which}) the asset's files are {plan.asset_bytes:,} bytes against "
+                                  f"{uncompressed_bytes:,} uncompressed"
+                                  + (f", plus {extra:,} for the KTX2 transcoder this project does not have yet" if extra else "")
+                                  + "; the tiers after it are larger, so its frames were not compared and nothing more was encoded"})
             if plan.compression["state"] in ("declined", "rejected"):
                 plan.compression["key"] = decline_key
     if plan.compression["state"] in ("compressed", "kept") and "gpu_memory_computed" not in plan.compression:
@@ -758,15 +795,34 @@ def build_plan(pkg: Path, manifest: dict[str, Any], layout: Layout, *, fov_deg: 
 
 
 def _choose_tier(parts: Parts, versions: dict[str, str], node_modules: Path, key: str, assemble: Callable[..., "WebPlan"],
-                 plain_files: dict[str, bytes], probe: Callable[["WebPlan"], dict[str, Any]] | None) -> "WebPlan":
-    """The first tier whose frame difference was measured inside the tolerance; otherwise the uncompressed files."""
+                 plain_files: dict[str, bytes], probe: Callable[["WebPlan"], dict[str, Any]] | None,
+                 keep_bytes: int | None = None) -> "WebPlan":
+    """The first tier whose frame difference was measured inside the tolerance; otherwise the uncompressed files.
+
+    ``keep_bytes`` (``auto``): the most the asset's compressed files may weigh to be kept. A tier over it is returned
+    at once and unmeasured (``tolerance_measured`` False): it cannot be kept whatever its frames look like, and the
+    tiers after it are larger (TEXTURE_TIERS), so encoding and comparing them is work whose result is already known."""
     if probe is None:
         raise RuntimeError("no measurement available: compression is not written without one")
     tried: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="agy3d-ktx2-cache-") as cache:
         for i, tier in enumerate(TEXTURE_TIERS):
-            use = compress(parts, versions, node_modules, tier, Path(cache))
+            try:
+                use = compress(parts, versions, node_modules, tier, Path(cache))
+            except RuntimeError as e:
+                # The project's encoder refusing a map is no reason to install nothing: ktx2-encoder 0.6.0 (the version in
+                # the fixture and in the round-eight site seed) throws "Total source texels 16777216 exceed the encoder
+                # limit of 12582912" for one 4096 x 4096 map, which run 1's first containment_gate had; the install then
+                # failed outright. The uncompressed files are installed and the record says why.
+                said = re.search(r"\bError: ([^\n]+)", str(e))
+                return assemble(plain_files, {"state": "rejected", "tiers_tried": tried,
+                                              "reason": f"the project's compression tools failed at {tier[0]} "
+                                                        f"({(said.group(1) if said else str(e))[:300].strip()})"})
             plan = assemble(use.files, {**use.meta, "state": "compressed", "key": key})
+            if keep_bytes is not None and plan.asset_bytes > keep_bytes:
+                tried.append({"tier": tier[0], "asset_bytes": plan.asset_bytes, "not_compared": True})
+                plan.compression.update({"tolerance_measured": False, "tiers_tried": tried})
+                return plan
             r = probe(plan)
             tried.append({"tier": tier[0], "asset_bytes": plan.asset_bytes, **{k: v for k, v in r.items() if k != "stop"}})
             if r["passed"] is True:

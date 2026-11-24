@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A support test that gives its context back</title>
+<!-- As the skill's starter does: a canvas that never enters the document, made only to ask whether WebGL 2 is there, and
+     released at once. The scene's own canvas is untouched. -->
+<style>html,body{margin:0;background:#101418;color:#eee;font:20px sans-serif}canvas{position:fixed;inset:0;width:100vw;height:100vh}</style></head>
+<body><canvas id="c"></canvas><h1>The scene draws; only a test context was released.</h1>
+<div style="height:300vh"></div>
+<script type="module">
+import { setup, QUAD } from './gl.js';
+const probe = document.createElement('canvas').getContext('webgl2');
+probe.getExtension('WEBGL_lose_context')?.loseContext();
+const { gl, quad, color } = setup(document.getElementById('c'));
+quad(QUAD);
+gl.clearColor(0.06, 0.08, 0.1, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+color(0.2, 0.8, 0.5); gl.drawArrays(gl.TRIANGLES, 0, 6);
+</script></body></html>

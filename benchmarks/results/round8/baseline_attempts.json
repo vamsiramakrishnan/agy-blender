@@ -1,0 +1,91 @@
+{
+ "what": "The attempts at the baseline run (the same request, a stock agent, no plugin) on 2026-11-24. No site was built and no model output was used in any of them. A medium-sized test request (about 7,000 tokens in) also got no first byte in 150 to 240 s at 09:07, 09:33 and 09:41 UTC, while one-word requests were answered in 3 to 25 s.",
+ "attempts": [
+  {
+   "attempt": 1,
+   "started_utc": "07:03",
+   "requests": [
+    {
+     "status": 502,
+     "seconds": 300.3,
+     "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
+    {
+     "status": 502,
+     "seconds": 300.2,
+     "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
+    {
+     "status": 502,
+     "seconds": 300.1,
+     "error": "RemoteDisconnected: Remote end closed connection without response"
+    }
+   ],
+   "ended": "stopped by hand after three dropped requests"
+  },
+  {
+   "attempt": 2,
+   "started_utc": "08:32",
+   "requests": [
+    {
+     "status": 200,
+     "seconds": 120.1,
+     "error": null
+    }
+   ],
+   "ended": "its first request was answered after 120 s; stopped by hand in the second request to restart with a longer time backstop (the agent had read four files)"
+  },
+  {
+   "attempt": 3,
+   "started_utc": "08:36",
+   "requests": [
+    {
+     "status": 502,
+     "seconds": 300.3,
+     "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
+    {
+     "status": 502,
+     "seconds": 300.1,
+     "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
+    {
+     "status": 502,
+     "seconds": 300.3,
+     "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
+    {
+     "status": 502,
+     "seconds": 300.3,
+     "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
+    {
+     "status": 502,
+     "seconds": 300.5,
+     "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
+    {
+     "status": 502,
+     "seconds": 300.3,
+     "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
+    {
+     "status": 502,
+     "seconds": 300.3,
+     "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
+    {
+     "status": 502,
+     "seconds": 300.3,
+     "error": "RemoteDisconnected: Remote end closed connection without response"
+    },
+    {
+     "status": 502,
+     "seconds": 300.2,
+     "error": "RemoteDisconnected: Remote end closed connection without response"
+    }
+   ],
+   "ended": "nine requests dropped; the agent's own executor gave up after 55 minutes"
+  }
+ ]
+}

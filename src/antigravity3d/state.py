@@ -26,6 +26,20 @@ def generated_surfaces_default() -> bool:
     return os.environ.get("AGY3D_GENERATED_SURFACES", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
+#: The values a caller may give ``EngineBudget.max_texture_px``: the atlas sides the packer has (fast_ops.ATLAS_SIDES).
+TEXTURE_PX_CHOICES = (256, 512, 1024, 2048, 4096)
+
+
+def texture_px_choice(value: object) -> int | None:
+    """``value`` as a ``max_texture_px`` (None / 0 / "" for none), or ValueError in one sentence naming the choices."""
+    if value is None or value == 0 or value == "":
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value not in TEXTURE_PX_CHOICES:
+        raise ValueError(f"max_texture_px must be one of {', '.join(map(str, TEXTURE_PX_CHOICES))} (the largest side of the "
+                         f"texture atlas in pixels), got {value!r}")
+    return int(value)
+
+
 @dataclass(frozen=True)
 class EngineBudget:
     target_engine: TargetEngine
@@ -46,8 +60,12 @@ class EngineBudget:
     # one glTF material where nothing per-material keeps them apart (fast_ops.run_export_pipeline,
     # package._compose_atlas). False: one 2048 px atlas and one map set per material, as before.
     shared_atlas: bool = True
-    # Largest side of the shared atlas, below the engine's own limit (ENGINE_RULES max_texture_px): set by an art
-    # direction's texture size (ArtDirection.budget). None: the engine's limit and fast_ops.ATLAS_SIZES decide.
+    # Largest side of the shared atlas, below the engine's own limit (ENGINE_RULES max_texture_px): set by the caller
+    # (open_asset_session, Asset(...), --max-texture-px; one of TEXTURE_PX_CHOICES) and lowered further by an art
+    # direction's texture size (ArtDirection.budget). None: the engine's limit and fast_ops.ATLAS_SIZES decide. Run 1 of
+    # the website task had no such lever: the agent scaled its object to 0.65 to get a smaller atlas and loaded it at
+    # 1/0.65. A cap below what the charts need lowers the texel density; that is reported as the density it gives, not
+    # as a defect (validator.texel_density_issues).
     max_texture_px: int | None = None
     # The baked base colour map as JPEG at this quality (4:4:4) instead of lossless PNG; None: PNG. Only the base colour:
     # measured on the round-four crate's 4096 x 2048 atlas, JPEG q95 halves it (3.37 -> 1.59 MB) at a mean error of 1.2

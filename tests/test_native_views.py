@@ -164,6 +164,35 @@ async def test_uncalibrated_preview_exports_with_its_findings(tmp_path):
     assert manifest["review"]["status"] == "below_target" and manifest["review"]["findings"] and manifest["verified"] is False
 
 
+async def test_the_manifest_names_the_reviewed_render_without_this_machines_path_and_the_answer_keeps_it(tmp_path):
+    """Run 2 of the website task: the installer copied three manifests into the built project, each holding the
+    absolute path of its session's lookdev render (``review.where`` and the "where to look" line)."""
+    env = make_session(tmp_path, client=FakeDecisionsClient(uncalibrated=True, default_score=2.6), stage="BLOCKOUT")
+    S.switch_to_preview(env.reg, env.sid, 400_000, 0)
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    S.set_toolset(env.reg, env.sid, "LOOKDEV")
+    env.state.active_stage = "LOOKDEV"
+    assert (await T.run_visual_qa(env.ctx)).startswith("QA[lookdev]")
+    s = env.sess()
+    render = s.artifacts_dir / "lookdev_eevee_0123.png"
+    render.parent.mkdir(parents=True, exist_ok=True)
+    render.write_bytes(b"png")
+    elsewhere = tmp_path / "private" / "other.png"
+    s._set("last_review", {**s._res("last_review"), "views": [render, elsewhere]})  # as a lookdev render leaves them
+    S.set_toolset(env.reg, env.sid, "EXPORT")
+    env.state.active_stage = "EXPORT"
+    r = await T.export_engine_package(env.ctx, "crate")
+    if r.startswith("REFUSED"):
+        assert "export blocked" not in r, r
+        return
+    assert f"where to look: {render}" in r  # the agent and the person are told where the file is
+    text = (s.export_dir / "crate" / "manifest.json").read_text()
+    review = json.loads(text)["review"]
+    assert review["where"] == ["artifacts/lookdev_eevee_0123.png", "other.png"] and "session folder" in review["where_relative_to"]
+    assert review["findings"][-1].startswith("where to look: artifacts/lookdev_eevee_0123.png, other.png (in the session folder")
+    assert str(tmp_path) not in text and str(Path.home()) not in text
+
+
 # ---- surfaces are said at the moment they matter; a call's maps are screened together --------------------------
 
 async def test_a_session_without_images_and_lookdev_say_what_happens_to_surfaces(tmp_path):
@@ -562,6 +591,7 @@ async def test_a_delivered_package_is_the_one_that_was_checked_rendered_and_revi
 
 
 # ---- a delivery answers inside the client's time, and the next call continues ----------------------------------------
+# (harness/keeper.py; the whole call is kept now, not only its review: tests/test_keeper.py has the rest)
 
 def _slow_review(env, monkeypatch, seconds):
     """The lookdev review's judge answers after ``seconds``; returns the list of its calls."""
@@ -581,21 +611,32 @@ async def test_a_slow_review_is_waited_for_by_the_next_call_not_asked_again(tmp_
     """r5/live_final_N: the lookdev review's one judge call took 131 s, the client abandoned the 3-minute call and the
     checked package, the render and the review were lost. Now the call answers in time and the next one continues."""
     pytest.importorskip("antigravity3d.delivery")
+    from antigravity3d.harness import keeper
+
     env, pool, checks = _fail_fast_session(tmp_path, monkeypatch)
     await T.apply_scene_ir(_design(), env.ctx)
-    monkeypatch.setattr(T, "DELIVER_ANSWER_S", 0.5)
+    monkeypatch.setattr(keeper, "ANSWER_S", 0.5)
     asked = _slow_review(env, monkeypatch, 2.0)
     first = await T.deliver_package(env.ctx, "crate")
-    assert first.startswith("NOT DELIVERED: the review has not answered in") and "nothing needs fixing" in first, first
+    # changed in round 8: the answer says the work goes on, never "NOT DELIVERED" (that word sends an agent to repair)
+    assert first.startswith("STILL WORKING (nothing needs fixing") and "NOT DELIVERED" not in first, first
+    assert "deliver_package is at step " in first and 'Call deliver_package(out_name="crate") again now' in first, first
+    while not asked:
+        await asyncio.sleep(0.05)
+    again = await T.deliver_package(env.ctx, "crate")  # joins the same work: at the review now
+    assert again.startswith("STILL WORKING") and "step 4 of 5 (the lookdev review (a model call))" in again, again
     assert not (env.sess().export_dir / "crate").exists()  # nothing exported while the review is out
-    await asyncio.sleep(2.5)  # the review answers after the call returned
-    monkeypatch.setattr(T, "DELIVER_ANSWER_S", 150.0)
+    await asyncio.sleep(2.0)  # the review answers after the call returned
+    monkeypatch.setattr(keeper, "ANSWER_S", 150.0)
     second = await T.deliver_package(env.ctx, "crate")
     assert second.startswith("DELIVERED: EXPORTED PREVIEW crate"), second
     assert len(asked) == 1 and len(pool.renders) == 1 and len(checks) == 1  # nothing done twice
 
 
-async def test_an_abandoned_delivery_exports_nothing_and_the_next_call_continues(tmp_path, monkeypatch):
+async def test_an_abandoned_delivery_goes_on_and_the_next_call_answers_with_it(tmp_path, monkeypatch):
+    """Changed in round 8: run 1 of the website task (2026-11-24) lost two deliveries of containment_gate to the client's
+    cancel, the second while the package for the checks was being written. The cancel now reaches only the waiting:
+    the delivery finishes by itself and the next call answers with it."""
     pytest.importorskip("antigravity3d.delivery")
     env, pool, checks = _fail_fast_session(tmp_path, monkeypatch)
     await T.apply_scene_ir(_design(), env.ctx)
@@ -606,8 +647,11 @@ async def test_an_abandoned_delivery_exports_nothing_and_the_next_call_continues
     call.cancel()  # the client gives up on the call
     with pytest.raises(asyncio.CancelledError):
         await call
-    await asyncio.sleep(1.5)
-    assert not (env.sess().export_dir / "crate").exists()  # the review went on; nothing was exported
+    for _ in range(100):
+        if (env.sess().export_dir / "crate").exists():
+            break
+        await asyncio.sleep(0.05)
+    assert (env.sess().export_dir / "crate" / "manifest.json").is_file()  # the work went on to the end
     r = await T.deliver_package(env.ctx, "crate")
     assert r.startswith("DELIVERED: EXPORTED PREVIEW crate"), r
     assert len(asked) == 1 and len(pool.renders) == 1 and len(checks) == 1

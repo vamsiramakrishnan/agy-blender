@@ -339,11 +339,15 @@ async def test_forge_discards_result_after_concurrent_scene_edit(tmp_path, monke
     monkeypatch.setattr(env.sess().plane, "rank_candidates", wait_and_grade)
     task = asyncio.create_task(T.forge_pbr_material("wood", "oak", env.ctx))
     await asyncio.wait_for(entered.wait(), 5)
-    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    edit = await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
     resume.set()
-    assert (await task).startswith("STALE")
+    # Round 8 (harness/keeper.py): the edit stops the generation at once instead of letting it finish and answer STALE;
+    # either way its result is discarded.
+    assert "STOPPED the forge_pbr_material that was still running" in edit, edit
+    assert (await task).startswith("STOPPED: forge_pbr_material was stopped because the design changed")
     assert not env.sess().stage.base_ir().materials
-    assert not list((env.sess().artifacts_dir / "materials").iterdir())
+    materials = env.sess().artifacts_dir / "materials"
+    assert not materials.exists() or not list(materials.iterdir())
 
 
 async def test_forge_blocked_by_policy(tmp_path, monkeypatch):

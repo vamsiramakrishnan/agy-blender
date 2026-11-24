@@ -68,6 +68,8 @@ class EngineRules:
     notes: str = ""
     #: what one convex collision mesh may hold; ``generate_colliders`` caps hulls to it and ``validate_package`` checks it
     hull_limit: HullLimit | None = None
+    #: the atlas side used when the caller names none (``EngineBudget.max_texture_px``); None: ``max_texture_px`` is
+    default_texture_px: int | None = None
     #: a mesh object takes one material. Roblox: "Mesh objects can only have one material assigned." (texture specifications,
     #: https://create.roblox.com/docs/art/modeling/texture-specifications) and a glTF mesh arrives as "one MeshPart for each
     #: primitive" (https://create.roblox.com/docs/art/modeling/3d-importer): several materials arrive as several MeshParts.
@@ -198,6 +200,13 @@ ENGINE_RULES: dict[TargetEngine, EngineRules] = {
         # MAX_TEXTURE_SIZE page shows 100 % of reporting devices at 4096 or more, but only 85 % at 16384 (Android: 81 % at
         # 8191 or more, 8 % at 16384; the page carries no date).
         max_texture_px=4096,
+        # What a web page gets unless the caller asks for more. A browser holds every map uncompressed (RGBA8 with
+        # mipmaps): four 4096 px maps are 341 MiB of graphics memory for one prop, four 2048 px maps 85 MiB. Run 1 of the
+        # website task (2026-11-23) took the 4096 px atlas the density target asks for on a 2.8 m prop: a 17 MB GLB,
+        # 454 MB of textures on the page for three props, and about three minutes of surface painting, which alone put
+        # deliver_package past the host's 3-minute limit. A page shows such a prop about 700 px wide. 4096 is one
+        # parameter away (max_texture_px), and the delivery answer says what each size gives.
+        default_texture_px=2048,
         # No rule needed. WebGL 2 guarantees 16 fragment texture units (OpenGL ES 3.0 MAX_TEXTURE_IMAGE_UNITS minimum); a package
         # material binds 3 (albedo, ORM, normal).
         max_textures_per_material=None,
@@ -219,11 +228,17 @@ ENGINE_RULES: dict[TargetEngine, EngineRules] = {
 def texel_density_issues(report: dict, engine: str) -> list[Issue]:
     """Warnings from ``fast_ops.texel_density_report``: a material whose atlas missed the target density, and a spread
     across materials above ``TEXEL_SPREAD_LIMIT``. Never a failure. A target missed by less than 10 % is recorded
-    (``target_met`` False) but not warned about."""
+    (``target_met`` False) but not warned about, and so is one missed because the atlas was capped at a size the caller
+    chose (``chosen_max_texture_px``, from ``EngineBudget.max_texture_px``) or at the engine's default for a caller who
+    named none (``default_max_texture_px``, ``EngineRules.default_texture_px``): the density that gives is in the manifest
+    and in the delivery's answer, with the parameter that changes it."""
     out: list[Issue] = []
     target = report["target_px_per_m"]
     mats = report["materials"]
     for name, m in mats.items():
+        chosen = m.get("chosen_max_texture_px") or m.get("default_max_texture_px")
+        if chosen and m["needed_atlas_px"] > chosen:  # the atlas was capped by a choice or the engine's default: not a defect
+            continue
         if not m["target_met"] and m["px_per_m"] < target * TEXEL_TARGET_WARN_FRACTION:
             need = m.get("needed_map_px") or m["needed_atlas_px"]
             cap = m.get("engine_max_texture_px")
@@ -240,6 +255,21 @@ def texel_density_issues(report: dict, engine: str) -> list[Issue]:
                          f"texel density differs {spread:.2f}x across materials (limit {report['spread_limit']:g}x): "
                          f"'{hi}' {mats[hi]['px_per_m']:g} px/m against '{lo}' {mats[lo]['px_per_m']:g} px/m"))
     return out
+
+
+def chosen_texture_px(budget: object) -> int | None:
+    """The largest side any map of a package may have because someone chose it: the budget's ``max_texture_px`` (the
+    caller's, or an art direction's), else the engine's ``default_texture_px`` (web_three: 2048); None for neither. Every
+    path that sizes a map holds to it (``budget_texture_px``, ``fast_ops.own_atlas_px``, ``package._package_textures``),
+    so the delivery's "every map is at most N px" is true of every map, not only of the shared atlas."""
+    return budget.max_texture_px or ENGINE_RULES[budget.target_engine].default_texture_px
+
+
+def budget_texture_px(budget: object, default: int) -> int:
+    """``engine_texture_px`` of ``default``, never above ``chosen_texture_px(budget)``: the side a map is generated at."""
+    size = engine_texture_px(budget.target_engine, default)
+    cap = chosen_texture_px(budget)
+    return min(size, cap) if cap else size
 
 
 def engine_texture_px(engine: str, default: int) -> int:
@@ -643,6 +673,12 @@ def glb_uri_target(glb: Path, uri: str) -> Path | None:
     return glb.parent / rel
 
 
+def _texture_source(texture: dict) -> int:
+    """The image index a glTF texture shows: an ``EXT_texture_webp`` texture of a web package names its image in the
+    extension and has no ``source`` (``deliver.glb.swap_images``)."""
+    return ((texture.get("extensions") or {}).get("EXT_texture_webp") or {}).get("source", texture.get("source"))
+
+
 def _material_textures(doc: dict, shas: list[str | None]) -> dict[str, dict[str, str | None]]:
     """``{material name: {slot path: image sha256}}`` for every texture slot of every material, extension slots
     included (any object with an ``index`` under a key ending in ``Texture``)."""
@@ -652,8 +688,7 @@ def _material_textures(doc: dict, shas: list[str | None]) -> dict[str, dict[str,
         if isinstance(value, dict):
             for key, v in value.items():
                 if isinstance(v, dict) and "index" in v and key.endswith("Texture"):
-                    texture = doc["textures"][v["index"]]
-                    slots[prefix + key] = shas[texture["source"]]
+                    slots[prefix + key] = shas[_texture_source(doc["textures"][v["index"]])]
                 else:
                     walk(v, f"{prefix}{key}.", slots)
 
@@ -685,7 +720,7 @@ def _validate_glb_materials(path: Path, suffix: str, bindings: dict[str, tuple[s
                 for role in roles:
                     for obj, slot in slots[role]:
                         texture = doc["textures"][obj[slot]["index"]]
-                        image = doc["images"][texture["source"]]
+                        image = doc["images"][_texture_source(texture)]
                         if allow_uri and "bufferView" not in image and image.get("uri"):
                             continue
                         view = doc["bufferViews"][image["bufferView"]]
@@ -740,9 +775,13 @@ def _validate_material_inventory(path: Path, inventory: list[dict]) -> list[Issu
                           f"{len(left)} GLB material(s) missing from the manifest: {[a['name'] for a in left]}")]
         used = {e for rec in want for e in rec["extensions"]}
         declared = set(doc.get("extensionsUsed", []))
-        if used - declared or doc.get("extensionsRequired"):
+        # The one required extension a package may have: EXT_texture_webp, in a web package whose textures use it (no PNG
+        # fallback in the same file: adapters/engines/web_textures.py). Every reader the package targets decodes WebP.
+        webp = {"EXT_texture_webp"} if any("EXT_texture_webp" in (t.get("extensions") or {}) for t in doc.get("textures") or []) else set()
+        if used - declared or set(doc.get("extensionsRequired") or []) - webp or webp - declared:
             return [Issue("pkg:material_extensions", "critical", path.name,
-                          f"extensionsUsed {sorted(declared)} must cover {sorted(used)}; extensionsRequired must be empty")]
+                          f"extensionsUsed {sorted(declared)} must cover {sorted(used | webp)}; extensionsRequired must be empty"
+                          + (" but for EXT_texture_webp" if webp else ""))]
     except (IndexError, KeyError, TypeError, ValueError, OSError, struct.error) as e:
         return [Issue("pkg:material_inventory", "critical", path.name, str(e)[:300])]
     return []

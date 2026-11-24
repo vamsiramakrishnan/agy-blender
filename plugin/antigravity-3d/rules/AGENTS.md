@@ -31,6 +31,14 @@ glob-scoped rule files add detail when matching files are in play:
   hook denies scripts that fail it. No `os`, `subprocess`, file writes,
   `eval`/`exec` or `bpy.app.handlers` in scripts.
 
+## A website is not an asset
+
+A request for a website, web page, landing page or scroll-driven 3D explainer
+(three.js, WebGL, shaders, "scrolls beautifully") goes to the skill
+`scroll-3d-website` first, before any modelling: it says which props the story
+needs, when to build them and how they reach the page. Its props are then built
+by the short path below.
+
 ## The short path
 
 Every model call sends the whole conversation so far, so the number of calls
@@ -48,7 +56,7 @@ is what a session costs. For a new asset:
    colliders, validates and exports, and says what the review found. When the
    request names a folder for the result, pass it as `dest`; the tool places the
    engine files there, so do not copy files by hand afterwards. Its
-   answer starts with one of three:
+   answer starts with one of four:
    - `DELIVERED`: the run is finished; the package was validated, imported and
      checked by the tool. Reply to the user with its path and the findings,
      and do not inspect it again.
@@ -56,6 +64,13 @@ is what a session costs. For a new asset:
      and stop; changing the surfaces or the design to get past it is not wanted.
    - `NOT DELIVERED` otherwise: fix what it names with `apply_scene_ir` and
      call `deliver_package` again.
+   - `STILL WORKING`: nothing failed and nothing needs fixing; the work goes on
+     by itself. Make the call the answer spells out (the same tool, the same
+     arguments, the session it names): it answers with the result and does no
+     step twice. Any tool call that takes more than about two and a half
+     minutes answers this way, and `session_status` shows which step it is
+     at. (`check_site` is the exception: at its limit it answers with what it
+     has seen so far and says so.)
 
 Build the design with `apply_scene_ir`, not by scripting Blender: only a
 design in the session's stage can be edited, checked and packaged by these

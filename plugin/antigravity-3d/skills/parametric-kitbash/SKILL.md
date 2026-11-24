@@ -5,15 +5,15 @@ description: >-
   game prop, not a blockout, from boxes, cylinders, cones, spheres, capsules,
   turned (lathe) and extruded parts, with rounded edges, recessed panels and
   mirrored or repeated parts; then loops on a render and visual QA until the
-  silhouette matches, and fixes floating parts, flicker (z-fighting) and
-  triangle budget. Also builds modular kit pieces (wall, doorway, floor tile,
+  silhouette matches, and fixes floating parts, flicker and triangle budget. Also builds modular kit pieces (wall, doorway, floor tile,
   pillar) to one metric. Changes an asset that already exists ("make the two
-  side handles 30 % larger", "remove the corner guards") by reopening it and
+  side handles 30 % larger") by reopening it and
   patching only what is named, never by modelling it again. Use when the user
   asks to model, build, make or kitbash an asset, to change an existing one, to
   round the edges or add panels, or to fix its shape, parts or gaps. Not for textures or materials (use pbr-material-forge), for a mesh file
   the user already has (use game-ready-sanitizer) or for export (use
-  engine-truth-verify).
+  engine-truth-verify) or for a website that shows the models (use
+  scroll-3d-website).
 ---
 
 # Parametric kitbash (Scene IR model + silhouette lock)
@@ -63,8 +63,9 @@ not a handful of blocks.
    call (pass the folder the request names for the result as `dest`; do not copy
    files by hand afterwards); its answer `DELIVERED` ends the run (reply with the path and the
    findings), `NOT DELIVERED: a person must decide` means reply with the reason
-   and stop, and any other `NOT DELIVERED` names what to fix before calling it
-   again. `render_preview` shows you the design: five 512 px
+   and stop, any other `NOT DELIVERED` names what to fix before calling it
+   again, and `STILL WORKING` means nothing failed and the work goes on: call it
+   again at once with the same arguments for the result. `render_preview` shows you the design: five 512 px
    views (front, right, top, two perspectives from opposite corners), shaded
    as the package ships with part outlines drawn, a numbered badge on every
    part and a legend from badge to node id. Small views arrive inline; open a

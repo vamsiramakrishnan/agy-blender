@@ -21,6 +21,7 @@ it into your Godot or three.js project.
 | Put it in your game | "Install the crate into this project" | Godot: one scene, imported and checked by your own Godot. three.js or React Three Fiber: the files where your dev server serves them and one function to import, checked in a browser with your own three.js. One command takes it out again |
 | Change it later | "Make the two side handles 30 % larger" | A new version in which only what you named changed. The old one is kept |
 | Clean up a mesh you have | "Make chair.obj ready for Unity" | Your mesh repaired, unwrapped, with lower-detail versions and collision shapes |
+| Build a 3D website | "Build a scroll-driven 3D site that shows how this project works" | A static site in your project. The agent starts from a tested page (scroll, camera path, loading, reduced motion, a page that still reads without WebGL), makes its props with the plugin and installs them, and after each change has the built site opened as a visitor would see it |
 
 On the command line:
 
@@ -29,6 +30,7 @@ agy3d prop "military supply crate" --preview --token-ceiling 600000 --max-images
 agy3d install out/crate/runs/<id>/package --project path/to/your/game
 agy3d edit out/crate "make the two side handles 30 % larger" --token-ceiling 250000
 agy3d sanitize chair.obj --engine unity_urp --out out/clean
+agy3d check-site site --sources .
 ```
 
 `prop` and `edit` need a Gemini API key; "Try it" shows how to run without one. For three.js, build with
@@ -56,6 +58,28 @@ With React Three Fiber: `<MilitarySupplyCrate />` in a `<Canvas>`, from `./agy3d
 
 `edit` changes only the parts you name; `--undo` puts the old version back, and `install` again updates your game.
 
+`check-site` opens a built website at desktop and phone size, scrolls through it and answers in text: what is
+broken, what a visitor would notice, what the page weighs and what its 3D costs, with a contact sheet of every
+scroll step. A number or a code sample on the page that names its source file (`data-src`) is compared with that
+file. Where the page says where its 3D subjects are, as a site built from the skill's starter does, the check also
+names the props and labels that sit under the text panel or are cut by the frame's edge, and saves a still of
+each chapter for the page a visitor gets without WebGL. The agent has the same check as a tool and uses it after
+every change:
+
+```text
+SITE CHECKED in 23 s: nothing broken, 0 things a visitor would notice. ...
+- Desktop 1440x900: settled 8.8 s after the page was asked for; 9 of 9 steps photographed; share of the 3D canvas
+  showing something, per step: 75% 76% 74% 77% 74% 62% 81% 36% 76%.
+- Downloaded (desktop, whole scroll): 5.3 MB in 38 files: textures 1.8 MB, scripts 1.6 MB, models 1.0 MB, ...
+- Scene (desktop, the largest over the steps): 14 draw calls and 31,726 triangles in one frame ...; textures
+  51.7 MB on the graphics card in 23 textures ...
+- Without WebGL: no errors; the page shows 3,640 characters of text (with WebGL 3,640) and 7 images, ...
+- Facts: 31 elements name a source (data-src) against ...; all match.
+```
+
+For the web a package is sized for a page: a 2048 px texture atlas unless you name another size
+(`--max-texture-px`), and WebP textures where they render the same as the PNG ones.
+
 ## How it compares
 
 | | This plugin, default | This plugin, script mode | Stock agent with a Blender tool |
@@ -74,6 +98,12 @@ Round seven repainted the script-mode props without touching their meshes. The c
 (12 of 12 each). The chair is now about even with the stock agent's (7 of 11): every verdict prefers its wood, and
 the ones it loses fault its shape. Details: [round seven](benchmarks/ROUND_SEVEN.md),
 [round six](benchmarks/ROUND_SIX.md), [round five](benchmarks/ROUND_FIVE.md).
+
+A whole website was asked for twice, in one sentence each time, before and after the plugin was changed for what
+the first run's logs showed. The second site downloads 5.3 MB instead of 22.8 MB, holds 52 MB of textures instead
+of 454 MB, shows a source for every number, and was built with no tool call cut off (the first run lost six). A
+blind judge preferred it six times of six. How either compares with a stock agent's site is not measured yet.
+Details: [round eight](benchmarks/ROUND_EIGHT.md).
 
 ## Try it
 
@@ -97,13 +127,17 @@ spent 0.37 to 0.45 million tokens, an edit 62 to 86 thousand ([keys and cost](do
 - You are asked before anything is written into your project or a preview spends tokens.
 - You review the asset in a 3D panel beside the conversation; your notes reach the agent.
 - At install you choose: the agent drives scene tools, or writes each asset as a Python file.
+- Antigravity ends a tool call after three minutes. Every tool here answers within 150 seconds: with its result,
+  or with the step it is at and the call to repeat. The work goes on meanwhile and no step runs twice.
 
 ## What is checked and what is not
 
 - **Godot 4**: a real Godot imports every package when installed; the seven checks above run in your project.
 - **three.js**: every package is loaded in headless Chromium and compared with its manifest. Installed in a
   three.js project it is rechecked with the project's own three.js (run here on r152 to r187). Textures are
-  compressed only when a rendered comparison stays inside a fixed tolerance, so some assets ship as PNG.
+  compressed only when a rendered comparison stays inside a fixed tolerance, so some assets ship uncompressed.
+- **A website**: `check-site` loads the built site in headless Chromium with software rendering. It finds errors,
+  empty stretches, weight and facts that disagree with their source. It does not judge how the site looks.
 - **Blender**: with a worker attached, a script this project did not write checks the GLB.
 - **Unreal, Unity, Roblox**: packages and FBX files follow each engine's documented rules; none of these engines
   has opened them here or in CI.

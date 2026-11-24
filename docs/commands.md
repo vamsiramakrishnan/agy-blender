@@ -10,6 +10,7 @@ the reference behind it.
 - [`agy3d kit`: modular pieces on one trim sheet](#agy3d-kit-modular-pieces-on-one-trim-sheet)
 - [`agy3d sanitize`: meshes you already have](#agy3d-sanitize-meshes-you-already-have)
 - [`agy3d install` and `agy3d uninstall`: into your game project](#agy3d-install-and-agy3d-uninstall-into-your-game-project)
+- [`agy3d check-site`: look at a website you built](#agy3d-check-site-look-at-a-website-you-built)
 - [`agy3d edit`: change an asset later](#agy3d-edit-change-an-asset-later)
 - [`agy3d variants`: look variants](#agy3d-variants-look-variants)
 - [What a run writes](#what-a-run-writes)
@@ -57,6 +58,7 @@ A headless Linux machine needs a working display or Xvfb for the renderers (for 
 | `--engine {unreal_5,unity_urp,godot_4,roblox_r15,web_three}` | the target engine and its rules; default `unreal_5`. `web_three` is a package for a three.js or React Three Fiber project: for it the three.js check in a headless browser is the required engine check, and the manifest records what a page downloads for the highest level (`web_download`) |
 | `--max-tris N` | triangle budget (default: the engine budget's default) |
 | `--keep-contact-faces` | ship every authored triangle, also the faces parts press together (for parts that will be moved apart in the engine; see [verification_and_limits.md](verification_and_limits.md#contact-faces)) |
+| `--max-texture-px {256,512,1024,2048,4096}` | the largest side of the texture atlas (default: the size the parts need at the 1024 px/m target, at most 4096; at most 2048 for `web_three`, where a browser holds every map uncompressed and 4096 has to be asked for). A smaller atlas lowers the texel density instead of being reported as a defect; for `web_three` the delivery states the bytes a page downloads, the texture memory and up to how many pixels on screen the textures stay sharp, so the size can be chosen from those |
 | `--surfaces {generated,flat}` | materials without an image: `generated` (the default) paints wear, dirt, grain and markings from the geometry; `flat` ships their flat colours |
 | `--out OUT` | output directory (required) |
 
@@ -269,12 +271,17 @@ agy3d install: installed military_supply_crate: loader in src/agy3d/military_sup
 
 **Compression.** KTX2 textures and meshopt geometry are written only with six packages already in the project's
 `node_modules`: `@gltf-transform/core`, `@gltf-transform/extensions`, `@gltf-transform/functions`, `ktx2-encoder`,
-`meshoptimizer` and `sharp`. Without them the install ships PNG textures and prints the one command that enables
-compression: `npm install -D @gltf-transform/core @gltf-transform/extensions @gltf-transform/functions ktx2-encoder
-meshoptimizer sharp` (the install itself never runs it). Nothing compressed is written without a measurement: each
-encoding is rendered in the headless browser against the package's own frame, and the first one inside the tolerance
-is written, so some assets ship PNG (see [the web limits](verification_and_limits.md#three-js-installs)). A native
-`gltfpack` or `ktx` binary is not used.
+`meshoptimizer` and `sharp`. Without them the install ships the package's own web files (WebP textures where the
+package has them, PNG otherwise) and prints the one command that enables compression: `npm install -D
+@gltf-transform/core @gltf-transform/extensions @gltf-transform/functions ktx2-encoder meshoptimizer sharp` (the
+install itself never runs it). Nothing compressed is written without a measurement: each encoding is rendered in the
+headless browser against the package's own frame, and the first one inside the tolerance is written, so some assets
+ship uncompressed (see [the web limits](verification_and_limits.md#three-js-installs)). With `--compress auto` an
+encoding that is already larger than the files it would replace ends the search, and its frames are not compared:
+the encodings after it are larger. That is the usual outcome for a package with WebP textures, which download
+smaller than KTX2; `--compress always` trades the download for graphics memory. The texture maps are encoded side by
+side, up to four at a time; `AGY3D_KTX2_WORKERS=1` encodes one at a time and needs about half the memory (three
+2048 px maps: 810 MiB side by side, 424 MiB one by one). A native `gltfpack` or `ktx` binary is not used.
 
 **three.js versions.** The checks were run on three.js 0.152.2, 0.160.0, 0.169.0, 0.170.0 and 0.187.0. Between r152
 and r187 the files are written and checked; outside that range they are written and the result says `not checked on
@@ -293,7 +300,7 @@ folder that exists with files this tool did not write; a project where the serve
 | `--project DIR` | the game project's root directory (required) |
 | `--dest DIR` | directory inside the project (Godot: default `agy3d/<asset>`; three.js: where the loader and the install record go, default `src/agy3d/<asset>`) |
 | `--assets DIR` | three.js only: the folder for the asset's files, inside the project's served folder (default `<served>/agy3d/<asset>`) |
-| `--compress {auto,always,never}` | three.js only, and only with the compression packages in the project. `auto` (the default) writes compressed files only when the page then downloads no more than before (the transcoder is counted unless the project already has it); `always` compresses for the GPU memory whatever the size; `never` installs the PNG textures |
+| `--compress {auto,always,never}` | three.js only, and only with the compression packages in the project. `auto` (the default) writes compressed files only when the page then downloads no more than before (the transcoder is counted unless the project already has it); `always` compresses for the GPU memory whatever the size; `never` installs the package's own files as they are |
 | `--dry-run` | print what would be written; write nothing |
 | `--force` | replace this tool's own files even where they were edited since |
 | `--no-check` | do not run the in-project check (Godot: no import and load of the installed scene; three.js: no browser check, and so no compression, which is only written after a measured frame comparison) |
@@ -306,6 +313,147 @@ loader folder, `src/agy3d/<asset>`; the record there lists the files, and the sh
 another install needs it). It keeps any file you added there and refuses when one of its own files was edited since,
 unless you pass `--force`. It takes `--project`, `--dest` (both required), `--dry-run`,
 `--force` (remove this tool's files even where they were edited since) and `--json`.
+
+## `agy3d check-site`: look at a website you built
+
+```bash
+agy3d check-site examples/straitjacket-film/site
+agy3d check-site tests/fixtures/site_check/facts --sizes desktop --steps 3 --no-variants
+```
+
+It opens a built site (a folder holding `index.html`, or a running dev server on localhost) the way a visitor does and
+answers in plain text, at most about 60 lines, in this order: what is broken, what a visitor would notice, the
+measures, where the pictures are. The agent gets the same answer from the `check_site` tool. It needs what the three.js
+check needs: the `web` extra and a Chromium.
+
+What it does:
+
+1. Serves the folder on 127.0.0.1 under a sub-path (`/site-<random>/`). A site that asks for `/assets/app.js` at the
+   server root fails here as it fails on a host that publishes it under `/project/`; the answer says so and how to fix
+   it (relative paths; for Vite, `base: './'`).
+2. Opens it at 1440 x 900 and at 390 x 844 (a phone, with touch), both at a device pixel ratio of 1, and waits for
+   the load event, a quiet network and a still picture.
+3. Scrolls to `--steps` even positions (default 9, from 0 to 100 %), coarse to fine (0, 100, 50, 25, 75 % ...), so a
+   check cut short still covers the whole scroll. At each it waits until the picture is still (two screenshots, taken at least two of the page's own frames apart,
+   that agree; at most 4 s),
+   keeps the frame, and takes the WebGL canvas alone. The frames go into one labelled contact sheet per size,
+   `sheet_desktop.jpg` and `sheet_phone.jpg`; labels in red mark a finding.
+4. Loads the page once with "reduce motion" set and once with WebGL taken away, and says what a visitor then gets.
+5. Checks every element that names its source (below), and lists numbers and code shown without one.
+6. At each step, when the page says where its subjects are (below), measures how much of each is cut by the frame's
+   edge and how much lies under the page's HTML, and names those a visitor would notice.
+
+Where the subjects are. A page may expose `window.__site.info()`, whose result holds `onScreen`: one entry per subject
+on screen, keyed by its name, each `{ share, x, y, box: [x0, y0, x1, y1], kind }`. `box` is the subject's projected box
+as fractions of the window from its top left, not clamped (below 0 or above 1 it runs out of the frame); `kind` is
+`"prop"` or `"label"` (a 3D label; absent means prop). A page may also say which props the current shot is about, with
+`subject: true` or `false` on each: where any prop is marked so, the others are the shot's background, measured and
+kept in the record but not named in the answer. Labels always count. The skill's starter project writes all of it. A page without `box` (only
+`share`, `x`, `y`, as pages built before it have) or without the hook gets nothing measured and nothing said about its
+subjects. The hook is the page's code and is not trusted: at most 64 subjects are read, names are cut to 80
+characters, every number is checked, and a hook that throws or does not answer within 0.5 s leaves the step without
+the measure. For each subject with a box, at the moment the step's frame is taken:
+
+- cut: the share of the box outside the window, and by which edges;
+- hidden: the share of the box's part in the window that lies under an element a visitor cannot see through. That is
+  an element drawn above the 3D canvas at that point (the browser's own paint order, read with `elementsFromPoint` at
+  up to 16 x 16 points of the box while `pointer-events` is forced on, so a panel with `pointer-events: none` still
+  counts) whose background alpha times its own and its ancestors' opacity is at least 0.6, or that has a backdrop blur.
+  Text, borders and images without a background do not count: the scene shows around them. The element is named as
+  the facts are (`section#digest > div.panel`).
+
+The answer gives one line per subject and size, with the steps, the worst share, what covers it or which edges cut it,
+and the frame to look at; at most 8 subjects per size, props first, then one line naming the rest. Every subject at
+every step is in `report.json`. The contact sheet marks such steps `subject hidden` or `subject cut`.
+
+Stills for the page without WebGL. When the page also gives `window.__site.chapters()`, a list of `{ id, rest }` (the
+chapter's id, and the story time at which it rests), and `window.__site.setProgress(T)`, as the skill's starter does,
+the desktop visit ends by drawing each chapter's rest and writing the 3D canvas alone as `stills/<chapter id>.webp`
+in the output folder: read from the canvas's drawing buffer right after the page drew it, so no HTML, no scrollbar
+and no headless band is in it; at most 1280 px wide (the article's text column is 40rem, about 590 CSS px of image,
+so 1280 covers a screen of two device pixels per CSS pixel), WebP at quality 80: 41 to 65 kB each on run 2's site
+(quality 70 saves a fifth for 1 dB less, 90 costs 60 % more for 1.5 dB). At most 24
+chapters and 25 s in all; ids become file names of letters, digits, `-` and `_`, made distinct. The answer names the
+folder under "Pictures"; `report.json` lists every still (`stills`) and why any was not made. A page without the hook
+gets no `stills` folder and nothing said.
+
+How each finding is decided (the only thresholds; everything else is reported as a number):
+
+| Finding | Rule | Why |
+|---|---|---|
+| the 3D canvas shows nothing | under 1 % of the canvas (at 1/8 size) differs from its most common colour by more than 8 % | at 1/8 size the 1 px lines of a helper grid average away; an object does not. 1 % of a desktop canvas is a 120 x 108 px patch |
+| the 3D canvas shows little | the canvas shows something on under a quarter of the share it shows at the page's median step; the answer adds how much of that is one solid shape (the largest region after an opening of two pixels at 1/4 size) | the scene may have left the frame between chapters (run 1 at 62 %: a grid and one arc, 4 % against 19 %, one shape 53 to 63 % of it), or a small subject is framed on purpose (the skill's starter, its wide closing shot: 3 to 5 %, one shape 90 to 98 %). The shape share is a hint, not a rule: the film's opening, many small things composed on purpose, scores 26 %. The frames tell which |
+| the picture did not change | mean difference to the step before under 0.2 % (1/4-size grey frame) | the scroll moved and nothing on screen did |
+| sideways scroll on a phone | the page is wider than the viewport by more than 1 px | a visitor's thumb finds it |
+| a 3D label cut or hidden | 10 % of its box outside the window, or 10 % of its part in the window under opaque HTML | a label 15 % cut loses the ends or feet of its letters and no longer reads (run 2: a floor label 21 % below the bottom edge and one 56 % under the text panel, both called out by the reviewer) |
+| a 3D label too small to read | its box is never taller than 16 px at any step where it is in the frame | a label that is small at some steps and readable at others is in the background there; one that is never larger cannot be read anywhere (run 2: a floor label in the last wide shot, a 15 px box and letters of a few pixels) |
+| a prop cut | 30 % of its box outside the window | a close shot often runs a prop a little out of frame on purpose: run 2's props at 11 to 22 % out read as framed close, the clamp at 42 % and 62 % out as cut off |
+| a prop hidden | 15 % of its part in the window under opaque HTML | the box is the projection of the prop's 3D bounding box, whose corners stand off the silhouette: 12 % under run 2's top bar was only the empty corner above the gate, 20 % under the digest chapter's panel covered the gate's whole left column |
+| (neither) | less than a fifth of the box in the window | the subject is entering or leaving the shot (run 2: the vault as a sliver at the right edge, 84 to 93 % out) |
+| the download is heavy | the bytes take more than 5 s on a 10 Mbit/s connection | the first impression is over by then |
+| an unsourced number | three or more digits, or a unit (%, ms, MB, tokens, ...); a bare year is not counted | small counts are prose; measurements are claims |
+
+What the scene costs is read from the page's WebGL calls, which are wrapped before the page's scripts run
+(`src/antigravity3d/deliver/site_probe.js`), so it works on a page that does not expose its renderer:
+
+- draw calls per frame: calls of `drawArrays`, `drawElements`, `drawRangeElements`, their instanced forms and the
+  `WEBGL_multi_draw` calls (one call counts once);
+- triangles per frame: `count / 3` for `TRIANGLES`, `count - 2` for strips and fans, times the instance count (the
+  rule three.js's `renderer.info` uses); lines and points are not counted;
+- texture memory: the bytes of every texture level the page allocates or uploads, from its format, plus a third of
+  level 0 for mipmaps, minus deleted textures; textures allocated without data (render targets) and render buffers are
+  given apart.
+
+The largest per-frame counts over the steps are reported. The tests hold the counts exactly on a raw WebGL page whose
+counts are known, and equal to `renderer.info` on a three.js scene with meshes, an InstancedMesh and lines. A renderer
+in a worker (OffscreenCanvas) or on WebGPU is not seen; the answer says when a page used one.
+
+On software WebGL a heavy page draws a frame in about a second. GSAP treats any gap over 500 ms as 33 ms, so a
+scrubbed animation would barely move; the page is therefore shown at most 250 ms passing between two of its frames
+(`performance.now`, `Date.now` and the animation-frame time move together). A page that draws faster sees the real
+clock. Frames still changing after 4 s are kept and named in the measures.
+
+One thing in the frames is headless Chromium's, not the page's: a WebGL canvas under an opaque, full-width fixed bar
+loses as many rows at the opposite edge (run 2's 48 px top bar left a flat 48 px band at the bottom of every
+full-window frame; a bar 300 px down blanks the rows 300 px up from the bottom). The same browser with a window draws
+them, and the canvas-only frames, read from the drawing buffer, show them. Subjects are measured from the page's
+geometry, not from the frames, so the band changes nothing that is reported.
+
+Facts. Mark an element with the file that holds what it shows; paths are relative to `--sources` (default: the site
+folder):
+
+| `data-src=` | the element must show |
+|---|---|
+| `"eval/run.json#/runs/0/tokens"` | the value at that JSON pointer. A number is compared as a number at the precision shown: for 302628, `302,628` and `302.6k` match; for 0.37, `37 %` does. A string: all of it, or one unbroken passage of it of at least 20 characters (half of it, for a shorter value), whitespace aside; nothing left out in the middle |
+| `"tests/fixtures/digest.txt#L10-L14"` (or `#L10`) | those lines (indentation they share aside); one shown line may be part of them |
+| `"README.md"` | text that occurs in the file, whitespace aside |
+
+From `tests/fixtures/site_check/facts/index.html` (its sources are in `sources/` beside it):
+
+```html
+<p>Tokens in the first run: <span id="ok-num" data-src="sources/data.json#/runs/0/tokens">1,234</span>.</p>
+<pre id="ok-code" data-src="sources/code.py#L2-L3">def add(a, b):
+    return a + b</pre>
+<blockquote id="ok-quote" data-src="sources/notes.md">Capture once, retrieve the line that matters.</blockquote>
+```
+
+Requests to other hosts are listed and not made by default (`--other-hosts try` makes them), so the page is seen as it
+is when those hosts cannot be reached, and no answer depends on this machine's network. The check answers within
+150 s, with what it has when time runs out, and says which steps are missing. It writes only its pictures and
+`report.json` (the full record), by default into `./agy3d_site_check/<site>/`, never into the site folder.
+
+| Option | Meaning |
+|---|---|
+| `--sources DIR` | folder that `data-src` paths are relative to (default: the site folder) |
+| `--steps N` | scroll positions photographed (default 9, 2 to 25) |
+| `--sizes LIST` | `desktop`, `phone` or both, comma-separated (default both) |
+| `--other-hosts block\|try` | list requests to other hosts without making them (default), or make them |
+| `--no-variants` | skip the visits with reduce motion set and without WebGL |
+| `--out DIR` | where the frames go |
+| `--json` | print the machine-readable record instead of the text |
+
+Exit status: 0 when nothing is broken, 1 when something is, 2 for a usage error (a remote URL, a folder without
+`index.html`).
 
 ## `agy3d edit`: change an asset later
 

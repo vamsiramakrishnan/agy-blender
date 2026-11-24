@@ -2011,10 +2011,35 @@ def install_project_plugin(dest_root: Path, workspace: str, authoring: str | Non
     return Path(out.stdout.strip().splitlines()[-1])
 
 
+@dataclass(frozen=True)
+class RunOptions:
+    """What a run may be told beyond its arm, each default being the comparison's own behaviour (a run with no options
+    is unchanged). The website task needed all four and run 1 got them by editing source files, which a second arm
+    could not repeat: model (the request names it; the comparison's default model otherwise), ``sdk_output_cap`` (ask for
+    the SDK's own output limit, 65,535, not the comparison's 16,384), ``limits`` (the SDK's backstops on model and tool
+    calls, which a three-hour task needs far above ``harness_budget``), ``node_dir`` (a host Node bound read-only into the
+    sandbox, on PATH for every arm) and ``browsers`` (the Playwright browsers and ``CHROMIUM_BIN``, for an arm without the
+    plugin as for one with it: the plugin arm has had them since round 3)."""
+
+    model: str | None = None
+    sdk_output_cap: bool = False
+    limits: dict[str, int] | None = None
+    node_dir: str | None = None
+    browsers: bool = False
+    # What counts as the run's delivery, as a path in the workspace (the website task: ``site/index.html``). Without it a
+    # run is "finished" only if it left a GLB, and a stock agent that built a whole site and no model was recorded as
+    # "gave up".
+    deliverable: str | None = None
+    # The stand-in for the user approves an ``install_into_project`` that writes into the run's own workspace (and nothing
+    # else it is asked). Off by default: the comparison's tasks are not about building in a project.
+    approve_installs: bool = False
+
+
 def stock_spec(run_dir: Path, arm: str, brief: Brief, *, plugin: bool = False, share_tokens: int = 0,
                share_images: int = 0, calls: int | None = None, workspace: Path | None = None,
-               task: str | None = None, timeout_s: int | None = None) -> dict[str, Any]:
+               task: str | None = None, timeout_s: int | None = None, opts: RunOptions | None = None) -> dict[str, Any]:
     """Prepare a sandboxed run directory; returns the host-side spec (``compare_sandbox.command`` reads it)."""
+    opts = opts or RunOptions()
     import compare_sandbox as sb
 
     for sub in (("home", "ctl") if workspace is not None else ("work/output", "home", "ctl")):
@@ -2036,6 +2061,26 @@ def stock_spec(run_dir: Path, arm: str, brief: Brief, *, plugin: bool = False, s
                     "home": str(run_dir / "home"), "work": str(work), "sock_dir": str(sock_dir)}}
     if task is not None:
         cfg["task"] = task
+    if opts.model:
+        cfg["model"] = opts.model
+    if opts.sdk_output_cap:
+        cfg["max_output_tokens"] = None
+    if opts.limits:
+        cfg["budget"] = dict(opts.limits)
+    if opts.approve_installs:
+        cfg["approve_installs"] = True
+    extra: dict[str, str] = {}
+    if opts.node_dir:
+        if not (Path(opts.node_dir) / "bin" / "node").exists():
+            raise SystemExit(f"node_dir {opts.node_dir} has no bin/node")
+        cfg["host"]["node_dir"] = str(Path(opts.node_dir).resolve())
+    if opts.browsers or plugin:
+        if not Path("/opt/pw-browsers").is_dir():
+            if opts.browsers:
+                raise SystemExit("browsers were asked for but /opt/pw-browsers does not exist on this machine")
+        else:
+            cfg["host"]["browsers_dir"] = "/opt/pw-browsers"
+            extra.update(PLAYWRIGHT_BROWSERS_PATH=sb.BROWSERS_DIR, CHROMIUM_BIN=f"{sb.BROWSERS_DIR}/chromium")
     if plugin:
         authoring = "script" if arm in SCRIPT_ARMS else None
         installed = install_project_plugin(run_dir / "plugin_root", sb.WORKSPACE, authoring)
@@ -2043,20 +2088,17 @@ def stock_spec(run_dir: Path, arm: str, brief: Brief, *, plugin: bool = False, s
         host = cfg["host"]
         host.update(project_src=str(PROJECT_SRC), project_plugin=str(PROJECT_SRC.parent / "plugin"), plugins=str(installed.parent),
                     venv=str(Path(sys.prefix)))
-        extra = {}
         if os.environ.get("GODOT_BIN"):
             host["godot_dir"] = str(Path(os.environ["GODOT_BIN"]).resolve().parent)
             extra["GODOT_BIN"] = f"{sb.GODOT_DIR}/{Path(os.environ['GODOT_BIN']).resolve().name}"
-        if Path("/opt/pw-browsers").is_dir():
-            host["browsers_dir"] = "/opt/pw-browsers"
-            extra.update(PLAYWRIGHT_BROWSERS_PATH=sb.BROWSERS_DIR, CHROMIUM_BIN=f"{sb.BROWSERS_DIR}/chromium")
         if os.environ.get("AGY3D_THREE_JS"):
             host["three_dir"] = str(Path(os.environ["AGY3D_THREE_JS"]).resolve().parent)
             extra["AGY3D_THREE_JS"] = f"{sb.THREE_DIR}/{Path(os.environ['AGY3D_THREE_JS']).name}"
-        cfg["extra_env"] = extra
         cfg["plugin"] = {"dir": f"{sb.PLUGINS_DIR}/{installed.name}", "limits": {"tokens": share_tokens, "images": share_images},
                          "authoring": authoring,
                          "project_src_host": str(PROJECT_SRC)}
+    if extra:
+        cfg["extra_env"] = extra
     if arm == "V":  # the plain Blender MCP server: this file only, nothing of the project
         shutil.copyfile(HERE / "compare_vanilla_mcp.py", run_dir / "ctl" / "compare_vanilla_mcp.py")
         cfg["vanilla"] = {"server": f"{sb.CTL}/compare_vanilla_mcp.py", "blender": f"{sb.BLENDER_DIR}/blender"}
@@ -2067,6 +2109,47 @@ def stock_spec(run_dir: Path, arm: str, brief: Brief, *, plugin: bool = False, s
     os.chmod(sock_dir, 0o777)
     return {"host_sandbox_py": str(HERE / "compare_sandbox.py"), "host_config": str(run_dir / "ctl" / "config.json"),
             "skills": skills}
+
+
+def resolve_in_workspace(work: Path, rel: str, links: list[str] | None = None) -> Path | None:
+    """The real path of ``work/rel`` on this machine, or None when it is not reachable without leaving the workspace.
+
+    The workspace is a host folder the agent wrote into, so a link it left means what it means *in the sandbox*:
+    ``ln -s /root src`` points at the host's own /root here, and ``ln -s /home/agent/project/dist site`` (the
+    sandbox's view of the workspace; agents write this) is broken on the host. A link whose target is the sandbox's
+    workspace path is translated to ``work`` and followed; every other absolute link, and any path that climbs out,
+    is not followed and is appended to ``links`` ("rel -> target") so that the record can name it."""
+    import compare_sandbox as sb
+
+    base = work.resolve()
+    cur, hops = base, 0
+    parts = [x for x in Path(rel).parts if x not in ("", ".")]
+    while parts:
+        part = parts.pop(0)
+        if part == "..":
+            cur = cur.parent
+        else:
+            nxt = cur / part
+            if not nxt.is_symlink():
+                cur = nxt
+                continue
+            hops += 1
+            target = os.readlink(nxt)
+            if hops > 40:
+                return None
+            if target.startswith("/"):
+                if target != sb.WORKSPACE and not target.startswith(sb.WORKSPACE + "/"):
+                    if links is not None:
+                        links.append(f"{nxt.relative_to(base)} -> {target}")
+                    return None
+                cur, parts = base, [x for x in Path(target[len(sb.WORKSPACE):]).parts if x not in ("/", "")] + parts
+            else:
+                parts = [x for x in Path(target).parts if x not in ("", ".")] + parts
+        if cur != base and base not in cur.parents:
+            if links is not None:
+                links.append(f"{rel} -> leaves the workspace")
+            return None
+    return cur
 
 
 def find_main_glb(folder: Path) -> Path | None:
@@ -2380,7 +2463,7 @@ def blender_call(args: dict[str, Any]) -> bool:
 def run_stock(relay: Relay, root: Path, brief: Brief, arm: str, *, wall_s: float | None = None,
               share_tokens: int | None = None, share_images: int | None = None, tag: str = "",
               plugin: bool | None = None, account: str | None = None, workspace: Path | None = None,
-              task: str | None = None, session: int = 1, phase: str = "first") -> RunRecord:
+              task: str | None = None, session: int = 1, phase: str = "first", opts: RunOptions | None = None) -> RunRecord:
     """One sandboxed stock-agent run. ``tag`` names a run outside the pilot's cells (the smoke run)."""
     import compare_sandbox as sb
 
@@ -2407,7 +2490,7 @@ def run_stock(relay: Relay, root: Path, brief: Brief, arm: str, *, wall_s: float
         load_start = float(Path("/proc/loadavg").read_text().split()[0])
     spec = stock_spec(run_dir, arm, brief, plugin=plugin, share_tokens=share_tokens, share_images=share_images,
                       calls=calls_allowed(arm, share_tokens) if BUDGET.get("round") and not tag.startswith("smoke") else None,
-                      workspace=workspace, task=task, timeout_s=int(wall_s - 300) if wall_s > 600 else None)
+                      workspace=workspace, task=task, timeout_s=int(wall_s - 300) if wall_s > 600 else None, opts=opts)
     work = workspace if workspace is not None else run_dir / "work"
     rec.pipeline["workspace"] = str(work)
     rec.pipeline["task"] = json.loads(Path(spec["host_config"]).read_text())["task"]
@@ -2481,11 +2564,13 @@ def run_stock(relay: Relay, root: Path, brief: Brief, arm: str, *, wall_s: float
         rec.pipeline["self_report"] = plugin_self_report(work)
         rec.pipeline["mcp_tools"] = mcp_tool_counts(calls)
         rec.pipeline["attached"] = next((e for e in events if e.get("kind") == "plugin_attached"), None)
+    entry = resolve_in_workspace(work, opts.deliverable) if opts and opts.deliverable else None
+    delivered = (entry is not None and entry.is_file()) if opts and opts.deliverable else bool(glb)
     limit = any("spend limit" in x for x in acc.refused) or "MAX_" in str((end or {}).get("stop_reason"))
     svc = rec.pipeline["conditions"].get("last_call_service_failure")
     if limit:
         rec.status = "stopped at limit"
-    elif svc and not (end and end.get("status") == "finished" and glb):
+    elif svc and not (end and end.get("status") == "finished" and delivered):
         # The run ended without a delivery right after the service failed a call: the service's failure, not the arm's.
         # Its account shows spending, so it is not re-run silently; the record says what happened.
         rec.status = "stopped by the service"
@@ -2495,7 +2580,7 @@ def run_stock(relay: Relay, root: Path, brief: Brief, arm: str, *, wall_s: float
         rec.status = "crashed"
         rec.notes.append("no end event from the sandbox (see sandbox_stderr.log)")
     elif end["status"] == "finished":
-        rec.status = "finished" if glb else "gave up"
+        rec.status = "finished" if delivered else "gave up"
     else:
         rec.status = end["status"]
         if end.get("error"):

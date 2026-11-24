@@ -31,6 +31,7 @@ class Build:
     materials: list[dict]
     notes: list[str]
     stats: dict
+    max_texture_px: int | None = None  # optional in design.json (asset.max_texture_px): absent in older hand-offs
 
     def scene(self):
         """The design as ``ir.SceneIR`` (``ir_schema.parse_tool_scene``: the same parse a tool's full scene gets)."""
@@ -66,6 +67,12 @@ def read(folder: Path) -> Build:
     for key, typ in (("materials", list), ("nodes", list), ("notes", list), ("stats", dict)):
         if not isinstance(doc.get(key), typ):
             raise BuildError(f"{path}: '{key}' is missing or not a {typ.__name__}")
+    try:
+        from antigravity3d.state import texture_px_choice
+
+        texture_px = texture_px_choice(asset.get("max_texture_px"))
+    except ValueError as e:
+        raise BuildError(f"{path}: asset.{e}") from None
     if not all(isinstance(n, str) for n in doc["notes"]):
         raise BuildError(f"{path}: every note is a sentence (a string)")
     nodes: list[dict[str, Any]] = []
@@ -88,4 +95,5 @@ def read(folder: Path) -> Build:
         nodes.append(n)
     return Build(folder=folder, name=asset["name"], engine=asset["engine"], max_tris=asset["max_tris"],
                  brief=asset["brief"], art_direction=asset["art_direction"], nodes=nodes,
-                 materials=list(doc["materials"]), notes=list(doc["notes"]), stats=dict(doc["stats"]))
+                 materials=list(doc["materials"]), notes=list(doc["notes"]), stats=dict(doc["stats"]),
+                 max_texture_px=texture_px)

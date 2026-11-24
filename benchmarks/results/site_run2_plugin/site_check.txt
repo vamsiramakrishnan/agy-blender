@@ -1,0 +1,16 @@
+SITE CHECKED in 23 s: nothing broken, 0 things a visitor would notice. Open the contact sheets below with your file viewer and look at every frame before you change anything.
+
+Measures:
+- Desktop 1440x900: settled 8.8 s after the page was asked for; 9 of 9 steps photographed; share of the 3D canvas showing something, per step: 75% 76% 74% 77% 74% 62% 81% 36% 76%.
+- Phone 390x844: settled 9.8 s after the page was asked for; 9 of 9 steps photographed; share of the 3D canvas showing something, per step: 41% 42% 56% 40% 58% 73% 59% 26% 25%.
+- Downloaded (desktop, whole scroll): 5.3 MB in 38 files: textures 1.8 MB, scripts 1.6 MB, models 1.0 MB, images 0.6 MB, fonts 0.1 MB, documents 16 kB, styles 11 kB. Largest: agy3d/anchor_clamp/textures/anchor_clamp_atlas_orm.ktx2 0.8 MB, assets/stage-D4cyitgL.js 0.7 MB, agy3d/anchor_clamp/textures/anchor_clamp_atlas_albedo.ktx2 0.6 MB, agy3d/_basis/basis_transcoder.wasm 0.5 MB, agy3d/anchor_clamp/textures/anchor_clamp_atlas_normal.ktx2 0.4 MB.
+- Scene (desktop, the largest over the steps): 14 draw calls and 31,726 triangles in one frame (most triangles at 88%); textures 51.7 MB on the graphics card in 23 textures (12.6 MB of it render targets). Counted by wrapping the page's WebGL draw and texture calls before its scripts ran.
+- While nothing moves (top of the page, 1.5 s, no input): it drew in 0 of 84 frames, and the picture stayed the same.
+- With reduce motion set the page asks matchMedia and has a CSS rule; while nothing is touched the picture stays still; after a scroll the picture still takes 2.8 s to come to rest (without the setting 1.7 s). Picture: reduced.jpg.
+- Without WebGL: no errors; the page shows 3,640 characters of text (with WebGL 3,640) and 7 images, and no message about the missing 3D. Picture: nowebgl.jpg.
+- Facts: 31 elements name a source (data-src) against <run>/check_in/sources; all match.
+
+Pictures:
+- desktop contact sheet: <run>/site_check/sheet_desktop.jpg (frames desktop_00.jpg to desktop_08.jpg)
+- phone contact sheet: <run>/site_check/sheet_phone.jpg (frames phone_00.jpg to phone_08.jpg)
+- all frames, the canvas-only frames and the full record (report.json) are in <run>/site_check
