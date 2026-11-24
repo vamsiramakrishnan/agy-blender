@@ -12,8 +12,8 @@ const phone = matchMedia('(max-width: 899px)');
 // 18vh on a desktop, 56vh on a phone).
 const readLine = () => (phone.matches ? 0.6 : 0.25);
 
-// The hook a screenshot tool or check uses: wait for `ready`, then ask for any moment by story time.
-// TODO(integrate): check_site scrolls like a visitor; confirm whether it also reads this hook when the branches meet.
+// A hook for quick looks from the browser's console or a script of your own: wait for `ready`, then ask for any
+// moment by story time. The plugin's check_site does not use it: it scrolls the page the way a visitor does.
 let resolveReady;
 const site = {
   ready: new Promise((r) => { resolveReady = r; }),

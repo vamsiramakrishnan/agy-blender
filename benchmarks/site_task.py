@@ -189,37 +189,18 @@ def scrubber_for(work: Path, root: Path, extra: dict[str, str] | None = None) ->
 # ----------------------------------------------------------------------------------------------- the site check
 
 
-# TODO(integrate): helper ``eyes`` adds the site check under src/antigravity3d/deliver/ with a function of this kind.
-# The module names and keyword names below are guesses, tried in order; when none exists in this tree the result
-# folder says so instead of failing, and the names are fixed here when the branches meet.
+# Run in a separate interpreter with -I: the folder checked was written by an agent, and nothing of it (nor the current
+# directory) may end up on the import path. -I also ignores PYTHONPATH, so this tree's src is passed and put first.
 SITE_CHECK_CODE = r"""
-import asyncio, importlib, inspect, json, sys
-site, sources, out = sys.argv[1:4]
-for name in ("antigravity3d.deliver.site_check", "antigravity3d.deliver.check_site"):
-    try:
-        mod = importlib.import_module(name)
-    except ImportError:
-        continue
-    fn = getattr(mod, "check_site", None)
-    if fn is None:
-        continue
-    params = inspect.signature(fn).parameters
-    kw = {}
-    for p in params:
-        if p in ("sources", "sources_dir", "source_dir"):
-            kw[p] = sources
-        elif p in ("out", "out_dir", "output", "output_dir", "frames_dir"):
-            kw[p] = out
-    first = next(iter(params))
-    res = fn(**{first: site}, **{k: v for k, v in kw.items() if k != first})
-    if inspect.isawaitable(res):
-        res = asyncio.run(res)
-    if isinstance(res, dict):
-        res = res.get("answer") or res.get("text") or json.dumps(res, indent=1, default=str)
-    print(str(res))
-    sys.exit(0)
-print("NO_SITE_CHECK")
-sys.exit(3)
+import sys
+site, sources, out, src = sys.argv[1:5]
+sys.path.insert(0, src)
+try:
+    from antigravity3d.deliver.site_check import check_site
+except ImportError:
+    print("NO_SITE_CHECK")
+    sys.exit(3)
+print(check_site(site, sources=sources, out_dir=out).text())
 """
 
 
@@ -228,9 +209,10 @@ def run_site_check(site: Path, sources: Path, out_dir: Path, timeout_s: int = 24
     if not (site / "index.html").is_file():
         return None, f"no {site.name}/index.html to check"
     env = {k: v for k, v in os.environ.items() if k in ("PATH", "HOME", "LANG", "DISPLAY", "CHROMIUM_BIN", "PLAYWRIGHT_BROWSERS_PATH",
-                                                          "XAUTHORITY")} | {"PYTHONPATH": str(ca.PROJECT_SRC)}
+                                                          "XAUTHORITY")}
     try:
-        r = subprocess.run([sys.executable, "-I", "-c", SITE_CHECK_CODE, str(site), str(sources), str(out_dir)], env=env,
+        r = subprocess.run([sys.executable, "-I", "-c", SITE_CHECK_CODE, str(site), str(sources), str(out_dir),
+                            str(ca.PROJECT_SRC)], env=env,
                            capture_output=True, text=True, timeout=timeout_s)
     except subprocess.TimeoutExpired:
         return None, f"the site check did not answer in {timeout_s} s"

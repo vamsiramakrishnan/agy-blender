@@ -34,8 +34,11 @@ embeds its images; the `textures/` files serve the lower-detail levels.
 
 Texture size is a parameter: `max_texture_px` (256, 512, 1024, 2048 or 4096) on
 `open_asset_session`, in a script's `Asset(...)` line, or `--max-texture-px`,
-caps the side of the texture atlas. Never scale the object to get smaller
-textures. The delivery's answer for a web package states the atlas, the bytes a
+caps the side of the texture atlas. With none given the atlas is as large as
+the parts need: at most 4096 px, and at most 2048 px for a web package (four
+4096 px maps are 341 MiB of graphics memory on a visitor's device; ask for 4096
+only for a model the camera comes close to). Never scale the object to get
+smaller textures. The delivery's answer for a web package states the atlas, the bytes a
 page downloads, the texture memory and up to how many pixels on screen the
 textures stay sharp; choose the size from the largest the model is shown at.
 A web package's GLBs carry their maps as WebP (EXT_texture_webp) when the

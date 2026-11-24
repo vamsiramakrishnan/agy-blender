@@ -46,7 +46,6 @@ which file, so `check_site` can compare the two. Give the path relative to the s
 
 When a picture or example on the page is made up to explain something, say so in its caption ("an illustration,
 not a real log line"). Do not invent identifiers, hashes, line numbers or log lines that look like receipts.
-<!-- TODO(integrate): the data-src forms are those of helper eyes's check_site (brief C7). -->
 
 ## Stills for the page without WebGL
 

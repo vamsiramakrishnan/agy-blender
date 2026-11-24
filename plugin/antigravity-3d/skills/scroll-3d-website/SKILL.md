@@ -92,32 +92,31 @@ For each prop, in this order:
   `open_asset_session` with the user's words for that object as `brief`, `target_engine` set to web_three and a
   `max_texture_px` chosen for the screen (below); then `apply_scene_ir` and `render_preview` as usual. In script
   authoring (the rules say an asset is a Python script): `Asset(..., engine="web_three", max_texture_px=...)` in its
-  script, run with run_build. <!-- TODO(integrate): max_texture_px is helper webfit's new parameter (brief B1). -->
-- `deliver_package`. If its answer says the work is still running and to call it again with the same arguments,
-  nothing needs fixing: work on the page meanwhile and call it again with the same arguments later. A delivery that
-  runs while you write the page costs no time. <!-- TODO(integrate): the wording of helper deadline's
-  answer (brief A1). -->
+  script, run with run_build.
+- `deliver_package`. If its answer starts with `STILL WORKING`, nothing failed and nothing needs fixing: the work
+  goes on by itself. Work on the page meanwhile and make the call the answer spells out (the same tool, the same
+  arguments) to collect the result. A delivery that runs while you write the page costs no time.
 - `install_into_project` into the site's project. The site is a project you are building in this session because the
   user asked for it, so call `install_into_project` with `dry_run` false at once, and never copy GLB files by hand. It
   writes the files where the dev server serves them and a loader with levels of detail (and compresses for the web
-  when the project has the tools).
-  <!-- TODO(integrate): helper webfit separates "a project the user already had" from "one built this session" (B5). -->
+  when the project has the tools). The delivery answer ends with a `NEXT:` line that gives this call.
 - In `src/props.js` add the two fields the install gives: `asset` and `module` (an import of the loader it wrote).
   The stand-in stays as the fallback while the model loads or if it fails.
 
 Texture size for the screen: the delivery answer for web_three states the atlas size, the bytes the page downloads,
 the texture memory and up to how many pixels on screen the textures stay sharp. Compare that last number with the
 largest the prop appears in your shots (the starter's `window.__site.info().onScreen` gives its share of the window at
-any moment) and choose the size from it, never by scaling the model. A prop the visitor sees only from far away needs
-neither fine parts nor large maps. <!-- TODO(integrate): the answer's wording is helper webfit's (brief B2). -->
+any moment) and choose the size from it, never by scaling the model. With no size given a web prop gets an atlas of at
+most 2048 px; ask for 4096 only for a prop the camera comes close to, and for 1024 or 512 for one seen small or far
+away, which needs neither fine parts nor large maps.
 
 ### 4. Look, 5. Revise
 
-Build the site and run `check_site` on the built folder, with the project's own files as its sources folder so the
-facts on the page are compared with them. Open both contact sheets (desktop and phone) and look at every step, not
+Build the site and run `check_site` with `target` the built folder and `sources` the folder of the project the site is
+about, so the facts on the page are compared with that project's files. Open both contact sheets (desktop and phone) and look at every step, not
 only the chapter stops. Then fix in this order and look again after each round: what is broken (errors, failed
 files, a fallback where the scene should be), dead frames, framing (subject behind text, cut off, too small),
-light and grounding, then polish. <!-- TODO(integrate): check_site's parameter names (brief C). -->
+light and grounding, then polish.
 
 ## What makes a site scroll beautifully
 
@@ -183,8 +182,8 @@ which props are on screen, how much of the window each covers and where (`onScre
   at a third of the time; a late prop keeps its stand-in while the site is finished.
 - **Symptom:** a tool call is cut off after three minutes and the agent polls folders or switches to stage calls.
   **Cause:** Antigravity ends any MCP tool call after 3 minutes; run 1 lost two `deliver_package` calls that way.
-  **Remedy:** when the answer says the work goes on, call the same tool again with the same arguments; do not poll
-  folders. <!-- TODO(integrate): helper deadline. -->
+  **Remedy:** every tool now answers inside that limit: an answer that starts with `STILL WORKING` means the work
+  goes on, so make the call it spells out again; do not poll folders and do not switch to other tools.
 - **Symptom:** a 17 MB model, then a prop scaled to 0.65 and loaded at 1/0.65 to shrink its textures. **Cause:** no
   texture-size lever was used. **Remedy:** pass a `max_texture_px` chosen for the screen to `open_asset_session`
   (section 3).

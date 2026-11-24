@@ -842,9 +842,10 @@ BRIEF_DOC = ("The user's request for this asset, in their words (for example 'a 
              "latches and two side handles'). Visual QA shows it to the judge and asks whether every part it names is there "
              "and how fully the asset depicts it. Empty: QA does not ask.")
 MAX_TEXTURE_PX_DOC = ("Largest side of the texture atlas in pixels: 256, 512, 1024, 2048 or 4096; empty for the size the "
-                      "parts need (at most 4096). The answer after delivery says up to how many pixels on screen the textures "
-                      "stay sharp; each step down halves that and quarters the texture memory. Choose it from the largest "
-                      "size the model is shown at (for a web page, a phone's screen too).")
+                      "parts need (at most 4096; at most 2048 for web_three, where 4096 has to be asked for). The answer "
+                      "after delivery says up to how many pixels on screen the textures stay sharp; each step down halves "
+                      "that and quarters the texture memory. Choose it from the largest size the model is shown at (for a "
+                      "web page, a phone's screen too).")
 
 ART_DIRECTION_DOC = ("Named art direction (skills/art-direction): " + " | ".join(style_ids())
                      + "; empty for none. Lowers the budget where the look needs it and styles maps, shading and prompts.")

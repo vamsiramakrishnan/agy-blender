@@ -1595,6 +1595,8 @@ def write_engine_package(
         rec["engine_max_texture_px"] = cap
         if budget.max_texture_px:  # a size the caller chose (or an art direction's): the density it gives is the choice
             rec["chosen_max_texture_px"] = budget.max_texture_px
+        elif ENGINE_RULES[engine].default_texture_px:  # no size was named: the engine's default capped the atlas, if anything did
+            rec["default_max_texture_px"] = ENGINE_RULES[engine].default_texture_px
     eng_issues += texel_density_issues(density, engine)
 
     dens = [u.texel_density for u in uvs if u.texel_density > 0]

@@ -144,6 +144,31 @@ async def test_an_uncapped_package_reads_as_before_apart_from_the_web_facts(ws, 
     assert all("chosen_max_texture_px" not in r for r in man["uv"]["texel_density"]["materials"].values())
 
 
+async def test_a_web_package_with_no_size_named_is_capped_at_the_web_default_and_says_so(ws, monkeypatch):
+    """No size named: a web atlas stops at ``EngineRules.default_texture_px`` (2048), because a browser holds every map
+    uncompressed (run 1 of the website task: 454 MB of textures for three props at the 4096 px the density target asks
+    for). The default is lowered here to 256 so that the small crate (it wants 512 x 256) meets it."""
+    import dataclasses
+
+    from antigravity3d.kernel import fast_ops
+    from antigravity3d.kernel.validator import ENGINE_RULES
+
+    assert ENGINE_RULES["web_three"].default_texture_px == 2048
+    assert max(max(wh) for wh in fast_ops.atlas_sizes("web_three")) == 2048
+    assert max(max(wh) for wh in fast_ops.atlas_sizes("web_three", 4096)) == 4096, "4096 is one parameter away"
+    assert max(max(wh) for wh in fast_ops.atlas_sizes("godot_4")) == 4096, "other engines are as before"
+    monkeypatch.setitem(ENGINE_RULES, "web_three", dataclasses.replace(ENGINE_RULES["web_three"], default_texture_px=256))
+    monkeypatch.setattr(WebThreeValidator, "_unavailable", lambda self: "no browser in this test")
+    reply, _pkg, man = await _deliver(ws, "web_three", crate(engine="web_three"))
+    assert reply.startswith("DELIVERED"), reply
+    assert "max_texture_px" not in man["budget"] and max(man["texture_atlas"]["atlas_wh"]) <= 256
+    recs = man["uv"]["texel_density"]["materials"].values()
+    assert recs and all(r["default_max_texture_px"] == 256 and "chosen_max_texture_px" not in r for r in recs)
+    assert any(r["needed_atlas_px"] > 256 for r in recs), "the default must be what capped the atlas for this test to mean anything"
+    assert not [i for i in man["validation"]["engine"] if i["code"].endswith("texel_density_target")]
+    assert "the atlas is at most 256 px, the default for a web page; max_texture_px=512 would make that about" in reply
+
+
 # --------------------------------------------------------------------------- 2. what a size costs, in two lines
 
 

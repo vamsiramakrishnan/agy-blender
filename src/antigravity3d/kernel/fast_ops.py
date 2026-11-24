@@ -1951,13 +1951,16 @@ FLAT_DETAIL_PX = 256
 
 def atlas_sizes(engine: str | None, max_px: int | None = None) -> tuple[tuple[int, int], ...]:
     """The (width, height) sizes ``unwrap_scene`` tries for an atlas sized from need for ``engine``: ``ATLAS_SIZES`` with
-    both sides within its ``max_texture_px`` and within ``max_px`` (an art direction's texture size)."""
+    both sides within its ``max_texture_px`` and within ``max_px`` (the caller's ``EngineBudget.max_texture_px`` or an art
+    direction's texture size); with no ``max_px``, within the engine's ``default_texture_px`` when it has one."""
     from antigravity3d.kernel.validator import ENGINE_RULES
 
     rule = ENGINE_RULES.get(engine) if engine else None
     cap = rule.max_texture_px if rule is not None and rule.max_texture_px else ATLAS_SIZES[-1][0]
     if max_px:
         cap = min(cap, int(max_px))
+    elif rule is not None and rule.default_texture_px:
+        cap = min(cap, rule.default_texture_px)
     return tuple(wh for wh in ATLAS_SIZES if max(wh) <= cap) or (ATLAS_SIZES[0],)
 
 
