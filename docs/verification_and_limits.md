@@ -130,7 +130,7 @@ What it contains, by what each engine's documentation describes:
 | Target | Exported as | Opened by the real engine here | Can be installed into a project | Can be verified |
 |---|---|---|---|---|
 | Godot 4 | GLB with LOD files and collider GLB, USD | yes, when Godot is installed | yes | yes |
-| three.js (`web_three`) | the same GLB files; the manifest records what a page downloads (`web_download`) | loaded in three.js r160 (vendored) under headless Chromium; `agy3d install` repeats it with the project's own three.js | yes | yes |
+| three.js (`web_three`) | the same GLB files, maps as WebP where the frames show no difference (`web_textures`); the manifest records what a page downloads (`web_download`) | loaded in three.js r160 (vendored) under headless Chromium; `agy3d install` repeats it with the project's own three.js | yes | yes |
 | Unreal Engine 5 | GLB, USD, and FBX with a Blender worker | no: never run here or in CI | no | no |
 | Unity URP | GLB, USD, and FBX with a Blender worker | no: never run here or in CI | no | no |
 | Roblox R15 | GLB, USD, and FBX with a Blender worker | no: no headless verifier | no | no |

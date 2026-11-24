@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import io
 import json
 import math
@@ -505,6 +506,15 @@ async def run(project: Path, record: dict[str, Any], manifest: dict[str, Any], p
     reference, ref_note, ref_issue = None, "no package folder to derive a reference from", None
     if pkg is not None and (pkg / f"{record['asset']}.glb").is_file():
         ref_glb = (pkg / f"{record['asset']}.glb").read_bytes()
+        if (record.get("compression") or {}).get("state") in ("compressed", "kept"):
+            # KTX2 is encoded from the PNG maps (web.lossless_level0), so its tolerance is measured against them, not
+            # against the package's WebP copy of them
+            from antigravity3d.deliver.web import lossless_level0
+
+            maps = [m for m in (manifest.get("web_textures") or {}).get("maps") or [] if m.get("webp")]
+            texs = {m[k]: (pkg / m[k]).read_bytes() for m in maps for k in ("webp", "texture") if (pkg / m[k]).is_file()}
+            with contextlib.suppress(ValueError):  # a package without the PNGs: the frame against what it ships
+                ref_glb = lossless_level0(ref_glb, texs, manifest)
         usd = next(iter(sorted(pkg.glob("*.usd"))), None)
         reference, ref_note, ref_issue = await asyncio.to_thread(w3._usd_reference, usd, bounds)
     probes, _ = probe_plan(record)
@@ -589,6 +599,13 @@ def find_esbuild(project: Path) -> Path | None:
     return None
 
 
+# Warnings the project's own libraries print whatever the installed component does: not the install's to fail on. React
+# Three Fiber 9.8.2 (the newest on 2026-11-24) and 8.17.10 make a THREE.Clock in every Canvas, and three.js r183 and later
+# warn "THREE.Clock: This module has been deprecated. Please use THREE.Timer instead." (three 0.187.0, build/three.core.js).
+# The component check then failed every React project on current versions. Each one is named in the check's detail.
+LIBRARY_NOTICES = ("THREE.Clock: This module has been deprecated",)
+
+
 async def run_react(project: Path, record: dict[str, Any], manifest: dict[str, Any], three_path: str | None, Check: type,
                     *, timeout: float = 120.0) -> list[Any]:
     """Mount the installed component in a React Three Fiber Canvas (bundled with the project's own esbuild, the one Vite
@@ -636,8 +653,9 @@ async def run_react(project: Path, record: dict[str, Any], manifest: dict[str, A
         raw = run_["raw"]
         errs = list(raw.get("errors", [])) + [f"pageerror: {e}" for e in run_["page_errors"]] + \
             [f"console.error: {c['text'][:200]}" for c in run_["console"] if c["type"] == "error"]
+        library = [c["text"][:200] for c in run_["console"] if c["type"] == "warning" and any(i in c["text"] for i in LIBRARY_NOTICES)]
         warns = [c["text"][:200] for c in run_["console"] if c["type"] == "warning"
-                 and not any(i in c["text"] for i in w3.PASS_RULE.ignored_console)]
+                 and not any(i in c["text"] for i in (*w3.PASS_RULE.ignored_console, *LIBRARY_NOTICES))]
         problems = errs[:3] + warns[:2] + [f"blocked: {x}" for x in run_["blocked"][:2]]
         if not raw.get("found_lod"):
             problems.append("no THREE.LOD in the Canvas's scene")
@@ -649,7 +667,8 @@ async def run_react(project: Path, record: dict[str, Any], manifest: dict[str, A
         return [Check("react_component", "failed" if problems else "passed", "; ".join(problems) or
                       f"<{comp} /> mounted in a React Three Fiber Canvas bundled with the project's esbuild: a THREE.LOD of "
                       f"{want_levels} level(s), {raw.get('triangles'):.0f} triangles in {raw.get('draw_calls')} draw call(s), "
-                      f"{raw.get('drawn_share'):.1%} of the frame drawn, no console error or warning",
+                      f"{raw.get('drawn_share'):.1%} of the frame drawn, no console error or warning"
+                      + (f" from it (the project's own libraries said: {'; '.join(dict.fromkeys(library))})" if library else ""),
                       {"triangles": raw.get("triangles")})]
     finally:
         shutil.rmtree(work, ignore_errors=True)

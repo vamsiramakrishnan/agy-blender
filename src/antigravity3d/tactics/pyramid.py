@@ -2213,6 +2213,10 @@ class _Run:
 
         async def usd() -> tuple[str, str]:
             m = (look.package_for(sm) if look is not None else None) or await to_thread_drained(write_package, pkg)
+            if m.ok:  # a web_three package's maps as WebP when the frames show no difference, before the checks of what ships
+                from antigravity3d.adapters.engines.web_textures import web_format
+
+                await web_format(m.out_dir, m.data)
             res.objects["package"] = m
             sided = [i.detail for i in m.issues if i.code.endswith(":double_sided_contact")]
             if zfight or sided:

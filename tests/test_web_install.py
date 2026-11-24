@@ -563,19 +563,27 @@ def test_the_transcoder_is_not_counted_against_an_asset_when_the_project_already
     assert json.loads((p / second.dest / RECORD).read_text())["compression"]["state"] == "compressed"
 
 
-def test_a_compression_tool_that_fails_leaves_the_project_untouched_and_says_so(crate, tmp_path, monkeypatch):
+def test_a_compression_tool_that_fails_installs_the_uncompressed_files_and_says_why(crate, tmp_path, monkeypatch):
+    """Round eight changed this: a failing compression tool used to fail the whole install (nothing written). The project's
+    own ktx2-encoder 0.6.0 (the fixture's and the round-eight site seed's) throws for one 4096 x 4096 map, which run 1's
+    first containment_gate had, so a web project with the packages could not take that asset at all. Compression is an
+    extra: the uncompressed files and the loader are installed, and the record and the note say why."""
     project = _project(tmp_path / "game")
     _fake_node_modules(project)
     monkeypatch.setattr(web, "node_executable", lambda: "/usr/bin/node")
     _fake_measurement(monkeypatch)
 
     def broken(*a, **k):
-        raise RuntimeError("compression failed (node exit 1): boom")
+        raise RuntimeError("compression failed (node exit 1): Error: Total source texels 16777216 exceed the encoder limit\n  at x")
 
     monkeypatch.setattr(web, "compress", broken)
-    before = _tree(project)
     r = install_package(crate, project)
-    assert r.status == "failed" and "boom" in r.message and _tree(project) == before
+    comp = json.loads((project / r.dest / RECORD).read_text())["compression"]
+    assert r.status == "installed" and comp["state"] == "rejected", r.message
+    assert comp["reason"] == ("the project's compression tools failed at etc1s_albedo_and_orm (Total source texels 16777216 "
+                              "exceed the encoder limit)")
+    assert any("not compressed: the project's compression tools failed" in n for n in r.notes)
+    assert not list((project / "public").rglob("*.ktx2")) and list((project / "public").rglob(f"{r.package['asset']}.glb"))
 
 
 def test_without_the_packages_the_install_ships_uncompressed_and_names_the_one_command(crate, tmp_path):
@@ -1383,7 +1391,7 @@ def test_browser_uncompressed_install_renders_in_the_projects_own_three_and_is_t
     assert not [x for x in r.checks if x.status != "passed" and x.name != "outline"], [(x.name, x.status, x.detail) for x in r.checks]
     # the same files through the loader and straight from the package: the same picture
     assert c["loader_vs_package"].data["mean_abs"] == 0 and c["loader_vs_package"].data["outline"] == 1.0
-    assert "three r170" in c["loader"].detail
+    assert "three r187" in c["loader"].detail  # the fixture is on three 0.187.0 since round eight
     assert uninstall(project, r.dest).status == "uninstalled"
 
 

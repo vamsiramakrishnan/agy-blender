@@ -219,11 +219,16 @@ ENGINE_RULES: dict[TargetEngine, EngineRules] = {
 def texel_density_issues(report: dict, engine: str) -> list[Issue]:
     """Warnings from ``fast_ops.texel_density_report``: a material whose atlas missed the target density, and a spread
     across materials above ``TEXEL_SPREAD_LIMIT``. Never a failure. A target missed by less than 10 % is recorded
-    (``target_met`` False) but not warned about."""
+    (``target_met`` False) but not warned about, and so is one missed because the atlas was capped at a size the caller
+    chose (``chosen_max_texture_px``, from ``EngineBudget.max_texture_px``): the density that gives is in the manifest and
+    in the delivery's answer."""
     out: list[Issue] = []
     target = report["target_px_per_m"]
     mats = report["materials"]
     for name, m in mats.items():
+        chosen = m.get("chosen_max_texture_px")
+        if chosen and m["needed_atlas_px"] > chosen:  # the caller capped the atlas: a choice, recorded, not a defect
+            continue
         if not m["target_met"] and m["px_per_m"] < target * TEXEL_TARGET_WARN_FRACTION:
             need = m.get("needed_map_px") or m["needed_atlas_px"]
             cap = m.get("engine_max_texture_px")
@@ -643,6 +648,12 @@ def glb_uri_target(glb: Path, uri: str) -> Path | None:
     return glb.parent / rel
 
 
+def _texture_source(texture: dict) -> int:
+    """The image index a glTF texture shows: an ``EXT_texture_webp`` texture of a web package names its image in the
+    extension and has no ``source`` (``deliver.glb.swap_images``)."""
+    return ((texture.get("extensions") or {}).get("EXT_texture_webp") or {}).get("source", texture.get("source"))
+
+
 def _material_textures(doc: dict, shas: list[str | None]) -> dict[str, dict[str, str | None]]:
     """``{material name: {slot path: image sha256}}`` for every texture slot of every material, extension slots
     included (any object with an ``index`` under a key ending in ``Texture``)."""
@@ -652,8 +663,7 @@ def _material_textures(doc: dict, shas: list[str | None]) -> dict[str, dict[str,
         if isinstance(value, dict):
             for key, v in value.items():
                 if isinstance(v, dict) and "index" in v and key.endswith("Texture"):
-                    texture = doc["textures"][v["index"]]
-                    slots[prefix + key] = shas[texture["source"]]
+                    slots[prefix + key] = shas[_texture_source(doc["textures"][v["index"]])]
                 else:
                     walk(v, f"{prefix}{key}.", slots)
 
@@ -685,7 +695,7 @@ def _validate_glb_materials(path: Path, suffix: str, bindings: dict[str, tuple[s
                 for role in roles:
                     for obj, slot in slots[role]:
                         texture = doc["textures"][obj[slot]["index"]]
-                        image = doc["images"][texture["source"]]
+                        image = doc["images"][_texture_source(texture)]
                         if allow_uri and "bufferView" not in image and image.get("uri"):
                             continue
                         view = doc["bufferViews"][image["bufferView"]]
@@ -740,9 +750,13 @@ def _validate_material_inventory(path: Path, inventory: list[dict]) -> list[Issu
                           f"{len(left)} GLB material(s) missing from the manifest: {[a['name'] for a in left]}")]
         used = {e for rec in want for e in rec["extensions"]}
         declared = set(doc.get("extensionsUsed", []))
-        if used - declared or doc.get("extensionsRequired"):
+        # The one required extension a package may have: EXT_texture_webp, in a web package whose textures use it (no PNG
+        # fallback in the same file: adapters/engines/web_textures.py). Every reader the package targets decodes WebP.
+        webp = {"EXT_texture_webp"} if any("EXT_texture_webp" in (t.get("extensions") or {}) for t in doc.get("textures") or []) else set()
+        if used - declared or set(doc.get("extensionsRequired") or []) - webp or webp - declared:
             return [Issue("pkg:material_extensions", "critical", path.name,
-                          f"extensionsUsed {sorted(declared)} must cover {sorted(used)}; extensionsRequired must be empty")]
+                          f"extensionsUsed {sorted(declared)} must cover {sorted(used | webp)}; extensionsRequired must be empty"
+                          + (" but for EXT_texture_webp" if webp else ""))]
     except (IndexError, KeyError, TypeError, ValueError, OSError, struct.error) as e:
         return [Issue("pkg:material_inventory", "critical", path.name, str(e)[:300])]
     return []

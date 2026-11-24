@@ -69,7 +69,7 @@ def _check_record_names(project: Path, record: dict[str, Any], dest: str) -> Non
         if basis is not None and basis != f"{served}/agy3d/_basis":
             raise UnsafePath(f"install record basis {basis!r} is not {served}/agy3d/_basis")
         shared_ok = {f"{basis}/{n}" for n in web.BASIS_FILES} if basis else set()
-        mine = re.compile(rf"(?:{re.escape(asset)}(?:_LOD\d+)?\.glb|collision\.json|textures/{re.escape(asset)}_[A-Za-z0-9_.\-]+\.(?:png|jpe?g|ktx2))")
+        mine = re.compile(rf"(?:{re.escape(asset)}(?:_LOD\d+)?\.glb|collision\.json|textures/{re.escape(asset)}_[A-Za-z0-9_.\-]+\.(?:png|jpe?g|webp|ktx2))")
         for folder in (f"{served}/agy3d/_basis", *[x for od, fs in _taken(project, code) for x in fs]):
             if web._overlaps(assets, folder) or web._overlaps(code, folder):
                 raise UnsafePath(f"install record folders {assets!r} / {code!r} contain, lie inside or are another install's "
@@ -316,7 +316,7 @@ def install_web(pkg: Path, project: Path, manifest: dict[str, Any], info: Projec
         result.notes.append(f"kept {kept_foreign}: not the copy in this project's three.js, so not removed")
     result.notes.append(_compression_note(comp, plan))
     if would_run:
-        result.notes.append(f"not listed, decided after measuring: the textures (PNG files, or KTX2 files in the same folder) and, "
+        result.notes.append(f"not listed, decided after measuring: the textures (the package's WebP or PNG maps, or KTX2 files in the same folder) and, "
                             f"with KTX2, the shared transcoder in {layout.basis}")
     if dry_run:
         n = {a: sum(v == a for v in actions.values()) for a in ("create", "replace", "keep", "remove")}
@@ -442,7 +442,8 @@ def _compression_note(comp: dict[str, Any], plan: web.WebPlan) -> str:
                 f"GPU memory only, {g.get('uncompressed', 0) / 1e6:.1f} MB -> {g.get('block_compressed', 0) / 1e6:.1f} MB (computed from "
                 f"the block format, not observed). --compress always takes it. Tiers tried: {_tiers_text(comp.get('tiers_tried'))}")
     if s == "rejected":
-        return f"not compressed: {comp.get('reason')}. Tiers tried: {_tiers_text(comp.get('tiers_tried'))}"
+        tried = _tiers_text(comp.get("tiers_tried"))
+        return f"not compressed: {comp.get('reason')}" + (f". Tiers tried: {tried}" if tried else "")
     if s == "unmeasured":
         return f"not compressed (the tolerance could not be measured): {comp.get('reason')}"
     if s == "would_run":

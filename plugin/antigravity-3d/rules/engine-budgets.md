@@ -32,6 +32,19 @@ For a three.js (web) package the manifest also records web_download: the bytes a
 fetches for the highest level (the GLB and what it references, per file). LOD0
 embeds its images; the `textures/` files serve the lower-detail levels.
 
+Texture size is a parameter: `max_texture_px` (256, 512, 1024, 2048 or 4096) on
+`open_asset_session`, in a script's `Asset(...)` line, or `--max-texture-px`,
+caps the side of the texture atlas. Never scale the object to get smaller
+textures. The delivery's answer for a web package states the atlas, the bytes a
+page downloads, the texture memory and up to how many pixels on screen the
+textures stay sharp; choose the size from the largest the model is shown at.
+A web package's GLBs carry their maps as WebP (EXT_texture_webp) when the
+three.js frames of the WebP GLB match the PNG GLB's within the installer's
+compression tolerance; otherwise PNG. The manifest's web_textures record says
+which, the bytes and the measured difference. The PNG maps stay in
+`textures/`. Put a delivered package into a project with
+`install_into_project`, never by copying its files.
+
 LODs are not fixed triangle ratios. `generate_lods_and_colliders` emits a level
 only where the asset can get at least 25% cheaper while staying within one
 pixel of LOD0 (on a 1080 px frame) at the distance that level is shown; an

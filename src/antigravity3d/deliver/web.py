@@ -396,6 +396,9 @@ class Parts:
     bounds: np.ndarray
     fractions: list[float]
     lod_tris: list[int]
+    # LOD0 with the package's PNG maps where it ships WebP ones (manifest ``web_textures``; adapters/engines/web_textures.py):
+    # what the KTX2 encoding starts from, never a lossy copy. The package's LOD0 when it ships PNG.
+    lossless_first: bytes = b""
 
 
 def read_parts(pkg: Path, manifest: dict[str, Any]) -> Parts:
@@ -431,7 +434,24 @@ def read_parts(pkg: Path, manifest: dict[str, Any]) -> Parts:
     if len(fractions) < len(lv):
         raise ValueError(f"manifest lod_screen_fractions has {len(fractions)} entries for {len(lv)} level files")
     return Parts(asset, textures, roles, lv, levels, hulls, np.asarray(manifest["glb_bounds_m"], np.float64), fractions,
-                 list(manifest.get("lod_tris") or [manifest["tris"]]))
+                 list(manifest.get("lod_tris") or [manifest["tris"]]), lossless_level0(levels[lv[0]], textures, manifest))
+
+
+def lossless_level0(first: bytes, textures: dict[str, bytes], manifest: dict[str, Any]) -> bytes:
+    """``first`` (the package's LOD0) with every WebP map it embeds replaced by the package's PNG of the same map
+    (manifest ``web_textures.maps``: ``webp`` -> ``texture``). Raises when a WebP map has no PNG in the package."""
+    maps = [m for m in (manifest.get("web_textures") or {}).get("maps") or [] if m.get("webp")]
+    if (manifest.get("web_textures") or {}).get("format") != "webp" or not maps:
+        return first
+    swap = {}
+    for m in maps:
+        if m["webp"] not in textures or m["texture"] not in textures:
+            raise ValueError(f"web_textures names {m['webp']} and {m['texture']}, which the package does not both hold")
+        swap[sha(textures[m["webp"]])] = (textures[m["texture"]], "image/png")
+    out = glbtool.swap_images(first, embedded=swap)
+    if any(mime == "image/webp" for _b, mime in glbtool.embedded_images(out)):
+        raise ValueError("the package's LOD0 embeds a WebP map whose PNG the manifest does not name")
+    return out
 
 
 def sha(data: bytes) -> str:
@@ -444,11 +464,14 @@ def uncompressed_asset_files(parts: Parts) -> dict[str, bytes]:
     uri_of = {}
     for rel, data in parts.textures.items():
         uri_of.setdefault(sha(data), rel)
-    files = dict(parts.textures)
     first, report = glbtool.reference_images_bytes(parts.levels[parts.level_files[0]], uri_of, parts.level_files[0])
     left = [r["image"] for r in report if r["storage"] == "embedded"]
     if left:
         raise ValueError(f"{parts.level_files[0]}: image(s) {left} have no file in the package's textures/ with the same bytes")
+    # the maps LOD0 shows, and only those: with WebP maps the package's PNG copies (the USD's, the KTX2 encoder's source)
+    # would be dead weight in the served folder
+    shown = {r["uri"] for r in report if r["storage"] == "uri"}
+    files = {rel: data for rel, data in parts.textures.items() if rel in shown}
     files[parts.level_files[0]] = first
     for f in parts.level_files[1:]:
         files[f] = glbtool.strip_images(parts.levels[f])
@@ -489,7 +512,7 @@ def compress(parts: Parts, versions: dict[str, str], node_modules: Path, tier: t
         (work / "out").mkdir()
         job_levels = []
         for f in parts.level_files:
-            data = parts.levels[f] if f == parts.level_files[0] else glbtool.strip_images(parts.levels[f])
+            data = (parts.lossless_first or parts.levels[f]) if f == parts.level_files[0] else glbtool.strip_images(parts.levels[f])
             (work / "in" / f).write_bytes(data)
             job_levels.append({"in": str(work / "in" / f), "out": str(work / "out" / f)})
         (work / "job.json").write_text(json.dumps({"levels": job_levels, "textures": tier[1],
@@ -765,7 +788,17 @@ def _choose_tier(parts: Parts, versions: dict[str, str], node_modules: Path, key
     tried: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="agy3d-ktx2-cache-") as cache:
         for i, tier in enumerate(TEXTURE_TIERS):
-            use = compress(parts, versions, node_modules, tier, Path(cache))
+            try:
+                use = compress(parts, versions, node_modules, tier, Path(cache))
+            except RuntimeError as e:
+                # The project's encoder refusing a map is no reason to install nothing: ktx2-encoder 0.6.0 (the version in
+                # the fixture and in the round-eight site seed) throws "Total source texels 16777216 exceed the encoder
+                # limit of 12582912" for one 4096 x 4096 map, which run 1's first containment_gate had; the install then
+                # failed outright. The uncompressed files are installed and the record says why.
+                said = re.search(r"\bError: ([^\n]+)", str(e))
+                return assemble(plain_files, {"state": "rejected", "tiers_tried": tried,
+                                              "reason": f"the project's compression tools failed at {tier[0]} "
+                                                        f"({(said.group(1) if said else str(e))[:300].strip()})"})
             plan = assemble(use.files, {**use.meta, "state": "compressed", "key": key})
             r = probe(plan)
             tried.append({"tier": tier[0], "asset_bytes": plan.asset_bytes, **{k: v for k, v in r.items() if k != "stop"}})
