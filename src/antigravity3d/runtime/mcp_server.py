@@ -642,7 +642,11 @@ class StudioHost:
             verdict = await self.gates[sid].decide(name, kwargs)
             if not verdict.allow:
                 return f"REFUSED {verdict.message}"
-            return await fn(ctx=McpToolContext(self.registry, sid), **kwargs)  # type: ignore[call-arg]
+            names = keeper.NAMES_SESSION.set(True)  # every tool here takes session_id: a call to repeat names it
+            try:
+                return await fn(ctx=McpToolContext(self.registry, sid), **kwargs)  # type: ignore[call-arg]
+            finally:
+                keeper.NAMES_SESSION.reset(names)
         except (LookupError, ValueError, RuntimeError) as e:  # expected: no/unknown session, bad input
             return f"ERROR {compress_exception(e)}"
         except Exception as e:  # noqa: BLE001 - one compressed line, never a traceback

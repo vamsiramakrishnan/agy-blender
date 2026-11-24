@@ -81,32 +81,37 @@ package.json; the starter needs only `three` and `vite`). Then, each a local edi
 - the layers the design asks for, from [libraries.md](libraries.md): Lenis for smooth wheel scrolling, GSAP
   ScrollTrigger for page effects, postprocessing for ambient occlusion and a little bloom, troika for text in the scene.
 
-`npm run dev` serves it; `npm run build` writes the site to `dist/` with relative paths (it works from any folder of a
-host). Look at it with `check_site` once now, with stand-ins: the shots and the layout are cheap to fix today.
+`npx vite` serves it; `npx vite build` writes the site to `dist/` with relative paths, so it works from any folder of a
+host (`npx vite build --outDir site` when the task names another folder for the result). Look at it with `check_site`
+once now, with stand-ins: the shots and the layout are cheap to fix today.
 
 ### 3. Props
 
 For each prop, in this order:
 
 - Build it as the always-on rules say for this mode, with the skill `parametric-kitbash`. In the default mode:
-  `open_asset_session` with the user's words for that object as `brief`, `target_engine` set to web_three and a
-  `max_texture_px` chosen for the screen (below); then `apply_scene_ir` and `render_preview` as usual. In script
+  `open_asset_session` with this conversation's `conversation_id` (the session's first message gives it), the user's
+  words for that object as `brief`, `target_engine` set to web_three and a `max_texture_px` chosen for the screen
+  (below); then `apply_scene_ir` and `render_preview` as usual. In script
   authoring (the rules say an asset is a Python script): `Asset(..., engine="web_three", max_texture_px=...)` in its
   script, run with run_build.
 - `deliver_package`. If its answer starts with `STILL WORKING`, nothing failed and nothing needs fixing: the work
   goes on by itself. Work on the page meanwhile and make the call the answer spells out (the same tool, the same
   arguments) to collect the result. A delivery that runs while you write the page costs no time.
 - `install_into_project` into the site's project. The site is a project you are building in this session because the
-  user asked for it, so call `install_into_project` with `dry_run` false at once, and never copy GLB files by hand. It
-  writes the files where the dev server serves them and a loader with levels of detail (and compresses for the web
-  when the project has the tools). The delivery answer ends with a `NEXT:` line that gives this call.
-- In `src/props.js` add the two fields the install gives: `asset` and `module` (an import of the loader it wrote).
+  user asked for it, so call `install_into_project` with `dry_run` false at once, and never copy GLB files by hand
+  (Antigravity asks the user to approve each install: that is expected, wait for it). It writes the files where the
+  dev server serves them and a loader with levels of detail (and compresses for the web when the project has the
+  tools). The delivery answer ends with a `NEXT:` line that gives this call and names the loader file.
+- In `src/props.js` add two fields to the prop's entry: `asset`, the asset's name, and `module`, your own import of the
+  loader file the install wrote (`() => import('./agy3d/<asset>/index.js')`; the install's answer names the folder).
   The stand-in stays as the fallback while the model loads or if it fails.
 
 Texture size for the screen: the delivery answer for web_three states the atlas size, the bytes the page downloads,
-the texture memory and up to how many pixels on screen the textures stay sharp. Compare that last number with the
-largest the prop appears in your shots (the starter's `window.__site.info().onScreen` gives its share of the window at
-any moment) and choose the size from it, never by scaling the model. With no size given a web prop gets an atlas of at
+the texture memory and up to how many pixels across on screen the textures stay sharp. Compare that last number with
+the widest the prop appears in your shots, in pixels: its share of the window's width (the starter's
+`window.__site.info().onScreen` gives the box around it as a share of the window at any moment) times the widest
+window you design for, times 2 for a high-density screen. Choose the size from it, never by scaling the model. With no size given a web prop gets an atlas of at
 most 2048 px; ask for 4096 only for a prop the camera comes close to, and for 1024 or 512 for one seen small or far
 away, which needs neither fine parts nor large maps.
 

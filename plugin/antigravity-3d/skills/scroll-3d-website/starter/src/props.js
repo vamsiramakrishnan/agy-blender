@@ -1,8 +1,8 @@
 // props.js: the props the story needs, one entry each.
 //
 // Until a prop is built, its stand-in (a grey block of `size` metres) holds its place, so the camera work and the
-// chapters can be done and looked at before any modelling. Once install_into_project has installed the prop, add the
-// two fields its answer gives: `asset` (the asset's name) and `module` (an import of the loader it wrote, by default
+// chapters can be done and looked at before any modelling. Once install_into_project has installed the prop, add two
+// fields: `asset` (the asset's name) and `module` (your own import of the loader file the install wrote, by default
 // src/agy3d/<asset>/index.js). Keep `size`: it is the stand-in while the model loads or if it fails.
 import * as THREE from 'three';
 

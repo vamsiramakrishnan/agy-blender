@@ -329,7 +329,8 @@ What it does:
 2. Opens it at 1440 x 900 and at 390 x 844 (a phone, with touch), both at a device pixel ratio of 1, and waits for
    the load event, a quiet network and a still picture.
 3. Scrolls to `--steps` even positions (default 9, from 0 to 100 %), coarse to fine (0, 100, 50, 25, 75 % ...), so a
-   check cut short still covers the whole scroll. At each it waits until two frames 150 ms apart agree (at most 4 s),
+   check cut short still covers the whole scroll. At each it waits until the picture is still (two screenshots, taken at least two of the page's own frames apart,
+   that agree; at most 4 s),
    keeps the frame, and takes the WebGL canvas alone. The frames go into one labelled contact sheet per size,
    `sheet_desktop.jpg` and `sheet_phone.jpg`; labels in red mark a finding.
 4. Loads the page once with "reduce motion" set and once with WebGL taken away, and says what a visitor then gets.

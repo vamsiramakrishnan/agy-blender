@@ -241,7 +241,8 @@ def _guard(fn: ToolFn) -> ToolFn:
             return await run()  # no session (the tool answers so) or a call the signature refuses: nothing to keep
         bound.apply_defaults()  # an argument left out and the same one given as its default are the same call
         given = {k: v for k, v in bound.arguments.items() if k != "ctx" and v != sig.parameters[k].default}
-        return await _keeper(s).call(name, given, run, edit=name in EDIT_TOOLS, read=name in READ_TOOLS,
+        shown = {**given, "session_id": s.sid} if keeper.NAMES_SESSION.get() else None
+        return await _keeper(s).call(name, given, run, shown=shown, edit=name in EDIT_TOOLS, read=name in READ_TOOLS,
                                      transaction=name in TRANSACTION_TOOLS,
                                      stopped_note=stopped_line)
 

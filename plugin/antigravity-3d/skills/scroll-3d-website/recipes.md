@@ -5,9 +5,9 @@ Small pieces the site needs more than once. Code here ran like the examples in [
 ## Frame a shot from a prop's size
 
 A shot written by hand for a stand-in is wrong once the real model, with its own size, replaces it. The loader that
-`install_into_project` wrote exports the model's box without loading anything (`bounds`: `center` and `radius` in
-metres, +Y up), so a shot can be computed from it: the distance at which the prop fills a share of the free part of
-the window, seen from a direction.
+`install_into_project` wrote exports the model's box (`bounds`: `center` and `radius` in metres, +Y up, in the prop's
+own space), so a shot can be computed from it: the distance at which the prop fills a share of the free part of the
+window, seen from a direction.
 
 ```js
 // example: frame-a-shot (node)
@@ -21,8 +21,10 @@ export function frame({ center, radius }, { fov = 30, aspect = 16 / 9, fill = 0.
   return { pos, target: [...center], fov };
 }
 
-// In shots.js: import { bounds } from './agy3d/containment_gate/index.js'; then
-//   intro: { ...frame(bounds, { azimuth: 30 }), span: bounds.radius * 6 },
+// shots.js stays free of three.js and of the loader (a test and a tool call it as it is), so do not import the loader
+// there: copy the two numbers from `bounds` in src/agy3d/<asset>/index.js into the shot, and add the prop's place
+// from props.js (`at`) to the centre when the prop does not stand at the origin:
+//   intro: { ...frame({ center: [0, 0.4, 0], radius: 0.75 }, { azimuth: 30 }), span: 0.75 * 6 },
 console.log(JSON.stringify(frame({ center: [0, 0.4, 0], radius: 0.75 })));
 ```
 <!-- check: node out.pos[2] > 2 && out.pos[1] > 0.4 && out.fov === 30 -->

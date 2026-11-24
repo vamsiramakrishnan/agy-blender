@@ -45,7 +45,9 @@ into a level is the whole job, and proves it there.
    differs from the one the package was checked against).
 3. **Install** (for a project the user already had, once they approve the
    plan). Call with `dry_run: false`.
-   The plugin asks the user before anything is written. Pass `force: true`
+   The plugin asks the user before anything is written, in both cases: for a
+   project you are building the user approves the install itself instead of
+   a plan. Pass `force: true`
    only when the user has said to replace files of an earlier install that
    they edited; the refusal names those files.
 4. **Read the checks.** Godot: the project is imported headlessly in an
@@ -91,7 +93,8 @@ loader with every level of detail all the same, and prints the one command
 is written without a measurement: each encoding is rendered in the headless
 browser against the package's own frame, and the first one inside the tolerance
 is written. With `--no-check`, with no browser, or when no encoding is inside the
-tolerance, the textures stay PNG and the result says which. `--compress auto`
+tolerance, the textures stay as the package has them (WebP when its GLB
+carries WebP, else PNG) and the result says which. `--compress auto`
 (default) then writes compressed files only if the page downloads no more than
 before, `always` takes the GPU memory whatever the size, `never` skips it. For
 procedurally painted textures PNG is already small: the gain is GPU memory

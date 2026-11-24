@@ -45,6 +45,11 @@ log = logging.getLogger("antigravity3d.keeper")
 ANSWER_S = 150.0
 
 _CURRENT: contextvars.ContextVar["Kept | None"] = contextvars.ContextVar("agy3d_kept_call", default=None)
+# Set by a caller whose tools take a ``session_id`` argument (the MCP server): the call an answer spells out then names
+# its session. Without it the repeat goes to whichever session is active by then: in run 1 of the website task the
+# agent had three asset sessions open at once, and the website skill tells it to go on working while a delivery runs,
+# so the next thing it does may well be to open another session.
+NAMES_SESSION: contextvars.ContextVar[bool] = contextvars.ContextVar("agy3d_names_session", default=False)
 
 
 @dataclass

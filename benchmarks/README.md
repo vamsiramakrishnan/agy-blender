@@ -424,7 +424,8 @@ for the production/kit/blockout distinction, regression evidence, proposed pilot
 `site_task.py` runs the "build a website for a project" task of `results/site_run1/` as a repeatable command, with or
 without the plugin. `prepare` builds the workspace from a copy of the project's checkout, a folder of reference notes,
 a `package.json` with its lockfile (installed, and checked against the lockfile, before the sandbox starts) and the task
-text (`site_task_seed/task.md`; `<!-- plugin -->` and `<!-- stock -->` blocks are the only difference between the arms).
+text (`site_task_seed/task.md`; `<!-- plugin -->` and `<!-- stock -->` blocks are the only difference between what the arms are told; the `script`
+arm reads the plugin's text and differs in the plugin's authoring mode).
 `run --arm plugin|script|stock` then runs one session with its own token share, no images, a wall-clock limit, and
 Node and the headless browser bound into the sandbox for every arm (`RunOptions` in `compare_agents.py`); `collect`
 writes the result folder (task, record, events, report, site source, `run.json`, and the site check's answer when this

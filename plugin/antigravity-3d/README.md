@@ -172,9 +172,9 @@ instead:
   first await: calls run in arrival order (a client may pipeline `open_asset_session` and `apply_scene_ir`), at the
   cost of serial execution per server process.
 - On stdin EOF the server answers every request it already received before it exits (`_DrainingStreams`).
-- **Long calls.** Antigravity ends any MCP tool call after 3 minutes, and has no setting for it. Every harness tool,
-  `run_build` and `install_into_project` therefore runs as a task its session keeps (`harness/keeper.py`) and
-  answers within 150 s: with its result, or with `STILL WORKING (nothing needs fixing, nothing failed)`, the step it
+- **Long calls.** Antigravity ends any MCP tool call after 3 minutes, and has no setting for it. Every harness tool
+  therefore runs as a task its session keeps, and `run_build` and `install_into_project` as tasks the server keeps
+  (`harness/keeper.py`); each answers within 150 s: with its result, or with `STILL WORKING (nothing needs fixing, nothing failed)`, the step it
   is at and the call to repeat. The work goes on after that answer and after a client cancel; the same call with the
   same arguments joins it, so no step runs twice. A call that changes the design stops kept work of the design
   before (its folders are removed, nothing of it is delivered); `session_status` names a call that is running and its

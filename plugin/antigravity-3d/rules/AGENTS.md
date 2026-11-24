@@ -65,10 +65,12 @@ is what a session costs. For a new asset:
    - `NOT DELIVERED` otherwise: fix what it names with `apply_scene_ir` and
      call `deliver_package` again.
    - `STILL WORKING`: nothing failed and nothing needs fixing; the work goes on
-     by itself. Call `deliver_package` again at once with the same arguments:
-     it answers with the result and does no step twice. Any tool call that
-     takes more than about two and a half minutes answers this way, and
-     `session_status` shows which step it is at.
+     by itself. Make the call the answer spells out (the same tool, the same
+     arguments, the session it names): it answers with the result and does no
+     step twice. Any tool call that takes more than about two and a half
+     minutes answers this way, and `session_status` shows which step it is
+     at. (`check_site` is the exception: at its limit it answers with what it
+     has seen so far and says so.)
 
 Build the design with `apply_scene_ir`, not by scripting Blender: only a
 design in the session's stage can be edited, checked and packaged by these
