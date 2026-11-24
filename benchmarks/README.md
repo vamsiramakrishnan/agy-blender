@@ -418,3 +418,15 @@ Use the opt-in `--paired` profile for a new comparison with identical content re
 shares, a fixed C candidate mode and immutable source/run provenance. `plan --json` is a no-cost preflight. Historical
 round-two defaults and records remain intact. See [the authoring-contract follow-up](AUTHORING_CONTRACT_REVIEW.md)
 for the production/kit/blockout distinction, regression evidence, proposed pilot limits and execution prerequisites.
+
+## The website task (`site_task.py`)
+
+`site_task.py` runs the "build a website for a project" task of `results/site_run1/` as a repeatable command, with or
+without the plugin. `prepare` builds the workspace from a copy of the project's checkout, a folder of reference notes,
+a `package.json` with its lockfile (installed, and checked against the lockfile, before the sandbox starts) and the task
+text (`site_task_seed/task.md`; `<!-- plugin -->` and `<!-- stock -->` blocks are the only difference between the arms).
+`run --arm plugin|script|stock` then runs one session with its own token share, no images, a wall-clock limit, and
+Node and the headless browser bound into the sandbox for every arm (`RunOptions` in `compare_agents.py`); `collect`
+writes the result folder (task, record, events, report, site source, `run.json`, and the site check's answer when this
+tree has one) with every local path replaced by a label. A real run needs `--live` and `GEMINI_API_KEY`; `--offline`
+runs the same wiring against the harness's stand-in model and costs nothing. `tests/test_site_task.py` covers it.

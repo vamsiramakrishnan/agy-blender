@@ -18,6 +18,8 @@ by this file in three steps (the file is self-contained: stdlib plus the SDK, be
    /opt/blender         Blender 5.3 (``blender`` on PATH, ``$BLENDER_EXE``)            ro
    /opt/pydeps          the SDK's site-packages (only the SDK process uses it)        ro
    /opt/pydeps/antigravity3d  an empty read-only tmpfs: hides this project's plugin  ro
+   /opt/node22          Node and npm, when the run was given a ``node_dir`` (PATH)   ro
+   /opt/pw-browsers     the Playwright browsers, when given (``$CHROMIUM_BIN``)     ro
    /opt/agyctl          this file and the run config                                 ro
    /run/agy             the model relay's unix socket                                rw
    /tmp                 private tmpfs                                                 rw
@@ -63,6 +65,9 @@ PLUGINS_DIR = f"{WORKSPACE}/.agents/plugins"  # the plugin's documented workspac
 GODOT_DIR = "/opt/godot"
 BROWSERS_DIR = "/opt/pw-browsers"
 THREE_DIR = "/opt/three"
+# Node for a task that builds something in the browser (the website task): bound read-only, ``node``, ``npm`` and ``npx``
+# on PATH. Run 1 of that task bound it by editing this file, so the stock arm could not have had it by the same means.
+NODE_DIR = "/opt/node22"
 POOL_SOCKET = "/tmp/agy3d/pool.sock"
 
 
@@ -117,7 +122,7 @@ def bootstrap(config_path: str) -> None:
     if h.get("venv"):  # the interpreter the plugin's installer wrote into its launchers, at the same path
         binds["venv"] = (h["venv"], h["venv"], True)
     for name, dst in (("project_src", PROJECT_SRC), ("project_plugin", PROJECT_PLUGIN), ("godot_dir", GODOT_DIR), ("browsers_dir", BROWSERS_DIR),
-                      ("three_dir", THREE_DIR), ("plugins", PLUGINS_DIR)):  # plugins: inside the workspace, so last
+                      ("three_dir", THREE_DIR), ("node_dir", NODE_DIR), ("plugins", PLUGINS_DIR)):  # plugins: inside the workspace, so last
         if h.get(name):
             binds[name] = (h[name], dst, True)
     _mount("-t", "tmpfs", "-o", "mode=0755,size=1m", "tmpfs", STAGE)
@@ -151,6 +156,13 @@ def sandbox_env(cfg: dict) -> dict[str, str]:
     """The environment of everything in the sandbox. Arm V (``cfg["vanilla"]``): Blender is not on PATH and not named
     in the environment; its MCP server is how it reaches Blender (the binary stays mounted for the server to start)."""
     env = scrubbed_env(cfg.get("extra_env"))
+    host = cfg.get("host") or {}
+    if host.get("node_dir"):  # the same PATH for every arm that was given Node, with or without the plugin
+        env["PATH"] = f"{NODE_DIR}/bin:{env['PATH']}"
+    if host.get("browsers_dir"):  # ``chromium`` resolves to the Playwright build; the variable is the documented way to it
+        env["PATH"] = f"{env['PATH']}:{BROWSERS_DIR}"
+        env.setdefault("CHROMIUM_BIN", f"{BROWSERS_DIR}/chromium")
+        env.setdefault("PLAYWRIGHT_BROWSERS_PATH", BROWSERS_DIR)
     if cfg.get("vanilla"):
         env.pop("BLENDER_EXE", None)
         env["PATH"] = ":".join(p for p in env["PATH"].split(":") if p != BLENDER_DIR)
