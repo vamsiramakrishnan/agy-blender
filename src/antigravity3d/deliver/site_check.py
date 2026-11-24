@@ -1229,12 +1229,20 @@ class _Visitor:
         return True
 
     async def idle(self, page, seconds: float = 1.5) -> dict:
+        """What the page does while nothing is touched: frames and draws counted over ``seconds``, and whether the
+        picture changed. Three pictures at uneven intervals, not two: a motion that repeats can show the same picture
+        at both ends of one interval (the test page's colour cycle of 0.94 s did, whenever a loaded machine stretched
+        the 1.5 s between two pictures to twice that, and the check then called a moving page still)."""
         a = await self.shot()
         await page.evaluate("window.__agySite && window.__agySite.mark()")
-        await asyncio.sleep(seconds)
+        await asyncio.sleep(seconds * 0.4)
+        m = await self.shot()
+        await asyncio.sleep(seconds * 0.6)
         w = await page.evaluate("window.__agySite ? window.__agySite.mark() : null") or {"frames": 0, "drawn": 0}
         b = await self.shot()
-        return {"seconds": seconds, "frames": w["frames"], "drawn": w["drawn"], "changed": _diff(_grey(a, 8), _grey(b, 8)) >= STILL}
+        ga, gm, gb = _grey(a, 8), _grey(m, 8), _grey(b, 8)
+        changed = max(_diff(ga, gm), _diff(gm, gb), _diff(ga, gb)) >= STILL
+        return {"seconds": seconds, "frames": w["frames"], "drawn": w["drawn"], "changed": changed}
 
     async def info(self, page) -> dict:
         return await page.evaluate(_PAGE_INFO_JS)

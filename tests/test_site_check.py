@@ -347,6 +347,30 @@ def test_reduce_motion_and_no_webgl_ignored(tmp_path):
     assert Path(r.visits["nowebgl"].frame).is_file()
 
 
+def test_a_motion_that_repeats_is_not_called_still_because_two_pictures_happened_to_match():
+    """The idle measure compared two pictures 1.5 s apart. The "careful" fixture cycles its colour every 0.94 s, and on
+    a loaded machine the two pictures fell two cycles apart: the same colour, so a moving page was called still."""
+    import asyncio
+
+    frames = [jpeg(np.full((90, 144, 3), v)) for v in (40, 200, 40)]  # first and last alike, the middle one not
+
+    class Page:
+        async def evaluate(self, _):
+            return {"frames": 90, "drawn": 90}
+
+    class V:
+        def __init__(self, shots):
+            self.shots = list(shots)
+
+        async def shot(self):
+            return self.shots.pop(0)
+
+    moving = asyncio.run(sc._Visitor.idle(V(frames), Page(), seconds=0.05))
+    assert moving["changed"] is True and moving["drawn"] == 90
+    still = asyncio.run(sc._Visitor.idle(V([frames[0]] * 3), Page(), seconds=0.05))
+    assert still["changed"] is False
+
+
 @pytest.mark.browser
 def test_reduce_motion_and_no_webgl_handled(tmp_path):
     r = run(site(tmp_path, "careful"), tmp_path, steps=2, variants=("reduced", "nowebgl"))
