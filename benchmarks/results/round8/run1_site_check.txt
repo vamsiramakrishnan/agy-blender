@@ -1,0 +1,21 @@
+SITE CHECKED in 75 s: nothing broken, 4 things a visitor would notice. Open the contact sheets below with your file viewer and look at every frame before you change anything.
+
+A visitor would notice:
+- The page downloads 22.8 MB: about 18 s on a 10 Mbit/s connection before everything has arrived.
+- It asks 1 other host (fonts.googleapis.com): not requested by this check (other_hosts='try' makes them); the page was seen as a visitor sees it when those hosts are unreachable.
+- With reduce motion set the page asks matchMedia; while nothing is touched the picture still changes. Picture: reduced.jpg.
+- Without WebGL: 1 uncaught error ('Cannot set properties of undefined (setting 'map')'); the page shows 6,048 characters of text (with WebGL 6,822) and 0 images, and says so on screen ('2D FALLBACK'). Picture: nowebgl.jpg.
+
+Measures:
+- Desktop 1440x900: settled 10.0 s after the page was asked for; 9 of 9 steps photographed; share of the 3D canvas showing something, per step: 28% 28% 34% 52% 11% 10% 15% 19% 11%. Still changing 4 s after the scroll at step 2 of 9 (12%), step 3 of 9 (25%), step 4 of 9 (38%), step 5 of 9 (50%), step 7 of 9 (75%), step 9 of 9 (100%): those frames may show the scene on its way (software WebGL draws a heavy frame in about a second; a visitor's GPU in a few milliseconds).
+- Phone 390x844: settled 9.8 s after the page was asked for; 9 of 9 steps photographed; share of the 3D canvas showing something, per step: 30% 29% 41% 5% 6% 20% 11% 11% 6%. Still changing 4 s after the scroll at step 2 of 9 (12%), step 3 of 9 (25%), step 4 of 9 (38%), step 6 of 9 (62%), step 7 of 9 (75%), step 9 of 9 (100%): those frames may show the scene on its way (software WebGL draws a heavy frame in about a second; a visitor's GPU in a few milliseconds).
+- Downloaded (desktop, whole scroll): 22.8 MB in 17 files: models 21.9 MB, scripts 0.8 MB, images 83 kB, styles 19 kB, documents 19 kB. Largest: models/containment_gate.glb 9.6 MB, models/harness_router.glb 8.0 MB, models/anchor_caliper.glb 4.2 MB, assets/three-nVYVQ0G6.js 0.5 MB, assets/index-CMQ6xeKk.js 0.1 MB.
+- Scene (desktop, the largest over the steps): 33 draw calls and 20,686 triangles in one frame (most triangles at 12%); textures 454.2 MB on the graphics card in 18 textures (6.3 MB of it render targets), plus 3.1 MB of render buffers. Counted by wrapping the page's WebGL draw and texture calls before its scripts ran.
+- While nothing moves (top of the page, 1.5 s, no input): it drew in 2 of 2 frames, and the picture changed.
+- Facts: no element names its source (data-src="file#/json/pointer", "file#L10-L14" or "file").
+- Shown without a source: 1 code specimen ('[ctx run:8956c843e556 profile=logtemplate/v1] / command: cat...') and 43 numbers ('531 in 531 tok'; '20,001 in 20,001-line log'; '979.1 in (979.1 KiB, quiet failure at line'; '531'; '99.82%'; '14,238 in Preserved (line 14,238)'). Mark each with data-src, or take it out if no file holds it.
+
+Pictures:
+- desktop contact sheet: <run 1 frames>/sheet_desktop.jpg (frames desktop_00.jpg to desktop_08.jpg)
+- phone contact sheet: <run 1 frames>/sheet_phone.jpg (frames phone_00.jpg to phone_08.jpg)
+- all frames, the canvas-only frames and the full record (report.json) are in <run 1 frames>

@@ -30,6 +30,12 @@ Five tools and the report written from them:
   surfaces that know the part they are on, and the README rewritten for developers, each against a measure written
   before the work. Two of the three measures were not met, and the report says where. The measures as written, every
   blind verdict of both measurements and the pictures are in `results/round7/`.
+- [`ROUND_EIGHT.md`](ROUND_EIGHT.md) is the eighth round's report: what an agent needs from the plugin to build a
+  whole 3D website (tool calls that answer inside the host's three minutes and keep their work, web-sized packages,
+  a check that looks at the built site, a skill with a tested starter), and the same request run before and after.
+  The comparison with a stock agent and the blind verdicts are missing, and the report says why. The two runs are
+  in `results/site_run1/` and `results/site_run2_plugin/`; the helpers' brief and the contact sheets of both sites
+  are in `results/round8/`.
 
 ## Offline benchmarks
 

@@ -1,0 +1,159 @@
+{
+ "arm_name": "plugin",
+ "arm": "N",
+ "model": "gemini-4-neon",
+ "share_tokens": 30000000,
+ "share_images": 0,
+ "wall_s_limit": 7200,
+ "limits": {
+  "max_model_calls": 450,
+  "max_tool_calls": 1400
+ },
+ "offline": false,
+ "seed": {
+  "project_name": "straitjacket",
+  "project_digest": "88eac6893f55783a10d3d1f4e938ec674832bd7669be6618fb6662dc110a99cd",
+  "project_git_commit": "50f8e60ff56e31feb34f07852968f3e733465f83",
+  "project_git_dirty": false,
+  "notes_digest": "8a603d3ca2729d75430886f75b56397443cedd1adb6f796f07c3e10765895dfb",
+  "package_json_sha256": "fee6abe19306e916b04d19dadfb07430d068be68e1dc7055e52c5dd5413811db",
+  "lockfile_sha256": "1ed2b68bcecda322e9fb75bda6ce8bdce0ba4bea20d3457c36fcb48c8f1a823b",
+  "packages_installed": 180,
+  "packages_how": "copied from <packages>/node_modules",
+  "task_sha256": "333b4a9f10fd9aab3ccc2e6f8ce28d4ea14b2afab8914eb0dde9a7a85e2c3b10"
+ },
+ "options": {
+  "model": "gemini-4-neon",
+  "sdk_output_cap": true,
+  "limits": {
+   "max_model_calls": 450,
+   "max_tool_calls": 1400
+  },
+  "node_dir": "/opt/node22",
+  "browsers": true,
+  "deliverable": "site/index.html",
+  "approve_installs": true
+ },
+ "command": [
+  "site_task.py",
+  "run",
+  "--live",
+  "--arm",
+  "plugin",
+  "--project",
+  "<project checkout>",
+  "--notes",
+  "<notes>",
+  "--packages",
+  "<packages>",
+  "--task",
+  "benchmarks/site_task_seed/task.md",
+  "--share-tokens",
+  "30000000",
+  "--wall-s",
+  "7200",
+  "--work-root",
+  "<run>",
+  "--out",
+  "<local-path>"
+ ],
+ "status": "finished",
+ "wall_s": 6154.9,
+ "model_calls": 64,
+ "tool_calls": 128,
+ "tokens": {
+  "input_tokens": 7425166,
+  "output_tokens": 79974,
+  "thinking_tokens": 34148,
+  "cached_tokens": 1173931,
+  "unknown_reserved_tokens": 503165,
+  "share_tokens": 30000000,
+  "total": 8042453,
+  "images": 0,
+  "share_images": 0,
+  "input": 7425166,
+  "cached": 1173931,
+  "output": 79974,
+  "thinking": 34148,
+  "fresh": 6365357,
+  "cache_misses": 0,
+  "cache_miss_input": 0
+ },
+ "images": 0,
+ "refused": [],
+ "site": {
+  "files": 77,
+  "bytes": 7292112,
+  "largest": [
+   {
+    "path": "agy3d/anchor_clamp/textures/anchor_clamp_atlas_orm.ktx2",
+    "bytes": 833353
+   },
+   {
+    "path": "assets/stage-D4cyitgL.js",
+    "bytes": 719787
+   },
+   {
+    "path": "agy3d/anchor_clamp/textures/anchor_clamp_atlas_albedo.ktx2",
+    "bytes": 591300
+   },
+   {
+    "path": "assets/basis_transcoder-VXdx5NbI.wasm",
+    "bytes": 527333
+   },
+   {
+    "path": "agy3d/_basis/basis_transcoder.wasm",
+    "bytes": 527333
+   }
+  ]
+ },
+ "site_src_files": 58,
+ "site_src_omitted": [
+  "public/agents/antigravity.png (binary, 71914 bytes)",
+  "public/agy3d/_basis/basis_transcoder.wasm (527333 bytes)",
+  "public/agy3d/anchor_clamp/anchor_clamp.glb (binary, 61396 bytes)",
+  "public/agy3d/anchor_clamp/anchor_clamp_LOD1.glb (binary, 34856 bytes)",
+  "public/agy3d/anchor_clamp/textures/anchor_clamp_atlas_albedo.ktx2 (591300 bytes)",
+  "public/agy3d/anchor_clamp/textures/anchor_clamp_atlas_normal.ktx2 (binary, 421253 bytes)",
+  "public/agy3d/anchor_clamp/textures/anchor_clamp_atlas_orm.ktx2 (833353 bytes)",
+  "public/agy3d/artifact_vault/artifact_vault.glb (binary, 300168 bytes)",
+  "public/agy3d/artifact_vault/artifact_vault_LOD1.glb (binary, 168564 bytes)",
+  "public/agy3d/artifact_vault/textures/artifact_vault_atlas_albedo.webp (binary, 76558 bytes)",
+  "public/agy3d/artifact_vault/textures/artifact_vault_atlas_normal.webp (binary, 58848 bytes)",
+  "public/agy3d/artifact_vault/textures/artifact_vault_atlas_orm.webp (binary, 118196 bytes)",
+  "public/agy3d/capture_gate/capture_gate.glb (binary, 304864 bytes)",
+  "public/agy3d/capture_gate/capture_gate_LOD1.glb (binary, 158728 bytes)",
+  "public/agy3d/capture_gate/textures/capture_gate_atlas_albedo.webp (binary, 81186 bytes)",
+  "public/agy3d/capture_gate/textures/capture_gate_atlas_normal.webp (binary, 97004 bytes)",
+  "public/agy3d/capture_gate/textures/capture_gate_atlas_orm.webp (binary, 124418 bytes)",
+  "public/fonts/jetbrains-mono-400.woff (binary, 27496 bytes)",
+  "public/fonts/jetbrains-mono-700.woff (binary, 28208 bytes)",
+  "public/stills/anchors.webp (binary, 64168 bytes)",
+  "public/stills/digest.webp (binary, 53622 bytes)",
+  "public/stills/flood.webp (binary, 81030 bytes)",
+  "public/stills/harnesses.webp (binary, 63742 bytes)",
+  "public/stills/intro.webp (binary, 59620 bytes)",
+  "public/stills/retrieve.webp (binary, 54402 bytes)",
+  "public/stills/start.webp (binary, 48932 bytes)",
+  "src/agy3d/anchor_clamp/.agy3d/check/installed.png (binary, 146902 bytes)",
+  "src/agy3d/anchor_clamp/.agy3d/check/package.png (binary, 141065 bytes)",
+  "src/agy3d/anchor_clamp/.agy3d/check/tier_etc1s_albedo_and_orm.png (binary, 148865 bytes)",
+  "src/agy3d/anchor_clamp/.agy3d/check/tier_uastc_everything.png (binary, 146902 bytes)",
+  "src/agy3d/anchor_clamp/.agy3d/check/tier_uastc_orm.png (binary, 148423 bytes)",
+  "src/agy3d/anchor_clamp/.agy3d/check/web_three.png (binary, 146902 bytes)",
+  "src/agy3d/artifact_vault/.agy3d/check/installed.png (binary, 146524 bytes)",
+  "src/agy3d/artifact_vault/.agy3d/check/package.png (binary, 146524 bytes)",
+  "src/agy3d/artifact_vault/.agy3d/check/tier_etc1s_albedo_and_orm.png (binary, 144860 bytes)",
+  "src/agy3d/artifact_vault/.agy3d/check/tier_uastc_everything.png (binary, 144446 bytes)",
+  "src/agy3d/artifact_vault/.agy3d/check/tier_uastc_orm.png (binary, 144573 bytes)",
+  "src/agy3d/artifact_vault/.agy3d/check/web_three.png (binary, 146524 bytes)",
+  "src/agy3d/capture_gate/.agy3d/check/installed.png (binary, 140874 bytes)",
+  "src/agy3d/capture_gate/.agy3d/check/package.png (binary, 140874 bytes)",
+  "src/agy3d/capture_gate/.agy3d/check/tier_etc1s_albedo_and_orm.png (binary, 147802 bytes)",
+  "src/agy3d/capture_gate/.agy3d/check/tier_uastc_everything.png (binary, 143645 bytes)",
+  "src/agy3d/capture_gate/.agy3d/check/tier_uastc_orm.png (binary, 144261 bytes)",
+  "src/agy3d/capture_gate/.agy3d/check/web_three.png (binary, 140874 bytes)"
+ ],
+ "site_check": "ok",
+ "links_not_followed": []
+}

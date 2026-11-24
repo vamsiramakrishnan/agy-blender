@@ -1,0 +1,35 @@
+{
+ "what": "the three model requests of the first attempt at the baseline run (stock agent, no plugin), 2026-11-24 from 07:03 UTC: each was dropped by the model service after 300 s; the run was stopped with no model call answered and no tool call made",
+ "requests": [
+  {
+   "t": 1795503837.9038177,
+   "model": "gemini-4-neon",
+   "kind": "generate",
+   "est_input_tokens": 16203,
+   "status": 502,
+   "error": "RemoteDisconnected: Remote end closed connection without response",
+   "wall_s": 300.3,
+   "service": "broken"
+  },
+  {
+   "t": 1795504142.2263317,
+   "model": "gemini-4-neon",
+   "kind": "generate",
+   "est_input_tokens": 16203,
+   "status": 502,
+   "error": "RemoteDisconnected: Remote end closed connection without response",
+   "wall_s": 300.24,
+   "service": "broken"
+  },
+  {
+   "t": 1795504449.1715198,
+   "model": "gemini-4-neon",
+   "kind": "generate",
+   "est_input_tokens": 16203,
+   "status": 502,
+   "error": "RemoteDisconnected: Remote end closed connection without response",
+   "wall_s": 300.15,
+   "service": "broken"
+  }
+ ]
+}
