@@ -156,7 +156,7 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
     // The pass arrives after the first resize(): the drawing buffer is set again through it, at the pass's cap, and
     // the composer's buffers with it.
     resize();
-  },(e) => { occluded = `off: it failed to start (${e && e.message ? e.message : e})`; console.error('ambient occlusion:', e); });
+  }, (e) => { occluded = `off: it failed to start (${e && e.message ? e.message : e})`; console.error('ambient occlusion:', e); });
 
   resize();
   new ResizeObserver(resize).observe(canvas);
