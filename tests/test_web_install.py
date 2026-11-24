@@ -519,10 +519,15 @@ def test_auto_compresses_only_when_the_files_do_not_grow_and_says_why_otherwise(
     # files that grow (and a transcoder this project has not got): auto installs the PNGs and gives the numbers and what always buys
     p2 = _project(tmp_path / "grows")
     _fake_node_modules(p2)
-    monkeypatch.setattr(web, "compress", _fake_compress([], shrink=0))
+    grown: list = []
+    monkeypatch.setattr(web, "compress", _fake_compress(grown, shrink=0))
     r = install_package(crate, p2)
     rec = json.loads((p2 / r.dest / RECORD).read_text())["compression"]
     assert rec["state"] == "declined" and rec["compressed_bytes"] > rec["uncompressed_bytes"]
+    # the smallest tier is already too large: it alone was encoded, and its frames were not compared
+    assert grown == [web.TEXTURE_TIERS[0][0]] and rec["tiers_tried"] == [
+        {"tier": web.TEXTURE_TIERS[0][0], "asset_bytes": rec["compressed_bytes"], "not_compared": True}]
+    assert "the smallest tier there is" in rec["reason"] and "nothing more was encoded" in rec["reason"]
     assert any("--compress always" in n and "GPU memory" in n and f"{rec['uncompressed_bytes']:,}" in n for n in r.notes), r.notes
     assert not any(f["path"].endswith(".ktx2") or "_basis" in f["path"] for f in r.files)
     # asked for always: compressed whatever the size
@@ -544,6 +549,35 @@ def test_auto_compresses_only_when_the_files_do_not_grow_and_says_why_otherwise(
     assert json.loads((p4 / r.dest / RECORD).read_text())["compression"]["state"] == "off"
     r = install_package(crate, p4, compress="sometimes", dest="src/agy3d/x", assets="public/agy3d/x")
     assert r.status == "refused" and "auto" in r.message and "never" in r.message
+
+
+def test_auto_stops_at_the_first_tier_too_large_to_keep(crate, tmp_path, monkeypatch):
+    """Run 2 of the website task (2026-11-24): each install encoded three tiers (25, 25 and 63 s) and compared two of
+    them in the browser, 114 of its 130 s, and kept none: a web package's WebP maps are smaller than every tier."""
+    monkeypatch.setattr(web, "node_executable", lambda: "/usr/bin/node")
+    _fake_measurement(monkeypatch, ["fail"])  # the first tier's frames are outside the tolerance
+    p = _project(tmp_path / "game")
+    _fake_node_modules(p)
+    calls: list = []
+    small, large = _fake_compress(calls, shrink=4), _fake_compress(calls, shrink=0)
+
+    def compress(parts, versions, node_modules, tier=None, cache_dir=None, **kw):
+        return (small if tier[0] == web.TEXTURE_TIERS[0][0] else large)(parts, versions, node_modules, tier, cache_dir, **kw)
+
+    monkeypatch.setattr(web, "compress", compress)
+    r = install_package(crate, p)
+    rec = json.loads((p / r.dest / RECORD).read_text())["compression"]
+    assert rec["state"] == "declined" and calls == [t[0] for t in web.TEXTURE_TIERS[:2]]  # the two larger tiers: never encoded
+    first, second = rec["tiers_tried"]
+    assert first["passed"] is False and "pixel_share" in first  # small enough to keep, compared, outside the tolerance
+    assert second == {"tier": web.TEXTURE_TIERS[1][0], "asset_bytes": rec["compressed_bytes"], "not_compared": True}
+    assert "the next tier after those outside the frame tolerance" in rec["reason"]
+    assert any("too large to keep, frames not compared" in n and "--compress always" in n for n in r.notes), r.notes
+    assert not any(f["path"].endswith(".ktx2") or "_basis" in f["path"] for f in r.files)
+    # asked for always, the size is no reason to stop: the ladder is walked to the first tier inside the tolerance
+    calls.clear()
+    r = install_package(crate, p, compress="always", force=True)
+    assert json.loads((p / r.dest / RECORD).read_text())["compression"]["state"] == "compressed" and calls
 
 
 def test_the_transcoder_is_not_counted_against_an_asset_when_the_project_already_has_it(crate, tmp_path, monkeypatch):

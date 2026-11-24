@@ -404,6 +404,7 @@ def _planned_dirs(project: Path, files: list[str], code: str) -> list[str]:
 def _tiers_text(tried: list[dict[str, Any]] | None) -> str:
     return "; ".join(f"{t['tier']}: {t['asset_bytes']:,} B" + (f", {t['pixel_share']:.2%} of pixels over 8 %, mean {t['mean_abs']:.2%}, "
                      f"outline {t['outline']:.5f}, {'inside' if t.get('passed') else 'outside'} the tolerance" if "pixel_share" in t else "")
+                     + (", too large to keep, frames not compared" if t.get("not_compared") else "")
                      for t in tried or [])
 
 
