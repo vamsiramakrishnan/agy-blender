@@ -353,3 +353,25 @@ def test_it_answers_within_its_budget_with_what_it_has(tmp_path):
     assert d.loaded and 0 < len(d.steps) < 25
     assert any(f"{len(d.steps)} of 25 steps photographed" in u for u in r.unfinished)
     assert f"stopped at its {budget:.0f} s limit" in r.text() and "steps=5" in r.text()
+
+
+async def test_the_tool_refuses_a_remote_url_in_one_line():
+    from antigravity3d.runtime.mcp_server import StudioHost, _management
+
+    tool = _management(StudioHost())["check_site"][0]
+    text = await tool(target="https://example.com/", ctx=None)
+    assert text.startswith("NOT CHECKED: https://example.com/ is not a localhost URL") and "\n" not in text
+
+
+@pytest.mark.browser
+async def test_the_tool_checks_a_folder_of_the_workspace(tmp_path, monkeypatch):
+    from antigravity3d.runtime.mcp_server import StudioHost, _management
+
+    site(tmp_path, "careful")
+    monkeypatch.chdir(tmp_path)  # no client roots: the workspace is the server's folder
+    tool = _management(StudioHost())["check_site"][0]
+    text = await tool(target="sites/careful", ctx=None, steps=2, sizes="desktop")
+    out = tmp_path / "agy3d_site_check" / "careful"
+    assert text.startswith("SITE CHECKED in ") and f"desktop contact sheet: {out / 'sheet_desktop.jpg'}" in text
+    assert (out / "sheet_desktop.jpg").is_file() and (out / "report.json").is_file()
+    assert "With reduce motion set the page asks matchMedia" in text

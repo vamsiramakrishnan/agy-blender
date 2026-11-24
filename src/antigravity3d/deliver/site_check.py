@@ -35,7 +35,6 @@ import logging
 import math
 import os
 import re
-import shutil
 import textwrap
 import threading
 import time
@@ -61,10 +60,11 @@ SIZES: dict[str, dict[str, Any]] = {
     "phone": {"viewport": {"width": 390, "height": 844}, "device_scale_factor": 1, "is_mobile": True, "has_touch": True},
 }
 
-#: A step's picture is "settled" when two frames 150 ms apart differ by less than this (mean absolute difference of the
-#: 1/8-size grey image, share of full scale; JPEG noise of an unchanged picture is 0, a blinking caret is about 0.0002).
+#: A step's picture is "settled" when two frames, at least 100 ms and two animation frames apart, differ by less than
+#: this (mean absolute difference of the 1/8-size grey image, share of full scale; JPEG noise of an unchanged picture is
+#: 0, a blinking caret is about 0.0002).
 STILL = 0.0015
-#: how long one step may take to settle; a page still moving after it is photographed as it is and marked "still moving"
+#: how long one step may take to settle; a page still changing after it is photographed as it is and named in the answer
 SETTLE_CAP_S = 4.0
 #: The longest time the page is shown to pass between two of its frames (``site_probe.js``, "The page's clock"): below
 #: GSAP's 500 ms lag threshold, so scrubbed animations advance by real time instead of 33 ms a frame on a slow frame.
@@ -680,7 +680,7 @@ def _json_pointer(doc: Any, pointer: str) -> Any:
     return cur
 
 
-def check_fact(src: str, shown: str, sources: Path | None, is_code: bool = False) -> str | None:
+def check_fact(src: str, shown: str, sources: Path | None) -> str | None:
     """None when the element agrees with its source, else why not (one sentence)."""
     if sources is None:
         return f"data-src=\"{src}\" cannot be checked: no sources folder was given"
@@ -759,7 +759,7 @@ def judge_facts(raw: dict | None, sources: Path | None) -> dict:
         if key in seen:
             continue
         seen.add(key)
-        why = check_fact(el["src"], el["text"], sources, el.get("code", False))
+        why = check_fact(el["src"], el["text"], sources)
         if why:
             mismatches.append(f"Fact {el['sel']}: {why}.")
     numbers: list[str] = []
@@ -782,8 +782,7 @@ _FACTS_JS = r"""() => {
     let s = e.tagName.toLowerCase(); if (e.id) { p.unshift(s + '#' + e.id); break; }
     const c = [...e.classList].slice(0, 2).join('.'); if (c) s += '.' + c; p.unshift(s); } return p.join(' > '); };
   const sourced = [...document.querySelectorAll('[data-src]')].slice(0, 500).map((el) => ({
-    src: el.getAttribute('data-src'), text: el.textContent, sel: sel(el),
-    code: /^(PRE|CODE)$/.test(el.tagName) || !!el.closest('pre') || !!el.querySelector('pre') }));
+    src: el.getAttribute('data-src'), text: el.textContent, sel: sel(el) }));
   const skip = 'script,style,noscript,template,head,title,[data-src],[aria-hidden="true"] svg';
   const code = [...document.querySelectorAll('pre, code')].filter((el) => !el.parentElement.closest('pre, code')
       && !el.closest('[data-src]') && !el.querySelector('[data-src]') && visible(el)
@@ -920,14 +919,20 @@ class _Visitor:
         return buf.getvalue()
 
     # ---- waiting
-    async def settle(self, cap: float) -> tuple[bytes, float, str]:
+    async def settle(self, page, cap: float) -> tuple[bytes, float, str]:
         """Take frames until the picture stops changing. Returns (last frame, seconds, how): 'still' (two frames agree),
         'ambient' (after a second the change from frame to frame stopped shrinking: what the scroll set in motion is
-        over and what remains is the page's own continuous animation), or 'moving' (still changing at the cap)."""
+        over and what remains is the page's own continuous animation), or 'moving' (still changing at the cap).
+
+        Two animation frames of the page pass before every screenshot: on run 1's page two screenshots taken without
+        one between them were the same compositor frame, so the picture "stopped changing" before the scene had moved,
+        and the 62 % frame showed an empty grid where the scene, a moment later, showed the router."""
         t0 = time.monotonic()
         cap = max(0.5, min(cap, self.clock.left() - WRAP_UP_S))
         prev, last_d, shot = None, None, b""
         while True:
+            with contextlib.suppress(Exception):  # a page that navigated or never ran the probe: take the frame anyway
+                await asyncio.wait_for(page.evaluate("(n) => window.__agySite.afterFrames(n)", 2), max(0.5, cap))
             shot = await self.shot()
             small = _grey(shot, 8)
             el = time.monotonic() - t0
@@ -962,7 +967,7 @@ class _Visitor:
         await self.network_quiet(30.0)
         with contextlib.suppress(Exception):
             await page.evaluate("document.fonts && document.fonts.ready")
-        await self.settle(4.0)
+        await self.settle(page, 4.0)
         self.v.load_s = round(time.monotonic() - t0, 2)
         self.v.loaded = True
         self.log("settled after loading")
@@ -1024,7 +1029,7 @@ class _Visitor:
                 break
             share = i / max(n - 1, 1)
             how = await self.scroll_to(page, round(geo["max"] * share))
-            shot, secs, motion = await self.settle(SETTLE_CAP_S)
+            shot, secs, motion = await self.settle(page, SETTLE_CAP_S)
             end = await page.evaluate("window.__agySite.stepEnd(false)")
             w = end["win"]
             step = Step(i, share, round(end["y"]), settle_s=round(secs, 2), motion=motion, reached_by=how,
@@ -1185,13 +1190,13 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
                 if one_step is not None:
                     geo = await page.evaluate("window.__agySite.geometry()")
                     await vis.scroll_to(page, round(geo["max"] * one_step))
-                    shot, secs, motion = await vis.settle(SETTLE_CAP_S)
+                    shot, secs, motion = await vis.settle(page, SETTLE_CAP_S)
                     vis.v.steps.append(Step(0, one_step, round(await page.evaluate("window.__agySite.y()")), settle_s=round(secs, 2),
                                             motion=motion))
                     vis.v.idle = await vis.idle(page)
                 if not do_steps:
                     f = out / f"{name}.jpg"
-                    shot, _, _ = await vis.settle(1.0)
+                    shot, _, _ = await vis.settle(page, 1.0)
                     f.write_bytes(shot)
                     vis.v.frame = str(f)
                 info = await vis.info(page)

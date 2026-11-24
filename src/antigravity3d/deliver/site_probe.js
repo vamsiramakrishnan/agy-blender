@@ -110,6 +110,10 @@
   // Resolves with the canvas as a data URL once a frame has drawn into it, or null after `frames` frames without one
   // (a page that draws only when something changes): check_site then hides the HTML and photographs the screen.
   S.grabCanvas = (frames) => new Promise((done) => { want = { draws: -1, data: null, left: frames, done }; });
+  // Resolves once `n` more animation frames have run: two screenshots with no frame between them are the same
+  // compositor frame, and would read as a picture that stopped changing while the page had not drawn yet.
+  const waiting = [];
+  S.afterFrames = (n) => new Promise((done) => waiting.push({ at: S.frames + n, done }));
   const raf = window.requestAnimationFrame.bind(window);
   window.requestAnimationFrame = (cb) => raf((ts) => { cb(cap ? ts - S.held_ms : ts); grab(); });
   const tick = () => {
@@ -127,6 +131,7 @@
     if (c.draws > w.maxDraws) w.maxDraws = c.draws;
     if (c.tris > w.maxTris) w.maxTris = c.tris;
     S.cur = { draws: 0, tris: 0 };
+    for (let i = waiting.length - 1; i >= 0; i--) if (waiting[i].at <= S.frames) waiting.splice(i, 1)[0].done(S.frames);
     raf(tick);
   };
   raf(tick);

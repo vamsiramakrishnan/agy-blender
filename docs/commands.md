@@ -10,6 +10,7 @@ the reference behind it.
 - [`agy3d kit`: modular pieces on one trim sheet](#agy3d-kit-modular-pieces-on-one-trim-sheet)
 - [`agy3d sanitize`: meshes you already have](#agy3d-sanitize-meshes-you-already-have)
 - [`agy3d install` and `agy3d uninstall`: into your game project](#agy3d-install-and-agy3d-uninstall-into-your-game-project)
+- [`agy3d check-site`: look at a website you built](#agy3d-check-site-look-at-a-website-you-built)
 - [`agy3d edit`: change an asset later](#agy3d-edit-change-an-asset-later)
 - [`agy3d variants`: look variants](#agy3d-variants-look-variants)
 - [What a run writes](#what-a-run-writes)
@@ -307,6 +308,98 @@ loader folder, `src/agy3d/<asset>`; the record there lists the files, and the sh
 another install needs it). It keeps any file you added there and refuses when one of its own files was edited since,
 unless you pass `--force`. It takes `--project`, `--dest` (both required), `--dry-run`,
 `--force` (remove this tool's files even where they were edited since) and `--json`.
+
+## `agy3d check-site`: look at a website you built
+
+```bash
+agy3d check-site examples/straitjacket-film/site
+agy3d check-site tests/fixtures/site_check/facts --sizes desktop --steps 3 --no-variants
+```
+
+It opens a built site (a folder holding `index.html`, or a running dev server on localhost) the way a visitor does and
+answers in plain text, at most about 60 lines, in this order: what is broken, what a visitor would notice, the
+measures, where the pictures are. The agent gets the same answer from the `check_site` tool. It needs what the three.js
+check needs: the `web` extra and a Chromium.
+
+What it does:
+
+1. Serves the folder on 127.0.0.1 under a sub-path (`/site-<random>/`). A site that asks for `/assets/app.js` at the
+   server root fails here as it fails on a host that publishes it under `/project/`; the answer says so and how to fix
+   it (relative paths; for Vite, `base: './'`).
+2. Opens it at 1440 x 900 and at 390 x 844 (a phone, with touch), both at a device pixel ratio of 1, and waits for
+   the load event, a quiet network and a still picture.
+3. Scrolls to `--steps` even positions (default 9, from 0 to 100 %), coarse to fine (0, 100, 50, 25, 75 % ...), so a
+   check cut short still covers the whole scroll. At each it waits until two frames 150 ms apart agree (at most 4 s),
+   keeps the frame, and takes the WebGL canvas alone. The frames go into one labelled contact sheet per size,
+   `sheet_desktop.jpg` and `sheet_phone.jpg`; labels in red mark a finding.
+4. Loads the page once with "reduce motion" set and once with WebGL taken away, and says what a visitor then gets.
+5. Checks every element that names its source (below), and lists numbers and code shown without one.
+
+How each finding is decided (the only thresholds; everything else is reported as a number):
+
+| Finding | Rule | Why |
+|---|---|---|
+| the 3D canvas shows nothing | under 1 % of the canvas (at 1/8 size) differs from its most common colour by more than 8 % | at 1/8 size the 1 px lines of a helper grid average away; an object does not. 1 % of a desktop canvas is a 120 x 108 px patch |
+| the picture did not change | mean difference to the step before under 0.2 % (1/4-size grey frame) | the scroll moved and nothing on screen did |
+| sideways scroll on a phone | the page is wider than the viewport by more than 1 px | a visitor's thumb finds it |
+| the download is heavy | the bytes take more than 5 s on a 10 Mbit/s connection | the first impression is over by then |
+| an unsourced number | three or more digits, or a unit (%, ms, MB, tokens, ...); a bare year is not counted | small counts are prose; measurements are claims |
+
+What the scene costs is read from the page's WebGL calls, which are wrapped before the page's scripts run
+(`src/antigravity3d/deliver/site_probe.js`), so it works on a page that does not expose its renderer:
+
+- draw calls per frame: calls of `drawArrays`, `drawElements`, `drawRangeElements`, their instanced forms and the
+  `WEBGL_multi_draw` calls (one call counts once);
+- triangles per frame: `count / 3` for `TRIANGLES`, `count - 2` for strips and fans, times the instance count (the
+  rule three.js's `renderer.info` uses); lines and points are not counted;
+- texture memory: the bytes of every texture level the page allocates or uploads, from its format, plus a third of
+  level 0 for mipmaps, minus deleted textures; textures allocated without data (render targets) and render buffers are
+  given apart.
+
+The largest per-frame counts over the steps are reported. The tests hold the counts exactly on a raw WebGL page whose
+counts are known, and equal to `renderer.info` on a three.js scene with meshes, an InstancedMesh and lines. A renderer
+in a worker (OffscreenCanvas) or on WebGPU is not seen; the answer says when a page used one.
+
+On software WebGL a heavy page draws a frame in about a second. GSAP treats any gap over 500 ms as 33 ms, so a
+scrubbed animation would barely move; the page is therefore shown at most 250 ms passing between two of its frames
+(`performance.now`, `Date.now` and the animation-frame time move together). A page that draws faster sees the real
+clock. Frames still changing after 4 s are kept and named in the measures.
+
+Facts. Mark an element with the file that holds what it shows; paths are relative to `--sources` (default: the site
+folder):
+
+| `data-src=` | the element must show |
+|---|---|
+| `"eval/run.json#/runs/0/tokens"` | the value at that JSON pointer. A number is compared as a number at the precision shown: for 302628, `302,628` and `302.6k` match; for 0.37, `37 %` does. A string must be contained |
+| `"tests/fixtures/digest.txt#L10-L14"` (or `#L10`) | those lines (indentation they share aside); one shown line may be part of them |
+| `"README.md"` | text that occurs in the file, whitespace aside |
+
+From `tests/fixtures/site_check/facts/index.html` (its sources are in `sources/` beside it):
+
+```html
+<p>Tokens in the first run: <span id="ok-num" data-src="sources/data.json#/runs/0/tokens">1,234</span>.</p>
+<pre id="ok-code" data-src="sources/code.py#L2-L3">def add(a, b):
+    return a + b</pre>
+<blockquote id="ok-quote" data-src="sources/notes.md">Capture once, retrieve the line that matters.</blockquote>
+```
+
+Requests to other hosts are listed and not made by default (`--other-hosts try` makes them), so the page is seen as it
+is when those hosts cannot be reached, and no answer depends on this machine's network. The check answers within
+150 s, with what it has when time runs out, and says which steps are missing. It writes only its pictures and
+`report.json` (the full record), by default into `./agy3d_site_check/<site>/`, never into the site folder.
+
+| Option | Meaning |
+|---|---|
+| `--sources DIR` | folder that `data-src` paths are relative to (default: the site folder) |
+| `--steps N` | scroll positions photographed (default 9, 2 to 25) |
+| `--sizes LIST` | `desktop`, `phone` or both, comma-separated (default both) |
+| `--other-hosts block\|try` | list requests to other hosts without making them (default), or make them |
+| `--no-variants` | skip the visits with reduce motion set and without WebGL |
+| `--out DIR` | where the frames go |
+| `--json` | print the machine-readable record instead of the text |
+
+Exit status: 0 when nothing is broken, 1 when something is, 2 for a usage error (a remote URL, a folder without
+`index.html`).
 
 ## `agy3d edit`: change an asset later
 
