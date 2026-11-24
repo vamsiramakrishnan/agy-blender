@@ -76,6 +76,7 @@ from antigravity3d.kernel.validator import (
     FBX_PRESET,
     PACKAGE_TEXTURE_DIR,
     check_engine_compliance,
+    chosen_texture_px,
     glb_images,
     texel_density_issues,
     validate_package,
@@ -377,13 +378,20 @@ def _clean_previous(out: Path) -> None:
 # --------------------------------------------------------------------------- USD authoring
 
 
-def _package_textures(stage: Usd.Stage, out: Path, engine: str, art: Any = None) -> tuple[list[dict[str, Any]], list[str]]:
+def _package_textures(stage: Usd.Stage, out: Path, engine: str, art: Any = None,
+                      cap: int | None = None) -> tuple[list[dict[str, Any]], list[str]]:
     """Copies map files into ``textures/``, converts normal maps, rewrites asset paths relative.
 
     With an art direction every map is written as it ships under that style (``ArtDirection.finish_map``: its map size,
     and its palette for albedo maps), whoever produced the source file; a map already within both limits is copied
-    byte for byte, as without a style."""
+    byte for byte, as without a style. ``cap`` (``validator.chosen_texture_px``): no map ships with a side above it,
+    whatever made it; a map shrunk for it says so (``downscaled_from``). Found in review of round eight: the shared
+    atlas held ``max_texture_px=512`` but a transparent material's own map still shipped at 2048 while the answer said
+    "the atlas is at most 512 px"."""
     px = art.texture_px(engine, "prop", 1 << 30) if art is not None and art.texture_px_prop is not None else None
+    if cap:
+        px = min(px, int(cap)) if px else int(cap)
+    shrunk: dict[str, list[int]] = {}  # rel -> the size it had before
     target = NORMAL_CONVENTION.get(engine, "opengl")
     records: list[dict[str, Any]] = []
     unresolved: list[str] = []
@@ -404,10 +412,18 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str, art: Any = None)
             flip_normal_green(src, out / rel)
         else:
             shutil.copy2(src, out / rel)
-        if art is not None:
-            with Image.open(out / rel) as im:
-                im.load()
+        with Image.open(out / rel) as im:
+            im.load()
+            if art is not None:
                 finished = art.finish_map(im, role, px)
+            elif px is not None and max(im.size) > px:
+                from antigravity3d.art_direction import _resize
+
+                finished = _resize(im, px, normal=role == "normal")
+            else:
+                finished = im
+            if finished.size != im.size:
+                shrunk[rel] = list(im.size)
             if finished is not im:
                 finished.save(out / rel, format="JPEG" if rel.endswith(".jpg") else "PNG", **({"quality": 95, "subsampling": 0} if rel.endswith(".jpg") else {}))
         owners[rel] = source
@@ -452,6 +468,7 @@ def _package_textures(stage: Usd.Stage, out: Path, engine: str, art: Any = None)
             "converted": flip,
             "color_space": str(cs.Get()) if cs and cs.Get() else None,
             "source": src.name,
+            **({"downscaled_from": shrunk[rel]} if rel in shrunk else {}),
         })
         inp.Set(Sdf.AssetPath(f"./{usd_rel}"))  # relative to the layer: the package is relocatable
         if is_normal:
@@ -1453,7 +1470,7 @@ def write_engine_package(
         with smart_source.using(budget.generated_surfaces):
             atlas_record = (_compose_atlas(stage, meshes, uvs, Path(atlas_tmp.name), asset_name, budget.texel_density_px_per_m, jpeg_q)
                             if atlas_tmp is not None else None)
-        textures, unresolved = _package_textures(stage, out, engine, art)  # copies the baked files into textures/
+        textures, unresolved = _package_textures(stage, out, engine, art, chosen_texture_px(budget))  # copies the baked files into textures/
         _ship_sources(out, atlas_record)
         parts_record = _ship_parts(stage, out, stage_manager.mesh_ref_file)
         laid = next((u.layout for u in uvs if u.shared_atlas and u.layout), None)

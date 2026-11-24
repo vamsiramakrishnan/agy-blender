@@ -131,7 +131,7 @@ async def test_a_chosen_atlas_size_is_reported_as_the_density_it_gives_not_as_a_
     assert recs and all(r["chosen_max_texture_px"] == 256 for r in recs)
     assert any(r["needed_atlas_px"] > 256 for r in recs), "the cap must be what lowered the density for this test to mean anything"
     assert not [i for i in man["validation"]["engine"] if i["code"].endswith("texel_density_target")]
-    assert "the atlas is at most 256 px because max_texture_px=256 was asked for" in reply
+    assert "every map is at most 256 px because max_texture_px=256 was asked for" in reply
     # no browser: no frames to compare, so the package keeps PNG and the answer and the manifest say why
     assert man["web_textures"]["format"] == "png" and "could not be compared" in man["web_textures"]["reason"]
     assert "in PNG (not WebP: the frames could not be compared" in reply
@@ -166,7 +166,7 @@ async def test_a_web_package_with_no_size_named_is_capped_at_the_web_default_and
     assert recs and all(r["default_max_texture_px"] == 256 and "chosen_max_texture_px" not in r for r in recs)
     assert any(r["needed_atlas_px"] > 256 for r in recs), "the default must be what capped the atlas for this test to mean anything"
     assert not [i for i in man["validation"]["engine"] if i["code"].endswith("texel_density_target")]
-    assert "the atlas is at most 256 px, the default for a web page; max_texture_px=512 would make that about" in reply
+    assert "every map is at most 256 px, the default for a web page; max_texture_px=512 would make that up to about" in reply
 
 
 # --------------------------------------------------------------------------- 2. what a size costs, in two lines
@@ -193,7 +193,7 @@ def test_the_answer_states_atlas_download_memory_and_sharpness_in_two_lines():
     assert sharp.startswith("the textures stay sharp up to about 963 px across on screen")
     assert sharp.endswith("max_texture_px=2048 would make that about 681 px with 50% of the texture memory and of the maps' download")
     chosen = web_three.reply_lines(_web_manifest(budget={"max_texture_px": 4096}))[2]
-    assert chosen.endswith("the atlas is at most 4096 px because max_texture_px=4096 was asked for")
+    assert chosen.endswith("every map is at most 4096 px because max_texture_px=4096 was asked for")
     png = web_three.reply_lines(_web_manifest(web_textures={"format": "png", "reason": "outside the tolerance in close_up_1"}))[1]
     assert "texture atlas in PNG (not WebP: outside the tolerance in close_up_1)" in png
     assert web_three.reply_lines({**_web_manifest(), "target_engine": "godot_4"}) == []
@@ -439,3 +439,100 @@ async def test_blender_imports_a_webp_glb(png_package, tmp_path, monkeypatch):
     async with BlenderPool(1, startup_timeout=180) as pool:
         status, detail, _data = await upstream_checks.asset_qa(pool, str(pkg / f"{data['asset']}.glb"), "web_three")
     assert status == "passed", detail
+
+
+# --------------------------------------------------------------------------- a chosen size holds for every map
+
+
+def _glass_and_paint(tmp: Path, budget):
+    """Two materials with 1024 px maps: opaque paint (shared atlas) and blended glass (its own atlas, not shared)."""
+    import numpy as np
+    from PIL import Image
+
+    from antigravity3d.ir import MaterialIR, NodeIR, SceneIR, Transform
+    from antigravity3d.kernel.package import write_engine_package
+    from antigravity3d.kernel.usd_stage import StageManager
+
+    rng = np.random.default_rng(3)
+    maps = {}
+    for mat in ("paint", "glass"):
+        for k in ("albedo", "orm", "normal"):
+            Image.fromarray(rng.integers(0, 255, (1024, 1024, 3), dtype=np.uint8)).save(tmp / f"{mat}_{k}.png")
+        maps[mat] = {f"{k}_uri": str(tmp / f"{mat}_{k}.png") for k in ("albedo", "orm", "normal")}
+    scene = SceneIR(asset_name="Lamp", materials=[
+        MaterialIR(id="paint", **maps["paint"]), MaterialIR(id="glass", alpha_mode="BLEND", **maps["glass"])],
+        nodes=[NodeIR(id="base", kind="box", params={"size": (0.6, 0.6, 0.2)}, transform=Transform(translate=(0, 0, 0.1)), material_id="paint"),
+               NodeIR(id="shade", kind="sphere", params={"radius": 0.25}, transform=Transform(translate=(0, 0, 0.45)), material_id="glass")])
+    sm = StageManager.create(tmp / "work.usda", "Lamp")
+    sm.apply_ir(scene)
+    bundle = fast_ops.run_export_pipeline(sm.extract_meshes(), budget, "Lamp")
+    return bundle, write_engine_package(sm, bundle, budget, tmp / "pkg", asset_name="Lamp", qa={"tier1_ok": True, "tier15": 3.9})
+
+
+@pytest.mark.parametrize("engine", ["web_three", "godot_4"])
+def test_a_chosen_size_holds_for_a_transparent_materials_own_maps_too(tmp_path, engine):
+    """Found in review: materials outside the shared atlas (not known to be opaque) kept a hard-coded 2048 px atlas and
+    shipped their maps as they were, while the answer said the atlas was at most the size asked for."""
+    from antigravity3d.state import EngineBudget
+
+    bundle, pm = _glass_and_paint(tmp_path, EngineBudget(engine, max_texture_px=512))
+    assert pm.ok, [i for i in pm.issues if i.severity == "critical"]
+    man = pm.data
+    assert man["textures"] and all(max(t["width"], t["height"]) <= 512 for t in man["textures"])
+    glass = [t for t in man["textures"] if t["material"] == "glass"]
+    assert glass and all(t["downscaled_from"] == [1024, 1024] for t in glass), "the glass maps were shrunk, and say so"
+    assert all(u.resolution <= 512 for u in bundle.uvs), "its own atlas is packed at the size it ships at"
+    assert {"glass"} <= set(man["uv"]["texel_density"]["materials"]) and all(
+        r["chosen_max_texture_px"] == 512 for r in man["uv"]["texel_density"]["materials"].values())
+    if engine == "web_three":
+        assert web_three.size_lines(man)[1].endswith("every map is at most 512 px because max_texture_px=512 was asked for")
+
+
+def test_without_a_chosen_size_a_godot_packages_own_maps_ship_as_before(tmp_path):
+    from antigravity3d.state import EngineBudget
+
+    _bundle, pm = _glass_and_paint(tmp_path, EngineBudget("godot_4"))
+    glass = [t for t in pm.data["textures"] if t["material"] == "glass"]
+    assert glass and all((t["width"], t["height"]) == (1024, 1024) and "downscaled_from" not in t for t in glass)
+
+
+def test_generated_maps_are_made_at_the_chosen_size():
+    from antigravity3d.kernel.validator import budget_texture_px, chosen_texture_px
+    from antigravity3d.state import EngineBudget
+
+    assert budget_texture_px(EngineBudget("web_three", max_texture_px=512), 2048) == 512
+    assert budget_texture_px(EngineBudget("web_three"), 4096) == 2048  # the web default
+    assert budget_texture_px(EngineBudget("roblox_r15"), 2048) == 1024  # the engine's limit, as before
+    assert budget_texture_px(EngineBudget("godot_4"), 2048) == 2048 and chosen_texture_px(EngineBudget("godot_4")) is None
+    assert fast_ops.own_atlas_px(EngineBudget("godot_4")) == 2048 and fast_ops.own_atlas_px(EngineBudget("godot_4", max_texture_px=256)) == 256
+
+
+async def test_a_cancel_during_the_webp_write_returns_only_once_the_package_is_whole(png_package, tmp_path, monkeypatch):
+    """An edit stops a running deliver_package routinely: the cancel must not return while the thread still writes GLBs
+    and the manifest into the folder (then about to be removed), leaving WebP GLBs under a PNG manifest."""
+    import threading
+    import time
+
+    from antigravity3d.kernel import validator
+
+    monkeypatch.setattr(WT, "measure", _passing([]))
+    real, writing, done = validator.validate_package, threading.Event(), threading.Event()
+
+    def slow(out):  # runs in _apply's thread after the files are written: the cancel arrives now
+        writing.set()
+        time.sleep(0.5)
+        try:
+            return real(out)
+        finally:
+            done.set()
+
+    monkeypatch.setattr(validator, "validate_package", slow)
+    pkg, data = _copy(png_package, tmp_path / "pkg")
+    task = asyncio.ensure_future(WT.web_format(pkg, data))
+    await asyncio.to_thread(writing.wait, 30)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert done.is_set(), "the cancel came back before the thread had finished"
+    assert [i for i in real(pkg) if i.severity == "critical"] == [], "files and manifest agree"
+    assert not list(pkg.rglob("*.agy3d-tmp"))

@@ -61,7 +61,9 @@ def _sanitize_node_name(name: str) -> str:
 
 def test_the_texture_cap_reaches_the_generated_maps_and_the_atlas():
     assert validator.engine_texture_px("web_three", 8192) == 4096 and validator.engine_texture_px("web_three", 1024) == 1024
-    assert max(max(wh) for wh in fast_ops.atlas_sizes("web_three")) == 4096
+    # round eight: with no size named a web atlas stops at the web default (EngineRules.default_texture_px); 4096 is asked for
+    assert max(max(wh) for wh in fast_ops.atlas_sizes("web_three")) == 2048
+    assert max(max(wh) for wh in fast_ops.atlas_sizes("web_three", 4096)) == 4096
 
 
 def test_a_part_with_a_dotted_name_is_a_critical_compliance_issue():

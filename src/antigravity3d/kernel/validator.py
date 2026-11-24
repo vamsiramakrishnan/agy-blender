@@ -257,6 +257,21 @@ def texel_density_issues(report: dict, engine: str) -> list[Issue]:
     return out
 
 
+def chosen_texture_px(budget: object) -> int | None:
+    """The largest side any map of a package may have because someone chose it: the budget's ``max_texture_px`` (the
+    caller's, or an art direction's), else the engine's ``default_texture_px`` (web_three: 2048); None for neither. Every
+    path that sizes a map holds to it (``budget_texture_px``, ``fast_ops.own_atlas_px``, ``package._package_textures``),
+    so the delivery's "every map is at most N px" is true of every map, not only of the shared atlas."""
+    return budget.max_texture_px or ENGINE_RULES[budget.target_engine].default_texture_px
+
+
+def budget_texture_px(budget: object, default: int) -> int:
+    """``engine_texture_px`` of ``default``, never above ``chosen_texture_px(budget)``: the side a map is generated at."""
+    size = engine_texture_px(budget.target_engine, default)
+    cap = chosen_texture_px(budget)
+    return min(size, cap) if cap else size
+
+
 def engine_texture_px(engine: str, default: int) -> int:
     """``default`` map side, never above the engine's documented ``max_texture_px`` (the image backend generates 1024, 2048
     or 4096 directly, so a map is generated at the size it ships at instead of being shrunk afterwards)."""

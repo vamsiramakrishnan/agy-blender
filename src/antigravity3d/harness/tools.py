@@ -64,7 +64,7 @@ from antigravity3d.kernel.fast_ops import (
 )
 from antigravity3d.kernel.raster import contact_sheet
 from antigravity3d.kernel.separate import separate_coplanar
-from antigravity3d.kernel.validator import check_engine_compliance, engine_texture_px, validate_usd
+from antigravity3d.kernel.validator import budget_texture_px, check_engine_compliance, validate_usd
 from antigravity3d.state import (
     EXPORT_MIN_TIER15_SCORE,
     AssetSessionState,
@@ -1024,7 +1024,8 @@ async def forge_pbr_material(material_id: str, prompt: str, ctx: ToolContext, ca
         current = current.model_copy(update={"surface": MaterialIR(id=material_id, surface=prompt).surface})
     n = max(1, min(MAX_CANDIDATES, s.forge.governor.plan.pbr_candidates, int(candidates)))
     art = s.art  # the session's art direction: its texture brief, map size and palette (None: as before)
-    size = art.texture_px(s.state.budget.target_engine, "prop", TEXTURE_PX) if art is not None else engine_texture_px(s.state.budget.target_engine, TEXTURE_PX)
+    # generated at the size it ships at: never above a size the caller (or the web default) chose
+    size = budget_texture_px(s.state.budget, art.texture_px(s.state.budget.target_engine, "prop", TEXTURE_PX) if art is not None else TEXTURE_PX)
     brief = texture_brief(art)
     material_prompt = texture_prompt(current, brief)
     results = await asyncio.gather(*(s.forge.seamless_albedo(material_prompt, size=size,

@@ -181,10 +181,17 @@ class PropToEngineDAG:
         provenance.finalize(prov, manifest)
 
     def _texture_px(self) -> int | None:
-        """The art direction's map size for this engine; None leaves the pipeline's default (same rule as the pyramid)."""
-        if self.art is None or self.art.texture_px_prop is None or self.forge is None:
+        """The map size for this engine (the pyramid's rule, ``Pyramid.texture_px``): the art direction's, never above a
+        size the caller or the web default chose; None leaves the pipeline's default."""
+        from antigravity3d.kernel.validator import budget_texture_px
+
+        if self.forge is None:
             return None
-        return self.art.texture_px(self.budget.target_engine, "prop", default_texture_px(self.forge))
+        default = default_texture_px(self.forge)
+        if self.art is None or self.art.texture_px_prop is None:
+            capped = budget_texture_px(self.budget, default)
+            return capped if capped < default else None
+        return budget_texture_px(self.budget, self.art.texture_px(self.budget.target_engine, "prop", default))
 
     def _run_dir(self) -> Path:
         runs = self.workdir / "runs"

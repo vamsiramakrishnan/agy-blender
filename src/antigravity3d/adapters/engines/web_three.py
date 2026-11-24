@@ -1489,11 +1489,12 @@ def size_lines(manifest: dict) -> list[str]:
     default = next((m["default_max_texture_px"] for m in mats
                     if m.get("default_max_texture_px") and (m.get("needed_atlas_px") or 0) > m["default_max_texture_px"]), None)
     if chosen:
-        second += f"the atlas is at most {chosen} px because max_texture_px={chosen} was asked for"
+        second += f"every map is at most {chosen} px because max_texture_px={chosen} was asked for"
     elif default and default < 4096:  # the web default capped it: say what the next size up costs, and when it is worth it
-        second += (f"the atlas is at most {default} px, the default for a web page; max_texture_px={default * 2} would make "
-                   f"that about {sharp * 2:,.0f} px for 4 times the texture memory and the maps' download: ask for it "
-                   "only for a model the camera comes close to")
+        # the parts may need less than the doubled side (the atlas is sized from need): "up to" is what can be promised
+        second += (f"every map is at most {default} px, the default for a web page; max_texture_px={default * 2} would make "
+                   f"that up to about {sharp * 2:,.0f} px for up to 4 times the texture memory and the maps' download: ask "
+                   "for it only for a model the camera comes close to")
     elif max(w, h) > 256:
         cap = max(w, h) // 2  # the next atlas down is (min(w, cap), min(h, cap)): fast_ops.ATLAS_SIZES are squares and 2:1
         share = min(w, cap) * min(h, cap) / (w * h)

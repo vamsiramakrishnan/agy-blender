@@ -49,7 +49,7 @@ from antigravity3d.kernel.raster import CLAY, render_buffers
 from antigravity3d.kernel.separate import separate_coplanar
 from antigravity3d.kernel.settle import beside_a_part, mesh_bounds, settle
 from antigravity3d.tactics.judging import JUDGE_VIEW_PX, JudgedDesign, design_views, judge_design, render_design
-from antigravity3d.kernel.validator import check_engine_compliance, engine_texture_px, validate_usd
+from antigravity3d.kernel.validator import budget_texture_px, check_engine_compliance, validate_usd
 from antigravity3d.state import EXPORT_MIN_TIER15_SCORE, EngineBudget
 from antigravity3d.tactics.cached import cached_export_pipeline
 from antigravity3d.tactics.common import QA_TOKENS_EST, Uploader, png_bytes, to_thread_drained, uploader_for
@@ -792,11 +792,11 @@ class _Run:
         """The art direction's map size for this engine (None: the pipeline's default)."""
         if self.forge is None:
             return None
+        default = default_texture_px(self.forge)
         if self.art is None or self.art.texture_px_prop is None:  # the default size, capped to the engine's (Roblox: 1024)
-            default = default_texture_px(self.forge)
-            capped = engine_texture_px(self.budget.target_engine, default)
+            capped = budget_texture_px(self.budget, default)  # and to a size the caller (or the web default) chose
             return capped if capped < default else None
-        return self.art.texture_px(self.budget.target_engine, "prop", default_texture_px(self.forge))
+        return budget_texture_px(self.budget, self.art.texture_px(self.budget.target_engine, "prop", default))
 
     # ---- bookkeeping --------------------------------------------------------------------------------
 
