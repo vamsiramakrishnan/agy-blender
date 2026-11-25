@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slow frames</title>
+<!-- A page whose every frame takes half a second (a heavy scene on software WebGL), with the page hook: the pass that
+     reads the subjects between the steps must keep to its time allowance on it. -->
+<style>html,body{margin:0;background:#101418}canvas{position:fixed;inset:0;width:100vw;height:100vh}</style></head>
+<body><canvas id="c"></canvas><div style="height:400vh"></div>
+<script type="module">
+import { setup, QUAD } from './gl.js';
+const { gl, quad, color } = setup(document.getElementById('c'));
+quad(QUAD);
+const FRAME_MS = 500;
+function frame() {
+  requestAnimationFrame(frame);
+  const t = performance.now(); while (performance.now() - t < FRAME_MS) { /* the frame's work */ }
+  gl.clearColor(0.06, 0.08, 0.1, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  color(0.85, 0.55, 0.25); gl.drawArrays(gl.TRIANGLES, 0, 6);
+}
+requestAnimationFrame(frame);
+window.__site = {
+  info: () => ({ onScreen: { press: { share: 0.36, x: 0.5, y: 0.5, box: [0.2, 0.2, 0.8, 0.8], kind: 'prop', subject: true } } }),
+};
+</script></body></html>

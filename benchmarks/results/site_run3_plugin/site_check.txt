@@ -1,0 +1,18 @@
+SITE CHECKED in 32 s: nothing broken, 0 things a visitor would notice. Open the contact sheets below with your file viewer and look at every frame before you change anything.
+
+Measures:
+- Desktop 1440x900: settled 9.8 s after the page was asked for; 9 of 9 steps photographed; share of the 3D canvas showing something, per step: 78% 79% 73% 80% 75% 76% 81% 77% 66%.
+- Phone 390x844: settled 9.4 s after the page was asked for; 9 of 9 steps photographed; share of the 3D canvas showing something, per step: 35% 35% 37% 35% 37% 34% 34% 35% 30%.
+- Downloaded (desktop, whole scroll): 3.6 MB in 40 files: models 1.6 MB, scripts 0.9 MB, images 0.9 MB, fonts 0.1 MB, styles 34 kB, documents 12 kB. Largest: assets/stage-VKKj-4a0.js 0.7 MB, agy3d/containment_gate/containment_gate.glb 0.3 MB, agy3d/artifact_vault/artifact_vault.glb 0.2 MB, agy3d/containment_gate/containment_gate_LOD1.glb 0.2 MB, agy3d/anchor_clamp/anchor_clamp.glb 0.2 MB.
+- Scene (desktop, the largest over the steps): 18 draw calls and 24,368 triangles in one frame (most triangles at 75%); textures 89.4 MB on the graphics card in 23 textures (37.8 MB of it render targets). Counted by wrapping the page's WebGL draw and texture calls before its scripts ran.
+- While nothing moves (top of the page, 1.5 s, no input): it drew in 0 of 66 frames, and the picture stayed the same.
+- With reduce motion set the page asks matchMedia and has a CSS rule; while nothing is touched the picture stays still; after a scroll the picture still takes 1.2 s to come to rest (without the setting 1.3 s). Picture: reduced.jpg.
+- Without WebGL: no errors; the page shows 2,395 characters of text (with WebGL 444) and 6 images, and no message about the missing 3D. Picture: nowebgl.jpg.
+- Facts: 22 elements name a source (data-src) against <run>/check_in/sources; all match.
+
+Pictures:
+- desktop contact sheet: <run>/site_check/sheet_desktop.jpg (frames desktop_00.jpg to desktop_08.jpg)
+- phone contact sheet: <run>/site_check/sheet_phone.jpg (frames phone_00.jpg to phone_08.jpg)
+- stills for the page without WebGL, one per chapter at the picture it rests on, the 3D canvas alone (6, 1280 x 800 px WebP, 40 kB each on average): <run>/site_check/stills (intro.webp, flood.webp, digest.webp, retrieve.webp and 2 more). Copy them beside the page (stills/<chapter id>.webp) and give each an alt text that says what it shows.
+- all frames, the canvas-only frames and the full record (report.json) are in <run>/site_check
+- about these pictures: this browser puts pages together without the GPU path, and its screenshots then leave a black box in a WebGL canvas opposite every opaque panel (mirrored top to bottom). No visitor's browser does. The check tested for it and photographed each canvas on a layer of its own, which gives the true picture: the frames here are what a visitor sees. A screenshot script of your own on this machine will show those boxes; they are not the site's.

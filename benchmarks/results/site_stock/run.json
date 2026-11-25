@@ -1,0 +1,121 @@
+{
+ "arm_name": "stock",
+ "arm": "A",
+ "model": "gemini-4-neon",
+ "share_tokens": 30000000,
+ "share_images": 0,
+ "wall_s_limit": 21600,
+ "limits": {
+  "max_model_calls": 450,
+  "max_tool_calls": 1400
+ },
+ "offline": false,
+ "seed": {
+  "project_name": "straitjacket",
+  "project_digest": "88eac6893f55783a10d3d1f4e938ec674832bd7669be6618fb6662dc110a99cd",
+  "project_git_commit": "50f8e60ff56e31feb34f07852968f3e733465f83",
+  "project_git_dirty": false,
+  "notes_digest": "8a603d3ca2729d75430886f75b56397443cedd1adb6f796f07c3e10765895dfb",
+  "package_json_sha256": "fee6abe19306e916b04d19dadfb07430d068be68e1dc7055e52c5dd5413811db",
+  "lockfile_sha256": "1ed2b68bcecda322e9fb75bda6ce8bdce0ba4bea20d3457c36fcb48c8f1a823b",
+  "packages_installed": 180,
+  "packages_how": "copied from <packages>/node_modules",
+  "task_sha256": "319153a424e146e2220850a9e4e7a10d9e108bc594d8568f86733b9681ba39ba"
+ },
+ "options": {
+  "model": "gemini-4-neon",
+  "sdk_output_cap": true,
+  "limits": {
+   "max_model_calls": 450,
+   "max_tool_calls": 1400
+  },
+  "node_dir": "/opt/node22",
+  "browsers": true,
+  "deliverable": "site/index.html",
+  "approve_installs": true
+ },
+ "command": [
+  "site_task.py",
+  "run",
+  "--live",
+  "--arm",
+  "stock",
+  "--project",
+  "<project checkout>",
+  "--notes",
+  "<notes>",
+  "--packages",
+  "<packages>",
+  "--task",
+  "benchmarks/site_task_seed/task.md",
+  "--share-tokens",
+  "30000000",
+  "--wall-s",
+  "21600",
+  "--work-root",
+  "<run>",
+  "--out",
+  "<local-path>"
+ ],
+ "status": "finished",
+ "wall_s": 3190.1,
+ "model_calls": 37,
+ "tool_calls": 91,
+ "tokens": {
+  "input_tokens": 4428044,
+  "output_tokens": 91747,
+  "thinking_tokens": 18542,
+  "cached_tokens": 708281,
+  "unknown_reserved_tokens": 422040,
+  "share_tokens": 30000000,
+  "total": 4960373,
+  "images": 0,
+  "share_images": 0,
+  "input": 4428044,
+  "cached": 708281,
+  "output": 91747,
+  "thinking": 18542,
+  "fresh": 3830052,
+  "cache_misses": 0,
+  "cache_miss_input": 0
+ },
+ "images": 0,
+ "refused": [],
+ "site": {
+  "files": 57,
+  "bytes": 2288834,
+  "largest": [
+   {
+    "path": "assets/postfx-DwcxvznU.js",
+    "bytes": 660196
+   },
+   {
+    "path": "assets/index-CROcBgj3.js",
+    "bytes": 286791
+   },
+   {
+    "path": "models/harness_nodes.glb",
+    "bytes": 135340
+   },
+   {
+    "path": "assets/motion-BtA8Chyu.js",
+    "bytes": 132165
+   },
+   {
+    "path": "models/evidence_prism.glb",
+    "bytes": 105392
+   }
+  ]
+ },
+ "site_src_files": 25,
+ "site_src_omitted": [
+  "public/agents/antigravity.png (binary, 71914 bytes)",
+  "public/models/anchor_clamp.glb (binary, 57624 bytes)",
+  "public/models/artifact_vault.glb (binary, 68772 bytes)",
+  "public/models/evidence_prism.glb (binary, 105392 bytes)",
+  "public/models/harness_nodes.glb (binary, 135340 bytes)",
+  "public/models/straitjacket_cinch.glb (binary, 103808 bytes)"
+ ],
+ "site_check": "ok",
+ "links_not_followed": []
+}

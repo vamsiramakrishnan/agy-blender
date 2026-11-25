@@ -30,6 +30,81 @@
   S.win = newWin();
   S.mark = () => { const w = S.win; S.win = newWin(); return w; };
 
+  // ---- the stand-in (site_check.py, CAMERA_ATTR): <html> carries the attribute before any script of the page runs, so
+  // a page can draw what a visitor with a GPU would see although this browser renders in software (the skill's starter
+  // turns its ambient occlusion on). At this moment the document may have no element yet; the parser's <html> is then
+  // marked as it is inserted, and a mutation observer's callback runs before the parser runs the first script.
+  if (cfg.cameraAttr) {
+    const mark = () => {
+      if (!document.documentElement) return false;
+      document.documentElement.setAttribute(cfg.cameraAttr, '');
+      return true;
+    };
+    if (!mark()) {
+      const seen = new MutationObserver((_, o) => { if (mark()) o.disconnect(); });
+      seen.observe(document, { childList: true });
+    }
+  }
+
+  // ---- the canvas layer (site_check.py, "the camera"): where this browser's screenshots would leave a black box in a
+  // WebGL canvas, a canvas is given a layer of its own: a rule that is first in the head and without specificity, so
+  // any rule of the page's own wins, for canvases this script marks (S.layerCanvases, before every screenshot).
+  // The layer is a filter, and a filter makes its element a stacking context, painted with the positioned content.
+  // For a positioned canvas (fixed, absolute, relative, sticky) nothing changes. A canvas in the normal flow would be
+  // painted over positioned content that comes before it in the document, a header written above the canvas for one.
+  // So such a canvas is tried: what is painted over it at a grid of points is read without the mark and with it, and
+  // where anything that was over the canvas is no longer over it, the canvas stays as it is and is counted.
+  if (cfg.canvasLayerCss) {
+    const MARK = cfg.canvasLayerAttr || 'data-agy3d-layer';
+    const add = () => {
+      const st = document.createElement('style'); st.dataset.agySite = 'canvas-layer'; st.textContent = cfg.canvasLayerCss;
+      document.head.prepend(st);
+    };
+    if (document.head) add();
+    else {
+      const seen = new MutationObserver((_, o) => { if (document.head) { o.disconnect(); add(); } });
+      seen.observe(document, { childList: true, subtree: true });
+      // a document that never gets a head (an SVG in a frame): nothing to add to, and nothing left watching
+      document.addEventListener('DOMContentLoaded', () => seen.disconnect(), { once: true });
+    }
+    const over = (c) => {
+      const r = c.getBoundingClientRect(), out = [];
+      const x0 = Math.max(0, r.left), x1 = Math.min(innerWidth, r.right), y0 = Math.max(0, r.top), y1 = Math.min(innerHeight, r.bottom);
+      if (x1 - x0 < 2 || y1 - y0 < 2) return out;
+      for (let j = 0; j < 6; j++) for (let i = 0; i < 6; i++) {
+        const stack = document.elementsFromPoint(x0 + (i + 0.5) * (x1 - x0) / 6, y0 + (j + 0.5) * (y1 - y0) / 6);
+        const at = stack.indexOf(c);
+        out.push(at < 0 ? null : stack.slice(0, at));
+      }
+      return out;
+    };
+    S.layer = { given: 0, left: 0 };
+    S.layerLeft = 0;
+    S.layerCanvases = () => {
+      let given = 0, left = 0, force = null;
+      try {
+        for (const c of S.canvases) {
+          if (!c.isConnected) continue;
+          if (getComputedStyle(c).position !== 'static') { c.setAttribute(MARK, ''); given++; continue; }
+          if (!force) {  // as in measureSubjects: elementsFromPoint skips what has pointer-events: none
+            force = document.createElement('style'); force.textContent = '*{pointer-events:auto!important}';
+            (document.head || document.documentElement).appendChild(force);
+          }
+          c.removeAttribute(MARK);
+          const before = over(c);
+          if (!before.length) continue;  // not in the window now: nothing of it is photographed, and nothing can be compared
+          c.setAttribute(MARK, '');
+          const after = over(c);
+          const same = before.length === after.length && before.every((b, k) => b === null || (after[k] !== null && b.every((el) => after[k].includes(el))));
+          if (same) given++; else { c.removeAttribute(MARK); left++; }
+        }
+      } finally { if (force) force.remove(); }
+      S.layer = { given, left };
+      S.layerLeft = Math.max(S.layerLeft, left);
+      return S.layer;
+    };
+  }
+
   // ---- the clock
   const cap = cfg.frameCapMs || 0;
   let lastReal = null;
@@ -110,14 +185,21 @@
           if (!b || typeof b !== 'object') { boxless++; continue; }
           const box = [b[0], b[1], b[2], b[3]];
           if (!box.every(finite) || !(box[2] > box[0]) || !(box[3] > box[1])) { boxless++; continue; }
-          // subject: whether the current shot is about this prop, where the page says (true or false; absent: unknown)
-          list.push({ name: String(k).slice(0, NAME_CHARS), kind: v.kind === 'label' ? 'label' : 'prop', box,
+          // kind: a 3D label, a layer (an instanced layer or generated geometry a shot is about, measured as a prop
+          // is) or a prop. subject: whether the current shot is about it, where the page says (true or false; absent:
+          // unknown)
+          const kind = v.kind === 'label' || v.kind === 'layer' ? v.kind : 'prop';
+          list.push({ name: String(k).slice(0, NAME_CHARS), kind, box,
                       subject: v.subject === true ? true : v.subject === false ? false : null });
         } catch (e) { boxless++; }
       }
     } catch (e) { return { why: 'reading onScreen threw: ' + String((e && e.message) || e).slice(0, 120) }; }
     if (!list.length) return { why: seen ? 'onScreen gives no box' : 'onScreen is empty', seen };
-    return { list, seen, boxless, more };
+    // moving: the page's camera is between two shots (the shared contract of round 8). Only true counts; anything else,
+    // or a getter that throws, is a page that holds its shot, as before the flag existed.
+    let moving = false;
+    try { moving = info.moving === true; } catch (e) {}
+    return { list, seen, boxless, more, moving };
   };
   const sel = (el) => { const p = []; for (let e = el; e && e !== document.body && p.length < 3; e = e.parentElement) {
     let s = e.tagName.toLowerCase(); if (e.id) { p.unshift(s + '#' + e.id); break; }
@@ -207,12 +289,119 @@
       });
     } finally { force.remove(); }
   };
+  // ---- chapter text a visitor can read over the scene
+  // The characters of headings, paragraphs and list items that are drawn over the visible part of the canvas's box at
+  // TEXT_ALPHA or more of the chain of opacities (as the cover measure above), outside the page's header, nav and
+  // footer. A page that says its camera is moving while this is up asks the visitor to stop and read a picture on its
+  // way (site_check.py, subject_faults). A label drawn in the scene is pixels of the canvas, not text, and a top bar is
+  // a header or a nav. A text node counts by the share of its box over the canvas, so a line half out of the window
+  // counts half.
+  const TEXT_ALPHA = 0.5, TEXT_BLOCKS = 'h1,h2,h3,h4,h5,h6,p,li', TEXT_NODES = 20000;
+  const chapterText = () => {
+    const canvas = refCanvas();
+    if (!canvas) return 0;
+    const r = canvas.getBoundingClientRect();
+    const cx0 = Math.max(0, r.left), cy0 = Math.max(0, r.top);
+    const cx1 = Math.min(innerWidth, r.right), cy1 = Math.min(innerHeight, r.bottom);
+    if (cx1 <= cx0 || cy1 <= cy0 || !document.body) return 0;
+    opacityOf.clear();
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    let n = 0, seen = 0;
+    for (let t = walker.nextNode(); t && seen < TEXT_NODES; t = walker.nextNode()) {
+      seen++;
+      const chars = t.data.replace(/\s+/g, '').length;
+      const el = t.parentElement;
+      if (!chars || !el) continue;
+      const block = el.closest(TEXT_BLOCKS);
+      if (!block || block.closest('header,nav,footer')) continue;
+      if (chainOpacity(el) < TEXT_ALPHA || getComputedStyle(el).visibility !== 'visible') continue;
+      range.selectNodeContents(t);
+      const b = range.getBoundingClientRect();
+      if (b.width < 1 || b.height < 1) continue;
+      const ix = Math.min(b.right, cx1) - Math.max(b.left, cx0), iy = Math.min(b.bottom, cy1) - Math.max(b.top, cy0);
+      if (ix > 0 && iy > 0) n += chars * (ix * iy) / (b.width * b.height);
+    }
+    return Math.round(n);
+  };
+  S.chapterText = () => { try { return chapterText(); } catch (e) { return null; } };
+  // What a scroll moves in the page's HTML (site_check.py, _Visitor.first_notch). Text that scrolls with the page
+  // answers a scroll as plainly as a scene that moves, and a count of changed pixels undersells it: a block of thin
+  // glyphs that moves 120 px changes few pixels. textPlaces() notes where each readable text node in the window is;
+  // textMoved(px) says how many of the noted characters are now px or more from that place, or no longer readable.
+  let places = null;
+  const readable = (t) => {
+    const el = t.parentElement;
+    if (!el || chainOpacity(el) < TEXT_ALPHA || getComputedStyle(el).visibility !== 'visible') return null;
+    const range = document.createRange();
+    range.selectNodeContents(t);
+    const b = range.getBoundingClientRect();
+    if (b.width < 1 || b.height < 1 || b.bottom <= 0 || b.top >= innerHeight || b.right <= 0 || b.left >= innerWidth) return null;
+    return b;
+  };
+  S.textPlaces = () => {
+    places = [];
+    try {
+      opacityOf.clear();
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let seen = 0;
+      for (let t = walker.nextNode(); t && seen < TEXT_NODES; t = walker.nextNode()) {
+        seen++;
+        const chars = t.data.replace(/\s+/g, '').length, b = chars ? readable(t) : null;
+        if (b) places.push({ t, chars, x: b.left, y: b.top });
+      }
+    } catch (e) { places = null; }
+    return places ? places.length : null;
+  };
+  S.textMoved = (px) => {
+    if (!places) return null;
+    const out = { chars: 0, moved: 0 };
+    try {
+      opacityOf.clear();
+      for (const q of places) {
+        out.chars += q.chars;
+        const b = q.t.isConnected ? readable(q.t) : null;
+        if (!b || Math.abs(b.top - q.y) >= px || Math.abs(b.left - q.x) >= px) out.moved += q.chars;
+      }
+    } catch (e) { return null; }
+    places = null;
+    return out;
+  };
   S.subjects = async () => {
     const got = await readHook();
     if (!got.list) return got;
     let measured;
     try { measured = measureSubjects(got.list); } catch (e) { return { why: 'the measure failed: ' + String((e && e.message) || e).slice(0, 120) }; }
-    return { list: measured, seen: got.seen, boxless: got.boxless, more: got.more };
+    return { list: measured, seen: got.seen, boxless: got.boxless, more: got.more, moving: got.moving,
+             text: S.chapterText() };
+  };
+  // The subjects between the photographed steps (site_check.py, _Visitor.between): no screenshot and no wait for
+  // the picture to settle, only the page's next two frames, and then, for at most capMs, until no CSS transition is
+  // still running. The starter's text panels cross-fade in 0.4 s; on a page that draws quickly two frames are 33 ms,
+  // and the panel of the chapter just left would still be measured over the subject at nearly full opacity. A
+  // transition that is still running after capMs is measured as it is.
+  // A transition whose clock stands still is finished, so the measure reads what a visitor who stops here sees once
+  // it is over. With its GPU path (CHROMIUM_KEEP_GL_SWITCHES=1) this headless browser runs an opacity transition on
+  // its compositor and stops giving the page frames after two (requestAnimationFrame no longer fires): the time the
+  // page's styles see stood at 17 ms of the starter's 400 ms fade for the whole 600 ms, and a panel fading out was
+  // measured at 0.97 of its opacity, its text counted as readable during the move. Without the GPU path the clock runs
+  // and the transition ends by itself within the wait.
+  const STALLED_POLLS = 5;
+  S.readBetween = async (capMs) => {
+    await S.afterFrames(2);
+    const t0 = pnow();
+    let stalled = 0;
+    for (;;) {
+      let running = [];
+      try { running = document.getAnimations().filter((a) => a instanceof CSSTransition && a.playState === 'running'); }
+      catch (e) {}
+      if (!running.length || pnow() - t0 >= capMs) break;
+      const before = running.map((a) => a.currentTime);
+      await new Promise((r) => setTimeout(r, 30));
+      stalled = running.every((a, i) => a.currentTime === before[i]) ? stalled + 1 : 0;
+      if (stalled >= STALLED_POLLS) for (const a of running) { try { a.finish(); } catch (e) {} }
+    }
+    return S.subjects();
   };
 
   // ---- stills for the page without WebGL: window.__site.chapters() -> [{ id, rest }], drawn with setProgress(rest)
@@ -248,8 +437,8 @@
   };
   // The largest WebGL canvas in view, read from its drawing buffer as a PNG data URL. Only right after a draw: a canvas
   // without preserveDrawingBuffer is blank to read once its frame is shown. The drawing buffer holds the scene alone, at
-  // full size, without the page's HTML, a scrollbar, or the rows headless Chromium's compositor leaves out of a WebGL
-  // canvas under an opaque full-width fixed bar (the band in every full-window frame of run 2's site).
+  // full size, without the page's HTML, a scrollbar, or what a browser without the GPU path leaves out of a WebGL
+  // canvas that lies under an opaque box (site_check.py, "the camera": the band in every frame of run 2's site).
   const readCanvas = () => {
     let best = null;
     for (const c of S.canvases) {
@@ -319,7 +508,10 @@
   // Resolves once `n` more animation frames have run: two screenshots with no frame between them are the same
   // compositor frame, and would read as a picture that stopped changing while the page had not drawn yet.
   const waiting = [];
-  S.afterFrames = (n) => new Promise((done) => waiting.push({ at: S.frames + n, done }));
+  S.afterFrames = (n) => {
+    if (S.layerCanvases) { try { S.layerCanvases(); } catch (e) {} }  // before the frames, so that the screenshot after them has it
+    return new Promise((done) => waiting.push({ at: S.frames + n, done }));
+  };
   const raf = window.requestAnimationFrame.bind(window);
   window.requestAnimationFrame = (cb) => raf((ts) => { cb(cap ? ts - S.held_ms : ts); grab(); });
   const tick = () => {

@@ -1,0 +1,33 @@
+{
+ "first": "stock",
+ "second": "run4",
+ "rep": 0,
+ "frames": [
+  "57c48173e1aeb830",
+  "942e475c1cb9450d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 tracks cleanly along a continuous assembly line across frames 1-9 without overlapping text, whereas Site 1 cuts off cards under the header and obscures 3D objects in frames 4, 5, and 9."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2 uses an intuitive mechanical factory metaphor\u2014pressing raw blocks in frame 3, storing in drawers in frame 5, and clamping shifted lines in frame 6\u2014making the workflow clearer than Site 1's abstract floating rings in frames 3 and 5."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 builds a grounded, cohesive machine on a floor plane with worn metal edges and rollers in frames 3-8, while Site 1 relies on disconnected, ungrounded glowing shapes floating in space in frames 4-6."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Site 2 keeps its clean typography fixed in a dedicated top-left card across frames 1-9 to leave the 3D scene open, whereas Site 1's scrolling cards collide with the sticky header and hero model in frames 1, 4, and 5."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers a cohesive, continuous 3D scroll journey along a grounded physical machine that clearly visualizes how Straitjacket processes and routes code evidence without layout collisions."
+  }
+ }
+}

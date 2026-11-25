@@ -1,0 +1,33 @@
+{
+ "first": "rig2",
+ "second": "asbuilt",
+ "rep": 2,
+ "frames": [
+  "82105f5eaadfc82d",
+  "942e475c1cb9450d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "tie",
+    "reason": "Both sites feature identical camera compositions and framing across all scroll steps from frame 1 to frame 9."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same 3D assembly line metaphor in frames 1 through 9 to explain log compression, storage, anchoring, and gates."
+   },
+   "craft_of_the_3d": {
+    "winner": "1",
+    "reason": "Site 1 has slightly brighter ambient lighting and floor grid visibility in frames 1-5 and 9, making the dark 3D machinery forms easier to read against the background than in Site 2."
+   },
+   "type_and_layout": {
+    "winner": "tie",
+    "reason": "Both sites have identical typography, hierarchy, and left-hand card layouts from frame 1 to frame 9."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "While both sites share an almost identical design and layout, Site 1's brighter scene lighting and grid contrast make the dark 3D machinery clearer and better grounded."
+  }
+ }
+}

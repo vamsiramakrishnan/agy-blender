@@ -1,0 +1,33 @@
+{
+ "first": "run4",
+ "second": "stock",
+ "rep": 2,
+ "frames": [
+  "942e475c1cb9450d",
+  "57c48173e1aeb830"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 smoothly tracks along a continuous assembly line in frames 1-9 without overlapping text, whereas Site 2 collides text with 3D objects in frame 1 and obscures the scene in frame 9."
+   },
+   "explains_the_project": {
+    "winner": "1",
+    "reason": "Site 1 uses concrete mechanical metaphors like the hydraulic press in frame 3, drawer vault in frame 5, and caliper in frame 6 to clearly illustrate log compression, storage, and line anchoring."
+   },
+   "craft_of_the_3d": {
+    "winner": "1",
+    "reason": "Site 1 grounds its detailed industrial machinery on a gridded floor with cohesive lighting across frames 1-9, while Site 2 relies on disconnected, floating sci-fi shapes in frames 4-8."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Site 1 keeps readable, well-structured cards consistently docked on the left across frames 1-9 (despite minor button kerning in frame 1), whereas Site 2 clips cards at the viewport edges in frames 4, 5, and 8."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Site 1 delivers a cohesive, grounded 3D factory journey with clean layout separation that tangibly visualizes how Straitjacket processes and hands off evidence."
+  }
+ }
+}

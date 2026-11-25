@@ -1,0 +1,33 @@
+{
+ "first": "asbuilt",
+ "second": "rig2",
+ "rep": 0,
+ "frames": [
+  "942e475c1cb9450d",
+  "82105f5eaadfc82d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "tie",
+    "reason": "Both sites share the exact same camera framing and scroll progression across frames 1 to 9."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use identical 3D press, vault, and caliper machinery across frames 1 to 9 to illustrate Straitjacket's workflow."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 renders brighter ambient lighting, clearer floor shadows, and sharper metallic specular detail across frames 1 to 9 than the darker Site 1."
+   },
+   "type_and_layout": {
+    "winner": "tie",
+    "reason": "Typography, card placement, and layout hierarchy are completely identical across frames 1 to 9 on both sites."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "While the layout, text, and 3D choreography are identical, Site 2 features superior scene lighting and grounding shadows across all frames."
+  }
+ }
+}

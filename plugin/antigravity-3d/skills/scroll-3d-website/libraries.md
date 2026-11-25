@@ -48,6 +48,7 @@ copy, one draw call. Two thousand separate meshes are two thousand draw calls an
 // example: three-webgl
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { groundLook } from './src/stage.js';
 
 const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('stage'), antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -61,7 +62,11 @@ const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 pmrem.dispose();
 
-const key = new THREE.DirectionalLight('#ffffff', 2.4);
+scene.environmentIntensity = 0.65; // the starter's light (below): a key, a rim from behind, an environment
+const rim = new THREE.DirectionalLight('#dce6f5', 0.85);
+rim.position.set(10, 6, -8);
+scene.add(rim);
+const key = new THREE.DirectionalLight('#ffffff', 2.35);
 key.position.set(-4, 8, 5);
 key.castShadow = true;
 key.shadow.radius = 3;
@@ -69,7 +74,8 @@ key.shadow.camera.left = key.shadow.camera.bottom = -6;
 key.shadow.camera.right = key.shadow.camera.top = 6;
 scene.add(key);
 
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: '#1a1d22' }));
+// the ground keeps the page's ground colour under that light: the starter's groundLook (the light section below)
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ ...groundLook(scene, '#1a1d22'), roughness: 0.95 }));
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
@@ -132,10 +138,122 @@ renderer.render(scene, camera);
 <!-- check: picture -->
 <!-- check: warning WebGPU is not available, running under WebGL2 backend -->
 
+## Light that shows form, and colours that stay the design's
+
+The starter lights the scene with three things (`LIGHT` in its stage.js): a key from above at the front left that
+casts the shadow (2.35), a rim from behind that draws the edges (0.85), and an environment for reflections and fill
+(0.65). Leave it as it is unless the frames give a reason. Why these numbers: they are run 2's, whose 3D a blind
+judge preferred to run 4's and to run 5's in six of six verdicts each, and the same site was then judged under two
+lights. Run 4's site, machines in the page's own dark steel, built under a dimmer light (a key of 1.8, the
+environment at 0.25, no rim), was preferred under this one in six of six ("dark metals lose detail in shadow"). Run
+5's site, light grey machines, drew three each, by the order shown. The dimmer light had been set after run 3 so that
+a colour would show as its hex on a face turned up.
+
+Light here is the factor F a face receives: the key's intensity times the cosine of its angle over pi, plus
+`environmentIntensity` times what the environment gives that face. Measured with the starter's `RoomEnvironment`: a
+face turned up gets 0.28 of the key and 1.84 of the environment (a face turned to the camera 1.91, a side wall 1.0),
+so the starter lights a top at about 2. Under `NeutralToneMapping` a lit colour reaches the screen as itself only
+under the tone mapper's knee: each channel of albedo times light below about 0.76 (linear) passes through; above it
+the colour is compressed towards white. At F = 2 that is every channel above about 165 of 255. So:
+
+- Give a prop's large surfaces the design's dark and middle values and let the light carry them. Measured on a face
+  turned up, under the starter's light: a steel of #242931 at three quarters metal comes out #1F2835, its own colour,
+  and a paint of #242931 comes out #3E434B. A paint of #7A828C comes out #9FA9B6, and one of #B8C1CC comes out
+  #DBE5F2, most of the way to white. Why: run 5 gave its machines light grey bodies (#7A838E to #B8C1CC) on this
+  round's earlier advice, and nine of the sixteen blind verdicts on craft that went against it call them flat,
+  matte or grey; runs 2, 3 and 4 used #242931 for the bodies. `check_site` says when a shot's subject is hard to
+  tell from the page.
+- A part in one of the design's accent colours is lit, with its colour divided by the light: `color: lit('#F0B429')`
+  (stage.js). Measured: the top of an amber part comes out #E3AC37 and a wall #D19F3A, the colour with its form;
+  the plain colour comes out #F8C15B, washed. Only a flat mark that must match the panel's text exactly (a line, a
+  tag, a status dot) is unlit: `MeshBasicMaterial({ color, toneMapped: false })` gives #F0B429, and `emissive` on a
+  black `color` #EDB33B. Why: a block drawn unlit has no form. Run 5 drew the coloured blocks of its lanes that
+  way, on this guide's earlier advice, and the blind judge calls them "flat unshaded blocks on the floor".
+- The ground comes out as the page's ground colour whatever the props are lit with, so that it fades into the page:
+  give a ground material the starter's `groundLook(scene, colour)` (stage.js). It divides the colour by what a face
+  turned up receives and has the ground take the environment at 0.25. Both matter: most of what a dark floor shows
+  is the environment's reflection in it, which its colour does not scale. Measured: #15181D as a plain material
+  under the starter's light comes out #191E25, with `groundLook` #0B0F16 (the tone mapper's toe takes out most of
+  the darkest channel; choose the ground's colour by its swatch). A floor shader of your own (the section on
+  custom shader materials) takes the same two options.
+- Do not add light. Run 3 added a fill light to a key of 2.7 and a rim and raised the environment to 0.95, F about
+  2.8, on a ground that took it all: its #15181D floor came out #272B32 and its amber #FBC978. And do not take it
+  away to fix a colour: under the dimmer light the same dark steel came out #0B1420, thirteen levels from the floor
+  at most, and at six of run 4's nine scroll steps under a tenth of the canvas differed from the background.
+
+Check a colour on screen against its hex: draw a swatch under the page's own light and read the canvas at once, as
+this example does for the starter's light, for the dimmer one and for run 3's.
+
+```js
+// example: colour-swatch
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('stage') });
+renderer.setSize(innerWidth, innerHeight, false);
+renderer.toneMapping = THREE.NeutralToneMapping;
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+// The page's light: here the starter's (stage.js, LIGHT): a key, a rim from behind, an environment.
+const key = new THREE.DirectionalLight('#ffffff', 2.35);
+key.position.set(-0.45, 1.0, 0.55);
+const rim = new THREE.DirectionalLight('#dce6f5', 0.85);
+rim.position.set(10, 6, -8);
+scene.add(key, rim);
+scene.environmentIntensity = 0.65;
+
+// A swatch lying on the ground, seen from straight above, drawn alone; its colour read from the canvas at once.
+const swatch = new THREE.Mesh(new THREE.PlaneGeometry(4, 4).rotateX(-Math.PI / 2));
+scene.add(swatch);
+const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+camera.position.set(0, 5, 0);
+camera.lookAt(0, 0, 0);
+const gl = renderer.getContext();
+function onScreen(material) {
+  swatch.material = material;
+  renderer.render(scene, camera);
+  const px = new Uint8Array(4);
+  gl.readPixels(gl.drawingBufferWidth >> 1, gl.drawingBufferHeight >> 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  return '#' + [...px.slice(0, 3)].map((v) => v.toString(16).padStart(2, '0')).join('');
+}
+const seen = (options) => onScreen(new THREE.MeshStandardMaterial(options));
+// The ground as the starter's groundLook() makes it: the colour over what a face turned up receives, the
+// environment at 0.25.
+const groundLight = 0.28 * key.intensity + 1.84 * 0.25 + rim.intensity * (6 / Math.hypot(10, 6, 8)) / Math.PI;
+const floor = seen({ color: new THREE.Color('#15181d').multiplyScalar(1 / groundLight), envMap: scene.environment, envMapIntensity: 0.25, roughness: 0.95 });
+const floorPlain = seen({ color: '#15181d', roughness: 0.95 });
+const amberLit = seen({ color: '#f0b429', roughness: 0.6 });
+// The same amber over what a face turned up receives, as the starter's lit() gives it: the colour again, with its form.
+const propLight = 0.28 * key.intensity + 1.84 * scene.environmentIntensity + rim.intensity * (6 / Math.hypot(10, 6, 8)) / Math.PI;
+const amberDivided = seen({ color: new THREE.Color('#f0b429').multiplyScalar(1 / propLight), roughness: 0.6 });
+const amberEmissive = seen({ color: '#000000', emissive: '#f0b429', roughness: 0.6 });
+const amberFlat = onScreen(new THREE.MeshBasicMaterial({ color: '#f0b429', toneMapped: false }));
+// A dark metal keeps its colour; a light paint goes most of the way to white.
+const steelDark = seen({ color: '#242931', metalness: 0.75, roughness: 0.5 });
+const paintLight = seen({ color: '#b8c1cc', roughness: 0.6 });
+// The dimmer light of runs 4 and 5: a key of 1.8, the environment at 0.25, no rim.
+key.intensity = 1.8;
+rim.intensity = 0;
+scene.environmentIntensity = 0.25;
+const steelDim = seen({ color: '#242931', metalness: 0.75, roughness: 0.5 });
+// Run 3's light: a key of 2.7, a rim and a fill light, the environment at 0.95.
+key.intensity = 2.7;
+rim.intensity = 0.75;
+scene.add(new THREE.DirectionalLight('#ffffff', 0.65));
+scene.environmentIntensity = 0.95;
+const floorRun3 = seen({ color: '#15181d', roughness: 0.95 });
+const amberRun3 = seen({ color: '#f0b429', roughness: 0.6 });
+document.documentElement.dataset.swatches = JSON.stringify({ floor, floorPlain, amberLit, amberDivided, amberEmissive, amberFlat, steelDark, paintLight, steelDim, floorRun3, amberRun3 });
+```
+<!-- check: js (() => { const s = JSON.parse(document.documentElement.dataset.swatches), c = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)), near = (h, want, by) => c(h).every((v, i) => Math.abs(v - c(want)[i]) <= by); return s.amberFlat === '#f0b429' && near(s.amberEmissive, '#f0b429', 24) && near(s.amberDivided, '#f0b429', 20) && c(s.amberLit)[2] > 70 && c(s.amberRun3)[2] > c(s.amberLit)[2] && near(s.steelDark, '#242931', 12) && Math.max(...c(s.steelDim)) < 40 && Math.min(...c(s.paintLight)) > 205 && Math.max(...c(s.floor)) < 30 && c(s.floorPlain)[0] > 1.8 * c(s.floor)[0] && c(s.floorRun3)[0] > 1.6 * 0x15; })() -->
+
 ## GSAP 3.15 with ScrollTrigger: page effects tied to scroll
 
-For the HTML: a panel that fades in as its chapter arrives, a section pinned while its numbers count, a progress bar.
-`scrub: true` ties a tween to the scroll position, so it plays backwards when the visitor scrolls back. Do not drive
+For the HTML, what the starter does not do: the parts of a panel coming in one after another, a section pinned while
+something in it plays, text that moves at its own pace. Not for what the starter already knows: the story's progress
+is `T / ids.length` in its `draw()`, so a progress bar reads that, not a second measure of the scroll (run 3 wrote
+`--progress` from ScrollTrigger and from T, and the two disagreed because the chapters differ in height). `scrub: true` ties a tween to the scroll position, so it plays backwards when the visitor scrolls back. Do not drive
 the 3D scene with GSAP tweens of its own (`gsap.to(camera.position, ...)` started by a trigger): such a tween depends
 on when it started, so the scene stops being a function of scroll and cannot be scrubbed or photographed at a given
 position. Let the scene read the same scroll position (the starter does); with Lenis, tell ScrollTrigger on every
@@ -143,7 +261,9 @@ Lenis scroll and drive Lenis from GSAP's ticker so both move on the same frame. 
 from a resize handler of your own: ScrollTrigger refreshes on resize by itself, and on a touch-only device it skips a
 resize that keeps the width and changes the height by less than a quarter, which is the address bar sliding (gsap
 3.15.1, `_onResize` in `ScrollTrigger.js`). Run 2 refreshed on every resize and undid that. Call it only after a
-layout change it cannot see, such as content your script added.
+layout change it cannot see, such as content your script added. The starter shows a chapter's panel only once its
+camera has arrived (`MOVE` of the chapter past its top, `src/shots.js`): a stagger that plays before then plays on a
+hidden panel, so on the starter start it there, `start: () => 'top+=' + MOVE * chapter.offsetHeight + ' top'`.
 
 ```js
 // example: gsap-scrolltrigger
@@ -157,20 +277,16 @@ lenis.on('scroll', ScrollTrigger.update);
 gsap.ticker.add((seconds) => lenis.raf(seconds * 1000));
 gsap.ticker.lagSmoothing(0);
 
-// Each chapter's panel rises in as the chapter arrives, scrubbed to the scroll.
+// Inside each chapter's panel the heading and paragraphs come in one after another as the chapter arrives, scrubbed
+// to the scroll (the starter cross-fades whole panels). The text itself is never changed: check_site reads it.
 for (const chapter of document.querySelectorAll('[data-chapter]')) {
-  gsap.fromTo(chapter.querySelector('.panel'), { opacity: 0.15, y: 40 }, {
-    opacity: 1, y: 0, ease: 'none',
-    scrollTrigger: { trigger: chapter, start: 'top 85%', end: 'top 35%', scrub: true },
+  gsap.from(chapter.querySelectorAll('.panel > *'), {
+    opacity: 0, y: 24, ease: 'none', stagger: 0.3,
+    scrollTrigger: { trigger: chapter, start: 'top 85%', end: 'top 25%', scrub: true },
   });
 }
-// One number for the whole page (0 at the top, 1 at the bottom), for a progress bar.
-ScrollTrigger.create({
-  trigger: '#story', start: 'top top', end: 'bottom bottom',
-  onUpdate: (self) => document.documentElement.style.setProperty('--progress', self.progress.toFixed(4)),
-});
 ```
-<!-- check: js (async () => { scrollTo(0, document.documentElement.scrollHeight); await new Promise((r) => setTimeout(r, 1500)); return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--progress')) > 0.95; })() -->
+<!-- check: js (async () => { const wait = () => new Promise((r) => setTimeout(r, 1500)), kids = [...document.querySelectorAll('#how .panel > *')], seen = () => kids.map((el) => +getComputedStyle(el).opacity), top = document.getElementById('how').getBoundingClientRect().top + scrollY; scrollTo(0, top - innerHeight * 0.55); await wait(); const mid = seen(); scrollTo(0, top - innerHeight * 0.1); await wait(); const end = seen(); return kids.length >= 2 && mid[0] > mid[kids.length - 1] + 0.2 && end.every((v) => v > 0.99); })() -->
 
 ## Lenis 1.3: smooth scrolling
 
@@ -209,7 +325,18 @@ window.__site.scrollWith = (y) => lenis.scrollTo(y);
 ## pmndrs postprocessing 6.39 and n8ao 2.1: effects, used sparingly and measured
 
 Ambient occlusion (n8ao) gives contact and depth where a shadow map does not; a little bloom makes emissive parts
-read; tone mapping and SMAA finish the picture. Each pass is a full-screen draw at device resolution: measure the draw
+read; tone mapping and SMAA finish the picture. Ambient occlusion is the starter's already: `src/occlusion.js` adds an
+N8AO pass through postprocessing when the project has both packages and the GPU can afford it (not on a phone or a
+software renderer, but in `check_site`'s browser, which sets `data-agy3d-camera` on `<html>` to ask for what a visitor
+with a GPU sees; `?ao=1` in the address forces it on, `?ao=0` off, and `info().occlusion` says which). Keep it on: run
+3 had n8ao installed and drew none, and its stacked slabs read as toy blocks. It is not free: at 1440 x 900 it holds
+about 95 MB of graphics memory beyond the plain starter's 38 MB (about 80 bytes per pixel drawn), so the starter caps
+the drawing buffer at a pixel ratio of 1.5 and 3 million pixels while it is on, and `check_site` reports the total.
+Leave the composer's `multisampling` at 0 and smooth edges with SMAA after the tone mapping: four samples held 124 MB
+more in the starter for edges no smoother at 4x zoom. Write a composer of your
+own only for another pass, and keep the starter's two details: the background and fog get the colour the effect
+pass's tone mapping turns into the page's colour (tone mapped, #101215 came out #010308), and the renderer's
+`info.autoReset` is off so the draw calls are the frame's, not the last pass's. Each pass is a full-screen draw at device resolution: measure the draw
 calls and the frame on a phone size before keeping one, and drop to fewer passes or a lower resolution there.
 postprocessing 6.39.6 declares three `>= 0.168 < 0.188`: check its peer range before moving three past 0.187. With
 postprocessing, create the renderer with `antialias: false, stencil: false, depth: false` (the composer has its own
@@ -296,7 +423,11 @@ To label a prop in the starter's page, register the label with the stage: its `l
 prop is on stage), the page draws again when troika has its glyphs, and `__site.info().onScreen` reports its box with
 `kind: "label"`, so `check_site` can tell when it is cut by the frame or lies under the panel. Stand a label upright
 at about its prop's height, facing the shots that show it. Why: run 2 laid its labels flat on the floor, and at the
-low angles of its shots they were slivers, cut at the frame's bottom edge or hidden by the panel.
+low angles of its shots they were slivers, cut at the frame's bottom edge or hidden by the panel. A label is flagged
+`subject: true` while its prop is the shot's subject, and the stage hides one whose box is under 16 CSS px high on
+screen until a closer shot makes it readable: run 3's finale showed its labels 5 to 7 px high on a phone. So size a
+label for the shots that are about its prop (a `fontSize` of about 3 % of the camera's distance there), not for a
+wide one.
 
 ```js
 // example: troika-label
@@ -324,7 +455,7 @@ lighting, environment and shadows: write only the part that changes, into `csm_P
 `csm_Roughness` and the like. Import the plain three.js build from `three-custom-shader-material/vanilla`. A surface
 that moves needs the same change in its depth material, or its shadow stays where the undisplaced surface was.
 
-Two rules for any GLSL you write for a three.js material, this one or a `ShaderMaterial`:
+Three rules for any GLSL you write for a three.js material, this one or a `ShaderMaterial`:
 
 - **Colours reach a shader as uniforms made from `THREE.Color`, never as typed numbers.** Why: inside the shader
   colours are linear, and three converts a `THREE.Color` from the sRGB hex you know to linear when it uploads it;
@@ -332,10 +463,20 @@ Two rules for any GLSL you write for a three.js material, this one or a `ShaderM
   floor, meant to be near black, came out light grey that way (`csm_DiffuseColor` replaces three's diffuse colour
   after its own conversion, so nothing converts it for you). A colour that is computed in the shader is fine; a colour
   someone chose is a uniform.
+- **Two palette colours that stand for two states are switched, never held as a blend:**
+  a `mix` driven by a `smoothstep` over a short span of story time (`color = mix(a, b, smoothstep(e0, e1, t));`), so
+  every resting picture shows one of them, never a `mix` held at a constant such as 0.6. Why: run 3 held its rail at a blend of its blue and its red, an off-palette pink
+  (243,171,219) that no design rule allows.
 - **A procedural edge (a stripe, a grid line, a reveal) is smoothed over one pixel with `fwidth`.** Why: `step`
   gives a hard edge that the renderer's antialiasing does not touch (it smooths only the edges of triangles), so it
   crawls and flickers as the camera moves. Write `edge = smoothstep(-w, w, d)` with `w = fwidth(d)`, `d` the signed distance
   to the edge in any unit.
+
+A floor written this way looks after the ground's colour itself (the light section above): divide the colours it
+writes by the starter's `GROUND_LIGHT` (a uniform, or `new THREE.Color(hex).multiplyScalar(1 / GROUND_LIGHT)` for
+each) and give the material `envMap: scene.environment` and `envMapIntensity: GROUND_ENVIRONMENT`, both exported by
+stage.js. Why: `csm_DiffuseColor` replaces the material's own colour, so the colour of `groundLook` does not reach
+such a floor, and runs 4 and 5 both wrote theirs as a shader.
 
 ```js
 // example: custom-shader-material

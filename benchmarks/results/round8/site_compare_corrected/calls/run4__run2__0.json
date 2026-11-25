@@ -1,0 +1,33 @@
+{
+ "first": "run4",
+ "second": "run2",
+ "rep": 0,
+ "frames": [
+  "942e475c1cb9450d",
+  "16663fbe6c17af2f"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 keeps the active 3D apparatus cleanly framed to the right across frames 1-9, whereas Site 2 lets its text card occlude the red stacks and machine edges in frames 1, 2, 4, and 9."
+   },
+   "explains_the_project": {
+    "winner": "1",
+    "reason": "Site 1 clearly illustrates log compression in frame 3, local drawer storage in frame 5, and line-shift anchoring in frame 6 as a continuous assembly line."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 features brighter studio lighting, subtle metallic surface wear, beveled edges, and grounded contact shadows in frames 1, 4, and 7 compared to Site 1's darker scene."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Site 1 maintains clean visual separation between its left UI panel and the 3D subject in frames 1-9, though frame 1 has a minor button spacing typo, while Site 2's card clips into the 3D models in frames 1, 2, and 7."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Site 1 delivers a better-composed spatial narrative where the camera travel and unobstructed 3D assembly line clearly visualize how Straitjacket bounds, stores, and anchors agent output."
+  }
+ }
+}

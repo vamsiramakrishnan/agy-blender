@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Straitjacket — Addressable Evidence for Coding Agents</title>
+  <meta name="description" content="Straitjacket bounds oversized tool output, stores raw streams locally, and hands coding agents verifiable addresses and multi-harness checkpoints.">
+  <link rel="icon" type="image/svg+xml" href="./icon/favicon.svg">
+  <script>document.documentElement.classList.replace('no-js', 'js');</script>
+  <link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+  <header class="topbar" data-bar>
+    <div class="topbar-inner">
+      <a class="brand" href="#intro">
+        <img src="./icon/icon.svg" width="20" height="20" alt="" aria-hidden="true">
+        <span class="brand-name">STRAITJACKET</span>
+        <span class="brand-ver" data-src="README.md">v0.5.0</span>
+      </a>
+      <nav class="chapter-nav" aria-label="Chapters">
+        <a href="#intro" data-nav="intro"><span>01</span>Overview</a>
+        <a href="#flood" data-nav="flood"><span>02</span>Flood</a>
+        <a href="#digest" data-nav="digest"><span>03</span>Digest</a>
+        <a href="#retrieve" data-nav="retrieve"><span>04</span>Store</a>
+        <a href="#anchors" data-nav="anchors"><span>05</span>Anchors</a>
+        <a href="#handoff" data-nav="handoff"><span>06</span>Handoff</a>
+      </nav>
+      <a class="docs-link" href="./docs/">DOCS →</a>
+    </div>
+    <div class="progress-track" aria-hidden="true"><div class="progress-fill"></div></div>
+  </header>
+
+  <canvas id="stage" aria-hidden="true"></canvas>
+
+  <main id="story">
+    <section class="chapter" id="intro" data-chapter="intro">
+      <div class="panel">
+        <p class="kicker"><span class="dot dot-blue"></span>01 / ADDRESSABLE EVIDENCE</p>
+        <h1>NOTHING LEAVES WITHOUT A HANDLE</h1>
+        <p>Straitjacket helps coding agents find the code they need and hand work to each other. Large command output stays on disk; the model gets a compact digest and an address to pull exact lines later.</p>
+        <div class="metrics">
+          <div class="metric">
+            <span class="metric-label">PACKAGE</span>
+            <code class="metric-val mono" data-src="README.md">ctx-harness==0.5.0</code>
+          </div>
+          <div class="metric">
+            <span class="metric-label">INVARIANT</span>
+            <span class="metric-val">Omission keeps an address</span>
+          </div>
+        </div>
+        <div class="actions">
+          <a class="btn btn-primary" href="#flood">Trace the evidence ↓</a>
+          <a class="btn" href="./docs/">Read documentation →</a>
+        </div>
+        <img class="still" src="./stills/intro.webp" width="1280" height="800" loading="lazy" alt="Straitjacket Containment Gate sitting on the calibrated metrology deck with a compact blue digest stack and amber receipt cap on its exit chute.">
+      </div>
+    </section>
+
+    <section class="chapter" id="flood" data-chapter="flood">
+      <div class="panel">
+        <p class="kicker"><span class="dot dot-red"></span>02 / THE CONTEXT FLOOD</p>
+        <h2>RAW LOGS FLOOD EVERY LATER TURN</h2>
+        <p>A <span class="num" data-src="evals/field-needle-record.json#/corpus/lines">20,001</span>-line integration log consumes <span class="num text-red" data-src="evals/field-needle-record.json#/corpus/raw_tokens_o200k">302,628</span> tokens. Head-and-tail truncation cuts it to <span class="num" data-src="evals/field-needle-record.json#/arms/1/out_tokens">1,219</span> tokens—and silently drops the quiet failure at line <span class="num text-amber" data-src="evals/field-needle-record.json#/corpus/quiet_needle_line">14,238</span>.</p>
+        <div class="receipt-grid">
+          <div class="receipt-row">
+            <span class="tag tag-red">RAW FLOOD</span>
+            <span class="mono num" data-src="evals/field-needle-record.json#/arms/0/out_tokens">302,628</span>
+            <span class="receipt-note">tok · needle kept, window flooded</span>
+          </div>
+          <div class="receipt-row">
+            <span class="tag tag-red">TRUNCATE</span>
+            <span class="mono num" data-src="evals/field-needle-record.json#/arms/1/out_tokens">1,219</span>
+            <span class="receipt-note">tok · quiet needle dropped, no handle</span>
+          </div>
+        </div>
+        <p class="source-note">Receipt: <code>evals/field-needle-record.json</code> (o200k_base)</p>
+        <img class="still" src="./stills/flood.webp" width="1280" height="800" loading="lazy" alt="A towering coral-red stack of raw log slabs piling up at the Containment Gate intake beside a head-and-tail truncated stack whose middle lines fell away while the amber needle sits buried in the raw flood.">
+      </div>
+    </section>
+
+    <section class="chapter" id="digest" data-chapter="digest">
+      <div class="panel">
+        <p class="kicker"><span class="dot dot-blue"></span>03 / BOUNDED DIGEST</p>
+        <h2><span data-src="evals/field-needle-2026-07-20.md">570×</span> SMALLER, QUIET NEEDLE INTACT</h2>
+        <p><code>ctx run</code> captures stdout once, groups repeated lines into templates, and emits a <span class="num text-blue" data-src="evals/field-needle-record.json#/arms/6/out_tokens">531</span>-token digest—<span class="num" data-src="evals/field-needle-2026-07-20.md">570×</span> smaller—retaining line <span class="num text-amber" data-src="evals/field-needle-record.json#/corpus/quiet_needle_line">14,238</span> and an immutable run handle.</p>
+        <pre class="specimen" data-src="evals/field-needle-record.json#/arms/6/output_excerpt"><code>[ctx run:8956c843e556 profile=logtemplate/v1]
+cwd: .
+command: cat corpus.log
+exit: 0
+stdout: 20,001 lines · 979.1 KiB · est 250,648 tokens</code></pre>
+        <p class="source-note">Receipt: <code>evals/field-needle-record.json</code> (logtemplate/v1)</p>
+        <img class="still" src="./stills/digest.webp" width="1280" height="800" loading="lazy" alt="Containment Gate with the raw flood cleared to archival storage and a compact six-slab blue digest topped by the amber receipt handle resting on the bounded exit rail.">
+      </div>
+    </section>
+
+    <section class="chapter" id="retrieve" data-chapter="retrieve">
+      <div class="panel">
+        <p class="kicker"><span class="dot dot-amber"></span>04 / LOCAL ARTIFACT STORE</p>
+        <h2>PULL ONLY THE LINES THAT DECIDE</h2>
+        <p>Full streams reside locally up to <span class="num text-amber" data-src="README.md">64 MiB</span> per stream. Search by handle and fetch the exact slice you need—leaving earlier prompt turns untouched so prefix caches stay valid.</p>
+        <pre class="specimen" data-src="docs/HOW-IT-WORKS.md#L47-L48"><code>ctx search run:8d8335db6848#stdout "MissingTenantError"
+ctx get run:8d8335db6848#stdout --lines 1280:1300</code></pre>
+        <p class="source-note">Example commands from <code>docs/HOW-IT-WORKS.md</code> (illustrative run handle)</p>
+        <img class="still" src="./stills/retrieve.webp" width="1280" height="800" loading="lazy" alt="Local Artifact Store vault with brass-trimmed archival bays sliding a targeted slice of blue line slabs topped by an amber handle forward along the amber retrieval rail.">
+      </div>
+    </section>
+
+    <section class="chapter" id="anchors" data-chapter="anchors">
+      <div class="panel">
+        <p class="kicker"><span class="dot dot-green"></span>05 / CONTENT ANCHORS</p>
+        <h2>ADDRESSES THAT SURVIVE EDITS</h2>
+        <p>Bare line numbers drift silently: <span class="num text-red" data-src="evals/anchor-drift-2026-08-20.json#/total/unanchored_silently_wrong">1,918</span> of <span class="num" data-src="evals/anchor-drift-2026-08-20.json#/total/cases">1,920</span> unanchored lookups returned the wrong code. Content anchors track the bytes, never just the line.</p>
+        <div class="metrics metrics-4">
+          <div class="metric">
+            <span class="metric-label">RELOCATED</span>
+            <span class="metric-val num text-green" data-src="evals/anchor-drift-2026-08-20.json#/total/relocated">1,452</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">VERIFIED</span>
+            <span class="metric-val num text-green" data-src="evals/anchor-drift-2026-08-20.json#/total/verified">2</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">REFUSED</span>
+            <span class="metric-val num text-amber" data-src="evals/anchor-drift-2026-08-20.json#/total/refused">466</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">WRONG</span>
+            <span class="metric-val num text-blue" data-src="evals/anchor-drift-2026-08-20.json#/total/anchored_wrong">0</span>
+          </div>
+        </div>
+        <pre class="specimen" data-src="docs/ANCHORS.md#L95-L95"><code>ctx get repo:m.py --lines 4:5@07407f1c</code></pre>
+        <p class="source-note">Receipt: <code>evals/anchor-drift-2026-08-20.json</code> (<span data-src="evals/anchor-drift-2026-08-20.json#/files">40</span> files, <span data-src="evals/anchor-drift-2026-08-20.json#/total/cases">1,920</span> cases)</p>
+        <img class="still" src="./stills/anchors.webp" width="1280" height="800" loading="lazy" alt="Content Anchor vise tracking a shifted green code span with its amber byte caliper while a red unanchored line marker remains stuck at the stale line number above.">
+      </div>
+    </section>
+
+    <section class="chapter" id="handoff" data-chapter="handoff">
+      <div class="panel">
+        <p class="kicker"><span class="dot dot-blue"></span>06 / MULTI-HARNESS HANDOFF</p>
+        <h2>ROUTE WORK, NOT TRANSCRIPTS</h2>
+        <p><code>ctx orchestrate</code> delegates exploration, implementation, and verification across seven harnesses over ACP, passing checkpoints and evidence handles instead of full chat history.</p>
+        <div class="harnesses" aria-label="Supported coding harnesses">
+          <img src="./agents/claude.svg" width="24" height="24" alt="Claude Code" title="Claude Code">
+          <img src="./agents/codex.svg" width="24" height="24" alt="Codex" title="Codex">
+          <img src="./agents/antigravity.png" width="24" height="24" alt="Antigravity" title="Antigravity">
+          <img src="./agents/hermes.svg" width="24" height="24" alt="Hermes" title="Hermes">
+          <img src="./agents/omp.svg" width="24" height="24" alt="Oh My Pi" title="Oh My Pi">
+          <img src="./agents/opencode.svg" width="24" height="24" alt="OpenCode" title="OpenCode">
+          <img src="./agents/dsh.svg" width="24" height="24" alt="DeepSeek Harness" title="DeepSeek Harness">
+        </div>
+        <pre class="specimen" data-src="README.md#L33-L34"><code>python -m pip install 'ctx-harness==0.5.0'
+ctx run -- pytest -q</code></pre>
+        <pre class="specimen" data-src="README.md#L66-L66"><code>ctx orchestrate 'Review the current diff' --dry-run</code></pre>
+        <div class="actions">
+          <a class="btn btn-primary" href="./docs/">Open documentation →</a>
+          <a class="btn" href="#intro">Back to top ↑</a>
+        </div>
+        <img class="still" src="./stills/handoff.webp" width="1280" height="800" loading="lazy" alt="Wide view of the full Straitjacket evidence bench showing Containment Gate, Artifact Store, and Content Anchor linked by semantic bus rails carrying compact blue and amber handoff packets.">
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

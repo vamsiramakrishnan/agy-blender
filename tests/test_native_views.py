@@ -301,6 +301,29 @@ def test_the_short_path_says_how_big_a_call_is_and_why_not_to_script_blender():
         assert "not by scripting Blender" in text and "as few calls as it takes" not in text
         assert "DELIVERED" in text and "do not inspect it again" in text and "NOT DELIVERED: a person must decide" in text
 
+async def test_a_delivery_far_under_its_target_says_look_first_once(tmp_path):
+    """Run 3 of the website task: three props delivered at 2.07 to 2.31 of a target of 3.4, each installed in the turn
+    its render was opened, because this answer said "do not inspect" and "NEXT: install". A point or more under a target,
+    the answer puts the look before the use, and says so once in a session."""
+    pytest.importorskip("antigravity3d.delivery")
+    env = make_session(tmp_path, client=FakeDecisionsClient(uncalibrated=True, default_score=2.0), stage="BLOCKOUT")
+    S.switch_to_preview(env.reg, env.sid, 400_000, 0)
+    await T.apply_scene_ir(json.dumps(CRATE), env.ctx)
+    lines = (await T.deliver_package(env.ctx, "crate")).split("\n")
+    assert lines[0].startswith("DELIVERED: EXPORTED PREVIEW crate"), lines
+    look = [x for x in lines if x.startswith(T.LOOK_FIRST)]
+    assert len(look) == 1 and lines.index(look[0]) == len(lines) - 1, lines   # after FINISHED, where the next step is said
+    assert "the review puts it 1.40 under a target" in look[0] and "with apply_scene_ir, then deliver_package again" in look[0]
+    finished = next(x for x in lines if x.startswith("FINISHED: "))
+    assert "do not inspect" not in finished and finished.endswith("Its files need no further check and no copying.")
+    # one more round was given: the second delivery is used as it is, whatever the judge says of it
+    changed = await T.apply_scene_ir(json.dumps({"ops": [box("handle", (0.3, 0.1, 0.05), 0.70)]}), env.ctx)
+    assert changed.startswith("OK"), changed
+    again = (await T.deliver_package(env.ctx, "crate")).split("\n")
+    assert again[0].startswith("DELIVERED: EXPORTED PREVIEW crate"), again
+    assert not [x for x in again if x.startswith(T.LOOK_FIRST)] and "do not inspect" in again[-1]
+
+
 
 def _named_tools(text: str) -> set[str]:
     import re

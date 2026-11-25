@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Still mode</title>
+<!-- A page that frames its stills differently while check_site draws them: setProgress draws green while <html> has
+     data-agy3d-still and red without it, and notes what it saw. The second chapter's setProgress throws, so the
+     attribute must outlast a failed still. Every change of the attribute is noted too. -->
+<style>html,body{margin:0;background:#101418}canvas{position:fixed;inset:0;width:100vw;height:100vh}</style></head>
+<body><canvas id="c"></canvas><div style="height:300vh"></div>
+<script type="module">
+import { setup } from './gl.js';
+const { gl, quad, color } = setup(document.getElementById('c'));
+quad([-1, -1, 1, -1, 1, 1, -1, -1, 1, 1, -1, 1]);
+window.__seen = [];
+window.__changes = [];
+new MutationObserver(() => window.__changes.push(document.documentElement.hasAttribute('data-agy3d-still')))
+  .observe(document.documentElement, { attributes: true, attributeFilter: ['data-agy3d-still'] });
+window.__site = {
+  setProgress(T) {
+    const still = document.documentElement.hasAttribute('data-agy3d-still');
+    window.__seen.push([Math.round(T), still]);
+    if (Math.round(T) === 2) throw new Error('fixture still boom');
+    const c = still ? [0, 1, 0] : [1, 0, 0];
+    gl.clearColor(...c, 1); gl.clear(gl.COLOR_BUFFER_BIT); color(...c); gl.drawArrays(gl.TRIANGLES, 0, 6);
+  },
+  chapters: () => [{ id: 'one', rest: 0.7 }, { id: 'two', rest: 1.7 }, { id: 'three', rest: 2.7 }],
+  info: () => ({}),
+};
+</script></body></html>

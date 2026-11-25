@@ -1,0 +1,245 @@
+{
+ "criteria": [
+  "every_position_composed",
+  "explains_the_project",
+  "craft_of_the_3d",
+  "type_and_layout"
+ ],
+ "size": "desktop",
+ "repeats_per_order": 3,
+ "sites": {
+  "asbuilt": "942e475c1cb9450d",
+  "rig2": "82105f5eaadfc82d"
+ },
+ "calls": [
+  {
+   "first": "rig2",
+   "second": "asbuilt",
+   "rep": 2,
+   "frames": [
+    "82105f5eaadfc82d",
+    "942e475c1cb9450d"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites feature identical camera compositions and framing across all scroll steps from frame 1 to frame 9."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites use the exact same 3D assembly line metaphor in frames 1 through 9 to explain log compression, storage, anchoring, and gates."
+     },
+     "craft_of_the_3d": {
+      "winner": "1",
+      "reason": "Site 1 has slightly brighter ambient lighting and floor grid visibility in frames 1-5 and 9, making the dark 3D machinery forms easier to read against the background than in Site 2."
+     },
+     "type_and_layout": {
+      "winner": "tie",
+      "reason": "Both sites have identical typography, hierarchy, and left-hand card layouts from frame 1 to frame 9."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "While both sites share an almost identical design and layout, Site 1's brighter scene lighting and grid contrast make the dark 3D machinery clearer and better grounded."
+    }
+   }
+  },
+  {
+   "first": "rig2",
+   "second": "asbuilt",
+   "rep": 0,
+   "frames": [
+    "82105f5eaadfc82d",
+    "942e475c1cb9450d"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites use identical camera paths across frames 1 to 9, keeping the 3D assembly line clearly framed beside the left text panel."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites depict the exact same 3D press, drawer vault, caliper, and seven-lane gate across frames 3 to 8 to explain Straitjacket's workflow."
+     },
+     "craft_of_the_3d": {
+      "winner": "1",
+      "reason": "Site 1 has slightly brighter, clearer lighting and material definition on the machinery and floor grid in frames 1 through 9, whereas Site 2's dark metals lose detail in shadow."
+     },
+     "type_and_layout": {
+      "winner": "tie",
+      "reason": "Both sites share the exact same typography, hierarchy, and left-aligned card layout from frame 1 to frame 9."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "Although both sites share the same design and 3D choreography, Site 1's brighter scene lighting makes the 3D machinery and spatial grid easier to read."
+    }
+   }
+  },
+  {
+   "first": "asbuilt",
+   "second": "rig2",
+   "rep": 2,
+   "frames": [
+    "942e475c1cb9450d",
+    "82105f5eaadfc82d"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites share the exact same camera framing and scroll travel from frames 1 to 9."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites use identical 3D machinery metaphors across frames 1 to 9 to illustrate Straitjacket's workflow."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "Site 2 features sharper ambient lighting and ground visibility across frames 1 to 9 compared to Site 1's darker scene."
+     },
+     "type_and_layout": {
+      "winner": "tie",
+      "reason": "Both sites present identical typography, card hierarchy, and layout across frames 1 to 9."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "While nearly identical in layout and choreography, Site 2 provides slightly clearer lighting and contrast on the 3D floor and models throughout the scroll."
+    }
+   }
+  },
+  {
+   "first": "rig2",
+   "second": "asbuilt",
+   "rep": 1,
+   "frames": [
+    "82105f5eaadfc82d",
+    "942e475c1cb9450d"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites feature identical camera compositions and framing across frames 1 through 9."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites use the exact same 3D press, vault, and manifold metaphors across frames 1 to 9 to illustrate the workflow."
+     },
+     "craft_of_the_3d": {
+      "winner": "1",
+      "reason": "Site 1 has clearer ambient lighting and more distinct surface shading on the dark machinery and floor grid in frames 1 through 5, whereas Site 2 is darker and loses cabinet detail in shadow."
+     },
+     "type_and_layout": {
+      "winner": "tie",
+      "reason": "Both sites share the exact same typography, hierarchy, and left-aligned card layout from frame 1 to frame 9."
+     }
+    },
+    "overall": {
+     "winner": "1",
+     "reason": "While both sites share the same layout, copy, and 3D choreography, Site 1's brighter lighting makes the dark 3D machinery and ground plane easier to read."
+    }
+   }
+  },
+  {
+   "first": "asbuilt",
+   "second": "rig2",
+   "rep": 0,
+   "frames": [
+    "942e475c1cb9450d",
+    "82105f5eaadfc82d"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites share the exact same camera framing and scroll progression across frames 1 to 9."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites use identical 3D press, vault, and caliper machinery across frames 1 to 9 to illustrate Straitjacket's workflow."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "Site 2 renders brighter ambient lighting, clearer floor shadows, and sharper metallic specular detail across frames 1 to 9 than the darker Site 1."
+     },
+     "type_and_layout": {
+      "winner": "tie",
+      "reason": "Typography, card placement, and layout hierarchy are completely identical across frames 1 to 9 on both sites."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "While the layout, text, and 3D choreography are identical, Site 2 features superior scene lighting and grounding shadows across all frames."
+    }
+   }
+  },
+  {
+   "first": "asbuilt",
+   "second": "rig2",
+   "rep": 1,
+   "frames": [
+    "942e475c1cb9450d",
+    "82105f5eaadfc82d"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Frames 1 through 9 in both sites share identical camera compositions and framing along the scroll path."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites use the exact same 3D conveyor press, cabinet, and manifold metaphor across frames 1 to 9 to illustrate Straitjacket."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "Site 2 has balanced lighting and grounded floor shadows across frames 1 to 9, whereas Site 1's environment and shadows are overly dark and crushed."
+     },
+     "type_and_layout": {
+      "winner": "tie",
+      "reason": "Both sites feature the exact same typography, top navigation, and left-aligned card layout across frames 1 to 9."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "While both sites share the same design, 3D models, and scroll choreography, Site 2 renders the 3D scene with better ambient lighting and clearer shadows on the floor grid."
+    }
+   }
+  }
+ ],
+ "aggregate": {
+  "asbuilt vs rig2": {
+   "votes": {
+    "every_position_composed": {
+     "tie": 6
+    },
+    "explains_the_project": {
+     "tie": 6
+    },
+    "craft_of_the_3d": {
+     "rig2": 6
+    },
+    "type_and_layout": {
+     "tie": 6
+    },
+    "overall": {
+     "rig2": 6
+    }
+   },
+   "calls": 6,
+   "result": {
+    "every_position_composed": "no majority",
+    "explains_the_project": "no majority",
+    "craft_of_the_3d": "rig2",
+    "type_and_layout": "no majority",
+    "overall": "rig2"
+   }
+  }
+ },
+ "model": "gemini-4-carbon",
+ "thinking": "low"
+}

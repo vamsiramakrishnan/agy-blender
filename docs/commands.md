@@ -246,18 +246,28 @@ scene.add(await loadMilitarySupplyCrate({ renderer }));
 ```
 
 `renderer` is needed for compressed textures. The result is a `THREE.Group` holding one `THREE.LOD` that follows the
-live camera. `group.userData.agy3d` holds `bounds`, `hulls` (the collision hulls as plain arrays of points and
-triangle indices, for Rapier or cannon-es; no physics library is wired), `levels` and `dispose()`, which frees what
-the loader made. Options: `baseUrl`, `transcoderPath`, `collision: false` (do not fetch the collision data).
+live camera. The promise resolves once the nearest level (with its textures) and the collision data are loaded; each
+farther level is fetched the first time the camera comes within 80 % of the distance where it appears, and until it
+has arrived the nearest loaded level is drawn. A far level that fails to load leaves the nearer one drawn, with one
+console warning naming the file. `group.userData.agy3d` holds `bounds`, `hulls` (the collision hulls as plain arrays
+of points and triangle indices, for Rapier or cannon-es; no physics library is wired), `levels` (every level, each
+with `loaded`), `loadLevels()` (a promise that every level is loaded, to fetch them ahead) and `dispose()`, which
+frees what the loader made, also a level that arrives afterwards. Options: `baseUrl`, `transcoderPath`,
+`collision: false` (do not fetch the collision data), `levels: "all"` (fetch every level before resolving; the
+promise then rejects if one fails).
 With React Three Fiber: `<MilitarySupplyCrate position={[0, 0, 0]} />` in a `<Canvas>`, imported from
-`./agy3d/military_supply_crate/react`.
+`./agy3d/military_supply_crate/react`; it takes the same options as props (`levels="all"` among them).
 
 Checks, run in a headless browser with the project's own three.js on a copy of what was written, each passed, failed
 or skipped with the reason: `import`, `loader`, `scene`, `scale`, `levels`, `materials`, `outline`, `collision` (every
-hull point against the package's colliders file), `level_switching`, `shared_textures`, `loader_vs_package` (replaced
-by `compression` when the files are compressed) and, with React Three Fiber, `react_component`. That is 11 checks, 12
-with React Three Fiber. Without a browser, or without `node_modules/three`, they are skipped, never passed.
-A run printed:
+hull point against the package's colliders file), `level_switching`, `shared_textures`, `levels_on_demand` (with
+default options only the nearest level's file is requested, and a camera beyond the next level's reach requests that
+file once and the LOD then draws it, counted from the requests the check's page server answered),
+`loader_vs_package` (replaced by `compression` when the files are compressed) and, with React Three Fiber,
+`react_component`. The other checks load every level (`levels: "all"`). That is 12 checks, 13 with React Three
+Fiber. Without a browser, or without `node_modules/three`, they are skipped, never passed. The result's notes say how
+many bytes a page receives for the asset with default options, and how many the far levels add when they are
+fetched. A run from before `levels_on_demand` existed printed:
 
 ```text
 agy3d install: installed military_supply_crate: loader in src/agy3d/military_supply_crate, files in public/agy3d/military_supply_crate
@@ -341,15 +351,42 @@ What it does:
 4. Loads the page once with "reduce motion" set and once with WebGL taken away, and says what a visitor then gets.
 5. Checks every element that names its source (below), and lists numbers and code shown without one.
 6. At each step, when the page says where its subjects are (below), measures how much of each is cut by the frame's
-   edge and how much lies under the page's HTML, and names those a visitor would notice.
+   edge and how much lies under the page's HTML, and names those a visitor would notice. After the steps it reads the
+   subjects at four times as many positions, evenly from top to bottom (the steps' own left out), without a picture:
+   scroll, two of the page's frames and the end of any CSS transition (at most 0.6 s), read. Coarse to fine, next to a
+   fault already found first within each level, for at most 20 s per size: the starter reads all 24 positions of a
+   9-step check in 8 to 10 s, run 4's heavy site 12 to 16 of them (1.2 to 1.8 s each). Run 4's agent checked with
+   twelve steps and was told of no subject out of the frame; nine steps named six: what the steps alone find depends
+   on where they stop. The answer's measures say how many positions were read.
+   After the first step, on the desktop visit, it also scrolls one wheel notch (120 px) from the top of the page and
+   reads how far the picture moved and how much of the text did ("the first wheel notch" under Measures).
 
 Where the subjects are. A page may expose `window.__site.info()`, whose result holds `onScreen`: one entry per subject
 on screen, keyed by its name, each `{ share, x, y, box: [x0, y0, x1, y1], kind }`. `box` is the subject's projected box
 as fractions of the window from its top left, not clamped (below 0 or above 1 it runs out of the frame); `kind` is
-`"prop"` or `"label"` (a 3D label; absent means prop). A page may also say which props the current shot is about, with
-`subject: true` or `false` on each: where any prop is marked so, the others are the shot's background, measured and
-kept in the record but not named in the answer. Labels always count. The skill's starter project writes all of it. A page without `box` (only
-`share`, `x`, `y`, as pages built before it have) or without the hook gets nothing measured and nothing said about its
+`"prop"`, `"layer"` (an instanced layer or a group of generated geometry a shot is about; measured and reported exactly
+as a prop, and called "the layer") or `"label"` (a 3D label; absent means prop). A page may also say which props the
+current shot is about, with `subject: true` or `false` on each: where any prop is marked so, the others are the shot's
+background, measured and kept in the record but not named in the answer. Labels always count for being cut or hidden.
+The same flags let the check say three things about the shot itself, and only where the page gives them (a page that
+flags nothing gets none of them, rather than a guess): whether the shot's subject keeps the same place and size over
+a stretch of the scroll ("the picture does not travel"), whether it is the same size on screen at most steps ("one
+scale throughout", a measure), and which labels are too small to read at a step where the shot is about them. A label
+counts as the shot's where it is flagged `subject: true`, or at a step that flags nothing on a page that flags other
+steps: the starter's establishing shot, which names no subject because the whole scene is its subject. A page may
+also say `moving: true` in the result of `info()` while its camera is between two shots, and `false` (or nothing)
+while it holds one. The check does not take the page's word alone: where the page says so and no chapter text is
+readable there (fewer than 20 characters of headings, paragraphs and list items drawn over the canvas at half opacity
+or more, outside the page's header, nav and footer, measured in the page), no subject is named as cut, hidden or too
+small at that position, at a step and between steps alike. Where chapter text is up during the move, a subject cut,
+hidden or too small is named as at a held shot, and the line says why: the text is up while the camera is still on its
+way, so show the text when the shot is held, as the starter does, or finish the move first; the contact sheet marks
+such a step "text mid-move". Run 4's site at 38 % of the scroll had the next chapter's text up while the camera was
+still travelling, and its stations on one line kept that frame composed; run 5's site did the same with stations at
+angles, the check, told the camera was moving, said nothing at 62 %, and a blind judge named that frame in all six
+verdicts against it. A page that does not say `moving` is judged as if it held its shot. The skill's starter
+project writes all of it, and shows no chapter text while its camera moves. A page without `box` (only `share`, `x`,
+`y`, as pages built before it have) or without the hook gets nothing measured and nothing said about its
 subjects. The hook is the page's code and is not trusted: at most 64 subjects are read, names are cut to 80
 characters, every number is checked, and a hook that throws or does not answer within 0.5 s leaves the step without
 the measure. For each subject with a box, at the moment the step's frame is taken:
@@ -363,17 +400,33 @@ the measure. For each subject with a box, at the moment the step's frame is take
   the facts are (`section#digest > div.panel`).
 
 The answer gives one line per subject and size, with the steps, the worst share, what covers it or which edges cut it,
-and the frame to look at; at most 8 subjects per size, props first, then one line naming the rest. Every subject at
-every step is in `report.json`. The contact sheet marks such steps `subject hidden` or `subject cut`.
+and the frame to look at; at most 8 subjects per size, props and layers first, then one line naming the rest. Where a
+fault was also found between the steps, the line gives the stretches of the scroll it covers instead ("from 62% to
+75% of the scroll"), neighbouring positions with the same fault of the same subject merged into one, and its worst
+position; where that position is not a step, the check takes one more frame there (`desktop_x1.jpg`, at most three
+per size, named to sort after the steps) and points at it. A subject that does not travel gets one line per size,
+naming the subject, the steps, the share of the scroll and what to do; that measure and "one scale throughout" stay on
+the photographed steps. Every subject at every step and every position between them (`between`) is in `report.json`.
+The contact sheet marks such steps `subject hidden`, `subject cut`, `subject held` or `label small`.
+
+The shot's subject against its ground. At each step whose shot names its subject (`subject: true`, props and layers),
+the check takes the canvas-only frame at 1/8 size, its most common colour as the background, and for each pixel inside
+the one box round the subject (clipped to the frame) its largest difference to that colour over the three channels.
+The 75th percentile is the step's measure (`contrast` in `report.json`): three quarters of what stands where the
+subject is lie within it of the background's colour. A box under 2 % of the frame either way gets none. The contact
+sheet marks a step under the limit `blends in`.
 
 Stills for the page without WebGL. When the page also gives `window.__site.chapters()`, a list of `{ id, rest }` (the
 chapter's id, and the story time at which it rests), and `window.__site.setProgress(T)`, as the skill's starter does,
 the desktop visit ends by drawing each chapter's rest and writing the 3D canvas alone as `stills/<chapter id>.webp`
-in the output folder: read from the canvas's drawing buffer right after the page drew it, so no HTML, no scrollbar
-and no headless band is in it; at most 1280 px wide (the article's text column is 40rem, about 590 CSS px of image,
+in the output folder: read from the canvas's drawing buffer right after the page drew it, so no HTML and no scrollbar
+is in it; at most 1280 px wide (the article's text column is 40rem, about 590 CSS px of image,
 so 1280 covers a screen of two device pixels per CSS pixel), WebP at quality 80: 41 to 65 kB each on run 2's site
 (quality 70 saves a fifth for 1 dB less, 90 costs 60 % more for 1.5 dB). At most 24
-chapters and 25 s in all; ids become file names of letters, digits, `-` and `_`, made distinct. The answer names the
+chapters and 25 s in all; ids become file names of letters, digits, `-` and `_`, made distinct. While it draws them,
+from before the first until after the last (also when one fails), `<html>` carries the attribute `data-agy3d-still`
+(empty), so a page may frame the shot's subject in the middle of the whole canvas instead of beside its text panel; a
+page that ignores it gets the stills it would get anyway. The answer names the
 folder under "Pictures"; `report.json` lists every still (`stills`) and why any was not made. A page without the hook
 gets no `stills` folder and nothing said.
 
@@ -384,9 +437,14 @@ How each finding is decided (the only thresholds; everything else is reported as
 | the 3D canvas shows nothing | under 1 % of the canvas (at 1/8 size) differs from its most common colour by more than 8 % | at 1/8 size the 1 px lines of a helper grid average away; an object does not. 1 % of a desktop canvas is a 120 x 108 px patch |
 | the 3D canvas shows little | the canvas shows something on under a quarter of the share it shows at the page's median step; the answer adds how much of that is one solid shape (the largest region after an opening of two pixels at 1/4 size) | the scene may have left the frame between chapters (run 1 at 62 %: a grid and one arc, 4 % against 19 %, one shape 53 to 63 % of it), or a small subject is framed on purpose (the skill's starter, its wide closing shot: 3 to 5 %, one shape 90 to 98 %). The shape share is a hint, not a rule: the film's opening, many small things composed on purpose, scores 26 %. The frames tell which |
 | the picture did not change | mean difference to the step before under 0.2 % (1/4-size grey frame) | the scroll moved and nothing on screen did |
+| the first scroll gets no answer | desktop only: one wheel notch (120 px) from the top of the page moves the picture by under a pixel, read on the window and on the 3D canvas alone (the pixels that flip by more than half the contrast around them, per place a row or a column crosses an edge), and under 10 % of the text in view moves 8 px or more; not read where the top of the page keeps changing by itself | a visitor decides at the first scroll whether the page is alive. The first chapter of runs 4 and 5 was one hold whose camera started from rest: the notch moved their pictures by 0.32 and 0.15 px, and by 2.5 px once run 5's camera curve started at speed, 8.8 px with the starter's opening move as well |
 | sideways scroll on a phone | the page is wider than the viewport by more than 1 px | a visitor's thumb finds it |
 | a 3D label cut or hidden | 10 % of its box outside the window, or 10 % of its part in the window under opaque HTML | a label 15 % cut loses the ends or feet of its letters and no longer reads (run 2: a floor label 21 % below the bottom edge and one 56 % under the text panel, both called out by the reviewer) |
 | a 3D label too small to read | its box is never taller than 16 px at any step where it is in the frame | a label that is small at some steps and readable at others is in the background there; one that is never larger cannot be read anywhere (run 2: a floor label in the last wide shot, a 15 px box and letters of a few pixels) |
+| a 3D label too small where the shot is about it | under 16 px tall at a step where it is in the frame, not cut or hidden by 10 %, and the shot's (flagged `subject: true`, or the step flags nothing on a page that flags others) | run 3's closing wide shot of its three props showed their labels at 11 to 15 px on the desktop and 5 to 7 px on the phone, readable at every other step, so the rule above said nothing. A label of a prop the shot is not about stays its background |
+| the picture does not travel | the shot's subject (flagged `subject: true`) keeps its box, every edge within 2 % of the window of where it was at the run's first step, over at least 3 neighbouring steps that cover at least 25 % of the scroll | run 3's phone layout fitted the gate into one place above the panel at steps 1 to 5 of 9: within 0.7 % of the window while the page scrolled half its length; small changes around it kept the frames from being "unchanged". On the desktop, not pinned, the subject moved 3.8 to 19 % of the window between neighbouring steps. Two steps are not enough (a page may rest at its top or bottom for a step), and a quarter of the scroll is more than one of run 3's six chapters, so a run inside one chapter's rest at 25 steps is not named |
+| the subject hardly stands out from its ground | the measure above under 10 % at a third or more of the steps that have one, and at two at least | run 4's site, dark steel on a dark floor, measured 5 to 9 % at seven of nine desktop steps and five phone steps, and the blind judge named it in every verdict on craft that went against the site ("dark machinery blends into the dark floor"); run 3 measured 25 to 32 % on the desktop and 13 to 20 % on the phone, the starter's grey stand-ins 19 to 36 %. One dark step is a moment; a third of the scroll is the site's look |
+| one scale throughout (a measure) | at least 4 steps flag a subject, and at least three quarters of them have the subject (the box around what is flagged, clamped to the window, the larger of its share of the height and the width) within a factor 1.25 of the median | shot sizes (wide, medium, close) differ by about a factor two in how much of the frame the subject fills. Run 3's desktop: 49 to 64 % of the window at all 8 such steps; a wide shot at 19 % is outside the band |
 | a prop cut | 30 % of its box outside the window | a close shot often runs a prop a little out of frame on purpose: run 2's props at 11 to 22 % out read as framed close, the clamp at 42 % and 62 % out as cut off |
 | a prop hidden | 15 % of its part in the window under opaque HTML | the box is the projection of the prop's 3D bounding box, whose corners stand off the silhouette: 12 % under run 2's top bar was only the empty corner above the gate, 20 % under the digest chapter's panel covered the gate's whole left column |
 | (neither) | less than a fifth of the box in the window | the subject is entering or leaving the shot (run 2: the vault as a sliver at the right edge, 84 to 93 % out) |
@@ -411,13 +469,42 @@ in a worker (OffscreenCanvas) or on WebGPU is not seen; the answer says when a p
 On software WebGL a heavy page draws a frame in about a second. GSAP treats any gap over 500 ms as 33 ms, so a
 scrubbed animation would barely move; the page is therefore shown at most 250 ms passing between two of its frames
 (`performance.now`, `Date.now` and the animation-frame time move together). A page that draws faster sees the real
-clock. Frames still changing after 4 s are kept and named in the measures.
+clock. The check waits for a step's picture to stop changing for 4 s, counted from the page's first two frames at the
+new position (a heavy page can take seconds to draw them after a jump), and for at most 12 s from the scroll; frames
+still changing after that are kept and named in the measures.
 
-One thing in the frames is headless Chromium's, not the page's: a WebGL canvas under an opaque, full-width fixed bar
-loses as many rows at the opposite edge (run 2's 48 px top bar left a flat 48 px band at the bottom of every
-full-window frame; a bar 300 px down blanks the rows 300 px up from the bottom). The same browser with a window draws
-them, and the canvas-only frames, read from the drawing buffer, show them. Subjects are measured from the page's
-geometry, not from the frames, so the band changes nothing that is reported.
+The check tests its camera before it believes it. A Chromium that puts pages together without the GPU path (a
+machine without a GPU whose browser was started without `--use-angle=swiftshader`, or with `--disable-gpu`; some
+container images wrap the browser in a script that removes such switches) draws a WebGL canvas wrongly in a screenshot
+wherever an opaque box lies over it: the part opposite the box, mirrored top to bottom, is left black. Run 2's 48 px
+top bar left a 48 px black band at the bottom of every frame; in run 3 the text panel's code block left a black box
+over the 3D label on the phone, and the agent spent 16 of its 105 minutes on it and changed the site's styles twice.
+No visitor's browser does this. So before the visits the check photographs a page of its own (a canvas of one colour
+under an opaque bar), once per browser:
+
+- the canvas shows opposite the bar: nothing is done and nothing is said;
+- it does not: the visits give a WebGL canvas a layer of its own (a filter that moves no pixel, `blur(0px)`, in a
+  rule that is first in the head and without specificity, so any rule of the page's own wins), which was measured to
+  give the canvas back: on run 3's site the frames taken this way differ from those of the same browser on its GPU
+  path in at most 0.06 % of their pixels, against 1.7 to 8.2 % before. The answer says so under `about these
+  pictures`, and that a screenshot script of the agent's own on that machine will show the boxes. A filter makes its
+  element a stacking context, so the layer is given canvas by canvas: always to a positioned canvas (fixed, absolute,
+  relative, sticky), where it changes nothing; to a canvas in the normal flow only where what is painted over it
+  stays over it (read at a grid of points before every picture). A canvas that would have been painted over a
+  header written before it is left as it is, and the answer counts it;
+- not even then: the answer says that the frames have the fault and that the site is not to be changed for it.
+
+`report.json` carries the result as `camera` (`true`, `layer`, `faulty`, or empty when the machine has no WebGL).
+Before any script of the page runs, in every visit, `<html>` carries the attribute `data-agy3d-camera` (empty): this
+browser stands in for a visitor's, so a page may draw what a visitor with a GPU would see although it renders in
+software, and time does not matter. The skill's starter turns its ambient occlusion on for it (on a desktop size), so
+the frames and the texture memory include the pass (at 1440 x 900, 133 MB of textures against 38 MB
+without it); a page that ignores the attribute is checked as it is. One more line can stand under `about these
+pictures`: a page that does not read the attribute (one built on an older starter) leaves its occlusion off here and
+says so in `window.__site.info().occlusion` ("off: a software renderer ..."); the answer passes that on, with how to
+look at such a page once (a running dev server's address with `?ao=1` as the target). The
+canvas-only frames and the stills are read from the drawing buffer and never had the fault; subjects are measured from
+the page's geometry, not from the frames.
 
 Facts. Mark an element with the file that holds what it shows; paths are relative to `--sources` (default: the site
 folder):

@@ -1,0 +1,33 @@
+{
+ "first": "run2",
+ "second": "run4",
+ "rep": 2,
+ "frames": [
+  "16663fbe6c17af2f",
+  "942e475c1cb9450d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 keeps its 3D pipeline clearly in the right viewport across frames 1-9, whereas Site 1's text card overlaps the red blocks and machinery in frames 1-4 and 9."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2 builds clearer visual metaphors for specific mechanics, like the code-bracket caliper shifting on lines in frame 6 and the 7-lane gate manifold in frame 8."
+   },
+   "craft_of_the_3d": {
+    "winner": "1",
+    "reason": "Site 1's studio lighting, beveled edges, and contact shadows in frames 1-9 make the machines feel more solid and readable than Site 2's dark, low-contrast models in frames 1-5."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Site 2's compact left-pinned cards and two-column lists in frames 7-8 give the 3D scene breathing room, while Site 1's taller card shifts awkwardly downward in frame 7."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 better visualizes how Straitjacket works through distinct, unobstructed 3D metaphors along a well-paced scroll path."
+  }
+ }
+}

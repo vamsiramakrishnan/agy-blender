@@ -98,10 +98,19 @@ async function boot() {
     const T = timeAt(boxes, scrollY);
     return reduced.matches ? restingT(T, ids.length) : T;
   };
-  // The chapter of the story time drawn gets .is-current, and style.css shows its panel: the text changes as the
-  // camera starts its move to the chapter's shot, so text and picture always belong to the same chapter.
-  function mark(T) {
+  // The chapter of the story time drawn gets .is-current, and <html> gets .is-moving while the camera is on its way
+  // to that chapter's shot (shots.js, `moving`, the same value stage.js reports as info().moving). style.css shows the
+  // current chapter's panel only without .is-moving: the panel of the chapter just left goes as the move starts, and
+  // the new one fades in (0.4 s) once the camera has arrived. Run 5 showed the new text as the move started: at 62 %
+  // of its scroll the card of chapter 04 was fully up while the camera was half way from the cabinet to the machine,
+  // the cabinet half under the card and the machine cut by the frame, and a blind judge named that frame in all six
+  // verdicts against it. A visitor stops scrolling when new text appears, so the text must come with its picture.
+  // The fade does not start before the arrival: a panel fading in during the move is readable there if the visitor
+  // stops, and the camera's arrival is eased, so the last tenth of the move covers 3 to 6 % of its travel and the
+  // picture is all but still when the text comes. A visitor who stops in a move sees the picture alone.
+  function mark(T, moving) {
     const i = Math.min(ids.length - 1, Math.floor(T));
+    root.classList.toggle('is-moving', moving);
     if (i === current) return;
     if (current >= 0) boxes[current].el.classList.remove('is-current');
     boxes[i].el.classList.add('is-current');
@@ -110,8 +119,9 @@ async function boot() {
   function draw(T) {
     shown = T;
     dirty = false;
-    mark(T);
-    stage.render(evaluate(T, ids));
+    const state = evaluate(T, ids);
+    mark(T, state.moving);
+    stage.render(state);
   }
   const remeasure = () => { boxes = measure(); measures++; dirty = true; };
   const jumpTo = (id) => site.scrollWith(scrollFor(boxes, at(id, REST)));
@@ -151,6 +161,7 @@ async function boot() {
     jumpTo,
     at,
     label: stage.label,
+    layer: stage.layer,
     evaluate: (T) => evaluate(T, ids),
     info: () => ({ T: shown, chapter: ids[current], measures, ...stage.info() }),
   });

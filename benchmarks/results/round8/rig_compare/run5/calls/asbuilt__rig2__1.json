@@ -1,0 +1,33 @@
+{
+ "first": "asbuilt",
+ "second": "rig2",
+ "rep": 1,
+ "frames": [
+  "7e55a4fe193821d2",
+  "5760264cd5584605"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "tie",
+    "reason": "Both sites share the exact same camera framing and scroll positions across frames 1 to 9, including identical overlaps in frames 5 and 6."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same 3D workbench metaphors and animations across frames 1 to 9 to illustrate log compression, storage, and anchor relocation."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 features brighter directional lighting, clearer metallic surface reflections, and crisper shadows on the press and cabinet across frames 1 to 9."
+   },
+   "type_and_layout": {
+    "winner": "tie",
+    "reason": "Typography, card placement, and UI hierarchy are completely identical between the two sites in all frames 1 through 9."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "While both sites share the exact same layout, copy, and 3D choreography, the second site renders the 3D workbench with noticeably better lighting, material contrast, and grounding shadows."
+  }
+ }
+}

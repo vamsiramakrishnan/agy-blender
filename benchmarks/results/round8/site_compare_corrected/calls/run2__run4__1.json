@@ -1,0 +1,33 @@
+{
+ "first": "run2",
+ "second": "run4",
+ "rep": 1,
+ "frames": [
+  "16663fbe6c17af2f",
+  "942e475c1cb9450d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 keeps its subjects clear of the text panel across frames 1-9, whereas Site 1 obscures key 3D elements behind the text card in frames 1, 2, 4, and 9."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2 translates specific mechanics into clear visual metaphors, such as the caliper clamping shifting code lines in frame 6 and the seven-lane gate manifold in frame 8."
+   },
+   "craft_of_the_3d": {
+    "winner": "1",
+    "reason": "Site 1 features brighter lighting, clearer depth, and well-defined metallic and matte materials in frames 1-7 compared to Site 2's darker, lower-contrast machinery in frames 4-5."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Site 2 maintains a consistent top-left card placement and compact two-column lists in frames 7-8, avoiding the layout jump and tall list seen in Site 1's frame 7."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers a cleaner scroll choreography and clearer visual metaphors that directly explain how Straitjacket compresses, anchors, and routes agent outputs."
+  }
+ }
+}

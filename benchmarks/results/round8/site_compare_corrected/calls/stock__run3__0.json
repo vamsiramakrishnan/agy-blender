@@ -1,0 +1,33 @@
+{
+ "first": "stock",
+ "second": "run3",
+ "rep": 0,
+ "frames": [
+  "57c48173e1aeb830",
+  "1dcbc54532dd39ad"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 keeps its subjects clearly framed on the right across frames 1-9, whereas Site 1 obscures 3D elements behind text cards in frames 4, 5, and 9."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2 concretely visualizes log blocks compressing through a gate into a cabinet and caliper (frames 3-8), whereas Site 1 uses abstract rings and floating shapes (frames 3-7)."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 grounds tactile, textured machinery with shadows onto a floor grid (frames 1-9), while Site 1 floats simpler glossy primitives in space (frames 1-8)."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Site 2 uses a clean, fixed top-left card across frames 1-9 that never collides with the 3D scene or header, unlike Site 1's overlapping scrolling cards in frames 4, 5, and 8."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers a smoother, well-composed spatial pipeline that tangibly visualizes how Straitjacket processes and hands off evidence without layout collisions."
+  }
+ }
+}

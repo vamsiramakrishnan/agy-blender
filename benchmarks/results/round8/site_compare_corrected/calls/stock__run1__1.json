@@ -1,0 +1,33 @@
+{
+ "first": "stock",
+ "second": "run1",
+ "rep": 1,
+ "frames": [
+  "57c48173e1aeb830",
+  "e074b52a7a5c36c0"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 maintains a subject in every shot from frames 1 to 8, whereas Site 2 loses its 3D subject completely in frame 6 and overlaps cards with the 3D chamber in frame 3."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2's tactile mechanical devices\u2014like the particle intake manifold in frames 2-4 and vernier caliper in frame 5\u2014make abstract concepts concrete compared to Site 1's floating primitives in frames 4-6."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2's machined metal and gold assemblies in frames 1-5 and 7 show richer surface detail, beveled form, and specular lighting than Site 1's simple glowing tubes and rings."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Site 2 keeps its hero text cleanly separated on a dark panel in frame 1 while Site 1's hero headline directly collides with the bright 3D bracket in frame 1."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers crafted, grounded 3D machinery that tangibly illustrates how Straitjacket contains streams, locks anchors, and routes work across harnesses."
+  }
+ }
+}

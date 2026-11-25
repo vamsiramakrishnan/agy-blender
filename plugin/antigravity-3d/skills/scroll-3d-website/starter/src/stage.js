@@ -3,11 +3,50 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { PROPS, loadProp, standIn } from './props.js';
-import { DESIGN_ASPECT } from './shots.js';
+import { DESIGN_ASPECT, DESIGN_FREE } from './shots.js';
+import { occlusion } from './occlusion.js';
 
 // From the upper left and in front: the shadows fall back and to the right, away from the reader.
 const KEY_DIR = new THREE.Vector3(-0.45, 1.0, 0.55).normalize();
+const RIM_DIR = new THREE.Vector3(10, 6, -8).normalize(); // from behind the scene, to the right, 25 degrees up
+// The light: a key that casts the shadow, a rim from behind that draws the edges, an environment for reflections and
+// fill. These are run 2's numbers, and the evidence is two blind comparisons of one site under two lights
+// (benchmarks/results/round8/rig_compare/): run 4's site, whose machines are the page's own dark steel, was preferred
+// under this light in six of six verdicts over the light it was built with (a key of 1.8, the environment at 0.25,
+// no rim: "dark metals lose detail in shadow"); run 5's site, light grey machines, drew three each, by the order shown.
+// The dimmer light had been set after run 3 so that a colour shows as its hex; it made a dark design colour on a prop
+// unreadable, and the remedy tried first (lighter materials, run 5) read as flat and grey.
+export const LIGHT = { key: 2.35, rim: 0.85, environment: 0.65 };
+// What a face turned up receives of it (libraries.md, the light section: 0.28 of the key from KEY_DIR, 1.84 of the
+// environment, the rim by the cosine of its angle over pi): about 2. A lit part in a design colour takes lit(colour),
+// the colour over that light: its top then comes out near the design colour and its sides darker, so it keeps its
+// form. Measured for amber #F0B429: the top #E3AC37 and a wall #D19F3A, where the plain colour comes out #F8C15B.
+export const PROP_LIGHT = 0.28 * LIGHT.key + 1.84 * LIGHT.environment + LIGHT.rim * RIM_DIR.y / Math.PI;
+export function lit(colour) { return new THREE.Color(colour).multiplyScalar(1 / PROP_LIGHT); }
+// The ground must still come out as the page's ground colour, whatever the props are lit with, so it fades into the
+// page. Two things do that, and a floor material of your own needs both (groundLook() below):
+// - its colour is divided by GROUND_LIGHT, what a face turned up receives (libraries.md, the light section: 0.28 of the
+//   key from KEY_DIR, 1.84 of the environment as the ground takes it, the rim by the cosine of its angle over pi), so
+//   it is drawn as if lit at 1;
+// - it takes the environment at GROUND_ENVIRONMENT, not at LIGHT.environment: most of what a dark floor shows is the
+//   environment's reflection in it, which its colour does not scale. Measured on the starter: with the colour divided
+//   alone the floor came out at (33, 35, 40) near the camera where it had been (15, 18, 25).
+export const GROUND_ENVIRONMENT = 0.25;
+export const GROUND_LIGHT = 0.28 * LIGHT.key + 1.84 * GROUND_ENVIRONMENT + LIGHT.rim * RIM_DIR.y / Math.PI;
+// For a ground material: its colour for a design colour, and the environment it reflects. A material that names its
+// own envMap takes envMapIntensity; one that leaves it to the scene takes the scene's (three.js r163 and later).
+export function groundLook(scene, colour) {
+  return { color: new THREE.Color(colour).multiplyScalar(1 / GROUND_LIGHT), envMap: scene.environment, envMapIntensity: GROUND_ENVIRONMENT };
+}
 const css = (name, fallback) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+
+// The linear colour that Neutral tone mapping (three's and postprocessing's, Khronos PBR Neutral) turns into `c`: it
+// subtracts from every channel x - 6.25 x^2 of the darkest channel x when x is below 0.08, else 0.04, and leaves a
+// colour alone that stays below 0.76 (a page colour lighter than that is compressed and cannot be matched this way).
+function untoned(c) {
+  const lo = Math.min(c.r, c.g, c.b), k = lo < 0.04 ? Math.sqrt(lo / 6.25) - lo : 0.04;
+  return c.setRGB(c.r + k, c.g + k, c.b + k, THREE.LinearSRGBColorSpace);
+}
 
 // The soft dark seat under an object that a shadow map alone does not give: a radial gradient on the ground.
 function contactShadow() {
@@ -41,16 +80,25 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
   scene.background = bg;
   scene.fog = new THREE.Fog(bg, 14, 40); // the ground fades into the page colour: no horizon line, no grid to the edge
 
-  // Light: an environment for reflections and soft fill, one key light that casts the shadow, nothing else.
+  // Light: LIGHT, above. More than this is too much: run 3 lit at about 2.8 (a key of 2.7, a rim, a fill, the
+  // environment at 0.95) with a ground that took it all, and its floor came out 2.5 times its colour and its amber
+  // washed out. A lit part in a design colour takes lit(colour), above; only a flat mark that must match the page's
+  // text exactly is drawn unlit (libraries.md).
   function environment() {
-    if (scene.environment) scene.environment.dispose();
+    const old = scene.environment;
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     pmrem.dispose();
+    if (!old) return;
+    // after a restored context: a material that named the old environment as its own (the ground) follows to the new
+    scene.traverse((o) => {
+      for (const m of [].concat(o.material || [])) if (m.envMap === old) { m.envMap = scene.environment; m.needsUpdate = true; }
+    });
+    old.dispose();
   }
   environment();
-  scene.environmentIntensity = 0.55;
-  const key = new THREE.DirectionalLight(0xffffff, 2.4);
+  scene.environmentIntensity = LIGHT.environment;
+  const key = new THREE.DirectionalLight(0xffffff, LIGHT.key);
   key.castShadow = true;
   key.shadow.mapSize.set(phone ? 1024 : 2048, phone ? 1024 : 2048);
   key.shadow.bias = -0.0004;
@@ -59,8 +107,12 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
   key.shadow.camera.near = 1;
   key.shadow.camera.far = 60;
   scene.add(key, key.target);
+  const rim = new THREE.DirectionalLight(0xdce6f5, LIGHT.rim); // a direction only: it casts no shadow
+  rim.position.copy(RIM_DIR).multiplyScalar(25);
+  scene.add(rim);
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: css('--ground', '#1a1d22'), roughness: 0.95 }));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200),
+    new THREE.MeshStandardMaterial({ ...groundLook(scene, css('--ground', '#1a1d22')), roughness: 0.95 }));
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);
@@ -110,8 +162,11 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
   let W = 1, H = 1, frame = { x: 0, y: 0, fit: 1 }, free = null;
   function resize() {
     W = Math.max(1, canvas.clientWidth); H = Math.max(1, canvas.clientHeight);
-    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    // At most 2 drawn pixels per CSS pixel; with the occlusion pass less (occlusion.js, maxPixelRatio: its buffers
+    // cost about 80 bytes per pixel drawn).
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2, post ? post.maxPixelRatio(W, H) : 2));
     renderer.setSize(W, H, false);
+    if (post) post.setSize(W, H);
     frame = { x: parseFloat(css('--frame-x', '0')) || 0, y: parseFloat(css('--frame-y', '0')) || 0, fit: parseFloat(css('--frame-fit', '1')) || 1 };
     // The stacked layout's free area: below any fixed bar marked data-bar, above the highest panel of the panel layer
     // (all panels, so it does not change from chapter to chapter and the picture does not jump when the text does).
@@ -124,66 +179,128 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
     }
     onChange();
   }
+  // Ambient occlusion: switched on by occlusion.js when the project has postprocessing and n8ao and the GPU can afford
+  // it; until then, and without them, the scene is drawn directly. info().occlusion says which and why.
+  let post = null, occluded = 'off: starting';
+  const aoReady = occlusion(renderer, scene, camera, { phone }).then(({ pass, why }) => {
+    occluded = why;
+    if (!pass) return;
+    post = pass;
+    renderer.toneMapping = THREE.NoToneMapping; // the effect pass tone maps; twice would flatten the picture
+    // Drawn directly, the background is the clear colour and never tone mapped; through the effect pass it is, and
+    // Neutral tone mapping takes the darkest channel out of a dark colour (#101215 came out #010308 in the starter's
+    // test). The background and the fog get the colour that the tone mapping turns into the page's colour.
+    const page = bg.clone();
+    scene.background = scene.fog.color = untoned(page);
+    renderer.info.autoReset = false; // several passes per frame: count the frame's draw calls, not the last pass's
+    // The pass arrives after the first resize(): the drawing buffer is set again through it, at the pass's cap, and
+    // the composer's buffers with it.
+    resize();
+  }, (e) => { occluded = `off: it failed to start (${e && e.message ? e.message : e})`; console.error('ambient occlusion:', e); });
+
   resize();
   new ResizeObserver(resize).observe(canvas);
+  // A still (check_site sets data-agy3d-still on <html> while it draws the article's stills) frames the subject in the
+  // middle of the whole canvas: the still sits in the article, with no panel beside it (run 3's kept the desktop's
+  // panel offset, and its left part was empty floor).
+  const root = document.documentElement;
+  new MutationObserver(onChange).observe(root, { attributes: true, attributeFilter: ['data-agy3d-still'] });
   if (document.fonts) document.fonts.ready.then(resize); // the panels' heights, and so the free area, wait for fonts
 
   // Framing: CSS decides where the text sits (style.css, --frame-x / --frame-y / --frame-fit), the camera moves the
   // picture's centre into the free part of the window and widens the view by --frame-fit so the shot still fits there.
-  // Below the shots' design shape (DESIGN_ASPECT) the view widens further, to hold the horizontal coverage the shot
-  // was designed for. That is right beside a panel, where the free area keeps most of the window's width; in the
-  // stacked layout (portrait phone, panel below: --frame-stack: 1) it left the subject a speck in a landscape picture
-  // letterboxed into a portrait window. There the camera keeps the shot's position and direction and only the view
-  // (its width and offset) is fitted: the subject's box fills FILL of the free area's width or height, whichever binds,
-  // centred in it. A shot that names no subject is an establishing shot: its chapter's props fill LOOSE, so it still
-  // reads as wide. The shares are what looked right on the starter's stand-ins in check_site's phone sheet: 80 % left
-  // a box-shaped prop wall to wall (a box's projected corners overstate the prop) and a wide shot read as a close-up.
-  const FILL = { w: 0.62, h: 0.6 }, LOOSE = { w: 0.38, h: 0.35 };
-  const rest = new THREE.Box3(), corner2 = new THREE.Vector3();
-  function restBox(names) {
+  // Below the shots' design shape (DESIGN_ASPECT) the view widens further, to hold the horizontal coverage the shot was
+  // designed for. That is right beside a panel, where the free area keeps most of the window's width; in the stacked
+  // layout (portrait phone, panel below: --frame-stack: 1) it left the subject a speck in a landscape picture
+  // letterboxed into a portrait window. There, and in a still, the camera keeps the shot's position and direction and
+  // only the view (its width and offset) is fitted, once per shot: seen from the pose the shot arrives at, its subject
+  // (props and layers) is centred in the free area and fills the share of it that it fills of the free part of the
+  // design window (DESIGN_FREE), or the shot's own `fill`, so a close shot stays close and a wide one wide. The hold's
+  // travel then shows as it does on a desktop. Run 3's phone refitted every frame to a fixed share: the push was
+  // cancelled, every chapter had one scale, and its box stood still for five steps. A shot without a subject fits the
+  // props on stage in its chapter. MIN_FILL keeps a wide shot from leaving a speck (22 % of the width in run 2's
+  // phone), MAX_FILL leaves the hold room to close in without cutting the subject.
+  const MIN_FILL = 0.3, MAX_FILL = 0.85;
+  const rest = new THREE.Box3(), corner2 = new THREE.Vector3(), aim = new THREE.Vector3();
+  const ref = new THREE.PerspectiveCamera();
+  function subjectBox(names) {
     box.makeEmpty();
     for (const name of names) {
       const p = props[name];
-      if (!p) continue;
-      // the box at full height, so the framing does not follow a prop as it rises or sinks
-      const y = p.object.position.y;
-      p.object.position.y = 0;
-      p.object.updateWorldMatrix(true, true);
-      box.union(rest.setFromObject(p.object));
-      p.object.position.y = y;
+      if (p) {
+        // the box at full height, so the framing does not follow a prop as it rises or sinks
+        const y = p.object.position.y;
+        p.object.position.y = 0;
+        p.object.updateWorldMatrix(true, true);
+        box.union(rest.setFromObject(p.object));
+        p.object.position.y = y;
+        p.object.updateWorldMatrix(false, true);
+      } else if (layers[name]) {
+        const b = layerBox(layers[name]);
+        if (b) box.union(b);
+      }
     }
     return box;
   }
   // The view, as pixels per unit of tangent (s) and the window point (cx, cy) the camera's axis passes through.
-  function fitted({ props: names, loose }) {
-    const b = restBox(names);
+  function fitted({ names, pose, fill }, area) {
+    const b = subjectBox(names);
     if (b.isEmpty()) return null;
+    ref.position.fromArray(pose.pos);
+    ref.lookAt(aim.fromArray(pose.target));
+    ref.updateMatrixWorld();
     let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
     for (let k = 0; k < 8; k++) {
-      corner2.set(k & 1 ? b.max.x : b.min.x, k & 2 ? b.max.y : b.min.y, k & 4 ? b.max.z : b.min.z).applyMatrix4(camera.matrixWorldInverse);
+      corner2.set(k & 1 ? b.max.x : b.min.x, k & 2 ? b.max.y : b.min.y, k & 4 ? b.max.z : b.min.z).applyMatrix4(ref.matrixWorldInverse);
       if (corner2.z > -0.05) return null; // part of it behind the camera: no sensible fit
       const u = corner2.x / -corner2.z, v = corner2.y / -corner2.z;
       u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
     }
-    const share = loose ? LOOSE : FILL, fh = free.bottom - free.top;
-    const sc = Math.min((share.w * W) / (u1 - u0), (share.h * fh) / (v1 - v0));
-    return { s: sc, cx: W / 2 - (sc * (u0 + u1)) / 2, cy: (free.top + free.bottom) / 2 + (sc * (v0 + v1)) / 2 };
+    const t0 = Math.tan(THREE.MathUtils.degToRad(pose.fov / 2));
+    const share = fill ?? THREE.MathUtils.clamp(Math.max((u1 - u0) / (2 * t0 * DESIGN_ASPECT * DESIGN_FREE), (v1 - v0) / (2 * t0)), MIN_FILL, MAX_FILL);
+    const fh = area.bottom - area.top;
+    const sc = share * Math.min(W / (u1 - u0), fh / (v1 - v0));
+    return { s: sc, cx: W / 2 - (sc * (u0 + u1)) / 2, cy: (area.top + area.bottom) / 2 + (sc * (v0 + v1)) / 2 };
   }
 
   const target = new THREE.Vector3(), focus = new THREE.Vector3(), lx = new THREE.Vector3(), ly = new THREE.Vector3();
   const UP = new THREE.Vector3(0, 1, 0);
   let subject = null; // the drawn chapter's subject (shots.js), for onScreen()
+  // Whether the camera is between two shots in the frame drawn last (info().moving, from shots.js). The chapter's
+  // subject may still be coming into the frame then, and main.js shows no text panel. check_site reads this and does
+  // not call a subject cut or hidden at such a position as long as no chapter text is readable there: a picture on its
+  // way is no fault where nothing asks the visitor to stop and read (run 5's site had its text up during the move and
+  // the blind judge named that frame in every verdict).
+  let moving = false;
   function render(state) {
     const { cam } = state;
     subject = state.subject || null;
+    moving = state.moving === true;
+    // Layers follow story time first: their bounds may be part of the framing.
+    for (const l of Object.values(layers)) if (l.update) l.update(state);
+    // A prop rises out of the ground as it comes on stage and sinks back as it leaves: no pop, and its shadow agrees.
+    for (const [name, p] of Object.entries(props)) {
+      const v = state.show[name] ?? 0;
+      p.holder.visible = v > 0.001;
+      p.object.position.y = -(1 - v) * p.height * 1.05;
+      p.shadow.material.opacity = v;
+    }
+    scene.updateMatrixWorld();
+    for (const l of Object.values(layers)) {
+      if (l.object && !l.box) l.object.traverse((o) => { if (o.isInstancedMesh) o.computeBoundingBox(); });
+    }
+
+    const still = root.hasAttribute('data-agy3d-still');
+    const fit = still ? 1 : frame.fit, shift = still ? 0 : frame.x, lift = still ? 0 : frame.y;
     const t0 = Math.tan(THREE.MathUtils.degToRad(cam.fov / 2));
-    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(t0 * frame.fit * Math.max(1, DESIGN_ASPECT / (W / H))));
+    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(t0 * fit * Math.max(1, DESIGN_ASPECT / (W / H))));
     camera.aspect = W / H;
     camera.position.fromArray(cam.pos);
     camera.lookAt(target.fromArray(cam.target));
-    camera.setViewOffset(W, H, -frame.x * W, frame.y * H, W, H);
+    camera.setViewOffset(W, H, -shift * W, lift * H, W, H);
     camera.updateMatrixWorld();
-    const from = free && state.frame && fitted(state.frame.from), to = free && state.frame && fitted(state.frame.to);
+    const area = still ? { top: 0, bottom: H } : free;
+    const from = area && state.frame && fitted(state.frame.from, area), to = area && state.frame && fitted(state.frame.to, area);
     if (from || to) {
       const m = from && to ? state.frame.mix : from ? 0 : 1, A = from || to, B = to || from;
       const sc = A.s + (B.s - A.s) * m, cx = A.cx + (B.cx - A.cx) * m, cy = A.cy + (B.cy - A.cy) * m;
@@ -204,44 +321,67 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
     key.target.updateMatrixWorld();
     if (sc.right !== span / 2) { sc.left = -span / 2; sc.right = span / 2; sc.top = span / 2; sc.bottom = -span / 2; sc.updateProjectionMatrix(); }
 
-    // A prop rises out of the ground as it comes on stage and sinks back as it leaves: no pop, and its shadow agrees.
-    for (const [name, p] of Object.entries(props)) {
-      const v = state.show[name] ?? 0;
-      p.holder.visible = v > 0.001;
-      p.object.position.y = -(1 - v) * p.height * 1.05;
-      p.shadow.material.opacity = v;
+    // A label smaller on screen than MIN_LABEL_PX is not drawn (see label() below).
+    for (const l of Object.values(labels)) {
+      const m = measuredBox(box.setFromObject(l.object), 'label');
+      l.holder.visible = !m || (m.box[3] - m.box[1]) * H >= MIN_LABEL_PX;
     }
-    renderer.render(scene, camera);
+
+    if (post) { renderer.info.reset(); post.render(); } else renderer.render(scene, camera);
   }
 
   // Labels: text or marks in the scene (a troika Text, a sprite) that the reader must be able to read. Register each
   // with label(name, object, prop): it is added to that prop's holder (so it is shown only while the prop is on stage)
   // or to the scene, and onScreen() reports it like a prop, with kind "label". Run 2's labels lay cut by the frame edge
-  // and under the panel, and nothing measured them.
+  // and under the panel, and nothing measured them. A label whose box is less than MIN_LABEL_PX CSS pixels high on
+  // screen is not drawn: run 3's finale showed its labels 5 to 7 px high on a phone, specks nobody can read. Hidden,
+  // not held at a minimum size, because a label scaled up as the camera backs away grows over what it names in a wide
+  // shot, where the panel's text names things anyway; it comes back when a closer shot makes it readable.
+  const MIN_LABEL_PX = 16; // the height under which check_site calls a label of the subject too small to read
   const labels = {};
+  // A label belongs to its prop (or a registered layer): it is flagged subject: true in onScreen() when that is the
+  // shot's subject, so check_site can name a label of what the shot is about that is too small to read.
   function label(name, object, prop) {
-    if (prop && !props[prop]) throw new Error(`label ${name}: no prop "${prop}" in props.js`);
-    (prop ? props[prop].holder : scene).add(object);
-    labels[name] = object;
+    if (prop && !props[prop] && !layers[prop]) throw new Error(`label ${name}: no prop "${prop}" in props.js and no layer of that name`);
+    const holder = new THREE.Group(); // at the origin of its parent, so the label keeps the place its own position gives it
+    holder.add(object);
+    (props[prop] ? props[prop].holder : layers[prop]?.object || scene).add(holder);
+    labels[name] = { object, holder, owner: prop || null };
     if (typeof object.sync === 'function') object.sync(onChange); // a troika Text: its glyphs arrive later
     onChange();
     return object;
   }
 
-  // What the last frame showed of each prop above ground and each label: { share, x, y, box, kind }. share: the part
-  // of the window the visible part of its box covers; x, y: that visible part's centre; box: [x0, y0, x1, y1], the
-  // whole projected box, not clamped, so a value below 0 or above 1 says how far it runs out of the frame. All are
+  // Layers: what a shot is about that is not a prop, such as an InstancedMesh of slabs or a group of generated
+  // geometry. Register each with layer(name, object, { box, update }) and list its name in LAYERS (shots.js); a shot
+  // may then name it as its subject: the stacked phone layout and the stills fit it into the frame, and onScreen()
+  // reports it with kind "layer". Its box is the object's bounds, taken at each frame (an InstancedMesh's from its
+  // instances), or `box`, a fixed world box [[x0, y0, z0], [x1, y1, z1]], when the framing must not follow its motion.
+  // update(state), when given, is called with shots.evaluate's state before each frame is drawn: drive the layer from
+  // state.T there, and it stays a function of story time. The object is added to the scene unless it has a parent.
+  const layers = {};
+  function layer(name, object, { box: fixed, update } = {}) {
+    if (object && !object.parent) scene.add(object);
+    layers[name] = { object, update, box: fixed ? new THREE.Box3(new THREE.Vector3(...fixed[0]), new THREE.Vector3(...fixed[1])) : null };
+    onChange();
+    return object;
+  }
+  const lbox = new THREE.Box3();
+  const layerBox = (l) => l.box || (l.object ? lbox.setFromObject(l.object) : null);
+
+  // What the last frame showed of each prop above ground, each layer and each label: { share, x, y, box, kind }. share:
+  // the part of the window the visible part of its box covers; x, y: that visible part's centre; box: [x0, y0, x1, y1],
+  // the whole projected box, not clamped, so a value below 0 or above 1 says how far it runs out of the frame. All are
   // fractions of the window from its top left. When the drawn chapter's shot names a subject, each entry also has
   // subject: true or false. A step where no prop covers anything is a dead frame; a subject's box under the text
   // panel or past an edge is a framing to fix. check_site reads this hook.
   const corner = new THREE.Vector3();
   const visible = (o) => { for (; o; o = o.parent) if (!o.visible) return false; return true; };
-  function measured(object, kind) {
-    box.setFromObject(object);
-    if (box.isEmpty()) return null; // a troika Text before its glyphs are ready
+  function measuredBox(b, kind) {
+    if (!b || b.isEmpty()) return null; // a troika Text before its glyphs are ready
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
     for (let k = 0; k < 8; k++) {
-      corner.set(k & 1 ? box.max.x : box.min.x, k & 2 ? box.max.y : box.min.y, k & 4 ? box.max.z : box.min.z).project(camera);
+      corner.set(k & 1 ? b.max.x : b.min.x, k & 2 ? b.max.y : b.min.y, k & 4 ? b.max.z : b.min.z).project(camera);
       if (corner.z > 1) continue; // behind the camera
       x0 = Math.min(x0, corner.x); x1 = Math.max(x1, corner.x); y0 = Math.min(y0, corner.y); y1 = Math.max(y1, corner.y);
     }
@@ -254,30 +394,41 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
     const out = {};
     for (const [name, p] of Object.entries(props)) {
       if (!p.holder.visible || p.object.position.y < -0.5 * p.height) continue;
-      const m = measured(p.object, 'prop');
+      const m = measuredBox(box.setFromObject(p.object), 'prop');
       if (m) out[name] = m;
     }
-    for (const [name, object] of Object.entries(labels)) {
-      const m = visible(object) && measured(object, 'label');
+    for (const [name, l] of Object.entries(layers)) {
+      const m = (!l.object || visible(l.object)) && measuredBox(layerBox(l), 'layer');
       if (m) out[name] = m;
     }
-    if (subject) for (const [name, m] of Object.entries(out)) m.subject = subject.includes(name);
+    for (const [name, l] of Object.entries(labels)) {
+      const m = visible(l.object) && measuredBox(box.setFromObject(l.object), 'label');
+      if (m) out[name] = m;
+    }
+    // A shot that names no subject flags nothing: its whole scene is the subject.
+    if (subject) {
+      for (const [name, m] of Object.entries(out)) {
+        m.subject = subject.includes(name) || (m.kind === 'label' && subject.includes(labels[name].owner));
+      }
+    }
     return out;
   }
 
   return {
     render,
     label,
-    ready,
+    layer,
+    ready: Promise.all([ready, aoReady]),
     info: () => ({ frames: renderer.info.render.frame, calls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
       textures: renderer.info.memory.textures, geometries: renderer.info.memory.geometries, loaded: [...loaded], failed: [...failed],
-      onScreen: onScreen() }),
+      occlusion: occluded, moving, onScreen: onScreen() }),
     dispose() {
       scene.traverse((o) => {
         if (o.geometry) o.geometry.dispose();
         if (o.material) [].concat(o.material).forEach((m) => { if (m.map) m.map.dispose(); m.dispose(); });
       });
       if (scene.environment) scene.environment.dispose();
+      if (post) post.dispose();
       renderer.dispose();
     },
   };

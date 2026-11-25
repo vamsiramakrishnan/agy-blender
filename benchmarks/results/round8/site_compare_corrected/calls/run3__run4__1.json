@@ -1,0 +1,33 @@
+{
+ "first": "run3",
+ "second": "run4",
+ "rep": 1,
+ "frames": [
+  "1dcbc54532dd39ad",
+  "942e475c1cb9450d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 varies camera angles dynamically from an overview in frame 1 to close-ups in frames 6 and 8, whereas Site 1 mainly pans sideways and overlaps text with machines in frames 6 and 7."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2 concretely visualizes compression in frame 3, line relocation in frame 6, and seven harness lanes in frame 8, whereas Site 1 uses generic machine icons in frame 9."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 features detailed mechanical assemblies like rollers and pistons in frames 3-4, while Site 1 relies on simpler blocky shapes with flat shading in frames 3-5."
+   },
+   "type_and_layout": {
+    "winner": "tie",
+    "reason": "Both sites use clean, readable left-aligned dark cards with clear hierarchy across frames 1-9, though Site 2 has a minor spacing typo on the button in frame 1."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers more purposeful 3D mechanical metaphors and varied camera choreography that directly illustrate how Straitjacket bounds output and coordinates harnesses."
+  }
+ }
+}

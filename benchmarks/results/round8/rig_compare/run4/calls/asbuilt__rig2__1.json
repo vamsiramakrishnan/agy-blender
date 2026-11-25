@@ -1,0 +1,33 @@
+{
+ "first": "asbuilt",
+ "second": "rig2",
+ "rep": 1,
+ "frames": [
+  "942e475c1cb9450d",
+  "82105f5eaadfc82d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "tie",
+    "reason": "Frames 1 through 9 in both sites share identical camera compositions and framing along the scroll path."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same 3D conveyor press, cabinet, and manifold metaphor across frames 1 to 9 to illustrate Straitjacket."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 has balanced lighting and grounded floor shadows across frames 1 to 9, whereas Site 1's environment and shadows are overly dark and crushed."
+   },
+   "type_and_layout": {
+    "winner": "tie",
+    "reason": "Both sites feature the exact same typography, top navigation, and left-aligned card layout across frames 1 to 9."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "While both sites share the same design, 3D models, and scroll choreography, Site 2 renders the 3D scene with better ambient lighting and clearer shadows on the floor grid."
+  }
+ }
+}

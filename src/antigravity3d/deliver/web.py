@@ -603,6 +603,11 @@ def plan_levels(parts: Parts, fov_deg: float) -> tuple[list[WebLevel], list[floa
     return levels, centre.tolist(), radius
 
 
+#: A far level is fetched the first time the camera comes within this share of the distance where it appears (the
+#: loader's REACH; why 0.8 is said there).
+ON_DEMAND_REACH = 0.8
+
+
 def _r(x: float) -> float:
     return round(float(x), 6)
 
@@ -632,12 +637,13 @@ def loader_files(layout: Layout, parts: Parts, levels: list[WebLevel], centre: l
     load, comp = f"load{pascal(parts.asset)}", pascal(parts.asset)
     imports = ('import { KTX2Loader } from "three/examples/jsm/loaders/KTX2Loader.js";\n'
                'import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";\n') if compressed else ""
-    setup = ("  const ktx2 = leaseKtx2(options);\n  loader.setKTX2Loader(ktx2.loader);\n  loader.setMeshoptDecoder(MeshoptDecoder);"
+    setup = ("  const ktx2 = leaseKtx2(options);\n  loader.setKTX2Loader(ktx2.loader);\n"
+             "  loader.setMeshoptDecoder(MeshoptDecoder);\n  farLoader.setMeshoptDecoder(MeshoptDecoder);"
              if compressed else "  const ktx2 = { release() {} };")
 
     def fill(text: str) -> str:
         for k, v in {"%%ASSET%%": parts.asset, "%%LOAD%%": load, "%%COMPONENT%%": comp, "%%ASSETS_URL%%": layout.assets_url,
-                     "%%BASIS_URL%%": layout.basis_url}.items():
+                     "%%BASIS_URL%%": layout.basis_url, "%%REACH%%": f"{ON_DEMAND_REACH:g}"}.items():
             text = text.replace(k, v)
         return text
 

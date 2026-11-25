@@ -130,7 +130,21 @@ def _sentences(text: str) -> Iterator[str]:
         yield from re.split(r"(?<=[.;])\s+", " ".join(block.split()))
 
 
-def name_problems(text: str) -> list[str]:
+def starter_functions(doc: Path) -> frozenset[str]:
+    """The functions a skill's own starter project defines, for a document of that skill: the scroll-site skill tells
+    the agent to call ``frame()`` and ``layer()`` of the starter it copies, and those are not studio tools. Read from
+    the starter's source, so a document cannot name a function the starter does not have."""
+    skill = next((d for d in doc.parents if d.parent == BUNDLE / "skills"), None)
+    if skill is None or not (skill / "starter").is_dir():
+        return frozenset()
+    names: set[str] = set()
+    for src in (skill / "starter").rglob("*.js"):
+        names |= set(re.findall(r"\bfunction\s+([a-z][A-Za-z0-9_]*)\s*\(", src.read_text()))
+    return frozenset(names)
+
+
+def name_problems(text: str, own: frozenset[str] = frozenset()) -> list[str]:
+    """``own``: functions of the document's own skill that it may name as calls (``starter_functions``)."""
     problems: list[str] = []
     for sentence in _sentences(text):
         spans = _SPAN.findall(sentence)
@@ -141,7 +155,7 @@ def name_problems(text: str) -> list[str]:
         for name in named:
             scope |= TOOLS.get(name, set()) | OPS.get(name, set())
         for name, arglist in calls:
-            if name in ALLOWED:
+            if name in ALLOWED or name in own:
                 continue
             if name not in TOOLS and name not in OPS:
                 problems.append(f"`{name}(...)` is not a studio tool: {sentence[:100]!r}")
@@ -201,8 +215,18 @@ def _id(path: Path) -> str:
 
 @pytest.mark.parametrize("doc", DOCS, ids=_id)
 def test_backticked_tool_names_exist(doc: Path) -> None:
-    problems = name_problems(doc.read_text())
+    problems = name_problems(doc.read_text(), starter_functions(doc))
     assert not problems, "\n".join(problems)
+
+
+def test_a_skills_document_may_call_only_what_its_starter_defines() -> None:
+    doc = BUNDLE / "skills" / "scroll-3d-website" / "SKILL.md"
+    own = starter_functions(doc)
+    assert {"frame", "around", "layer", "label"} <= own, sorted(own)
+    assert name_problems("Make the shot with `frame(bounds, 'close')`.", own) == []
+    assert name_problems("Make the shot with `zoom_to(bounds)`.", own) == [
+        "`zoom_to(...)` is not a studio tool: 'Make the shot with `zoom_to(bounds)`.'"]
+    assert starter_functions(BUNDLE / "skills" / "install-into-project" / "SKILL.md") == frozenset()
 
 
 @pytest.mark.parametrize("doc", DOCS, ids=_id)

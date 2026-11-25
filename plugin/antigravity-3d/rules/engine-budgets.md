@@ -43,8 +43,10 @@ page downloads, the texture memory and up to how many pixels on screen the
 textures stay sharp; choose the size from the largest the model is shown at.
 A web package's GLBs carry their maps as WebP (EXT_texture_webp) when the
 three.js frames of the WebP GLB match the PNG GLB's within the installer's
-compression tolerance; otherwise PNG. The manifest's web_textures record says
-which, the bytes and the measured difference. The PNG maps stay in
+compression tolerance: lossy maps first, then the roughness/metal map lossless
+(lossy WebP blurs a metal mask at any quality), then every map lossless; PNG
+only when none matches. The manifest's web_textures record says which, the
+bytes and the measured difference. The PNG maps stay in
 `textures/`. Put a delivered package into a project with
 `install_into_project`, never by copying its files.
 

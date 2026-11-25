@@ -143,7 +143,7 @@ In more detail:
 | Unreal Engine 5 | An import check adapter that runs when `UnrealEditor-Cmd` is found; never run here or in CI | No: `install` says what to import and writes nothing |
 | Unity URP | An import check adapter that runs when the Unity editor is found; never run here or in CI. Unity staging of far LOD files is untested | No, as above |
 | Roblox R15 | No headless verifier | No, as above |
-| three.js | The headless-browser check (`web_runtime`, above) on every package; for `web_three` it is the required engine check. `agy3d install` runs 11 checks in the project (12 with React Three Fiber) with the project's own three.js, run on 0.152.2, 0.160.0, 0.169.0, 0.170.0 and 0.187.0 | Yes, by `agy3d install` or the plugin's `install_into_project`, into a project with a `three` dependency (React Three Fiber included); a package built for another engine is refused |
+| three.js | The headless-browser check (`web_runtime`, above) on every package; for `web_three` it is the required engine check. `agy3d install` runs 12 checks in the project (13 with React Three Fiber) with the project's own three.js, run on 0.152.2, 0.160.0, 0.169.0, 0.170.0 and 0.187.0 | Yes, by `agy3d install` or the plugin's `install_into_project`, into a project with a `three` dependency (React Three Fiber included); a package built for another engine is refused |
 
 Renderers: stock Blender 5.3 supports the warm worker path over Unix IPC and shared memory. Workbench, EEVEE and CPU
 Cycles render the regression fixtures. A headless Linux renderer needs a working display or Xvfb. Use
@@ -232,8 +232,18 @@ What `agy3d install` into a three.js project does not do, and what it cannot tel
   not in the project, the textures stay PNG and the result says why.
 - **The GPU memory figures are computed from the texture format, not observed.** This machine renders in software, so
   it has no GPU to read them from.
-- **The React component is checked only with the project's own esbuild**; without it, `react_component` is skipped
-  and the component is written unchecked.
+- **The React component is checked only with the project's own bundler**: esbuild (Vite up to version 7 ships it)
+  or Rolldown (Vite 8 ships it instead). With neither, `react_component` is skipped and the component is written
+  unchecked. For Rolldown the entry file is written for a moment under the project's `node_modules/.cache`, because
+  Rolldown takes no entry from standard input and looks for `react` from the folder of the importing file.
+- **A far level is fetched when the camera first comes near it, so it can arrive late.** The loader resolves with
+  the nearest level (its textures and the collision data); a farther level is requested the first time the camera
+  comes within 80 % of the distance where that level appears, and until it has arrived three.js draws the nearest
+  loaded level. A camera that jumps far away in one frame sees the near level for as long as the file takes.
+  `levels: "all"` fetches every level before the loader resolves, and `group.userData.agy3d.loadLevels()` fetches
+  them afterwards. On the third website's three props (round eight, uncompressed, measured by the check's page
+  server) the default load is 1,532,065 bytes against 2,388,265 for every level: the far levels' 856,200 bytes, which
+  that site's camera never reached, are no longer fetched by a page that does not show them.
 - **Other three.js versions are not checked.** The in-project check was run on 0.152.2, 0.160.0, 0.169.0, 0.170.0
   and 0.187.0. Outside r152 to r187 the files are written and the result says "not checked on this version".
 - **Collision hulls are handed over as plain arrays** (`group.userData.agy3d.hulls`, points and triangle indices).
@@ -272,6 +282,29 @@ PNG install, every level and the transcoder included (1,149,777 against 1,178,71
 
 Today's bytes: crate 2,199,072, hydrant 1,836,004, chair 1,039,268. Checks: 11 passed, 0 failed, 0 skipped in the
 first three rows, 12 in the last three.
+
+### The website check (`check_site`)
+
+- **Between the steps it reads where the subjects are, not what the picture shows.** The positions read between the
+  photographed steps get no frame and no wait for the picture to settle, and on a heavy page the 20 s allowance per
+  size runs out before all of them are read (run 4's site: 12 to 16 of 24). A fault narrower than the spacing that
+  was read can still pass unseen: on run 4's site the subject at 75 % of the scroll is cut from about 74 % to 77 %,
+  and no position between the steps is that close.
+- **A camera on its way is known only from the page, and excused only without text.** Without `info().moving` a
+  subject the camera is still travelling towards is named as cut or hidden; the skill's starter says it, a page of its
+  own may not. With it, the check still names the subject where chapter text is readable during the move, and counts
+  as chapter text only headings, paragraphs and list items over the canvas at half opacity or more outside the header,
+  nav and footer: a page that sets its chapter text in plain `div`s is read as showing none, and its moves are
+  excused. Run 4's site, which does not say `moving`, is named at its two moves (38 % and 75 %) although its frames
+  there look composed: its stations stand on one line and the camera slides along it.
+- **The subject against its ground is a distance in value, not in colour or texture.** It is measured on the 1/8-size
+  canvas, so fine detail averages away, and over the one box round the subject, which takes in some of the ground
+  between and around its parts.
+- **The first scroll is read as one wheel notch, on the desktop visit, where the top of the page stands still.** A
+  phone has no notch, and what a short swipe changes there is not measured. A page whose top keeps changing by itself
+  (the stock agent's site) is not read, because what the notch changed cannot be told from that. The reading follows
+  edges, so a picture with next to none (a gradient, a fog) gives no reading, and it is one position: a hold lower
+  down the page that answers a notch with nothing is not found by it.
 
 ### Judging, rendering and editing
 

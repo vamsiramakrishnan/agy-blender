@@ -320,6 +320,24 @@ def test_a_page_that_does_not_change_on_scroll_is_called_frozen(tmp_path):
 
 
 @pytest.mark.browser
+def test_a_slow_first_frame_after_a_jump_is_waited_for_and_the_picture_is_the_arrived_one(tmp_path):
+    """The check goes from the top of the page straight to its end. Run 4's site took 3.5 s to draw there, the check
+    counted its four seconds from the scroll, and the frame it kept showed the first chapter's panel over the last
+    one's, half a second into their cross-fade. The four seconds count from the page's first frames at the new place."""
+    t0 = time.monotonic()
+    r = run(site(tmp_path, "slow_arrival"), tmp_path)
+    steps = {round(s.share, 2): s for s in r.visits["desktop"].steps}
+    end = steps[1.0]
+    assert end.motion == "still" and 4.3 < end.settle_s < sc.SETTLE_HARD_S, (end.motion, end.settle_s)
+    px = np.asarray(Image.open(end.frame).convert("RGB")).astype(int)[140, 190]  # inside both panels' box
+    assert px[1] > px[0] + 80, f"the last frame shows the first panel still: {px.tolist()}"
+    back = np.asarray(Image.open(steps[0.5].frame).convert("RGB")).astype(int)[140, 190]
+    assert back[0] > back[1] + 80, f"and after the jump back, the second: {back.tolist()}"
+    assert "Still changing" not in r.text()
+    assert time.monotonic() - t0 < 60
+
+
+@pytest.mark.browser
 def test_errors_failed_requests_the_server_root_and_other_hosts(tmp_path):
     r = run(site(tmp_path, "broken"), tmp_path)
     broken, text = r.broken(), r.text()
@@ -594,14 +612,14 @@ def test_where_the_page_names_the_shots_subject_the_props_behind_it_are_not_repo
     import asyncio
 
     read = lambda rows: asyncio.run(sc._Visitor.subjects(None, Page(rows)))  # noqa: E731  (the method uses no state)
-    got, note = read(marked)
+    got, note, _ = read(marked)
     by = {s["name"]: s for s in got}
     assert by["gate"]["background"] is True and by["vault"]["background"] is False and by["A LABEL"]["background"] is False
     assert sc.subject_faults(by["gate"]) == (False, False) and sc.subject_faults(by["vault"]) == (False, True)
     assert sc.subject_faults(by["A LABEL"]) == (False, True) and note.startswith("3 subjects")
     # a page that marks nothing: every prop counts, as before
     unmarked = [{**m, "subject": None} for m in marked]
-    got, _ = read(unmarked)
+    got, _, _ = read(unmarked)
     assert all("background" not in s for s in got) and sc.subject_faults(got[0]) == (False, True)
 
 
@@ -654,6 +672,176 @@ def test_a_lost_context_counts_only_on_a_canvas_the_visitor_can_see(tmp_path):
     assert any("the WebGL context was lost 1 time" in b for b in lost.broken()), lost.broken()
 
 
+def _frame_at(report, y: float) -> tuple[int, int, int]:
+    """The colour of the first desktop frame at mid width and ``y`` of its height."""
+    im = Image.open(report.visits["desktop"].steps[0].frame).convert("RGB")
+    return im.getpixel((im.width // 2, round(im.height * y)))
+
+
+def _opposite_the_bar(report) -> tuple[int, int, int]:
+    """At 80 % of the height the fixtures' canvas shows, opposite their bar."""
+    return _frame_at(report, 0.8)
+
+
+def _is_the_canvas(px) -> bool:
+    return px[0] > 200 and px[1] < 60 and px[2] > 200
+
+
+def _is_the_bar(px) -> bool:  # #203040, through a JPEG
+    return abs(px[0] - 32) < 24 and abs(px[1] - 48) < 24 and abs(px[2] - 64) < 24
+
+
+@pytest.mark.browser
+def test_the_frames_show_a_canvas_that_lies_under_an_opaque_box(tmp_path):
+    """Run 3: a Chromium that puts pages together without the GPU path left a black box in every frame, opposite the
+    text panel, and the agent spent 16 minutes on a fault no visitor sees. Whatever this machine's browser does, the
+    frame shows the canvas, and the answer speaks of the camera only where it had to work around it."""
+    r = sc.check_site(str(site(tmp_path, "under_a_bar")), out_dir=tmp_path / "out", steps=2, sizes=("desktop",), variants=())
+    assert r.camera in ("true", "layer"), r.camera
+    assert _is_the_canvas(_opposite_the_bar(r)), (_opposite_the_bar(r), r.camera)
+    assert ("about these pictures" in r.text()) == (r.camera == "layer")
+    assert json.loads((tmp_path / "out" / "report.json").read_text())["camera"] == r.camera
+
+
+@pytest.mark.browser
+def test_a_browser_without_the_gpu_path_is_found_out_and_worked_around(tmp_path, monkeypatch):
+    """The same browser started without the switch that puts everything on SwiftShader: on a machine without a GPU it
+    then composites in software and has the fault. The check finds it, gives the canvas a layer and photographs the
+    truth; with the layer taken away it says that the frames have the fault. Each browser is tested once."""
+    from antigravity3d.adapters.engines import web_browser, web_three
+
+    tests_made = []
+    real_test = sc._camera_test
+
+    async def counted(ctx):
+        tests_made.append(1)
+        return await real_test(ctx)
+
+    monkeypatch.setattr(sc, "_camera_test", counted)
+    monkeypatch.setattr(web_three, "CHROMIUM_ARGS", [a for a in web_three.CHROMIUM_ARGS if not a.startswith("--use-angle")])
+    try:
+        folder = site(tmp_path, "under_a_bar")
+        r = sc.check_site(str(folder), out_dir=tmp_path / "out", steps=2, sizes=("desktop",), variants=())
+        assert _is_the_canvas(_opposite_the_bar(r)), (_opposite_the_bar(r), r.camera)
+        if r.camera != "layer":
+            pytest.skip(f"this machine's browser shows the canvas without help (camera: {r.camera!r}): nothing to work around")
+        assert "photographed each canvas on a layer of its own" in r.text()
+        assert r.visits["desktop"].probe["layer"] == {"given": 1, "left": 0}
+        browser = web_browser.SHARED._session
+        assert browser.notes == {"site_camera": "layer"} and len(tests_made) == 1
+        again = sc.check_site(str(folder), out_dir=tmp_path / "out", steps=2, sizes=("desktop",), variants=())
+        # the same browser, and its camera was not tested a second time
+        assert again.camera == "layer" and web_browser.SHARED._session is browser and len(tests_made) == 1
+        # without the layer: the fault is in the frame, and the answer says whose it is
+        web_browser.SHARED.shutdown()
+        monkeypatch.setattr(sc, "CANVAS_LAYER_CSS", ":where(canvas){}")
+        bare = sc.check_site(str(folder), out_dir=tmp_path / "out", steps=2, sizes=("desktop",), variants=())
+        assert bare.camera == "faulty" and not _is_the_canvas(_opposite_the_bar(bare)), (bare.camera, _opposite_the_bar(bare))
+        assert "the frames here have it" in bare.text() and "Do not change the site for it" in bare.text()
+        assert not bare.broken() and not [n for n in bare.noticed() if "canvas" in n.lower() and "black" in n.lower()]
+    finally:
+        web_browser.SHARED.shutdown()  # the next test starts the browser as the product does
+
+
+@pytest.mark.browser
+def test_a_camera_test_that_hangs_costs_its_wait_and_not_the_browser(tmp_path, monkeypatch):
+    """The wait is for the test, not for the browser's start: bounded from outside, a slow start cancelled the run,
+    which closes the browser that had just come up, and the check went on without knowing its camera."""
+    import asyncio
+
+    from antigravity3d.adapters.engines import web_browser
+
+    web_browser.SHARED.shutdown()
+    real_test = sc._camera_test
+
+    async def hangs(ctx):
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(sc, "_camera_test", hangs)
+    monkeypatch.setattr(sc, "CAMERA_WAIT_S", 0.3)
+    folder = site(tmp_path, "under_a_bar")
+    r = sc.check_site(str(folder), out_dir=tmp_path / "out", steps=2, sizes=("desktop",), variants=())
+    assert r.camera == "" and r.visits["desktop"].loaded and "about these pictures" not in r.text()
+    browser = web_browser.SHARED._session
+    assert browser is not None and browser.alive() and web_browser.SHARED.launches == browser.generation
+    assert "site_camera" not in browser.notes  # not known is not a result: the next check asks again
+    monkeypatch.setattr(sc, "_camera_test", real_test)
+    monkeypatch.setattr(sc, "CAMERA_WAIT_S", 10.0)
+    again = sc.check_site(str(folder), out_dir=tmp_path / "out", steps=2, sizes=("desktop",), variants=())
+    assert again.camera in ("true", "layer") and web_browser.SHARED._session is browser
+
+
+async def _camera_says_layer(session, ctx) -> str:
+    return "layer"
+
+
+@pytest.mark.browser
+def test_a_canvas_in_the_normal_flow_gets_a_layer_only_where_nothing_changes_for_a_visitor(tmp_path, monkeypatch):
+    """The layer is a filter, and a filter moves a canvas that is not positioned in with the positioned content, over
+    what was written before it. With the layer asked for whatever this browser needs: a canvas under a header that
+    comes first in the document is left as it is and counted; one whose overlay comes after it gets the layer."""
+    monkeypatch.setattr(sc, "camera", _camera_says_layer)
+    covered = sc.check_site(str(site(tmp_path, "layer_in_flow_covered")), out_dir=tmp_path / "out1", steps=2,
+                            sizes=("desktop",), variants=())
+    assert covered.visits["desktop"].probe["layer"] == {"given": 0, "left": 1} and covered.visits["desktop"].probe["layerLeft"] == 1
+    assert _is_the_bar(_frame_at(covered, 0.2)), _frame_at(covered, 0.2)  # the header is still over the canvas
+    text = covered.text()
+    assert "1 canvas in the page's normal flow could not be given one" in text and "Do not change the site for it" in text
+    free = sc.check_site(str(site(tmp_path, "layer_in_flow_free")), out_dir=tmp_path / "out2", steps=2,
+                         sizes=("desktop",), variants=())
+    assert free.visits["desktop"].probe["layer"] == {"given": 1, "left": 0}
+    assert _is_the_bar(_frame_at(free, 0.2)) and _is_the_canvas(_opposite_the_bar(free)), (_frame_at(free, 0.2), _opposite_the_bar(free))
+    assert "photographed each canvas on a layer of its own" in free.text()
+    fixed = sc.check_site(str(site(tmp_path, "under_a_bar")), out_dir=tmp_path / "out3", steps=2, sizes=("desktop",), variants=())
+    assert fixed.visits["desktop"].probe["layer"] == {"given": 1, "left": 0} and _is_the_canvas(_opposite_the_bar(fixed))
+
+
+def test_the_answer_passes_on_that_the_page_draws_no_occlusion_in_this_browser(tmp_path):
+    """The skill's starter draws ambient occlusion on a visitor's GPU and not on a software renderer, which the check's
+    browser is: the frames then lack something most visitors see, and the answer says so in the page's own words."""
+    rep = sc.SiteReport("site", tmp_path)
+    rep.visits["desktop"] = sc.Visit("desktop")
+    for said, line in (("off: a software renderer (SwiftShader); ?ao=1 in the address shows it", True), ("on", False),
+                       ("on: data-agy3d-camera asks for what a visitor with a GPU sees", False),
+                       ("off: a phone", False), ("off: postprocessing and n8ao are not both installed", False), (None, False)):
+        rep.visits["desktop"].probe = {"occlusion": said}
+        text = rep.text()
+        assert ("leaves its ambient occlusion off in this browser" in text) == line, (said, text)
+        if line:
+            assert "?ao=1 in the address shows it" in text and "a visitor with a GPU sees it" in text
+            assert sc.CAMERA_ATTR in text and "this page does not read it" in text
+
+
+@pytest.mark.browser
+def test_the_page_is_told_it_stands_in_for_a_visitor_before_its_first_script(tmp_path):
+    """The contract of round 8c: data-agy3d-camera is on <html> before any script of the page runs, so a page (the
+    skill's starter) can draw what a visitor with a GPU sees although this browser renders in software. The fixture's
+    first script, the first thing in its head, records whether it was there, and info().occlusion reports it: the
+    record shows "on", and the answer says nothing about occlusion. A page that does not read the attribute and says
+    "off: a software renderer" still gets the line."""
+    reads = site(tmp_path, "camera_mode")
+    r = run(reads, tmp_path, steps=2)
+    said = r.visits["desktop"].probe["occlusion"]
+    assert said == "on: data-agy3d-camera was on <html> before the first script", said
+    assert "ambient occlusion" not in r.text()
+    ignores = tmp_path / "sites" / "camera_ignored"
+    shutil.copytree(reads, ignores)
+    html = (ignores / "index.html").read_text()
+    (ignores / "index.html").write_text(html.replace("const READS_IT = true;", "const READS_IT = false;"))
+    r = sc.check_site(str(ignores), out_dir=tmp_path / "out2", steps=2, sizes=("desktop",), variants=())
+    said = r.visits["desktop"].probe["occlusion"]
+    assert said == "off: a software renderer (fixture; the first script saw the attribute: true)", said
+    assert "leaves its ambient occlusion off in this browser" in r.text()
+
+
+def test_the_answer_speaks_of_the_camera_only_when_it_was_at_fault(tmp_path):
+    for cam, said in (("", False), ("true", False), ("layer", True), ("faulty", True)):
+        text = sc.SiteReport("site", tmp_path, camera=cam).text()
+        assert ("about these pictures" in text) == said, (cam, text)
+    assert "2 canvases in the page's normal flow could not be given one" in sc.camera_line("layer", 2)
+    assert sc.camera_line("true", 3) == "" and "canvases" not in sc.camera_line("faulty", 3)
+
+
 @pytest.mark.browser
 def test_subjects_under_opaque_html_or_cut_by_the_edge_are_reported(tmp_path):
     r = run(site(tmp_path, "subjects"), tmp_path, steps=2)
@@ -669,7 +857,9 @@ def test_subjects_under_opaque_html_or_cut_by_the_edge_are_reported(tmp_path):
         assert 0.08 < got["edge_prop"]["cut"] < 0.1
     noticed = [n for n in r.noticed() if "the prop" in n or "the 3D label" in n]
     assert len(noticed) == 3, noticed
-    assert any("the prop 'under_panel' lies under div#panel at steps 1 (0%) and 2 (100%) of 2 (at worst 100%" in n for n in noticed)
+    # read between the two steps as well, and the same there: one stretch of the scroll
+    assert any("the prop 'under_panel' lies under div#panel from 0% to 100% of the scroll (at steps 1 (0%) and 2 "
+               "(100%) of 2 and between them; at worst 100% of what is in the frame, at 0%)" in n for n in noticed)
     assert any("the prop 'under_veil' lies under div#veil" in n for n in noticed)
     assert any("the 3D label 'CUT LABEL' runs out of the frame at the right edge" in n and "at worst 40% of it outside" in n
                for n in noticed)
@@ -732,7 +922,7 @@ def test_the_stills_line_says_where_they_are_and_what_they_are_for(tmp_path):
 
 def _pixel(p: Path) -> tuple[int, int, int]:
     im = Image.open(p).convert("RGB")
-    return im.getpixel((im.width // 2, im.height - 5))  # the bottom rows: where headless Chromium's band would be
+    return im.getpixel((im.width // 2, im.height - 5))  # the bottom rows: where a browser without the GPU path leaves a band
 
 
 @pytest.mark.browser
@@ -766,3 +956,615 @@ def test_a_chapters_hook_that_throws_or_is_missing_writes_no_stills(tmp_path):
     r = run(root, tmp_path / "again", steps=2)
     assert not (tmp_path / "again" / "out" / "stills").exists() and "page without WebGL" not in r.text()
     assert "threw: fixture chapters boom" in r.stills["note"]
+
+
+# --------------------------------------------------------------------------- run 3: a picture that does not travel,
+# one scale throughout, labels too small where the shot is about them, layers
+
+
+def _box(name: str, box: list[float], kind: str = "prop", subject: bool | None = True, cut: float = 0.0,
+         hidden: float | None = 0.0, px: tuple[int, int] | None = None, size: tuple[int, int] = (1440, 900)) -> dict:
+    """One measured subject with its own box (``px`` from the box at ``size`` unless given)."""
+    px = px or (round((box[2] - box[0]) * size[0]), round((box[3] - box[1]) * size[1]))
+    return {"name": name, "kind": kind, "subject": subject, "box": box, "px": list(px), "cut": cut, "edges": {},
+            "hidden": hidden, "under": ""}
+
+
+def _visit(name: str, rows: list[list[dict] | None], tmp_path: Path, n: int | None = None) -> sc.Visit:
+    n = n or len(rows)
+    v = sc.Visit(name, loaded=True, load_s=1.0)
+    v.steps = [sc.Step(i, i / max(n - 1, 1), 0, frame=str(tmp_path / f"{name}_{i:02d}.jpg"), subjects=r)
+               for i, r in enumerate(rows) if r != "missing"]
+    return v
+
+
+# The shot's subject at each step of run 3 (benchmarks/results/site_run3_plugin), as its record (round 8's
+# frames3/run3/report.json) has it: on the phone the gate fitted into one place above the panel for steps 1 to 5; on
+# the desktop the subject moved between every two steps. The last step, a wide shot of all three props, names none.
+RUN3_PHONE = [("gate", [0.1852, 0.1724, 0.8148, 0.4663]), ("gate", [0.1847, 0.1724, 0.8153, 0.4663]),
+              ("gate", [0.1897, 0.1724, 0.8103, 0.4663]), ("gate", [0.1919, 0.1724, 0.8081, 0.4663]),
+              ("gate", [0.18, 0.1737, 0.82, 0.465]), ("vault", [0.2143, 0.1724, 0.7857, 0.4663]),
+              ("anchor", [0.2327, 0.1724, 0.7673, 0.4663]), ("anchor", [0.2063, 0.1724, 0.7937, 0.4663])]
+RUN3_DESKTOP = [("gate", [0.5379, 0.2748, 0.8844, 0.835]), ("gate", [0.519, 0.2507, 0.9044, 0.8728]),
+                ("gate", [0.607, 0.2643, 0.9368, 0.8051]), ("gate", [0.5308, 0.302, 0.8273, 0.7918]),
+                ("gate", [0.4411, 0.2709, 0.7941, 0.8273]), ("vault", [0.5357, 0.2517, 0.8719, 0.8505]),
+                ("anchor", [0.7092, 0.3014, 0.9988, 0.8528]), ("anchor", [0.5221, 0.2455, 0.8905, 0.8837])]
+RUN3_LAST = {"desktop": [("gate", [0.4595, 0.43, 0.5808, 0.6154]), ("gate-label", [0.4834, 0.4067, 0.5502, 0.4236], 15),
+                         ("vault-label", [0.6851, 0.4057, 0.7413, 0.4184], 11),
+                         ("anchor-label", [0.8756, 0.4247, 0.9348, 0.4415], 15)],
+             "phone": [("gate", [0.0966, 0.2753, 0.2948, 0.3628]), ("gate-label", [0.1357, 0.2643, 0.2449, 0.2723], 7),
+                       ("vault-label", [0.4653, 0.2638, 0.5571, 0.2698], 5),
+                       ("anchor-label", [0.7765, 0.2728, 0.8732, 0.2807], 7)]}
+
+
+def _run3(name: str, tmp_path: Path) -> sc.Visit:
+    rows: list = []
+    for prop, box in RUN3_PHONE if name == "phone" else RUN3_DESKTOP:
+        label = [box[0] + 0.1, box[1] - 0.05, box[2] - 0.1, box[1] - 0.01]
+        rows.append([_box(prop, box), _box(prop + "-label", label, "label", px=(130, 22 if name == "phone" else 46))])
+    last = RUN3_LAST[name]
+    rows.append([_box(last[0][0], last[0][1], subject=None)]
+                + [_box(n, b, "label", subject=None, px=(80, h)) for n, b, h in last[1:]])
+    return _visit(name, rows, tmp_path)
+
+
+def test_run3_record_the_phone_picture_does_not_travel_the_desktop_does(tmp_path):
+    """Run 3: on the phone the gate kept its box (edges within 0.7 % of the window) over steps 1 to 5 while the page
+    scrolled half its length; the frames still differed in small things, so the pixel comparison said nothing. On the
+    desktop the subject moved by 3.8 % or more between any two steps, and nothing is said."""
+    rep = sc.SiteReport("site", tmp_path, steps=9)
+    rep.visits = {"desktop": _run3("desktop", tmp_path), "phone": _run3("phone", tmp_path)}
+    runs = sc.held_runs(rep.visits["phone"].steps)
+    assert [(r["name"], [s.index for s in r["steps"]]) for r in runs] == [("gate", [0, 1, 2, 3, 4])]
+    assert 0.006 < runs[0]["moved"] < 0.007 and sc.held_runs(rep.visits["desktop"].steps) == []
+    held = [n for n in rep.noticed() if "does not travel" in n]
+    assert held == [
+        "Phone: the picture does not travel: the prop 'gate', the shot's subject, keeps its place and size on screen "
+        "at steps 1 to 5 of 9 (0% to 50%, 50% of the scroll): its box moves by at most 1% of the window while the "
+        "page scrolls on. Let the camera move through those chapters (a push in, a turn round the subject, a new "
+        "angle per chapter) instead of framing the subject the same way at every step. Look at phone_00.jpg to "
+        "phone_04.jpg."], held
+    # the closing wide shot names no subject, and its three labels are 5 to 15 px tall: each is named, per size
+    small = [n for n in rep.noticed() if "too small to read at" in n]
+    assert len(small) == 6 and all("step 9 of 9 (100%)" in n for n in small)
+    assert ("Desktop: the 3D label 'vault-label' is in the frame where the shot is about it, but too small to read at "
+            "step 9 of 9 (100%) (at worst 11 px tall, under 16): make it larger there or frame it closer. Look at "
+            "desktop_08.jpg.") in small
+    text = rep.text()
+    measures = text[text.index("Measures:"):]
+    assert ("- Desktop: one scale throughout: the shot's subject fills 49% to 64% of the window (its height or width, "
+            "whichever it fills more) at the 8 steps whose subject the page names, 8 of them within a quarter of the "
+            "median (56%): every picture is the same kind of shot. A story usually changes scale between chapters "
+            "(wide to set the scene, close for a detail).") in measures
+    assert "does not travel" not in measures and len(text.splitlines()) <= 60
+
+
+def test_a_held_subject_is_named_only_over_a_real_stretch_of_the_scroll(tmp_path):
+    still = [0.3, 0.2, 0.7, 0.8]
+    near = [0.31, 0.21, 0.71, 0.79]                       # within 2 % of the window: the same box
+    away = [0.33, 0.2, 0.73, 0.8]                         # 3 %: a camera that moves, if slowly
+
+    def held(rows, n=None):
+        runs = sc.held_runs(_visit("phone", rows, tmp_path, n).steps)
+        return [(r["name"], [s.index for s in r["steps"]]) for r in runs]
+
+    # two steps at the top of the page: a page may rest there for a step
+    assert held([[_box("hero", still)], [_box("hero", still)], [_box("hero", away)], [_box("hero", still)]]) == []
+    # three steps over half the scroll: named; a slow drift counts from the run's first box, not step by step
+    assert held([[_box("hero", still)], [_box("hero", near)], [_box("hero", still)], [_box("hero", away)], None]) == [
+        ("hero", [0, 1, 2])]
+    drift = [[_box("hero", [0.3 + 0.015 * i, 0.2, 0.7 + 0.015 * i, 0.8])] for i in range(5)]
+    assert held(drift) == []
+    # three neighbouring steps of 25 cover 8 % of the scroll: one chapter's rest, not named; seven are
+    rows = [[_box("hero", still)]] * 3 + [[_box("hero", [0.1 * (i % 2), 0.1, 0.5, 0.5])] for i in range(22)]
+    assert held(rows) == []
+    assert held([[_box("hero", still)]] * 7 + rows[7:]) == [("hero", [0, 1, 2, 3, 4, 5, 6])]
+    # a step missing (the check ran out of time) breaks the run; so does another subject in the same place
+    assert held([[_box("hero", still)], "missing", [_box("hero", still)], [_box("hero", still)]], 4) == []
+    assert held([[_box("hero", still)], [_box("other", still)], [_box("hero", still)], [_box("hero", still)]]) == []
+    # only what the page names as the shot's subject: a prop in the background or a page that names nothing
+    moving = [[_box("hero", still, subject=False), _box("x", [0.1 * i, 0.2, 0.3 + 0.1 * i, 0.5])] for i in range(3)]
+    assert held(moving) == []
+    assert held([[_box("hero", still, subject=None)]] * 5) == []
+    assert held([[_box("HERO", still, "label")]] * 5) == []
+    # a layer is a subject like a prop, and is called a layer
+    rep = sc.SiteReport("site", tmp_path, steps=3)
+    rep.visits = {"phone": _visit("phone", [[_box("slabs", still, "layer")]] * 3, tmp_path)}
+    assert any(n.startswith("Phone: the picture does not travel: the layer 'slabs', the shot's subject")
+               for n in rep.noticed())
+    # a page without the hook says nothing
+    rep.visits = {"phone": _visit("phone", [None] * 3, tmp_path)}
+    assert not [n for n in rep.noticed() if "travel" in n]
+
+
+def test_one_scale_is_a_measure_said_only_when_most_steps_share_it(tmp_path):
+    def line(sizes, subject=True):
+        rows = [[_box("hero", [0.5 - s / 2, 0.5 - s / 2, 0.5 + s / 2, 0.5 + s / 2], subject=subject)] for s in sizes]
+        rep = sc.SiteReport("site", tmp_path, steps=len(rows))
+        rep.visits = {"desktop": _visit("desktop", rows, tmp_path)}
+        return rep.scale_line(rep.visits["desktop"]), rep
+
+    said, rep = line([0.5, 0.55, 0.6, 0.5, 0.45, 0.2])            # 5 of 6 within a quarter of the median
+    assert "fills 20% to 60% of the window" in said and "at the 6 steps whose subject the page names, 5 of them" in said
+    assert said in rep.text() and not [n for n in rep.noticed() if "one scale" in n]   # a measure, not a fault
+    assert line([0.8, 0.5, 0.25, 0.5, 0.12, 0.6])[0] == ""        # a story that changes scale
+    assert line([0.5, 0.5, 0.5])[0] == ""                         # too few steps to say
+    assert line([0.5] * 6, subject=None)[0] == ""                  # no subject named: nothing guessed
+    # two subjects of one shot are one picture: the box around both
+    rows = [[_box("a", [0.1, 0.4, 0.3, 0.5]), _box("b", [0.6, 0.4, 0.8, 0.5]),
+             _box("c", [0, 0, 1, 1], subject=False)]] * 4
+    assert list(sc.subject_scale(_visit("desktop", rows, tmp_path).steps).values()) == [pytest.approx(0.7)] * 4
+
+
+def test_a_label_too_small_where_the_shot_is_about_it_is_named_and_one_in_the_background_is_not(tmp_path):
+    rep = sc.SiteReport("site", tmp_path, steps=4)
+    big, small = (300, 40), (60, 9)
+    rows = [[_box("hero", [0.3, 0.3, 0.6, 0.6]), _box("HERO", [0.3, 0.2, 0.5, 0.25], "label", px=big),
+             _box("FAR", [0.8, 0.2, 0.9, 0.21], "label", subject=False, px=small),           # background: not named
+             _box("WIDE", [0.3, 0.2, 0.5, 0.25], "label", subject=False, px=big)],
+            [_box("hero", [0.3, 0.3, 0.6, 0.6]), _box("HERO", [0.3, 0.2, 0.5, 0.25], "label", px=small),
+             _box("FAR", [0.8, 0.2, 0.9, 0.3], "label", subject=False, px=big)],
+            [_box("hero", [0.3, 0.3, 0.6, 0.6]), _box("HERO", [0.3, 0.2, 0.5, 0.25], "label", px=(60, 12)),
+             _box("CUT", [0.9, 0.2, 1.1, 0.21], "label", cut=0.5, px=small)],                # cut: that line says so
+            [_box("hero", [0.3, 0.3, 0.6, 0.6], subject=None),                               # a wide shot names none
+             _box("WIDE", [0.3, 0.2, 0.5, 0.21], "label", subject=None, px=(60, 14)),
+             _box("HERO", [0.3, 0.2, 0.5, 0.25], "label", subject=None, px=big)]]
+    rep.visits = {"desktop": _visit("desktop", rows, tmp_path)}
+    lines = [n for n in rep.noticed() if "3D label" in n]
+    assert lines == [
+        "Desktop: the 3D label 'HERO' is in the frame where the shot is about it, but too small to read at steps 2 "
+        "(33%) and 3 (67%) of 4 (at worst 9 px tall, under 16): make it larger there or frame it closer. Look at "
+        "desktop_01.jpg.",
+        "Desktop: the 3D label 'CUT' runs out of the frame at the frame's edge at step 3 of 4 (67%) (at worst 50% of "
+        "it outside); it is never taller than 9 px at any step (its largest is at step 3 of 4 (67%)), too small to "
+        "read. Look at desktop_02.jpg.",
+        "Desktop: the 3D label 'WIDE' is in the frame where the shot is about it, but too small to read at step 4 of "
+        "4 (100%) (at worst 14 px tall, under 16): make it larger there or frame it closer. Look at desktop_03.jpg."
+    ], lines
+    # a page that never names a subject: only the old rule (never readable at any step), as before
+    plain = [[{**s, "subject": None} for s in r] for r in rows]
+    rep.visits = {"desktop": _visit("desktop", plain, tmp_path)}
+    assert [n[:30] for n in rep.noticed() if "3D label" in n] == ["Desktop: the 3D label 'CUT' ru"]
+    assert sc.small_labels(rep.visits["desktop"].steps) == {}
+
+
+def test_a_layer_is_measured_and_named_as_a_prop_is():
+    row = {"name": "slabs", "kind": "layer", "box": [0.5, 0.2, 1.3, 0.6], "px": [1152, 360], "cut": 0.375,
+           "edges": {"right": 0.375}, "hidden": 0.2, "under": "div#panel", "subject": True}
+    s = sc._subject(row)
+    assert s["kind"] == "layer" and sc.subject_faults(s) == (True, True)          # a prop's thresholds, 30 % and 15 %
+    assert sc.subject_faults({**s, "cut": 0.25, "hidden": 0.12}) == (False, False)
+    import asyncio
+
+    class Page:
+        async def evaluate(self, _):
+            return {"list": [row, {**row, "name": "hero", "kind": "prop", "subject": False}]}
+
+    got, _, _ = asyncio.run(sc._Visitor.subjects(None, Page()))
+    assert [(x["name"], x["kind"], x["background"]) for x in got] == [("slabs", "layer", False), ("hero", "prop", True)]
+    rep = sc.SiteReport("site", Path("."), steps=2)
+    v = sc.Visit("desktop", loaded=True, load_s=1.0)
+    v.steps = [sc.Step(0, 0.0, 0, frame="desktop_00.jpg", subjects=got), sc.Step(1, 1.0, 0, frame="desktop_01.jpg")]
+    rep.visits = {"desktop": v}
+    assert [n for n in rep.noticed() if "slabs" in n] == [
+        "Desktop: the layer 'slabs' lies under div#panel at step 1 of 2 (0%) (at worst 20% of what is in the frame); "
+        "it runs out of the frame at the right edge at step 1 of 2 (0%) (at worst 38% of it outside). Look at "
+        "desktop_00.jpg."]
+
+
+@pytest.mark.browser
+def test_a_pinned_subject_a_small_label_and_layers_through_the_page_hook(tmp_path):
+    r = run(site(tmp_path, "subjects_pinned"), tmp_path, steps=5)
+    d = r.visits["desktop"]
+    kinds = {s["name"]: s["kind"] for st in d.steps for s in st.subjects}
+    assert kinds == {"hero": "prop", "HERO LABEL": "label", "slabs": "layer", "deck": "layer"}, kinds
+    assert d.steps[0].subjects[2]["hidden"] == 1.0  # the slabs lie under the panel, measured
+    noticed = r.noticed()
+    held = [n for n in noticed if "does not travel" in n]
+    assert len(held) == 1 and ("the prop 'hero', the shot's subject, keeps its place and size on screen at steps 1 "
+                               "to 3 of 5 (0% to 50%, 50% of the scroll): its box moves by at most 0% of the window"
+                               in held[0]), held
+    assert [n.split(":")[1].strip() for n in noticed if "too small to read" in n] == [
+        "the 3D label 'HERO LABEL' is in the frame where the shot is about it, but too small to read at step 5 of 5 "
+        "(100%) (at worst 9 px tall, under 16)"]
+    assert any(n.startswith("Desktop: the layer 'deck' runs out of the frame at the right edge at step 5 of 5 (100%)")
+               for n in noticed), noticed
+    assert "slabs" not in r.text()                   # a layer in the background, under the panel: not named
+    assert "Desktop: one scale throughout: the shot's subject fills 40% to 55% of the window" in r.text()
+    assert "5 steps whose subject the page names, 4 of them" in r.text()
+
+
+@pytest.mark.browser
+def test_the_page_knows_it_is_drawing_stills_and_only_then(tmp_path):
+    """The contract of round 8: data-agy3d-still is on <html> from before the first still until after the last, also
+    when a still fails, so a page may frame its subject for the whole canvas there; it is gone afterwards."""
+    import asyncio
+
+    from playwright.async_api import async_playwright
+
+    from antigravity3d.adapters.engines.web_three import WebThreeValidator, _launch_args
+
+    root = site(tmp_path, "still_mode")
+    out = tmp_path / "out"
+    out.mkdir()
+
+    async def go():
+        srv = sc._SiteServer(root)
+        try:
+            async with async_playwright() as pw:
+                b = await pw.chromium.launch(executable_path=WebThreeValidator().binary(), args=list(_launch_args()))
+                page = await b.new_page(viewport={"width": 640, "height": 400})
+                await page.add_init_script(sc._probe_script(False))
+                await page.goto(srv.url)
+                before = await page.evaluate("document.documentElement.hasAttribute('data-agy3d-still')")
+                vis = sc._Visitor("desktop", srv.url, srv.origin, out, sc._Clock(time.monotonic(), 120.0), "block")
+                stills = await vis.stills(page)
+                after = await page.evaluate("[document.documentElement.hasAttribute('data-agy3d-still'), "
+                                            "window.__seen, window.__changes]")
+                await b.close()
+                return before, stills, after
+        finally:
+            srv.close()
+
+    before, stills, (after, seen, changes) = asyncio.run(go())
+    assert before is False and after is False and changes == [True, False]
+    assert {t for t, _ in seen} == {1, 2, 3} and all(on for _, on in seen), seen   # the third, after the failed second
+    assert [x["id"] for x in stills["made"]] == ["one", "three"] and "fixture still boom" in stills["skipped"][0]["why"]
+    for x in stills["made"]:
+        assert all(abs(a - b) <= 12 for a, b in zip(_pixel(out / "stills" / x["file"]), (0, 255, 0))), x
+
+
+# --------------------------------------------------------------------------- the subject against its ground
+
+
+def _ground(colour: tuple[int, int, int], size: tuple[int, int] = (1440, 900)) -> np.ndarray:
+    """A canvas-only frame of run 4's dark ground with a quad of ``colour`` in its middle 60 % each way."""
+    w, h = size
+    a = np.empty((h, w, 3)); a[:] = (16, 20, 26)
+    a[int(0.2 * h):int(0.8 * h), int(0.2 * w):int(0.8 * w)] = colour
+    return a
+
+
+def test_the_subject_against_its_ground_is_measured_where_its_box_is():
+    """Three quarters of what stands in the subject's box within this much of the background's colour: dark steel on
+    a dark ground (run 4's look) under the limit, the same prop lit far above it."""
+    box = [[0.2, 0.2, 0.8, 0.8]]
+    dark = sc.subject_contrast(jpeg(_ground((22, 26, 34))), box)
+    lit = sc.subject_contrast(jpeg(_ground((200, 140, 60))), box)
+    assert dark < sc.CONTRAST_LOW < 0.5 < lit, (dark, lit)
+    # the box of two subjects is the one box round both; a box out of the frame is clipped to it
+    assert sc.subject_contrast(jpeg(_ground((200, 140, 60))), [[0.2, 0.2, 0.5, 0.8], [0.5, 0.2, 0.8, 1.6]]) > 0.5
+    # no measure for nothing to measure or a box too small to say anything
+    assert sc.subject_contrast(jpeg(_ground((200, 140, 60))), []) is None
+    assert sc.subject_contrast(jpeg(_ground((200, 140, 60))), [[0.5, 0.5, 0.51, 0.9]]) is None
+    assert sc.subject_contrast(jpeg(_ground((200, 140, 60))), [[1.2, 0.2, 1.5, 0.8]]) is None
+    # a canvas that fills only the window's right half: the box is in the window's terms
+    half = jpeg(_ground((200, 140, 60), (720, 900)))
+    rect, window = {"x": 720, "y": 0, "width": 720, "height": 900}, (1440, 900)
+    assert sc.subject_contrast(half, [[0.6, 0.2, 0.9, 0.8]], rect, window) > 0.5
+    assert sc.subject_contrast(half, [[0.0, 0.2, 0.3, 0.8]], rect, window) is None   # left of the canvas
+
+
+def test_the_dark_subject_is_named_when_it_is_the_look_and_not_for_one_dark_step(tmp_path):
+    def rep_with(values: list[float | None]) -> sc.SiteReport:
+        rep = sc.SiteReport("site", tmp_path, steps=len(values))
+        v = sc.Visit("desktop", loaded=True, load_s=1.0)
+        v.steps = [sc.Step(i, i / (len(values) - 1), 0, frame=str(tmp_path / f"desktop_{i:02d}.jpg"),
+                           canvas_frame=str(tmp_path / f"desktop_{i:02d}_canvas.jpg"), contrast=c)
+                   for i, c in enumerate(values)]
+        rep.visits = {"desktop": v}
+        return rep
+
+    # run 4's desktop, as frames3/run4 measures it
+    lines = [n for n in rep_with([0.06, 0.06, 0.08, 0.05, 0.07, 0.36, 0.29, 0.09, 0.06]).noticed() if "ground" in n]
+    assert lines == ["Desktop: the shot's subject hardly stands out from its ground at steps 1 (0%), 2 (12%), 3 (25%), "
+                     "4 (38%), 5 (50%), 8 (88%) and 9 (100%) of 9 (7 of the 9 steps whose subject the page names): "
+                     "three quarters of what stands where the subject is lies within 6%, 6%, 8%, 5%, 7%, 9%, 6% of the "
+                     "background's colour, at worst 5% (under 10% the subject reads as a hole in the picture). A dark "
+                     "material on a dark ground does, and a light one on a light ground: give the prop's main material "
+                     "a value well away from the background's, or bring light to it. Look at desktop_03_canvas.jpg."]
+    # one dark step of nine (a chapter at night), or run 3's desktop: nothing
+    assert not [n for n in rep_with([0.3, 0.05, 0.3, 0.3, 0.3, 0.3, 0.3, 0.3, None]).noticed() if "ground" in n]
+    assert not [n for n in rep_with([0.28, 0.28, 0.29, 0.30, 0.28, 0.25, 0.32, 0.29, None]).noticed() if "ground" in n]
+    # two of six steps that have a measure: a third
+    assert [n for n in rep_with([0.05, 0.05, 0.3, 0.3, 0.3, 0.3, None, None]).noticed() if "ground" in n]
+
+
+@pytest.mark.browser
+def test_a_dark_subject_on_a_dark_ground_is_named_and_a_lit_one_is_not(tmp_path):
+    root = site(tmp_path, "ground")
+    r = run(root, tmp_path)
+    d = r.visits["desktop"]
+    assert all(s.contrast is not None and s.contrast < sc.CONTRAST_LOW for s in d.steps), [s.contrast for s in d.steps]
+    lines = [n for n in r.noticed() if "hardly stands out from its ground" in n]
+    assert len(lines) == 1 and lines[0].startswith("Desktop: the shot's subject hardly stands out from its ground at "
+                                                   "steps 1 (0%), 2 (50%) and 3 (100%) of 3 (3 of the 3 steps"), lines
+    record = json.loads((tmp_path / "out" / "report.json").read_text())
+    assert [s["contrast"] for s in record["visits"]["desktop"]["steps"]] == [s.contrast for s in d.steps]
+
+    page = root / "index.html"
+    page.write_text(page.read_text().replace("const LIT = false;", "const LIT = true;"))
+    r = run(root, tmp_path)
+    assert all(s.contrast > 0.5 for s in r.visits["desktop"].steps) and "from its ground" not in r.text()
+
+
+# --------------------------------------------------------------------------- between the steps; the camera on its way
+
+
+def test_the_positions_between_the_steps_go_coarse_to_fine_and_leave_the_steps_out():
+    levels = sc.between_levels(9)
+    flat = [x for lv in levels for x in lv]
+    assert [len(lv) for lv in levels] == [8, 16] and len(set(flat)) == len(flat) == 24
+    assert levels[0][:2] == [1 / 16, 3 / 16] and not set(flat) & {i / 8 for i in range(9)}
+    assert sc.between_levels(2) == [[0.5], [0.25, 0.75]]
+
+
+def test_a_fault_found_between_the_steps_is_one_finding_with_its_stretch_of_the_scroll(tmp_path):
+    rep = sc.SiteReport("site", tmp_path, steps=3)
+    v = sc.Visit("desktop", loaded=True, load_s=1.0)
+    def clear() -> list[dict]:
+        return [_box("press", [0.3, 0.3, 0.7, 0.7])]
+
+    def cut(x0: float) -> list[dict]:  # the box's right part beyond the right edge
+        out = round((x0 + 0.4 - 1) / 0.4, 4)
+        return [{**_box("press", [x0, 0.3, x0 + 0.4, 0.7], cut=out), "edges": {"right": out}}]
+
+    v.steps = [sc.Step(i, i / 2, 0, frame=str(tmp_path / f"desktop_{i:02d}.jpg"), subjects=clear()) for i in range(3)]
+    shares = [0.125, 0.25, 0.375, 0.625, 0.75, 0.875]
+    rows = {0.625: cut(0.75), 0.75: cut(0.8)}
+    v.between = [sc.Step(-1, s, 0, subjects=rows.get(s, clear()), between=True) for s in shares]
+    rep.visits = {"desktop": v}
+    assert sc.extra_frames(v) == [v.between[4]]
+    v.between[4].frame = str(tmp_path / "desktop_x1.jpg")
+    assert [n for n in rep.noticed() if "'press' runs out" in n] == [
+        "Desktop: the prop 'press' runs out of the frame at the right edge from 62% to 75% of the scroll, between "
+        "the photographed steps (at worst 50% of it outside, at 75%). Look at desktop_x1.jpg."]
+    # where the page says its camera is moving there, nothing
+    for st in v.between:
+        for x in st.subjects:
+            x["moving"] = st.share in rows
+    assert not [n for n in rep.noticed() if "'press' runs out" in n] and sc.extra_frames(v) == []
+    # unless chapter text is readable there: then the camera on its way excuses nothing, and the line says why
+    for st in v.between:
+        st.moving, st.text = st.share in rows, 128
+        for x in st.subjects:
+            x["text_up"] = True
+    assert [n for n in rep.noticed() if "'press' runs out" in n] == [
+        "Desktop: the prop 'press' runs out of the frame at the right edge from 62% to 75% of the scroll, between "
+        "the photographed steps (at worst 50% of it outside, at 75%). There the chapter's text is up while the "
+        "camera is still on its way to the chapter's shot: show the text when the shot is held, as the skill's "
+        "starter does, or finish the move first. Look at desktop_x1.jpg."]
+    # a second subject cut at the same positions is told so in a few words: the reason is said once in an answer (the
+    # check's first answer on run 5's site said the sentence seven times)
+    for st in v.between:
+        if st.share in rows:
+            x0 = st.subjects[0]["box"][0]
+            st.subjects.append({**st.subjects[0], **_box("tag", [x0, 0.3, x0 + 0.4, 0.7], cut=st.subjects[0]["cut"]),
+                                "edges": st.subjects[0]["edges"], "moving": True, "text_up": True})
+    both = [n for n in rep.noticed() if "runs out" in n]
+    assert len(both) == 2 and sc.TEXT_IN_MOVE in both[0] and sc.TEXT_IN_MOVE not in both[1], both
+    assert sc.TEXT_IN_MOVE_AGAIN in both[1] and "".join(rep.noticed()).count(sc.TEXT_IN_MOVE) == 1
+
+
+def _travel(tmp_path: Path, mode: str) -> sc.SiteReport:
+    root = site(tmp_path / mode, "travel")
+    page = root / "index.html"
+    page.write_text(page.read_text().replace("const MODE = 'between';", f"const MODE = '{mode}';"))
+    return sc.check_site(str(root), out_dir=tmp_path / mode / "out", steps=3, sizes=("desktop",), variants=())
+
+
+@pytest.mark.browser
+def test_a_subject_out_of_the_frame_only_between_the_steps_is_found_with_its_stretch_and_a_frame(tmp_path):
+    r = _travel(tmp_path, "between")
+    d = r.visits["desktop"]
+    assert d.between_planned == 6 and len(d.between) == 6, d.between_planned
+    lines = [n for n in r.noticed() if "'press' runs out" in n]
+    assert lines == ["Desktop: the prop 'press' runs out of the frame at the right edge from 62% to 75% of the scroll, "
+                     "between the photographed steps (at worst 56% of it outside, at 75%). Look at "
+                     "desktop_x1.jpg."], lines
+    assert (tmp_path / "between" / "out" / "desktop_x1.jpg").is_file()
+    assert "read at 6 of 6 positions between the steps" in r.text()
+    record = json.loads((tmp_path / "between" / "out" / "report.json").read_text())
+    shares = [round(s["share"], 3) for s in record["visits"]["desktop"]["between"]]
+    assert shares == [0.125, 0.25, 0.375, 0.625, 0.75, 0.875]
+
+    r = _travel(tmp_path, "between-moving")
+    assert not [n for n in r.noticed() if "'press' runs out" in n]
+    assert not (tmp_path / "between-moving" / "out" / "desktop_x1.jpg").exists()
+    assert [s.moving for s in r.visits["desktop"].between] == [False, False, False, True, True, False]
+
+
+@pytest.mark.browser
+def test_a_subject_out_of_the_frame_at_a_step_is_no_fault_while_the_camera_is_on_its_way(tmp_path):
+    r = _travel(tmp_path, "step")
+    lines = [n for n in r.noticed() if "'press' runs out" in n]
+    assert lines == ["Desktop: the prop 'press' runs out of the frame at the right edge at step 2 of 3 (50%) (at worst "
+                     "50% of it outside). Look at desktop_01.jpg."], lines
+    r = _travel(tmp_path, "step-moving")
+    d = r.visits["desktop"]
+    assert d.steps[1].moving and "camera is between two shots" in d.steps[1].subjects_note
+    assert not [n for n in r.noticed() if "'press' runs out" in n]
+
+
+_IN_A_MOVE = ("There the chapter's text is up while the camera is still on its way to the chapter's shot: show the "
+              "text when the shot is held, as the skill's starter does, or finish the move first.")
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("where", ["step", "between"])
+def test_a_camera_on_its_way_excuses_nothing_where_the_chapter_text_is_up(tmp_path, where):
+    """Run 5's site showed its new chapter's text as the camera set off, said moving, and the check said nothing at
+    62 %, the frame a blind judge named in all six verdicts. The same subject out of the frame: named with the reason
+    where the page says moving and keeps its text up; not named where its text fades out over the move (0.4 s, which
+    the check waits out); named as before, without the reason, where the page does not say moving."""
+    def lines(r: sc.SiteReport) -> list[str]:
+        return [n for n in r.noticed() if "'press' runs out" in n]
+
+    up = _travel(tmp_path, f"{where}-moving-text")
+    found = lines(up)
+    look = f"desktop_{'01' if where == 'step' else 'x1'}.jpg"
+    assert len(found) == 1 and found[0].endswith(f"{_IN_A_MOVE} Look at {look}."), found
+    d = up.visits["desktop"]
+    at = [p for p in sc._positions(d) if p.moving]
+    assert at and all(p.text >= sc.TEXT_READABLE for p in at), [(p.share, p.text) for p in at]
+    if where == "step":  # the contact sheet marks the step
+        assert {"subject cut", "text mid-move"} <= set(sc.sheet_flags(d.steps[1], set(), set())), d.steps[1]
+        assert "text mid-move" not in sc.sheet_flags(d.steps[0], set(), set())
+
+    hides = _travel(tmp_path, f"{where}-moving-text-hides")
+    assert not lines(hides), lines(hides)
+    at = [p for p in sc._positions(hides.visits["desktop"]) if p.moving]
+    assert at and all(p.text == 0 for p in at), [(p.share, p.text) for p in at]
+
+    held = lines(_travel(tmp_path, f"{where}-text"))
+    assert len(held) == 1 and _IN_A_MOVE not in held[0], held
+
+
+@pytest.mark.browser
+def test_chapter_text_is_counted_where_it_lies_over_the_scene_and_is_seen(tmp_path):
+    """The measure of readable chapter text: a top bar (header, nav) and a 3D label give none, a panel faded to 0.3
+    gives none, text below the canvas gives none; the panel shown gives every character it has."""
+    import asyncio
+
+    from playwright.async_api import async_playwright
+
+    from antigravity3d.adapters.engines.web_three import WebThreeValidator, _launch_args
+
+    root = site(tmp_path, "chapter_text")
+
+    async def go():
+        srv = sc._SiteServer(root)
+        try:
+            async with async_playwright() as pw:
+                b = await pw.chromium.launch(executable_path=WebThreeValidator().binary(), args=list(_launch_args()))
+                page = await b.new_page(viewport={"width": 1440, "height": 900})
+                await page.add_init_script(sc._probe_script(False))
+                got = {}
+                await page.goto(srv.url)
+                await page.wait_for_function("window.__panelChars > 0")
+                got["faded"] = await page.evaluate("window.__agySite.chapterText()")
+                got["bar and label"] = await page.evaluate(
+                    "document.getElementById('panel').remove(), window.__agySite.chapterText()")
+                await page.goto(srv.url + "?panel=1")
+                await page.wait_for_function("window.__panelChars > 0")
+                got["shown"], got["chars"] = await page.evaluate(
+                    "[window.__agySite.chapterText(), window.__panelChars]")
+                await b.close()
+                return got
+        finally:
+            srv.close()
+
+    got = asyncio.run(go())
+    assert got["faded"] == 0 and got["bar and label"] == 0, got
+    assert got["shown"] == got["chars"] > sc.TEXT_READABLE, got
+
+
+@pytest.mark.browser
+def test_the_pass_between_the_steps_keeps_to_its_allowance_on_a_slow_page(tmp_path, monkeypatch):
+    """Every frame of the page takes half a second; a reading waits for two of them."""
+    monkeypatch.setattr(sc, "BETWEEN_S", 3.0)
+    r = run(site(tmp_path, "slow_frames"), tmp_path, steps=3)
+    d = r.visits["desktop"]
+    assert len(d.steps) == 3 and d.between_planned == 6
+    assert 1 <= len(d.between) < 6 and d.between_s <= sc.BETWEEN_S + 1.0, (len(d.between), d.between_s)
+    assert all(s.subjects for s in d.between)   # a reading cut off by the allowance is not kept as a failed one
+    assert f"read at {len(d.between)} of 6 positions between the steps" in r.text()
+
+
+# --------------------------------------------------------------------------- the first wheel notch
+
+def _png(a: np.ndarray) -> bytes:
+    buf = io.BytesIO()
+    Image.fromarray(a.astype(np.uint8)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _disc(cx: float, cy: float, r: float = 100.0, size: tuple[int, int] = (480, 360), text: bool = False) -> bytes:
+    """A light disc on a dark ground, anti-aliased as a renderer draws it (four samples a pixel each way); with
+    ``text``, rows of thin strokes that never move, as a page's panel of text stands over its scene."""
+    w, h = size
+    yy, xx = np.mgrid[0:h * 4, 0:w * 4]
+    hit = ((xx + 0.5) / 4 - cx) ** 2 + ((yy + 0.5) / 4 - cy) ** 2 <= r * r
+    a = 16 + 200 * hit.reshape(h, 4, w, 4).mean(axis=(1, 3))
+    if text:
+        a[20:340:6, 20:140:3] = 230
+    return _png(np.repeat(a[:, :, None], 3, axis=2))
+
+
+def test_the_shift_of_a_picture_is_about_the_pixels_it_moved_and_a_shimmer_is_under_one():
+    """What the first-notch finding rests on. Runs 4 and 5 moved their pictures by a fraction of a pixel on the first
+    wheel notch: every edge shimmered and nothing travelled. The reading must tell that from a picture that moved."""
+    still = _disc(240, 180)
+    assert sc.picture_shift(still, still) == 0.0
+    for d in (1, 2, 4, 8):                                               # about d, a little under, any direction
+        for to in ((240 + d, 180), (240, 180 - d), (240 + d * 0.7071, 180 + d * 0.7071)):
+            got = sc.picture_shift(still, _disc(*to))
+            assert d - 0.5 <= got <= d, (d, to, got)
+    for part in (0.1, 0.25, 0.4):                                        # under half a pixel: a shimmer, at any contrast
+        assert sc.picture_shift(still, _disc(240 + part, 180)) < 0.1, part
+    # text that stays put adds edges and no change: the same 4 px read as less, which is why the canvas is read alone
+    assert sc.picture_shift(_disc(240, 180, text=True), _disc(244, 180, text=True)) < 0.5 * sc.picture_shift(still, _disc(244, 180))
+    assert sc.picture_shift(still, _disc(240, 180, size=(400, 300))) is None   # two sizes
+    blank = _png(np.full((90, 120, 3), 20))
+    assert sc.picture_shift(blank, blank) is None                       # nothing to follow
+
+
+def test_the_first_notch_is_a_finding_only_where_neither_the_picture_nor_the_text_moved(tmp_path):
+    rep = _report(tmp_path)
+    d = rep.visits["desktop"]
+
+    def said(notch: dict | None) -> tuple[list[str], list[str]]:
+        d.first_notch = notch
+        return ([n for n in rep.noticed() if "first scroll" in n], [m for m in rep.text().splitlines() if "first wheel notch" in m])
+
+    assert said(None) == ([], [])                                                              # not tried
+    found, measure = said({"px": 120, "motion": "still", "window": 0.14, "canvas": 0.32, "text": 0.0})  # run 4's site
+    assert len(found) == 1 and "moves the picture by about 0.3 px and none of the text" in found[0], found
+    assert "shots.js, OPENING" in found[0] and measure == ["- The first wheel notch (120 px from the top of the page) moves the picture by about 0.3 px."]
+    found, measure = said({"px": 120, "motion": "still", "window": 3.97, "canvas": 8.83, "text": 0.0})  # run 5 with the opening
+    assert found == [] and "by about 8.8 px." in measure[0]
+    found, measure = said({"px": 120, "motion": "still", "window": 0.4, "canvas": 0.0, "text": 0.4})  # the text scrolls
+    assert found == [] and measure[0].endswith("moves the picture by about 0.4 px and 40% of the text in view.")
+    found, measure = said({"px": 120, "motion": "ambient"})                                    # it moves by itself
+    assert found == [] and "was not measured: the top of the page keeps changing by itself" in measure[0]
+    assert rep.to_dict()["visits"]["desktop"]["first_notch"] == {"px": 120, "motion": "ambient"}
+
+
+def _notch(tmp_path: Path, mode: str) -> sc.SiteReport:
+    root = site(tmp_path / mode, "first_notch")
+    page = root / "index.html"
+    page.write_text(page.read_text().replace("const MODE = 'answers';", f"const MODE = '{mode}';"))
+    return sc.check_site(str(root), out_dir=tmp_path / mode / "out", steps=3, sizes=("desktop",), variants=())
+
+
+@pytest.mark.browser
+def test_a_page_whose_first_wheel_notch_moves_nothing_is_told_and_one_that_answers_is_not(tmp_path):
+    """A quad that slides with the scroll under a panel of text that stays put: from the first pixel ('answers'), or
+    easing in from rest, as the first hold of the skill's starter did ('rest'). The 3D canvas is read alone, so the
+    panel's edges do not hide a picture that moved."""
+    got = {mode: _notch(tmp_path, mode) for mode in ("answers", "rest")}
+    notch = {mode: r.visits["desktop"].first_notch for mode, r in got.items()}
+    assert notch["answers"]["motion"] == notch["rest"]["motion"] == "still", notch
+    assert notch["answers"]["canvas"] >= 5 and notch["answers"]["canvas"] > notch["answers"]["window"], notch
+    assert notch["rest"]["canvas"] < sc.NOTCH_MIN_PX and notch["rest"].get("text", 0) == 0, notch
+    assert not [n for n in got["answers"].noticed() if "first scroll" in n], got["answers"].noticed()
+    (line,) = [n for n in got["rest"].noticed() if "first scroll" in n]
+    assert line.startswith("Desktop: the first scroll gets no answer. One wheel notch (120 px)"), line
+    for r in got.values():  # the notch is read after the first step and the other steps are photographed as before
+        assert [s.index for s in r.visits["desktop"].steps] == [0, 1, 2] and "nothing broken" in r.text().splitlines()[0], r.text()
+
+
+@pytest.mark.browser
+def test_text_that_scrolls_with_the_page_answers_the_first_notch_and_a_restless_page_is_not_read(tmp_path):
+    """'html': the scene stands still and a block of text in the normal flow moves 120 px with the notch, which a count
+    of changed pixels undersells (thin glyphs) and the page's own layout says exactly. 'restless': the top of the page
+    changes by itself all the time, so what the notch changed cannot be told from it and nothing is said."""
+    html = _notch(tmp_path, "html")
+    n = html.visits["desktop"].first_notch
+    assert n["motion"] == "still" and n["canvas"] < sc.NOTCH_MIN_PX and n["text"] >= sc.NOTCH_TEXT_MOVED, n
+    assert not [x for x in html.noticed() if "first scroll" in x], html.noticed()
+    assert "of the text in view." in html.text(), html.text()
+    restless = _notch(tmp_path, "restless")  # whether or not two of its frames happened to match when it "settled"
+    assert restless.visits["desktop"].first_notch in ({"px": 120, "motion": "ambient"}, {"px": 120, "motion": "moving"})
+    assert not [x for x in restless.noticed() if "first scroll" in x], restless.noticed()
+    assert "was not measured: the top of the page keeps changing by itself" in restless.text(), restless.text()

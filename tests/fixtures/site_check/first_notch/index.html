@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What the first wheel notch changes</title>
+<!-- A quad that slides to the right as the page scrolls, under a text panel that stays put. The test sets MODE:
+     'answers': the quad moves 0.1 px for every pixel of scroll, from the first pixel (12 px over one wheel notch);
+     'rest':    it covers the same 270 px over the page but eases in from rest (smootherstep), as the first hold
+                of the skill's starter did at the top of the page: a fifth of a pixel over the first notch;
+     'html':    the quad stays where it is and a block of text in the normal flow scrolls with the page;
+     'restless': as 'rest', and the quad's colour pulses by itself all the time. -->
+<style>html,body{margin:0;background:#101418;color:#eee;font:16px sans-serif}
+canvas{position:fixed;inset:0;width:100vw;height:100vh;z-index:0}
+#panel{position:fixed;left:5vw;top:20vh;width:30vw;z-index:1}
+#flow{position:relative;z-index:1;margin:60vh 0 0 55vw;width:35vw;display:none}.html #flow{display:block}</style></head>
+<body><canvas id="c"></canvas>
+<div id="panel"><h1>Bound tool output. Keep the address.</h1><p>Capture noisy runs locally, return a bounded digest,
+and retrieve exact lines on demand.</p></div>
+<div id="flow"><h2>One 20,001-line log</h2><p>It stays resident in context on every later turn.</p></div>
+<div style="height:400vh"></div>
+<script type="module">
+import { setup, QUAD } from './gl.js';
+const MODE = 'answers';
+document.documentElement.classList.toggle('html', MODE === 'html');
+const { gl, quad, color } = setup(document.getElementById('c'));
+const max = () => Math.max(1, document.documentElement.scrollHeight - innerHeight);
+const ease = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+const slide = () => {
+  if (MODE === 'html') return 0;
+  const t = scrollY / max();
+  return 0.1 * max() * (MODE === 'answers' ? t : ease(t));  // px to the right
+};
+let drawn = null;
+const frame = (now) => {
+  const dx = slide() * 2 / innerWidth, pulse = MODE === 'restless' ? 0.5 + 0.5 * Math.sin(now / 150) : 1;
+  const key = dx + ':' + pulse;
+  if (key !== drawn) {
+    drawn = key;
+    quad(QUAD.map((v, i) => (i % 2 ? v * 0.5 : v * 0.3 + 0.1 + dx)));  // right of the panel, 259 x 270 px at 1440 x 900
+    gl.clearColor(0.06, 0.08, 0.1, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    color(0.85 * pulse, 0.55 * pulse, 0.25); gl.drawArrays(gl.TRIANGLES, 0, 6);
+  }
+  requestAnimationFrame(frame);
+};
+requestAnimationFrame(frame);
+</script></body></html>

@@ -1,0 +1,33 @@
+{
+ "first": "stock",
+ "second": "run4",
+ "rep": 1,
+ "frames": [
+  "57c48173e1aeb830",
+  "942e475c1cb9450d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 tracks smoothly down a single industrial line across frames 1 to 9 without colliding with UI, whereas Site 1 clips cards and obscures 3D elements in frames 4, 5, 8, and 9."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2 makes the mechanics tangible by pressing a log slab in frame 3, storing slices in frame 5, and clamping shifted lines in frame 6, whereas Site 1 uses more abstract floating rings in frames 3 to 6."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 builds a grounded, cohesive assembly line with believable materials and contact shadows on a floor plane across frames 1 to 9, while Site 1's objects float ungrounded in space."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Site 2 keeps legible, well-proportioned cards anchored cleanly on the left across frames 1 to 9, whereas Site 1 suffers from header collisions and overlapping text in frames 1, 4, 5, and 9."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers a cohesive, unobstructed scroll-driven 3D assembly line that clearly visualizes how Straitjacket bounds, stores, and hands off code evidence."
+  }
+ }
+}

@@ -6,13 +6,13 @@ import { createElement, useEffect, useState } from "react";
 import { useThree } from "@react-three/fiber";
 import { %%LOAD%% } from "./index.js";
 
-export function %%COMPONENT%%({ baseUrl, transcoderPath, ktx2Loader, collision, onLoad, onError, ...props }) {
+export function %%COMPONENT%%({ baseUrl, transcoderPath, ktx2Loader, collision, levels, onLoad, onError, ...props }) {
   const gl = useThree((state) => state.gl);
   const [object, setObject] = useState(null);
   useEffect(() => {
     let cancelled = false;
     let loaded = null;
-    %%LOAD%%({ renderer: gl, baseUrl, transcoderPath, ktx2Loader, collision }).then(
+    %%LOAD%%({ renderer: gl, baseUrl, transcoderPath, ktx2Loader, collision, levels }).then(
       (group) => {
         if (cancelled) return group.userData.agy3d.dispose();
         loaded = group;
@@ -22,6 +22,6 @@ export function %%COMPONENT%%({ baseUrl, transcoderPath, ktx2Loader, collision, 
       (error) => { if (onError) onError(error); else console.error(error); },
     );
     return () => { cancelled = true; if (loaded) loaded.userData.agy3d.dispose(); setObject(null); };
-  }, [gl, baseUrl, transcoderPath, ktx2Loader, collision]);
+  }, [gl, baseUrl, transcoderPath, ktx2Loader, collision, levels]);
   return object ? createElement("primitive", { object, ...props }) : null;
 }

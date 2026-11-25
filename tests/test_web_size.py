@@ -306,23 +306,160 @@ def test_the_same_bytes_are_decided_once_per_process_and_give_the_same_files(png
     assert _tree(a) == _tree(b), "the manifest and every file are the same bytes"
 
 
-@pytest.mark.parametrize("outcome, reason", [
-    ({"passed": False, "frames": [{"view": "close_up_2", "passed": False, "mean_abs": 0.03, "pixel_share": 0.04}],
-      "tolerance": {"pixel_delta": 0.08}}, "outside the tolerance in close_up_2 (mean 0.0300, 4.00% of the asset's pixels over 8%)"),
-    ({"passed": None, "why": "no browser"}, "the frames could not be compared, so nothing lossy ships: no browser"),
+_OUTSIDE = {"passed": False, "frames": [{"view": "close_up_2", "passed": False, "mean_abs": 0.03, "pixel_share": 0.04}],
+            "tolerance": {"pixel_delta": 0.08}}
+_OUTSIDE_SAYS = "outside the tolerance in close_up_2 (mean 0.0300, 4.00% of the asset's pixels over 8%)"
+
+
+def _lossless(glb: bytes) -> list[bool]:
+    """Per WebP map a GLB embeds: whether it is stored lossless (a VP8L chunk; a lossy one is 'VP8 ')."""
+    return [b[12:16] == b"VP8L" for b, mime in G.embedded_images(glb) if mime == "image/webp"]
+
+
+def _measuring(calls: list, passes):
+    """A comparison that is inside the tolerance when ``passes(which maps of the candidate are lossless)``."""
+    async def measure(manifest, png_glb, webp_glb, timeout=0):
+        calls.append(_lossless(webp_glb))
+        if passes(calls[-1]):
+            return {"passed": True, "frames": [{"view": "frame", "passed": True, "mean_abs": 0.002, "pixel_share": 0.0}],
+                    "tolerance": {"pixel_delta": 0.08}}
+        return json.loads(json.dumps(_OUTSIDE))
+    return measure
+
+
+@pytest.mark.parametrize("outcome, reason, measured", [
+    (_OUTSIDE, f"lossy: {_OUTSIDE_SAYS}; roughness/metal map lossless: {_OUTSIDE_SAYS}; lossless: {_OUTSIDE_SAYS}", 3),
+    ({"passed": None, "why": "no browser"}, "the frames could not be compared, so nothing lossy ships: no browser", 1),
 ])
-def test_a_difference_or_no_measurement_keeps_png_and_says_why(png_package, tmp_path, monkeypatch, outcome, reason):
+def test_a_difference_or_no_measurement_keeps_png_and_says_why(png_package, tmp_path, monkeypatch, outcome, reason, measured):
+    """Every encoding outside the tolerance: PNG, with each encoding's numbers. Frames that cannot be rendered: PNG at
+    once, the browser is not asked again (a lossless map is not shipped unmeasured either)."""
+    calls: list = []
+
     async def measure(*a, **k):
-        return outcome
+        calls.append(1)
+        return json.loads(json.dumps(outcome))
 
     monkeypatch.setattr(WT, "measure", measure)
     pkg, data = _copy(png_package, tmp_path / "pkg")
     before = _tree(pkg)
     rec = asyncio.run(WT.web_format(pkg, data))
-    assert rec["format"] == "png" and rec["reason"] == reason
+    assert rec["format"] == "png" and rec["reason"] == reason and len(calls) == measured
+    assert "encoding" not in rec and all("lossless" not in m for m in rec["maps"]), "the maps listed are the lossy ones"
     after = _tree(pkg)
     assert {k: v for k, v in after.items() if k != "manifest.json"} == {k: v for k, v in before.items() if k != "manifest.json"}
     assert json.loads((pkg / "manifest.json").read_text())["web_textures"]["format"] == "png"
+
+
+def test_a_lossy_roughness_metal_map_outside_the_tolerance_ships_lossless_and_the_other_maps_stay_lossy(
+        png_package, tmp_path, monkeypatch):
+    """Run 5 of the website task: two props kept PNG (1.65 and 1.48 MB of maps) because the lossy roughness/metal map
+    put 1.07 % and 2.02 % of a close-up's pixels over 8 %. That one map lossless is inside the tolerance and the
+    package is still far under PNG."""
+    calls: list = []
+    monkeypatch.setattr(WT, "measure", _measuring(calls, any))  # inside the tolerance once a map is lossless
+    pkg, data = _copy(png_package, tmp_path / "pkg")
+    png_bytes = (pkg / f"{data['asset']}.glb").stat().st_size
+    rec = asyncio.run(WT.web_format(pkg, data))
+    assert rec["format"] == "webp" and rec["encoding"] == "roughness/metal map lossless"
+    assert calls == [[False, False, False], [False, True, False]], "lossy first, then the one map lossless"
+    assert rec["tried"] == [{"encoding": "lossy", "reason": _OUTSIDE_SAYS}] and "reason" not in rec
+    by_role = {m["role"]: m for m in rec["maps"]}
+    assert by_role["orm"].get("lossless") is True and "quality" not in by_role["orm"]
+    assert all("lossless" not in by_role[r] and by_role[r]["quality"] == WT.WEBP_QUALITY[r] for r in ("albedo", "normal"))
+    assert all(m["webp"] and (pkg / m["webp"]).is_file() for m in rec["maps"])
+    lod0 = (pkg / f"{data['asset']}.glb").read_bytes()
+    assert _lossless(lod0) == [False, True, False] and len(lod0) == rec["glb_bytes"]["after"] < png_bytes
+    # the lossless map is the PNG's pixels exactly
+    from PIL import Image
+
+    orm = by_role["orm"]
+    assert Image.open(pkg / orm["webp"]).convert("RGB").tobytes() == Image.open(pkg / orm["texture"]).convert("RGB").tobytes()
+    man = json.loads((pkg / "manifest.json").read_text())
+    assert man["web_textures"] == {k: v for k, v in rec.items() if k != "timings"}
+    assert [i for i in validate_package(pkg) if i.severity == "critical"] == []
+
+
+def test_every_map_lossless_is_the_last_encoding_tried_and_a_map_that_is_no_smaller_stays_png(png_package, tmp_path, monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(WT, "measure", _measuring(calls, lambda maps: bool(maps) and all(maps)))
+    pkg, data = _copy(png_package, tmp_path / "pkg")
+    rec = asyncio.run(WT.web_format(pkg, data))
+    assert rec["format"] == "webp" and rec["encoding"] == "lossless" and len(calls) == 3 and all(calls[-1])
+    assert [t["encoding"] for t in rec["tried"]] == ["lossy", "roughness/metal map lossless"]
+    kept = [m for m in rec["maps"] if not m["webp"]]
+    assert all(m["webp_bytes"] >= m["png_bytes"] and m["kept_png"] == "the WebP encoding is not smaller" for m in kept)
+    assert all(m.get("lossless") is True for m in rec["maps"])
+    assert [i for i in validate_package(pkg) if i.severity == "critical"] == []
+
+
+def test_an_encoding_that_gives_the_same_files_as_one_already_compared_is_not_compared_again(png_package, tmp_path, monkeypatch):
+    """A package with no roughness/metal map (here: a step that names a role no map has) has nothing to try in
+    between: the browser is not started for the same bytes twice."""
+    calls: list = []
+
+    async def measure(*a, **k):
+        calls.append(1)
+        return json.loads(json.dumps(_OUTSIDE))
+
+    monkeypatch.setattr(WT, "measure", measure)
+    monkeypatch.setattr(WT, "LADDER", (("lossy", frozenset()), ("nothing new", frozenset({"clearcoat"})), ("lossless", None)))
+    pkg, data = _copy(png_package, tmp_path / "pkg")
+    rec = asyncio.run(WT.web_format(pkg, data))
+    assert len(calls) == 2 and [t["encoding"] for t in rec["tried"]] == ["lossy", "lossless"] and rec["format"] == "png"
+
+
+def test_frames_that_cannot_be_compared_after_a_miss_end_the_search_and_are_asked_again_next_time(png_package, tmp_path, monkeypatch):
+    answers = [_OUTSIDE, {"passed": None, "why": "the browser closed"}]
+    calls: list = []
+
+    async def measure(*a, **k):
+        calls.append(1)
+        return json.loads(json.dumps(answers[(len(calls) - 1) % 2]))  # for each package: a miss, then no comparison
+
+    monkeypatch.setattr(WT, "measure", measure)
+    pkg, data = _copy(png_package, tmp_path / "pkg")
+    rec = asyncio.run(WT.web_format(pkg, data))
+    assert rec["format"] == "png" and len(calls) == 2
+    assert rec["reason"] == (f"lossy: {_OUTSIDE_SAYS}; roughness/metal map lossless: the frames could not be compared: "
+                             "the browser closed")
+    again, data2 = _copy(png_package, tmp_path / "again")
+    asyncio.run(WT.web_format(again, data2))
+    assert len(calls) == 4, "a decision that rests on a comparison that could not run is not kept"
+
+
+def test_a_metal_mask_comes_back_wrong_from_lossy_webp_at_any_quality_and_exact_from_lossless():
+    """Why the roughness/metal map is the one stored lossless: lossy WebP keeps colour at half the resolution of
+    brightness (YUV 4:2:0) whatever the quality, and this map's channels are unrelated quantities, so a metal mask
+    against the roughness beside it is 'colour'. Measured on run 5's two maps: 14.4 % and 10.2 % of texels off by more
+    than 8 % at quality 90, 14.3 % and 10.2 % at quality 100. Here: a coating at 0.45 metal with chips of bare metal
+    and specks of dirt one to two texels wide."""
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    rng = np.random.default_rng(5)
+    side = 256
+    metal = np.full((side, side), round(0.45 * 255), np.uint8)
+    for value, count in ((255, 900), (0, 900)):
+        for y, x in rng.integers(0, side - 2, (count, 2)):
+            metal[y:y + rng.integers(1, 3), x:x + rng.integers(1, 3)] = value
+    rough = (140 + 20 * np.sin(np.arange(side) / 9.0)[None, :] + rng.normal(0, 3, (side, side))).clip(0, 255).astype(np.uint8)
+    orm = np.dstack([np.full((side, side), 255, np.uint8), rough, metal])
+    buf = io.BytesIO()
+    Image.fromarray(orm, "RGB").save(buf, "PNG")
+
+    def back(quality):
+        return np.asarray(Image.open(io.BytesIO(WT._encode_one(buf.getvalue(), quality))).convert("RGB"), dtype=np.int16)
+
+    def off(quality):  # share of texels with a channel off by more than the tolerance's 8 % of full scale
+        return float((np.abs(back(quality) - orm).max(axis=2) > 0.08 * 255).mean())
+
+    at90, at100 = off(90), off(100)
+    assert at90 > 0.05 and at100 > 0.05, (at90, at100)
+    assert at100 > 0.8 * at90, "a higher quality does not bring the mask back"
+    assert np.array_equal(back(None), orm), "lossless is the same texels"
 
 
 def test_a_webp_package_that_does_not_validate_is_put_back_as_it_was(png_package, tmp_path, monkeypatch):
@@ -392,9 +529,12 @@ def test_the_installer_serves_the_webp_maps_and_compresses_from_the_pngs(png_pac
 
 
 @pytest.mark.browser
-def test_browser_noise_maps_differ_as_webp_so_the_offline_crate_keeps_png(tmp_path):
-    """The offline crate's maps are the fake image backend's noise: WebP visibly changes them (measured: 7.6 % of the
-    frame's asset pixels over 8 %), so the measurement keeps PNG. The guard is the measurement, not the format."""
+def test_browser_noise_maps_differ_as_lossy_webp_so_the_offline_crate_ships_them_lossless(tmp_path):
+    """The offline crate's maps are the fake image backend's noise. Lossy WebP visibly changes them (measured: 7.6 % of
+    the frame's asset pixels over 8 %), and with the roughness/metal map alone lossless they still differ (5.9 %: the
+    colour map is noise too). Every map lossless is the PNG's picture, 0 pixels over in every frame, and smaller
+    (443,988 -> 383,784 bytes of GLB), with the normal map left PNG because its lossless WebP is no smaller. The guard
+    is the measurement, not the format."""
     if why := WebThreeValidator()._unavailable():
         pytest.skip(why)
     from antigravity3d.cli import main
@@ -404,8 +544,14 @@ def test_browser_noise_maps_differ_as_webp_so_the_offline_crate_keeps_png(tmp_pa
     rec = json.loads((pkg / "manifest.json").read_text())["web_textures"]
     views = [f["view"] for f in rec["measured"]["frames"]]
     assert views[0] == "frame" and len(views) == 1 + WT.CLOSE_UPS
-    assert rec["format"] == "png" and rec["measured"]["passed"] is False and rec["reason"].startswith("outside the tolerance in frame")
-    assert not list(pkg.rglob("*.webp")) and [i for i in validate_package(pkg) if i.severity == "critical"] == []
+    assert [t["encoding"] for t in rec["tried"]] == ["lossy", "roughness/metal map lossless"]
+    assert all(t["reason"].startswith("outside the tolerance in frame") for t in rec["tried"])
+    assert rec["format"] == "webp" and rec["encoding"] == "lossless" and rec["measured"]["passed"] is True
+    assert all(f["pixel_share"] == 0 and f["mean_abs"] == 0 for f in rec["measured"]["frames"]), "lossless is exact in the frame too"
+    assert rec["glb_bytes"]["after"] < rec["glb_bytes"]["before"]
+    kept = [m["role"] for m in rec["maps"] if not m["webp"]]
+    assert kept == ["normal"] and len(list(pkg.rglob("*.webp"))) == 2, "a map that is no smaller as WebP stays PNG beside the others"
+    assert [i for i in validate_package(pkg) if i.severity == "critical"] == []
 
 
 @pytest.mark.browser

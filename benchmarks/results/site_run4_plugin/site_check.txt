@@ -1,0 +1,27 @@
+SITE CHECKED in 61 s: nothing broken, 7 things a visitor would notice. Open the contact sheets below with your file viewer and look at every frame before you change anything.
+
+A visitor would notice:
+- Desktop: the prop 'evidence_vault' runs out of the frame at the right edge at step 4 of 9 (38%) (at worst 69% of it outside). Look at desktop_03.jpg.
+- Desktop: the layer 'vault_slice' runs out of the frame at the right edge at step 4 of 9 (38%) (at worst 76% of it outside). Look at desktop_03.jpg.
+- Desktop: the prop 'anchor_manifold' runs out of the frame at the right edge at step 7 of 9 (75%) (at worst 36% of it outside). Look at desktop_06.jpg.
+- Desktop: the layer 'host_lanes' runs out of the frame at the right edge at step 7 of 9 (75%) (at worst 36% of it outside). Look at desktop_06.jpg.
+- Phone: the prop 'anchor_manifold' runs out of the frame at the right and left edges at step 7 of 9 (75%) (at worst 47% of it outside). Look at phone_06.jpg.
+- Phone: the layer 'host_lanes' runs out of the frame at the right edge at step 7 of 9 (75%) (at worst 45% of it outside). Look at phone_06.jpg.
+- The page downloads 7.4 MB: about 6 s on a 10 Mbit/s connection before everything has arrived.
+
+Measures:
+- Desktop 1440x900: settled 14.3 s after the page was asked for; 9 of 9 steps photographed; share of the 3D canvas showing something, per step: 5% 6% 4% 4% 8% 34% 27% 12% 6%.
+- Phone 390x844: settled 8.5 s after the page was asked for; 9 of 9 steps photographed; share of the 3D canvas showing something, per step: 4% 4% 6% 5% 6% 17% 22% 7% 3%. Still changing 4 s after the page drew there at step 7 of 9 (75%): those frames may show the scene on its way (software WebGL draws a heavy frame in about a second; a visitor's GPU in a few milliseconds).
+- Downloaded (desktop, whole scroll): 7.4 MB in 39 files: textures 4.7 MB, scripts 2.2 MB, models 0.3 MB, fonts 0.1 MB, images 83 kB, styles 34 kB, documents 14 kB. Largest: agy3d/containment_press/textures/containment_press_atlas_orm.ktx2 0.8 MB, agy3d/evidence_vault/textures/evidence_vault_atlas_orm.ktx2 0.7 MB, assets/layers-DzOfWtt2.js 0.7 MB, agy3d/anchor_manifold/textures/anchor_manifold_atlas_orm.ktx2 0.7 MB, agy3d/containment_press/textures/containment_press_atlas_albedo.ktx2 0.7 MB.
+- Scene (desktop, the largest over the steps): 119 draw calls and 188,211 triangles in one frame (most triangles at 12%); textures 147.2 MB on the graphics card in 43 textures (132.9 MB of it render targets), plus 6.5 MB of render buffers. Counted by wrapping the page's WebGL draw and texture calls before its scripts ran.
+- While nothing moves (top of the page, 1.5 s, no input): it drew in 1 of 59 frames, and the picture changed.
+- With reduce motion set the page asks matchMedia and has a CSS rule; while nothing is touched the picture stays still (without the setting it changes). Picture: reduced.jpg.
+- Without WebGL: no errors; the page shows 3,437 characters of text (with WebGL 3,437) and 6 images, and no message about the missing 3D. Picture: nowebgl.jpg.
+- Facts: 24 elements name a source (data-src) against <project checkout>; all match.
+
+Pictures:
+- desktop contact sheet: <run>/site_check/sheet_desktop.jpg (frames desktop_00.jpg to desktop_08.jpg)
+- phone contact sheet: <run>/site_check/sheet_phone.jpg (frames phone_00.jpg to phone_08.jpg)
+- stills for the page without WebGL, one per chapter at the picture it rests on, the 3D canvas alone (6, 1280 x 800 px WebP, 44 kB each on average): <run>/site_check/stills (intro.webp, flood.webp, vault.webp, anchors.webp and 2 more). Copy them beside the page (stills/<chapter id>.webp) and give each an alt text that says what it shows.
+- all frames, the canvas-only frames and the full record (report.json) are in <run>/site_check
+- about these pictures: this browser puts pages together without the GPU path, and its screenshots then leave a black box in a WebGL canvas opposite every opaque panel (mirrored top to bottom). No visitor's browser does. The check tested for it and photographed each canvas on a layer of its own, which gives the true picture: the frames here are what a visitor sees. A screenshot script of your own on this machine will show those boxes; they are not the site's.

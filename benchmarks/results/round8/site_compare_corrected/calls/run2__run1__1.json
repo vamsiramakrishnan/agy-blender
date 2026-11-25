@@ -1,0 +1,33 @@
+{
+ "first": "run2",
+ "second": "run1",
+ "rep": 1,
+ "frames": [
+  "16663fbe6c17af2f",
+  "e074b52a7a5c36c0"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 frames 1 to 9 keep the 3D pipeline clearly framed alongside a fixed left card, whereas Site 2 has empty space in frame 6 and obscured 3D in frames 8 and 9."
+   },
+   "explains_the_project": {
+    "winner": "1",
+    "reason": "Site 1 visually tracks log compression and routing across connected machines in frames 3 to 8, while Site 2's chambers in frames 1 to 7 are more abstract."
+   },
+   "craft_of_the_3d": {
+    "winner": "1",
+    "reason": "Site 1 grounds its machinery with contact shadows on a unified grid across frames 1 to 9, whereas Site 2's metallic props float ungrounded in frames 5 and 7."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Site 1 maintains clean, consistent left-side cards in frames 1 to 9, while Site 2 clips text panels at viewport edges in frames 3, 6, and 7."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Site 1 delivers a cohesive, well-composed scroll journey with grounded 3D assembly-line visuals that clearly explain how Straitjacket processes and routes agent context."
+  }
+ }
+}

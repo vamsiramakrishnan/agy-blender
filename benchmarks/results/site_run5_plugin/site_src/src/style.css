@@ -1,0 +1,500 @@
+/* style.css: Straitjacket Addressable Evidence design system.
+   Palette & rules from straitjacket/docs/VISUAL-DESIGN.md and scripts/gen_addressable_evidence_visuals.py.
+   Square corners, 1px rules, semantic colour only, no gradients, no glow, no glassmorphism. */
+@import "@fontsource-variable/space-grotesk";
+@import "@fontsource-variable/inter";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+
+:root {
+  --bg: #0d0f12;
+  --ground: #1c2026;
+  --surface: #15181d;
+  --surface2: #1c2026;
+  --ink: #eceae3;
+  --muted: #8d939a;
+  --faint: #7d848d;
+  --grid: #272c33;
+  --blue: #6f96ff;
+  --blue2: #263a68;
+  --amber: #f0b429;
+  --amber2: #58451d;
+  --red: #ff7768;
+  --red2: #542925;
+  --green: #63d3a4;
+
+  --panel: rgba(21, 24, 29, 0.92);
+  --font-display: "Space Grotesk Variable", system-ui, -apple-system, sans-serif;
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* 3D subject sits in the right 60 % of the desktop viewport, clear of the left instrument panel. */
+  --frame-x: 0.2;
+  --frame-y: -0.02;
+  --frame-fit: 1.12;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body {
+  font: 15px/1.55 var(--font-sans);
+  overflow-x: clip;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Fixed top instrument bar: data-bar tells stage.js where free vertical area begins on phones. */
+.topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--grid);
+}
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.92rem;
+  letter-spacing: 0.14em;
+  color: var(--ink);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ver-badge {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+  border: 1px solid var(--grid);
+  background: var(--surface2);
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+
+.chapter-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.chapter-nav a {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--muted);
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  transition: color 0.18s ease, border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.chapter-nav a:hover {
+  color: var(--ink);
+  border-color: var(--grid);
+}
+
+.chapter-nav a.is-active {
+  color: var(--ink);
+  background: var(--surface2);
+  border-color: var(--blue);
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+}
+
+.docs-link {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  color: var(--ink);
+  border: 1px solid var(--grid);
+  background: var(--surface2);
+  padding: 6px 12px;
+  white-space: nowrap;
+  transition: border-color 0.18s ease, color 0.18s ease;
+}
+
+.docs-link:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.progress-rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: transparent;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--blue);
+  transform-origin: left center;
+}
+
+/* 3D canvas: fixed full viewport behind the panels. */
+#stage {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100lvh;
+  display: block;
+  z-index: 0;
+}
+
+.chapter { position: relative; z-index: 1; }
+
+/* Film layout: active only once WebGL boots (.webgl-on). */
+.webgl-on .chapter { min-height: 215vh; }
+.webgl-on .chapter:first-child { min-height: 175vh; }
+.webgl-on .chapter:last-child { min-height: 195vh; }
+
+.webgl-on .panel {
+  position: fixed;
+  top: calc(52px + 8vh);
+  left: 3.5vw;
+  width: min(29rem, 36vw);
+  max-height: calc(100vh - 52px - 14vh);
+  overflow: auto;
+  padding: 1.4rem 1.55rem 1.25rem;
+  background: var(--panel);
+  border: 1px solid var(--grid);
+  border-left: 3px solid var(--blue);
+  border-radius: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.35s ease;
+}
+
+.webgl-on .chapter.is-current .panel,
+.webgl-on .panel:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Semantic left accent rules */
+.panel-blue { border-left-color: var(--blue) !important; }
+.panel-amber { border-left-color: var(--amber) !important; }
+.panel-red { border-left-color: var(--red) !important; }
+.panel-green { border-left-color: var(--green) !important; }
+
+.kicker {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.65rem;
+}
+
+h1, h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  margin: 0 0 0.65rem;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+h1 { font-size: clamp(1.55rem, 2.5vw, 2.25rem); }
+h2 { font-size: clamp(1.3rem, 2.0vw, 1.8rem); }
+
+.panel p {
+  margin: 0 0 0.9rem;
+  color: #cfd2d6;
+  font-size: 0.94rem;
+}
+
+.panel p.lead {
+  font-size: 0.96rem;
+  color: var(--ink);
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  background: var(--surface2);
+  border: 1px solid var(--grid);
+  padding: 1px 4px;
+  color: var(--ink);
+}
+
+/* Tabular metrics bar */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: 0.85rem 0 0.9rem;
+  border: 1px solid var(--grid);
+  background: var(--surface2);
+}
+
+.metrics > div {
+  padding: 0.55rem 0.65rem;
+  border-right: 1px solid var(--grid);
+}
+
+.metrics > div:last-child { border-right: none; }
+
+.metrics dt {
+  font-family: var(--font-mono);
+  font-size: 0.67rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 0.25rem;
+}
+
+.metrics dd {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.tone-red { color: var(--red) !important; }
+.tone-amber { color: var(--amber) !important; }
+.tone-blue { color: var(--blue) !important; }
+.tone-green { color: var(--green) !important; }
+
+/* Byte-shaped code / receipt specimens */
+pre.specimen {
+  margin: 0.75rem 0 0.85rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--bg);
+  border: 1px solid var(--grid);
+  overflow-x: auto;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+pre.specimen code {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.73rem;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+/* Supported harnesses list */
+.host-grid {
+  list-style: none;
+  margin: 0.7rem 0 0.65rem;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.host-grid li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  background: var(--surface2);
+  border: 1px solid var(--grid);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.host-grid img {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+}
+
+.legend-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 0 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.leg i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+}
+
+.swatch-blue { background: var(--blue); }
+.swatch-amber { background: var(--amber); }
+.swatch-red { background: var(--red); }
+
+/* Buttons: square instrument controls */
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0.85rem 0 0.8rem;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  padding: 0.6rem 0.95rem;
+  border: 1px solid var(--grid);
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.btn-primary {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #0d0f12;
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  background: #8aaaff;
+  border-color: #8aaaff;
+}
+
+.btn-ghost {
+  background: var(--surface2);
+  color: var(--ink);
+}
+
+.btn-ghost:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.receipt-foot {
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--grid);
+  font-family: var(--font-mono);
+  font-size: 0.69rem;
+  color: var(--muted);
+}
+
+.receipt-foot code {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--amber);
+}
+
+/* Tablet / narrow desktop: hide nav links cleanly before crowding */
+@media (max-width: 1080px) {
+  .chapter-nav { display: none; }
+}
+
+/* Portrait phone: 3D fills upper ~56 % below topbar; compact instrument panel below.
+   Per VISUAL-DESIGN.md: preserve claim, decisive value, and continuation address first. */
+@media (max-width: 899px) and (orientation: portrait) {
+  :root {
+    --frame-x: 0;
+    --frame-y: 0.16;
+    --frame-fit: 1;
+    --frame-stack: 1;
+  }
+
+  .topbar {
+    height: 44px;
+    padding: 0 12px;
+  }
+
+  .ver-badge { display: none; }
+
+  .webgl-on .panel {
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+    max-height: 36vh;
+    padding: 0.85rem 1rem 0.75rem;
+    background: var(--surface);
+  }
+
+  .kicker { font-size: 0.66rem; margin-bottom: 0.35rem; }
+  h1 { font-size: 1.18rem; margin-bottom: 0.4rem; }
+  h2 { font-size: 1.08rem; margin-bottom: 0.4rem; }
+  .panel p { font-size: 0.84rem; line-height: 1.42; margin-bottom: 0.55rem; }
+
+  .metrics { margin: 0.5rem 0 0.45rem; }
+  .metrics > div { padding: 0.38rem 0.45rem; }
+  .metrics dt { font-size: 0.6rem; }
+  .metrics dd { font-size: 0.88rem; }
+
+  pre.specimen { margin: 0.45rem 0; padding: 0.5rem 0.6rem; white-space: pre-wrap; word-break: break-word; }
+  pre.specimen code { font-size: 0.68rem; white-space: pre-wrap; }
+
+  .host-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin: 0.45rem 0; }
+  .host-grid li { padding: 3px 4px; font-size: 0.6rem; gap: 4px; }
+  .host-grid img { width: 13px; height: 13px; flex-basis: 13px; }
+  .legend-row { display: none; }
+  .cta-row { margin: 0.5rem 0 0.45rem; gap: 8px; }
+  .btn { font-size: 0.72rem; padding: 0.45rem 0.72rem; }
+  .receipt-foot { display: none; }
+}
+
+/* Article fallback layout: no JS, no WebGL, or WebGL context lost. */
+.still { display: none; }
+.no-js .still, .webgl-off .still {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 1rem;
+  border: 1px solid var(--grid);
+}
+.no-js #stage, .webgl-off #stage { display: none; }
+html:not(.webgl-on) #story { padding-top: 64px; }
+html:not(.webgl-on) .chapter { padding: 2.2rem 16px; border-bottom: 1px solid var(--grid); }
+html:not(.webgl-on) .panel {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.75rem;
+  background: var(--surface);
+  border: 1px solid var(--grid);
+  border-left: 3px solid var(--blue);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .webgl-on .panel { transition: none; }
+}

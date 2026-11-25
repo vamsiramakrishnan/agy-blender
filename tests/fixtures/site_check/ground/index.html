@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subject on its ground</title>
+<!-- Run 4's look in miniature: the shot's subject, a quad in the middle 60 % of the canvas, dark steel grey on a
+     ground of nearly the same dark (about 3 % of full scale apart), reported as the subject at every step. The test
+     sets LIT to true for the same page with the subject lit (a warm orange, far from the ground). -->
+<style>html,body{margin:0;background:#101418;color:#eee;font:16px sans-serif}
+canvas{position:fixed;inset:0;width:100vw;height:100vh;z-index:0}</style></head>
+<body><canvas id="c"></canvas><div style="height:400vh"></div>
+<script type="module">
+import { setup, QUAD } from './gl.js';
+const LIT = false;
+const { gl, quad, color } = setup(document.getElementById('c'));
+quad(QUAD);
+gl.clearColor(0.06, 0.08, 0.1, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+if (LIT) color(0.85, 0.55, 0.25); else color(0.08, 0.1, 0.13);
+gl.drawArrays(gl.TRIANGLES, 0, 6);
+window.__site = {
+  info: () => ({ onScreen: { press: { share: 0.36, x: 0.5, y: 0.5, box: [0.2, 0.2, 0.8, 0.8], kind: 'prop', subject: true } } }),
+};
+</script></body></html>

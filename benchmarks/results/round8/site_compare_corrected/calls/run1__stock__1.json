@@ -1,0 +1,33 @@
+{
+ "first": "run1",
+ "second": "stock",
+ "rep": 1,
+ "frames": [
+  "e074b52a7a5c36c0",
+  "57c48173e1aeb830"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 keeps a distinct 3D subject framed at every scroll step from frame 1 through frame 8, whereas Site 1 leaves an empty 3D void in frame 6 and has cards colliding with the central chamber in frames 2 and 3."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2 builds legible diagrams for each concept\u2014such as the vault funnel into four rings in frame 3, the frozen prefix blocks in frame 6, and the seven harness pods passing signals in frame 7\u2014while Site 1's machinery is more abstract."
+   },
+   "craft_of_the_3d": {
+    "winner": "1",
+    "reason": "Site 1's mechanical assemblies in frames 1, 4, 5, and 7 have detailed multi-part modeling, worn metallic materials, and grounded bases, compared to Site 2's simpler floating primitives in frames 1 and 5."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Despite minor text-over-3D overlap in frame 1, Site 2 uses cleaner typographic hierarchy, calmer card spacing, and atmospheric color shifts (frames 2, 3, 7) compared to Site 1's tall, dense UI cards."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers a more cohesive, uninterrupted scroll journey whose 3D diagrams directly visualize Straitjacket's store, gates, prefix caching, and multi-harness handoffs."
+  }
+ }
+}

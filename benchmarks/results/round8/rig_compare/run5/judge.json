@@ -1,0 +1,247 @@
+{
+ "criteria": [
+  "every_position_composed",
+  "explains_the_project",
+  "craft_of_the_3d",
+  "type_and_layout"
+ ],
+ "size": "desktop",
+ "repeats_per_order": 3,
+ "sites": {
+  "asbuilt": "7e55a4fe193821d2",
+  "rig2": "5760264cd5584605"
+ },
+ "calls": [
+  {
+   "first": "rig2",
+   "second": "asbuilt",
+   "rep": 2,
+   "frames": [
+    "5760264cd5584605",
+    "7e55a4fe193821d2"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites use identical camera paths across frames 1 to 9, including identical overlaps with the text card in frames 5 and 6."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites depict the exact same 3D workbench pipeline\u2014press, cabinet, and relocator\u2014across frames 1 through 9."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "Site 2 renders darker, richer metallic finishes with less washed-out mottling on the cabinet and press in frames 1, 5, and 6."
+     },
+     "type_and_layout": {
+      "winner": "tie",
+      "reason": "Both sites share an identical UI layout, typography, and left-aligned card hierarchy across all 9 frames."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "With identical layouts, camera choreography, and explanatory models, Site 2 wins due to cleaner, more grounded metallic material shading on the 3D machinery."
+    }
+   }
+  },
+  {
+   "first": "rig2",
+   "second": "asbuilt",
+   "rep": 0,
+   "frames": [
+    "5760264cd5584605",
+    "7e55a4fe193821d2"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites share the exact same camera path across frames 1 to 9, including identical overlaps behind the text card in frames 5 and 6."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites use the exact same 3D workbench metaphor across frames 2 through 8 to illustrate log compression, local storage, and anchor relocation."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "In frames 1 through 9, the second site renders darker, better-grounded metallic materials on the press and cabinet with less washed-out lighting than the first site."
+     },
+     "type_and_layout": {
+      "winner": "tie",
+      "reason": "Both sites feature the exact same typography, top navigation bar, and left-aligned floating card layout across all 9 frames."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "While both sites share identical layouts, camera paths, and explanatory mechanics, the second site executes the 3D material shading and lighting contrast with noticeably better grounding."
+    }
+   }
+  },
+  {
+   "first": "asbuilt",
+   "second": "rig2",
+   "rep": 2,
+   "frames": [
+    "7e55a4fe193821d2",
+    "5760264cd5584605"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites feature identical camera paths and framing from frame 1 through frame 9, including identical overlaps behind the text card in frames 5 and 6."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites use the exact same 3D mechanical metaphors across frames 3 to 8 to explain log compression, storage, and anchor relocation."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "Site 2 exhibits brighter, clearer lighting and higher contrast on metallic surfaces and white lane indicators across frames 1 to 9 compared to Site 1's dimmer, muddier shading."
+     },
+     "type_and_layout": {
+      "winner": "tie",
+      "reason": "Both sites share identical typography, UI cards, and top navigation layouts across all nine frames."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "While both sites share the exact same layout, copy, and 3D choreography, the second site renders the 3D workbench with cleaner lighting and better material legibility."
+    }
+   }
+  },
+  {
+   "first": "rig2",
+   "second": "asbuilt",
+   "rep": 1,
+   "frames": [
+    "5760264cd5584605",
+    "7e55a4fe193821d2"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites share the exact same camera choreography across frames 1 to 9, including identical overlaps behind the text card in frames 5 and 6."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites use the exact same 3D workbench metaphor across frames 2 to 8 to illustrate log compression, local storage, and anchor relocation."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "Site 2 applies darker, higher-contrast metallic materials and more grounded shading on the press, cabinet, and relocator across frames 1 to 9 compared to Site 1's washed-out gray surfaces."
+     },
+     "type_and_layout": {
+      "winner": "tie",
+      "reason": "Both sites feature identical typography, header navigation, and left-aligned card layouts across all 9 frames."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "While both sites share identical layout, copy, and scroll choreography, Site 2 delivers noticeably richer, better-shaded 3D materials across the entire scene."
+    }
+   }
+  },
+  {
+   "first": "asbuilt",
+   "second": "rig2",
+   "rep": 0,
+   "frames": [
+    "7e55a4fe193821d2",
+    "5760264cd5584605"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites share the exact same camera framing across frames 1 to 9, including the same text overlap in frame 6."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites use the identical 3D press, store, and gate metaphors across frames 3 to 8 to explain log compression and retrieval."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "Site 2 features brighter, higher-contrast metallic lighting and clearer reflections on the press and cabinet in frames 1, 5, and 6."
+     },
+     "type_and_layout": {
+      "winner": "tie",
+      "reason": "Both sites use the exact same typography, top navigation, and left-aligned card layout from frame 1 through frame 9."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "While both sites share an identical layout and scroll choreography, Site 2 edges ahead with better 3D lighting and material contrast that make the mechanical metaphors easier to read against the dark background."
+    }
+   }
+  },
+  {
+   "first": "asbuilt",
+   "second": "rig2",
+   "rep": 1,
+   "frames": [
+    "7e55a4fe193821d2",
+    "5760264cd5584605"
+   ],
+   "verdict": {
+    "criteria": {
+     "every_position_composed": {
+      "winner": "tie",
+      "reason": "Both sites share the exact same camera framing and scroll positions across frames 1 to 9, including identical overlaps in frames 5 and 6."
+     },
+     "explains_the_project": {
+      "winner": "tie",
+      "reason": "Both sites use the exact same 3D workbench metaphors and animations across frames 1 to 9 to illustrate log compression, storage, and anchor relocation."
+     },
+     "craft_of_the_3d": {
+      "winner": "2",
+      "reason": "Site 2 features brighter directional lighting, clearer metallic surface reflections, and crisper shadows on the press and cabinet across frames 1 to 9."
+     },
+     "type_and_layout": {
+      "winner": "tie",
+      "reason": "Typography, card placement, and UI hierarchy are completely identical between the two sites in all frames 1 through 9."
+     }
+    },
+    "overall": {
+     "winner": "2",
+     "reason": "While both sites share the exact same layout, copy, and 3D choreography, the second site renders the 3D workbench with noticeably better lighting, material contrast, and grounding shadows."
+    }
+   }
+  }
+ ],
+ "aggregate": {
+  "asbuilt vs rig2": {
+   "votes": {
+    "every_position_composed": {
+     "tie": 6
+    },
+    "explains_the_project": {
+     "tie": 6
+    },
+    "craft_of_the_3d": {
+     "asbuilt": 3,
+     "rig2": 3
+    },
+    "type_and_layout": {
+     "tie": 6
+    },
+    "overall": {
+     "asbuilt": 3,
+     "rig2": 3
+    }
+   },
+   "calls": 6,
+   "result": {
+    "every_position_composed": "no majority",
+    "explains_the_project": "no majority",
+    "craft_of_the_3d": "no majority",
+    "type_and_layout": "no majority",
+    "overall": "no majority"
+   }
+  }
+ },
+ "model": "gemini-4-carbon",
+ "thinking": "low"
+}

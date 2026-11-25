@@ -1,0 +1,20 @@
+SITE CHECKED in 104 s: nothing broken, 2 things a visitor would notice. Open the contact sheets below with your file viewer and look at every frame before you change anything.
+
+A visitor would notice:
+- With reduce motion set the page asks matchMedia and has a CSS rule; while nothing is touched the picture still changes. Picture: reduced.jpg.
+- Without WebGL: 1 uncaught error ('THREE.WebGLRenderer: Error creating WebGL context.'); the page shows 0 characters of text (with WebGL 6,530) and 0 images, and no message about the missing 3D. Picture: nowebgl.jpg.
+
+Measures:
+- Desktop 1440x900: settled 15.5 s after the page was asked for; 9 of 9 steps photographed; share of the 3D canvas showing something, per step: 77% 79% 60% 50% 80% 66% 68% 76% 58%. Still changing 4 s after the scroll at step 1 of 9 (0%), step 2 of 9 (12%), step 3 of 9 (25%), step 4 of 9 (38%), step 5 of 9 (50%), step 6 of 9 (62%), step 7 of 9 (75%), step 8 of 9 (88%), step 9 of 9 (100%): those frames may show the scene on its way (software WebGL draws a heavy frame in about a second; a visitor's GPU in a few milliseconds).
+- Phone 390x844: settled 13.3 s after the page was asked for; 9 of 9 steps photographed; share of the 3D canvas showing something, per step: 53% 72% 74% 41% 47% 57% 59% 58% 61%. Still changing 4 s after the scroll at step 1 of 9 (0%), step 2 of 9 (12%), step 3 of 9 (25%), step 4 of 9 (38%), step 5 of 9 (50%), step 6 of 9 (62%), step 7 of 9 (75%), step 8 of 9 (88%), step 9 of 9 (100%): those frames may show the scene on its way (software WebGL draws a heavy frame in about a second; a visitor's GPU in a few milliseconds).
+- Downloaded (desktop, whole scroll): 1.9 MB in 24 files: scripts 1.1 MB, models 0.5 MB, fonts 0.1 MB, images 83 kB, styles 56 kB, documents 1 kB. Largest: assets/postfx-DwcxvznU.js 0.7 MB, assets/index-CROcBgj3.js 0.3 MB, models/harness_nodes.glb 0.1 MB, assets/motion-BtA8Chyu.js 0.1 MB, models/evidence_prism.glb 0.1 MB.
+- Scene (desktop, the largest over the steps): 132 draw calls and 32,761 triangles in one frame (most triangles at 38%); textures 31.8 MB on the graphics card in 23 textures (31.8 MB of it render targets), plus 36.3 MB of render buffers. Counted by wrapping the page's WebGL draw and texture calls before its scripts ran.
+- While nothing moves (top of the page, 1.5 s, no input): it drew in 5 of 5 frames, and the picture changed.
+- Facts: no element names its source (data-src="file#/json/pointer", "file#L10-L14" or "file").
+- Shown without a source: 4 code specimens ('[ctx run:8956c843e556 profile=logtemplate/v1] exit: 0stdout:...'; '$ ctx search repo: sym:parse_ref$ ctx def repo:src/ctx/refs....'; '$ ctx orchestrate 'Review the current diff' --dry-run$ ctx r...') and 35 numbers ('20,001 in A 20,001-line log floods every turn — or...'; '979.1 in 979.1 KiB'; '14,238'; '302,628 tokens'; '1,219 tokens in on every subsequent turn. Head-and...'; '302,628'). Mark each with data-src, or take it out if no file holds it.
+
+Pictures:
+- desktop contact sheet: <run>/site_check/sheet_desktop.jpg (frames desktop_00.jpg to desktop_08.jpg)
+- phone contact sheet: <run>/site_check/sheet_phone.jpg (frames phone_00.jpg to phone_08.jpg)
+- all frames, the canvas-only frames and the full record (report.json) are in <run>/site_check
+- about these pictures: this browser puts pages together without the GPU path, and its screenshots then leave a black box in a WebGL canvas opposite every opaque panel (mirrored top to bottom). No visitor's browser does. The check tested for it and photographed each canvas on a layer of its own, which gives the true picture: the frames here are what a visitor sees. A screenshot script of your own on this machine will show those boxes; they are not the site's.

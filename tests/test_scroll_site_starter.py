@@ -52,11 +52,11 @@ DRIVER_NOISE = re.compile(r"GL Driver Message|GPU stall due to ReadPixels|Automa
 def test_the_starter_holds_the_files_the_skill_names() -> None:
     names = {p.relative_to(STARTER).as_posix() for p in STARTER.rglob("*") if p.is_file()}
     assert names == {"index.html", "vite.config.js", "src/main.js", "src/chapters.js", "src/shots.js", "src/stage.js",
-                     "src/props.js", "src/style.css"}
+                     "src/props.js", "src/style.css", "src/occlusion.js"}
     html = (STARTER / "index.html").read_text()
     ids = re.findall(r'data-chapter="([a-z0-9-]+)"', html)
     shots = (STARTER / "src" / "shots.js").read_text()
-    assert ids and all(re.search(rf"^\s+{i}: {{ pos:", shots, re.M) for i in ids), ids
+    assert ids and all(re.search(rf"^\s+{i}: {{ ", shots, re.M) for i in ids), ids
     assert "base: './'" in (STARTER / "vite.config.js").read_text()
 
 
@@ -264,9 +264,10 @@ def test_a_phone_gets_the_scene_above_the_text_and_no_sideways_scroll(browser, s
         assert p.page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         for T in (0.6, 1.6, 2.6):
             p.page.evaluate(f"__site.setProgress({T})")
-            hero = p.page.evaluate("__site.info().onScreen").get("hero")
+            on = p.page.evaluate("__site.info().onScreen")
             # the text takes the lower 45 % of a phone's window (style.css): the subject belongs above it
-            assert hero and hero["share"] > 0.01 and hero["y"] < 0.55, (T, hero)
+            for name in p.page.evaluate(f"__site.evaluate({T}).subject") or ["hero"]:
+                assert name in on and on[name]["share"] > 0.01 and on[name]["y"] < 0.55, (T, name, on)
         assert p.messages == [], p.messages
     finally:
         p.close()
@@ -322,9 +323,11 @@ _FREE_BOTTOM = "Math.min(...[...document.querySelectorAll('.panel')].map((el) =>
 
 @pytest.mark.browser
 @pytest.mark.parametrize("size", ["desktop", "landscape phone"])
-def test_every_prop_on_stage_is_in_frame_and_beside_the_panel_at_each_chapters_rest(browser, bare, size) -> None:
+def test_every_subject_is_in_frame_and_beside_the_panel_at_each_chapters_rest(browser, bare, size) -> None:
     """Run 2 widened a phone's view by a fixed factor and cut its props at both side edges. Side by side, the starter
-    holds each shot's horizontal coverage: every prop on stage is inside the window and right of the panel."""
+    holds each shot's horizontal coverage: every subject of the shot (every prop on stage when it names none) is inside
+    the window and right of the panel. A prop in the background may be cut since the placeholder shots differ in scale
+    (round 8c): the close shot of the part leaves the hero beside it partly out of frame, as a close shot should."""
     p = Page(browser, bare, **SIZES[size])
     try:
         ids = p.open()["chapters"]
@@ -333,6 +336,7 @@ def test_every_prop_on_stage_is_in_frame_and_beside_the_panel_at_each_chapters_r
             p.page.evaluate(f"__site.setProgress({T})")
             on = p.page.evaluate("__site.info().onScreen")
             staged = [n for n, v in p.page.evaluate(f"__site.evaluate({T}).show").items() if v > 0.99]
+            staged = p.page.evaluate(f"__site.evaluate({T}).subject") or staged
             panel = p.page.evaluate(_PANEL, i)["box"]
             assert p.page.evaluate("document.querySelector('.is-current').dataset.chapter") == chapter
             assert staged, chapter
@@ -348,7 +352,8 @@ def test_every_prop_on_stage_is_in_frame_and_beside_the_panel_at_each_chapters_r
 
 # In the stacked layout a subject must fill at least this share of the free area's width or of its height, whichever
 # it reaches: the merged starter held the desktop's coverage there and its hero was 22 % of the width, a speck above a
-# tall band of empty floor. stage.js aims at 62 % / 60 % for a named subject, 38 % / 35 % for an establishing shot.
+# tall band of empty floor. stage.js gives a subject the share it has beside the desktop's panel, at least 30 %; the
+# placeholder shots name a subject in a medium or close shot and none in the wide one.
 SUBJECT_MIN, WIDE_MIN = 0.5, 0.3
 
 
@@ -383,14 +388,15 @@ def test_the_stacked_phone_layout_fits_each_shots_subject_into_the_space_above_t
 
 @pytest.mark.browser
 def test_the_stacked_framing_is_continuous_through_a_chapter_change_and_a_function_of_story_time(browser, bare) -> None:
-    """The subject changes from one shot to the next during the move (how: hero and part; detail: part): the framing
-    blends on the camera's curve, so the picture moves on without a jump, and it is the same however T was reached."""
+    """The subject changes from one shot to the next during the move (how: the hero; detail: the part): the framing
+    blends on the camera's curve, so the picture moves on without a jump, and it is the same however T was reached.
+    It follows the part, which is in frame on both sides of the change (the hero leaves the close shot of the part)."""
     p = Page(browser, bare, **SIZES["phone"])
     try:
         ids = p.open()["chapters"]
         start = ids.index("detail") - 0.1
         boxes = lambda t0, dt, n: np.array(p.page.evaluate(
-            f"[...Array({n}).keys()].map((k) => {{ __site.setProgress({t0} + k * {dt}); return __site.info().onScreen.hero.box; }})"))
+            f"[...Array({n}).keys()].map((k) => {{ __site.setProgress({t0} + k * {dt}); return __site.info().onScreen.part.box; }})"))
         coarse = np.abs(np.diff(boxes(start, 0.005, 121), axis=0)).max(axis=1)
         k = int(coarse.argmax())
         assert coarse[k] < 0.1, coarse.round(3).tolist()
@@ -411,13 +417,14 @@ def test_the_stacked_framing_is_continuous_through_a_chapter_change_and_a_functi
 
 @pytest.mark.browser
 def test_the_phone_panel_stays_in_the_lower_part_of_the_window_through_each_chapter(browser, bare) -> None:
-    """Run 2's phone panel was sticky inside its section and slid up across the 3D for a fifth of every chapter."""
+    """Run 2's phone panel was sticky inside its section and slid up across the 3D for a fifth of every chapter. Read
+    through each chapter's hold, from just after the camera arrives (no panel shows during the move)."""
     p = Page(browser, bare, **SIZES["phone"])
     try:
         ids = p.open()["chapters"]
         for i, chapter in enumerate(ids):
             places = []
-            for local in (0.15, 0.5, 0.95):
+            for local in (MOVE + 0.05, 0.6, 0.95):
                 p.page.evaluate(f"__site.setProgress({i + local})")
                 p.page.wait_for_function("""(i) => [...document.querySelectorAll('.panel')].every((el, k) =>
                     +getComputedStyle(el).opacity === (k === i ? 1 : 0))""", arg=i, timeout=5000)
@@ -553,6 +560,7 @@ def test_on_screen_reports_each_props_and_labels_box_in_the_contract_check_site_
           const plane = (w, h) => new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
           const wide = plane(12, 0.3);
           wide.position.set(0, 2.2, 0);
+          wide.lookAt(...window.__site.evaluate(1.7).cam.pos); // square to the camera of "how", where it is measured
           window.__site.label('wide', wide);
           const tag = plane(0.4, 0.15);
           tag.position.set(0, 0.8, 0.3);
@@ -573,18 +581,150 @@ def test_on_screen_reports_each_props_and_labels_box_in_the_contract_check_site_
             assert v["x"] == pytest.approx((cx0 + cx1) / 2, abs=1e-6) and v["y"] == pytest.approx((cy0 + cy1) / 2, abs=1e-6), (name, v)
         x0, _, x1, _ = how["wide"]["box"]
         assert x0 < 0 and x1 > 1, ("the box is clamped to the window", how["wide"])
-        # the subject flag follows the chapter drawn: shots.js names hero for intro, hero and part for how, part for
-        # detail, and nothing for outro (then the field is left out and every prop counts)
+        # the subject flag follows the chapter drawn: shots.js names nothing for intro (then the field is left out and
+        # every prop counts), hero for how, part for detail, both for outro
         flags = {}
         for T in (0.7, 1.2, 1.7, 2.7, 3.7):
             p.page.evaluate(f"__site.setProgress({T})")
             on = p.page.evaluate("__site.info().onScreen")
             flags[T] = {n: v.get("subject") for n, v in on.items() if v["kind"] == "prop"}
-        assert flags[0.7] == {"hero": True}, flags
-        assert flags[1.2] == flags[1.7] == {"hero": True, "part": True}, flags
-        assert flags[2.7] == {"hero": False, "part": True}, flags
-        assert flags[3.7] == {"hero": None}, flags
+        assert flags[0.7] == {"hero": None}, flags
+        assert flags[1.2] == flags[1.7] == {"hero": True, "part": False}, flags
+        assert flags[2.7]["part"] is True and flags[2.7].get("hero", False) is False, flags
+        assert flags[3.7] == {"hero": True, "part": True}, flags
+        p.page.evaluate("__site.setProgress(0.7)")
         assert "subject" not in p.page.evaluate("__site.info().onScreen")["hero"]
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+def test_the_page_says_when_its_camera_is_between_two_shots(browser, bare) -> None:
+    """check_site does not call a subject cut by the frame while the camera is on its way to it (info().moving) where
+    no chapter text is readable, which the starter makes sure of (below). The camera moves in the first MOVE of a
+    chapter and holds for the rest; the first chapter has no move."""
+    p = Page(browser, bare)
+    try:
+        p.open()
+        move, rest = p.page.evaluate("import('./src/shots.js').then((m) => [m.MOVE, m.REST])")
+        said = {}
+        for T in (0, 0.5, 1 + move / 2, 1 + move + 0.01, 1 + rest, 2 + move / 4, 2 + rest, 3 + move * 0.9, 3.99):
+            p.page.evaluate(f"__site.setProgress({T})")
+            said[round(T, 3)] = p.page.evaluate("__site.info().moving")
+        on_the_way = {round(T, 3) for T in (1 + move / 2, 2 + move / 4, 3 + move * 0.9)}
+        assert {T for T, m in said.items() if m is True} == on_the_way, said
+        assert all(m is False for T, m in said.items() if T not in on_the_way), said
+        # with reduced motion the scene rests: never on the way
+        q = Page(browser, bare, reduced_motion="reduce")
+        try:
+            q.open()
+            for T in (1 + move / 2, 2 + move / 4):
+                q.page.evaluate(f"__site.setProgress({T})")
+                assert q.page.evaluate("__site.info().moving") is False
+        finally:
+            q.close()
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+# Every panel's opacity (its own times its ancestors') once its fade is over: the transitions are finished first, since
+# a headless browser with its GPU path may hold a compositor transition's clock (site_probe.js, readBetween).
+_PANELS_SEEN = """() => { document.getAnimations().forEach((a) => a.finish());
+  return [...document.querySelectorAll('.panel')].map((el) => { let o = 1;
+    for (let e = el; e; e = e.parentElement) o *= +getComputedStyle(e).opacity; return o; }); }"""
+
+
+def _readable(p: Page, T: float) -> tuple[list[int], bool]:
+    """The panels readable (half opacity or more) at story time T, and whether the page says its camera is moving."""
+    p.page.evaluate(f"__site.setProgress({T})")
+    seen = p.page.evaluate(_PANELS_SEEN)
+    return [i for i, o in enumerate(seen) if o >= 0.5], p.page.evaluate("__site.info().moving")
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("size", ["desktop", "phone"])
+def test_a_chapters_text_is_shown_while_its_shot_is_held_and_never_during_a_move(browser, bare, size) -> None:
+    """Run 5 showed a chapter's text as the camera set off: at 62 % of its scroll the new card was fully up over a
+    picture half way between two stations, and a blind judge named that frame in all six verdicts. Now no panel is
+    readable while info().moving is true; the chapter's panel is once the camera holds; the first chapter's at once."""
+    p = Page(browser, bare, **SIZES[size])
+    try:
+        p.open()
+        assert _readable(p, 0) == ([0], False)
+        for i in (1, 2, 3):
+            for local in (0, MOVE / 4, MOVE / 2, MOVE * 0.9):
+                assert _readable(p, i + local) == ([], True), (size, i, local)
+            for local in (MOVE + 0.01, REST, 0.99):
+                assert _readable(p, i + local) == ([i], False), (size, i, local)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+def test_with_reduced_motion_the_chapters_text_is_always_up(browser, bare) -> None:
+    """Reduced motion: the scene only rests, so every position shows its chapter's panel."""
+    p = Page(browser, bare, reduced_motion="reduce")
+    try:
+        p.open()
+        for T in (0, 0.5, 1, 1 + MOVE / 2, 1.9, 2 + MOVE / 4, 3 + MOVE * 0.9, 3.99):
+            assert _readable(p, T) == ([int(T)], False), T
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+def test_the_page_opens_turned_back_from_its_first_shot_and_the_first_notch_of_scroll_moves_it(browser, bare) -> None:
+    """The first chapter was one hold, and a hold travels slowly and started from rest: on run 5's page one wheel notch
+    at the top moved the picture by a fraction of a pixel, and a visitor's first scroll showed nothing happening. Now the
+    page opens OPENING degrees back from the first shot, round the same target at the same distance, and swings round to
+    the shot over the first MOVE of the chapter, fastest at the first pixel; it never turns back before the chapter
+    ends. It is the first shot's own subject throughout, so the page does not call it a move and the title stays up."""
+    import math
+
+    p = Page(browser, bare, viewport={"width": 1440, "height": 900})
+    try:
+        p.open()
+
+        def polar(T: float) -> tuple[float, float, dict]:
+            e = p.page.evaluate(f"__site.evaluate({T})")
+            d = [a - b for a, b in zip(e["cam"]["pos"], e["cam"]["target"])]
+            return math.degrees(math.atan2(d[0], d[2])), math.hypot(*d), e
+
+        (a0, d0, top), (a1, d1, shot) = polar(0), polar(MOVE)
+        assert abs(a1 - a0) == pytest.approx(24, abs=0.01) and d0 == pytest.approx(d1, rel=1e-6)
+        assert top["cam"]["target"] == pytest.approx(shot["cam"]["target"]) and top["chapter"] == shot["chapter"]
+        turn = np.diff([polar(k / 60)[0] for k in range(61)]) * (1 if a1 > a0 else -1)
+        assert (turn > 0).all(), turn.round(3).tolist()               # one way round, to the end of the chapter
+        assert turn[0] > 0.9 * turn.max() and turn[0] > 3 * turn[40], turn.round(3).tolist()  # at speed from the first pixel
+        for local in (0, MOVE / 4, MOVE / 2, MOVE, REST):
+            assert _readable(p, local) == ([0], False), local         # no move in the page's sense: the title is up
+        # one wheel notch from the top: the hero's box moves by pixels, where it moved by a third of one
+        boxes = []
+        for y in (0, 120):
+            p.page.evaluate(f"window.scrollTo(0, {y})")
+            p.page.wait_for_timeout(700)
+            boxes.append(p.page.evaluate("__site.info().onScreen.hero.box"))
+        shift = max(abs(a - b) * (1440 if j % 2 == 0 else 900) for j, (a, b) in enumerate(zip(*boxes)))
+        assert shift >= 4, (shift, boxes)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+def test_a_panel_with_keyboard_focus_is_readable_during_a_move(browser, bare) -> None:
+    """A visitor tabbing through the links must see where the focus is, whatever the camera does."""
+    p = Page(browser, bare)
+    try:
+        p.open()
+        n = len(p.page.evaluate("__site.chapters()"))
+        assert _readable(p, n - 1 + MOVE / 2) == ([], True)
+        p.page.evaluate("document.querySelector('#outro .panel a').focus()")
+        assert p.page.evaluate(_PANELS_SEEN)[n - 1] == 1 and p.page.evaluate("__site.info().moving") is True
         assert p.messages == [], p.messages
     finally:
         p.close()
@@ -678,3 +818,401 @@ def test_check_site_writes_one_still_per_chapter_of_the_starter(site, tmp_path) 
     # each chapter has its own shot: no two stills are the same picture
     assert all(np.abs(a - b).mean() > 2 for i, a in enumerate(pictures) for b in pictures[i + 1:])
     assert "stills for the page without WebGL" in r.text()
+
+
+@pytest.mark.browser
+def test_check_site_finds_nothing_on_the_starter_at_nine_steps_and_at_twelve(bare, tmp_path) -> None:
+    """The starter as shipped is what an agent begins from: the whole check (both sizes, reduced motion, no WebGL)
+    must find nothing on it at nine steps and at twelve. Run 4's agent checked at twelve steps and saw nothing a check
+    at nine named; and since the check reads the text over a moving camera (run 5), a starter that showed its text
+    during the move is named at 56 % of the scroll (the part cut at the bottom edge while the camera turns to it), as
+    the starter at bcfbf13 was. The first wheel notch is read too: while the first chapter was one hold whose camera
+    started from rest (the starter at 6a9646d), the check said "the first scroll gets no answer", the picture moved by
+    0.02 px; with the opening move (shots.js, OPENING) the notch moves the picture by about 9 px."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from antigravity3d.deliver import site_check as sc
+
+    if not (NODE_MODULES / "three" / "package.json").is_file():
+        pytest.skip(f"{NODE_MODULES} has no three.js (npm ci --prefix tests/fixtures/web_project)")
+    srv = _http(bare)
+    got = {}
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}{SUB}"
+        with ThreadPoolExecutor(1) as pool:
+            for n in (9, 12):
+                got[n] = pool.submit(sc.check_site, url, out_dir=tmp_path / f"check{n}", steps=n).result(300)
+    finally:
+        srv.shutdown()
+    if got[9].error:
+        pytest.skip(got[9].error)
+    for n, r in got.items():
+        assert "nothing broken, 0 things a visitor would notice" in r.text().splitlines()[0], (n, r.text())
+        px = sc.first_notch_px(r.visits["desktop"])
+        assert px is not None and px >= 2 * sc.NOTCH_MIN_PX, (n, r.visits["desktop"].first_notch)
+        assert f"moves the picture by about {px:.1f} px" in r.text(), r.text()
+        assert r.visits["phone"].first_notch is None  # a wheel's notch: there is none on a phone
+        moving = [p for v in r.visits.values() for p in [*v.steps, *v.between] if p.moving]
+        assert moving and all(p.text == 0 for p in moving), (n, [(p.share, p.text) for p in moving])
+
+
+# --------------------------------------------------------------------------- round 8c: what the review of run 3 found
+
+MOVE = 0.35  # shots.js: the share of a chapter its move takes; the rest is the hold
+
+# The union of the boxes of the drawn shot's subjects (every prop on stage when it names none), from onScreen().
+_SUBJECT_BOX = """(T) => { __site.setProgress(T); const s = __site.evaluate(T), on = __site.info().onScreen;
+  const names = s.subject || Object.keys(s.show).filter((n) => s.show[n] > 0.99), b = names.map((n) => on[n].box);
+  return [Math.min(...b.map((x) => x[0])), Math.min(...b.map((x) => x[1])), Math.max(...b.map((x) => x[2])),
+          Math.max(...b.map((x) => x[3]))]; }"""
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("size", ["desktop", "phone"])
+def test_the_hold_travels_on_a_desktop_and_in_the_stacked_layout(browser, bare, size) -> None:
+    """Run 3's holds closed in by 5 to 11 %, and its phone layout refitted the subject to one share at every frame, so
+    on the phone the gate's box stood at the same place to the third decimal for five steps. The starter's hold now
+    pushes and orbits, and the stacked fit is made once per shot: the subject's box grows and moves through the hold."""
+    p = Page(browser, bare, **SIZES[size])
+    try:
+        ids = p.open()["chapters"]
+        for i, chapter in enumerate(ids):
+            start = np.array(p.page.evaluate(_SUBJECT_BOX, i + (MOVE + 0.001 if i else 0)))
+            end = np.array(p.page.evaluate(_SUBJECT_BOX, i + 0.999))
+            grow = (end[3] - end[1]) / (start[3] - start[1])
+            assert grow > 1.05 and np.abs(end - start).max() > 0.02, (size, chapter, start.round(3), end.round(3))
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("size", ["desktop", "phone"])
+def test_the_placeholder_shots_show_three_scales(browser, bare, size) -> None:
+    """Run 3's shots stood 4.9 to 5.8 m off on one lens and its sheet read as a carousel. The starter's first three
+    shots are a wide, a medium and a close shot (shots.js, frame()), on a phone as well: the subject's size, as the
+    share of the free area its box fills where that binds, steps up from each to the next."""
+    p = Page(browser, bare, **SIZES[size])
+    try:
+        ids = p.open()["chapters"]
+        if size == "phone":
+            free_w, free_h = 1.0, p.page.evaluate(_FREE_BOTTOM)
+        else:
+            free_w, free_h = 1 - p.page.evaluate(_PANEL, 0)["box"][2], 1.0
+        scale = {}
+        for chapter in ("intro", "how", "detail"):
+            x0, y0, x1, y1 = p.page.evaluate(_SUBJECT_BOX, ids.index(chapter) + REST)
+            scale[chapter] = max((x1 - x0) / free_w, (y1 - y0) / free_h)
+        assert scale["how"] > 1.3 * scale["intro"] and scale["detail"] > 1.25 * scale["how"], (size, scale)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("size", ["desktop", "phone"])
+def test_the_still_attribute_centres_the_subject_in_the_whole_canvas(browser, bare, size) -> None:
+    """check_site sets data-agy3d-still on <html> while it draws the article's stills; run 3's stills kept the
+    desktop's panel offset and had their subject in the right 60 %, empty floor on the left."""
+    p = Page(browser, bare, **SIZES[size])
+    try:
+        ids = p.open()["chapters"]
+        rests = [i + REST for i in range(len(ids))]
+        film = [p.page.evaluate(_SUBJECT_BOX, T) for T in rests]
+        p.page.evaluate("document.documentElement.setAttribute('data-agy3d-still', '')")
+        still = [p.page.evaluate(_SUBJECT_BOX, T) for T in rests]
+        p.page.evaluate("document.documentElement.removeAttribute('data-agy3d-still')")
+        again = p.page.evaluate(_SUBJECT_BOX, rests[0])
+        for chapter, (x0, y0, x1, y1) in zip(ids, still):
+            assert abs((x0 + x1) / 2 - 0.5) < 0.02 and abs((y0 + y1) / 2 - 0.5) < 0.02, (size, chapter, (x0, y0, x1, y1))
+            assert 0 <= x0 and x1 <= 1 and 0 <= y0 and y1 <= 1, (size, chapter, (x0, y0, x1, y1))
+        if size == "desktop":
+            assert all((b[0] + b[2]) / 2 > 0.6 for b in film), film  # beside the panel without the attribute
+        else:
+            assert all((b[1] + b[3]) / 2 < 0.45 for b in film), film  # above the panel without it
+        assert again == pytest.approx(film[0], abs=1e-6), "the attribute's framing outlived the attribute"
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+# A layer as a page registers it: 400 slabs beside the part, which rise through the chapter "detail" (update), so the
+# layer is a function of story time; and a fixed box round the hero.
+_LAYER = """async () => {
+  const THREE = await import('three');
+  const slabs = new THREE.InstancedMesh(new THREE.BoxGeometry(0.08, 0.03, 0.05), new THREE.MeshStandardMaterial(), 400);
+  const m = new THREE.Matrix4();
+  const update = ({ T }) => {
+    const lift = Math.min(1, Math.max(0, T - 2)) * 0.4;
+    for (let i = 0; i < 400; i++) slabs.setMatrixAt(i, m.makeTranslation(2.2 + (i % 20) * 0.07, 0.015 + lift, -0.6 + Math.floor(i / 20) * 0.07));
+    slabs.instanceMatrix.needsUpdate = true;
+  };
+  window.__site.layer('flood', slabs, { update });
+  window.__site.layer('zone', null, { box: [[-0.8, 0, -0.5], [0.8, 1.6, 0.5]] });
+}"""
+
+
+@pytest.fixture(scope="module")
+def layered(bare, tmp_path_factory) -> Path:
+    """The bare starter with a layer named in LAYERS and made part of the detail shot's subject."""
+    project = tmp_path_factory.mktemp("layered") / "project"
+    shutil.copytree(bare, project, symlinks=True)
+    shots = project / "src" / "shots.js"
+    text = shots.read_text()
+    assert "export const LAYERS = [];" in text and "span: 4, subject: 'part' }" in text
+    shots.write_text(text.replace("export const LAYERS = [];", "export const LAYERS = ['flood'];")
+                     .replace("span: 4, subject: 'part' }", "span: 4, subject: ['part', 'flood'] }"))
+    return project
+
+
+@pytest.mark.browser
+def test_a_layer_named_as_subject_is_fitted_and_reported_as_a_layer(browser, bare, layered) -> None:
+    """Run 3's chapters were about instanced slabs, and a subject could only be a prop: on the phone the slabs were a
+    sliver cut by the edge. A layer registered with layer() and named as the subject is fitted into the free area and
+    reported with kind "layer"; the same layer that is not the subject is left where the shot puts it (here, cut)."""
+    T = 2 + REST
+    seen = {}
+    for name, project in (("named", layered), ("not named", bare)):
+        p = Page(browser, project, **SIZES["phone"])
+        try:
+            p.open()
+            p.page.evaluate(_LAYER)
+            bottom = p.page.evaluate(_FREE_BOTTOM)
+            p.page.evaluate(f"__site.setProgress({T})")
+            seen[name] = p.page.evaluate("__site.info().onScreen")
+            if name == "named":
+                low = p.page.evaluate("(__site.setProgress(2.3), __site.info().onScreen.flood.box)")
+                p.page.evaluate("__site.setProgress(4)")
+                back = p.page.evaluate(f"(__site.setProgress({T}), __site.info().onScreen.flood.box)")
+                assert back == pytest.approx(seen[name]["flood"]["box"], abs=1e-9), "the layer depends on the way there"
+            assert p.messages == [], p.messages
+        finally:
+            p.close()
+    flood, zone = seen["named"]["flood"], seen["named"]["zone"]
+    assert flood["kind"] == "layer" and flood["subject"] is True and seen["named"]["part"]["subject"] is True, seen
+    x0, y0, x1, y1 = flood["box"]
+    assert 0 <= x0 and x1 <= 1 and 0 <= y0 and y1 <= bottom + 0.002, (flood, bottom)
+    assert low[1] > flood["box"][1] + 0.01, ("update did not move the layer with story time", low, flood["box"])
+    assert zone["kind"] == "layer" and zone["subject"] is False, zone
+    other = seen["not named"]["flood"]
+    assert other["kind"] == "layer" and other["subject"] is False and (other["box"][2] > 1 or other["box"][0] < 0), other
+
+
+_LABELS = """async () => {
+  const THREE = await import('three');
+  const plane = (h, colour) => new THREE.Mesh(new THREE.PlaneGeometry(h * 4, h), new THREE.MeshBasicMaterial({ color: colour, toneMapped: false }));
+  // small: about 12 px high in the wide intro, 20 px in the medium shot of the hero; sign: readable in both
+  const small = plane(0.056, '#ff00ff'), sign = plane(0.2, '#00ff00');
+  small.position.set(0.3, 1.62, 0.46);
+  sign.position.set(-0.3, 1.7, 0.46);
+  window.__site.label('small', small, 'hero');
+  window.__site.label('sign', sign, 'hero');
+  const tag = plane(0.1, '#00ffff');
+  tag.position.set(0, 0.6, 0.3);
+  window.__site.label('tag', tag, 'part');
+}"""
+
+
+def _count(frame: np.ndarray, rgb: tuple[int, int, int]) -> int:
+    return int((np.abs(frame - np.array(rgb)).max(axis=2) < 40).sum())
+
+
+@pytest.mark.browser
+def test_a_label_under_the_minimum_size_is_not_drawn_and_follows_its_props_subject_flag(browser, bare) -> None:
+    """Run 3's finale showed its labels 5 to 7 px high on a phone. The stage hides a label whose box is under 16 CSS
+    px high on screen (and does not report it), and shows it again when a closer shot makes it readable. A label is
+    flagged subject: true while the prop it was registered for is the shot's subject (check_site names a label of the
+    subject that is too small to read), and nothing is flagged in a shot that names no subject."""
+    p = Page(browser, bare)
+    try:
+        p.open()
+        p.page.evaluate(_LABELS)
+        frame = p.at(REST)  # intro: the wide shot of the hero
+        on = p.page.evaluate("__site.info().onScreen")
+        assert "small" not in on and _count(frame, (255, 0, 255)) == 0, on.get("small")
+        assert (on["sign"]["box"][3] - on["sign"]["box"][1]) * 800 >= 16 and _count(frame, (0, 255, 0)) > 200, on["sign"]
+        assert "subject" not in on["sign"], on["sign"]  # intro names no subject
+        frame = p.at(3 + REST)  # outro: hero and part are both its subject
+        on = p.page.evaluate("__site.info().onScreen")
+        assert on["sign"]["subject"] is True and on["tag"]["subject"] is True, on
+        frame = p.at(1 + REST)  # how: the hero is the subject, the part only beside it
+        on = p.page.evaluate("__site.info().onScreen")
+        assert on["sign"]["subject"] is True and on["tag"]["subject"] is False and on["part"]["subject"] is False, on
+        # the closer shot makes the small label readable, and it is drawn again
+        assert "small" in on and _count(frame, (255, 0, 255)) > 50, on.get("small")
+        # through the whole story, a label is reported (and drawn) only at 16 px or more
+        sizes = {}
+        for T in np.linspace(0, 4, 41):
+            p.page.evaluate(f"__site.setProgress({T})")
+            box = p.page.evaluate("__site.info().onScreen.small?.box ?? null")
+            sizes[round(float(T), 2)] = None if box is None else round((box[3] - box[1]) * 800, 1)
+        shown = [h for h in sizes.values() if h is not None]
+        assert shown and min(shown) >= 16, sizes
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+def _vite_build(project: Path) -> Path:
+    import subprocess
+
+    r = subprocess.run(["node", str(project / "node_modules" / "vite" / "bin" / "vite.js"), "build", "--logLevel", "error"],
+                       cwd=project, capture_output=True, text=True, timeout=300)
+    assert r.returncode == 0, r.stdout + r.stderr
+    return project / "dist"
+
+
+@pytest.fixture(scope="module")
+def builds(tmp_path_factory) -> dict:
+    """The starter built with Vite twice: in a project whose node_modules lacks postprocessing and n8ao (every other
+    package of the test workspace linked one by one), and in one that has them."""
+    if not (NODE_MODULES / "vite" / "bin" / "vite.js").is_file():
+        pytest.skip(f"{NODE_MODULES} has no Vite to build the starter with")
+    out = {}
+    for name in ("without", "with"):
+        if name == "with" and not all((NODE_MODULES / p / "package.json").is_file() for p in ("postprocessing", "n8ao")):
+            continue
+        project = tmp_path_factory.mktemp(f"built-{name}") / "project"
+        shutil.copytree(STARTER, project)
+        modules = project.parent / "node_modules"
+        modules.mkdir()
+        for entry in NODE_MODULES.iterdir():
+            if name == "with" or entry.name not in ("postprocessing", "n8ao"):
+                (modules / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
+        (project / "node_modules").symlink_to(modules, target_is_directory=True)
+        out[name] = _vite_build(project)
+    return out
+
+
+@pytest.mark.browser
+def test_the_light_shows_a_props_form_and_the_ground_stays_the_pages(browser, bare) -> None:
+    """The starter lights with run 2's key, rim and environment (stage.js, LIGHT): a blind judge preferred run 4's
+    site under this light to the dimmer one it was built with in six of six verdicts. The ground must not take that
+    light: its colour is divided by what it receives and it takes the environment at its own strength (groundLook),
+    so it still fades into the page. Measured at the first chapter, 1280 x 800: the stand-in's lit faces at a
+    luminance of 180 and its darker side at 115 (under the dimmer light 125 and 46); the floor far from the camera at
+    (28, 31, 35) against a page of (16, 18, 21), where with its colour divided alone it came out at (49, 50, 54)."""
+    p = Page(browser, bare)
+    try:
+        p.open()
+        bg = p.page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()")
+        page = np.array([int(bg[i:i + 2], 16) for i in (1, 3, 5)])
+        pic = p.at(0.0)
+        h, w = pic.shape[:2]
+        far = np.median(pic[int(h * 0.30):int(h * 0.38), int(w * 0.05):int(w * 0.30)].reshape(-1, 3), axis=0)
+        assert np.abs(far - page).max() <= 18, (far, page)
+        x0, y0, x1, y1 = p.page.evaluate("__site.info().onScreen.hero.box")
+        lum = (pic @ np.array([0.2126, 0.7152, 0.0722]))[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)]
+        lit, shade = np.percentile(lum, 95), np.percentile(lum, 20)
+        assert lit >= 160 and shade >= 90, (lit, shade)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+def test_the_starter_builds_and_runs_with_and_without_the_occlusion_packages(browser, builds) -> None:
+    """Ambient occlusion is the starter's (occlusion.js), loaded with a dynamic import of postprocessing and n8ao; a
+    project with three.js alone must still build (Vite stops at an import it cannot resolve: vite.config.js turns a
+    missing package into an empty module) and run. Where the packages are, ?ao=1 turns the pass on even on the
+    software renderer: the hero's foot darkens where it meets the floor, and the page's colours stay where they were
+    (drawn through the effect pass the background first came out #010308 for #101215)."""
+    pictures = {}
+    for name, dist in builds.items():
+        for ask in ("", "?ao=0", "?ao=1"):
+            p = Page(browser, dist)
+            try:
+                p.page.goto(ORIGIN + SUB + ask)
+                p.page.evaluate("window.__site.ready")
+                state = p.page.evaluate("({ mode: __site.mode, occlusion: __site.info().occlusion })")
+                assert state["mode"] == "webgl", (name, ask, state)
+                if name == "without" or ask != "?ao=1":
+                    assert state["occlusion"].startswith("off"), (name, ask, state)
+                else:
+                    assert state["occlusion"].startswith("on"), (name, ask, state)
+                if name == "without" and ask == "?ao=1":
+                    assert "not both installed" in state["occlusion"], state
+                pictures[name, ask] = p.at(REST)
+                hero = p.page.evaluate("__site.info().onScreen.hero.box")
+                assert p.messages == [], (name, ask, p.messages)
+            finally:
+                p.close()
+        assert pictures[name, "?ao=0"].std() > 10, "the canvas shows nothing"
+    if "with" not in builds:
+        pytest.skip("the test workspace has no postprocessing and n8ao: the build with them was not made")
+    off, on = pictures["with", "?ao=0"], pictures["with", "?ao=1"]
+    h, w = off.shape[:2]
+    x0, y0, x1, y1 = (round(hero[0] * w), round(hero[1] * h), round(hero[2] * w), round(hero[3] * h))
+    darker = (off - on).sum(axis=2)
+    foot = darker[y1 - (y1 - y0) // 5:y1 + 10, x0:x1]
+    assert foot.mean() > 6 and foot.max() > 45, (foot.mean(), foot.max())
+    away = np.ones(darker.shape, bool)
+    away[max(0, y0 - 40):y1 + 60, max(0, x0 - 60):x1 + 120] = False
+    assert np.abs(darker[away]).mean() < 1.5, np.abs(darker[away]).mean()
+    assert np.abs(off[:20, :20] - on[:20, :20]).max() <= 2, (off[5, 5], on[5, 5])
+
+
+@pytest.mark.browser
+def test_check_sites_stand_in_attribute_turns_the_pass_on_in_this_browser_and_caps_its_buffer(browser, builds) -> None:
+    """check_site sets data-agy3d-camera on <html> before the page's scripts run (its probe, injected as here): this
+    software browser then draws the occlusion a visitor with a GPU sees, so the check's frames and memory include it.
+    Without the attribute a software renderer keeps it off (a frame takes far longer than on a GPU), and a phone keeps
+    it off either way. While the pass is on the drawing buffer is capped (occlusion.js: at most 1.5 drawn pixels per CSS
+    pixel and 3 million pixels, about 80 bytes of graphics memory each); without it the starter draws at up to 2."""
+    from antigravity3d.deliver import site_check as sc
+
+    if "with" not in builds:
+        pytest.skip("the test workspace has no postprocessing and n8ao: the build with them was not made")
+    probe = sc._probe_script(False)
+    seen = {}
+    for name, size, init, ratio in (("on", "desktop", probe, 2), ("off", "desktop", None, 2),
+                                    ("phone", "phone", probe, 2)):
+        p = Page(browser, builds["with"], **{**SIZES[size], "device_scale_factor": ratio})
+        try:
+            if init:
+                p.ctx.add_init_script(init)
+            p.page.goto(ORIGIN + SUB)
+            p.page.evaluate("window.__site.ready")
+            seen[name] = p.page.evaluate("""() => { const c = document.getElementById('stage');
+                return { why: __site.info().occlusion, w: c.width, h: c.height }; }""")
+            assert p.messages == [], (name, p.messages)
+        finally:
+            p.close()
+    assert seen["on"]["why"].startswith("on: data-agy3d-camera"), seen
+    assert seen["off"]["why"].startswith("off: a software renderer"), seen
+    assert seen["phone"]["why"] == "off: a phone", seen
+    on, off = seen["on"], seen["off"]
+    assert on["w"] * on["h"] <= 3e6 and on["w"] <= 1440 * 1.5 and on["h"] <= 900 * 1.5, on
+    assert on["w"] * 900 == on["h"] * 1440, on  # the window's shape, not stretched
+    assert (off["w"], off["h"]) == (2880, 1800), off
+
+
+@pytest.mark.browser
+def test_check_site_measures_the_occlusion_pass_of_the_built_starter(builds, tmp_path) -> None:
+    """The check sees what a visitor with a GPU sees: on the built starter with postprocessing and n8ao it reports the
+    pass on and says nothing about occlusion being off, and its record counts the pass's buffers (measured at 1440 x
+    900: textures 38 MB without the pass, 133 MB with it). Render buffers stay small: the composer's two multisampled
+    buffers, which held 124 MB of the 131 MB of render buffers before, are gone."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from antigravity3d.deliver import site_check as sc
+
+    if "with" not in builds:
+        pytest.skip("the test workspace has no postprocessing and n8ao: the build with them was not made")
+    srv = _http(builds["with"])
+    got = {}
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}{SUB}"
+        with ThreadPoolExecutor(1) as pool:
+            for ask in ("", "?ao=0"):
+                got[ask] = pool.submit(sc.check_site, url + ask, out_dir=tmp_path / f"check{ask[1:]}", steps=2,
+                                       sizes=("desktop",), variants=()).result(240)
+    finally:
+        srv.shutdown()
+    if got[""].error:
+        pytest.skip(got[""].error)
+    on, plain = got[""].visits["desktop"], got["?ao=0"].visits["desktop"]
+    assert on.probe["occlusion"].startswith("on: data-agy3d-camera"), on.probe["occlusion"]
+    assert "ambient occlusion" not in got[""].text()
+    assert on.memory["texture_bytes"] > plain.memory["texture_bytes"] + 50e6, (on.memory, plain.memory)
+    assert on.memory["renderbuffer_bytes"] < 20e6, on.memory

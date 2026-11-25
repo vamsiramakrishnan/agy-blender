@@ -1,0 +1,33 @@
+{
+ "first": "stock",
+ "second": "run5",
+ "rep": 2,
+ "frames": [
+  "57c48173e1aeb830",
+  "7e55a4fe193821d2"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 keeps its workbench stages cleanly framed across frames 1-9, whereas Site 1 has text colliding with 3D objects in frames 1, 5, and 9, and awkward mid-transition framing in frame 4."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2's continuous physical pipeline\u2014from the raw log slab entering the capture press in frames 3-4 to the local store drawer in frame 5 and anchor relocator in frame 7\u2014visually demonstrates how data is processed better than Site 1's abstract shapes in frames 4-6."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2's industrial machinery in frames 1-9 features worn metal textures, contact shadows, and physical grounding on a floor plane, while Site 1's glowing primitives in frames 1-8 float ungrounded in space."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Site 2 uses a consistent, readable left-hand card across frames 1-9 that leaves ample room for the 3D scene, whereas Site 1's cards shift sides and obscure both the 3D subject and top header bar in frames 4, 5, and 9."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers a cohesive, well-crafted 3D workbench visualization that clearly explains Straitjacket's architecture while maintaining clean typography and composition at every scroll step."
+  }
+ }
+}
