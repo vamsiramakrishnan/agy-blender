@@ -198,6 +198,13 @@ Each is one instruction and its reason. The starter already does the ones marked
   a camera that never stops cannot be read (run 1 rode one spline), and one that only stops is a slideshow: run 3's
   six shots stood 5 to 6 m off, 13 to 14 degrees up, on one lens, closing in by 5 to 11 %, and its first two pictures
   were nearly the same.
+- **The first scroll gets an answer.** (starter) The page opens turned back from its first shot, round the same
+  subject, and swings round to the shot as the visitor starts to scroll, with the title up (`OPENING` in
+  `src/shots.js`). Keep it, and start whatever of your own plays at the top of the page at speed: an ease keyed from
+  the page's first pixel (the starter's `ramp`) starts from rest and shows nothing for the first notches. Why: a
+  visitor decides at the first scroll whether the page is alive. The first chapter of runs 4 and 5 was one hold whose
+  camera started from rest, and one wheel notch at the top moved their pictures by 0.32 and 0.15 px, where the same
+  notch changes a third of the stock agent's window; rebuilt with the opening, run 5's moves 8.8 px.
 - **The last picture is the strongest.** (starter) Frame the last chapter as a group from the union of its props'
   bounds (`frame(around(min, max), ...)`), the camera low, all of them named as the subject, and never as a row in the
   upper half of the frame over empty floor. Why: it is the picture a visitor leaves with; run 3 ended on its three
@@ -240,7 +247,8 @@ The site is done when `check_site` on the built folder reports, at both sizes:
 
 - no uncaught error, no console error, no failed request, no request to another host the task does not allow;
 - no step where the canvas shows only its background, and no two neighbouring steps that are identical unless a hold
-  is meant;
+  is meant; an answer to the first scroll (on the desktop, one wheel notch from the top of the page moves the picture
+  by a pixel or more, or moves the text: `check_site` gives the number under Measures);
 - reduced motion: the scene rests per chapter; no WebGL: the page reads as an article;
 - no sideways overflow on the phone; no fact that disagrees with its source, and nothing shown without a source that
   looks like a fact;

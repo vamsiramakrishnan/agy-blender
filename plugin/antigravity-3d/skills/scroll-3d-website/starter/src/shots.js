@@ -10,12 +10,22 @@
 // Lifted from examples/straitjacket-film/site/js/scene/tracks.js (monotone curves through camera keys, so a move never
 // overshoots).
 
-// The first MOVE of each chapter travels from the last shot to this chapter's shot; the rest of the chapter is its
-// hold, during which the camera keeps travelling slowly (push and orbit, below). The chapter's text is shown only
+// The first MOVE of each chapter travels from the last shot to this chapter's shot (the first chapter's from the page's
+// opening pose, OPENING below); the rest of the chapter is its hold, during which the camera keeps travelling slowly
+// (push and orbit, below). The chapter's text is shown only
 // during the hold (main.js), so MOVE is also the share of every chapter after the first that has no text on screen:
 // at 0.35 and the starter's chapters of 220 % of the window, 77 % of a window's height of scroll per chapter is picture
 // alone. A larger MOVE gives a slower, calmer move and a longer gap in the reading; a smaller one the reverse.
 export const MOVE = 0.35;
+// The page opens this many degrees back from its first shot, round the shot's target, and the first MOVE of the first
+// chapter swings the camera round to the shot, so the first wheel notch changes the picture. The title stays up
+// through it: the opening is the first shot's own subject seen from further round, where a move between two chapters
+// passes one subject for another. Without it the first chapter was all hold, and a hold travels slowly and started
+// from rest: one notch (120 px of scroll, 1440 x 900) at the top of run 5's page moved its picture by 0.15 px, as
+// check_site reads it, and a visitor's first scroll showed nothing happening. Rebuilt with nothing else changed, the
+// notch moves it 2.5 px with a curve that starts at speed (monotone(), below) and 8.8 px with this opening as well.
+// 0 opens on the shot itself.
+export const OPENING = 24;
 // Where a chapter rests when the visitor asked for reduced motion: the scene shows only resting pictures.
 export const REST = 0.7;
 
@@ -130,6 +140,15 @@ function monotone(ts, ys) {
     const w1 = 2 * (ts[i + 1] - ts[i]) + (ts[i] - ts[i - 1]), w2 = (ts[i + 1] - ts[i]) + 2 * (ts[i] - ts[i - 1]);
     m[i] = (w1 + w2) / (w1 / d[i - 1] + w2 / d[i]);
   }
+  // The curve starts at speed: its first key takes the one-sided slope of the first two spans (the end rule of the
+  // same shape-preserving scheme), so the first pixel of scroll already moves the camera. Starting from rest, the
+  // page's first wheel notch covered under 2 % of the first span's travel. The last key keeps 0: the story comes to
+  // rest at the end of the page.
+  if (n > 2) {
+    const h0 = ts[1] - ts[0], h1 = ts[2] - ts[1];
+    const m0 = ((2 * h0 + h1) * d[0] - h0 * d[1]) / (h0 + h1);
+    if (m0 * d[0] > 0) m[0] = d[0] * d[1] <= 0 && Math.abs(m0) > 3 * Math.abs(d[0]) ? 3 * d[0] : m0;
+  } else m[0] = d[0];
   return (T) => {
     if (T <= ts[0]) return ys[0];
     if (T >= ts[n - 1]) return ys[n - 1];
@@ -149,14 +168,17 @@ const held = (s) => {
   return { ...s, pos: [s.target[0] + k * (dx * c + dz * sn), s.target[1] + k * dy, s.target[2] + k * (dz * c - dx * sn)] };
 };
 
-// Camera keys for the chapters in page order: [T, pose]. Chapter i arrives at i + MOVE and travels until i + 1.
+// Camera keys for the chapters in page order: [T, pose]. Chapter i arrives at i + MOVE and travels until i + 1; the
+// first chapter arrives from its opening pose (OPENING), which is its own shot and so not a move between two shots.
 function keysFor(ids) {
   const keys = [];
   ids.forEach((id, i) => {
     const s = SHOTS[id];
     // the third value: which shot the camera is on, i - 1 to i during the move into chapter i (see `frame` below)
-    if (i === 0) keys.push([0, s, 0]);
-    else {
+    if (i === 0) {
+      if (OPENING) keys.push([0, held({ ...s, push: 0, orbit: -OPENING }), 0]);
+      keys.push([OPENING ? MOVE : 0, s, 0]);
+    } else {
       if (s.via) keys.push([i + MOVE / 2, { ...s, ...s.via }, i - 0.5]);
       keys.push([i + MOVE, s, i]);
     }
