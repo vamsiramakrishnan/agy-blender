@@ -8,6 +8,36 @@ import { occlusion } from './occlusion.js';
 
 // From the upper left and in front: the shadows fall back and to the right, away from the reader.
 const KEY_DIR = new THREE.Vector3(-0.45, 1.0, 0.55).normalize();
+const RIM_DIR = new THREE.Vector3(10, 6, -8).normalize(); // from behind the scene, to the right, 25 degrees up
+// The light: a key that casts the shadow, a rim from behind that draws the edges, an environment for reflections and
+// fill. These are run 2's numbers, and the evidence is two blind comparisons of one site under two lights
+// (benchmarks/results/round8/rig_compare/): run 4's site, whose machines are the page's own dark steel, was preferred
+// under this light in six of six verdicts over the light it was built with (a key of 1.8, the environment at 0.25,
+// no rim: "dark metals lose detail in shadow"); run 5's site, light grey machines, drew three each, by the order shown.
+// The dimmer light had been set after run 3 so that a colour shows as its hex; it made a dark design colour on a prop
+// unreadable, and the remedy tried first (lighter materials, run 5) read as flat and grey.
+export const LIGHT = { key: 2.35, rim: 0.85, environment: 0.65 };
+// What a face turned up receives of it (libraries.md, the light section: 0.28 of the key from KEY_DIR, 1.84 of the
+// environment, the rim by the cosine of its angle over pi): about 2. A lit part in a design colour takes lit(colour),
+// the colour over that light: its top then comes out near the design colour and its sides darker, so it keeps its
+// form. Measured for amber #F0B429: the top #E3AC37 and a wall #D19F3A, where the plain colour comes out #F8C15B.
+export const PROP_LIGHT = 0.28 * LIGHT.key + 1.84 * LIGHT.environment + LIGHT.rim * RIM_DIR.y / Math.PI;
+export function lit(colour) { return new THREE.Color(colour).multiplyScalar(1 / PROP_LIGHT); }
+// The ground must still come out as the page's ground colour, whatever the props are lit with, so it fades into the
+// page. Two things do that, and a floor material of your own needs both (groundLook() below):
+// - its colour is divided by GROUND_LIGHT, what a face turned up receives (libraries.md, the light section: 0.28 of the
+//   key from KEY_DIR, 1.84 of the environment as the ground takes it, the rim by the cosine of its angle over pi), so
+//   it is drawn as if lit at 1;
+// - it takes the environment at GROUND_ENVIRONMENT, not at LIGHT.environment: most of what a dark floor shows is the
+//   environment's reflection in it, which its colour does not scale. Measured on the starter: with the colour divided
+//   alone the floor came out at (33, 35, 40) near the camera where it had been (15, 18, 25).
+export const GROUND_ENVIRONMENT = 0.25;
+export const GROUND_LIGHT = 0.28 * LIGHT.key + 1.84 * GROUND_ENVIRONMENT + LIGHT.rim * RIM_DIR.y / Math.PI;
+// For a ground material: its colour for a design colour, and the environment it reflects. A material that names its
+// own envMap takes envMapIntensity; one that leaves it to the scene takes the scene's (three.js r163 and later).
+export function groundLook(scene, colour) {
+  return { color: new THREE.Color(colour).multiplyScalar(1 / GROUND_LIGHT), envMap: scene.environment, envMapIntensity: GROUND_ENVIRONMENT };
+}
 const css = (name, fallback) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 
 // The linear colour that Neutral tone mapping (three's and postprocessing's, Khronos PBR Neutral) turns into `c`: it
@@ -50,19 +80,25 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
   scene.background = bg;
   scene.fog = new THREE.Fog(bg, 14, 40); // the ground fades into the page colour: no horizon line, no grid to the edge
 
-  // Light: an environment for reflections and soft fill, one key light that casts the shadow, nothing else, within the
-  // budget of the skill's libraries.md: on a face turned up, the key gives 0.28 of its intensity and this environment
-  // 1.84 of its own, so 1.8 and 0.25 light it at about 1 and a colour shows as its hex. Run 3 lit at about 2.5 (a rim
-  // and a fill light added, the environment at 0.95): its floor came out 2.5 times its colour and its amber washed out.
+  // Light: LIGHT, above. More than this is too much: run 3 lit at about 2.8 (a key of 2.7, a rim, a fill, the
+  // environment at 0.95) with a ground that took it all, and its floor came out 2.5 times its colour and its amber
+  // washed out. A lit part in a design colour takes lit(colour), above; only a flat mark that must match the page's
+  // text exactly is drawn unlit (libraries.md).
   function environment() {
-    if (scene.environment) scene.environment.dispose();
+    const old = scene.environment;
     const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     pmrem.dispose();
+    if (!old) return;
+    // after a restored context: a material that named the old environment as its own (the ground) follows to the new
+    scene.traverse((o) => {
+      for (const m of [].concat(o.material || [])) if (m.envMap === old) { m.envMap = scene.environment; m.needsUpdate = true; }
+    });
+    old.dispose();
   }
   environment();
-  scene.environmentIntensity = 0.25;
-  const key = new THREE.DirectionalLight(0xffffff, 1.8);
+  scene.environmentIntensity = LIGHT.environment;
+  const key = new THREE.DirectionalLight(0xffffff, LIGHT.key);
   key.castShadow = true;
   key.shadow.mapSize.set(phone ? 1024 : 2048, phone ? 1024 : 2048);
   key.shadow.bias = -0.0004;
@@ -71,8 +107,12 @@ export function createStage(canvas, { phone = false, onChange = () => {}, onLost
   key.shadow.camera.near = 1;
   key.shadow.camera.far = 60;
   scene.add(key, key.target);
+  const rim = new THREE.DirectionalLight(0xdce6f5, LIGHT.rim); // a direction only: it casts no shadow
+  rim.position.copy(RIM_DIR).multiplyScalar(25);
+  scene.add(rim);
 
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: css('--ground', '#1a1d22'), roughness: 0.95 }));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200),
+    new THREE.MeshStandardMaterial({ ...groundLook(scene, css('--ground', '#1a1d22')), roughness: 0.95 }));
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   scene.add(ground);

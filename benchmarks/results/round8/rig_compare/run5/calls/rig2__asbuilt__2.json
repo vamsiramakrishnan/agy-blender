@@ -1,0 +1,33 @@
+{
+ "first": "rig2",
+ "second": "asbuilt",
+ "rep": 2,
+ "frames": [
+  "5760264cd5584605",
+  "7e55a4fe193821d2"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "tie",
+    "reason": "Both sites use identical camera paths across frames 1 to 9, including identical overlaps with the text card in frames 5 and 6."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites depict the exact same 3D workbench pipeline\u2014press, cabinet, and relocator\u2014across frames 1 through 9."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 renders darker, richer metallic finishes with less washed-out mottling on the cabinet and press in frames 1, 5, and 6."
+   },
+   "type_and_layout": {
+    "winner": "tie",
+    "reason": "Both sites share an identical UI layout, typography, and left-aligned card hierarchy across all 9 frames."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "With identical layouts, camera choreography, and explanatory models, Site 2 wins due to cleaner, more grounded metallic material shading on the 3D machinery."
+  }
+ }
+}

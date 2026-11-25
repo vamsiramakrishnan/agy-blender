@@ -1046,6 +1046,32 @@ def builds(tmp_path_factory) -> dict:
 
 
 @pytest.mark.browser
+def test_the_light_shows_a_props_form_and_the_ground_stays_the_pages(browser, bare) -> None:
+    """The starter lights with run 2's key, rim and environment (stage.js, LIGHT): a blind judge preferred run 4's
+    site under this light to the dimmer one it was built with in six of six verdicts. The ground must not take that
+    light: its colour is divided by what it receives and it takes the environment at its own strength (groundLook),
+    so it still fades into the page. Measured at the first chapter, 1280 x 800: the stand-in's lit faces at a
+    luminance of 180 and its darker side at 115 (under the dimmer light 125 and 46); the floor far from the camera at
+    (28, 31, 35) against a page of (16, 18, 21), where with its colour divided alone it came out at (49, 50, 54)."""
+    p = Page(browser, bare)
+    try:
+        p.open()
+        bg = p.page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()")
+        page = np.array([int(bg[i:i + 2], 16) for i in (1, 3, 5)])
+        pic = p.at(0.0)
+        h, w = pic.shape[:2]
+        far = np.median(pic[int(h * 0.30):int(h * 0.38), int(w * 0.05):int(w * 0.30)].reshape(-1, 3), axis=0)
+        assert np.abs(far - page).max() <= 18, (far, page)
+        x0, y0, x1, y1 = p.page.evaluate("__site.info().onScreen.hero.box")
+        lum = (pic @ np.array([0.2126, 0.7152, 0.0722]))[int(y0 * h):int(y1 * h), int(x0 * w):int(x1 * w)]
+        lit, shade = np.percentile(lum, 95), np.percentile(lum, 20)
+        assert lit >= 160 and shade >= 90, (lit, shade)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
 def test_the_starter_builds_and_runs_with_and_without_the_occlusion_packages(browser, builds) -> None:
     """Ambient occlusion is the starter's (occlusion.js), loaded with a dynamic import of postprocessing and n8ao; a
     project with three.js alone must still build (Vite stops at an import it cannot resolve: vite.config.js turns a

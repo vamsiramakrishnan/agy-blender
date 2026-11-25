@@ -48,6 +48,7 @@ copy, one draw call. Two thousand separate meshes are two thousand draw calls an
 // example: three-webgl
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { groundLook } from './src/stage.js';
 
 const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('stage'), antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -61,8 +62,11 @@ const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 pmrem.dispose();
 
-scene.environmentIntensity = 0.25; // within the light budget (below)
-const key = new THREE.DirectionalLight('#ffffff', 1.8);
+scene.environmentIntensity = 0.65; // the starter's light (below): a key, a rim from behind, an environment
+const rim = new THREE.DirectionalLight('#dce6f5', 0.85);
+rim.position.set(10, 6, -8);
+scene.add(rim);
+const key = new THREE.DirectionalLight('#ffffff', 2.35);
 key.position.set(-4, 8, 5);
 key.castShadow = true;
 key.shadow.radius = 3;
@@ -70,7 +74,8 @@ key.shadow.camera.left = key.shadow.camera.bottom = -6;
 key.shadow.camera.right = key.shadow.camera.top = 6;
 scene.add(key);
 
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ color: '#1a1d22' }));
+// the ground keeps the page's ground colour under that light: the starter's groundLook (the light section below)
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ ...groundLook(scene, '#1a1d22'), roughness: 0.95 }));
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
@@ -133,36 +138,51 @@ renderer.render(scene, camera);
 <!-- check: picture -->
 <!-- check: warning WebGPU is not available, running under WebGL2 backend -->
 
-## Light within a budget, and colours that stay the design's
+## Light that shows form, and colours that stay the design's
 
-Under `NeutralToneMapping` (the starter's) a lit colour reaches the screen as itself only while it stays under the
-tone mapper's knee: each channel of albedo times light below about 0.76 (linear) passes through; above it the colour
-is compressed towards white and loses saturation. Light here is the factor F a face receives: the key's intensity times
-the cosine of its angle over pi, plus `environmentIntensity` times what the environment gives that face. Measured with
-the starter's `RoomEnvironment`: a face turned up gets 0.28 of the key (from the starter's direction) and 1.84 of the
-environment; a face turned to the camera 1.91; a side wall 1.0. So:
+The starter lights the scene with three things (`LIGHT` in its stage.js): a key from above at the front left that
+casts the shadow (2.35), a rim from behind that draws the edges (0.85), and an environment for reflections and fill
+(0.65). Leave it as it is unless the frames give a reason. Why these numbers: they are run 2's, whose 3D a blind
+judge preferred to run 4's and to run 5's in six of six verdicts each, and the same site was then judged under two
+lights. Run 4's site, machines in the page's own dark steel, built under a dimmer light (a key of 1.8, the
+environment at 0.25, no rim), was preferred under this one in six of six ("dark metals lose detail in shadow"). Run
+5's site, light grey machines, drew three each, by the order shown. The dimmer light had been set after run 3 so that
+a colour would show as its hex on a face turned up.
 
-- Light the most lit face of a part that carries a design colour at F of about 1: the starter's key 1.8 and environment
-  0.25 give 0.97 on the ground. One key light, no fill or rim light, an environment at most about 0.35. Why: run 3
-  added a rim (0.75) and a fill (0.65) light to a key of 2.7 and raised the environment to 0.95, F about 2.5: its
-  #15181D floor came out 2.5 times its value, its red #FF7768 as (252,150,140), its amber #F0B429 as about #F6BE67.
-- A colour with a channel above about 225 (most brand colours: amber's red is 240) is compressed even at F = 1. Where
-  the design's colour must be exact (a brand mark, a status colour the panel's text also uses), draw that part with
-  `MeshBasicMaterial({ color, toneMapped: false })`, or give a lit part that colour as `emissive` with its own `color`
-  dark; let the shape around it carry the light.
-- The toe works the other way: in a dark colour the tone mapper takes out most of the darkest channel (#15181D comes
-  out about #080C13 at F = 1). Give a floor that must match the page the material colour whose swatch matches, found
-  with the example below.
-- A dark material on a dark page is a hole, and a dark metal most of all: a metal's base colour is the share of
-  light it reflects. Under the starter's light a steel of #242931 at three quarters metal comes out #0B1420, thirteen
-  levels from that floor at most; a steel of #B0B4B8 at full metal comes out #9CA0A5. Give a prop's large surfaces a
-  value well away from the page's and keep the page's own dark colours for small parts. More light is not the
-  remedy (the first point). Why: run 4's three machines were that dark steel on a #0D0F12 ground; at six of nine
-  scroll steps under a tenth of the canvas differed from the background, and every blind verdict on craft that went
-  against the site said so ("dark machinery blends into the dark floor").
+Light here is the factor F a face receives: the key's intensity times the cosine of its angle over pi, plus
+`environmentIntensity` times what the environment gives that face. Measured with the starter's `RoomEnvironment`: a
+face turned up gets 0.28 of the key and 1.84 of the environment (a face turned to the camera 1.91, a side wall 1.0),
+so the starter lights a top at about 2. Under `NeutralToneMapping` a lit colour reaches the screen as itself only
+under the tone mapper's knee: each channel of albedo times light below about 0.76 (linear) passes through; above it
+the colour is compressed towards white. At F = 2 that is every channel above about 165 of 255. So:
+
+- Give a prop's large surfaces the design's dark and middle values and let the light carry them. Measured on a face
+  turned up, under the starter's light: a steel of #242931 at three quarters metal comes out #1F2835, its own colour,
+  and a paint of #242931 comes out #3E434B. A paint of #7A828C comes out #9FA9B6, and one of #B8C1CC comes out
+  #DBE5F2, most of the way to white. Why: run 5 gave its machines light grey bodies (#7A838E to #B8C1CC) on this
+  round's earlier advice, and nine of the sixteen blind verdicts on craft that went against it call them flat,
+  matte or grey; runs 2, 3 and 4 used #242931 for the bodies. `check_site` says when a shot's subject is hard to
+  tell from the page.
+- A part in one of the design's accent colours is lit, with its colour divided by the light: `color: lit('#F0B429')`
+  (stage.js). Measured: the top of an amber part comes out #E3AC37 and a wall #D19F3A, the colour with its form;
+  the plain colour comes out #F8C15B, washed. Only a flat mark that must match the panel's text exactly (a line, a
+  tag, a status dot) is unlit: `MeshBasicMaterial({ color, toneMapped: false })` gives #F0B429, and `emissive` on a
+  black `color` #EDB33B. Why: a block drawn unlit has no form. Run 5 drew the coloured blocks of its lanes that
+  way, on this guide's earlier advice, and the blind judge calls them "flat unshaded blocks on the floor".
+- The ground comes out as the page's ground colour whatever the props are lit with, so that it fades into the page:
+  give a ground material the starter's `groundLook(scene, colour)` (stage.js). It divides the colour by what a face
+  turned up receives and has the ground take the environment at 0.25. Both matter: most of what a dark floor shows
+  is the environment's reflection in it, which its colour does not scale. Measured: #15181D as a plain material
+  under the starter's light comes out #191E25, with `groundLook` #0B0F16 (the tone mapper's toe takes out most of
+  the darkest channel; choose the ground's colour by its swatch). A floor shader of your own (the section on
+  custom shader materials) takes the same two options.
+- Do not add light. Run 3 added a fill light to a key of 2.7 and a rim and raised the environment to 0.95, F about
+  2.8, on a ground that took it all: its #15181D floor came out #272B32 and its amber #FBC978. And do not take it
+  away to fix a colour: under the dimmer light the same dark steel came out #0B1420, thirteen levels from the floor
+  at most, and at six of run 4's nine scroll steps under a tenth of the canvas differed from the background.
 
 Check a colour on screen against its hex: draw a swatch under the page's own light and read the canvas at once, as
-this example does for the starter's light and for run 3's.
+this example does for the starter's light, for the dimmer one and for run 3's.
 
 ```js
 // example: colour-swatch
@@ -175,11 +195,13 @@ renderer.toneMapping = THREE.NeutralToneMapping;
 const scene = new THREE.Scene();
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-// The page's light: here the starter's (stage.js), a key from above at the front left and a low environment.
-const key = new THREE.DirectionalLight('#ffffff', 1.8);
+// The page's light: here the starter's (stage.js, LIGHT): a key, a rim from behind, an environment.
+const key = new THREE.DirectionalLight('#ffffff', 2.35);
 key.position.set(-0.45, 1.0, 0.55);
-scene.add(key);
-scene.environmentIntensity = 0.25;
+const rim = new THREE.DirectionalLight('#dce6f5', 0.85);
+rim.position.set(10, 6, -8);
+scene.add(key, rim);
+scene.environmentIntensity = 0.65;
 
 // A swatch lying on the ground, seen from straight above, drawn alone; its colour read from the canvas at once.
 const swatch = new THREE.Mesh(new THREE.PlaneGeometry(4, 4).rotateX(-Math.PI / 2));
@@ -195,21 +217,36 @@ function onScreen(material) {
   gl.readPixels(gl.drawingBufferWidth >> 1, gl.drawingBufferHeight >> 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
   return '#' + [...px.slice(0, 3)].map((v) => v.toString(16).padStart(2, '0')).join('');
 }
-const floor = onScreen(new THREE.MeshStandardMaterial({ color: '#15181d', roughness: 0.95 }));
-const amberLit = onScreen(new THREE.MeshStandardMaterial({ color: '#f0b429', roughness: 0.6 }));
+const seen = (options) => onScreen(new THREE.MeshStandardMaterial(options));
+// The ground as the starter's groundLook() makes it: the colour over what a face turned up receives, the
+// environment at 0.25.
+const groundLight = 0.28 * key.intensity + 1.84 * 0.25 + rim.intensity * (6 / Math.hypot(10, 6, 8)) / Math.PI;
+const floor = seen({ color: new THREE.Color('#15181d').multiplyScalar(1 / groundLight), envMap: scene.environment, envMapIntensity: 0.25, roughness: 0.95 });
+const floorPlain = seen({ color: '#15181d', roughness: 0.95 });
+const amberLit = seen({ color: '#f0b429', roughness: 0.6 });
+// The same amber over what a face turned up receives, as the starter's lit() gives it: the colour again, with its form.
+const propLight = 0.28 * key.intensity + 1.84 * scene.environmentIntensity + rim.intensity * (6 / Math.hypot(10, 6, 8)) / Math.PI;
+const amberDivided = seen({ color: new THREE.Color('#f0b429').multiplyScalar(1 / propLight), roughness: 0.6 });
+const amberEmissive = seen({ color: '#000000', emissive: '#f0b429', roughness: 0.6 });
 const amberFlat = onScreen(new THREE.MeshBasicMaterial({ color: '#f0b429', toneMapped: false }));
-// A dark metal and a mid one under the same light: a metal's colour is the share of light it reflects.
-const steelDark = onScreen(new THREE.MeshStandardMaterial({ color: '#242931', metalness: 0.75, roughness: 0.5 }));
-const steelMid = onScreen(new THREE.MeshStandardMaterial({ color: '#b0b4b8', metalness: 1, roughness: 0.5 }));
+// A dark metal keeps its colour; a light paint goes most of the way to white.
+const steelDark = seen({ color: '#242931', metalness: 0.75, roughness: 0.5 });
+const paintLight = seen({ color: '#b8c1cc', roughness: 0.6 });
+// The dimmer light of runs 4 and 5: a key of 1.8, the environment at 0.25, no rim.
+key.intensity = 1.8;
+rim.intensity = 0;
+scene.environmentIntensity = 0.25;
+const steelDim = seen({ color: '#242931', metalness: 0.75, roughness: 0.5 });
 // Run 3's light: a key of 2.7, a rim and a fill light, the environment at 0.95.
 key.intensity = 2.7;
-scene.add(new THREE.DirectionalLight('#ffffff', 0.75), new THREE.DirectionalLight('#ffffff', 0.65));
+rim.intensity = 0.75;
+scene.add(new THREE.DirectionalLight('#ffffff', 0.65));
 scene.environmentIntensity = 0.95;
-const floorRun3 = onScreen(new THREE.MeshStandardMaterial({ color: '#15181d', roughness: 0.95 }));
-const amberRun3 = onScreen(new THREE.MeshStandardMaterial({ color: '#f0b429', roughness: 0.6 }));
-document.documentElement.dataset.swatches = JSON.stringify({ floor, amberLit, amberFlat, steelDark, steelMid, floorRun3, amberRun3 });
+const floorRun3 = seen({ color: '#15181d', roughness: 0.95 });
+const amberRun3 = seen({ color: '#f0b429', roughness: 0.6 });
+document.documentElement.dataset.swatches = JSON.stringify({ floor, floorPlain, amberLit, amberDivided, amberEmissive, amberFlat, steelDark, paintLight, steelDim, floorRun3, amberRun3 });
 ```
-<!-- check: js (() => { const s = JSON.parse(document.documentElement.dataset.swatches), c = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)); const [r, g, b] = c(s.amberLit), [, , b3] = c(s.amberRun3), [f3] = c(s.floorRun3); return s.amberFlat === '#f0b429' && b < 50 && b3 > 80 && r < 240 && f3 > 1.6 * 0x15 && Math.max(...c(s.steelDark)) < 40 && Math.min(...c(s.steelMid)) > 120; })() -->
+<!-- check: js (() => { const s = JSON.parse(document.documentElement.dataset.swatches), c = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)), near = (h, want, by) => c(h).every((v, i) => Math.abs(v - c(want)[i]) <= by); return s.amberFlat === '#f0b429' && near(s.amberEmissive, '#f0b429', 24) && near(s.amberDivided, '#f0b429', 20) && c(s.amberLit)[2] > 70 && c(s.amberRun3)[2] > c(s.amberLit)[2] && near(s.steelDark, '#242931', 12) && Math.max(...c(s.steelDim)) < 40 && Math.min(...c(s.paintLight)) > 205 && Math.max(...c(s.floor)) < 30 && c(s.floorPlain)[0] > 1.8 * c(s.floor)[0] && c(s.floorRun3)[0] > 1.6 * 0x15; })() -->
 
 ## GSAP 3.15 with ScrollTrigger: page effects tied to scroll
 
@@ -434,6 +471,12 @@ Three rules for any GLSL you write for a three.js material, this one or a `Shade
   gives a hard edge that the renderer's antialiasing does not touch (it smooths only the edges of triangles), so it
   crawls and flickers as the camera moves. Write `edge = smoothstep(-w, w, d)` with `w = fwidth(d)`, `d` the signed distance
   to the edge in any unit.
+
+A floor written this way looks after the ground's colour itself (the light section above): divide the colours it
+writes by the starter's `GROUND_LIGHT` (a uniform, or `new THREE.Color(hex).multiplyScalar(1 / GROUND_LIGHT)` for
+each) and give the material `envMap: scene.environment` and `envMapIntensity: GROUND_ENVIRONMENT`, both exported by
+stage.js. Why: `csm_DiffuseColor` replaces the material's own colour, so the colour of `groundLook` does not reach
+such a floor, and runs 4 and 5 both wrote theirs as a shader.
 
 ```js
 // example: custom-shader-material

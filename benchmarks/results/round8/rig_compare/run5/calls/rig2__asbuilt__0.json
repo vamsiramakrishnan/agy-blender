@@ -1,0 +1,33 @@
+{
+ "first": "rig2",
+ "second": "asbuilt",
+ "rep": 0,
+ "frames": [
+  "5760264cd5584605",
+  "7e55a4fe193821d2"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "tie",
+    "reason": "Both sites share the exact same camera path across frames 1 to 9, including identical overlaps behind the text card in frames 5 and 6."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same 3D workbench metaphor across frames 2 through 8 to illustrate log compression, local storage, and anchor relocation."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "In frames 1 through 9, the second site renders darker, better-grounded metallic materials on the press and cabinet with less washed-out lighting than the first site."
+   },
+   "type_and_layout": {
+    "winner": "tie",
+    "reason": "Both sites feature the exact same typography, top navigation bar, and left-aligned floating card layout across all 9 frames."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "While both sites share identical layouts, camera paths, and explanatory mechanics, the second site executes the 3D material shading and lighting contrast with noticeably better grounding."
+  }
+ }
+}

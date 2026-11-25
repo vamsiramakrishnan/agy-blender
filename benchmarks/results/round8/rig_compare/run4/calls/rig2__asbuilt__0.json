@@ -1,0 +1,33 @@
+{
+ "first": "rig2",
+ "second": "asbuilt",
+ "rep": 0,
+ "frames": [
+  "82105f5eaadfc82d",
+  "942e475c1cb9450d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "tie",
+    "reason": "Both sites use identical camera paths across frames 1 to 9, keeping the 3D assembly line clearly framed beside the left text panel."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites depict the exact same 3D press, drawer vault, caliper, and seven-lane gate across frames 3 to 8 to explain Straitjacket's workflow."
+   },
+   "craft_of_the_3d": {
+    "winner": "1",
+    "reason": "Site 1 has slightly brighter, clearer lighting and material definition on the machinery and floor grid in frames 1 through 9, whereas Site 2's dark metals lose detail in shadow."
+   },
+   "type_and_layout": {
+    "winner": "tie",
+    "reason": "Both sites share the exact same typography, hierarchy, and left-aligned card layout from frame 1 to frame 9."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Although both sites share the same design and 3D choreography, Site 1's brighter scene lighting makes the 3D machinery and spatial grid easier to read."
+  }
+ }
+}

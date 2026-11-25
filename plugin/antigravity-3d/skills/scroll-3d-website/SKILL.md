@@ -107,7 +107,7 @@ package.json; the starter needs only `three` and `vite`). Then, each a local edi
   pixel ratio of at most 1.5; a page that must be light leaves postprocessing and n8ao out of the project and loses
   the contact shading between things. Before writing a shader read its
   three rules there (colours as `THREE.Color` uniforms, two palette colours switched and never blended, edges smoothed
-  with `fwidth`), and before adding light read the light budget there.
+  with `fwidth`), and before changing the light read the light section there.
 
 `npx vite` serves it; `npx vite build` writes the site to `dist/` with relative paths, so it works from any folder of a
 host (`npx vite build --outDir site` when the task names another folder for the result). Look at it with `check_site`
@@ -123,12 +123,13 @@ For each prop, in this order:
   (below); then `apply_scene_ir` and `render_preview` as usual. In script
   authoring (the rules say an asset is a Python script): `Asset(..., engine="web_three", max_texture_px=...)` in its
   script, run with run_build.
-- Give its large surfaces a material that stands away from the page: on a dark page a mid value (a bare steel about
-  `#B0B4B8` at full metal, a paint about `#7A828C`), on a light page the reverse, and the design's accents for the
-  parts that carry meaning. The page's own dark colours are for small parts. Why: a metal's base colour is the share
-  of light it reflects, and run 4's machines, steel at `#242931` on a `#0D0F12` ground, came out thirteen levels from
-  the floor ([libraries.md](libraries.md), the light budget): the blind judge preferred run 2's 3D for that in six
-  of six verdicts. `check_site` says when a shot's subject is hard to tell from the page.
+- Give its large surfaces the design's own dark and middle values and the parts that carry meaning its accents;
+  the starter's light carries them ([libraries.md](libraries.md), the light section, with measured swatches). Do not
+  lighten a prop to make it show: a paint of `#B8C1CC` comes out most of the way to white. Why: run 5 gave its
+  machines light grey bodies because this skill then said so, and nine of the sixteen blind verdicts on craft that
+  went against it call them flat, matte or grey. Runs 2, 3 and 4 used `#242931`; what made run 4's machines
+  unreadable was a dimmer light the starter no longer has. `check_site` says when a shot's subject is hard to tell
+  from the page.
 - `deliver_package`. If its answer starts with `STILL WORKING`, nothing failed and nothing needs fixing: the work
   goes on by itself. Work on the page meanwhile and make the call the answer spells out (the same tool, the same
   arguments) to collect the result. A delivery that runs while you write the page costs no time.
@@ -201,12 +202,14 @@ Each is one instruction and its reason. The starter already does the ones marked
   bounds (`frame(around(min, max), ...)`), the camera low, all of them named as the subject, and never as a row in the
   upper half of the frame over empty floor. Why: it is the picture a visitor leaves with; run 3 ended on its three
   props across y 0.42 to 0.62 with the bottom 40 % empty grid.
-- **Light grounds the objects and keeps the design's colours.** (starter) An environment for reflections, one key
-  light with a shadow whose box follows the shot, a soft contact shadow under each prop, ambient occlusion, fog that
-  fades the ground into the page colour, all within the light budget of [libraries.md](libraries.md); a part whose
-  colour must be the design's exactly is `toneMapped: false` or emissive. Why: without a shadow an object floats
-  (nothing cast one in run 1); run 3 added two lights and raised the environment, and its amber and its floor no
-  longer matched the design.
+- **Light shows the objects' form and keeps the design's colours.** (starter) A key light with a shadow whose box
+  follows the shot, a rim light from behind, an environment for reflections, a soft contact shadow under each prop,
+  ambient occlusion, a ground that keeps the page's ground colour under that light and fog that fades it into the page
+  ([libraries.md](libraries.md), the light section); a part in an accent colour is lit with `lit(colour)`, and only a
+  flat mark that must match the text exactly is `toneMapped: false`. Why: without a shadow an object floats (nothing
+  cast one in run 1); run 3 added a fill light and raised the environment on a ground that took it all, and its amber
+  and its floor no longer matched the design; runs 4 and 5 were built with the rim taken out and the rest more than
+  halved, and the same site (run 4's) was preferred under the present light in six of six blind verdicts.
 - **Many small things are one draw call.** Draw repeated items as one `InstancedMesh` (or one geometry). Why: draw
   calls, not triangles, are what a phone runs out of first.
 - **Effects are used sparingly and measured.** Add a pass beyond the starter's occlusion (bloom, depth of field) only
