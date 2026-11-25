@@ -417,13 +417,14 @@ def test_the_stacked_framing_is_continuous_through_a_chapter_change_and_a_functi
 
 @pytest.mark.browser
 def test_the_phone_panel_stays_in_the_lower_part_of_the_window_through_each_chapter(browser, bare) -> None:
-    """Run 2's phone panel was sticky inside its section and slid up across the 3D for a fifth of every chapter."""
+    """Run 2's phone panel was sticky inside its section and slid up across the 3D for a fifth of every chapter. Read
+    through each chapter's hold, from just after the camera arrives (no panel shows during the move)."""
     p = Page(browser, bare, **SIZES["phone"])
     try:
         ids = p.open()["chapters"]
         for i, chapter in enumerate(ids):
             places = []
-            for local in (0.15, 0.5, 0.95):
+            for local in (MOVE + 0.05, 0.6, 0.95):
                 p.page.evaluate(f"__site.setProgress({i + local})")
                 p.page.wait_for_function("""(i) => [...document.querySelectorAll('.panel')].every((el, k) =>
                     +getComputedStyle(el).opacity === (k === i ? 1 : 0))""", arg=i, timeout=5000)
