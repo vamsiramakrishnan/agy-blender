@@ -38,8 +38,8 @@ Five tools and the report written from them:
   the stock agent's in all twenty-four verdicts; the stock agent needed half the model calls and tokens. The runs
   are in `results/site_run1/`, `results/site_run2_plugin/`, `results/site_run3_plugin/`,
   `results/site_run4_plugin/`, `results/site_run5_plugin/` and `results/site_stock/`; the helpers' brief, the two
-  reviews, the contact sheets of the six sites, the blind verdicts and two comparisons of one site under two lights
-  are in `results/round8/`.
+  reviews, the contact sheets of the six sites, the blind verdicts, two comparisons of one site under two lights and
+  the measure of what the first scroll changes on each site are in `results/round8/`.
 
 ## Offline benchmarks
 

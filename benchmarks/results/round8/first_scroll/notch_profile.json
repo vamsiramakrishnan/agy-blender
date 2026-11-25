@@ -1,0 +1,371 @@
+{
+ "what": "share of the window's pixels (1440 x 900) that differ by more than 16 levels of 255 between the picture at scroll_px and the picture 120 px further down, at 24 places down each page",
+ "sites": {
+  "run4": [
+   {
+    "scroll_px": 0,
+    "changed_percent_of_window": 0.76,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 462,
+    "changed_percent_of_window": 3.63,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 925,
+    "changed_percent_of_window": 5.07,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 1387,
+    "changed_percent_of_window": 6.04,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 1850,
+    "changed_percent_of_window": 14.11,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 2312,
+    "changed_percent_of_window": 6.52,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 2774,
+    "changed_percent_of_window": 2.87,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 3237,
+    "changed_percent_of_window": 3.28,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 3699,
+    "changed_percent_of_window": 3.62,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 4162,
+    "changed_percent_of_window": 18.99,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 4624,
+    "changed_percent_of_window": 5.12,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 5086,
+    "changed_percent_of_window": 4.34,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 5549,
+    "changed_percent_of_window": 6.21,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 6011,
+    "changed_percent_of_window": 26.57,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 6473,
+    "changed_percent_of_window": 21.61,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 6936,
+    "changed_percent_of_window": 8.64,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 7398,
+    "changed_percent_of_window": 5.67,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 7861,
+    "changed_percent_of_window": 32.47,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 8323,
+    "changed_percent_of_window": 27.29,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 8785,
+    "changed_percent_of_window": 7.35,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 9248,
+    "changed_percent_of_window": 5.14,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 9710,
+    "changed_percent_of_window": 8.58,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 10173,
+    "changed_percent_of_window": 3.53,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 10635,
+    "changed_percent_of_window": 3.98,
+    "page_says_moving": false
+   }
+  ],
+  "run5": [
+   {
+    "scroll_px": 0,
+    "changed_percent_of_window": 0.36,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 521,
+    "changed_percent_of_window": 4.59,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 1042,
+    "changed_percent_of_window": 6.19,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 1563,
+    "changed_percent_of_window": 20.81,
+    "page_says_moving": true
+   },
+   {
+    "scroll_px": 2084,
+    "changed_percent_of_window": 11.17,
+    "page_says_moving": true
+   },
+   {
+    "scroll_px": 2605,
+    "changed_percent_of_window": 3.47,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 3127,
+    "changed_percent_of_window": 5.54,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 3648,
+    "changed_percent_of_window": 38.13,
+    "page_says_moving": true
+   },
+   {
+    "scroll_px": 4169,
+    "changed_percent_of_window": 4.31,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 4690,
+    "changed_percent_of_window": 4.11,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 5211,
+    "changed_percent_of_window": 6.12,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 5732,
+    "changed_percent_of_window": 33.45,
+    "page_says_moving": true
+   },
+   {
+    "scroll_px": 6253,
+    "changed_percent_of_window": 3.07,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 6774,
+    "changed_percent_of_window": 8.32,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 7295,
+    "changed_percent_of_window": 21.3,
+    "page_says_moving": true
+   },
+   {
+    "scroll_px": 7816,
+    "changed_percent_of_window": 40.32,
+    "page_says_moving": true
+   },
+   {
+    "scroll_px": 8337,
+    "changed_percent_of_window": 4.38,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 8858,
+    "changed_percent_of_window": 6.88,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 9380,
+    "changed_percent_of_window": 42.98,
+    "page_says_moving": true
+   },
+   {
+    "scroll_px": 9901,
+    "changed_percent_of_window": 15.78,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 10422,
+    "changed_percent_of_window": 7.8,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 10943,
+    "changed_percent_of_window": 7.58,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 11464,
+    "changed_percent_of_window": 22.7,
+    "page_says_moving": false
+   },
+   {
+    "scroll_px": 11985,
+    "changed_percent_of_window": 5.22,
+    "page_says_moving": false
+   }
+  ],
+  "stock": [
+   {
+    "scroll_px": 0,
+    "changed_percent_of_window": 32.13,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 274,
+    "changed_percent_of_window": 88.01,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 548,
+    "changed_percent_of_window": 20.56,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 823,
+    "changed_percent_of_window": 20.39,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 1097,
+    "changed_percent_of_window": 48.37,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 1371,
+    "changed_percent_of_window": 48.18,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 1645,
+    "changed_percent_of_window": 46.83,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 1920,
+    "changed_percent_of_window": 40.73,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 2194,
+    "changed_percent_of_window": 68.37,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 2468,
+    "changed_percent_of_window": 25.06,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 2742,
+    "changed_percent_of_window": 31.09,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 3016,
+    "changed_percent_of_window": 39.13,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 3291,
+    "changed_percent_of_window": 69.91,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 3565,
+    "changed_percent_of_window": 25.97,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 3839,
+    "changed_percent_of_window": 28.25,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 4113,
+    "changed_percent_of_window": 62.77,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 4387,
+    "changed_percent_of_window": 51.82,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 4662,
+    "changed_percent_of_window": 30.96,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 4936,
+    "changed_percent_of_window": 23.75,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 5210,
+    "changed_percent_of_window": 41.21,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 5484,
+    "changed_percent_of_window": 27.22,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 5759,
+    "changed_percent_of_window": 29.18,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 6033,
+    "changed_percent_of_window": 21.92,
+    "page_says_moving": null
+   },
+   {
+    "scroll_px": 6307,
+    "changed_percent_of_window": 27.42,
+    "page_says_moving": null
+   }
+  ]
+ }
+}

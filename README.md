@@ -108,8 +108,10 @@ run lost six) and with no screenshot script of the agent's own, and follows one 
 machines. It is dark as built; photographed under the second run's light the judge prefers it to itself in six of
 six verdicts, and that light is the starter's again. The fifth run's verdicts and log traced five more faults to
 the plugin, two of them to corrections made for the fourth: a check told to excuse a travelling camera while the
-chapter's text is up, and a skill that asked for light grey machines. All five are in the report, corrected and
-tested, and no site has been built with them yet. The same request without the plugin took half the model calls
+chapter's text is up, and a skill that asked for light grey machines. Measuring the scroll itself added a sixth: on
+every site built on the skill's starter the first notch of a mouse wheel moved the picture by a third of a pixel or
+less, where it changes a third of the stock agent's window. All six are in the report, corrected and tested, and no
+site has been built with them yet. The same request without the plugin took half the model calls
 and tokens (37 and 5.0 M against 64 to 81 and 8.0 to 11.2 M) and gave a site the judge placed below the plugin's
 second to fifth in all twenty-four verdicts, for objects that float where the plugin's stand on a floor and for
 text over its 3D; the site check adds that it shows nothing without WebGL.

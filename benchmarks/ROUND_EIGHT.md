@@ -32,6 +32,14 @@ added two faults no verdict could see: a delivery refused for a fault of the plu
 took the lights off a prop, and PNG textures where WebP is under half the size. All five are corrected and tested;
 no site has been built with these corrections yet.
 
+**The scroll itself had not been measured, and its first notch did nothing.** The request is for a page that
+scrolls beautifully; this round's judge sees nine stills. Measured after run 5: one notch of a mouse wheel at the
+top of the page moves the picture of runs 2 to 5 by 0.07 to 0.32 px, and changes a third of the stock agent's
+window. Lower down the plugin's pages do answer a notch; the dead place is the top, and it is the starter's: its
+first chapter was one long hold whose camera started from rest. The starter now opens turned back from its first
+shot and swings round from the first pixel, the check reads the first notch and says when it gets no answer, and
+run 5's site rebuilt with that change alone moves 8.8 px (`results/round8/first_scroll/`).
+
 **The plugin's sites are preferred to a stock agent's, and cost twice as much.** The same request was given to the
 same agent without the plugin (`results/site_stock/`). The judge preferred the second to fifth plugin site to it in
 all 24 verdicts and on every criterion, and the first in four of six. The stock agent needed 37 model calls and
@@ -650,6 +658,26 @@ Five faults of the plugin showed in this run or in its verdicts. All five are co
   colours stay with unlit or emissive parts, and the skill now says to give a prop the design's dark and middle
   values. Under the starter's light the same `#242931` steel comes out `#1F2835` where it came out `#0B1420`.
 
+One more fault came from measuring, not from a verdict:
+
+- **The first scroll got no answer.** A notch of a mouse wheel is 100 to 120 px of scroll. At the top of run 5's
+  page it changed 0.36 % of the window's pixels, and of run 4's 0.76 %: thin outlines along every edge, a picture
+  that moved by a fraction of a pixel (`results/round8/first_scroll/first_notch_difference.jpg`). The same notch
+  changes 32 % of the stock agent's window. Further down, the plugin's pages answer: 3 to 8 % in a hold and 11 to
+  43 % in a move, at 24 places down each page. The cause is in the starter every plugin site since run 2 keeps. Its
+  first chapter had no move, so the camera held one shot for 1.8 window heights of scroll; a hold travels 8 degrees
+  and a tenth closer over that distance; and the curve through the camera's keys started from rest, so the first
+  notch covered under 2 % of the travel. The sign was there to read: at twelve steps the check said of the starter
+  that the picture did not change at all from 0 % to 9 % of the scroll, and a test recorded it as a reading to
+  leave to this report. Now the page opens 24 degrees back from its first shot, round the same subject at the same
+  distance, and swings round to the shot over the chapter's first third, at speed from the first pixel; the title
+  stays up, because no other subject crosses the frame. And the check scrolls one notch from the top on its
+  desktop visit and reads how far the picture moved: 0.07, 0.11, 0.32 and 0.15 px on the sites of runs 2 to 5,
+  each now told "the first scroll gets no answer"; 2.5 px on run 5's site rebuilt with a curve that starts at speed,
+  8.8 px with the opening as well; 0.02 px on the starter as it was and 9.1 px now. A page whose text scrolls with
+  the page answers with that, and the check counts it; a page whose top changes by itself, as the stock agent's
+  does, is not read.
+
 The fourth station, the lanes of the seven hosts, was made in the page's code from plain boxes where run 4 spent a
 prop on it; that was the agent's choice. That its coloured blocks have no form ("flat unshaded blocks on the
 floor") was the guide's: it said to draw a colour that must be exact unlit. It now says to light a part in an accent
@@ -693,6 +721,10 @@ any desktop frame differ from the agent's build.
 - **Whether the corrections made after run 5 give a better site is not shown.** They are tested one by one, and
   the one about the light by a controlled comparison; no site has been built with them. The corrections made after
   run 4 were tested one by one too, and two of them were wrong.
+- **How a page moves is measured at one place.** The first wheel notch, on the desktop. Nothing reads a hold lower
+  down that answers a notch with nothing, or what a short swipe changes on a phone, where some holds of runs 4 and
+  5 move the picture by under a pixel per 120 px. Nothing measures how smooth the motion is: the check's browser
+  draws in software. And no judge has seen any of these sites move.
 - **The craft of the 3D is where run 2 still leads.** Six of six verdicts over run 4 and over run 5. The light
   explains it for run 4. For run 5 the verdicts also name richer forms and bevels, contact shadows and colour
   contrast in run 2's machines; nothing in this round's corrections aims at how an agent shapes a prop.
@@ -775,6 +807,10 @@ any desktop frame differ from the agent's build.
 
 ## Mistakes in this round's process
 
+- **The scroll was never measured as a scroll.** The request's first words are about a page that scrolls
+  beautifully. For five runs a site was measured by a judge of nine stills and a check of positions, and I measured
+  what one wheel notch does only after the fifth. Every site built on the starter had a first scroll that moved
+  nothing. The check had said as much of the starter, at twelve steps, and the sentence was filed for later.
 - **The baseline was left to the end.** It was to run after the plugin arm and after that site had been
   published for the owner. By then the model service was failing, so it came last, after three plugin runs and two
   rounds of corrections that it could have informed. What it shows about cost was there to be seen on the first
@@ -875,6 +911,12 @@ any desktop frame differ from the agent's build.
   after. The text and the camera: the starter checked at nine steps (0 things), tests of the starter and of the
   check that fail on the tree as it was. The light: two blind comparisons of six calls, swatches read from the
   canvas under three lights, the starter's floor measured before and after, and a test of both.
+- **The first scroll.** The reading on discs moved by known amounts (1, 2, 4 and 8 px read 0.7, 1.7, 3.7 and 7.6;
+  under half a pixel reads 0); on the built sites of runs 2 to 5, on run 5's site rebuilt twice with nothing but
+  the timeline changed, and on the starter before and after; four test pages (a scene that answers, one that starts
+  from rest, text that scrolls, a top that changes by itself, which was run four times over). The starter's own
+  check finds nothing at nine steps and at twelve, at both sizes. No person and no judge has watched the opening
+  move; I looked at its frames at 0, 120, 600 and 1575 px.
 - **Not verified:** whether a site built with the corrections made after run 5 is better (a sixth run is the
   next thing), the stock
   page's numbers beyond the eleven looked up, and anything about how these sites look on a real graphics card: every
