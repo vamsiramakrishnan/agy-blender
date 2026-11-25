@@ -1469,3 +1469,102 @@ def test_the_pass_between_the_steps_keeps_to_its_allowance_on_a_slow_page(tmp_pa
     assert 1 <= len(d.between) < 6 and d.between_s <= sc.BETWEEN_S + 1.0, (len(d.between), d.between_s)
     assert all(s.subjects for s in d.between)   # a reading cut off by the allowance is not kept as a failed one
     assert f"read at {len(d.between)} of 6 positions between the steps" in r.text()
+
+
+# --------------------------------------------------------------------------- the first wheel notch
+
+def _png(a: np.ndarray) -> bytes:
+    buf = io.BytesIO()
+    Image.fromarray(a.astype(np.uint8)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _disc(cx: float, cy: float, r: float = 100.0, size: tuple[int, int] = (480, 360), text: bool = False) -> bytes:
+    """A light disc on a dark ground, anti-aliased as a renderer draws it (four samples a pixel each way); with
+    ``text``, rows of thin strokes that never move, as a page's panel of text stands over its scene."""
+    w, h = size
+    yy, xx = np.mgrid[0:h * 4, 0:w * 4]
+    hit = ((xx + 0.5) / 4 - cx) ** 2 + ((yy + 0.5) / 4 - cy) ** 2 <= r * r
+    a = 16 + 200 * hit.reshape(h, 4, w, 4).mean(axis=(1, 3))
+    if text:
+        a[20:340:6, 20:140:3] = 230
+    return _png(np.repeat(a[:, :, None], 3, axis=2))
+
+
+def test_the_shift_of_a_picture_is_about_the_pixels_it_moved_and_a_shimmer_is_under_one():
+    """What the first-notch finding rests on. Runs 4 and 5 moved their pictures by a fraction of a pixel on the first
+    wheel notch: every edge shimmered and nothing travelled. The reading must tell that from a picture that moved."""
+    still = _disc(240, 180)
+    assert sc.picture_shift(still, still) == 0.0
+    for d in (1, 2, 4, 8):                                               # about d, a little under, any direction
+        for to in ((240 + d, 180), (240, 180 - d), (240 + d * 0.7071, 180 + d * 0.7071)):
+            got = sc.picture_shift(still, _disc(*to))
+            assert d - 0.5 <= got <= d, (d, to, got)
+    for part in (0.1, 0.25, 0.4):                                        # under half a pixel: a shimmer, at any contrast
+        assert sc.picture_shift(still, _disc(240 + part, 180)) < 0.1, part
+    # text that stays put adds edges and no change: the same 4 px read as less, which is why the canvas is read alone
+    assert sc.picture_shift(_disc(240, 180, text=True), _disc(244, 180, text=True)) < 0.5 * sc.picture_shift(still, _disc(244, 180))
+    assert sc.picture_shift(still, _disc(240, 180, size=(400, 300))) is None   # two sizes
+    blank = _png(np.full((90, 120, 3), 20))
+    assert sc.picture_shift(blank, blank) is None                       # nothing to follow
+
+
+def test_the_first_notch_is_a_finding_only_where_neither_the_picture_nor_the_text_moved(tmp_path):
+    rep = _report(tmp_path)
+    d = rep.visits["desktop"]
+
+    def said(notch: dict | None) -> tuple[list[str], list[str]]:
+        d.first_notch = notch
+        return ([n for n in rep.noticed() if "first scroll" in n], [m for m in rep.text().splitlines() if "first wheel notch" in m])
+
+    assert said(None) == ([], [])                                                              # not tried
+    found, measure = said({"px": 120, "motion": "still", "window": 0.14, "canvas": 0.32, "text": 0.0})  # run 4's site
+    assert len(found) == 1 and "moves the picture by about 0.3 px and none of the text" in found[0], found
+    assert "shots.js, OPENING" in found[0] and measure == ["- The first wheel notch (120 px from the top of the page) moves the picture by about 0.3 px."]
+    found, measure = said({"px": 120, "motion": "still", "window": 3.97, "canvas": 8.83, "text": 0.0})  # run 5 with the opening
+    assert found == [] and "by about 8.8 px." in measure[0]
+    found, measure = said({"px": 120, "motion": "still", "window": 0.4, "canvas": 0.0, "text": 0.4})  # the text scrolls
+    assert found == [] and measure[0].endswith("moves the picture by about 0.4 px and 40% of the text in view.")
+    found, measure = said({"px": 120, "motion": "ambient"})                                    # it moves by itself
+    assert found == [] and "was not measured: the top of the page keeps changing by itself" in measure[0]
+    assert rep.to_dict()["visits"]["desktop"]["first_notch"] == {"px": 120, "motion": "ambient"}
+
+
+def _notch(tmp_path: Path, mode: str) -> sc.SiteReport:
+    root = site(tmp_path / mode, "first_notch")
+    page = root / "index.html"
+    page.write_text(page.read_text().replace("const MODE = 'answers';", f"const MODE = '{mode}';"))
+    return sc.check_site(str(root), out_dir=tmp_path / mode / "out", steps=3, sizes=("desktop",), variants=())
+
+
+@pytest.mark.browser
+def test_a_page_whose_first_wheel_notch_moves_nothing_is_told_and_one_that_answers_is_not(tmp_path):
+    """A quad that slides with the scroll under a panel of text that stays put: from the first pixel ('answers'), or
+    easing in from rest, as the first hold of the skill's starter did ('rest'). The 3D canvas is read alone, so the
+    panel's edges do not hide a picture that moved."""
+    got = {mode: _notch(tmp_path, mode) for mode in ("answers", "rest")}
+    notch = {mode: r.visits["desktop"].first_notch for mode, r in got.items()}
+    assert notch["answers"]["motion"] == notch["rest"]["motion"] == "still", notch
+    assert notch["answers"]["canvas"] >= 5 and notch["answers"]["canvas"] > notch["answers"]["window"], notch
+    assert notch["rest"]["canvas"] < sc.NOTCH_MIN_PX and notch["rest"].get("text", 0) == 0, notch
+    assert not [n for n in got["answers"].noticed() if "first scroll" in n], got["answers"].noticed()
+    (line,) = [n for n in got["rest"].noticed() if "first scroll" in n]
+    assert line.startswith("Desktop: the first scroll gets no answer. One wheel notch (120 px)"), line
+    for r in got.values():  # the notch is read after the first step and the other steps are photographed as before
+        assert [s.index for s in r.visits["desktop"].steps] == [0, 1, 2] and "nothing broken" in r.text().splitlines()[0], r.text()
+
+
+@pytest.mark.browser
+def test_text_that_scrolls_with_the_page_answers_the_first_notch_and_a_restless_page_is_not_read(tmp_path):
+    """'html': the scene stands still and a block of text in the normal flow moves 120 px with the notch, which a count
+    of changed pixels undersells (thin glyphs) and the page's own layout says exactly. 'restless': the top of the page
+    changes by itself all the time, so what the notch changed cannot be told from it and nothing is said."""
+    html = _notch(tmp_path, "html")
+    n = html.visits["desktop"].first_notch
+    assert n["motion"] == "still" and n["canvas"] < sc.NOTCH_MIN_PX and n["text"] >= sc.NOTCH_TEXT_MOVED, n
+    assert not [x for x in html.noticed() if "first scroll" in x], html.noticed()
+    assert "of the text in view." in html.text(), html.text()
+    restless = _notch(tmp_path, "restless")  # whether or not two of its frames happened to match when it "settled"
+    assert restless.visits["desktop"].first_notch in ({"px": 120, "motion": "ambient"}, {"px": 120, "motion": "moving"})
+    assert not [x for x in restless.noticed() if "first scroll" in x], restless.noticed()
+    assert "was not measured: the top of the page keeps changing by itself" in restless.text(), restless.text()

@@ -300,6 +300,11 @@ first three rows, 12 in the last three.
 - **The subject against its ground is a distance in value, not in colour or texture.** It is measured on the 1/8-size
   canvas, so fine detail averages away, and over the one box round the subject, which takes in some of the ground
   between and around its parts.
+- **The first scroll is read as one wheel notch, on the desktop visit, where the top of the page stands still.** A
+  phone has no notch, and what a short swipe changes there is not measured. A page whose top keeps changing by itself
+  (the stock agent's site) is not read, because what the notch changed cannot be told from that. The reading follows
+  edges, so a picture with next to none (a gradient, a fog) gives no reading, and it is one position: a hold lower
+  down the page that answers a notch with nothing is not found by it.
 
 ### Judging, rendering and editing
 

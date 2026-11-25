@@ -325,6 +325,48 @@
     return Math.round(n);
   };
   S.chapterText = () => { try { return chapterText(); } catch (e) { return null; } };
+  // What a scroll moves in the page's HTML (site_check.py, _Visitor.first_notch). Text that scrolls with the page
+  // answers a scroll as plainly as a scene that moves, and a count of changed pixels undersells it: a block of thin
+  // glyphs that moves 120 px changes few pixels. textPlaces() notes where each readable text node in the window is;
+  // textMoved(px) says how many of the noted characters are now px or more from that place, or no longer readable.
+  let places = null;
+  const readable = (t) => {
+    const el = t.parentElement;
+    if (!el || chainOpacity(el) < TEXT_ALPHA || getComputedStyle(el).visibility !== 'visible') return null;
+    const range = document.createRange();
+    range.selectNodeContents(t);
+    const b = range.getBoundingClientRect();
+    if (b.width < 1 || b.height < 1 || b.bottom <= 0 || b.top >= innerHeight || b.right <= 0 || b.left >= innerWidth) return null;
+    return b;
+  };
+  S.textPlaces = () => {
+    places = [];
+    try {
+      opacityOf.clear();
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let seen = 0;
+      for (let t = walker.nextNode(); t && seen < TEXT_NODES; t = walker.nextNode()) {
+        seen++;
+        const chars = t.data.replace(/\s+/g, '').length, b = chars ? readable(t) : null;
+        if (b) places.push({ t, chars, x: b.left, y: b.top });
+      }
+    } catch (e) { places = null; }
+    return places ? places.length : null;
+  };
+  S.textMoved = (px) => {
+    if (!places) return null;
+    const out = { chars: 0, moved: 0 };
+    try {
+      opacityOf.clear();
+      for (const q of places) {
+        out.chars += q.chars;
+        const b = q.t.isConnected ? readable(q.t) : null;
+        if (!b || Math.abs(b.top - q.y) >= px || Math.abs(b.left - q.x) >= px) out.moved += q.chars;
+      }
+    } catch (e) { return null; }
+    places = null;
+    return out;
+  };
   S.subjects = async () => {
     const got = await readHook();
     if (!got.list) return got;

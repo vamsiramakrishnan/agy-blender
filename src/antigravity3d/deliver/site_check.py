@@ -106,6 +106,27 @@ AMBIENT = 0.03
 #: Two steps "did not change at all" below this mean difference (1/4-size grey image): the scroll moved and nothing on
 #: screen did, which a visitor reads as a frozen page.
 UNCHANGED = 0.002
+#: A first scroll: one notch of a mouse wheel in CSS pixels (browsers scroll 100 to 120 px a notch at their default
+#: setting). The desktop visit measures what it changes at the top of the page (``picture_shift``); a phone has no
+#: notch, and a swipe there is several of them.
+NOTCH_PX = 120
+#: Two neighbours "step", and a pixel can "flip", beyond this many levels of 255 (``picture_shift``).
+SHIFT_LEVELS = 16
+#: A frame with fewer edge crossings than this per pixel is an empty picture: no shift is read from it. At 1440 x 900
+#: it is 130 crossings, the outline of a shape 32 px square; the one stand-in block of the skill's starter has 500.
+SHIFT_MIN_EDGES = 0.0001
+#: "The first scroll gets no answer" when one notch moves the picture by less than this (``picture_shift``, about
+#: pixels) and the page's text stays where it is. The numbers this was set on are beside ``_Visitor.first_notch``.
+NOTCH_MIN_PX = 1.0
+#: The top of the page "changes by itself" when any two of three frames of it, taken unevenly over about half a
+#: second with no scroll between them, read as a shift of more than this (a page that stands still reads exactly 0 on
+#: frames without JPEG's noise). ``settle`` calls a pulsing page still whenever two of its frames happen to match, and
+#: so did two frames here when they fell a whole pulse apart.
+NOTCH_IDLE_PX = 0.1
+#: The page's text "moved with the notch" when this share of the characters readable in the window at the top of the
+#: page is ``NOTCH_TEXT_PX`` or more from where it was, or gone: a page whose text scrolls answers the scroll with it.
+NOTCH_TEXT_MOVED = 0.1
+NOTCH_TEXT_PX = 8
 #: The 3D canvas "shows nothing but its background" when less than this share of it differs from its most common colour
 #: by more than 8 % of full scale, measured on the 1/8-size frame (1 px lines of a helper grid average out at that size,
 #: an object does not). 1 % of a 1440 x 900 canvas is a 120 x 108 px patch.
@@ -350,6 +371,9 @@ class Visit:
     between: list[Step] = field(default_factory=list)
     between_planned: int = 0
     between_s: float = 0.0
+    # what one wheel notch from the top of the page changed (``_Visitor.first_notch``): {px, motion, window, canvas,
+    # text}; None: not measured (not the desktop visit, a page shorter than two notches, or no time)
+    first_notch: dict | None = None
 
 
 @dataclass
@@ -427,6 +451,8 @@ class SiteReport:
                                + ", ".join("-" if s.shape is None else f"{s.shape:.0%}" for s in thin)
                                + " of that). Look at those frames: a small subject framed on purpose is usually one "
                                "solid shape; what is left when the subject has gone (grid lines, arcs) is scattered.")
+            if notch := self.notch_line(v):
+                out.append(notch)
             same = [s for s in v.steps if s.unchanged]
             if same:
                 out.append(f"{name.capitalize()}: the picture did not change at all from the step before at "
@@ -546,6 +572,31 @@ class SiteReport:
                 "material on a dark ground does, and a light one on a light ground: give the prop's main material a "
                 "value well away from the background's, or bring light to it. Look at "
                 f"{_rel(worst.canvas_frame, self.out_dir)}.")
+
+    def notch_line(self, v: Visit) -> str:
+        """The finding when the first wheel notch moves next to nothing (``NOTCH_MIN_PX``), else ''."""
+        if not first_notch_unanswered(v):
+            return ""
+        return (f"{v.name.capitalize()}: the first scroll gets no answer. One wheel notch ({NOTCH_PX} px) from the top of "
+                f"the page moves the picture by about {first_notch_px(v):.1f} px and none of the text, so a visitor who "
+                "scrolls once sees nothing happen. "
+                "Start the opening at speed: the skill's starter opens turned back from its first shot and swings round "
+                "from the first pixel (shots.js, OPENING), and whatever of your own plays first must not ease in from "
+                "rest.")
+
+    def notch_measure(self, v: Visit) -> str:
+        """The measures' line about the first wheel notch, '' when it was not tried."""
+        n = v.first_notch
+        if not n:
+            return ""
+        px, text = first_notch_px(v), n.get("text") or 0.0
+        if n.get("motion") != "still":
+            return (f"The first wheel notch ({NOTCH_PX} px from the top of the page) was not measured: the top of the "
+                    "page keeps changing by itself.")
+        moved = ([] if px is None else [f"the picture by about {px:.1f} px"]) + ([f"{text:.0%} of the text in view"] if text >= 0.01 else [])
+        if not moved:
+            return ""
+        return f"The first wheel notch ({NOTCH_PX} px from the top of the page) moves " + " and ".join(moved) + "."
 
     def held_line(self, v: Visit) -> str:
         """'The picture does not travel' (``held_runs``): one line per size, naming the subject, the steps, the share of
@@ -782,6 +833,8 @@ class SiteReport:
                                 f"between the steps as well ({v.between_s:.0f} s)." if v.between_planned else ""))
                 if scale := self.scale_line(v):
                     lines.append(f"- {scale}")
+                if notch := self.notch_measure(v):
+                    lines.append(f"- {notch}")
         for line in [self.bytes_line(), *self.scene_line()]:
             if line:
                 lines.append(f"- {line}")
@@ -848,6 +901,7 @@ class SiteReport:
             out["steps"] = [s.__dict__ for s in v.steps]
             out["between"] = [s.__dict__ for s in v.between]
             out["between_planned"], out["between_s"] = v.between_planned, v.between_s
+            out["first_notch"] = v.first_notch
             out["requests"] = v.requests
             out["probe"] = v.probe
             return out
@@ -1241,6 +1295,64 @@ def _diff(a: np.ndarray, b: np.ndarray) -> float:
     if a.shape != b.shape:
         return 1.0
     return float(np.abs(a - b).mean())
+
+
+def picture_shift(a: bytes, b: bytes) -> float | None:
+    """About how far a picture moved between two frames of one size, in pixels.
+
+    The pixels that flipped, per place where a row or a column of the first frame crosses an edge. A pixel flipped
+    when its brightness changed by more than ``SHIFT_LEVELS`` and by more than half of the contrast around it (the
+    range of its 3 x 3 neighbourhood, in either frame). An edge crossing is a run of neighbours along a row or a
+    column that step the same way by more than ``SHIFT_LEVELS``, so a soft edge counts once however wide it is drawn;
+    the count is the mean of the rows' and the columns'.
+
+    An edge that moves d pixels flips a band d pixels wide, so a picture that moves d pixels in any direction reads
+    about d: an anti-aliased disc moved 1, 2, 4 and 8 px reads 0.7, 1.7, 3.7 and 7.6 (the band's soft rim does not
+    flip). An edge that moves under half a pixel changes its own pixels by under half their contrast and flips none:
+    a picture that only shimmers reads 0, whatever its contrast. Text that stays put adds crossings and no flips,
+    which is why the 3D canvas is also read alone; something that appears counts as change. None for frames of two
+    sizes, or a first frame with next to no edges (``SHIFT_MIN_EDGES`` crossings per pixel): an empty picture, which
+    other findings name."""
+    from PIL import Image
+
+    x, y = (np.asarray(Image.open(io.BytesIO(f)).convert("L"), dtype=np.float32) for f in (a, b))
+    if x.shape != y.shape:
+        return None
+
+    def crossings(axis: int) -> int:
+        d = np.diff(x, axis=axis)
+        step = np.sign(d) * (np.abs(d) > SHIFT_LEVELS)
+        before = np.roll(step, 1, axis=axis)
+        before[(slice(None), 0) if axis else 0] = 0
+        return int(((step != 0) & (step != before)).sum())
+
+    edges = (crossings(0) + crossings(1)) / 2
+    if edges < SHIFT_MIN_EDGES * x.size:
+        return None
+
+    def spread(f: np.ndarray) -> np.ndarray:
+        h, w = f.shape
+        pad = np.pad(f, 1, mode="edge")
+        near = [pad[i:i + h, j:j + w] for i in range(3) for j in range(3)]
+        return np.maximum.reduce(near) - np.minimum.reduce(near)
+
+    flipped = np.abs(y - x) > np.maximum(SHIFT_LEVELS, 0.5 * np.maximum(spread(x), spread(y)))
+    return float(flipped.sum()) / edges
+
+
+def first_notch_px(v: Visit) -> float | None:
+    """How far the first wheel notch moved the picture, the larger of the window's reading and the 3D canvas's; None:
+    not measured, or the page kept changing by itself, so that what the notch changed could not be told from it."""
+    n = v.first_notch or {}
+    read = [x for x in (n.get("window"), n.get("canvas")) if x is not None]
+    return max(read) if read and n.get("motion") == "still" else None
+
+
+def first_notch_unanswered(v: Visit) -> bool:
+    """The first wheel notch was measured, moved the picture by less than ``NOTCH_MIN_PX`` and left the page's text
+    where it was."""
+    px = first_notch_px(v)
+    return px is not None and px < NOTCH_MIN_PX and ((v.first_notch or {}).get("text") or 0.0) < NOTCH_TEXT_MOVED
 
 
 def canvas_content(jpeg: bytes) -> float:
@@ -1679,6 +1791,83 @@ class _Visitor:
         im.crop(box).save(buf, "JPEG", quality=80)
         return buf.getvalue()
 
+    async def shot_png(self, clip: dict | None = None) -> bytes:
+        """The viewport, or ``clip`` of it, without JPEG's noise: for a measure that counts pixels (``picture_shift``)."""
+        import base64
+
+        data = base64.b64decode((await self.cdp.send("Page.captureScreenshot", {"format": "png"}))["data"])
+        if not clip:
+            return data
+        from PIL import Image
+
+        box = (round(clip["x"]), round(clip["y"]), round(clip["x"] + clip["width"]), round(clip["y"] + clip["height"]))
+        buf = io.BytesIO()
+        Image.open(io.BytesIO(data)).crop(box).save(buf, "PNG", compress_level=1)
+        return buf.getvalue()
+
+    async def first_notch(self, page, rect: dict | None) -> None:
+        """What one wheel notch from the top of the page changes: called with the page settled and still at its top.
+
+        Two readings of ``picture_shift``: the window as a visitor sees it, and the 3D canvas alone (``rect``: where
+        it is; read as ``canvas_alone`` reads it), because a panel of text that stays put adds edges and no change. A
+        page that answers with its HTML (text that scrolls) shows in the first, a page that answers with its scene in
+        the second.
+
+        Why: on every site built on the skill's starter the first chapter of the page was one long hold whose
+        camera started from rest, and the first notch moved the picture by a fraction of a pixel. Their checks said
+        nothing; the stock agent's page, a third of whose window the same notch changes, was the livelier at the
+        first touch. Read at 1440 x 900, the canvas alone and then the window: the sites of runs 2 to 5 0.07, 0.11,
+        0.32 and 0.15 (0.03, 0.05, 0.14 and 0.07); run 5 rebuilt with a camera curve that starts at speed 2.46 and
+        1.13, and with the starter's opening move as well 8.83 and 3.97; the skill's starter 0.02 and 0.00 before
+        its opening move, 9.1 and 1.41 with it (benchmarks/results/round8/first_scroll). The stock agent's page is
+        not read: its top keeps changing by itself."""
+        import base64
+
+        async def frames() -> tuple[bytes, bytes | None]:
+            window, alone = await self.shot_png(), None
+            if rect:
+                with contextlib.suppress(Exception):  # no canvas frame: the window's reading alone
+                    url = await asyncio.wait_for(page.evaluate("window.__agySite.grabCanvas(3, 'image/png')"), 5.0)
+                    if url:
+                        alone = base64.b64decode(url.split(",", 1)[1])
+                    else:  # a page that draws only on change: its HTML hidden for one photograph
+                        await page.evaluate("window.__agySite.stepEnd(true)")
+                        try:
+                            alone = await self.shot_png(rect)
+                        finally:
+                            await page.evaluate("window.__agySite.unhide()")
+            return window, alone
+
+        with contextlib.suppress(Exception):  # what the step's own reads set off (a hidden page shown again) has drawn
+            await asyncio.wait_for(page.evaluate("(n) => window.__agySite.afterFrames(n)", 2), 3.0)
+        top = await frames()
+        seen = [top[0]]
+        for wait in (0.15, 0.25):  # two more looks, unevenly apart: a motion that repeats does not match twice
+            await asyncio.sleep(wait)
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(page.evaluate("(n) => window.__agySite.afterFrames(n)", 2), 3.0)
+            seen.append(await self.shot_png())
+        if max(picture_shift(seen[i], seen[j]) or 0.0 for i, j in ((0, 1), (1, 2), (0, 2))) > NOTCH_IDLE_PX:
+            # it moves without a scroll: what the notch changed could not be told from that
+            self.v.first_notch = {"px": NOTCH_PX, "motion": "ambient"}
+            return
+        noted = await _bounded(page, "window.__agySite.textPlaces()", None)
+        await self.scroll_to(page, NOTCH_PX)
+        _shot, secs, motion = await self.settle(page, SETTLE_CAP_S)
+        self.v.first_notch = {"px": NOTCH_PX, "motion": motion}
+        if motion == "still":
+            on = await frames()
+            window = picture_shift(top[0], on[0])
+            alone = picture_shift(top[1], on[1]) if top[1] and on[1] else None
+            self.v.first_notch.update(window=None if window is None else round(window, 2),
+                                      canvas=None if alone is None else round(alone, 2))
+            text = await _bounded(page, f"window.__agySite.textMoved({NOTCH_TEXT_PX})", None) if noted else None
+            if isinstance(text, dict) and text.get("chars"):
+                self.v.first_notch["text"] = round(min(1.0, float(text.get("moved", 0)) / float(text["chars"])), 2)
+        with contextlib.suppress(Exception):  # the frames drawn here are not the next step's
+            await page.evaluate("void window.__agySite.mark()")
+        self.log(f"first notch: {self.v.first_notch} after {secs:.1f} s")
+
     # ---- waiting
     async def settle(self, page, cap: float) -> tuple[bytes, float, str]:
         """Take frames until the picture stops changing. Returns (last frame, seconds, how): 'still' (two frames agree),
@@ -1889,7 +2078,7 @@ class _Visitor:
         finally:
             await page.evaluate("window.__agySite.unhide()")
 
-    async def steps(self, page, n: int, canvas: bool, sideways: bool) -> None:
+    async def steps(self, page, n: int, canvas: bool, sideways: bool, notch: bool = False) -> None:
         geo = await page.evaluate("window.__agySite.geometry()")
         if geo["inner"]:
             self.v.notes.append("the page scrolls inside an element, not the window")
@@ -1928,6 +2117,11 @@ class _Visitor:
                         self.v.overflow.append(c)
             self.v.steps.append(step)
             self.log(f"step {i}: {how}, {motion} after {secs:.1f} s")
+            if i == 0 and notch and geo["max"] >= 2 * NOTCH_PX and self.clock.left() > WRAP_UP_S + SETTLE_CAP_S + 4.0:
+                if motion == "still":
+                    await self.first_notch(page, end["rect"] if canvas else None)
+                else:  # the top of the page changes by itself: a notch's answer cannot be told from that
+                    self.v.first_notch = {"px": NOTCH_PX, "motion": motion}
         self.v.steps.sort(key=lambda st: st.index)
         for a_, b_ in zip(self.v.steps, self.v.steps[1:]):
             if b_.index == a_.index + 1:
@@ -2296,7 +2490,7 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
                     with contextlib.suppress(Exception):
                         vis.v.facts_raw = await page.evaluate(_FACTS_JS)
                 if do_steps:
-                    await vis.steps(page, do_steps, canvas, sideways)
+                    await vis.steps(page, do_steps, canvas, sideways, notch=name == "desktop")
                     await vis.between(page, do_steps)
                 if one_step is not None:
                     geo = await page.evaluate("window.__agySite.geometry()")

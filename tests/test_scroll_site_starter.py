@@ -677,6 +677,45 @@ def test_with_reduced_motion_the_chapters_text_is_always_up(browser, bare) -> No
 
 
 @pytest.mark.browser
+def test_the_page_opens_turned_back_from_its_first_shot_and_the_first_notch_of_scroll_moves_it(browser, bare) -> None:
+    """The first chapter was one hold, and a hold travels slowly and started from rest: on run 5's page one wheel notch
+    at the top moved the picture by a fraction of a pixel, and a visitor's first scroll showed nothing happening. Now the
+    page opens OPENING degrees back from the first shot, round the same target at the same distance, and swings round to
+    the shot over the first MOVE of the chapter, fastest at the first pixel; it never turns back before the chapter
+    ends. It is the first shot's own subject throughout, so the page does not call it a move and the title stays up."""
+    import math
+
+    p = Page(browser, bare, viewport={"width": 1440, "height": 900})
+    try:
+        p.open()
+
+        def polar(T: float) -> tuple[float, float, dict]:
+            e = p.page.evaluate(f"__site.evaluate({T})")
+            d = [a - b for a, b in zip(e["cam"]["pos"], e["cam"]["target"])]
+            return math.degrees(math.atan2(d[0], d[2])), math.hypot(*d), e
+
+        (a0, d0, top), (a1, d1, shot) = polar(0), polar(MOVE)
+        assert abs(a1 - a0) == pytest.approx(24, abs=0.01) and d0 == pytest.approx(d1, rel=1e-6)
+        assert top["cam"]["target"] == pytest.approx(shot["cam"]["target"]) and top["chapter"] == shot["chapter"]
+        turn = np.diff([polar(k / 60)[0] for k in range(61)]) * (1 if a1 > a0 else -1)
+        assert (turn > 0).all(), turn.round(3).tolist()               # one way round, to the end of the chapter
+        assert turn[0] > 0.9 * turn.max() and turn[0] > 3 * turn[40], turn.round(3).tolist()  # at speed from the first pixel
+        for local in (0, MOVE / 4, MOVE / 2, MOVE, REST):
+            assert _readable(p, local) == ([0], False), local         # no move in the page's sense: the title is up
+        # one wheel notch from the top: the hero's box moves by pixels, where it moved by a third of one
+        boxes = []
+        for y in (0, 120):
+            p.page.evaluate(f"window.scrollTo(0, {y})")
+            p.page.wait_for_timeout(700)
+            boxes.append(p.page.evaluate("__site.info().onScreen.hero.box"))
+        shift = max(abs(a - b) * (1440 if j % 2 == 0 else 900) for j, (a, b) in enumerate(zip(*boxes)))
+        assert shift >= 4, (shift, boxes)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
 def test_a_panel_with_keyboard_focus_is_readable_during_a_move(browser, bare) -> None:
     """A visitor tabbing through the links must see where the focus is, whatever the camera does."""
     p = Page(browser, bare)
@@ -784,13 +823,12 @@ def test_check_site_writes_one_still_per_chapter_of_the_starter(site, tmp_path) 
 @pytest.mark.browser
 def test_check_site_finds_nothing_on_the_starter_at_nine_steps_and_at_twelve(bare, tmp_path) -> None:
     """The starter as shipped is what an agent begins from: the whole check (both sizes, reduced motion, no WebGL)
-    must find nothing on it at nine steps, and at twelve nothing about its subjects. Run 4's agent checked at twelve
-    steps and saw nothing a check at nine named; and since the check reads the text over a moving camera (run 5), a
-    starter that showed its text during the move is named at 56 % of the scroll (the part cut at the bottom edge while
-    the camera turns to it), as the starter at bcfbf13 was. At twelve steps the check also says the picture did not
-    change from 0 % to 9 % at both sizes, and said so at bcfbf13 as well: the first chapter's hold starts from rest (the
-    camera curve's slope is 0 at T = 0), and over its first third the stand-ins change by less than the check's
-    threshold. That is a reading of the opening, not of the text's timing, and is left to the round's report."""
+    must find nothing on it at nine steps and at twelve. Run 4's agent checked at twelve steps and saw nothing a check
+    at nine named; and since the check reads the text over a moving camera (run 5), a starter that showed its text
+    during the move is named at 56 % of the scroll (the part cut at the bottom edge while the camera turns to it), as
+    the starter at bcfbf13 was. The first wheel notch is read too: while the first chapter was one hold whose camera
+    started from rest (the starter at 6a9646d), the check said "the first scroll gets no answer", the picture moved by
+    0.02 px; with the opening move (shots.js, OPENING) the notch moves the picture by about 9 px."""
     from concurrent.futures import ThreadPoolExecutor
 
     from antigravity3d.deliver import site_check as sc
@@ -808,11 +846,12 @@ def test_check_site_finds_nothing_on_the_starter_at_nine_steps_and_at_twelve(bar
         srv.shutdown()
     if got[9].error:
         pytest.skip(got[9].error)
-    assert "nothing broken, 0 things a visitor would notice" in got[9].text().splitlines()[0], got[9].text()
-    assert "nothing broken" in got[12].text().splitlines()[0], got[12].text()
-    assert all("did not change at all from the step before at step 2 of 12 (9%)" in n for n in got[12].noticed()), \
-        got[12].noticed()
     for n, r in got.items():
+        assert "nothing broken, 0 things a visitor would notice" in r.text().splitlines()[0], (n, r.text())
+        px = sc.first_notch_px(r.visits["desktop"])
+        assert px is not None and px >= 2 * sc.NOTCH_MIN_PX, (n, r.visits["desktop"].first_notch)
+        assert f"moves the picture by about {px:.1f} px" in r.text(), r.text()
+        assert r.visits["phone"].first_notch is None  # a wheel's notch: there is none on a phone
         moving = [p for v in r.visits.values() for p in [*v.steps, *v.between] if p.moving]
         assert moving and all(p.text == 0 for p in moving), (n, [(p.share, p.text) for p in moving])
 
