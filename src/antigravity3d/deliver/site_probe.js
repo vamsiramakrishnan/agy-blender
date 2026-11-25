@@ -289,26 +289,76 @@
       });
     } finally { force.remove(); }
   };
+  // ---- chapter text a visitor can read over the scene
+  // The characters of headings, paragraphs and list items that are drawn over the visible part of the canvas's box at
+  // TEXT_ALPHA or more of the chain of opacities (as the cover measure above), outside the page's header, nav and
+  // footer. A page that says its camera is moving while this is up asks the visitor to stop and read a picture on its
+  // way (site_check.py, subject_faults). A label drawn in the scene is pixels of the canvas, not text, and a top bar is
+  // a header or a nav. A text node counts by the share of its box over the canvas, so a line half out of the window
+  // counts half.
+  const TEXT_ALPHA = 0.5, TEXT_BLOCKS = 'h1,h2,h3,h4,h5,h6,p,li', TEXT_NODES = 20000;
+  const chapterText = () => {
+    const canvas = refCanvas();
+    if (!canvas) return 0;
+    const r = canvas.getBoundingClientRect();
+    const cx0 = Math.max(0, r.left), cy0 = Math.max(0, r.top);
+    const cx1 = Math.min(innerWidth, r.right), cy1 = Math.min(innerHeight, r.bottom);
+    if (cx1 <= cx0 || cy1 <= cy0 || !document.body) return 0;
+    opacityOf.clear();
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    let n = 0, seen = 0;
+    for (let t = walker.nextNode(); t && seen < TEXT_NODES; t = walker.nextNode()) {
+      seen++;
+      const chars = t.data.replace(/\s+/g, '').length;
+      const el = t.parentElement;
+      if (!chars || !el) continue;
+      const block = el.closest(TEXT_BLOCKS);
+      if (!block || block.closest('header,nav,footer')) continue;
+      if (chainOpacity(el) < TEXT_ALPHA || getComputedStyle(el).visibility !== 'visible') continue;
+      range.selectNodeContents(t);
+      const b = range.getBoundingClientRect();
+      if (b.width < 1 || b.height < 1) continue;
+      const ix = Math.min(b.right, cx1) - Math.max(b.left, cx0), iy = Math.min(b.bottom, cy1) - Math.max(b.top, cy0);
+      if (ix > 0 && iy > 0) n += chars * (ix * iy) / (b.width * b.height);
+    }
+    return Math.round(n);
+  };
+  S.chapterText = () => { try { return chapterText(); } catch (e) { return null; } };
   S.subjects = async () => {
     const got = await readHook();
     if (!got.list) return got;
     let measured;
     try { measured = measureSubjects(got.list); } catch (e) { return { why: 'the measure failed: ' + String((e && e.message) || e).slice(0, 120) }; }
-    return { list: measured, seen: got.seen, boxless: got.boxless, more: got.more, moving: got.moving };
+    return { list: measured, seen: got.seen, boxless: got.boxless, more: got.more, moving: got.moving,
+             text: S.chapterText() };
   };
   // The subjects between the photographed steps (site_check.py, _Visitor.between): no screenshot and no wait for
   // the picture to settle, only the page's next two frames, and then, for at most capMs, until no CSS transition is
   // still running. The starter's text panels cross-fade in 0.4 s; on a page that draws quickly two frames are 33 ms,
   // and the panel of the chapter just left would still be measured over the subject at nearly full opacity. A
   // transition that is still running after capMs is measured as it is.
-  const transitioning = () => {
-    try { return document.getAnimations().some((a) => a instanceof CSSTransition && a.playState === 'running'); }
-    catch (e) { return false; }
-  };
+  // A transition whose clock stands still is finished, so the measure reads what a visitor who stops here sees once
+  // it is over. With its GPU path (CHROMIUM_KEEP_GL_SWITCHES=1) this headless browser runs an opacity transition on
+  // its compositor and stops giving the page frames after two (requestAnimationFrame no longer fires): the time the
+  // page's styles see stood at 17 ms of the starter's 400 ms fade for the whole 600 ms, and a panel fading out was
+  // measured at 0.97 of its opacity, its text counted as readable during the move. Without the GPU path the clock runs
+  // and the transition ends by itself within the wait.
+  const STALLED_POLLS = 5;
   S.readBetween = async (capMs) => {
     await S.afterFrames(2);
     const t0 = pnow();
-    while (transitioning() && pnow() - t0 < capMs) await new Promise((r) => setTimeout(r, 30));
+    let stalled = 0;
+    for (;;) {
+      let running = [];
+      try { running = document.getAnimations().filter((a) => a instanceof CSSTransition && a.playState === 'running'); }
+      catch (e) {}
+      if (!running.length || pnow() - t0 >= capMs) break;
+      const before = running.map((a) => a.currentTime);
+      await new Promise((r) => setTimeout(r, 30));
+      stalled = running.every((a, i) => a.currentTime === before[i]) ? stalled + 1 : 0;
+      if (stalled >= STALLED_POLLS) for (const a of running) { try { a.finish(); } catch (e) {} }
+    }
     return S.subjects();
   };
 

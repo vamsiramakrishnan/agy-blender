@@ -612,14 +612,14 @@ def test_where_the_page_names_the_shots_subject_the_props_behind_it_are_not_repo
     import asyncio
 
     read = lambda rows: asyncio.run(sc._Visitor.subjects(None, Page(rows)))  # noqa: E731  (the method uses no state)
-    got, note = read(marked)
+    got, note, _ = read(marked)
     by = {s["name"]: s for s in got}
     assert by["gate"]["background"] is True and by["vault"]["background"] is False and by["A LABEL"]["background"] is False
     assert sc.subject_faults(by["gate"]) == (False, False) and sc.subject_faults(by["vault"]) == (False, True)
     assert sc.subject_faults(by["A LABEL"]) == (False, True) and note.startswith("3 subjects")
     # a page that marks nothing: every prop counts, as before
     unmarked = [{**m, "subject": None} for m in marked]
-    got, _ = read(unmarked)
+    got, _, _ = read(unmarked)
     assert all("background" not in s for s in got) and sc.subject_faults(got[0]) == (False, True)
 
 
@@ -1140,7 +1140,7 @@ def test_a_layer_is_measured_and_named_as_a_prop_is():
         async def evaluate(self, _):
             return {"list": [row, {**row, "name": "hero", "kind": "prop", "subject": False}]}
 
-    got, _ = asyncio.run(sc._Visitor.subjects(None, Page()))
+    got, _, _ = asyncio.run(sc._Visitor.subjects(None, Page()))
     assert [(x["name"], x["kind"], x["background"]) for x in got] == [("slabs", "layer", False), ("hero", "prop", True)]
     rep = sc.SiteReport("site", Path("."), steps=2)
     v = sc.Visit("desktop", loaded=True, load_s=1.0)
@@ -1324,6 +1324,16 @@ def test_a_fault_found_between_the_steps_is_one_finding_with_its_stretch_of_the_
         for x in st.subjects:
             x["moving"] = st.share in rows
     assert not [n for n in rep.noticed() if "'press' runs out" in n] and sc.extra_frames(v) == []
+    # unless chapter text is readable there: then the camera on its way excuses nothing, and the line says why
+    for st in v.between:
+        st.moving, st.text = st.share in rows, 128
+        for x in st.subjects:
+            x["text_up"] = True
+    assert [n for n in rep.noticed() if "'press' runs out" in n] == [
+        "Desktop: the prop 'press' runs out of the frame at the right edge from 62% to 75% of the scroll, between "
+        "the photographed steps (at worst 50% of it outside, at 75%). There the chapter's text is up while the "
+        "camera is still on its way to the chapter's shot: show the text when the shot is held, as the skill's "
+        "starter does, or finish the move first. Look at desktop_x1.jpg."]
 
 
 def _travel(tmp_path: Path, mode: str) -> sc.SiteReport:
@@ -1364,6 +1374,79 @@ def test_a_subject_out_of_the_frame_at_a_step_is_no_fault_while_the_camera_is_on
     d = r.visits["desktop"]
     assert d.steps[1].moving and "camera is between two shots" in d.steps[1].subjects_note
     assert not [n for n in r.noticed() if "'press' runs out" in n]
+
+
+_IN_A_MOVE = ("There the chapter's text is up while the camera is still on its way to the chapter's shot: show the "
+              "text when the shot is held, as the skill's starter does, or finish the move first.")
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("where", ["step", "between"])
+def test_a_camera_on_its_way_excuses_nothing_where_the_chapter_text_is_up(tmp_path, where):
+    """Run 5's site showed its new chapter's text as the camera set off, said moving, and the check said nothing at
+    62 %, the frame a blind judge named in all six verdicts. The same subject out of the frame: named with the reason
+    where the page says moving and keeps its text up; not named where its text fades out over the move (0.4 s, which
+    the check waits out); named as before, without the reason, where the page does not say moving."""
+    def lines(r: sc.SiteReport) -> list[str]:
+        return [n for n in r.noticed() if "'press' runs out" in n]
+
+    up = _travel(tmp_path, f"{where}-moving-text")
+    found = lines(up)
+    look = f"desktop_{'01' if where == 'step' else 'x1'}.jpg"
+    assert len(found) == 1 and found[0].endswith(f"{_IN_A_MOVE} Look at {look}."), found
+    d = up.visits["desktop"]
+    at = [p for p in sc._positions(d) if p.moving]
+    assert at and all(p.text >= sc.TEXT_READABLE for p in at), [(p.share, p.text) for p in at]
+    if where == "step":  # the contact sheet marks the step
+        assert {"subject cut", "text mid-move"} <= set(sc.sheet_flags(d.steps[1], set(), set())), d.steps[1]
+        assert "text mid-move" not in sc.sheet_flags(d.steps[0], set(), set())
+
+    hides = _travel(tmp_path, f"{where}-moving-text-hides")
+    assert not lines(hides), lines(hides)
+    at = [p for p in sc._positions(hides.visits["desktop"]) if p.moving]
+    assert at and all(p.text == 0 for p in at), [(p.share, p.text) for p in at]
+
+    held = lines(_travel(tmp_path, f"{where}-text"))
+    assert len(held) == 1 and _IN_A_MOVE not in held[0], held
+
+
+@pytest.mark.browser
+def test_chapter_text_is_counted_where_it_lies_over_the_scene_and_is_seen(tmp_path):
+    """The measure of readable chapter text: a top bar (header, nav) and a 3D label give none, a panel faded to 0.3
+    gives none, text below the canvas gives none; the panel shown gives every character it has."""
+    import asyncio
+
+    from playwright.async_api import async_playwright
+
+    from antigravity3d.adapters.engines.web_three import WebThreeValidator, _launch_args
+
+    root = site(tmp_path, "chapter_text")
+
+    async def go():
+        srv = sc._SiteServer(root)
+        try:
+            async with async_playwright() as pw:
+                b = await pw.chromium.launch(executable_path=WebThreeValidator().binary(), args=list(_launch_args()))
+                page = await b.new_page(viewport={"width": 1440, "height": 900})
+                await page.add_init_script(sc._probe_script(False))
+                got = {}
+                await page.goto(srv.url)
+                await page.wait_for_function("window.__panelChars > 0")
+                got["faded"] = await page.evaluate("window.__agySite.chapterText()")
+                got["bar and label"] = await page.evaluate(
+                    "document.getElementById('panel').remove(), window.__agySite.chapterText()")
+                await page.goto(srv.url + "?panel=1")
+                await page.wait_for_function("window.__panelChars > 0")
+                got["shown"], got["chars"] = await page.evaluate(
+                    "[window.__agySite.chapterText(), window.__panelChars]")
+                await b.close()
+                return got
+        finally:
+            srv.close()
+
+    got = asyncio.run(go())
+    assert got["faded"] == 0 and got["bar and label"] == 0, got
+    assert got["shown"] == got["chars"] > sc.TEXT_READABLE, got
 
 
 @pytest.mark.browser

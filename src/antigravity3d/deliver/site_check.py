@@ -28,9 +28,12 @@ Given a folder that holds a built site (``index.html``) or a localhost URL it:
    the same kind of shot, and which labels are too small where the shot is about them: run 3's phone layout held the
    gate in one place for half the scroll, and nothing in the answer said so. After the steps it reads the subjects at
    four times as many positions between them (no picture), since what the steps alone find depends on where they stop
-   (run 4: twelve steps named no subject out of the frame, nine named six), and it names nothing as cut or hidden
-   where the page says its camera is between two shots (``info().moving``). It also measures how far the shot's
-   subject stands from its ground: run 4's dark steel on a dark floor read as holes in the picture, and nothing said so;
+   (run 4: twelve steps named no subject out of the frame, nine named six). Where the page says its camera is between
+   two shots (``info().moving``) it names nothing as cut, hidden or too small unless chapter text is readable there:
+   run 5's site showed its new chapter's text as the camera set off, a blind judge named that frame in all six
+   verdicts, and the check, told by the page that the camera was moving, had said nothing. It also measures how far
+   the shot's subject stands from its ground: run 4's dark steel on a dark floor read as holes in the picture, and
+   nothing said so;
 9. where the page names its chapters and where each rests (``window.__site.chapters()``, ``setProgress``), writes one
    still per chapter for the page without WebGL, the 3D canvas alone, as ``stills/<chapter id>.webp``. Run 2's agent
    wrote a screenshot script for those twice (the first set had a scrollbar in every picture).
@@ -138,6 +141,16 @@ VISIT_LABEL = {"reduced": "the visit with reduce motion set", "nowebgl": "the vi
 #: many of them (site_probe.js holds the same bound).
 SUBJECTS_WAIT_S = 3.0
 SUBJECTS_READ = 64
+#: Chapter text is readable at a position when at least this many characters of headings, paragraphs and list items
+#: are drawn over the canvas at half opacity or more, outside the page's header, nav and footer (site_probe.js,
+#: ``chapterText``). There a camera the page says is moving is no excuse: the text asks the visitor to stop and read,
+#: and what they read beside is a picture on its way. Measured at 33 even positions of the desktop's scroll (1440 x
+#: 900): the starter, which shows a chapter's text only once its shot is held, 0 at all 9 positions in a move and 59
+#: to 84 at rest (its placeholder panels are short); run 5's site (round 8's fifth build), whose text comes as the
+#: move starts, 205 to 260 at its 10 positions in a move and 153 to 260 at rest; run 4's site
+#: (benchmarks/results/site_run4_plugin), which does not say when its camera moves, 256 to 565 everywhere. Its top bar
+#: (a header or nav) and the labels drawn in the scene count 0. 20 characters is a short heading.
+TEXT_READABLE = 20
 #: When a subject is reported as cut by the frame's edge or hidden under the page's HTML. Shares are of the subject's
 #: projected box: "cut" is the part of the box outside the window, "hidden" the part of what is inside that lies under
 #: an element a visitor cannot see through (background alpha times opacity at least site_probe.js's COVER_ALPHA, 0.6,
@@ -293,8 +306,11 @@ class Step:
     subjects: list[dict] | None = None
     subjects_note: str = ""
     # the page said its camera is between two shots here (``window.__site.info().moving``): no subject is named as cut,
-    # hidden or too small at this position
+    # hidden or too small at this position, unless chapter text is readable here (``text``, ``TEXT_READABLE``)
     moving: bool = False
+    # characters of chapter text a visitor can read over the canvas here (site_probe.js, ``chapterText``); None: not
+    # read
+    text: int | None = None
     # how far what stands where the shot's subject is lies from the background (``subject_contrast``); None: no measure
     contrast: float | None = None
     # a position read between the photographed steps (``_Visitor.between``): subjects only, and a frame only where a
@@ -476,7 +492,10 @@ class SiteReport:
                 parts.append(f"is in the frame where the shot is about it, but too small to read {at}: make it "
                              "larger there or frame it closer")
             look = _rel(_look_frame(f["look"], v), self.out_dir)
-            out.append(f"{size}: {what} " + "; it ".join(parts) + f". Look at {look}.")
+            why = (" There the chapter's text is up while the camera is still on its way to the chapter's shot: show "
+                   "the text when the shot is held, as the skill's starter does, or finish the move first."
+                   if f["text_in_move"] else "")
+            out.append(f"{size}: {what} " + "; it ".join(parts) + f".{why} Look at {look}.")
         rest = found[SUBJECT_LINES:]
         if rest:
             out.append(f"{size}: also cut, hidden or too small at some step: "
@@ -912,10 +931,11 @@ def _runs(hits: list[tuple[Step, Any]], positions: list[Step]) -> list[list[tupl
 
 def subject_findings(v: Visit) -> list[dict]:
     """The subjects a visitor would notice cut by the frame's edge, hidden under the page's HTML or too small, at every
-    position read (``subject_faults``, ``small_labels``; a position where the page says its camera is moving has none),
-    in the order the answer names them: props and layers first, each in the order the scroll meets it. One dict per
-    subject: name, kind, the hits per fault ('hidden', 'cut', 'small_at': [(position, entry or px)], 'small': (step,
-    entry) for a label never readable at any step) and 'look', the position whose frame shows the worst of it."""
+    position read (``subject_faults``, ``small_labels``; a position where the page says its camera is moving and no
+    chapter text is readable has none), in the order the answer names them: props and layers first, each in the order
+    the scroll meets it. One dict per subject: name, kind, the hits per fault ('hidden', 'cut', 'small_at': [(position,
+    entry or px)], 'small': (step, entry) for a label never readable at any step), 'look', the position whose frame
+    shows the worst of it, and 'text_in_move', whether a hit lies where the camera is moving with chapter text up."""
     positions = _positions(v)
     found: dict[str, dict] = {}
     for st in positions:
@@ -953,8 +973,9 @@ def subject_findings(v: Visit) -> list[dict]:
         if f.get("small_at"):
             looks.append((0.0, min(f["small_at"], key=lambda t: t[1])[0]))
         f["look"] = max(looks, key=lambda t: t[0])[1]
-        f["first"] = min(p.share for p, _ in f["cut"] + f["hidden"] + ([f["small"]] if "small" in f else [])
-                         + f.get("small_at", []))
+        hits = f["cut"] + f["hidden"] + ([f["small"]] if "small" in f else []) + f.get("small_at", [])
+        f["first"] = min(p.share for p, _ in hits)
+        f["text_in_move"] = any(_text_in_move(p) for p, _ in hits)
     return sorted(found.values(), key=lambda f: (f["kind"] == "label", f["first"], f["name"]))
 
 
@@ -1071,7 +1092,7 @@ def small_labels(steps: list[Step]) -> dict[str, list[tuple[Step, int]]]:
     the whole scene, which run 3 ended with, its three labels shown on purpose at 11 to 15 px. A label of a prop the
     shot is not about is its background there and is not named; on a page that never names a subject only the rule
     of ``LABEL_MIN_PX`` (never readable anywhere) applies, as before. Nor is one where the page says its camera is
-    between two shots (``subject_faults``)."""
+    between two shots and no chapter text is readable (``subject_faults``)."""
     if not _flags_subjects(steps):
         return {}
     out: dict[str, list[tuple[Step, int]]] = {}
@@ -1079,7 +1100,7 @@ def small_labels(steps: list[Step]) -> dict[str, list[tuple[Step, int]]]:
         subs = st.subjects or []
         names_none = all(x.get("subject") is None for x in subs)
         for s in subs:
-            if s["kind"] != "label" or s.get("moving") or not (s.get("subject") is True or names_none):
+            if s["kind"] != "label" or _in_transit(s) or not (s.get("subject") is True or names_none):
                 continue
             hidden = s.get("hidden")
             if s["cut"] < LABEL_CUT and (hidden is None or hidden < LABEL_HIDDEN) and s["px"][1] < LABEL_MIN_PX:
@@ -1087,12 +1108,30 @@ def small_labels(steps: list[Step]) -> dict[str, list[tuple[Step, int]]]:
     return out
 
 
+def _text_in_move(p: Step) -> bool:
+    """Whether at this position the page says its camera is moving while chapter text is readable."""
+    return p.moving and p.text is not None and p.text >= TEXT_READABLE
+
+
+def _in_transit(s: dict) -> bool:
+    """Whether a measured subject is excused as a picture on its way: the page says its camera is between two shots
+    there and no chapter text is readable (``subject_faults``)."""
+    return bool(s.get("moving")) and not s.get("text_up")
+
+
 def subject_faults(s: dict) -> tuple[bool, bool]:
     """(cut by the frame's edge, hidden under the page's HTML) for one measured subject at one step. Neither where the
-    page says its camera is between two shots (``moving``): run 4's site at 38 % of the scroll had the new chapter's
-    text up while the camera was still on its way to that chapter's subject, and the check called the subject out of
-    the frame. No visitor sees a fault in a camera that is travelling."""
-    if s["cut"] > 1 - IN_FRAME_MIN or s.get("background") or s.get("moving"):
+    page says its camera is between two shots (``moving``) and no chapter text is readable there (``text_up``,
+    ``TEXT_READABLE``): a camera on its way is no fault where nothing asks the visitor to stop and read. Where the text
+    is up, a moving camera excuses nothing. Run 4's site and run 5's are the two sides of it. Run 4's site at 38 % of
+    the scroll had the new chapter's text up while the camera was still on its way to that chapter's subject, and the
+    check called the subject out of the frame; its stations stand on one line and the camera slides along it, so the
+    frame in transit still looked composed, and a blind judge preferred it. So the check was told to say nothing where
+    the page says its camera is moving, and on run 5's site, whose stations stand at angles, it said nothing at 62 %:
+    the card of chapter 04 fully up, the cabinet it had left half under the card and the machine it was going to and
+    its label cut by the frame's right edge, the frame a blind judge named in all six verdicts against it. A visitor
+    stops scrolling where new text appears; what the frame shows there is what they see."""
+    if s["cut"] > 1 - IN_FRAME_MIN or s.get("background") or _in_transit(s):
         return False, False
     label = s["kind"] == "label"
     hidden = s.get("hidden")
@@ -1273,6 +1312,20 @@ def largest_shape(jpeg: bytes) -> float:
         return 0.0
     labels, n = ndimage.label(ndimage.binary_opening(far, iterations=2))  # thin lines go, a shape keeps its size
     return float(np.bincount(labels.ravel())[1:].max() / far.sum()) if n else 0.0
+
+
+def sheet_flags(s: Step, held: set[int], small: set[int]) -> list[str]:
+    """The few words the contact sheet writes under a step's frame, one per thing found there; ``held`` and ``small``
+    are the indices of the steps in a held run and with a label too small. "text mid-move": a subject is named at a
+    step where the page says its camera is moving while chapter text is up (``subject_faults``)."""
+    faults = [subject_faults(x) for x in s.subjects or []]
+    return [f for f, on in (("3D empty", s.canvas_content is not None and s.canvas_content < EMPTY_CONTENT),
+                            ("unchanged", s.unchanged), ("still moving", s.motion == "moving"),
+                            ("sideways", s.sideways_px > 1), ("subject hidden", any(h for _, h in faults)),
+                            ("subject cut", any(c for c, _ in faults)), ("subject held", s.index in held),
+                            ("label small", s.index in small),
+                            ("blends in", s.contrast is not None and s.contrast < CONTRAST_LOW),
+                            ("text mid-move", _text_in_move(s) and any(c or h for c, h in faults))) if on]
 
 
 def contact_sheet(frames: list[tuple[str, str, bool]], out: Path, thumb_w: int, cols: int) -> None:
@@ -1716,19 +1769,20 @@ class _Visitor:
         return "wheel"
 
     async def subjects(self, page, js: str = "window.__agySite.subjects()",
-                       wait: float = SUBJECTS_WAIT_S) -> tuple[list[dict] | None, str]:
-        """The page's subjects as it shows them now, measured in the page (``site_probe.js``, ``S.subjects``), and why
-        not when they cannot be. The page's hook runs inside this call: it is bounded in time here and in what it returns
-        there, and whatever comes back is checked again, since the page can replace anything it is given. Where the page
-        says its camera is between two shots (``moving``), every entry carries ``moving: True``."""
+                       wait: float = SUBJECTS_WAIT_S) -> tuple[list[dict] | None, str, int | None]:
+        """The page's subjects as it shows them now, measured in the page (``site_probe.js``, ``S.subjects``), why not
+        when they cannot be, and the characters of chapter text readable over the canvas (``TEXT_READABLE``). The page's
+        hook runs inside this call: it is bounded in time here and in what it returns there, and whatever comes back is
+        checked again, since the page can replace anything it is given. Where the page says its camera is between two
+        shots (``moving``), every entry carries ``moving: True`` and ``text_up``, whether chapter text is readable."""
         try:
             got = await asyncio.wait_for(page.evaluate(js), wait)
         except Exception as e:  # noqa: BLE001  a hook that hangs or a page that navigated: the step is kept without it
-            return None, f"not read ({type(e).__name__})"
+            return None, f"not read ({type(e).__name__})", None
         if not isinstance(got, dict):
-            return None, "not read"
+            return None, "not read", None
         if not isinstance(got.get("list"), list):
-            return None, str(got.get("why") or "")[:200]
+            return None, str(got.get("why") or "")[:200], None
         out = [x for x in (_subject(r) for r in got["list"][:SUBJECTS_READ]) if x]
         # Where the page says which props the shot is about, the others are its background and are measured but not
         # named: on run 2's site a prop of an earlier chapter, left standing behind the next chapter's panel, was
@@ -1736,12 +1790,17 @@ class _Visitor:
         if any(x["subject"] is True for x in out):
             for x in out:
                 x["background"] = x["kind"] != "label" and x["subject"] is not True
+        text = got.get("text")
+        text = int(text) if isinstance(text, (int, float)) and not isinstance(text, bool) and 0 <= text < 1e7 else None
+        text_up = text is not None and text >= TEXT_READABLE
         if got.get("moving") is True:
             for x in out:
                 x["moving"] = True
+                x["text_up"] = text_up
         note = (f"{len(out)} subject{_s(out)} with a box" + (", more not read" if got.get("more") else "")
-                + ("; the camera is between two shots" if got.get("moving") is True else ""))
-        return (out or None), note
+                + (("; the camera is between two shots" + (f", {text} characters of text readable" if text_up else ""))
+                   if got.get("moving") is True else ""))
+        return (out or None), note, text
 
     async def stills(self, page) -> dict:
         """One still per chapter the page names (``site_probe.js``, ``chapterList`` and ``stillAt``), written as
@@ -1836,7 +1895,7 @@ class _Visitor:
             step = Step(i, share, round(end["y"]), settle_s=round(secs, 2), motion=motion, reached_by=how,
                         draws=int(w.get("maxDraws", 0)), triangles=int(w.get("maxTris", 0)),
                         shown_triangles=int((end.get("last") or {}).get("tris", 0)))
-            step.subjects, step.subjects_note = await self.subjects(page)
+            step.subjects, step.subjects_note, step.text = await self.subjects(page)
             step.moving = any(x.get("moving") for x in step.subjects or [])
             f = self.out / f"{self.v.name}_{i:02d}.jpg"
             f.write_bytes(shot)
@@ -1887,14 +1946,14 @@ class _Visitor:
                 if left < 0.5:
                     break
                 await self.scroll_to(page, round(geo["max"] * share))
-                subs, note = await self.subjects(page, f"window.__agySite.readBetween({BETWEEN_TRANSITION_MS})",
-                                                 min(left, SETTLE_HARD_S))
+                subs, note, text = await self.subjects(page, f"window.__agySite.readBetween({BETWEEN_TRANSITION_MS})",
+                                                       min(left, SETTLE_HARD_S))
                 if subs is None and (time.monotonic() - t0 >= BETWEEN_S - 0.1
                                      or self.clock.left() < WRAP_UP_S + 2.1):
                     break  # cut off by the allowance, not a position the page could not answer at
                 y = await _bounded(page, "window.__agySite.y()", 0)
                 self.v.between.append(Step(-1, share, round(y or 0), subjects=subs, subjects_note=note, between=True,
-                                           moving=any(x.get("moving") for x in subs or [])))
+                                           moving=any(x.get("moving") for x in subs or []), text=text))
         self.v.between.sort(key=lambda st: st.share)
         self.v.between_s = round(time.monotonic() - t0, 2)
         self.log(f"read {len(self.v.between)} of {self.v.between_planned} positions between the steps "
@@ -2318,13 +2377,7 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
             held = {st.index for r in held_runs(v.steps) for st in r["steps"]}
             small = {st.index for seen in small_labels(v.steps).values() for st, _ in seen}
             for s in v.steps:
-                faults = [subject_faults(x) for x in s.subjects or []]
-                flags = [f for f, on in (("3D empty", s.canvas_content is not None and s.canvas_content < EMPTY_CONTENT),
-                                         ("unchanged", s.unchanged), ("still moving", s.motion == "moving"),
-                                         ("sideways", s.sideways_px > 1), ("subject hidden", any(h for _, h in faults)),
-                                         ("subject cut", any(c for c, _ in faults)), ("subject held", s.index in held),
-                                         ("label small", s.index in small),
-                                         ("blends in", s.contrast is not None and s.contrast < CONTRAST_LOW)) if on]
+                flags = sheet_flags(s, held, small)
                 frames.append((s.frame, f"{s.index + 1}/{steps}  {s.share:.0%}" + (f"  {', '.join(flags)}" if flags else ""), bool(flags)))
             sheet = out / f"sheet_{name}.jpg"
             contact_sheet(frames, sheet, 480 if name == "desktop" else 200, 3 if name == "desktop" else min(len(frames), 5))

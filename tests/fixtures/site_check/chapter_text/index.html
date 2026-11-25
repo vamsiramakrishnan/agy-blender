@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chapter text over the scene</title>
+<!-- What the check counts as chapter text a visitor can read over the 3D canvas (site_probe.js, chapterText). The
+     canvas covers the upper 60 % of the window. Over it: a top bar (a header with a nav and a tagline paragraph), a 3D
+     label as an HTML overlay, and a chapter's panel, faded to 0.3 (the test shows it with ?panel=1). Below the
+     canvas, a paragraph and a footer: text, but not over the scene. -->
+<style>html,body{margin:0;background:#101418;color:#eee;font:16px sans-serif}
+canvas{position:fixed;left:0;top:0;width:100vw;height:60vh;z-index:0}
+header{position:fixed;left:0;right:0;top:0;height:48px;display:flex;gap:2rem;align-items:center;padding:0 1rem;
+  background:#0b0d10;z-index:2}
+header p{margin:0}
+.label{position:fixed;left:60vw;top:30vh;z-index:1;letter-spacing:0.1em}
+#panel{position:fixed;left:5vw;top:15vh;width:30vw;z-index:1;opacity:0.3}
+.show #panel{opacity:1}
+.below{position:fixed;left:5vw;top:75vh;margin:0}
+footer{position:fixed;left:5vw;top:88vh}</style></head>
+<body><canvas id="c"></canvas>
+<header><p>Straitjacket, bounded tool output</p><nav><ul style="display:flex;gap:1rem;list-style:none">
+<li>Overview</li><li>Flood</li><li>Digest</li><li>Anchors</li></ul></nav></header>
+<div class="label">ANCHOR RELOCATOR</div>
+<section id="panel"><h2>Addresses that survive edits</h2><p>Bare line numbers drift silently when a file changes.</p>
+<ul><li>1,452 relocated</li><li>0 wrong answers</li></ul></section>
+<p class="below">A paragraph below the scene, in the page's own flow of text.</p>
+<footer><p>Footer text that is never chapter text.</p></footer>
+<script type="module">
+import { setup, QUAD } from './gl.js';
+if (new URLSearchParams(location.search).get('panel') === '1') document.documentElement.classList.add('show');
+const { gl, quad, color } = setup(document.getElementById('c'));
+quad(QUAD);
+gl.clearColor(0.06, 0.08, 0.1, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+color(0.85, 0.55, 0.25); gl.drawArrays(gl.TRIANGLES, 0, 6);
+// the panel's characters, as the probe should count them: no white space
+window.__panelChars = document.getElementById('panel').textContent.replace(/\s+/g, '').length;
+</script></body></html>
