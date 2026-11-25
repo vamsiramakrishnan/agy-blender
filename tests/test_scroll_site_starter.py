@@ -600,8 +600,9 @@ def test_on_screen_reports_each_props_and_labels_box_in_the_contract_check_site_
 
 @pytest.mark.browser
 def test_the_page_says_when_its_camera_is_between_two_shots(browser, bare) -> None:
-    """check_site does not call a subject cut by the frame while the camera is on its way to it (info().moving). The
-    camera moves in the first MOVE of a chapter and holds for the rest; the first chapter has no move."""
+    """check_site does not call a subject cut by the frame while the camera is on its way to it (info().moving) where
+    no chapter text is readable, which the starter makes sure of (below). The camera moves in the first MOVE of a
+    chapter and holds for the rest; the first chapter has no move."""
     p = Page(browser, bare)
     try:
         p.open()
@@ -622,6 +623,68 @@ def test_the_page_says_when_its_camera_is_between_two_shots(browser, bare) -> No
                 assert q.page.evaluate("__site.info().moving") is False
         finally:
             q.close()
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+# Every panel's opacity (its own times its ancestors') once its fade is over: the transitions are finished first, since
+# a headless browser with its GPU path may hold a compositor transition's clock (site_probe.js, readBetween).
+_PANELS_SEEN = """() => { document.getAnimations().forEach((a) => a.finish());
+  return [...document.querySelectorAll('.panel')].map((el) => { let o = 1;
+    for (let e = el; e; e = e.parentElement) o *= +getComputedStyle(e).opacity; return o; }); }"""
+
+
+def _readable(p: Page, T: float) -> tuple[list[int], bool]:
+    """The panels readable (half opacity or more) at story time T, and whether the page says its camera is moving."""
+    p.page.evaluate(f"__site.setProgress({T})")
+    seen = p.page.evaluate(_PANELS_SEEN)
+    return [i for i, o in enumerate(seen) if o >= 0.5], p.page.evaluate("__site.info().moving")
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("size", ["desktop", "phone"])
+def test_a_chapters_text_is_shown_while_its_shot_is_held_and_never_during_a_move(browser, bare, size) -> None:
+    """Run 5 showed a chapter's text as the camera set off: at 62 % of its scroll the new card was fully up over a
+    picture half way between two stations, and a blind judge named that frame in all six verdicts. Now no panel is
+    readable while info().moving is true; the chapter's panel is once the camera holds; the first chapter's at once."""
+    p = Page(browser, bare, **SIZES[size])
+    try:
+        p.open()
+        assert _readable(p, 0) == ([0], False)
+        for i in (1, 2, 3):
+            for local in (0, MOVE / 4, MOVE / 2, MOVE * 0.9):
+                assert _readable(p, i + local) == ([], True), (size, i, local)
+            for local in (MOVE + 0.01, REST, 0.99):
+                assert _readable(p, i + local) == ([i], False), (size, i, local)
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+def test_with_reduced_motion_the_chapters_text_is_always_up(browser, bare) -> None:
+    """Reduced motion: the scene only rests, so every position shows its chapter's panel."""
+    p = Page(browser, bare, reduced_motion="reduce")
+    try:
+        p.open()
+        for T in (0, 0.5, 1, 1 + MOVE / 2, 1.9, 2 + MOVE / 4, 3 + MOVE * 0.9, 3.99):
+            assert _readable(p, T) == ([int(T)], False), T
+        assert p.messages == [], p.messages
+    finally:
+        p.close()
+
+
+@pytest.mark.browser
+def test_a_panel_with_keyboard_focus_is_readable_during_a_move(browser, bare) -> None:
+    """A visitor tabbing through the links must see where the focus is, whatever the camera does."""
+    p = Page(browser, bare)
+    try:
+        p.open()
+        n = len(p.page.evaluate("__site.chapters()"))
+        assert _readable(p, n - 1 + MOVE / 2) == ([], True)
+        p.page.evaluate("document.querySelector('#outro .panel a').focus()")
+        assert p.page.evaluate(_PANELS_SEEN)[n - 1] == 1 and p.page.evaluate("__site.info().moving") is True
         assert p.messages == [], p.messages
     finally:
         p.close()
@@ -715,6 +778,42 @@ def test_check_site_writes_one_still_per_chapter_of_the_starter(site, tmp_path) 
     # each chapter has its own shot: no two stills are the same picture
     assert all(np.abs(a - b).mean() > 2 for i, a in enumerate(pictures) for b in pictures[i + 1:])
     assert "stills for the page without WebGL" in r.text()
+
+
+@pytest.mark.browser
+def test_check_site_finds_nothing_on_the_starter_at_nine_steps_and_at_twelve(bare, tmp_path) -> None:
+    """The starter as shipped is what an agent begins from: the whole check (both sizes, reduced motion, no WebGL)
+    must find nothing on it at nine steps, and at twelve nothing about its subjects. Run 4's agent checked at twelve
+    steps and saw nothing a check at nine named; and since the check reads the text over a moving camera (run 5), a
+    starter that showed its text during the move is named at 56 % of the scroll (the part cut at the bottom edge while
+    the camera turns to it), as the starter at bcfbf13 was. At twelve steps the check also says the picture did not
+    change from 0 % to 9 % at both sizes, and said so at bcfbf13 as well: the first chapter's hold starts from rest (the
+    camera curve's slope is 0 at T = 0), and over its first third the stand-ins change by less than the check's
+    threshold. That is a reading of the opening, not of the text's timing, and is left to the round's report."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from antigravity3d.deliver import site_check as sc
+
+    if not (NODE_MODULES / "three" / "package.json").is_file():
+        pytest.skip(f"{NODE_MODULES} has no three.js (npm ci --prefix tests/fixtures/web_project)")
+    srv = _http(bare)
+    got = {}
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}{SUB}"
+        with ThreadPoolExecutor(1) as pool:
+            for n in (9, 12):
+                got[n] = pool.submit(sc.check_site, url, out_dir=tmp_path / f"check{n}", steps=n).result(300)
+    finally:
+        srv.shutdown()
+    if got[9].error:
+        pytest.skip(got[9].error)
+    assert "nothing broken, 0 things a visitor would notice" in got[9].text().splitlines()[0], got[9].text()
+    assert "nothing broken" in got[12].text().splitlines()[0], got[12].text()
+    assert all("did not change at all from the step before at step 2 of 12 (9%)" in n for n in got[12].noticed()), \
+        got[12].noticed()
+    for n, r in got.items():
+        moving = [p for v in r.visits.values() for p in [*v.steps, *v.between] if p.moving]
+        assert moving and all(p.text == 0 for p in moving), (n, [(p.share, p.text) for p in moving])
 
 
 # --------------------------------------------------------------------------- round 8c: what the review of run 3 found

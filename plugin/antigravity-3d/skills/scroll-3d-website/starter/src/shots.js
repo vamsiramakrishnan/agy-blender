@@ -2,7 +2,7 @@
 // a screenshot tool can all call it, and any scroll position can be drawn, reversed or photographed alone.
 //
 //   evaluate(T, ids) -> { T, chapter, index, local, cam: { pos, target, fov }, focus: { at, span }, show: { prop: 0..1 },
-//                         subject: [names] or null, frame: { from, to, mix } }
+//                         subject: [names] or null, frame: { from, to, mix }, moving }
 //   timeline(ids) -> at(id, local): the story time of a moment inside a chapter
 //   frame(bounds, type, options) -> a shot of one type of the vocabulary (SHOT) around a sphere
 //
@@ -11,8 +11,10 @@
 // overshoots).
 
 // The first MOVE of each chapter travels from the last shot to this chapter's shot; the rest of the chapter is its
-// hold, during which the camera keeps travelling slowly (push and orbit, below). A reader reads during the hold, so the
-// hold is the longer part.
+// hold, during which the camera keeps travelling slowly (push and orbit, below). The chapter's text is shown only
+// during the hold (main.js), so MOVE is also the share of every chapter after the first that has no text on screen:
+// at 0.35 and the starter's chapters of 220 % of the window, 77 % of a window's height of scroll per chapter is picture
+// alone. A larger MOVE gives a slower, calmer move and a longer gap in the reading; a smaller one the reverse.
 export const MOVE = 0.35;
 // Where a chapter rests when the visitor asked for reduced motion: the scene shows only resting pictures.
 export const REST = 0.7;
@@ -235,6 +237,10 @@ export function evaluate(T, ids) {
     show,
     subject: SHOTS[known[index]].subject ? [].concat(SHOTS[known[index]].subject) : null,
     frame: { from: about(lo), to: about(hi), mix: hi > lo ? k - lo : 0 },
+    // The camera has not yet arrived at this chapter's shot: frame.mix between 0 and 1, and also the chapter's very
+    // first scroll position, where the move has not begun (mix is still 0 on the last shot). stage.js reports it as
+    // info().moving and main.js hides the text panels while it is true, so the two never disagree.
+    moving: k < index - 1e-9,
   };
 }
 

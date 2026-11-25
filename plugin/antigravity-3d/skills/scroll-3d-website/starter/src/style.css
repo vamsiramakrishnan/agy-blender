@@ -34,17 +34,20 @@ a { color: inherit; }
    page with no text). */
 .webgl-on .chapter { min-height: 220vh; }
 .webgl-on .chapter:first-child { min-height: 180vh; }
-/* The panels are one fixed layer, cross-faded by the current chapter (main.js sets .is-current from story time). A
-   sticky panel inside its section slides on once the section's end reaches it: run 2's slid up over the 3D on the
-   phone for a fifth of every chapter, and in a short window it leaves the window before its chapter's rest. The
-   panels stay in their sections in the HTML, so screen readers and the article read them in document order; a hidden
-   one is only transparent, and shows when a link in it has the keyboard's focus. */
+/* The panels are one fixed layer, cross-faded by the current chapter (main.js sets .is-current from story time), and
+   none shows while the camera is on its way to a chapter's shot (main.js sets .is-moving on <html>): the text comes
+   when the shot is held, so text and picture land together (run 5's text came at the start of the move, over a picture
+   in transit). A sticky panel inside its section slides on once the section's end reaches it: run 2's slid up over
+   the 3D on the phone for a fifth of every chapter, and in a short window it leaves the window before its chapter's
+   rest. The panels stay in their sections in the HTML, so screen readers and the article read them in document order;
+   a hidden one is only transparent, and shows when a link in it has the keyboard's focus, whatever the camera does. */
 .webgl-on .panel {
   position: fixed; top: 18vh; left: 5vw; width: min(30rem, 34vw); max-height: 76vh; overflow: auto;
   padding: 1.5rem 1.75rem; background: var(--panel); border-radius: 10px;
   opacity: 0; pointer-events: none; transition: opacity 0.4s ease;
 }
-.webgl-on .chapter.is-current .panel, .webgl-on .panel:focus-within { opacity: 1; pointer-events: auto; }
+.webgl-on:not(.is-moving) .chapter.is-current .panel,
+.webgl-on .panel:focus-within { opacity: 1; pointer-events: auto; }
 
 /* Phone (portrait; main.js uses the same query): the 3D takes the upper part of the window, the panel the lower part.
    A landscape phone keeps the side-by-side layout: text below would leave the scene a strip a third of the window high. */
