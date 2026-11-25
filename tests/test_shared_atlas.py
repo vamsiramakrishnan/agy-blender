@@ -245,6 +245,31 @@ def test_merge_materials_merges_only_what_is_equal_but_the_name():
     assert merged == [{"material": "X_atlas", "from": ["a", "b"]}]
 
 
+def test_two_groups_that_merge_ship_under_two_names():
+    """Run 5 of the website task: two plain materials and two signal lights of one emissive strength gave two
+    different glTF materials both named ``artifact_vault_atlas``, and the three.js check, which compares a far
+    level's materials with LOD0's by name, refused the delivery."""
+    from antigravity3d.adapters.engines.web_three import _lod_material_checks
+    from antigravity3d.kernel.gltf_writer import GltfMaterial
+
+    plain = [GltfMaterial("brushed_alu"), GltfMaterial("slate_frame")]
+    lights = [GltfMaterial(n, extensions={"KHR_materials_emissive_strength": {"emissiveStrength": 0.35}}) for n in ("signal_amber", "signal_blue")]
+    out, merged = merge_materials({"a": plain[0], "b": plain[1], "c": lights[0], "d": lights[1], "e": GltfMaterial("vault_atlas_2", roughness_factor=0.3)}, "vault_atlas")
+    assert merged == [{"material": "vault_atlas", "from": ["brushed_alu", "slate_frame"]},
+                      {"material": "vault_atlas_3", "from": ["signal_amber", "signal_blue"]}], "a name already in use is passed over"
+    assert out["a"] is out["b"] and out["c"] is out["d"] and out["a"] is not out["c"]
+    assert len({m.name for m in out.values()}) == 3
+    # what the check saw then and sees now: a far level whose two materials are LOD0's two
+    def seen(name, strength):
+        return {"name": name, "slots": {}, "type": "MeshStandardMaterial", "params": {"emissiveIntensity": strength}}
+
+    for names, passes in ((("vault_atlas", "vault_atlas"), False), (("vault_atlas", "vault_atlas_3"), True)):
+        results: list = []
+        mats = [seen(names[0], 1.0), seen(names[1], 0.35)]
+        _lod_material_checks(lambda n, ok, detail="": results.append((ok, detail)), {"materials": mats}, [{"name": "LOD2", "materials": mats}])
+        assert [ok for ok, _d in results] == [passes], results
+
+
 def test_a_missing_source_map_is_not_baked_into_a_flat_patch(tmp_path):
     scene = two_material_scene(tmp_path)
     sm = StageManager.create(tmp_path / "work.usda", ASSET)

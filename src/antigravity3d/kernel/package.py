@@ -768,7 +768,12 @@ def merge_materials(materials: Mapping[str, GltfMaterial], name: str) -> tuple[d
     ``name`` when more than one name merges): one glTF material, so one draw call once their parts are batched.
     Returns the mapping and, per shipped material that merged several, the names it holds. Materials that bind the
     same baked maps but differ in a per-material value (``SPLIT_PROPERTIES``) stay apart and still share the images
-    (the GLB writer stores each image once)."""
+    (the GLB writer stores each image once).
+
+    A second group that merges is named ``name_2``, a third ``name_3``. Run 5 of the website task: a vault with two
+    plain materials and two signal lights of the same emissive strength shipped two different materials both named
+    ``artifact_vault_atlas``; the three.js check compares a far level's materials with LOD0's by name, answered
+    "artifact_vault_atlas: emissiveIntensity 0.35 != LOD0 1", and the agent took the lights off to be delivered."""
     reps: list[tuple[GltfMaterial, list[str]]] = []  # (shipped object, source names)
     out: dict[str, GltfMaterial] = {}
     seen: dict[int, GltfMaterial] = {}
@@ -788,12 +793,18 @@ def merge_materials(materials: Mapping[str, GltfMaterial], name: str) -> tuple[d
         out[node] = obj
     renamed: dict[int, GltfMaterial] = {}
     merged = []
+    taken = {names[0] for _obj, names in reps if len(names) == 1}  # the names of the materials that ship as they are
     for obj, names in reps:
         if len(names) > 1:
             from dataclasses import replace as _replace
 
-            renamed[id(obj)] = _replace(obj, name=name)
-            merged.append({"material": name, "from": sorted(names)})
+            unique, k = name, 1
+            while unique in taken:
+                k += 1
+                unique = f"{name}_{k}"
+            taken.add(unique)
+            renamed[id(obj)] = _replace(obj, name=unique)
+            merged.append({"material": unique, "from": sorted(names)})
     return {n: renamed.get(id(m), m) for n, m in out.items()}, merged
 
 
