@@ -15,9 +15,11 @@ What it does (``web_format``), for a ``web_three`` package only:
    points of the surface found by casting rays through the check's frame. Every frame of the WebP GLB is compared with
    the PNG one by the tolerance the installer's KTX2 compression is held to (``deliver/web_check.compare_frames`` and
    its ``TOL_*``), over the asset's pixels.
-3. Keeps WebP only when every frame is inside the tolerance; otherwise, or when the frames could not be rendered, the
-   package keeps PNG. The manifest's ``web_textures`` record says which, the bytes before and after, the measured
-   differences and the reason.
+3. Ships that encoding when every frame is inside the tolerance. When one is not, the next encoding of ``LADDER`` is
+   made and measured the same way (the roughness/metal map lossless, then every map lossless: see there for what a
+   lossy roughness/metal map loses); the first inside the tolerance ships. The package keeps PNG only when none is, or
+   when the frames could not be rendered. The manifest's ``web_textures`` record says what shipped, the bytes before
+   and after, the measured differences, and what was tried before it and why it did not ship.
 
 With WebP, LOD0 embeds the WebP maps (``EXT_texture_webp``, required, no PNG fallback: a fallback would be the PNG
 again in the same file); the far levels reference ``textures/<map>.webp``, so every level binds the same image content
@@ -60,7 +62,33 @@ WEBP_QUALITY = {"albedo": 90, "orm": 90, "emissive": 90, "normal": 95}
 # 3,519,038 bytes in 2.0 s, method 6 3,441,008 bytes in 3.3 s. 2 % of the bytes is not worth 1.3 s inside a tool call
 # the host abandons after 3 minutes.
 WEBP_METHOD = 4
+# libwebp's effort for a lossless map (Pillow passes ``quality`` as that, 0 to 100). Measured on capture_press's
+# 1024 px roughness/metal map (684,895 bytes as PNG): 25 gives 534,414 bytes in 0.34 s, 50 gives 490,634 in 0.46 s,
+# 75 gives 490,046 in 0.56 s, 100 gives 487,960 in 1.18 s; the same map tiled to 4096 x 2048 takes 2.7 s at 50.
+WEBP_LOSSLESS_EFFORT = 50
 WEBP_MIME = "image/webp"
+# The encodings tried, smallest first; the first whose frames are inside the tolerance ships. Each names the map roles
+# stored lossless (None: every map); the other maps are lossy at WEBP_QUALITY. WebP's lossless mode gives back the PNG's
+# pixels exactly.
+#
+# Why there is more than one: run 5 of the website task (benchmarks/results/site_run5_plugin). Two of its three props
+# shipped PNG, 1.65 and 1.48 MB of maps where the lossy WebP maps were 0.30 and 0.22 MB, because 1.07 % and 2.02 % of a
+# close-up's pixels differed by more than 8 % (the limit is 1 %). The cause was one map in both, the roughness/metal
+# map: alone as lossy WebP it gave 1.00 % and 1.83 %, the albedo alone 0.02 % and 0.07 %, the normal map alone 0.03 %
+# and 0.01 %. Lossy WebP stores colour at half the resolution of brightness (YUV 4:2:0) at every quality, and in this
+# map the three channels are three unrelated quantities, so the difference between them (a metal mask against the
+# roughness beside it) is "colour": 14.4 % and 10.2 % of the map's texels were off by more than 8 % at quality 90 and
+# 14.3 % and 10.2 % at quality 100, with a mean error of 80 of 255 at the texels beside a step in metalness and 4
+# elsewhere. So a higher quality cannot help (quality 100: 1.06 % and 2.07 % of the close-up), and the same map
+# lossless can: 0.000 % in every frame, 478 KB against the PNG's 669 KB. With that one map lossless the two props'
+# maps are 0.65 and 0.54 MB. The last step is the same reasoning for a miss with another cause (the offline crate's
+# noise maps, test_browser_noise_maps...): every map lossless was 1.22 and 1.07 MB on those two props, still under
+# the PNG.
+LADDER: tuple[tuple[str, frozenset[str] | None], ...] = (
+    ("lossy", frozenset()),
+    ("roughness/metal map lossless", frozenset({"orm"})),
+    ("lossless", None),
+)
 # Close-ups taken beside the check's frame, each one texel to about one pixel (where texture compression shows first).
 CLOSE_UPS = 3
 # decisions kept in this process (``web_format``): the checks' package and the export's are the same bytes
@@ -82,19 +110,26 @@ def encoder() -> str:
     return f"Pillow {getattr(Image, '__version__', '?')}, libwebp {features.version('webp')}"
 
 
-def _encode_one(png: bytes, quality: int) -> bytes:
+def _encode_one(png: bytes, quality: int | None) -> bytes:
+    """``png`` as WebP: lossy at ``quality``, or lossless (the same pixels back) when ``quality`` is None."""
     from PIL import Image
 
     with Image.open(io.BytesIO(png)) as im:
         im.load()
         buf = io.BytesIO()
         # exact: the colour under a fully transparent pixel is kept (a cut-out's edge is filtered from it)
-        im.save(buf, "WEBP", quality=quality, method=WEBP_METHOD, exact=True)
+        if quality is None:
+            im.save(buf, "WEBP", lossless=True, quality=WEBP_LOSSLESS_EFFORT, method=WEBP_METHOD, exact=True)
+        else:
+            im.save(buf, "WEBP", quality=quality, method=WEBP_METHOD, exact=True)
     return buf.getvalue()
 
 
-def encode(pkg: Path, manifest: dict[str, Any]) -> tuple[Candidate | None, list[dict[str, Any]], str]:
-    """(the WebP candidate or None, a record per map, why there is no candidate)."""
+def encode(pkg: Path, manifest: dict[str, Any], lossless: frozenset[str] | None = frozenset(),
+           made: dict[tuple[str, int | None], bytes] | None = None) -> tuple[Candidate | None, list[dict[str, Any]], str]:
+    """(the WebP candidate or None, a record per map, why there is no candidate). ``lossless``: the map roles stored
+    lossless (None: every map), the others lossy at ``WEBP_QUALITY``. ``made`` keeps the encodings between the
+    candidates of one package, so a map is encoded once per form."""
     asset = manifest["asset"]
     lod0 = f"{asset}.glb"
     records = (manifest.get("glb_images") or {}).get(lod0) or []
@@ -113,15 +148,21 @@ def encode(pkg: Path, manifest: dict[str, Any]) -> tuple[Candidate | None, list[
         todo.append((rec["sha256"], rel, role_of.get(rel, "albedo"), png))
     if not todo:
         return None, maps, "LOD0 embeds no PNG map"
-    with ThreadPoolExecutor(min(4, len(todo))) as pool:  # libwebp releases the GIL: four 4096 px maps in 2.0 s, not 5.0
-        webps = list(pool.map(lambda t: _encode_one(t[3], WEBP_QUALITY.get(t[2], 90)), todo))
+    made = {} if made is None else made
+    quality = {sha: None if lossless is None or role in lossless else WEBP_QUALITY.get(role, 90) for sha, _rel, role, _png in todo}
+    new = [t for t in todo if (t[0], quality[t[0]]) not in made]
+    if new:
+        with ThreadPoolExecutor(min(4, len(new))) as pool:  # libwebp releases the GIL: four 4096 px maps in 2.0 s, not 5.0
+            for t, webp in zip(new, pool.map(lambda t: _encode_one(t[3], quality[t[0]]), new)):
+                made[(t[0], quality[t[0]])] = webp
     swap: dict[str, tuple[bytes, str]] = {}
     files: dict[str, bytes] = {}
     names = set(manifest.get("files") or [])
-    for (sha, rel, role, png), webp in zip(todo, webps):
+    for sha, rel, role, png in todo:
+        webp = made[(sha, quality[sha])]
         target = str(Path(rel).with_suffix(".webp").as_posix())
-        rec = {"texture": rel, "role": role, "quality": WEBP_QUALITY.get(role, 90), "png_bytes": len(png),
-               "webp_bytes": len(webp), "webp": None}
+        rec = {"texture": rel, "role": role, **({"lossless": True} if quality[sha] is None else {"quality": quality[sha]}),
+               "png_bytes": len(png), "webp_bytes": len(webp), "webp": None}
         if len(webp) >= len(png):
             rec["kept_png"] = "the WebP encoding is not smaller"
         elif target in names or target in files:
@@ -317,15 +358,80 @@ async def measure(manifest: dict[str, Any], png_glb: bytes, webp_glb: bytes, tim
 
 RULE = ("the GLBs carry WebP maps (EXT_texture_webp) only when every frame of the WebP GLB (the three.js check's frame "
         "and close-ups at about one texel per pixel) is inside the installer's compression tolerance against the PNG "
-        "GLB; otherwise PNG. The PNG maps in textures/ stay: the USD uses them and the installer's KTX2 compression "
-        "encodes from them")
+        "GLB. The encodings are tried smallest first (every map lossy; the roughness/metal map lossless; every map "
+        "lossless) and the first inside the tolerance ships; otherwise PNG. The PNG maps in textures/ stay: the USD uses "
+        "them and the installer's KTX2 compression encodes from them")
 
 
 def _key(pkg: Path, manifest: dict[str, Any]) -> str:
-    h = hashlib.sha256(json.dumps([WEBP_QUALITY, WEBP_METHOD, encoder(), sorted(manifest.get("glb_images") or {})]).encode())
+    rule = [WEBP_QUALITY, WEBP_METHOD, WEBP_LOSSLESS_EFFORT, [[n, r if r is None else sorted(r)] for n, r in LADDER], encoder()]
+    h = hashlib.sha256(json.dumps([rule, sorted(manifest.get("glb_images") or {})]).encode())
     for name in sorted(manifest.get("glb_images") or {}):
         h.update(name.encode() + hashlib.sha256((pkg / name).read_bytes()).digest())
     return h.hexdigest()
+
+
+def _outside(m: dict[str, Any]) -> str:
+    """One measurement that was outside the tolerance, in a clause: its three worst frames."""
+    worst = [f for f in m["frames"] if f.get("passed") is False]
+    return "outside the tolerance in " + ", ".join(
+        f"{f['view']} (mean {f['mean_abs']:.4f}, {f['pixel_share']:.2%} of the asset's pixels over "
+        f"{m['tolerance']['pixel_delta']:.0%})" for f in worst[:3])
+
+
+async def _decide(pkg: Path, data: dict[str, Any], timeout: float) -> tuple[dict[str, Any], Candidate | None, dict[str, Any]]:
+    """(the ``web_textures`` record, the candidate that ships or None for PNG, timings): the encodings of ``LADDER`` in
+    order, each rendered and compared, until one is inside the tolerance.
+
+    Ends early, with PNG, when no encoding can change the answer: LOD0 embeds no PNG map, a map cannot be read, or the
+    frames cannot be rendered here (a browser that fails once is not asked again inside a call the host abandons
+    after 3 minutes; nothing ships that was not measured, a lossless map included)."""
+    lod0 = f"{data['asset']}.glb"
+    png_glb = (pkg / lod0).read_bytes()
+    record: dict[str, Any] = {"format": "png", "encoder": encoder(), "method": WEBP_METHOD, "maps": [], "rule": RULE}
+    timings: dict[str, Any] = {"reused": False, "encode_s": 0.0}
+    made: dict[tuple[str, int | None], bytes] = {}
+    tried: list[dict[str, Any]] = []   # the encodings that did not ship, in order, each with why
+    measured: set[bytes] = set()       # the candidates compared so far (LOD0's digest)
+    for i, (name, lossless) in enumerate(LADDER):
+        t0 = time.perf_counter()
+        try:
+            cand, maps, why = await to_thread_drained(encode, pkg, data, lossless, made)
+        except Exception as e:  # noqa: BLE001 - an image Pillow cannot read: the package keeps what it has
+            cand, maps, why = None, [], f"encoding failed: {type(e).__name__}: {e}"[:300]
+        timings["encode_s"] = round(timings["encode_s"] + time.perf_counter() - t0, 2)
+        if i == 0:
+            record["maps"] = maps  # what the smallest encoding weighs; replaced by the maps that ship
+        if cand is None:
+            if not maps:  # nothing to encode, or unreadable: the same for every encoding
+                record["reason"] = why
+                return record, None, timings
+            tried.append({"encoding": name, "reason": why})
+            continue
+        digest = hashlib.sha256(cand.glbs[lod0]).digest()
+        if digest in measured:
+            continue  # the same files as an encoding already compared (no roughness/metal map, or it stayed PNG)
+        measured.add(digest)
+        m = await measure(data, png_glb, cand.glbs[lod0], timeout)
+        timings["compare_s"] = round((timings.get("compare_s") or 0.0) + (m.pop("seconds", None) or 0.0), 2)
+        timings["page_ms"] = m.pop("page_ms", None)
+        record["measured"] = m
+        if m["passed"] is True:
+            record.update(format="webp", encoding=name, maps=maps)
+            if tried:
+                record["tried"] = tried
+            return record, cand, timings
+        if m["passed"] is None:
+            tried.append({"encoding": name, "reason": f"the frames could not be compared: {m.get('why')}"})
+            record["reason"] = (f"the frames could not be compared, so nothing lossy ships: {m.get('why')}" if i == 0
+                                else "; ".join(f"{t['encoding']}: {t['reason']}" for t in tried))
+            if i:
+                record["tried"] = tried
+            return record, None, timings
+        tried.append({"encoding": name, "reason": _outside(m)})
+    record["reason"] = "; ".join(f"{t['encoding']}: {t['reason']}" for t in tried)
+    record["tried"] = tried
+    return record, None, timings
 
 
 async def web_format(pkg: Path, data: dict[str, Any], timeout: float = 90.0) -> dict[str, Any] | None:
@@ -345,29 +451,7 @@ async def web_format(pkg: Path, data: dict[str, Any], timeout: float = 90.0) -> 
         record, cand = copy.deepcopy(_DECIDED[key][0]), _DECIDED[key][1]
         timings: dict[str, Any] = {"reused": True}
     else:
-        try:
-            cand, maps, why = await to_thread_drained(encode, pkg, data)
-        except Exception as e:  # noqa: BLE001 - an image Pillow cannot read: the package keeps what it has
-            cand, maps, why = None, [], f"encoding failed: {type(e).__name__}: {e}"[:300]
-        timings = {"reused": False, "encode_s": round(time.perf_counter() - t0, 2)}
-        record = {"format": "png", "encoder": encoder(), "method": WEBP_METHOD, "maps": maps, "rule": RULE}
-        if cand is None:
-            record["reason"] = why
-        else:
-            m = await measure(data, (pkg / lod0).read_bytes(), cand.glbs[lod0], timeout)
-            timings.update(compare_s=m.pop("seconds", None), page_ms=m.pop("page_ms", None))
-            record["measured"] = m
-            if m["passed"] is True:
-                record["format"] = "webp"
-            elif m["passed"] is None:
-                record["reason"] = f"the frames could not be compared, so nothing lossy ships: {m.get('why')}"
-            else:
-                worst = [f for f in m["frames"] if f.get("passed") is False]
-                record["reason"] = ("outside the tolerance in " + ", ".join(
-                    f"{f['view']} (mean {f['mean_abs']:.4f}, {f['pixel_share']:.2%} of the asset's pixels over "
-                    f"{m['tolerance']['pixel_delta']:.0%})" for f in worst[:3]))
-        if record["format"] != "webp":
-            cand = None
+        record, cand, timings = await _decide(pkg, data, timeout)
         if (record.get("measured") or {}).get("passed", False) is not None:  # "could not compare" is asked again next time
             _DECIDED[key] = (copy.deepcopy(record), cand)
             while len(_DECIDED) > _DECIDED_MAX:

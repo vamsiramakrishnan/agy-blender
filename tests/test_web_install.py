@@ -41,12 +41,35 @@ def _tree(root: Path) -> dict[str, str]:
 
 @pytest.fixture(scope="module")
 def crate(tmp_path_factory) -> Path:
-    """The offline crate's package, as ``agy3d prop --offline --engine web_three`` writes it."""
+    """The offline crate's package, as ``agy3d prop --offline --engine web_three`` writes it: with a browser its noise
+    maps ship as lossless WebP where that is smaller (lossy WebP changes noise visibly), without one as PNG
+    (adapters/engines/web_textures.py)."""
     from antigravity3d.cli import main
 
     out = tmp_path_factory.mktemp("crate")
     assert main(["prop", "wooden crate with iron brackets", "--offline", "--engine", "web_three", "--out", str(out)]) == 0
     (pkg,) = out.glob("runs/*/package")
+    return pkg
+
+
+@pytest.fixture(scope="module")
+def png_crate(tmp_path_factory) -> Path:
+    """The same crate with its maps left PNG, as a machine without a browser writes it (the frame comparison stubbed to
+    'could not run'): LOD0 embeds exactly the files of textures/, which ``_smooth_package`` relies on."""
+    from antigravity3d.adapters.engines import web_textures
+    from antigravity3d.cli import main
+
+    out = tmp_path_factory.mktemp("png_crate")
+
+    async def unmeasured(*a, **k):
+        return {"passed": None, "why": "stubbed for the fixture", "tolerance": {}}
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(web_textures, "measure", unmeasured)
+        web_textures._DECIDED.clear()  # the decision ``crate`` got for the same bytes in this process is not this one's
+        assert main(["prop", "wooden crate with iron brackets", "--offline", "--engine", "web_three", "--out", str(out)]) == 0
+    (pkg,) = out.glob("runs/*/package")
+    assert json.loads((pkg / "manifest.json").read_text())["web_textures"]["format"] == "png"
     return pkg
 
 
@@ -1356,8 +1379,8 @@ def test_the_ktx2_pool_is_released_after_the_nearest_level_and_a_failure_frees_w
 
 
 def _smooth_package(pkg: Path, dst: Path) -> Path:
-    """The offline crate's package with its three maps replaced by smooth ones (same sizes, same roles), consistently in
-    the textures/ files, the highest level's embedded images and the manifest's hashes. The offline crate's maps are
+    """The offline crate's PNG package (``png_crate``) with its three maps replaced by smooth ones (same sizes, same
+    roles), consistently in the textures/ files, the highest level's embedded images and the manifest's hashes. The offline crate's maps are
     noise, which a block codec cannot hold inside the frame tolerance (measured: 1.1 % of pixels over 8 % at the best
     tier); smooth maps are what a painted asset looks like to a codec, and let the compressed path be proved."""
     import io
@@ -1448,9 +1471,9 @@ def test_browser_uncompressed_install_renders_in_the_projects_own_three_and_is_t
 
 
 @pytest.mark.browser
-def test_browser_compressed_install_is_inside_the_tolerance_and_kept_on_an_unchanged_reinstall(crate, tmp_path, browser_ready):
+def test_browser_compressed_install_is_inside_the_tolerance_and_kept_on_an_unchanged_reinstall(png_crate, tmp_path, browser_ready):
     project = _fixture_project(tmp_path)
-    smooth = _smooth_package(crate, tmp_path / "smooth_pkg")
+    smooth = _smooth_package(png_crate, tmp_path / "smooth_pkg")
     r = install_package(smooth, project, compress="always")  # `always`: these 512 px maps are too small for `auto` to want it
     c = _by_name(r)
     assert r.ok and c["compression"].status == "passed", [(x.name, x.status, x.detail[:300]) for x in r.checks]
