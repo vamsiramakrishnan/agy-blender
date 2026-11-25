@@ -1,0 +1,33 @@
+{
+ "first": "run4",
+ "second": "run5",
+ "rep": 1,
+ "frames": [
+  "942e475c1cb9450d",
+  "7e55a4fe193821d2"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 keeps the active 3D stations cleanly framed to the right across frames 1-9, whereas Site 2 hides 3D objects behind the text card in frames 2, 5, and 6 and cuts off a label in frame 6."
+   },
+   "explains_the_project": {
+    "winner": "1",
+    "reason": "Site 1's linear assembly line clearly visualizes the flow from raw log compression in frame 3 to caliper line-shift anchoring in frame 6 and gated lanes in frame 8."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2's models in frames 1-9 feature richer metallic edge wear, surface shading, and grounded industrial detail than Site 1's darker, flatter geometry."
+   },
+   "type_and_layout": {
+    "winner": "tie",
+    "reason": "Both sites use clean left-aligned cards and legible typography across frames 1-9, balancing Site 1's minor button kerning typo in frame 1 against Site 2's text-box overlap in frame 6."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Site 1 better fulfills the request by delivering a cohesive, unobstructed scroll-driven 3D assembly line that clearly visualizes how Straitjacket processes and hands off agent context."
+  }
+ }
+}

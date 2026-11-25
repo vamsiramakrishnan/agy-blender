@@ -1,0 +1,33 @@
+{
+ "first": "run5",
+ "second": "run4",
+ "rep": 2,
+ "frames": [
+  "7e55a4fe193821d2",
+  "942e475c1cb9450d"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 maintains a clean linear travel along the assembly line with subjects framed to the right in frames 1 through 9, whereas Site 1 lets the left text card overlap and obscure key 3D machinery in frames 5 and 6."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2's 3D metaphors directly clarify the concepts\u2014especially the code-line bracket shifting with edits in frame 6 and the two physical gate bars across seven roller lanes in frame 8\u2014more clearly than Site 1's abstract blocks in frames 7 and 8."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2's industrial machinery features richer dark metallic materials, crisp edge wear, grounded base rails, and cohesive mechanical details across frames 1 to 9, while Site 1's cabinets in frames 5 and 6 show muddier, blotchy textures."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Both sites share a sharp dark-card layout, but Site 1 avoids typographical glitches like the missing space in Site 2's 'ONE20,001-LINE' button in frames 1 and 2 and provides descriptive section names in the top bar across all frames."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers a better-crafted, unobstructed 3D scroll journey along a linear containment bench whose visual metaphors clearly illustrate how Straitjacket compresses logs, anchors code ranges, and gates agent harnesses."
+  }
+ }
+}

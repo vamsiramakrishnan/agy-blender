@@ -1,0 +1,33 @@
+{
+ "first": "stock",
+ "second": "run5",
+ "rep": 0,
+ "frames": [
+  "57c48173e1aeb830",
+  "7e55a4fe193821d2"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 keeps its left-hand card fixed and smoothly pans across the 3D workbench from frames 1 to 9, whereas Site 1 collides text with the 3D subject in frame 1 and leaves awkward transitions and covered 3D in frames 4, 5, and 9."
+   },
+   "explains_the_project": {
+    "winner": "2",
+    "reason": "Site 2's connected factory bench\u2014tracing a massive token slab through the Capture Press, Local Store cabinet, Anchor Relocator, and host gate lanes across frames 3 to 8\u2014concretely visualizes how the tool works compared to Site 1's abstract floating rings and pods in frames 3 to 7."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "In frames 1 through 9, Site 2's industrial press, filing drawers, and machinery sit grounded with worn metal textures and contact shadows on a floor plane, while Site 1's glowing primitives in frames 1 to 8 float weightlessly in empty space."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Site 2 maintains a clean, compact left-aligned card across frames 1 to 9 that never crowds the 3D scene, whereas Site 1's hero headline overlaps the 3D logo in frame 1 and its scrolling cards clip into the top header in frames 3, 4, 5, and 8."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers a cohesive, grounded 3D mechanical workbench with smooth scroll choreography and clean layout that genuinely helps a visitor visualize how Straitjacket captures, stores, and routes evidence."
+  }
+ }
+}

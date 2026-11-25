@@ -1,0 +1,33 @@
+{
+ "first": "run5",
+ "second": "run1",
+ "rep": 2,
+ "frames": [
+  "7e55a4fe193821d2",
+  "e074b52a7a5c36c0"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "1",
+    "reason": "Site 1 keeps the active 3D workstation cleanly framed on the right across all 9 frames (with minor text-card overlap only on secondary background pieces in frames 5-6), whereas Site 2 loses its 3D subject entirely in frames 6 and 9 and clips oversized text cards across frames 2, 3, 6, and 7."
+   },
+   "explains_the_project": {
+    "winner": "1",
+    "reason": "Site 1 traces a continuous physical assembly line\u2014from the massive raw log slab entering the Capture Press (frames 3-4) into the Local Store cabinet (frame 5), Anchor Relocator (frame 7), and Host Lanes (frame 8)\u2014making the mechanics visually intuitive compared to Site 2's disconnected sci-fi props."
+   },
+   "craft_of_the_3d": {
+    "winner": "1",
+    "reason": "Site 1 grounds its weathered industrial machines on a cohesive gridded workbench with shadows and physical connecting lines across frames 1-9, while Site 2's metallic props float ungrounded in dark space with noisy particle effects in frames 1-5."
+   },
+   "type_and_layout": {
+    "winner": "1",
+    "reason": "Site 1 uses a disciplined, compact left-hand card that updates cleanly from frames 1 to 9 while leaving generous room for the 3D scene, whereas Site 2's oversized cards crowd the viewport, get sliced off at the top and bottom edges (frames 3, 6, 7), and cover the entire screen in frames 8-9."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "Site 1 delivers a cohesive, Scrolltide-style guided tour along a grounded 3D workbench where every scroll stop is cleanly composed and directly visualizes how Straitjacket processes, stores, and routes evidence."
+  }
+ }
+}

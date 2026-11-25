@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en" class="no-js">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>straitjacket — Addressable Evidence for Coding Agents</title>
+  <meta name="description" content="Straitjacket captures verbose tool output locally, emits a bounded digest with a retrieval address, and lets coding agents fetch exact evidence or hand verified work across harnesses.">
+  <script>document.documentElement.classList.replace('no-js', 'js');</script>
+  <link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+  <header class="topbar" data-bar>
+    <div class="topbar-brand">
+      <a class="wordmark" href="#intro">STRAITJACKET</a>
+      <span class="ver-badge"><span data-src="README.md">ctx-harness</span> <span data-src="README.md">v0.5.0</span></span>
+    </div>
+    <nav class="chapter-nav" aria-label="Story chapters">
+      <a href="#intro" data-nav="intro"><span>Overview</span></a>
+      <a href="#flood" data-nav="flood"><span>Flood</span></a>
+      <a href="#digest" data-nav="digest"><span>Digest</span></a>
+      <a href="#retrieve" data-nav="retrieve"><span>Store</span></a>
+      <a href="#anchors" data-nav="anchors"><span>Anchors</span></a>
+      <a href="#harnesses" data-nav="harnesses"><span>Harnesses</span></a>
+      <a href="#start" data-nav="start"><span>Start</span></a>
+    </nav>
+    <div class="topbar-actions">
+      <a class="docs-link" href="./docs/"><span>Docs &rarr;</span></a>
+    </div>
+    <div class="progress-rail" aria-hidden="true"><div class="progress-fill" id="progress-fill"></div></div>
+  </header>
+
+  <canvas id="stage" aria-hidden="true"></canvas>
+
+  <main id="story">
+    <section class="chapter" id="intro" data-chapter="intro">
+      <div class="panel panel-blue">
+        <p class="kicker">Addressable evidence · <span data-src="README.md">ctx-harness</span></p>
+        <h1>BOUND TOOL OUTPUT. KEEP THE ADDRESS.</h1>
+        <p class="lead">Straitjacket helps coding agents find the code they need and hand work to each other without forwarding raw conversations. Capture noisy runs locally, return a bounded digest, and retrieve exact lines on demand.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="#flood"><span>Follow one <span data-src="evals/field-needle-record.json#/corpus/lines">20,001</span>-line log &darr;</span></a>
+          <a class="btn btn-ghost" href="./docs/"><span>Read documentation</span></a>
+        </div>
+        <div class="receipt-foot"><span>Scroll to trace one integration log across the bench · <span data-src="README.md">Apache-2.0</span></span></div>
+        <img class="still" src="./stills/intro.webp" alt="Three-dimensional view of the Straitjacket instrument bench showing the capture press, local artifact vault, and seven host harness lanes on a calibrated dark grid." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="flood" data-chapter="flood">
+      <div class="panel panel-red">
+        <p class="kicker">01 · Evidence fates</p>
+        <h2>A RAW LOG FLOODS EVERY TURN</h2>
+        <p>One <span data-src="evals/field-needle-record.json#/corpus/lines">20,001</span>-line integration log weighs <span data-src="evals/field-needle-record.json#/corpus/raw_tokens_o200k">302,628</span> tokens (<span data-src="evals/field-needle-record.json#/corpus/bytes">1,002,594</span> B). Left raw, it stays resident in context on every later turn. Head-and-tail truncation cuts it to <span data-src="evals/field-needle-record.json#/arms/1/out_tokens">1,219</span> tokens and silently drops the quiet anomaly at line <span data-src="evals/field-needle-record.json#/corpus/quiet_needle_line">14,238</span>.</p>
+        <dl class="metrics">
+          <div>
+            <dt>Raw flood</dt>
+            <dd class="tone-red"><span><span data-src="evals/field-needle-record.json#/corpus/raw_tokens_o200k">302,628</span> tok</span></dd>
+          </div>
+          <div>
+            <dt>Head+tail trunc</dt>
+            <dd class="tone-red"><span><span data-src="evals/field-needle-record.json#/arms/1/out_tokens">1,219</span> · lost</span></dd>
+          </div>
+          <div>
+            <dt>Quiet needle</dt>
+            <dd class="tone-amber"><span>Line <span data-src="evals/field-needle-record.json#/corpus/quiet_needle_line">14,238</span></span></dd>
+          </div>
+        </dl>
+        <div class="receipt-foot"><span>Receipt: <code>evals/field-needle-record.json</code> · Slab density mirrors measured token count</span></div>
+        <img class="still" src="./stills/flood.webp" alt="Low-angle 3D view of thousands of stacked token slabs with red overflow layers queued beside the steel capture press." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="digest" data-chapter="digest">
+      <div class="panel panel-amber">
+        <p class="kicker">02 · Digest anatomy</p>
+        <h2>BOUND THE OUTPUT, KEEP THE NEEDLE</h2>
+        <p><code>ctx run</code> collapses repetitive lines into templates and returns a <span data-src="evals/field-needle-record.json#/arms/6/out_tokens">531</span>-token digest (<span data-src="evals/field-needle-2026-07-20.md">570×</span> smaller). Both loud errors and the quiet line at <span data-src="evals/field-needle-record.json#/corpus/quiet_needle_line">14,238</span> survive beside an immutable retrieval address.</p>
+        <pre class="specimen" data-src="evals/field-needle-record.json#/arms/6/output_excerpt"><code>[ctx run:8956c843e556 profile=logtemplate/v1]
+cwd: .
+command: cat corpus.log
+exit: 0
+stdout: 20,001 lines · 979.1 KiB · est 250,648 tokens</code></pre>
+        <div class="receipt-foot"><span>Receipt: <code>evals/field-needle-record.json</code> · Collapsed digest beside the quiet needle</span></div>
+        <img class="still" src="./stills/digest.webp" alt="Three-quarter view of the raw log stream feeding through the capture press and emerging as a compact blue digest stack with the amber quiet needle slab preserved on top." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="retrieve" data-chapter="retrieve">
+      <div class="panel panel-blue">
+        <p class="kicker">03 · Local store &amp; retrieval</p>
+        <h2>STORE LOCALLY, FETCH WHAT DECIDES</h2>
+        <p>Captured streams stay in a local plaintext store (default limit <span data-src="README.md">64 MiB</span> per stream; unpinned artifacts eligible for <code>ctx gc</code> after <span data-src="README.md">30 days</span>). The agent searches the handle and pulls only the lines needed for its next edit.</p>
+        <pre class="specimen"><code data-src="docs/HOW-IT-WORKS.md">ctx search run:8d8335db6848#stdout "MissingTenantError"
+ctx get run:8d8335db6848#stdout --lines 1280:1300</code></pre>
+        <div class="receipt-foot"><span>Illustrative run handle from <code>docs/HOW-IT-WORKS.md</code></span></div>
+        <img class="still" src="./stills/retrieve.webp" alt="Close view of the local artifact vault cabinet with its middle indexing drawer extended and a single blue retrieved excerpt slab lifting out along an address vector from the digest." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="anchors" data-chapter="anchors">
+      <div class="panel panel-green">
+        <p class="kicker">04 · Anchor drift</p>
+        <h2>ADDRESSES THAT SURVIVE EDITS</h2>
+        <p>Bare line numbers drift silently when a file changes. Across <span data-src="evals/anchor-drift-2026-08-20.json#/total/cases">1,920</span> post-edit lookups in <span data-src="evals/anchor-drift-2026-08-20.json#/files">40</span> files, unanchored reads returned wrong content <span data-src="evals/anchor-drift-2026-08-20.json#/total/unanchored_silently_wrong">1,918</span> times. Anchored <code>repo:</code> addresses follow moved content or refuse rewritten spans.</p>
+        <dl class="metrics">
+          <div>
+            <dt>Relocated</dt>
+            <dd class="tone-green"><span data-src="evals/anchor-drift-2026-08-20.json#/total/relocated">1,452</span></dd>
+          </div>
+          <div>
+            <dt>Verified / Refused</dt>
+            <dd class="tone-amber"><span><span data-src="evals/anchor-drift-2026-08-20.json#/total/verified">2</span> / <span data-src="evals/anchor-drift-2026-08-20.json#/total/refused">466</span></span></dd>
+          </div>
+          <div>
+            <dt>Wrong answers</dt>
+            <dd class="tone-green"><span data-src="evals/anchor-drift-2026-08-20.json#/total/anchored_wrong">0</span></dd>
+          </div>
+        </dl>
+        <div class="receipt-foot"><span>Receipt: <code>evals/anchor-drift-2026-08-20.json</code> · +<span data-src="evals/anchor-drift-2026-08-20.json#/cost/overhead_pct">20.6</span>% address chars</span></div>
+        <img class="still" src="./stills/anchors.webp" alt="View of the anchor relocator caliper showing inserted amber lines shifting source bars along the datum bed while the green anchored carriage follows them and the red unanchored marker stays stale." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="harnesses" data-chapter="harnesses">
+      <div class="panel panel-blue">
+        <p class="kicker">05 · Host lanes &amp; ACP</p>
+        <h2>SEVEN HARNESSES, EXPLICIT GATES</h2>
+        <p>Containment attaches where each host permits: a Birth Gate before execution and an Output Gate after. Any harness can also delegate steps through ACP with bounded retrieval and edit tools over MCP.</p>
+        <ul class="host-grid" aria-label="Supported coding harnesses">
+          <li><img src="./agents/claude.svg" alt="" width="18" height="18"><span>Claude</span></li>
+          <li><img src="./agents/codex.svg" alt="" width="18" height="18"><span>Codex</span></li>
+          <li><img src="./agents/antigravity.png" alt="" width="18" height="18"><span>Antigravity</span></li>
+          <li><img src="./agents/hermes.svg" alt="" width="18" height="18"><span>Hermes</span></li>
+          <li><img src="./agents/omp.svg" alt="" width="18" height="18"><span>Oh My Pi</span></li>
+          <li><img src="./agents/opencode.svg" alt="" width="18" height="18"><span>OpenCode</span></li>
+          <li><img src="./agents/dsh.svg" alt="" width="18" height="18"><span>DeepSeek</span></li>
+        </ul>
+        <div class="legend-row">
+          <span class="leg"><i class="swatch-blue"></i><span>Rewrite / replace</span></span>
+          <span class="leg"><i class="swatch-amber"></i><span>Auto / deny-retry</span></span>
+          <span class="leg"><i class="swatch-red"></i><span>No post-hook</span></span>
+        </div>
+        <div class="receipt-foot"><span>Source: <code>docs/HOST-CAPABILITIES.md</code> &amp; <code>docs/ACP.md</code></span></div>
+        <img class="still" src="./stills/harnesses.webp" alt="Top-down view of seven parallel harness lanes with color-coded Birth Gate and Output Gate barriers showing each host's containment capability." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+
+    <section class="chapter" id="start" data-chapter="start">
+      <div class="panel panel-green">
+        <p class="kicker">06 · Start here</p>
+        <h2>TRY IT ON A FAILING TEST</h2>
+        <p>Install the CLI and run a noisy test suite through <code>ctx</code>. Your harness keeps running the model, authenticating the user, and controlling its tools.</p>
+        <pre class="specimen"><code data-src="README.md">python -m pip install 'ctx-harness==0.5.0'
+ctx run -- pytest -q</code></pre>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="./docs/"><span>Open documentation &rarr;</span></a>
+          <a class="btn btn-ghost" href="#intro"><span>Replay from top &uarr;</span></a>
+        </div>
+        <div class="receipt-foot"><span>Commands from <code>README.md</code> · Python 3.11+ · <code>ctx setup &amp;&amp; ctx doctor</code></span></div>
+        <img class="still" src="./stills/start.webp" alt="Wide heroic view of the complete Straitjacket evidence bench with the capture press, artifact vault, anchor caliper, and seven harness lanes connected by calibrated floor traces." width="1280" height="800" loading="lazy">
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+{
+ "first": "run5",
+ "second": "run3",
+ "rep": 2,
+ "frames": [
+  "7e55a4fe193821d2",
+  "1dcbc54532dd39ad"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "2",
+    "reason": "Site 2 keeps each active 3D station cleanly framed to the right across frames 1-9, whereas Site 1 overlaps its text card with 3D machinery in frames 5 and 6 and clips the label in frame 6."
+   },
+   "explains_the_project": {
+    "winner": "1",
+    "reason": "Site 1 physically compresses a massive log slab through the press in frames 3-4, routes handles into open filing drawers in frame 5, and visualizes the seven harness gates in frame 8."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 features bolder, more cohesive industrial models with crisp bevels, metallic wear, and grounded floor outlines in frames 1, 6, and 8."
+   },
+   "type_and_layout": {
+    "winner": "2",
+    "reason": "Site 2 uses sharper typographic hierarchy, color-coded numerical callouts in frames 3-8, and opaque cards that never collide with focal 3D subjects."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "Site 2 delivers a cleaner, better-composed 3D scroll journey with superior model craft and unoccluded framing at every step."
+  }
+ }
+}

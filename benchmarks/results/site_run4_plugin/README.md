@@ -83,7 +83,8 @@ measures in `site_check.txt` and in the round's report are of the agent's own bu
   checks took twelve steps and named no subject out of the frame. A check at nine steps names six, at two
   positions. A finer reading shows that both are the camera on its way into a chapter (at 38 % into the vault's, at
   75 % into the manifold's): the text has changed and the picture is still arriving. The check now reads the
-  subjects between its steps and does not judge them while the page says its camera is moving.
+  subjects between its steps and does not judge them while the page says its camera is moving. (Run 5 showed that
+  excusing them is wrong where the chapter's text is up, `../site_run5_plugin/`; the check no longer does.)
 - **The look-first line was shown and followed.** Two deliveries were more than a point under their target. The
   agent opened each render in a turn of its own before it installed the prop, and went on without a second round.
 - **The check's last frame had a fault of the check's own.** At the end of the page its picture showed the first
