@@ -179,8 +179,11 @@ in the picture. A frame that needs its text to be understood goes back to the st
 Each is one instruction and its reason. The starter already does the ones marked (starter).
 
 - **Every scroll position is a composed frame.** Plan the moves between chapters as carefully as the holds: the
-  subject stays in frame during a move, and a prop leaves only when the next one is in view. Why: a visitor sees the
-  moves as much as the stops; run 1's canvas was an empty grid for a large part of the scroll between its stations.
+  subject stays in frame during a move, and a prop leaves only when the next one is in view. A chapter's text comes
+  when its shot is held, not when the move starts (starter: no panel while `info().moving`). Why: a visitor sees the
+  moves as much as the stops; run 1's canvas was an empty grid for a large part of the scroll between its stations,
+  and run 5 showed the new chapter's card over a camera half way between two stations at angles, the frame a blind
+  judge named in all six verdicts against it: a visitor stops where new text appears.
 - **The scene's whole state is a function of scroll position.** (starter) Compute everything the scene shows from
   story time T; never ease a value toward a target per frame (no `lerp` by frame time, no tween started by a trigger).
   Smooth the input (Lenis), not the state. Why: then any position can be scrubbed, reversed, linked to and
@@ -243,9 +246,11 @@ The site is done when `check_site` on the built folder reports, at both sizes:
   at one size), and no shot whose subject is hard to tell from the page; `check_site` reports these when the page
   keeps the starter's `window.__site.info().onScreen` hook, so keep it, name each shot's `subject` and register labels
   and layers with it. The check reads the subjects between the steps it photographs as well, and it does not judge a
-  subject while the page says its camera is between two shots (`info().moving`, which the starter sets). Why: run 4's
-  agent checked at twelve steps and was told of no subject out of the frame, a check at nine named six, and all six
-  were the camera on its way into a chapter. Its line "one scale throughout" under Measures is not a fault to clear
+  subject while the page says its camera is between two shots (`info().moving`, which the starter sets) unless
+  chapter text is readable there: then it names the subject and says the text is up mid-move. Why: run 4's agent
+  checked at twelve steps and was told of no subject out of the frame, a check at nine named six, and all six were the
+  camera on its way into a chapter; run 5 showed its text during the moves and the check, excusing every move, missed
+  the frame a judge named in every verdict. Its line "one scale throughout" under Measures is not a fault to clear
   but a reading of the storyboard: if it is there, the shots are all one kind;
 - draw calls, triangles, texture memory and bytes you can state and defend (each prop through the installer, no
   model above a few MB; with the starter's occlusion, which the check draws, about 95 MB of the desktop's texture
@@ -254,7 +259,8 @@ The site is done when `check_site` on the built folder reports, at both sizes:
 Look at the contact sheets yourself as well: the measures find broken frames, not ugly ones, and not a frame that
 is well composed and shows a closed box. Between looks, the page's
 own hook answers quickly: `window.__site.setProgress(T)` draws story time T, and `window.__site.info()` gives the draw
-calls, `moving` (the camera is between two shots) and `onScreen`: for each prop, layer and label (`kind`) on screen,
+calls, `moving` (the camera is between two shots; the starter shows no panel then) and `onScreen`: for each prop,
+layer and label (`kind`) on screen,
 its share of the window, its centre, its whole box (`box`, fractions of the window, below 0 or above 1 where it runs
 out of the frame) and, when the shot names one, whether it is the shot's `subject`.
 

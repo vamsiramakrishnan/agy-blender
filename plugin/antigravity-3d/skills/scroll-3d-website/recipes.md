@@ -205,6 +205,8 @@ it is the scene's only description for a reader who cannot see it.
 ## How long a chapter is
 
 A chapter must last as long as its text takes to read plus its move: about one window height of scroll for the move
-and one for every 40 words of the panel. The starter's chapters are 220 % of the window's height (the first 180 %);
-change `min-height` per chapter in the CSS when a chapter says more or less. Too short and the camera arrives after the
+and one for every 40 words of the panel. The text is shown only once the move is over (`MOVE` in `src/shots.js`, 0.35
+of each chapter after the first in the starter), so the reading time is the part after it. The starter's chapters are
+220 % of the window's height (the first 180 %); change `min-height` per chapter in the CSS when a chapter says more or
+less. Too short and the camera arrives after the
 reader has left; too long and the scroll feels stuck.

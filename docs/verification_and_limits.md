@@ -290,8 +290,13 @@ first three rows, 12 in the last three.
   size runs out before all of them are read (run 4's site: 12 to 16 of 24). A fault narrower than the spacing that
   was read can still pass unseen: on run 4's site the subject at 75 % of the scroll is cut from about 74 % to 77 %,
   and no position between the steps is that close.
-- **A camera on its way is known only from the page.** Without `info().moving` a subject the camera is still
-  travelling towards is named as cut or hidden; the skill's starter says it, a page of its own may not.
+- **A camera on its way is known only from the page, and excused only without text.** Without `info().moving` a
+  subject the camera is still travelling towards is named as cut or hidden; the skill's starter says it, a page of its
+  own may not. With it, the check still names the subject where chapter text is readable during the move, and counts
+  as chapter text only headings, paragraphs and list items over the canvas at half opacity or more outside the header,
+  nav and footer: a page that sets its chapter text in plain `div`s is read as showing none, and its moves are
+  excused. Run 4's site, which does not say `moving`, is named at its two moves (38 % and 75 %) although its frames
+  there look composed: its stations stand on one line and the camera slides along it.
 - **The subject against its ground is a distance in value, not in colour or texture.** It is measured on the 1/8-size
   canvas, so fine detail averages away, and over the one box round the subject, which takes in some of the ground
   between and around its parts.

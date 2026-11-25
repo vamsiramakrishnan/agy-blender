@@ -373,12 +373,18 @@ scale throughout", a measure), and which labels are too small to read at a step 
 counts as the shot's where it is flagged `subject: true`, or at a step that flags nothing on a page that flags other
 steps: the starter's establishing shot, which names no subject because the whole scene is its subject. A page may
 also say `moving: true` in the result of `info()` while its camera is between two shots, and `false` (or nothing)
-while it holds one. Where it says so, no subject is named as cut, hidden or too small at that position, at a step
-and between steps alike; everything else is judged as before. Run 4's site at 38 % of the scroll had the next
-chapter's text up while the camera was still travelling to that chapter's subject, and the check called the subject
-out of the frame; no visitor sees a fault in a camera on its way. A page that does not say it is judged as if it
-held its shot. The skill's starter project writes all of it. A page without `box` (only
-`share`, `x`, `y`, as pages built before it have) or without the hook gets nothing measured and nothing said about its
+while it holds one. The check does not take the page's word alone: where the page says so and no chapter text is
+readable there (fewer than 20 characters of headings, paragraphs and list items drawn over the canvas at half opacity
+or more, outside the page's header, nav and footer, measured in the page), no subject is named as cut, hidden or too
+small at that position, at a step and between steps alike. Where chapter text is up during the move, a subject cut,
+hidden or too small is named as at a held shot, and the line says why: the text is up while the camera is still on its
+way, so show the text when the shot is held, as the starter does, or finish the move first; the contact sheet marks
+such a step "text mid-move". Run 4's site at 38 % of the scroll had the next chapter's text up while the camera was
+still travelling, and its stations on one line kept that frame composed; run 5's site did the same with stations at
+angles, the check, told the camera was moving, said nothing at 62 %, and a blind judge named that frame in all six
+verdicts against it. A page that does not say `moving` is judged as if it held its shot. The skill's starter
+project writes all of it, and shows no chapter text while its camera moves. A page without `box` (only `share`, `x`,
+`y`, as pages built before it have) or without the hook gets nothing measured and nothing said about its
 subjects. The hook is the page's code and is not trusted: at most 64 subjects are read, names are cut to 80
 characters, every number is checked, and a hook that throws or does not answer within 0.5 s leaves the step without
 the measure. For each subject with a box, at the moment the step's frame is taken:

@@ -224,7 +224,9 @@ Lenis scroll and drive Lenis from GSAP's ticker so both move on the same frame. 
 from a resize handler of your own: ScrollTrigger refreshes on resize by itself, and on a touch-only device it skips a
 resize that keeps the width and changes the height by less than a quarter, which is the address bar sliding (gsap
 3.15.1, `_onResize` in `ScrollTrigger.js`). Run 2 refreshed on every resize and undid that. Call it only after a
-layout change it cannot see, such as content your script added.
+layout change it cannot see, such as content your script added. The starter shows a chapter's panel only once its
+camera has arrived (`MOVE` of the chapter past its top, `src/shots.js`): a stagger that plays before then plays on a
+hidden panel, so on the starter start it there, `start: () => 'top+=' + MOVE * chapter.offsetHeight + ' top'`.
 
 ```js
 // example: gsap-scrolltrigger
