@@ -151,6 +151,11 @@ SUBJECTS_READ = 64
 #: (benchmarks/results/site_run4_plugin), which does not say when its camera moves, 256 to 565 everywhere. Its top bar
 #: (a header or nav) and the labels drawn in the scene count 0. 20 characters is a short heading.
 TEXT_READABLE = 20
+#: What a finding at such a position says after its numbers: in full at the first one of an answer, in a few words at
+#: the others (``noticed``). The check's first answer on run 5's site said the sentence seven times.
+TEXT_IN_MOVE = (" There the chapter's text is up while the camera is still on its way to the chapter's shot: show the "
+                "text when the shot is held, as the skill's starter does, or finish the move first.")
+TEXT_IN_MOVE_AGAIN = " The text is up mid-move there too."
 #: When a subject is reported as cut by the frame's edge or hidden under the page's HTML. Shares are of the subject's
 #: projected box: "cut" is the part of the box outside the window, "hidden" the part of what is inside that lies under
 #: an element a visitor cannot see through (background alpha times opacity at least site_probe.js's COVER_ALPHA, 0.6,
@@ -451,6 +456,12 @@ class SiteReport:
         w = self.nowebgl_line()
         if w and not w[1]:
             out.append(w[0])
+        told = False
+        for i, line in enumerate(out):  # the reason for a finding in a move with the text up: once in full
+            if TEXT_IN_MOVE in line:
+                if told:
+                    out[i] = line.replace(TEXT_IN_MOVE, TEXT_IN_MOVE_AGAIN)
+                told = True
         return out
 
     def subject_lines(self, v: Visit) -> list[str]:
@@ -492,9 +503,7 @@ class SiteReport:
                 parts.append(f"is in the frame where the shot is about it, but too small to read {at}: make it "
                              "larger there or frame it closer")
             look = _rel(_look_frame(f["look"], v), self.out_dir)
-            why = (" There the chapter's text is up while the camera is still on its way to the chapter's shot: show "
-                   "the text when the shot is held, as the skill's starter does, or finish the move first."
-                   if f["text_in_move"] else "")
+            why = TEXT_IN_MOVE if f["text_in_move"] else ""
             out.append(f"{size}: {what} " + "; it ".join(parts) + f".{why} Look at {look}.")
         rest = found[SUBJECT_LINES:]
         if rest:

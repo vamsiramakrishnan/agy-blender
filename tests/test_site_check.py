@@ -1334,6 +1334,16 @@ def test_a_fault_found_between_the_steps_is_one_finding_with_its_stretch_of_the_
         "the photographed steps (at worst 50% of it outside, at 75%). There the chapter's text is up while the "
         "camera is still on its way to the chapter's shot: show the text when the shot is held, as the skill's "
         "starter does, or finish the move first. Look at desktop_x1.jpg."]
+    # a second subject cut at the same positions is told so in a few words: the reason is said once in an answer (the
+    # check's first answer on run 5's site said the sentence seven times)
+    for st in v.between:
+        if st.share in rows:
+            x0 = st.subjects[0]["box"][0]
+            st.subjects.append({**st.subjects[0], **_box("tag", [x0, 0.3, x0 + 0.4, 0.7], cut=st.subjects[0]["cut"]),
+                                "edges": st.subjects[0]["edges"], "moving": True, "text_up": True})
+    both = [n for n in rep.noticed() if "runs out" in n]
+    assert len(both) == 2 and sc.TEXT_IN_MOVE in both[0] and sc.TEXT_IN_MOVE not in both[1], both
+    assert sc.TEXT_IN_MOVE_AGAIN in both[1] and "".join(rep.noticed()).count(sc.TEXT_IN_MOVE) == 1
 
 
 def _travel(tmp_path: Path, mode: str) -> sc.SiteReport:
