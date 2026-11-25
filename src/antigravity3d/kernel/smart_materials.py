@@ -90,7 +90,7 @@ _W = {
     "fabric": r"felt|cotton|wool|fabric|cloth|canvas|leather|woven|linen|denim|velvet|suede|webbing",
     "glass": r"glass|crystal",
 }
-_WEAR = [  # (pattern, wear) the strongest match wins
+_WEAR = [  # (pattern, wear) the strongest match wins, but for a light qualifier (_LIGHT_WEAR, below)
     (r"new|pristine|clean|factory|mint|fresh", 0.12),
     (r"polished|smooth|satin|glossy|gloss", 0.2),
     (r"light(?:ly)?\s+(?:edge\s+)?wear|subtle\s+wear|slight(?:ly)?|light\s+field\s+scuffs?|lightly", 0.3),
@@ -98,6 +98,11 @@ _WEAR = [  # (pattern, wear) the strongest match wins
     (r"weathered|chipped|peeling|battered|rusty|rusted|oxidi[sz]ed|beaten|distressed", 0.72),
     (r"heavily|battle|wrecked|derelict|abandoned", 0.92),
 ]
+#: A light qualifier takes the word it stands with down a step: "lightly scuffed" is less than "scuffed", "lightly
+#: rusted" less than "rusted". With the strongest match alone the 0.3 row could not win against the word it qualifies,
+#: its own examples included ("light edge wear" and "light field scuffs" read 0.5). Run 5 of the website task wrote
+#: "brushed machined aluminum, lightly scuffed" for three props and got the wear of "worn".
+_LIGHT_WEAR = {0.5: 0.3, 0.72: 0.5}
 _DIRT_WORDS = [
     (r"clean|new|pristine|polished", 0.15),
     (r"grime|grimy|dusty|field|dirty|soot|charred|oily|oiled", 0.55),
@@ -178,6 +183,8 @@ def classify(m: Any, brief: str = "") -> Classification:
     hits = [(w, re.search(rf"\b(?:{p})\b", text).group(0)) for p, w in _WEAR if re.search(rf"\b(?:{p})\b", text)]
     if hits:
         w, word = max(hits)
+        if any(x == 0.3 for x, _ in hits):
+            w = _LIGHT_WEAR.get(w, w)
         wear = w
         words.append(word)
     bw = brief_wear(brief) if cls not in ("glass",) else None
@@ -848,10 +855,17 @@ def paint_material(cls: Classification, m: Any, masks: mm.MaskSet, meshes: Mappi
             h = h + w.height * 0.3
         layer = Layer(col, rough, metal, h)
     elif k in ("bare_metal", "cast_metal", "brass"):
-        col = var(0.0, 0.05) * (1.0 + 0.22 * _stretched(c.n_large))[:, None]
+        # Sheet and machined metal is even across a panel, as paint is (above): what varies gathers at edges (polish)
+        # and in creases (tarnish), below. Run 5 of the website task was the first with metal panels half a metre
+        # wide (a cabinet's drawer fronts in brushed aluminium): the slow terms were +/-11 % of colour and +/-0.07 of
+        # roughness with +/-0.04 at the middle scale, which measured +/-5.8 % and a roughness of 0.25 to 0.46 over
+        # one top panel (4 cm cells, 5th to 95th percentile), and the blind judge called the cabinet's textures
+        # "blotchy distressed". With the terms below the same panel is +/-2.3 % and 0.31 to 0.39. On a latch or a
+        # handle, smaller than one 40 cm cell of the slow noise, the old terms only shifted the whole part's tone.
+        col = var(0.0, 0.05) * (1.0 + 0.06 * _stretched(c.n_large))[:, None]
         # bare metal sits a little glossier than its authored roughness, so latches, guards and handles separate from
         # the paint beside them (the blind judge preferred the stock crate's "metallic material separation")
-        rough = R0 - 0.06 + 0.14 * _stretched(c.n_large) + 0.08 * _stretched(c.n_mid) + 0.04 * (c.n_fine - 0.5)
+        rough = R0 - 0.06 + 0.04 * _stretched(c.n_large) + 0.04 * _stretched(c.n_mid) + 0.04 * (c.n_fine - 0.5)
         metal = np.full(N, class_metal(k, M0), np.float32)   # bare steel, iron and brass are metal
         h = micro.copy()
         if "brushed" in feats and c.texel_m < 2e-3:
