@@ -119,3 +119,12 @@ def test_stories_are_judged_beat_by_beat_on_criteria_of_their_own(tmp_path):
 def test_a_call_is_sized_from_the_frames_it_shows():
     assert sc.call_tokens([9, 9]) == sc.TOKENS_PER_CALL, "two sites of nine frames: as before"
     assert sc.call_tokens([48, 30, 12]) == 78 * sc.TOKENS_PER_FRAME + 12_000, "the two longest stories meet in some call"
+
+
+def test_the_frames_of_a_long_story_are_in_beat_order_not_in_name_order(tmp_path):
+    d = tmp_path / "long"
+    d.mkdir()
+    for order in (0, 9, 20, 99, 100, 131):  # a story of more than 100 beats is sampled; its frames keep their beat's number
+        Image.new("RGB", (64, 40), (order, 0, 0)).save(d / f"desktop_b{order:02d}.jpg")
+    assert [p.name for p in sc.frames(d, kind="story")] == ["desktop_b00.jpg", "desktop_b09.jpg", "desktop_b20.jpg", "desktop_b99.jpg",
+                                                           "desktop_b100.jpg", "desktop_b131.jpg"]

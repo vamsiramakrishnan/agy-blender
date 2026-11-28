@@ -99,7 +99,9 @@ def frames(folder: Path, size: str = "desktop", kind: str = "site") -> list[Path
     """The site check's frames of one size, in scroll order (``desktop_00.jpg`` ...; not the canvas-only frames); for
     a story its beats in order (``desktop_b00.jpg`` ...)."""
     name = KINDS[kind]["frame"].format(size=size)
-    found = sorted(p for p in Path(folder).glob(f"{size}_*.jpg") if re.fullmatch(name, p.name))
+    # by the number in the name, not by the name: the check pads to two digits, so beat 100 would sort before beat 20
+    found = sorted((p for p in Path(folder).glob(f"{size}_*.jpg") if re.fullmatch(name, p.name)),
+                   key=lambda p: int(re.search(r"(\d+)\.jpg$", p.name).group(1)))
     if len(found) < 2:
         raise SystemExit(f"{folder} holds no {size} frames of a {KINDS[kind]['what']} check ({name})")
     return found
