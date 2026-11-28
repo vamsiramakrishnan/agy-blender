@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Keeper: a short film</title>
+  <meta name="description" content="A lighthouse keeper, a light at sea, and what came ashore: a short film in three small sets.">
+  <link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+  <header class="strip">
+    <span class="mark">Keeper</span>
+    <!-- "Scene 2 of 5": main.js writes it as text, so it is read and checked like any other text. -->
+    <span class="count" id="count"></span>
+  </header>
+
+  <!-- The picture: decorative for assistive technology, the article below says everything. -->
+  <main class="picture" id="picture">
+    <canvas id="stage" aria-hidden="true"></canvas>
+    <p class="loading" id="loading" role="status"></p>
+  </main>
+
+  <!-- Shown only when the film cannot play here (main.js, articleOnly): the article is then the whole page. -->
+  <p class="note" id="note" hidden>This browser cannot show the film's pictures, so here is its text.</p>
+
+  <!-- The story's text. One section per scene, in film order; data-scene is the id src/scenes/<id>.js keys on. One
+       data-beat per beat, in order, with one or two lines. Script never changes this text: the film shows it as the
+       caption (caption.js), and without WebGL the page reads as this article. A beat may carry a speaker's note
+       (aside data-notes, never in the caption) and may set its lines over the picture (data-place="over"). -->
+  <article id="story" aria-live="polite">
+    <section data-scene="title">
+      <h2>Keeper</h2>
+      <div data-beat data-place="over">
+        <p>A short film in three small sets.</p>
+        <p>Press the right arrow, or tap the picture.</p>
+        <aside data-notes>Wait for the beam to cross the card before the first click.</aside>
+      </div>
+    </section>
+
+    <section data-scene="tower">
+      <h2>The light</h2>
+      <div data-beat>
+        <p>The light went round every nine seconds. It had done so for sixty years.</p>
+      </div>
+      <div data-beat>
+        <p>Tonight something out there answered it.</p>
+      </div>
+    </section>
+
+    <section data-scene="room">
+      <h2>The lamp room</h2>
+      <div data-beat>
+        <p>He wrote it in the log the way he wrote everything: time, bearing, weather.</p>
+      </div>
+      <div data-beat>
+        <p>Then he did the one thing the job allowed. He kept the light turning.</p>
+      </div>
+    </section>
+
+    <section data-scene="shore">
+      <h2>Morning</h2>
+      <div data-beat>
+        <p>By morning the answer had come ashore.</p>
+      </div>
+      <div data-beat>
+        <p>Nobody had asked for anything. Somebody had seen the light and steered by it.</p>
+      </div>
+    </section>
+
+    <section data-scene="end">
+      <h2>End</h2>
+      <div data-beat>
+        <p>Three sets, a few boxes and cylinders, two lights.</p>
+        <p>The rest is where the light falls.</p>
+      </div>
+    </section>
+  </article>
+
+  <nav class="controls" aria-label="Film">
+    <button type="button" id="back">Back</button>
+    <button type="button" id="auto" aria-pressed="false">Auto</button>
+    <button type="button" id="next">Next</button>
+  </nav>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

@@ -90,8 +90,9 @@ def test_bundle_layout_follows_plugin_docs():
     # install-into-project: delivery into the user's game project (agy3d install), separate from engine-truth-verify,
     # which exports and verifies a package on its own
     # scroll-3d-website: a scroll-driven 3D site around the props (round eight; no skill covered it in run 1)
+    # story-slides-3d: a film or a talk told beat by beat in a fixed frame (scenes, beats, one treatment, cuts)
     assert skills == ["art-direction", "concept-to-blueprint", "engine-truth-verify", "game-ready-sanitizer", "install-into-project",
-                      "parametric-kitbash", "pbr-material-forge", "scroll-3d-website"]
+                      "parametric-kitbash", "pbr-material-forge", "scroll-3d-website", "story-slides-3d"]
     sidecars = sorted(p.name for p in (BUNDLE / "sidecars").iterdir())
     # no inspector sidecar: the studio MCP server serves the inspector as an MCP App
     assert sidecars == ["blender_pool", "depot_watcher", "nightly_variant_factory", "weekly_distill"]

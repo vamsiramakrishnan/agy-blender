@@ -7,15 +7,15 @@ description: >-
   loader, and shaders, smooth scrolling and effects from current web libraries
   (GSAP, Lenis, postprocessing, React Three Fiber). Gives the order of work
   (storyboard, page and scene from a tested starter, props, a look with
-  check_site, revision), what makes a site scroll beautifully and a guide to
-  the libraries with checked examples. Use when
+  check_site, revision), what makes a site scroll beautifully and a library
+  guide with checked examples. Use when
   the user asks to generate, build, design or improve a website, web page,
   landing page or scrollytelling explainer, says it should scroll beautifully,
   or names three.js, WebGL or shaders for a site, also when it asks for 3D
   models: read it before modelling for the site. Not for
-  modelling one prop on its own (use parametric-kitbash) or for putting a
-  finished package into a game or app that already exists (use
-  install-into-project).
+  one prop alone (use parametric-kitbash), slides or a film told beat by beat
+  (use story-slides-3d) or a finished package going into an existing game or
+  app (use install-into-project).
 ---
 
 # Scroll-driven 3D website

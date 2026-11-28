@@ -549,5 +549,58 @@
     ],
     "kind": "combo",
     "notes": "site plus its main prop"
+  },
+  {
+    "id": "story-slides-3d.s1",
+    "prompt": "make a short film in three.js that tells how our tool works, scene by scene, each scene a small 3d set with a line of narration, printed in ascii characters like a noir",
+    "expected": [
+      "story-slides-3d"
+    ],
+    "kind": "should",
+    "notes": "the owner's ask for stories like their two references, as one request"
+  },
+  {
+    "id": "story-slides-3d.s2",
+    "prompt": "i'm giving a talk next week, build me a deck that runs in the browser where every slide is a 3d scene and the arrow key plays the next beat",
+    "expected": [
+      "story-slides-3d"
+    ],
+    "kind": "should",
+    "notes": "a talk; no library named"
+  },
+  {
+    "id": "story-slides-3d.s3",
+    "prompt": "the animated explainer has five scenes but nothing happens in them and every transition is the same fade, give it a story and cuts that belong to it",
+    "expected": [
+      "story-slides-3d"
+    ],
+    "kind": "should",
+    "notes": "improving an existing film"
+  },
+  {
+    "id": "story-slides-3d.nm",
+    "prompt": "make our landing page tell the product's story as you scroll down, with the 3d model turning as each section comes in",
+    "expected": [
+      "scroll-3d-website"
+    ],
+    "kind": "near-miss",
+    "notes": "shares story and 3D; a scrolling page, not a film"
+  },
+  {
+    "id": "story-slides-3d.nm.h1",
+    "prompt": "write me a two minute noir short story about a detective who gets a phone call at four in the morning",
+    "expected": [],
+    "kind": "near-miss",
+    "notes": "a story with no picture and no browser"
+  },
+  {
+    "id": "combo.06",
+    "prompt": "make a short 3d film about our espresso machine, five scenes, and in the third the camera comes close to a model of the machine itself",
+    "expected": [
+      "story-slides-3d",
+      "parametric-kitbash"
+    ],
+    "kind": "combo",
+    "notes": "film plus the one prop it needs"
   }
 ]

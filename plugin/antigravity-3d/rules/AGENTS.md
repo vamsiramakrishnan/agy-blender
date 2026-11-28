@@ -39,6 +39,12 @@ A request for a website, web page, landing page or scroll-driven 3D explainer
 needs, when to build them and how they reach the page. Its props are then built
 by the short path below.
 
+A request for a story, a short film, an animated explainer, a title sequence,
+a talk or a slide deck told scene by scene in three.js or WebGL (a fixed frame
+the viewer steps through, not a page that scrolls) goes to the skill
+`story-slides-3d` first, before any modelling: its sets are boxes and light, and it
+says when one prop is worth building.
+
 ## The short path
 
 Every model call sends the whole conversation so far, so the number of calls

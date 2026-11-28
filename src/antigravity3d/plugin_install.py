@@ -139,6 +139,8 @@ AUTHORING_FILE = "authoring"  # one line, "script", read by the hook scripts (ho
 # apply_scene_ir, set_stage and generate_lods_and_colliders).
 # scroll-3d-website stays: its own steps are deliver_package, install_into_project and check_site, which both modes
 # serve, and it sends the modelling to parametric-kitbash, which this mode replaces with the script page.
+# story-slides-3d stays as well: its sets are code in the page, its check is check_site, and the one prop a film may
+# want goes the way the scroll skill describes.
 SCRIPT_MODE_DROPPED_SKILLS = ("pbr-material-forge", "engine-truth-verify", "concept-to-blueprint", "game-ready-sanitizer")
 
 

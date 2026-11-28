@@ -61,10 +61,12 @@ judge = _load("gemini_judge")
 # --------------------------------------------------------------------------- format
 
 
-def test_the_eight_skills_are_found() -> None:
+def test_the_nine_skills_are_found() -> None:
     # scroll-3d-website (round eight): building a scroll-driven 3D site around the props, which no skill covered in run 1
+    # story-slides-3d: a film or a talk told beat by beat in a fixed frame, which a scrolling page does not cover
     assert NAMES == {"art-direction", "concept-to-blueprint", "engine-truth-verify", "game-ready-sanitizer",
-                     "install-into-project", "parametric-kitbash", "pbr-material-forge", "scroll-3d-website"}
+                     "install-into-project", "parametric-kitbash", "pbr-material-forge", "scroll-3d-website",
+                     "story-slides-3d"}
 
 
 @pytest.mark.parametrize("skill", SKILL_DIRS, ids=lambda p: p.name)
