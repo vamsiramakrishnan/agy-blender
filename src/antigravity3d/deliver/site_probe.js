@@ -219,6 +219,12 @@
   const blockOf = new Map();
   const blocking = (el) => {
     if (blockOf.has(el)) return blockOf.get(el);
+    const b = backgroundAlpha(el) * chainOpacity(el);
+    blockOf.set(el, b);
+    return b;
+  };
+  // The alpha of what an element paints behind its content: its background colour's, or 1 with a backdrop blur.
+  const backgroundAlpha = (el) => {
     const cs = getComputedStyle(el);
     // Chromium gives rgb()/rgba() for most colours, but keeps color(), oklch() and the like as written, alpha after '/'
     const bg = (cs.backgroundColor || '').trim();
@@ -229,9 +235,7 @@
     else a = alpha((/\/\s*([\d.]+%?)\s*\)$/.exec(bg) || [])[1]);
     if (!Number.isFinite(a)) a = 0;
     if (cs.backdropFilter && cs.backdropFilter !== 'none' && /blur/.test(cs.backdropFilter)) a = 1;
-    const b = a * chainOpacity(el);
-    blockOf.set(el, b);
-    return b;
+    return a;
   };
   const refCanvas = () => {
     let best = null;
@@ -389,6 +393,10 @@
   const STALLED_POLLS = 5;
   S.readBetween = async (capMs) => {
     await S.afterFrames(2);
+    await transitionsOver(capMs);
+    return S.subjects();
+  };
+  const transitionsOver = async (capMs) => {
     const t0 = pnow();
     let stalled = 0;
     for (;;) {
@@ -401,7 +409,161 @@
       stalled = running.every((a, i) => a.currentTime === before[i]) ? stalled + 1 : 0;
       if (stalled >= STALLED_POLLS) for (const a of running) { try { a.finish(); } catch (e) {} }
     }
-    return S.subjects();
+  };
+
+  // ---- chapter text faded or missing in a card that is up (site_check.py, faded_findings)
+  // Run 6's agent tied the opacity of each line of a chapter's card to the scroll position (a GSAP scrub): a visitor
+  // who stopped in the stretch after the card came up read a card whose lines were part way (0.76, 0.41, 0.05 ...) or
+  // not drawn at all (0.01 from 35 % to 64 % of the last chapter), and the nine photographed steps missed it. A blind
+  // judge preferred the other site in six of six verdicts, twice, for that card alone. S.fadedText() reads, at every
+  // settled position of a visit, each text node of a heading, paragraph or list item in the window (outside header,
+  // nav and footer, as chapterText) with its chain of opacities, and its card: the nearest element around its block
+  // that paints a background (alpha over CARD_BG), not <body> or <html> and not one that fills the window (a backdrop),
+  // which is up at CARD_UP or more of its own chain and in the window. Only text in a card that is up is ever judged:
+  // text drawn straight on the scene that fades with the scroll (a title leaving the first screen, the steps of a list
+  // dimmed while another is read) is a design, and a card that is up is a promise of text to read.
+  // Whether a node is faded is judged against the fullest opacity it is seen at anywhere in the visit (best), which is
+  // known only at the end: every read is logged, and S.fadedReport() judges them all at once. A node is faded at a read
+  // when its card is up, it is drawn somewhere at TEXT_SHOWN or more (text never drawn fuller than that is dim by
+  // design, or never meant to be read: another fault, not named here), and here it is under TEXT_FADE of its best;
+  // it is whole at TEXT_WHOLE of its best or more. Identity across reads is the node object itself, so a document
+  // replaced by a navigation starts a new log (fadedDoc tells the check).
+  const TEXT_FAINT = 0.1, TEXT_FADE = 0.75, TEXT_WHOLE = 0.9, TEXT_SHOWN = 0.5;
+  const CARD_BG = 0.1, CARD_UP = 0.9, CARD_MAX = 0.9;
+  // A read must be of a page at rest: after a jump a timed entrance may still be playing, a CSS transition (the
+  // starter's panels cross-fade in 0.4 s) or a JS tween that sets inline styles every frame (the plugin's guide shows a
+  // 0.6 s staggered entrance played once when a card comes up), and S.readBetween waits for CSS transitions only.
+  // Where a card that is up holds a line that is not whole at first look, the read looks again, REST_LOOK_MS and one
+  // animation frame later (a page that draws once a second would show two equal looks with no frame between them),
+  // until two looks agree to REST_SAME, for at most REST_MS; a read still changing then is logged as unsettled and
+  // judged nowhere. Where every line of every card that is up is whole, nothing waits. Not told apart from rest: an
+  // entrance that holds every line still for longer than REST_LOOK_MS before it starts (a delay of its own); the
+  // guide's staggers its lines, so one of them is always moving until the last is whole.
+  const REST_MS = 1500, REST_LOOK_MS = 100, REST_SAME = 0.02, REST_FRAME_MS = 500, FADED_READS = 256;
+  const fadedSeen = new WeakMap();  // Text -> { group, best }
+  const fadedLog = [];
+  const fadedDoc = Math.random().toString(36).slice(2);
+  const groupOf = (el) => {
+    const ch = el.closest('[data-chapter]');
+    if (ch) return { kind: 'chapter', name: String(ch.getAttribute('data-chapter')).slice(0, NAME_CHARS) };
+    const sec = el.closest('section[id],article[id]');
+    if (sec) return { kind: 'section', name: String(sec.id).slice(0, NAME_CHARS) };
+    return { kind: 'page', name: '' };
+  };
+  const fadedLook = () => {
+    const W = innerWidth, H = innerHeight, items = [];
+    if (!document.body) return items;
+    opacityOf.clear();
+    const cards = new Map();
+    const cardOf = (block) => {
+      if (cards.has(block)) return cards.get(block);
+      let card = null;
+      for (let e = block.parentElement; e && e !== document.body && e !== document.documentElement; e = e.parentElement) {
+        if (!(backgroundAlpha(e) > CARD_BG)) continue;
+        const r = e.getBoundingClientRect();
+        if (r.width * r.height >= CARD_MAX * W * H) break;
+        const x0 = Math.max(0, r.left), y0 = Math.max(0, r.top), x1 = Math.min(W, r.right), y1 = Math.min(H, r.bottom);
+        const shown = x1 > x0 && y1 > y0 && getComputedStyle(e).visibility === 'visible';
+        card = { up: shown && chainOpacity(e) >= CARD_UP, x0, y0, x1, y1 };
+        break;
+      }
+      cards.set(block, card);
+      return card;
+    };
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    let seen = 0;
+    for (let t = walker.nextNode(); t && seen < TEXT_NODES; t = walker.nextNode()) {
+      seen++;
+      const chars = t.data.replace(/\s+/g, '').length;
+      const el = t.parentElement;
+      if (!chars || !el) continue;
+      const block = el.closest(TEXT_BLOCKS);
+      if (!block || block.closest('header,nav,footer')) continue;
+      range.selectNodeContents(t);
+      const b = range.getBoundingClientRect();
+      if (b.width < 1 || b.height < 1) continue;
+      // what of the line is in the window, and inside its card (a card that scrolls its own text shows only part)
+      const card = cardOf(block);
+      const x0 = Math.max(0, card ? card.x0 : 0), y0 = Math.max(0, card ? card.y0 : 0);
+      const x1 = Math.min(W, card ? card.x1 : W), y1 = Math.min(H, card ? card.y1 : H);
+      const ix = Math.min(b.right, x1) - Math.max(b.left, x0), iy = Math.min(b.bottom, y1) - Math.max(b.top, y0);
+      if (ix <= 0 || iy <= 0) continue;
+      const o = getComputedStyle(el).visibility === 'visible' ? chainOpacity(el) : 0;
+      let rec = fadedSeen.get(t);
+      if (!rec) { rec = { group: groupOf(block), best: 0 }; fadedSeen.set(t, rec); }
+      items.push({ rec, o, n: chars * (ix * iy) / (b.width * b.height), up: !!(card && card.up) });
+    }
+    return items;
+  };
+  const restless = (items) => items.some((it) => it.up && it.o < 1 - REST_SAME);
+  const sameLook = (a, b) => a.length === b.length
+    && a.every((it, i) => it.rec === b[i].rec && it.up === b[i].up && Math.abs(it.o - b[i].o) <= REST_SAME);
+  S.fadedText = async () => {
+    try {
+      if (fadedLog.length >= FADED_READS) return { doc: fadedDoc, read: null };
+      let items = fadedLook(), settled = true;
+      const t0 = pnow();
+      if (restless(items)) {
+        settled = false;
+        while (pnow() - t0 < REST_MS) {
+          await new Promise((r) => setTimeout(r, REST_LOOK_MS));
+          await late(S.afterFrames(1), REST_FRAME_MS);
+          const next = fadedLook();
+          const same = sameLook(items, next);
+          items = next;
+          if (same) { settled = true; break; }
+        }
+      }
+      for (const it of items) if (it.o > it.rec.best) it.rec.best = it.o;
+      fadedLog.push({ settled, items: items.map((it) => [it.rec, it.o, it.n, it.up]) });
+      return { doc: fadedDoc, read: fadedLog.length - 1, settled, waited_ms: Math.round(pnow() - t0) };
+    } catch (e) { return { doc: fadedDoc, read: null, why: String((e && e.message) || e).slice(0, 120) }; }
+  };
+  // Per read: settled, and for each group with text faded there by the final measure its characters faded or missing
+  // (faded), whole (whole), all its text in the window that is drawn or in a card that is up (total), and the lowest
+  // opacity of what is faded (low). Characters count by the share of each line's box in the window (as chapterText).
+  S.fadedReport = () => {
+    const r2 = (v) => Math.round(v * 100) / 100;
+    const reads = fadedLog.map(({ settled, items }) => {
+      const groups = new Map();
+      for (const [rec, o, n, up] of items) {
+        if (o < TEXT_FAINT && !up) continue;  // neither drawn nor meant to be read here
+        const key = rec.group.kind + ':' + rec.group.name;
+        let g = groups.get(key);
+        if (!g) { g = { kind: rec.group.kind, group: rec.group.name, faded: 0, whole: 0, total: 0, low: 1 }; groups.set(key, g); }
+        g.total += n;
+        if (up && rec.best >= TEXT_SHOWN && o < TEXT_FADE * rec.best) { g.faded += n; g.low = Math.min(g.low, o); }
+        else if (o >= TEXT_FAINT && o >= TEXT_WHOLE * rec.best) g.whole += n;
+      }
+      const out = [...groups.values()].filter((g) => g.faded > 0)
+        .map((g) => ({ ...g, faded: Math.round(g.faded), whole: Math.round(g.whole), total: Math.round(g.total), low: r2(g.low) }));
+      return { settled, groups: out };
+    });
+    return { doc: fadedDoc, reads };
+  };
+  // The text pass (site_check.py, _Visitor.text_pass): the chapter text alone at many more positions than the
+  // pictures need. Run 6's faded stretches are 2.7 % of the scroll wide in four chapters (5.9 % in the last); the pass
+  // between the steps reads every 1/32 at best, and on run 6's page, whose frame takes about a second in software, it
+  // read 7 to 9 of its 24 positions in its 20 s. A read of the text needs the page's frames (scroll libraries and
+  // tweens advance in them) but not its picture, so while S.quiet is set the WebGL draw calls are not passed on: the
+  // page runs all its own code, and only the drawing is left out. Measured on run 6's page at 40 positions: 1.9 s a
+  // read drawing, 0.07 s without. Nothing is photographed while it is set. 66 ms after a jump the starter's 0.4 s
+  // cross-fade has the new card at a third of its opacity, so a read first ends the CSS transitions that are running
+  // (finish(): their end state at once, transitionend fired as it would be) rather than waiting for them as
+  // S.readBetween does: what is read is what a visitor who stops here sees once they are over, and the starter's
+  // check took 5 s longer with the waits (65 s to 75 s for its checks at 9 and 12 steps). A JS entrance that follows
+  // is waited for by S.fadedText.
+  S.quiet = false;
+  S.quietDraws = (on) => { S.quiet = !!on; return S.quiet; };
+  S.readText = async () => {
+    await late(S.afterFrames(2), REST_MS);
+    try {
+      for (const a of document.getAnimations()) {
+        if (a instanceof CSSTransition && a.playState === 'running') { try { a.finish(); } catch (e) {} }
+      }
+    } catch (e) {}
+    return S.fadedText();
   };
 
   // ---- stills for the page without WebGL: window.__site.chapters() -> [{ id, rest }], drawn with setProgress(rest)
@@ -635,13 +797,20 @@
     if (typeof f !== 'function') return;
     proto[name] = function (...a) { const r = f.apply(this, a); try { after.call(this, a, r); } catch (e) {} return r; };
   };
+  // a draw call: counted, and left out while S.quiet is set (the text pass, which needs the page's frames, not its
+  // picture); a draw call returns nothing, so leaving one out changes nothing the page's code can see but the pixels
+  const wrapDraw = (proto, name, after) => {
+    const f = proto[name];
+    if (typeof f !== 'function') return;
+    proto[name] = function (...a) { if (S.quiet) return undefined; const r = f.apply(this, a); try { after.call(this, a, r); } catch (e) {} return r; };
+  };
   const wrapContext = (proto) => {
     if (!proto) return;
-    wrap(proto, 'drawArrays', (a) => draw(a[0], a[2], 1));
-    wrap(proto, 'drawElements', (a) => draw(a[0], a[1], 1));
-    wrap(proto, 'drawRangeElements', (a) => draw(a[0], a[3], 1));
-    wrap(proto, 'drawArraysInstanced', (a) => draw(a[0], a[2], a[3]));
-    wrap(proto, 'drawElementsInstanced', (a) => draw(a[0], a[1], a[4]));
+    wrapDraw(proto, 'drawArrays', (a) => draw(a[0], a[2], 1));
+    wrapDraw(proto, 'drawElements', (a) => draw(a[0], a[1], 1));
+    wrapDraw(proto, 'drawRangeElements', (a) => draw(a[0], a[3], 1));
+    wrapDraw(proto, 'drawArraysInstanced', (a) => draw(a[0], a[2], a[3]));
+    wrapDraw(proto, 'drawElementsInstanced', (a) => draw(a[0], a[1], a[4]));
     wrap(proto, 'activeTexture', function (a) { state(this).unit = a[0]; });
     wrap(proto, 'bindTexture', function (a) { state(this).bound[state(this).unit + ':' + a[0]] = a[1]; });
     wrap(proto, 'deleteTexture', (a) => { S.textures.delete(a[0]); });
@@ -681,15 +850,15 @@
       if (!ext || ext.__agyWrapped) return;
       ext.__agyWrapped = true;
       if (a[0] === 'ANGLE_instanced_arrays') {
-        wrap(ext, 'drawArraysInstancedANGLE', (b) => draw(b[0], b[2], b[3]));
-        wrap(ext, 'drawElementsInstancedANGLE', (b) => draw(b[0], b[1], b[4]));
+        wrapDraw(ext, 'drawArraysInstancedANGLE', (b) => draw(b[0], b[2], b[3]));
+        wrapDraw(ext, 'drawElementsInstancedANGLE', (b) => draw(b[0], b[1], b[4]));
       } else if (a[0] === 'WEBGL_multi_draw') {
         const sum = (list, off, n, inst, ioff) => { let t = 0; for (let i = 0; i < n; i++) t += tris(b0, list[off + i], inst ? inst[ioff + i] : 1); return t; };
         let b0 = 4;
-        wrap(ext, 'multiDrawArraysWEBGL', (b) => { b0 = b[0]; S.cur.draws++; S.cur.tris += sum(b[3], b[4], b[5]); });
-        wrap(ext, 'multiDrawElementsWEBGL', (b) => { b0 = b[0]; S.cur.draws++; S.cur.tris += sum(b[1], b[2], b[6]); });
-        wrap(ext, 'multiDrawArraysInstancedWEBGL', (b) => { b0 = b[0]; S.cur.draws++; S.cur.tris += sum(b[3], b[4], b[7], b[5], b[6]); });
-        wrap(ext, 'multiDrawElementsInstancedWEBGL', (b) => { b0 = b[0]; S.cur.draws++; S.cur.tris += sum(b[1], b[2], b[8], b[6], b[7]); });
+        wrapDraw(ext, 'multiDrawArraysWEBGL', (b) => { b0 = b[0]; S.cur.draws++; S.cur.tris += sum(b[3], b[4], b[5]); });
+        wrapDraw(ext, 'multiDrawElementsWEBGL', (b) => { b0 = b[0]; S.cur.draws++; S.cur.tris += sum(b[1], b[2], b[6]); });
+        wrapDraw(ext, 'multiDrawArraysInstancedWEBGL', (b) => { b0 = b[0]; S.cur.draws++; S.cur.tris += sum(b[3], b[4], b[7], b[5], b[6]); });
+        wrapDraw(ext, 'multiDrawElementsInstancedWEBGL', (b) => { b0 = b[0]; S.cur.draws++; S.cur.tris += sum(b[1], b[2], b[8], b[6], b[7]); });
       }
     });
   };

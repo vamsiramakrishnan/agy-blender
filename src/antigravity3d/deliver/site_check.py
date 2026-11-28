@@ -34,7 +34,14 @@ Given a folder that holds a built site (``index.html``) or a localhost URL it:
    verdicts, and the check, told by the page that the camera was moving, had said nothing. It also measures how far
    the shot's subject stands from its ground: run 4's dark steel on a dark floor read as holes in the picture, and
    nothing said so;
-9. where the page names its chapters and where each rests (``window.__site.chapters()``, ``setProgress``), writes one
+9. at every photographed step, every position read between them and, for a page with the subjects hook, at a finer
+   grid read for the text alone (``_Visitor.text_pass``, the page's drawing left out), names chapter text that is
+   faded or missing in a card that is up, judged against the fullest each line is drawn at anywhere in the visit
+   (``faded_findings``), with the stretch of the scroll it covers. Run 6's agent tied the opacity of its cards' lines
+   to the scroll; a visitor who stopped after a card came up read a half-faded card, a blind judge named it in six of
+   six verdicts, and the nine steps had missed every such stretch. A read waits for a timed entrance to end, and never
+   reports one;
+10. where the page names its chapters and where each rests (``window.__site.chapters()``, ``setProgress``), writes one
    still per chapter for the page without WebGL, the 3D canvas alone, as ``stills/<chapter id>.webp``. Run 2's agent
    wrote a screenshot script for those twice (the first set had a scrollbar in every picture).
 
@@ -180,6 +187,41 @@ TEXT_READABLE = 20
 TEXT_IN_MOVE = (" There the chapter's text is up while the camera is still on its way to the chapter's shot: show the "
                 "text when the shot is held, as the skill's starter does, or finish the move first.")
 TEXT_IN_MOVE_AGAIN = " The text is up mid-move there too."
+#: Chapter text faded or missing in a card that is up (site_probe.js, ``S.fadedText``; ``faded_findings``). Run 6's
+#: agent tied the opacity of each line of a chapter's card to the scroll position (a GSAP stagger with ``scrub``). Read
+#: at rest (benchmarks/results/round8/text_timing, run6_card_lines.txt): in chapters 2 to 5 the card is up from 35 % of
+#: the chapter and its lines are part way until about 50 % (at 40 %: 0.76, 0.41, 0.05, 0.01, 0.01 and a last line
+#: whole); in the last chapter they sit at 0.01 from 35 % to 64 % and are not whole before 95 %. A blind judge shown
+#: the site twice, that stretch falling on a photographed step in one of them, preferred the other in six of six
+#: verdicts, twice, every reason naming the "half-faded, unreadable text card"; this check had said nothing, its nine
+#: steps having missed the stretches. In the page a line is faded where its card is up (chain of opacities 0.9 or
+#: more) and the line is under 0.75 of the fullest it is drawn at anywhere in the visit (at 0.75 a line still reads;
+#: run 6's 0.41 and 0.05 do not), provided it is drawn at 0.5 or more somewhere: text that is never fuller than that is
+#: dim by design. A position counts for a chapter when FADED_CHARS or more of its characters are faded there and they
+#: are at least FADED_SHARE of its text in the window: 20 characters is a short heading (as ``TEXT_READABLE``), and a
+#: quarter keeps one faded line of a long card from being named. Run 6's cards hold 182 to 278 characters of such text
+#: on the desktop, and at the worst position of each chapter named 182 to 261 of them were faded (anchors at 61 %, 69
+#: of 278, its last line still coming, does not count).
+FADED_CHARS = 20
+FADED_SHARE = 0.25
+#: the read waits in the page for a timed entrance to end (site_probe.js, REST_MS: 1.5 s); the call is bounded by that
+#: and a few frames of a slow page more
+FADED_WAIT_S = 4.0
+#: The text pass (``_Visitor.text_pass``): after the pass between the steps, the chapter text alone is read where it has
+#: not been, on a grid of FADED_PER_STEP times as many even parts as the steps cut the scroll into, coarse to fine and
+#: each level in the order of the scroll (a jump back makes the page's cards cross-fade again), for at most FADED_PASS_S
+#: per visit, the page's WebGL draw calls left out meanwhile (site_probe.js, ``S.quiet``). Run 6's faded stretches are
+#: 2.7 % of the scroll wide (flood 22 to 25 %, digest 40 to 43 %, anchors 58 to 61 %, hosts 77 to 80 %; start 94 to
+#: 99 %): at 9 steps a grid of 1/64 meets each, the pass between the steps (1/32 at best) would miss flood, and on run
+#: 6's page it read 7 to 9 of its 24 positions in its 20 s. Measured there, a text read costs 1.9 s drawing and 0.07 s
+#: without; a running CSS transition is ended rather than waited for (site_probe.js, ``S.readText``).
+FADED_PER_STEP = 8
+FADED_PASS_S = 8.0
+#: What a finding of faded text says after its numbers; the cause and the fix once per answer, as ``TEXT_IN_MOVE``
+#: (run 6 has five such chapters at each of two sizes).
+FADED_SEEN = " A visitor who stops there reads part of a card."
+FADED_FIX = (" Text tied to the scroll position does this; bring it in on time when the card comes up (the skill's "
+             "libraries.md, the GSAP section).")
 #: When a subject is reported as cut by the frame's edge or hidden under the page's HTML. Shares are of the subject's
 #: projected box: "cut" is the part of the box outside the window, "hidden" the part of what is inside that lies under
 #: an element a visitor cannot see through (background alpha times opacity at least site_probe.js's COVER_ALPHA, 0.6,
@@ -349,6 +391,11 @@ class Step:
     # a position read between the photographed steps (``_Visitor.between``): subjects only, and a frame only where a
     # finding's worst position is here (``extra frames``)
     between: bool = False
+    # chapter text faded or missing in a card that is up here (site_probe.js, ``S.fadedText``, judged at the end of the
+    # visit): one dict per group with any, {kind, group, faded, whole, total, low}; [] none; None: not read (no read,
+    # a read still changing after its wait, or a document replaced since). faded_read: which read of the page's log.
+    faded: list[dict] | None = None
+    faded_read: int | None = None
 
 
 @dataclass
@@ -378,6 +425,10 @@ class Visit:
     between: list[Step] = field(default_factory=list)
     between_planned: int = 0
     between_s: float = 0.0
+    # the positions where only the chapter text was read (``_Visitor.text_pass``; ``between`` True, no subjects), and
+    # the seconds that pass took
+    text_reads: list[Step] = field(default_factory=list)
+    text_s: float = 0.0
     # what one wheel notch from the top of the page changed (``_Visitor.first_notch``): {px, motion, window, canvas,
     # text}; None: not measured (not the desktop visit, a page shorter than two notches, or no time)
     first_notch: dict | None = None
@@ -468,6 +519,7 @@ class SiteReport:
                 out.append(held)
             if faint := self.contrast_line(v):
                 out.append(faint)
+            out += self.faded_lines(v)
             out += self.subject_lines(v)
         p = self.visits.get("phone")
         if p and p.steps:
@@ -495,6 +547,39 @@ class SiteReport:
                 if told:
                     out[i] = line.replace(TEXT_IN_MOVE, TEXT_IN_MOVE_AGAIN)
                 told = True
+        told = False
+        for i, line in enumerate(out):  # and the cause of faded text, once
+            if line.endswith(FADED_FIX):
+                if told:
+                    out[i] = line[:-len(FADED_FIX)]
+                told = True
+        return out
+
+    def faded_lines(self, v: Visit) -> list[str]:
+        """One line per group (chapter, section or the page) whose text is faded or missing in a card that is up at
+        some position read (``faded_findings``): the stretches of the scroll it covers (neighbouring positions read
+        merged into one, as ``_where``; at photographed steps only, the steps), the worst position with its numbers,
+        what a visitor sees and the likely cause and fix."""
+        found = faded_findings(v)
+        if not found:
+            return []
+        positions = [st for st in _text_positions(v) if st.faded is not None]
+        out = []
+        for f in found:
+            who = {"chapter": f"chapter {_q(f['group'], 60)}", "section": f"section {_q(f['group'], 60)}"}.get(
+                f["kind"], "the page")
+            at, g = f["worst"]
+            if any(p.between for p, _ in f["hits"]):
+                spans = []
+                for r in _runs(f["hits"], positions):
+                    a, b = r[0][0].share, r[-1][0].share
+                    spans.append(f"at {a:.0%}" if f"{a:.0%}" == f"{b:.0%}" else f"from {a:.0%} to {b:.0%}")
+                where = _and(spans) + " of the scroll"
+            else:
+                where = "at " + _steps_short([p for p, _ in f["hits"]], self.steps)
+            out.append(f"{v.name.capitalize()}: the text of {who} is faded or missing in its card {where} (at "
+                       f"{at.share:.0%}: {g['faded']} of its {g['total']} characters there faded or missing, the "
+                       f"faintest at opacity {g['low']:.2f}, the card up).{FADED_SEEN}{FADED_FIX}")
         return out
 
     def subject_lines(self, v: Visit) -> list[str]:
@@ -840,7 +925,9 @@ class SiteReport:
                                 "those frames may show the scene on its way (software WebGL draws a heavy frame in about a "
                                 "second; a visitor's GPU in a few milliseconds)." if moving else "")
                              + (f" The page's subjects read at {len(v.between)} of {v.between_planned} positions "
-                                f"between the steps as well ({v.between_s:.0f} s)." if v.between_planned else ""))
+                                f"between the steps as well ({v.between_s:.0f} s)." if v.between_planned else "")
+                             + (f" The chapter text alone read at {len(v.text_reads)} more positions "
+                                f"({v.text_s:.0f} s)." if v.text_reads else ""))
                 if scale := self.scale_line(v):
                     lines.append(f"- {scale}")
                 if notch := self.notch_measure(v):
@@ -911,6 +998,7 @@ class SiteReport:
             out["steps"] = [s.__dict__ for s in v.steps]
             out["between"] = [s.__dict__ for s in v.between]
             out["between_planned"], out["between_s"] = v.between_planned, v.between_s
+            out["text_reads"], out["text_s"] = [s.__dict__ for s in v.text_reads], v.text_s
             out["first_notch"] = v.first_notch
             out["requests"] = v.requests
             out["probe"] = v.probe
@@ -986,6 +1074,12 @@ def _positions(v: Visit) -> list[Step]:
     return sorted([*v.steps, *v.between], key=lambda st: st.share)
 
 
+def _text_positions(v: Visit) -> list[Step]:
+    """Every position of a visit whose chapter text was read for faded lines: the positions of ``_positions`` and those
+    of the text pass, in the order of the scroll."""
+    return sorted([*v.steps, *v.between, *v.text_reads], key=lambda st: st.share)
+
+
 def _runs(hits: list[tuple[Step, Any]], positions: list[Step]) -> list[list[tuple[Step, Any]]]:
     """``hits`` grouped into runs of neighbouring positions (neighbours in ``positions``: a position whose subjects
     could not be read, or where the subject has no fault, ends a run)."""
@@ -1052,6 +1146,40 @@ def subject_findings(v: Visit) -> list[dict]:
     return sorted(found.values(), key=lambda f: (f["kind"] == "label", f["first"], f["name"]))
 
 
+def _faded_group(r: Any) -> dict | None:
+    """One group of a faded read as the page gave it, checked again (the page can replace anything it is given)."""
+    if not isinstance(r, dict) or r.get("kind") not in ("chapter", "section", "page"):
+        return None
+    nums = {}
+    for k, hi in (("faded", 1e7), ("whole", 1e7), ("total", 1e7), ("low", 1.0)):
+        x = r.get(k)
+        if not isinstance(x, (int, float)) or isinstance(x, bool) or not math.isfinite(x) or not 0 <= x <= hi:
+            return None
+        nums[k] = x
+    return {"kind": r["kind"], "group": str(r.get("group") or "")[:80], "faded": int(nums["faded"]),
+            "whole": int(nums["whole"]), "total": int(nums["total"]), "low": round(float(nums["low"]), 2)}
+
+
+def _faded_counts(g: dict) -> bool:
+    """Whether a group's faded text at one position is enough to name (``FADED_CHARS``, ``FADED_SHARE``)."""
+    return g["faded"] >= FADED_CHARS and g["faded"] >= FADED_SHARE * max(g["total"], 1)
+
+
+def faded_findings(v: Visit) -> list[dict]:
+    """The groups (chapters, sections, the page) whose text is faded or missing in a card that is up at some position
+    read (``Step.faded``, ``FADED_CHARS``), in the order the scroll meets them: {kind, group, hits: [(position, entry)],
+    worst: (position, entry)}, the worst being the position with the most characters faded (the first of equals)."""
+    found: dict[tuple[str, str], dict] = {}
+    for st in _text_positions(v):
+        for g in st.faded or []:
+            if _faded_counts(g):
+                f = found.setdefault((g["kind"], g["group"]), {"kind": g["kind"], "group": g["group"], "hits": []})
+                f["hits"].append((st, g))
+    for f in found.values():
+        f["worst"] = max(f["hits"], key=lambda t: (t[1]["faded"], -t[0].share))
+    return sorted(found.values(), key=lambda f: (f["hits"][0][0].share, f["group"]))
+
+
 def extra_frames(v: Visit) -> list[Step]:
     """The positions between the steps where a finding the answer names is at its worst and that have no frame yet, in
     the order the answer names the findings."""
@@ -1090,6 +1218,22 @@ def between_levels(n: int) -> list[list[float]]:
     return [lv for lv in levels + [rest] if lv]
 
 
+def text_levels(n: int, done: list[float]) -> list[list[float]]:
+    """The positions of the text pass for ``n`` photographed steps: the scroll cut into FADED_PER_STEP times as many
+    even parts as the steps cut it into, the positions in ``done`` (read already) left out, in levels coarse to fine,
+    each level in the order of the scroll."""
+    parts = FADED_PER_STEP * max(n - 1, 1)
+    seen = {round(x * parts) for x in done if abs(x * parts - round(x * parts)) < 1e-6}
+    levels: list[list[float]] = []
+    stride = FADED_PER_STEP
+    while stride >= 1:
+        level = [k for k in range(0, parts + 1, stride) if k not in seen]
+        seen.update(level)
+        levels.append([k / parts for k in level])
+        stride //= 2
+    return [lv for lv in levels if lv]
+
+
 def _near_fault(share: float, positions: list[Step]) -> bool:
     """Whether the position read last before ``share`` or first after it has a subject cut or hidden: within a level the
     pass reads those first, so a fault the steps found gets its stretch of the scroll before a stretch without one
@@ -1101,9 +1245,9 @@ def _near_fault(share: float, positions: list[Step]) -> bool:
     return any(any(subject_faults(x)) for p in near for x in p.subjects or [])
 
 
-async def _bounded(page, js: str, default: Any) -> Any:
+async def _bounded(page, js: str, default: Any, wait: float = SUBJECTS_WAIT_S) -> Any:
     try:
-        return await asyncio.wait_for(page.evaluate(js), SUBJECTS_WAIT_S)
+        return await asyncio.wait_for(page.evaluate(js), wait)
     except Exception:  # noqa: BLE001  a page stuck in its own code or one that navigated
         return default
 
@@ -1730,6 +1874,7 @@ class _Visitor:
         self.last_net = time.monotonic()
         self._sizes: list[asyncio.Future] = []
         self.cdp = None
+        self.faded_doc: str | None = None  # the document whose text the visit's faded reads are of (``faded_text``)
 
     def log(self, what: str) -> None:
         _log.debug("[%6.1f] %s: %s", time.monotonic() - self.clock.t0, self.v.name, what)
@@ -2108,6 +2253,7 @@ class _Visitor:
                         shown_triangles=int((end.get("last") or {}).get("tris", 0)))
             step.subjects, step.subjects_note, step.text = await self.subjects(page)
             step.moving = any(x.get("moving") for x in step.subjects or [])
+            step.faded_read = await self.faded_text(page)
             f = self.out / f"{self.v.name}_{i:02d}.jpg"
             f.write_bytes(shot)
             step.frame = str(f)
@@ -2168,8 +2314,9 @@ class _Visitor:
                                      or self.clock.left() < WRAP_UP_S + 2.1):
                     break  # cut off by the allowance, not a position the page could not answer at
                 y = await _bounded(page, "window.__agySite.y()", 0)
+                read = await self.faded_text(page)
                 self.v.between.append(Step(-1, share, round(y or 0), subjects=subs, subjects_note=note, between=True,
-                                           moving=any(x.get("moving") for x in subs or []), text=text))
+                                           moving=any(x.get("moving") for x in subs or []), text=text, faded_read=read))
         self.v.between.sort(key=lambda st: st.share)
         self.v.between_s = round(time.monotonic() - t0, 2)
         self.log(f"read {len(self.v.between)} of {self.v.between_planned} positions between the steps "
@@ -2182,6 +2329,69 @@ class _Visitor:
             f = self.out / f"{self.v.name}_x{k}.jpg"
             f.write_bytes(shot)
             st.frame = str(f)
+
+    async def text_pass(self, page, n: int) -> None:
+        """Read the chapter text alone where no position of the visit has read it (``text_levels``, ``FADED_PER_STEP``),
+        with the page's WebGL draw calls left out (site_probe.js, ``S.quiet``), until ``FADED_PASS_S`` is used up. Only
+        after a pass between the steps (a page with the subjects hook), as that pass. Nothing is photographed after
+        it."""
+        if not self.v.between_planned or self.faded_doc is None:
+            return
+        geo = await _bounded(page, "window.__agySite.geometry()", None)
+        if not isinstance(geo, dict):
+            return
+        t0 = time.monotonic()
+        await _bounded(page, "window.__agySite.quietDraws(true)", None)
+        try:
+            for level in text_levels(n, [st.share for st in _text_positions(self.v) if st.faded_read is not None]):
+                for share in level:
+                    left = min(FADED_PASS_S - (time.monotonic() - t0), self.clock.left() - WRAP_UP_S - 2.0)
+                    if left < 0.5:
+                        break
+                    await self.scroll_to(page, round(geo["max"] * share))
+                    read = await self.faded_text(page, "window.__agySite.readText()", min(left, FADED_WAIT_S + 1.0))
+                    if read is None:
+                        continue
+                    y = await _bounded(page, "window.__agySite.y()", 0)
+                    self.v.text_reads.append(Step(-1, share, round(y or 0), between=True, faded_read=read,
+                                                  subjects_note="chapter text only"))
+        finally:
+            await _bounded(page, "window.__agySite.quietDraws(false)", None)
+        self.v.text_reads.sort(key=lambda st: st.share)
+        self.v.text_s = round(time.monotonic() - t0, 2)
+        self.log(f"read the chapter text at {len(self.v.text_reads)} more positions in {self.v.text_s:.1f} s")
+
+    async def faded_text(self, page, js: str = "window.__agySite.fadedText()", wait: float = FADED_WAIT_S) -> int | None:
+        """Read the chapter text in the cards that are up here (site_probe.js, ``S.fadedText``): which read of the page's
+        log it is, or None (no read, or a document other than the one read first in this visit: identity across reads
+        is the text node itself, so another document's log says nothing about this one's nodes)."""
+        if self.clock.left() < WRAP_UP_S + 2.0:
+            return None
+        got = await _bounded(page, js, None, wait)
+        if not isinstance(got, dict) or not isinstance(got.get("read"), int) or isinstance(got.get("read"), bool):
+            return None
+        doc = str(got.get("doc") or "")
+        if self.faded_doc is None:
+            self.faded_doc = doc
+        return got["read"] if doc == self.faded_doc else None
+
+    async def faded(self, page) -> None:
+        """After the visit's reads: what was faded at each, judged by the fullest each line was seen at anywhere
+        (site_probe.js, ``S.fadedReport``), attached to its position as ``Step.faded``. A read still changing at the end
+        of its wait, or of another document, stays None. The page's answer is checked again here."""
+        read = [st for st in _text_positions(self.v) if st.faded_read is not None]
+        if not read or self.faded_doc is None:
+            return
+        got = await _bounded(page, "window.__agySite.fadedReport()", None)
+        if (not isinstance(got, dict) or str(got.get("doc") or "") != self.faded_doc
+                or not isinstance(got.get("reads"), list)):
+            return
+        reads = got["reads"]
+        for st in read:
+            r = reads[st.faded_read] if 0 <= st.faded_read < len(reads) else None
+            if not isinstance(r, dict) or r.get("settled") is not True or not isinstance(r.get("groups"), list):
+                continue
+            st.faded = [g for g in (_faded_group(x) for x in r["groups"][:SUBJECTS_READ]) if g]
 
 
 _RESERVED = {"con", "prn", "aux", "nul", *(f"com{i}" for i in range(10)), *(f"lpt{i}" for i in range(10))}
@@ -2505,6 +2715,8 @@ async def acheck_site(target: str, *, sources: str | Path | None = None, steps: 
                 if do_steps:
                     await vis.steps(page, do_steps, canvas, sideways, notch=name == "desktop")
                     await vis.between(page, do_steps)
+                    await vis.text_pass(page, do_steps)
+                    await vis.faded(page)
                 if one_step is not None:
                     geo = await page.evaluate("window.__agySite.geometry()")
                     await vis.scroll_to(page, round(geo["max"] * one_step))

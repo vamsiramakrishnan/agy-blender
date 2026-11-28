@@ -1473,6 +1473,249 @@ def test_the_pass_between_the_steps_keeps_to_its_allowance_on_a_slow_page(tmp_pa
     assert f"read at {len(d.between)} of 6 positions between the steps" in r.text()
 
 
+# --------------------------------------------------------------------------- chapter text faded in a card that is up
+
+# One chapter's card over the scene, up from 55 % of the scroll (hidden before, its lines at 0 with it). MODE says
+# how its three lines come when it is up:
+#   'instant': whole at once;
+#   'scrub':   tied to the scroll position, line by line from 55 % to 90 % (run 6's GSAP scrub), so a visitor who
+#              stops at 62 % or 75 % reads a card part way; three photographed steps (0, 50, 100 %) never see it;
+#   'tween':   a JS tween of 0.8 s per line, staggered by 0.1 s, started when the card comes up, setting inline styles
+#              every frame (the plugin's guide's GSAP entrance, made slower: a read 100 ms after a jump sees it mid-way);
+#   'css':     a CSS transition of 0.9 s started when the card comes up (longer than the 0.6 s the pass between the
+#              steps waits for transitions);
+#   'dim':     at 0.6 everywhere the card is up, by design.
+# HOOK: whether the page gives window.__site.info() (without it the check reads at its photographed steps only);
+# with 'scrub' and no hook the stretch is moved to hold the step at 50 % (card up from 45 %).
+_FADED_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A chapter card</title>
+<style>html,body{margin:0;background:#101418;color:#eee;font:16px sans-serif}
+canvas{position:fixed;inset:0;width:100vw;height:100vh;z-index:0}
+.card{position:fixed;left:5vw;top:15vh;width:30vw;z-index:1;padding:1rem;background:rgba(16,18,21,0.82);opacity:0}
+.up .card{opacity:1}
+.css .card p,.css .card h2{transition:opacity 0.9s linear;opacity:0}.css.up .card p,.css.up .card h2{opacity:1}</style>
+</head><body><canvas id="c"></canvas>
+<section data-chapter="press"><div class="card">
+<h2>Addresses that survive edits</h2>
+<p>Bare line numbers drift silently when a file changes; anchored addresses follow moved content.</p>
+<p>Rewritten spans are refused instead of being quietly patched in the wrong place.</p>
+</div></section>
+<div style="height:400vh"></div>
+<script type="module">
+import { setup, QUAD } from './gl.js';
+const MODE = 'scrub', HOOK = true;
+const { gl, quad, color } = setup(document.getElementById('c'));
+quad(QUAD);
+gl.clearColor(0.06, 0.08, 0.1, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+color(0.85, 0.55, 0.25); gl.drawArrays(gl.TRIANGLES, 0, 6);
+const root = document.documentElement, lines = [...document.querySelectorAll('.card > *')];
+root.classList.toggle('css', MODE === 'css');
+const from = MODE === 'scrub' && !HOOK ? 0.45 : 0.55;
+const share = () => scrollY / Math.max(1, root.scrollHeight - innerHeight);
+const clamp = (x) => Math.min(1, Math.max(0, x));
+let up = null, tween = 0;
+const play = () => {  // a timed entrance, as GSAP plays one: inline opacity set every frame
+  const id = ++tween, t0 = performance.now();
+  const frame = () => {
+    if (id !== tween) return;
+    const s = (performance.now() - t0) / 1000;
+    lines.forEach((el, i) => { el.style.opacity = String(clamp((s - 0.1 * i) / 0.8)); });
+    if (s < 0.8 + 0.1 * lines.length) requestAnimationFrame(frame);
+  };
+  frame();
+};
+const update = () => {
+  const t = share(), now = t >= from - 1e-3;
+  if (now !== up) {
+    up = now;
+    root.classList.toggle('up', up);
+    if (MODE === 'tween') { tween++; lines.forEach((el) => { el.style.opacity = '0'; }); if (up) play(); }
+  }
+  if (MODE === 'instant' || MODE === 'dim') lines.forEach((el) => { el.style.opacity = up ? (MODE === 'dim' ? '0.6' : '1') : '0'; });
+  if (MODE === 'scrub') lines.forEach((el, i) => { el.style.opacity = String(clamp((t - from - 0.1 * i) / 0.15)); });
+};
+addEventListener('scroll', update);
+update();
+if (HOOK) window.__site = { info: () => ({ onScreen: { press: { box: [0.45, 0.3, 0.75, 0.7], kind: 'prop', subject: true } } }) };
+</script></body></html>
+"""
+
+
+def _faded_site(tmp_path: Path, mode: str, hook: bool = True) -> Path:
+    root = tmp_path / f"{mode}{'' if hook else '-nohook'}"
+    root.mkdir(parents=True)
+    (root / "index.html").write_text(_FADED_PAGE.replace("const MODE = 'scrub', HOOK = true;",
+                                                         f"const MODE = '{mode}', HOOK = {str(hook).lower()};"))
+    shutil.copy(FIX / "gl.js", root / "gl.js")
+    return root
+
+
+def _faded_lines(r: sc.SiteReport) -> list[str]:
+    return [n for n in r.noticed() if "is faded or missing in its card" in n]
+
+
+@pytest.mark.browser
+def test_card_text_tied_to_the_scroll_is_named_with_its_stretch_between_the_steps(tmp_path):
+    """Run 6's fault: the card is up from 55 % and its lines follow the scroll to 90 %. The three photographed steps (0,
+    50, 100 %) see the card hidden, then whole; the positions read between them find the stretch (62 % and 75 %), and
+    the text pass, at every sixteenth of the scroll, gives its ends (56 % and 81 %), at both sizes."""
+    r = sc.check_site(str(_faded_site(tmp_path, "scrub")), out_dir=tmp_path / "out", steps=3,
+                      sizes=("desktop", "phone"), variants=())
+    found = _faded_lines(r)
+    assert len(found) == 2, (found, r.noticed())
+    desk, phone = found
+    assert desk.startswith("Desktop: the text of chapter 'press' is faded or missing in its card from 56% to 81% of "
+                           "the scroll (at 56%: "), desk
+    assert phone.startswith("Phone: the text of chapter 'press'"), phone
+    assert desk.endswith(sc.FADED_SEEN + sc.FADED_FIX) and phone.endswith(sc.FADED_SEEN), found
+    assert not r.broken()
+    d = r.visits["desktop"]
+    assert all(s.faded == [] for s in d.steps), [s.faded for s in d.steps]  # read, and whole or hidden there
+    hit = {round(s.share, 3): s.faded for s in d.between if s.faded}
+    assert set(hit) == {0.625, 0.75}, hit
+    assert hit[0.625][0]["faded"] == hit[0.625][0]["total"] > sc.FADED_CHARS and hit[0.625][0]["low"] <= 0.01, hit
+    assert {round(s.share, 4) for s in d.text_reads if s.faded} == {0.5625, 0.6875, 0.8125}, d.text_reads
+    assert len(d.text_reads) == 8 and "The chapter text alone read at 8 more positions" in r.text()
+    record = json.loads((tmp_path / "out" / "report.json").read_text())
+    assert [s["faded"] for s in record["visits"]["desktop"]["between"] if s["faded"]][0][0]["group"] == "press"
+    assert len(record["visits"]["desktop"]["text_reads"]) == 8
+
+
+@pytest.mark.browser
+def test_card_text_tied_to_the_scroll_at_a_step_is_named_on_a_page_without_the_hook(tmp_path):
+    """Without window.__site.info() no position between the steps is read; the faded card at the step at 50 % is."""
+    r = run(_faded_site(tmp_path, "scrub", hook=False), tmp_path)
+    assert r.visits["desktop"].between_planned == 0
+    found = _faded_lines(r)
+    assert len(found) == 1 and found[0].startswith(
+        "Desktop: the text of chapter 'press' is faded or missing in its card at step 2 of 3 (50%) (at 50%: "), found
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("mode", ["tween", "css", "instant", "dim"])
+def test_card_text_brought_in_on_time_or_dim_by_design_is_not_named(tmp_path, mode):
+    """The false-positive guard. A timed entrance played when the card comes up (a JS tween, a CSS transition) is still
+    playing when a position is first read; the read waits for the page to come to rest and never reports it. Text at
+    0.6 wherever its card is up is dim by design. Everywhere the card is down (opacity 0, before 55 %) its lines are at 0
+    with it: a card that is not up is no fault."""
+    r = sc.check_site(str(_faded_site(tmp_path, mode)), out_dir=tmp_path / "out", steps=3, sizes=("desktop",),
+                      variants=())
+    d = r.visits["desktop"]
+    at = sc._text_positions(d)
+    assert d.between and d.text_reads and all(s.faded is not None for s in at), [(s.share, s.faded) for s in at]
+    assert not _faded_lines(r) and all(s.faded == [] for s in at), r.noticed()
+
+
+@pytest.mark.browser
+def test_without_the_wait_for_rest_the_timed_entrance_would_be_caught_mid_way(tmp_path):
+    """What the guard above rests on: the card is shown whole (the tween played out), left, and come back to; read at
+    once, the probe sees the tween part way and waits for it to end, and a read that did not wait would report it."""
+    import asyncio
+
+    from playwright.async_api import async_playwright
+
+    from antigravity3d.adapters.engines.web_three import WebThreeValidator, _launch_args
+
+    root = _faded_site(tmp_path, "tween")
+    careless = "if (restless(items)) {"
+    assert careless in sc._probe_script(False)
+
+    async def go(script: str) -> dict:
+        srv = sc._SiteServer(root)
+        try:
+            async with async_playwright() as pw:
+                b = await pw.chromium.launch(executable_path=WebThreeValidator().binary(), args=list(_launch_args()))
+                page = await b.new_page(viewport={"width": 1440, "height": 900})
+                await page.add_init_script(script)
+                await page.goto(srv.url)
+                await page.wait_for_function("window.__agySite && document.documentElement.scrollHeight > innerHeight")
+                go_to = "async (t) => { const m = window.__agySite.geometry().max; window.__agySite.scrollTo(m * t); }"
+                await page.evaluate(go_to, 1.0)
+                await page.wait_for_timeout(2000)
+                await page.evaluate("window.__agySite.readText()")
+                await page.evaluate(go_to, 0.4)
+                await page.evaluate("window.__agySite.readText()")
+                await page.evaluate(go_to, 0.75)
+                got = await page.evaluate("window.__agySite.readText()")
+                got["report"] = await page.evaluate("window.__agySite.fadedReport()")
+                await b.close()
+                return got
+        finally:
+            srv.close()
+
+    waited = asyncio.run(go(sc._probe_script(False)))
+    assert waited["settled"] and waited["waited_ms"] >= 300, waited
+    assert all(r["groups"] == [] for r in waited["report"]["reads"]), waited
+    hasty = asyncio.run(go(sc._probe_script(False).replace(careless, "if (false) {")))
+    last = hasty["report"]["reads"][-1]["groups"]
+    assert hasty["waited_ms"] < 100 and last and last[0]["group"] == "press" and sc._faded_counts(last[0]), hasty
+
+
+def test_faded_text_is_counted_per_chapter_merged_into_stretches_and_said_once_per_answer(tmp_path):
+    """The aggregation and the wording, without a browser. A position counts where FADED_CHARS or more of a chapter's
+    characters are faded and they are a quarter of its text in the window; neighbouring positions read form one
+    stretch; a position not read does not end one; the cause and the fix are said once per answer."""
+    rep = sc.SiteReport("site", tmp_path, steps=3)
+
+    def g(name: str, faded: int, total: int = 200, low: float = 0.01) -> dict:
+        return {"kind": "chapter", "group": name, "faded": faded, "whole": total - faded, "total": total, "low": low}
+
+    def visit(name: str) -> sc.Visit:
+        v = sc.Visit(name, loaded=True, load_s=1.0)
+        v.steps = [sc.Step(i, i / 2, 0, faded=[]) for i in range(3)]
+        rows = {0.125: [g("intro", 19)],                     # under FADED_CHARS
+                0.25: [g("intro", 40, total=400)],           # under a quarter of the text in the window
+                0.625: [g("start", 150, low=0.05)], 0.6875: None,   # not read: the stretch goes on
+                0.75: [g("start", 180), g("flood", 30, total=100, low=0.4)], 0.875: [g("start", 60)]}
+        v.between = [sc.Step(-1, s, 0, between=True, faded=f) for s, f in rows.items()]
+        return v
+
+    rep.visits = {"desktop": visit("desktop"), "phone": visit("phone")}
+    lines = [n for n in rep.noticed() if "faded or missing" in n]
+    assert lines == [
+        "Desktop: the text of chapter 'start' is faded or missing in its card from 62% to 88% of the scroll (at 75%: "
+        "180 of its 200 characters there faded or missing, the faintest at opacity 0.01, the card up). A visitor who "
+        "stops there reads part of a card. Text tied to the scroll position does this; bring it in on time when the "
+        "card comes up (the skill's libraries.md, the GSAP section).",
+        "Desktop: the text of chapter 'flood' is faded or missing in its card at 75% of the scroll (at 75%: 30 of its "
+        "100 characters there faded or missing, the faintest at opacity 0.40, the card up). A visitor who stops there "
+        "reads part of a card.",
+        "Phone: the text of chapter 'start' is faded or missing in its card from 62% to 88% of the scroll (at 75%: "
+        "180 of its 200 characters there faded or missing, the faintest at opacity 0.01, the card up). A visitor who "
+        "stops there reads part of a card.",
+        "Phone: the text of chapter 'flood' is faded or missing in its card at 75% of the scroll (at 75%: 30 of its "
+        "100 characters there faded or missing, the faintest at opacity 0.40, the card up). A visitor who stops there "
+        "reads part of a card."], lines
+    # a position read with nothing faded between two that have it splits the stretch
+    rep.visits["desktop"].between[3].faded = []
+    assert "from 62% to 62%" not in rep.noticed()[0] and rep.noticed()[0].startswith(
+        "Desktop: the text of chapter 'start' is faded or missing in its card at 62% and from 75% to 88% of the scroll")
+    # at the photographed steps only, the steps are named; the reduced-motion and no-WebGL visits are never read
+    rep.visits = {"desktop": sc.Visit("desktop", loaded=True, steps=[sc.Step(0, 0.0, 0, faded=[]), sc.Step(2, 1.0, 0, faded=[]),
+                                                                      sc.Step(1, 0.5, 0, faded=[g("x", 90)])]),
+                  "reduced": sc.Visit("reduced", steps=[sc.Step(0, 0.5, 0, faded=[g("x", 90)])])}
+    assert [n for n in rep.noticed() if "faded" in n] == [
+        "Desktop: the text of chapter 'x' is faded or missing in its card at step 2 of 3 (50%) (at 50%: 90 of its 200 "
+        "characters there faded or missing, the faintest at opacity 0.01, the card up). A visitor who stops there "
+        "reads part of a card. Text tied to the scroll position does this; bring it in on time when the card comes "
+        "up (the skill's libraries.md, the GSAP section)."]
+    assert not rep.broken()
+    # what the page gives back is checked again
+    assert sc._faded_group({"kind": "chapter", "group": "a", "faded": 5, "whole": 1, "total": 9, "low": 0.2}) == {
+        "kind": "chapter", "group": "a", "faded": 5, "whole": 1, "total": 9, "low": 0.2}
+    for bad in ({"kind": "x"}, {"kind": "page", "faded": "9", "whole": 0, "total": 0, "low": 0},
+                {"kind": "page", "faded": 1, "whole": 0, "total": 1, "low": 7}, None):
+        assert sc._faded_group(bad) is None
+    # the text pass reads where nothing has been read, coarse to fine, each level in the order of the scroll: at 9
+    # steps whose 24 positions between were all read, the 32 sixty-fourths left
+    done = [i / 8 for i in range(9)] + [x for lv in sc.between_levels(9) for x in lv]
+    levels = sc.text_levels(9, done)
+    assert [len(lv) for lv in levels] == [32] and levels[0] == sorted(levels[0]) and not set(levels[0]) & set(done)
+    assert sc.text_levels(3, [0.0, 0.5, 1.0]) == [[0.25, 0.75], [0.125, 0.375, 0.625, 0.875],
+                                                  [k / 16 for k in range(1, 16, 2)]]
+
+
 # --------------------------------------------------------------------------- the first wheel notch
 
 def _png(a: np.ndarray) -> bytes:
