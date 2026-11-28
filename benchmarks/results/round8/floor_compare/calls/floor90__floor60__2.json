@@ -1,0 +1,33 @@
+{
+ "first": "floor90",
+ "second": "floor60",
+ "rep": 2,
+ "frames": [
+  "781f83bd866b4842",
+  "4309143d855e99e2"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "tie",
+    "reason": "Both sites show identical camera framing and scroll positions across all nine frames (frames 1 through 9)."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites use the exact same 3D factory press, anchor rack, and host gate models with in-scene labels in frames 3, 5, 6, and 8."
+   },
+   "craft_of_the_3d": {
+    "winner": "2",
+    "reason": "Site 2 renders a slightly darker, richer floor plane in frames 4 through 8 that improves contrast and grounds the shadows and glowing floor lines better than Site 1."
+   },
+   "type_and_layout": {
+    "winner": "tie",
+    "reason": "Both sites feature the exact same left-aligned cards, typography, and top navigation bar across frames 1 through 9."
+   }
+  },
+  "overall": {
+   "winner": "2",
+   "reason": "While the two sites are nearly identical in layout, typography, and 3D choreography, Site 2 edges ahead with slightly deeper floor shading that gives the 3D machinery and data lanes better contrast."
+  }
+ }
+}

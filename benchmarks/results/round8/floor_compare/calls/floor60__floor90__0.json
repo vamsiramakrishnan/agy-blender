@@ -1,0 +1,33 @@
+{
+ "first": "floor60",
+ "second": "floor90",
+ "rep": 0,
+ "frames": [
+  "4309143d855e99e2",
+  "781f83bd866b4842"
+ ],
+ "verdict": {
+  "criteria": {
+   "every_position_composed": {
+    "winner": "tie",
+    "reason": "Both sites display the exact same 9 identical frames from start to finish (frames 1 through 9)."
+   },
+   "explains_the_project": {
+    "winner": "tie",
+    "reason": "Both sites are pixel-for-pixel identical across all frames (frames 1 through 9), depicting the same digest press, anchor rack, and host gates."
+   },
+   "craft_of_the_3d": {
+    "winner": "tie",
+    "reason": "Every 3D model, material, shadow, and grid surface in frames 1 through 9 is completely identical between the first and second site."
+   },
+   "type_and_layout": {
+    "winner": "tie",
+    "reason": "All typography, navigation bars, and left-hand information cards in frames 1\u20133, 5\u20136, and 8\u20139 are identical in both sets."
+   }
+  },
+  "overall": {
+   "winner": "1",
+   "reason": "The two sets of 9 frames are completely identical, so site 1 is selected arbitrarily as the schema requires a non-tie overall choice."
+  }
+ }
+}

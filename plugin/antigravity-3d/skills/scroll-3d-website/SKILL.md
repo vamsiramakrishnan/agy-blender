@@ -211,12 +211,14 @@ Each is one instruction and its reason. The starter already does the ones marked
   props across y 0.42 to 0.62 with the bottom 40 % empty grid.
 - **Light shows the objects' form and keeps the design's colours.** (starter) A key light with a shadow whose box
   follows the shot, a rim light from behind, an environment for reflections, a soft contact shadow under each prop,
-  ambient occlusion, a ground that keeps the page's ground colour under that light and fog that fades it into the page
-  ([libraries.md](libraries.md), the light section); a part in an accent colour is lit with `lit(colour)`, and only a
-  flat mark that must match the text exactly is `toneMapped: false`. Why: without a shadow an object floats (nothing
-  cast one in run 1); run 3 added a fill light and raised the environment on a ground that took it all, and its amber
-  and its floor no longer matched the design; runs 4 and 5 were built with the rim taken out and the rest more than
-  halved, and the same site (run 4's) was preferred under the present light in six of six blind verdicts.
+  ambient occlusion, a lit ground for the shadows to fall on (the starter's ground colour, about 60 of 255 on screen,
+  not the page's background or card colour) and fog that fades it into the page ([libraries.md](libraries.md), the light
+  section); a part in an accent colour is lit with `lit(colour)`, and only a flat mark that must match the text
+  exactly is `toneMapped: false`. Why: without a shadow an object floats (nothing cast one in run 1), and on a floor
+  as dark as the page the shadow does not show (runs 4 to 6; run 6's site with its floor lit was preferred in eleven
+  of twelve blind verdicts); run 3 added a fill light and raised the environment on a ground that took it all, and
+  its amber and its floor no longer matched the design; runs 4 and 5 were built with the rim taken out and the rest
+  more than halved, and the same site (run 4's) was preferred under the present light in six of six blind verdicts.
 - **Many small things are one draw call.** Draw repeated items as one `InstancedMesh` (or one geometry). Why: draw
   calls, not triangles, are what a phone runs out of first.
 - **Effects are used sparingly and measured.** Add a pass beyond the starter's occlusion (bloom, depth of field) only

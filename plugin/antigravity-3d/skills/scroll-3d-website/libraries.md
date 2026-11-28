@@ -74,8 +74,9 @@ key.shadow.camera.left = key.shadow.camera.bottom = -6;
 key.shadow.camera.right = key.shadow.camera.top = 6;
 scene.add(key);
 
-// the ground keeps the page's ground colour under that light: the starter's groundLook (the light section below)
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ ...groundLook(scene, '#1a1d22'), roughness: 0.95 }));
+// a lit ground for the slabs' shadows to fall on, not washed out by their light: the starter's colour through its
+// groundLook (the light section below)
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshStandardMaterial({ ...groundLook(scene, '#474e5a'), roughness: 0.95 }));
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
 scene.add(ground);
@@ -169,13 +170,23 @@ the colour is compressed towards white. At F = 2 that is every channel above abo
   tag, a status dot) is unlit: `MeshBasicMaterial({ color, toneMapped: false })` gives #F0B429, and `emissive` on a
   black `color` #EDB33B. Why: a block drawn unlit has no form. Run 5 drew the coloured blocks of its lanes that
   way, on this guide's earlier advice, and the blind judge calls them "flat unshaded blocks on the floor".
-- The ground comes out as the page's ground colour whatever the props are lit with, so that it fades into the page:
-  give a ground material the starter's `groundLook(scene, colour)` (stage.js). It divides the colour by what a face
-  turned up receives and has the ground take the environment at 0.25. Both matter: most of what a dark floor shows
-  is the environment's reflection in it, which its colour does not scale. Measured: #15181D as a plain material
-  under the starter's light comes out #191E25, with `groundLook` #0B0F16 (the tone mapper's toe takes out most of
-  the darkest channel; choose the ground's colour by its swatch). A floor shader of your own (the section on
-  custom shader materials) takes the same two options.
+- The ground is lit scenery for shadows to fall on, not one of the page's surfaces: keep the starter's `--ground`
+  (#474e5a, which shows at about 60 of 255 near the camera on a page at 18), or a colour of your own that shows
+  between 50 and 70 there, and let the fog take it to the page's colour at the horizon. Do not give it the design's
+  background or card colour. Why: a shadow cannot darken a floor that is already as dark as the page, so the props
+  float. Run 6's floor was the design's #15181D, which shows at 19; the same site rebuilt with the floor at 61 and
+  nothing else changed was preferred by a blind judge in five of six verdicts ("the near-black floor swallows the
+  shadows and leaves the dark navy machines floating"), and the floor at 61 was preferred to one at 91 in six of
+  six, where the labels and cards read worse (`benchmarks/results/round8/floor_compare/`). Runs 4, 5 and 6 all had
+  the dark floor, because this guide asked for a ground in the page's colour.
+- The ground must not be washed out by the light the props need: give a ground material the starter's
+  `groundLook(scene, colour)` (stage.js). It divides the colour by what a face turned up receives and has the
+  ground take the environment at 0.25. Both matter: most of what a dark floor shows is the environment's reflection
+  in it, which its colour does not scale. A ground does not show as its hex either: the tone mapper's toe takes up
+  to 0.04 (linear) out of a dark colour. Measured from straight above: #474e5a comes out #566071 as a plain
+  material and #323b49 with `groundLook`; #15181D comes out #0B0F16, darker than the page it was meant to match.
+  Choose the ground by its swatch. A floor shader of your own (the section on custom shader materials) takes the
+  same two options.
 - Do not add light. Run 3 added a fill light to a key of 2.7 and a rim and raised the environment to 0.95, F about
   2.8, on a ground that took it all: its #15181D floor came out #272B32 and its amber #FBC978. And do not take it
   away to fix a colour: under the dimmer light the same dark steel came out #0B1420, thirteen levels from the floor
@@ -221,8 +232,10 @@ const seen = (options) => onScreen(new THREE.MeshStandardMaterial(options));
 // The ground as the starter's groundLook() makes it: the colour over what a face turned up receives, the
 // environment at 0.25.
 const groundLight = 0.28 * key.intensity + 1.84 * 0.25 + rim.intensity * (6 / Math.hypot(10, 6, 8)) / Math.PI;
-const floor = seen({ color: new THREE.Color('#15181d').multiplyScalar(1 / groundLight), envMap: scene.environment, envMapIntensity: 0.25, roughness: 0.95 });
-const floorPlain = seen({ color: '#15181d', roughness: 0.95 });
+const ground = (hex) => seen({ color: new THREE.Color(hex).multiplyScalar(1 / groundLight), envMap: scene.environment, envMapIntensity: 0.25, roughness: 0.95 });
+const floor = ground('#474e5a'); // the starter's --ground: a lit slate
+const floorPlain = seen({ color: '#474e5a', roughness: 0.95 });
+const floorDark = ground('#15181d'); // run 6's ground, the design's card colour: darker on screen than its page
 const amberLit = seen({ color: '#f0b429', roughness: 0.6 });
 // The same amber over what a face turned up receives, as the starter's lit() gives it: the colour again, with its form.
 const propLight = 0.28 * key.intensity + 1.84 * scene.environmentIntensity + rim.intensity * (6 / Math.hypot(10, 6, 8)) / Math.PI;
@@ -244,9 +257,9 @@ scene.add(new THREE.DirectionalLight('#ffffff', 0.65));
 scene.environmentIntensity = 0.95;
 const floorRun3 = seen({ color: '#15181d', roughness: 0.95 });
 const amberRun3 = seen({ color: '#f0b429', roughness: 0.6 });
-document.documentElement.dataset.swatches = JSON.stringify({ floor, floorPlain, amberLit, amberDivided, amberEmissive, amberFlat, steelDark, paintLight, steelDim, floorRun3, amberRun3 });
+document.documentElement.dataset.swatches = JSON.stringify({ floor, floorPlain, floorDark, amberLit, amberDivided, amberEmissive, amberFlat, steelDark, paintLight, steelDim, floorRun3, amberRun3 });
 ```
-<!-- check: js (() => { const s = JSON.parse(document.documentElement.dataset.swatches), c = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)), near = (h, want, by) => c(h).every((v, i) => Math.abs(v - c(want)[i]) <= by); return s.amberFlat === '#f0b429' && near(s.amberEmissive, '#f0b429', 24) && near(s.amberDivided, '#f0b429', 20) && c(s.amberLit)[2] > 70 && c(s.amberRun3)[2] > c(s.amberLit)[2] && near(s.steelDark, '#242931', 12) && Math.max(...c(s.steelDim)) < 40 && Math.min(...c(s.paintLight)) > 205 && Math.max(...c(s.floor)) < 30 && c(s.floorPlain)[0] > 1.8 * c(s.floor)[0] && c(s.floorRun3)[0] > 1.6 * 0x15; })() -->
+<!-- check: js (() => { const s = JSON.parse(document.documentElement.dataset.swatches), c = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)), near = (h, want, by) => c(h).every((v, i) => Math.abs(v - c(want)[i]) <= by); return s.amberFlat === '#f0b429' && near(s.amberEmissive, '#f0b429', 24) && near(s.amberDivided, '#f0b429', 20) && c(s.amberLit)[2] > 70 && c(s.amberRun3)[2] > c(s.amberLit)[2] && near(s.steelDark, '#242931', 12) && Math.max(...c(s.steelDim)) < 40 && Math.min(...c(s.paintLight)) > 205 && near(s.floor, '#323b49', 10) && c(s.floorPlain)[0] > 1.5 * c(s.floor)[0] && Math.max(...c(s.floorDark)) < 30 && c(s.floorRun3)[0] > 1.6 * 0x15; })() -->
 
 ## GSAP 3.15 with ScrollTrigger: page effects tied to scroll
 
