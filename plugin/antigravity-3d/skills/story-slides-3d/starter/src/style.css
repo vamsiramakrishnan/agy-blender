@@ -1,87 +1,345 @@
-/* style.css: a cinema frame. A slim strip with the title and the count, the picture, the caption and the controls
-   under it, all on the film's paper. The colours are the film's two inks (story.js uses the same two). */
+/* style.css: the page round the picture, in the theme's tokens (theme.css). Four parts:
+   1. the article: what the page is without script or WebGL, and before the story starts;
+   2. the frame both forms share, and the film form: a strip, the picture, the caption and the controls under it;
+   3. the deck form: the picture fills the frame, the strip and the controls are small overlays;
+   4. a scene's words laid over the picture by its data-layout, in either form: the type scale, the entrance, the
+      scrim, the phone; then the presenter's overview, progress line and notes.
+   Every rule that hides or moves text hangs on .film-on, which main.js sets once WebGL works, so a page whose
+   script failed is still the whole article. */
+@import './theme.css';
+
 :root {
-  --paper: #0b0f17;
-  --ink: #efe4cb;
-  --muted: #9c978b;
-  --line: #232a36;
-  --serif: Georgia, "Times New Roman", serif;
-  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
-  --caption-h: 7.6rem;      /* the caption's fixed height: the picture must not change size from beat to beat */
-  color-scheme: dark;
+  --hair: color-mix(in srgb, var(--ink) 14%, var(--paper)); /* a hairline: borders and rules */
+  --caption-h: 7.6rem; /* the film caption's fixed height: the picture must not change size from beat to beat */
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--paper); color: var(--ink); }
-body { font: 15px/1.5 var(--mono); -webkit-font-smoothing: antialiased; }
+body { font: var(--weight-text) 1rem/1.55 var(--font-text); -webkit-font-smoothing: antialiased; }
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
-h2 { font: italic 400 clamp(1.6rem, 2.6vw, 2.3rem)/1.1 var(--serif); margin: 0 0 0.35em; }
+h1, h2, h3 {
+  font: var(--style-display) var(--weight-display) clamp(1.6rem, 2.6vw, 2.3rem)/1.1 var(--font-display);
+  letter-spacing: var(--track-display); text-transform: var(--case-display); margin: 0 0 0.35em;
+}
 p { margin: 0 0 0.3em; max-width: 64ch; }
+/* A heading marked kicker is a small label above the words, not a headline. */
+.kicker { font: 500 0.75rem/1.3 var(--font-mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
 
-.strip { display: flex; justify-content: space-between; align-items: baseline; gap: 8px 24px; padding: 10px 16px; font-size: 12px; color: var(--muted); }
+.strip { display: flex; justify-content: space-between; align-items: baseline; gap: 8px 24px; padding: 10px 16px; font: 12px/1.5 var(--font-mono); color: var(--muted); }
 .mark { color: var(--ink); letter-spacing: 0.3em; text-transform: uppercase; }
 .count { font-variant-numeric: tabular-nums; letter-spacing: 0.08em; text-transform: uppercase; }
 
-/* Article layout (no script, no WebGL, or before the film starts): the story reads top to bottom, notes as small
-   text after their beat's lines. Every rule that hides text hangs on .film-on, which main.js sets once WebGL works,
-   so a page whose script failed is still the whole article. */
-.picture, .controls, .loading { display: none; }
+/* 1. The article (no script, no WebGL, or before the story starts): the story reads top to bottom, every scene's
+   heading and every beat's content in order, notes as small text after their beat's lines. */
+.picture, .controls, .loading, .progress, .overview { display: none; }
 .note { margin: 1rem 16px; color: var(--muted); }
 #story { max-width: 44rem; margin: 0 auto; padding: 1rem 16px 3rem; }
 #story section { margin-bottom: 2.2rem; }
-aside[data-notes] { font-size: 12px; color: var(--muted); margin: 0.2em 0 0.8em; }
+aside[data-notes] { font: 12px/1.5 var(--font-mono); color: var(--muted); margin: 0.2em 0 0.8em; }
 aside[data-notes]::before { content: "Note: "; }
-
-/* Film layout: strip, picture, then caption beside the controls (below them on a phone). The page does not scroll. */
-.film-on, .film-on body { height: 100%; overflow: hidden; }
-.film-on body {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr) var(--caption-h);
-  grid-template-areas: "strip strip" "picture picture" "story controls";
+:root:not(.film-on) #story h1 { font-size: clamp(2.1rem, 6vw, 3.4rem); line-height: var(--leading-display); }
+:root:not(.film-on) #story [data-beat] { margin-bottom: 0.7em; }
+:root:not(.film-on) #story .lede { color: var(--muted); }
+:root:not(.film-on) #story .big {
+  font: var(--style-display) var(--weight-display) clamp(2.6rem, 9vw, 4.6rem)/1 var(--font-display);
+  letter-spacing: var(--track-display); text-transform: var(--case-display); margin: 0.15em 0 0.1em;
 }
-.film-on .strip { grid-area: strip; }
-.film-on .picture { grid-area: picture; display: block; position: relative; min-height: 0; background: var(--paper); cursor: pointer; touch-action: manipulation; }
-.film-on #stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.film-on .loading { display: grid; place-items: center; position: absolute; inset: 0; margin: 0; max-width: none; color: var(--muted); }
-.film-on .loading[hidden] { display: none; }
-.film-on #story { grid-area: story; max-width: none; margin: 0; padding: 14px 16px 0; overflow: hidden; border-top: 1px solid var(--line); }
-.film-on .controls { grid-area: controls; display: flex; gap: 6px; align-items: flex-start; padding: 14px 16px 0; border-top: 1px solid var(--line); }
+:root:not(.film-on) #story .source { font: 0.78rem/1.4 var(--font-mono); color: var(--muted); }
+:root:not(.film-on) #story :is(ul, ol) { margin: 0.3em 0 0.6em; padding-left: 1.2em; }
+:root:not(.film-on) #story figure { margin: 0.8em 0; }
+:root:not(.film-on) #story figure :is(svg, img) { display: block; width: min(100%, 20rem); height: auto; }
+:root:not(.film-on) #story figcaption { font: 0.78rem/1.4 var(--font-mono); color: var(--muted); margin-top: 0.5em; }
 
-/* Only the current scene's title and the current beat's lines show; which ones is caption.js's .is-current. */
+/* 2. The frame: the page does not scroll, the picture is on, and only the current scene's words show; which those
+   are is caption.js's .is-current. */
+.film-on, .film-on body { height: 100%; overflow: hidden; }
+.film-on .picture { display: block; background: var(--paper); cursor: pointer; touch-action: manipulation; }
+.film-on #stage { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.film-on .loading { display: grid; place-items: center; position: absolute; inset: 0; margin: 0; max-width: none; font: 13px/1.5 var(--font-mono); color: var(--muted); }
+.film-on .loading[hidden] { display: none; }
 .film-on #story section:not(.is-current), .film-on [data-beat]:not(.is-current) { display: none; }
 .film-on #story section { margin: 0; }
 .film-on aside[data-notes] { display: none; }
-/* The typed-in reveal: caption.js wraps each letter once in a span with its index (--i), and sets --shown on the
+/* The typed-in caption: caption.js wraps each letter once in a span with its index (--i), and sets --shown on the
    beat; a letter shows once its index is passed. Opacity, not removal: the line keeps its place as it types. */
 .film-on .ch { opacity: clamp(0, calc(var(--shown, 1e4) - var(--i)), 1); }
 
-/* A headline over the picture (data-place="over"): the same lines, large, lower left in the picture, at most a third
-   of its height. main.js gives the picture's box as --pic-left, --pic-bottom, --pic-w and --pic-h. */
-.film-on [data-beat][data-place="over"].is-current {
+/* The film form (and the frame until story.js has said which form it is): strip, picture, then the caption beside
+   the controls (below them on a phone). The caption is typed, so it is set in the mono face in every theme. */
+.film-on:not([data-form="deck"]) body {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr) var(--caption-h);
+  grid-template-areas: "strip strip" "picture picture" "story controls";
+  font: 15px/1.5 var(--font-mono);
+}
+.film-on:not([data-form="deck"]) .strip { grid-area: strip; }
+.film-on:not([data-form="deck"]) .picture { grid-area: picture; position: relative; min-height: 0; }
+.film-on:not([data-form="deck"]) #story { grid-area: story; max-width: none; margin: 0; padding: 14px 16px 0; overflow: hidden; border-top: 1px solid var(--hair); }
+.film-on:not([data-form="deck"]) .controls { grid-area: controls; display: flex; gap: 6px; align-items: flex-start; padding: 14px 16px 0; border-top: 1px solid var(--hair); }
+
+/* A headline over the picture in a film (a beat with data-place="over"): the same lines, large, lower left in the
+   picture, at most a third of its height. main.js gives the picture's box as --pic-left, --pic-bottom, --pic-w and
+   --pic-h. (A scene with a data-layout other than caption is laid over the picture whole: part 4.) */
+.film-on section:not(.over) > [data-beat][data-place="over"].is-current {
   position: fixed; left: calc(var(--pic-left) + 0.05 * var(--pic-w)); bottom: calc(var(--pic-bottom) + 0.06 * var(--pic-h));
   width: calc(0.62 * var(--pic-w)); max-height: calc(var(--pic-h) / 3); overflow: hidden; pointer-events: none;
-  font: italic 400 min(calc(0.055 * var(--pic-h)), calc(0.042 * var(--pic-w)))/1.15 var(--serif);
+  font: var(--style-display) var(--weight-display) min(calc(0.055 * var(--pic-h)), calc(0.042 * var(--pic-w)))/1.15 var(--font-display);
   text-shadow: 0 0 0.5em var(--paper), 0 0 0.12em var(--paper);
 }
-.film-on [data-beat][data-place="over"] p { max-width: none; margin: 0 0 0.25em; }
+.film-on section:not(.over) > [data-beat][data-place="over"] p { max-width: none; margin: 0 0 0.25em; }
 
 /* Speaker's notes: the key n toggles .notes-on on <html>; the current beat's note shows over the picture's top. */
 .film-on.notes-on [data-beat].is-current aside[data-notes] {
-  display: block; position: fixed; top: 44px; right: 16px; width: min(26rem, 80vw); margin: 0; padding: 10px 12px;
-  font-size: 13px; color: var(--ink); background: rgba(11, 15, 23, 0.88); border: 1px solid var(--line);
+  display: block; position: fixed; z-index: 2; top: 44px; right: 16px; width: min(26rem, 80vw); max-width: none; margin: 0; padding: 10px 12px;
+  font: 13px/1.5 var(--font-mono); letter-spacing: 0; text-transform: none; text-align: left; color: var(--ink);
+  background: color-mix(in srgb, var(--paper) 90%, transparent); border: 1px solid var(--hair); border-radius: var(--radius);
 }
+/* Over the picture the note keeps the slide's margins, under the strip. */
+.film-on.notes-on section.over [data-beat].is-current aside[data-notes] { top: max(56px, calc(var(--my) + 4px)); right: var(--mx); width: min(26rem, calc(100cqw - 2 * var(--mx))); }
 
 .controls button {
-  font: inherit; color: var(--ink); background: none; border: 1px solid var(--line); border-radius: 3px;
+  font: inherit; color: var(--ink); background: none; border: 1px solid var(--hair); border-radius: var(--radius);
   padding: 8px 14px; cursor: pointer; min-width: 4.5rem;
 }
 .controls button:hover { border-color: var(--muted); }
 .controls button:disabled { color: var(--muted); cursor: default; border-color: transparent; }
 .controls button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
 
-/* Phone: the controls under the caption, across the width; the caption a little taller for its wrapped lines. */
+/* Film on a phone: the controls under the caption, across the width; the caption a little taller for its wrapped
+   lines. */
 @media (max-width: 700px) {
   :root { --caption-h: 9.6rem; }
-  body { font-size: 14px; }
-  .film-on body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) var(--caption-h) auto; grid-template-areas: "strip" "picture" "story" "controls"; }
-  .film-on .controls { padding: 8px 16px 12px; justify-content: space-between; }
-  .film-on .controls button { flex: 1; }
+  .film-on:not([data-form="deck"]) body {
+    font-size: 14px; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) var(--caption-h) auto;
+    grid-template-areas: "strip" "picture" "story" "controls";
+  }
+  .film-on:not([data-form="deck"]) .controls { padding: 8px 16px 12px; justify-content: space-between; }
+  .film-on:not([data-form="deck"]) .controls button { flex: 1; }
+}
+
+/* 3. The deck form: the picture fills the frame and the words are laid over it. The strip (title, count) and the
+   controls are small labels on the theme's paper, which fade when the pointer rests (main.js sets .idle) and come
+   back when it moves or when a key reaches a button. */
+.film-on[data-form="deck"] body { display: block; }
+.film-on[data-form="deck"] .picture { position: fixed; inset: 0; }
+.film-on[data-form="deck"] #story { position: fixed; inset: 0; z-index: 1; max-width: none; margin: 0; padding: 0; pointer-events: none; }
+.film-on[data-form="deck"] :is(.strip, .controls) { position: fixed; z-index: 3; transition: opacity var(--dur) var(--ease); }
+/* They keep the slides' margins (part 4): a label's words begin where a slide's words do. */
+.film-on[data-form="deck"] .strip { top: 0; left: 0; right: 0; align-items: center; padding: clamp(10px, 2.4vh, 24px) calc(clamp(18px, 5.6vw, 240px) - 9px); pointer-events: none; }
+.film-on[data-form="deck"] .strip > * { padding: 3px 9px; color: var(--ink); background: color-mix(in srgb, var(--paper) 84%, transparent); border-radius: var(--radius); }
+.film-on[data-form="deck"] .strip > :empty { visibility: hidden; }
+.film-on[data-form="deck"] .mark { letter-spacing: 0.22em; }
+.film-on[data-form="deck"] .controls { right: clamp(18px, 5.6vw, 240px); bottom: clamp(18px, 6.4vh, 150px); display: flex; gap: 6px; }
+.film-on[data-form="deck"] .controls button {
+  font: 500 11.5px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; min-width: 0; padding: 9px 12px;
+  background: color-mix(in srgb, var(--paper) 84%, transparent);
+}
+.film-on[data-form="deck"] .controls button[aria-pressed="true"] { background: var(--ink); }
+.film-on[data-form="deck"].idle .strip, .film-on[data-form="deck"].idle .controls:not(:hover, :focus-within) { opacity: 0; }
+.film-on[data-form="deck"].idle .picture { cursor: none; }
+/* A finger does not rest anywhere: on a touch screen the controls stay, quiet, where a thumb can find them. */
+@media (hover: none) { .film-on[data-form="deck"].idle .controls:not(:hover, :focus-within) { opacity: 0.55; } }
+@media (orientation: portrait) {
+  .film-on[data-form="deck"] .controls { left: clamp(16px, 5.8vw, 120px); right: clamp(16px, 5.8vw, 120px); bottom: max(12px, env(safe-area-inset-bottom)); }
+  .film-on[data-form="deck"] .controls button { flex: 1; padding: 11px 8px; }
+}
+
+/* The progress line: beats done over all beats, along the bottom edge (main.js sets --done). */
+.film-on[data-form="deck"] .progress { display: block; position: fixed; z-index: 3; left: 0; right: 0; bottom: 0; height: 3px; pointer-events: none; background: color-mix(in srgb, var(--ink) 12%, transparent); }
+.progress > span { display: block; height: 100%; background: var(--accent); transform-origin: 0 50%; transform: scaleX(var(--done, 0)); transition: transform var(--dur) var(--ease); }
+
+/* 4. Words over the picture. A scene whose words are laid over the picture (every scene of a deck; in a film, a
+   scene whose data-layout is not caption) is a box the size of the picture, and a container, so its type and its
+   margins are sized to the picture and not to the window. caption.js puts the scene's content in one block, .words,
+   which the layout places:
+
+     caption (default)  a lower third: the heading and the current beat's lines, typed in
+     title              the h1 large, the beat's lines under it; lower left
+     statement          a few large words in the lower left third; the upper right is the picture's
+     left, right        a text column on that side, at most 42 % of the width
+     number             one huge figure (.big) with a line under it
+     end                the last words, centred
+
+   In an upright frame (a phone) every layout is a block in the lower part, and the picture keeps the upper. */
+.film-on #story section.over:is(.is-current, .is-leaving) {
+  display: grid; position: fixed; z-index: 1; margin: 0; pointer-events: none; container-type: size;
+  left: var(--pic-left, 0px); bottom: var(--pic-bottom, 0px); width: var(--pic-w, 100vw); height: var(--pic-h, 100vh);
+}
+.film-on[data-form="deck"] #story section.over:is(.is-current, .is-leaving) { inset: 0; width: auto; height: auto; }
+/* The words of the scene left behind fade as the next scene's arrive (caption.js removes them after 240 ms). */
+.film-on #story section.over.is-leaving { z-index: 0; opacity: 0; transition: opacity 0.24s linear; }
+
+.film-on #story section.over > .words {
+  /* margins, the gap between blocks, and the room the scrim keeps round the words */
+  --mx: clamp(18px, 5.6cqw, 240px);
+  --my: clamp(18px, 6.4cqh, 150px);
+  --px: clamp(8px, 1.9cqmin, 48px);
+  --gap: clamp(10px, 2.4cqmin, 60px);
+  --avail: calc(100cqw - 2 * var(--mx)); /* the widest a line may be */
+  /* the type scale, sized to the picture (the least it may be for a small frame, a share of the frame, the most for
+     a wall): a label, text, a lede, the large words, a headline, a figure */
+  --t-meta: clamp(11.5px, 1.85cqmin, 40px);
+  --t-text: calc(var(--scale, 1) * clamp(14px, 2.6cqmin, 58px));
+  --t-lede: calc(var(--scale, 1) * clamp(16px, 3.3cqmin, 74px));
+  --t-say: calc(var(--scale, 1) * clamp(22px, 5.9cqmin, 132px));
+  --t-head: calc(var(--scale, 1) * clamp(30px, 10.4cqmin, 232px));
+  --t-big: calc(var(--scale, 1) * clamp(48px, 21cqmin, 470px));
+  /* what a plain <p> and the scene's heading are in this layout (the layouts below change them) */
+  --p-font: var(--weight-text) var(--t-lede)/1.32 var(--font-text);
+  --p-track: 0em;
+  --p-case: none;
+  --p-measure: 30em;
+  --h-font: var(--style-display) var(--weight-display) var(--t-lede)/1.15 var(--font-display);
+  --h-measure: 24em;
+
+  align-self: end; justify-self: start; margin: var(--my) calc(var(--mx) - var(--px));
+  font: var(--weight-text) var(--t-text)/1.4 var(--font-text); color: var(--ink); text-align: left;
+}
+.film-on #story section.over[data-layout="title"] > .words { --h-font: var(--style-display) var(--weight-display) var(--t-head)/var(--leading-display) var(--font-display); --h-measure: 11.5em; margin-bottom: calc(var(--my) * 1.2); }
+.film-on #story section.over[data-layout="statement"] > .words {
+  --p-font: var(--style-display) var(--weight-display) var(--t-say)/calc(var(--leading-display) + 0.08) var(--font-display);
+  --p-track: var(--track-display); --p-case: var(--case-display); --p-measure: 17em;
+}
+.film-on #story section.over[data-layout="number"] > .words { --p-font: var(--weight-text) var(--t-lede)/1.3 var(--font-text); }
+.film-on #story section.over:is([data-layout="left"], [data-layout="right"]) > .words {
+  --avail: calc(42cqw - var(--mx) - var(--px));
+  --p-font: var(--weight-text) var(--t-lede)/1.38 var(--font-text);
+  --h-font: var(--style-display) var(--weight-display) calc(var(--t-say) * 0.92)/calc(var(--leading-display) + 0.06) var(--font-display); --h-measure: 12em;
+  align-self: center;
+}
+/* The right column starts at a fixed place and grows rightwards, so a wider beat never moves the lines before it. */
+.film-on #story section.over[data-layout="right"] > .words { margin-left: 58cqw; }
+.film-on #story section.over[data-layout="end"] > .words {
+  --h-font: var(--style-display) var(--weight-display) var(--t-head)/var(--leading-display) var(--font-display); --h-measure: 11.5em;
+  align-self: center; justify-self: center; text-align: center;
+}
+.film-on #story section.over.typed > .words { --p-font: var(--weight-text) calc(var(--t-text) * 1.06)/1.45 var(--font-mono); --p-measure: 38em; }
+
+/* The blocks of the words: the scene's heading, then its beats, one to a row of one column (caption.js gives each
+   its --row). Their paddings meet with no gap between. */
+.film-on #story section.over > .words { display: grid; grid-template-columns: auto; }
+.film-on #story section.over > .words > * { margin: 0; grid-column: 1; }
+.film-on #story section.over > .words > :is(.head, [data-beat]) { grid-row: var(--row); padding: calc(var(--gap) / 2) var(--px); }
+/* Beats accumulate: every beat of the run is laid out from the start, the ones still to come unseen and without
+   width, so the words already there never move and the block is as wide as the widest line shown. A beat marked
+   data-beat="swap" starts a new run (caption.js, .in-group), which replaces the one before it. The beats of a typed
+   caption, which shows one at a time, share a row, so the tallest of them holds the heading still. */
+.film-on #story section.over [data-beat].in-group, .film-on #story section.over.typed [data-beat] { display: block; }
+.film-on #story section.over > .words > :is(.head, [data-beat]):not(.is-shown) { visibility: hidden; }
+.film-on #story section.over > .words > [data-beat]:not(.is-shown) { width: 0; padding-inline: 0; }
+
+/* Type. Every line is as wide as its words, up to its measure (a headline about four words a line, a statement six
+   or seven, never twelve), whatever the width of its block: a beat still to come is laid out as it will be shown.
+   A measure is given in ems of the unscaled type, so the words take the same room in every theme. */
+.film-on #story section.over .words :is(h1, h2, h3, h4, h5, h6, p, ul, ol, figure, figcaption) {
+  margin: 0; width: max-content; max-width: min(calc(var(--p-measure) / var(--scale, 1)), var(--avail)); text-wrap: var(--wrap, balance); overflow-wrap: break-word;
+}
+.film-on #story section.over[data-layout="end"] .words :is(h1, h2, h3, h4, h5, h6, p, ul, ol, figure, figcaption) { margin-inline: auto; }
+.film-on #story section.over [data-beat] > * + :not(aside) { margin-top: 0.34em; }
+/* Display type is set tight; the spaces between words are given back what the tracking takes from them. */
+.film-on #story section.over .words p { font: var(--p-font); letter-spacing: var(--p-track); word-spacing: calc(var(--p-track) * -1); text-transform: var(--p-case); }
+.film-on #story section.over .words :is(h1, h2, h3, h4, h5, h6) {
+  font: var(--h-font); letter-spacing: var(--track-display); word-spacing: calc(var(--track-display) * -1); text-transform: var(--case-display);
+  max-width: min(calc(var(--h-measure) / var(--scale, 1)), var(--avail)); text-wrap: balance;
+}
+.film-on #story section.over .words .kicker { font: 500 var(--t-meta)/1.3 var(--font-mono); letter-spacing: 0.14em; word-spacing: 0; text-transform: uppercase; color: var(--ink); max-width: var(--avail); }
+/* The accent's one place in the words: a short rule before the label, the colour of the thing the story follows. */
+.film-on #story section.over .words .kicker::before { content: ""; display: inline-block; width: 1.7em; height: 0.2em; margin-right: 0.8em; vertical-align: 0.26em; background: var(--accent); }
+.film-on #story section.over .words .lede { font: var(--weight-text) var(--t-lede)/1.32 var(--font-text); letter-spacing: 0em; word-spacing: 0; text-transform: none; max-width: min(calc(30em / var(--scale, 1)), var(--avail)); }
+/* A figure: as large as the scale allows, and never wider than its room (caption.js counts its characters). */
+.film-on #story section.over .words .big {
+  font: var(--style-display) var(--weight-display) min(var(--t-big), calc(var(--avail) / (var(--chars, 6) * 0.62)))/0.96 var(--font-display);
+  letter-spacing: calc(var(--track-display) * 1.3); word-spacing: calc(var(--track-display) * -1); text-transform: var(--case-display);
+  font-variant-numeric: lining-nums; max-width: var(--avail); text-wrap: balance;
+}
+.film-on #story section.over .words :is(.source, figcaption) { font: 400 var(--t-meta)/1.35 var(--font-mono); letter-spacing: 0.02em; word-spacing: 0; text-transform: none; color: var(--muted); max-width: min(44em, var(--avail)); }
+.film-on #story section.over .words :is(ul, ol) { list-style: none; padding: 0; display: grid; gap: 0.36em; font: var(--p-font); }
+.film-on #story section.over .words li { position: relative; padding-left: 1.15em; }
+.film-on #story section.over .words li::before { content: ""; position: absolute; left: 0.1em; top: 0.5em; top: calc(0.5lh - 0.19em); width: 0.38em; height: 0.38em; background: var(--accent); }
+/* a numbered list counts in the label face, in the words' own colour */
+.film-on #story section.over .words ol { counter-reset: item; }
+.film-on #story section.over .words ol > li { counter-increment: item; padding-left: 1.9em; }
+.film-on #story section.over .words ol > li::before { content: counter(item, decimal-leading-zero); top: 0; width: auto; height: auto; background: none; font: 500 0.6em var(--font-mono); line-height: 1lh; letter-spacing: 0.04em; }
+.film-on #story section.over .words figure { display: grid; gap: 0.6em; }
+.film-on #story section.over .words figure :is(svg, img) { display: block; width: min(22em, var(--avail)); height: auto; max-height: 36cqh; color: var(--ink); }
+.film-on #story section.over .words a { color: inherit; pointer-events: auto; }
+
+/* The entrance: a beat's lines come in when it becomes current, each rising 0.4 em and fading in over the theme's
+   --dur, 80 ms apart (caption.js sets --n and, with the frame the beat starts on, .is-entering). The lines of the
+   beats before it stand still. Arriving in a scene, the words wait a moment for the scene left behind to go. */
+.film-on #story section.over .words .line { transition: none; } /* said outright: a beat shown whole cancels an entrance under way */
+.film-on #story section.over .words > :not(.is-shown) .line { opacity: 0; transform: translateY(0.4em); }
+.film-on #story section.over .words > .is-entering .line {
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+  transition-delay: calc(var(--arrive, 0s) + var(--n, 0) * 80ms);
+}
+.film-on #story section.over.is-arriving { --arrive: 0.2s; }
+
+/* The scrim: the ground under words that lie over the picture, as small as the words. --scrim is its colour:
+   transparent in the themes whose picture leaves the words room, the theme's paper where the picture can be as dark
+   as the type under them (poster's flat fields, halftone's dots, glyph's characters). A scene whose picture is busy
+   under its words turns it on in any theme: <section class="scrim">.
+   It is painted twice in the one colour: as the background of each block shown (the heading's, and each beat's on
+   the slide), so the ground of a line is its own block's; and by one patch behind them, which lies over the rows of
+   the blocks shown (--first to --last, caption.js) and has the soft edge, a shadow of the same colour. So the scrim
+   is one piece, as wide as the widest line shown, and grows as beats arrive. */
+.film-on #story section.scrim { --scrim: var(--paper); --wrap: pretty; }
+.film-on #story section.over > .words > .is-shown { background-color: var(--scrim); }
+.film-on #story section.over > .words > .patch {
+  grid-row: var(--first, 1) / calc(var(--last, 1) + 1); pointer-events: none; border-radius: var(--radius);
+  background-color: var(--scrim); box-shadow: 0 0 var(--scrim-edge, 0px) calc(var(--scrim-edge, 0px) / 3) var(--scrim);
+}
+.film-on #story section.over > .words:not(.has-shown) > .patch { visibility: hidden; }
+.film-on #story section.over > .words > .is-top { border-radius: var(--radius) var(--radius) 0 0; }
+.film-on #story section.over > .words > .is-current { border-radius: 0 0 var(--radius) var(--radius); }
+.film-on #story section.over > .words > .is-top.is-current { border-radius: var(--radius); }
+
+/* An upright frame: every layout is a block in the lower part of the frame, the type sized to its width. */
+@container (orientation: portrait) {
+  .film-on #story section.over > .words {
+    --mx: clamp(16px, 5.8cqw, 120px);
+    --my: clamp(14px, 3cqh, 80px);
+    --px: clamp(8px, 2.4cqw, 40px);
+    --gap: clamp(8px, 2.8cqw, 48px);
+    --avail: calc(100cqw - 2 * var(--mx));
+    --t-meta: clamp(11.5px, 3.1cqw, 34px);
+    --t-text: calc(var(--scale, 1) * clamp(14px, 4cqw, 48px));
+    --t-lede: calc(var(--scale, 1) * clamp(15px, 4.5cqw, 58px));
+    --t-say: calc(var(--scale, 1) * clamp(20px, 6.3cqw, 96px));
+    --t-head: calc(var(--scale, 1) * clamp(28px, 10.4cqw, 160px));
+    --t-big: calc(var(--scale, 1) * clamp(40px, 19cqw, 290px));
+    align-self: end; justify-self: start; margin: var(--my) calc(var(--mx) - var(--px));
+  }
+  .film-on #story section.over:is([data-layout="left"], [data-layout="right"]) > .words { --avail: calc(100cqw - 2 * var(--mx)); align-self: end; margin-left: calc(var(--mx) - var(--px)); }
+  .film-on #story section.over[data-layout="title"] > .words { margin-bottom: var(--my); }
+  .film-on #story section.over[data-layout="end"] > .words { align-self: end; justify-self: center; }
+  /* in a deck the controls lie along the bottom edge: the words stand clear of them */
+  .film-on[data-form="deck"] #story section.over > .words { margin-bottom: calc(max(12px, env(safe-area-inset-bottom)) + 54px); }
+}
+
+/* The overview (the key o): every scene as a card, its number and heading, the current one marked. main.js makes
+   it; Enter or a click goes to a scene, Escape closes. */
+.film-on .overview {
+  display: block; position: fixed; inset: 0; z-index: 6; overflow: auto; padding: clamp(20px, 7vh, 150px) clamp(18px, 5.6vw, 240px);
+  color: var(--ink); background: color-mix(in srgb, var(--paper) 93%, transparent); backdrop-filter: blur(12px);
+}
+.film-on .overview[hidden] { display: none; }
+.overview ol { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(15rem, 100%), 1fr)); gap: 12px; }
+.overview button {
+  display: grid; grid-template-rows: auto 1fr auto; gap: 14px; width: 100%; min-height: 9rem; padding: 14px 16px 12px; text-align: left; cursor: pointer;
+  font: inherit; color: inherit; background: color-mix(in srgb, var(--ink) 4%, transparent); border: 1px solid var(--hair); border-radius: var(--radius);
+}
+.overview button:hover { border-color: var(--muted); }
+.overview button:focus-visible { outline-color: var(--accent); }
+.overview button[aria-current="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.overview .n { font: 500 12px/1 var(--font-mono); letter-spacing: 0.08em; color: var(--muted); }
+.overview .h { font: var(--style-display) var(--weight-display) 1.3rem/1.14 var(--font-display); letter-spacing: var(--track-display); text-transform: var(--case-display); text-wrap: balance; }
+/* a card's beats, one mark each: the ones done filled */
+.overview .b { display: flex; gap: 4px; }
+.overview .b i { width: 14px; height: 3px; background: var(--hair); }
+.overview .b i.done { background: var(--ink); }
+.overview button[aria-current="true"] .b i.done { background: var(--accent); }
+
+/* Reduced motion: the words are whole at once and nothing fades or slides (the engine shows every beat finished). */
+@media (prefers-reduced-motion: reduce) {
+  .film-on #story section.over .words .line, .progress > span, .film-on[data-form="deck"] :is(.strip, .controls) { transition: none !important; }
+  .film-on #story section.over.is-leaving { display: none; }
 }

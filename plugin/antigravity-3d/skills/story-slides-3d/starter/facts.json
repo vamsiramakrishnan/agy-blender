@@ -1,0 +1,19 @@
+{
+  "about": "How heavy is a cloud? Four things taken as given, and what follows from them. The page quotes a `said` or shows a `value` (data-src on the element), and the stage reads the same `value`s (src/worlds/sky.js), so the words and the picture cannot disagree.",
+  "premises": {
+    "side": { "value": 1000, "unit": "m", "said": "a kilometre long, wide and tall", "note": "an ordinary fair-weather cumulus" },
+    "water": { "value": 0.5, "unit": "g per m3", "said": "Half a gram", "note": "liquid water in a cubic metre of such a cloud" },
+    "drop": { "value": 0.02, "unit": "mm", "said": "a fiftieth of a millimetre", "note": "a cloud drop's diameter: a radius of 10 micrometres" },
+    "rise": { "value": 1, "unit": "m per s", "note": "the air under a fair-weather cumulus rises about a metre a second" }
+  },
+  "derived": {
+    "volume": { "value": 1000000000, "unit": "m3", "from": "side x side x side" },
+    "tonnes": { "value": 500, "unit": "t", "said": "Five hundred tonnes", "from": "1 km3 x 0.5 g per m3" },
+    "liquid": { "value": 500, "unit": "m3", "from": "500 t of water at a tonne a cubic metre" },
+    "cube": { "value": 7.94, "unit": "m", "said": "eight metres", "from": "the cube root of 500 m3" },
+    "dropVolume": { "value": 4.19e-15, "unit": "m3", "from": "a sphere of radius 10 micrometres" },
+    "drops": { "value": 1.19e17, "said": "A hundred thousand million million", "from": "500 m3 / 4.19e-15 m3" },
+    "fall": { "value": 1.2, "unit": "cm per s", "said": "about a centimetre a second", "from": "Stokes: 2 r2 g (1000 kg per m3) / (9 x 1.8e-5 Pa s) with r = 10 micrometres" },
+    "times": { "value": 83, "said": "a hundred times", "from": "1 m per s / 1.2 cm per s" }
+  }
+}

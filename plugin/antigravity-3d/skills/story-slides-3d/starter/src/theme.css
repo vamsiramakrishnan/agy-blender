@@ -1,0 +1,190 @@
+/* theme.css: the deck's themes, as tokens. One theme styles both layers: style.css sets the page's type and colour
+   from these, and the stage reads the same colours at run time (src/theme.js), so the words and the picture cannot
+   drift apart. <html data-story-theme="ink"> names a theme; no attribute is `paper`. ?theme=name and the key t show the
+   deck in another.
+
+   The colours are plain #rrggbb: the stage hands them to three.js, which reads no other notation.
+
+   | token                  | what it is                                                                        |
+   | --paper, --paper-2     | the page, and the stage's ground and sky (two values: a horizon, a gradient)      |
+   | --ink, --muted         | text, and quieter text (at least 4.5 to 1 on --paper)                             |
+   | --accent, --accent-2   | the thing the story follows; a second emphasis                                    |
+   | --lit, --shade         | what sets are painted with: the lit colour of a surface and its dark counterpart  |
+   | --font-display, --font-text, --font-mono, --weight-display   type                                           |
+   | --radius, --ease, --dur   corners, and the easing and base duration of every transition on the page       |
+   | --scrim                | the ground under words laid over the picture: transparent where the picture leaves|
+   |                        | them room, the theme's paper where the picture can be as dark as the type under   |
+   |                        | them (flat fields of the type's colour, dots, characters)                         |
+
+   The last block of each theme is the page's own: how the display face is set (style, case, tracking, leading),
+   the text weight, a factor on the type scale for faces that run wide or narrow, how headlines wrap, and how soft
+   the scrim's edge is. The stage does not read them. */
+
+/* The faces. The three packages are optional (main.js imports them, vite.config.js lets a build pass without):
+   each stack goes on to faces a system has, so a deck without the packages is still set in a grotesk, a sans, a
+   serif and a mono, not in the browser's default. */
+:root {
+  --stack-grotesk: "Space Grotesk Variable", "Space Grotesk", "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --stack-sans: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --stack-serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
+  --stack-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+}
+
+/* paper: daylight. A cool off-white, near-black ink, one cobalt accent; sets read as white models under a pale
+   sky. A medium grotesk set tight, a neutral sans for the rest. The default, and the example deck's theme. */
+:root {
+  color-scheme: light;
+  --paper: #eef1f5;
+  --paper-2: #d2dce9;
+  --ink: #11141a;
+  --muted: #566070;
+  --accent: #1f44ff;
+  --accent-2: #ff5a1f;
+  --lit: #fbfcfe;
+  --shade: #97a6ba;
+  --font-display: var(--stack-grotesk);
+  --font-text: var(--stack-sans);
+  --font-mono: var(--stack-mono);
+  --weight-display: 560;
+  --radius: 6px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur: 0.5s;
+  --scrim: transparent;
+
+  --style-display: normal;
+  --case-display: none;
+  --track-display: -0.028em;
+  --leading-display: 1.04;
+  --weight-text: 400;
+  --scale: 1;
+  --wrap: balance;
+  --scrim-edge: 1.4cqmin;
+}
+
+/* ink: night. Deep blue-black paper and warm lamp-light type, the colours the film has always had; one ember accent
+   and a cold second. An italic serif for display, as a title card has; slower, quieter transitions. */
+[data-story-theme="ink"] {
+  color-scheme: dark;
+  --paper: #0b0f17;
+  --paper-2: #171f2e;
+  --ink: #efe4cb;
+  --muted: #9c978b;
+  --accent: #ff8a3d;
+  --accent-2: #8fb8ff;
+  --lit: #d6c9ae;
+  --shade: #252c3d;
+  --font-display: var(--stack-serif);
+  --font-text: var(--stack-sans);
+  --font-mono: var(--stack-mono);
+  --weight-display: 400;
+  --radius: 2px;
+  --ease: cubic-bezier(0.3, 0.1, 0.2, 1);
+  --dur: 0.7s;
+  --scrim: transparent;
+
+  --style-display: italic;
+  --case-display: none;
+  --track-display: -0.012em;
+  --leading-display: 1.08;
+  --weight-text: 400;
+  --scale: 1.1;
+  --wrap: balance;
+  --scrim-edge: 1.4cqmin;
+}
+
+/* poster: flat. A field of orange, navy type and shade, cream where the light falls, cobalt for the thing followed:
+   four flat colours and nothing between them. The heaviest sans in capitals, set tight; square corners, quick hard
+   transitions. A shadow or a shaded side is a flat field of the type's own navy, and type that crosses one is gone,
+   so words over the picture stand on a label of the field's orange, with a hard edge. */
+[data-story-theme="poster"] {
+  color-scheme: light;
+  --paper: #ff7a38;
+  --paper-2: #ff9a62;
+  --ink: #0b1138;
+  --muted: #3b1a3c;
+  --accent: #1c36e0;
+  --accent-2: #fff1d6;
+  --lit: #fff1d6;
+  --shade: #0b1138;
+  --font-display: var(--stack-sans);
+  --font-text: var(--stack-sans);
+  --font-mono: var(--stack-mono);
+  --weight-display: 900;
+  --radius: 0px;
+  --ease: cubic-bezier(0.6, 0, 0.1, 1);
+  --dur: 0.32s;
+  --scrim: var(--paper);
+
+  --style-display: normal;
+  --case-display: uppercase;
+  --track-display: -0.035em;
+  --leading-display: 0.96;
+  --weight-text: 600;
+  --scale: 1;
+  --wrap: balance;
+  --scrim-edge: 0px;
+}
+
+/* halftone: two inks printed as dots. Forest green on a pale green stock, a fluorescent pink for the second ink, as
+   a duplicator prints them. A bold grotesk over typewriter text, as a zine is set. The picture is dots from edge to
+   edge, so words over it stand on a label of the stock. */
+[data-story-theme="halftone"] {
+  color-scheme: light;
+  --paper: #dfeadd;
+  --paper-2: #c3d6c4;
+  --ink: #103b2c;
+  --muted: #365e4e;
+  --accent: #ff4f79;
+  --accent-2: #103b2c;
+  --lit: #f1f7ee;
+  --shade: #2c5d4b;
+  --font-display: var(--stack-grotesk);
+  --font-text: var(--stack-mono);
+  --font-mono: var(--stack-mono);
+  --weight-display: 700;
+  --radius: 3px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur: 0.45s;
+  --scrim: var(--paper);
+
+  --style-display: normal;
+  --case-display: none;
+  --track-display: -0.04em;
+  --leading-display: 1;
+  --weight-text: 400;
+  --scale: 0.98;
+  --wrap: pretty;
+  --scrim-edge: 1.4cqmin;
+}
+
+/* glyph: the picture is text characters, and so is the page: one mono face throughout. Pale type on Prussian blue,
+   a drawing-office print made of letters; chalk yellow for the thing followed. Words over the characters stand on a
+   label of the blue. */
+[data-story-theme="glyph"] {
+  color-scheme: dark;
+  --paper: #0d2647;
+  --paper-2: #143660;
+  --ink: #e6f0ff;
+  --muted: #9bb4d6;
+  --accent: #ffd166;
+  --accent-2: #ff8f70;
+  --lit: #e6f0ff;
+  --shade: #3f6fb0;
+  --font-display: var(--stack-mono);
+  --font-text: var(--stack-mono);
+  --font-mono: var(--stack-mono);
+  --weight-display: 700;
+  --radius: 0px;
+  --ease: cubic-bezier(0.1, 0.9, 0.2, 1);
+  --dur: 0.3s;
+  --scrim: var(--paper);
+
+  --style-display: normal;
+  --case-display: none;
+  --track-display: 0em;
+  --leading-display: 1.14;
+  --weight-text: 400;
+  --scale: 0.84;
+  --wrap: pretty;
+  --scrim-edge: 0.7cqmin;
+}

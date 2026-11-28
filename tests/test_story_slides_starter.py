@@ -1,10 +1,12 @@
-"""The story-slides-3d skill's starter runs: it is the engine an agent copies and fills in to tell a story as a short film,
-so it must work as shipped, built with the workspace's Vite, in a headless browser.
+"""The story-slides-3d skill's engine runs a film: the example film "Keeper" (``examples/film``: a page, a story.js,
+a props.js and five scenes) laid over a copy of the starter, built with the workspace's Vite, in a headless browser.
 
-The starter is built the way an agent's project builds it (Vite 8 over ``three`` from ``AGY3D_STARTER_NODE_MODULES``,
-or ``tests/fixtures/web_project/node_modules``) and served from a routed fake origin under a sub-path: no port, no
-server process. Without Playwright's browser, or without a workspace that has Vite and three.js, the browser tests
-skip with the reason.
+The starter itself ships a deck (``tests/test_story_slides_stage.py`` runs that); this file holds the engine to what
+a film needs of it: scenes with sets of their own, a treatment and two inks named by the story, cuts, captions under
+the picture. The project is built the way an agent's project builds it (Vite 8 over ``three`` from
+``AGY3D_STARTER_NODE_MODULES``, or ``tests/fixtures/web_project/node_modules``) and served from a routed fake origin
+under a sub-path: no port, no server process. Without Playwright's browser, or without a workspace that has Vite and
+three.js, the browser tests skip with the reason.
 
 What is checked is what a viewer and check_site rely on (the contract, story/CONTRACT.md): the page boots clean and
 its hook lists the HTML's scenes; every beat shows a picture at a desktop and a phone size, and each beat changes it;
@@ -34,7 +36,9 @@ import pytest
 from antigravity3d.plugin_install import bundle_dir
 
 REPO = Path(__file__).resolve().parent.parent
-STARTER = bundle_dir() / "skills" / "story-slides-3d" / "starter"
+SKILL = bundle_dir() / "skills" / "story-slides-3d"
+STARTER = SKILL / "starter"          # the engine, and the deck it ships with
+FILM = SKILL / "examples" / "film"   # the example film: laid over a copy of the starter
 FIXTURE = REPO / "tests" / "fixtures" / "web_project"
 NODE_MODULES = Path(os.environ.get("AGY3D_STARTER_NODE_MODULES") or FIXTURE / "node_modules")
 ORIGIN = "http://film.test"
@@ -46,30 +50,35 @@ PHONE = {"width": 390, "height": 844}
 SMALL = {"width": 960, "height": 600}  # the size of the tests that are not about framing: the software renderer is slow
 
 
-def _html_scenes() -> list[tuple[str, int]]:
-    html = (STARTER / "index.html").read_text()
+def _html_scenes(page: Path = FILM / "index.html") -> list[tuple[str, int]]:
+    """(scene id, beats) of each section of a page, in order (a section may carry data-layout as well)."""
     out = []
-    for m in re.finditer(r'<section data-scene="([a-z0-9-]+)">(.*?)</section>', html, re.S):
+    for m in re.finditer(r'<section data-scene="([a-z0-9-]+)"[^>]*>(.*?)</section>', page.read_text(), re.S):
         out.append((m.group(1), len(re.findall(r"<div data-beat", m.group(2)))))
     return out
 
 
-def test_the_starter_holds_the_files_the_skill_names_and_story_js_follows_the_html() -> None:
-    names = {p.relative_to(STARTER).as_posix() for p in STARTER.rglob("*") if p.is_file()}
+def test_the_film_example_holds_its_files_and_its_story_js_follows_its_html() -> None:
+    names = {p.relative_to(FILM).as_posix() for p in FILM.rglob("*") if p.is_file()}
     scenes = _html_scenes()
-    assert names == {"index.html", "vite.config.js", "src/main.js", "src/film.js", "src/print.js", "src/cuts.js",
-                     "src/kit.js", "src/caption.js", "src/story.js", "src/props.js", "src/style.css",
-                     *(f"src/scenes/{i}.js" for i, _ in scenes)}, names
+    # what a film brings: its page, its story, its props and its scenes; the engine is the starter's
+    assert names == {"index.html", "src/story.js", "src/props.js", *(f"src/scenes/{i}.js" for i, _ in scenes)}, names
+    engine = {"vite.config.js", "src/main.js", "src/film.js", "src/print.js", "src/cuts.js", "src/kit.js",
+              "src/caption.js", "src/theme.js", "src/style.css"}
+    assert engine <= {p.relative_to(STARTER).as_posix() for p in STARTER.rglob("*") if p.is_file()}
+    assert not engine & names, "the example overrides none of the engine's files"
     assert scenes == [("title", 1), ("tower", 2), ("room", 2), ("shore", 2), ("end", 1)], scenes
-    story = (STARTER / "src" / "story.js").read_text()
+    story = (FILM / "src" / "story.js").read_text()
     assert re.search(r"scenes: \[(.*)\]", story).group(1).split(", ") == [i for i, _ in scenes]
+    assert "form: 'film'" in story and "treatment: 'halftone'" in story
+    assert 'data-story-theme="ink"' in (FILM / "index.html").read_text()  # the page round the picture: night and lamp light
     for i, beats in scenes:
-        src = (STARTER / "src" / "scenes" / f"{i}.js").read_text()
+        src = (FILM / "src" / "scenes" / f"{i}.js").read_text()
         assert f"id: '{i}'" in src and len(re.findall(r"\{ dur: [\d.]+, hold: [\d.]+ \}", src)) == beats, i
         assert "Math.random" not in src, f"{i}: update(s) must be a function of s"
     assert "base: './'" in (STARTER / "vite.config.js").read_text()
     # the cuts the contract names, each entering its scene
-    enters = {i: re.search(r"enterWith: '(\w+)'", (STARTER / "src" / "scenes" / f"{i}.js").read_text()).group(1)
+    enters = {i: re.search(r"enterWith: '(\w+)'", (FILM / "src" / "scenes" / f"{i}.js").read_text()).group(1)
               for i, _ in scenes[1:]}
     assert enters == {"tower": "iris", "room": "wipe", "shore": "fall", "end": "fade"}, enters
 
@@ -97,19 +106,23 @@ def _vite_build(project: Path) -> Path:
     return project / "dist"
 
 
-def _project(root: Path) -> Path:
+def _project(root: Path, *over: Path) -> Path:
+    """A copy of the starter with the folders `over` laid over it in turn (an example's files take the place of the
+    starter's of the same name), ready to build."""
     if not (NODE_MODULES / "vite" / "bin" / "vite.js").is_file() or not (NODE_MODULES / "three" / "package.json").is_file():
         pytest.skip(f"{NODE_MODULES} has no Vite and three.js to build the starter with")
     project = root / "project"
     shutil.copytree(STARTER, project)
+    for folder in over:
+        shutil.copytree(folder, project, dirs_exist_ok=True)
     (project / "node_modules").symlink_to(NODE_MODULES, target_is_directory=True)
     return project
 
 
 @pytest.fixture(scope="module")
 def dist(tmp_path_factory) -> Path:
-    """The starter exactly as shipped, built with the workspace's Vite."""
-    return _vite_build(_project(tmp_path_factory.mktemp("film")))
+    """The film as shipped (the starter with examples/film laid over it), built with the workspace's Vite."""
+    return _vite_build(_project(tmp_path_factory.mktemp("film"), FILM))
 
 
 def _serve(dist: Path):
@@ -193,6 +206,11 @@ def _beats(p: Page) -> list[tuple[str, int]]:
     return [(s["id"], k) for s in p.page.evaluate("__story.scenes") for k in range(s["beats"])]
 
 
+def _count(p: Page) -> tuple[int, ...]:
+    """The strip's count as (this scene, of how many), however the page words it ("Scene 2 of 5", "2 / 5")."""
+    return tuple(int(n) for n in re.findall(r"\d+", p.page.locator("#count").inner_text()))
+
+
 @pytest.mark.browser
 def test_it_builds_and_boots_clean_and_the_hook_lists_the_htmls_scenes(browser, dist) -> None:
     p = Page(browser, dist, viewport=DESKTOP)
@@ -205,7 +223,7 @@ def test_it_builds_and_boots_clean_and_the_hook_lists_the_htmls_scenes(browser, 
         assert [s["title"] for s in state["scenes"]] == ["Keeper", "The light", "The lamp room", "Morning", "End"]
         assert p.page.evaluate("__story.title") == "Keeper"
         assert state["info"]["scene"] == "title" and state["info"]["beat"] == 0, state["info"]
-        assert p.page.locator("#count").inner_text().lower() == "scene 1 of 5"
+        assert _count(p) == (1, 5)
         assert not [u for u in p.requested if not u.startswith(ORIGIN)], p.requested
         # a frame of the film stays under 60 draw calls (scenes, their shadow passes and the print)
         calls = {}
@@ -311,7 +329,7 @@ def test_keys_clicks_and_buttons_navigate_and_the_count_and_caption_follow(brows
         p.page.evaluate("__story.go('title', 0)")
         p.page.keyboard.press("ArrowRight")
         assert at() == ("tower", 0)
-        assert p.page.locator("#count").inner_text().lower() == "scene 2 of 5"
+        assert _count(p) == (2, 5)
         assert p.caption() == "The light went round every nine seconds. It had done so for sixty years."
         assert p.caption() == " | ".join(p.info()["lines"])
         p.page.keyboard.press(" ")
@@ -335,7 +353,7 @@ def test_keys_clicks_and_buttons_navigate_and_the_count_and_caption_follow(brows
         assert at() == ("tower", 1)
         p.page.keyboard.press("End")
         assert at() == ("end", 0)
-        assert p.page.locator("#next").is_disabled() and p.page.locator("#count").inner_text().lower() == "scene 5 of 5"
+        assert p.page.locator("#next").is_disabled() and _count(p) == (5, 5)
         p.page.keyboard.press("ArrowRight")
         assert at() == ("end", 0)  # the end is the end
         p.page.keyboard.press("Home")
@@ -486,6 +504,13 @@ def test_three_treatments_differ_and_every_cut_ends_on_the_scenes_own_pictures(b
             assert state["treatment"] == name
             pictures[name] = p.go("room", 0)
             assert _shows_something(pictures[name]) > 0.05, name  # glyph prints dark as nothing: less is drawn
+            if name in ("halftone", "glyph"):
+                # the film's own two inks and no third (a theme's deck prints its accent in a second ink; a film that
+                # names its treatment does not): every pixel lies between the story's paper and its ink
+                paper, ink = (np.array([int(c[i:i + 2], 16) for i in (1, 3, 5)], dtype=float) for c in ("#0b0f17", "#efe4cb"))
+                px = pictures[name].reshape(-1, 3).astype(float)
+                t = np.clip(((px - paper) @ (ink - paper)) / ((ink - paper) @ (ink - paper)), 0, 1)
+                assert (np.abs(px - (paper + t[:, None] * (ink - paper))).max(axis=1) > 14).mean() < 0.01, name
             if name == "halftone":
                 leaving, arriving = p.go("tower", 1), p.go("room", 0)
                 for cut in CUTS:
@@ -556,7 +581,7 @@ def installed(tmp_path_factory) -> Path:
     from antigravity3d.deliver import install_package
 
     root = tmp_path_factory.mktemp("film-prop")
-    project = _project(root)
+    project = _project(root, FILM)
     shutil.copy(FIXTURE / "package.json", project / "package.json")
     out = root / "crate"
 
